@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-djls-pyenv = { workspace = true }
+djls-python = { workspace = true }
 
 anyhow = { workspace = true }
 pyo3 = { workspace = true }

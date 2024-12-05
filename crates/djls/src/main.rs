@@ -3,7 +3,7 @@ use tower_lsp::jsonrpc::Result as LspResult;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
-use djls_pyenv::PythonEnvironment;
+use djls_python::PythonEnvironment;
 
 #[derive(Debug)]
 struct Backend {
