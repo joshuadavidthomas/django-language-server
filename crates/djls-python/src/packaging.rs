@@ -4,7 +4,7 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Package {
     name: String,
     version: String,
@@ -43,7 +43,7 @@ impl fmt::Display for Package {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Packages(HashMap<String, Package>);
 
 impl Packages {

@@ -2,10 +2,10 @@ use crate::packaging::{Packages, PackagingError};
 use pyo3::prelude::*;
 use serde::Deserialize;
 use std::fmt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct VersionInfo {
     pub major: u8,
     pub minor: u8,
@@ -68,7 +68,7 @@ impl fmt::Display for VersionInfo {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct SysconfigPaths {
     data: PathBuf,
     include: PathBuf,
@@ -128,7 +128,7 @@ impl fmt::Display for SysconfigPaths {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Interpreter {
     version_info: VersionInfo,
     sysconfig_paths: SysconfigPaths,
@@ -158,34 +158,6 @@ impl Interpreter {
             sys_path,
             packages,
         }
-    }
-
-    pub fn version_info(&self) -> &VersionInfo {
-        &self.version_info
-    }
-
-    pub fn sysconfig_paths(&self) -> &SysconfigPaths {
-        &self.sysconfig_paths
-    }
-
-    pub fn sys_prefix(&self) -> &PathBuf {
-        &self.sys_prefix
-    }
-
-    pub fn sys_base_prefix(&self) -> &PathBuf {
-        &self.sys_base_prefix
-    }
-
-    pub fn sys_executable(&self) -> &PathBuf {
-        &self.sys_executable
-    }
-
-    pub fn sys_path(&self) -> &Vec<PathBuf> {
-        &self.sys_path
-    }
-
-    pub fn packages(&self) -> &Packages {
-        &self.packages
     }
 
     pub fn for_build(py: Python) -> PyResult<Self> {
@@ -239,6 +211,79 @@ print(json.dumps({
                 .collect(),
             Packages::from_executable(executable)?,
         ))
+    }
+
+    pub fn version_info(&self) -> &VersionInfo {
+        &self.version_info
+    }
+
+    pub fn sysconfig_paths(&self) -> &SysconfigPaths {
+        &self.sysconfig_paths
+    }
+
+    pub fn sys_prefix(&self) -> &PathBuf {
+        &self.sys_prefix
+    }
+
+    pub fn sys_base_prefix(&self) -> &PathBuf {
+        &self.sys_base_prefix
+    }
+
+    pub fn sys_executable(&self) -> &PathBuf {
+        &self.sys_executable
+    }
+
+    pub fn sys_path(&self) -> &Vec<PathBuf> {
+        &self.sys_path
+    }
+
+    pub fn packages(&self) -> &Packages {
+        &self.packages
+    }
+
+    pub fn project_paths(&self) -> Vec<&PathBuf> {
+        let mut paths: Vec<&PathBuf> = self
+            .sys_path
+            .iter()
+            .filter(|path| {
+                path.starts_with(&self.sys_prefix) && !path.starts_with(&self.sys_base_prefix)
+            })
+            .collect();
+
+        if let Some(project_path) = self.sys_path.last() {
+            if !paths.contains(&project_path) {
+                paths.push(project_path);
+            }
+        }
+
+        paths
+    }
+
+    pub fn add_to_path(&self, py: Python, path: &Path) -> PyResult<()> {
+        if let Some(path_str) = path.to_str() {
+            let sys = py.import("sys")?;
+            let sys_path = sys.getattr("path")?;
+            sys_path.call_method1("append", (path_str,))?;
+        }
+        Ok(())
+    }
+
+    pub fn refresh_state(&self, py: Python) -> PyResult<Self> {
+        let sys = py.import("sys")?;
+        let new_sys_path: Vec<PathBuf> = sys
+            .getattr("path")?
+            .extract::<Vec<String>>()?
+            .into_iter()
+            .map(PathBuf::from)
+            .collect();
+
+        let new_packages = Packages::from_python(py)?;
+
+        Ok(Self {
+            sys_path: new_sys_path,
+            packages: new_packages,
+            ..self.clone()
+        })
     }
 }
 

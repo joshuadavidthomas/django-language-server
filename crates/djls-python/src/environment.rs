@@ -33,11 +33,18 @@ impl PythonEnvironment {
 
     pub fn initialize() -> Result<Self, EnvironmentError> {
         Python::with_gil(|py| {
-            let build = Interpreter::for_build(py)?;
-            let runtime = Interpreter::for_runtime(build.sys_executable())?;
+            let initial_build = Interpreter::for_build(py)?;
+            let runtime = Interpreter::for_runtime(initial_build.sys_executable())?;
             let root = runtime.sys_prefix().clone();
 
-            Ok(Self::new(root, build, runtime))
+            let runtime_project_paths = runtime.project_paths();
+            for path in runtime_project_paths {
+                initial_build.add_to_path(py, path)?;
+            }
+
+            let final_build = initial_build.refresh_state(py)?;
+
+            Ok(Self::new(root, final_build, runtime))
         })
     }
 }
