@@ -19,18 +19,6 @@ impl PythonEnvironment {
         }
     }
 
-    pub fn root(&self) -> &PathBuf {
-        &self.root
-    }
-
-    pub fn build(&self) -> &Interpreter {
-        &self.build
-    }
-
-    pub fn runtime(&self) -> &Interpreter {
-        &self.runtime
-    }
-
     pub fn initialize() -> Result<Self, EnvironmentError> {
         Python::with_gil(|py| {
             let initial_build = Interpreter::for_build(py)?;
@@ -46,6 +34,18 @@ impl PythonEnvironment {
 
             Ok(Self::new(root, final_build, runtime))
         })
+    }
+
+    pub fn root(&self) -> &PathBuf {
+        &self.root
+    }
+
+    pub fn build(&self) -> &Interpreter {
+        &self.build
+    }
+
+    pub fn runtime(&self) -> &Interpreter {
+        &self.runtime
     }
 }
 
