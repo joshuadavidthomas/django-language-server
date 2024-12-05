@@ -8,7 +8,7 @@ use djls_pyenv::PythonEnvironment;
 #[derive(Debug)]
 struct Backend {
     client: Client,
-    python_env: PythonEnvironment,
+    python: PythonEnvironment,
 }
 
 #[tower_lsp::async_trait]
@@ -35,7 +35,7 @@ impl LanguageServer for Backend {
             .await;
 
         self.client
-            .log_message(MessageType::INFO, format!("\n{}", self.python_env))
+            .log_message(MessageType::INFO, format!("\n{}", self.python))
             .await;
     }
 
@@ -46,12 +46,12 @@ impl LanguageServer for Backend {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let python_env = PythonEnvironment::initialize()?;
+    let python = PythonEnvironment::initialize()?;
 
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
 
-    let (service, socket) = LspService::build(|client| Backend { client, python_env }).finish();
+    let (service, socket) = LspService::build(|client| Backend { client, python }).finish();
 
     Server::new(stdin, stdout, socket).serve(service).await;
 
