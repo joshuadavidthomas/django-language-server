@@ -1,3 +1,4 @@
+use crate::packaging::{Packages, PackagingError};
 use pyo3::prelude::*;
 use serde::Deserialize;
 use std::fmt;
@@ -135,6 +136,7 @@ pub struct Interpreter {
     sys_base_prefix: PathBuf,
     sys_executable: PathBuf,
     sys_path: Vec<PathBuf>,
+    packages: Packages,
 }
 
 impl Interpreter {
@@ -145,6 +147,7 @@ impl Interpreter {
         sys_base_prefix: PathBuf,
         sys_executable: PathBuf,
         sys_path: Vec<PathBuf>,
+        packages: Packages,
     ) -> Self {
         Self {
             version_info,
@@ -153,6 +156,7 @@ impl Interpreter {
             sys_base_prefix,
             sys_executable,
             sys_path,
+            packages,
         }
     }
 
@@ -180,6 +184,10 @@ impl Interpreter {
         &self.sys_path
     }
 
+    pub fn packages(&self) -> &Packages {
+        &self.packages
+    }
+
     pub fn for_build(py: Python) -> PyResult<Self> {
         let sys = py.import("sys")?;
 
@@ -194,6 +202,7 @@ impl Interpreter {
                 .into_iter()
                 .map(PathBuf::from)
                 .collect(),
+            Packages::from_python(py)?,
         ))
     }
 
@@ -228,6 +237,7 @@ print(json.dumps({
                 .iter()
                 .map(|p| PathBuf::from(p.as_str().unwrap()))
                 .collect(),
+            Packages::from_executable(executable)?,
         ))
     }
 }
@@ -243,7 +253,9 @@ impl fmt::Display for Interpreter {
             writeln!(f, "{}", path.display())?;
         }
         writeln!(f, "Sysconfig Paths:")?;
-        write!(f, "{}", self.sysconfig_paths)
+        write!(f, "{}", self.sysconfig_paths)?;
+        writeln!(f, "\nInstalled Packages:")?;
+        write!(f, "{}", self.packages)
     }
 }
 
@@ -257,6 +269,9 @@ pub enum PythonError {
 
     #[error("JSON parsing error: {0}")]
     Json(#[from] serde_json::Error),
+
+    #[error("Packaging error: {0}")]
+    Packaging(#[from] PackagingError),
 
     #[error("Integer parsing error: {0}")]
     Parse(#[from] std::num::ParseIntError),
