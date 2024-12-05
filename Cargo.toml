@@ -4,6 +4,7 @@ resolver = "2"
 
 [workspace.dependencies]
 djls = { path = "crates/djls" }
+djls-python = { path = "crates/djls-python" }
 
 anyhow = "1.0.94"
 pyo3 = { version = "0.23.3", features = ["auto-initialize", "abi3-py39"] }

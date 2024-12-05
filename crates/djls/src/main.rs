@@ -3,9 +3,12 @@ use tower_lsp::jsonrpc::Result as LspResult;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
+use djls_python::PythonEnvironment;
+
 #[derive(Debug)]
 struct Backend {
     client: Client,
+    python: PythonEnvironment,
 }
 
 #[tower_lsp::async_trait]
@@ -30,6 +33,10 @@ impl LanguageServer for Backend {
         self.client
             .log_message(MessageType::INFO, "server initialized!")
             .await;
+
+        self.client
+            .log_message(MessageType::INFO, format!("\n{}", self.python))
+            .await;
     }
 
     async fn shutdown(&self) -> LspResult<()> {
@@ -39,10 +46,12 @@ impl LanguageServer for Backend {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let python = PythonEnvironment::initialize()?;
+
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
 
-    let (service, socket) = LspService::build(|client| Backend { client }).finish();
+    let (service, socket) = LspService::build(|client| Backend { client, python }).finish();
 
     Server::new(stdin, stdout, socket).serve(service).await;
 
