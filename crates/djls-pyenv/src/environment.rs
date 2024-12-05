@@ -35,7 +35,6 @@ impl PythonEnvironment {
         Python::with_gil(|py| {
             let build = Interpreter::for_build(py)?;
             let runtime = Interpreter::for_runtime(build.sys_executable())?;
-
             let root = runtime.sys_prefix().clone();
 
             Ok(Self::new(root, build, runtime))
