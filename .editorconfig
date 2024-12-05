@@ -1,0 +1,26 @@
+# http://editorconfig.org
+[*]
+charset = utf-8
+end_of_line = lf
+indent_style = space
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[{,.}{j,J}ustfile]
+indent_size = 4
+
+[*.{py,rst,ini,md}]
+indent_size = 4
+
+[*.py]
+line_length = 120
+multi_line_output = 3
+
+[*.{css,html,js,json,jsx,sass,scss,svelte,ts,tsx,yml,yaml}]
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false
+
+[{Makefile,*.bat}]
+indent_style = tab
