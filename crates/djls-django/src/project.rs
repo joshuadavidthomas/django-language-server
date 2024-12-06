@@ -1,4 +1,5 @@
 use crate::django::Apps;
+use crate::gis::{gdal_is_installed, has_geodjango, GISError};
 use djls_python::Python;
 use std::fmt;
 use std::sync::Arc;
@@ -24,6 +25,18 @@ impl DjangoProject {
             std::env::var("DJANGO_SETTINGS_MODULE").expect("DJANGO_SETTINGS_MODULE must be set");
 
         python_env.run_python("import django")?;
+
+        if has_geodjango(Arc::clone(&python_env))? && !gdal_is_installed() {
+            eprintln!("Warning: GeoDjango detected but GDAL is not available.");
+            eprintln!("Django initialization will be skipped. Some features may be limited.");
+            eprintln!("To enable full functionality, please install GDAL and other GeoDjango prerequisites.");
+
+            return Ok(Self {
+                python_env,
+                settings_module,
+                installed_apps: Apps::default(),
+            });
+        }
 
         python_env.run_python(
             r#"
@@ -68,6 +81,9 @@ impl fmt::Display for DjangoProject {
 pub enum ProjectError {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
+
+    #[error("GIS error: {0}")]
+    Gis(#[from] GISError),
 
     #[error("JSON parsing error: {0}")]
     Json(#[from] serde_json::Error),

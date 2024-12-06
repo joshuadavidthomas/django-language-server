@@ -18,6 +18,12 @@ impl fmt::Display for App {
 #[derive(Debug)]
 pub struct Apps(Vec<App>);
 
+impl Default for Apps {
+    fn default() -> Self {
+        Self(Vec::new())
+    }
+}
+
 impl Apps {
     pub fn from_strings(apps: Vec<String>) -> Self {
         Self(apps.into_iter().map(App).collect())
