@@ -1,51 +1,32 @@
 use crate::python::{Interpreter, PythonError};
-use pyo3::prelude::*;
 use std::fmt;
 use std::path::PathBuf;
+use which::which;
 
 #[derive(Debug)]
 pub struct PythonEnvironment {
     root: PathBuf,
-    build: Interpreter,
-    runtime: Interpreter,
+    py: Interpreter,
 }
 
 impl PythonEnvironment {
-    fn new(root: PathBuf, build: Interpreter, runtime: Interpreter) -> Self {
-        Self {
-            root,
-            build,
-            runtime,
-        }
+    fn new(root: PathBuf, py: Interpreter) -> Self {
+        Self { root, py }
     }
 
     pub fn initialize() -> Result<Self, EnvironmentError> {
-        Python::with_gil(|py| {
-            let initial_build = Interpreter::for_build(py)?;
-            let runtime = Interpreter::for_runtime(initial_build.sys_executable())?;
-            let root = runtime.sys_prefix().clone();
-
-            let runtime_project_paths = runtime.project_paths();
-            for path in runtime_project_paths {
-                initial_build.add_to_path(py, path)?;
-            }
-
-            let final_build = initial_build.refresh_state(py)?;
-
-            Ok(Self::new(root, final_build, runtime))
-        })
+        let executable = which("python")?;
+        let py = Interpreter::from_sys_executable(&executable)?;
+        let root = py.sys_prefix().clone();
+        Ok(Self::new(root, py))
     }
 
     pub fn root(&self) -> &PathBuf {
         &self.root
     }
 
-    pub fn build(&self) -> &Interpreter {
-        &self.build
-    }
-
-    pub fn runtime(&self) -> &Interpreter {
-        &self.runtime
+    pub fn py(&self) -> &Interpreter {
+        &self.py
     }
 }
 
@@ -54,18 +35,15 @@ impl fmt::Display for PythonEnvironment {
         writeln!(f, "Python Environment")?;
         writeln!(f, "Root: {}", self.root.display())?;
         writeln!(f)?;
-        writeln!(f, "Build Interpreter")?;
-        writeln!(f, "{}", self.build)?;
-        writeln!(f)?;
-        writeln!(f, "Runtime Interpreter")?;
-        write!(f, "{}", self.runtime)
+        writeln!(f, "Interpreter")?;
+        writeln!(f, "{}", self.py)
     }
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum EnvironmentError {
-    #[error("Python error: {0}")]
-    Python(#[from] PyErr),
+    #[error("Failed to locate Python executable: {0}")]
+    PythonNotFound(#[from] which::Error),
 
     #[error("Runtime error: {0}")]
     Runtime(#[from] PythonError),

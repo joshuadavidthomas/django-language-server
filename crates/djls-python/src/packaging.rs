@@ -1,4 +1,3 @@
-use pyo3::prelude::*;
 use std::collections::HashMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -51,38 +50,6 @@ impl Packages {
         Self(HashMap::new())
     }
 
-    pub fn from_python(py: Python) -> PyResult<Self> {
-        let importlib_metadata = py.import("importlib.metadata")?;
-        let distributions = importlib_metadata.call_method0("distributions")?;
-
-        let mut packages = Packages::new();
-
-        for dist in (distributions.try_iter()?).flatten() {
-            if let Ok(metadata) = dist.getattr("metadata") {
-                if let (Ok(name), Ok(version)) = (
-                    metadata.get_item("Name")?.extract::<String>(),
-                    dist.getattr("version")?.extract::<String>(),
-                ) {
-                    let location = match dist.call_method1("locate_file", ("",)) {
-                        Ok(path) => path
-                            .getattr("parent")?
-                            .call_method0("as_posix")?
-                            .extract::<String>()
-                            .ok()
-                            .map(PathBuf::from),
-                        Err(_) => None,
-                    };
-
-                    packages
-                        .0
-                        .insert(name.clone(), Package::new(name, version, location));
-                }
-            }
-        }
-
-        Ok(packages)
-    }
-
     pub fn from_executable(executable: &Path) -> Result<Self, PackagingError> {
         let output = Command::new(executable)
             .args([
@@ -126,6 +93,10 @@ print(json.dumps(packages))
             })
             .collect())
     }
+
+    pub fn has_package(&self, name: &str) -> bool {
+        self.0.iter().any(|pkg| pkg.1.name == name)
+    }
 }
 
 impl FromIterator<(String, Package)> for Packages {
@@ -157,9 +128,6 @@ pub enum PackagingError {
 
     #[error("JSON parsing error: {0}")]
     Json(#[from] serde_json::Error),
-
-    #[error("Python error: {0}")]
-    Python(#[from] PyErr),
 
     #[error("UTF-8 conversion error: {0}")]
     Utf8(#[from] std::string::FromUtf8Error),
