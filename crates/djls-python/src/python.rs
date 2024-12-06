@@ -3,6 +3,7 @@ use serde::Deserialize;
 use std::fmt;
 use std::path::PathBuf;
 use std::process::Command;
+use which::which;
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct VersionInfo {
@@ -101,7 +102,7 @@ impl fmt::Display for SysconfigPaths {
 }
 
 #[derive(Clone, Debug)]
-pub struct Interpreter {
+pub struct Python {
     version_info: VersionInfo,
     sysconfig_paths: SysconfigPaths,
     sys_prefix: PathBuf,
@@ -111,7 +112,7 @@ pub struct Interpreter {
     packages: Packages,
 }
 
-impl Interpreter {
+impl Python {
     fn new(
         version_info: VersionInfo,
         sysconfig_paths: SysconfigPaths,
@@ -132,8 +133,9 @@ impl Interpreter {
         }
     }
 
-    pub fn from_sys_executable(executable: &PathBuf) -> Result<Self, PythonError> {
-        let output = Command::new(executable)
+    pub fn initialize() -> Result<Self, PythonError> {
+        let executable = which("python")?;
+        let output = Command::new(&executable)
             .args([
                 "-c",
                 r#"
@@ -152,8 +154,8 @@ print(json.dumps({
         let sys_info: serde_json::Value = serde_json::from_str(&output_str)?;
 
         Ok(Self::new(
-            VersionInfo::from_executable(executable)?,
-            SysconfigPaths::from_executable(executable)?,
+            VersionInfo::from_executable(&executable)?,
+            SysconfigPaths::from_executable(&executable)?,
             PathBuf::from(sys_info["prefix"].as_str().unwrap()),
             PathBuf::from(sys_info["base_prefix"].as_str().unwrap()),
             PathBuf::from(sys_info["executable"].as_str().unwrap()),
@@ -163,7 +165,7 @@ print(json.dumps({
                 .iter()
                 .map(|p| PathBuf::from(p.as_str().unwrap()))
                 .collect(),
-            Packages::from_executable(executable)?,
+            Packages::from_executable(&executable)?,
         ))
     }
 
@@ -230,7 +232,7 @@ print(json.dumps({
     }
 }
 
-impl fmt::Display for Interpreter {
+impl fmt::Display for Python {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "Version: {}", self.version_info)?;
         writeln!(f, "Executable: {}", self.sys_executable.display())?;
@@ -249,6 +251,9 @@ impl fmt::Display for Interpreter {
 
 #[derive(Debug, thiserror::Error)]
 pub enum PythonError {
+    #[error("Failed to locate Python executable: {0}")]
+    PythonNotFound(#[from] which::Error),
+
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
