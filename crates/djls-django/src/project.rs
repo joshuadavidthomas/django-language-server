@@ -1,4 +1,52 @@
 use crate::django::Apps;
+use djls_python::Python;
+use std::fmt;
+use std::sync::Arc;
+
+#[derive(Debug)]
+pub struct DjangoProject {
+    python_env: Arc<Python>,
+    settings_module: String,
+    installed_apps: Apps,
+}
+
+impl DjangoProject {
+    fn new(python_env: Arc<Python>, settings_module: String, installed_apps: Apps) -> Self {
+        Self {
+            python_env,
+            settings_module,
+            installed_apps,
+        }
+    }
+
+    pub fn setup(python_env: Arc<Python>) -> Result<Self, ProjectError> {
+        let settings_module =
+            std::env::var("DJANGO_SETTINGS_MODULE").expect("DJANGO_SETTINGS_MODULE must be set");
+
+        python_env.run_python("import django")?;
+
+        python_env.run_python(
+            r#"
+import django
+django.setup()
+        "#,
+        )?;
+
+        let apps_json = python_env.run_python(
+            r#"
+import json
+from django.conf import settings
+print(json.dumps(list(settings.INSTALLED_APPS)))
+            "#,
+        )?;
+
+        let apps: Vec<String> = serde_json::from_str(&apps_json)?;
+        let installed_apps = Apps::from_strings(apps);
+
+        Ok(Self::new(python_env, settings_module, installed_apps))
+    }
+
+    pub fn python_env(&self) -> &Python {
         &self.python_env
     }
 
