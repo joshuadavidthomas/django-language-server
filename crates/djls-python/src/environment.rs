@@ -1,7 +1,7 @@
 use crate::python::{Interpreter, PythonError};
-use pyo3::prelude::*;
 use std::fmt;
 use std::path::PathBuf;
+use which::which;
 
 #[derive(Debug)]
 pub struct PythonEnvironment {
@@ -15,13 +15,10 @@ impl PythonEnvironment {
     }
 
     pub fn initialize() -> Result<Self, EnvironmentError> {
-        Python::with_gil(|pyo3_py| {
-            let sys = pyo3_py.import("sys")?;
-            let executable = PathBuf::from(sys.getattr("executable")?.extract::<String>()?);
-            let py = Interpreter::from_sys_executable(&executable)?;
-            let root = py.sys_prefix().clone();
-            Ok(Self::new(root, py))
-        })
+        let executable = which("python")?;
+        let py = Interpreter::from_sys_executable(&executable)?;
+        let root = py.sys_prefix().clone();
+        Ok(Self::new(root, py))
     }
 
     pub fn root(&self) -> &PathBuf {
@@ -45,8 +42,8 @@ impl fmt::Display for PythonEnvironment {
 
 #[derive(Debug, thiserror::Error)]
 pub enum EnvironmentError {
-    #[error("Python error: {0}")]
-    Python(#[from] PyErr),
+    #[error("Failed to locate Python executable: {0}")]
+    PythonNotFound(#[from] which::Error),
 
     #[error("Runtime error: {0}")]
     Runtime(#[from] PythonError),
