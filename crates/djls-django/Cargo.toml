@@ -1,0 +1,12 @@
+[package]
+name = "djls-django"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+djls-python = { workspace = true }
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+thiserror = "2.0.4"

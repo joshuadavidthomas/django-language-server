@@ -1,14 +1,17 @@
 use anyhow::Result;
+use std::sync::Arc;
 use tower_lsp::jsonrpc::Result as LspResult;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
+use djls_django::DjangoProject;
 use djls_python::Python;
 
 #[derive(Debug)]
 struct Backend {
     client: Client,
-    python: Python,
+    python: Arc<Python>,
+    django: DjangoProject,
 }
 
 #[tower_lsp::async_trait]
@@ -37,6 +40,10 @@ impl LanguageServer for Backend {
         self.client
             .log_message(MessageType::INFO, format!("\n{}", self.python))
             .await;
+
+        self.client
+            .log_message(MessageType::INFO, format!("\n{}", self.django))
+            .await;
     }
 
     async fn shutdown(&self) -> LspResult<()> {
@@ -46,12 +53,18 @@ impl LanguageServer for Backend {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let python = Python::initialize()?;
+    let python = Arc::new(Python::initialize()?);
+    let django = DjangoProject::setup(Arc::clone(&python))?;
 
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
 
-    let (service, socket) = LspService::build(|client| Backend { client, python }).finish();
+    let (service, socket) = LspService::build(|client| Backend {
+        client,
+        python,
+        django,
+    })
+    .finish();
 
     Server::new(stdin, stdout, socket).serve(service).await;
 
