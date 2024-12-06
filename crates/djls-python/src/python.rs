@@ -1,8 +1,7 @@
 use crate::packaging::{Packages, PackagingError};
-use pyo3::prelude::*;
 use serde::Deserialize;
 use std::fmt;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 
 #[derive(Clone, Debug, Deserialize)]
@@ -21,17 +20,6 @@ impl VersionInfo {
             patch,
             suffix,
         }
-    }
-
-    pub fn from_python(py: Python) -> PyResult<Self> {
-        let version_info = py.version_info();
-
-        Ok(Self::new(
-            version_info.major,
-            version_info.minor,
-            version_info.patch,
-            version_info.suffix.map(String::from),
-        ))
     }
 
     pub fn from_executable(executable: &PathBuf) -> Result<Self, PythonError> {
@@ -81,22 +69,6 @@ pub struct SysconfigPaths {
 }
 
 impl SysconfigPaths {
-    pub fn from_python(py: Python) -> PyResult<Self> {
-        let sysconfig = py.import("sysconfig")?;
-        let paths = sysconfig.call_method0("get_paths")?;
-
-        Ok(Self {
-            data: PathBuf::from(paths.get_item("data").unwrap().extract::<String>()?),
-            include: PathBuf::from(paths.get_item("include").unwrap().extract::<String>()?),
-            platinclude: PathBuf::from(paths.get_item("platinclude").unwrap().extract::<String>()?),
-            platlib: PathBuf::from(paths.get_item("platlib").unwrap().extract::<String>()?),
-            platstdlib: PathBuf::from(paths.get_item("platstdlib").unwrap().extract::<String>()?),
-            purelib: PathBuf::from(paths.get_item("purelib").unwrap().extract::<String>()?),
-            scripts: PathBuf::from(paths.get_item("scripts").unwrap().extract::<String>()?),
-            stdlib: PathBuf::from(paths.get_item("stdlib").unwrap().extract::<String>()?),
-        })
-    }
-
     pub fn from_executable(executable: &PathBuf) -> Result<Self, PythonError> {
         let output = Command::new(executable)
             .args([
@@ -160,25 +132,7 @@ impl Interpreter {
         }
     }
 
-    pub fn for_build(py: Python) -> PyResult<Self> {
-        let sys = py.import("sys")?;
-
-        Ok(Self::new(
-            VersionInfo::from_python(py)?,
-            SysconfigPaths::from_python(py)?,
-            PathBuf::from(sys.getattr("prefix")?.extract::<String>()?),
-            PathBuf::from(sys.getattr("base_prefix")?.extract::<String>()?),
-            PathBuf::from(sys.getattr("executable")?.extract::<String>()?),
-            sys.getattr("path")?
-                .extract::<Vec<String>>()?
-                .into_iter()
-                .map(PathBuf::from)
-                .collect(),
-            Packages::from_python(py)?,
-        ))
-    }
-
-    pub fn for_runtime(executable: &PathBuf) -> Result<Self, PythonError> {
+    pub fn from_sys_executable(executable: &PathBuf) -> Result<Self, PythonError> {
         let output = Command::new(executable)
             .args([
                 "-c",
@@ -241,49 +195,38 @@ print(json.dumps({
         &self.packages
     }
 
-    pub fn project_paths(&self) -> Vec<&PathBuf> {
-        let mut paths: Vec<&PathBuf> = self
-            .sys_path
-            .iter()
-            .filter(|path| {
-                path.starts_with(&self.sys_prefix) && !path.starts_with(&self.sys_base_prefix)
-            })
-            .collect();
+    pub fn run_python(&self, code: &str) -> std::io::Result<String> {
+        let output = Command::new(self.sys_executable())
+            .args(["-c", code])
+            .output()?;
 
-        if let Some(project_path) = self.sys_path.last() {
-            if !paths.contains(&project_path) {
-                paths.push(project_path);
-            }
+        if !output.status.success() {
+            let error = String::from_utf8_lossy(&output.stderr);
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Python execution failed: {}", error),
+            ));
         }
 
-        paths
+        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
     }
 
-    pub fn add_to_path(&self, py: Python, path: &Path) -> PyResult<()> {
-        if let Some(path_str) = path.to_str() {
-            let sys = py.import("sys")?;
-            let sys_path = sys.getattr("path")?;
-            sys_path.call_method1("append", (path_str,))?;
+    pub fn run(&self, command: &str, args: &[&str]) -> std::io::Result<String> {
+        let output = Command::new(self.sys_executable())
+            .arg("-m")
+            .arg(command)
+            .args(args)
+            .output()?;
+
+        if !output.status.success() {
+            let error = String::from_utf8_lossy(&output.stderr);
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Command failed: {}", error),
+            ));
         }
-        Ok(())
-    }
 
-    pub fn refresh_state(&self, py: Python) -> PyResult<Self> {
-        let sys = py.import("sys")?;
-        let new_sys_path: Vec<PathBuf> = sys
-            .getattr("path")?
-            .extract::<Vec<String>>()?
-            .into_iter()
-            .map(PathBuf::from)
-            .collect();
-
-        let new_packages = Packages::from_python(py)?;
-
-        Ok(Self {
-            sys_path: new_sys_path,
-            packages: new_packages,
-            ..self.clone()
-        })
+        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
     }
 }
 
