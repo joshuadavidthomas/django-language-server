@@ -5,21 +5,15 @@ build-backend = "hatchling.build"
 [project]
 name = "djls"
 version = "0.1.0"
-description = "Add your description here"
+description = "Utility Python scripts for Django Language Server"
 readme = "README.md"
 authors = [
-    { name = "Josh", email = "josh@joshthomas.dev" }
+    { name = "Josh Thomas", email = "josh@joshthomas.dev" }
 ]
 requires-python = ">=3.9"
 dependencies = [
     "django>=4.2",
 ]
-
-[project.scripts]
-example = "djls:hello"
-
-[tool.basedpyright]
-venvPath = ".venv"
 
 [tool.hatch.build.targets.wheel]
 include = ["python/djls"]
