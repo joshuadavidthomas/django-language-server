@@ -7,13 +7,9 @@ from django.template.engine import Engine
 
 
 def get_django_setup_info():
-    """
-    Get Django setup information including installed apps and template tags.
-    Returns dict with 'apps' and 'tags' keys.
-    """
     return {
-        "apps": list(settings.INSTALLED_APPS),
-        "tags": [
+        "installed_apps": list(settings.INSTALLED_APPS),
+        "templatetags": [
             {
                 "name": tag_name,
                 "library": module_name.split(".")[-1],

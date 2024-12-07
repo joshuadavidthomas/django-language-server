@@ -15,23 +15,13 @@ pub struct DjangoProject {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct DjangoSetup {
-    apps: Vec<String>,
-    tags: Vec<TemplateTag>,
+struct DjangoSetup {
+    installed_apps: Vec<String>,
+    templatetags: Vec<TemplateTag>,
 }
 
 impl ScriptRunner for DjangoSetup {
     const SCRIPT: &'static str = scripts::DJANGO_SETUP;
-}
-
-impl DjangoSetup {
-    pub fn apps(&self) -> &[String] {
-        &self.apps
-    }
-
-    pub fn tags(&self) -> &[TemplateTag] {
-        &self.tags
-    }
 }
 
 impl DjangoProject {
@@ -79,8 +69,8 @@ impl DjangoProject {
         Ok(Self::new(
             py,
             settings_module,
-            Apps::from_strings(setup.apps().to_vec()),
-            setup.tags().to_vec(),
+            Apps::from_strings(setup.installed_apps.to_vec()),
+            setup.templatetags.to_vec(),
         ))
     }
 
