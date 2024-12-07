@@ -1,68 +1,54 @@
+mod notifier;
+mod server;
+
+use crate::notifier::TowerLspNotifier;
+use crate::server::{DjangoLanguageServer, LspNotification, LspRequest};
 use anyhow::Result;
-use std::sync::Arc;
+use djls_django::DjangoProject;
 use tower_lsp::jsonrpc::Result as LspResult;
 use tower_lsp::lsp_types::*;
-use tower_lsp::{Client, LanguageServer, LspService, Server};
+use tower_lsp::{LanguageServer, LspService, Server};
 
-use djls_django::DjangoProject;
-use djls_python::Python;
-
-#[derive(Debug)]
-struct Backend {
-    client: Client,
-    python: Arc<Python>,
-    django: DjangoProject,
+struct TowerLspBackend {
+    server: DjangoLanguageServer,
 }
 
 #[tower_lsp::async_trait]
-impl LanguageServer for Backend {
-    async fn initialize(&self, _params: InitializeParams) -> LspResult<InitializeResult> {
-        Ok(InitializeResult {
-            capabilities: ServerCapabilities {
-                text_document_sync: Some(TextDocumentSyncCapability::Kind(
-                    TextDocumentSyncKind::INCREMENTAL,
-                )),
-                ..Default::default()
-            },
-            offset_encoding: None,
-            server_info: Some(ServerInfo {
-                name: String::from("Django Language Server"),
-                version: Some(String::from("0.1.0")),
-            }),
-        })
+impl LanguageServer for TowerLspBackend {
+    async fn initialize(&self, params: InitializeParams) -> LspResult<InitializeResult> {
+        self.server
+            .handle_request(LspRequest::Initialize(params))
+            .map_err(|_| tower_lsp::jsonrpc::Error::internal_error())
     }
 
-    async fn initialized(&self, _: InitializedParams) {
-        self.client
-            .log_message(MessageType::INFO, "server initialized!")
-            .await;
-
-        self.client
-            .log_message(MessageType::INFO, format!("\n{}", self.python))
-            .await;
-
-        self.client
-            .log_message(MessageType::INFO, format!("\n{}", self.django))
-            .await;
+    async fn initialized(&self, params: InitializedParams) {
+        if self
+            .server
+            .handle_notification(LspNotification::Initialized(params))
+            .is_err()
+        {
+            // Handle error
+        }
     }
 
     async fn shutdown(&self) -> LspResult<()> {
-        Ok(())
+        self.server
+            .handle_notification(LspNotification::Shutdown)
+            .map_err(|_| tower_lsp::jsonrpc::Error::internal_error())
     }
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let python = Arc::new(Python::initialize()?);
-    let django = DjangoProject::setup(Arc::clone(&python))?;
+    let django = DjangoProject::setup()?;
 
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
 
-    let (service, socket) = LspService::build(|client| Backend {
-        client,
-        python,
-        django,
+    let (service, socket) = LspService::build(|client| {
+        let notifier = Box::new(TowerLspNotifier::new(client.clone()));
+        let server = DjangoLanguageServer::new(django, notifier);
+        TowerLspBackend { server }
     })
     .finish();
 

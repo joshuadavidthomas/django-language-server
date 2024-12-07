@@ -1,3 +1,5 @@
+use djls_python::{include_script, Python, RunnerError, ScriptRunner};
+use serde::Deserialize;
 use std::fmt;
 
 #[derive(Debug)]
@@ -15,18 +17,25 @@ impl fmt::Display for App {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Apps(Vec<App>);
 
-impl Default for Apps {
-    fn default() -> Self {
-        Self(Vec::new())
-    }
+#[derive(Debug, Deserialize)]
+struct InstalledAppsCheck {
+    has_app: bool,
+}
+
+impl ScriptRunner for InstalledAppsCheck {
+    const SCRIPT: &'static str = include_script!("installed_apps_check");
 }
 
 impl Apps {
     pub fn from_strings(apps: Vec<String>) -> Self {
         Self(apps.into_iter().map(App).collect())
+    }
+
+    pub fn apps(&self) -> &[App] {
+        &self.0
     }
 
     pub fn has_app(&self, name: &str) -> bool {
@@ -35,6 +44,11 @@ impl Apps {
 
     pub fn iter(&self) -> impl Iterator<Item = &App> {
         self.0.iter()
+    }
+
+    pub fn check_installed(py: &Python, app: &str) -> Result<bool, RunnerError> {
+        let result = InstalledAppsCheck::run_with_py_args(py, app)?;
+        Ok(result.has_app)
     }
 }
 
