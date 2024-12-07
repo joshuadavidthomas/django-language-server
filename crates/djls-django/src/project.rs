@@ -1,4 +1,4 @@
-use crate::django::Apps;
+use crate::apps::Apps;
 use crate::gis::{check_gis_setup, GISError};
 use crate::scripts;
 use crate::templates::TemplateTag;

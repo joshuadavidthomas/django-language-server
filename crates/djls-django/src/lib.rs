@@ -1,4 +1,4 @@
-mod django;
+mod apps;
 mod gis;
 mod project;
 mod scripts;

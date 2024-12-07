@@ -1,4 +1,4 @@
-use crate::django::Apps;
+use crate::apps::Apps;
 use djls_python::{Python, RunnerError};
 use std::process::Command;
 
