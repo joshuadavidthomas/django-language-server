@@ -3,6 +3,9 @@ use anyhow::Result;
 use djls_django::DjangoProject;
 use tower_lsp::lsp_types::*;
 
+const SERVER_NAME: &str = "Django Language Server";
+const SERVER_VERSION: &str = "0.1.0";
+
 pub enum LspRequest {
     Initialize(InitializeParams),
 }
@@ -33,8 +36,8 @@ impl DjangoLanguageServer {
                 },
                 offset_encoding: None,
                 server_info: Some(ServerInfo {
-                    name: String::from("Django Language Server"),
-                    version: Some(String::from("0.1.0")),
+                    name: SERVER_NAME.to_string(),
+                    version: Some(SERVER_VERSION.to_string()),
                 }),
             }),
         }
