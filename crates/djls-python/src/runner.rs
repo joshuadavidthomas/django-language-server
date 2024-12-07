@@ -177,15 +177,3 @@ pub enum RunnerError {
     #[error("UTF-8 conversion error: {0}")]
     Utf8(#[from] std::string::FromUtf8Error),
 }
-
-#[macro_export]
-macro_rules! include_script {
-    ($name:expr) => {
-        include_str!(concat!(
-            env!("CARGO_WORKSPACE_DIR"),
-            "/python/djls/",
-            $name,
-            ".py"
-        ))
-    };
-}

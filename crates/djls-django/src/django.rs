@@ -1,6 +1,8 @@
-use djls_python::{include_script, Python, RunnerError, ScriptRunner};
+use djls_python::{Python, RunnerError, ScriptRunner};
 use serde::Deserialize;
 use std::fmt;
+
+use crate::scripts;
 
 #[derive(Debug)]
 pub struct App(String);
@@ -26,7 +28,7 @@ struct InstalledAppsCheck {
 }
 
 impl ScriptRunner for InstalledAppsCheck {
-    const SCRIPT: &'static str = include_script!("installed_apps_check");
+    const SCRIPT: &'static str = scripts::INSTALLED_APPS_CHECK;
 }
 
 impl Apps {

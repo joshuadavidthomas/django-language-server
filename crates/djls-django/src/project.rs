@@ -1,8 +1,9 @@
 use crate::django::Apps;
 use crate::gis::{check_gis_setup, GISError};
-use crate::scripts::DjangoSetup;
+use crate::scripts;
 use crate::templates::TemplateTag;
 use djls_python::{ImportCheck, Python, RunnerError, ScriptRunner};
+use serde::Deserialize;
 use std::fmt;
 
 #[derive(Debug)]
@@ -11,6 +12,26 @@ pub struct DjangoProject {
     settings_module: String,
     installed_apps: Apps,
     templatetags: Vec<TemplateTag>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DjangoSetup {
+    apps: Vec<String>,
+    tags: Vec<TemplateTag>,
+}
+
+impl ScriptRunner for DjangoSetup {
+    const SCRIPT: &'static str = scripts::DJANGO_SETUP;
+}
+
+impl DjangoSetup {
+    pub fn apps(&self) -> &[String] {
+        &self.apps
+    }
+
+    pub fn tags(&self) -> &[TemplateTag] {
+        &self.tags
+    }
 }
 
 impl DjangoProject {

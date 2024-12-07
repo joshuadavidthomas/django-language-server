@@ -1,6 +1,6 @@
-use crate::include_script;
 use crate::packaging::{Packages, PackagingError};
 use crate::runner::{Runner, RunnerError, ScriptRunner};
+use crate::scripts;
 use serde::Deserialize;
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -64,7 +64,7 @@ pub struct Python {
 pub struct PythonSetup(Python);
 
 impl ScriptRunner for PythonSetup {
-    const SCRIPT: &'static str = include_script!("python_setup");
+    const SCRIPT: &'static str = scripts::PYTHON_SETUP;
 }
 
 impl From<PythonSetup> for Python {

@@ -1,23 +1,4 @@
-use crate::templates::TemplateTag;
-use djls_python::{include_script, ScriptRunner};
-use serde::Deserialize;
+use djls_python::include_script;
 
-#[derive(Debug, Deserialize)]
-pub struct DjangoSetup {
-    apps: Vec<String>,
-    tags: Vec<TemplateTag>,
-}
-
-impl ScriptRunner for DjangoSetup {
-    const SCRIPT: &'static str = include_script!("django_setup");
-}
-
-impl DjangoSetup {
-    pub fn apps(&self) -> &[String] {
-        &self.apps
-    }
-
-    pub fn tags(&self) -> &[TemplateTag] {
-        &self.tags
-    }
-}
+pub const DJANGO_SETUP: &str = include_script!("django_setup");
+pub const INSTALLED_APPS_CHECK: &str = include_script!("installed_apps_check");

@@ -1,6 +1,6 @@
-use crate::include_script;
 use crate::python::Python;
 use crate::runner::{RunnerError, ScriptRunner};
+use crate::scripts;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::fmt;
@@ -60,7 +60,7 @@ pub struct ImportCheck {
 }
 
 impl ScriptRunner for ImportCheck {
-    const SCRIPT: &'static str = include_script!("has_import");
+    const SCRIPT: &'static str = scripts::HAS_IMPORT;
 }
 
 impl ImportCheck {
