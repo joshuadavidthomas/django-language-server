@@ -4,16 +4,13 @@ use std::process::Command;
 
 pub fn check_gis_setup(py: &Python) -> Result<bool, GISError> {
     let has_geodjango = Apps::check_installed(py, "django.contrib.gis")?;
-    let gdal_is_installed = gdal_is_installed();
-    Ok(!has_geodjango || gdal_is_installed)
-}
-
-fn gdal_is_installed() -> bool {
-    Command::new("gdalinfo")
+    let gdal_is_installed = Command::new("gdalinfo")
         .arg("--version")
         .output()
         .map(|output| output.status.success())
-        .unwrap_or(false)
+        .unwrap_or(false);
+
+    Ok(!has_geodjango || gdal_is_installed)
 }
 
 #[derive(Debug, thiserror::Error)]
