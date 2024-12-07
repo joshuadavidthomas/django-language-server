@@ -87,8 +87,13 @@ impl fmt::Display for DjangoProject {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "Django Project")?;
         writeln!(f, "Settings Module: {}", self.settings_module)?;
+        writeln!(f, "Installed Apps:")?;
         write!(f, "{}", self.installed_apps)?;
-        write!(f, "{:?}", self.templatetags)?;
+        writeln!(f, "Template Tags:")?;
+        for tag in &self.templatetags {
+            write!(f, "{}", tag)?;
+            writeln!(f)?;
+        }
         Ok(())
     }
 }

@@ -56,7 +56,6 @@ impl Apps {
 
 impl fmt::Display for Apps {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "Installed Apps:")?;
         for app in &self.0 {
             writeln!(f, "  {}", app)?;
         }
