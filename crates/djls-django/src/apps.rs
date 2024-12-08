@@ -41,11 +41,11 @@ impl Apps {
     }
 
     pub fn has_app(&self, name: &str) -> bool {
-        self.0.iter().any(|app| app.0 == name)
+        self.apps().iter().any(|app| app.0 == name)
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &App> {
-        self.0.iter()
+        self.apps().iter()
     }
 
     pub fn check_installed(py: &Python, app: &str) -> Result<bool, RunnerError> {

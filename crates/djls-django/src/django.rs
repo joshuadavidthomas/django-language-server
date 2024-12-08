@@ -1,7 +1,7 @@
 use crate::apps::Apps;
 use crate::gis::{check_gis_setup, GISError};
 use crate::scripts;
-use crate::templates::TemplateTag;
+use crate::templates::TemplateTags;
 use djls_python::{ImportCheck, Python, RunnerError, ScriptRunner};
 use serde::Deserialize;
 use std::fmt;
@@ -11,13 +11,13 @@ pub struct DjangoProject {
     py: Python,
     settings_module: String,
     installed_apps: Apps,
-    templatetags: Vec<TemplateTag>,
+    templatetags: TemplateTags,
 }
 
 #[derive(Debug, Deserialize)]
 struct DjangoSetup {
     installed_apps: Vec<String>,
-    templatetags: Vec<TemplateTag>,
+    templatetags: TemplateTags,
 }
 
 impl ScriptRunner for DjangoSetup {
@@ -29,7 +29,7 @@ impl DjangoProject {
         py: Python,
         settings_module: String,
         installed_apps: Apps,
-        templatetags: Vec<TemplateTag>,
+        templatetags: TemplateTags,
     ) -> Self {
         Self {
             py,
@@ -60,7 +60,7 @@ impl DjangoProject {
                 py,
                 settings_module,
                 installed_apps: Apps::default(),
-                templatetags: Vec::new(),
+                templatetags: TemplateTags::default(),
             });
         }
 
@@ -70,7 +70,7 @@ impl DjangoProject {
             py,
             settings_module,
             Apps::from_strings(setup.installed_apps.to_vec()),
-            setup.templatetags.to_vec(),
+            setup.templatetags,
         ))
     }
 
@@ -90,10 +90,7 @@ impl fmt::Display for DjangoProject {
         writeln!(f, "Installed Apps:")?;
         write!(f, "{}", self.installed_apps)?;
         writeln!(f, "Template Tags:")?;
-        for tag in &self.templatetags {
-            write!(f, "{}", tag)?;
-            writeln!(f)?;
-        }
+        write!(f, "{}", self.templatetags)?;
         Ok(())
     }
 }
