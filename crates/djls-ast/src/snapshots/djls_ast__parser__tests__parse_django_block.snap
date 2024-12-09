@@ -1,0 +1,20 @@
+---
+source: crates/djls-ast/src/parser.rs
+expression: ast
+---
+nodes:
+  - Django:
+      Tag:
+        kind: If
+        bits:
+          - if
+          - user.is_staff
+        children:
+          - Text: Admin
+          - Django:
+              Tag:
+                kind: Else
+                bits:
+                  - else
+                children:
+                  - Text: User

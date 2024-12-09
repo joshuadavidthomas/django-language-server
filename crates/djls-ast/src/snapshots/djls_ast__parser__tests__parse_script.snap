@@ -1,0 +1,22 @@
+---
+source: crates/djls-ast/src/parser.rs
+expression: ast
+---
+nodes:
+  - Script:
+      Element:
+        attributes:
+          script: Boolean
+          type:
+            Value: text/javascript
+        children:
+          - Script:
+              Comment:
+                content: Single line comment
+                kind: SingleLine
+          - Text: const x = 1;
+          - Script:
+              Comment:
+                content: "Multi-line\n        comment"
+                kind: MultiLine
+          - Text: console.log(x);
