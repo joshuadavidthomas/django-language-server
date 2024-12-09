@@ -1,0 +1,15 @@
+---
+source: crates/djls-ast/src/parser.rs
+expression: ast
+---
+nodes:
+  - Html:
+      Element:
+        tag_name: div
+        attributes:
+          class:
+            Value: container
+          disabled: Boolean
+          id:
+            Value: main
+        children: []
