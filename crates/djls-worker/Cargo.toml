@@ -5,6 +5,5 @@ edition = "2021"
 
 [dependencies]
 anyhow = { workspace = true }
+async-trait = { workspace = true }
 tokio = { workspace = true }
-
-async-trait = "0.1.83"
