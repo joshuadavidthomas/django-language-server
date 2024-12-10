@@ -26,15 +26,8 @@ jobs:
           - macos-latest
           - ubuntu-latest
           - windows-latest
-        toolchain:
-          - stable
-          - beta
-          - nightly
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        run: rustup update ${{ matrix.toolchain }} && rustup default ${{ matrix.toolchain }}
 
       - name: Install uv
         uses: astral-sh/setup-uv@v4
