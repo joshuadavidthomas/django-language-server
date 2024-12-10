@@ -19,54 +19,65 @@ impl Parser {
 
     pub fn parse(&mut self) -> Result<Ast, ParserError> {
         let mut ast = Ast::default();
-
         while !self.is_at_end() {
-            let node = self.next_node();
-            match node {
+            match self.next_node() {
                 Ok(node) => {
                     ast.add_node(node);
                 }
-                Err(ParserError::AtEndOfStream) => {
+                Err(ParserError::StreamError(Stream::AtEnd)) => {
                     if ast.nodes().is_empty() {
-                        return Err(ParserError::UnexpectedEof);
+                        return Err(ParserError::StreamError(Stream::UnexpectedEof));
                     }
                     break;
                 }
                 Err(_) => {
-                    self.synchronize(&[
-                        TokenType::DjangoBlock(String::new()),
-                        TokenType::HtmlTagOpen(String::new()),
-                        TokenType::HtmlTagVoid(String::new()),
-                        TokenType::ScriptTagOpen(String::new()),
-                        TokenType::StyleTagOpen(String::new()),
-                        TokenType::Newline,
-                        TokenType::Eof,
-                    ])?;
+                    self.synchronize()?;
                     continue;
                 }
             }
         }
-
-        Ok(ast.finalize()?)
+        ast.finalize()?;
+        Ok(ast)
     }
 
     fn next_node(&mut self) -> Result<Node, ParserError> {
-        let token = self.peek()?;
+        let token = self.consume()?;
         let node = match token.token_type() {
             TokenType::Comment(s, start, end) => self.parse_comment(s, start, end.as_deref()),
             TokenType::DjangoBlock(s) => self.parse_django_block(s),
             TokenType::DjangoVariable(s) => self.parse_django_variable(s),
-            TokenType::Eof => self.parse_eof(),
-            TokenType::HtmlTagClose(tag) => Err(ParserError::ClosingTagFound(tag.to_string())),
+            TokenType::Eof => {
+                if self.is_at_end() {
+                    self.next_node()
+                } else {
+                    Err(ParserError::StreamError(Stream::UnexpectedEof))
+                }
+            }
+            TokenType::HtmlTagClose(tag) => {
+                self.backtrack(1)?;
+                Err(ParserError::ErrorSignal(Signal::ClosingTagFound(
+                    tag.to_string(),
+                )))
+            }
             TokenType::HtmlTagOpen(s) => self.parse_html_tag_open(s),
             TokenType::HtmlTagVoid(s) => self.parse_html_tag_void(s),
-            TokenType::Newline => self.parse_newline(),
+            TokenType::Newline => self.next_node(),
+            TokenType::ScriptTagClose(_) => {
+                self.backtrack(1)?;
+                Err(ParserError::ErrorSignal(Signal::ClosingTagFound(
+                    "script".to_string(),
+                )))
+            }
             TokenType::ScriptTagOpen(s) => self.parse_script_tag_open(s),
-            TokenType::ScriptTagClose(_) => Err(ParserError::ClosingTagFound("script".to_string())),
+            TokenType::StyleTagClose(_) => {
+                self.backtrack(1)?;
+                Err(ParserError::ErrorSignal(Signal::ClosingTagFound(
+                    "style".to_string(),
+                )))
+            }
             TokenType::StyleTagOpen(s) => self.parse_style_tag_open(s),
-            TokenType::StyleTagClose(_) => Err(ParserError::ClosingTagFound("style".to_string())),
-            TokenType::Text(s) => self.parse_text(s),
-            TokenType::Whitespace(_) => self.parse_whitespace(),
+            TokenType::Text(s) => Ok(Node::Text(s.to_string())),
+            TokenType::Whitespace(_) => self.next_node(),
         }?;
         Ok(node)
     }
@@ -77,8 +88,6 @@ impl Parser {
         start: &str,
         end: Option<&str>,
     ) -> Result<Node, ParserError> {
-        self.consume()?;
-
         match start {
             "{#" => Ok(Node::Django(DjangoNode::Comment(content.to_string()))),
             "<!--" => Ok(Node::Html(HtmlNode::Comment(content.to_string()))),
@@ -125,14 +134,13 @@ impl Parser {
     }
 
     fn parse_django_block(&mut self, s: &str) -> Result<Node, ParserError> {
-        self.consume()?;
-
         let bits: Vec<String> = s.split_whitespace().map(String::from).collect();
         let kind = DjangoTagKind::from_str(&bits[0])?;
 
-        // If this is an end tag, signal it like we do with HTML closing tags
         if bits[0].starts_with("end") {
-            return Err(ParserError::ClosingTagFound(bits[0].clone()));
+            return Err(ParserError::ErrorSignal(Signal::ClosingTagFound(
+                bits[0].clone(),
+            )));
         }
 
         let mut children = Vec::new();
@@ -141,10 +149,9 @@ impl Parser {
         while !self.is_at_end() {
             match self.next_node() {
                 Ok(node) => {
-                    println!("found django child node: {:?}", node);
                     children.push(node);
                 }
-                Err(ParserError::ClosingTagFound(tag)) => {
+                Err(ParserError::ErrorSignal(Signal::ClosingTagFound(tag))) => {
                     if tag == end_tag {
                         self.consume()?;
                         break;
@@ -163,8 +170,6 @@ impl Parser {
     }
 
     fn parse_django_variable(&mut self, s: &str) -> Result<Node, ParserError> {
-        self.consume()?;
-
         let parts: Vec<&str> = s.split('|').collect();
 
         let bits: Vec<String> = parts[0].trim().split('.').map(String::from).collect();
@@ -192,23 +197,12 @@ impl Parser {
         Ok(Node::Django(DjangoNode::Variable { bits, filters }))
     }
 
-    fn parse_eof(&mut self) -> Result<Node, ParserError> {
-        if self.is_at_end() {
-            self.consume()?;
-            self.next_node()
-        } else {
-            Err(ParserError::UnexpectedEof)
-        }
-    }
-
     fn parse_html_tag_open(&mut self, s: &str) -> Result<Node, ParserError> {
-        self.consume()?;
-
         let mut parts = s.split_whitespace();
 
         let tag_name = parts
             .next()
-            .ok_or(ParserError::InvalidTokenAccess)?
+            .ok_or(ParserError::StreamError(Stream::InvalidAccess))?
             .to_string();
 
         let mut attributes = BTreeMap::new();
@@ -233,7 +227,7 @@ impl Parser {
                 Ok(node) => {
                     children.push(node);
                 }
-                Err(ParserError::ClosingTagFound(tag)) => {
+                Err(ParserError::ErrorSignal(Signal::ClosingTagFound(tag))) => {
                     if tag == tag_name {
                         self.consume()?;
                         break;
@@ -251,12 +245,11 @@ impl Parser {
     }
 
     fn parse_html_tag_void(&mut self, s: &str) -> Result<Node, ParserError> {
-        self.consume()?;
         let mut parts = s.split_whitespace();
 
         let tag_name = parts
             .next()
-            .ok_or(ParserError::InvalidTokenAccess)?
+            .ok_or(ParserError::StreamError(Stream::InvalidAccess))?
             .to_string();
 
         let mut attributes = BTreeMap::new();
@@ -278,14 +271,7 @@ impl Parser {
         }))
     }
 
-    fn parse_newline(&mut self) -> Result<Node, ParserError> {
-        self.consume()?;
-        self.next_node()
-    }
-
     fn parse_script_tag_open(&mut self, s: &str) -> Result<Node, ParserError> {
-        self.consume()?;
-
         let parts = s.split_whitespace();
 
         let mut attributes = BTreeMap::new();
@@ -308,7 +294,7 @@ impl Parser {
                 Ok(node) => {
                     children.push(node);
                 }
-                Err(ParserError::ClosingTagFound(tag)) => {
+                Err(ParserError::ErrorSignal(Signal::ClosingTagFound(tag))) => {
                     if tag == "script" {
                         self.consume()?;
                         break;
@@ -326,13 +312,11 @@ impl Parser {
     }
 
     fn parse_style_tag_open(&mut self, s: &str) -> Result<Node, ParserError> {
-        self.consume()?;
-
         let mut parts = s.split_whitespace();
 
         let _tag_name = parts
             .next()
-            .ok_or(ParserError::InvalidTokenAccess)?
+            .ok_or(ParserError::StreamError(Stream::InvalidAccess))?
             .to_string();
 
         let mut attributes = BTreeMap::new();
@@ -355,7 +339,7 @@ impl Parser {
                 Ok(node) => {
                     children.push(node);
                 }
-                Err(ParserError::ClosingTagFound(tag)) => {
+                Err(ParserError::ErrorSignal(Signal::ClosingTagFound(tag))) => {
                     if tag == "style" {
                         self.consume()?;
                         break;
@@ -370,17 +354,6 @@ impl Parser {
             attributes,
             children,
         }))
-    }
-
-    fn parse_text(&mut self, s: &str) -> Result<Node, ParserError> {
-        self.consume()?;
-
-        Ok(Node::Text(s.to_string()))
-    }
-
-    fn parse_whitespace(&mut self) -> Result<Node, ParserError> {
-        self.consume()?;
-        self.next_node()
     }
 
     fn peek(&self) -> Result<Token, ParserError> {
@@ -413,13 +386,13 @@ impl Parser {
             Ok(token.clone())
         } else {
             let error = if self.tokens.is_empty() {
-                ParserError::EmptyTokenStream
+                ParserError::StreamError(Stream::Empty)
             } else if index < self.current {
-                ParserError::AtBeginningOfStream
+                ParserError::StreamError(Stream::AtBeginning)
             } else if index >= self.tokens.len() {
-                ParserError::AtEndOfStream
+                ParserError::StreamError(Stream::AtEnd)
             } else {
-                ParserError::InvalidTokenAccess
+                ParserError::StreamError(Stream::InvalidAccess)
             };
             Err(error)
         }
@@ -431,7 +404,7 @@ impl Parser {
 
     fn consume(&mut self) -> Result<Token, ParserError> {
         if self.is_at_end() {
-            return Err(ParserError::AtEndOfStream);
+            return Err(ParserError::StreamError(Stream::AtEnd));
         }
         self.current += 1;
         self.peek_previous()
@@ -439,7 +412,7 @@ impl Parser {
 
     fn backtrack(&mut self, steps: usize) -> Result<Token, ParserError> {
         if self.current < steps {
-            return Err(ParserError::AtBeginningOfStream);
+            return Err(ParserError::StreamError(Stream::AtBeginning));
         }
         self.current -= steps;
         self.peek_next()
@@ -475,9 +448,19 @@ impl Parser {
         Ok(consumed)
     }
 
-    fn synchronize(&mut self, sync_types: &[TokenType]) -> Result<(), ParserError> {
+    fn synchronize(&mut self) -> Result<(), ParserError> {
+        const SYNC_TYPES: &[TokenType] = &[
+            TokenType::DjangoBlock(String::new()),
+            TokenType::HtmlTagOpen(String::new()),
+            TokenType::HtmlTagVoid(String::new()),
+            TokenType::ScriptTagOpen(String::new()),
+            TokenType::StyleTagOpen(String::new()),
+            TokenType::Newline,
+            TokenType::Eof,
+        ];
+
         while !self.is_at_end() {
-            if sync_types.contains(self.peek()?.token_type()) {
+            if SYNC_TYPES.contains(self.peek()?.token_type()) {
                 return Ok(());
             }
             self.consume()?;
@@ -488,28 +471,44 @@ impl Parser {
 
 #[derive(Error, Debug)]
 pub enum ParserError {
-    #[error("token stream is empty")]
-    EmptyTokenStream,
-    #[error("at beginning of token stream")]
-    AtBeginningOfStream,
-    #[error("at end of token stream")]
-    AtEndOfStream,
-    #[error("invalid token access")]
-    InvalidTokenAccess,
+    #[error("token stream {0}")]
+    StreamError(Stream),
+    #[error("parsing signal: {0:?}")]
+    ErrorSignal(Signal),
     #[error("unexpected token '{0:?}', expected type '{1:?}'")]
     ExpectedTokenType(Token, TokenType),
     #[error("unexpected token '{0:?}'")]
     UnexpectedToken(Token),
-    #[error("unexpected end tag: {0}")]
-    UnexpectedEndTag(String),
     #[error("multi-line comment outside of script or style context")]
     InvalidMultLineComment,
-    #[error("unexpected end of file")]
-    UnexpectedEof,
-    #[error("found closing tag: {0}")]
-    ClosingTagFound(String),
     #[error(transparent)]
-    Node(#[from] AstError),
+    Ast(#[from] AstError),
+}
+
+#[derive(Debug)]
+pub enum Stream {
+    Empty,
+    AtBeginning,
+    AtEnd,
+    UnexpectedEof,
+    InvalidAccess,
+}
+
+#[derive(Debug)]
+pub enum Signal {
+    ClosingTagFound(String),
+}
+
+impl std::fmt::Display for Stream {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Empty => write!(f, "is empty"),
+            Self::AtBeginning => write!(f, "at beginning"),
+            Self::AtEnd => write!(f, "at end"),
+            Self::UnexpectedEof => write!(f, "unexpected end of file"),
+            Self::InvalidAccess => write!(f, "invalid access"),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -633,6 +632,9 @@ mod tests {
         let tokens = Lexer::new(source).tokenize().unwrap();
         let mut parser = Parser::new(tokens);
         let ast = parser.parse();
-        assert!(matches!(ast, Err(ParserError::UnexpectedEof)));
+        assert!(matches!(
+            ast,
+            Err(ParserError::StreamError(Stream::UnexpectedEof))
+        ));
     }
 }
