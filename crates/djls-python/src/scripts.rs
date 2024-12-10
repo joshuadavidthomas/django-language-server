@@ -3,7 +3,7 @@ macro_rules! include_script {
     ($name:expr) => {
         include_str!(concat!(
             env!("CARGO_WORKSPACE_DIR"),
-            "/python/djls/",
+            "python/djls/scripts/",
             $name,
             ".py"
         ))
