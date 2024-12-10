@@ -6,6 +6,6 @@ edition = "2021"
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
+thiserror = { workspace = true }
 
-thiserror = "2.0.4"
 which = "7.0.0"
