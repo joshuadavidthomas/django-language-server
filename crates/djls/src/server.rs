@@ -1,7 +1,11 @@
 use crate::documents::Store;
 use crate::notifier::Notifier;
+use crate::tasks::DebugTask;
 use anyhow::Result;
 use djls_django::DjangoProject;
+use djls_worker::Worker;
+use std::sync::Arc;
+use std::time::Duration;
 use tower_lsp::lsp_types::*;
 
 const SERVER_NAME: &str = "Django Language Server";
@@ -21,16 +25,20 @@ pub enum LspNotification {
 
 pub struct DjangoLanguageServer {
     django: DjangoProject,
-    notifier: Box<dyn Notifier>,
+    notifier: Arc<Box<dyn Notifier>>,
     documents: Store,
+    worker: Worker,
 }
 
 impl DjangoLanguageServer {
     pub fn new(django: DjangoProject, notifier: Box<dyn Notifier>) -> Self {
+        let notifier = Arc::new(notifier);
+
         Self {
             django,
             notifier,
             documents: Store::new(),
+            worker: Worker::new(),
         }
     }
 
@@ -66,6 +74,36 @@ impl DjangoLanguageServer {
                     MessageType::INFO,
                     &format!("Opened document: {}", params.text_document.uri),
                 )?;
+
+                // Execute - still sync
+                self.worker.execute(DebugTask::new(
+                    "Quick task".to_string(),
+                    Duration::from_millis(100),
+                    self.notifier.clone(),
+                ))?;
+
+                // Submit - spawn async task
+                let worker = self.worker.clone();
+                let task = DebugTask::new(
+                    "Important task".to_string(),
+                    Duration::from_secs(1),
+                    self.notifier.clone(),
+                );
+                tokio::spawn(async move {
+                    let _ = worker.submit(task).await;
+                });
+
+                // Wait for result - spawn async task
+                let worker = self.worker.clone();
+                let task = DebugTask::new(
+                    "Task with result".to_string(),
+                    Duration::from_secs(2),
+                    self.notifier.clone(),
+                );
+                tokio::spawn(async move {
+                    let _ = worker.wait_for(task).await;
+                });
+
                 Ok(())
             }
             LspNotification::DidChangeTextDocument(params) => {

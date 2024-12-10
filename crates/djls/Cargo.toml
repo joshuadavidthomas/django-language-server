@@ -6,11 +6,12 @@ edition = "2021"
 [dependencies]
 djls-django = { workspace = true }
 djls-python = { workspace = true }
+djls-worker = { workspace = true }
 
 anyhow = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+tokio = { workspace = true }
 
-tokio = { version = "1.42.0", features = ["full"] }
 tower-lsp = { version = "0.20.0", features = ["proposed"] }
 lsp-types = "0.97.0"

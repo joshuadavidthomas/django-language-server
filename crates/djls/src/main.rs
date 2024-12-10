@@ -1,6 +1,7 @@
 mod documents;
 mod notifier;
 mod server;
+mod tasks;
 
 use crate::notifier::TowerLspNotifier;
 use crate::server::{DjangoLanguageServer, LspNotification, LspRequest};
