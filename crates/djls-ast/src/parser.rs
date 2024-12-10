@@ -430,10 +430,7 @@ impl Parser {
     fn consume_if(&mut self, token_type: TokenType) -> Result<Token, ParserError> {
         let token = self.peek()?;
         if token.is_token_type(&token_type) {
-            return Err(ParserError::ExpectedTokenType(
-                self.peek()?.clone(),
-                token_type,
-            ));
+            return Err(ParserError::ExpectedTokenType(token_type));
         }
         self.consume()?;
         Ok(token)
@@ -475,8 +472,8 @@ pub enum ParserError {
     StreamError(Stream),
     #[error("parsing signal: {0:?}")]
     ErrorSignal(Signal),
-    #[error("unexpected token '{0:?}', expected type '{1:?}'")]
-    ExpectedTokenType(Token, TokenType),
+    #[error("unexpected token, expected type '{0:?}'")]
+    ExpectedTokenType(TokenType),
     #[error("unexpected token '{0:?}'")]
     UnexpectedToken(Token),
     #[error("multi-line comment outside of script or style context")]
