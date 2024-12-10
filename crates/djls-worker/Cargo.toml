@@ -1,0 +1,10 @@
+[package]
+name = "djls-worker"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+anyhow = { workspace = true }
+tokio = { workspace = true }
+
+async-trait = "0.1.83"
