@@ -4,6 +4,7 @@ use crate::tasks::DebugTask;
 use anyhow::Result;
 use djls_django::DjangoProject;
 use djls_worker::Worker;
+use std::sync::Arc;
 use std::time::Duration;
 use tower_lsp::lsp_types::*;
 
@@ -24,13 +25,15 @@ pub enum LspNotification {
 
 pub struct DjangoLanguageServer {
     django: DjangoProject,
-    notifier: Box<dyn Notifier>,
+    notifier: Arc<Box<dyn Notifier>>,
     documents: Store,
     worker: Worker,
 }
 
 impl DjangoLanguageServer {
     pub fn new(django: DjangoProject, notifier: Box<dyn Notifier>) -> Self {
+        let notifier = Arc::new(notifier);
+
         Self {
             django,
             notifier,
