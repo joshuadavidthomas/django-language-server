@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 djls-django = { workspace = true }
+djls-ipc = { workspace = true }
 djls-server = { workspace = true }
 
 anyhow = { workspace = true }

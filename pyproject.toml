@@ -16,7 +16,7 @@ dependencies = [
 ]
 
 [tool.hatch.build.targets.wheel]
-include = ["python/djls"]
+sources = ["python"]
 
 [dependency-groups]
 dev = [

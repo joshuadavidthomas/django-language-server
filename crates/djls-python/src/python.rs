@@ -1,10 +1,8 @@
 use crate::packaging::{Packages, PackagingError};
-use crate::runner::{Runner, RunnerError, ScriptRunner};
-use crate::scripts;
+use djls_ipc::{parse_json_response, JsonResponse, PythonProcess, TransportError};
 use serde::Deserialize;
 use std::fmt;
-use std::path::{Path, PathBuf};
-use which::which;
+use std::path::PathBuf;
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct VersionInfo {
@@ -60,29 +58,23 @@ pub struct Python {
     packages: Packages,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct PythonSetup(Python);
+impl TryFrom<JsonResponse> for Python {
+    type Error = TransportError;
 
-impl ScriptRunner for PythonSetup {
-    const SCRIPT: &'static str = scripts::PYTHON_SETUP;
-}
-
-impl From<PythonSetup> for Python {
-    fn from(setup: PythonSetup) -> Self {
-        setup.0
+    fn try_from(response: JsonResponse) -> Result<Self, Self::Error> {
+        response
+            .data()
+            .clone()
+            .ok_or_else(|| TransportError::Process("No data in response".to_string()))
+            .and_then(|data| serde_json::from_value(data).map_err(TransportError::Json))
     }
 }
 
 impl Python {
-    pub fn initialize() -> Result<Self, PythonError> {
-        let executable = which("python")?;
-        Ok(PythonSetup::run_with_path(&executable)?.into())
-    }
-}
-
-impl Runner for Python {
-    fn get_executable(&self) -> &Path {
-        &self.sys_executable
+    pub fn setup(python: &mut PythonProcess) -> Result<Self, PythonError> {
+        let response = python.send("python_setup", None)?;
+        let response = parse_json_response(response)?;
+        Ok(Self::try_from(response)?)
     }
 }
 
@@ -123,15 +115,9 @@ pub enum PythonError {
     #[error("Failed to locate Python executable: {0}")]
     PythonNotFound(#[from] which::Error),
 
-    #[error(transparent)]
-    Runner(#[from] Box<RunnerError>),
+    #[error("Transport error: {0}")]
+    Transport(#[from] TransportError),
 
     #[error("UTF-8 conversion error: {0}")]
     Utf8(#[from] std::string::FromUtf8Error),
-}
-
-impl From<RunnerError> for PythonError {
-    fn from(err: RunnerError) -> Self {
-        PythonError::Runner(Box::new(err))
-    }
 }

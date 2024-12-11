@@ -1,8 +1,6 @@
-use djls_python::{Python, RunnerError, ScriptRunner};
+use djls_ipc::{parse_json_response, JsonResponse, PythonProcess, TransportError};
 use serde::Deserialize;
 use std::fmt;
-
-use crate::scripts;
 
 #[derive(Debug)]
 pub struct App(String);
@@ -27,8 +25,16 @@ struct InstalledAppsCheck {
     has_app: bool,
 }
 
-impl ScriptRunner for InstalledAppsCheck {
-    const SCRIPT: &'static str = scripts::INSTALLED_APPS_CHECK;
+impl TryFrom<JsonResponse> for InstalledAppsCheck {
+    type Error = TransportError;
+
+    fn try_from(response: JsonResponse) -> Result<Self, Self::Error> {
+        response
+            .data()
+            .clone()
+            .ok_or_else(|| TransportError::Process("No data in response".to_string()))
+            .and_then(|data| serde_json::from_value(data).map_err(TransportError::Json))
+    }
 }
 
 impl Apps {
@@ -48,8 +54,10 @@ impl Apps {
         self.apps().iter()
     }
 
-    pub fn check_installed(py: &Python, app: &str) -> Result<bool, RunnerError> {
-        let result = InstalledAppsCheck::run_with_py_args(py, app)?;
+    pub fn check_installed(python: &mut PythonProcess, app: &str) -> Result<bool, TransportError> {
+        let response = python.send("installed_apps_check", Some(vec![app.to_string()]))?;
+        let response = parse_json_response(response)?;
+        let result = InstalledAppsCheck::try_from(response)?;
         Ok(result.has_app)
     }
 }

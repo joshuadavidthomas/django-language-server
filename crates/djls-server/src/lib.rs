@@ -7,6 +7,7 @@ use crate::notifier::TowerLspNotifier;
 use crate::server::{DjangoLanguageServer, LspNotification, LspRequest};
 use anyhow::Result;
 use djls_django::DjangoProject;
+use djls_ipc::PythonProcess;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tower_lsp::jsonrpc::Result as LspResult;
@@ -80,8 +81,8 @@ impl LanguageServer for TowerLspBackend {
     }
 }
 
-pub async fn serve() -> Result<()> {
-    let django = DjangoProject::setup()?;
+pub async fn serve(python: PythonProcess) -> Result<()> {
+    let django = DjangoProject::setup(python)?;
 
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
