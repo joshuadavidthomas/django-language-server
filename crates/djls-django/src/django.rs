@@ -1,14 +1,15 @@
 use crate::apps::Apps;
 use crate::gis::{check_gis_setup, GISError};
-use crate::scripts;
 use crate::templates::TemplateTags;
-use djls_python::{ImportCheck, Python, RunnerError, ScriptRunner};
+use djls_ipc::{parse_json_response, JsonResponse, PythonProcess, TransportError};
+use djls_python::{ImportCheck, Python};
 use serde::Deserialize;
 use std::fmt;
 
 #[derive(Debug)]
 pub struct DjangoProject {
     py: Python,
+    python: PythonProcess,
     settings_module: String,
     installed_apps: Apps,
     templatetags: TemplateTags,
@@ -20,54 +21,67 @@ struct DjangoSetup {
     templatetags: TemplateTags,
 }
 
-impl ScriptRunner for DjangoSetup {
-    const SCRIPT: &'static str = scripts::DJANGO_SETUP;
+impl DjangoSetup {
+    pub fn setup(python: &mut PythonProcess) -> Result<JsonResponse, ProjectError> {
+        let response = python.send("django_setup", None)?;
+        let response = parse_json_response(response)?;
+        Ok(response)
+    }
 }
 
 impl DjangoProject {
     fn new(
         py: Python,
+        python: PythonProcess,
         settings_module: String,
         installed_apps: Apps,
         templatetags: TemplateTags,
     ) -> Self {
         Self {
             py,
+            python,
             settings_module,
             installed_apps,
             templatetags,
         }
     }
 
-    pub fn setup() -> Result<Self, ProjectError> {
+    pub fn setup(mut python: PythonProcess) -> Result<Self, ProjectError> {
         let settings_module =
             std::env::var("DJANGO_SETTINGS_MODULE").expect("DJANGO_SETTINGS_MODULE must be set");
 
-        let py = Python::initialize()?;
+        let py = Python::setup(&mut python)?;
 
-        let has_django = ImportCheck::check(&py, "django")?;
+        let has_django = ImportCheck::check(&mut python, Some(vec!["django".to_string()]))?;
 
         if !has_django {
             return Err(ProjectError::DjangoNotFound);
         }
 
-        if !check_gis_setup(&py)? {
+        if !check_gis_setup(&mut python)? {
             eprintln!("Warning: GeoDjango detected but GDAL is not available.");
             eprintln!("Django initialization will be skipped. Some features may be limited.");
             eprintln!("To enable full functionality, please install GDAL and other GeoDjango prerequisites.");
 
             return Ok(Self {
                 py,
+                python,
                 settings_module,
                 installed_apps: Apps::default(),
                 templatetags: TemplateTags::default(),
             });
         }
 
-        let setup = DjangoSetup::run_with_py(&py)?;
+        let response = DjangoSetup::setup(&mut python)?;
+        let setup: DjangoSetup = response
+            .data()
+            .clone()
+            .ok_or_else(|| TransportError::Process("No data in response".to_string()))
+            .and_then(|data| serde_json::from_value(data).map_err(TransportError::Json))?;
 
         Ok(Self::new(
             py,
+            python,
             settings_module,
             Apps::from_strings(setup.installed_apps.to_vec()),
             setup.templatetags,
@@ -110,8 +124,11 @@ pub enum ProjectError {
     Json(#[from] serde_json::Error),
 
     #[error(transparent)]
-    Python(#[from] djls_python::PythonError),
+    Packaging(#[from] djls_python::PackagingError),
 
     #[error(transparent)]
-    Runner(#[from] RunnerError),
+    Python(#[from] djls_python::PythonError),
+
+    #[error("Transport error: {0}")]
+    Transport(#[from] TransportError),
 }

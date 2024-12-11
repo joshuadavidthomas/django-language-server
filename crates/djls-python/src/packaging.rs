@@ -1,6 +1,4 @@
-use crate::python::Python;
-use crate::runner::{RunnerError, ScriptRunner};
-use crate::scripts;
+use djls_ipc::{parse_json_response, JsonResponse, PythonProcess, TransportError};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::fmt;
@@ -59,8 +57,16 @@ pub struct ImportCheck {
     can_import: bool,
 }
 
-impl ScriptRunner for ImportCheck {
-    const SCRIPT: &'static str = scripts::HAS_IMPORT;
+impl TryFrom<JsonResponse> for ImportCheck {
+    type Error = TransportError;
+
+    fn try_from(response: JsonResponse) -> Result<Self, Self::Error> {
+        response
+            .data()
+            .clone()
+            .ok_or_else(|| TransportError::Process("No data in response".to_string()))
+            .and_then(|data| serde_json::from_value(data).map_err(TransportError::Json))
+    }
 }
 
 impl ImportCheck {
@@ -68,9 +74,14 @@ impl ImportCheck {
         self.can_import
     }
 
-    pub fn check(py: &Python, module: &str) -> Result<bool, RunnerError> {
-        let result = ImportCheck::run_with_py_args(py, module)?;
-        Ok(result.can_import)
+    pub fn check(
+        python: &mut PythonProcess,
+        modules: Option<Vec<String>>,
+    ) -> Result<bool, PackagingError> {
+        let response = python.send("has_import", modules)?;
+        let response = parse_json_response(response)?;
+        let check = Self::try_from(response)?;
+        Ok(check.can_import)
     }
 }
 
@@ -82,15 +93,9 @@ pub enum PackagingError {
     #[error("JSON parsing error: {0}")]
     Json(#[from] serde_json::Error),
 
-    #[error(transparent)]
-    Runner(#[from] Box<RunnerError>),
+    #[error("Transport error: {0}")]
+    Transport(#[from] TransportError),
 
     #[error("UTF-8 conversion error: {0}")]
     Utf8(#[from] std::string::FromUtf8Error),
-}
-
-impl From<RunnerError> for PackagingError {
-    fn from(err: RunnerError) -> Self {
-        PackagingError::Runner(Box::new(err))
-    }
 }

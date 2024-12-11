@@ -1,9 +1,9 @@
 use crate::apps::Apps;
-use djls_python::{Python, RunnerError};
+use djls_ipc::{PythonProcess, TransportError};
 use std::process::Command;
 
-pub fn check_gis_setup(py: &Python) -> Result<bool, GISError> {
-    let has_geodjango = Apps::check_installed(py, "django.contrib.gis")?;
+pub fn check_gis_setup(python: &mut PythonProcess) -> Result<bool, GISError> {
+    let has_geodjango = Apps::check_installed(python, "django.contrib.gis")?;
     let gdal_is_installed = Command::new("gdalinfo")
         .arg("--version")
         .output()
@@ -21,6 +21,6 @@ pub enum GISError {
     #[error("JSON parsing error: {0}")]
     Json(#[from] serde_json::Error),
 
-    #[error(transparent)]
-    Runner(#[from] RunnerError),
+    #[error("Transport error: {0}")]
+    Transport(#[from] TransportError),
 }

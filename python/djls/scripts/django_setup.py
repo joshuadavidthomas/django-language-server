@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import json
 
-from django.conf import settings
-from django.template.engine import Engine
-
 
 def get_django_setup_info():
+    from django.conf import settings
+    from django.template.engine import Engine
+
     return {
         "installed_apps": list(settings.INSTALLED_APPS),
         "templatetags": [
