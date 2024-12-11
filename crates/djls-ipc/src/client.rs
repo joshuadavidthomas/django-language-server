@@ -209,11 +209,9 @@ mod conn_unix_tests {
         // Channel to signal when server is ready
         let (tx, rx) = oneshot::channel();
 
-        // Start server
         let listener = UnixListener::bind(&socket_path)?;
 
         tokio::spawn(async move {
-            // Signal that we're listening
             tx.send(()).unwrap();
 
             let (stream, _) = listener.accept().await.unwrap();
@@ -234,20 +232,18 @@ mod conn_unix_tests {
             }
         });
 
-        // Wait for server to be ready
         rx.await?;
 
-        // Connect client
         let mut connection = Connection::connect(&socket_path).await?;
 
-        // Test single message
+        // single message
         connection.write_all(b"hello\n").await?;
         let mut response = String::new();
         let n = connection.read_line(&mut response).await?;
         assert_eq!(n, 6);
         assert_eq!(response, "hello\n");
 
-        // Test multiple messages
+        // multiple messages
         for i in 0..3 {
             let msg = format!("message{}\n", i);
             connection.write_all(msg.as_bytes()).await?;
@@ -257,7 +253,7 @@ mod conn_unix_tests {
             assert_eq!(response, msg);
         }
 
-        // Test large message
+        // large message
         let large_msg = "a".repeat(1000) + "\n";
         connection.write_all(large_msg.as_bytes()).await?;
         let mut response = String::new();
@@ -328,14 +324,12 @@ mod conn_unix_tests {
         let _connection = Connection::connect_with_config(&socket_path, test_config()).await?;
         let elapsed = start.elapsed();
 
-        // Should have retried at least once (10ms + 20ms)
         assert!(
             elapsed >= Duration::from_millis(30),
             "Connection succeeded too quickly ({:?}), should have retried",
             elapsed
         );
 
-        // But not too many times
         assert!(
             elapsed < Duration::from_millis(100),
             "Connection took too long ({:?}), too many retries",
@@ -357,8 +351,8 @@ mod conn_unix_tests {
 
         assert!(result.is_err());
 
-        // Should have waited approximately:
-        // 0 + 10 + 20 + 40 + 80 = 150ms
+        // Should have waited approximately
+        // 0 + 10 + 20 + 40 + 80 ~= 150ms
         assert!(
             elapsed >= Duration::from_millis(150),
             "Didn't retry enough times ({:?})",
