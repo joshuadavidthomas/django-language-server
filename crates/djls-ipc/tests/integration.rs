@@ -1,3 +1,8 @@
+use std::{
+    path::Path,
+    time::{Duration, Instant},
+};
+
 use anyhow::Result;
 use djls_ipc::{Client, Server};
 use serde::{Deserialize, Serialize};
@@ -136,6 +141,67 @@ async fn test_rapid_messages() -> Result<()> {
         let response: String = client.send(msg.clone()).await?;
         assert_eq!(response, msg);
     }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_connect_with_delayed_server() -> Result<()> {
+    let path = format!("{}/echo_server.py", FIXTURES_PATH);
+    let server_path = Path::new(&path).to_owned();
+
+    // Start server with a shorter delay
+    let server_handle = tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        Server::start_script(server_path.to_str().unwrap(), &[])
+    });
+
+    // Wait for server to start
+    let server = server_handle.await??;
+    let mut client = Client::connect(server.get_path()).await?;
+
+    // Test the connection works
+    let msg = "test".to_string();
+    let response: String = client.send(msg.clone()).await?;
+    assert_eq!(response, msg);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_connect_with_server_restart() -> Result<()> {
+    let temp_dir = tempfile::tempdir()?;
+    let socket_path = temp_dir.path().join("ipc.sock");
+
+    // Start first server
+    let path = format!("{}/echo_server.py", FIXTURES_PATH);
+    let server = Server::start_script(&path, &["--ipc-path", socket_path.to_str().unwrap()])?;
+
+    let mut client = Client::connect(&socket_path).await?;
+
+    let msg = "test".to_string();
+    let response: String = client.send(msg.clone()).await?;
+    assert_eq!(response, msg);
+
+    // Drop old server and client
+    drop(server);
+    drop(client);
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    // Start new server
+    let new_server = Server::start_script(&path, &["--ipc-path", socket_path.to_str().unwrap()])?;
+    println!(
+        "Second server started, socket path: {:?}",
+        new_server.get_path()
+    );
+
+    // Create new client
+    let mut new_client = Client::connect(&socket_path).await?;
+
+    // Try to send a message
+    let msg = "test after restart".to_string();
+    let response: String = new_client.send(msg.clone()).await?;
+    assert_eq!(response, msg);
 
     Ok(())
 }
