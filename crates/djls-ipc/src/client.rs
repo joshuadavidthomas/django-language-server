@@ -30,20 +30,12 @@ pub trait ConnectionTrait: Send {
 }
 
 pub struct Connection {
-    #[cfg(unix)]
     inner: UnixConnection,
-    #[cfg(windows)]
-    inner: WindowsConnection,
 }
 
 #[cfg(unix)]
 pub struct UnixConnection {
     stream: tokio::net::UnixStream,
-}
-
-#[cfg(windows)]
-pub struct WindowsConnection {
-    pipe: tokio::net::windows::named_pipe::NamedPipeClient,
 }
 
 impl Connection {
@@ -60,25 +52,10 @@ impl Connection {
 
         for attempt in 0..config.max_retries {
             let result = {
-                #[cfg(unix)]
-                {
-                    let stream = tokio::net::UnixStream::connect(path).await;
-                    stream
-                        .map(|s| Box::new(UnixConnection { stream: s }) as Box<dyn ConnectionTrait>)
-                        .context("Failed to connect to Unix socket")
-                }
-
-                #[cfg(windows)]
-                {
-                    let pipe_path =
-                        format!(r"\\.\pipe\{}", path.file_name().unwrap().to_string_lossy());
-                    let pipe =
-                        tokio::net::windows::named_pipe::ClientOptions::new().open(&pipe_path);
-                    pipe.map(|p| {
-                        Box::new(WindowsConnection { pipe: p }) as Box<dyn ConnectionTrait>
-                    })
-                    .context("Failed to connect to named pipe")
-                }
+                let stream = tokio::net::UnixStream::connect(path).await;
+                stream
+                    .map(|s| Box::new(UnixConnection { stream: s }) as Box<dyn ConnectionTrait>)
+                    .context("Failed to connect to Unix socket")
             };
 
             match result {
@@ -112,21 +89,6 @@ impl ConnectionTrait for UnixConnection {
 
     async fn read_line(&mut self, buf: &mut String) -> Result<usize> {
         let mut reader = BufReader::new(&mut self.stream);
-        let bytes_read = reader.read_line(buf).await?;
-        Ok(bytes_read)
-    }
-}
-
-#[cfg(windows)]
-#[async_trait]
-impl ConnectionTrait for WindowsConnection {
-    async fn write_all(&mut self, buf: &[u8]) -> Result<()> {
-        self.pipe.write_all(buf).await?;
-        Ok(())
-    }
-
-    async fn read_line(&mut self, buf: &mut String) -> Result<usize> {
-        let mut reader = BufReader::new(&mut self.pipe);
         let bytes_read = reader.read_line(buf).await?;
         Ok(bytes_read)
     }
@@ -183,9 +145,8 @@ impl Client {
     }
 }
 
-#[cfg(unix)]
 #[cfg(test)]
-mod conn_unix_tests {
+mod conn_tests {
     use super::*;
     use tempfile::NamedTempFile;
     use tokio::net::UnixListener;
@@ -363,84 +324,6 @@ mod conn_unix_tests {
             "Retried for too long ({:?})",
             elapsed
         );
-
-        Ok(())
-    }
-}
-
-#[cfg(windows)]
-#[cfg(test)]
-mod conn_windows_tests {
-    use super::*;
-    use tokio::net::windows::named_pipe::{ClientOptions, ServerOptions};
-    use tokio::sync::oneshot;
-    use uuid::Uuid;
-
-    async fn create_server_pipe() -> Result<(String, oneshot::Receiver<()>)> {
-        let pipe_name = format!(r"\\.\pipe\test_{}", Uuid::new_v4());
-        let (tx, rx) = oneshot::channel();
-
-        let mut server = ServerOptions::new().create(&pipe_name)?;
-
-        tokio::spawn(async move {
-            server.connect().await.unwrap();
-            tx.send(()).unwrap();
-
-            loop {
-                let mut buf = [0; 1024];
-                match server.try_read(&mut buf) {
-                    Ok(0) => break, // EOF
-                    Ok(n) => {
-                        server.write_all(&buf[..n]).await.unwrap();
-                    }
-                    Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                        tokio::task::yield_now().await;
-                        continue;
-                    }
-                    Err(e) => panic!("Error reading from pipe: {}", e),
-                }
-            }
-        });
-
-        Ok((pipe_name, rx))
-    }
-
-    #[tokio::test]
-    async fn test_basic_pipe_communication() -> Result<()> {
-        let (pipe_name, rx) = create_server_pipe().await?;
-
-        // Wait for server to be ready
-        rx.await?;
-
-        let mut connection = Connection::connect(Path::new(&pipe_name)).await?;
-
-        // Test write/read
-        connection.write_all(b"hello\n").await?;
-        let mut response = String::new();
-        let n = connection.read_line(&mut response).await?;
-        assert_eq!(n, 6);
-        assert_eq!(response, "hello\n");
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_nonexistent_pipe() -> Result<()> {
-        let pipe_name = format!(r"\\.\pipe\nonexistent_{}", Uuid::new_v4());
-        let result = Connection::connect(Path::new(&pipe_name)).await;
-        assert!(result.is_err());
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_pipe_busy() -> Result<()> {
-        // Create a pipe but don't allow connections
-        let pipe_name = format!(r"\\.\pipe\busy_{}", Uuid::new_v4());
-        let _server = ServerOptions::new().create(&pipe_name)?;
-
-        // Try to connect - should fail because server isn't accepting
-        let result = Connection::connect(Path::new(&pipe_name)).await;
-        assert!(result.is_err());
 
         Ok(())
     }

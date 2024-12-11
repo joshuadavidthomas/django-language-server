@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-import sys
 from pathlib import Path
 
 
@@ -27,22 +26,15 @@ async def handle_client(reader, writer):
 
 
 async def main(ipc_path):
-    if sys.platform == "win32":
-        pipe_path = rf"\\.\pipe\{Path(ipc_path).name}"
-        server = await asyncio.start_server(
-            handle_client,
-            pipe=pipe_path,
-        )
-    else:
-        try:
-            Path(ipc_path).unlink()
-        except FileNotFoundError:
-            pass
+    try:
+        Path(ipc_path).unlink()
+    except FileNotFoundError:
+        pass
 
-        server = await asyncio.start_unix_server(
-            handle_client,
-            path=ipc_path,
-        )
+    server = await asyncio.start_unix_server(
+        handle_client,
+        path=ipc_path,
+    )
 
     async with server:
         await server.serve_forever()

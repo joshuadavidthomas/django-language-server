@@ -8,8 +8,6 @@ use tempfile::{tempdir, TempDir};
 pub struct Server {
     #[cfg(unix)]
     socket_path: PathBuf,
-    #[cfg(windows)]
-    pipe_path: String,
     process: Child,
     _temp_dir: TempDir,
 }
@@ -26,16 +24,9 @@ impl Server {
     fn start_with_options(python_path: &str, args: &[&str], use_module: bool) -> Result<Self> {
         let temp_dir = tempdir()?;
 
-        #[cfg(unix)]
         let path = {
             let socket_path = temp_dir.path().join("ipc.sock");
             socket_path
-        };
-
-        #[cfg(windows)]
-        let path = {
-            let pipe_name = format!("ipc_{}", uuid::Uuid::new_v4());
-            temp_dir.path().join(pipe_name)
         };
 
         let mut command = Command::new("python");
@@ -50,34 +41,15 @@ impl Server {
 
         sleep(Duration::from_millis(100));
 
-        #[cfg(unix)]
-        {
-            Ok(Self {
-                socket_path: path,
-                process,
-                _temp_dir: temp_dir,
-            })
-        }
-
-        #[cfg(windows)]
-        {
-            Ok(Self {
-                pipe_path: format!(r"\\.\pipe\{}", path.file_name().unwrap().to_string_lossy()),
-                process,
-                _temp_dir: temp_dir,
-            })
-        }
+        Ok(Self {
+            socket_path: path,
+            process,
+            _temp_dir: temp_dir,
+        })
     }
 
     pub fn get_path(&self) -> &Path {
-        #[cfg(unix)]
-        {
-            &self.socket_path
-        }
-        #[cfg(windows)]
-        {
-            Path::new(&self.pipe_path)
-        }
+        &self.socket_path
     }
 }
 

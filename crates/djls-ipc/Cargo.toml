@@ -11,6 +11,3 @@ serde_json = { workspace = true }
 tokio = { workspace = true }
 
 tempfile = "3.14.0"
-
-[target.'cfg(windows)'.dependencies]
-uuid = { version = "1.11.0", features = ["v4"] }
