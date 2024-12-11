@@ -24,10 +24,11 @@ impl Server {
     fn start_with_options(python_path: &str, args: &[&str], use_module: bool) -> Result<Self> {
         let temp_dir = tempdir()?;
 
-        let path = {
-            let socket_path = temp_dir.path().join("ipc.sock");
-            socket_path
-        };
+        let path = args
+            .windows(2)
+            .find(|w| w[0] == "--ipc-path")
+            .map(|w| PathBuf::from(w[1]))
+            .unwrap_or_else(|| temp_dir.path().join("ipc.sock"));
 
         let mut command = Command::new("python");
         if use_module {

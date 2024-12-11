@@ -1,10 +1,13 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use std::{path::Path, time::Duration};
+use std::{
+    path::{Path, PathBuf},
+    time::Duration,
+};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) struct ConnectionConfig {
     max_retries: u32,
     initial_delay_ms: u64,
@@ -103,6 +106,7 @@ pub struct Message<T> {
 pub struct Client {
     connection: Box<dyn ConnectionTrait>,
     message_id: u64,
+    socket_path: PathBuf,
 }
 
 impl Client {
@@ -111,6 +115,7 @@ impl Client {
         Ok(Self {
             connection,
             message_id: 0,
+            socket_path: path.to_owned(),
         })
     }
 
@@ -378,16 +383,21 @@ mod client_tests {
         value: String,
     }
 
+    fn create_test_client(mock_conn: MockConnection) -> Client {
+        Client {
+            connection: Box::new(mock_conn),
+            message_id: 0,
+            socket_path: PathBuf::from("/test/socket"),
+        }
+    }
+
     #[tokio::test]
     async fn test_successful_message_exchange() -> Result<()> {
         let mock_conn = MockConnection::new(vec![Ok(
             r#"{"id":1,"content":{"value":"response"}}"#.to_string()
         )]);
 
-        let mut client = Client {
-            connection: Box::new(mock_conn),
-            message_id: 0,
-        };
+        let mut client = create_test_client(mock_conn);
 
         let request = TestMessage {
             value: "test".to_string(),
@@ -403,10 +413,7 @@ mod client_tests {
     async fn test_connection_error() {
         let mock_conn = MockConnection::new(vec![Err(anyhow::anyhow!("Connection error"))]);
 
-        let mut client = Client {
-            connection: Box::new(mock_conn),
-            message_id: 0,
-        };
+        let mut client = create_test_client(mock_conn);
 
         let request = TestMessage {
             value: "test".to_string(),
@@ -422,10 +429,7 @@ mod client_tests {
             r#"{"id":2,"content":{"value":"response"}}"#.to_string()
         )]);
 
-        let mut client = Client {
-            connection: Box::new(mock_conn),
-            message_id: 0,
-        };
+        let mut client = create_test_client(mock_conn);
 
         let request = TestMessage {
             value: "test".to_string(),
@@ -443,10 +447,7 @@ mod client_tests {
     async fn test_invalid_json_response() {
         let mock_conn = MockConnection::new(vec![Ok("invalid json".to_string())]);
 
-        let mut client = Client {
-            connection: Box::new(mock_conn),
-            message_id: 0,
-        };
+        let mut client = create_test_client(mock_conn);
 
         let request = TestMessage {
             value: "test".to_string(),
@@ -462,10 +463,7 @@ mod client_tests {
             Ok(r#"{"id":2,"content":{"value":"response2"}}"#.to_string()),
         ]);
 
-        let mut client = Client {
-            connection: Box::new(mock_conn),
-            message_id: 0,
-        };
+        let mut client = create_test_client(mock_conn);
 
         let request1 = TestMessage {
             value: "test1".to_string(),
