@@ -391,7 +391,7 @@ mod conn_windows_tests {
                 match server.try_read(&mut buf) {
                     Ok(0) => break, // EOF
                     Ok(n) => {
-                        server.try_write(&buf[..n]).await.unwrap();
+                        server.write_all(&buf[..n]).await.unwrap();
                     }
                     Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                         tokio::task::yield_now().await;
