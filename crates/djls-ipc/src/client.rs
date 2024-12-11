@@ -50,7 +50,7 @@ impl Connection {
         path: &Path,
         config: ConnectionConfig,
     ) -> Result<Box<dyn ConnectionTrait>> {
-        let mut current_delay = config.initial_delay_ms;
+        let mut current_delay = u64::from(config.initial_delay_ms);
         let mut last_error = None;
 
         for attempt in 0..config.max_retries {
@@ -69,8 +69,8 @@ impl Connection {
                     if attempt < config.max_retries - 1 {
                         tokio::time::sleep(Duration::from_millis(current_delay)).await;
 
-                        current_delay = ((current_delay as f64 * config.backoff_factor) as u64)
-                            .min(config.max_delay_ms);
+                        current_delay = ((current_delay as f32 * config.backoff_factor) as u64)
+                            .min(u64::from(config.max_delay_ms));
                     }
                 }
             }
