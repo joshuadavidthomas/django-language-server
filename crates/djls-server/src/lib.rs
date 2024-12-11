@@ -80,8 +80,7 @@ impl LanguageServer for TowerLspBackend {
     }
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
+pub async fn serve() -> Result<()> {
     let django = DjangoProject::setup()?;
 
     let stdin = tokio::io::stdin();
