@@ -81,8 +81,6 @@ pub struct Message<T> {
 pub struct Client {
     connection: Connection,
     message_id: u64,
-    #[cfg(test)]
-    socket_path: PathBuf,
 }
 
 impl Client {
@@ -91,8 +89,6 @@ impl Client {
         Ok(Self {
             connection,
             message_id: 0,
-            #[cfg(test)]
-            socket_path: path.to_owned(),
         })
     }
 
@@ -359,7 +355,6 @@ mod client_tests {
     struct TestClient {
         connection: MockConnection,
         message_id: u64,
-        socket_path: PathBuf,
     }
 
     impl TestClient {
@@ -367,7 +362,6 @@ mod client_tests {
             Self {
                 connection: mock_conn,
                 message_id: 0,
-                socket_path: PathBuf::from("/test/socket"),
             }
         }
 
