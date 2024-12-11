@@ -1,8 +1,27 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::{path::Path, time::Duration};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+#[derive(Clone, Debug)]
+pub(crate) struct ConnectionConfig {
+    max_retries: u32,
+    initial_delay_ms: u64,
+    max_delay_ms: u64,
+    backoff_factor: f64,
+}
+
+impl Default for ConnectionConfig {
+    fn default() -> Self {
+        Self {
+            max_retries: 5,
+            initial_delay_ms: 100,
+            max_delay_ms: 5000,
+            backoff_factor: 2.0,
+        }
+    }
+}
 
 #[async_trait]
 pub trait ConnectionTrait: Send {
@@ -29,18 +48,57 @@ pub struct WindowsConnection {
 
 impl Connection {
     pub async fn connect(path: &Path) -> Result<Box<dyn ConnectionTrait>> {
-        #[cfg(unix)]
-        {
-            let stream = tokio::net::UnixStream::connect(path).await?;
-            Ok(Box::new(UnixConnection { stream }))
+        Self::connect_with_config(path, ConnectionConfig::default()).await
+    }
+
+    pub(crate) async fn connect_with_config(
+        path: &Path,
+        config: ConnectionConfig,
+    ) -> Result<Box<dyn ConnectionTrait>> {
+        let mut current_delay = config.initial_delay_ms;
+        let mut last_error = None;
+
+        for attempt in 0..config.max_retries {
+            let result = {
+                #[cfg(unix)]
+                {
+                    let stream = tokio::net::UnixStream::connect(path).await;
+                    stream
+                        .map(|s| Box::new(UnixConnection { stream: s }) as Box<dyn ConnectionTrait>)
+                        .context("Failed to connect to Unix socket")
+                }
+
+                #[cfg(windows)]
+                {
+                    let pipe_path =
+                        format!(r"\\.\pipe\{}", path.file_name().unwrap().to_string_lossy());
+                    let pipe =
+                        tokio::net::windows::named_pipe::ClientOptions::new().open(&pipe_path);
+                    pipe.map(|p| {
+                        Box::new(WindowsConnection { pipe: p }) as Box<dyn ConnectionTrait>
+                    })
+                    .context("Failed to connect to named pipe")
+                }
+            };
+
+            match result {
+                Ok(connection) => return Ok(connection),
+                Err(e) => {
+                    last_error = Some(e);
+
+                    if attempt < config.max_retries - 1 {
+                        tokio::time::sleep(Duration::from_millis(current_delay)).await;
+
+                        current_delay = ((current_delay as f64 * config.backoff_factor) as u64)
+                            .min(config.max_delay_ms);
+                    }
+                }
+            }
         }
 
-        #[cfg(windows)]
-        {
-            let pipe_path = format!(r"\\.\pipe\{}", path.file_name().unwrap().to_string_lossy());
-            let pipe = tokio::net::windows::named_pipe::ClientOptions::new().open(&pipe_path)?;
-            Ok(Box::new(WindowsConnection { pipe }))
-        }
+        Err(last_error.unwrap_or_else(|| {
+            anyhow::anyhow!("Failed to connect after {} attempts", config.max_retries)
+        }))
     }
 }
 
@@ -132,6 +190,15 @@ mod conn_unix_tests {
     use tempfile::NamedTempFile;
     use tokio::net::UnixListener;
     use tokio::sync::oneshot;
+
+    fn test_config() -> ConnectionConfig {
+        ConnectionConfig {
+            max_retries: 5,
+            initial_delay_ms: 10,
+            max_delay_ms: 100,
+            backoff_factor: 2.0,
+        }
+    }
 
     #[tokio::test]
     async fn test_unix_connection() -> Result<()> {
@@ -239,6 +306,70 @@ mod conn_unix_tests {
         assert!(result.is_err() || result.unwrap() == 0);
 
         server_handle.await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_connection_retry() -> Result<()> {
+        let temp_file = NamedTempFile::new()?;
+        let socket_path = temp_file.path().to_owned();
+        temp_file.close()?;
+
+        let socket_path_clone = socket_path.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(25)).await;
+
+            let listener = tokio::net::UnixListener::bind(&socket_path_clone).unwrap();
+            let (stream, _) = listener.accept().await.unwrap();
+            drop(stream);
+        });
+
+        let start = std::time::Instant::now();
+        let _connection = Connection::connect_with_config(&socket_path, test_config()).await?;
+        let elapsed = start.elapsed();
+
+        // Should have retried at least once (10ms + 20ms)
+        assert!(
+            elapsed >= Duration::from_millis(30),
+            "Connection succeeded too quickly ({:?}), should have retried",
+            elapsed
+        );
+
+        // But not too many times
+        assert!(
+            elapsed < Duration::from_millis(100),
+            "Connection took too long ({:?}), too many retries",
+            elapsed
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_connection_max_retries() -> Result<()> {
+        let temp_file = NamedTempFile::new()?;
+        let socket_path = temp_file.path().to_owned();
+        temp_file.close()?;
+
+        let start = std::time::Instant::now();
+        let result = Connection::connect_with_config(&socket_path, test_config()).await;
+        let elapsed = start.elapsed();
+
+        assert!(result.is_err());
+
+        // Should have waited approximately:
+        // 0 + 10 + 20 + 40 + 80 = 150ms
+        assert!(
+            elapsed >= Duration::from_millis(150),
+            "Didn't retry enough times ({:?})",
+            elapsed
+        );
+        assert!(
+            elapsed < Duration::from_millis(200),
+            "Retried for too long ({:?})",
+            elapsed
+        );
+
         Ok(())
     }
 }
