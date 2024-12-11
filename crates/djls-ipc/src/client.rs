@@ -380,7 +380,7 @@ mod conn_windows_tests {
         let pipe_name = format!(r"\\.\pipe\test_{}", Uuid::new_v4());
         let (tx, rx) = oneshot::channel();
 
-        let server = ServerOptions::new().create(&pipe_name)?;
+        let mut server = ServerOptions::new().create(&pipe_name)?;
 
         tokio::spawn(async move {
             server.connect().await.unwrap();
