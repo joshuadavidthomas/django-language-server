@@ -9,10 +9,10 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct ConnectionConfig {
-    max_retries: u32,
-    initial_delay_ms: u64,
-    max_delay_ms: u64,
-    backoff_factor: f64,
+    max_retries: u16,
+    initial_delay_ms: u16,
+    max_delay_ms: u32,
+    backoff_factor: f32,
 }
 
 impl Default for ConnectionConfig {
