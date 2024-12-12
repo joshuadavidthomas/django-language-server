@@ -1,4 +1,4 @@
-use djls_ipc::{parse_json_response, JsonResponse, PythonProcess, TransportError};
+use djls_ipc::{JsonResponse, PythonProcess, TransportError, TransportMessage, TransportResponse};
 use serde::Deserialize;
 use std::fmt;
 
@@ -55,10 +55,18 @@ impl Apps {
     }
 
     pub fn check_installed(python: &mut PythonProcess, app: &str) -> Result<bool, TransportError> {
-        let response = python.send("installed_apps_check", Some(vec![app.to_string()]))?;
-        let response = parse_json_response(response)?;
-        let result = InstalledAppsCheck::try_from(response)?;
-        Ok(result.has_app)
+        let message = TransportMessage::Json("installed_apps_check".to_string());
+        let response = python.send(message, Some(vec![app.to_string()]))?;
+        match response {
+            TransportResponse::Json(json_str) => {
+                let json_response: JsonResponse = serde_json::from_str(&json_str)?;
+                let result = InstalledAppsCheck::try_from(json_response)?;
+                Ok(result.has_app)
+            }
+            _ => Err(TransportError::Process(
+                "Unexpected response type".to_string(),
+            )),
+        }
     }
 }
 
