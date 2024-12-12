@@ -1,5 +1,7 @@
 use clap::{Args, Parser, Subcommand};
-use djls_ipc::{PythonProcess, Transport};
+use djls_ipc::v1::*;
+use djls_ipc::{ProcessError, PythonProcess, TransportError};
+use std::ffi::OsStr;
 use std::time::Duration;
 
 #[derive(Debug, Parser)]
@@ -41,8 +43,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match cli.command {
         Commands::Serve(opts) => {
-            let python =
-                PythonProcess::new("djls.lsp", Transport::Json, opts.health_check_interval())?;
+            println!("Starting LSP server...");
+            let python = PythonProcess::new::<Vec<&OsStr>, &OsStr>(
+                "djls.agent",
+                None,
+                opts.health_check_interval(),
+            )?;
+            println!("LSP server started, beginning to serve...");
             djls_server::serve(python).await?
         }
     }

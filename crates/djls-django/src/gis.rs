@@ -1,5 +1,5 @@
 use crate::apps::Apps;
-use djls_ipc::{PythonProcess, TransportError};
+use djls_ipc::{ProcessError, PythonProcess, TransportError};
 use std::process::Command;
 
 pub fn check_gis_setup(python: &mut PythonProcess) -> Result<bool, GISError> {
@@ -17,10 +17,10 @@ pub fn check_gis_setup(python: &mut PythonProcess) -> Result<bool, GISError> {
 pub enum GISError {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
-
     #[error("JSON parsing error: {0}")]
     Json(#[from] serde_json::Error),
-
+    #[error("Process error: {0}")]
+    Process(#[from] ProcessError),
     #[error("Transport error: {0}")]
     Transport(#[from] TransportError),
 }

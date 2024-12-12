@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package djls.v1.check;
+
+message HealthRequest {}
+message HealthResponse {
+    bool passed = 1;
+    optional string error = 2;
+}
+
+message DjangoAvailableRequest {}
+message DjangoAvailableResponse {
+    bool passed = 1;
+    optional string error = 2;
+}
+
+message AppInstalledRequest {
+    string app_name = 1;
+}
+message AppInstalledResponse {
+    bool passed = 1;
+    optional string error = 2;
+}

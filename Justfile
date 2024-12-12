@@ -8,6 +8,9 @@ mod proto ".just/proto.just"
 default:
     @just --list
 
+clean:
+    rm -rf target/
+
 # run pre-commit on all files
 lint:
     @just --fmt
