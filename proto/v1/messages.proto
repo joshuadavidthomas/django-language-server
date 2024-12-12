@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+package djls.v1.messages;
+
+import "v1/check.proto";
+import "v1/django.proto";
+import "v1/python.proto";
+
+message Request {
+    oneof command {
+        check.HealthRequest check__health = 1;
+        check.DjangoAvailableRequest check__django_available = 2;
+        check.AppInstalledRequest check__app_installed = 3;
+        python.GetEnvironmentRequest python__get_environment = 1000;
+        django.GetProjectInfoRequest django__get_project_info = 2000;
+    }
+}
+
+message Response {
+    oneof result {
+        check.HealthResponse check__health = 1;
+        check.DjangoAvailableResponse check__django_available = 2;
+        check.AppInstalledResponse check__app_installed = 3;
+        python.GetEnvironmentResponse python__get_environment = 1000;
+        django.GetProjectInfoResponse django__get_project_info = 2000;
+        Error error = 9000;
+    }
+}
+
+message Error {
+    Code code = 1;
+    string message = 2;
+    string traceback = 3;
+    enum Code {
+        UNKNOWN = 0;
+        INVALID_REQUEST = 1;
+        PYTHON_ERROR = 2;
+        DJANGO_ERROR = 3;
+    }
+}

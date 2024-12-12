@@ -9,7 +9,6 @@ djls-django = { path = "crates/djls-django" }
 djls-ipc = { path = "crates/djls-ipc" }
 djls-python = { path = "crates/djls-python" }
 djls-server = { path = "crates/djls-server" }
-djls-types = { path = "crates/djls-types" }
 djls-worker = { path = "crates/djls-worker" }
 
 anyhow = "1.0.94"

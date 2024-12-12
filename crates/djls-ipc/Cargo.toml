@@ -4,15 +4,16 @@ version = "0.0.0"
 edition = "2021"
 
 [dependencies]
-djls-types = { workspace = true }
-
 anyhow = { workspace = true }
 async-trait = { workspace = true }
-prost = { workspace = true }
-bytes = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 
-tempfile = "3.14.0"
+bytes = "1.9"
+prost = "0.13"
+tempfile = "3.14"
+
+[build-dependencies]
+prost-build = "0.13"

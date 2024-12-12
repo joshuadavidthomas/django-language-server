@@ -1,5 +1,5 @@
-use djls_ipc::{JsonResponse, PythonProcess, TransportError, TransportMessage, TransportResponse};
-use serde::Deserialize;
+use djls_ipc::v1::*;
+use djls_ipc::{ProcessError, PythonProcess};
 use std::fmt;
 
 #[derive(Debug)]
@@ -20,23 +20,6 @@ impl fmt::Display for App {
 #[derive(Debug, Default)]
 pub struct Apps(Vec<App>);
 
-#[derive(Debug, Deserialize)]
-struct InstalledAppsCheck {
-    has_app: bool,
-}
-
-impl TryFrom<JsonResponse> for InstalledAppsCheck {
-    type Error = TransportError;
-
-    fn try_from(response: JsonResponse) -> Result<Self, Self::Error> {
-        response
-            .data()
-            .clone()
-            .ok_or_else(|| TransportError::Process("No data in response".to_string()))
-            .and_then(|data| serde_json::from_value(data).map_err(TransportError::Json))
-    }
-}
-
 impl Apps {
     pub fn from_strings(apps: Vec<String>) -> Self {
         Self(apps.into_iter().map(App).collect())
@@ -54,18 +37,21 @@ impl Apps {
         self.apps().iter()
     }
 
-    pub fn check_installed(python: &mut PythonProcess, app: &str) -> Result<bool, TransportError> {
-        let message = TransportMessage::Json("installed_apps_check".to_string());
-        let response = python.send(message, Some(vec![app.to_string()]))?;
-        match response {
-            TransportResponse::Json(json_str) => {
-                let json_response: JsonResponse = serde_json::from_str(&json_str)?;
-                let result = InstalledAppsCheck::try_from(json_response)?;
-                Ok(result.has_app)
-            }
-            _ => Err(TransportError::Process(
-                "Unexpected response type".to_string(),
+    pub fn check_installed(python: &mut PythonProcess, app: &str) -> Result<bool, ProcessError> {
+        let request = messages::Request {
+            command: Some(messages::request::Command::CheckAppInstalled(
+                check::AppInstalledRequest {
+                    app_name: app.to_string(),
+                },
             )),
+        };
+
+        let response = python.send(request).map_err(ProcessError::Transport)?;
+
+        match response.result {
+            Some(messages::response::Result::CheckAppInstalled(response)) => Ok(response.passed),
+            Some(messages::response::Result::Error(e)) => Err(ProcessError::Health(e.message)),
+            _ => Err(ProcessError::Response),
         }
     }
 }

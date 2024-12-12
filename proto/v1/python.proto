@@ -1,0 +1,80 @@
+syntax = "proto3";
+
+package djls.v1.python;
+
+// models
+message Python {
+    Os os = 1;
+    Site site = 2;
+    Sys sys = 3;
+    Sysconfig sysconfig = 4;
+}
+
+message Os {
+    map<string, string> environ = 1;
+}
+
+message Site {
+    map<string, Package> packages = 1;
+}
+
+message Sys {
+    bool debug_build = 1;
+    bool dev_mode = 2;
+    bool is_venv = 3;
+    string abiflags = 4;
+    string base_prefix = 5;
+    string default_encoding = 6;
+    string executable = 7;
+    string filesystem_encoding = 8;
+    string implementation_name = 9;
+    string platform = 10;
+    string prefix = 11;
+    repeated string builtin_module_names = 12;
+    repeated string dll_paths = 13;
+    repeated string path = 14;
+    VersionInfo version_info = 15;
+}
+
+message VersionInfo {
+    uint32 major = 1;
+    uint32 minor = 2;
+    uint32 micro = 3;
+    ReleaseLevel releaselevel = 4;
+    uint32 serial = 5;
+}
+
+enum ReleaseLevel {
+    ALPHA = 0;
+    BETA = 1;
+    CANDIDATE = 2;
+    FINAL = 3;
+}
+
+message Sysconfig {
+    string data = 1;
+    string include = 2;
+    string platinclude = 3;
+    string platlib = 4;
+    string platstdlib = 5;
+    string purelib = 6;
+    string scripts = 7;
+    string stdlib = 8;
+}
+
+message Package {
+    string dist_name = 1;
+    string dist_version = 2;
+    optional bool dist_editable = 3;
+    optional string dist_entry_points = 4;
+    optional string dist_location = 5;
+    repeated string dist_requires = 6;
+    optional string dist_requires_python = 7;
+}
+
+// commands
+message GetEnvironmentRequest {}
+
+message GetEnvironmentResponse {
+    Python python = 1;
+}
