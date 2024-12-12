@@ -35,6 +35,9 @@ jobs:
           enable-cache: true
           version: ${{ env.UV_VERSION }}
 
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+
       - name: Install dependencies and build
         run: |
           uv sync --frozen
