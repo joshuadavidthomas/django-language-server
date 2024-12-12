@@ -36,9 +36,15 @@ class LSPAgent:
 
     def serve(self):
         print("ready", flush=True)
-        import django
 
-        django.setup()
+        try:
+            import django
+
+            django.setup()
+
+        except Exception as e:
+            error_response = self.create_error(messages_pb2.Error.DJANGO_ERROR, str(e))
+            self.write_message(error_response)
 
         while True:
             try:
