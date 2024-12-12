@@ -1,5 +1,5 @@
 use crate::packaging::{Packages, PackagingError};
-use djls_ipc::{parse_json_response, JsonResponse, PythonProcess, TransportError};
+use djls_ipc::{JsonResponse, PythonProcess, TransportError, TransportMessage, TransportResponse};
 use serde::Deserialize;
 use std::fmt;
 use std::path::PathBuf;
@@ -72,9 +72,17 @@ impl TryFrom<JsonResponse> for Python {
 
 impl Python {
     pub fn setup(python: &mut PythonProcess) -> Result<Self, PythonError> {
-        let response = python.send("python_setup", None)?;
-        let response = parse_json_response(response)?;
-        Ok(Self::try_from(response)?)
+        let message = TransportMessage::Json("python_setup".to_string());
+        let response = python.send(message, None)?;
+        match response {
+            TransportResponse::Json(json_str) => {
+                let json_response: JsonResponse = serde_json::from_str(&json_str)?;
+                Ok(Self::try_from(json_response)?)
+            }
+            _ => Err(PythonError::Transport(TransportError::Process(
+                "Unexpected response type".to_string(),
+            ))),
+        }
     }
 }
 

@@ -33,10 +33,6 @@ impl CommonOpts {
 enum Commands {
     /// Start the LSP server
     Serve(CommonOpts),
-    /// Get Python environment information
-    Info(CommonOpts),
-    /// Print the version
-    Version(CommonOpts),
 }
 
 #[tokio::main]
@@ -48,22 +44,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let python =
                 PythonProcess::new("djls.lsp", Transport::Json, opts.health_check_interval())?;
             djls_server::serve(python).await?
-        }
-        Commands::Info(opts) => {
-            let mut python =
-                PythonProcess::new("djls.lsp", Transport::Json, opts.health_check_interval())?;
-            match python.send("python_setup", None) {
-                Ok(info) => println!("{}", info),
-                Err(e) => eprintln!("Failed to get info: {}", e),
-            }
-        }
-        Commands::Version(opts) => {
-            let mut python =
-                PythonProcess::new("djls.lsp", Transport::Json, opts.health_check_interval())?;
-            match python.send("version", None) {
-                Ok(version) => println!("Python module version: {}", version),
-                Err(e) => eprintln!("Failed to get version: {}", e),
-            }
         }
     }
 

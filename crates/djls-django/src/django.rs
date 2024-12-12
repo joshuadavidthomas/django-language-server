@@ -1,7 +1,7 @@
 use crate::apps::Apps;
 use crate::gis::{check_gis_setup, GISError};
 use crate::templates::TemplateTags;
-use djls_ipc::{parse_json_response, JsonResponse, PythonProcess, TransportError};
+use djls_ipc::{JsonResponse, PythonProcess, TransportError, TransportMessage, TransportResponse};
 use djls_python::{ImportCheck, Python};
 use serde::Deserialize;
 use std::fmt;
@@ -23,9 +23,17 @@ struct DjangoSetup {
 
 impl DjangoSetup {
     pub fn setup(python: &mut PythonProcess) -> Result<JsonResponse, ProjectError> {
-        let response = python.send("django_setup", None)?;
-        let response = parse_json_response(response)?;
-        Ok(response)
+        let message = TransportMessage::Json("django_setup".to_string());
+        let response = python.send(message, None)?;
+        match response {
+            TransportResponse::Json(json_str) => {
+                let json_response: JsonResponse = serde_json::from_str(&json_str)?;
+                Ok(json_response)
+            }
+            _ => Err(ProjectError::Transport(TransportError::Process(
+                "Unexpected response type".to_string(),
+            ))),
+        }
     }
 }
 

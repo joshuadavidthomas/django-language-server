@@ -1,4 +1,4 @@
-use djls_ipc::{parse_json_response, JsonResponse, PythonProcess, TransportError};
+use djls_ipc::{JsonResponse, PythonProcess, TransportError, TransportMessage, TransportResponse};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::fmt;
@@ -78,10 +78,18 @@ impl ImportCheck {
         python: &mut PythonProcess,
         modules: Option<Vec<String>>,
     ) -> Result<bool, PackagingError> {
-        let response = python.send("has_import", modules)?;
-        let response = parse_json_response(response)?;
-        let check = Self::try_from(response)?;
-        Ok(check.can_import)
+        let message = TransportMessage::Json("has_import".to_string());
+        let response = python.send(message, modules)?;
+        match response {
+            TransportResponse::Json(json_str) => {
+                let json_response: JsonResponse = serde_json::from_str(&json_str)?;
+                let check = Self::try_from(json_response)?;
+                Ok(check.can_import)
+            }
+            _ => Err(PackagingError::Transport(TransportError::Process(
+                "Unexpected response type".to_string(),
+            ))),
+        }
     }
 }
 

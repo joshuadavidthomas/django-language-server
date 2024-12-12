@@ -1,0 +1,11 @@
+[package]
+name = "djls-types"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+prost = { workspace = true }
+bytes = { workspace = true }
+
+[build-dependencies]
+prost-build = "0.13"

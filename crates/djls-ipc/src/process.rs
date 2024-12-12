@@ -1,4 +1,6 @@
-use crate::transport::{Transport, TransportError, TransportProtocol};
+use crate::transport::{
+    Transport, TransportError, TransportMessage, TransportProtocol, TransportResponse,
+};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -72,9 +74,9 @@ impl PythonProcess {
 
     pub fn send(
         &mut self,
-        message: &str,
+        message: TransportMessage,
         args: Option<Vec<String>>,
-    ) -> Result<String, TransportError> {
+    ) -> Result<TransportResponse, TransportError> {
         let mut transport = self.transport.lock().unwrap();
         transport.send(message, args)
     }
