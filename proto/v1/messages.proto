@@ -9,7 +9,7 @@ import "v1/python.proto";
 message Request {
     oneof command {
         check.HealthRequest check__health = 1;
-        check.AppInstalledRequest check__app_installed = 2;
+        check.GeoDjangoPrereqsRequest check__geodjango_prereqs = 2;
         python.GetEnvironmentRequest python__get_environment = 1000;
         django.GetProjectInfoRequest django__get_project_info = 2000;
     }
@@ -18,7 +18,7 @@ message Request {
 message Response {
     oneof result {
         check.HealthResponse check__health = 1;
-        check.AppInstalledResponse check__app_installed = 2;
+        check.GeoDjangoPrereqsResponse check__geodjango_prereqs = 2;
         python.GetEnvironmentResponse python__get_environment = 1000;
         django.GetProjectInfoResponse django__get_project_info = 2000;
         Error error = 9000;

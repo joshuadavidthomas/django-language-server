@@ -28,7 +28,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0ev1/check.proto\x12\rdjls.v1.check\"\x0f\n\rHealthRequest\">\n\x0eHealthResponse\x12\x0e\n\x06passed\x18\x01 \x01(\x08\x12\x12\n\x05\x65rror\x18\x02 \x01(\tH\x00\x88\x01\x01\x42\x08\n\x06_error\"\'\n\x13\x41ppInstalledRequest\x12\x10\n\x08\x61pp_name\x18\x01 \x01(\t\"D\n\x14\x41ppInstalledResponse\x12\x0e\n\x06passed\x18\x01 \x01(\x08\x12\x12\n\x05\x65rror\x18\x02 \x01(\tH\x00\x88\x01\x01\x42\x08\n\x06_errorb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0ev1/check.proto\x12\rdjls.v1.check\"\x0f\n\rHealthRequest\">\n\x0eHealthResponse\x12\x0e\n\x06passed\x18\x01 \x01(\x08\x12\x12\n\x05\x65rror\x18\x02 \x01(\tH\x00\x88\x01\x01\x42\x08\n\x06_error\"\x19\n\x17GeoDjangoPrereqsRequest\"H\n\x18GeoDjangoPrereqsResponse\x12\x0e\n\x06passed\x18\x01 \x01(\x08\x12\x12\n\x05\x65rror\x18\x02 \x01(\tH\x00\x88\x01\x01\x42\x08\n\x06_errorb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -39,8 +39,8 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_HEALTHREQUEST']._serialized_end=48
   _globals['_HEALTHRESPONSE']._serialized_start=50
   _globals['_HEALTHRESPONSE']._serialized_end=112
-  _globals['_APPINSTALLEDREQUEST']._serialized_start=114
-  _globals['_APPINSTALLEDREQUEST']._serialized_end=153
-  _globals['_APPINSTALLEDRESPONSE']._serialized_start=155
-  _globals['_APPINSTALLEDRESPONSE']._serialized_end=223
+  _globals['_GEODJANGOPREREQSREQUEST']._serialized_start=114
+  _globals['_GEODJANGOPREREQSREQUEST']._serialized_end=139
+  _globals['_GEODJANGOPREREQSRESPONSE']._serialized_start=141
+  _globals['_GEODJANGOPREREQSRESPONSE']._serialized_end=213
 # @@protoc_insertion_point(module_scope)

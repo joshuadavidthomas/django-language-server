@@ -1,4 +1,3 @@
-use crate::gis::{check_gis_setup, GISError};
 use djls_ipc::v1::*;
 use djls_ipc::IpcCommand;
 use djls_ipc::{ProcessError, PythonProcess, TransportError};
@@ -24,16 +23,24 @@ impl DjangoProject {
     pub fn setup(mut python: PythonProcess) -> Result<Self, ProjectError> {
         let py = Python::setup(&mut python)?;
 
-        if !check_gis_setup(&mut python)? {
-            eprintln!("Warning: GeoDjango detected but GDAL is not available.");
-            eprintln!("Django initialization will be skipped. Some features may be limited.");
-            eprintln!("To enable full functionality, please install GDAL and other GeoDjango prerequisites.");
+        match check::GeoDjangoPrereqsRequest::execute(&mut python)?.result {
+            Some(messages::response::Result::CheckGeodjangoPrereqs(response)) => {
+                if !response.passed {
+                    eprintln!("Warning: GeoDjango detected but GDAL is not available.");
+                    eprintln!(
+                        "Django initialization will be skipped. Some features may be limited."
+                    );
+                    eprintln!("To enable full functionality, please install GDAL and other GeoDjango prerequisites.");
 
-            return Ok(Self {
-                py,
-                python,
-                version: String::new(),
-            });
+                    return Ok(Self {
+                        py,
+                        python,
+                        version: String::new(),
+                    });
+                }
+            }
+            Some(messages::response::Result::Error(e)) => Err(ProcessError::Health(e.message))?,
+            _ => Err(ProcessError::Response)?,
         }
 
         let response = django::GetProjectInfoRequest::execute(&mut python)?;
@@ -77,8 +84,6 @@ pub enum ProjectError {
     DjangoNotFound,
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
-    #[error("GIS error: {0}")]
-    Gis(#[from] GISError),
     #[error("JSON parsing error: {0}")]
     Json(#[from] serde_json::Error),
     #[error(transparent)]

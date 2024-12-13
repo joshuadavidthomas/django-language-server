@@ -8,10 +8,8 @@ message HealthResponse {
     optional string error = 2;
 }
 
-message AppInstalledRequest {
-    string app_name = 1;
-}
-message AppInstalledResponse {
+message GeoDjangoPrereqsRequest {}
+message GeoDjangoPrereqsResponse {
     bool passed = 1;
     optional string error = 2;
 }
