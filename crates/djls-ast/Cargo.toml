@@ -8,7 +8,7 @@ serde = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
-insta = { version = "1.41.1", features = ["yaml"] }
+insta = { version = "1.41", features = ["yaml"] }
 
 [profile.dev.package]
 insta.opt-level = 3
