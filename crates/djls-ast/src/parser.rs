@@ -155,8 +155,18 @@ impl Parser {
                     if tag == end_tag {
                         self.consume()?;
                         break;
+                    } else if !tag.starts_with("end") {
+                        // For intermediate tags (else, elif, empty, etc.)
+                        self.consume()?;
+                        // Create a new Tag node for the intermediate tag
+                        children.push(Node::Django(DjangoNode::Tag {
+                            kind: DjangoTagKind::from_str(&tag)?,
+                            bits: vec![tag.clone()],
+                            children: Vec::new(),
+                        }));
+                    } else {
+                        return Err(ParserError::ErrorSignal(Signal::ClosingTagFound(tag)));
                     }
-                    // If it's not our end tag, keep collecting children
                 }
                 Err(e) => return Err(e),
             }
@@ -453,16 +463,37 @@ impl Parser {
         const SYNC_TYPES: &[TokenType] = &[
             TokenType::DjangoBlock(String::new()),
             TokenType::HtmlTagOpen(String::new()),
+            TokenType::HtmlTagClose(String::new()), // Added
             TokenType::HtmlTagVoid(String::new()),
             TokenType::ScriptTagOpen(String::new()),
+            TokenType::ScriptTagClose(String::new()), // Added
             TokenType::StyleTagOpen(String::new()),
+            TokenType::StyleTagClose(String::new()), // Added
             TokenType::Newline,
             TokenType::Eof,
         ];
 
+        let mut nesting = 0;
         while !self.is_at_end() {
-            if SYNC_TYPES.contains(self.peek()?.token_type()) {
-                return Ok(());
+            let token = self.peek()?;
+            match token.token_type() {
+                TokenType::HtmlTagOpen(_)
+                | TokenType::ScriptTagOpen(_)
+                | TokenType::StyleTagOpen(_) => {
+                    nesting += 1;
+                }
+                TokenType::HtmlTagClose(_)
+                | TokenType::ScriptTagClose(_)
+                | TokenType::StyleTagClose(_) => {
+                    nesting -= 1;
+                    if nesting < 0 {
+                        return Ok(());
+                    }
+                }
+                _ if SYNC_TYPES.contains(token.token_type()) && nesting == 0 => {
+                    return Ok(());
+                }
+                _ => {}
             }
             self.consume()?;
         }
@@ -609,7 +640,7 @@ mod tests {
     }
 
     // hangs for some reason
-    // #[test]
+    #[test]
     fn test_parse_full() {
         let source = r#"<!DOCTYPE html>
 <html>
