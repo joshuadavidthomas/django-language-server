@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.metadata
 import inspect
 import os
+import subprocess
 import sys
 import sysconfig
 import traceback
@@ -91,16 +92,23 @@ async def check__health(_request: check_pb2.HealthRequest) -> check_pb2.HealthRe
     return check_pb2.HealthResponse(passed=True)
 
 
-@proto_handler(
-    check_pb2.AppInstalledRequest,
-    error=messages_pb2.Error(
-        code=messages_pb2.Error.DJANGO_ERROR, message="App is not in INSTALLED_APPS"
-    ),
-)
-async def check__app_installed(
-    request: check_pb2.AppInstalledRequest,
-) -> check_pb2.AppInstalledResponse:
-    return check_pb2.AppInstalledResponse(passed=apps.is_installed(request.app_name))
+@proto_handler(check_pb2.GeoDjangoPrereqsRequest)
+async def check__geodjango_prereqs(
+    request: check_pb2.GeoDjangoPrereqsRequest,
+) -> check_pb2.GeoDjangoPrereqsResponse:
+    has_geodjango = apps.is_installed("django.contrib.gis")
+
+    try:
+        gdal_process = subprocess.run(
+            ["gdalinfo", "--version"], capture_output=True, check=False
+        )
+        gdal_is_installed = gdal_process.returncode == 0
+    except FileNotFoundError:
+        gdal_is_installed = False
+
+    return check_pb2.GeoDjangoPrereqsResponse(
+        passed=(not has_geodjango) or gdal_is_installed
+    )
 
 
 @proto_handler(python_pb2.GetEnvironmentRequest)

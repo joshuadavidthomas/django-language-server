@@ -1,5 +1,3 @@
-use djls_ipc::v1::*;
-use djls_ipc::{ProcessError, PythonProcess};
 use std::fmt;
 
 #[derive(Debug)]
@@ -35,24 +33,6 @@ impl Apps {
 
     pub fn iter(&self) -> impl Iterator<Item = &App> {
         self.apps().iter()
-    }
-
-    pub fn check_installed(python: &mut PythonProcess, app: &str) -> Result<bool, ProcessError> {
-        let request = messages::Request {
-            command: Some(messages::request::Command::CheckAppInstalled(
-                check::AppInstalledRequest {
-                    app_name: app.to_string(),
-                },
-            )),
-        };
-
-        let response = python.send(request).map_err(ProcessError::Transport)?;
-
-        match response.result {
-            Some(messages::response::Result::CheckAppInstalled(response)) => Ok(response.passed),
-            Some(messages::response::Result::Error(e)) => Err(ProcessError::Health(e.message)),
-            _ => Err(ProcessError::Response),
-        }
     }
 }
 

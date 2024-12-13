@@ -29,6 +29,22 @@ impl IpcCommand for v1::check::HealthRequest {
     }
 }
 
+impl IpcCommand for v1::check::GeoDjangoPrereqsRequest {
+    fn into_request(&self) -> messages::Request {
+        messages::Request {
+            command: Some(messages::request::Command::CheckGeodjangoPrereqs(*self)),
+        }
+    }
+
+    fn from_response(response: messages::Response) -> Result<messages::Response, ProcessError> {
+        match response.result {
+            Some(messages::response::Result::CheckGeodjangoPrereqs(_)) => Ok(response),
+            Some(messages::response::Result::Error(e)) => Err(ProcessError::Health(e.message)),
+            _ => Err(ProcessError::Response),
+        }
+    }
+}
+
 impl IpcCommand for v1::python::GetEnvironmentRequest {
     fn into_request(&self) -> messages::Request {
         messages::Request {

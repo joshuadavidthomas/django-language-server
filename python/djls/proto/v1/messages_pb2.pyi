@@ -13,30 +13,30 @@ from typing import ClassVar as _ClassVar, Mapping as _Mapping, Optional as _Opti
 DESCRIPTOR: _descriptor.FileDescriptor
 
 class Request(_message.Message):
-    __slots__ = ("check__health", "check__app_installed", "python__get_environment", "django__get_project_info")
+    __slots__ = ("check__health", "check__geodjango_prereqs", "python__get_environment", "django__get_project_info")
     CHECK__HEALTH_FIELD_NUMBER: _ClassVar[int]
-    CHECK__APP_INSTALLED_FIELD_NUMBER: _ClassVar[int]
+    CHECK__GEODJANGO_PREREQS_FIELD_NUMBER: _ClassVar[int]
     PYTHON__GET_ENVIRONMENT_FIELD_NUMBER: _ClassVar[int]
     DJANGO__GET_PROJECT_INFO_FIELD_NUMBER: _ClassVar[int]
     check__health: _check_pb2.HealthRequest
-    check__app_installed: _check_pb2.AppInstalledRequest
+    check__geodjango_prereqs: _check_pb2.GeoDjangoPrereqsRequest
     python__get_environment: _python_pb2.GetEnvironmentRequest
     django__get_project_info: _django_pb2.GetProjectInfoRequest
-    def __init__(self, check__health: _Optional[_Union[_check_pb2.HealthRequest, _Mapping]] = ..., check__app_installed: _Optional[_Union[_check_pb2.AppInstalledRequest, _Mapping]] = ..., python__get_environment: _Optional[_Union[_python_pb2.GetEnvironmentRequest, _Mapping]] = ..., django__get_project_info: _Optional[_Union[_django_pb2.GetProjectInfoRequest, _Mapping]] = ...) -> None: ...
+    def __init__(self, check__health: _Optional[_Union[_check_pb2.HealthRequest, _Mapping]] = ..., check__geodjango_prereqs: _Optional[_Union[_check_pb2.GeoDjangoPrereqsRequest, _Mapping]] = ..., python__get_environment: _Optional[_Union[_python_pb2.GetEnvironmentRequest, _Mapping]] = ..., django__get_project_info: _Optional[_Union[_django_pb2.GetProjectInfoRequest, _Mapping]] = ...) -> None: ...
 
 class Response(_message.Message):
-    __slots__ = ("check__health", "check__app_installed", "python__get_environment", "django__get_project_info", "error")
+    __slots__ = ("check__health", "check__geodjango_prereqs", "python__get_environment", "django__get_project_info", "error")
     CHECK__HEALTH_FIELD_NUMBER: _ClassVar[int]
-    CHECK__APP_INSTALLED_FIELD_NUMBER: _ClassVar[int]
+    CHECK__GEODJANGO_PREREQS_FIELD_NUMBER: _ClassVar[int]
     PYTHON__GET_ENVIRONMENT_FIELD_NUMBER: _ClassVar[int]
     DJANGO__GET_PROJECT_INFO_FIELD_NUMBER: _ClassVar[int]
     ERROR_FIELD_NUMBER: _ClassVar[int]
     check__health: _check_pb2.HealthResponse
-    check__app_installed: _check_pb2.AppInstalledResponse
+    check__geodjango_prereqs: _check_pb2.GeoDjangoPrereqsResponse
     python__get_environment: _python_pb2.GetEnvironmentResponse
     django__get_project_info: _django_pb2.GetProjectInfoResponse
     error: Error
-    def __init__(self, check__health: _Optional[_Union[_check_pb2.HealthResponse, _Mapping]] = ..., check__app_installed: _Optional[_Union[_check_pb2.AppInstalledResponse, _Mapping]] = ..., python__get_environment: _Optional[_Union[_python_pb2.GetEnvironmentResponse, _Mapping]] = ..., django__get_project_info: _Optional[_Union[_django_pb2.GetProjectInfoResponse, _Mapping]] = ..., error: _Optional[_Union[Error, _Mapping]] = ...) -> None: ...
+    def __init__(self, check__health: _Optional[_Union[_check_pb2.HealthResponse, _Mapping]] = ..., check__geodjango_prereqs: _Optional[_Union[_check_pb2.GeoDjangoPrereqsResponse, _Mapping]] = ..., python__get_environment: _Optional[_Union[_python_pb2.GetEnvironmentResponse, _Mapping]] = ..., django__get_project_info: _Optional[_Union[_django_pb2.GetProjectInfoResponse, _Mapping]] = ..., error: _Optional[_Union[Error, _Mapping]] = ...) -> None: ...
 
 class Error(_message.Message):
     __slots__ = ("code", "message", "traceback")
