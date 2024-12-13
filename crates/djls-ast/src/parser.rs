@@ -639,7 +639,6 @@ mod tests {
         insta::assert_yaml_snapshot!(ast);
     }
 
-    // hangs for some reason
     #[test]
     fn test_parse_full() {
         let source = r#"<!DOCTYPE html>
