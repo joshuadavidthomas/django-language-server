@@ -1,7 +1,7 @@
 use crate::gis::{check_gis_setup, GISError};
 use djls_ipc::v1::*;
 use djls_ipc::{ProcessError, PythonProcess, TransportError};
-use djls_python::{ImportCheck, Python};
+use djls_python::Python;
 use std::fmt;
 
 #[derive(Debug)]
@@ -22,12 +22,6 @@ impl DjangoProject {
 
     pub fn setup(mut python: PythonProcess) -> Result<Self, ProjectError> {
         let py = Python::setup(&mut python)?;
-
-        let has_django = ImportCheck::check(&mut python, Some(vec!["django".to_string()]))?;
-
-        if !has_django {
-            return Err(ProjectError::DjangoNotFound);
-        }
 
         if !check_gis_setup(&mut python)? {
             eprintln!("Warning: GeoDjango detected but GDAL is not available.");
