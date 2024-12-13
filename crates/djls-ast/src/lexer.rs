@@ -256,25 +256,18 @@ impl Lexer {
 pub enum LexerError {
     #[error("empty token at line {0}")]
     EmptyToken(usize),
-
     #[error("unexpected character '{0}' at line {1}")]
     UnexpectedCharacter(char, usize),
-
     #[error("unexpected end of input")]
     UnexpectedEndOfInput,
-
     #[error("source is empty")]
     EmptySource,
-
     #[error("at beginning of source")]
     AtBeginningOfSource,
-
     #[error("at end of source")]
     AtEndOfSource,
-
     #[error("invalid character access")]
     InvalidCharacterAccess,
-
     #[error("unexpected token type '{0:?}'")]
     UnexpectedTokenType(TokenType),
 }
