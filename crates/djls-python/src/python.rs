@@ -1,5 +1,6 @@
 use crate::packaging::{Packages, PackagingError};
 use djls_ipc::v1::*;
+use djls_ipc::IpcCommand;
 use djls_ipc::{ProcessError, PythonProcess, TransportError};
 use serde::Deserialize;
 use std::fmt;
@@ -90,22 +91,12 @@ pub struct Python {
 
 impl Python {
     pub fn setup(python: &mut PythonProcess) -> Result<Self, PythonError> {
-        let request = messages::Request {
-            command: Some(messages::request::Command::PythonGetEnvironment(
-                python::GetEnvironmentRequest {},
-            )),
-        };
-
-        let response = python.send(request).map_err(PythonError::Transport)?;
-
+        let response = python::GetEnvironmentRequest::execute(python)?;
         match response.result {
             Some(messages::response::Result::PythonGetEnvironment(response)) => response
                 .python
                 .ok_or_else(|| PythonError::Process(ProcessError::Response))
                 .map(Into::into),
-            Some(messages::response::Result::Error(e)) => {
-                Err(PythonError::Process(ProcessError::Health(e.message)))
-            }
             _ => Err(PythonError::Process(ProcessError::Response)),
         }
     }

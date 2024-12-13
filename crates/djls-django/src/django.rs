@@ -1,5 +1,6 @@
 use crate::gis::{check_gis_setup, GISError};
 use djls_ipc::v1::*;
+use djls_ipc::IpcCommand;
 use djls_ipc::{ProcessError, PythonProcess, TransportError};
 use djls_python::Python;
 use std::fmt;
@@ -35,22 +36,11 @@ impl DjangoProject {
             });
         }
 
-        let request = messages::Request {
-            command: Some(messages::request::Command::DjangoGetProjectInfo(
-                django::GetProjectInfoRequest {},
-            )),
-        };
-
-        let response = python
-            .send(request)
-            .map_err(|e| ProjectError::Transport(e))?;
+        let response = django::GetProjectInfoRequest::execute(&mut python)?;
 
         let version = match response.result {
             Some(messages::response::Result::DjangoGetProjectInfo(response)) => {
                 response.project.unwrap().version
-            }
-            Some(messages::response::Result::Error(e)) => {
-                return Err(ProjectError::Process(ProcessError::Health(e.message)));
             }
             _ => {
                 return Err(ProjectError::Process(ProcessError::Response));
