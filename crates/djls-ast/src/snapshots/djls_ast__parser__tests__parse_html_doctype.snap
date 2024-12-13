@@ -1,0 +1,7 @@
+---
+source: crates/djls-ast/src/parser.rs
+expression: ast
+---
+nodes:
+  - Html:
+      Doctype: "!DOCTYPE"
