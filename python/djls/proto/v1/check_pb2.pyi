@@ -20,18 +20,6 @@ class HealthResponse(_message.Message):
     error: str
     def __init__(self, passed: bool = ..., error: _Optional[str] = ...) -> None: ...
 
-class DjangoAvailableRequest(_message.Message):
-    __slots__ = ()
-    def __init__(self) -> None: ...
-
-class DjangoAvailableResponse(_message.Message):
-    __slots__ = ("passed", "error")
-    PASSED_FIELD_NUMBER: _ClassVar[int]
-    ERROR_FIELD_NUMBER: _ClassVar[int]
-    passed: bool
-    error: str
-    def __init__(self, passed: bool = ..., error: _Optional[str] = ...) -> None: ...
-
 class AppInstalledRequest(_message.Message):
     __slots__ = ("app_name",)
     APP_NAME_FIELD_NUMBER: _ClassVar[int]

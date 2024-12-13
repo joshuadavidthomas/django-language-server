@@ -92,20 +92,6 @@ async def check__health(_request: check_pb2.HealthRequest) -> check_pb2.HealthRe
 
 
 @proto_handler(
-    check_pb2.DjangoAvailableRequest,
-    error=messages_pb2.Error(
-        code=messages_pb2.Error.DJANGO_ERROR, message="Django is not installed"
-    ),
-)
-async def check__django_available(
-    _request: check_pb2.DjangoAvailableRequest,
-) -> check_pb2.DjangoAvailableResponse:
-    import django  # noqa: F401
-
-    return check_pb2.DjangoAvailableResponse(passed=True)
-
-
-@proto_handler(
     check_pb2.AppInstalledRequest,
     error=messages_pb2.Error(
         code=messages_pb2.Error.DJANGO_ERROR, message="App is not in INSTALLED_APPS"

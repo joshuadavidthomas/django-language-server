@@ -1,5 +1,5 @@
 use djls_ipc::v1::*;
-use djls_ipc::{ProcessError, PythonProcess, TransportError};
+use djls_ipc::{ProcessError, TransportError};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::fmt;
@@ -66,40 +66,6 @@ impl fmt::Display for Packages {
             }
         }
         Ok(())
-    }
-}
-
-#[derive(Debug, Deserialize)]
-pub struct ImportCheck {
-    can_import: bool,
-}
-
-impl ImportCheck {
-    pub fn can_import(&self) -> bool {
-        self.can_import
-    }
-
-    pub fn check(
-        python: &mut PythonProcess,
-        _modules: Option<Vec<String>>,
-    ) -> Result<bool, PackagingError> {
-        let request = messages::Request {
-            command: Some(messages::request::Command::CheckDjangoAvailable(
-                check::DjangoAvailableRequest {},
-            )),
-        };
-
-        let response = python
-            .send(request)
-            .map_err(|e| PackagingError::Transport(e))?;
-
-        match response.result {
-            Some(messages::response::Result::CheckDjangoAvailable(response)) => Ok(response.passed),
-            Some(messages::response::Result::Error(e)) => {
-                Err(PackagingError::Process(ProcessError::Health(e.message)))
-            }
-            _ => Err(PackagingError::Process(ProcessError::Response)),
-        }
     }
 }
 
