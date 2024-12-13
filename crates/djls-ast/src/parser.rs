@@ -558,6 +558,15 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_html_void() {
+        let source = r#"<img src="example.png" />"#;
+        let tokens = Lexer::new(source).tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+        let ast = parser.parse().unwrap();
+        insta::assert_yaml_snapshot!(ast);
+    }
+
+    #[test]
     fn test_parse_script() {
         let source = r#"<script type="text/javascript">
     // Single line comment

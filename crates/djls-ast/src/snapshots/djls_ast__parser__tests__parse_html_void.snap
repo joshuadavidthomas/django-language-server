@@ -1,0 +1,11 @@
+---
+source: crates/djls-ast/src/parser.rs
+expression: ast
+---
+nodes:
+  - Html:
+      Void:
+        tag_name: img
+        attributes:
+          src:
+            Value: example.png
