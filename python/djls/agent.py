@@ -17,9 +17,9 @@ class LSPAgent:
     def __init__(self):
         from .handlers import handlers
 
-        self._handlers = handlers
+        self.handlers = handlers
         logger.debug(
-            "LSPAgent initialized with handlers: %s", list(self._handlers.keys())
+            "LSPAgent initialized with handlers: %s", list(self.handlers.keys())
         )
 
     async def serve(self):
@@ -71,7 +71,7 @@ class LSPAgent:
                 messages_pb2.Error.INVALID_REQUEST, "No command specified"
             )
 
-        handler = self._handlers.get(command_name)
+        handler = self.handlers.get(command_name)
         if not handler:
             logger.error("Unknown command: %s", command_name)
             return self.create_error(
