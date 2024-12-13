@@ -1,6 +1,9 @@
+mod config;
+
+use crate::config::{load_config, Config};
+use anyhow::Context;
 use clap::{Args, Parser, Subcommand};
-use djls_ipc::v1::*;
-use djls_ipc::{ProcessError, PythonProcess, TransportError};
+use djls_ipc::PythonProcess;
 use std::ffi::OsStr;
 use std::time::Duration;
 
@@ -8,6 +11,9 @@ use std::time::Duration;
 struct Cli {
     #[command(subcommand)]
     command: Commands,
+
+    #[command(flatten)]
+    config: Config,
 }
 
 #[derive(Debug, Args)]
@@ -40,16 +46,21 @@ enum Commands {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
+    let config = load_config(&cli.config).context("failed to load configuration")?;
 
     match cli.command {
         Commands::Serve(opts) => {
             println!("Starting LSP server...");
+            println!("With config: {:?}", config);
+
             let python = PythonProcess::new::<Vec<&OsStr>, &OsStr>(
                 "djls.agent",
                 None,
                 opts.health_check_interval(),
             )?;
+
             println!("LSP server started, beginning to serve...");
+
             djls_server::serve(python).await?
         }
     }
