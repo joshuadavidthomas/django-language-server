@@ -1,47 +1,34 @@
 from __future__ import annotations
 
-import logging
 import struct
 import sys
+from typing import Any
+from typing import cast
 
 from google.protobuf.message import Message
 
-from .commands import COMMANDS
-from .commands import Command
+from .logging import configure_logging
 from .proto.v1 import messages_pb2
 
-logger = logging.getLogger("djls")
-logger.setLevel(logging.DEBUG)
-
-fh = logging.FileHandler("/tmp/djls_debug.log")
-fh.setLevel(logging.DEBUG)
-
-ch = logging.StreamHandler(sys.stderr)
-ch.setLevel(logging.DEBUG)
-
-formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-fh.setFormatter(formatter)
-ch.setFormatter(formatter)
-
-logger.addHandler(fh)
-logger.addHandler(ch)
+logger = configure_logging()
 
 
 class LSPAgent:
     def __init__(self):
-        self._commands: dict[str, Command] = {cmd.name: cmd() for cmd in COMMANDS}
+        from .handlers import handlers
+
+        self._handlers = handlers
         logger.debug(
-            "LSPAgent initialized with commands: %s", list(self._commands.keys())
+            "LSPAgent initialized with handlers: %s", list(self._handlers.keys())
         )
 
-    def serve(self):
+    async def serve(self):
         print("ready", flush=True)
 
         try:
             import django
 
             django.setup()
-
         except Exception as e:
             error_response = self.create_error(messages_pb2.Error.DJANGO_ERROR, str(e))
             self.write_message(error_response)
@@ -52,7 +39,7 @@ class LSPAgent:
                 if not data:
                     break
 
-                response = self.handle_request(data)
+                response = await self.handle_request(data)
                 self.write_message(response)
 
             except Exception as e:
@@ -71,23 +58,30 @@ class LSPAgent:
         logger.debug("Read data bytes: %r", data)
         return data
 
-    def handle_request(self, request_data: bytes) -> Message:
+    async def handle_request(self, request_data: bytes) -> Message:
         request = messages_pb2.Request()
         request.ParseFromString(request_data)
 
         command_name = request.WhichOneof("command")
         logger.debug("Command name: %s", command_name)
-        command = self._commands.get(command_name)
 
-        if not command:
+        if not command_name:
+            logger.error("No command specified")
+            return self.create_error(
+                messages_pb2.Error.INVALID_REQUEST, "No command specified"
+            )
+
+        handler = self._handlers.get(command_name)
+        if not handler:
             logger.error("Unknown command: %s", command_name)
             return self.create_error(
                 messages_pb2.Error.INVALID_REQUEST, f"Unknown command: {command_name}"
             )
 
         try:
-            result = command.execute(getattr(request, command_name))
-            return messages_pb2.Response(**{command_name: result})
+            command_message = getattr(request, command_name)
+            result = await handler(command_message)
+            return messages_pb2.Response(**{command_name: cast(Any, result)})
         except Exception as e:
             logger.exception("Error executing command")
             return self.create_error(messages_pb2.Error.UNKNOWN, str(e))
@@ -110,14 +104,14 @@ class LSPAgent:
         return response
 
 
-def main() -> None:
+async def main() -> None:
     logger.debug("Starting DJLS...")
 
     try:
         logger.debug("Initializing LSPAgent...")
         agent = LSPAgent()
         logger.debug("Starting LSPAgent serve...")
-        agent.serve()
+        await agent.serve()
     except KeyboardInterrupt:
         logger.debug("Received KeyboardInterrupt")
         sys.exit(0)
@@ -128,4 +122,6 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    import asyncio
+
+    asyncio.run(main())
