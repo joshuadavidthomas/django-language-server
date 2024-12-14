@@ -143,40 +143,52 @@ impl Parser {
             )));
         }
 
-        let mut children = Vec::new();
+        let mut all_children = Vec::new();
+        let mut current_section = Vec::new();
         let end_tag = format!("end{}", bits[0]);
 
         while !self.is_at_end() {
             match self.next_node() {
                 Ok(node) => {
-                    children.push(node);
+                    current_section.push(node);
                 }
                 Err(ParserError::ErrorSignal(Signal::ClosingTagFound(tag))) => {
-                    if tag == end_tag {
-                        self.consume()?;
-                        break;
-                    } else if !tag.starts_with("end") {
-                        // For intermediate tags (else, elif, empty, etc.)
-                        self.consume()?;
-                        // Create a new Tag node for the intermediate tag
-                        children.push(Node::Django(DjangoNode::Tag {
-                            kind: DjangoTagKind::from_str(&tag)?,
-                            bits: vec![tag.clone()],
-                            children: Vec::new(),
-                        }));
-                    } else {
-                        return Err(ParserError::ErrorSignal(Signal::ClosingTagFound(tag)));
+                    match tag.as_str() {
+                        tag if tag == end_tag.as_str() => {
+                            // Found matching end tag, complete the block
+                            all_children.extend(current_section);
+                            return Ok(Node::Django(DjangoNode::Tag {
+                                kind,
+                                bits,
+                                children: all_children,
+                            }));
+                        }
+                        tag if !tag.starts_with("end") => {
+                            // Found intermediate tag (like 'else', 'elif')
+                            all_children.extend(current_section);
+                            all_children.push(Node::Django(DjangoNode::Tag {
+                                kind: DjangoTagKind::from_str(tag)?,
+                                bits: vec![tag.to_string()],
+                                children: Vec::new(),
+                            }));
+                            current_section = Vec::new();
+                            continue; // Continue parsing after intermediate tag
+                        }
+                        tag => {
+                            // Found unexpected end tag
+                            return Err(ParserError::ErrorSignal(Signal::ClosingTagFound(
+                                tag.to_string(),
+                            )));
+                        }
                     }
                 }
-                Err(e) => return Err(e),
+                Err(e) => {
+                    return Err(e);
+                }
             }
         }
 
-        Ok(Node::Django(DjangoNode::Tag {
-            kind,
-            bits,
-            children,
-        }))
+        Err(ParserError::StreamError(Stream::UnexpectedEof))
     }
 
     fn parse_django_variable(&mut self, s: &str) -> Result<Node, ParserError> {
@@ -460,43 +472,34 @@ impl Parser {
     }
 
     fn synchronize(&mut self) -> Result<(), ParserError> {
+        println!("--- Starting synchronization ---");
         const SYNC_TYPES: &[TokenType] = &[
             TokenType::DjangoBlock(String::new()),
             TokenType::HtmlTagOpen(String::new()),
-            TokenType::HtmlTagClose(String::new()), // Added
             TokenType::HtmlTagVoid(String::new()),
             TokenType::ScriptTagOpen(String::new()),
-            TokenType::ScriptTagClose(String::new()), // Added
             TokenType::StyleTagOpen(String::new()),
-            TokenType::StyleTagClose(String::new()), // Added
             TokenType::Newline,
             TokenType::Eof,
         ];
 
-        let mut nesting = 0;
         while !self.is_at_end() {
-            let token = self.peek()?;
-            match token.token_type() {
-                TokenType::HtmlTagOpen(_)
-                | TokenType::ScriptTagOpen(_)
-                | TokenType::StyleTagOpen(_) => {
-                    nesting += 1;
-                }
-                TokenType::HtmlTagClose(_)
-                | TokenType::ScriptTagClose(_)
-                | TokenType::StyleTagClose(_) => {
-                    nesting -= 1;
-                    if nesting < 0 {
-                        return Ok(());
-                    }
-                }
-                _ if SYNC_TYPES.contains(token.token_type()) && nesting == 0 => {
+            let current = self.peek()?;
+            println!("--- Sync checking token: {:?}", current);
+
+            // Debug print for token type comparison
+            for sync_type in SYNC_TYPES {
+                println!("--- Comparing with sync type: {:?}", sync_type);
+                if matches!(current.token_type(), sync_type) {
+                    println!("--- Found sync point at: {:?}", current);
                     return Ok(());
                 }
-                _ => {}
             }
+
+            println!("--- Consuming token in sync: {:?}", current);
             self.consume()?;
         }
+        println!("--- Reached end during synchronization");
         Ok(())
     }
 }
