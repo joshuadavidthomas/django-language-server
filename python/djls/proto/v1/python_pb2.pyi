@@ -144,13 +144,3 @@ class Package(_message.Message):
     dist_requires: _containers.RepeatedScalarFieldContainer[str]
     dist_requires_python: str
     def __init__(self, dist_name: _Optional[str] = ..., dist_version: _Optional[str] = ..., dist_editable: bool = ..., dist_entry_points: _Optional[str] = ..., dist_location: _Optional[str] = ..., dist_requires: _Optional[_Iterable[str]] = ..., dist_requires_python: _Optional[str] = ...) -> None: ...
-
-class GetEnvironmentRequest(_message.Message):
-    __slots__ = ()
-    def __init__(self) -> None: ...
-
-class GetEnvironmentResponse(_message.Message):
-    __slots__ = ("python",)
-    PYTHON_FIELD_NUMBER: _ClassVar[int]
-    python: Python
-    def __init__(self, python: _Optional[_Union[Python, _Mapping]] = ...) -> None: ...

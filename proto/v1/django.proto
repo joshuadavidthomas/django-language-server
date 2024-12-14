@@ -2,14 +2,6 @@ syntax = "proto3";
 
 package djls.v1.django;
 
-// models
 message Project {
     string version = 3;
-}
-
-// commands
-message GetProjectInfoRequest {}
-
-message GetProjectInfoResponse {
-    Project project = 1;
 }

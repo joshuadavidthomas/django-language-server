@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+package djls.v1.commands;
+
+import "v1/django.proto";
+import "v1/python.proto";
+
+message Check {
+  message HealthRequest {}
+  message HealthResponse {
+    bool passed = 1;
+    optional string error = 2;
+  }
+
+  message GeoDjangoPrereqsRequest {}
+  message GeoDjangoPrereqsResponse {
+    bool passed = 1;
+    optional string error = 2;
+  }
+}
+
+message Python {
+  message GetEnvironmentRequest {}
+  message GetEnvironmentResponse {
+    python.Python python = 1;
+  }
+}
+
+message Django {
+  message GetProjectInfoRequest {}
+  message GetProjectInfoResponse {
+    django.Project project = 1;
+  }
+}
+

@@ -71,10 +71,3 @@ message Package {
     repeated string dist_requires = 6;
     optional string dist_requires_python = 7;
 }
-
-// commands
-message GetEnvironmentRequest {}
-
-message GetEnvironmentResponse {
-    Python python = 1;
-}
