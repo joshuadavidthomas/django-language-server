@@ -1,0 +1,5 @@
+[django.template.defaulttags.if]
+type = "block"
+closing = "endif"
+intermediates = ["else", "elif"]
+valid_args = ["*"]
