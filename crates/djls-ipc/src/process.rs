@@ -79,7 +79,7 @@ impl PythonProcess {
     ) -> Result<(), ProcessError> {
         let request = messages::Request {
             command: Some(messages::request::Command::CheckHealth(
-                check::HealthRequest {},
+                commands::check::HealthRequest {},
             )),
         };
 

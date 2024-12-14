@@ -23,7 +23,7 @@ impl DjangoProject {
     pub fn setup(mut python: PythonProcess) -> Result<Self, ProjectError> {
         let py = Python::setup(&mut python)?;
 
-        match check::GeoDjangoPrereqsRequest::execute(&mut python)?.result {
+        match commands::check::GeoDjangoPrereqsRequest::execute(&mut python)?.result {
             Some(messages::response::Result::CheckGeodjangoPrereqs(response)) => {
                 if !response.passed {
                     eprintln!("Warning: GeoDjango detected but GDAL is not available.");
@@ -43,7 +43,7 @@ impl DjangoProject {
             _ => Err(ProcessError::Response)?,
         }
 
-        let response = django::GetProjectInfoRequest::execute(&mut python)?;
+        let response = commands::django::GetProjectInfoRequest::execute(&mut python)?;
 
         let version = match response.result {
             Some(messages::response::Result::DjangoGetProjectInfo(response)) => {

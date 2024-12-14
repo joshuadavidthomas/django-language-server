@@ -91,7 +91,7 @@ pub struct Python {
 
 impl Python {
     pub fn setup(python: &mut PythonProcess) -> Result<Self, PythonError> {
-        let response = python::GetEnvironmentRequest::execute(python)?;
+        let response = commands::python::GetEnvironmentRequest::execute(python)?;
         match response.result {
             Some(messages::response::Result::PythonGetEnvironment(response)) => response
                 .python

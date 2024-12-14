@@ -19,7 +19,7 @@ import django
 from django.apps import apps
 from google.protobuf.message import Message
 
-from .proto.v1 import check_pb2
+from .proto.v1 import commands_pb2
 from .proto.v1 import django_pb2
 from .proto.v1 import messages_pb2
 from .proto.v1 import python_pb2
@@ -87,15 +87,17 @@ def proto_handler(
     return decorator
 
 
-@proto_handler(check_pb2.HealthRequest)
-async def check__health(_request: check_pb2.HealthRequest) -> check_pb2.HealthResponse:
-    return check_pb2.HealthResponse(passed=True)
+@proto_handler(commands_pb2.Check.HealthRequest)
+async def check__health(
+    _request: commands_pb2.Check.HealthRequest,
+) -> commands_pb2.Check.HealthResponse:
+    return commands_pb2.Check.HealthResponse(passed=True)
 
 
-@proto_handler(check_pb2.GeoDjangoPrereqsRequest)
+@proto_handler(commands_pb2.Check.GeoDjangoPrereqsRequest)
 async def check__geodjango_prereqs(
-    request: check_pb2.GeoDjangoPrereqsRequest,
-) -> check_pb2.GeoDjangoPrereqsResponse:
+    request: commands_pb2.Check.GeoDjangoPrereqsRequest,
+) -> commands_pb2.Check.GeoDjangoPrereqsResponse:
     has_geodjango = apps.is_installed("django.contrib.gis")
 
     try:
@@ -106,15 +108,15 @@ async def check__geodjango_prereqs(
     except FileNotFoundError:
         gdal_is_installed = False
 
-    return check_pb2.GeoDjangoPrereqsResponse(
+    return commands_pb2.Check.GeoDjangoPrereqsResponse(
         passed=(not has_geodjango) or gdal_is_installed
     )
 
 
-@proto_handler(python_pb2.GetEnvironmentRequest)
+@proto_handler(commands_pb2.Python.GetEnvironmentRequest)
 async def python__get_environment(
-    _request: python_pb2.GetEnvironmentRequest,
-) -> python_pb2.GetEnvironmentResponse:
+    _request: commands_pb2.Python.GetEnvironmentRequest,
+) -> commands_pb2.Python.GetEnvironmentResponse:
     packages = {}
     for dist in importlib.metadata.distributions():
         try:
@@ -158,7 +160,7 @@ async def python__get_environment(
         serial=sys.version_info.serial,
     )
 
-    return python_pb2.GetEnvironmentResponse(
+    return commands_pb2.Python.GetEnvironmentResponse(
         python=python_pb2.Python(
             os=python_pb2.Os(environ={k: v for k, v in os.environ.items()}),
             site=python_pb2.Site(packages=packages),
@@ -193,10 +195,10 @@ async def python__get_environment(
     )
 
 
-@proto_handler(django_pb2.GetProjectInfoRequest)
+@proto_handler(commands_pb2.Django.GetProjectInfoRequest)
 async def django__get_project_info(
-    _request: django_pb2.GetProjectInfoRequest,
-) -> django_pb2.GetProjectInfoResponse:
-    return django_pb2.GetProjectInfoResponse(
+    _request: commands_pb2.Django.GetProjectInfoRequest,
+) -> commands_pb2.Django.GetProjectInfoResponse:
+    return commands_pb2.Django.GetProjectInfoResponse(
         project=django_pb2.Project(version=django.__version__)
     )

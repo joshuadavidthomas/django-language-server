@@ -13,7 +13,7 @@ pub trait IpcCommand: Default {
     }
 }
 
-impl IpcCommand for v1::check::HealthRequest {
+impl IpcCommand for v1::commands::check::HealthRequest {
     fn into_request(&self) -> messages::Request {
         messages::Request {
             command: Some(messages::request::Command::CheckHealth(*self)),
@@ -29,7 +29,7 @@ impl IpcCommand for v1::check::HealthRequest {
     }
 }
 
-impl IpcCommand for v1::check::GeoDjangoPrereqsRequest {
+impl IpcCommand for v1::commands::check::GeoDjangoPrereqsRequest {
     fn into_request(&self) -> messages::Request {
         messages::Request {
             command: Some(messages::request::Command::CheckGeodjangoPrereqs(*self)),
@@ -45,7 +45,7 @@ impl IpcCommand for v1::check::GeoDjangoPrereqsRequest {
     }
 }
 
-impl IpcCommand for v1::python::GetEnvironmentRequest {
+impl IpcCommand for v1::commands::python::GetEnvironmentRequest {
     fn into_request(&self) -> messages::Request {
         messages::Request {
             command: Some(messages::request::Command::PythonGetEnvironment(*self)),
@@ -61,7 +61,7 @@ impl IpcCommand for v1::python::GetEnvironmentRequest {
     }
 }
 
-impl IpcCommand for v1::django::GetProjectInfoRequest {
+impl IpcCommand for v1::commands::django::GetProjectInfoRequest {
     fn into_request(&self) -> messages::Request {
         messages::Request {
             command: Some(messages::request::Command::DjangoGetProjectInfo(*self)),

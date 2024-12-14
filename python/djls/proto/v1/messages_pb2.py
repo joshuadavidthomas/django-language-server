@@ -26,24 +26,22 @@ _runtime_version.ValidateProtobufRuntimeVersion(
 _sym_db = _symbol_database.Default()
 
 
-from . import check_pb2 as v1_dot_check__pb2
-from . import django_pb2 as v1_dot_django__pb2
-from . import python_pb2 as v1_dot_python__pb2
+from . import commands_pb2 as v1_dot_commands__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x11v1/messages.proto\x12\x10\x64jls.v1.messages\x1a\x0ev1/check.proto\x1a\x0fv1/django.proto\x1a\x0fv1/python.proto\"\xae\x02\n\x07Request\x12\x35\n\rcheck__health\x18\x01 \x01(\x0b\x32\x1c.djls.v1.check.HealthRequestH\x00\x12J\n\x18\x63heck__geodjango_prereqs\x18\x02 \x01(\x0b\x32&.djls.v1.check.GeoDjangoPrereqsRequestH\x00\x12I\n\x17python__get_environment\x18\xe8\x07 \x01(\x0b\x32%.djls.v1.python.GetEnvironmentRequestH\x00\x12J\n\x18\x64jango__get_project_info\x18\xd0\x0f \x01(\x0b\x32%.djls.v1.django.GetProjectInfoRequestH\x00\x42\t\n\x07\x63ommand\"\xdd\x02\n\x08Response\x12\x36\n\rcheck__health\x18\x01 \x01(\x0b\x32\x1d.djls.v1.check.HealthResponseH\x00\x12K\n\x18\x63heck__geodjango_prereqs\x18\x02 \x01(\x0b\x32\'.djls.v1.check.GeoDjangoPrereqsResponseH\x00\x12J\n\x17python__get_environment\x18\xe8\x07 \x01(\x0b\x32&.djls.v1.python.GetEnvironmentResponseH\x00\x12K\n\x18\x64jango__get_project_info\x18\xd0\x0f \x01(\x0b\x32&.djls.v1.django.GetProjectInfoResponseH\x00\x12)\n\x05\x65rror\x18\xa8\x46 \x01(\x0b\x32\x17.djls.v1.messages.ErrorH\x00\x42\x08\n\x06result\"\xa5\x01\n\x05\x45rror\x12*\n\x04\x63ode\x18\x01 \x01(\x0e\x32\x1c.djls.v1.messages.Error.Code\x12\x0f\n\x07message\x18\x02 \x01(\t\x12\x11\n\ttraceback\x18\x03 \x01(\t\"L\n\x04\x43ode\x12\x0b\n\x07UNKNOWN\x10\x00\x12\x13\n\x0fINVALID_REQUEST\x10\x01\x12\x10\n\x0cPYTHON_ERROR\x10\x02\x12\x10\n\x0c\x44JANGO_ERROR\x10\x03\x62\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x11v1/messages.proto\x12\x10\x64jls.v1.messages\x1a\x11v1/commands.proto\"\xd2\x02\n\x07Request\x12>\n\rcheck__health\x18\x01 \x01(\x0b\x32%.djls.v1.commands.Check.HealthRequestH\x00\x12S\n\x18\x63heck__geodjango_prereqs\x18\x02 \x01(\x0b\x32/.djls.v1.commands.Check.GeoDjangoPrereqsRequestH\x00\x12R\n\x17python__get_environment\x18\xe8\x07 \x01(\x0b\x32..djls.v1.commands.Python.GetEnvironmentRequestH\x00\x12S\n\x18\x64jango__get_project_info\x18\xd0\x0f \x01(\x0b\x32..djls.v1.commands.Django.GetProjectInfoRequestH\x00\x42\t\n\x07\x63ommand\"\x81\x03\n\x08Response\x12?\n\rcheck__health\x18\x01 \x01(\x0b\x32&.djls.v1.commands.Check.HealthResponseH\x00\x12T\n\x18\x63heck__geodjango_prereqs\x18\x02 \x01(\x0b\x32\x30.djls.v1.commands.Check.GeoDjangoPrereqsResponseH\x00\x12S\n\x17python__get_environment\x18\xe8\x07 \x01(\x0b\x32/.djls.v1.commands.Python.GetEnvironmentResponseH\x00\x12T\n\x18\x64jango__get_project_info\x18\xd0\x0f \x01(\x0b\x32/.djls.v1.commands.Django.GetProjectInfoResponseH\x00\x12)\n\x05\x65rror\x18\xa8\x46 \x01(\x0b\x32\x17.djls.v1.messages.ErrorH\x00\x42\x08\n\x06result\"\xa5\x01\n\x05\x45rror\x12*\n\x04\x63ode\x18\x01 \x01(\x0e\x32\x1c.djls.v1.messages.Error.Code\x12\x0f\n\x07message\x18\x02 \x01(\t\x12\x11\n\ttraceback\x18\x03 \x01(\t\"L\n\x04\x43ode\x12\x0b\n\x07UNKNOWN\x10\x00\x12\x13\n\x0fINVALID_REQUEST\x10\x01\x12\x10\n\x0cPYTHON_ERROR\x10\x02\x12\x10\n\x0c\x44JANGO_ERROR\x10\x03\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'v1.messages_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_REQUEST']._serialized_start=90
-  _globals['_REQUEST']._serialized_end=392
-  _globals['_RESPONSE']._serialized_start=395
-  _globals['_RESPONSE']._serialized_end=744
-  _globals['_ERROR']._serialized_start=747
-  _globals['_ERROR']._serialized_end=912
-  _globals['_ERROR_CODE']._serialized_start=836
-  _globals['_ERROR_CODE']._serialized_end=912
+  _globals['_REQUEST']._serialized_start=59
+  _globals['_REQUEST']._serialized_end=397
+  _globals['_RESPONSE']._serialized_start=400
+  _globals['_RESPONSE']._serialized_end=785
+  _globals['_ERROR']._serialized_start=788
+  _globals['_ERROR']._serialized_end=953
+  _globals['_ERROR_CODE']._serialized_start=877
+  _globals['_ERROR_CODE']._serialized_end=953
 # @@protoc_insertion_point(module_scope)
