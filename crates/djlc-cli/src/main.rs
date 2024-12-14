@@ -1,6 +1,5 @@
 use clap::{Args, Parser, Subcommand};
-use djls_ipc::v1::*;
-use djls_ipc::{ProcessError, PythonProcess, TransportError};
+use djls_ipc::PythonProcess;
 use std::ffi::OsStr;
 use std::time::Duration;
 
