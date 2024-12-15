@@ -1,6 +1,6 @@
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
 
 [project]
 name = "djls"
@@ -16,13 +16,22 @@ dependencies = [
     "protobuf>=5.29.1",
 ]
 
-[tool.hatch.build.targets.wheel]
-sources = ["python"]
-
 [dependency-groups]
 dev = [
     "django-stubs>=5.1.1",
+    "maturin>=1.7.8",
     "ruff>=0.8.2",
+]
+
+[tool.maturin]
+bindings = "bin"
+manifest-path = "crates/djls/Cargo.toml"
+module-name = "djls"
+python-source = "python"
+strip = true
+include = [
+    { path = "proto/**/*", format = ["sdist", "wheel"] },
+    { path = "LICENSE", format = "sdist" },
 ]
 
 [tool.ruff]
