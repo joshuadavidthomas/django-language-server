@@ -1,5 +1,5 @@
 [package]
-name = "djls-cli"
+name = "djls"
 version = "0.1.0"
 edition = "2021"
 
@@ -14,7 +14,3 @@ tokio = { workspace = true }
 
 clap = { version = "4.5", features = ["derive"] }
 tower-lsp = { version = "0.20", features = ["proposed"] }
-
-[[bin]]
-name = "djls"
-path = "src/main.rs"

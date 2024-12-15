@@ -3,8 +3,8 @@ members = ["crates/*"]
 resolver = "2"
 
 [workspace.dependencies]
+djls = { path = "crates/djls" }
 djls-ast = { path = "crates/djls-ast" }
-djls-cli = { path = "crates/djls-cli" }
 djls-django = { path = "crates/djls-django" }
 djls-ipc = { path = "crates/djls-ipc" }
 djls-python = { path = "crates/djls-python" }
