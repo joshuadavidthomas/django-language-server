@@ -11,3 +11,11 @@ nodes:
           - user.is_staff
         children:
           - Text: Admin
+          - Django:
+              Tag:
+                kind:
+                  Other: else
+                bits:
+                  - else
+                children: []
+          - Text: User
