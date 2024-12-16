@@ -8,6 +8,9 @@ mod proto ".just/proto.just"
 default:
     @just --list
 
+bumpver *ARGS:
+    uv run --with bumpver bumpver {{ ARGS }}
+
 clean:
     rm -rf target/
 
