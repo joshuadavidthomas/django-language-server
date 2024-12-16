@@ -1,69 +1,68 @@
 ---
-source: crates/djls-ast/src/lexer.rs
+source: crates/djls-template-ast/src/lexer.rs
 expression: tokens
 ---
 - token_type:
-    StyleTagOpen: "style type=\"text/css\""
+    ScriptTagOpen: "script type=\"text/javascript\""
   line: 1
   start: 0
 - token_type: Newline
   line: 1
-  start: 23
+  start: 31
 - token_type:
     Whitespace: 4
   line: 2
-  start: 24
+  start: 32
 - token_type:
     Comment:
-      - Header styles
+      - Single line comment
+      - //
+      - ~
+  line: 2
+  start: 36
+- token_type: Newline
+  line: 2
+  start: 58
+- token_type:
+    Whitespace: 4
+  line: 3
+  start: 59
+- token_type:
+    Text: const x = 1;
+  line: 3
+  start: 63
+- token_type: Newline
+  line: 3
+  start: 75
+- token_type:
+    Whitespace: 4
+  line: 4
+  start: 76
+- token_type:
+    Comment:
+      - "Multi-line\n       comment"
       - /*
       - "*/"
-  line: 2
-  start: 28
-- token_type: Newline
-  line: 2
-  start: 47
-- token_type:
-    Whitespace: 4
-  line: 3
-  start: 48
-- token_type:
-    Text: ".header "
-  line: 3
-  start: 52
-- token_type:
-    Text: "{"
-  line: 3
-  start: 60
-- token_type: Newline
-  line: 3
-  start: 61
-- token_type:
-    Whitespace: 8
   line: 4
-  start: 62
-- token_type:
-    Text: "color: blue;"
-  line: 4
-  start: 70
+  start: 80
 - token_type: Newline
   line: 4
-  start: 82
+  start: 111
 - token_type:
     Whitespace: 4
   line: 5
-  start: 83
+  start: 112
 - token_type:
-    Text: "}"
+    Text: console.log(x);
   line: 5
-  start: 87
+  start: 116
 - token_type: Newline
   line: 5
-  start: 88
+  start: 131
 - token_type:
-    HtmlTagClose: style
+    HtmlTagClose: script
   line: 6
-  start: 89
+  start: 132
 - token_type: Eof
   line: 6
   start: ~

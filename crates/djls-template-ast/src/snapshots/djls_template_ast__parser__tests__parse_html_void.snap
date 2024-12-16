@@ -1,5 +1,5 @@
 ---
-source: crates/djls-ast/src/parser.rs
+source: crates/djls-template-ast/src/parser.rs
 expression: ast
 ---
 nodes:

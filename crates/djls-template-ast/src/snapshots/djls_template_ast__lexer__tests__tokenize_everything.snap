@@ -1,5 +1,5 @@
 ---
-source: crates/djls-ast/src/lexer.rs
+source: crates/djls-template-ast/src/lexer.rs
 expression: tokens
 ---
 - token_type:
