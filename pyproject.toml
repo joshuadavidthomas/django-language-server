@@ -52,20 +52,20 @@ commit_message = ":bookmark: bump version {old_version} -> {new_version}"
 current_version = "5.1.0-alpha.0"
 push = false  # set to false for CI
 tag = false
-version_pattern = "MAJOR.MINOR.INC0[-TAG][.NUM]"
+version_pattern = "MAJOR.MINOR.PATCH[-TAG[.NUM]]"
 
 [tool.bumpver.file_patterns]
 "crates/djls/Cargo.toml" = [
     'version = "{version}"',
 ]
 "packages/djls-agent/pyproject.toml" = [
-    'version = "{pep400_version}"',
+    'version = "{pep440_version}"',
 ]
 "packages/djls-server/pyproject.toml" = [
-    'version = "{pep400_version}"',
+    'version = "{pep440_version}"',
 ]
 "pyproject.toml" = [
-    'version = "{pep400_version}"',
+    'version = "{pep440_version}"',
     'current_version = "{version}"',
 ]
 
