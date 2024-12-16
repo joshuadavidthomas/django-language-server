@@ -153,14 +153,16 @@ After getting the basic plumbing of the server and agent in place, it's personal
 
 All feature requests should ideally start out as a discussion topic, to gather feedback and consensus.
 
-### Code Contributions
+### Development
 
 The project consists of both Rust and Python components:
 
 - Rust: LSP server, template parsing, and core functionality (`crates/`)
 - Python: Django project and environment introspection agent (`packages/`)
 
-Contributions are welcome from developers of all backgrounds. Rust expertise is especially valuable for the LSP server and core components. Python and Django developers should not be deterred by the Rust codebase - Django expertise is just as valuable. The Rust components were built by [a simple country CRUD web developer](https://youtu.be/7ij_1SQqbVo?si=hwwPyBjmaOGnvPPI&t=53) learning Rust along the way.
+Code contributions are welcome from developers of all backgrounds. Rust expertise is especially valuable for the LSP server and core components.
+
+Python and Django developers should not be deterred by the Rust codebase - Django expertise is just as valuable. The Rust components were built by [a simple country CRUD web developer](https://youtu.be/7ij_1SQqbVo?si=hwwPyBjmaOGnvPPI&t=53) learning Rust along the way.
 
 ## License
 
