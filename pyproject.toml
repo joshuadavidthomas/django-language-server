@@ -7,6 +7,9 @@ dev = [
     "django-stubs>=5.1.1",
     "ruff>=0.8.2",
 ]
+docs = [
+    "mkdocs-material>=9.5.49",
+]
 
 [project]
 name = "djls"
