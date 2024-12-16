@@ -97,7 +97,7 @@ pip install djls-agent
 
 The Django Language Server works with any editor that supports the Language Server Protocol (LSP). We currently have setup instructions for:
 
-- [Neovim](/docs/editor-setup/neovim.md)
+- [Neovim](docs/editor-setup/neovim.md)
 
 Got it working in your editor? [Help us add setup instructions!](#testing-and-documenting-editor-setup)
 
