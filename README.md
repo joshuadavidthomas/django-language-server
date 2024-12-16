@@ -141,7 +141,7 @@ The project needs help in several areas:
 
 ### Testing and Documenting Editor Setup
 
-The server has only been tested with Neovim. Documentation for setting up the language server in other editors is sorely needed, particularly VS Code. However, any editor that has [LSP client](https://langserver.org/#:~:text=for%20more%20information.-,LSP%20clients,-Editor/client) support would be welcome.
+The server has only been tested with Neovim. Documentation for setting up the language server in other editors is sorely needed, particularly VS Code. However, any editor that has [LSP client](https://langserver.org/#:~:text=for%20more%20information.-,LSP%20clients,opensesame%2Dextension%2Dlanguage_server,-Community%20Discussion%20Forums) support would be welcome.
 
 If you get it working in your editor, please open a PR with the setup instructions.
 
