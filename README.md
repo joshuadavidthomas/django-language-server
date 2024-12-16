@@ -37,7 +37,7 @@ The Django Language Server aims to supports all actively maintained versions of 
 - Python 3.9, 3.10, 3.11, 3.12, 3.13
 - Django 4.2, 5.0, 5.1
 
-See the [Versioning](#versioning) section for details on how the project's version indicate Django compatibility.
+See the [Versioning](#versioning) section for details on how this project's version indicates Django compatibility.
 
 ## Installation
 
@@ -176,11 +176,11 @@ While DjangoVer doesn't encode API stability in the version number, this project
 - CLI commands and arguments
 - LSP protocol extensions (custom commands/notifications)
 
-The library will provide deprecation warnings where possible and document breaking changes clearly in release notes. For example, if a configuration option is renamed:
+The project will provide deprecation warnings where possible and document breaking changes clearly in release notes. For example, if a configuration option is renamed:
 
-- v5.1.0: Old option works but logs deprecation warning
-- v5.1.1: Old option still works, continues to show warning
-- v5.1.2: Old option removed, only new option works
+- **`v5.1.0`**: Old option works but logs deprecation warning
+- **`v5.1.1`**: Old option still works, continues to show warning
+- **`v5.1.2`**: Old option removed, only new option works
 
 ## Contributing
 
