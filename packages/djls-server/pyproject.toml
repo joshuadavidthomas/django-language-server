@@ -12,6 +12,19 @@ authors = [
 ]
 requires-python = ">=3.9"
 dependencies = []
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Framework :: Django",
+  "Framework :: Django :: 4.2",
+  "Framework :: Django :: 5.0",
+  "Framework :: Django :: 5.1",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Rust",
+  "Topic :: Software Development",
+  "Topic :: Text Editors :: Integrated Development Environments (IDE)"
+]
 
 [tool.maturin]
 bindings = "bin"
