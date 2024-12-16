@@ -11,13 +11,13 @@ A language server for Django projects.
 
 😅
 
-However, the foundation is laid:
+However, the foundation has been laid:
 
 ✅ Working server architecture
 
-- Server implementing the Language Server Protocol written in Rust
-- Python agent running as a persistent process within the Django project's virtualenv
-- Server-agent communication via Protocol Buffers
+- ✅ Server implementing the Language Server Protocol written in Rust
+- ✅ Python agent running as a persistent process within the Django project's virtualenv
+- ✅ Server-agent communication via Protocol Buffers
 
 ✅ Custom template parser to support LSP features
 
