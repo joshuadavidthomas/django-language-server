@@ -66,7 +66,7 @@ wheels = [
 
 [[package]]
 name = "djls"
-version = "0.1.0"
+version = "5.1.0a0"
 source = { editable = "." }
 dependencies = [
     { name = "djls-agent" },
@@ -97,7 +97,7 @@ dev = [
 
 [[package]]
 name = "djls-agent"
-version = "0.1.0"
+version = "5.1.0a0"
 source = { editable = "packages/djls-agent" }
 dependencies = [
     { name = "django" },
@@ -124,7 +124,7 @@ dev = [
 
 [[package]]
 name = "djls-server"
-version = "0.1.0"
+version = "5.1.0a0"
 source = { editable = "packages/djls-server" }
 
 [[package]]
