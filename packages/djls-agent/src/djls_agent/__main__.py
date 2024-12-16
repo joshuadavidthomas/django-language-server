@@ -105,7 +105,7 @@ class LSPAgent:
 
 
 async def main() -> None:
-    logger.debug("Starting DJLS...")
+    logger.debug("Starting djls-agent...")
 
     try:
         logger.debug("Initializing LSPAgent...")

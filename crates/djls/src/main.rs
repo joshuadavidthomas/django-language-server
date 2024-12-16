@@ -46,7 +46,7 @@ async fn main() -> Result<ExitCode> {
     let cli = Cli::parse();
     match cli.command {
         Command::Serve(_serve) => {
-            let python = PythonProcess::new::<Vec<&OsStr>, &OsStr>("djls.agent", None, None)?;
+            let python = PythonProcess::new::<Vec<&OsStr>, &OsStr>("djls_agent", None, None)?;
             djls_server::serve(python).await?
         }
     }
