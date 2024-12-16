@@ -1,9 +1,14 @@
+---
+title: Home
+---
+
 # django-language-server
 
 A language server for the Django web framework.
 
-> [!CAUTION]
-> This project is in early stages. All features are incomplete and missing.
+!!! warning
+
+    This project is in early stages. All features are incomplete and missing.
 
 ## Features
 
@@ -55,8 +60,9 @@ uv sync
 pip install djls[server]
 ```
 
-> [!NOTE]
-> The server should be installed globally on your development machine. The quick-start method above will install the server in each project's environment and is only intended for trying things out. See the [Server](#server) section below for details.
+!!! note
+
+    The server should be installed globally on your development machine. The quick-start method above will install the server in each project's environment and is only intended for trying things out. See the [Server](#server) section below for details.
 
 ### Server
 
@@ -97,7 +103,7 @@ pip install djls-agent
 
 The Django Language Server works with any editor that supports the Language Server Protocol (LSP). We currently have setup instructions for:
 
-- [Neovim](docs/editor-setup/neovim.md)
+- [Neovim](editor-setup/neovim.md)
 
 Got it working in your editor? [Help us add setup instructions!](#testing-and-documenting-editor-setup)
 
@@ -159,4 +165,4 @@ Python and Django developers should not be deterred by the Rust codebase - Djang
 
 ## License
 
-django-language-server is licensed under the MIT license. See the [`LICENSE`](LICENSE) file for more information.
+django-language-server is licensed under the MIT license. See the [`LICENSE`](https://github.com/joshuadavidthomas/django-language-server/blob/main/LICENSE) file for more information.

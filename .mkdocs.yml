@@ -1,0 +1,55 @@
+# yaml-language-server: $schema=https://squidfunk.github.io/mkdocs-material/schema.json
+extra_css:
+  - stylesheets/extra.css
+markdown_extensions:
+  - attr_list
+  - admonition
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.magiclink:
+      hide_protocol: true
+      repo_url_shortener: true
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - pymdownx.tasklist:
+      custom_checkbox: true
+plugins:
+  - search
+repo_url: https://github.com/joshuadavidthomas/django-language-server
+site_author: joshuadavidthomas
+site_name: Django Language Server
+site_url: http://joshuadavidthomas.github.io/django-language-server
+theme:
+  features:
+    - navigation.instant
+    - navigation.instant.progress
+    - navigation.sections
+    - navigation.tracking
+    - search.highlight
+    - search.suggest
+  font:
+    code: Fira Code
+    text: Inter
+  icon:
+    repo: fontawesome/brands/github
+  name: material
+  palette:
+    - media: "(prefers-color-scheme)"
+      toggle:
+        icon: material/brightness-auto
+        name: Switch to light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to system preference
