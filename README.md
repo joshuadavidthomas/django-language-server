@@ -158,6 +158,16 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim) and [nvim-lspconfig](https
 > [!NOTE]
 > This configuration is copied straight from my Neovim setup and includes a logging setup that sends LSP messages to Neovim's notification system. You can remove all the references to `vim.notify` if you don't care about this functionality.
 
+## Versioning
+
+This project adheres to DjangoVer. For a quick overview of what DjangoVer is, here's an excerpt from Django core developer James Bennett's [Introducing DjangoVer](https://www.b-list.org/weblog/2024/nov/18/djangover/) blog post:
+
+> In DjangoVer, a Django-related package has a version number of the form `DJANGO_MAJOR.DJANGO_FEATURE.PACKAGE_VERSION`, where `DJANGO_MAJOR` and `DJANGO_FEATURE` indicate the most recent feature release series of Django supported by the package, and `PACKAGE_VERSION` begins at zero and increments by one with each release of the package supporting that feature release of Django.
+
+In short, `v5.1.x` means the latest version of Django the Django Language Server would support is 5.1 — so, e.g., versions `v5.1.0`, `v5.1.1`, `v5.1.2`, etc. should all work with Django 5.1.
+
+At this moment, all components of the Django Language Server (the `djls` binary, the `djls-agent` agent package on PyPI, and the `djls-binary` binary distribution package on PyPI) will share the same version number. When a new version is released, all packages are updated together regardless of which component triggered the release.
+
 ## Contributing
 
 The project needs help in several areas:
