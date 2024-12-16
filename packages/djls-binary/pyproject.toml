@@ -19,6 +19,7 @@ manifest-path = "../../crates/djls/Cargo.toml"
 module-name = "djls"
 strip = true
 include = [
+    { path = "../../rust-toolchain.toml", format = ["sdist", "wheel"] },
     { path = "../../proto/**/*", format = ["sdist", "wheel"] },
     { path = "../../LICENSE", format = "sdist" },
 ]
