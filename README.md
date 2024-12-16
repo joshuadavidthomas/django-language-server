@@ -37,7 +37,7 @@ The Django Language Server aims to supports all actively maintained versions of 
 - Python 3.9, 3.10, 3.11, 3.12, 3.13
 - Django 4.2, 5.0, 5.1
 
-See the [Versioning](#versioning) section for details on how the project's version numbers indicate Django compatibility.
+See the [Versioning](#versioning) section for details on how the project's version indicate Django compatibility.
 
 ## Installation
 
