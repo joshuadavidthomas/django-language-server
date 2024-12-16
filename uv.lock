@@ -67,16 +67,12 @@ wheels = [
 [[package]]
 name = "djls"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
+dependencies = [
+    { name = "djls-agent" },
+]
 
 [package.optional-dependencies]
-agent = [
-    { name = "djls-agent" },
-]
-full = [
-    { name = "djls-agent" },
-    { name = "djls-server" },
-]
 server = [
     { name = "djls-server" },
 ]
@@ -89,8 +85,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "djls", extras = ["agent", "server"], marker = "extra == 'full'" },
-    { name = "djls-agent", marker = "extra == 'agent'", editable = "packages/djls-agent" },
+    { name = "djls-agent", editable = "packages/djls-agent" },
     { name = "djls-server", marker = "extra == 'server'", editable = "packages/djls-server" },
 ]
 
