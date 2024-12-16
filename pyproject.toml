@@ -11,22 +11,21 @@ dev = [
 [project]
 name = "djls"
 version = "0.1.0"
-description = "Python agent for django-language-server"
+description = "A language server for the Django web framework"
 readme = "README.md"
 authors = [
     { name = "Josh Thomas", email = "josh@joshthomas.dev" }
 ]
 requires-python = ">=3.9"
 dependencies = [
-    "django>=4.2",
-    "protobuf>=5.29.1",
+    "djls-agent"
 ]
 
 [project.optional-dependencies]
 server = ["djls-server"]
 
 [tool.hatch.build]
-packages = ["packages/djls-agent/src/djls"]
+packages = [".workspace/"]
 
 [tool.ruff]
 # Exclude a variety of commonly ignored directories.
@@ -82,7 +81,7 @@ unfixable = []
 
 [tool.ruff.lint.isort]
 force-single-line = true
-known-first-party = ["djls"]
+known-first-party = ["djls_agent"]
 required-imports = ["from __future__ import annotations"]
 
 [tool.ruff.lint.per-file-ignores]
@@ -94,10 +93,8 @@ required-imports = ["from __future__ import annotations"]
 keep-runtime-typing = true
 
 [tool.uv.sources]
+djls-agent = { workspace = true }
 djls-server = { workspace = true }
 
 [tool.uv.workspace]
 members = ["packages/*"]
-# co-locating the workspace root next to the other Python packages requires
-# ignoring it here
-exclude = ["packages/djls-agent"]
