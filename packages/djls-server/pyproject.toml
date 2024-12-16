@@ -3,9 +3,9 @@ requires = ["maturin>=1.0,<2.0"]
 build-backend = "maturin"
 
 [project]
-name = "djls-binary"
+name = "djls-server"
 version = "0.1.0"
-description = "Utility Python scripts for Django Language Server"
+description = "Binary distribution package for the Django Language Server"
 readme = "README.md"
 authors = [
     { name = "Josh Thomas", email = "josh@joshthomas.dev" }

@@ -23,7 +23,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-binary = ["djls-binary"]
+server = ["djls-server"]
 
 [tool.hatch.build]
 packages = ["packages/djls-agent/src/djls"]
@@ -94,7 +94,7 @@ required-imports = ["from __future__ import annotations"]
 keep-runtime-typing = true
 
 [tool.uv.sources]
-djls-binary = { workspace = true }
+djls-server = { workspace = true }
 
 [tool.uv.workspace]
 members = ["packages/*"]

@@ -4,7 +4,7 @@ requires-python = ">=3.9"
 [manifest]
 members = [
     "djls",
-    "djls-binary",
+    "djls-server",
 ]
 
 [[package]]
@@ -73,8 +73,8 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
-binary = [
-    { name = "djls-binary" },
+server = [
+    { name = "djls-server" },
 ]
 
 [package.dev-dependencies]
@@ -86,7 +86,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "django", specifier = ">=4.2" },
-    { name = "djls-binary", marker = "extra == 'binary'", editable = "packages/djls-binary" },
+    { name = "djls-server", marker = "extra == 'server'", editable = "packages/djls-server" },
     { name = "protobuf", specifier = ">=5.29.1" },
 ]
 
@@ -97,9 +97,9 @@ dev = [
 ]
 
 [[package]]
-name = "djls-binary"
+name = "djls-server"
 version = "0.1.0"
-source = { editable = "packages/djls-binary" }
+source = { editable = "packages/djls-server" }
 
 [[package]]
 name = "protobuf"
