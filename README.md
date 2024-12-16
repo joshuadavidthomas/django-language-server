@@ -30,14 +30,14 @@ However, the foundation has been laid:
 
 ## Requirements
 
-You'll need an editor that supports the Language Server Protocol (LSP).
+An editor that supports the Language Server Protocol (LSP) is required.
 
-The server supports Django projects running on:
+The Django Language Server aims to supports all actively maintained versions of Python and Django. Currently this includes:
 
 - Python 3.9, 3.10, 3.11, 3.12, 3.13
 - Django 4.2, 5.0, 5.1
 
-The aim is to support all actively maintained versions of both Python and Django.
+See the [Versioning](#versioning) section for details on how version numbers indicate Django compatibility.
 
 ## Installation
 
