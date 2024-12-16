@@ -1,6 +1,6 @@
 # django-language-server
 
-A language server for Django projects.
+A language server for the Django web framework.
 
 > [!CAUTION]
 > This project is in early stages. All features are incomplete and missing.
