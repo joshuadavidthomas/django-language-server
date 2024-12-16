@@ -53,7 +53,9 @@ The quickest way to get started is to install both the server and agent in your 
 ```bash
 uv add --dev 'djls[server]'
 uv sync
+
 # or
+
 pip install djls[server]
 ```
 
