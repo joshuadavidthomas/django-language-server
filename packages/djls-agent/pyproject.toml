@@ -10,7 +10,7 @@ dev = [
 
 [project]
 name = "djls-agent"
-version = "0.1.0"
+version = "5.1.0a0"
 description = "Python agent for django-language-server"
 readme = "README.md"
 authors = [
