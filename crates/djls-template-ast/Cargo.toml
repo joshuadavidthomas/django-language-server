@@ -1,5 +1,5 @@
 [package]
-name = "djls-ast"
+name = "djls-template-ast"
 version = "0.0.0"
 edition = "2021"
 

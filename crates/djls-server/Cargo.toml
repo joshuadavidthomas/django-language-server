@@ -4,10 +4,10 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-djls-ast = { workspace = true }
 djls-django = { workspace = true }
 djls-ipc = { workspace = true }
 djls-python = { workspace = true }
+djls-template-ast = { workspace = true }
 djls-worker = { workspace = true }
 
 anyhow = { workspace = true }
