@@ -26,7 +26,7 @@ dependencies = [
 binary = ["djls-binary"]
 
 [tool.hatch.build]
-packages = ["packages/djls/src/djls"]
+packages = ["packages/djls-agent/src/djls"]
 
 [tool.ruff]
 # Exclude a variety of commonly ignored directories.
@@ -100,4 +100,4 @@ djls-binary = { workspace = true }
 members = ["packages/*"]
 # co-locating the workspace root next to the other Python packages requires
 # ignoring it here
-exclude = ["packages/djls"]
+exclude = ["packages/djls-agent"]
