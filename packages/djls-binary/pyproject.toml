@@ -1,0 +1,24 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "djls-binary"
+version = "0.1.0"
+description = "Utility Python scripts for Django Language Server"
+readme = "README.md"
+authors = [
+    { name = "Josh Thomas", email = "josh@joshthomas.dev" }
+]
+requires-python = ">=3.9"
+dependencies = []
+
+[tool.maturin]
+bindings = "bin"
+manifest-path = "../../crates/djls/Cargo.toml"
+module-name = "djls"
+strip = true
+include = [
+    { path = "../../proto/**/*", format = ["sdist", "wheel"] },
+    { path = "../../LICENSE", format = "sdist" },
+]
