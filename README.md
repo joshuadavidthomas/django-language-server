@@ -41,47 +41,65 @@ The aim is to support all actively maintained versions of both Python and Django
 
 ## Installation
 
-The Django Language Server consists of a Rust-based LSP server (`djls`) and a Python agent that runs in your Django project.
+The Django Language Server consists of two main components:
+
+- **An LSP server**: Rust binary `djls`, distributed through the Python package `djls-server`
+- **A Python agent**: `djls-agent` package that runs in your Django project
+
+Both will need to be available in your Django project in order to function.
 
 The quickest way to get started is to install both the server and agent in your project's environment:
 
 ```bash
-uv add --dev 'djls[binary]'
+uv add --dev 'djls[server]'
 uv sync
 # or
-pip install djls[binary]
+pip install djls[server]
 ```
+
+> [!NOTE]
+> The server should be installed globally on your development machine. The quick-start method above will install the server in each project's environment and is only intended for trying things out. See the [Server](#server) section below for details.
 
 ### Server
 
-You can either build from source using cargo, or install the pre-built binary package from PyPI.
+You can install the pre-built binary package from PyPI, or build from source using cargo.
 
-Via cargo:
+The server binary is published to PyPI as `djls-server` for easy installation via uv or pipx:
+
+```bash
+uv tool install djls-server
+
+# or
+
+pipx install djls-server
+```
+
+If you have a Rust toolchain available and prefer to build from source, you can install via cargo:
 
 ```bash
 cargo install --git https://github.com/joshuadavidthomas/django-language-server
 ```
 
-Or using the PyPI package via uv or pipx:
-
-```bash
-uv tool install djls-binary
-# or
-pipx install djls-binary
-```
-
 ### Agent
 
-The agent needs to be installed in your Django project's environment to provide project introspection. Add it to your project's development dependencies:
+The agent needs to be installed in your Django project's environment to provide project introspection.
+
+The agent is published to PyPI as `djls-agent` and should be added to your project's development dependencies:
 
 ```bash
-uv add --dev djls
+uv add --dev djls-agent
 uv sync
+
 # or
-pip install djls
+
+pip install djls-agent
 ```
 
 ## Editor Setup
+
+The Django Language Server should work with any editor that supports the Language Server Protocol (LSP). Got it working in your editor? [Help us add setup instructions](#testing-and-documenting-editor-setup)!
+
+- [Neovim](#neovim)
 
 ### Neovim
 
@@ -134,6 +152,9 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim) and [nvim-lspconfig](https
     },
   },
 ```
+
+> [!NOTE]
+> This configuration is copied straight from my Neovim setup and includes a logging setup that sends LSP messages to Neovim's notification system. You can remove all the references to `vim.notify` if you don't care about this functionality.
 
 ## Contributing
 
