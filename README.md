@@ -34,7 +34,7 @@ You'll need an editor that supports the Language Server Protocol (LSP).
 
 The server supports Django projects running on:
 
-- Python 3.10, 3.11, 3.12, 3.13
+- Python 3.9, 3.10, 3.11, 3.12, 3.13
 - Django 4.2, 5.0, 5.1
 
 The aim is to support all actively maintained versions of both Python and Django.
