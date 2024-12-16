@@ -1,11 +1,17 @@
 [build-system]
-requires = ["maturin>=1.0,<2.0"]
-build-backend = "maturin"
+build-backend = "hatchling.build"
+requires = ["hatchling"]
+
+[dependency-groups]
+dev = [
+    "django-stubs>=5.1.1",
+    "ruff>=0.8.2",
+]
 
 [project]
 name = "djls"
 version = "0.1.0"
-description = "Utility Python scripts for Django Language Server"
+description = "Python agent for django-language-server"
 readme = "README.md"
 authors = [
     { name = "Josh Thomas", email = "josh@joshthomas.dev" }
@@ -16,23 +22,11 @@ dependencies = [
     "protobuf>=5.29.1",
 ]
 
-[dependency-groups]
-dev = [
-    "django-stubs>=5.1.1",
-    "maturin>=1.7.8",
-    "ruff>=0.8.2",
-]
+[project.optional-dependencies]
+binary = ["djls-binary"]
 
-[tool.maturin]
-bindings = "bin"
-manifest-path = "crates/djls/Cargo.toml"
-module-name = "djls"
-python-source = "python"
-strip = true
-include = [
-    { path = "proto/**/*", format = ["sdist", "wheel"] },
-    { path = "LICENSE", format = "sdist" },
-]
+[tool.hatch.build]
+packages = ["packages/djls/src/djls"]
 
 [tool.ruff]
 # Exclude a variety of commonly ignored directories.
@@ -98,3 +92,12 @@ required-imports = ["from __future__ import annotations"]
 [tool.ruff.lint.pyupgrade]
 # Preserve types, even if a file imports `from __future__ import annotations`.
 keep-runtime-typing = true
+
+[tool.uv.sources]
+djls-binary = { workspace = true }
+
+[tool.uv.workspace]
+members = ["packages/*"]
+# co-locating the workspace root next to the other Python packages requires
+# ignoring it here
+exclude = ["packages/djls"]
