@@ -99,7 +99,7 @@ pip install djls-agent
 
 ## Editor Setup
 
-The Django Language Server should work with any editor that supports the Language Server Protocol (LSP). Got it working in your editor? [Help us add setup instructions](#testing-and-documenting-editor-setup)!
+The Django Language Server should work with any editor that supports the Language Server Protocol (LSP). Got it working in your editor? [Help us add setup instructions!](#testing-and-documenting-editor-setup)
 
 - [Neovim](#neovim)
 
@@ -167,6 +167,20 @@ This project adheres to DjangoVer. For a quick overview of what DjangoVer is, he
 In short, `v5.1.x` means the latest version of Django the Django Language Server would support is 5.1 — so, e.g., versions `v5.1.0`, `v5.1.1`, `v5.1.2`, etc. should all work with Django 5.1.
 
 At this moment, all components of the Django Language Server (the `djls` binary, the `djls-agent` agent package on PyPI, and the `djls-binary` binary distribution package on PyPI) will share the same version number. When a new version is released, all packages are updated together regardless of which component triggered the release.
+
+### Breaking Changes
+
+While DjangoVer doesn't encode API stability in the version number, this project strives to follow Django's standard practice of "deprecate for two releases, then remove" policy for breaking changes. Given this is a language server, breaking changes should primarily affect:
+
+- Configuration options (settings in editor config files)
+- CLI commands and arguments
+- LSP protocol extensions (custom commands/notifications)
+
+The library will provide deprecation warnings where possible and document breaking changes clearly in release notes. For example, if a configuration option is renamed:
+
+- v5.1.0: Old option works but logs deprecation warning
+- v5.1.1: Old option still works, continues to show warning
+- v5.1.2: Old option removed, only new option works
 
 ## Contributing
 
