@@ -73,7 +73,7 @@ version_pattern = "MAJOR.MINOR.PATCH[-TAG[.NUM]]"
 ]
 
 [tool.hatch.build]
-packages = [".workspace/"]
+packages = [".uv-workspace/"]
 
 [tool.ruff]
 # Exclude a variety of commonly ignored directories.
