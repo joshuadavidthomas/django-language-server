@@ -1,81 +1,71 @@
-use crate::process::ProcessError;
-use crate::proto::v1::*;
-use prost::Message;
-use std::io::{BufRead, BufReader, BufWriter, Read, Write};
+use crate::protocol::ProtocolError;
+use std::io::{BufReader, BufWriter, Read, Write};
 use std::process::{ChildStdin, ChildStdout};
 use std::sync::{Arc, Mutex};
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Transport {
     reader: Arc<Mutex<BufReader<ChildStdout>>>,
     writer: Arc<Mutex<BufWriter<ChildStdin>>>,
 }
 
 impl Transport {
-    pub fn new(mut stdin: ChildStdin, mut stdout: ChildStdout) -> Result<Self, ProcessError> {
-        stdin.flush().map_err(TransportError::Io)?;
-
-        let mut ready_line = String::new();
-        BufReader::new(&mut stdout)
-            .read_line(&mut ready_line)
-            .map_err(TransportError::Io)?;
-
-        if ready_line.trim() != "ready" {
-            return Err(ProcessError::Ready("Python process not ready".to_string()));
-        }
-
+    pub fn new(stdin: ChildStdin, stdout: ChildStdout) -> Result<Self, TransportError> {
         Ok(Self {
             reader: Arc::new(Mutex::new(BufReader::new(stdout))),
             writer: Arc::new(Mutex::new(BufWriter::new(stdin))),
         })
     }
 
-    pub fn send(
-        &mut self,
-        message: messages::Request,
-    ) -> Result<messages::Response, TransportError> {
-        let buf = message.encode_to_vec();
+    pub fn send_and_receive(&self, request: &[u8]) -> Result<Vec<u8>, TransportError> {
+        let mut writer = self
+            .writer
+            .lock()
+            .map_err(|_| TransportError::Lock("Failed to acquire writer lock".into()))?;
 
-        let mut writer = self.writer.lock().map_err(|_| {
-            TransportError::Io(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "Failed to acquire writer lock",
-            ))
-        })?;
         writer
-            .write_all(&(buf.len() as u32).to_be_bytes())
+            .write_all(&(request.len() as u32).to_be_bytes())
             .map_err(TransportError::Io)?;
-        writer.write_all(&buf).map_err(TransportError::Io)?;
+        writer.write_all(request).map_err(TransportError::Io)?;
         writer.flush().map_err(TransportError::Io)?;
 
-        let mut reader = self.reader.lock().map_err(|_| {
-            TransportError::Io(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "Failed to acquire reader lock",
-            ))
-        })?;
-        let mut length_bytes = [0u8; 4];
-        reader
-            .read_exact(&mut length_bytes)
-            .map_err(TransportError::Io)?;
-        let length = u32::from_be_bytes(length_bytes);
+        let mut reader = self
+            .reader
+            .lock()
+            .map_err(|_| TransportError::Lock("Failed to acquire reader lock".into()))?;
 
-        let mut message_bytes = vec![0u8; length as usize];
-        reader
-            .read_exact(&mut message_bytes)
-            .map_err(TransportError::Io)?;
+        let mut buf = [0u8; 1];
+        while reader.read_exact(&mut buf).is_ok() {
+            if buf[0] == 0 {
+                let mut rest = [0u8; 3];
+                if reader.read_exact(&mut rest).is_ok() {
+                    let length_bytes = [buf[0], rest[0], rest[1], rest[2]];
+                    let length = u32::from_be_bytes(length_bytes);
 
-        messages::Response::decode(message_bytes.as_slice())
-            .map_err(|e| TransportError::Decode(e.to_string()))
+                    if length <= 1_000_000 {
+                        let mut response = vec![0u8; length as usize];
+                        reader
+                            .read_exact(&mut response)
+                            .map_err(TransportError::Io)?;
+                        return Ok(response);
+                    }
+                }
+            }
+        }
+
+        Err(TransportError::Io(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "Failed to sync with response stream",
+        )))
     }
 }
 
-#[derive(thiserror::Error, Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum TransportError {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
-    #[error("Task error: {0}")]
-    Task(#[from] tokio::task::JoinError),
-    #[error("Failed to decode message: {0}")]
-    Decode(String),
+    #[error("Lock error: {0}")]
+    Lock(String),
+    #[error("Protocol error: {0}")]
+    Protocol(#[from] ProtocolError),
 }

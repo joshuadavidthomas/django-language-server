@@ -19,3 +19,7 @@ clean:
 lint:
     @just --fmt
     uv run --with pre-commit-uv pre-commit run --all-files
+
+# generate Pydantic models from Rust types
+schema OUTPUT="packages/djls-agent/src/djls_agent/":
+    cargo dev pydantic --output {{ OUTPUT }}

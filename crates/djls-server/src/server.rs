@@ -2,7 +2,7 @@ use crate::documents::Store;
 use crate::notifier::Notifier;
 use crate::tasks::DebugTask;
 use anyhow::Result;
-use djls_django::DjangoProject;
+use djls_ipc::{HealthCheck, HealthCheckRequestData, JsonProtocol, Protocol, PythonProcess};
 use djls_worker::Worker;
 use std::sync::Arc;
 use std::time::Duration;
@@ -23,19 +23,19 @@ pub enum LspNotification {
     Shutdown,
 }
 
-pub struct DjangoLanguageServer {
-    django: DjangoProject,
+pub struct DjangoLanguageServer<P: Protocol> {
+    python: PythonProcess<P>,
     notifier: Arc<Box<dyn Notifier>>,
     documents: Store,
     worker: Worker,
 }
 
-impl DjangoLanguageServer {
-    pub fn new(django: DjangoProject, notifier: Box<dyn Notifier>) -> Self {
+impl<P: Protocol> DjangoLanguageServer<P> {
+    pub fn new(python: PythonProcess<P>, notifier: Box<dyn Notifier>) -> Self {
         let notifier = Arc::new(notifier);
 
         Self {
-            django,
+            python,
             notifier,
             documents: Store::new(),
             worker: Worker::new(),
@@ -125,10 +125,14 @@ impl DjangoLanguageServer {
             LspNotification::Initialized(_) => {
                 self.notifier
                     .log_message(MessageType::INFO, "server initialized!")?;
-                self.notifier
-                    .log_message(MessageType::INFO, &format!("\n{}", self.django.py()))?;
-                self.notifier
-                    .log_message(MessageType::INFO, &format!("\n{}", self.django))?;
+                let health_check = self.python.send::<HealthCheck>(HealthCheckRequestData {})?;
+                self.notifier.log_message(
+                    MessageType::INFO,
+                    &format!(
+                        "Status: {}, Version: {}",
+                        health_check.status, health_check.version
+                    ),
+                )?;
                 Ok(())
             }
             LspNotification::Shutdown => Ok(()),

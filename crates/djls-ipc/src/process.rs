@@ -1,25 +1,18 @@
-use crate::proto::v1::*;
-use crate::transport::{Transport, TransportError};
+use crate::messages::{ErrorResponse, Message, Request, Response};
+use crate::protocol::{Protocol, ProtocolError};
+use crate::{Transport, TransportError};
 use std::ffi::OsStr;
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
-use tokio::time;
 
-#[derive(Debug)]
-pub struct PythonProcess {
+pub struct PythonProcess<P: Protocol> {
     transport: Arc<Mutex<Transport>>,
     _child: Child,
-    healthy: Arc<AtomicBool>,
+    protocol: P,
 }
 
-impl PythonProcess {
-    pub fn new<I, S>(
-        module: &str,
-        args: Option<I>,
-        health_check_interval: Option<Duration>,
-    ) -> Result<Self, ProcessError>
+impl<P: Protocol> PythonProcess<P> {
+    pub fn new<I, S>(module: &str, args: Option<I>, protocol: P) -> Result<Self, ProcessError>
     where
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>,
@@ -33,87 +26,39 @@ impl PythonProcess {
 
         command.stdin(Stdio::piped()).stdout(Stdio::piped());
 
-        let mut child = command.spawn().map_err(TransportError::Io)?;
+        let mut child = command.spawn().map_err(ProcessError::Spawn)?;
 
-        let stdin = child.stdin.take().unwrap();
-        let stdout = child.stdout.take().unwrap();
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| ProcessError::Io("Failed to capture stdin".into()))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| ProcessError::Io("Failed to capture stdout".into()))?;
 
-        let transport = Transport::new(stdin, stdout)?;
+        let transport = Arc::new(Mutex::new(Transport::new(stdin, stdout)?));
 
-        let process = Self {
-            transport: Arc::new(Mutex::new(transport)),
+        Ok(Self {
+            transport,
+            protocol,
             _child: child,
-            healthy: Arc::new(AtomicBool::new(true)),
-        };
-
-        if let Some(interval) = health_check_interval {
-            let transport = process.transport.clone();
-            let healthy = process.healthy.clone();
-            tokio::spawn(async move {
-                let mut interval = time::interval(interval);
-                loop {
-                    interval.tick().await;
-                    let _ = PythonProcess::check_health(transport.clone(), healthy.clone()).await;
-                }
-            });
-        }
-
-        Ok(process)
+        })
     }
 
-    pub fn is_healthy(&self) -> bool {
-        self.healthy.load(Ordering::SeqCst)
-    }
+    pub fn send<M: Message>(&self, data: M::RequestData) -> Result<M, ProcessError> {
+        let transport = self.transport.lock()?;
 
-    pub fn send(
-        &mut self,
-        request: messages::Request,
-    ) -> Result<messages::Response, TransportError> {
-        let mut transport = self.transport.lock().unwrap();
-        transport.send(request)
-    }
+        let request: Request<M> = Request::new(data);
+        let request_bytes = self.protocol.serialize(&request)?;
+        let response_bytes = transport.send_and_receive(&request_bytes)?;
+        let response: Response<M> = self.protocol.deserialize(&response_bytes)?;
 
-    async fn check_health(
-        transport: Arc<Mutex<Transport>>,
-        healthy: Arc<AtomicBool>,
-    ) -> Result<(), ProcessError> {
-        let request = messages::Request {
-            command: Some(messages::request::Command::CheckHealth(
-                commands::check::HealthRequest {},
-            )),
-        };
-
-        let response = tokio::time::timeout(
-            Duration::from_secs(5),
-            tokio::task::spawn_blocking(move || {
-                let mut transport = transport.lock().unwrap();
-                transport.send(request)
-            }),
-        )
-        .await
-        .map_err(|_| ProcessError::Timeout(5))?
-        .map_err(TransportError::Task)?
-        .map_err(ProcessError::Transport)?;
-
-        let result = match response.result {
-            Some(messages::response::Result::CheckHealth(health)) => {
-                if !health.passed {
-                    let error_msg = health.error.unwrap_or_else(|| "Unknown error".to_string());
-                    Err(ProcessError::Health(error_msg))
-                } else {
-                    Ok(())
-                }
-            }
-            Some(messages::response::Result::Error(e)) => Err(ProcessError::Health(e.message)),
-            _ => Err(ProcessError::Response),
-        };
-
-        healthy.store(result.is_ok(), Ordering::SeqCst);
-        result
+        response.try_into_message().map_err(ProcessError::Response)
     }
 }
 
-impl Drop for PythonProcess {
+impl<P: Protocol> Drop for PythonProcess<P> {
     fn drop(&mut self) {
         if let Ok(()) = self._child.kill() {
             let _ = self._child.wait();
@@ -121,18 +66,24 @@ impl Drop for PythonProcess {
     }
 }
 
-#[derive(thiserror::Error, Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum ProcessError {
-    #[error("Health check failed: {0}")]
-    Health(String),
-    #[error("Operation timed out after {0} seconds")]
-    Timeout(u64),
-    #[error("Unexpected response type")]
-    Response,
-    #[error("Failed to acquire lock: {0}")]
-    Lock(String),
-    #[error("Process not ready: {0}")]
-    Ready(String),
+    #[error("Failed to spawn process: {0}")]
+    Spawn(#[from] std::io::Error),
+    #[error("IO error: {0}")]
+    Io(String),
     #[error("Transport error: {0}")]
     Transport(#[from] TransportError),
+    #[error("Protocol error: {0}")]
+    Protocol(#[from] ProtocolError),
+    #[error("Lock error: {0}")]
+    Lock(String),
+    #[error("Response error: {0}")]
+    Response(#[from] ErrorResponse),
+}
+
+impl<T> From<std::sync::PoisonError<std::sync::MutexGuard<'_, T>>> for ProcessError {
+    fn from(_: std::sync::PoisonError<std::sync::MutexGuard<'_, T>>) -> Self {
+        ProcessError::Lock("Failed to acquire lock".into())
+    }
 }

@@ -1,26 +1,28 @@
 from __future__ import annotations
 
+import asyncio
 import struct
 import sys
-from typing import Any
-from typing import cast
-
-from google.protobuf.message import Message
+from typing import Optional
+from typing import Type
 
 from .logging import configure_logging
-from .proto.v1 import messages_pb2
+from .protocol import JsonProtocol
+from .protocol import MessageProtocol
+from .schema import ErrorResponse
+from .schema import Messages
+from .schema import Request
+from .schema import Response
 
 logger = configure_logging()
 
 
 class LSPAgent:
-    def __init__(self):
+    def __init__(self, protocol: Type[MessageProtocol]):
         from .handlers import handlers
 
         self.handlers = handlers
-        logger.debug(
-            "LSPAgent initialized with handlers: %s", list(self.handlers.keys())
-        )
+        self.protocol = protocol()
 
     async def serve(self):
         print("ready", flush=True)
@@ -30,23 +32,25 @@ class LSPAgent:
 
             django.setup()
         except Exception as e:
-            error_response = self.create_error(messages_pb2.Error.DJANGO_ERROR, str(e))
+            error_response = self.create_error("django_error", str(e))
             self.write_message(error_response)
 
         while True:
             try:
-                data = self.read_message()
-                if not data:
+                message = self.read_message()
+                logger.debug(f"read_message: {message=}")
+                if not message:
                     break
 
-                response = await self.handle_request(data)
+                response = await self.handle_message(message)
+                logger.debug(f"handle_message: {response=}")
                 self.write_message(response)
 
             except Exception as e:
-                error_response = self.create_error(messages_pb2.Error.UNKNOWN, str(e))
+                error_response = self.create_error("unknown_error", str(e))
                 self.write_message(error_response)
 
-    def read_message(self) -> bytes | None:
+    def read_message(self) -> Optional[Request]:
         length_bytes = sys.stdin.buffer.read(4)
         logger.debug("Read length bytes: %r", length_bytes)
         if not length_bytes:
@@ -56,52 +60,60 @@ class LSPAgent:
         logger.debug("Unpacked length: %d", length)
         data = sys.stdin.buffer.read(length)
         logger.debug("Read data bytes: %r", data)
-        return data
 
-    async def handle_request(self, request_data: bytes) -> Message:
-        request = messages_pb2.Request()
-        request.ParseFromString(request_data)
+        message_data = self.protocol.deserialize(data)
+        return Request.model_validate(message_data)
 
-        command_name = request.WhichOneof("command")
-        logger.debug("Command name: %s", command_name)
+    async def handle_message(self, message: Request) -> Response:
+        logger.debug("Message type: %s", message.message.value)
 
-        if not command_name:
-            logger.error("No command specified")
-            return self.create_error(
-                messages_pb2.Error.INVALID_REQUEST, "No command specified"
-            )
-
-        handler = self.handlers.get(command_name)
+        handler = self.handlers.get(message.message)
         if not handler:
-            logger.error("Unknown command: %s", command_name)
+            logger.error("Unknown message type: %s", message.message.value)
             return self.create_error(
-                messages_pb2.Error.INVALID_REQUEST, f"Unknown command: {command_name}"
+                "invalid_request",
+                f"Unknown message type: {message.message.value}",
+                message,
             )
 
         try:
-            command_message = getattr(request, command_name)
-            result = await handler(command_message)
-            return messages_pb2.Response(**{command_name: cast(Any, result)})
+            # Now handler is properly typed to return Response
+            return await handler(message.message)
         except Exception as e:
-            logger.exception("Error executing command")
-            return self.create_error(messages_pb2.Error.UNKNOWN, str(e))
+            logger.exception("Error executing handler")
+            return self.create_error("unknown_error", str(e))
 
-    def write_message(self, message: Message) -> None:
-        data = message.SerializeToString()
-        logger.debug(f"Sending response, length: {len(data)}, data: {data!r}")
+    def write_message(self, message: Response) -> None:
+        data = self.protocol.serialize(message, logger)
         length = struct.pack(">I", len(data))
-        logger.debug(f"Length bytes: {length!r}")
+
+        logger.debug(
+            f"Writing length: {len(data)}, hex: {' '.join(f'{b:02x}' for b in length)}"
+        )
+
+        # Write length and flush immediately
         sys.stdout.buffer.write(length)
+        sys.stdout.buffer.flush()
+
+        logger.debug("Length written and flushed")
+
+        # Write data and flush
         sys.stdout.buffer.write(data)
         sys.stdout.buffer.flush()
 
+        logger.debug(
+            f"Data written and flushed - total bytes: {len(length) + len(data)}"
+        )
+
     def create_error(
-        self, code: messages_pb2.Error.Code, message: str
-    ) -> messages_pb2.Response:
-        response = messages_pb2.Response()
-        response.error.code = code
-        response.error.message = message
-        return response
+        self, code: str, message: str, request: Request | None = None
+    ) -> Response:
+        return Response(
+            data={},
+            error=ErrorResponse(code=code, message=message),
+            message=request.message.value if request else Messages.UNKNOWN,
+            success=False,
+        )
 
 
 async def main() -> None:
@@ -109,7 +121,7 @@ async def main() -> None:
 
     try:
         logger.debug("Initializing LSPAgent...")
-        agent = LSPAgent()
+        agent = LSPAgent(JsonProtocol)
         logger.debug("Starting LSPAgent serve...")
         await agent.serve()
     except KeyboardInterrupt:
@@ -122,6 +134,4 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    import asyncio
-
     asyncio.run(main())

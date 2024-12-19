@@ -1,2 +1,5 @@
+[alias]
+dev = "run --package djls-dev --features dev"
+
 [env]
 CARGO_WORKSPACE_DIR = { value = "", relative = true }

@@ -3,7 +3,7 @@ mod commands;
 use crate::commands::Serve;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use djls_ipc::PythonProcess;
+use djls_ipc::{JsonProtocol, Protocol, PythonProcess};
 use std::ffi::OsStr;
 use std::process::ExitCode;
 
@@ -46,7 +46,8 @@ async fn main() -> Result<ExitCode> {
     let cli = Cli::parse();
     match cli.command {
         Command::Serve(_serve) => {
-            let python = PythonProcess::new::<Vec<&OsStr>, &OsStr>("djls_agent", None, None)?;
+            let python =
+                PythonProcess::new::<Vec<&OsStr>, &OsStr>("djls_agent", None, JsonProtocol)?;
             djls_server::serve(python).await?
         }
     }

@@ -1,7 +1,0 @@
-syntax = "proto3";
-
-package djls.v1.django;
-
-message Project {
-    string version = 3;
-}

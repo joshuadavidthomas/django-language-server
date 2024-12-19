@@ -4,13 +4,12 @@ version = "5.1.0-alpha.0"
 edition = "2021"
 
 [dependencies]
-djls-django = { workspace = true }
 djls-ipc = { workspace = true }
 djls-server = { workspace = true }
 
 anyhow = { workspace = true }
+clap = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
 
-clap = { version = "4.5", features = ["derive"] }
 tower-lsp = { version = "0.20", features = ["proposed"] }
