@@ -14,7 +14,6 @@ anyhow = "1.0"
 async-trait = "0.1"
 bytes = "1.9"
 clap = { version = "4.5", features = ["derive"] }
-prost = "0.13"
 schemars = "0.8"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
