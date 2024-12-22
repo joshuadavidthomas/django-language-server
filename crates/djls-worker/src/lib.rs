@@ -1,6 +1,7 @@
 use anyhow::Result;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
+use tracing::{debug, error, info, instrument, warn, Instrument};
 
 pub trait Task: Send + 'static {
     type Output: Send + 'static;
@@ -29,36 +30,63 @@ trait TaskTrait: Send {
     fn run_boxed(self: Box<Self>) -> Result<Box<dyn std::any::Any + Send>>;
 }
 
+#[async_trait::async_trait]
 impl<T: Task> TaskTrait for T {
+    #[instrument(skip(self))]
     fn run_boxed(self: Box<Self>) -> Result<Box<dyn std::any::Any + Send>> {
+        debug!("Running boxed task");
         self.run()
             .map(|output| Box::new(output) as Box<dyn std::any::Any + Send>)
+            .map_err(|e| {
+                error!(?e, "Task execution failed");
+                e
+            })
     }
 }
 
 impl Worker {
+    #[instrument]
     pub fn new() -> Self {
         let (sender, mut receiver) = mpsc::channel(32);
         let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
 
-        tokio::spawn(async move {
-            loop {
-                tokio::select! {
-                    Some(msg) = receiver.recv() => {
-                        match msg {
-                            TaskMessage::Execute(task) => {
-                                let _ = task.run_boxed();
-                            }
-                            TaskMessage::WithResult(task, sender) => {
-                                let result = task.run_boxed();
-                                let _ = sender.send(result);
+        debug!("Creating new worker with channel capacity 32");
+
+        tokio::spawn(
+            async move {
+                info!("Worker task started");
+                loop {
+                    tokio::select! {
+                        Some(msg) = receiver.recv() => {
+                            match msg {
+                                TaskMessage::Execute(task) => {
+                                    debug!("Executing task without result");
+                                    if let Err(e) = task.run_boxed() {
+                                        error!(?e, "Task execution failed");
+                                    }
+                                }
+                                TaskMessage::WithResult(task, sender) => {
+                                    debug!("Executing task with result");
+                                    let result = task.run_boxed();
+                                    if let Err(e) = &result {
+                                        error!(?e, "Task execution failed");
+                                    }
+                                    if let Err(_) = sender.send(result) {
+                                        warn!("Failed to send task result - receiver dropped");
+                                    }
+                                }
                             }
                         }
+                        _ = &mut shutdown_rx => {
+                            info!("Worker received shutdown signal");
+                            break;
+                        }
                     }
-                    _ = &mut shutdown_rx => break,
                 }
+                info!("Worker task stopped");
             }
-        });
+            .in_current_span(),
+        );
 
         Self {
             inner: Arc::new(WorkerInner {
@@ -68,61 +96,82 @@ impl Worker {
         }
     }
 
+    #[instrument(skip(self, task))]
     pub fn execute<T>(&self, task: T) -> Result<()>
     where
         T: Task + 'static,
     {
+        debug!("Attempting to execute task synchronously");
         self.inner
             .sender
             .try_send(TaskMessage::Execute(Box::new(task)))
-            .map_err(|e| anyhow::anyhow!("Failed to execute task: {}", e))
+            .map_err(|e| {
+                error!(?e, "Failed to execute task");
+                anyhow::anyhow!("Failed to execute task: {}", e)
+            })
     }
 
+    #[instrument(skip(self, task))]
     pub async fn submit<T>(&self, task: T) -> Result<()>
     where
         T: Task + 'static,
     {
+        debug!("Submitting task asynchronously");
         self.inner
             .sender
             .send(TaskMessage::Execute(Box::new(task)))
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to submit task: {}", e))
+            .map_err(|e| {
+                error!(?e, "Failed to submit task");
+                anyhow::anyhow!("Failed to submit task: {}", e)
+            })
     }
 
+    #[instrument(skip(self, task))]
     pub async fn wait_for<T>(&self, task: T) -> Result<T::Output>
     where
         T: Task + 'static,
     {
+        debug!("Submitting task with result");
         let (tx, rx) = oneshot::channel();
 
         self.inner
             .sender
             .send(TaskMessage::WithResult(Box::new(task), tx))
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to send task: {}", e))?;
+            .map_err(|e| {
+                error!(?e, "Failed to send task");
+                anyhow::anyhow!("Failed to send task: {}", e)
+            })?;
 
-        let result = rx
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to receive result: {}", e))??;
+        debug!("Waiting for task result");
+        let result = rx.await.map_err(|e| {
+            error!(?e, "Failed to receive task result");
+            anyhow::anyhow!("Failed to receive result: {}", e)
+        })??;
 
-        result
-            .downcast()
-            .map(|b| *b)
-            .map_err(|_| anyhow::anyhow!("Failed to downcast result"))
+        debug!("Downcasting task result");
+        result.downcast().map(|b| *b).map_err(|_| {
+            error!("Failed to downcast task result");
+            anyhow::anyhow!("Failed to downcast result")
+        })
+    }
+}
+
+impl Drop for WorkerInner {
+    fn drop(&mut self) {
+        debug!("WorkerInner being dropped");
+        if let Some(sender) = self.shutdown_sender.take() {
+            if let Err(_) = sender.send(()) {
+                warn!("Failed to send shutdown signal - receiver already dropped");
+            }
+        }
     }
 }
 
 impl Default for Worker {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-impl Drop for WorkerInner {
-    fn drop(&mut self) {
-        if let Some(sender) = self.shutdown_sender.take() {
-            sender.send(()).ok();
-        }
     }
 }
 

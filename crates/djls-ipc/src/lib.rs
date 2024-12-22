@@ -1,14 +1,21 @@
+mod client;
 mod messages;
+mod pipe;
 mod process;
+mod process2;
 mod protocol;
+mod serializers;
 mod transport;
+mod transport2;
 
+pub use client::IpcClient;
 pub use messages::all_message_schemas;
 pub use messages::HealthCheck;
 pub use messages::HealthCheckRequestData;
-pub use process::ProcessError;
-pub use process::PythonProcess;
+pub use process::ManagedProcess;
+pub use process2::ProcessError;
+pub use process2::PythonProcess;
 pub use protocol::JsonProtocol;
 pub use protocol::Protocol;
-pub use transport::Transport;
-pub use transport::TransportError;
+pub use transport2::Transport;
+pub use transport2::TransportError;

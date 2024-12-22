@@ -19,12 +19,14 @@ pub trait Message: Serialize + DeserializeOwned + JsonSchema {
     const TYPE: Messages;
 }
 
-#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub enum Messages {
     #[serde(rename = "HEALTH_CHECK")]
     HealthCheck,
     #[serde(rename = "UNKNOWN")]
     Unknown,
+    #[serde(rename = "TEST")]
+    Test,
 }
 
 define_messages! {
@@ -34,10 +36,10 @@ define_messages! {
     },
 }
 
-#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct HealthCheckRequestData {}
 
-#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct HealthCheck {
     pub status: String,
     pub version: String,

@@ -69,5 +69,4 @@ def handler(
 @handler(Messages.HEALTH_CHECK)
 async def check_health() -> HealthCheckResponse:
     check = HealthCheck(status="OK", version=__version__)
-    logger.debug(f"{check=}")
     return HealthCheckResponse(data=check, message=Messages.HEALTH_CHECK, success=True)

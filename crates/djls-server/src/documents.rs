@@ -4,6 +4,7 @@ use tower_lsp::lsp_types::{
     DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams, Position,
     Range,
 };
+use tracing::{debug, error, info, instrument, warn};
 
 #[derive(Debug)]
 pub struct Store {
@@ -13,63 +14,93 @@ pub struct Store {
 
 impl Store {
     pub fn new() -> Self {
+        debug!("Creating new document store");
         Self {
             documents: HashMap::new(),
             versions: HashMap::new(),
         }
     }
 
+    #[instrument(skip(self, params), fields(uri = %params.text_document.uri))]
     pub fn handle_did_open(&mut self, params: DidOpenTextDocumentParams) -> Result<()> {
         let document = TextDocument::new(
-            String::from(params.text_document.uri),
-            params.text_document.text,
+            String::from(params.text_document.uri.clone()),
+            params.text_document.text.clone(),
             params.text_document.version,
-            params.text_document.language_id,
+            params.text_document.language_id.clone(),
+        );
+
+        info!(
+            version = params.text_document.version,
+            language = %params.text_document.language_id,
+            "Opening document"
         );
 
         self.add_document(document);
+        debug!("Document added to store");
 
         Ok(())
     }
 
+    #[instrument(skip(self, params), fields(uri = %params.text_document.uri))]
     pub fn handle_did_change(&mut self, params: DidChangeTextDocumentParams) -> Result<()> {
         let uri = params.text_document.uri.as_str().to_string();
         let version = params.text_document.version;
+        let changes = params.content_changes.len();
 
-        let document = self
-            .get_document_mut(&uri)
-            .ok_or_else(|| anyhow!("Document not found: {}", uri))?;
+        debug!(changes, version, "Processing document changes");
 
-        for change in params.content_changes {
+        let document = self.get_document_mut(&uri).ok_or_else(|| {
+            error!(uri, "Document not found");
+            anyhow!("Document not found: {}", uri)
+        })?;
+
+        for (i, change) in params.content_changes.iter().enumerate() {
             if let Some(range) = change.range {
+                debug!(
+                    change_index = i,
+                    start_line = range.start.line,
+                    start_char = range.start.character,
+                    end_line = range.end.line,
+                    end_char = range.end.character,
+                    "Applying incremental change"
+                );
                 document.apply_change(range, &change.text)?;
             } else {
-                // Full document update
-                document.set_content(change.text);
+                debug!(change_index = i, "Applying full document update");
+                document.set_content(change.text.clone());
             }
         }
 
         document.version = version;
         self.versions.insert(uri, version);
+        debug!(version, "Document version updated");
 
         Ok(())
     }
 
+    #[instrument(skip(self, params), fields(uri = %params.text_document.uri))]
     pub fn handle_did_close(&mut self, params: DidCloseTextDocumentParams) -> Result<()> {
+        info!("Closing document");
         self.remove_document(&String::from(params.text_document.uri));
-
+        debug!("Document removed from store");
         Ok(())
     }
 
+    #[instrument(skip(self))]
     fn add_document(&mut self, document: TextDocument) {
         let uri = document.uri.clone();
         let version = document.version;
+        let language = &document.language_id;
 
+        debug!(%uri, version, ?language, "Adding document to store");
         self.documents.insert(uri.clone(), document);
         self.versions.insert(uri, version);
     }
 
+    #[instrument(skip(self))]
     fn remove_document(&mut self, uri: &str) {
+        debug!(%uri, "Removing document from store");
         self.documents.remove(uri);
         self.versions.remove(uri);
     }
@@ -114,7 +145,9 @@ pub struct TextDocument {
 }
 
 impl TextDocument {
+    #[instrument(skip(contents))]
     fn new(uri: String, contents: String, version: i32, language_id: String) -> Self {
+        debug!(%uri, version, %language_id, content_length = contents.len(), "Creating new text document");
         let index = LineIndex::new(&contents);
         Self {
             uri,
@@ -125,17 +158,28 @@ impl TextDocument {
         }
     }
 
+    #[instrument(skip(self, new_text), fields(uri = %self.uri))]
     pub fn apply_change(&mut self, range: Range, new_text: &str) -> Result<()> {
-        let start_offset = self
-            .index
-            .offset(range.start)
-            .ok_or_else(|| anyhow!("Invalid start position: {:?}", range.start))?
-            as usize;
-        let end_offset = self
-            .index
-            .offset(range.end)
-            .ok_or_else(|| anyhow!("Invalid end position: {:?}", range.end))?
-            as usize;
+        debug!(
+            start_line = range.start.line,
+            start_char = range.start.character,
+            end_line = range.end.line,
+            end_char = range.end.character,
+            new_text_length = new_text.len(),
+            "Applying change to document"
+        );
+
+        let start_offset = self.index.offset(range.start).ok_or_else(|| {
+            let e = anyhow!("Invalid start position: {:?}", range.start);
+            error!(?range.start, "Invalid start position");
+            e
+        })? as usize;
+
+        let end_offset = self.index.offset(range.end).ok_or_else(|| {
+            let e = anyhow!("Invalid end position: {:?}", range.end);
+            error!(?range.end, "Invalid end position");
+            e
+        })? as usize;
 
         let mut new_content = String::with_capacity(
             self.contents.len() - (end_offset - start_offset) + new_text.len(),
@@ -145,8 +189,13 @@ impl TextDocument {
         new_content.push_str(new_text);
         new_content.push_str(&self.contents[end_offset..]);
 
-        self.set_content(new_content);
+        debug!(
+            old_length = self.contents.len(),
+            new_length = new_content.len(),
+            "Updating document content"
+        );
 
+        self.set_content(new_content);
         Ok(())
     }
 

@@ -6,7 +6,7 @@ macro_rules! define_messages {
     } ),+ $(,)?) => {
         $(
             paste::paste! {
-                #[derive(Debug, Serialize, Deserialize, JsonSchema)]
+                #[derive(Debug, Serialize, Deserialize, JsonSchema, PartialEq)]
                 pub struct [<$variant Request>] {
                     pub message: Messages,
                     pub data: $req,

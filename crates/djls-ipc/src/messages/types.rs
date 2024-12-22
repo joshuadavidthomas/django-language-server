@@ -13,7 +13,7 @@ pub(crate) struct GenericRequest {
 }
 
 /// A typed Request for use in Rust code
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub struct Request<M: Message> {
     pub message: Messages,
     pub data: M::RequestData,

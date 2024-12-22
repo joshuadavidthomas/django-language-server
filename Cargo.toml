@@ -20,6 +20,9 @@ serde_json = "1.0"
 tempfile = "3.14"
 thiserror = "2.0"
 tokio = { version = "1.42", features = ["full"] }
+tracing = "0.1"
+tracing-appender = "0.2"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [profile.dev.package]
 insta.opt-level = 3
