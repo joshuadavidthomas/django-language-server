@@ -44,7 +44,7 @@ classifiers = [
 ]
 
 [project.scripts]
-djls = "djls:main"
+djls = "djls:cli_entrypoint"
 
 [tool.bumpver]
 commit = true
