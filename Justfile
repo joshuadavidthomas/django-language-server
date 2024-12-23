@@ -2,7 +2,6 @@ set dotenv-load := true
 set unstable := true
 
 mod docs ".just/docs.just"
-mod proto ".just/proto.just"
 
 # List all available commands
 [private]
