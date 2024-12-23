@@ -12,7 +12,7 @@ bumpver *ARGS:
     uv run --with bumpver bumpver {{ ARGS }}
 
 clean:
-    rm -rf target/
+    cargo clean
 
 # run pre-commit on all files
 lint:
