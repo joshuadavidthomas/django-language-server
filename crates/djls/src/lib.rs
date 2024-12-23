@@ -42,7 +42,7 @@ struct GlobalArgs {
 }
 
 #[pyfunction]
-fn cli_entrypoint(_py: Python) -> PyResult<()> {
+fn entrypoint(_py: Python) -> PyResult<()> {
     // Skip python interpreter and script path, add command name
     let args: Vec<String> = std::iter::once("djls".to_string())
         .chain(env::args().skip(2))
@@ -53,7 +53,7 @@ fn cli_entrypoint(_py: Python) -> PyResult<()> {
     local.block_on(&runtime, async move {
         tokio::select! {
             // The main CLI program
-            result = cli_main(args) => {
+            result = main(args) => {
                 match result {
                     Ok(code) => {
                         if code != ExitCode::SUCCESS {
@@ -94,7 +94,7 @@ fn cli_entrypoint(_py: Python) -> PyResult<()> {
     Ok(())
 }
 
-async fn cli_main(args: Vec<String>) -> Result<ExitCode> {
+async fn main(args: Vec<String>) -> Result<ExitCode> {
     let cli = Cli::try_parse_from(args).unwrap_or_else(|e| {
         e.exit();
     });
@@ -108,6 +108,6 @@ async fn cli_main(args: Vec<String>) -> Result<ExitCode> {
 
 #[pymodule]
 fn djls(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_function(wrap_pyfunction!(cli_entrypoint, m)?)?;
+    m.add_function(wrap_pyfunction!(entrypoint, m)?)?;
     Ok(())
 }
