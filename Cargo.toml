@@ -4,17 +4,14 @@ resolver = "2"
 
 [workspace.dependencies]
 djls = { path = "crates/djls" }
-djls-django = { path = "crates/djls-django" }
-djls-ipc = { path = "crates/djls-ipc" }
-djls-python = { path = "crates/djls-python" }
 djls-server = { path = "crates/djls-server" }
 djls-template-ast = { path = "crates/djls-template-ast" }
 djls-worker = { path = "crates/djls-worker" }
 
 anyhow = "1.0"
 async-trait = "0.1"
-prost = "0.13"
-bytes = "1.9"
+pyo3 = "0.23"
+pyo3-async-runtimes = "0.23"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "2.0"

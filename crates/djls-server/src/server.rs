@@ -2,7 +2,6 @@ use crate::documents::Store;
 use crate::notifier::Notifier;
 use crate::tasks::DebugTask;
 use anyhow::Result;
-use djls_django::DjangoProject;
 use djls_worker::Worker;
 use std::sync::Arc;
 use std::time::Duration;
@@ -24,18 +23,16 @@ pub enum LspNotification {
 }
 
 pub struct DjangoLanguageServer {
-    django: DjangoProject,
     notifier: Arc<Box<dyn Notifier>>,
     documents: Store,
     worker: Worker,
 }
 
 impl DjangoLanguageServer {
-    pub fn new(django: DjangoProject, notifier: Box<dyn Notifier>) -> Self {
+    pub fn new(notifier: Box<dyn Notifier>) -> Self {
         let notifier = Arc::new(notifier);
 
         Self {
-            django,
             notifier,
             documents: Store::new(),
             worker: Worker::new(),
@@ -125,10 +122,6 @@ impl DjangoLanguageServer {
             LspNotification::Initialized(_) => {
                 self.notifier
                     .log_message(MessageType::INFO, "server initialized!")?;
-                self.notifier
-                    .log_message(MessageType::INFO, &format!("\n{}", self.django.py()))?;
-                self.notifier
-                    .log_message(MessageType::INFO, &format!("\n{}", self.django))?;
                 Ok(())
             }
             LspNotification::Shutdown => Ok(()),
