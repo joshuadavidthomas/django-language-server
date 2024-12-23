@@ -5,6 +5,7 @@ build-backend = "maturin"
 [dependency-groups]
 dev = [
     "django-stubs>=5.1.1",
+    "maturin>=1.7.8",
     "ruff>=0.8.2",
 ]
 docs = [
@@ -12,7 +13,7 @@ docs = [
 ]
 
 [project]
-name = "djls"
+name = "django-language-server"
 version = "5.1.0a0"
 description = "A language server for the Django web framework"
 readme = "README.md"
