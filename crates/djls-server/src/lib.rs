@@ -6,6 +6,7 @@ mod tasks;
 use crate::notifier::TowerLspNotifier;
 use crate::server::{DjangoLanguageServer, LspNotification, LspRequest};
 use anyhow::Result;
+use server::LspResponse;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tower_lsp::jsonrpc::Result as LspResult;
@@ -19,11 +20,16 @@ struct TowerLspBackend {
 #[tower_lsp::async_trait]
 impl LanguageServer for TowerLspBackend {
     async fn initialize(&self, params: InitializeParams) -> LspResult<InitializeResult> {
-        self.server
-            .read()
+        match self
+            .server
+            .write()
             .await
             .handle_request(LspRequest::Initialize(params))
-            .map_err(|_| tower_lsp::jsonrpc::Error::internal_error())
+            .map_err(|_| tower_lsp::jsonrpc::Error::internal_error())?
+        {
+            LspResponse::Initialize(result) => Ok(result),
+            _ => Err(tower_lsp::jsonrpc::Error::internal_error()),
+        }
     }
 
     async fn initialized(&self, params: InitializedParams) {
@@ -75,6 +81,19 @@ impl LanguageServer for TowerLspBackend {
             .handle_notification(LspNotification::DidCloseTextDocument(params))
         {
             eprintln!("Error handling document close: {}", e);
+        }
+    }
+
+    async fn completion(&self, params: CompletionParams) -> LspResult<Option<CompletionResponse>> {
+        match self
+            .server
+            .write()
+            .await
+            .handle_request(LspRequest::Completion(params))
+            .map_err(|_| tower_lsp::jsonrpc::Error::internal_error())?
+        {
+            LspResponse::Completion(result) => Ok(result),
+            _ => Err(tower_lsp::jsonrpc::Error::internal_error()),
         }
     }
 }
