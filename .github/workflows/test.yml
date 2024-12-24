@@ -37,8 +37,8 @@ jobs:
 
       - name: Install dependencies and build
         run: |
-          uv sync --frozen --group dev
-          maturin build
+          uv sync --frozen
+          uv run maturin build
 
       - name: Run tests
         run: cargo test --verbose
