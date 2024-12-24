@@ -1,0 +1,8 @@
+[package]
+name = "djls-project"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+pyo3 = { workspace = true }
+tower-lsp = { workspace = true }

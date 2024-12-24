@@ -1,8 +1,10 @@
 use anyhow::{anyhow, Result};
+use djls_project::TemplateTags;
 use std::collections::HashMap;
 use tower_lsp::lsp_types::{
-    DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams, Position,
-    Range,
+    CompletionItem, CompletionItemKind, CompletionResponse, DidChangeTextDocumentParams,
+    DidCloseTextDocumentParams, DidOpenTextDocumentParams, Documentation, InsertTextFormat,
+    MarkupContent, MarkupKind, Position, Range,
 };
 
 #[derive(Debug)]
@@ -102,6 +104,56 @@ impl Store {
     pub fn is_version_valid(&self, uri: &str, version: i32) -> bool {
         self.get_version(uri).map_or(false, |v| v == version)
     }
+
+    pub fn get_completions(
+        &self,
+        uri: &str,
+        position: Position,
+        tags: &TemplateTags,
+    ) -> Option<CompletionResponse> {
+        let document = self.get_document(uri)?;
+
+        if document.language_id != LanguageId::HtmlDjango {
+            return None;
+        }
+
+        let context = document.get_template_tag_context(position)?;
+
+        let mut completions: Vec<CompletionItem> = tags
+            .iter()
+            .filter(|tag| {
+                context.partial_tag.is_empty() || tag.name().starts_with(&context.partial_tag)
+            })
+            .map(|tag| {
+                let leading_space = if context.needs_leading_space { " " } else { "" };
+                CompletionItem {
+                    label: tag.name().to_string(),
+                    kind: Some(CompletionItemKind::KEYWORD),
+                    detail: Some(format!("Template tag from {}", tag.library())),
+                    documentation: tag.doc().as_ref().map(|doc| {
+                        Documentation::MarkupContent(MarkupContent {
+                            kind: MarkupKind::Markdown,
+                            value: doc.to_string(),
+                        })
+                    }),
+                    insert_text: Some(match context.closing_brace {
+                        ClosingBrace::None => format!("{}{} %}}", leading_space, tag.name()),
+                        ClosingBrace::PartialClose => format!("{}{} %", leading_space, tag.name()),
+                        ClosingBrace::FullClose => format!("{}{} ", leading_space, tag.name()),
+                    }),
+                    insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
+                    ..Default::default()
+                }
+            })
+            .collect();
+
+        if completions.is_empty() {
+            None
+        } else {
+            completions.sort_by(|a, b| a.label.cmp(&b.label));
+            Some(CompletionResponse::Array(completions))
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -181,6 +233,32 @@ impl TextDocument {
     pub fn line_count(&self) -> usize {
         self.index.line_starts.len()
     }
+
+    pub fn get_template_tag_context(&self, position: Position) -> Option<TemplateTagContext> {
+        let line = self.get_line(position.line.try_into().ok()?)?;
+        let prefix = &line[..position.character.try_into().ok()?];
+        let rest_of_line = &line[position.character.try_into().ok()?..];
+        let rest_trimmed = rest_of_line.trim_start();
+
+        prefix.rfind("{%").map(|tag_start| {
+            // Check if we're immediately after {% with no space
+            let needs_leading_space = prefix.ends_with("{%");
+
+            let closing_brace = if rest_trimmed.starts_with("%}") {
+                ClosingBrace::FullClose
+            } else if rest_trimmed.starts_with("}") {
+                ClosingBrace::PartialClose
+            } else {
+                ClosingBrace::None
+            };
+
+            TemplateTagContext {
+                partial_tag: prefix[tag_start + 2..].trim().to_string(),
+                closing_brace,
+                needs_leading_space,
+            }
+        })
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -247,4 +325,18 @@ impl From<String> for LanguageId {
     fn from(language_id: String) -> Self {
         Self::from(language_id.as_str())
     }
+}
+
+#[derive(Debug)]
+pub enum ClosingBrace {
+    None,
+    PartialClose, // just }
+    FullClose,    // %}
+}
+
+#[derive(Debug)]
+pub struct TemplateTagContext {
+    pub partial_tag: String,
+    pub closing_brace: ClosingBrace,
+    pub needs_leading_space: bool,
 }
