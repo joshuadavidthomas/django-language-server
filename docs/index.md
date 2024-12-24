@@ -12,22 +12,31 @@ A language server for the Django web framework.
 
 ## Features
 
-**None.**
+**Almost none!**
 
 😅
 
-However, the foundation has been laid:
+Well, we've achieved the bare minimum of "technically something":
+
+- [x] Template tag autocompletion
+    - It works! ...when you type `{%`
+    - That's it. That's the feature.
+
+The foundation is solid though:
 
 - [x] Working server architecture
-    - [x] Server implementing the Language Server Protocol written in Rust
-    - [x] Python agent running as a persistent process within the Django project's virtualenv
-    - [x] Server-agent communication via Protocol Buffers
+    - [x] Language Server Protocol implementation in Rust
+    - [x] Direct Django project interaction through PyO3
+    - [x] Single binary distribution with Python packaging
 - [x] Custom template parser to support LSP features
     - [x] Basic HTML parsing, including style and script tags
     - [x] Django variables and filters
     - [ ] Django block template tags
         - Early work has been done on an extensible template tag parsing specification (TagSpecs)
-- [ ] Actual LSP features (coming soon!... hopefully)
+- [ ] More actual LSP features (coming soon!... hopefully)
+    - We got one! Well, half of one. Only like... dozens more to go? 🎉
+
+Django wasn't built in a day, and neither was a decent Django language server. 😄
 
 ## Requirements
 
@@ -42,62 +51,26 @@ See the [Versioning](#versioning) section for details on how this project's vers
 
 ## Installation
 
-The Django Language Server consists of two main components:
-
-- **An LSP server**: Rust binary `djls`, distributed through the Python package `djls-server`
-- **A Python agent**: `djls-agent` package that runs in your Django project
-
-Both will need to be available in your Django project in order to function.
-
-The quickest way to get started is to install both the server and agent in your project's environment:
+Install the Django Language Server in your project's environment:
 
 ```bash
-uv add --dev 'djls[server]'
+uv add --dev django-language-server
 uv sync
 
 # or
 
-pip install djls[server]
+pip install django-language-server
 ```
+
+The package provides pre-built wheels with the Rust-based LSP server compiled for common platforms. Installing it adds the `djls` command-line tool to your environment.
 
 !!! note
 
-    The server should be installed globally on your development machine. The quick-start method above will install the server in each project's environment and is only intended for trying things out. See the [Server](#server) section below for details.
+    The server must currently be installed in each project's environment as it needs to run using the project's Python interpreter to access the correct Django installation and other dependencies.
 
-### Server
+    Global installation is not yet supported as it would run against a global Python environment rather than your project's virtualenv. The server uses [PyO3](https://pyo3.rs) to interact with Django, and we aim to support global installation in the future, allowing the server to detect and use project virtualenvs, but this is a tricky problem involving PyO3 and Python interpreter management.
 
-You can install the pre-built binary package from PyPI, or build from source using cargo.
-
-The server binary is published to PyPI as `djls-server` for easy installation via uv or pipx:
-
-```bash
-uv tool install djls-server
-
-# or
-
-pipx install djls-server
-```
-
-If you have a Rust toolchain available and prefer to build from source, you can install via cargo:
-
-```bash
-cargo install --git https://github.com/joshuadavidthomas/django-language-server
-```
-
-### Agent
-
-The agent needs to be installed in your Django project's environment to provide project introspection.
-
-The agent is published to PyPI as `djls-agent` and should be added to your project's development dependencies:
-
-```bash
-uv add --dev djls-agent
-uv sync
-
-# or
-
-pip install djls-agent
-```
+    If you have experience with [PyO3](https://pyo3.rs) or [maturin](https://maturin.rs) and ideas on how to achieve this, please check the [Contributing](#contributing) section below.
 
 ## Editor Setup
 
@@ -114,8 +87,6 @@ This project adheres to DjangoVer. For a quick overview of what DjangoVer is, he
 > In DjangoVer, a Django-related package has a version number of the form `DJANGO_MAJOR.DJANGO_FEATURE.PACKAGE_VERSION`, where `DJANGO_MAJOR` and `DJANGO_FEATURE` indicate the most recent feature release series of Django supported by the package, and `PACKAGE_VERSION` begins at zero and increments by one with each release of the package supporting that feature release of Django.
 
 In short, `v5.1.x` means the latest version of Django the Django Language Server would support is 5.1 — so, e.g., versions `v5.1.0`, `v5.1.1`, `v5.1.2`, etc. should all work with Django 5.1.
-
-At this moment, all components of the Django Language Server (the `djls` binary, the `djls-agent` agent package on PyPI, and the `djls-binary` binary distribution package on PyPI) will share the same version number. When a new version is released, all packages are updated together regardless of which component triggered the release.
 
 ### Breaking Changes
 
@@ -137,12 +108,22 @@ The project needs help in several areas:
 
 ### Testing and Documenting Editor Setup
 
-The server has only been tested with Neovim. Documentation for setting up the language server in other editors is sorely needed, particularly VS Code. However, any editor that has [LSP client](https://langserver.org/#:~:text=for%20more%20information.-,LSP%20clients,opensesame%2Dextension%2Dlanguage_server,-Community%20Discussion%20Forums) support would be welcome.
+The server has only been tested with Neovim. Documentation for setting up the language server in other editors is sorely needed, particularly VS Code. However, any editor that has [LSP client](https://langserver.org/#:~:text=for%20more%20information.-,LSP%20clients,opensesame%2Dextension%2Dlanguage_server,-Community%20Discussion%20Forums) support should work.
+
+If you run into issues setting up the language server:
+
+1. Check the existing documentation in `docs/editors/`
+2. [Open an issue](https://github.com/joshuadavidthomas/django-language-server/blob/main/../../issues/new) describing your setup and the problems you're encountering
+   - Include your editor and any relevant configuration
+   - Share any error messages or unexpected behavior
+   - The more details, the better!
 
 If you get it working in your editor:
 
 1. Create a new Markdown file in the `docs/editors/` directory (e.g., `docs/editors/vscode.md`)
 2. Include step-by-step setup instructions, any required configuration snippets, and tips for troubleshooting
+
+Your feedback and contributions will help make the setup process smoother for everyone! 🙌
 
 ### Feature Requests
 
@@ -154,15 +135,18 @@ All feature requests should ideally start out as a discussion topic, to gather f
 
 ### Development
 
-The project consists of both Rust and Python components:
+The project is written in Rust using PyO3 for Python integration:
 
-- Rust: LSP server, template parsing, and core functionality (`crates/`)
-- Python: Django project and environment introspection agent (`packages/`)
+- LSP server implementation (`crates/djls/`)
+- Template parsing and core functionality (`crates/djls-template-ast/`)
+- Python integration via PyO3 for Django project introspection
 
 Code contributions are welcome from developers of all backgrounds. Rust expertise is especially valuable for the LSP server and core components.
 
-Python and Django developers should not be deterred by the Rust codebase - Django expertise is just as valuable. The Rust components were built by [a simple country CRUD web developer](https://youtu.be/7ij_1SQqbVo?si=hwwPyBjmaOGnvPPI&t=53) learning Rust along the way.
+One significant challenge we're trying to solve is supporting global installation of the language server while still allowing it to detect and use project virtualenvs for Django introspection. Currently, the server must be installed in each project's virtualenv to access the project's Django installation. If you have experience with PyO3 and ideas about how to achieve this, we'd love your help!
+
+Python and Django developers should not be deterred by the Rust codebase - Django expertise is just as valuable. Understanding Django's internals and common development patterns helps inform what features would be most valuable. The Rust components were built by [a simple country CRUD web developer](https://youtu.be/7ij_1SQqbVo?si=hwwPyBjmaOGnvPPI&t=53) learning Rust along the way.
 
 ## License
 
-django-language-server is licensed under the MIT license. See the [`LICENSE`](https://github.com/joshuadavidthomas/django-language-server/blob/main/LICENSE) file for more information.
+django-language-server is licensed under the Apache License, Version 2.0. See the [`LICENSE`](https://github.com/joshuadavidthomas/django-language-server/blob/main/LICENSE) file for more information.
