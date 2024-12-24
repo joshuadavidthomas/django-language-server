@@ -170,26 +170,7 @@ jobs:
         uses: actions/attest-build-provenance@v1
         with:
           subject-path: "wheels-*/*"
-      - name: Publish to TestPyPI
-        if: ${{ startsWith(github.ref, 'refs/tags/') }}
-        uses: PyO3/maturin-action@v1
-        with:
-          command: upload
-          args: --non-interactive --skip-existing --repository testpypi wheels-*/*
-      - uses: actions/setup-python@v5
-        if: ${{ startsWith(github.ref, 'refs/tags/') }}
-        with:
-          python-version: 3.x
-      - name: Smoke test
-        if: ${{ startsWith(github.ref, 'refs/tags/') }}
-        run: |
-          # Wait for package to be available
-          sleep 60
-          # Install and verify
-          python -m pip install --index-url https://test.pypi.org/simple/ django-language-server
-          djls --version
       - name: Publish to PyPI
-        if: ${{ startsWith(github.ref, 'refs/tags/') }}
         uses: PyO3/maturin-action@v1
         with:
           command: upload
