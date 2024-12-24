@@ -7,11 +7,17 @@ A language server for the Django web framework.
 
 ## Features
 
-**None.**
+**Almost none!**
 
 😅
 
-However, the foundation has been laid:
+Well, we've achieved the bare minimum of "technically something":
+
+- [x] Template tag autocompletion
+    - It works! ...when you type `{%`
+    - That's it. That's the feature.
+
+The foundation is solid though:
 
 - [x] Working server architecture
     - [x] Language Server Protocol implementation in Rust
@@ -22,7 +28,10 @@ However, the foundation has been laid:
     - [x] Django variables and filters
     - [ ] Django block template tags
         - Early work has been done on an extensible template tag parsing specification (TagSpecs)
-- [ ] Actual LSP features (coming soon!... hopefully)
+- [ ] More actual LSP features (coming soon!... hopefully)
+    - We got one! Well, half of one. Only like... dozens more to go? 🎉
+
+Django wasn't built in a day, and neither was a decent Django language server. 😄
 
 ## Requirements
 
@@ -93,12 +102,22 @@ The project needs help in several areas:
 
 ### Testing and Documenting Editor Setup
 
-The server has only been tested with Neovim. Documentation for setting up the language server in other editors is sorely needed, particularly VS Code. However, any editor that has [LSP client](https://langserver.org/#:~:text=for%20more%20information.-,LSP%20clients,opensesame%2Dextension%2Dlanguage_server,-Community%20Discussion%20Forums) support would be welcome.
+The server has only been tested with Neovim. Documentation for setting up the language server in other editors is sorely needed, particularly VS Code. However, any editor that has [LSP client](https://langserver.org/#:~:text=for%20more%20information.-,LSP%20clients,opensesame%2Dextension%2Dlanguage_server,-Community%20Discussion%20Forums) support should work.
+
+If you run into issues setting up the language server:
+
+1. Check the existing documentation in `docs/editors/`
+2. [Open an issue](../../issues/new) describing your setup and the problems you're encountering
+   - Include your editor and any relevant configuration
+   - Share any error messages or unexpected behavior
+   - The more details, the better!
 
 If you get it working in your editor:
 
 1. Create a new Markdown file in the `docs/editors/` directory (e.g., `docs/editors/vscode.md`)
 2. Include step-by-step setup instructions, any required configuration snippets, and tips for troubleshooting
+
+Your feedback and contributions will help make the setup process smoother for everyone! 🙌
 
 ### Feature Requests
 
