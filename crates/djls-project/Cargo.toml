@@ -6,3 +6,5 @@ edition = "2021"
 [dependencies]
 pyo3 = { workspace = true }
 tower-lsp = { workspace = true }
+
+which = "7.0.1"

@@ -53,7 +53,19 @@ See the [Versioning](#versioning) section for details on how this project's vers
 
 ## Installation
 
-Install the Django Language Server in your project's environment:
+The Django Language Server can be installed using your preferred Python package manager.
+
+For system-wide availability using either `uv` or `pipx`:
+
+```bash
+uv tool install django-language-server
+
+# or
+
+pipx install django-language-server
+```
+
+Or to try it out in your current project:
 
 ```bash
 uv add --dev django-language-server
@@ -67,11 +79,9 @@ pip install django-language-server
 The package provides pre-built wheels with the Rust-based LSP server compiled for common platforms. Installing it adds the `djls` command-line tool to your environment.
 
 > [!NOTE]
-> The server must currently be installed in each project's environment as it needs to run using the project's Python interpreter to access the correct Django installation and other dependencies.
+> The server will automatically detect and use your project's Python environment when you open a Django project. It needs access to your project's Django installation and other dependencies, but should be able to find these regardless of where the server itself is installed.
 >
-> Global installation is not yet supported as it would run against a global Python environment rather than your project's virtualenv. The server uses [PyO3](https://pyo3.rs) to interact with Django, and we aim to support global installation in the future, allowing the server to detect and use project virtualenvs, but this is a tricky problem involving PyO3 and Python interpreter management.
->
-> If you have experience with [PyO3](https://pyo3.rs) or [maturin](https://maturin.rs) and ideas on how to achieve this, please check the [Contributing](#contributing) section below.
+> It's recommended to use `uv` or `pipx` to install it system-wide for convenience, but installing in your project's environment will work just as well to give it a test drive around the block.
 
 ## Editor Setup
 
@@ -144,11 +154,9 @@ The project is written in Rust using PyO3 for Python integration. Here is a high
 - Template parsing ([`crates/djls-template-ast/`](./crates/djls-template-ast/))
 - Tokio-based background task management ([`crates/djls-worker/`](./crates/djls-worker/))
 
-Code contributions are welcome from developers of all backgrounds. Rust expertise is especially valuable for the LSP server and core components.
+Code contributions are welcome from developers of all backgrounds. Rust expertise is valuable for the LSP server and core components, but Python and Django developers should not be deterred by the Rust codebase - Django expertise is just as valuable. Understanding Django's internals and common development patterns helps inform what features would be most valuable.
 
-One significant challenge we're trying to solve is supporting global installation of the language server while still allowing it to detect and use project virtualenvs for Django introspection. Currently, the server must be installed in each project's virtualenv to access the project's Django installation. If you have experience with PyO3 and ideas about how to achieve this, we'd love your help!
-
-Python and Django developers should not be deterred by the Rust codebase - Django expertise is just as valuable. Understanding Django's internals and common development patterns helps inform what features would be most valuable. The Rust components were built by [a simple country CRUD web developer](https://youtu.be/7ij_1SQqbVo?si=hwwPyBjmaOGnvPPI&t=53) learning Rust along the way.
+So far it's all been built by a [a simple country CRUD web developer](https://youtu.be/7ij_1SQqbVo?si=hwwPyBjmaOGnvPPI&t=53) learning Rust along the way - send help!
 
 ## License
 

@@ -20,6 +20,16 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Added
 
+- Support for system-wide installation using `uv tool` or `pipx` with automatic Python environment detection and virtualenv discovery
+
+### Changed
+
+- Server no longer requires installation in project virtualenv, including robust Python dependency resolution using `PATH` and `site-packages` detection
+
+## [5.1.0a1]
+
+### Added
+
 - Basic Neovim plugin
 
 ## [5.1.0a0]
@@ -44,5 +54,6 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 - Josh Thomas <josh@joshthomas.dev> (maintainer)
 
-[unreleased]: https://github.com/joshuadavidthomas/django-language-server/compare/v5.1.0a0...HEAD
+[unreleased]: https://github.com/joshuadavidthomas/django-language-server/compare/v5.1.0a1...HEAD
 [5.1.0a0]: https://github.com/joshuadavidthomas/django-language-server/releases/tag/v5.1.0a0
+[5.1.0a1]: https://github.com/joshuadavidthomas/django-language-server/releases/tag/v5.1.0a1
