@@ -18,6 +18,10 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ## [Unreleased]
 
+### Added
+
+- Added `html-django` as an alternative Language ID for Django templates
+
 ## [5.1.0a2]
 
 ### Added
