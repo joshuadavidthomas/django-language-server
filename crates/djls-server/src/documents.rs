@@ -314,7 +314,7 @@ pub enum LanguageId {
 impl From<&str> for LanguageId {
     fn from(language_id: &str) -> Self {
         match language_id {
-            "htmldjango" => Self::HtmlDjango,
+            "django-html" | "htmldjango" => Self::HtmlDjango,
             "python" => Self::Python,
             _ => Self::Other,
         }
