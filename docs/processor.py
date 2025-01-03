@@ -524,12 +524,7 @@ def main():
         input="editors/nvim/README.md",
         output="docs/editors/neovim.md",
         processors=[
-            add_frontmatter(
-                {
-                    "title": "Neovim",
-                    "weight": 10,
-                }
-            ),
+            add_frontmatter({"title": "Neovim"}),
             *common_processors,
         ],
         preview=True,

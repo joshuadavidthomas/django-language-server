@@ -1,6 +1,5 @@
 ---
 title: Neovim
-weight: 10
 ---
 
 # djls.nvim
