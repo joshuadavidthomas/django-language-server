@@ -56,7 +56,9 @@ Source = "https://github.com/joshuadavidthomas/django-language-server"
 commit = true
 commit_message = ":bookmark: bump version {old_version} -> {new_version}"
 current_version = "5.1.0-alpha.1"
-push = false  # set to false for CI
+post_commit_hook = ".bin/bumpver-post.sh"
+pre_commit_hook = ".bin/bumpver-pre.sh"
+push = false
 tag = false
 version_pattern = "MAJOR.MINOR.PATCH[-TAG[.NUM]]"
 
