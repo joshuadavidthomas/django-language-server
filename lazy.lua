@@ -1,9 +1,8 @@
 return {
   "joshuadavidthomas/django-language-server",
-  config = function(plugin)
-    vim.notify(plugin.dir)
+  config = function(plugin, opts)
     vim.opt.rtp:append(plugin.dir .. "/editors/nvim")
-    require("djls").setup()
+    require("djls").setup(opts)
   end,
   dependencies = {
     "neovim/nvim-lspconfig",
