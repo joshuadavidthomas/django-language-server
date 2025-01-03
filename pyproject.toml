@@ -47,6 +47,11 @@ classifiers = [
 [project.scripts]
 djls = "djls:entrypoint"
 
+[project.urls]
+Documentation = "https://django-language-server.readthedocs.io/"
+Issues = "https://github.com/joshuadavidthomas/django-language-server/issues"
+Source = "https://github.com/joshuadavidthomas/django-language-server"
+
 [tool.bumpver]
 commit = true
 commit_message = ":bookmark: bump version {old_version} -> {new_version}"
