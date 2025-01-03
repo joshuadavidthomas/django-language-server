@@ -152,7 +152,7 @@ wheels = [
 
 [[package]]
 name = "django-language-server"
-version = "5.1.0a1"
+version = "5.1.0a2"
 source = { editable = "." }
 
 [package.dev-dependencies]
