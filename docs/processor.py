@@ -270,25 +270,28 @@ def preview_changes(original: str, processed: str) -> None:
         print_change_group(group)
 
 
-def process_readme(
+def process_file(
     input: str = "README.md",
     output: str = "docs/index.md",
     processors: list[ProcessingFunc] | None = None,
     preview: bool = True,
+    description: str | None = None,
 ) -> bool:
     """
-    Process README.md with given processing functions.
+    Process a file with given processing functions.
 
     Args:
-        input_path: Path to the input README.md file
-        output_path: Path where the processed file will be saved
+        input: Path to the input file
+        output: Path where the processed file will be saved
         processors: List of processing functions to apply
         preview: Whether to show a preview of changes
+        description: Optional description for status message
 
     Returns:
         bool: True if processing was successful, False otherwise
     """
-    with console.status("[bold green]Processing README...") as status:
+    status_msg = f"[bold green]Processing {description or input}..."
+    with console.status(status_msg) as status:
         input_path = Path(input)
         output_path = Path(output)
 
@@ -442,10 +445,12 @@ def convert_repo_links(repo_url: str) -> ProcessingFunc:
         Input:
             See the [`LICENSE`](LICENSE) file for more information.
             Check the [Neovim](/docs/editors/neovim.md) guide.
+            Open an [issue](../../issues/new) to report bugs.
 
         Output:
             See the [`LICENSE`](https://github.com/username/repo/blob/main/LICENSE) file for more information.
             Check the [Neovim](editors/neovim.md) guide.
+            Open an [issue](https://github.com/username/repo/issues/new) to report bugs.
     """
 
     def processor(content: str) -> str:
@@ -467,6 +472,13 @@ def convert_repo_links(repo_url: str) -> ProcessingFunc:
                 clean_path = path.removeprefix("/docs/").removeprefix("docs/")
                 return f"[{text}]({clean_path})"
 
+            # Handle relative paths with ../ or ./
+            if "../" in path or "./" in path:
+                # Special handling for GitHub-specific paths
+                if "issues/" in path or "pulls/" in path:
+                    clean_path = path.replace("../", "").replace("./", "")
+                    return f"[{text}]({repo_url}/{clean_path})"
+
             # Handle root-relative paths
             if path.startswith("/"):
                 path = path.removeprefix("/")
@@ -487,8 +499,7 @@ def convert_repo_links(repo_url: str) -> ProcessingFunc:
 
 
 def main():
-    """Example usage of the readme processor."""
-    console.print("[bold blue]README Processor[/bold blue]")
+    console.print("[bold blue]File Processor[/bold blue]")
 
     processors = [
         add_frontmatter({"title": "Home"}),
@@ -498,11 +509,12 @@ def main():
         ),
     ]
 
-    success = process_readme(
+    success = process_file(
         input="README.md",
         output="docs/index.md",
         processors=processors,
         preview=True,
+        description="README.md → docs/index.md",
     )
 
     if success:

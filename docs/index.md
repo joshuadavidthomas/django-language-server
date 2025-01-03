@@ -113,7 +113,7 @@ The server has only been tested with Neovim. Documentation for setting up the la
 If you run into issues setting up the language server:
 
 1. Check the existing documentation in `docs/editors/`
-2. [Open an issue](https://github.com/joshuadavidthomas/django-language-server/blob/main/../../issues/new) describing your setup and the problems you're encountering
+2. [Open an issue](https://github.com/joshuadavidthomas/django-language-server/issues/new) describing your setup and the problems you're encountering
    - Include your editor and any relevant configuration
    - Share any error messages or unexpected behavior
    - The more details, the better!
