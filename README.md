@@ -153,3 +153,9 @@ Python and Django developers should not be deterred by the Rust codebase - Djang
 ## License
 
 django-language-server is licensed under the Apache License, Version 2.0. See the [`LICENSE`](LICENSE) file for more information.
+
+---
+
+django-language-server is not associated with the Django Software Foundation.
+
+Django is a registered trademark of the Django Software Foundation.
