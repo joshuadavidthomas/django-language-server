@@ -499,28 +499,48 @@ def convert_repo_links(repo_url: str) -> ProcessingFunc:
 
 
 def main():
-    console.print("[bold blue]File Processor[/bold blue]")
+    """Process documentation files."""
+    console.print("[bold blue]Documentation Processor[/bold blue]")
 
-    processors = [
-        add_frontmatter({"title": "Home"}),
+    common_processors = [
         convert_admonitions,
         convert_repo_links(
             "https://github.com/joshuadavidthomas/django-language-server"
         ),
     ]
 
-    success = process_file(
+    readme_success = process_file(
         input="README.md",
         output="docs/index.md",
-        processors=processors,
+        processors=[
+            add_frontmatter({"title": "Home"}),
+            *common_processors,
+        ],
         preview=True,
         description="README.md → docs/index.md",
     )
 
-    if success:
-        console.print("\n[green]✨ Processing completed successfully![/green]")
+    nvim_success = process_file(
+        input="editors/nvim/README.md",
+        output="docs/editors/neovim.md",
+        processors=[
+            add_frontmatter({"title": "Neovim"}),
+            *common_processors,
+        ],
+        preview=True,
+        description="Neovim docs → docs/editors/neovim.md",
+    )
+
+    if readme_success and nvim_success:
+        console.print("\n[green]✨ All files processed successfully![/green]")
     else:
-        console.print("\n[red]Processing failed![/red]")
+        console.print("\n[red]Some files failed to process:[/red]")
+        for name, success in [
+            ("README.md → docs/index.md", readme_success),
+            ("Neovim docs → docs/editors/neovim.md", nvim_success),
+        ]:
+            status = "[green]✓[/green]" if success else "[red]✗[/red]"
+            console.print(f"{status} {name}")
 
 
 if __name__ == "__main__":
