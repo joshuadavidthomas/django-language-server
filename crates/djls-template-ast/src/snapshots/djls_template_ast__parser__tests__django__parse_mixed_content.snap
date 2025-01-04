@@ -6,79 +6,104 @@ nodes:
   - Text: "Welcome, "
   - Django:
       Tag:
-        Branching:
+        Block:
           name: if
           bits:
             - if
             - user.is_authenticated
           children:
+            - Django:
+                Variable:
+                  bits:
+                    - user
+                    - name
+                  filters:
+                    - name: title
+                      arguments: []
+                    - name: default
+                      arguments:
+                        - "'Guest'"
+            - Django:
+                Tag:
+                  Block:
+                    name: for
+                    bits:
+                      - for
+                      - group
+                      - in
+                      - user.groups
+                    children:
+                      - Django:
+                          Tag:
+                            Block:
+                              name: if
+                              bits:
+                                - if
+                                - forloop.first
+                              children:
+                                - Text: (
+                                - Django:
+                                    Tag:
+                                      Closing:
+                                        name: endif
+                                        bits: []
+                      - Django:
+                          Variable:
+                            bits:
+                              - group
+                              - name
+                            filters: []
+                      - Django:
+                          Tag:
+                            Block:
+                              name: if
+                              bits:
+                                - if
+                                - not
+                                - forloop.last
+                              children:
+                                - Text: ", "
+                                - Django:
+                                    Tag:
+                                      Closing:
+                                        name: endif
+                                        bits: []
+                      - Django:
+                          Tag:
+                            Block:
+                              name: if
+                              bits:
+                                - if
+                                - forloop.last
+                              children:
+                                - Text: )
+                                - Django:
+                                    Tag:
+                                      Closing:
+                                        name: endif
+                                        bits: []
+                      - Django:
+                          Tag:
+                            Branch:
+                              name: empty
+                              bits: []
+                              children: []
+                      - Text: (no groups)
+                      - Django:
+                          Tag:
+                            Closing:
+                              name: endfor
+                              bits: []
+            - Django:
+                Tag:
+                  Branch:
+                    name: else
+                    bits: []
+                    children: []
             - Text: Guest
-          branches:
-            - Block:
-                name: else
-                bits:
-                  - else
-                children:
-                  - Django:
-                      Variable:
-                        bits:
-                          - user
-                          - name
-                        filters:
-                          - name: title
-                            arguments: []
-                          - name: default
-                            arguments:
-                              - "'Guest'"
-                  - Django:
-                      Tag:
-                        Branching:
-                          name: for
-                          bits:
-                            - for
-                            - group
-                            - in
-                            - user.groups
-                          children:
-                            - Text: (no groups)
-                          branches:
-                            - Block:
-                                name: empty
-                                bits:
-                                  - empty
-                                children:
-                                  - Django:
-                                      Tag:
-                                        Block:
-                                          name: if
-                                          bits:
-                                            - if
-                                            - forloop.first
-                                          children:
-                                            - Text: (
-                                  - Django:
-                                      Variable:
-                                        bits:
-                                          - group
-                                          - name
-                                        filters: []
-                                  - Django:
-                                      Tag:
-                                        Block:
-                                          name: if
-                                          bits:
-                                            - if
-                                            - not
-                                            - forloop.last
-                                          children:
-                                            - Text: ", "
-                                  - Django:
-                                      Tag:
-                                        Block:
-                                          name: if
-                                          bits:
-                                            - if
-                                            - forloop.last
-                                          children:
-                                            - Text: )
+            - Django:
+                Tag:
+                  Closing:
+                    name: endif
+                    bits: []
   - Text: "!"

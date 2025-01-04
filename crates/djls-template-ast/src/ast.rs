@@ -63,8 +63,8 @@ pub enum TagNode {
 
 #[derive(Clone, Debug, Serialize)]
 pub struct DjangoFilter {
-    pub name: String,
-    pub arguments: Vec<String>,
+    name: String,
+    arguments: Vec<String>,
 }
 
 impl DjangoFilter {

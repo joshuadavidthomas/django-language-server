@@ -5,7 +5,7 @@ expression: ast
 nodes:
   - Django:
       Tag:
-        Branching:
+        Block:
           name: if
           bits:
             - if
@@ -13,17 +13,26 @@ nodes:
             - ">"
             - "0"
           children:
+            - Text: Positive
+            - Django:
+                Tag:
+                  Branch:
+                    name: elif
+                    bits:
+                      - x
+                      - "<"
+                      - "0"
+                    children: []
+            - Text: Negative
+            - Django:
+                Tag:
+                  Branch:
+                    name: else
+                    bits: []
+                    children: []
             - Text: Zero
-          branches:
-            - Block:
-                name: elif
-                bits:
-                  - elif
-                children:
-                  - Text: Positive
-            - Block:
-                name: else
-                bits:
-                  - else
-                children:
-                  - Text: Negative
+            - Django:
+                Tag:
+                  Closing:
+                    name: endif
+                    bits: []

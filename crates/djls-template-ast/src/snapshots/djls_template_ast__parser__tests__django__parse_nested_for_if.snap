@@ -27,3 +27,13 @@ nodes:
                               - item
                               - name
                             filters: []
+                      - Django:
+                          Tag:
+                            Closing:
+                              name: endif
+                              bits: []
+            - Django:
+                Tag:
+                  Closing:
+                    name: endfor
+                    bits: []

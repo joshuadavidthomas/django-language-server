@@ -12,3 +12,8 @@ nodes:
             - user.is_authenticated
           children:
             - Text: Welcome
+            - Django:
+                Tag:
+                  Closing:
+                    name: endif
+                    bits: []

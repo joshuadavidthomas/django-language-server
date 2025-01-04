@@ -155,22 +155,28 @@ impl Parser {
 
         let specs = TagSpec::load_builtin_specs().unwrap_or_default();
 
-        // Check if closing or intermediate tag according to any spec
+        // Check if this is a closing tag
         for (_, spec) in specs.iter() {
             if Some(&tag_name) == spec.closing.as_ref() {
+                let node = Node::Django(DjangoNode::Tag(TagNode::Closing {
+                    name: tag_name.clone(),
+                    bits: bits[1..].to_vec(),
+                }));
                 return Err(ParserError::ErrorSignal(Signal::SpecialTag(tag_name)));
             }
+        }
+
+        // Check if this is a branch tag according to any spec
+        for (_, spec) in specs.iter() {
             if let Some(intermediates) = &spec.intermediates {
-                if intermediates.contains(&tag_name) {
+                if intermediates.iter().any(|i| i.name == tag_name) {
                     return Err(ParserError::ErrorSignal(Signal::SpecialTag(tag_name)));
                 }
             }
         }
 
         let tag_spec = specs.get(tag_name.as_str()).cloned();
-
         let mut children = Vec::new();
-        let mut branches = Vec::new();
 
         while !self.is_at_end() {
             match self.next_node() {
@@ -181,40 +187,44 @@ impl Parser {
                     if let Some(spec) = &tag_spec {
                         // Check if closing tag
                         if Some(&tag) == spec.closing.as_ref() {
-                            let tag_node = if !branches.is_empty() {
-                                TagNode::Branching {
-                                    name: tag_name,
-                                    bits,
-                                    children,
-                                    branches,
-                                }
-                            } else {
-                                TagNode::Block {
-                                    name: tag_name,
-                                    bits,
-                                    children,
-                                }
-                            };
-                            return Ok(Node::Django(DjangoNode::Tag(tag_node)));
+                            children.push(Node::Django(DjangoNode::Tag(TagNode::Closing {
+                                name: tag,
+                                bits: vec![],
+                            })));
+                            return Ok(Node::Django(DjangoNode::Tag(TagNode::Block {
+                                name: tag_name,
+                                bits,
+                                children,
+                            })));
                         }
                         // Check if intermediate tag
                         if let Some(intermediates) = &spec.intermediates {
-                            if intermediates.contains(&tag) {
-                                branches.push(TagNode::Block {
-                                    name: tag.clone(),
-                                    bits: vec![tag.clone()],
-                                    children,
-                                });
-                                children = Vec::new();
+                            if let Some(intermediate) = intermediates.iter().find(|i| i.name == tag) {
+                                // Create branch node with the current children
+                                let branch_bits = if intermediate.args {
+                                    match &self.tokens[self.current - 1].token_type() {
+                                        TokenType::DjangoBlock(content) => content
+                                            .split_whitespace()
+                                            .skip(1) // Skip the tag name
+                                            .map(|s| s.to_string())
+                                            .collect(),
+                                        _ => vec![tag.clone()],
+                                    }
+                                } else {
+                                    vec![]
+                                };
+                                children.push(Node::Django(DjangoNode::Tag(TagNode::Branch {
+                                    name: tag,
+                                    bits: branch_bits,
+                                    children: Vec::new(),
+                                })));
                                 continue;
                             }
                         }
                     }
                     return Err(ParserError::UnexpectedTag(tag));
                 }
-                Err(e) => {
-                    return Err(e);
-                }
+                Err(e) => return Err(e),
             }
         }
 
