@@ -4,7 +4,7 @@ use crate::ast::{
 };
 use crate::tagspecs::TagSpec;
 use crate::tokens::{Token, TokenStream, TokenType};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use thiserror::Error;
 
 pub struct Parser {
@@ -27,19 +27,19 @@ impl Parser {
                     ast.add_node(node);
                     had_nodes = true;
                 }
-                Err(ParserError::StreamError { kind }) if kind == "AtEnd".to_string() => {
+                Err(ParserError::StreamError { kind }) if kind == *"AtEnd" => {
                     if !had_nodes {
                         return Err(ParserError::stream_error("UnexpectedEof"));
                     }
                     break;
                 }
-                Err(ParserError::ErrorSignal(Signal::SpecialTag(tag))) => {
+                Err(ParserError::ErrorSignal(Signal::SpecialTag(_))) => {
                     continue;
                 }
                 Err(ParserError::UnclosedTag(tag)) => {
                     return Err(ParserError::UnclosedTag(tag));
                 }
-                Err(e) => {
+                Err(_) => {
                     self.synchronize()?;
                     continue;
                 }
@@ -155,15 +155,11 @@ impl Parser {
 
         let specs = TagSpec::load_builtin_specs().unwrap_or_default();
 
-        // Check if this is a closing tag according to ANY spec
+        // Check if closing or intermediate tag according to any spec
         for (_, spec) in specs.iter() {
             if Some(&tag_name) == spec.closing.as_ref() {
                 return Err(ParserError::ErrorSignal(Signal::SpecialTag(tag_name)));
             }
-        }
-
-        // Check if this is an intermediate tag according to ANY spec
-        for (_, spec) in specs.iter() {
             if let Some(intermediates) = &spec.intermediates {
                 if intermediates.contains(&tag_name) {
                     return Err(ParserError::ErrorSignal(Signal::SpecialTag(tag_name)));
@@ -171,7 +167,6 @@ impl Parser {
             }
         }
 
-        // Get the tag spec for this tag
         let tag_spec = specs.get(tag_name.as_str()).cloned();
 
         let mut children = Vec::new();
@@ -184,9 +179,8 @@ impl Parser {
                 }
                 Err(ParserError::ErrorSignal(Signal::SpecialTag(tag))) => {
                     if let Some(spec) = &tag_spec {
-                        // Check if this is a closing tag
+                        // Check if closing tag
                         if Some(&tag) == spec.closing.as_ref() {
-                            // Found our closing tag, create appropriate tag type
                             let tag_node = if !branches.is_empty() {
                                 TagNode::Branching {
                                     name: tag_name,
@@ -203,10 +197,9 @@ impl Parser {
                             };
                             return Ok(Node::Django(DjangoNode::Tag(tag_node)));
                         }
-                        // Check if this is an intermediate tag
+                        // Check if intermediate tag
                         if let Some(intermediates) = &spec.intermediates {
                             if intermediates.contains(&tag) {
-                                // Add current children as a branch and start fresh
                                 branches.push(TagNode::Block {
                                     name: tag.clone(),
                                     bits: vec![tag.clone()],
@@ -217,7 +210,6 @@ impl Parser {
                             }
                         }
                     }
-                    // If we get here, it's an unexpected tag
                     return Err(ParserError::UnexpectedTag(tag));
                 }
                 Err(e) => {
@@ -226,7 +218,7 @@ impl Parser {
             }
         }
 
-        // If we get here, we never found the closing tag
+        // never found the closing tag
         Err(ParserError::UnclosedTag(tag_name))
     }
 
@@ -443,10 +435,6 @@ impl Parser {
         self.peek_at(-1)
     }
 
-    fn peek_forward(&self, steps: usize) -> Result<Vec<Token>, ParserError> {
-        (0..steps).map(|i| self.peek_at(i as isize)).collect()
-    }
-
     fn peek_back(&self, steps: usize) -> Result<Vec<Token>, ParserError> {
         (1..=steps).map(|i| self.peek_at(-(i as isize))).collect()
     }
@@ -493,34 +481,6 @@ impl Parser {
         self.peek_next()
     }
 
-    fn lookahead(&self, types: &[TokenType]) -> Result<bool, ParserError> {
-        for (i, t) in types.iter().enumerate() {
-            if !self.peek_at(i as isize)?.is_token_type(t) {
-                return Ok(false);
-            }
-        }
-        Ok(true)
-    }
-
-    fn consume_if(&mut self, token_type: TokenType) -> Result<Token, ParserError> {
-        let token = self.consume()?;
-        if token.token_type() == &token_type {
-            Ok(token)
-        } else {
-            self.backtrack(1)?;
-            Err(ParserError::token_error(format!("{:?}", token_type), token))
-        }
-    }
-
-    fn consume_until(&mut self, end_type: TokenType) -> Result<Vec<Token>, ParserError> {
-        let mut consumed = Vec::new();
-        while !self.is_at_end() && self.peek()?.is_token_type(&end_type) {
-            let token = self.consume()?;
-            consumed.push(token);
-        }
-        Ok(consumed)
-    }
-
     fn synchronize(&mut self) -> Result<(), ParserError> {
         const SYNC_TYPES: &[TokenType] = &[
             TokenType::DjangoBlock(String::new()),
@@ -536,7 +496,7 @@ impl Parser {
             let current = self.peek()?;
 
             for sync_type in SYNC_TYPES {
-                if matches!(current.token_type(), sync_type) {
+                if current.token_type() == sync_type {
                     return Ok(());
                 }
             }
