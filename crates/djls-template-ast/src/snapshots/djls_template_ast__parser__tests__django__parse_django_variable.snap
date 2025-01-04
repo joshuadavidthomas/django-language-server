@@ -1,0 +1,13 @@
+---
+source: crates/djls-template-ast/src/parser.rs
+expression: ast
+---
+nodes:
+  - Django:
+      Variable:
+        bits:
+          - user
+          - name
+        filters:
+          - name: title
+            arguments: []

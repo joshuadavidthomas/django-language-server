@@ -5,13 +5,11 @@ expression: ast
 nodes:
   - Style:
       Element:
-        attributes:
-          type:
-            Value: text/css
+        attributes: {}
         children:
           - Style:
-              Comment: Header styles
-          - Text: ".header "
+              Comment: CSS comment
+          - Text: "body "
           - Text: "{"
-          - Text: "color: blue;"
+          - Text: "font-family: sans-serif;"
           - Text: "}"

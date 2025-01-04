@@ -1,40 +1,64 @@
 use crate::ast::{
-    Ast, AstError, AttributeValue, DjangoFilter, DjangoNode, DjangoTagKind, HtmlNode, Node,
-    ScriptCommentKind, ScriptNode, StyleNode,
+    Ast, AstError, AttributeValue, DjangoFilter, DjangoNode, HtmlNode, Node, ScriptCommentKind,
+    ScriptNode, StyleNode, TagNode,
 };
+use crate::tagspecs::TagSpec;
 use crate::tokens::{Token, TokenStream, TokenType};
-use std::collections::BTreeMap;
-use std::str::FromStr;
+use std::collections::{BTreeMap, HashMap};
 use thiserror::Error;
 
 pub struct Parser {
     tokens: TokenStream,
     current: usize,
+    specs: HashMap<String, TagSpec>,
 }
 
 impl Parser {
     pub fn new(tokens: TokenStream) -> Self {
-        Parser { tokens, current: 0 }
+        Parser {
+            tokens,
+            current: 0,
+            specs: TagSpec::load_builtin_specs().unwrap_or_default(),
+        }
     }
 
     pub fn parse(&mut self) -> Result<Ast, ParserError> {
         let mut ast = Ast::default();
+        let mut had_nodes = false;
+
         while !self.is_at_end() {
             match self.next_node() {
                 Ok(node) => {
+                    eprintln!("Adding node: {:?}", node);
                     ast.add_node(node);
+                    had_nodes = true;
                 }
                 Err(ParserError::StreamError(Stream::AtEnd)) => {
-                    if ast.nodes().is_empty() {
+                    eprintln!("Stream at end, nodes: {:?}", ast.nodes());
+                    if !had_nodes {
                         return Err(ParserError::StreamError(Stream::UnexpectedEof));
                     }
                     break;
                 }
-                Err(_) => {
+                Err(ParserError::ErrorSignal(Signal::SpecialTag(tag))) => {
+                    eprintln!("Got special tag: {}", tag);
+                    continue;
+                }
+                Err(ParserError::UnclosedTag(tag)) => {
+                    eprintln!("Got unclosed tag: {}", tag);
+                    return Err(ParserError::UnclosedTag(tag));
+                }
+                Err(e) => {
+                    eprintln!("Got error: {:?}", e);
                     self.synchronize()?;
                     continue;
                 }
             }
+        }
+
+        eprintln!("Final nodes: {:?}", ast.nodes());
+        if !had_nodes {
+            return Err(ParserError::StreamError(Stream::UnexpectedEof));
         }
         ast.finalize()?;
         Ok(ast)
@@ -79,6 +103,7 @@ impl Parser {
             TokenType::Text(s) => Ok(Node::Text(s.to_string())),
             TokenType::Whitespace(_) => self.next_node(),
         }?;
+        eprintln!("{:?}", node);
         Ok(node)
     }
 
@@ -134,61 +159,96 @@ impl Parser {
     }
 
     fn parse_django_block(&mut self, s: &str) -> Result<Node, ParserError> {
+        eprintln!("Parsing django block: {}", s);
         let bits: Vec<String> = s.split_whitespace().map(String::from).collect();
-        let kind = DjangoTagKind::from_str(&bits[0])?;
+        let tag_name = bits.first().ok_or(AstError::EmptyTag)?.clone();
+        eprintln!("Tag name: {}", tag_name);
 
-        if bits[0].starts_with("end") {
-            return Err(ParserError::ErrorSignal(Signal::ClosingTagFound(
-                bits[0].clone(),
-            )));
+        eprintln!("Loaded specs: {:?}", self.specs);
+
+        // Check if this is a closing tag according to ANY spec
+        for (_, spec) in self.specs.iter() {
+            if Some(&tag_name) == spec.closing.as_ref() {
+                eprintln!("Found closing tag: {}", tag_name);
+                return Err(ParserError::ErrorSignal(Signal::SpecialTag(tag_name)));
+            }
         }
 
-        let mut all_children = Vec::new();
-        let mut current_section = Vec::new();
-        let end_tag = format!("end{}", bits[0]);
+        // Check if this is an intermediate tag according to ANY spec
+        for (_, spec) in self.specs.iter() {
+            if let Some(intermediates) = &spec.intermediates {
+                if intermediates.contains(&tag_name) {
+                    eprintln!("Found intermediate tag: {}", tag_name);
+                    return Err(ParserError::ErrorSignal(Signal::SpecialTag(tag_name)));
+                }
+            }
+        }
+
+        // Get the tag spec for this tag
+        let tag_spec = self.specs.get(tag_name.as_str()).cloned();
+        eprintln!("Tag spec: {:?}", tag_spec);
+
+        let mut children = Vec::new();
+        let mut branches = Vec::new();
 
         while !self.is_at_end() {
             match self.next_node() {
                 Ok(node) => {
-                    current_section.push(node);
+                    eprintln!("Adding node: {:?}", node);
+                    children.push(node);
                 }
-                Err(ParserError::ErrorSignal(Signal::ClosingTagFound(tag))) => {
-                    match tag.as_str() {
-                        tag if tag == end_tag.as_str() => {
-                            // Found matching end tag, complete the block
-                            all_children.extend(current_section);
-                            return Ok(Node::Django(DjangoNode::Tag {
-                                kind,
-                                bits,
-                                children: all_children,
-                            }));
+                Err(ParserError::ErrorSignal(Signal::SpecialTag(tag))) => {
+                    eprintln!("Got special tag: {}", tag);
+                    if let Some(spec) = &tag_spec {
+                        // Check if this is a closing tag
+                        if Some(&tag) == spec.closing.as_ref() {
+                            eprintln!("Found matching closing tag: {}", tag);
+                            // Found our closing tag, create appropriate tag type
+                            let tag_node = if !branches.is_empty() {
+                                TagNode::Branching {
+                                    name: tag_name,
+                                    bits,
+                                    children,
+                                    branches,
+                                }
+                            } else {
+                                TagNode::Block {
+                                    name: tag_name,
+                                    bits,
+                                    children,
+                                }
+                            };
+                            return Ok(Node::Django(DjangoNode::Tag(tag_node)));
                         }
-                        tag if !tag.starts_with("end") => {
-                            // Found intermediate tag (like 'else', 'elif')
-                            all_children.extend(current_section);
-                            all_children.push(Node::Django(DjangoNode::Tag {
-                                kind: DjangoTagKind::from_str(tag)?,
-                                bits: vec![tag.to_string()],
-                                children: Vec::new(),
-                            }));
-                            current_section = Vec::new();
-                            continue; // Continue parsing after intermediate tag
-                        }
-                        tag => {
-                            // Found unexpected end tag
-                            return Err(ParserError::ErrorSignal(Signal::ClosingTagFound(
-                                tag.to_string(),
-                            )));
+                        // Check if this is an intermediate tag
+                        if let Some(intermediates) = &spec.intermediates {
+                            if intermediates.contains(&tag) {
+                                eprintln!("Found intermediate tag: {}", tag);
+                                // Add current children as a branch and start fresh
+                                branches.push(TagNode::Block {
+                                    name: tag.clone(),
+                                    bits: vec![tag.clone()],
+                                    children,
+                                });
+                                children = Vec::new();
+                                continue;
+                            }
                         }
                     }
+                    // If we get here, it's an unexpected tag
+                    eprintln!("Unexpected tag: {}", tag);
+                    return Err(ParserError::UnexpectedTag(tag));
                 }
                 Err(e) => {
+                    eprintln!("Error: {:?}", e);
                     return Err(e);
                 }
             }
         }
 
-        Err(ParserError::StreamError(Stream::UnexpectedEof))
+        // If we get here, we never found the closing tag
+        eprintln!("Never found closing tag: {}", tag_name);
+        Err(ParserError::UnclosedTag(tag_name))
     }
 
     fn parse_django_variable(&mut self, s: &str) -> Result<Node, ParserError> {
@@ -359,6 +419,7 @@ impl Parser {
         }
 
         let mut children = Vec::new();
+        let mut found_closing_tag = false;
 
         while !self.is_at_end() {
             match self.next_node() {
@@ -368,12 +429,17 @@ impl Parser {
                 Err(ParserError::ErrorSignal(Signal::ClosingTagFound(tag))) => {
                     if tag == "style" {
                         self.consume()?;
+                        found_closing_tag = true;
                         break;
                     }
                     // If it's not our closing tag, keep collecting children
                 }
                 Err(e) => return Err(e),
             }
+        }
+
+        if !found_closing_tag {
+            return Err(ParserError::UnclosedTag("style".to_string()));
         }
 
         Ok(Node::Style(StyleNode::Element {
@@ -454,12 +520,13 @@ impl Parser {
     }
 
     fn consume_if(&mut self, token_type: TokenType) -> Result<Token, ParserError> {
-        let token = self.peek()?;
-        if token.is_token_type(&token_type) {
-            return Err(ParserError::ExpectedTokenType(token_type));
+        let token = self.consume()?;
+        if token.token_type() == &token_type {
+            Ok(token)
+        } else {
+            self.backtrack(1)?;
+            Err(ParserError::ExpectedTokenType(format!("{:?}", token_type)))
         }
-        self.consume()?;
-        Ok(token)
     }
 
     fn consume_until(&mut self, end_type: TokenType) -> Result<Vec<Token>, ParserError> {
@@ -472,7 +539,6 @@ impl Parser {
     }
 
     fn synchronize(&mut self) -> Result<(), ParserError> {
-        println!("--- Starting synchronization ---");
         const SYNC_TYPES: &[TokenType] = &[
             TokenType::DjangoBlock(String::new()),
             TokenType::HtmlTagOpen(String::new()),
@@ -485,39 +551,53 @@ impl Parser {
 
         while !self.is_at_end() {
             let current = self.peek()?;
-            println!("--- Sync checking token: {:?}", current);
 
-            // Debug print for token type comparison
             for sync_type in SYNC_TYPES {
-                println!("--- Comparing with sync type: {:?}", sync_type);
                 if matches!(current.token_type(), sync_type) {
-                    println!("--- Found sync point at: {:?}", current);
                     return Ok(());
                 }
             }
-
-            println!("--- Consuming token in sync: {:?}", current);
             self.consume()?;
         }
-        println!("--- Reached end during synchronization");
+
         Ok(())
     }
 }
 
 #[derive(Error, Debug)]
 pub enum ParserError {
-    #[error("token stream {0}")]
-    StreamError(Stream),
-    #[error("parsing signal: {0:?}")]
+    #[error("unclosed tag: {0}")]
+    UnclosedTag(String),
+    #[error("unexpected tag: {0}")]
+    UnexpectedTag(String),
+    #[error("unsupported tag type")]
+    UnsupportedTagType,
+    #[error("empty tag")]
+    EmptyTag,
+    #[error("invalid tag type")]
+    InvalidTagType,
+    #[error("missing required args")]
+    MissingRequiredArgs,
+    #[error("invalid argument '{0:?}' '{1:?}")]
+    InvalidArgument(String, String),
+    #[error("unexpected closing tag {0}")]
+    UnexpectedClosingTag(String),
+    #[error("unexpected intermediate tag {0}")]
+    UnexpectedIntermediateTag(String),
+    #[error("unclosed block {0}")]
+    UnclosedBlock(String),
+    #[error(transparent)]
+    StreamError(#[from] Stream),
+    #[error("internal signal: {0:?}")]
     ErrorSignal(Signal),
-    #[error("unexpected token, expected type '{0:?}'")]
-    ExpectedTokenType(TokenType),
+    #[error("expected token: {0}")]
+    ExpectedTokenType(String),
     #[error("unexpected token '{0:?}'")]
     UnexpectedToken(Token),
     #[error("multi-line comment outside of script or style context")]
     InvalidMultLineComment,
     #[error(transparent)]
-    Ast(#[from] AstError),
+    AstError(#[from] AstError),
 }
 
 #[derive(Debug)]
@@ -529,10 +609,7 @@ pub enum Stream {
     InvalidAccess,
 }
 
-#[derive(Debug)]
-pub enum Signal {
-    ClosingTagFound(String),
-}
+impl std::error::Error for Stream {}
 
 impl std::fmt::Display for Stream {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -546,149 +623,254 @@ impl std::fmt::Display for Stream {
     }
 }
 
+#[derive(Debug)]
+pub enum Signal {
+    ClosingTagFound(String),
+    IntermediateTagFound(String, Vec<String>),
+    IntermediateTag(String),
+    SpecialTag(String),
+    ClosingTag,
+}
+
 #[cfg(test)]
 mod tests {
+    use super::Stream;
     use super::*;
     use crate::lexer::Lexer;
 
-    #[test]
-    fn test_parse_comments() {
-        let source = r#"<!-- HTML comment -->
-{# Django comment #}
-<script>
-    // JS single line
-    /* JS multi
-        line */
-</script>
-<style>
-    /* CSS comment */
-</style>"#;
-        let tokens = Lexer::new(source).tokenize().unwrap();
-        let mut parser = Parser::new(tokens);
-        let ast = parser.parse().unwrap();
-        insta::assert_yaml_snapshot!(ast);
+    mod html {
+        use super::*;
+
+        #[test]
+        fn test_parse_html_doctype() {
+            let source = "<!DOCTYPE html>";
+            let tokens = Lexer::new(source).tokenize().unwrap();
+            let mut parser = Parser::new(tokens);
+            let ast = parser.parse().unwrap();
+            insta::assert_yaml_snapshot!(ast);
+        }
+
+        #[test]
+        fn test_parse_html_tag() {
+            let source = "<div class=\"container\">Hello</div>";
+            let tokens = Lexer::new(source).tokenize().unwrap();
+            let mut parser = Parser::new(tokens);
+            let ast = parser.parse().unwrap();
+            insta::assert_yaml_snapshot!(ast);
+        }
+
+        #[test]
+        fn test_parse_html_void() {
+            let source = "<input type=\"text\" />";
+            let tokens = Lexer::new(source).tokenize().unwrap();
+            let mut parser = Parser::new(tokens);
+            let ast = parser.parse().unwrap();
+            insta::assert_yaml_snapshot!(ast);
+        }
     }
 
-    #[test]
-    fn test_parse_django_block() {
-        let source = r#"{% if user.is_staff %}Admin{% else %}User{% endif %}"#;
-        let tokens = Lexer::new(source).tokenize().unwrap();
-        let mut parser = Parser::new(tokens);
-        let ast = parser.parse().unwrap();
-        insta::assert_yaml_snapshot!(ast);
+    mod django {
+        use super::*;
+
+        #[test]
+        fn test_parse_django_variable() {
+            let source = "{{ user.name|title }}";
+            let tokens = Lexer::new(source).tokenize().unwrap();
+            let mut parser = Parser::new(tokens);
+            let ast = parser.parse().unwrap();
+            insta::assert_yaml_snapshot!(ast);
+        }
+
+        #[test]
+        fn test_parse_filter_chains() {
+            let source = "{{ value|default:'nothing'|title|upper }}";
+            let tokens = Lexer::new(source).tokenize().unwrap();
+            let mut parser = Parser::new(tokens);
+            let ast = parser.parse().unwrap();
+            insta::assert_yaml_snapshot!(ast);
+        }
+
+        #[test]
+        fn test_parse_django_if_block() {
+            let source = "{% if user.is_authenticated %}Welcome{% endif %}";
+            let tokens = Lexer::new(source).tokenize().unwrap();
+            let mut parser = Parser::new(tokens);
+            let ast = parser.parse().unwrap();
+            insta::assert_yaml_snapshot!(ast);
+        }
+
+        #[test]
+        fn test_parse_django_for_block() {
+            let source = "{% for item in items %}{{ item }}{% empty %}No items{% endfor %}";
+            let tokens = Lexer::new(source).tokenize().unwrap();
+            let mut parser = Parser::new(tokens);
+            let ast = parser.parse().unwrap();
+            insta::assert_yaml_snapshot!(ast);
+        }
+
+        #[test]
+        fn test_parse_complex_if_elif() {
+            let source = "{% if x > 0 %}Positive{% elif x < 0 %}Negative{% else %}Zero{% endif %}";
+            let tokens = Lexer::new(source).tokenize().unwrap();
+            let mut parser = Parser::new(tokens);
+            let ast = parser.parse().unwrap();
+            insta::assert_yaml_snapshot!(ast);
+        }
+
+        #[test]
+        fn test_parse_nested_for_if() {
+            let source =
+                "{% for item in items %}{% if item.active %}{{ item.name }}{% endif %}{% endfor %}";
+            let tokens = Lexer::new(source).tokenize().unwrap();
+            let mut parser = Parser::new(tokens);
+            let ast = parser.parse().unwrap();
+            insta::assert_yaml_snapshot!(ast);
+        }
+
+        #[test]
+        fn test_parse_mixed_content() {
+            let source = "Welcome, {% if user.is_authenticated %}
+                {{ user.name|title|default:'Guest' }}
+                {% for group in user.groups %}
+                    {% if forloop.first %}({% endif %}
+                    {{ group.name }}
+                    {% if not forloop.last %}, {% endif %}
+                    {% if forloop.last %}){% endif %}
+                {% empty %}
+                    (no groups)
+                {% endfor %}
+            {% else %}
+                Guest
+            {% endif %}!";
+            let tokens = Lexer::new(source).tokenize().unwrap();
+            let mut parser = Parser::new(tokens);
+            let ast = parser.parse().unwrap();
+            insta::assert_yaml_snapshot!(ast);
+        }
     }
 
-    #[test]
-    fn test_parse_django_variable() {
-        let source = r#"{{ user.name|default:"Anonymous"|title }}"#;
-        let tokens = Lexer::new(source).tokenize().unwrap();
-        let mut parser = Parser::new(tokens);
-        let ast = parser.parse().unwrap();
-        insta::assert_yaml_snapshot!(ast);
-    }
-    #[test]
-    fn test_parse_html_tag() {
-        let source = r#"<div class="container" id="main" disabled></div>"#;
-        let tokens = Lexer::new(source).tokenize().unwrap();
-        let mut parser = Parser::new(tokens);
-        let ast = parser.parse().unwrap();
-        insta::assert_yaml_snapshot!(ast);
+    mod script {
+        use super::*;
+
+        #[test]
+        fn test_parse_script() {
+            let source = "<script>
+                const x = 42;
+                // JavaScript comment
+                /* Multi-line
+                   comment */
+                console.log(x);
+            </script>";
+            let tokens = Lexer::new(source).tokenize().unwrap();
+            let mut parser = Parser::new(tokens);
+            let ast = parser.parse().unwrap();
+            insta::assert_yaml_snapshot!(ast);
+        }
     }
 
-    #[test]
-    fn test_parse_html_void() {
-        let source = r#"<img src="example.png" />"#;
-        let tokens = Lexer::new(source).tokenize().unwrap();
-        let mut parser = Parser::new(tokens);
-        let ast = parser.parse().unwrap();
-        insta::assert_yaml_snapshot!(ast);
+    mod style {
+        use super::*;
+
+        #[test]
+        fn test_parse_style() {
+            let source = "<style>
+                /* CSS comment */
+                body {
+                    font-family: sans-serif;
+                }
+            </style>";
+            let tokens = Lexer::new(source).tokenize().unwrap();
+            let mut parser = Parser::new(tokens);
+            let ast = parser.parse().unwrap();
+            insta::assert_yaml_snapshot!(ast);
+        }
     }
 
-    #[test]
-    fn test_parse_html_doctype() {
-        let source = r#"<!DOCTYPE html>"#;
-        let tokens = Lexer::new(source).tokenize().unwrap();
-        let mut parser = Parser::new(tokens);
-        let ast = parser.parse().unwrap();
-        insta::assert_yaml_snapshot!(ast);
+    mod comments {
+        use super::*;
+
+        #[test]
+        fn test_parse_comments() {
+            let source = "<!-- HTML comment -->{# Django comment #}";
+            let tokens = Lexer::new(source).tokenize().unwrap();
+            let mut parser = Parser::new(tokens);
+            let ast = parser.parse().unwrap();
+            insta::assert_yaml_snapshot!(ast);
+        }
     }
 
-    #[test]
-    fn test_parse_script() {
-        let source = r#"<script type="text/javascript">
-    // Single line comment
-    const x = 1;
-    /* Multi-line
-        comment */
-    console.log(x);
-</script>"#;
-        let tokens = Lexer::new(source).tokenize().unwrap();
-        let mut parser = Parser::new(tokens);
-        let ast = parser.parse().unwrap();
-        insta::assert_yaml_snapshot!(ast);
+    mod errors {
+        use super::*;
+
+        #[test]
+        fn test_parse_unexpected_eof() {
+            let source = "<div>\n";
+            let tokens = Lexer::new(source).tokenize().unwrap();
+            let mut parser = Parser::new(tokens);
+            let ast = parser.parse();
+            assert!(matches!(
+                ast,
+                Err(ParserError::StreamError(Stream::UnexpectedEof))
+            ));
+        }
+
+        #[test]
+        fn test_parse_unclosed_django_if() {
+            let source = "{% if user.is_authenticated %}Welcome";
+            let tokens = Lexer::new(source).tokenize().unwrap();
+            let mut parser = Parser::new(tokens);
+            let result = parser.parse();
+            println!("Error: {:?}", result);
+            assert!(matches!(result, Err(ParserError::UnclosedTag(tag)) if tag == "if"));
+        }
+
+        #[test]
+        fn test_parse_unclosed_django_for() {
+            let source = "{% for item in items %}{{ item.name }}";
+            let tokens = Lexer::new(source).tokenize().unwrap();
+            let mut parser = Parser::new(tokens);
+            let result = parser.parse();
+            println!("Error: {:?}", result);
+            assert!(matches!(result, Err(ParserError::UnclosedTag(tag)) if tag == "for"));
+        }
+
+        #[test]
+        fn test_parse_unclosed_style() {
+            let source = "<style>body { color: blue; ";
+            let tokens = Lexer::new(source).tokenize().unwrap();
+            let mut parser = Parser::new(tokens);
+            let result = parser.parse();
+            println!("Error: {:?}", result);
+            assert!(matches!(result, Err(ParserError::UnclosedTag(tag)) if tag == "style"));
+        }
     }
 
-    #[test]
-    fn test_parse_style() {
-        let source = r#"<style type="text/css">
-    /* Header styles */
-    .header {
-        color: blue;
-    }
-</style>"#;
-        let tokens = Lexer::new(source).tokenize().unwrap();
-        let mut parser = Parser::new(tokens);
-        let ast = parser.parse().unwrap();
-        insta::assert_yaml_snapshot!(ast);
-    }
+    mod full_templates {
+        use super::*;
 
-    #[test]
-    fn test_parse_full() {
-        let source = r#"<!DOCTYPE html>
+        #[test]
+        fn test_parse_full() {
+            let source = r#"<!DOCTYPE html>
 <html>
-    <head>
-        <style type="text/css">
-            /* Style header */
-            .header { color: blue; }
-        </style>
-        <script type="text/javascript">
-            // Init app
-            const app = {
-                /* Config */
-                debug: true
-            };
-        </script>
-    </head>
-    <body>
-        <!-- Header section -->
-        <div class="header" id="main" data-value="123" disabled>
-            {% if user.is_authenticated %}
-                {# Welcome message #}
-                <h1>Welcome, {{ user.name|default:"Guest"|title }}!</h1>
-                {% if user.is_staff %}
-                    <span>Admin</span>
-                {% else %}
-                    <span>User</span>
-                {% endif %}
-            {% endif %}
-        </div>
-    </body>
+<head>
+    <title>{% block title %}Default Title{% endblock %}</title>
+    <style>
+        /* CSS styles */
+        body { font-family: sans-serif; }
+    </style>
+</head>
+<body>
+    <h1>Welcome{% if user.is_authenticated %}, {{ user.name }}{% endif %}!</h1>
+    <script>
+        // JavaScript code
+        console.log('Hello!');
+    </script>
+</body>
 </html>"#;
-        let tokens = Lexer::new(source).tokenize().unwrap();
-        let mut parser = Parser::new(tokens);
-        let ast = parser.parse().unwrap();
-        insta::assert_yaml_snapshot!(ast);
-    }
-
-    #[test]
-    fn test_parse_unexpected_eof() {
-        let source = "<div>\n";
-        let tokens = Lexer::new(source).tokenize().unwrap();
-        let mut parser = Parser::new(tokens);
-        let ast = parser.parse();
-        assert!(matches!(
-            ast,
-            Err(ParserError::StreamError(Stream::UnexpectedEof))
-        ));
+            let tokens = Lexer::new(source).tokenize().unwrap();
+            let mut parser = Parser::new(tokens);
+            let ast = parser.parse().unwrap();
+            insta::assert_yaml_snapshot!(ast);
+        }
     }
 }

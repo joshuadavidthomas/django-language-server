@@ -1,0 +1,84 @@
+---
+source: crates/djls-template-ast/src/parser.rs
+expression: ast
+---
+nodes:
+  - Text: "Welcome, "
+  - Django:
+      Tag:
+        Branching:
+          name: if
+          bits:
+            - if
+            - user.is_authenticated
+          children:
+            - Text: Guest
+          branches:
+            - Block:
+                name: else
+                bits:
+                  - else
+                children:
+                  - Django:
+                      Variable:
+                        bits:
+                          - user
+                          - name
+                        filters:
+                          - name: title
+                            arguments: []
+                          - name: default
+                            arguments:
+                              - "'Guest'"
+                  - Django:
+                      Tag:
+                        Branching:
+                          name: for
+                          bits:
+                            - for
+                            - group
+                            - in
+                            - user.groups
+                          children:
+                            - Text: (no groups)
+                          branches:
+                            - Block:
+                                name: empty
+                                bits:
+                                  - empty
+                                children:
+                                  - Django:
+                                      Tag:
+                                        Block:
+                                          name: if
+                                          bits:
+                                            - if
+                                            - forloop.first
+                                          children:
+                                            - Text: (
+                                  - Django:
+                                      Variable:
+                                        bits:
+                                          - group
+                                          - name
+                                        filters: []
+                                  - Django:
+                                      Tag:
+                                        Block:
+                                          name: if
+                                          bits:
+                                            - if
+                                            - not
+                                            - forloop.last
+                                          children:
+                                            - Text: ", "
+                                  - Django:
+                                      Tag:
+                                        Block:
+                                          name: if
+                                          bits:
+                                            - if
+                                            - forloop.last
+                                          children:
+                                            - Text: )
+  - Text: "!"

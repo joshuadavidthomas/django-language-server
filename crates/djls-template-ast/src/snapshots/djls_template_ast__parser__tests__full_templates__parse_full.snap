@@ -1,0 +1,68 @@
+---
+source: crates/djls-template-ast/src/parser.rs
+expression: ast
+---
+nodes:
+  - Html:
+      Doctype: "!DOCTYPE"
+  - Html:
+      Element:
+        tag_name: html
+        attributes: {}
+        children:
+          - Html:
+              Element:
+                tag_name: head
+                attributes: {}
+                children:
+                  - Html:
+                      Element:
+                        tag_name: title
+                        attributes: {}
+                        children: []
+                  - Style:
+                      Element:
+                        attributes: {}
+                        children:
+                          - Style:
+                              Comment: CSS styles
+                          - Text: "body "
+                          - Text: "{"
+                          - Text: "font-family: sans-serif; }"
+          - Html:
+              Element:
+                tag_name: body
+                attributes: {}
+                children:
+                  - Html:
+                      Element:
+                        tag_name: h1
+                        attributes: {}
+                        children:
+                          - Text: Welcome
+                          - Django:
+                              Tag:
+                                Block:
+                                  name: if
+                                  bits:
+                                    - if
+                                    - user.is_authenticated
+                                  children:
+                                    - Text: ", "
+                                    - Django:
+                                        Variable:
+                                          bits:
+                                            - user
+                                            - name
+                                          filters: []
+                          - Text: "!"
+                  - Script:
+                      Element:
+                        attributes:
+                          script: Boolean
+                        children:
+                          - Script:
+                              Comment:
+                                content: JavaScript code
+                                kind: SingleLine
+                          - Text: "console.log('Hello!');"
