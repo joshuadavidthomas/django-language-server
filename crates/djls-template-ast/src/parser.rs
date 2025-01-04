@@ -274,20 +274,33 @@ impl Parser {
         Ok(Node::Django(DjangoNode::Variable { bits, filters }))
     }
 
-    fn parse_html_tag_open(&mut self, s: &str) -> Result<Node, ParserError> {
+    fn parse_tag_open(&mut self, s: &str, token_type: &TokenType) -> Result<Node, ParserError> {
         let mut parts = s.split_whitespace();
 
-        let tag_name = parts
-            .next()
-            .ok_or(ParserError::Ast(AstError::EmptyTag))?
-            .to_string();
-
-        if tag_name.to_lowercase() == "!doctype" {
-            return Ok(Node::Html(HtmlNode::Doctype("!DOCTYPE html".to_string())));
-        }
+        // Only HTML needs the tag name from the input
+        let tag_name = match token_type {
+            TokenType::HtmlTagOpen(_) => {
+                let name = parts
+                    .next()
+                    .ok_or(ParserError::Ast(AstError::EmptyTag))?
+                    .to_string();
+                if name.to_lowercase() == "!doctype" {
+                    return Ok(Node::Html(HtmlNode::Doctype("!DOCTYPE html".to_string())));
+                }
+                name
+            }
+            TokenType::ScriptTagOpen(_) => {
+                parts.next(); // Skip the tag name
+                "script".to_string()
+            }
+            TokenType::StyleTagOpen(_) => {
+                parts.next(); // Skip the tag name
+                "style".to_string()
+            }
+            _ => return Err(ParserError::invalid_tag("Unknown tag type".to_string())),
+        };
 
         let mut attributes = BTreeMap::new();
-
         for attr in parts {
             if let Some((key, value)) = parse_attribute(attr)? {
                 attributes.insert(key, value);
@@ -314,16 +327,37 @@ impl Parser {
         }
 
         if !found_closing_tag {
-            return Err(ParserError::Ast(AstError::UnclosedTag(
-                tag_name.to_string(),
-            )));
+            return Err(ParserError::Ast(AstError::UnclosedTag(tag_name.clone())));
         }
 
-        Ok(Node::Html(HtmlNode::Element {
-            tag_name,
-            attributes,
-            children,
-        }))
+        Ok(match token_type {
+            TokenType::HtmlTagOpen(_) => Node::Html(HtmlNode::Element {
+                tag_name,
+                attributes,
+                children,
+            }),
+            TokenType::ScriptTagOpen(_) => Node::Script(ScriptNode::Element {
+                attributes,
+                children,
+            }),
+            TokenType::StyleTagOpen(_) => Node::Style(StyleNode::Element {
+                attributes,
+                children,
+            }),
+            _ => return Err(ParserError::invalid_tag("Unknown tag type".to_string())),
+        })
+    }
+
+    fn parse_html_tag_open(&mut self, s: &str) -> Result<Node, ParserError> {
+        self.parse_tag_open(s, &TokenType::HtmlTagOpen(String::new()))
+    }
+
+    fn parse_script_tag_open(&mut self, s: &str) -> Result<Node, ParserError> {
+        self.parse_tag_open(s, &TokenType::ScriptTagOpen(String::new()))
+    }
+
+    fn parse_style_tag_open(&mut self, s: &str) -> Result<Node, ParserError> {
+        self.parse_tag_open(s, &TokenType::StyleTagOpen(String::new()))
     }
 
     fn parse_html_tag_void(&mut self, s: &str) -> Result<Node, ParserError> {
@@ -345,93 +379,6 @@ impl Parser {
         Ok(Node::Html(HtmlNode::Void {
             tag_name,
             attributes,
-        }))
-    }
-
-    fn parse_script_tag_open(&mut self, s: &str) -> Result<Node, ParserError> {
-        let mut parts = s.split_whitespace();
-
-        let _tag_name = parts
-            .next()
-            .ok_or(ParserError::Ast(AstError::EmptyTag))?
-            .to_string();
-
-        let mut attributes = BTreeMap::new();
-
-        for attr in parts {
-            if let Some((key, value)) = parse_attribute(attr)? {
-                attributes.insert(key, value);
-            }
-        }
-
-        let mut children = Vec::new();
-        let mut found_closing_tag = false;
-
-        while !self.is_at_end() {
-            match self.next_node() {
-                Ok(node) => {
-                    children.push(node);
-                }
-                Err(ParserError::ErrorSignal(Signal::ClosingTagFound(tag))) => {
-                    if tag == "script" {
-                        found_closing_tag = true;
-                        self.consume()?;
-                        break;
-                    }
-                }
-                Err(e) => return Err(e),
-            }
-        }
-
-        if !found_closing_tag {
-            return Err(ParserError::Ast(AstError::UnclosedTag(
-                "script".to_string(),
-            )));
-        }
-
-        Ok(Node::Script(ScriptNode::Element {
-            attributes,
-            children,
-        }))
-    }
-
-    fn parse_style_tag_open(&mut self, s: &str) -> Result<Node, ParserError> {
-        let parts = s.split_whitespace();
-
-        let mut attributes = BTreeMap::new();
-
-        for attr in parts {
-            if let Some((key, value)) = parse_attribute(attr)? {
-                attributes.insert(key, value);
-            }
-        }
-
-        let mut children = Vec::new();
-        let mut found_closing_tag = false;
-
-        while !self.is_at_end() {
-            match self.next_node() {
-                Ok(node) => {
-                    children.push(node);
-                }
-                Err(ParserError::ErrorSignal(Signal::ClosingTagFound(tag))) => {
-                    if tag == "style" {
-                        found_closing_tag = true;
-                        self.consume()?;
-                        break;
-                    }
-                }
-                Err(e) => return Err(e),
-            }
-        }
-
-        if !found_closing_tag {
-            return Err(ParserError::Ast(AstError::UnclosedTag("style".to_string())));
-        }
-
-        Ok(Node::Style(StyleNode::Element {
-            attributes,
-            children,
         }))
     }
 

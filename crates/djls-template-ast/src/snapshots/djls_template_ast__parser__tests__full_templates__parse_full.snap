@@ -18,7 +18,6 @@ nodes:
                   - Style:
                       Element:
                         attributes:
-                          style: Boolean
                           type:
                             Value: text/css
                         children:
