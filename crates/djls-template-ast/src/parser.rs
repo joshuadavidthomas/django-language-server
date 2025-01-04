@@ -155,23 +155,14 @@ impl Parser {
 
         let specs = TagSpec::load_builtin_specs().unwrap_or_default();
 
-        // Check if this is a closing tag
+        // Check if this is a closing or branch tag
         for (_, spec) in specs.iter() {
-            if Some(&tag_name) == spec.closing.as_ref() {
-                let node = Node::Django(DjangoNode::Tag(TagNode::Closing {
-                    name: tag_name.clone(),
-                    bits: bits[1..].to_vec(),
-                }));
+            if Some(&tag_name) == spec.closing.as_ref()
+                || spec.intermediates.as_ref()
+                    .map(|ints| ints.iter().any(|i| i.name == tag_name))
+                    .unwrap_or(false)
+            {
                 return Err(ParserError::ErrorSignal(Signal::SpecialTag(tag_name)));
-            }
-        }
-
-        // Check if this is a branch tag according to any spec
-        for (_, spec) in specs.iter() {
-            if let Some(intermediates) = &spec.intermediates {
-                if intermediates.iter().any(|i| i.name == tag_name) {
-                    return Err(ParserError::ErrorSignal(Signal::SpecialTag(tag_name)));
-                }
             }
         }
 
@@ -212,7 +203,8 @@ impl Parser {
                         }
                         // Check if intermediate tag
                         if let Some(intermediates) = &spec.intermediates {
-                            if let Some(intermediate) = intermediates.iter().find(|i| i.name == tag) {
+                            if let Some(intermediate) = intermediates.iter().find(|i| i.name == tag)
+                            {
                                 // If we have a current branch, add it to children
                                 if let Some((name, bits, branch_children)) = current_branch {
                                     children.push(Node::Django(DjangoNode::Tag(TagNode::Branch {
