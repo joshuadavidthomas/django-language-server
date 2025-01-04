@@ -94,7 +94,7 @@ nodes:
                                             - Text: "!"
                                     - Django:
                                         Tag:
-                                          Branching:
+                                          Block:
                                             name: if
                                             bits:
                                               - if
@@ -105,16 +105,26 @@ nodes:
                                                     tag_name: span
                                                     attributes: {}
                                                     children:
+                                                      - Text: Admin
+                                              - Django:
+                                                  Tag:
+                                                    Branch:
+                                                      name: else
+                                                      bits: []
+                                                      children: []
+                                              - Html:
+                                                  Element:
+                                                    tag_name: span
+                                                    attributes: {}
+                                                    children:
                                                       - Text: User
-                                            branches:
-                                              - Block:
-                                                  name: else
-                                                  bits:
-                                                    - else
-                                                  children:
-                                                    - Html:
-                                                        Element:
-                                                          tag_name: span
-                                                          attributes: {}
-                                                          children:
-                                                            - Text: Admin
+                                              - Django:
+                                                  Tag:
+                                                    Closing:
+                                                      name: endif
+                                                      bits: []
+                                    - Django:
+                                        Tag:
+                                          Closing:
+                                            name: endif
+                                            bits: []
