@@ -1,0 +1,25 @@
+[django.template.defaulttags.if]
+type = "block"
+closing = "endif"
+intermediates = ["else", "elif"]
+
+[[django.template.defaulttags.if.args]]
+name = "condition"
+required = true
+
+[django.template.defaulttags.for]
+type = "block"
+closing = "endfor"
+intermediates = ["empty"]
+
+[[django.template.defaulttags.for.args]]
+name = "{item}"
+required = true
+
+[[django.template.defaulttags.for.args]]
+name = "in"
+required = true
+
+[[django.template.defaulttags.for.args]]
+name = "{iterable}"
+required = true

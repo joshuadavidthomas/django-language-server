@@ -1,0 +1,26 @@
+---
+source: crates/djls-template-ast/src/parser.rs
+expression: ast
+---
+nodes:
+  - Django:
+      Tag:
+        kind:
+          name: if
+          spec_path: django.template.defaulttags.if
+          is_intermediate_of: ~
+        bits:
+          - if
+          - condition
+        children:
+          - Text: true content
+          - Django:
+              Tag:
+                kind:
+                  name: else
+                  spec_path: django.template.defaulttags.if
+                  is_intermediate_of: if
+                bits:
+                  - else
+                children: []
+          - Text: false content

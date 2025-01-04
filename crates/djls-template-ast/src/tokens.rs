@@ -90,9 +90,9 @@ impl fmt::Display for TokenType {
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub struct Token {
-    token_type: TokenType,
-    line: usize,
-    start: Option<usize>,
+    pub token_type: TokenType,
+    pub line: usize,
+    pub start: Option<usize>,
 }
 
 impl Token {

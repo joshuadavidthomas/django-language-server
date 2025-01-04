@@ -1,0 +1,22 @@
+---
+source: crates/djls-template-ast/src/parser.rs
+expression: ast
+---
+nodes:
+  - Django:
+      Tag:
+        kind:
+          name: for
+          spec_path: django.template.defaulttags.for
+          is_intermediate_of: ~
+        bits:
+          - for
+          - item
+          - in
+          - items
+        children:
+          - Django:
+              Variable:
+                bits:
+                  - item
+                filters: []
