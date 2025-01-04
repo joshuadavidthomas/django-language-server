@@ -19,3 +19,4 @@ nodes:
                 content: "Multi-line\n        comment"
                 kind: MultiLine
           - Text: console.log(x);
+errors: []

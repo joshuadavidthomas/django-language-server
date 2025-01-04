@@ -30,3 +30,4 @@ nodes:
                   Closing:
                     name: endfor
                     bits: []
+errors: []

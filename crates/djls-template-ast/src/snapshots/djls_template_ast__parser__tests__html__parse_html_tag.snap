@@ -11,3 +11,4 @@ nodes:
             Value: container
         children:
           - Text: Hello
+errors: []

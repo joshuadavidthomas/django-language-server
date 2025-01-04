@@ -11,3 +11,4 @@ nodes:
         filters:
           - name: title
             arguments: []
+errors: []

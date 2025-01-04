@@ -5,3 +5,4 @@ expression: ast
 nodes:
   - Html:
       Doctype: "!DOCTYPE"
+errors: []
