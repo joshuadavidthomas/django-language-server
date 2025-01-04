@@ -136,20 +136,20 @@ pub type Attributes = BTreeMap<String, AttributeValue>;
 pub enum AstError {
     #[error("Empty AST")]
     EmptyAst,
-    #[error("Stream error: {0}")]
-    StreamError(String),
-    #[error("Unclosed tag: {0}")]
+    #[error("Empty tag")]
+    EmptyTag,
+    #[error("unclosed tag: {0}")]
     UnclosedTag(String),
-    #[error("Unexpected tag: {0}")]
+    #[error("unexpected tag: {0}")]
     UnexpectedTag(String),
-    #[error("Invalid tag: {0}")]
+    #[error("invalid tag: {0}")]
     InvalidTag(String),
-    #[error("Block error: {0} in {1}")]
+    #[error("block error: {0} in {1}")]
     BlockError(String, String),
-    #[error("Argument error: {0} - {1}")]
+    #[error("stream error: {0}")]
+    StreamError(String),
+    #[error("token error: {0}")]
+    TokenError(String),
+    #[error("argument error: {0} - {1}")]
     ArgumentError(String, String),
-    #[error("Unexpected token")]
-    UnexpectedToken,
-    #[error("Unexpected end of file")]
-    UnexpectedEof,
 }
