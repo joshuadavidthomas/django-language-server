@@ -2,7 +2,6 @@
 source: crates/djls-template-ast/src/parser.rs
 expression: ast
 ---
-nodes:
-  - Html:
-      Doctype: "!DOCTYPE html"
-errors: []
+nodes: []
+errors:
+  - UnclosedTag: div

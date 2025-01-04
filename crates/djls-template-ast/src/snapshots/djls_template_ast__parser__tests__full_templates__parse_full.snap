@@ -4,7 +4,7 @@ expression: ast
 ---
 nodes:
   - Html:
-      Doctype: "!DOCTYPE"
+      Doctype: "!DOCTYPE html"
   - Html:
       Element:
         tag_name: html

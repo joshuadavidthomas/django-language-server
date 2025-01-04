@@ -27,33 +27,37 @@ impl Parser {
                     ast.add_node(node);
                     had_nodes = true;
                 }
-                Err(ParserError::StreamError { kind }) if kind == *"AtEnd" => {
+                Err(ParserError::Ast(AstError::StreamError(kind))) if kind == "AtEnd" => {
                     if !had_nodes {
-                        return Err(ParserError::stream_error("UnexpectedEof"));
+                        return Ok(ast.finalize()?);
                     }
                     break;
                 }
                 Err(ParserError::ErrorSignal(Signal::SpecialTag(_))) => {
                     continue;
                 }
-                Err(ParserError::UnclosedTag(tag)) => {
-                    return Err(ParserError::UnclosedTag(tag));
-                }
-                Err(_) => {
+                Err(ParserError::Ast(err @ AstError::UnclosedTag(_))) => {
+                    ast.add_error(err);
                     self.synchronize()?;
                     continue;
                 }
+                Err(ParserError::Ast(err)) => {
+                    ast.add_error(err);
+                    self.synchronize()?;
+                    continue;
+                }
+                Err(err) => return Err(err),
             }
         }
 
-        if !had_nodes {
-            return Err(ParserError::stream_error("UnexpectedEof"));
-        }
-        ast.finalize()?;
-        Ok(ast)
+        Ok(ast.finalize()?)
     }
 
     fn next_node(&mut self) -> Result<Node, ParserError> {
+        if self.is_at_end() {
+            return Err(ParserError::Ast(AstError::StreamError("AtEnd".to_string())));
+        }
+
         let token = self.consume()?;
         let node = match token.token_type() {
             TokenType::Comment(s, start, end) => self.parse_comment(s, start, end.as_deref()),
@@ -61,9 +65,9 @@ impl Parser {
             TokenType::DjangoVariable(s) => self.parse_django_variable(s),
             TokenType::Eof => {
                 if self.is_at_end() {
-                    self.next_node()
+                    Err(ParserError::Ast(AstError::StreamError("AtEnd".to_string())))
                 } else {
-                    Err(ParserError::stream_error("UnexpectedEof"))
+                    self.next_node()
                 }
             }
             TokenType::HtmlTagClose(tag) => {
@@ -232,14 +236,14 @@ impl Parser {
                             }
                         }
                     }
-                    return Err(ParserError::UnexpectedTag(tag));
+                    return Err(ParserError::unexpected_tag(tag));
                 }
                 Err(e) => return Err(e),
             }
         }
 
         // never found the closing tag
-        Err(ParserError::UnclosedTag(tag_name))
+        Err(ParserError::Ast(AstError::UnclosedTag(tag_name)))
     }
 
     fn parse_django_variable(&mut self, s: &str) -> Result<Node, ParserError> {
@@ -275,29 +279,23 @@ impl Parser {
 
         let tag_name = parts
             .next()
-            .ok_or(ParserError::stream_error("InvalidAccess"))?
+            .ok_or(ParserError::Ast(AstError::EmptyTag))?
             .to_string();
 
         if tag_name.to_lowercase() == "!doctype" {
-            return Ok(Node::Html(HtmlNode::Doctype(tag_name)));
+            return Ok(Node::Html(HtmlNode::Doctype("!DOCTYPE html".to_string())));
         }
 
         let mut attributes = BTreeMap::new();
 
         for attr in parts {
-            if let Some((key, value)) = attr.split_once('=') {
-                // Key-value attribute (class="container")
-                attributes.insert(
-                    key.to_string(),
-                    AttributeValue::Value(value.trim_matches('"').to_string()),
-                );
-            } else {
-                // Boolean attribute (disabled)
-                attributes.insert(attr.to_string(), AttributeValue::Boolean);
+            if let Some((key, value)) = parse_attribute(attr)? {
+                attributes.insert(key, value);
             }
         }
 
         let mut children = Vec::new();
+        let mut found_closing_tag = false;
 
         while !self.is_at_end() {
             match self.next_node() {
@@ -306,12 +304,19 @@ impl Parser {
                 }
                 Err(ParserError::ErrorSignal(Signal::ClosingTagFound(tag))) => {
                     if tag == tag_name {
+                        found_closing_tag = true;
                         self.consume()?;
                         break;
                     }
                 }
                 Err(e) => return Err(e),
             }
+        }
+
+        if !found_closing_tag {
+            return Err(ParserError::Ast(AstError::UnclosedTag(
+                tag_name.to_string(),
+            )));
         }
 
         Ok(Node::Html(HtmlNode::Element {
@@ -326,19 +331,14 @@ impl Parser {
 
         let tag_name = parts
             .next()
-            .ok_or(ParserError::stream_error("InvalidAccess"))?
+            .ok_or(ParserError::Ast(AstError::EmptyTag))?
             .to_string();
 
         let mut attributes = BTreeMap::new();
 
         for attr in parts {
-            if let Some((key, value)) = attr.split_once('=') {
-                attributes.insert(
-                    key.to_string(),
-                    AttributeValue::Value(value.trim_matches('"').to_string()),
-                );
-            } else {
-                attributes.insert(attr.to_string(), AttributeValue::Boolean);
+            if let Some((key, value)) = parse_attribute(attr)? {
+                attributes.insert(key, value);
             }
         }
 
@@ -353,19 +353,14 @@ impl Parser {
 
         let _tag_name = parts
             .next()
-            .ok_or(ParserError::stream_error("InvalidAccess"))?
+            .ok_or(ParserError::Ast(AstError::EmptyTag))?
             .to_string();
 
         let mut attributes = BTreeMap::new();
 
         for attr in parts {
-            if let Some((key, value)) = attr.split_once('=') {
-                attributes.insert(
-                    key.to_string(),
-                    AttributeValue::Value(value.trim_matches('"').to_string()),
-                );
-            } else {
-                attributes.insert(attr.to_string(), AttributeValue::Boolean);
+            if let Some((key, value)) = parse_attribute(attr)? {
+                attributes.insert(key, value);
             }
         }
 
@@ -389,7 +384,9 @@ impl Parser {
         }
 
         if !found_closing_tag {
-            return Err(ParserError::unclosed_tag("script"));
+            return Err(ParserError::Ast(AstError::UnclosedTag(
+                "script".to_string(),
+            )));
         }
 
         Ok(Node::Script(ScriptNode::Element {
@@ -404,13 +401,8 @@ impl Parser {
         let mut attributes = BTreeMap::new();
 
         for attr in parts {
-            if let Some((key, value)) = attr.split_once('=') {
-                attributes.insert(
-                    key.to_string(),
-                    AttributeValue::Value(value.trim_matches('"').to_string()),
-                );
-            } else {
-                attributes.insert(attr.to_string(), AttributeValue::Boolean);
+            if let Some((key, value)) = parse_attribute(attr)? {
+                attributes.insert(key, value);
             }
         }
 
@@ -434,7 +426,7 @@ impl Parser {
         }
 
         if !found_closing_tag {
-            return Err(ParserError::unclosed_tag("style"));
+            return Err(ParserError::Ast(AstError::UnclosedTag("style".to_string())));
         }
 
         Ok(Node::Style(StyleNode::Element {
@@ -536,66 +528,58 @@ pub enum Signal {
     ClosingTag,
 }
 
+fn parse_attribute(attr: &str) -> Result<Option<(String, AttributeValue)>, ParserError> {
+    if let Some((key, value)) = attr.split_once('=') {
+        Ok(Some((
+            key.to_string(),
+            AttributeValue::Value(value.trim_matches('"').to_string()),
+        )))
+    } else {
+        Ok(Some((attr.to_string(), AttributeValue::Boolean)))
+    }
+}
+
 #[derive(Error, Debug)]
 pub enum ParserError {
-    #[error("unclosed tag: {0}")]
-    UnclosedTag(String),
-    #[error("unexpected tag: {0}")]
-    UnexpectedTag(String),
-    #[error("invalid tag: {kind}")]
-    InvalidTag { kind: String },
-    #[error("block error: {kind} {name}")]
-    BlockError { kind: String, name: String },
-    #[error("stream error: {kind}")]
-    StreamError { kind: String },
-    #[error("token error: expected {expected}, got {actual:?}")]
-    TokenError { expected: String, actual: Token },
-    #[error("argument error: {kind} {details}")]
-    ArgumentError { kind: String, details: String },
+    #[error(transparent)]
+    Ast(#[from] AstError),
     #[error("multi-line comment outside of script or style context")]
     InvalidMultiLineComment,
-    #[error(transparent)]
-    AstError(#[from] AstError),
     #[error("internal signal: {0:?}")]
     ErrorSignal(Signal),
 }
 
 impl ParserError {
     pub fn unclosed_tag(tag: impl Into<String>) -> Self {
-        Self::UnclosedTag(tag.into())
+        Self::Ast(AstError::UnclosedTag(tag.into()))
     }
 
     pub fn unexpected_tag(tag: impl Into<String>) -> Self {
-        Self::UnexpectedTag(tag.into())
+        Self::Ast(AstError::UnexpectedTag(tag.into()))
     }
 
     pub fn invalid_tag(kind: impl Into<String>) -> Self {
-        Self::InvalidTag { kind: kind.into() }
+        Self::Ast(AstError::InvalidTag(kind.into()))
     }
 
     pub fn block_error(kind: impl Into<String>, name: impl Into<String>) -> Self {
-        Self::BlockError {
-            kind: kind.into(),
-            name: name.into(),
-        }
+        Self::Ast(AstError::BlockError(kind.into(), name.into()))
     }
 
     pub fn stream_error(kind: impl Into<String>) -> Self {
-        Self::StreamError { kind: kind.into() }
+        Self::Ast(AstError::StreamError(kind.into()))
     }
 
     pub fn token_error(expected: impl Into<String>, actual: Token) -> Self {
-        Self::TokenError {
-            expected: expected.into(),
-            actual,
-        }
+        Self::Ast(AstError::TokenError(format!(
+            "expected {}, got {:?}",
+            expected.into(),
+            actual
+        )))
     }
 
     pub fn argument_error(kind: impl Into<String>, details: impl Into<String>) -> Self {
-        Self::ArgumentError {
-            kind: kind.into(),
-            details: details.into(),
-        }
+        Self::Ast(AstError::ArgumentError(kind.into(), details.into()))
     }
 }
 
@@ -769,15 +753,14 @@ mod tests {
         use super::*;
 
         #[test]
-        fn test_parse_unexpected_eof() {
-            let source = "<div>\n";
+        fn test_parse_unclosed_html_tag() {
+            let source = "<div>";
             let tokens = Lexer::new(source).tokenize().unwrap();
             let mut parser = Parser::new(tokens);
-            let ast = parser.parse();
-            assert!(matches!(
-                ast,
-                Err(ParserError::StreamError { kind }) if kind == "UnexpectedEof"
-            ));
+            let ast = parser.parse().unwrap();
+            insta::assert_yaml_snapshot!(ast);
+            assert_eq!(ast.errors().len(), 1);
+            assert!(matches!(&ast.errors()[0], AstError::UnclosedTag(tag) if tag == "div"));
         }
 
         #[test]
@@ -785,9 +768,10 @@ mod tests {
             let source = "{% if user.is_authenticated %}Welcome";
             let tokens = Lexer::new(source).tokenize().unwrap();
             let mut parser = Parser::new(tokens);
-            let result = parser.parse();
-            println!("Error: {:?}", result);
-            assert!(matches!(result, Err(ParserError::UnclosedTag(tag)) if tag == "if"));
+            let ast = parser.parse().unwrap();
+            insta::assert_yaml_snapshot!(ast);
+            assert_eq!(ast.errors().len(), 1);
+            assert!(matches!(&ast.errors()[0], AstError::UnclosedTag(tag) if tag == "if"));
         }
 
         #[test]
@@ -795,9 +779,21 @@ mod tests {
             let source = "{% for item in items %}{{ item.name }}";
             let tokens = Lexer::new(source).tokenize().unwrap();
             let mut parser = Parser::new(tokens);
-            let result = parser.parse();
-            println!("Error: {:?}", result);
-            assert!(matches!(result, Err(ParserError::UnclosedTag(tag)) if tag == "for"));
+            let ast = parser.parse().unwrap();
+            insta::assert_yaml_snapshot!(ast);
+            assert_eq!(ast.errors().len(), 1);
+            assert!(matches!(&ast.errors()[0], AstError::UnclosedTag(tag) if tag == "for"));
+        }
+
+        #[test]
+        fn test_parse_unclosed_script() {
+            let source = "<script>console.log('test');";
+            let tokens = Lexer::new(source).tokenize().unwrap();
+            let mut parser = Parser::new(tokens);
+            let ast = parser.parse().unwrap();
+            insta::assert_yaml_snapshot!(ast);
+            assert_eq!(ast.errors().len(), 1);
+            assert!(matches!(&ast.errors()[0], AstError::UnclosedTag(tag) if tag == "script"));
         }
 
         #[test]
@@ -805,9 +801,9 @@ mod tests {
             let source = "<style>body { color: blue; ";
             let tokens = Lexer::new(source).tokenize().unwrap();
             let mut parser = Parser::new(tokens);
-            let result = parser.parse();
-            println!("Error: {:?}", result);
-            assert!(matches!(result, Err(ParserError::UnclosedTag(tag)) if tag == "style"));
+            let result = parser.parse().unwrap();
+            assert_eq!(result.errors().len(), 1);
+            assert!(matches!(&result.errors()[0], AstError::UnclosedTag(tag) if tag == "style"));
         }
     }
 
