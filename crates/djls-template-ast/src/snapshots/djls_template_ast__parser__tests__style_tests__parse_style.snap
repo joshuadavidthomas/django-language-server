@@ -7,12 +7,7 @@ nodes:
       Element:
         attributes:
           style: Boolean
-          type:
-            Value: text/css
         children:
-          - Style:
-              Comment: Header styles
-          - Text: ".header "
+          - Text: "h1 "
           - Text: "{"
-          - Text: "color: blue;"
-          - Text: "}"
+          - Text: "color: red; }"

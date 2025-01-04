@@ -27,9 +27,9 @@ impl Parser {
                     ast.add_node(node);
                     had_nodes = true;
                 }
-                Err(ParserError::StreamError(Stream::AtEnd)) => {
+                Err(ParserError::StreamError { kind }) if kind == "AtEnd".to_string() => {
                     if !had_nodes {
-                        return Err(ParserError::StreamError(Stream::UnexpectedEof));
+                        return Err(ParserError::stream_error("UnexpectedEof"));
                     }
                     break;
                 }
@@ -47,7 +47,7 @@ impl Parser {
         }
 
         if !had_nodes {
-            return Err(ParserError::StreamError(Stream::UnexpectedEof));
+            return Err(ParserError::stream_error("UnexpectedEof"));
         }
         ast.finalize()?;
         Ok(ast)
@@ -63,7 +63,7 @@ impl Parser {
                 if self.is_at_end() {
                     self.next_node()
                 } else {
-                    Err(ParserError::StreamError(Stream::UnexpectedEof))
+                    Err(ParserError::stream_error("UnexpectedEof"))
                 }
             }
             TokenType::HtmlTagClose(tag) => {
@@ -121,7 +121,7 @@ impl Parser {
                         TokenType::ScriptTagClose(_) | TokenType::StyleTagClose(_) => None,
                         _ => None,
                     })
-                    .ok_or(ParserError::InvalidMultLineComment)?;
+                    .ok_or(ParserError::InvalidMultiLineComment)?;
 
                 match token_type {
                     TokenType::ScriptTagOpen(_) => Ok(Node::Script(ScriptNode::Comment {
@@ -134,15 +134,18 @@ impl Parser {
                     _ => unreachable!(),
                 }
             }
-            _ => Err(ParserError::UnexpectedToken(Token::new(
-                TokenType::Comment(
-                    content.to_string(),
-                    start.to_string(),
-                    end.map(String::from),
+            _ => Err(ParserError::token_error(
+                "valid token",
+                Token::new(
+                    TokenType::Comment(
+                        content.to_string(),
+                        start.to_string(),
+                        end.map(String::from),
+                    ),
+                    0,
+                    None,
                 ),
-                0,
-                None,
-            ))),
+            )),
         }
     }
 
@@ -260,7 +263,7 @@ impl Parser {
 
         let tag_name = parts
             .next()
-            .ok_or(ParserError::StreamError(Stream::InvalidAccess))?
+            .ok_or(ParserError::stream_error("InvalidAccess"))?
             .to_string();
 
         if tag_name.to_lowercase() == "!doctype" {
@@ -311,7 +314,7 @@ impl Parser {
 
         let tag_name = parts
             .next()
-            .ok_or(ParserError::StreamError(Stream::InvalidAccess))?
+            .ok_or(ParserError::stream_error("InvalidAccess"))?
             .to_string();
 
         let mut attributes = BTreeMap::new();
@@ -334,51 +337,11 @@ impl Parser {
     }
 
     fn parse_script_tag_open(&mut self, s: &str) -> Result<Node, ParserError> {
-        let parts = s.split_whitespace();
-
-        let mut attributes = BTreeMap::new();
-
-        for attr in parts {
-            if let Some((key, value)) = attr.split_once('=') {
-                attributes.insert(
-                    key.to_string(),
-                    AttributeValue::Value(value.trim_matches('"').to_string()),
-                );
-            } else {
-                attributes.insert(attr.to_string(), AttributeValue::Boolean);
-            }
-        }
-
-        let mut children = Vec::new();
-
-        while !self.is_at_end() {
-            match self.next_node() {
-                Ok(node) => {
-                    children.push(node);
-                }
-                Err(ParserError::ErrorSignal(Signal::ClosingTagFound(tag))) => {
-                    if tag == "script" {
-                        self.consume()?;
-                        break;
-                    }
-                    // If it's not our closing tag, keep collecting children
-                }
-                Err(e) => return Err(e),
-            }
-        }
-
-        Ok(Node::Script(ScriptNode::Element {
-            attributes,
-            children,
-        }))
-    }
-
-    fn parse_style_tag_open(&mut self, s: &str) -> Result<Node, ParserError> {
         let mut parts = s.split_whitespace();
 
         let _tag_name = parts
             .next()
-            .ok_or(ParserError::StreamError(Stream::InvalidAccess))?
+            .ok_or(ParserError::stream_error("InvalidAccess"))?
             .to_string();
 
         let mut attributes = BTreeMap::new();
@@ -403,19 +366,63 @@ impl Parser {
                     children.push(node);
                 }
                 Err(ParserError::ErrorSignal(Signal::ClosingTagFound(tag))) => {
-                    if tag == "style" {
-                        self.consume()?;
+                    if tag == "script" {
                         found_closing_tag = true;
+                        self.consume()?;
                         break;
                     }
-                    // If it's not our closing tag, keep collecting children
                 }
                 Err(e) => return Err(e),
             }
         }
 
         if !found_closing_tag {
-            return Err(ParserError::UnclosedTag("style".to_string()));
+            return Err(ParserError::unclosed_tag("script"));
+        }
+
+        Ok(Node::Script(ScriptNode::Element {
+            attributes,
+            children,
+        }))
+    }
+
+    fn parse_style_tag_open(&mut self, s: &str) -> Result<Node, ParserError> {
+        let parts = s.split_whitespace();
+
+        let mut attributes = BTreeMap::new();
+
+        for attr in parts {
+            if let Some((key, value)) = attr.split_once('=') {
+                attributes.insert(
+                    key.to_string(),
+                    AttributeValue::Value(value.trim_matches('"').to_string()),
+                );
+            } else {
+                attributes.insert(attr.to_string(), AttributeValue::Boolean);
+            }
+        }
+
+        let mut children = Vec::new();
+        let mut found_closing_tag = false;
+
+        while !self.is_at_end() {
+            match self.next_node() {
+                Ok(node) => {
+                    children.push(node);
+                }
+                Err(ParserError::ErrorSignal(Signal::ClosingTagFound(tag))) => {
+                    if tag == "style" {
+                        found_closing_tag = true;
+                        self.consume()?;
+                        break;
+                    }
+                }
+                Err(e) => return Err(e),
+            }
+        }
+
+        if !found_closing_tag {
+            return Err(ParserError::unclosed_tag("style"));
         }
 
         Ok(Node::Style(StyleNode::Element {
@@ -454,13 +461,13 @@ impl Parser {
             Ok(token.clone())
         } else {
             let error = if self.tokens.is_empty() {
-                ParserError::StreamError(Stream::Empty)
+                ParserError::stream_error("Empty")
             } else if index < self.current {
-                ParserError::StreamError(Stream::AtBeginning)
+                ParserError::stream_error("AtBeginning")
             } else if index >= self.tokens.len() {
-                ParserError::StreamError(Stream::AtEnd)
+                ParserError::stream_error("AtEnd")
             } else {
-                ParserError::StreamError(Stream::InvalidAccess)
+                ParserError::stream_error("InvalidAccess")
             };
             Err(error)
         }
@@ -472,7 +479,7 @@ impl Parser {
 
     fn consume(&mut self) -> Result<Token, ParserError> {
         if self.is_at_end() {
-            return Err(ParserError::StreamError(Stream::AtEnd));
+            return Err(ParserError::stream_error("AtEnd"));
         }
         self.current += 1;
         self.peek_previous()
@@ -480,7 +487,7 @@ impl Parser {
 
     fn backtrack(&mut self, steps: usize) -> Result<Token, ParserError> {
         if self.current < steps {
-            return Err(ParserError::StreamError(Stream::AtBeginning));
+            return Err(ParserError::stream_error("AtBeginning"));
         }
         self.current -= steps;
         self.peek_next()
@@ -501,7 +508,7 @@ impl Parser {
             Ok(token)
         } else {
             self.backtrack(1)?;
-            Err(ParserError::ExpectedTokenType(format!("{:?}", token_type)))
+            Err(ParserError::token_error(format!("{:?}", token_type), token))
         }
     }
 
@@ -540,65 +547,6 @@ impl Parser {
     }
 }
 
-#[derive(Error, Debug)]
-pub enum ParserError {
-    #[error("unclosed tag: {0}")]
-    UnclosedTag(String),
-    #[error("unexpected tag: {0}")]
-    UnexpectedTag(String),
-    #[error("unsupported tag type")]
-    UnsupportedTagType,
-    #[error("empty tag")]
-    EmptyTag,
-    #[error("invalid tag type")]
-    InvalidTagType,
-    #[error("missing required args")]
-    MissingRequiredArgs,
-    #[error("invalid argument '{0:?}' '{1:?}")]
-    InvalidArgument(String, String),
-    #[error("unexpected closing tag {0}")]
-    UnexpectedClosingTag(String),
-    #[error("unexpected intermediate tag {0}")]
-    UnexpectedIntermediateTag(String),
-    #[error("unclosed block {0}")]
-    UnclosedBlock(String),
-    #[error(transparent)]
-    StreamError(#[from] Stream),
-    #[error("internal signal: {0:?}")]
-    ErrorSignal(Signal),
-    #[error("expected token: {0}")]
-    ExpectedTokenType(String),
-    #[error("unexpected token '{0:?}'")]
-    UnexpectedToken(Token),
-    #[error("multi-line comment outside of script or style context")]
-    InvalidMultLineComment,
-    #[error(transparent)]
-    AstError(#[from] AstError),
-}
-
-#[derive(Debug)]
-pub enum Stream {
-    Empty,
-    AtBeginning,
-    AtEnd,
-    UnexpectedEof,
-    InvalidAccess,
-}
-
-impl std::error::Error for Stream {}
-
-impl std::fmt::Display for Stream {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Empty => write!(f, "is empty"),
-            Self::AtBeginning => write!(f, "at beginning"),
-            Self::AtEnd => write!(f, "at end"),
-            Self::UnexpectedEof => write!(f, "unexpected end of file"),
-            Self::InvalidAccess => write!(f, "invalid access"),
-        }
-    }
-}
-
 #[derive(Debug)]
 pub enum Signal {
     ClosingTagFound(String),
@@ -608,9 +556,71 @@ pub enum Signal {
     ClosingTag,
 }
 
+#[derive(Error, Debug)]
+pub enum ParserError {
+    #[error("unclosed tag: {0}")]
+    UnclosedTag(String),
+    #[error("unexpected tag: {0}")]
+    UnexpectedTag(String),
+    #[error("invalid tag: {kind}")]
+    InvalidTag { kind: String },
+    #[error("block error: {kind} {name}")]
+    BlockError { kind: String, name: String },
+    #[error("stream error: {kind}")]
+    StreamError { kind: String },
+    #[error("token error: expected {expected}, got {actual:?}")]
+    TokenError { expected: String, actual: Token },
+    #[error("argument error: {kind} {details}")]
+    ArgumentError { kind: String, details: String },
+    #[error("multi-line comment outside of script or style context")]
+    InvalidMultiLineComment,
+    #[error(transparent)]
+    AstError(#[from] AstError),
+    #[error("internal signal: {0:?}")]
+    ErrorSignal(Signal),
+}
+
+impl ParserError {
+    pub fn unclosed_tag(tag: impl Into<String>) -> Self {
+        Self::UnclosedTag(tag.into())
+    }
+
+    pub fn unexpected_tag(tag: impl Into<String>) -> Self {
+        Self::UnexpectedTag(tag.into())
+    }
+
+    pub fn invalid_tag(kind: impl Into<String>) -> Self {
+        Self::InvalidTag { kind: kind.into() }
+    }
+
+    pub fn block_error(kind: impl Into<String>, name: impl Into<String>) -> Self {
+        Self::BlockError {
+            kind: kind.into(),
+            name: name.into(),
+        }
+    }
+
+    pub fn stream_error(kind: impl Into<String>) -> Self {
+        Self::StreamError { kind: kind.into() }
+    }
+
+    pub fn token_error(expected: impl Into<String>, actual: Token) -> Self {
+        Self::TokenError {
+            expected: expected.into(),
+            actual,
+        }
+    }
+
+    pub fn argument_error(kind: impl Into<String>, details: impl Into<String>) -> Self {
+        Self::ArgumentError {
+            kind: kind.into(),
+            details: details.into(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::Stream;
     use super::*;
     use crate::lexer::Lexer;
 
@@ -706,18 +716,18 @@ mod tests {
         #[test]
         fn test_parse_mixed_content() {
             let source = "Welcome, {% if user.is_authenticated %}
-                {{ user.name|title|default:'Guest' }}
-                {% for group in user.groups %}
-                    {% if forloop.first %}({% endif %}
-                    {{ group.name }}
-                    {% if not forloop.last %}, {% endif %}
-                    {% if forloop.last %}){% endif %}
-                {% empty %}
-                    (no groups)
-                {% endfor %}
-            {% else %}
-                Guest
-            {% endif %}!";
+    {{ user.name|title|default:'Guest' }}
+    {% for group in user.groups %}
+        {% if forloop.first %}({% endif %}
+        {{ group.name }}
+        {% if not forloop.last %}, {% endif %}
+        {% if forloop.last %}){% endif %}
+    {% empty %}
+        (no groups)
+    {% endfor %}
+{% else %}
+    Guest
+{% endif %}!";
             let tokens = Lexer::new(source).tokenize().unwrap();
             let mut parser = Parser::new(tokens);
             let ast = parser.parse().unwrap();
@@ -730,13 +740,13 @@ mod tests {
 
         #[test]
         fn test_parse_script() {
-            let source = "<script>
-                const x = 42;
-                // JavaScript comment
-                /* Multi-line
-                   comment */
-                console.log(x);
-            </script>";
+            let source = r#"<script type="text/javascript">
+    // Single line comment
+    const x = 1;
+    /* Multi-line
+        comment */
+    console.log(x);
+</script>"#;
             let tokens = Lexer::new(source).tokenize().unwrap();
             let mut parser = Parser::new(tokens);
             let ast = parser.parse().unwrap();
@@ -749,12 +759,12 @@ mod tests {
 
         #[test]
         fn test_parse_style() {
-            let source = "<style>
-                /* CSS comment */
-                body {
-                    font-family: sans-serif;
-                }
-            </style>";
+            let source = r#"<style type="text/css">
+    /* Header styles */
+    .header {
+        color: blue;
+    }
+</style>"#;
             let tokens = Lexer::new(source).tokenize().unwrap();
             let mut parser = Parser::new(tokens);
             let ast = parser.parse().unwrap();
@@ -786,7 +796,7 @@ mod tests {
             let ast = parser.parse();
             assert!(matches!(
                 ast,
-                Err(ParserError::StreamError(Stream::UnexpectedEof))
+                Err(ParserError::StreamError { kind }) if kind == "UnexpectedEof"
             ));
         }
 
@@ -828,20 +838,33 @@ mod tests {
         fn test_parse_full() {
             let source = r#"<!DOCTYPE html>
 <html>
-<head>
-    <title>{% block title %}Default Title{% endblock %}</title>
-    <style>
-        /* CSS styles */
-        body { font-family: sans-serif; }
-    </style>
-</head>
-<body>
-    <h1>Welcome{% if user.is_authenticated %}, {{ user.name }}{% endif %}!</h1>
-    <script>
-        // JavaScript code
-        console.log('Hello!');
-    </script>
-</body>
+    <head>
+        <style type="text/css">
+            /* Style header */
+            .header { color: blue; }
+        </style>
+        <script type="text/javascript">
+            // Init app
+            const app = {
+                /* Config */
+                debug: true
+            };
+        </script>
+    </head>
+    <body>
+        <!-- Header section -->
+        <div class="header" id="main" data-value="123" disabled>
+            {% if user.is_authenticated %}
+                {# Welcome message #}
+                <h1>Welcome, {{ user.name|default:"Guest"|title }}!</h1>
+                {% if user.is_staff %}
+                    <span>Admin</span>
+                {% else %}
+                    <span>User</span>
+                {% endif %}
+            {% endif %}
+        </div>
+    </body>
 </html>"#;
             let tokens = Lexer::new(source).tokenize().unwrap();
             let mut parser = Parser::new(tokens);
