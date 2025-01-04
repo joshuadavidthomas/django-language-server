@@ -23,8 +23,8 @@ nodes:
                   Branch:
                     name: empty
                     bits: []
-                    children: []
-            - Text: No items
+                    children:
+                      - Text: No items
             - Django:
                 Tag:
                   Closing:

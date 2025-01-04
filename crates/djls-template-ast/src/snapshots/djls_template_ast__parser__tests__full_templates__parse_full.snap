@@ -111,13 +111,13 @@ nodes:
                                                     Branch:
                                                       name: else
                                                       bits: []
-                                                      children: []
-                                              - Html:
-                                                  Element:
-                                                    tag_name: span
-                                                    attributes: {}
-                                                    children:
-                                                      - Text: User
+                                                      children:
+                                                        - Html:
+                                                            Element:
+                                                              tag_name: span
+                                                              attributes: {}
+                                                              children:
+                                                                - Text: User
                                               - Django:
                                                   Tag:
                                                     Closing:

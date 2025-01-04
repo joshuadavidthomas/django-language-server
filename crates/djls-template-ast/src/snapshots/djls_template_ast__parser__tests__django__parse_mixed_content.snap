@@ -87,8 +87,8 @@ nodes:
                             Branch:
                               name: empty
                               bits: []
-                              children: []
-                      - Text: (no groups)
+                              children:
+                                - Text: (no groups)
                       - Django:
                           Tag:
                             Closing:
@@ -99,8 +99,8 @@ nodes:
                   Branch:
                     name: else
                     bits: []
-                    children: []
-            - Text: Guest
+                    children:
+                      - Text: Guest
             - Django:
                 Tag:
                   Closing:
