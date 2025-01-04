@@ -10,16 +10,11 @@ use thiserror::Error;
 pub struct Parser {
     tokens: TokenStream,
     current: usize,
-    specs: HashMap<String, TagSpec>,
 }
 
 impl Parser {
     pub fn new(tokens: TokenStream) -> Self {
-        Parser {
-            tokens,
-            current: 0,
-            specs: TagSpec::load_builtin_specs().unwrap_or_default(),
-        }
+        Parser { tokens, current: 0 }
     }
 
     pub fn parse(&mut self) -> Result<Ast, ParserError> {
@@ -165,9 +160,10 @@ impl Parser {
         eprintln!("Tag name: {}", tag_name);
 
         eprintln!("Loaded specs: {:?}", self.specs);
+        let specs = TagSpec::load_builtin_specs().unwrap_or_default();
 
         // Check if this is a closing tag according to ANY spec
-        for (_, spec) in self.specs.iter() {
+        for (_, spec) in specs.iter() {
             if Some(&tag_name) == spec.closing.as_ref() {
                 eprintln!("Found closing tag: {}", tag_name);
                 return Err(ParserError::ErrorSignal(Signal::SpecialTag(tag_name)));
@@ -175,7 +171,7 @@ impl Parser {
         }
 
         // Check if this is an intermediate tag according to ANY spec
-        for (_, spec) in self.specs.iter() {
+        for (_, spec) in specs.iter() {
             if let Some(intermediates) = &spec.intermediates {
                 if intermediates.contains(&tag_name) {
                     eprintln!("Found intermediate tag: {}", tag_name);
@@ -185,8 +181,7 @@ impl Parser {
         }
 
         // Get the tag spec for this tag
-        let tag_spec = self.specs.get(tag_name.as_str()).cloned();
-        eprintln!("Tag spec: {:?}", tag_spec);
+        let tag_spec = specs.get(tag_name.as_str()).cloned();
 
         let mut children = Vec::new();
         let mut branches = Vec::new();
