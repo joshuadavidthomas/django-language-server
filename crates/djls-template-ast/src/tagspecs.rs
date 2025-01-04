@@ -10,12 +10,13 @@ pub struct TagSpec {
     #[serde(rename = "type")]
     pub tag_type: TagType,
     pub closing: Option<String>,
-    pub intermediates: Option<Vec<IntermediateSpec>>,
+    #[serde(rename = "intermediates")]
+    pub branches: Option<Vec<BranchSpec>>,
     pub args: Option<Vec<ArgSpec>>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct IntermediateSpec {
+pub struct BranchSpec {
     pub name: String,
     pub args: bool,
 }

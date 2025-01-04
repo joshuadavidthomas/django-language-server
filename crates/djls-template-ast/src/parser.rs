@@ -155,14 +155,23 @@ impl Parser {
 
         let specs = TagSpec::load_builtin_specs().unwrap_or_default();
 
-        // Check if this is a closing or branch tag
+        // Check if this is a closing tag
         for (_, spec) in specs.iter() {
-            if Some(&tag_name) == spec.closing.as_ref()
-                || spec.intermediates.as_ref()
-                    .map(|ints| ints.iter().any(|i| i.name == tag_name))
-                    .unwrap_or(false)
-            {
+            if Some(&tag_name) == spec.closing.as_ref() {
+                // let node = Node::Django(DjangoNode::Tag(TagNode::Closing {
+                //     name: tag_name.clone(),
+                //     bits: bits[1..].to_vec(),
+                // }));
                 return Err(ParserError::ErrorSignal(Signal::SpecialTag(tag_name)));
+            }
+        }
+
+        // Check if this is a branch tag according to any spec
+        for (_, spec) in specs.iter() {
+            if let Some(branches) = &spec.branches {
+                if branches.iter().any(|i| i.name == tag_name) {
+                    return Err(ParserError::ErrorSignal(Signal::SpecialTag(tag_name)));
+                }
             }
         }
 
@@ -202,9 +211,8 @@ impl Parser {
                             })));
                         }
                         // Check if intermediate tag
-                        if let Some(intermediates) = &spec.intermediates {
-                            if let Some(intermediate) = intermediates.iter().find(|i| i.name == tag)
-                            {
+                        if let Some(branches) = &spec.branches {
+                            if let Some(branch) = branches.iter().find(|i| i.name == tag) {
                                 // If we have a current branch, add it to children
                                 if let Some((name, bits, branch_children)) = current_branch {
                                     children.push(Node::Django(DjangoNode::Tag(TagNode::Branch {
@@ -214,7 +222,7 @@ impl Parser {
                                     })));
                                 }
                                 // Create new branch node
-                                let branch_bits = if intermediate.args {
+                                let branch_bits = if branch.args {
                                     match &self.tokens[self.current - 1].token_type() {
                                         TokenType::DjangoBlock(content) => content
                                             .split_whitespace()
@@ -675,8 +683,7 @@ mod tests {
 
         #[test]
         fn test_parse_complex_if_elif() {
-            let source =
-                "{% if x > 0 %}Positive{% elif x < 0 %}Negative{% else %}Zero{% endif %}";
+            let source = "{% if x > 0 %}Positive{% elif x < 0 %}Negative{% else %}Zero{% endif %}";
             let tokens = Lexer::new(source).tokenize().unwrap();
             let mut parser = Parser::new(tokens);
             let ast = parser.parse().unwrap();
