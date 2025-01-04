@@ -2,6 +2,8 @@
 type = "block"
 closing = "endif"
 
+# We keep the intermediates field name in TOML since we're using serde rename
+# to map it to branches in the Rust code
 [[django.template.defaulttags.if.intermediates]]
 name = "elif"
 args = true
@@ -18,6 +20,8 @@ required = true
 type = "block"
 closing = "endfor"
 
+# We keep the intermediates field name in TOML since we're using serde rename
+# to map it to branches in the Rust code
 [[django.template.defaulttags.for.intermediates]]
 name = "empty"
 args = false
