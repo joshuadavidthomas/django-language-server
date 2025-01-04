@@ -22,15 +22,15 @@ nodes:
                       - x
                       - "<"
                       - "0"
-                    children: []
-            - Text: Negative
+                    children:
+                      - Text: Negative
             - Django:
                 Tag:
                   Branch:
                     name: else
                     bits: []
-                    children: []
-            - Text: Zero
+                    children:
+                      - Text: Zero
             - Django:
                 Tag:
                   Closing:
