@@ -9,7 +9,5 @@ nodes:
         attributes:
           class:
             Value: container
-          disabled: Boolean
-          id:
-            Value: main
-        children: []
+        children:
+          - Text: Hello

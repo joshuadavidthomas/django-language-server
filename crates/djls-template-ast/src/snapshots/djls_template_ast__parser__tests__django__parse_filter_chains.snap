@@ -6,11 +6,12 @@ nodes:
   - Django:
       Variable:
         bits:
-          - user
-          - name
+          - value
         filters:
           - name: default
             arguments:
-              - Anonymous
+              - "'nothing'"
           - name: title
+            arguments: []
+          - name: upper
             arguments: []

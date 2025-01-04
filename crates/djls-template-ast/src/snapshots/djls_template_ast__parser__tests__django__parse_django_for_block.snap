@@ -1,0 +1,27 @@
+---
+source: crates/djls-template-ast/src/parser.rs
+expression: ast
+---
+nodes:
+  - Django:
+      Tag:
+        Branching:
+          name: for
+          bits:
+            - for
+            - item
+            - in
+            - items
+          children:
+            - Text: No items
+          branches:
+            - Block:
+                name: empty
+                bits:
+                  - empty
+                children:
+                  - Django:
+                      Variable:
+                        bits:
+                          - item
+                        filters: []

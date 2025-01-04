@@ -5,7 +5,7 @@ expression: ast
 nodes:
   - Html:
       Void:
-        tag_name: img
+        tag_name: input
         attributes:
-          src:
-            Value: example.png
+          type:
+            Value: text
