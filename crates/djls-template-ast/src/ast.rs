@@ -50,18 +50,21 @@ pub enum TagNode {
         bits: Vec<String>,
         children: Vec<Node>,
     },
-    Branching {
+    Branch {
         name: String,
         bits: Vec<String>,
         children: Vec<Node>,
-        branches: Vec<TagNode>,
+    },
+    Closing {
+        name: String,
+        bits: Vec<String>,
     },
 }
 
 #[derive(Clone, Debug, Serialize)]
 pub struct DjangoFilter {
-    name: String,
-    arguments: Vec<String>,
+    pub name: String,
+    pub arguments: Vec<String>,
 }
 
 impl DjangoFilter {
