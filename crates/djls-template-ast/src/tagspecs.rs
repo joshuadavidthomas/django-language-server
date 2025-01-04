@@ -5,13 +5,19 @@ use std::fs;
 use std::path::Path;
 use toml::Value;
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct TagSpec {
     #[serde(rename = "type")]
     pub tag_type: TagType,
     pub closing: Option<String>,
-    pub intermediates: Option<Vec<String>>,
+    pub intermediates: Option<Vec<IntermediateSpec>>,
     pub args: Option<Vec<ArgSpec>>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct IntermediateSpec {
+    pub name: String,
+    pub args: bool,
 }
 
 impl TagSpec {
