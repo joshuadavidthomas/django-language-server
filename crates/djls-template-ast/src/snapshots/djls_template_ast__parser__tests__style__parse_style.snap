@@ -16,3 +16,4 @@ nodes:
           - Text: "{"
           - Text: "color: blue;"
           - Text: "}"
+errors: []

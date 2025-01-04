@@ -15,3 +15,4 @@ nodes:
             arguments: []
           - name: upper
             arguments: []
+errors: []

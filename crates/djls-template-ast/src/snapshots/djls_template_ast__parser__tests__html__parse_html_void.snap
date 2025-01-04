@@ -9,3 +9,4 @@ nodes:
         attributes:
           type:
             Value: text
+errors: []

@@ -5,6 +5,7 @@ use thiserror::Error;
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct Ast {
     nodes: Vec<Node>,
+    errors: Vec<AstError>,
 }
 
 impl Ast {
@@ -12,12 +13,20 @@ impl Ast {
         &self.nodes
     }
 
+    pub fn errors(&self) -> &Vec<AstError> {
+        &self.errors
+    }
+
     pub fn add_node(&mut self, node: Node) {
         self.nodes.push(node);
     }
 
+    pub fn add_error(&mut self, error: AstError) {
+        self.errors.push(error);
+    }
+
     pub fn finalize(&mut self) -> Result<Ast, AstError> {
-        if self.nodes.is_empty() {
+        if self.nodes.is_empty() && self.errors.is_empty() {
             return Err(AstError::EmptyAst);
         }
         Ok(self.clone())
@@ -123,10 +132,24 @@ pub enum AttributeValue {
 
 pub type Attributes = BTreeMap<String, AttributeValue>;
 
-#[derive(Error, Debug)]
+#[derive(Clone, Debug, Error, Serialize)]
 pub enum AstError {
-    #[error("error parsing django tag, recieved empty tag name")]
-    EmptyTag,
-    #[error("empty ast")]
+    #[error("Empty AST")]
     EmptyAst,
+    #[error("Stream error: {0}")]
+    StreamError(String),
+    #[error("Unclosed tag: {0}")]
+    UnclosedTag(String),
+    #[error("Unexpected tag: {0}")]
+    UnexpectedTag(String),
+    #[error("Invalid tag: {0}")]
+    InvalidTag(String),
+    #[error("Block error: {0} in {1}")]
+    BlockError(String, String),
+    #[error("Argument error: {0} - {1}")]
+    ArgumentError(String, String),
+    #[error("Unexpected token")]
+    UnexpectedToken,
+    #[error("Unexpected end of file")]
+    UnexpectedEof,
 }

@@ -36,3 +36,4 @@ nodes:
                   Closing:
                     name: endif
                     bits: []
+errors: []

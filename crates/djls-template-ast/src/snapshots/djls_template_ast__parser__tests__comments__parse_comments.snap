@@ -7,3 +7,4 @@ nodes:
       Comment: HTML comment
   - Django:
       Comment: Django comment
+errors: []
