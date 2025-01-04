@@ -155,23 +155,16 @@ impl Parser {
 
         let specs = TagSpec::load_builtin_specs().unwrap_or_default();
 
-        // Check if this is a closing tag
+        // Check if this is a closing or branch tag
         for (_, spec) in specs.iter() {
-            if Some(&tag_name) == spec.closing.as_ref() {
-                // let node = Node::Django(DjangoNode::Tag(TagNode::Closing {
-                //     name: tag_name.clone(),
-                //     bits: bits[1..].to_vec(),
-                // }));
+            if Some(&tag_name) == spec.closing.as_ref()
+                || spec
+                    .branches
+                    .as_ref()
+                    .map(|ints| ints.iter().any(|i| i.name == tag_name))
+                    .unwrap_or(false)
+            {
                 return Err(ParserError::ErrorSignal(Signal::SpecialTag(tag_name)));
-            }
-        }
-
-        // Check if this is a branch tag according to any spec
-        for (_, spec) in specs.iter() {
-            if let Some(branches) = &spec.branches {
-                if branches.iter().any(|i| i.name == tag_name) {
-                    return Err(ParserError::ErrorSignal(Signal::SpecialTag(tag_name)));
-                }
             }
         }
 
