@@ -10,7 +10,6 @@ pub struct TagSpec {
     #[serde(rename = "type")]
     pub tag_type: TagType,
     pub closing: Option<String>,
-    #[serde(rename = "intermediates")]
     pub branches: Option<Vec<BranchSpec>>,
     pub args: Option<Vec<ArgSpec>>,
 }

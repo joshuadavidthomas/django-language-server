@@ -4,11 +4,11 @@ closing = "endif"
 
 # We keep the intermediates field name in TOML since we're using serde rename
 # to map it to branches in the Rust code
-[[django.template.defaulttags.if.intermediates]]
+[[django.template.defaulttags.if.branches]]
 name = "elif"
 args = true
 
-[[django.template.defaulttags.if.intermediates]]
+[[django.template.defaulttags.if.branches]]
 name = "else"
 args = false
 
@@ -22,7 +22,7 @@ closing = "endfor"
 
 # We keep the intermediates field name in TOML since we're using serde rename
 # to map it to branches in the Rust code
-[[django.template.defaulttags.for.intermediates]]
+[[django.template.defaulttags.for.branches]]
 name = "empty"
 args = false
 
