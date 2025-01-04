@@ -15,31 +15,55 @@ nodes:
                 tag_name: head
                 attributes: {}
                 children:
-                  - Html:
-                      Element:
-                        tag_name: title
-                        attributes: {}
-                        children: []
                   - Style:
                       Element:
-                        attributes: {}
+                        attributes:
+                          style: Boolean
+                          type:
+                            Value: text/css
                         children:
                           - Style:
-                              Comment: CSS styles
-                          - Text: "body "
+                              Comment: Style header
+                          - Text: ".header "
                           - Text: "{"
-                          - Text: "font-family: sans-serif; }"
+                          - Text: "color: blue; }"
+                  - Script:
+                      Element:
+                        attributes:
+                          type:
+                            Value: text/javascript
+                        children:
+                          - Script:
+                              Comment:
+                                content: Init app
+                                kind: SingleLine
+                          - Text: "const app = "
+                          - Text: "{"
+                          - Script:
+                              Comment:
+                                content: Config
+                                kind: MultiLine
+                          - Text: "debug: true"
+                          - Text: "};"
           - Html:
               Element:
                 tag_name: body
                 attributes: {}
                 children:
                   - Html:
+                      Comment: Header section
+                  - Html:
                       Element:
-                        tag_name: h1
-                        attributes: {}
+                        tag_name: div
+                        attributes:
+                          class:
+                            Value: header
+                          data-value:
+                            Value: "123"
+                          disabled: Boolean
+                          id:
+                            Value: main
                         children:
-                          - Text: Welcome
                           - Django:
                               Tag:
                                 Block:
@@ -48,21 +72,49 @@ nodes:
                                     - if
                                     - user.is_authenticated
                                   children:
-                                    - Text: ", "
                                     - Django:
-                                        Variable:
-                                          bits:
-                                            - user
-                                            - name
-                                          filters: []
-                          - Text: "!"
-                  - Script:
-                      Element:
-                        attributes:
-                          script: Boolean
-                        children:
-                          - Script:
-                              Comment:
-                                content: JavaScript code
-                                kind: SingleLine
-                          - Text: "console.log('Hello!');"
+                                        Comment: Welcome message
+                                    - Html:
+                                        Element:
+                                          tag_name: h1
+                                          attributes: {}
+                                          children:
+                                            - Text: "Welcome, "
+                                            - Django:
+                                                Variable:
+                                                  bits:
+                                                    - user
+                                                    - name
+                                                  filters:
+                                                    - name: default
+                                                      arguments:
+                                                        - Guest
+                                                    - name: title
+                                                      arguments: []
+                                            - Text: "!"
+                                    - Django:
+                                        Tag:
+                                          Branching:
+                                            name: if
+                                            bits:
+                                              - if
+                                              - user.is_staff
+                                            children:
+                                              - Html:
+                                                  Element:
+                                                    tag_name: span
+                                                    attributes: {}
+                                                    children:
+                                                      - Text: User
+                                            branches:
+                                              - Block:
+                                                  name: else
+                                                  bits:
+                                                    - else
+                                                  children:
+                                                    - Html:
+                                                        Element:
+                                                          tag_name: span
+                                                          attributes: {}
+                                                          children:
+                                                            - Text: Admin
