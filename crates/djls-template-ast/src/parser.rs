@@ -24,34 +24,28 @@ impl Parser {
         while !self.is_at_end() {
             match self.next_node() {
                 Ok(node) => {
-                    eprintln!("Adding node: {:?}", node);
                     ast.add_node(node);
                     had_nodes = true;
                 }
                 Err(ParserError::StreamError(Stream::AtEnd)) => {
-                    eprintln!("Stream at end, nodes: {:?}", ast.nodes());
                     if !had_nodes {
                         return Err(ParserError::StreamError(Stream::UnexpectedEof));
                     }
                     break;
                 }
                 Err(ParserError::ErrorSignal(Signal::SpecialTag(tag))) => {
-                    eprintln!("Got special tag: {}", tag);
                     continue;
                 }
                 Err(ParserError::UnclosedTag(tag)) => {
-                    eprintln!("Got unclosed tag: {}", tag);
                     return Err(ParserError::UnclosedTag(tag));
                 }
                 Err(e) => {
-                    eprintln!("Got error: {:?}", e);
                     self.synchronize()?;
                     continue;
                 }
             }
         }
 
-        eprintln!("Final nodes: {:?}", ast.nodes());
         if !had_nodes {
             return Err(ParserError::StreamError(Stream::UnexpectedEof));
         }
@@ -98,7 +92,6 @@ impl Parser {
             TokenType::Text(s) => Ok(Node::Text(s.to_string())),
             TokenType::Whitespace(_) => self.next_node(),
         }?;
-        eprintln!("{:?}", node);
         Ok(node)
     }
 
@@ -154,18 +147,14 @@ impl Parser {
     }
 
     fn parse_django_block(&mut self, s: &str) -> Result<Node, ParserError> {
-        eprintln!("Parsing django block: {}", s);
         let bits: Vec<String> = s.split_whitespace().map(String::from).collect();
         let tag_name = bits.first().ok_or(AstError::EmptyTag)?.clone();
-        eprintln!("Tag name: {}", tag_name);
 
-        eprintln!("Loaded specs: {:?}", self.specs);
         let specs = TagSpec::load_builtin_specs().unwrap_or_default();
 
         // Check if this is a closing tag according to ANY spec
         for (_, spec) in specs.iter() {
             if Some(&tag_name) == spec.closing.as_ref() {
-                eprintln!("Found closing tag: {}", tag_name);
                 return Err(ParserError::ErrorSignal(Signal::SpecialTag(tag_name)));
             }
         }
@@ -174,7 +163,6 @@ impl Parser {
         for (_, spec) in specs.iter() {
             if let Some(intermediates) = &spec.intermediates {
                 if intermediates.contains(&tag_name) {
-                    eprintln!("Found intermediate tag: {}", tag_name);
                     return Err(ParserError::ErrorSignal(Signal::SpecialTag(tag_name)));
                 }
             }
@@ -189,15 +177,12 @@ impl Parser {
         while !self.is_at_end() {
             match self.next_node() {
                 Ok(node) => {
-                    eprintln!("Adding node: {:?}", node);
                     children.push(node);
                 }
                 Err(ParserError::ErrorSignal(Signal::SpecialTag(tag))) => {
-                    eprintln!("Got special tag: {}", tag);
                     if let Some(spec) = &tag_spec {
                         // Check if this is a closing tag
                         if Some(&tag) == spec.closing.as_ref() {
-                            eprintln!("Found matching closing tag: {}", tag);
                             // Found our closing tag, create appropriate tag type
                             let tag_node = if !branches.is_empty() {
                                 TagNode::Branching {
@@ -218,7 +203,6 @@ impl Parser {
                         // Check if this is an intermediate tag
                         if let Some(intermediates) = &spec.intermediates {
                             if intermediates.contains(&tag) {
-                                eprintln!("Found intermediate tag: {}", tag);
                                 // Add current children as a branch and start fresh
                                 branches.push(TagNode::Block {
                                     name: tag.clone(),
@@ -231,18 +215,15 @@ impl Parser {
                         }
                     }
                     // If we get here, it's an unexpected tag
-                    eprintln!("Unexpected tag: {}", tag);
                     return Err(ParserError::UnexpectedTag(tag));
                 }
                 Err(e) => {
-                    eprintln!("Error: {:?}", e);
                     return Err(e);
                 }
             }
         }
 
         // If we get here, we never found the closing tag
-        eprintln!("Never found closing tag: {}", tag_name);
         Err(ParserError::UnclosedTag(tag_name))
     }
 
