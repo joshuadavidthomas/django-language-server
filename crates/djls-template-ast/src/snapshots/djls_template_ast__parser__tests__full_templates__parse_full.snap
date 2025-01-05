@@ -18,7 +18,7 @@ nodes:
         - Text:
             content: "\n                "
             span:
-              start: 493
+              start: 510
               length: 17
         - Comment:
             content: Welcome message
@@ -28,7 +28,7 @@ nodes:
         - Text:
             content: "\n                <h1>Welcome, "
             span:
-              start: 531
+              start: 548
               length: 30
         - Variable:
             bits:
@@ -38,16 +38,16 @@ nodes:
               - name: title
                 arguments: []
                 span:
-                  start: 573
+                  start: 571
                   length: 5
               - name: default
                 arguments:
                   - "'Guest'"
                 span:
-                  start: 579
+                  start: 577
                   length: 15
             span:
-              start: 563
+              start: 564
               length: 31
         - Text:
             content: "!</h1>\n                "
@@ -64,7 +64,7 @@ nodes:
               - Text:
                   content: "\n                    <span>Admin</span>\n                "
                   span:
-                    start: 643
+                    start: 664
                     length: 56
               - Block:
                   block_type: Branch
@@ -74,11 +74,11 @@ nodes:
                     - Text:
                         content: "\n                    <span>User</span>\n                "
                         span:
-                          start: 709
+                          start: 730
                           length: 55
                   span:
                     start: 621
-                    length: 16
+                    length: 0
                   tag_span:
                     start: 621
                     length: 16
@@ -89,20 +89,20 @@ nodes:
                   children: ~
                   span:
                     start: 764
-                    length: 5
+                    length: 10
                   tag_span:
                     start: 621
                     length: 16
             span:
               start: 621
-              length: 148
+              length: 153
             tag_span:
               start: 621
               length: 16
         - Text:
             content: "\n            "
             span:
-              start: 775
+              start: 788
               length: 13
         - Block:
             block_type: Closing
@@ -111,23 +111,22 @@ nodes:
             children: ~
             span:
               start: 788
-              length: 5
+              length: 10
             tag_span:
               start: 463
               length: 24
       span:
         start: 463
-        length: 330
+        length: 335
       tag_span:
         start: 463
         length: 24
   - Text:
       content: "\n        </div>\n    </body>\n</html>"
       span:
-        start: 799
+        start: 808
         length: 35
 line_offsets:
-  - 0
   - 0
   - 16
   - 23

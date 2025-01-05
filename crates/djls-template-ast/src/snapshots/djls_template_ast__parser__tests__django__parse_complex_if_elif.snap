@@ -32,7 +32,7 @@ nodes:
                     length: 8
             span:
               start: 0
-              length: 8
+              length: 0
             tag_span:
               start: 0
               length: 8
@@ -48,7 +48,7 @@ nodes:
                     length: 4
             span:
               start: 0
-              length: 8
+              length: 0
             tag_span:
               start: 0
               length: 8
@@ -59,17 +59,16 @@ nodes:
             children: ~
             span:
               start: 60
-              length: 5
+              length: 10
             tag_span:
               start: 0
               length: 8
       span:
         start: 0
-        length: 65
+        length: 70
       tag_span:
         start: 0
         length: 8
 line_offsets:
-  - 0
   - 0
 errors: []

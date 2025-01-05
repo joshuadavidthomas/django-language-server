@@ -11,12 +11,11 @@ nodes:
         - name: title
           arguments: []
           span:
-            start: 12
+            start: 10
             length: 5
       span:
-        start: 2
+        start: 3
         length: 15
 line_offsets:
-  - 0
   - 0
 errors: []

@@ -164,7 +164,6 @@ impl Parser {
         let mut children = Vec::new();
         let mut current_branch: Option<(String, Vec<String>, Vec<Node>)> = None;
         let mut found_closing_tag = false;
-        let mut total_length = s.len();
 
         while !self.is_at_end() {
             match self.next_node() {
@@ -181,7 +180,7 @@ impl Parser {
                         if spec.closing.as_deref() == Some(&tag) {
                             // If we have a current branch, add it to children
                             if let Some((name, bits, branch_children)) = current_branch {
-                                let branch_span = Span::new(start_pos, total_length as u16);
+                                let branch_span = Span::new(start_pos, 0); // Removed total_length initialization
                                 children.push(Node::Block {
                                     block_type: BlockType::Branch,
                                     name,
@@ -197,7 +196,7 @@ impl Parser {
                                 _ => 0,
                             };
                             let closing_start = closing_token.start().unwrap_or(0);
-                            total_length = (closing_start + closing_content) - start_pos as usize;
+                            let total_length = (closing_start - start_pos as usize) + closing_content;
                             let closing_span = Span::new(
                                 closing_start as u32,
                                 closing_content as u16,
@@ -211,14 +210,27 @@ impl Parser {
                                 tag_span,
                             });
                             found_closing_tag = true;
-                            break;
+
+                            // Set the final span length
+                            let span = Span::new(start_pos, total_length as u16);
+
+                            let node = Node::Block {
+                                block_type: BlockType::Standard,
+                                name: tag_name,
+                                bits,
+                                children: Some(children),
+                                span,
+                                tag_span,
+                            };
+
+                            return Ok(node);
                         }
                         // Check if intermediate tag
                         if let Some(branches) = &spec.branches {
                             if let Some(branch) = branches.iter().find(|b| b.name == tag) {
                                 // If we have a current branch, add it to children
                                 if let Some((name, bits, branch_children)) = current_branch {
-                                    let branch_span = Span::new(start_pos, total_length as u16);
+                                    let branch_span = Span::new(start_pos, 0); // Removed total_length initialization
                                     children.push(Node::Block {
                                         block_type: BlockType::Branch,
                                         name,
@@ -252,7 +264,7 @@ impl Parser {
                         name: tag_name.clone(),
                         bits: bits.clone(),
                         children: Some(children.clone()),
-                        span: Span::new(start_pos, total_length as u16),
+                        span: Span::new(start_pos, 0), // Removed total_length initialization
                         tag_span,
                     };
                     return Err(ParserError::Ast(AstError::UnexpectedTag(tag), Some(node)));
@@ -264,7 +276,7 @@ impl Parser {
             }
         }
 
-        let span = Span::new(start_pos, total_length as u16);
+        let span = Span::new(start_pos, 0); // Removed total_length initialization
 
         let node = Node::Block {
             block_type: BlockType::Standard,
