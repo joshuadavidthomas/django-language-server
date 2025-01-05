@@ -1,0 +1,14 @@
+---
+source: crates/djls-template-ast/src/parser.rs
+assertion_line: 650
+expression: ast
+snapshot_kind: text
+---
+nodes:
+  - Text:
+      content: "<script>console.log('test');"
+      span:
+        start: 0
+        length: 28
+line_offsets: []
+errors: []

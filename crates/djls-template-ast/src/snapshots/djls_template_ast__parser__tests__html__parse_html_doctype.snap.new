@@ -1,0 +1,14 @@
+---
+source: crates/djls-template-ast/src/parser.rs
+assertion_line: 457
+expression: ast
+snapshot_kind: text
+---
+nodes:
+  - Text:
+      content: "<!DOCTYPE html>"
+      span:
+        start: 0
+        length: 15
+line_offsets: []
+errors: []

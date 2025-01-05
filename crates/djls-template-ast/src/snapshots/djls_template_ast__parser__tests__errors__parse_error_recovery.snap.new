@@ -1,0 +1,114 @@
+---
+source: crates/djls-template-ast/src/parser.rs
+assertion_line: 681
+expression: ast
+snapshot_kind: text
+---
+nodes:
+  - Text:
+      content: "<div class=\"container\">\n    <h1>Header</h1>\n    "
+      span:
+        start: 0
+        length: 48
+  - Block:
+      block_type: Standard
+      name: if
+      bits:
+        - if
+        - user.is_authenticated
+      children:
+        - Text:
+            content: "\n        "
+            span:
+              start: 78
+              length: 9
+        - Comment:
+            content: This if is unclosed which does matter
+            span:
+              start: 87
+              length: 41
+        - Text:
+            content: "\n        <p>Welcome "
+            span:
+              start: 130
+              length: 20
+        - Variable:
+            bits:
+              - user
+              - name
+            filters: []
+            span:
+              start: 150
+              length: 9
+        - Text:
+            content: "</p>\n        <div>\n            "
+            span:
+              start: 165
+              length: 31
+        - Comment:
+            content: "This div is unclosed which doesn't matter"
+            span:
+              start: 196
+              length: 45
+        - Text:
+            content: "\n        "
+            span:
+              start: 243
+              length: 9
+        - Block:
+            block_type: Standard
+            name: for
+            bits:
+              - for
+              - item
+              - in
+              - items
+            children:
+              - Text:
+                  content: "\n            <span>"
+                  span:
+                    start: 275
+                    length: 19
+              - Variable:
+                  bits:
+                    - item
+                  filters: []
+                  span:
+                    start: 294
+                    length: 4
+              - Text:
+                  content: "</span>\n        "
+                  span:
+                    start: 304
+                    length: 16
+              - Block:
+                  block_type: Closing
+                  name: endfor
+                  bits: []
+                  children: ~
+                  span:
+                    start: 320
+                    length: 6
+                  tag_span:
+                    start: 252
+                    length: 17
+            span:
+              start: 252
+              length: 74
+            tag_span:
+              start: 252
+              length: 17
+        - Text:
+            content: "\n    <footer>Page Footer</footer>\n</div>"
+            span:
+              start: 332
+              length: 40
+      span:
+        start: 48
+        length: 24
+      tag_span:
+        start: 48
+        length: 24
+line_offsets: []
+errors:
+  - UnclosedTag: if
