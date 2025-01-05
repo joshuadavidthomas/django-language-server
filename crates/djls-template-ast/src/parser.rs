@@ -6,11 +6,16 @@ use thiserror::Error;
 pub struct Parser {
     tokens: TokenStream,
     current: usize,
+    ast: Ast,
 }
 
 impl Parser {
     pub fn new(tokens: TokenStream) -> Self {
-        Parser { tokens, current: 0 }
+        Parser {
+            tokens,
+            current: 0,
+            ast: Ast::default(),
+        }
     }
 
     pub fn parse(&mut self) -> Result<Ast, ParserError> {
@@ -26,11 +31,11 @@ impl Parser {
                 }
                 Err(err) => {
                     match err {
-                        ParserError::NodeWithError { node, error } => {
-                            ast.add_error(error);
+                        ParserError::Ast(err, Some(node)) => {
                             ast.add_node(node);
+                            ast.add_error(err);
                         }
-                        ParserError::Ast(err) => {
+                        ParserError::Ast(err, None) => {
                             ast.add_error(err);
                         }
                         _ => return Err(err),
@@ -38,7 +43,7 @@ impl Parser {
 
                     if let Err(e) = self.synchronize() {
                         match e {
-                            ParserError::Ast(AstError::StreamError(ref kind))
+                            ParserError::Ast(AstError::StreamError(ref kind), _)
                                 if kind == "AtEnd" =>
                             {
                                 break
@@ -57,7 +62,10 @@ impl Parser {
 
     fn next_node(&mut self) -> Result<Node, ParserError> {
         if self.is_at_end() {
-            return Err(ParserError::Ast(AstError::StreamError("AtEnd".to_string())));
+            return Err(ParserError::Ast(
+                AstError::StreamError("AtEnd".to_string()),
+                None,
+            ));
         }
 
         let token = self.peek()?;
@@ -84,7 +92,10 @@ impl Parser {
             | TokenType::ScriptTagClose(_)
             | TokenType::StyleTagOpen(_)
             | TokenType::StyleTagClose(_) => self.parse_text(),
-            TokenType::Eof => Err(ParserError::Ast(AstError::StreamError("AtEnd".to_string()))),
+            TokenType::Eof => Err(ParserError::Ast(
+                AstError::StreamError("AtEnd".to_string()),
+                None,
+            )),
         }?;
         Ok(node)
     }
@@ -142,7 +153,7 @@ impl Parser {
                 Err(ParserError::ErrorSignal(Signal::SpecialTag(tag))) => {
                     if let Some(spec) = &tag_spec {
                         // Check if closing tag
-                        if Some(&tag) == spec.closing.as_ref() {
+                        if spec.closing.as_ref().map(|s| s.as_str()) == Some(&tag) {
                             // If we have a current branch, add it to children
                             if let Some((name, bits, branch_children)) = current_branch {
                                 children.push(Node::Django(DjangoNode::Tag(TagNode::Branch {
@@ -187,19 +198,15 @@ impl Parser {
                             }
                         }
                     }
-                    // If we get here, it's an unexpected tag - return what we have
-                    // but signal that we hit an error
+                    // If we get here, it's an unexpected tag
                     let node = Node::Django(DjangoNode::Tag(TagNode::Block {
-                        name: tag_name,
-                        bits,
-                        children,
+                        name: tag_name.clone(),
+                        bits: bits.clone(),
+                        children: children.clone(),
                     }));
-                    return Err(ParserError::NodeWithError {
-                        node,
-                        error: AstError::UnexpectedTag(tag),
-                    });
+                    return Err(ParserError::Ast(AstError::UnexpectedTag(tag), Some(node)));
                 }
-                Err(ParserError::Ast(AstError::StreamError(kind))) if kind == "AtEnd" => {
+                Err(ParserError::Ast(AstError::StreamError(kind), _)) if kind == "AtEnd" => {
                     break;
                 }
                 Err(e) => return Err(e),
@@ -213,11 +220,10 @@ impl Parser {
         }));
 
         if !found_closing_tag {
-            // Return the node with an unclosed tag error
-            return Err(ParserError::NodeWithError {
-                node,
-                error: AstError::UnclosedTag(tag_name),
-            });
+            return Err(ParserError::Ast(
+                AstError::UnclosedTag(tag_name),
+                Some(node),
+            ));
         }
 
         Ok(node)
@@ -329,22 +335,32 @@ impl Parser {
     }
 
     fn synchronize(&mut self) -> Result<(), ParserError> {
-        let sync_types = [
-            TokenType::DjangoBlock(String::new()),
-            TokenType::DjangoVariable(String::new()),
-            TokenType::Comment(String::new(), String::from("{#"), Some(String::from("#}"))),
-            TokenType::Eof,
-        ];
+        let mut depth = 0;
+        let mut found_django_token = false;
 
         while !self.is_at_end() {
-            let current = self.peek()?;
-
-            for sync_type in &sync_types {
-                if current.token_type() == sync_type {
-                    return Ok(());
+            if let TokenType::DjangoBlock(content) = &self.tokens[self.current].token_type() {
+                let tag = content.split_whitespace().next().unwrap_or("");
+                if let Some(spec) = TagSpec::load_builtin_specs().unwrap_or_default().get(tag) {
+                    if spec.closing.as_deref() == Some(tag) {
+                        depth -= 1;
+                        if depth <= 0 {
+                            found_django_token = true;
+                            break;
+                        }
+                    } else {
+                        depth += 1;
+                    }
                 }
             }
-            self.consume()?;
+            self.current += 1;
+        }
+
+        if !found_django_token {
+            return Err(ParserError::Ast(
+                AstError::StreamError("AtEnd".into()),
+                None,
+            ));
         }
 
         Ok(())
@@ -362,47 +378,48 @@ pub enum Signal {
 
 #[derive(Error, Debug)]
 pub enum ParserError {
-    #[error(transparent)]
-    Ast(#[from] AstError),
-    #[error("multi-line comment outside of script or style context")]
-    InvalidMultiLineComment,
+    #[error("ast error: {0}")]
+    Ast(AstError, Option<Node>),
     #[error("internal signal: {0:?}")]
     ErrorSignal(Signal),
-    #[error("node with error: {node:?}, error: {error}")]
-    NodeWithError { node: Node, error: AstError },
+}
+
+impl From<AstError> for ParserError {
+    fn from(err: AstError) -> Self {
+        ParserError::Ast(err, None)
+    }
 }
 
 impl ParserError {
     pub fn unclosed_tag(tag: impl Into<String>) -> Self {
-        Self::Ast(AstError::UnclosedTag(tag.into()))
+        Self::Ast(AstError::UnclosedTag(tag.into()), None)
     }
 
     pub fn unexpected_tag(tag: impl Into<String>) -> Self {
-        Self::Ast(AstError::UnexpectedTag(tag.into()))
+        Self::Ast(AstError::UnexpectedTag(tag.into()), None)
     }
 
     pub fn invalid_tag(kind: impl Into<String>) -> Self {
-        Self::Ast(AstError::InvalidTag(kind.into()))
+        Self::Ast(AstError::InvalidTag(kind.into()), None)
     }
 
     pub fn block_error(kind: impl Into<String>, name: impl Into<String>) -> Self {
-        Self::Ast(AstError::BlockError(kind.into(), name.into()))
+        Self::Ast(AstError::BlockError(kind.into(), name.into()), None)
     }
 
     pub fn stream_error(kind: impl Into<String>) -> Self {
-        Self::Ast(AstError::StreamError(kind.into()))
+        Self::Ast(AstError::StreamError(kind.into()), None)
     }
 
     pub fn token_error(expected: impl Into<String>, actual: Token) -> Self {
-        Self::Ast(AstError::TokenError(format!(
-            "expected {}, got {:?}",
-            expected.into(),
-            actual
-        )))
+        Self::Ast(
+            AstError::TokenError(format!("expected {}, got {:?}", expected.into(), actual)),
+            None,
+        )
     }
 
     pub fn argument_error(kind: impl Into<String>, details: impl Into<String>) -> Self {
-        Self::Ast(AstError::ArgumentError(kind.into(), details.into()))
+        Self::Ast(AstError::ArgumentError(kind.into(), details.into()), None)
     }
 }
 
