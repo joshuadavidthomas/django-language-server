@@ -373,35 +373,8 @@ impl From<AstError> for ParserError {
 }
 
 impl ParserError {
-    pub fn unclosed_tag(tag: impl Into<String>) -> Self {
-        Self::Ast(AstError::UnclosedTag(tag.into()), None)
-    }
-
-    pub fn unexpected_tag(tag: impl Into<String>) -> Self {
-        Self::Ast(AstError::UnexpectedTag(tag.into()), None)
-    }
-
-    pub fn invalid_tag(kind: impl Into<String>) -> Self {
-        Self::Ast(AstError::InvalidTag(kind.into()), None)
-    }
-
-    pub fn block_error(kind: impl Into<String>, name: impl Into<String>) -> Self {
-        Self::Ast(AstError::BlockError(kind.into(), name.into()), None)
-    }
-
     pub fn stream_error(kind: impl Into<String>) -> Self {
         Self::Ast(AstError::StreamError(kind.into()), None)
-    }
-
-    pub fn token_error(expected: impl Into<String>, actual: Token) -> Self {
-        Self::Ast(
-            AstError::TokenError(format!("expected {}, got {:?}", expected.into(), actual)),
-            None,
-        )
-    }
-
-    pub fn argument_error(kind: impl Into<String>, details: impl Into<String>) -> Self {
-        Self::Ast(AstError::ArgumentError(kind.into(), details.into()), None)
     }
 }
 
