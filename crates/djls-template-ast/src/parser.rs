@@ -736,9 +736,32 @@ mod tests {
             let source = "<style>body { color: blue; ";
             let tokens = Lexer::new(source).tokenize().unwrap();
             let mut parser = Parser::new(tokens);
-            let result = parser.parse().unwrap();
-            assert_eq!(result.errors().len(), 1);
-            assert!(matches!(&result.errors()[0], AstError::UnclosedTag(tag) if tag == "style"));
+            let ast = parser.parse().unwrap();
+            insta::assert_yaml_snapshot!(ast);
+            assert_eq!(ast.errors().len(), 1);
+            assert!(matches!(&ast.errors()[0], AstError::UnclosedTag(tag) if tag == "style"));
+        }
+
+        #[test]
+        fn test_parse_error_recovery() {
+            let source = r#"<div class="container">
+    <h1>Header</h1>
+    {% if user.is_authenticated %}
+        <p>Welcome {{ user.name }}</p>
+        <div>
+            {# This div is unclosed #}
+        {% for item in items %}
+            <span>{{ item }}</span>
+        {% endfor %}
+    {% endif %}
+    <footer>Page Footer</footer>
+</div>"#;
+            let tokens = Lexer::new(source).tokenize().unwrap();
+            let mut parser = Parser::new(tokens);
+            let ast = parser.parse().unwrap();
+            insta::assert_yaml_snapshot!(ast);
+            assert_eq!(ast.errors().len(), 1);
+            assert!(matches!(&ast.errors()[0], AstError::UnclosedTag(tag) if tag == "div"));
         }
     }
 
