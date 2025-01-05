@@ -119,6 +119,10 @@ impl Token {
         &self.token_type
     }
 
+    pub fn start(&self) -> &Option<usize> {
+        &self.start
+    }
+
     pub fn is_token_type(&self, token_type: &TokenType) -> bool {
         &self.token_type == token_type
     }

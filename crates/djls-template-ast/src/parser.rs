@@ -1,4 +1,4 @@
-use crate::ast::{Ast, AstError, BlockType, DjangoFilter, Node};
+use crate::ast::{Ast, AstError, BlockType, DjangoFilter, Node, Span};
 use crate::tagspecs::TagSpec;
 use crate::tokens::{Token, TokenStream, TokenType};
 use thiserror::Error;
@@ -101,18 +101,21 @@ impl Parser {
         start: &str,
         end: Option<&str>,
     ) -> Result<Node, ParserError> {
-        match start {
-            "{#" => Ok(Node::Comment(content.to_string())),
-            _ => Ok(Node::Text(format!(
-                "{}{}{}",
-                start,
-                content,
-                end.unwrap_or("")
-            ))),
-        }
+        let start_token = self.peek_previous()?;
+        let start_pos = start_token.start().unwrap_or(0) as u32;
+        let total_length = content.len() + start.len() + end.map_or(0, |e| e.len());
+        let span = Span::new(start_pos, total_length as u16);
+        Ok(Node::Comment {
+            content: content.to_string(),
+            span,
+        })
     }
 
     fn parse_django_block(&mut self, s: &str) -> Result<Node, ParserError> {
+        let start_token = self.peek_previous()?;
+        let start_pos = start_token.start().unwrap_or(0) as u32;
+        let tag_span = Span::new(start_pos, s.len() as u16);
+
         let bits: Vec<String> = s.split_whitespace().map(String::from).collect();
         let tag_name = bits.first().ok_or(AstError::EmptyTag)?.clone();
 
@@ -135,6 +138,7 @@ impl Parser {
         let mut children = Vec::new();
         let mut current_branch: Option<(String, Vec<String>, Vec<Node>)> = None;
         let mut found_closing_tag = false;
+        let mut total_length = s.len();
 
         while !self.is_at_end() {
             match self.next_node() {
@@ -151,18 +155,34 @@ impl Parser {
                         if spec.closing.as_deref() == Some(&tag) {
                             // If we have a current branch, add it to children
                             if let Some((name, bits, branch_children)) = current_branch {
+                                let branch_span = Span::new(start_pos, total_length as u16);
                                 children.push(Node::Block {
                                     block_type: BlockType::Branch,
                                     name,
                                     bits,
                                     children: Some(branch_children),
+                                    span: branch_span,
+                                    tag_span: tag_span.clone(),
                                 });
                             }
+                            let closing_token = self.peek_previous()?;
+                            let closing_content = match closing_token.token_type() {
+                                TokenType::DjangoBlock(content) => content.len(),
+                                _ => 0,
+                            };
+                            total_length = (closing_token.start().unwrap_or(0) + closing_content)
+                                as usize
+                                - start_pos as usize;
                             children.push(Node::Block {
                                 block_type: BlockType::Closing,
                                 name: tag,
                                 bits: vec![],
                                 children: None,
+                                span: Span::new(
+                                    closing_token.start().unwrap_or(0) as u32,
+                                    closing_content as u16,
+                                ),
+                                tag_span: tag_span.clone(),
                             });
                             found_closing_tag = true;
                             break;
@@ -172,11 +192,14 @@ impl Parser {
                             if let Some(branch) = branches.iter().find(|i| i.name == tag) {
                                 // If we have a current branch, add it to children
                                 if let Some((name, bits, branch_children)) = current_branch {
+                                    let branch_span = Span::new(start_pos, total_length as u16);
                                     children.push(Node::Block {
                                         block_type: BlockType::Branch,
                                         name,
                                         bits,
                                         children: Some(branch_children),
+                                        span: branch_span,
+                                        tag_span: tag_span.clone(),
                                     });
                                 }
                                 // Create new branch node
@@ -203,6 +226,8 @@ impl Parser {
                         name: tag_name.clone(),
                         bits: bits.clone(),
                         children: Some(children.clone()),
+                        span: Span::new(start_pos, total_length as u16),
+                        tag_span: tag_span.clone(),
                     };
                     return Err(ParserError::Ast(AstError::UnexpectedTag(tag), Some(node)));
                 }
@@ -213,11 +238,15 @@ impl Parser {
             }
         }
 
+        let span = Span::new(start_pos, total_length as u16);
+
         let node = Node::Block {
             block_type: BlockType::Standard,
             name: tag_name.clone(),
             bits,
             children: Some(children),
+            span,
+            tag_span,
         };
 
         if !found_closing_tag {
@@ -231,8 +260,12 @@ impl Parser {
     }
 
     fn parse_django_variable(&mut self, s: &str) -> Result<Node, ParserError> {
-        let parts: Vec<&str> = s.split('|').collect();
+        let start_token = self.peek_previous()?;
+        let start_pos = start_token.start().unwrap_or(0) as u32;
+        let length = s.len() as u16;
+        let span = Span::new(start_pos, length);
 
+        let parts: Vec<&str> = s.split('|').collect();
         let bits: Vec<String> = parts[0].trim().split('.').map(String::from).collect();
 
         let filters: Vec<DjangoFilter> = parts[1..]
@@ -255,11 +288,18 @@ impl Parser {
             })
             .collect();
 
-        Ok(Node::Variable { bits, filters })
+        Ok(Node::Variable {
+            bits,
+            filters,
+            span,
+        })
     }
 
     fn parse_text(&mut self) -> Result<Node, ParserError> {
+        let start_token = self.peek()?;
+        let start_pos = start_token.start().unwrap_or(0) as u32;
         let mut text = String::new();
+
         while let Ok(token) = self.peek() {
             match token.token_type() {
                 TokenType::DjangoBlock(_)
@@ -290,7 +330,13 @@ impl Parser {
                 TokenType::Eof => break,
             }
         }
-        Ok(Node::Text(text))
+
+        let length = text.len() as u16;
+        let span = Span::new(start_pos, length);
+        Ok(Node::Text {
+            content: text,
+            span,
+        })
     }
 
     fn peek(&self) -> Result<Token, ParserError> {
