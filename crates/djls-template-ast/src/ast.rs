@@ -68,39 +68,6 @@ impl LineOffsets {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_line_offsets() {
-        let mut offsets = LineOffsets::new();
-        offsets.add_line(10); // Line 1 starts at offset 10
-        offsets.add_line(25); // Line 2 starts at offset 25
-        offsets.add_line(40); // Line 3 starts at offset 40
-
-        // Test position_to_line_col
-        assert_eq!(offsets.position_to_line_col(0), (0, 0)); // Start of first line
-        assert_eq!(offsets.position_to_line_col(5), (0, 5)); // Middle of first line
-        assert_eq!(offsets.position_to_line_col(10), (1, 0)); // Start of second line
-        assert_eq!(offsets.position_to_line_col(15), (1, 5)); // Middle of second line
-        assert_eq!(offsets.position_to_line_col(25), (2, 0)); // Start of third line
-        assert_eq!(offsets.position_to_line_col(35), (2, 10)); // Middle of third line
-        assert_eq!(offsets.position_to_line_col(40), (3, 0)); // Start of fourth line
-        assert_eq!(offsets.position_to_line_col(45), (3, 5)); // Middle of fourth line
-
-        // Test line_col_to_position
-        assert_eq!(offsets.line_col_to_position(0, 0), 0); // Start of first line
-        assert_eq!(offsets.line_col_to_position(0, 5), 5); // Middle of first line
-        assert_eq!(offsets.line_col_to_position(1, 0), 10); // Start of second line
-        assert_eq!(offsets.line_col_to_position(1, 5), 15); // Middle of second line
-        assert_eq!(offsets.line_col_to_position(2, 0), 25); // Start of third line
-        assert_eq!(offsets.line_col_to_position(2, 10), 35); // Middle of third line
-        assert_eq!(offsets.line_col_to_position(3, 0), 40); // Start of fourth line
-        assert_eq!(offsets.line_col_to_position(3, 5), 45); // Middle of fourth line
-    }
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub struct Span {
     start: u32,
@@ -182,4 +149,37 @@ pub enum AstError {
     UnexpectedTag(String),
     #[error("stream error: {0}")]
     StreamError(String),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_line_offsets() {
+        let mut offsets = LineOffsets::new();
+        offsets.add_line(10); // Line 1 starts at offset 10
+        offsets.add_line(25); // Line 2 starts at offset 25
+        offsets.add_line(40); // Line 3 starts at offset 40
+
+        // Test position_to_line_col
+        assert_eq!(offsets.position_to_line_col(0), (0, 0)); // Start of first line
+        assert_eq!(offsets.position_to_line_col(5), (0, 5)); // Middle of first line
+        assert_eq!(offsets.position_to_line_col(10), (1, 0)); // Start of second line
+        assert_eq!(offsets.position_to_line_col(15), (1, 5)); // Middle of second line
+        assert_eq!(offsets.position_to_line_col(25), (2, 0)); // Start of third line
+        assert_eq!(offsets.position_to_line_col(35), (2, 10)); // Middle of third line
+        assert_eq!(offsets.position_to_line_col(40), (3, 0)); // Start of fourth line
+        assert_eq!(offsets.position_to_line_col(45), (3, 5)); // Middle of fourth line
+
+        // Test line_col_to_position
+        assert_eq!(offsets.line_col_to_position(0, 0), 0); // Start of first line
+        assert_eq!(offsets.line_col_to_position(0, 5), 5); // Middle of first line
+        assert_eq!(offsets.line_col_to_position(1, 0), 10); // Start of second line
+        assert_eq!(offsets.line_col_to_position(1, 5), 15); // Middle of second line
+        assert_eq!(offsets.line_col_to_position(2, 0), 25); // Start of third line
+        assert_eq!(offsets.line_col_to_position(2, 10), 35); // Middle of third line
+        assert_eq!(offsets.line_col_to_position(3, 0), 40); // Start of fourth line
+        assert_eq!(offsets.line_col_to_position(3, 5), 45); // Middle of fourth line
+    }
 }
