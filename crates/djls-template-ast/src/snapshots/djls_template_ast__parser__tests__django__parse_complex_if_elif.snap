@@ -12,7 +12,11 @@ nodes:
         - ">"
         - "0"
       children:
-        - Text: Positive
+        - Text:
+            content: Positive
+            span:
+              start: 14
+              length: 8
         - Block:
             block_type: Branch
             name: elif
@@ -21,16 +25,49 @@ nodes:
               - "<"
               - "0"
             children:
-              - Text: Negative
+              - Text:
+                  content: Negative
+                  span:
+                    start: 38
+                    length: 8
+            span:
+              start: 0
+              length: 8
+            tag_span:
+              start: 0
+              length: 8
         - Block:
             block_type: Branch
             name: else
             bits: []
             children:
-              - Text: Zero
+              - Text:
+                  content: Zero
+                  span:
+                    start: 56
+                    length: 4
+            span:
+              start: 0
+              length: 8
+            tag_span:
+              start: 0
+              length: 8
         - Block:
             block_type: Closing
             name: endif
             bits: []
             children: ~
+            span:
+              start: 60
+              length: 5
+            tag_span:
+              start: 0
+              length: 8
+      span:
+        start: 0
+        length: 65
+      tag_span:
+        start: 0
+        length: 8
+line_offsets: []
 errors: []

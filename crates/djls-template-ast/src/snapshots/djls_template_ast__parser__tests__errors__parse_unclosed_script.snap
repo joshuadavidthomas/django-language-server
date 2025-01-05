@@ -3,5 +3,10 @@ source: crates/djls-template-ast/src/parser.rs
 expression: ast
 ---
 nodes:
-  - Text: "<script>console.log('test');"
+  - Text:
+      content: "<script>console.log('test');"
+      span:
+        start: 0
+        length: 28
+line_offsets: []
 errors: []

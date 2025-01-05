@@ -3,7 +3,11 @@ source: crates/djls-template-ast/src/parser.rs
 expression: ast
 ---
 nodes:
-  - Text: "Welcome, "
+  - Text:
+      content: "Welcome, "
+      span:
+        start: 0
+        length: 9
   - Block:
       block_type: Standard
       name: if
@@ -11,7 +15,11 @@ nodes:
         - if
         - user.is_authenticated
       children:
-        - Text: "\n    "
+        - Text:
+            content: "\n    "
+            span:
+              start: 39
+              length: 5
         - Variable:
             bits:
               - user
@@ -19,10 +27,23 @@ nodes:
             filters:
               - name: title
                 arguments: []
+                span:
+                  start: 54
+                  length: 5
               - name: default
                 arguments:
                   - "'Guest'"
-        - Text: "\n    "
+                span:
+                  start: 60
+                  length: 15
+            span:
+              start: 44
+              length: 31
+        - Text:
+            content: "\n    "
+            span:
+              start: 81
+              length: 5
         - Block:
             block_type: Standard
             name: for
@@ -32,7 +53,11 @@ nodes:
               - in
               - user.groups
             children:
-              - Text: "\n        "
+              - Text:
+                  content: "\n        "
+                  span:
+                    start: 116
+                    length: 9
               - Block:
                   block_type: Standard
                   name: if
@@ -40,19 +65,46 @@ nodes:
                     - if
                     - forloop.first
                   children:
-                    - Text: (
+                    - Text:
+                        content: (
+                        span:
+                          start: 147
+                          length: 1
                     - Block:
                         block_type: Closing
                         name: endif
                         bits: []
                         children: ~
-              - Text: "\n        "
+                        span:
+                          start: 148
+                          length: 5
+                        tag_span:
+                          start: 125
+                          length: 16
+                  span:
+                    start: 125
+                    length: 28
+                  tag_span:
+                    start: 125
+                    length: 16
+              - Text:
+                  content: "\n        "
+                  span:
+                    start: 159
+                    length: 9
               - Variable:
                   bits:
                     - group
                     - name
                   filters: []
-              - Text: "\n        "
+                  span:
+                    start: 168
+                    length: 10
+              - Text:
+                  content: "\n        "
+                  span:
+                    start: 184
+                    length: 9
               - Block:
                   block_type: Standard
                   name: if
@@ -61,13 +113,33 @@ nodes:
                     - not
                     - forloop.last
                   children:
-                    - Text: ", "
+                    - Text:
+                        content: ", "
+                        span:
+                          start: 218
+                          length: 2
                     - Block:
                         block_type: Closing
                         name: endif
                         bits: []
                         children: ~
-              - Text: "\n        "
+                        span:
+                          start: 220
+                          length: 5
+                        tag_span:
+                          start: 193
+                          length: 19
+                  span:
+                    start: 193
+                    length: 32
+                  tag_span:
+                    start: 193
+                    length: 19
+              - Text:
+                  content: "\n        "
+                  span:
+                    start: 231
+                    length: 9
               - Block:
                   block_type: Standard
                   name: if
@@ -75,35 +147,108 @@ nodes:
                     - if
                     - forloop.last
                   children:
-                    - Text: )
+                    - Text:
+                        content: )
+                        span:
+                          start: 261
+                          length: 1
                     - Block:
                         block_type: Closing
                         name: endif
                         bits: []
                         children: ~
-              - Text: "\n    "
+                        span:
+                          start: 262
+                          length: 5
+                        tag_span:
+                          start: 240
+                          length: 15
+                  span:
+                    start: 240
+                    length: 27
+                  tag_span:
+                    start: 240
+                    length: 15
+              - Text:
+                  content: "\n    "
+                  span:
+                    start: 273
+                    length: 5
               - Block:
                   block_type: Branch
                   name: empty
                   bits: []
                   children:
-                    - Text: "\n        (no groups)\n    "
+                    - Text:
+                        content: "\n        (no groups)\n    "
+                        span:
+                          start: 289
+                          length: 25
+                  span:
+                    start: 86
+                    length: 24
+                  tag_span:
+                    start: 86
+                    length: 24
               - Block:
                   block_type: Closing
                   name: endfor
                   bits: []
                   children: ~
-        - Text: "\n"
+                  span:
+                    start: 314
+                    length: 6
+                  tag_span:
+                    start: 86
+                    length: 24
+            span:
+              start: 86
+              length: 234
+            tag_span:
+              start: 86
+              length: 24
+        - Text:
+            content: "\n"
+            span:
+              start: 326
+              length: 1
         - Block:
             block_type: Branch
             name: else
             bits: []
             children:
-              - Text: "\n    Guest\n"
+              - Text:
+                  content: "\n    Guest\n"
+                  span:
+                    start: 337
+                    length: 11
+            span:
+              start: 9
+              length: 24
+            tag_span:
+              start: 9
+              length: 24
         - Block:
             block_type: Closing
             name: endif
             bits: []
             children: ~
-  - Text: "!"
+            span:
+              start: 348
+              length: 5
+            tag_span:
+              start: 9
+              length: 24
+      span:
+        start: 9
+        length: 344
+      tag_span:
+        start: 9
+        length: 24
+  - Text:
+      content: "!"
+      span:
+        start: 359
+        length: 1
+line_offsets: []
 errors: []

@@ -24,14 +24,42 @@ nodes:
                     - item
                     - name
                   filters: []
+                  span:
+                    start: 43
+                    length: 9
               - Block:
                   block_type: Closing
                   name: endif
                   bits: []
                   children: ~
+                  span:
+                    start: 58
+                    length: 5
+                  tag_span:
+                    start: 23
+                    length: 14
+            span:
+              start: 23
+              length: 40
+            tag_span:
+              start: 23
+              length: 14
         - Block:
             block_type: Closing
             name: endfor
             bits: []
             children: ~
+            span:
+              start: 69
+              length: 6
+            tag_span:
+              start: 0
+              length: 17
+      span:
+        start: 0
+        length: 75
+      tag_span:
+        start: 0
+        length: 17
+line_offsets: []
 errors: []
