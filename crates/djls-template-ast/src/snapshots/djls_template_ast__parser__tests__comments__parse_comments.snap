@@ -13,5 +13,7 @@ nodes:
       span:
         start: 21
         length: 18
-line_offsets: []
+line_offsets:
+  - 0
+  - 0
 errors: []

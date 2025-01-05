@@ -20,11 +20,11 @@ impl Parser {
 
         // First pass: collect line offsets
         for token in self.tokens.tokens() {
-            if token.line() > last_line {
+            if *token.line() > last_line {
                 if let Some(start) = token.start() {
                     line_offsets.add_line(*start as u32);
                 }
-                last_line = token.line();
+                last_line = *token.line();
             }
         }
 

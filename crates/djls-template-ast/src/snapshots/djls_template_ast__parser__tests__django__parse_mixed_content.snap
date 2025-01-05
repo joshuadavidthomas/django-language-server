@@ -250,5 +250,19 @@ nodes:
       span:
         start: 359
         length: 1
-line_offsets: []
+line_offsets:
+  - 0
+  - 0
+  - 39
+  - 81
+  - 116
+  - 159
+  - 184
+  - 231
+  - 273
+  - 289
+  - 309
+  - 326
+  - 337
+  - 347
 errors: []

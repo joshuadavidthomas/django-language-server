@@ -107,6 +107,19 @@ nodes:
       tag_span:
         start: 48
         length: 24
-line_offsets: []
+line_offsets:
+  - 0
+  - 0
+  - 23
+  - 43
+  - 78
+  - 130
+  - 169
+  - 183
+  - 243
+  - 275
+  - 311
+  - 332
+  - 365
 errors:
   - UnclosedTag: if
