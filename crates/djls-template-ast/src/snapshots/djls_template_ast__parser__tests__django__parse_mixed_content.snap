@@ -4,115 +4,101 @@ expression: ast
 ---
 nodes:
   - Text: "Welcome, "
-  - Django:
-      Tag:
-        Block:
-          name: if
-          bits:
-            - if
-            - user.is_authenticated
-          children:
-            - Text: "\n    "
-            - Django:
-                Variable:
-                  bits:
-                    - user
-                    - name
-                  filters:
-                    - name: title
-                      arguments: []
-                    - name: default
-                      arguments:
-                        - "'Guest'"
-            - Text: "\n    "
-            - Django:
-                Tag:
-                  Block:
-                    name: for
-                    bits:
-                      - for
-                      - group
-                      - in
-                      - user.groups
-                    children:
-                      - Text: "\n        "
-                      - Django:
-                          Tag:
-                            Block:
-                              name: if
-                              bits:
-                                - if
-                                - forloop.first
-                              children:
-                                - Text: (
-                                - Django:
-                                    Tag:
-                                      Closing:
-                                        name: endif
-                                        bits: []
-                      - Text: "\n        "
-                      - Django:
-                          Variable:
-                            bits:
-                              - group
-                              - name
-                            filters: []
-                      - Text: "\n        "
-                      - Django:
-                          Tag:
-                            Block:
-                              name: if
-                              bits:
-                                - if
-                                - not
-                                - forloop.last
-                              children:
-                                - Text: ", "
-                                - Django:
-                                    Tag:
-                                      Closing:
-                                        name: endif
-                                        bits: []
-                      - Text: "\n        "
-                      - Django:
-                          Tag:
-                            Block:
-                              name: if
-                              bits:
-                                - if
-                                - forloop.last
-                              children:
-                                - Text: )
-                                - Django:
-                                    Tag:
-                                      Closing:
-                                        name: endif
-                                        bits: []
-                      - Text: "\n    "
-                      - Django:
-                          Tag:
-                            Branch:
-                              name: empty
-                              bits: []
-                              children:
-                                - Text: "\n        (no groups)\n    "
-                      - Django:
-                          Tag:
-                            Closing:
-                              name: endfor
-                              bits: []
-            - Text: "\n"
-            - Django:
-                Tag:
-                  Branch:
-                    name: else
-                    bits: []
-                    children:
-                      - Text: "\n    Guest\n"
-            - Django:
-                Tag:
-                  Closing:
-                    name: endif
-                    bits: []
+  - Block:
+      Standard:
+        name: if
+        bits:
+          - if
+          - user.is_authenticated
+        children:
+          - Text: "\n    "
+          - Variable:
+              bits:
+                - user
+                - name
+              filters:
+                - name: title
+                  arguments: []
+                - name: default
+                  arguments:
+                    - "'Guest'"
+          - Text: "\n    "
+          - Block:
+              Standard:
+                name: for
+                bits:
+                  - for
+                  - group
+                  - in
+                  - user.groups
+                children:
+                  - Text: "\n        "
+                  - Block:
+                      Standard:
+                        name: if
+                        bits:
+                          - if
+                          - forloop.first
+                        children:
+                          - Text: (
+                          - Block:
+                              Closing:
+                                name: endif
+                                bits: []
+                  - Text: "\n        "
+                  - Variable:
+                      bits:
+                        - group
+                        - name
+                      filters: []
+                  - Text: "\n        "
+                  - Block:
+                      Standard:
+                        name: if
+                        bits:
+                          - if
+                          - not
+                          - forloop.last
+                        children:
+                          - Text: ", "
+                          - Block:
+                              Closing:
+                                name: endif
+                                bits: []
+                  - Text: "\n        "
+                  - Block:
+                      Standard:
+                        name: if
+                        bits:
+                          - if
+                          - forloop.last
+                        children:
+                          - Text: )
+                          - Block:
+                              Closing:
+                                name: endif
+                                bits: []
+                  - Text: "\n    "
+                  - Block:
+                      Branch:
+                        name: empty
+                        bits: []
+                        children:
+                          - Text: "\n        (no groups)\n    "
+                  - Block:
+                      Closing:
+                        name: endfor
+                        bits: []
+          - Text: "\n"
+          - Block:
+              Branch:
+                name: else
+                bits: []
+                children:
+                  - Text: "\n    Guest\n"
+          - Block:
+              Closing:
+                name: endif
+                bits: []
   - Text: "!"
 errors: []

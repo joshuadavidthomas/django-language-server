@@ -4,50 +4,43 @@ expression: ast
 ---
 nodes:
   - Text: "<div class=\"container\">\n    <h1>Header</h1>\n    "
-  - Django:
-      Tag:
-        Block:
-          name: if
-          bits:
-            - if
-            - user.is_authenticated
-          children:
-            - Text: "\n        "
-            - Django:
-                Comment: This if is unclosed which does matter
-            - Text: "\n        <p>Welcome "
-            - Django:
-                Variable:
-                  bits:
-                    - user
-                    - name
-                  filters: []
-            - Text: "</p>\n        <div>\n            "
-            - Django:
-                Comment: "This div is unclosed which doesn't matter"
-            - Text: "\n        "
-            - Django:
-                Tag:
-                  Block:
-                    name: for
-                    bits:
-                      - for
-                      - item
-                      - in
-                      - items
-                    children:
-                      - Text: "\n            <span>"
-                      - Django:
-                          Variable:
-                            bits:
-                              - item
-                            filters: []
-                      - Text: "</span>\n        "
-                      - Django:
-                          Tag:
-                            Closing:
-                              name: endfor
-                              bits: []
-            - Text: "\n    <footer>Page Footer</footer>\n</div>"
+  - Block:
+      Standard:
+        name: if
+        bits:
+          - if
+          - user.is_authenticated
+        children:
+          - Text: "\n        "
+          - Comment: This if is unclosed which does matter
+          - Text: "\n        <p>Welcome "
+          - Variable:
+              bits:
+                - user
+                - name
+              filters: []
+          - Text: "</p>\n        <div>\n            "
+          - Comment: "This div is unclosed which doesn't matter"
+          - Text: "\n        "
+          - Block:
+              Standard:
+                name: for
+                bits:
+                  - for
+                  - item
+                  - in
+                  - items
+                children:
+                  - Text: "\n            <span>"
+                  - Variable:
+                      bits:
+                        - item
+                      filters: []
+                  - Text: "</span>\n        "
+                  - Block:
+                      Closing:
+                        name: endfor
+                        bits: []
+          - Text: "\n    <footer>Page Footer</footer>\n</div>"
 errors:
   - UnclosedTag: if

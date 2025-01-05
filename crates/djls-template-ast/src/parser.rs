@@ -1,4 +1,4 @@
-use crate::ast::{Ast, AstError, DjangoFilter, DjangoNode, Node, TagNode};
+use crate::ast::{Ast, AstError, BlockNode, DjangoFilter, Node};
 use crate::tagspecs::TagSpec;
 use crate::tokens::{Token, TokenStream, TokenType};
 use thiserror::Error;
@@ -151,13 +151,13 @@ impl Parser {
                         if spec.closing.as_deref() == Some(&tag) {
                             // If we have a current branch, add it to children
                             if let Some((name, bits, branch_children)) = current_branch {
-                                children.push(Node::Tag(TagNode::Branch {
+                                children.push(Node::Block(BlockNode::Branch {
                                     name,
                                     bits,
                                     children: branch_children,
                                 }));
                             }
-                            children.push(Node::Tag(TagNode::Closing {
+                            children.push(Node::Block(BlockNode::Closing {
                                 name: tag,
                                 bits: vec![],
                             }));
@@ -169,7 +169,7 @@ impl Parser {
                             if let Some(branch) = branches.iter().find(|i| i.name == tag) {
                                 // If we have a current branch, add it to children
                                 if let Some((name, bits, branch_children)) = current_branch {
-                                    children.push(Node::Tag(TagNode::Branch {
+                                    children.push(Node::Block(BlockNode::Branch {
                                         name,
                                         bits,
                                         children: branch_children,
@@ -194,7 +194,7 @@ impl Parser {
                         }
                     }
                     // If we get here, it's an unexpected tag
-                    let node = Node::Tag(TagNode::Block {
+                    let node = Node::Block(BlockNode::Standard {
                         name: tag_name.clone(),
                         bits: bits.clone(),
                         children: children.clone(),
@@ -208,7 +208,7 @@ impl Parser {
             }
         }
 
-        let node = Node::Tag(TagNode::Block {
+        let node = Node::Block(BlockNode::Standard {
             name: tag_name.clone(),
             bits,
             children,

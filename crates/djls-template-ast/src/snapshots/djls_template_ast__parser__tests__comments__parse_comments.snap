@@ -4,6 +4,5 @@ expression: ast
 ---
 nodes:
   - Text: "<!-- HTML comment -->"
-  - Django:
-      Comment: Django comment
+  - Comment: Django comment
 errors: []
