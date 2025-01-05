@@ -21,6 +21,8 @@ nodes:
       tag_span:
         start: 0
         length: 24
-line_offsets: []
+line_offsets:
+  - 0
+  - 0
 errors:
   - UnclosedTag: if
