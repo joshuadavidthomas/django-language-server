@@ -162,7 +162,7 @@ impl Parser {
                                     bits,
                                     children: Some(branch_children),
                                     span: branch_span,
-                                    tag_span: tag_span.clone(),
+                                    tag_span,
                                 });
                             }
                             let closing_token = self.peek_previous()?;
@@ -171,7 +171,6 @@ impl Parser {
                                 _ => 0,
                             };
                             total_length = (closing_token.start().unwrap_or(0) + closing_content)
-                                as usize
                                 - start_pos as usize;
                             children.push(Node::Block {
                                 block_type: BlockType::Closing,
@@ -182,7 +181,7 @@ impl Parser {
                                     closing_token.start().unwrap_or(0) as u32,
                                     closing_content as u16,
                                 ),
-                                tag_span: tag_span.clone(),
+                                tag_span,
                             });
                             found_closing_tag = true;
                             break;
@@ -199,7 +198,7 @@ impl Parser {
                                         bits,
                                         children: Some(branch_children),
                                         span: branch_span,
-                                        tag_span: tag_span.clone(),
+                                        tag_span,
                                     });
                                 }
                                 // Create new branch node
@@ -227,7 +226,7 @@ impl Parser {
                         bits: bits.clone(),
                         children: Some(children.clone()),
                         span: Span::new(start_pos, total_length as u16),
-                        tag_span: tag_span.clone(),
+                        tag_span,
                     };
                     return Err(ParserError::Ast(AstError::UnexpectedTag(tag), Some(node)));
                 }
@@ -268,6 +267,9 @@ impl Parser {
         let parts: Vec<&str> = s.split('|').collect();
         let bits: Vec<String> = parts[0].trim().split('.').map(String::from).collect();
 
+        // Track position in the string for filter spans
+        let mut current_pos = parts[0].len() + 1; // +1 for the pipe
+
         let filters: Vec<DjangoFilter> = parts[1..]
             .iter()
             .map(|filter_str| {
@@ -284,7 +286,11 @@ impl Parser {
                     Vec::new()
                 };
 
-                DjangoFilter::new(name, arguments)
+                let filter_span =
+                    Span::new(start_pos + current_pos as u32, filter_str.len() as u16);
+                current_pos += filter_str.len() + 1; // +1 for the pipe
+
+                DjangoFilter::new(name, arguments, filter_span)
             })
             .collect();
 
