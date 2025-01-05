@@ -56,7 +56,7 @@ impl LineOffsets {
 
     pub fn position_to_line_col(&self, offset: u32) -> (u32, u32) {
         eprintln!("LineOffsets: Converting position {} to line/col. Offsets: {:?}", offset, self.0);
-        
+
         // Find which line contains this offset by looking for the first line start
         // that's greater than our position
         let line = match self.0.binary_search(&offset) {
@@ -76,10 +76,10 @@ impl LineOffsets {
                 }
             }
         };
-        
+
         // Calculate column as offset from line start
         let col = offset - self.0[line];
-        
+
         eprintln!("LineOffsets: Found line {} starting at offset {}", line, self.0[line]);
         eprintln!("LineOffsets: Calculated col {} as {} - {}", col, offset, self.0[line]);
         (line as u32, col)
