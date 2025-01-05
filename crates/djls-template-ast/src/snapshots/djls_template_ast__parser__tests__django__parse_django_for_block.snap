@@ -16,15 +16,41 @@ nodes:
             bits:
               - item
             filters: []
+            span:
+              start: 23
+              length: 4
         - Block:
             block_type: Branch
             name: empty
             bits: []
             children:
-              - Text: No items
+              - Text:
+                  content: No items
+                  span:
+                    start: 44
+                    length: 8
+            span:
+              start: 0
+              length: 17
+            tag_span:
+              start: 0
+              length: 17
         - Block:
             block_type: Closing
             name: endfor
             bits: []
             children: ~
+            span:
+              start: 52
+              length: 6
+            tag_span:
+              start: 0
+              length: 17
+      span:
+        start: 0
+        length: 58
+      tag_span:
+        start: 0
+        length: 17
+line_offsets: []
 errors: []

@@ -17,5 +17,15 @@ nodes:
               - item
               - name
             filters: []
+            span:
+              start: 23
+              length: 9
+      span:
+        start: 0
+        length: 17
+      tag_span:
+        start: 0
+        length: 17
+line_offsets: []
 errors:
   - UnclosedTag: for

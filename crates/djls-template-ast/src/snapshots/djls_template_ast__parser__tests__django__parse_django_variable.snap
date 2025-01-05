@@ -10,4 +10,11 @@ nodes:
       filters:
         - name: title
           arguments: []
+          span:
+            start: 10
+            length: 5
+      span:
+        start: 0
+        length: 15
+line_offsets: []
 errors: []

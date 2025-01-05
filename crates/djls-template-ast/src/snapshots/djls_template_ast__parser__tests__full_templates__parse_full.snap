@@ -3,7 +3,11 @@ source: crates/djls-template-ast/src/parser.rs
 expression: ast
 ---
 nodes:
-  - Text: "<!DOCTYPE html>\n<html>\n    <head>\n        <style type=\"text/css\">\n            /* Style header */\n            .header { color: blue; }\n        </style>\n        <script type=\"text/javascript\">\n            // Init app\n            const app = {\n                /* Config */\n                debug: true\n            };\n        </script>\n    </head>\n    <body>\n        <!-- Header section -->\n        <div class=\"header\" id=\"main\" data-value=\"123\" disabled>\n            "
+  - Text:
+      content: "<!DOCTYPE html>\n<html>\n    <head>\n        <style type=\"text/css\">\n            /* Style header */\n            .header { color: blue; }\n        </style>\n        <script type=\"text/javascript\">\n            // Init app\n            const app = {\n                /* Config */\n                debug: true\n            };\n        </script>\n    </head>\n    <body>\n        <!-- Header section -->\n        <div class=\"header\" id=\"main\" data-value=\"123\" disabled>\n            "
+      span:
+        start: 0
+        length: 463
   - Block:
       block_type: Standard
       name: if
@@ -11,9 +15,21 @@ nodes:
         - if
         - user.is_authenticated
       children:
-        - Text: "\n                "
-        - Comment: Welcome message
-        - Text: "\n                <h1>Welcome, "
+        - Text:
+            content: "\n                "
+            span:
+              start: 493
+              length: 17
+        - Comment:
+            content: Welcome message
+            span:
+              start: 510
+              length: 19
+        - Text:
+            content: "\n                <h1>Welcome, "
+            span:
+              start: 531
+              length: 30
         - Variable:
             bits:
               - user
@@ -21,10 +37,23 @@ nodes:
             filters:
               - name: title
                 arguments: []
+                span:
+                  start: 571
+                  length: 5
               - name: default
                 arguments:
                   - "'Guest'"
-        - Text: "!</h1>\n                "
+                span:
+                  start: 577
+                  length: 15
+            span:
+              start: 561
+              length: 31
+        - Text:
+            content: "!</h1>\n                "
+            span:
+              start: 598
+              length: 23
         - Block:
             block_type: Standard
             name: if
@@ -32,23 +61,70 @@ nodes:
               - if
               - user.is_staff
             children:
-              - Text: "\n                    <span>Admin</span>\n                "
+              - Text:
+                  content: "\n                    <span>Admin</span>\n                "
+                  span:
+                    start: 643
+                    length: 56
               - Block:
                   block_type: Branch
                   name: else
                   bits: []
                   children:
-                    - Text: "\n                    <span>User</span>\n                "
+                    - Text:
+                        content: "\n                    <span>User</span>\n                "
+                        span:
+                          start: 709
+                          length: 55
+                  span:
+                    start: 621
+                    length: 16
+                  tag_span:
+                    start: 621
+                    length: 16
               - Block:
                   block_type: Closing
                   name: endif
                   bits: []
                   children: ~
-        - Text: "\n            "
+                  span:
+                    start: 764
+                    length: 5
+                  tag_span:
+                    start: 621
+                    length: 16
+            span:
+              start: 621
+              length: 148
+            tag_span:
+              start: 621
+              length: 16
+        - Text:
+            content: "\n            "
+            span:
+              start: 775
+              length: 13
         - Block:
             block_type: Closing
             name: endif
             bits: []
             children: ~
-  - Text: "\n        </div>\n    </body>\n</html>"
+            span:
+              start: 788
+              length: 5
+            tag_span:
+              start: 463
+              length: 24
+      span:
+        start: 463
+        length: 330
+      tag_span:
+        start: 463
+        length: 24
+  - Text:
+      content: "\n        </div>\n    </body>\n</html>"
+      span:
+        start: 799
+        length: 35
+line_offsets: []
 errors: []

@@ -3,5 +3,10 @@ source: crates/djls-template-ast/src/parser.rs
 expression: ast
 ---
 nodes:
-  - Text: "<script type=\"text/javascript\">\n    // Single line comment\n    const x = 1;\n    /* Multi-line\n        comment */\n    console.log(x);\n</script>"
+  - Text:
+      content: "<script type=\"text/javascript\">\n    // Single line comment\n    const x = 1;\n    /* Multi-line\n        comment */\n    console.log(x);\n</script>"
+      span:
+        start: 0
+        length: 142
+line_offsets: []
 errors: []
