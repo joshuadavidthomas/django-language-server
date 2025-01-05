@@ -275,8 +275,8 @@ impl Parser {
     }
 
     fn parse_tag_open(&mut self, s: &str) -> Result<Node, ParserError> {
-        let token_type = self.peek_previous()?.token_type().clone();
         let mut parts = s.split_whitespace();
+        let token_type = self.peek_previous()?.token_type().clone();
 
         let tag_name = match token_type {
             TokenType::HtmlTagOpen(_) => {
