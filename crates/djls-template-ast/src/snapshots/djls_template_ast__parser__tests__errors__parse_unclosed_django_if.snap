@@ -23,6 +23,5 @@ nodes:
         length: 24
 line_offsets:
   - 0
-  - 0
 errors:
   - UnclosedTag: if
