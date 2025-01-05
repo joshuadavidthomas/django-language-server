@@ -76,7 +76,7 @@ impl Parser {
                     tag.to_string(),
                 )))
             }
-            TokenType::HtmlTagOpen(s) => self.parse_html_tag_open(s),
+            TokenType::HtmlTagOpen(s) => self.parse_tag_open(s),
             TokenType::HtmlTagVoid(s) => self.parse_html_tag_void(s),
             TokenType::Newline => self.next_node(),
             TokenType::ScriptTagClose(_) => {
@@ -85,14 +85,14 @@ impl Parser {
                     "script".to_string(),
                 )))
             }
-            TokenType::ScriptTagOpen(s) => self.parse_script_tag_open(s),
+            TokenType::ScriptTagOpen(s) => self.parse_tag_open(s),
             TokenType::StyleTagClose(_) => {
                 self.backtrack(1)?;
                 Err(ParserError::ErrorSignal(Signal::ClosingTagFound(
                     "style".to_string(),
                 )))
             }
-            TokenType::StyleTagOpen(s) => self.parse_style_tag_open(s),
+            TokenType::StyleTagOpen(s) => self.parse_tag_open(s),
             TokenType::Text(s) => Ok(Node::Text(s.to_string())),
             TokenType::Whitespace(_) => self.next_node(),
         }?;
@@ -274,10 +274,10 @@ impl Parser {
         Ok(Node::Django(DjangoNode::Variable { bits, filters }))
     }
 
-    fn parse_tag_open(&mut self, s: &str, token_type: &TokenType) -> Result<Node, ParserError> {
+    fn parse_tag_open(&mut self, s: &str) -> Result<Node, ParserError> {
+        let token_type = self.peek_previous()?.token_type().clone();
         let mut parts = s.split_whitespace();
 
-        // Only HTML needs the tag name from the input
         let tag_name = match token_type {
             TokenType::HtmlTagOpen(_) => {
                 let name = parts
@@ -346,18 +346,6 @@ impl Parser {
             }),
             _ => return Err(ParserError::invalid_tag("Unknown tag type".to_string())),
         })
-    }
-
-    fn parse_html_tag_open(&mut self, s: &str) -> Result<Node, ParserError> {
-        self.parse_tag_open(s, &TokenType::HtmlTagOpen(String::new()))
-    }
-
-    fn parse_script_tag_open(&mut self, s: &str) -> Result<Node, ParserError> {
-        self.parse_tag_open(s, &TokenType::ScriptTagOpen(String::new()))
-    }
-
-    fn parse_style_tag_open(&mut self, s: &str) -> Result<Node, ParserError> {
-        self.parse_tag_open(s, &TokenType::StyleTagOpen(String::new()))
     }
 
     fn parse_html_tag_void(&mut self, s: &str) -> Result<Node, ParserError> {
