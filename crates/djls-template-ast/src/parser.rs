@@ -21,27 +21,22 @@ impl Parser {
                 Ok(node) => {
                     ast.add_node(node);
                 }
-                Err(ParserError::Ast(AstError::StreamError(kind))) if kind == "AtEnd" => {
-                    break;
-                }
                 Err(ParserError::ErrorSignal(Signal::SpecialTag(_))) => {
                     continue;
                 }
-                Err(ParserError::Ast(err @ AstError::UnclosedTag(_))) => {
-                    ast.add_error(err);
-                    self.synchronize()?;
-                    continue;
+                Err(err) => {
+                    if let ParserError::Ast(err) = err {
+                        ast.add_error(err);
+                        self.synchronize()?;
+                        continue;
+                    }
+                    return Err(err);
                 }
-                Err(ParserError::Ast(err)) => {
-                    ast.add_error(err);
-                    self.synchronize()?;
-                    continue;
-                }
-                Err(err) => return Err(err),
             }
         }
 
-        Ok(ast.finalize()?)
+        ast.finalize()?;
+        Ok(ast)
     }
 
     fn next_node(&mut self) -> Result<Node, ParserError> {
@@ -255,16 +250,8 @@ impl Parser {
         self.peek_at(0)
     }
 
-    fn peek_next(&self) -> Result<Token, ParserError> {
-        self.peek_at(1)
-    }
-
     fn peek_previous(&self) -> Result<Token, ParserError> {
         self.peek_at(-1)
-    }
-
-    fn peek_back(&self, steps: usize) -> Result<Vec<Token>, ParserError> {
-        (1..=steps).map(|i| self.peek_at(-(i as isize))).collect()
     }
 
     fn peek_at(&self, offset: isize) -> Result<Token, ParserError> {
@@ -299,14 +286,6 @@ impl Parser {
         }
         self.current += 1;
         self.peek_previous()
-    }
-
-    fn backtrack(&mut self, steps: usize) -> Result<Token, ParserError> {
-        if self.current < steps {
-            return Err(ParserError::stream_error("AtBeginning"));
-        }
-        self.current -= steps;
-        self.peek_next()
     }
 
     fn synchronize(&mut self) -> Result<(), ParserError> {
