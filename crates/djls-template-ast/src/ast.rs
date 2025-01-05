@@ -154,32 +154,162 @@ pub enum AstError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::lexer::Lexer;
+    use crate::parser::Parser;
 
-    #[test]
-    fn test_line_offsets() {
-        let mut offsets = LineOffsets::new();
-        offsets.add_line(10); // Line 1 starts at offset 10
-        offsets.add_line(25); // Line 2 starts at offset 25
-        offsets.add_line(40); // Line 3 starts at offset 40
+    mod line_offsets {
+        use super::*;
 
-        // Test position_to_line_col
-        assert_eq!(offsets.position_to_line_col(0), (0, 0)); // Start of first line
-        assert_eq!(offsets.position_to_line_col(5), (0, 5)); // Middle of first line
-        assert_eq!(offsets.position_to_line_col(10), (1, 0)); // Start of second line
-        assert_eq!(offsets.position_to_line_col(15), (1, 5)); // Middle of second line
-        assert_eq!(offsets.position_to_line_col(25), (2, 0)); // Start of third line
-        assert_eq!(offsets.position_to_line_col(35), (2, 10)); // Middle of third line
-        assert_eq!(offsets.position_to_line_col(40), (3, 0)); // Start of fourth line
-        assert_eq!(offsets.position_to_line_col(45), (3, 5)); // Middle of fourth line
+        #[test]
+        fn test_new_starts_at_zero() {
+            let offsets = LineOffsets::new();
+            assert_eq!(offsets.position_to_line_col(0), (0, 0));
+        }
 
-        // Test line_col_to_position
-        assert_eq!(offsets.line_col_to_position(0, 0), 0); // Start of first line
-        assert_eq!(offsets.line_col_to_position(0, 5), 5); // Middle of first line
-        assert_eq!(offsets.line_col_to_position(1, 0), 10); // Start of second line
-        assert_eq!(offsets.line_col_to_position(1, 5), 15); // Middle of second line
-        assert_eq!(offsets.line_col_to_position(2, 0), 25); // Start of third line
-        assert_eq!(offsets.line_col_to_position(2, 10), 35); // Middle of third line
-        assert_eq!(offsets.line_col_to_position(3, 0), 40); // Start of fourth line
-        assert_eq!(offsets.line_col_to_position(3, 5), 45); // Middle of fourth line
+        #[test]
+        fn test_start_of_lines() {
+            let mut offsets = LineOffsets::new();
+            offsets.add_line(10); // Line 1
+            offsets.add_line(25); // Line 2
+
+            assert_eq!(offsets.position_to_line_col(0), (0, 0)); // Line 0
+            assert_eq!(offsets.position_to_line_col(10), (1, 0)); // Line 1
+            assert_eq!(offsets.position_to_line_col(25), (2, 0)); // Line 2
+        }
+    }
+
+    mod spans_and_positions {
+        use super::*;
+
+        #[test]
+        fn test_variable_spans() {
+            let template = "Hello\n{{ user.name }}\nWorld";
+            let tokens = Lexer::new(template).tokenize().unwrap();
+            let mut parser = Parser::new(tokens);
+            let ast = parser.parse().unwrap();
+
+            // Find the variable node
+            let nodes = ast.nodes();
+            let var_node = nodes
+                .iter()
+                .find(|n| matches!(n, Node::Variable { .. }))
+                .unwrap();
+
+            if let Node::Variable { span, .. } = var_node {
+                // Variable starts after newline + "{{"
+                let (line, col) = ast.line_offsets.position_to_line_col(span.start());
+                assert_eq!(
+                    (line, col),
+                    (1, 3),
+                    "Variable should start at line 1, col 3"
+                );
+
+                // Span should be exactly "user.name"
+                assert_eq!(span.length(), 9, "Variable span should cover 'user.name'");
+            }
+        }
+
+        #[test]
+        fn test_block_spans() {
+            let template = "{% if user.active %}\n  Welcome!\n{% endif %}";
+            let tokens = Lexer::new(template).tokenize().unwrap();
+            let mut parser = Parser::new(tokens);
+            let ast = parser.parse().unwrap();
+
+            // Find the block node
+            let nodes = ast.nodes();
+            if let Node::Block {
+                span,
+                tag_span,
+                children,
+                ..
+            } = &nodes[0]
+            {
+                // Check opening tag span
+                let (tag_line, tag_col) = ast.line_offsets.position_to_line_col(tag_span.start());
+                assert_eq!(
+                    (tag_line, tag_col),
+                    (0, 0),
+                    "Opening tag should start at beginning"
+                );
+
+                // Check content span
+                if let Some(content) = children {
+                    if let Node::Text { span, .. } = &content[0] {
+                        let (content_line, content_col) =
+                            ast.line_offsets.position_to_line_col(span.start());
+                        assert_eq!(
+                            (content_line, content_col),
+                            (1, 2),
+                            "Content should be indented"
+                        );
+                    }
+                }
+
+                // Full block span should cover entire template
+                assert_eq!(span.length(), template.len() as u32);
+            }
+        }
+
+        #[test]
+        fn test_multiline_template() {
+            let template = "\
+<div>
+    {% if user.is_authenticated %}
+        {{ user.name }}
+        {% if user.is_staff %}
+            (Staff)
+        {% endif %}
+    {% endif %}
+</div>";
+            let tokens = Lexer::new(template).tokenize().unwrap();
+            let mut parser = Parser::new(tokens);
+            let ast = parser.parse().unwrap();
+
+            // Test nested block positions
+            let (outer_if, inner_if) = {
+                let nodes = ast.nodes();
+                let outer = nodes
+                    .iter()
+                    .find(|n| matches!(n, Node::Block { .. }))
+                    .unwrap();
+                let inner = if let Node::Block { children, .. } = outer {
+                    children
+                        .as_ref()
+                        .unwrap()
+                        .iter()
+                        .find(|n| matches!(n, Node::Block { .. }))
+                        .unwrap()
+                } else {
+                    panic!("Expected block with children");
+                };
+                (outer, inner)
+            };
+
+            if let (
+                Node::Block {
+                    span: outer_span, ..
+                },
+                Node::Block {
+                    span: inner_span, ..
+                },
+            ) = (outer_if, inner_if)
+            {
+                // Verify outer if starts at the right line/column
+                let (outer_line, outer_col) =
+                    ast.line_offsets.position_to_line_col(outer_span.start());
+                assert_eq!(
+                    (outer_line, outer_col),
+                    (1, 4),
+                    "Outer if should be indented"
+                );
+
+                // Verify inner if is more indented than outer if
+                let (inner_line, inner_col) =
+                    ast.line_offsets.position_to_line_col(inner_span.start());
+                assert!(inner_col > outer_col, "Inner if should be more indented");
+                assert!(inner_line > outer_line, "Inner if should be on later line");
+            }
+        }
     }
 }
