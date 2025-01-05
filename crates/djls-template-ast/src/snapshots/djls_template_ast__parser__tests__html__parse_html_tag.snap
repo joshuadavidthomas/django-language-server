@@ -3,12 +3,5 @@ source: crates/djls-template-ast/src/parser.rs
 expression: ast
 ---
 nodes:
-  - Html:
-      Element:
-        tag_name: div
-        attributes:
-          class:
-            Value: container
-        children:
-          - Text: Hello
+  - Text: "<div class=\"container\">Hello</div>"
 errors: []

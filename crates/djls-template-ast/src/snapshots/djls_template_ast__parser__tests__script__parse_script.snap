@@ -3,20 +3,5 @@ source: crates/djls-template-ast/src/parser.rs
 expression: ast
 ---
 nodes:
-  - Script:
-      Element:
-        attributes:
-          type:
-            Value: text/javascript
-        children:
-          - Script:
-              Comment:
-                content: Single line comment
-                kind: SingleLine
-          - Text: const x = 1;
-          - Script:
-              Comment:
-                content: "Multi-line\n        comment"
-                kind: MultiLine
-          - Text: console.log(x);
+  - Text: "<script type=\"text/javascript\">\n    // Single line comment\n    const x = 1;\n    /* Multi-line\n        comment */\n    console.log(x);\n</script>"
 errors: []

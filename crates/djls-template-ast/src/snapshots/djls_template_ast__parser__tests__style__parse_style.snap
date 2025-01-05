@@ -3,16 +3,5 @@ source: crates/djls-template-ast/src/parser.rs
 expression: ast
 ---
 nodes:
-  - Style:
-      Element:
-        attributes:
-          type:
-            Value: text/css
-        children:
-          - Style:
-              Comment: Header styles
-          - Text: ".header "
-          - Text: "{"
-          - Text: "color: blue;"
-          - Text: "}"
+  - Text: "<style type=\"text/css\">\n    /* Header styles */\n    .header {\n        color: blue;\n    }\n</style>"
 errors: []

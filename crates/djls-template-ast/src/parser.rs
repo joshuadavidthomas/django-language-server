@@ -1,10 +1,6 @@
-use crate::ast::{
-    Ast, AstError, AttributeValue, DjangoFilter, DjangoNode, HtmlNode, Node, ScriptCommentKind,
-    ScriptNode, StyleNode, TagNode,
-};
+use crate::ast::{Ast, AstError, DjangoFilter, DjangoNode, Node, TagNode};
 use crate::tagspecs::TagSpec;
 use crate::tokens::{Token, TokenStream, TokenType};
-use std::collections::BTreeMap;
 use thiserror::Error;
 
 pub struct Parser {
@@ -19,18 +15,13 @@ impl Parser {
 
     pub fn parse(&mut self) -> Result<Ast, ParserError> {
         let mut ast = Ast::default();
-        let mut had_nodes = false;
 
         while !self.is_at_end() {
             match self.next_node() {
                 Ok(node) => {
                     ast.add_node(node);
-                    had_nodes = true;
                 }
                 Err(ParserError::Ast(AstError::StreamError(kind))) if kind == "AtEnd" => {
-                    if !had_nodes {
-                        return Ok(ast.finalize()?);
-                    }
                     break;
                 }
                 Err(ParserError::ErrorSignal(Signal::SpecialTag(_))) => {
@@ -58,43 +49,31 @@ impl Parser {
             return Err(ParserError::Ast(AstError::StreamError("AtEnd".to_string())));
         }
 
-        let token = self.consume()?;
+        let token = self.peek()?;
         let node = match token.token_type() {
-            TokenType::Comment(s, start, end) => self.parse_comment(s, start, end.as_deref()),
-            TokenType::DjangoBlock(s) => self.parse_django_block(s),
-            TokenType::DjangoVariable(s) => self.parse_django_variable(s),
-            TokenType::Eof => {
-                if self.is_at_end() {
-                    Err(ParserError::Ast(AstError::StreamError("AtEnd".to_string())))
-                } else {
-                    self.next_node()
-                }
+            TokenType::Comment(content, start, end) => {
+                self.consume()?;
+                self.parse_comment(content, start, end.as_deref())
             }
-            TokenType::HtmlTagClose(tag) => {
-                self.backtrack(1)?;
-                Err(ParserError::ErrorSignal(Signal::ClosingTagFound(
-                    tag.to_string(),
-                )))
+            TokenType::DjangoBlock(content) => {
+                self.consume()?;
+                self.parse_django_block(content)
             }
-            TokenType::HtmlTagOpen(s) => self.parse_tag_open(s),
-            TokenType::HtmlTagVoid(s) => self.parse_html_tag_void(s),
-            TokenType::Newline => self.next_node(),
-            TokenType::ScriptTagClose(_) => {
-                self.backtrack(1)?;
-                Err(ParserError::ErrorSignal(Signal::ClosingTagFound(
-                    "script".to_string(),
-                )))
+            TokenType::DjangoVariable(content) => {
+                self.consume()?;
+                self.parse_django_variable(content)
             }
-            TokenType::ScriptTagOpen(s) => self.parse_tag_open(s),
-            TokenType::StyleTagClose(_) => {
-                self.backtrack(1)?;
-                Err(ParserError::ErrorSignal(Signal::ClosingTagFound(
-                    "style".to_string(),
-                )))
-            }
-            TokenType::StyleTagOpen(s) => self.parse_tag_open(s),
-            TokenType::Text(s) => Ok(Node::Text(s.to_string())),
-            TokenType::Whitespace(_) => self.next_node(),
+            TokenType::Text(_)
+            | TokenType::Whitespace(_)
+            | TokenType::Newline
+            | TokenType::HtmlTagOpen(_)
+            | TokenType::HtmlTagClose(_)
+            | TokenType::HtmlTagVoid(_)
+            | TokenType::ScriptTagOpen(_)
+            | TokenType::ScriptTagClose(_)
+            | TokenType::StyleTagOpen(_)
+            | TokenType::StyleTagClose(_) => self.parse_text(),
+            TokenType::Eof => Err(ParserError::Ast(AstError::StreamError("AtEnd".to_string()))),
         }?;
         Ok(node)
     }
@@ -107,49 +86,12 @@ impl Parser {
     ) -> Result<Node, ParserError> {
         match start {
             "{#" => Ok(Node::Django(DjangoNode::Comment(content.to_string()))),
-            "<!--" => Ok(Node::Html(HtmlNode::Comment(content.to_string()))),
-            "//" => Ok(Node::Script(ScriptNode::Comment {
-                content: content.to_string(),
-                kind: ScriptCommentKind::SingleLine,
-            })),
-            "/*" => {
-                // Look back for script/style context
-                let token_type = self
-                    .peek_back(self.current)?
-                    .iter()
-                    .find_map(|token| match token.token_type() {
-                        TokenType::ScriptTagOpen(_) => {
-                            Some(TokenType::ScriptTagOpen(String::new()))
-                        }
-                        TokenType::StyleTagOpen(_) => Some(TokenType::StyleTagOpen(String::new())),
-                        TokenType::ScriptTagClose(_) | TokenType::StyleTagClose(_) => None,
-                        _ => None,
-                    })
-                    .ok_or(ParserError::InvalidMultiLineComment)?;
-
-                match token_type {
-                    TokenType::ScriptTagOpen(_) => Ok(Node::Script(ScriptNode::Comment {
-                        content: content.to_string(),
-                        kind: ScriptCommentKind::MultiLine,
-                    })),
-                    TokenType::StyleTagOpen(_) => {
-                        Ok(Node::Style(StyleNode::Comment(content.to_string())))
-                    }
-                    _ => unreachable!(),
-                }
-            }
-            _ => Err(ParserError::token_error(
-                "valid token",
-                Token::new(
-                    TokenType::Comment(
-                        content.to_string(),
-                        start.to_string(),
-                        end.map(String::from),
-                    ),
-                    0,
-                    None,
-                ),
-            )),
+            _ => Ok(Node::Text(format!(
+                "{}{}{}",
+                start,
+                content,
+                end.unwrap_or("")
+            ))),
         }
     }
 
@@ -274,100 +216,39 @@ impl Parser {
         Ok(Node::Django(DjangoNode::Variable { bits, filters }))
     }
 
-    fn parse_tag_open(&mut self, s: &str) -> Result<Node, ParserError> {
-        let mut parts = s.split_whitespace();
-        let token_type = self.peek_previous()?.token_type().clone();
-
-        let tag_name = match token_type {
-            TokenType::HtmlTagOpen(_) => {
-                let name = parts
-                    .next()
-                    .ok_or(ParserError::Ast(AstError::EmptyTag))?
-                    .to_string();
-                if name.to_lowercase() == "!doctype" {
-                    return Ok(Node::Html(HtmlNode::Doctype("!DOCTYPE html".to_string())));
+    fn parse_text(&mut self) -> Result<Node, ParserError> {
+        let mut text = String::new();
+        while let Ok(token) = self.peek() {
+            match token.token_type() {
+                TokenType::DjangoBlock(_)
+                | TokenType::DjangoVariable(_)
+                | TokenType::Comment(_, _, _) => break,
+                TokenType::Text(s) => {
+                    self.consume()?;
+                    text.push_str(s);
                 }
-                name
-            }
-            TokenType::ScriptTagOpen(_) => {
-                parts.next(); // Skip the tag name
-                "script".to_string()
-            }
-            TokenType::StyleTagOpen(_) => {
-                parts.next(); // Skip the tag name
-                "style".to_string()
-            }
-            _ => return Err(ParserError::invalid_tag("Unknown tag type".to_string())),
-        };
-
-        let mut attributes = BTreeMap::new();
-        for attr in parts {
-            if let Some((key, value)) = parse_attribute(attr)? {
-                attributes.insert(key, value);
-            }
-        }
-
-        let mut children = Vec::new();
-        let mut found_closing_tag = false;
-
-        while !self.is_at_end() {
-            match self.next_node() {
-                Ok(node) => {
-                    children.push(node);
+                TokenType::HtmlTagOpen(s)
+                | TokenType::HtmlTagClose(s)
+                | TokenType::HtmlTagVoid(s)
+                | TokenType::ScriptTagOpen(s)
+                | TokenType::ScriptTagClose(s)
+                | TokenType::StyleTagOpen(s)
+                | TokenType::StyleTagClose(s) => {
+                    self.consume()?;
+                    text.push_str(s);
                 }
-                Err(ParserError::ErrorSignal(Signal::ClosingTagFound(tag))) => {
-                    if tag == tag_name {
-                        found_closing_tag = true;
-                        self.consume()?;
-                        break;
-                    }
+                TokenType::Whitespace(len) => {
+                    self.consume()?;
+                    text.push_str(&" ".repeat(*len));
                 }
-                Err(e) => return Err(e),
+                TokenType::Newline => {
+                    self.consume()?;
+                    text.push('\n');
+                }
+                TokenType::Eof => break,
             }
         }
-
-        if !found_closing_tag {
-            return Err(ParserError::Ast(AstError::UnclosedTag(tag_name.clone())));
-        }
-
-        Ok(match token_type {
-            TokenType::HtmlTagOpen(_) => Node::Html(HtmlNode::Element {
-                tag_name,
-                attributes,
-                children,
-            }),
-            TokenType::ScriptTagOpen(_) => Node::Script(ScriptNode::Element {
-                attributes,
-                children,
-            }),
-            TokenType::StyleTagOpen(_) => Node::Style(StyleNode::Element {
-                attributes,
-                children,
-            }),
-            _ => return Err(ParserError::invalid_tag("Unknown tag type".to_string())),
-        })
-    }
-
-    fn parse_html_tag_void(&mut self, s: &str) -> Result<Node, ParserError> {
-        let mut parts = s.split_whitespace();
-
-        let tag_name = parts
-            .next()
-            .ok_or(ParserError::Ast(AstError::EmptyTag))?
-            .to_string();
-
-        let mut attributes = BTreeMap::new();
-
-        for attr in parts {
-            if let Some((key, value)) = parse_attribute(attr)? {
-                attributes.insert(key, value);
-            }
-        }
-
-        Ok(Node::Html(HtmlNode::Void {
-            tag_name,
-            attributes,
-        }))
+        Ok(Node::Text(text))
     }
 
     fn peek(&self) -> Result<Token, ParserError> {
@@ -429,20 +310,17 @@ impl Parser {
     }
 
     fn synchronize(&mut self) -> Result<(), ParserError> {
-        const SYNC_TYPES: &[TokenType] = &[
+        let sync_types = [
             TokenType::DjangoBlock(String::new()),
-            TokenType::HtmlTagOpen(String::new()),
-            TokenType::HtmlTagVoid(String::new()),
-            TokenType::ScriptTagOpen(String::new()),
-            TokenType::StyleTagOpen(String::new()),
-            TokenType::Newline,
+            TokenType::DjangoVariable(String::new()),
+            TokenType::Comment(String::new(), String::from("{#"), Some(String::from("#}"))),
             TokenType::Eof,
         ];
 
         while !self.is_at_end() {
             let current = self.peek()?;
 
-            for sync_type in SYNC_TYPES {
+            for sync_type in &sync_types {
                 if current.token_type() == sync_type {
                     return Ok(());
                 }
@@ -461,17 +339,6 @@ pub enum Signal {
     IntermediateTag(String),
     SpecialTag(String),
     ClosingTag,
-}
-
-fn parse_attribute(attr: &str) -> Result<Option<(String, AttributeValue)>, ParserError> {
-    if let Some((key, value)) = attr.split_once('=') {
-        Ok(Some((
-            key.to_string(),
-            AttributeValue::Value(value.trim_matches('"').to_string()),
-        )))
-    } else {
-        Ok(Some((attr.to_string(), AttributeValue::Boolean)))
-    }
 }
 
 #[derive(Error, Debug)]
@@ -694,8 +561,7 @@ mod tests {
             let mut parser = Parser::new(tokens);
             let ast = parser.parse().unwrap();
             insta::assert_yaml_snapshot!(ast);
-            assert_eq!(ast.errors().len(), 1);
-            assert!(matches!(&ast.errors()[0], AstError::UnclosedTag(tag) if tag == "div"));
+            assert_eq!(ast.errors().len(), 0);
         }
 
         #[test]
@@ -727,8 +593,7 @@ mod tests {
             let mut parser = Parser::new(tokens);
             let ast = parser.parse().unwrap();
             insta::assert_yaml_snapshot!(ast);
-            assert_eq!(ast.errors().len(), 1);
-            assert!(matches!(&ast.errors()[0], AstError::UnclosedTag(tag) if tag == "script"));
+            assert_eq!(ast.errors().len(), 0);
         }
 
         #[test]
@@ -738,8 +603,7 @@ mod tests {
             let mut parser = Parser::new(tokens);
             let ast = parser.parse().unwrap();
             insta::assert_yaml_snapshot!(ast);
-            assert_eq!(ast.errors().len(), 1);
-            assert!(matches!(&ast.errors()[0], AstError::UnclosedTag(tag) if tag == "style"));
+            assert_eq!(ast.errors().len(), 0);
         }
 
         #[test]
@@ -747,13 +611,13 @@ mod tests {
             let source = r#"<div class="container">
     <h1>Header</h1>
     {% if user.is_authenticated %}
+        {# This if is unclosed which does matter #}
         <p>Welcome {{ user.name }}</p>
         <div>
-            {# This div is unclosed #}
+            {# This div is unclosed which doesn't matter #}
         {% for item in items %}
             <span>{{ item }}</span>
         {% endfor %}
-    {% endif %}
     <footer>Page Footer</footer>
 </div>"#;
             let tokens = Lexer::new(source).tokenize().unwrap();
@@ -790,7 +654,7 @@ mod tests {
         <div class="header" id="main" data-value="123" disabled>
             {% if user.is_authenticated %}
                 {# Welcome message #}
-                <h1>Welcome, {{ user.name|default:"Guest"|title }}!</h1>
+                <h1>Welcome, {{ user.name|title|default:'Guest' }}!</h1>
                 {% if user.is_staff %}
                     <span>Admin</span>
                 {% else %}
