@@ -57,7 +57,7 @@ impl LineOffsets {
     pub fn position_to_line_col(&self, offset: u32) -> (u32, u32) {
         let line = match self.0.binary_search(&offset) {
             Ok(line) => line,
-            Err(line) => line - 1,
+            Err(line) => if line > 0 { line - 1 } else { line },
         };
         let col = offset - self.0[line];
         (line as u32, col)
@@ -197,7 +197,7 @@ mod tests {
 
             if let Node::Variable { span, .. } = var_node {
                 // Variable starts after newline + "{{"
-                let (line, col) = ast.line_offsets.position_to_line_col(span.start());
+                let (line, col) = ast.line_offsets.position_to_line_col(*span.start());
                 assert_eq!(
                     (line, col),
                     (1, 3),
@@ -205,7 +205,7 @@ mod tests {
                 );
 
                 // Span should be exactly "user.name"
-                assert_eq!(span.length(), 9, "Variable span should cover 'user.name'");
+                assert_eq!(*span.length(), 9, "Variable span should cover 'user.name'");
             }
         }
 
@@ -226,7 +226,7 @@ mod tests {
             } = &nodes[0]
             {
                 // Check opening tag span
-                let (tag_line, tag_col) = ast.line_offsets.position_to_line_col(tag_span.start());
+                let (tag_line, tag_col) = ast.line_offsets.position_to_line_col(*tag_span.start());
                 assert_eq!(
                     (tag_line, tag_col),
                     (0, 0),
@@ -237,7 +237,7 @@ mod tests {
                 if let Some(content) = children {
                     if let Node::Text { span, .. } = &content[0] {
                         let (content_line, content_col) =
-                            ast.line_offsets.position_to_line_col(span.start());
+                            ast.line_offsets.position_to_line_col(*span.start());
                         assert_eq!(
                             (content_line, content_col),
                             (1, 2),
@@ -247,7 +247,7 @@ mod tests {
                 }
 
                 // Full block span should cover entire template
-                assert_eq!(span.length(), template.len() as u32);
+                assert_eq!(*span.length() as u32, template.len() as u32);
             }
         }
 
@@ -297,7 +297,7 @@ mod tests {
             {
                 // Verify outer if starts at the right line/column
                 let (outer_line, outer_col) =
-                    ast.line_offsets.position_to_line_col(outer_span.start());
+                    ast.line_offsets.position_to_line_col(*outer_span.start());
                 assert_eq!(
                     (outer_line, outer_col),
                     (1, 4),
@@ -306,7 +306,7 @@ mod tests {
 
                 // Verify inner if is more indented than outer if
                 let (inner_line, inner_col) =
-                    ast.line_offsets.position_to_line_col(inner_span.start());
+                    ast.line_offsets.position_to_line_col(*inner_span.start());
                 assert!(inner_col > outer_col, "Inner if should be more indented");
                 assert!(inner_line > outer_line, "Inner if should be on later line");
             }

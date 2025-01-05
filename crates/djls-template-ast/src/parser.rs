@@ -16,15 +16,20 @@ impl Parser {
     pub fn parse(&mut self) -> Result<Ast, ParserError> {
         let mut ast = Ast::default();
         let mut line_offsets = LineOffsets::new();
-        let mut last_line = 0;
 
         // First pass: collect line offsets
+        let mut current_offset = 0;
         for token in self.tokens.tokens() {
-            if *token.line() > last_line {
-                if let Some(start) = token.start() {
-                    line_offsets.add_line(*start as u32);
+            match token.token_type() {
+                TokenType::Newline => {
+                    current_offset += 1;  // Add 1 for the newline character
+                    line_offsets.add_line(current_offset as u32);
                 }
-                last_line = *token.line();
+                _ => {
+                    if let Some(len) = token.token_type().len() {
+                        current_offset += len;
+                    }
+                }
             }
         }
 

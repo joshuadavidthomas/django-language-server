@@ -1,0 +1,76 @@
+---
+source: crates/djls-template-ast/src/parser.rs
+assertion_line: 537
+expression: ast
+snapshot_kind: text
+---
+nodes:
+  - Block:
+      block_type: Standard
+      name: if
+      bits:
+        - if
+        - x
+        - ">"
+        - "0"
+      children:
+        - Text:
+            content: Positive
+            span:
+              start: 14
+              length: 8
+        - Block:
+            block_type: Branch
+            name: elif
+            bits:
+              - x
+              - "<"
+              - "0"
+            children:
+              - Text:
+                  content: Negative
+                  span:
+                    start: 38
+                    length: 8
+            span:
+              start: 0
+              length: 8
+            tag_span:
+              start: 0
+              length: 8
+        - Block:
+            block_type: Branch
+            name: else
+            bits: []
+            children:
+              - Text:
+                  content: Zero
+                  span:
+                    start: 56
+                    length: 4
+            span:
+              start: 0
+              length: 8
+            tag_span:
+              start: 0
+              length: 8
+        - Block:
+            block_type: Closing
+            name: endif
+            bits: []
+            children: ~
+            span:
+              start: 60
+              length: 5
+            tag_span:
+              start: 0
+              length: 8
+      span:
+        start: 0
+        length: 65
+      tag_span:
+        start: 0
+        length: 8
+line_offsets:
+  - 0
+errors: []

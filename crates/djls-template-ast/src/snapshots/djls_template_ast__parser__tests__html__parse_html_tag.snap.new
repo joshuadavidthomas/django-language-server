@@ -1,0 +1,15 @@
+---
+source: crates/djls-template-ast/src/parser.rs
+assertion_line: 486
+expression: ast
+snapshot_kind: text
+---
+nodes:
+  - Text:
+      content: "<div class=\"container\">Hello</div>"
+      span:
+        start: 0
+        length: 34
+line_offsets:
+  - 0
+errors: []
