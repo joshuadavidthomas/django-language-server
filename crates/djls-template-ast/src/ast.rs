@@ -36,9 +36,6 @@ impl Ast {
 #[derive(Clone, Debug, Serialize)]
 pub enum Node {
     Django(DjangoNode),
-    Html(HtmlNode),
-    Script(ScriptNode),
-    Style(StyleNode),
     Text(String),
 }
 
@@ -81,56 +78,6 @@ impl DjangoFilter {
         Self { name, arguments }
     }
 }
-
-#[derive(Clone, Debug, Serialize)]
-pub enum HtmlNode {
-    Comment(String),
-    Doctype(String),
-    Element {
-        tag_name: String,
-        attributes: Attributes,
-        children: Vec<Node>,
-    },
-    Void {
-        tag_name: String,
-        attributes: Attributes,
-    },
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub enum ScriptNode {
-    Comment {
-        content: String,
-        kind: ScriptCommentKind,
-    },
-    Element {
-        attributes: Attributes,
-        children: Vec<Node>,
-    },
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub enum ScriptCommentKind {
-    SingleLine, // //
-    MultiLine,  // /* */
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub enum StyleNode {
-    Comment(String),
-    Element {
-        attributes: Attributes,
-        children: Vec<Node>,
-    },
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub enum AttributeValue {
-    Value(String),
-    Boolean,
-}
-
-pub type Attributes = BTreeMap<String, AttributeValue>;
 
 #[derive(Clone, Debug, Error, Serialize)]
 pub enum AstError {

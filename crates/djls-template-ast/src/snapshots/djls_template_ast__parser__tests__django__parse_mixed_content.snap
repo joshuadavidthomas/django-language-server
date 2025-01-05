@@ -12,6 +12,7 @@ nodes:
             - if
             - user.is_authenticated
           children:
+            - Text: "\n    "
             - Django:
                 Variable:
                   bits:
@@ -23,6 +24,7 @@ nodes:
                     - name: default
                       arguments:
                         - "'Guest'"
+            - Text: "\n    "
             - Django:
                 Tag:
                   Block:
@@ -33,6 +35,7 @@ nodes:
                       - in
                       - user.groups
                     children:
+                      - Text: "\n        "
                       - Django:
                           Tag:
                             Block:
@@ -47,12 +50,14 @@ nodes:
                                       Closing:
                                         name: endif
                                         bits: []
+                      - Text: "\n        "
                       - Django:
                           Variable:
                             bits:
                               - group
                               - name
                             filters: []
+                      - Text: "\n        "
                       - Django:
                           Tag:
                             Block:
@@ -68,6 +73,7 @@ nodes:
                                       Closing:
                                         name: endif
                                         bits: []
+                      - Text: "\n        "
                       - Django:
                           Tag:
                             Block:
@@ -82,25 +88,27 @@ nodes:
                                       Closing:
                                         name: endif
                                         bits: []
+                      - Text: "\n    "
                       - Django:
                           Tag:
                             Branch:
                               name: empty
                               bits: []
                               children:
-                                - Text: (no groups)
+                                - Text: "\n        (no groups)\n    "
                       - Django:
                           Tag:
                             Closing:
                               name: endfor
                               bits: []
+            - Text: "\n"
             - Django:
                 Tag:
                   Branch:
                     name: else
                     bits: []
                     children:
-                      - Text: Guest
+                      - Text: "\n    Guest\n"
             - Django:
                 Tag:
                   Closing:

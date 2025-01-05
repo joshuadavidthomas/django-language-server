@@ -3,8 +3,7 @@ source: crates/djls-template-ast/src/parser.rs
 expression: ast
 ---
 nodes:
-  - Html:
-      Comment: HTML comment
+  - Text: "<!-- HTML comment -->"
   - Django:
       Comment: Django comment
 errors: []

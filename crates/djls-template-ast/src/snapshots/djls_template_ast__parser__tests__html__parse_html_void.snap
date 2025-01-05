@@ -3,10 +3,5 @@ source: crates/djls-template-ast/src/parser.rs
 expression: ast
 ---
 nodes:
-  - Html:
-      Void:
-        tag_name: input
-        attributes:
-          type:
-            Value: text
+  - Text: "<input type=\"text\" />"
 errors: []

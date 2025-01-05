@@ -54,106 +54,46 @@ impl Lexer {
                     TokenType::Comment(content, "{#".to_string(), Some("#}".to_string()))
                 }
                 _ => {
-                    self.consume()?; // {
-                    TokenType::Text(String::from("{"))
-                }
-            },
-
-            '<' => match self.peek_next()? {
-                '/' => {
-                    self.consume_n(2)?; // </
-                    let tag = self.consume_until(">")?;
-                    self.consume()?; // >
-                    TokenType::HtmlTagClose(tag)
-                }
-                '!' if self.matches("<!--")? => {
-                    self.consume_n(4)?; // <!--
-                    let content = self.consume_until("-->")?;
-                    self.consume_n(3)?; // -->
-                    TokenType::Comment(content, "<!--".to_string(), Some("-->".to_string()))
-                }
-                _ => {
-                    self.consume()?; // consume <
-                    let tag = self.consume_until(">")?;
-                    self.consume()?; // consume >
-                    if tag.starts_with("script") {
-                        TokenType::ScriptTagOpen(tag)
-                    } else if tag.starts_with("style") {
-                        TokenType::StyleTagOpen(tag)
-                    } else if tag.ends_with("/") {
-                        TokenType::HtmlTagVoid(tag.trim_end_matches("/").to_string())
-                    } else {
-                        TokenType::HtmlTagOpen(tag)
-                    }
-                }
-            },
-
-            '/' => match self.peek_next()? {
-                '/' => {
-                    self.consume_n(2)?; // //
-                    let content = self.consume_until("\n")?;
-                    TokenType::Comment(content, "//".to_string(), None)
-                }
-                '*' => {
-                    self.consume_n(2)?; // /*
-                    let content = self.consume_until("*/")?;
-                    self.consume_n(2)?; // */
-                    TokenType::Comment(content, "/*".to_string(), Some("*/".to_string()))
-                }
-                _ => {
                     self.consume()?;
-                    TokenType::Text("/".to_string())
+                    TokenType::Text("{".to_string())
                 }
             },
-
-            c if c.is_whitespace() => {
-                if c == '\n' || c == '\r' {
-                    self.consume()?; // \r or \n
-                    if c == '\r' && self.peek()? == '\n' {
-                        self.consume()?; // \n of \r\n
-                    }
-                    TokenType::Newline
-                } else {
-                    self.consume()?; // Consume the first whitespace
-                    while !self.is_at_end() && self.peek()?.is_whitespace() {
-                        if self.peek()? == '\n' || self.peek()? == '\r' {
-                            break;
-                        }
-                        self.consume()?;
-                    }
-                    let whitespace_count = self.current - self.start;
-                    TokenType::Whitespace(whitespace_count)
-                }
+            '\n' => {
+                self.consume()?;
+                self.line += 1;
+                TokenType::Newline
             }
-
+            ' ' | '\t' | '\r' => {
+                let mut count = 1;
+                self.consume()?;
+                while let Ok(c) = self.peek() {
+                    if c != ' ' && c != '\t' && c != '\r' {
+                        break;
+                    }
+                    self.consume()?;
+                    count += 1;
+                }
+                TokenType::Whitespace(count)
+            }
             _ => {
                 let mut text = String::new();
                 while !self.is_at_end() {
-                    let c = self.peek()?;
-                    if c == '{' || c == '<' || c == '\n' {
-                        break;
+                    match self.peek()? {
+                        '{' => break,
+                        '\n' | ' ' | '\t' | '\r' => break,
+                        _ => {
+                            text.push(self.consume()?);
+                        }
                     }
-                    text.push(c);
-                    self.consume()?;
+                }
+                if text.is_empty() {
+                    return Err(LexerError::EmptyToken(self.line));
                 }
                 TokenType::Text(text)
             }
         };
 
-        let token = Token::new(token_type, self.line, Some(self.start));
-
-        match self.peek_previous()? {
-            '\n' => self.line += 1,
-            '\r' => {
-                self.line += 1;
-                if self.peek()? == '\n' {
-                    self.current += 1;
-                }
-            }
-            _ => {}
-        }
-
-        Ok(token)
+        Ok(Token::new(token_type, self.line, Some(self.start)))
     }
 
     fn peek(&self) -> Result<char, LexerError> {
@@ -310,15 +250,7 @@ mod tests {
     #[test]
     fn test_tokenize_comments() {
         let source = r#"<!-- HTML comment -->
-{# Django comment #}
-<script>
-    // JS single line comment
-    /* JS multi-line
-       comment */
-</script>
-<style>
-    /* CSS comment */
-</style>"#;
+{# Django comment #}"#;
         let mut lexer = Lexer::new(source);
         let tokens = lexer.tokenize().unwrap();
         insta::assert_yaml_snapshot!(tokens);
@@ -357,7 +289,7 @@ mod tests {
         assert!(Lexer::new("{{ user.name").tokenize().is_err()); // No closing }}
         assert!(Lexer::new("{% if").tokenize().is_err()); // No closing %}
         assert!(Lexer::new("{#").tokenize().is_err()); // No closing #}
-        assert!(Lexer::new("<div").tokenize().is_err()); // No closing >
+        assert!(Lexer::new("<div").tokenize().is_ok()); // No closing >, but HTML is treated as text
 
         // Invalid characters or syntax within tokens
         assert!(Lexer::new("{{}}").tokenize().is_ok()); // Empty but valid

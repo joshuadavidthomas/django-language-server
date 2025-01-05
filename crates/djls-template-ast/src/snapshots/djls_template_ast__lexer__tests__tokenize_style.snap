@@ -3,51 +3,92 @@ source: crates/djls-template-ast/src/lexer.rs
 expression: tokens
 ---
 - token_type:
-    StyleTagOpen: "style type=\"text/css\""
+    Text: "<style"
   line: 1
   start: 0
-- token_type: Newline
+- token_type:
+    Whitespace: 1
   line: 1
+  start: 6
+- token_type:
+    Text: "type=\"text/css\">"
+  line: 1
+  start: 7
+- token_type: Newline
+  line: 2
   start: 23
 - token_type:
     Whitespace: 4
   line: 2
   start: 24
 - token_type:
-    Comment:
-      - Header styles
-      - /*
-      - "*/"
+    Text: /*
   line: 2
   start: 28
-- token_type: Newline
+- token_type:
+    Whitespace: 1
   line: 2
+  start: 30
+- token_type:
+    Text: Header
+  line: 2
+  start: 31
+- token_type:
+    Whitespace: 1
+  line: 2
+  start: 37
+- token_type:
+    Text: styles
+  line: 2
+  start: 38
+- token_type:
+    Whitespace: 1
+  line: 2
+  start: 44
+- token_type:
+    Text: "*/"
+  line: 2
+  start: 45
+- token_type: Newline
+  line: 3
   start: 47
 - token_type:
     Whitespace: 4
   line: 3
   start: 48
 - token_type:
-    Text: ".header "
+    Text: ".header"
   line: 3
   start: 52
+- token_type:
+    Whitespace: 1
+  line: 3
+  start: 59
 - token_type:
     Text: "{"
   line: 3
   start: 60
 - token_type: Newline
-  line: 3
+  line: 4
   start: 61
 - token_type:
     Whitespace: 8
   line: 4
   start: 62
 - token_type:
-    Text: "color: blue;"
+    Text: "color:"
   line: 4
   start: 70
-- token_type: Newline
+- token_type:
+    Whitespace: 1
   line: 4
+  start: 76
+- token_type:
+    Text: blue;
+  line: 4
+  start: 77
+- token_type: Newline
+  line: 5
   start: 82
 - token_type:
     Whitespace: 4
@@ -58,10 +99,10 @@ expression: tokens
   line: 5
   start: 87
 - token_type: Newline
-  line: 5
+  line: 6
   start: 88
 - token_type:
-    HtmlTagClose: style
+    Text: "</style>"
   line: 6
   start: 89
 - token_type: Eof
