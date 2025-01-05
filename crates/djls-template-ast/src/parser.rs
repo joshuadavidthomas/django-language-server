@@ -102,7 +102,7 @@ impl Parser {
         end: Option<&str>,
     ) -> Result<Node, ParserError> {
         match start {
-            "{#" => Ok(Node::Django(DjangoNode::Comment(content.to_string()))),
+            "{#" => Ok(Node::Comment(content.to_string())),
             _ => Ok(Node::Text(format!(
                 "{}{}{}",
                 start,
@@ -148,19 +148,19 @@ impl Parser {
                 Err(ParserError::ErrorSignal(Signal::SpecialTag(tag))) => {
                     if let Some(spec) = &tag_spec {
                         // Check if closing tag
-                        if spec.closing.as_ref().map(|s| s.as_str()) == Some(&tag) {
+                        if spec.closing.as_deref() == Some(&tag) {
                             // If we have a current branch, add it to children
                             if let Some((name, bits, branch_children)) = current_branch {
-                                children.push(Node::Django(DjangoNode::Tag(TagNode::Branch {
+                                children.push(Node::Tag(TagNode::Branch {
                                     name,
                                     bits,
                                     children: branch_children,
-                                })));
+                                }));
                             }
-                            children.push(Node::Django(DjangoNode::Tag(TagNode::Closing {
+                            children.push(Node::Tag(TagNode::Closing {
                                 name: tag,
                                 bits: vec![],
-                            })));
+                            }));
                             found_closing_tag = true;
                             break;
                         }
@@ -169,11 +169,11 @@ impl Parser {
                             if let Some(branch) = branches.iter().find(|i| i.name == tag) {
                                 // If we have a current branch, add it to children
                                 if let Some((name, bits, branch_children)) = current_branch {
-                                    children.push(Node::Django(DjangoNode::Tag(TagNode::Branch {
+                                    children.push(Node::Tag(TagNode::Branch {
                                         name,
                                         bits,
                                         children: branch_children,
-                                    })));
+                                    }));
                                 }
                                 // Create new branch node
                                 let branch_bits = if branch.args {
@@ -194,11 +194,11 @@ impl Parser {
                         }
                     }
                     // If we get here, it's an unexpected tag
-                    let node = Node::Django(DjangoNode::Tag(TagNode::Block {
+                    let node = Node::Tag(TagNode::Block {
                         name: tag_name.clone(),
                         bits: bits.clone(),
                         children: children.clone(),
-                    }));
+                    });
                     return Err(ParserError::Ast(AstError::UnexpectedTag(tag), Some(node)));
                 }
                 Err(ParserError::Ast(AstError::StreamError(kind), _)) if kind == "AtEnd" => {
@@ -208,11 +208,11 @@ impl Parser {
             }
         }
 
-        let node = Node::Django(DjangoNode::Tag(TagNode::Block {
+        let node = Node::Tag(TagNode::Block {
             name: tag_name.clone(),
             bits,
             children,
-        }));
+        });
 
         if !found_closing_tag {
             return Err(ParserError::Ast(
@@ -249,7 +249,7 @@ impl Parser {
             })
             .collect();
 
-        Ok(Node::Django(DjangoNode::Variable { bits, filters }))
+        Ok(Node::Variable { bits, filters })
     }
 
     fn parse_text(&mut self) -> Result<Node, ParserError> {
@@ -345,7 +345,10 @@ impl Parser {
             }
             self.consume()?;
         }
-        Err(ParserError::Ast(AstError::StreamError("AtEnd".into()), None))
+        Err(ParserError::Ast(
+            AstError::StreamError("AtEnd".into()),
+            None,
+        ))
     }
 }
 
