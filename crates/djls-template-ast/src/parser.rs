@@ -6,16 +6,11 @@ use thiserror::Error;
 pub struct Parser {
     tokens: TokenStream,
     current: usize,
-    ast: Ast,
 }
 
 impl Parser {
     pub fn new(tokens: TokenStream) -> Self {
-        Parser {
-            tokens,
-            current: 0,
-            ast: Ast::default(),
-        }
+        Parser { tokens, current: 0 }
     }
 
     pub fn parse(&mut self) -> Result<Ast, ParserError> {
