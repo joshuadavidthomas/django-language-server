@@ -1,0 +1,50 @@
+---
+source: crates/djls-template-ast/src/parser.rs
+expression: ast
+---
+nodes:
+  - Html:
+      Element:
+        tag_name: div
+        attributes:
+          class:
+            Value: container
+        children:
+          - Html:
+              Element:
+                tag_name: h1
+                attributes: {}
+                children:
+                  - Text: Header
+          - Django:
+              Tag:
+                Block:
+                  name: if
+                  bits:
+                    - if
+                    - user.is_authenticated
+                  children:
+                    - Html:
+                        Element:
+                          tag_name: p
+                          attributes: {}
+                          children:
+                            - Text: "Welcome "
+                            - Django:
+                                Variable:
+                                  bits:
+                                    - user
+                                    - name
+                                  filters: []
+                    - Django:
+                        Tag:
+                          Closing:
+                            name: endif
+                            bits: []
+          - Html:
+              Element:
+                tag_name: footer
+                attributes: {}
+                children:
+                  - Text: Page Footer
+errors: []
