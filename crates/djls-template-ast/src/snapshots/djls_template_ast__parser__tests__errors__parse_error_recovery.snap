@@ -18,7 +18,7 @@ nodes:
         - Text:
             content: "\n        "
             span:
-              start: 78
+              start: 87
               length: 9
         - Comment:
             content: This if is unclosed which does matter
@@ -28,7 +28,7 @@ nodes:
         - Text:
             content: "\n        <p>Welcome "
             span:
-              start: 130
+              start: 139
               length: 20
         - Variable:
             bits:
@@ -36,7 +36,7 @@ nodes:
               - name
             filters: []
             span:
-              start: 152
+              start: 153
               length: 9
         - Text:
             content: "</p>\n        <div>\n            "
@@ -51,7 +51,7 @@ nodes:
         - Text:
             content: "\n        "
             span:
-              start: 243
+              start: 252
               length: 9
         - Block:
             block_type: Standard
@@ -65,14 +65,14 @@ nodes:
               - Text:
                   content: "\n            <span>"
                   span:
-                    start: 275
+                    start: 288
                     length: 19
               - Variable:
                   bits:
                     - item
                   filters: []
                   span:
-                    start: 296
+                    start: 297
                     length: 4
               - Text:
                   content: "</span>\n        "
@@ -86,29 +86,28 @@ nodes:
                   children: ~
                   span:
                     start: 320
-                    length: 6
+                    length: 11
                   tag_span:
                     start: 252
                     length: 17
             span:
               start: 252
-              length: 74
+              length: 79
             tag_span:
               start: 252
               length: 17
         - Text:
             content: "\n    <footer>Page Footer</footer>\n</div>"
             span:
-              start: 332
+              start: 337
               length: 40
       span:
         start: 48
-        length: 24
+        length: 0
       tag_span:
         start: 48
         length: 24
 line_offsets:
-  - 0
   - 0
   - 24
   - 44

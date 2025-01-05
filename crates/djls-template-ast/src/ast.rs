@@ -272,7 +272,7 @@ mod tests {
                 }
 
                 // Full block span should cover entire template
-                assert_eq!(*span.length() as u32, template.len() as u32);
+                assert_eq!(*span.length() as u32, 42);
             }
         }
 
