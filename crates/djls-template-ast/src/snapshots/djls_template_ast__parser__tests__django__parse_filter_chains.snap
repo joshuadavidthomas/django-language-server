@@ -3,16 +3,15 @@ source: crates/djls-template-ast/src/parser.rs
 expression: ast
 ---
 nodes:
-  - Django:
-      Variable:
-        bits:
-          - value
-        filters:
-          - name: default
-            arguments:
-              - "'nothing'"
-          - name: title
-            arguments: []
-          - name: upper
-            arguments: []
+  - Variable:
+      bits:
+        - value
+      filters:
+        - name: default
+          arguments:
+            - "'nothing'"
+        - name: title
+          arguments: []
+        - name: upper
+          arguments: []
 errors: []

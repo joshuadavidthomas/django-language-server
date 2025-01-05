@@ -36,7 +36,7 @@ impl Ast {
 pub enum Node {
     Text(String),
     Comment(String),
-    Tag(TagNode),
+    Block(BlockNode),
     Variable {
         bits: Vec<String>,
         filters: Vec<DjangoFilter>,
@@ -44,8 +44,8 @@ pub enum Node {
 }
 
 #[derive(Clone, Debug, Serialize)]
-pub enum TagNode {
-    Block {
+pub enum BlockNode {
+    Standard {
         name: String,
         bits: Vec<String>,
         children: Vec<Node>,

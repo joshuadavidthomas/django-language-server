@@ -3,18 +3,16 @@ source: crates/djls-template-ast/src/parser.rs
 expression: ast
 ---
 nodes:
-  - Django:
-      Tag:
-        Block:
-          name: if
-          bits:
-            - if
-            - user.is_authenticated
-          children:
-            - Text: Welcome
-            - Django:
-                Tag:
-                  Closing:
-                    name: endif
-                    bits: []
+  - Block:
+      Standard:
+        name: if
+        bits:
+          - if
+          - user.is_authenticated
+        children:
+          - Text: Welcome
+          - Block:
+              Closing:
+                name: endif
+                bits: []
 errors: []

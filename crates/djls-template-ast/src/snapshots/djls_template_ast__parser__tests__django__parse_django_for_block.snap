@@ -3,31 +3,27 @@ source: crates/djls-template-ast/src/parser.rs
 expression: ast
 ---
 nodes:
-  - Django:
-      Tag:
-        Block:
-          name: for
-          bits:
-            - for
-            - item
-            - in
-            - items
-          children:
-            - Django:
-                Variable:
-                  bits:
-                    - item
-                  filters: []
-            - Django:
-                Tag:
-                  Branch:
-                    name: empty
-                    bits: []
-                    children:
-                      - Text: No items
-            - Django:
-                Tag:
-                  Closing:
-                    name: endfor
-                    bits: []
+  - Block:
+      Standard:
+        name: for
+        bits:
+          - for
+          - item
+          - in
+          - items
+        children:
+          - Variable:
+              bits:
+                - item
+              filters: []
+          - Block:
+              Branch:
+                name: empty
+                bits: []
+                children:
+                  - Text: No items
+          - Block:
+              Closing:
+                name: endfor
+                bits: []
 errors: []

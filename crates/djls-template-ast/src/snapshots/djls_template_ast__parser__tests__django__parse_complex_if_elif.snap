@@ -3,37 +3,33 @@ source: crates/djls-template-ast/src/parser.rs
 expression: ast
 ---
 nodes:
-  - Django:
-      Tag:
-        Block:
-          name: if
-          bits:
-            - if
-            - x
-            - ">"
-            - "0"
-          children:
-            - Text: Positive
-            - Django:
-                Tag:
-                  Branch:
-                    name: elif
-                    bits:
-                      - x
-                      - "<"
-                      - "0"
-                    children:
-                      - Text: Negative
-            - Django:
-                Tag:
-                  Branch:
-                    name: else
-                    bits: []
-                    children:
-                      - Text: Zero
-            - Django:
-                Tag:
-                  Closing:
-                    name: endif
-                    bits: []
+  - Block:
+      Standard:
+        name: if
+        bits:
+          - if
+          - x
+          - ">"
+          - "0"
+        children:
+          - Text: Positive
+          - Block:
+              Branch:
+                name: elif
+                bits:
+                  - x
+                  - "<"
+                  - "0"
+                children:
+                  - Text: Negative
+          - Block:
+              Branch:
+                name: else
+                bits: []
+                children:
+                  - Text: Zero
+          - Block:
+              Closing:
+                name: endif
+                bits: []
 errors: []
