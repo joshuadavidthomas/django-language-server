@@ -24,6 +24,9 @@ impl Parser {
                 Err(ParserError::ErrorSignal(Signal::SpecialTag(_))) => {
                     continue;
                 }
+                Err(ParserError::Ast(AstError::StreamError(kind))) if kind == "AtEnd" => {
+                    break;
+                }
                 Err(err) => {
                     if let ParserError::Ast(err) = err {
                         ast.add_error(err);
@@ -46,10 +49,6 @@ impl Parser {
 
         let token = self.peek()?;
         let node = match token.token_type() {
-            TokenType::Comment(content, start, end) => {
-                self.consume()?;
-                self.parse_comment(content, start, end.as_deref())
-            }
             TokenType::DjangoBlock(content) => {
                 self.consume()?;
                 self.parse_django_block(content)
@@ -57,6 +56,10 @@ impl Parser {
             TokenType::DjangoVariable(content) => {
                 self.consume()?;
                 self.parse_django_variable(content)
+            }
+            TokenType::Comment(content, start, end) => {
+                self.consume()?;
+                self.parse_comment(content, start, end.as_deref())
             }
             TokenType::Text(_)
             | TokenType::Whitespace(_)
@@ -604,7 +607,7 @@ mod tests {
             let ast = parser.parse().unwrap();
             insta::assert_yaml_snapshot!(ast);
             assert_eq!(ast.errors().len(), 1);
-            assert!(matches!(&ast.errors()[0], AstError::UnclosedTag(tag) if tag == "div"));
+            assert!(matches!(&ast.errors()[0], AstError::UnclosedTag(tag) if tag == "if"));
         }
     }
 
