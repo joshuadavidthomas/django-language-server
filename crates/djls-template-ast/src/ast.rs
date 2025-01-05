@@ -13,6 +13,10 @@ impl Ast {
         &self.nodes
     }
 
+    pub fn line_offsets(&self) -> &LineOffsets {
+        &self.line_offsets
+    }
+
     pub fn errors(&self) -> &Vec<AstError> {
         &self.errors
     }
@@ -42,8 +46,7 @@ pub struct LineOffsets(Vec<u32>);
 
 impl LineOffsets {
     pub fn new() -> Self {
-        let mut offsets = Vec::new();
-        offsets.push(0); // First line always starts at 0
+        let offsets = vec![0];
         Self(offsets)
     }
 
@@ -51,7 +54,7 @@ impl LineOffsets {
         self.0.push(offset);
     }
 
-    fn position_to_line_col(&self, offset: u32) -> (u32, u32) {
+    pub fn position_to_line_col(&self, offset: u32) -> (u32, u32) {
         let line = match self.0.binary_search(&offset) {
             Ok(line) => line,
             Err(line) => line - 1,
@@ -60,8 +63,41 @@ impl LineOffsets {
         (line as u32, col)
     }
 
-    fn line_col_to_position(&self, line: u32, col: u32) -> u32 {
+    pub fn line_col_to_position(&self, line: u32, col: u32) -> u32 {
         self.0[line as usize] + col
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_line_offsets() {
+        let mut offsets = LineOffsets::new();
+        offsets.add_line(10); // Line 1 starts at offset 10
+        offsets.add_line(25); // Line 2 starts at offset 25
+        offsets.add_line(40); // Line 3 starts at offset 40
+
+        // Test position_to_line_col
+        assert_eq!(offsets.position_to_line_col(0), (0, 0)); // Start of first line
+        assert_eq!(offsets.position_to_line_col(5), (0, 5)); // Middle of first line
+        assert_eq!(offsets.position_to_line_col(10), (1, 0)); // Start of second line
+        assert_eq!(offsets.position_to_line_col(15), (1, 5)); // Middle of second line
+        assert_eq!(offsets.position_to_line_col(25), (2, 0)); // Start of third line
+        assert_eq!(offsets.position_to_line_col(35), (2, 10)); // Middle of third line
+        assert_eq!(offsets.position_to_line_col(40), (3, 0)); // Start of fourth line
+        assert_eq!(offsets.position_to_line_col(45), (3, 5)); // Middle of fourth line
+
+        // Test line_col_to_position
+        assert_eq!(offsets.line_col_to_position(0, 0), 0); // Start of first line
+        assert_eq!(offsets.line_col_to_position(0, 5), 5); // Middle of first line
+        assert_eq!(offsets.line_col_to_position(1, 0), 10); // Start of second line
+        assert_eq!(offsets.line_col_to_position(1, 5), 15); // Middle of second line
+        assert_eq!(offsets.line_col_to_position(2, 0), 25); // Start of third line
+        assert_eq!(offsets.line_col_to_position(2, 10), 35); // Middle of third line
+        assert_eq!(offsets.line_col_to_position(3, 0), 40); // Start of fourth line
+        assert_eq!(offsets.line_col_to_position(3, 5), 45); // Middle of fourth line
     }
 }
 
