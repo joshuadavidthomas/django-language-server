@@ -24,16 +24,29 @@ impl Parser {
                 Err(ParserError::ErrorSignal(Signal::SpecialTag(_))) => {
                     continue;
                 }
-                Err(ParserError::Ast(AstError::StreamError(kind))) if kind == "AtEnd" => {
-                    break;
-                }
                 Err(err) => {
-                    if let ParserError::Ast(err) = err {
-                        ast.add_error(err);
-                        self.synchronize()?;
-                        continue;
+                    match err {
+                        ParserError::NodeWithError { node, error } => {
+                            ast.add_error(error);
+                            ast.add_node(node);
+                        }
+                        ParserError::Ast(err) => {
+                            ast.add_error(err);
+                        }
+                        _ => return Err(err),
                     }
-                    return Err(err);
+
+                    if let Err(e) = self.synchronize() {
+                        match e {
+                            ParserError::Ast(AstError::StreamError(ref kind))
+                                if kind == "AtEnd" =>
+                            {
+                                break
+                            }
+                            _ => return Err(e),
+                        }
+                    }
+                    continue;
                 }
             }
         }
@@ -115,6 +128,7 @@ impl Parser {
         let tag_spec = specs.get(tag_name.as_str()).cloned();
         let mut children = Vec::new();
         let mut current_branch: Option<(String, Vec<String>, Vec<Node>)> = None;
+        let mut found_closing_tag = false;
 
         while !self.is_at_end() {
             match self.next_node() {
@@ -141,11 +155,8 @@ impl Parser {
                                 name: tag,
                                 bits: vec![],
                             })));
-                            return Ok(Node::Django(DjangoNode::Tag(TagNode::Block {
-                                name: tag_name,
-                                bits,
-                                children,
-                            })));
+                            found_closing_tag = true;
+                            break;
                         }
                         // Check if intermediate tag
                         if let Some(branches) = &spec.branches {
@@ -176,14 +187,40 @@ impl Parser {
                             }
                         }
                     }
-                    return Err(ParserError::unexpected_tag(tag));
+                    // If we get here, it's an unexpected tag - return what we have
+                    // but signal that we hit an error
+                    let node = Node::Django(DjangoNode::Tag(TagNode::Block {
+                        name: tag_name,
+                        bits,
+                        children,
+                    }));
+                    return Err(ParserError::NodeWithError {
+                        node,
+                        error: AstError::UnexpectedTag(tag),
+                    });
+                }
+                Err(ParserError::Ast(AstError::StreamError(kind))) if kind == "AtEnd" => {
+                    break;
                 }
                 Err(e) => return Err(e),
             }
         }
 
-        // never found the closing tag
-        Err(ParserError::Ast(AstError::UnclosedTag(tag_name)))
+        let node = Node::Django(DjangoNode::Tag(TagNode::Block {
+            name: tag_name.clone(),
+            bits,
+            children,
+        }));
+
+        if !found_closing_tag {
+            // Return the node with an unclosed tag error
+            return Err(ParserError::NodeWithError {
+                node,
+                error: AstError::UnclosedTag(tag_name),
+            });
+        }
+
+        Ok(node)
     }
 
     fn parse_django_variable(&mut self, s: &str) -> Result<Node, ParserError> {
@@ -331,6 +368,8 @@ pub enum ParserError {
     InvalidMultiLineComment,
     #[error("internal signal: {0:?}")]
     ErrorSignal(Signal),
+    #[error("node with error: {node:?}, error: {error}")]
+    NodeWithError { node: Node, error: AstError },
 }
 
 impl ParserError {

@@ -2,6 +2,22 @@
 source: crates/djls-template-ast/src/parser.rs
 expression: ast
 ---
-nodes: []
+nodes:
+  - Django:
+      Tag:
+        Block:
+          name: for
+          bits:
+            - for
+            - item
+            - in
+            - items
+          children:
+            - Django:
+                Variable:
+                  bits:
+                    - item
+                    - name
+                  filters: []
 errors:
   - UnclosedTag: for
