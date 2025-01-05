@@ -1,5 +1,4 @@
 use serde::Serialize;
-use std::collections::BTreeMap;
 use thiserror::Error;
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -35,12 +34,7 @@ impl Ast {
 
 #[derive(Clone, Debug, Serialize)]
 pub enum Node {
-    Django(DjangoNode),
     Text(String),
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub enum DjangoNode {
     Comment(String),
     Tag(TagNode),
     Variable {
