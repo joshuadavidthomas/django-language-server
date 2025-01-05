@@ -4,6 +4,7 @@ use thiserror::Error;
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct Ast {
     nodes: Vec<Node>,
+    line_offsets: LineOffsets,
     errors: Vec<AstError>,
 }
 
@@ -32,19 +33,52 @@ impl Ast {
     }
 }
 
+#[derive(Clone, Default, Debug, Serialize)]
+pub struct LineOffsets(Vec<u32>);
+
+impl LineOffsets {
+    fn position_to_line_col(&self, offset: u32) -> (u32, u32) {
+        let line = match self.0.binary_search(&offset) {
+            Ok(line) => line,
+            Err(line) => line - 1,
+        };
+        let col = offset - self.0[line];
+        (line as u32, col)
+    }
+
+    fn line_col_to_position(&self, line: u32, col: u32) -> u32 {
+        self.0[line as usize] + col
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+pub struct Span {
+    start: u32,
+    length: u16,
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub enum Node {
-    Text(String),
-    Comment(String),
+    Text {
+        content: String,
+        span: Span,
+    },
+    Comment {
+        content: String,
+        span: Span,
+    },
     Block {
         block_type: BlockType,
         name: String,
         bits: Vec<String>,
         children: Option<Vec<Node>>,
+        span: Span,
+        tag_span: Span,
     },
     Variable {
         bits: Vec<String>,
         filters: Vec<DjangoFilter>,
+        span: Span,
     },
 }
 
@@ -59,6 +93,7 @@ pub enum BlockType {
 pub struct DjangoFilter {
     name: String,
     arguments: Vec<String>,
+    span: Span,
 }
 
 impl DjangoFilter {
