@@ -89,14 +89,6 @@ pub enum AstError {
     UnclosedTag(String),
     #[error("unexpected tag: {0}")]
     UnexpectedTag(String),
-    #[error("invalid tag: {0}")]
-    InvalidTag(String),
-    #[error("block error: {0} in {1}")]
-    BlockError(String, String),
     #[error("stream error: {0}")]
     StreamError(String),
-    #[error("token error: {0}")]
-    TokenError(String),
-    #[error("argument error: {0} - {1}")]
-    ArgumentError(String, String),
 }
