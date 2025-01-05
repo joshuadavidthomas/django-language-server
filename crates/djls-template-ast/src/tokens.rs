@@ -119,6 +119,10 @@ impl Token {
         &self.token_type
     }
 
+    pub fn line(&self) -> &usize {
+        &self.line
+    }
+
     pub fn start(&self) -> &Option<usize> {
         &self.start
     }

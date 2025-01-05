@@ -21,6 +21,10 @@ impl Ast {
         self.nodes.push(node);
     }
 
+    pub fn set_line_offsets(&mut self, line_offsets: LineOffsets) {
+        self.line_offsets = line_offsets
+    }
+
     pub fn add_error(&mut self, error: AstError) {
         self.errors.push(error);
     }
@@ -37,6 +41,16 @@ impl Ast {
 pub struct LineOffsets(Vec<u32>);
 
 impl LineOffsets {
+    pub fn new() -> Self {
+        let mut offsets = Vec::new();
+        offsets.push(0); // First line always starts at 0
+        Self(offsets)
+    }
+
+    pub fn add_line(&mut self, offset: u32) {
+        self.0.push(offset);
+    }
+
     fn position_to_line_col(&self, offset: u32) -> (u32, u32) {
         let line = match self.0.binary_search(&offset) {
             Ok(line) => line,

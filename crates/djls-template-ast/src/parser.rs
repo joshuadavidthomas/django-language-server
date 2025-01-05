@@ -1,4 +1,4 @@
-use crate::ast::{Ast, AstError, BlockType, DjangoFilter, Node, Span};
+use crate::ast::{Ast, AstError, BlockType, DjangoFilter, LineOffsets, Node, Span};
 use crate::tagspecs::TagSpec;
 use crate::tokens::{Token, TokenStream, TokenType};
 use thiserror::Error;
@@ -15,7 +15,23 @@ impl Parser {
 
     pub fn parse(&mut self) -> Result<Ast, ParserError> {
         let mut ast = Ast::default();
+        let mut line_offsets = LineOffsets::new();
+        let mut last_line = 0;
 
+        // First pass: collect line offsets
+        for token in self.tokens.tokens() {
+            if token.line() > last_line {
+                if let Some(start) = token.start() {
+                    line_offsets.add_line(*start as u32);
+                }
+                last_line = token.line();
+            }
+        }
+
+        // Reset current position
+        self.current = 0;
+
+        // Second pass: parse nodes
         while !self.is_at_end() {
             match self.next_node() {
                 Ok(node) => {
@@ -51,6 +67,7 @@ impl Parser {
             }
         }
 
+        ast.set_line_offsets(line_offsets);
         ast.finalize()?;
         Ok(ast)
     }
