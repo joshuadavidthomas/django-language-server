@@ -1,4 +1,4 @@
-use crate::ast::{Ast, AstError, BlockNode, DjangoFilter, Node};
+use crate::ast::{Ast, AstError, BlockType, DjangoFilter, Node};
 use crate::tagspecs::TagSpec;
 use crate::tokens::{Token, TokenStream, TokenType};
 use thiserror::Error;
@@ -151,16 +151,19 @@ impl Parser {
                         if spec.closing.as_deref() == Some(&tag) {
                             // If we have a current branch, add it to children
                             if let Some((name, bits, branch_children)) = current_branch {
-                                children.push(Node::Block(BlockNode::Branch {
+                                children.push(Node::Block {
+                                    block_type: BlockType::Branch,
                                     name,
                                     bits,
-                                    children: branch_children,
-                                }));
+                                    children: Some(branch_children),
+                                });
                             }
-                            children.push(Node::Block(BlockNode::Closing {
+                            children.push(Node::Block {
+                                block_type: BlockType::Closing,
                                 name: tag,
                                 bits: vec![],
-                            }));
+                                children: None,
+                            });
                             found_closing_tag = true;
                             break;
                         }
@@ -169,11 +172,12 @@ impl Parser {
                             if let Some(branch) = branches.iter().find(|i| i.name == tag) {
                                 // If we have a current branch, add it to children
                                 if let Some((name, bits, branch_children)) = current_branch {
-                                    children.push(Node::Block(BlockNode::Branch {
+                                    children.push(Node::Block {
+                                        block_type: BlockType::Branch,
                                         name,
                                         bits,
-                                        children: branch_children,
-                                    }));
+                                        children: Some(branch_children),
+                                    });
                                 }
                                 // Create new branch node
                                 let branch_bits = if branch.args {
@@ -194,11 +198,12 @@ impl Parser {
                         }
                     }
                     // If we get here, it's an unexpected tag
-                    let node = Node::Block(BlockNode::Standard {
+                    let node = Node::Block {
+                        block_type: BlockType::Standard,
                         name: tag_name.clone(),
                         bits: bits.clone(),
-                        children: children.clone(),
-                    });
+                        children: Some(children.clone()),
+                    };
                     return Err(ParserError::Ast(AstError::UnexpectedTag(tag), Some(node)));
                 }
                 Err(ParserError::Ast(AstError::StreamError(kind), _)) if kind == "AtEnd" => {
@@ -208,11 +213,12 @@ impl Parser {
             }
         }
 
-        let node = Node::Block(BlockNode::Standard {
+        let node = Node::Block {
+            block_type: BlockType::Standard,
             name: tag_name.clone(),
             bits,
-            children,
-        });
+            children: Some(children),
+        };
 
         if !found_closing_tag {
             return Err(ParserError::Ast(

@@ -5,100 +5,105 @@ expression: ast
 nodes:
   - Text: "Welcome, "
   - Block:
-      Standard:
-        name: if
-        bits:
-          - if
-          - user.is_authenticated
-        children:
-          - Text: "\n    "
-          - Variable:
-              bits:
-                - user
-                - name
-              filters:
-                - name: title
-                  arguments: []
-                - name: default
-                  arguments:
-                    - "'Guest'"
-          - Text: "\n    "
-          - Block:
-              Standard:
-                name: for
-                bits:
-                  - for
-                  - group
-                  - in
-                  - user.groups
-                children:
-                  - Text: "\n        "
-                  - Block:
-                      Standard:
-                        name: if
-                        bits:
-                          - if
-                          - forloop.first
-                        children:
-                          - Text: (
-                          - Block:
-                              Closing:
-                                name: endif
-                                bits: []
-                  - Text: "\n        "
-                  - Variable:
-                      bits:
-                        - group
-                        - name
-                      filters: []
-                  - Text: "\n        "
-                  - Block:
-                      Standard:
-                        name: if
-                        bits:
-                          - if
-                          - not
-                          - forloop.last
-                        children:
-                          - Text: ", "
-                          - Block:
-                              Closing:
-                                name: endif
-                                bits: []
-                  - Text: "\n        "
-                  - Block:
-                      Standard:
-                        name: if
-                        bits:
-                          - if
-                          - forloop.last
-                        children:
-                          - Text: )
-                          - Block:
-                              Closing:
-                                name: endif
-                                bits: []
-                  - Text: "\n    "
-                  - Block:
-                      Branch:
-                        name: empty
+      block_type: Standard
+      name: if
+      bits:
+        - if
+        - user.is_authenticated
+      children:
+        - Text: "\n    "
+        - Variable:
+            bits:
+              - user
+              - name
+            filters:
+              - name: title
+                arguments: []
+              - name: default
+                arguments:
+                  - "'Guest'"
+        - Text: "\n    "
+        - Block:
+            block_type: Standard
+            name: for
+            bits:
+              - for
+              - group
+              - in
+              - user.groups
+            children:
+              - Text: "\n        "
+              - Block:
+                  block_type: Standard
+                  name: if
+                  bits:
+                    - if
+                    - forloop.first
+                  children:
+                    - Text: (
+                    - Block:
+                        block_type: Closing
+                        name: endif
                         bits: []
-                        children:
-                          - Text: "\n        (no groups)\n    "
-                  - Block:
-                      Closing:
-                        name: endfor
+                        children: ~
+              - Text: "\n        "
+              - Variable:
+                  bits:
+                    - group
+                    - name
+                  filters: []
+              - Text: "\n        "
+              - Block:
+                  block_type: Standard
+                  name: if
+                  bits:
+                    - if
+                    - not
+                    - forloop.last
+                  children:
+                    - Text: ", "
+                    - Block:
+                        block_type: Closing
+                        name: endif
                         bits: []
-          - Text: "\n"
-          - Block:
-              Branch:
-                name: else
-                bits: []
-                children:
-                  - Text: "\n    Guest\n"
-          - Block:
-              Closing:
-                name: endif
-                bits: []
+                        children: ~
+              - Text: "\n        "
+              - Block:
+                  block_type: Standard
+                  name: if
+                  bits:
+                    - if
+                    - forloop.last
+                  children:
+                    - Text: )
+                    - Block:
+                        block_type: Closing
+                        name: endif
+                        bits: []
+                        children: ~
+              - Text: "\n    "
+              - Block:
+                  block_type: Branch
+                  name: empty
+                  bits: []
+                  children:
+                    - Text: "\n        (no groups)\n    "
+              - Block:
+                  block_type: Closing
+                  name: endfor
+                  bits: []
+                  children: ~
+        - Text: "\n"
+        - Block:
+            block_type: Branch
+            name: else
+            bits: []
+            children:
+              - Text: "\n    Guest\n"
+        - Block:
+            block_type: Closing
+            name: endif
+            bits: []
+            children: ~
   - Text: "!"
 errors: []

@@ -4,15 +4,16 @@ expression: ast
 ---
 nodes:
   - Block:
-      Standard:
-        name: if
-        bits:
-          - if
-          - user.is_authenticated
-        children:
-          - Text: Welcome
-          - Block:
-              Closing:
-                name: endif
-                bits: []
+      block_type: Standard
+      name: if
+      bits:
+        - if
+        - user.is_authenticated
+      children:
+        - Text: Welcome
+        - Block:
+            block_type: Closing
+            name: endif
+            bits: []
+            children: ~
 errors: []

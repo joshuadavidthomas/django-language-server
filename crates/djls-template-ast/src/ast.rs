@@ -36,7 +36,12 @@ impl Ast {
 pub enum Node {
     Text(String),
     Comment(String),
-    Block(BlockNode),
+    Block {
+        block_type: BlockType,
+        name: String,
+        bits: Vec<String>,
+        children: Option<Vec<Node>>,
+    },
     Variable {
         bits: Vec<String>,
         filters: Vec<DjangoFilter>,
@@ -44,21 +49,10 @@ pub enum Node {
 }
 
 #[derive(Clone, Debug, Serialize)]
-pub enum BlockNode {
-    Standard {
-        name: String,
-        bits: Vec<String>,
-        children: Vec<Node>,
-    },
-    Branch {
-        name: String,
-        bits: Vec<String>,
-        children: Vec<Node>,
-    },
-    Closing {
-        name: String,
-        bits: Vec<String>,
-    },
+pub enum BlockType {
+    Standard,
+    Branch,
+    Closing,
 }
 
 #[derive(Clone, Debug, Serialize)]

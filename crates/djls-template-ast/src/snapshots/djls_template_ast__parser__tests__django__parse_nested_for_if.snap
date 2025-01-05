@@ -4,32 +4,34 @@ expression: ast
 ---
 nodes:
   - Block:
-      Standard:
-        name: for
-        bits:
-          - for
-          - item
-          - in
-          - items
-        children:
-          - Block:
-              Standard:
-                name: if
-                bits:
-                  - if
-                  - item.active
-                children:
-                  - Variable:
-                      bits:
-                        - item
-                        - name
-                      filters: []
-                  - Block:
-                      Closing:
-                        name: endif
-                        bits: []
-          - Block:
-              Closing:
-                name: endfor
-                bits: []
+      block_type: Standard
+      name: for
+      bits:
+        - for
+        - item
+        - in
+        - items
+      children:
+        - Block:
+            block_type: Standard
+            name: if
+            bits:
+              - if
+              - item.active
+            children:
+              - Variable:
+                  bits:
+                    - item
+                    - name
+                  filters: []
+              - Block:
+                  block_type: Closing
+                  name: endif
+                  bits: []
+                  children: ~
+        - Block:
+            block_type: Closing
+            name: endfor
+            bits: []
+            children: ~
 errors: []
