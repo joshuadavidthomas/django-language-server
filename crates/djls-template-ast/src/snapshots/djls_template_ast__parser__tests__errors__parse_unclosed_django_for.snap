@@ -4,18 +4,18 @@ expression: ast
 ---
 nodes:
   - Block:
-      Standard:
-        name: for
-        bits:
-          - for
-          - item
-          - in
-          - items
-        children:
-          - Variable:
-              bits:
-                - item
-                - name
-              filters: []
+      block_type: Standard
+      name: for
+      bits:
+        - for
+        - item
+        - in
+        - items
+      children:
+        - Variable:
+            bits:
+              - item
+              - name
+            filters: []
 errors:
   - UnclosedTag: for

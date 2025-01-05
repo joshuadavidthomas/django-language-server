@@ -4,32 +4,33 @@ expression: ast
 ---
 nodes:
   - Block:
-      Standard:
-        name: if
-        bits:
-          - if
-          - x
-          - ">"
-          - "0"
-        children:
-          - Text: Positive
-          - Block:
-              Branch:
-                name: elif
-                bits:
-                  - x
-                  - "<"
-                  - "0"
-                children:
-                  - Text: Negative
-          - Block:
-              Branch:
-                name: else
-                bits: []
-                children:
-                  - Text: Zero
-          - Block:
-              Closing:
-                name: endif
-                bits: []
+      block_type: Standard
+      name: if
+      bits:
+        - if
+        - x
+        - ">"
+        - "0"
+      children:
+        - Text: Positive
+        - Block:
+            block_type: Branch
+            name: elif
+            bits:
+              - x
+              - "<"
+              - "0"
+            children:
+              - Text: Negative
+        - Block:
+            block_type: Branch
+            name: else
+            bits: []
+            children:
+              - Text: Zero
+        - Block:
+            block_type: Closing
+            name: endif
+            bits: []
+            children: ~
 errors: []

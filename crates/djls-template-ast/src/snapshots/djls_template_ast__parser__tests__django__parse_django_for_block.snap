@@ -4,26 +4,27 @@ expression: ast
 ---
 nodes:
   - Block:
-      Standard:
-        name: for
-        bits:
-          - for
-          - item
-          - in
-          - items
-        children:
-          - Variable:
-              bits:
-                - item
-              filters: []
-          - Block:
-              Branch:
-                name: empty
-                bits: []
-                children:
-                  - Text: No items
-          - Block:
-              Closing:
-                name: endfor
-                bits: []
+      block_type: Standard
+      name: for
+      bits:
+        - for
+        - item
+        - in
+        - items
+      children:
+        - Variable:
+            bits:
+              - item
+            filters: []
+        - Block:
+            block_type: Branch
+            name: empty
+            bits: []
+            children:
+              - Text: No items
+        - Block:
+            block_type: Closing
+            name: endfor
+            bits: []
+            children: ~
 errors: []

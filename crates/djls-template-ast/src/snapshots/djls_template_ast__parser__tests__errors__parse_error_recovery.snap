@@ -5,42 +5,43 @@ expression: ast
 nodes:
   - Text: "<div class=\"container\">\n    <h1>Header</h1>\n    "
   - Block:
-      Standard:
-        name: if
-        bits:
-          - if
-          - user.is_authenticated
-        children:
-          - Text: "\n        "
-          - Comment: This if is unclosed which does matter
-          - Text: "\n        <p>Welcome "
-          - Variable:
-              bits:
-                - user
-                - name
-              filters: []
-          - Text: "</p>\n        <div>\n            "
-          - Comment: "This div is unclosed which doesn't matter"
-          - Text: "\n        "
-          - Block:
-              Standard:
-                name: for
-                bits:
-                  - for
-                  - item
-                  - in
-                  - items
-                children:
-                  - Text: "\n            <span>"
-                  - Variable:
-                      bits:
-                        - item
-                      filters: []
-                  - Text: "</span>\n        "
-                  - Block:
-                      Closing:
-                        name: endfor
-                        bits: []
-          - Text: "\n    <footer>Page Footer</footer>\n</div>"
+      block_type: Standard
+      name: if
+      bits:
+        - if
+        - user.is_authenticated
+      children:
+        - Text: "\n        "
+        - Comment: This if is unclosed which does matter
+        - Text: "\n        <p>Welcome "
+        - Variable:
+            bits:
+              - user
+              - name
+            filters: []
+        - Text: "</p>\n        <div>\n            "
+        - Comment: "This div is unclosed which doesn't matter"
+        - Text: "\n        "
+        - Block:
+            block_type: Standard
+            name: for
+            bits:
+              - for
+              - item
+              - in
+              - items
+            children:
+              - Text: "\n            <span>"
+              - Variable:
+                  bits:
+                    - item
+                  filters: []
+              - Text: "</span>\n        "
+              - Block:
+                  block_type: Closing
+                  name: endfor
+                  bits: []
+                  children: ~
+        - Text: "\n    <footer>Page Footer</footer>\n</div>"
 errors:
   - UnclosedTag: if

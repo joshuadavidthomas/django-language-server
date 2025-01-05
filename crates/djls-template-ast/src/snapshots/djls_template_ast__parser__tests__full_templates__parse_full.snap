@@ -5,48 +5,50 @@ expression: ast
 nodes:
   - Text: "<!DOCTYPE html>\n<html>\n    <head>\n        <style type=\"text/css\">\n            /* Style header */\n            .header { color: blue; }\n        </style>\n        <script type=\"text/javascript\">\n            // Init app\n            const app = {\n                /* Config */\n                debug: true\n            };\n        </script>\n    </head>\n    <body>\n        <!-- Header section -->\n        <div class=\"header\" id=\"main\" data-value=\"123\" disabled>\n            "
   - Block:
-      Standard:
-        name: if
-        bits:
-          - if
-          - user.is_authenticated
-        children:
-          - Text: "\n                "
-          - Comment: Welcome message
-          - Text: "\n                <h1>Welcome, "
-          - Variable:
-              bits:
-                - user
-                - name
-              filters:
-                - name: title
-                  arguments: []
-                - name: default
-                  arguments:
-                    - "'Guest'"
-          - Text: "!</h1>\n                "
-          - Block:
-              Standard:
-                name: if
-                bits:
-                  - if
-                  - user.is_staff
-                children:
-                  - Text: "\n                    <span>Admin</span>\n                "
-                  - Block:
-                      Branch:
-                        name: else
-                        bits: []
-                        children:
-                          - Text: "\n                    <span>User</span>\n                "
-                  - Block:
-                      Closing:
-                        name: endif
-                        bits: []
-          - Text: "\n            "
-          - Block:
-              Closing:
-                name: endif
-                bits: []
+      block_type: Standard
+      name: if
+      bits:
+        - if
+        - user.is_authenticated
+      children:
+        - Text: "\n                "
+        - Comment: Welcome message
+        - Text: "\n                <h1>Welcome, "
+        - Variable:
+            bits:
+              - user
+              - name
+            filters:
+              - name: title
+                arguments: []
+              - name: default
+                arguments:
+                  - "'Guest'"
+        - Text: "!</h1>\n                "
+        - Block:
+            block_type: Standard
+            name: if
+            bits:
+              - if
+              - user.is_staff
+            children:
+              - Text: "\n                    <span>Admin</span>\n                "
+              - Block:
+                  block_type: Branch
+                  name: else
+                  bits: []
+                  children:
+                    - Text: "\n                    <span>User</span>\n                "
+              - Block:
+                  block_type: Closing
+                  name: endif
+                  bits: []
+                  children: ~
+        - Text: "\n            "
+        - Block:
+            block_type: Closing
+            name: endif
+            bits: []
+            children: ~
   - Text: "\n        </div>\n    </body>\n</html>"
 errors: []

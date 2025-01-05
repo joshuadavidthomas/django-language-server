@@ -4,12 +4,12 @@ expression: ast
 ---
 nodes:
   - Block:
-      Standard:
-        name: if
-        bits:
-          - if
-          - user.is_authenticated
-        children:
-          - Text: Welcome
+      block_type: Standard
+      name: if
+      bits:
+        - if
+        - user.is_authenticated
+      children:
+        - Text: Welcome
 errors:
   - UnclosedTag: if
