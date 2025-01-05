@@ -57,6 +57,20 @@ pub struct Span {
     length: u16,
 }
 
+impl Span {
+    pub fn new(start: u32, length: u16) -> Self {
+        Self { start, length }
+    }
+
+    pub fn start(&self) -> &u32 {
+        &self.start
+    }
+
+    pub fn length(&self) -> &u16 {
+        &self.length
+    }
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub enum Node {
     Text {
@@ -97,8 +111,12 @@ pub struct DjangoFilter {
 }
 
 impl DjangoFilter {
-    pub fn new(name: String, arguments: Vec<String>) -> Self {
-        Self { name, arguments }
+    pub fn new(name: String, arguments: Vec<String>, span: Span) -> Self {
+        Self {
+            name,
+            arguments,
+            span,
+        }
     }
 }
 
