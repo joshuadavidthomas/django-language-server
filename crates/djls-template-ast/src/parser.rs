@@ -15,21 +15,25 @@ impl Parser {
 
     pub fn parse(&mut self) -> Result<Ast, ParserError> {
         let mut ast = Ast::default();
-        let mut line_offsets = LineOffsets::new();
+        let mut line_offsets = LineOffsets::new();  // Already contains [0]
 
         // First pass: collect line offsets
-        let mut current_offset = 0;
         for token in self.tokens.tokens() {
             match token.token_type() {
                 TokenType::Newline => {
-                    current_offset += 1;  // Add 1 for the newline character
-                    line_offsets.add_line(current_offset as u32);
-                }
-                _ => {
-                    if let Some(len) = token.token_type().len() {
-                        current_offset += len;
+                    if let Some(start) = token.start() {
+                        eprintln!("Parser: Found newline at position {}", start);
+                        // Add line offset at the start of the next line
+                        line_offsets.add_line(*start as u32 + 1);
+                        eprintln!("Parser: Added line offset {} at position {}", line_offsets.0.len(), start + 1);
                     }
                 }
+                TokenType::Whitespace(count) => {
+                    if let Some(start) = token.start() {
+                        eprintln!("Parser: Found whitespace of length {} at position {}", count, start);
+                    }
+                }
+                _ => {}
             }
         }
 
@@ -189,20 +193,21 @@ impl Parser {
                             }
                             let closing_token = self.peek_previous()?;
                             let closing_content = match closing_token.token_type() {
-                                TokenType::DjangoBlock(content) => content.len(),
+                                TokenType::DjangoBlock(content) => content.len() + 5, // Add 5 for {% and %}
                                 _ => 0,
                             };
-                            total_length = (closing_token.start().unwrap_or(0) + closing_content)
-                                - start_pos as usize;
+                            let closing_start = closing_token.start().unwrap_or(0);
+                            total_length = (closing_start + closing_content) - start_pos as usize;
+                            let closing_span = Span::new(
+                                closing_start as u32,
+                                closing_content as u16,
+                            );
                             children.push(Node::Block {
                                 block_type: BlockType::Closing,
                                 name: tag,
                                 bits: vec![],
                                 children: None,
-                                span: Span::new(
-                                    closing_token.start().unwrap_or(0) as u32,
-                                    closing_content as u16,
-                                ),
+                                span: closing_span,
                                 tag_span,
                             });
                             found_closing_tag = true;
@@ -210,7 +215,7 @@ impl Parser {
                         }
                         // Check if intermediate tag
                         if let Some(branches) = &spec.branches {
-                            if let Some(branch) = branches.iter().find(|i| i.name == tag) {
+                            if let Some(branch) = branches.iter().find(|b| b.name == tag) {
                                 // If we have a current branch, add it to children
                                 if let Some((name, bits, branch_children)) = current_branch {
                                     let branch_span = Span::new(start_pos, total_length as u16);
@@ -281,10 +286,11 @@ impl Parser {
     }
 
     fn parse_django_variable(&mut self, s: &str) -> Result<Node, ParserError> {
-        let start_token = self.peek_previous()?;
-        let start_pos = start_token.start().unwrap_or(0) as u32;
+        let token = self.peek_previous()?;
+        let start_pos = token.start().unwrap_or(0) as u32;
+        let s = s.trim();  // Trim whitespace
         let length = s.len() as u16;
-        let span = Span::new(start_pos, length);
+        let span = Span::new(start_pos + 3, length);  // Add 3 to skip "{{ "
 
         let parts: Vec<&str> = s.split('|').collect();
         let bits: Vec<String> = parts[0].trim().split('.').map(String::from).collect();
@@ -324,9 +330,29 @@ impl Parser {
     }
 
     fn parse_text(&mut self) -> Result<Node, ParserError> {
-        let start_token = self.peek()?;
-        let start_pos = start_token.start().unwrap_or(0) as u32;
+        let mut start_pos = self.peek()?.start().unwrap_or(0) as u32;
         let mut text = String::new();
+
+        // Skip any leading newlines and whitespace
+        while let Ok(token) = self.peek() {
+            match token.token_type() {
+                TokenType::Newline => {
+                    self.consume()?;
+                    text.push('\n');
+                    if let Ok(next) = self.peek() {
+                        start_pos = next.start().unwrap_or(0) as u32;
+                    }
+                }
+                TokenType::Whitespace(len) => {
+                    self.consume()?;
+                    text.push_str(&" ".repeat(*len));
+                    if let Ok(next) = self.peek() {
+                        start_pos = next.start().unwrap_or(0) as u32;
+                    }
+                }
+                _ => break,
+            }
+        }
 
         while let Ok(token) = self.peek() {
             match token.token_type() {
@@ -530,7 +556,8 @@ mod tests {
         }
         #[test]
         fn test_parse_complex_if_elif() {
-            let source = "{% if x > 0 %}Positive{% elif x < 0 %}Negative{% else %}Zero{% endif %}";
+            let source =
+                "{% if x > 0 %}Positive{% elif x < 0 %}Negative{% else %}Zero{% endif %}";
             let tokens = Lexer::new(source).tokenize().unwrap();
             let mut parser = Parser::new(tokens);
             let ast = parser.parse().unwrap();
@@ -734,6 +761,7 @@ mod tests {
             let ast = parser.parse().unwrap();
 
             let offsets = ast.line_offsets();
+            eprintln!("{:?}", offsets);
             assert_eq!(offsets.position_to_line_col(0), (0, 0)); // Start of line 1
             assert_eq!(offsets.position_to_line_col(6), (1, 0)); // Start of line 2
         }

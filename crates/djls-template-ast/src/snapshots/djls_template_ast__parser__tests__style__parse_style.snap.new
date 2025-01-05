@@ -1,6 +1,8 @@
 ---
 source: crates/djls-template-ast/src/parser.rs
+assertion_line: 597
 expression: ast
+snapshot_kind: text
 ---
 nodes:
   - Text:
@@ -9,7 +11,6 @@ nodes:
         start: 0
         length: 97
 line_offsets:
-  - 0
   - 0
   - 24
   - 48

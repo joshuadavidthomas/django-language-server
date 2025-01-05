@@ -1,6 +1,8 @@
 ---
 source: crates/djls-template-ast/src/parser.rs
+assertion_line: 720
 expression: ast
+snapshot_kind: text
 ---
 nodes:
   - Text:
@@ -38,16 +40,16 @@ nodes:
               - name: title
                 arguments: []
                 span:
-                  start: 573
+                  start: 571
                   length: 5
               - name: default
                 arguments:
                   - "'Guest'"
                 span:
-                  start: 579
+                  start: 577
                   length: 15
             span:
-              start: 563
+              start: 564
               length: 31
         - Text:
             content: "!</h1>\n                "
@@ -127,7 +129,6 @@ nodes:
         start: 799
         length: 35
 line_offsets:
-  - 0
   - 0
   - 16
   - 23
