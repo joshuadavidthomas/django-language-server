@@ -1,6 +1,8 @@
 ---
 source: crates/djls-template-ast/src/parser.rs
+assertion_line: 511
 expression: ast
+snapshot_kind: text
 ---
 nodes:
   - Variable:
@@ -11,22 +13,21 @@ nodes:
           arguments:
             - "'nothing'"
           span:
-            start: 8
+            start: 6
             length: 17
         - name: title
           arguments: []
           span:
-            start: 26
+            start: 24
             length: 5
         - name: upper
           arguments: []
           span:
-            start: 32
+            start: 30
             length: 5
       span:
-        start: 2
+        start: 3
         length: 35
 line_offsets:
-  - 0
   - 0
 errors: []

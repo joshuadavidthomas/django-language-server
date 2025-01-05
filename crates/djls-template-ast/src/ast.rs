@@ -42,7 +42,7 @@ impl Ast {
 }
 
 #[derive(Clone, Default, Debug, Serialize)]
-pub struct LineOffsets(Vec<u32>);
+pub struct LineOffsets(pub Vec<u32>);
 
 impl LineOffsets {
     pub fn new() -> Self {
@@ -55,11 +55,33 @@ impl LineOffsets {
     }
 
     pub fn position_to_line_col(&self, offset: u32) -> (u32, u32) {
+        eprintln!("LineOffsets: Converting position {} to line/col. Offsets: {:?}", offset, self.0);
+        
+        // Find which line contains this offset by looking for the first line start
+        // that's greater than our position
         let line = match self.0.binary_search(&offset) {
-            Ok(line) => line,
-            Err(line) => if line > 0 { line - 1 } else { line },
+            Ok(exact_line) => exact_line,  // We're exactly at a line start, so we're on that line
+            Err(next_line) => {
+                if next_line == 0 {
+                    0  // Before first line start, so we're on line 0
+                } else {
+                    let prev_line = next_line - 1;
+                    // If we're at the start of the next line, we're on that line
+                    if offset == self.0[next_line] - 1 {
+                        prev_line
+                    } else {
+                        // Otherwise we're on the previous line
+                        prev_line
+                    }
+                }
+            }
         };
+        
+        // Calculate column as offset from line start
         let col = offset - self.0[line];
+        
+        eprintln!("LineOffsets: Found line {} starting at offset {}", line, self.0[line]);
+        eprintln!("LineOffsets: Calculated col {} as {} - {}", col, offset, self.0[line]);
         (line as u32, col)
     }
 
@@ -185,6 +207,7 @@ mod tests {
         fn test_variable_spans() {
             let template = "Hello\n{{ user.name }}\nWorld";
             let tokens = Lexer::new(template).tokenize().unwrap();
+            println!("Tokens: {:#?}", tokens); // Add debug print
             let mut parser = Parser::new(tokens);
             let ast = parser.parse().unwrap();
 
@@ -236,6 +259,8 @@ mod tests {
                 // Check content span
                 if let Some(content) = children {
                     if let Node::Text { span, .. } = &content[0] {
+                        eprintln!("content {:?}", content);
+                        eprintln!("span start {:?}", span.start());
                         let (content_line, content_col) =
                             ast.line_offsets.position_to_line_col(*span.start());
                         assert_eq!(

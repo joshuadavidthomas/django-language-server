@@ -1,14 +1,15 @@
 ---
 source: crates/djls-template-ast/src/parser.rs
+assertion_line: 648
 expression: ast
+snapshot_kind: text
 ---
 nodes:
   - Text:
-      content: "<style>body { color: blue; "
+      content: "<script>console.log('test');"
       span:
         start: 0
-        length: 27
+        length: 28
 line_offsets:
-  - 0
   - 0
 errors: []
