@@ -330,35 +330,22 @@ impl Parser {
     }
 
     fn synchronize(&mut self) -> Result<(), ParserError> {
-        let mut depth = 0;
-        let mut found_django_token = false;
-
+        let sync_types = [
+            TokenType::DjangoBlock(String::new()),
+            TokenType::DjangoVariable(String::new()),
+            TokenType::Comment(String::new(), String::from("{#"), Some(String::from("#}"))),
+            TokenType::Eof,
+        ];
         while !self.is_at_end() {
-            if let TokenType::DjangoBlock(content) = &self.tokens[self.current].token_type() {
-                let tag = content.split_whitespace().next().unwrap_or("");
-                if let Some(spec) = TagSpec::load_builtin_specs().unwrap_or_default().get(tag) {
-                    if spec.closing.as_deref() == Some(tag) {
-                        depth -= 1;
-                        if depth <= 0 {
-                            found_django_token = true;
-                            break;
-                        }
-                    } else {
-                        depth += 1;
-                    }
+            let current = self.peek()?;
+            for sync_type in &sync_types {
+                if current.token_type() == sync_type {
+                    return Ok(());
                 }
             }
-            self.current += 1;
+            self.consume()?;
         }
-
-        if !found_django_token {
-            return Err(ParserError::Ast(
-                AstError::StreamError("AtEnd".into()),
-                None,
-            ));
-        }
-
-        Ok(())
+        Err(ParserError::Ast(AstError::StreamError("AtEnd".into()), None))
     }
 }
 
