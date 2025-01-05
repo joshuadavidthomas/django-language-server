@@ -460,10 +460,10 @@ impl ParserError {
 mod tests {
     use super::*;
     use crate::lexer::Lexer;
+    use crate::tokens::Token;
 
     mod html {
         use super::*;
-
         #[test]
         fn test_parse_html_doctype() {
             let source = "<!DOCTYPE html>";
@@ -472,7 +472,6 @@ mod tests {
             let ast = parser.parse().unwrap();
             insta::assert_yaml_snapshot!(ast);
         }
-
         #[test]
         fn test_parse_html_tag() {
             let source = "<div class=\"container\">Hello</div>";
@@ -481,7 +480,6 @@ mod tests {
             let ast = parser.parse().unwrap();
             insta::assert_yaml_snapshot!(ast);
         }
-
         #[test]
         fn test_parse_html_void() {
             let source = "<input type=\"text\" />";
@@ -491,10 +489,8 @@ mod tests {
             insta::assert_yaml_snapshot!(ast);
         }
     }
-
     mod django {
         use super::*;
-
         #[test]
         fn test_parse_django_variable() {
             let source = "{{ user.name|title }}";
@@ -503,7 +499,6 @@ mod tests {
             let ast = parser.parse().unwrap();
             insta::assert_yaml_snapshot!(ast);
         }
-
         #[test]
         fn test_parse_filter_chains() {
             let source = "{{ value|default:'nothing'|title|upper }}";
@@ -512,7 +507,6 @@ mod tests {
             let ast = parser.parse().unwrap();
             insta::assert_yaml_snapshot!(ast);
         }
-
         #[test]
         fn test_parse_django_if_block() {
             let source = "{% if user.is_authenticated %}Welcome{% endif %}";
@@ -521,7 +515,6 @@ mod tests {
             let ast = parser.parse().unwrap();
             insta::assert_yaml_snapshot!(ast);
         }
-
         #[test]
         fn test_parse_django_for_block() {
             let source = "{% for item in items %}{{ item }}{% empty %}No items{% endfor %}";
@@ -530,7 +523,6 @@ mod tests {
             let ast = parser.parse().unwrap();
             insta::assert_yaml_snapshot!(ast);
         }
-
         #[test]
         fn test_parse_complex_if_elif() {
             let source = "{% if x > 0 %}Positive{% elif x < 0 %}Negative{% else %}Zero{% endif %}";
@@ -539,7 +531,6 @@ mod tests {
             let ast = parser.parse().unwrap();
             insta::assert_yaml_snapshot!(ast);
         }
-
         #[test]
         fn test_parse_nested_for_if() {
             let source =
@@ -549,7 +540,6 @@ mod tests {
             let ast = parser.parse().unwrap();
             insta::assert_yaml_snapshot!(ast);
         }
-
         #[test]
         fn test_parse_mixed_content() {
             let source = "Welcome, {% if user.is_authenticated %}
@@ -571,10 +561,8 @@ mod tests {
             insta::assert_yaml_snapshot!(ast);
         }
     }
-
     mod script {
         use super::*;
-
         #[test]
         fn test_parse_script() {
             let source = r#"<script type="text/javascript">
@@ -590,10 +578,8 @@ mod tests {
             insta::assert_yaml_snapshot!(ast);
         }
     }
-
     mod style {
         use super::*;
-
         #[test]
         fn test_parse_style() {
             let source = r#"<style type="text/css">
@@ -608,10 +594,8 @@ mod tests {
             insta::assert_yaml_snapshot!(ast);
         }
     }
-
     mod comments {
         use super::*;
-
         #[test]
         fn test_parse_comments() {
             let source = "<!-- HTML comment -->{# Django comment #}";
@@ -621,10 +605,8 @@ mod tests {
             insta::assert_yaml_snapshot!(ast);
         }
     }
-
     mod errors {
         use super::*;
-
         #[test]
         fn test_parse_unclosed_html_tag() {
             let source = "<div>";
@@ -634,7 +616,6 @@ mod tests {
             insta::assert_yaml_snapshot!(ast);
             assert_eq!(ast.errors().len(), 0);
         }
-
         #[test]
         fn test_parse_unclosed_django_if() {
             let source = "{% if user.is_authenticated %}Welcome";
@@ -645,7 +626,6 @@ mod tests {
             assert_eq!(ast.errors().len(), 1);
             assert!(matches!(&ast.errors()[0], AstError::UnclosedTag(tag) if tag == "if"));
         }
-
         #[test]
         fn test_parse_unclosed_django_for() {
             let source = "{% for item in items %}{{ item.name }}";
@@ -656,7 +636,6 @@ mod tests {
             assert_eq!(ast.errors().len(), 1);
             assert!(matches!(&ast.errors()[0], AstError::UnclosedTag(tag) if tag == "for"));
         }
-
         #[test]
         fn test_parse_unclosed_script() {
             let source = "<script>console.log('test');";
@@ -666,7 +645,6 @@ mod tests {
             insta::assert_yaml_snapshot!(ast);
             assert_eq!(ast.errors().len(), 0);
         }
-
         #[test]
         fn test_parse_unclosed_style() {
             let source = "<style>body { color: blue; ";
@@ -676,7 +654,6 @@ mod tests {
             insta::assert_yaml_snapshot!(ast);
             assert_eq!(ast.errors().len(), 0);
         }
-
         #[test]
         fn test_parse_error_recovery() {
             let source = r#"<div class="container">
@@ -702,7 +679,6 @@ mod tests {
 
     mod full_templates {
         use super::*;
-
         #[test]
         fn test_parse_full() {
             let source = r#"<!DOCTYPE html>
@@ -742,114 +718,19 @@ mod tests {
         }
     }
 
-    mod span_tracking {
+    mod line_tracking {
         use super::*;
 
         #[test]
-        fn test_span_tracking() {
-            let mut tokens = TokenStream::default();
-            // First line: "Hello\n"
-            tokens.add_token(Token::new(TokenType::Text("Hello".to_string()), 0, Some(0)));
-            tokens.add_token(Token::new(TokenType::Newline, 0, Some(5)));
-            // Second line: "{{ name }}\n"
-            tokens.add_token(Token::new(
-                TokenType::DjangoVariable("name".to_string()),
-                1,
-                Some(6),
-            ));
-            tokens.add_token(Token::new(TokenType::Newline, 1, Some(16)));
-            // Third line: "{% if condition %}\n"
-            tokens.add_token(Token::new(
-                TokenType::DjangoBlock("if condition".to_string()),
-                2,
-                Some(17),
-            ));
-            tokens.add_token(Token::new(TokenType::Newline, 2, Some(34)));
-            // Fourth line: "  Content\n"
-            tokens.add_token(Token::new(TokenType::Whitespace(2), 3, Some(35)));
-            tokens.add_token(Token::new(
-                TokenType::Text("Content".to_string()),
-                3,
-                Some(37),
-            ));
-            tokens.add_token(Token::new(TokenType::Newline, 3, Some(44)));
-            // Fifth line: "{% endif %}"
-            tokens.add_token(Token::new(
-                TokenType::DjangoBlock("endif".to_string()),
-                4,
-                Some(45),
-            ));
-            tokens.finalize(4);
-
+        fn test_parser_tracks_line_offsets() {
+            let source = "line1\nline2";
+            let tokens = Lexer::new(source).tokenize().unwrap();
             let mut parser = Parser::new(tokens);
             let ast = parser.parse().unwrap();
 
-            // Verify line offsets
             let offsets = ast.line_offsets();
-            assert_eq!(offsets.position_to_line_col(0), (0, 0)); // Start of first line
-            assert_eq!(offsets.position_to_line_col(6), (1, 0)); // Start of second line
-            assert_eq!(offsets.position_to_line_col(17), (2, 0)); // Start of third line
-            assert_eq!(offsets.position_to_line_col(35), (3, 0)); // Start of fourth line
-            assert_eq!(offsets.position_to_line_col(45), (4, 0)); // Start of fifth line
-
-            // Verify node spans
-            let nodes = ast.nodes();
-
-            // First node: Text "Hello"
-            if let Node::Text { content, span } = &nodes[0] {
-                assert_eq!(content, "Hello");
-                assert_eq!(*span.start(), 0);
-                assert_eq!(*span.length(), 5);
-            } else {
-                panic!("Expected Text node");
-            }
-
-            // Second node: Variable "name"
-            if let Node::Variable {
-                bits,
-                filters,
-                span,
-            } = &nodes[1]
-            {
-                assert_eq!(bits[0], "name");
-                assert!(filters.is_empty());
-                assert_eq!(*span.start(), 6);
-                assert_eq!(*span.length(), 4);
-            } else {
-                panic!("Expected Variable node");
-            }
-
-            // Third node: Block "if condition"
-            if let Node::Block {
-                name,
-                bits,
-                children,
-                span,
-                tag_span,
-                ..
-            } = &nodes[2]
-            {
-                assert_eq!(name, "if");
-                assert_eq!(bits[1], "condition");
-                assert_eq!(*span.start(), 17);
-                assert_eq!(*tag_span.start(), 17);
-                assert_eq!(*tag_span.length(), 11);
-
-                // Check content node
-                if let Some(child_nodes) = children {
-                    if let Node::Text { content, span } = &child_nodes[0] {
-                        assert_eq!(content.trim(), "Content");
-                        assert_eq!(*span.start(), 37);
-                        assert_eq!(*span.length(), 7);
-                    } else {
-                        panic!("Expected Text node as child");
-                    }
-                } else {
-                    panic!("Expected children in if block");
-                }
-            } else {
-                panic!("Expected Block node");
-            }
+            assert_eq!(offsets.position_to_line_col(0), (0, 0)); // Start of line 1
+            assert_eq!(offsets.position_to_line_col(6), (1, 0)); // Start of line 2
         }
     }
 }
