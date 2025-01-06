@@ -1,0 +1,10 @@
+---
+source: crates/djls-template-ast/src/parser.rs
+assertion_line: 553
+expression: ast
+snapshot_kind: text
+---
+nodes: []
+line_offsets:
+  - 0
+errors: []

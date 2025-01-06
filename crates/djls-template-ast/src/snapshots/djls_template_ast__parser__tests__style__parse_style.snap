@@ -7,32 +7,32 @@ nodes:
       content: "<style type=\"text/css\">"
       span:
         start: 0
-        length: 23
-  - Text:
-      content: "\n    /* Header styles */"
-      span:
-        start: 23
         length: 24
   - Text:
-      content: "\n    .header {"
+      content: "    /* Header styles */"
       span:
-        start: 47
+        start: 24
+        length: 24
+  - Text:
+      content: "    .header {"
+      span:
+        start: 48
         length: 14
   - Text:
-      content: "\n        color: blue;"
+      content: "        color: blue;"
       span:
-        start: 61
+        start: 62
         length: 21
   - Text:
-      content: "\n    }"
+      content: "    }"
       span:
-        start: 82
+        start: 83
         length: 6
   - Text:
-      content: "\n</style>"
+      content: "</style>"
       span:
-        start: 88
-        length: 9
+        start: 89
+        length: 8
 line_offsets:
   - 0
   - 24
