@@ -23,11 +23,6 @@ nodes:
             length: 24
           assignment: ~
         nodes:
-          - Text:
-              content: "\n    "
-              span:
-                start: 39
-                length: 5
           - Variable:
               bits:
                 - user
@@ -47,11 +42,6 @@ nodes:
               span:
                 start: 47
                 length: 31
-          - Text:
-              content: "\n    "
-              span:
-                start: 81
-                length: 5
           - Block:
               Block:
                 tag:
@@ -69,11 +59,6 @@ nodes:
                     length: 24
                   assignment: ~
                 nodes:
-                  - Text:
-                      content: "\n        "
-                      span:
-                        start: 116
-                        length: 9
                   - Block:
                       Block:
                         tag:
@@ -108,11 +93,6 @@ nodes:
                                 length: 5
                               assignment: ~
                         assignments: []
-                  - Text:
-                      content: "\n        "
-                      span:
-                        start: 159
-                        length: 9
                   - Variable:
                       bits:
                         - group
@@ -121,11 +101,6 @@ nodes:
                       span:
                         start: 171
                         length: 10
-                  - Text:
-                      content: "\n        "
-                      span:
-                        start: 184
-                        length: 9
                   - Block:
                       Block:
                         tag:
@@ -161,11 +136,6 @@ nodes:
                                 length: 5
                               assignment: ~
                         assignments: []
-                  - Text:
-                      content: "\n        "
-                      span:
-                        start: 231
-                        length: 9
                   - Block:
                       Block:
                         tag:
@@ -200,11 +170,6 @@ nodes:
                                 length: 5
                               assignment: ~
                         assignments: []
-                  - Text:
-                      content: "\n    "
-                      span:
-                        start: 273
-                        length: 5
                   - Block:
                       Tag:
                         tag:
@@ -219,15 +184,10 @@ nodes:
                             length: 5
                           assignment: ~
                   - Text:
-                      content: "\n        (no groups)"
+                      content: "        (no groups)"
                       span:
-                        start: 289
+                        start: 290
                         length: 20
-                  - Text:
-                      content: "\n    "
-                      span:
-                        start: 309
-                        length: 5
                 closing:
                   Closing:
                     tag:
@@ -242,11 +202,6 @@ nodes:
                         length: 6
                       assignment: ~
                 assignments: []
-          - Text:
-              content: "\n"
-              span:
-                start: 326
-                length: 1
           - Block:
               Tag:
                 tag:
@@ -261,15 +216,10 @@ nodes:
                     length: 4
                   assignment: ~
           - Text:
-              content: "\n    Guest"
+              content: "    Guest"
               span:
-                start: 337
+                start: 338
                 length: 10
-          - Text:
-              content: "\n"
-              span:
-                start: 347
-                length: 1
         closing:
           Closing:
             tag:

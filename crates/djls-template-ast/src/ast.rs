@@ -361,13 +361,13 @@ mod tests {
 
                 // Check nodes
                 eprintln!("Nodes: {:?}", nodes);
-                assert_eq!(nodes.len(), 4);
-                if let Node::Text { content, span } = &nodes[2] {
-                    assert_eq!(content, "Welcome!");
+                assert_eq!(nodes.len(), 1);
+                if let Node::Text { content, span } = &nodes[0] {
+                    assert_eq!(content, "  Welcome!");
                     eprintln!("Line offsets: {:?}", ast.line_offsets());
                     eprintln!("Span: {:?}", span);
                     let (line, col) = ast.line_offsets().position_to_line_col(span.start);
-                    assert_eq!((line, col), (2, 2), "Content should be on line 2, col 2");
+                    assert_eq!((line, col), (2, 0), "Content should be on line 2, col 0");
 
                     // Check closing tag
                     if let Block::Closing { tag } =

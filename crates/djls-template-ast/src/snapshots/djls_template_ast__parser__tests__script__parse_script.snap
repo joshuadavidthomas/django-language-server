@@ -7,37 +7,37 @@ nodes:
       content: "<script type=\"text/javascript\">"
       span:
         start: 0
-        length: 31
+        length: 32
   - Text:
-      content: "\n    // Single line comment"
+      content: "    // Single line comment"
       span:
-        start: 31
+        start: 32
         length: 27
   - Text:
-      content: "\n    const x = 1;"
+      content: "    const x = 1;"
       span:
-        start: 58
+        start: 59
         length: 17
   - Text:
-      content: "\n    /* Multi-line"
+      content: "    /* Multi-line"
       span:
-        start: 75
+        start: 76
         length: 18
   - Text:
-      content: "\n        comment */"
+      content: "        comment */"
       span:
-        start: 93
+        start: 94
         length: 19
   - Text:
-      content: "\n    console.log(x);"
+      content: "    console.log(x);"
       span:
-        start: 112
+        start: 113
         length: 20
   - Text:
-      content: "\n</script>"
+      content: "</script>"
       span:
-        start: 132
-        length: 10
+        start: 133
+        length: 9
 line_offsets:
   - 0
   - 32

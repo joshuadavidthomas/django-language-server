@@ -7,17 +7,12 @@ nodes:
       content: "<div class=\"container\">"
       span:
         start: 0
-        length: 23
+        length: 24
   - Text:
-      content: "\n    <h1>Header</h1>"
+      content: "    <h1>Header</h1>"
       span:
-        start: 23
+        start: 24
         length: 20
-  - Text:
-      content: "\n    "
-      span:
-        start: 43
-        length: 5
   - Block:
       Block:
         tag:
@@ -33,21 +28,16 @@ nodes:
             length: 24
           assignment: ~
         nodes:
-          - Text:
-              content: "\n        "
-              span:
-                start: 78
-                length: 9
           - Comment:
               content: This if is unclosed which does matter
               span:
                 start: 87
                 length: 41
           - Text:
-              content: "\n        <p>Welcome "
+              content: "        <p>Welcome "
               span:
-                start: 130
-                length: 20
+                start: 131
+                length: 19
           - Variable:
               bits:
                 - user
@@ -60,27 +50,17 @@ nodes:
               content: "</p>"
               span:
                 start: 165
-                length: 4
+                length: 5
           - Text:
-              content: "\n        <div>"
+              content: "        <div>"
               span:
-                start: 169
+                start: 170
                 length: 14
-          - Text:
-              content: "\n            "
-              span:
-                start: 183
-                length: 13
           - Comment:
               content: "This div is unclosed which doesn't matter"
               span:
                 start: 196
                 length: 45
-          - Text:
-              content: "\n        "
-              span:
-                start: 243
-                length: 9
           - Block:
               Block:
                 tag:
@@ -99,10 +79,10 @@ nodes:
                   assignment: ~
                 nodes:
                   - Text:
-                      content: "\n            <span>"
+                      content: "            <span>"
                       span:
-                        start: 275
-                        length: 19
+                        start: 276
+                        length: 18
                   - Variable:
                       bits:
                         - item
@@ -114,12 +94,7 @@ nodes:
                       content: "</span>"
                       span:
                         start: 304
-                        length: 7
-                  - Text:
-                      content: "\n        "
-                      span:
-                        start: 311
-                        length: 9
+                        length: 8
                 closing:
                   Closing:
                     tag:
@@ -135,15 +110,15 @@ nodes:
                       assignment: ~
                 assignments: []
           - Text:
-              content: "\n    <footer>Page Footer</footer>"
+              content: "    <footer>Page Footer</footer>"
               span:
-                start: 332
+                start: 333
                 length: 33
           - Text:
-              content: "\n</div>"
+              content: "</div>"
               span:
-                start: 365
-                length: 7
+                start: 366
+                length: 6
         closing: ~
         assignments: []
 line_offsets:
