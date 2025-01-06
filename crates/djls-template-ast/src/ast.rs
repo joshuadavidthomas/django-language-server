@@ -46,8 +46,9 @@ pub struct LineOffsets(pub Vec<u32>);
 
 impl LineOffsets {
     pub fn new() -> Self {
-        let offsets = vec![0];
-        Self(offsets)
+        // Start with offset 0 for line 1
+        // This maintains compatibility with existing code
+        Self(vec![0])
     }
 
     pub fn add_line(&mut self, offset: u32) {
@@ -58,29 +59,25 @@ impl LineOffsets {
         // Find which line contains this offset by looking for the first line start
         // that's greater than our position
         let line = match self.0.binary_search(&offset) {
-            Ok(exact_line) => exact_line, // We're exactly at a line start, so we're on that line
+            Ok(exact_line) => exact_line, // We're exactly at a line start
             Err(next_line) => {
                 if next_line == 0 {
-                    0 // Before first line start, so we're on line 0
+                    0 // Before first line start, so we're on line 1
                 } else {
-                    let prev_line = next_line - 1;
-                    // If we're at the start of the next line, we're on that line
-                    if offset == self.0[next_line] - 1 {
-                        prev_line
-                    } else {
-                        // Otherwise we're on the previous line
-                        prev_line
-                    }
+                    next_line - 1 // We're on the previous line
                 }
             }
         };
 
         // Calculate column as offset from line start
         let col = offset - self.0[line];
-        ((line as u32) + 1, col)
+
+        // Convert to 1-based line number
+        (line as u32 + 1, col)
     }
 
     pub fn line_col_to_position(&self, line: u32, col: u32) -> u32 {
+        // line is 1-based, so subtract 1 to get the index
         self.0[(line - 1) as usize] + col
     }
 }
@@ -264,18 +261,18 @@ mod tests {
         #[test]
         fn test_new_starts_at_zero() {
             let offsets = LineOffsets::new();
-            assert_eq!(offsets.position_to_line_col(0), (1, 0));
+            assert_eq!(offsets.position_to_line_col(0), (1, 0)); // Line 1, column 0
         }
 
         #[test]
         fn test_start_of_lines() {
             let mut offsets = LineOffsets::new();
-            offsets.add_line(10); // Line 1
-            offsets.add_line(25); // Line 2
+            offsets.add_line(10); // Line 2 starts at offset 10
+            offsets.add_line(25); // Line 3 starts at offset 25
 
-            assert_eq!(offsets.position_to_line_col(0), (1, 0)); // Line 1
-            assert_eq!(offsets.position_to_line_col(10), (2, 0)); // Line 2
-            assert_eq!(offsets.position_to_line_col(25), (3, 0)); // Line 3
+            assert_eq!(offsets.position_to_line_col(0), (1, 0)); // Line 1, start
+            assert_eq!(offsets.position_to_line_col(10), (2, 0)); // Line 2, start
+            assert_eq!(offsets.position_to_line_col(25), (3, 0)); // Line 3, start
         }
     }
 
