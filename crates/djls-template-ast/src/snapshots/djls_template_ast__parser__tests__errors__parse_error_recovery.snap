@@ -29,10 +29,10 @@ nodes:
           assignment: ~
         nodes:
           - Comment:
-              content: "{# This if is unclosed which does matter #}"
+              content: This if is unclosed which does matter
               span:
                 start: 87
-                length: 43
+                length: 37
           - Text:
               content: "<p>Welcome"
               span:
@@ -57,10 +57,10 @@ nodes:
                 start: 178
                 length: 5
           - Comment:
-              content: "{# This div is unclosed which doesn't matter #}"
+              content: "This div is unclosed which doesn't matter"
               span:
                 start: 196
-                length: 47
+                length: 41
           - Block:
               Block:
                 tag:
