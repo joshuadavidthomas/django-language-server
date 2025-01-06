@@ -1,9 +1,7 @@
 use anyhow::Result;
 use serde::Deserialize;
 use std::collections::HashMap;
-use std::convert::TryFrom;
 use std::fs;
-use std::ops::{Deref, Index};
 use std::path::Path;
 use thiserror::Error;
 use toml::Value;
@@ -96,14 +94,6 @@ impl TagSpecs {
         let mut specs = Self::load_builtin_specs()?;
         let user_specs = Self::load_user_specs(project_root)?;
         Ok(specs.merge(user_specs).clone())
-    }
-}
-
-impl TryFrom<&Path> for TagSpecs {
-    type Error = TagSpecError;
-
-    fn try_from(path: &Path) -> Result<Self, Self::Error> {
-        Self::load_from_toml(path, &[]).map_err(Into::into)
     }
 }
 
