@@ -269,13 +269,13 @@ Examples:
 Tag Specifications (TagSpecs) define how tags are parsed and understood. They allow the parser to handle custom tags without hard-coding them.
 
 ```toml
-[tag_name]
-type = "block" | "branch" | "tag" | "inclusion" | "variable"
+[package.module.path.tag_name]  # Path where tag is registered, e.g., django.template.defaulttags
+type = "block" | "tag" | "inclusion" | "variable"
 closing = "closing_tag_name"        # For block tags that require a closing tag
 supports_assignment = true | false  # Whether the tag supports 'as' assignment
 branches = ["branch_tag_name", ...] # For block tags that support branches
 
-[[tag_name.args]]
+[[package.module.path.tag_name.args]]
 name = "argument_name"
 required = true | false
 ```
