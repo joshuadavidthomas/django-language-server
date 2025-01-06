@@ -47,9 +47,9 @@ impl LineOffsets {
     pub fn position_to_line_col(&self, position: usize) -> (usize, usize) {
         let position = position as u32;
         let line = match self.0.binary_search(&position) {
-            Ok(exact_line) => exact_line,  // Position is at start of this line
-            Err(0) => 0,  // Before first line start
-            Err(next_line) => next_line - 1,  // We're on the previous line
+            Ok(exact_line) => exact_line,    // Position is at start of this line
+            Err(0) => 0,                     // Before first line start
+            Err(next_line) => next_line - 1, // We're on the previous line
         };
 
         // Calculate column as offset from line start
@@ -284,7 +284,9 @@ mod tests {
 
             if let Node::Variable { span, .. } = var_node {
                 // Variable starts after newline + "{{"
-                let (line, col) = ast.line_offsets().position_to_line_col(*span.start() as usize);
+                let (line, col) = ast
+                    .line_offsets()
+                    .position_to_line_col(*span.start() as usize);
                 assert_eq!(
                     (line, col),
                     (2, 3),
@@ -349,11 +351,11 @@ mod tests {
                 eprintln!("Nodes: {:?}", nodes);
                 assert_eq!(nodes.len(), 1);
                 if let Node::Text { content, span } = &nodes[0] {
-                    assert_eq!(content, "  Welcome!");
+                    assert_eq!(content, "Welcome!");
                     eprintln!("Line offsets: {:?}", ast.line_offsets());
                     eprintln!("Span: {:?}", span);
                     let (line, col) = ast.line_offsets().position_to_line_col(span.start as usize);
-                    assert_eq!((line, col), (2, 0), "Content should be on line 2, col 0");
+                    assert_eq!((line, col), (2, 2), "Content should be on line 2, col 2");
 
                     // Check closing tag
                     if let Block::Closing { tag } =

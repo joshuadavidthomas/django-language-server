@@ -303,6 +303,20 @@ impl Parser {
                 | TokenType::Comment(_, _, _)
                 | TokenType::Newline
                 | TokenType::Eof => break,
+                TokenType::Whitespace(_) => {
+                    // Check if next token is a newline
+                    if let Ok(next) = self.peek_at(1) {
+                        if matches!(next.token_type(), TokenType::Newline) {
+                            self.consume()?;
+                            break;
+                        }
+                    }
+                    // Not before newline, treat as normal text
+                    let token_text = token.token_type().to_string();
+                    text.push_str(&token_text);
+                    total_length += u32::try_from(token_text.len()).unwrap();
+                    self.consume()?;
+                }
                 _ => {
                     let token_text = token.token_type().to_string();
                     text.push_str(&token_text);
@@ -428,6 +442,7 @@ mod tests {
             insta::assert_yaml_snapshot!(ast);
             assert!(errors.is_empty());
         }
+
         #[test]
         fn test_parse_html_tag() {
             let source = "<div class=\"container\">Hello</div>";
@@ -437,6 +452,7 @@ mod tests {
             insta::assert_yaml_snapshot!(ast);
             assert!(errors.is_empty());
         }
+
         #[test]
         fn test_parse_html_void() {
             let source = "<input type=\"text\" />";
@@ -447,6 +463,7 @@ mod tests {
             assert!(errors.is_empty());
         }
     }
+
     mod django {
         use super::*;
         #[test]
@@ -458,6 +475,7 @@ mod tests {
             insta::assert_yaml_snapshot!(ast);
             assert!(errors.is_empty());
         }
+
         #[test]
         fn test_parse_filter_chains() {
             let source = "{{ value|default:'nothing'|title|upper }}";
@@ -467,6 +485,7 @@ mod tests {
             insta::assert_yaml_snapshot!(ast);
             assert!(errors.is_empty());
         }
+
         #[test]
         fn test_parse_django_if_block() {
             let source = "{% if user.is_authenticated %}Welcome{% endif %}";
@@ -476,6 +495,7 @@ mod tests {
             insta::assert_yaml_snapshot!(ast);
             assert!(errors.is_empty());
         }
+
         #[test]
         fn test_parse_django_for_block() {
             let source = "{% for item in items %}{{ item }}{% empty %}No items{% endfor %}";
@@ -485,6 +505,7 @@ mod tests {
             insta::assert_yaml_snapshot!(ast);
             assert!(errors.is_empty());
         }
+
         #[test]
         fn test_parse_complex_if_elif() {
             let source = "{% if x > 0 %}Positive{% elif x < 0 %}Negative{% else %}Zero{% endif %}";
@@ -494,6 +515,7 @@ mod tests {
             insta::assert_yaml_snapshot!(ast);
             assert!(errors.is_empty());
         }
+
         #[test]
         fn test_parse_nested_for_if() {
             let source =
@@ -504,6 +526,7 @@ mod tests {
             insta::assert_yaml_snapshot!(ast);
             assert!(errors.is_empty());
         }
+
         #[test]
         fn test_parse_mixed_content() {
             let source = "Welcome, {% if user.is_authenticated %}
@@ -526,8 +549,10 @@ mod tests {
             assert!(errors.is_empty());
         }
     }
+
     mod script {
         use super::*;
+
         #[test]
         fn test_parse_script() {
             let source = r#"<script type="text/javascript">
@@ -544,8 +569,10 @@ mod tests {
             assert!(errors.is_empty());
         }
     }
+
     mod style {
         use super::*;
+
         #[test]
         fn test_parse_style() {
             let source = r#"<style type="text/css">
@@ -561,8 +588,10 @@ mod tests {
             assert!(errors.is_empty());
         }
     }
+
     mod comments {
         use super::*;
+
         #[test]
         fn test_parse_comments() {
             let source = "<!-- HTML comment -->{# Django comment #}";
@@ -573,8 +602,54 @@ mod tests {
             assert!(errors.is_empty());
         }
     }
+
+    mod whitespace {
+        use super::*;
+
+        #[test]
+        fn test_parse_with_leading_whitespace() {
+            let source = "     hello";
+            let tokens = Lexer::new(source).tokenize().unwrap();
+            let mut parser = Parser::new(tokens);
+            let (ast, errors) = parser.parse().unwrap();
+            insta::assert_yaml_snapshot!(ast);
+            assert!(errors.is_empty());
+        }
+
+        #[test]
+        fn test_parse_with_leading_whitespace_newline() {
+            let source = "\n     hello";
+            let tokens = Lexer::new(source).tokenize().unwrap();
+            let mut parser = Parser::new(tokens);
+            let (ast, errors) = parser.parse().unwrap();
+            insta::assert_yaml_snapshot!(ast);
+            assert!(errors.is_empty());
+        }
+
+        #[test]
+        fn test_parse_with_trailing_whitespace() {
+            let source = "hello     ";
+            let tokens = Lexer::new(source).tokenize().unwrap();
+            let mut parser = Parser::new(tokens);
+            let (ast, errors) = parser.parse().unwrap();
+            insta::assert_yaml_snapshot!(ast);
+            assert!(errors.is_empty());
+        }
+
+        #[test]
+        fn test_parse_with_trailing_whitespace_newline() {
+            let source = "hello     \n";
+            let tokens = Lexer::new(source).tokenize().unwrap();
+            let mut parser = Parser::new(tokens);
+            let (ast, errors) = parser.parse().unwrap();
+            insta::assert_yaml_snapshot!(ast);
+            assert!(errors.is_empty());
+        }
+    }
+
     mod errors {
         use super::*;
+
         #[test]
         fn test_parse_unclosed_html_tag() {
             let source = "<div>";
@@ -584,6 +659,7 @@ mod tests {
             insta::assert_yaml_snapshot!(ast);
             assert!(errors.is_empty());
         }
+
         #[test]
         fn test_parse_unclosed_django_if() {
             let source = "{% if user.is_authenticated %}Welcome";
@@ -596,6 +672,7 @@ mod tests {
                 matches!(&errors[0], ParserError::Ast(AstError::UnclosedTag(tag)) if tag == "if")
             );
         }
+
         #[test]
         fn test_parse_unclosed_django_for() {
             let source = "{% for item in items %}{{ item.name }}";
@@ -608,6 +685,7 @@ mod tests {
                 matches!(&errors[0], ParserError::Ast(AstError::UnclosedTag(tag)) if tag == "for")
             );
         }
+
         #[test]
         fn test_parse_unclosed_script() {
             let source = "<script>console.log('test');";
@@ -617,6 +695,7 @@ mod tests {
             insta::assert_yaml_snapshot!(ast);
             assert!(errors.is_empty());
         }
+
         #[test]
         fn test_parse_unclosed_style() {
             let source = "<style>body { color: blue; ";
@@ -626,6 +705,7 @@ mod tests {
             insta::assert_yaml_snapshot!(ast);
             assert!(errors.is_empty());
         }
+
         #[test]
         fn test_parse_error_recovery() {
             let source = r#"<div class="container">
@@ -653,6 +733,7 @@ mod tests {
 
     mod full_templates {
         use super::*;
+
         #[test]
         fn test_parse_full() {
             let source = r#"<!DOCTYPE html>
