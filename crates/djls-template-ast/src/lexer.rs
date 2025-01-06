@@ -61,8 +61,6 @@ impl Lexer {
             '\n' => {
                 self.consume()?;
                 let token = TokenType::Newline;
-                eprintln!("Lexer: Found newline at position {}, incrementing line from {} to {}",
-                    self.start, self.line, self.line + 1);
                 self.line += 1;
                 token
             }
