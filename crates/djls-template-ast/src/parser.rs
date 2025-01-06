@@ -86,82 +86,113 @@ impl Parser {
         let total_length = token.length().unwrap_or(0);
         let span = Span::new(start_pos, total_length);
 
-        // Parse the tag name and any assignments
-        let mut bits = content.split_whitespace();
-        let tag_name = bits.next().unwrap_or_default().to_string();
-        let bits_vec: Vec<String> = bits.map(|s| s.to_string()).collect();
-
-        // Check for assignment syntax
-        let mut assignments = Vec::new();
-        let mut assignment = None;
-        if bits_vec.len() > 2 && bits_vec[1] == "as" {
-            assignment = Some(bits_vec[2].clone());
-            assignments.push(Assignment {
-                target: bits_vec[2].clone(),
-                value: bits_vec[3..].join(" "),
-            });
-        }
+        let bits: Vec<String> = content.split_whitespace().map(String::from).collect();
+        let tag_name = bits.first().ok_or(ParserError::EmptyTag)?.clone();
 
         let tag = Tag {
             name: tag_name.clone(),
-            bits: content.split_whitespace().map(|s| s.to_string()).collect(),
+            bits: bits.clone(),
             span,
             tag_span: span,
-            assignment,
+            assignment: None,
         };
 
-        // Check if this is a closing tag
-        if tag_name.starts_with("end") {
-            return Ok(Node::Block(Block::Closing { tag }));
-        }
-
-        // Load tag specs
         let specs = TagSpec::load_builtin_specs()?;
         let spec = match specs.get(&tag_name) {
             Some(spec) => spec,
             None => return Ok(Node::Block(Block::Tag { tag })),
         };
 
-        match spec.tag_type {
+        let block = match spec.tag_type {
             TagType::Block => {
                 let mut nodes = Vec::new();
+                let mut closing = None;
 
-                // Parse child nodes until we find the closing tag
-                while let Ok(node) = self.next_node() {
-                    if let Node::Block(Block::Closing { tag: closing_tag }) = &node {
-                        if let Some(expected_closing) = &spec.closing {
-                            if closing_tag.name == *expected_closing {
-                                return Ok(Node::Block(Block::Block {
-                                    tag,
-                                    nodes,
-                                    closing: Some(Box::new(Block::Closing {
-                                        tag: closing_tag.clone(),
-                                    })),
-                                    assignments: Some(assignments),
-                                }));
+                while !self.is_at_end() {
+                    match self.next_node() {
+                        Ok(Node::Block(Block::Tag { tag })) => {
+                            if let Some(expected_closing) = &spec.closing {
+                                if tag.name == *expected_closing {
+                                    closing = Some(Box::new(Block::Closing { tag }));
+                                    break;
+                                }
                             }
+                            // If we get here, either there was no expected closing tag or it didn't match
+                            if let Some(branches) = &spec.branches {
+                                if branches.iter().any(|b| b.name == tag.name) {
+                                    let mut branch_tag = tag.clone();
+                                    let mut branch_nodes = Vec::new();
+                                    let mut found_closing = false;
+                                    while let Ok(node) = self.next_node() {
+                                        match &node {
+                                            Node::Block(Block::Tag { tag: next_tag }) => {
+                                                if let Some(expected_closing) = &spec.closing {
+                                                    if next_tag.name == *expected_closing {
+                                                        // Found the closing tag
+                                                        nodes.push(Node::Block(Block::Branch {
+                                                            tag: branch_tag.clone(),
+                                                            nodes: branch_nodes.clone(),
+                                                        }));
+                                                        closing = Some(Box::new(Block::Closing { tag: next_tag.clone() }));
+                                                        found_closing = true;
+                                                        break;
+                                                    }
+                                                }
+                                                // Check if this is another branch tag
+                                                if branches.iter().any(|b| b.name == next_tag.name) {
+                                                    // Push the current branch and start a new one
+                                                    nodes.push(Node::Block(Block::Branch {
+                                                        tag: branch_tag.clone(),
+                                                        nodes: branch_nodes.clone(),
+                                                    }));
+                                                    branch_nodes = Vec::new();
+                                                    branch_tag = next_tag.clone();
+                                                    continue;
+                                                }
+                                                branch_nodes.push(node);
+                                            }
+                                            _ => branch_nodes.push(node),
+                                        }
+                                    }
+                                    if !found_closing {
+                                        // Push the last branch if we didn't find a closing tag
+                                        nodes.push(Node::Block(Block::Branch {
+                                            tag: branch_tag,
+                                            nodes: branch_nodes,
+                                        }));
+                                    }
+                                    if found_closing {
+                                        break;
+                                    }
+                                    continue;
+                                }
+                            }
+                            nodes.push(Node::Block(Block::Tag { tag }));
+                        }
+                        Ok(node) => nodes.push(node),
+                        Err(e) => {
+                            self.errors.push(e);
+                            break;
                         }
                     }
-                    nodes.push(node);
                 }
 
-                // Add error for unclosed tag
-                self.errors.push(ParserError::Ast(AstError::UnclosedTag(tag_name.clone())));
-
-                Ok(Node::Block(Block::Block {
+                Block::Block {
                     tag,
                     nodes,
-                    closing: None,
-                    assignments: Some(assignments),
-                }))
+                    closing,
+                    assignments: None,
+                }
             }
-            TagType::Tag => Ok(Node::Block(Block::Tag { tag })),
-            TagType::Variable => Ok(Node::Block(Block::Variable { tag })),
+            TagType::Tag => Block::Tag { tag },
+            TagType::Variable => Block::Variable { tag },
             TagType::Inclusion => {
-                let template_name = bits_vec.get(1).cloned().unwrap_or_default();
-                Ok(Node::Block(Block::Inclusion { tag, template_name }))
+                let template_name = bits.get(1).cloned().unwrap_or_default();
+                Block::Inclusion { tag, template_name }
             }
-        }
+        };
+
+        Ok(Node::Block(block))
     }
 
     fn parse_django_variable(&mut self, content: &str) -> Result<Node, ParserError> {
@@ -356,6 +387,8 @@ pub enum ParserError {
     ErrorSignal(Signal),
     #[error("{0}")]
     Other(#[from] anyhow::Error),
+    #[error("empty tag")]
+    EmptyTag,
 }
 
 impl ParserError {
@@ -544,7 +577,9 @@ mod tests {
             let (ast, errors) = parser.parse().unwrap();
             insta::assert_yaml_snapshot!(ast);
             assert_eq!(errors.len(), 1);
-            assert!(matches!(&errors[0], ParserError::Ast(AstError::UnclosedTag(tag)) if tag == "if"));
+            assert!(
+                matches!(&errors[0], ParserError::Ast(AstError::UnclosedTag(tag)) if tag == "if")
+            );
         }
         #[test]
         fn test_parse_unclosed_django_for() {
@@ -554,7 +589,9 @@ mod tests {
             let (ast, errors) = parser.parse().unwrap();
             insta::assert_yaml_snapshot!(ast);
             assert_eq!(errors.len(), 1);
-            assert!(matches!(&errors[0], ParserError::Ast(AstError::UnclosedTag(tag)) if tag == "for"));
+            assert!(
+                matches!(&errors[0], ParserError::Ast(AstError::UnclosedTag(tag)) if tag == "for")
+            );
         }
         #[test]
         fn test_parse_unclosed_script() {
@@ -593,7 +630,9 @@ mod tests {
             let (ast, errors) = parser.parse().unwrap();
             insta::assert_yaml_snapshot!(ast);
             assert_eq!(errors.len(), 1);
-            assert!(matches!(&errors[0], ParserError::Ast(AstError::UnclosedTag(tag)) if tag == "if"));
+            assert!(
+                matches!(&errors[0], ParserError::Ast(AstError::UnclosedTag(tag)) if tag == "if")
+            );
         }
     }
 

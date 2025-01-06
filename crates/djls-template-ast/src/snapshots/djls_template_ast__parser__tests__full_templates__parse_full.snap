@@ -163,7 +163,7 @@ nodes:
                         start: 644
                         length: 39
                   - Block:
-                      Tag:
+                      Branch:
                         tag:
                           name: else
                           bits:
@@ -175,11 +175,12 @@ nodes:
                             start: 699
                             length: 4
                           assignment: ~
-                  - Text:
-                      content: "                    <span>User</span>"
-                      span:
-                        start: 710
-                        length: 38
+                        nodes:
+                          - Text:
+                              content: "                    <span>User</span>"
+                              span:
+                                start: 710
+                                length: 38
                 closing:
                   Closing:
                     tag:
@@ -193,7 +194,7 @@ nodes:
                         start: 764
                         length: 5
                       assignment: ~
-                assignments: []
+                assignments: ~
         closing:
           Closing:
             tag:
@@ -207,7 +208,7 @@ nodes:
                 start: 788
                 length: 5
               assignment: ~
-        assignments: []
+        assignments: ~
   - Text:
       content: "        </div>"
       span:

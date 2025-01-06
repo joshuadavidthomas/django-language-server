@@ -92,7 +92,7 @@ nodes:
                                 start: 148
                                 length: 5
                               assignment: ~
-                        assignments: []
+                        assignments: ~
                   - Variable:
                       bits:
                         - group
@@ -135,7 +135,7 @@ nodes:
                                 start: 220
                                 length: 5
                               assignment: ~
-                        assignments: []
+                        assignments: ~
                   - Block:
                       Block:
                         tag:
@@ -169,9 +169,9 @@ nodes:
                                 start: 262
                                 length: 5
                               assignment: ~
-                        assignments: []
+                        assignments: ~
                   - Block:
-                      Tag:
+                      Branch:
                         tag:
                           name: empty
                           bits:
@@ -183,11 +183,12 @@ nodes:
                             start: 278
                             length: 5
                           assignment: ~
-                  - Text:
-                      content: "        (no groups)"
-                      span:
-                        start: 290
-                        length: 20
+                        nodes:
+                          - Text:
+                              content: "        (no groups)"
+                              span:
+                                start: 290
+                                length: 20
                 closing:
                   Closing:
                     tag:
@@ -201,9 +202,9 @@ nodes:
                         start: 314
                         length: 6
                       assignment: ~
-                assignments: []
+                assignments: ~
           - Block:
-              Tag:
+              Branch:
                 tag:
                   name: else
                   bits:
@@ -215,11 +216,12 @@ nodes:
                     start: 327
                     length: 4
                   assignment: ~
-          - Text:
-              content: "    Guest"
-              span:
-                start: 338
-                length: 10
+                nodes:
+                  - Text:
+                      content: "    Guest"
+                      span:
+                        start: 338
+                        length: 10
         closing:
           Closing:
             tag:
@@ -233,7 +235,7 @@ nodes:
                 start: 348
                 length: 5
               assignment: ~
-        assignments: []
+        assignments: ~
   - Text:
       content: "!"
       span:

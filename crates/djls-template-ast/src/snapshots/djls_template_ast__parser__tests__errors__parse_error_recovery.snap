@@ -108,7 +108,7 @@ nodes:
                         start: 320
                         length: 6
                       assignment: ~
-                assignments: []
+                assignments: ~
           - Text:
               content: "    <footer>Page Footer</footer>"
               span:
@@ -120,7 +120,7 @@ nodes:
                 start: 366
                 length: 6
         closing: ~
-        assignments: []
+        assignments: ~
 line_offsets:
   - 0
   - 24

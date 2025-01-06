@@ -56,7 +56,7 @@ nodes:
                         start: 58
                         length: 5
                       assignment: ~
-                assignments: []
+                assignments: ~
         closing:
           Closing:
             tag:
@@ -70,6 +70,6 @@ nodes:
                 start: 69
                 length: 6
               assignment: ~
-        assignments: []
+        assignments: ~
 line_offsets:
   - 0
