@@ -23,13 +23,11 @@ impl Parser {
         let mut line_offsets = LineOffsets::new();
 
         // First pass: collect line offsets
-        let mut current_line_start = 0;
         for token in self.tokens.tokens() {
             if let TokenType::Newline = token.token_type() {
                 if let Some(start) = token.start() {
                     // Add offset for next line
-                    current_line_start = start + 1;
-                    line_offsets.add_line(current_line_start);
+                    line_offsets.add_line(start + 1);
                 }
             }
         }
@@ -57,7 +55,7 @@ impl Parser {
         match token.token_type() {
             TokenType::Comment(_, open, _) => self.parse_comment(open),
             TokenType::Eof => Err(ParserError::Ast(AstError::StreamError("AtEnd".to_string()))),
-            TokenType::DjangoBlock(content) => self.parse_django_block(content),
+            TokenType::DjangoBlock(_) => self.parse_django_block(),
             TokenType::DjangoVariable(_) => self.parse_django_variable(),
             TokenType::HtmlTagClose(_)
             | TokenType::HtmlTagOpen(_)
@@ -79,23 +77,23 @@ impl Parser {
         };
 
         let token = self.peek_previous()?;
-        let start = token.start().unwrap_or(0);
 
         Ok(Node::Comment {
-            content: token.content().to_string(),
-            span: Span::new(start, token.content().len() as u32),
+            content: token.content(),
+            span: Span::from(token),
         })
     }
 
-    fn parse_django_block(&mut self, content: &str) -> Result<Node, ParserError> {
+    fn parse_django_block(&mut self) -> Result<Node, ParserError> {
         let token = self.peek_previous()?;
-        let start = token.start().unwrap_or(0);
-        let length = token.content().len();
 
-        let span = Span::new(start, length as u32);
-
-        let bits: Vec<String> = content.split_whitespace().map(String::from).collect();
+        let bits: Vec<String> = token
+            .content()
+            .split_whitespace()
+            .map(String::from)
+            .collect();
         let tag_name = bits.first().ok_or(ParserError::EmptyTag)?.clone();
+        let span = Span::from(token);
 
         let tag = Tag {
             name: tag_name.clone(),
@@ -226,16 +224,16 @@ impl Parser {
 
     fn parse_django_variable(&mut self) -> Result<Node, ParserError> {
         let token = self.peek_previous()?;
-        let start = token.start().unwrap_or(0);
-        let content = token.content();
 
+        let content = token.content();
         let parts: Vec<&str> = content.split('|').collect();
         let bits: Vec<String> = parts[0].split('.').map(|s| s.trim().to_string()).collect();
+
         let mut filters = Vec::new();
+        let mut filter_offset = parts[0].len() as u32 + 1;
 
         for filter_part in parts.iter().skip(1) {
             let filter_parts: Vec<&str> = filter_part.split(':').collect();
-            let name = filter_parts[0].trim();
             let args = if filter_parts.len() > 1 {
                 filter_parts[1]
                     .split(',')
@@ -246,22 +244,26 @@ impl Parser {
             };
 
             filters.push(DjangoFilter {
-                name: name.to_string(),
+                name: filter_parts[0].trim().to_string(),
                 args,
-                span: Span::new(start + 4, content.len() as u32),
+                span: Span::new(
+                    token.start().unwrap_or(0) + filter_offset,
+                    filter_part.len() as u32,
+                ),
             });
+
+            filter_offset += filter_part.len() as u32 + 1;
         }
 
         Ok(Node::Variable {
             bits,
             filters,
-            span: Span::new(start + 3, content.len() as u32),
+            span: Span::from(token),
         })
     }
 
     fn parse_text(&mut self) -> Result<Node, ParserError> {
         let token = self.peek_previous()?;
-        let start = token.start().unwrap_or(0);
 
         if token.token_type() == &TokenType::Newline {
             return self.next_node();
@@ -288,8 +290,10 @@ impl Parser {
             "" => return self.next_node(),
             trimmed => trimmed.to_string(),
         };
-        let offset = u32::try_from(text.find(content.as_str()).unwrap_or(0)).unwrap();
-        let length = u32::try_from(content.len()).unwrap();
+
+        let start = token.start().unwrap_or(0);
+        let offset = text.find(content.as_str()).unwrap_or(0) as u32;
+        let length = content.len() as u32;
 
         Ok(Node::Text {
             content,
