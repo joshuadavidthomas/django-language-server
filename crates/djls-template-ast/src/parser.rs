@@ -23,10 +23,13 @@ impl Parser {
         let mut line_offsets = LineOffsets::new();
 
         // First pass: collect line offsets
+        let mut current_line_start = 0;
         for token in self.tokens.tokens() {
             if let TokenType::Newline = token.token_type() {
                 if let Some(start) = token.start() {
-                    line_offsets.add_line(start + 1);
+                    // Add offset for next line
+                    current_line_start = start + 1;
+                    line_offsets.add_line(current_line_start);
                 }
             }
         }
@@ -157,9 +160,11 @@ impl Parser {
                                     if !found_closing {
                                         // Push the last branch if we didn't find a closing tag
                                         nodes.push(Node::Block(Block::Branch {
-                                            tag: branch_tag,
-                                            nodes: branch_nodes,
+                                            tag: branch_tag.clone(),
+                                            nodes: branch_nodes.clone(),
                                         }));
+                                        // Add error for unclosed tag
+                                        self.errors.push(ParserError::Ast(AstError::UnclosedTag(tag_name.clone())));
                                     }
                                     if found_closing {
                                         break;
@@ -191,6 +196,13 @@ impl Parser {
                 Block::Inclusion { tag, template_name }
             }
         };
+
+        // Add error if we didn't find a closing tag for a block
+        if let Block::Block { closing: None, tag: tag_ref, .. } = &block {
+            if let Some(expected_closing) = &spec.closing {
+                self.errors.push(ParserError::Ast(AstError::UnclosedTag(tag_ref.name.clone())));
+            }
+        }
 
         Ok(Node::Block(block))
     }
