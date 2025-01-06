@@ -1,3 +1,4 @@
+# Django built-in template tags
 [django.template.defaulttags.if]
 branches = ["elif", "else"]
 closing = "endif"
@@ -23,3 +24,7 @@ required = true
 [[django.template.defaulttags.for.args]]
 name = "{iterable}"
 required = true
+
+[django.template.defaulttags.block]
+closing = "endblock"
+type = "block"

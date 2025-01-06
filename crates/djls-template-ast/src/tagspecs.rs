@@ -10,62 +10,14 @@ pub struct TagSpec {
     #[serde(rename = "type")]
     pub tag_type: TagType,
     pub closing: Option<String>,
-    pub branches: Option<Vec<BranchSpec>>,
+    #[serde(default)]
+    pub branches: Option<Vec<String>>,
     pub args: Option<Vec<ArgSpec>>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct BranchSpec {
-    pub name: String,
-    pub args: bool,
 }
 
 impl TagSpec {
     pub fn load_builtin_specs() -> Result<HashMap<String, TagSpec>> {
         let mut specs = HashMap::new();
-
-        // Add built-in tag specs
-        specs.insert(
-            "if".to_string(),
-            TagSpec {
-                tag_type: TagType::Block,
-                closing: Some("endif".to_string()),
-                branches: Some(vec![
-                    BranchSpec {
-                        name: "elif".to_string(),
-                        args: true,
-                    },
-                    BranchSpec {
-                        name: "else".to_string(),
-                        args: false,
-                    },
-                ]),
-                args: None,
-            },
-        );
-
-        specs.insert(
-            "for".to_string(),
-            TagSpec {
-                tag_type: TagType::Block,
-                closing: Some("endfor".to_string()),
-                branches: Some(vec![BranchSpec {
-                    name: "empty".to_string(),
-                    args: false,
-                }]),
-                args: None,
-            },
-        );
-
-        specs.insert(
-            "block".to_string(),
-            TagSpec {
-                tag_type: TagType::Block,
-                closing: Some("endblock".to_string()),
-                branches: None,
-                args: None,
-            },
-        );
 
         let specs_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tagspecs");
 
@@ -80,36 +32,39 @@ impl TagSpec {
                 let value: Value = toml::from_str(&content)
                     .with_context(|| format!("Failed to parse {:?}", path))?;
 
-                Self::extract_specs(&value, "", &mut specs)?;
+                Self::extract_specs(&value, None, &mut specs)?;
             }
         }
+
+        eprintln!("specs: {:?}", specs);
 
         Ok(specs)
     }
 
     fn extract_specs(
         value: &Value,
-        prefix: &str,
+        prefix: Option<&str>,
         specs: &mut HashMap<String, TagSpec>,
     ) -> Result<()> {
-        if let Value::Table(table) = value {
-            // If this table has a 'type' field, try to parse it as a TagSpec
-            if table.contains_key("type") {
-                if let Ok(tag_spec) = TagSpec::deserialize(value.clone()) {
-                    let name = prefix.split('.').last().unwrap_or(prefix);
-                    specs.insert(name.to_string(), tag_spec);
-                    return Ok(());
-                }
+        // Try to deserialize as a tag spec first
+        match TagSpec::deserialize(value.clone()) {
+            Ok(tag_spec) => {
+                let name = prefix.map_or_else(String::new, |p| {
+                    p.split('.').last().unwrap_or(p).to_string()
+                });
+                eprintln!("Found tag spec at '{}', using name '{}'", prefix.unwrap_or(""), name);
+                specs.insert(name, tag_spec);
             }
-
-            // Otherwise, recursively process each field
-            for (key, value) in table {
-                let new_prefix = if prefix.is_empty() {
-                    key.clone()
-                } else {
-                    format!("{}.{}", prefix, key)
-                };
-                Self::extract_specs(value, &new_prefix, specs)?;
+            Err(_) => {
+                // Not a tag spec, try recursing into any table values
+                for (key, value) in value.as_table().iter().flat_map(|t| t.iter()) {
+                    let new_prefix = match prefix {
+                        None => key.clone(),
+                        Some(p) => format!("{}.{}", p, key),
+                    };
+                    eprintln!("Recursing into prefix: {}", new_prefix);
+                    Self::extract_specs(value, Some(&new_prefix), specs)?;
+                }
             }
         }
         Ok(())
@@ -159,6 +114,36 @@ mod tests {
         for (name, spec) in &specs {
             println!("  {} ({:?})", name, spec.tag_type);
         }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_builtin_django_tags() -> Result<()> {
+        let specs = TagSpec::load_builtin_specs()?;
+
+        let if_tag = specs.get("if").expect("if tag should be present");
+        assert_eq!(if_tag.tag_type, TagType::Block);
+        assert_eq!(if_tag.closing, Some("endif".to_string()));
+        let if_branches = if_tag
+            .branches
+            .as_ref()
+            .expect("if tag should have branches");
+        assert!(if_branches.iter().any(|b| b == "elif"));
+        assert!(if_branches.iter().any(|b| b == "else"));
+
+        let for_tag = specs.get("for").expect("for tag should be present");
+        assert_eq!(for_tag.tag_type, TagType::Block);
+        assert_eq!(for_tag.closing, Some("endfor".to_string()));
+        let for_branches = for_tag
+            .branches
+            .as_ref()
+            .expect("for tag should have branches");
+        assert!(for_branches.iter().any(|b| b == "empty"));
+
+        let block_tag = specs.get("block").expect("block tag should be present");
+        assert_eq!(block_tag.tag_type, TagType::Block);
+        assert_eq!(block_tag.closing, Some("endblock".to_string()));
 
         Ok(())
     }
