@@ -14,85 +14,85 @@ nodes:
         start: 16
         length: 6
   - Text:
-      content: "    <head>"
+      content: "<head>"
       span:
-        start: 23
-        length: 10
+        start: 27
+        length: 6
   - Text:
-      content: "        <style type=\"text/css\">"
+      content: "<style type=\"text/css\">"
       span:
-        start: 34
-        length: 31
+        start: 42
+        length: 23
   - Text:
       content: /* Style header */
       span:
         start: 78
         length: 18
   - Text:
-      content: "            .header { color: blue; }"
+      content: ".header { color: blue; }"
       span:
-        start: 97
-        length: 36
+        start: 109
+        length: 24
   - Text:
-      content: "        </style>"
+      content: "</style>"
       span:
-        start: 134
-        length: 16
+        start: 142
+        length: 8
   - Text:
-      content: "        <script type=\"text/javascript\">"
+      content: "<script type=\"text/javascript\">"
       span:
-        start: 151
-        length: 39
+        start: 159
+        length: 31
   - Text:
       content: // Init app
       span:
         start: 203
         length: 11
   - Text:
-      content: "            const app = {"
+      content: "const app = {"
       span:
-        start: 215
-        length: 25
+        start: 227
+        length: 13
   - Text:
       content: /* Config */
       span:
         start: 257
         length: 12
   - Text:
-      content: "                debug: true"
+      content: "debug: true"
       span:
-        start: 270
-        length: 27
-  - Text:
-      content: "            };"
-      span:
-        start: 298
-        length: 14
-  - Text:
-      content: "        </script>"
-      span:
-        start: 313
-        length: 17
-  - Text:
-      content: "    </head>"
-      span:
-        start: 331
+        start: 286
         length: 11
   - Text:
-      content: "    <body>"
+      content: "};"
       span:
-        start: 343
-        length: 10
+        start: 310
+        length: 2
+  - Text:
+      content: "</script>"
+      span:
+        start: 321
+        length: 9
+  - Text:
+      content: "</head>"
+      span:
+        start: 335
+        length: 7
+  - Text:
+      content: "<body>"
+      span:
+        start: 347
+        length: 6
   - Text:
       content: "<!-- Header section -->"
       span:
         start: 362
         length: 23
   - Text:
-      content: "        <div class=\"header\" id=\"main\" data-value=\"123\" disabled>"
+      content: "<div class=\"header\" id=\"main\" data-value=\"123\" disabled>"
       span:
-        start: 386
-        length: 64
+        start: 394
+        length: 56
   - Block:
       Block:
         tag:
@@ -114,10 +114,10 @@ nodes:
                 start: 510
                 length: 21
           - Text:
-              content: "                <h1>Welcome, "
+              content: "<h1>Welcome, "
               span:
-                start: 532
-                length: 29
+                start: 548
+                length: 13
           - Variable:
               bits:
                 - user
@@ -158,10 +158,10 @@ nodes:
                   assignment: ~
                 nodes:
                   - Text:
-                      content: "                    <span>Admin</span>"
+                      content: "<span>Admin</span>"
                       span:
-                        start: 644
-                        length: 38
+                        start: 664
+                        length: 18
                   - Block:
                       Branch:
                         tag:
@@ -177,10 +177,10 @@ nodes:
                           assignment: ~
                         nodes:
                           - Text:
-                              content: "                    <span>User</span>"
+                              content: "<span>User</span>"
                               span:
-                                start: 710
-                                length: 37
+                                start: 730
+                                length: 17
                 closing:
                   Closing:
                     tag:
@@ -210,15 +210,15 @@ nodes:
               assignment: ~
         assignments: ~
   - Text:
-      content: "        </div>"
+      content: "</div>"
       span:
-        start: 800
-        length: 14
+        start: 808
+        length: 6
   - Text:
-      content: "    </body>"
+      content: "</body>"
       span:
-        start: 815
-        length: 11
+        start: 819
+        length: 7
   - Text:
       content: "</html>"
       span:
