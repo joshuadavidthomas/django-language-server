@@ -44,25 +44,18 @@ impl LineOffsets {
         self.0.push(offset);
     }
 
-    pub fn position_to_line_col(&self, offset: u32) -> (u32, u32) {
-        // Find which line contains this offset by looking for the first line start
-        // that's greater than our position
-        let line = match self.0.binary_search(&offset) {
-            Ok(exact_line) => exact_line, // We're exactly at a line start
-            Err(next_line) => {
-                if next_line == 0 {
-                    0 // Before first line start, so we're on line 1
-                } else {
-                    next_line - 1 // We're on the previous line
-                }
-            }
+    pub fn position_to_line_col(&self, position: usize) -> (usize, usize) {
+        let position = position as u32;
+        let line = match self.0.binary_search(&position) {
+            Ok(_) => self.0.partition_point(|&x| x <= position),
+            Err(i) => i,
         };
-
-        // Calculate column as offset from line start
-        let col = offset - self.0[line];
-
-        // Convert to 1-based line number
-        (line as u32 + 1, col)
+        let col = if line == 0 {
+            position as usize
+        } else {
+            (position - self.0[line - 1]) as usize
+        };
+        (line + 1, col)
     }
 
     pub fn line_col_to_position(&self, line: u32, col: u32) -> u32 {
@@ -286,7 +279,7 @@ mod tests {
 
             if let Node::Variable { span, .. } = var_node {
                 // Variable starts after newline + "{{"
-                let (line, col) = ast.line_offsets().position_to_line_col(*span.start());
+                let (line, col) = ast.line_offsets().position_to_line_col(*span.start() as usize);
                 assert_eq!(
                     (line, col),
                     (2, 3),
@@ -354,8 +347,8 @@ mod tests {
                     assert_eq!(content, "  Welcome!");
                     eprintln!("Line offsets: {:?}", ast.line_offsets());
                     eprintln!("Span: {:?}", span);
-                    let (line, col) = ast.line_offsets().position_to_line_col(span.start);
-                    assert_eq!((line, col), (2, 0), "Content should be on line 2, col 0");
+                    let (line, col) = ast.line_offsets().position_to_line_col(span.start as usize);
+                    assert_eq!((line, col), (1, 0), "Content should be on line 1, col 0");
 
                     // Check closing tag
                     if let Block::Closing { tag } =

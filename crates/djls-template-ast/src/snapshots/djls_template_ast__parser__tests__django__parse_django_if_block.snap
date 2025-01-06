@@ -36,6 +36,6 @@ nodes:
                 start: 37
                 length: 5
               assignment: ~
-        assignments: []
+        assignments: ~
 line_offsets:
   - 0

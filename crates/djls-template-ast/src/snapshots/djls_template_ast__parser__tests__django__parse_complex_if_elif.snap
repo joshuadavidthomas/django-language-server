@@ -26,7 +26,7 @@ nodes:
                 start: 14
                 length: 8
           - Block:
-              Tag:
+              Branch:
                 tag:
                   name: elif
                   bits:
@@ -41,13 +41,14 @@ nodes:
                     start: 22
                     length: 10
                   assignment: ~
-          - Text:
-              content: Negative
-              span:
-                start: 38
-                length: 8
+                nodes:
+                  - Text:
+                      content: Negative
+                      span:
+                        start: 38
+                        length: 8
           - Block:
-              Tag:
+              Branch:
                 tag:
                   name: else
                   bits:
@@ -59,11 +60,12 @@ nodes:
                     start: 46
                     length: 4
                   assignment: ~
-          - Text:
-              content: Zero
-              span:
-                start: 56
-                length: 4
+                nodes:
+                  - Text:
+                      content: Zero
+                      span:
+                        start: 56
+                        length: 4
         closing:
           Closing:
             tag:
@@ -77,6 +79,6 @@ nodes:
                 start: 60
                 length: 5
               assignment: ~
-        assignments: []
+        assignments: ~
 line_offsets:
   - 0
