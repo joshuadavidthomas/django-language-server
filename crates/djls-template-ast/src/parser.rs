@@ -82,17 +82,17 @@ impl Parser {
         let start = token.start().unwrap_or(0);
 
         Ok(Node::Comment {
-            content: token.token_type().to_string(),
-            span: Span::new(start, token.token_type().len().unwrap_or(0) as u32),
+            content: token.content().to_string(),
+            span: Span::new(start, token.content().len() as u32),
         })
     }
 
     fn parse_django_block(&mut self, content: &str) -> Result<Node, ParserError> {
         let token = self.peek_previous()?;
         let start = token.start().unwrap_or(0);
-        let length = token.length().unwrap_or(0);
+        let length = token.content().len();
 
-        let span = Span::new(start, length);
+        let span = Span::new(start, length as u32);
 
         let bits: Vec<String> = content.split_whitespace().map(String::from).collect();
         let tag_name = bits.first().ok_or(ParserError::EmptyTag)?.clone();
@@ -227,7 +227,7 @@ impl Parser {
     fn parse_django_variable(&mut self) -> Result<Node, ParserError> {
         let token = self.peek_previous()?;
         let start = token.start().unwrap_or(0);
-        let content = token.token_type().lexeme();
+        let content = token.content();
 
         let parts: Vec<&str> = content.split('|').collect();
         let bits: Vec<String> = parts[0].split('.').map(|s| s.trim().to_string()).collect();
@@ -267,7 +267,7 @@ impl Parser {
             return self.next_node();
         }
 
-        let mut text = token.token_type().to_string();
+        let mut text = token.lexeme();
 
         while let Ok(token) = self.peek() {
             match token.token_type() {
@@ -277,7 +277,7 @@ impl Parser {
                 | TokenType::Newline
                 | TokenType::Eof => break,
                 _ => {
-                    let token_text = token.token_type().to_string();
+                    let token_text = token.lexeme();
                     text.push_str(&token_text);
                     self.consume()?;
                 }

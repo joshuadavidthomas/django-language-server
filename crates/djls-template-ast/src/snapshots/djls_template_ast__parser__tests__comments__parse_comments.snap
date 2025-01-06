@@ -9,9 +9,9 @@ nodes:
         start: 0
         length: 21
   - Comment:
-      content: "{# Django comment #}"
+      content: Django comment
       span:
         start: 21
-        length: 20
+        length: 14
 line_offsets:
   - 0
