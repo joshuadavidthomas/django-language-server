@@ -52,9 +52,6 @@ impl Parser {
     }
 
     fn next_node(&mut self) -> Result<Node, ParserError> {
-        if self.is_at_end() {
-            return Err(ParserError::Ast(AstError::StreamError("AtEnd".to_string())));
-        }
         let token = self.peek()?;
         match token.token_type() {
             TokenType::DjangoBlock(content) => {
@@ -65,6 +62,10 @@ impl Parser {
                 self.consume()?;
                 self.parse_django_variable(content)
             }
+            TokenType::Comment(content, start, end) => {
+                self.consume()?;
+                self.parse_comment(content, start, end.as_deref())
+            }
             TokenType::Text(_)
             | TokenType::Whitespace(_)
             | TokenType::Newline
@@ -74,10 +75,9 @@ impl Parser {
             | TokenType::ScriptTagOpen(_)
             | TokenType::ScriptTagClose(_)
             | TokenType::StyleTagOpen(_)
-            | TokenType::StyleTagClose(_) => self.parse_text(),
-            TokenType::Comment(content, start, end) => {
+            | TokenType::StyleTagClose(_) => {
                 self.consume()?;
-                self.parse_comment(content, start, end.as_deref())
+                self.parse_text()
             }
             TokenType::Eof => Err(ParserError::Ast(AstError::StreamError("AtEnd".to_string()))),
         }
@@ -136,13 +136,16 @@ impl Parser {
                                                             tag: branch_tag.clone(),
                                                             nodes: branch_nodes.clone(),
                                                         }));
-                                                        closing = Some(Box::new(Block::Closing { tag: next_tag.clone() }));
+                                                        closing = Some(Box::new(Block::Closing {
+                                                            tag: next_tag.clone(),
+                                                        }));
                                                         found_closing = true;
                                                         break;
                                                     }
                                                 }
                                                 // Check if this is another branch tag
-                                                if branches.iter().any(|b| b.name == next_tag.name) {
+                                                if branches.iter().any(|b| b.name == next_tag.name)
+                                                {
                                                     // Push the current branch and start a new one
                                                     nodes.push(Node::Block(Block::Branch {
                                                         tag: branch_tag.clone(),
@@ -164,7 +167,9 @@ impl Parser {
                                             nodes: branch_nodes.clone(),
                                         }));
                                         // Add error for unclosed tag
-                                        self.errors.push(ParserError::Ast(AstError::UnclosedTag(tag_name.clone())));
+                                        self.errors.push(ParserError::Ast(AstError::UnclosedTag(
+                                            tag_name.clone(),
+                                        )));
                                     }
                                     if found_closing {
                                         break;
@@ -198,9 +203,16 @@ impl Parser {
         };
 
         // Add error if we didn't find a closing tag for a block
-        if let Block::Block { closing: None, tag: tag_ref, .. } = &block {
+        if let Block::Block {
+            closing: None,
+            tag: tag_ref,
+            ..
+        } = &block
+        {
             if let Some(expected_closing) = &spec.closing {
-                self.errors.push(ParserError::Ast(AstError::UnclosedTag(tag_ref.name.clone())));
+                self.errors.push(ParserError::Ast(AstError::UnclosedTag(
+                    tag_ref.name.clone(),
+                )));
             }
         }
 
@@ -246,58 +258,40 @@ impl Parser {
     }
 
     fn parse_text(&mut self) -> Result<Node, ParserError> {
-        let start_token = self.peek()?;
+        let start_token = self.peek_previous()?;
         let start_pos = start_token.start().unwrap_or(0);
-        let mut total_length = start_token.length().unwrap_or(0);
 
-        // Handle newlines by returning next node
+        // If we start with a newline, skip it
         if matches!(start_token.token_type(), TokenType::Newline) {
-            self.consume()?;
-            let node = self.next_node()?;
-            return Ok(node);
+            return self.next_node();
         }
 
-        let mut content = match start_token.token_type() {
-            TokenType::Text(text) => text.to_string(),
-            TokenType::Whitespace(count) => " ".repeat(*count),
-            _ => {
-                return Err(ParserError::Ast(AstError::InvalidTag(
-                    "Expected text or whitespace token".to_string(),
-                )))
-            }
-        };
-        self.consume()?;
+        // Use TokenType's Display implementation for formatting
+        let mut text = start_token.token_type().to_string();
+        let mut total_length: u32 = u32::try_from(text.len()).unwrap();
 
-        // Look ahead for more tokens until newline
-        while let Ok(next_token) = self.peek() {
-            match next_token.token_type() {
-                TokenType::Text(text) => {
-                    content.push_str(text);
-                    total_length += next_token.length().unwrap_or(0);
+        while let Ok(token) = self.peek() {
+            match token.token_type() {
+                TokenType::DjangoBlock(_)
+                | TokenType::DjangoVariable(_)
+                | TokenType::Comment(_, _, _)
+                | TokenType::Newline
+                | TokenType::Eof => break,
+                _ => {
+                    let token_text = token.token_type().to_string();
+                    text.push_str(&token_text);
+                    total_length += u32::try_from(token_text.len()).unwrap();
                     self.consume()?;
                 }
-                TokenType::Whitespace(count) => {
-                    content.push_str(&" ".repeat(*count));
-                    total_length += next_token.length().unwrap_or(0);
-                    self.consume()?;
-                }
-                TokenType::Newline => {
-                    // Include newline in span but not content
-                    total_length += next_token.length().unwrap_or(0);
-                    self.consume()?;
-                    break;
-                }
-                _ => break,
             }
         }
 
         // Skip empty text nodes
-        if content.trim().is_empty() {
-            let node = self.next_node()?;
-            Ok(node)
+        if text.trim().is_empty() {
+            self.next_node()
         } else {
             Ok(Node::Text {
-                content,
+                content: text,
                 span: Span::new(start_pos, total_length),
             })
         }
