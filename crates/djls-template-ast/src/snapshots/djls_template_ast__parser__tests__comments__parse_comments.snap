@@ -9,7 +9,7 @@ nodes:
         start: 0
         length: 21
   - Comment:
-      content: Django comment
+      content: "{# Django comment #}"
       span:
         start: 21
         length: 20

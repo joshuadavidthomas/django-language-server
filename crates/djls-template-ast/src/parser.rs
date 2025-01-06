@@ -55,10 +55,10 @@ impl Parser {
         let token = self.consume()?;
 
         match token.token_type() {
-            TokenType::Comment(content, open, _) => self.parse_comment(content, open),
+            TokenType::Comment(_, open, _) => self.parse_comment(open),
             TokenType::Eof => Err(ParserError::Ast(AstError::StreamError("AtEnd".to_string()))),
             TokenType::DjangoBlock(content) => self.parse_django_block(content),
-            TokenType::DjangoVariable(content) => self.parse_django_variable(content),
+            TokenType::DjangoVariable(_) => self.parse_django_variable(),
             TokenType::HtmlTagClose(_)
             | TokenType::HtmlTagOpen(_)
             | TokenType::HtmlTagVoid(_)
@@ -72,7 +72,7 @@ impl Parser {
         }
     }
 
-    fn parse_comment(&mut self, content: &str, open: &str) -> Result<Node, ParserError> {
+    fn parse_comment(&mut self, open: &str) -> Result<Node, ParserError> {
         // Only treat Django comments as Comment nodes
         if open != "{#" {
             return self.parse_text();
@@ -82,7 +82,7 @@ impl Parser {
         let start = token.start().unwrap_or(0);
 
         Ok(Node::Comment {
-            content: content.to_string(),
+            content: token.token_type().to_string(),
             span: Span::new(start, token.token_type().len().unwrap_or(0) as u32),
         })
     }
@@ -224,9 +224,10 @@ impl Parser {
         Ok(Node::Block(block))
     }
 
-    fn parse_django_variable(&mut self, content: &str) -> Result<Node, ParserError> {
+    fn parse_django_variable(&mut self) -> Result<Node, ParserError> {
         let token = self.peek_previous()?;
         let start = token.start().unwrap_or(0);
+        let content = token.token_type().lexeme();
 
         let parts: Vec<&str> = content.split('|').collect();
         let bits: Vec<String> = parts[0].split('.').map(|s| s.trim().to_string()).collect();
