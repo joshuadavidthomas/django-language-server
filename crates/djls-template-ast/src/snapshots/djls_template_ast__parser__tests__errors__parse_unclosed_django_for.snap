@@ -13,10 +13,10 @@ nodes:
             - in
             - items
           span:
-            start: 0
+            start: 3
             length: 17
           tag_span:
-            start: 0
+            start: 3
             length: 17
           assignment: ~
         nodes:

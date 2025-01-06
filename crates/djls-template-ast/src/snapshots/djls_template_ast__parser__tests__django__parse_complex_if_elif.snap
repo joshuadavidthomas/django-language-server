@@ -13,10 +13,10 @@ nodes:
             - ">"
             - "0"
           span:
-            start: 0
+            start: 3
             length: 8
           tag_span:
-            start: 0
+            start: 3
             length: 8
           assignment: ~
         nodes:
@@ -35,10 +35,10 @@ nodes:
                     - "<"
                     - "0"
                   span:
-                    start: 22
+                    start: 25
                     length: 10
                   tag_span:
-                    start: 22
+                    start: 25
                     length: 10
                   assignment: ~
                 nodes:
@@ -54,10 +54,10 @@ nodes:
                   bits:
                     - else
                   span:
-                    start: 46
+                    start: 49
                     length: 4
                   tag_span:
-                    start: 46
+                    start: 49
                     length: 4
                   assignment: ~
                 nodes:
@@ -73,10 +73,10 @@ nodes:
               bits:
                 - endif
               span:
-                start: 60
+                start: 63
                 length: 5
               tag_span:
-                start: 60
+                start: 63
                 length: 5
               assignment: ~
         assignments: ~
