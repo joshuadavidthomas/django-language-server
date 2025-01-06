@@ -7,92 +7,92 @@ nodes:
       content: "<!DOCTYPE html>"
       span:
         start: 0
-        length: 16
+        length: 15
   - Text:
       content: "<html>"
       span:
         start: 16
-        length: 7
+        length: 6
   - Text:
       content: "    <head>"
       span:
         start: 23
-        length: 11
+        length: 10
   - Text:
       content: "        <style type=\"text/css\">"
       span:
         start: 34
-        length: 32
-  - Text:
-      content: "            /* Style header */"
-      span:
-        start: 66
         length: 31
+  - Text:
+      content: /* Style header */
+      span:
+        start: 78
+        length: 18
   - Text:
       content: "            .header { color: blue; }"
       span:
         start: 97
-        length: 37
+        length: 36
   - Text:
       content: "        </style>"
       span:
         start: 134
-        length: 17
+        length: 16
   - Text:
       content: "        <script type=\"text/javascript\">"
       span:
         start: 151
-        length: 40
+        length: 39
   - Text:
-      content: "            // Init app"
+      content: // Init app
       span:
-        start: 191
-        length: 24
+        start: 203
+        length: 11
   - Text:
       content: "            const app = {"
       span:
         start: 215
-        length: 26
+        length: 25
   - Text:
-      content: "                /* Config */"
+      content: /* Config */
       span:
-        start: 241
-        length: 29
+        start: 257
+        length: 12
   - Text:
       content: "                debug: true"
       span:
         start: 270
-        length: 28
+        length: 27
   - Text:
       content: "            };"
       span:
         start: 298
-        length: 15
+        length: 14
   - Text:
       content: "        </script>"
       span:
         start: 313
-        length: 18
+        length: 17
   - Text:
       content: "    </head>"
       span:
         start: 331
-        length: 12
+        length: 11
   - Text:
       content: "    <body>"
       span:
         start: 343
-        length: 11
+        length: 10
   - Text:
-      content: "        <!-- Header section -->"
+      content: "<!-- Header section -->"
       span:
-        start: 354
-        length: 32
+        start: 362
+        length: 23
   - Text:
       content: "        <div class=\"header\" id=\"main\" data-value=\"123\" disabled>"
       span:
         start: 386
-        length: 65
+        length: 64
   - Block:
       Block:
         tag:
@@ -112,7 +112,7 @@ nodes:
               content: Welcome message
               span:
                 start: 510
-                length: 19
+                length: 21
           - Text:
               content: "                <h1>Welcome, "
               span:
@@ -141,7 +141,7 @@ nodes:
               content: "!</h1>"
               span:
                 start: 598
-                length: 7
+                length: 6
           - Block:
               Block:
                 tag:
@@ -161,7 +161,7 @@ nodes:
                       content: "                    <span>Admin</span>"
                       span:
                         start: 644
-                        length: 39
+                        length: 38
                   - Block:
                       Branch:
                         tag:
@@ -180,7 +180,7 @@ nodes:
                               content: "                    <span>User</span>"
                               span:
                                 start: 710
-                                length: 38
+                                length: 37
                 closing:
                   Closing:
                     tag:
@@ -213,12 +213,12 @@ nodes:
       content: "        </div>"
       span:
         start: 800
-        length: 15
+        length: 14
   - Text:
       content: "    </body>"
       span:
         start: 815
-        length: 12
+        length: 11
   - Text:
       content: "</html>"
       span:

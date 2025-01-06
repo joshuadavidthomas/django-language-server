@@ -7,12 +7,12 @@ nodes:
       content: "<div class=\"container\">"
       span:
         start: 0
-        length: 24
+        length: 23
   - Text:
       content: "    <h1>Header</h1>"
       span:
         start: 24
-        length: 20
+        length: 19
   - Block:
       Block:
         tag:
@@ -32,7 +32,7 @@ nodes:
               content: This if is unclosed which does matter
               span:
                 start: 87
-                length: 41
+                length: 43
           - Text:
               content: "        <p>Welcome "
               span:
@@ -50,17 +50,17 @@ nodes:
               content: "</p>"
               span:
                 start: 165
-                length: 5
+                length: 4
           - Text:
               content: "        <div>"
               span:
                 start: 170
-                length: 14
+                length: 13
           - Comment:
               content: "This div is unclosed which doesn't matter"
               span:
                 start: 196
-                length: 45
+                length: 47
           - Block:
               Block:
                 tag:
@@ -94,7 +94,7 @@ nodes:
                       content: "</span>"
                       span:
                         start: 304
-                        length: 8
+                        length: 7
                 closing:
                   Closing:
                     tag:
@@ -113,7 +113,7 @@ nodes:
               content: "    <footer>Page Footer</footer>"
               span:
                 start: 333
-                length: 33
+                length: 32
           - Text:
               content: "</div>"
               span:
