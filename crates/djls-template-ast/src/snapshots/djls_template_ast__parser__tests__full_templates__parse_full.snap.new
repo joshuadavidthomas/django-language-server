@@ -1,10 +1,231 @@
 ---
 source: crates/djls-template-ast/src/parser.rs
-assertion_line: 688
+assertion_line: 682
 expression: ast
 snapshot_kind: text
 ---
-nodes: []
+nodes:
+  - Text:
+      content: "<!DOCTYPE html>"
+      span:
+        start: 0
+        length: 15
+  - Text:
+      content: "<html>"
+      span:
+        start: 16
+        length: 6
+  - Text:
+      content: "    <head>"
+      span:
+        start: 23
+        length: 10
+  - Text:
+      content: "        <style type=\"text/css\">"
+      span:
+        start: 34
+        length: 31
+  - Comment:
+      content: Style header
+      span:
+        start: 78
+        length: 16
+  - Text:
+      content: "            .header { color: blue; }"
+      span:
+        start: 97
+        length: 36
+  - Text:
+      content: "        </style>"
+      span:
+        start: 134
+        length: 16
+  - Text:
+      content: "        <script type=\"text/javascript\">"
+      span:
+        start: 151
+        length: 39
+  - Comment:
+      content: Init app
+      span:
+        start: 203
+        length: 10
+  - Text:
+      content: "            const app = {"
+      span:
+        start: 215
+        length: 25
+  - Comment:
+      content: Config
+      span:
+        start: 257
+        length: 10
+  - Text:
+      content: "                debug: true"
+      span:
+        start: 270
+        length: 27
+  - Text:
+      content: "            };"
+      span:
+        start: 298
+        length: 14
+  - Text:
+      content: "        </script>"
+      span:
+        start: 313
+        length: 17
+  - Text:
+      content: "    </head>"
+      span:
+        start: 331
+        length: 11
+  - Text:
+      content: "    <body>"
+      span:
+        start: 343
+        length: 10
+  - Comment:
+      content: Header section
+      span:
+        start: 362
+        length: 21
+  - Text:
+      content: "        <div class=\"header\" id=\"main\" data-value=\"123\" disabled>"
+      span:
+        start: 386
+        length: 64
+  - Block:
+      Block:
+        tag:
+          name: if
+          bits:
+            - if
+            - user.is_authenticated
+          span:
+            start: 463
+            length: 24
+          tag_span:
+            start: 463
+            length: 24
+          assignment: ~
+        nodes:
+          - Comment:
+              content: Welcome message
+              span:
+                start: 510
+                length: 19
+          - Text:
+              content: "                <h1>Welcome, "
+              span:
+                start: 532
+                length: 29
+          - Variable:
+              bits:
+                - user
+                - name
+              filters:
+                - name: title
+                  args: []
+                  span:
+                    start: 565
+                    length: 31
+                - name: default
+                  args:
+                    - "'Guest'"
+                  span:
+                    start: 565
+                    length: 31
+              span:
+                start: 564
+                length: 31
+          - Text:
+              content: "!</h1>"
+              span:
+                start: 598
+                length: 6
+          - Block:
+              Block:
+                tag:
+                  name: if
+                  bits:
+                    - if
+                    - user.is_staff
+                  span:
+                    start: 621
+                    length: 16
+                  tag_span:
+                    start: 621
+                    length: 16
+                  assignment: ~
+                nodes:
+                  - Text:
+                      content: "                    <span>Admin</span>"
+                      span:
+                        start: 644
+                        length: 38
+                  - Block:
+                      Branch:
+                        tag:
+                          name: else
+                          bits:
+                            - else
+                          span:
+                            start: 699
+                            length: 4
+                          tag_span:
+                            start: 699
+                            length: 4
+                          assignment: ~
+                        nodes:
+                          - Text:
+                              content: "                    <span>User</span>"
+                              span:
+                                start: 710
+                                length: 37
+                closing:
+                  Closing:
+                    tag:
+                      name: endif
+                      bits:
+                        - endif
+                      span:
+                        start: 764
+                        length: 5
+                      tag_span:
+                        start: 764
+                        length: 5
+                      assignment: ~
+                assignments: ~
+        closing:
+          Closing:
+            tag:
+              name: endif
+              bits:
+                - endif
+              span:
+                start: 788
+                length: 5
+              tag_span:
+                start: 788
+                length: 5
+              assignment: ~
+        assignments: ~
+  - Text:
+      content: "        </div>"
+      span:
+        start: 800
+        length: 14
+  - Text:
+      content: "    </body>"
+      span:
+        start: 815
+        length: 11
+  - Text:
+      content: "</html>"
+      span:
+        start: 827
+        length: 7
 line_offsets:
   - 0
   - 16

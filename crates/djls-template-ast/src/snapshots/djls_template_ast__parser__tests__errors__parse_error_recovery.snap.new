@@ -1,10 +1,128 @@
 ---
 source: crates/djls-template-ast/src/parser.rs
-assertion_line: 643
+assertion_line: 637
 expression: ast
 snapshot_kind: text
 ---
-nodes: []
+nodes:
+  - Text:
+      content: "<div class=\"container\">"
+      span:
+        start: 0
+        length: 23
+  - Text:
+      content: "    <h1>Header</h1>"
+      span:
+        start: 24
+        length: 19
+  - Block:
+      Block:
+        tag:
+          name: if
+          bits:
+            - if
+            - user.is_authenticated
+          span:
+            start: 48
+            length: 24
+          tag_span:
+            start: 48
+            length: 24
+          assignment: ~
+        nodes:
+          - Comment:
+              content: This if is unclosed which does matter
+              span:
+                start: 87
+                length: 41
+          - Text:
+              content: "        <p>Welcome "
+              span:
+                start: 131
+                length: 19
+          - Variable:
+              bits:
+                - user
+                - name
+              filters: []
+              span:
+                start: 153
+                length: 9
+          - Text:
+              content: "</p>"
+              span:
+                start: 165
+                length: 4
+          - Text:
+              content: "        <div>"
+              span:
+                start: 170
+                length: 13
+          - Comment:
+              content: "This div is unclosed which doesn't matter"
+              span:
+                start: 196
+                length: 45
+          - Block:
+              Block:
+                tag:
+                  name: for
+                  bits:
+                    - for
+                    - item
+                    - in
+                    - items
+                  span:
+                    start: 252
+                    length: 17
+                  tag_span:
+                    start: 252
+                    length: 17
+                  assignment: ~
+                nodes:
+                  - Text:
+                      content: "            <span>"
+                      span:
+                        start: 276
+                        length: 18
+                  - Variable:
+                      bits:
+                        - item
+                      filters: []
+                      span:
+                        start: 297
+                        length: 4
+                  - Text:
+                      content: "</span>"
+                      span:
+                        start: 304
+                        length: 7
+                closing:
+                  Closing:
+                    tag:
+                      name: endfor
+                      bits:
+                        - endfor
+                      span:
+                        start: 320
+                        length: 6
+                      tag_span:
+                        start: 320
+                        length: 6
+                      assignment: ~
+                assignments: ~
+          - Text:
+              content: "    <footer>Page Footer</footer>"
+              span:
+                start: 333
+                length: 32
+          - Text:
+              content: "</div>"
+              span:
+                start: 366
+                length: 6
+        closing: ~
+        assignments: ~
 line_offsets:
   - 0
   - 24
