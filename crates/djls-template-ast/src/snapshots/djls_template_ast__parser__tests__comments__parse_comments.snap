@@ -4,40 +4,10 @@ expression: ast
 ---
 nodes:
   - Text:
-      content: "<!--"
+      content: "<!-- HTML comment -->"
       span:
         start: 0
-        length: 4
-  - Text:
-      content: " "
-      span:
-        start: 4
-        length: 1
-  - Text:
-      content: HTML
-      span:
-        start: 5
-        length: 4
-  - Text:
-      content: " "
-      span:
-        start: 9
-        length: 1
-  - Text:
-      content: comment
-      span:
-        start: 10
-        length: 7
-  - Text:
-      content: " "
-      span:
-        start: 17
-        length: 1
-  - Text:
-      content: "-->"
-      span:
-        start: 18
-        length: 3
+        length: 21
   - Comment:
       content: Django comment
       span:

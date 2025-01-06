@@ -4,30 +4,10 @@ expression: ast
 ---
 nodes:
   - Text:
-      content: "<input"
+      content: "<input type=\"text\" />"
       span:
         start: 0
-        length: 6
-  - Text:
-      content: " "
-      span:
-        start: 6
-        length: 1
-  - Text:
-      content: "type=\"text\""
-      span:
-        start: 7
-        length: 11
-  - Text:
-      content: " "
-      span:
-        start: 18
-        length: 1
-  - Text:
-      content: />
-      span:
-        start: 19
-        length: 2
+        length: 21
 line_offsets:
   - 0
 errors: []

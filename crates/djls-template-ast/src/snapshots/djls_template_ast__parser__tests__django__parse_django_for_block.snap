@@ -41,20 +41,10 @@ nodes:
                     length: 5
                   assignment: ~
           - Text:
-              content: "No"
+              content: No items
               span:
                 start: 44
-                length: 2
-          - Text:
-              content: " "
-              span:
-                start: 46
-                length: 1
-          - Text:
-              content: items
-              span:
-                start: 47
-                length: 5
+                length: 8
         closing:
           Closing:
             tag:

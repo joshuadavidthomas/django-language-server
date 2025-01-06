@@ -212,10 +212,9 @@ impl Parser {
     fn parse_text(&mut self) -> Result<Node, ParserError> {
         let start_token = self.peek()?;
         let start_pos = start_token.start().unwrap_or(0);
-        let total_length = start_token.length().unwrap_or(0);
-        let span = Span::new(start_pos, total_length);
-
-        let content = match start_token.token_type() {
+        let mut total_length = start_token.length().unwrap_or(0);
+        
+        let mut content = match start_token.token_type() {
             TokenType::Text(text) => text.to_string(),
             TokenType::Whitespace(count) => " ".repeat(*count),
             TokenType::Newline => "\n".to_string(),
@@ -225,10 +224,29 @@ impl Parser {
                 )))
             }
         };
-
         self.consume()?;
 
-        Ok(Node::Text { content, span })
+        // Look ahead for more text/whitespace tokens
+        while let Ok(next_token) = self.peek() {
+            match next_token.token_type() {
+                TokenType::Text(text) => {
+                    content.push_str(text);
+                    total_length = total_length.checked_add(text.len() as u32).unwrap_or(0);
+                    self.consume()?;
+                }
+                TokenType::Whitespace(count) => {
+                    content.push_str(&" ".repeat(*count));
+                    total_length = total_length.checked_add(*count as u32).unwrap_or(0);
+                    self.consume()?;
+                }
+                _ => break,
+            }
+        }
+
+        Ok(Node::Text {
+            content,
+            span: Span::new(start_pos, total_length),
+        })
     }
 
     fn parse_comment(

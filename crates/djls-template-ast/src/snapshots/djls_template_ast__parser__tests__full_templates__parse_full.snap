@@ -4,520 +4,100 @@ expression: ast
 ---
 nodes:
   - Text:
-      content: "<!DOCTYPE"
+      content: "<!DOCTYPE html>"
       span:
         start: 0
-        length: 9
+        length: 15
   - Text:
-      content: " "
-      span:
-        start: 9
-        length: 1
-  - Text:
-      content: html>
-      span:
-        start: 10
-        length: 5
-  - Text:
-      content: "\n"
+      content: "\n<html>"
       span:
         start: 15
-        length: 1
+        length: 7
   - Text:
-      content: "<html>"
-      span:
-        start: 16
-        length: 6
-  - Text:
-      content: "\n"
+      content: "\n    <head>"
       span:
         start: 22
-        length: 1
+        length: 11
   - Text:
-      content: "    "
-      span:
-        start: 23
-        length: 4
-  - Text:
-      content: "<head>"
-      span:
-        start: 27
-        length: 6
-  - Text:
-      content: "\n"
+      content: "\n        <style type=\"text/css\">"
       span:
         start: 33
-        length: 1
+        length: 32
   - Text:
-      content: "        "
-      span:
-        start: 34
-        length: 8
-  - Text:
-      content: "<style"
-      span:
-        start: 42
-        length: 6
-  - Text:
-      content: " "
-      span:
-        start: 48
-        length: 1
-  - Text:
-      content: "type=\"text/css\">"
-      span:
-        start: 49
-        length: 16
-  - Text:
-      content: "\n"
+      content: "\n            /* Style header */"
       span:
         start: 65
-        length: 1
+        length: 31
   - Text:
-      content: "            "
-      span:
-        start: 66
-        length: 12
-  - Text:
-      content: /*
-      span:
-        start: 78
-        length: 2
-  - Text:
-      content: " "
-      span:
-        start: 80
-        length: 1
-  - Text:
-      content: Style
-      span:
-        start: 81
-        length: 5
-  - Text:
-      content: " "
-      span:
-        start: 86
-        length: 1
-  - Text:
-      content: header
-      span:
-        start: 87
-        length: 6
-  - Text:
-      content: " "
-      span:
-        start: 93
-        length: 1
-  - Text:
-      content: "*/"
-      span:
-        start: 94
-        length: 2
-  - Text:
-      content: "\n"
+      content: "\n            .header { color: blue; }"
       span:
         start: 96
-        length: 1
+        length: 37
   - Text:
-      content: "            "
-      span:
-        start: 97
-        length: 12
-  - Text:
-      content: ".header"
-      span:
-        start: 109
-        length: 7
-  - Text:
-      content: " "
-      span:
-        start: 116
-        length: 1
-  - Text:
-      content: "{"
-      span:
-        start: 117
-        length: 1
-  - Text:
-      content: " "
-      span:
-        start: 118
-        length: 1
-  - Text:
-      content: "color:"
-      span:
-        start: 119
-        length: 6
-  - Text:
-      content: " "
-      span:
-        start: 125
-        length: 1
-  - Text:
-      content: blue;
-      span:
-        start: 126
-        length: 5
-  - Text:
-      content: " "
-      span:
-        start: 131
-        length: 1
-  - Text:
-      content: "}"
-      span:
-        start: 132
-        length: 1
-  - Text:
-      content: "\n"
+      content: "\n        </style>"
       span:
         start: 133
-        length: 1
+        length: 17
   - Text:
-      content: "        "
-      span:
-        start: 134
-        length: 8
-  - Text:
-      content: "</style>"
-      span:
-        start: 142
-        length: 8
-  - Text:
-      content: "\n"
+      content: "\n        <script type=\"text/javascript\">"
       span:
         start: 150
-        length: 1
+        length: 40
   - Text:
-      content: "        "
-      span:
-        start: 151
-        length: 8
-  - Text:
-      content: "<script"
-      span:
-        start: 159
-        length: 7
-  - Text:
-      content: " "
-      span:
-        start: 166
-        length: 1
-  - Text:
-      content: "type=\"text/javascript\">"
-      span:
-        start: 167
-        length: 23
-  - Text:
-      content: "\n"
+      content: "\n            // Init app"
       span:
         start: 190
-        length: 1
+        length: 24
   - Text:
-      content: "            "
-      span:
-        start: 191
-        length: 12
-  - Text:
-      content: //
-      span:
-        start: 203
-        length: 2
-  - Text:
-      content: " "
-      span:
-        start: 205
-        length: 1
-  - Text:
-      content: Init
-      span:
-        start: 206
-        length: 4
-  - Text:
-      content: " "
-      span:
-        start: 210
-        length: 1
-  - Text:
-      content: app
-      span:
-        start: 211
-        length: 3
-  - Text:
-      content: "\n"
+      content: "\n            const app = {"
       span:
         start: 214
-        length: 1
+        length: 26
   - Text:
-      content: "            "
-      span:
-        start: 215
-        length: 12
-  - Text:
-      content: const
-      span:
-        start: 227
-        length: 5
-  - Text:
-      content: " "
-      span:
-        start: 232
-        length: 1
-  - Text:
-      content: app
-      span:
-        start: 233
-        length: 3
-  - Text:
-      content: " "
-      span:
-        start: 236
-        length: 1
-  - Text:
-      content: "="
-      span:
-        start: 237
-        length: 1
-  - Text:
-      content: " "
-      span:
-        start: 238
-        length: 1
-  - Text:
-      content: "{"
-      span:
-        start: 239
-        length: 1
-  - Text:
-      content: "\n"
+      content: "\n                /* Config */"
       span:
         start: 240
-        length: 1
+        length: 29
   - Text:
-      content: "                "
-      span:
-        start: 241
-        length: 16
-  - Text:
-      content: /*
-      span:
-        start: 257
-        length: 2
-  - Text:
-      content: " "
-      span:
-        start: 259
-        length: 1
-  - Text:
-      content: Config
-      span:
-        start: 260
-        length: 6
-  - Text:
-      content: " "
-      span:
-        start: 266
-        length: 1
-  - Text:
-      content: "*/"
-      span:
-        start: 267
-        length: 2
-  - Text:
-      content: "\n"
+      content: "\n                debug: true"
       span:
         start: 269
-        length: 1
+        length: 28
   - Text:
-      content: "                "
-      span:
-        start: 270
-        length: 16
-  - Text:
-      content: "debug:"
-      span:
-        start: 286
-        length: 6
-  - Text:
-      content: " "
-      span:
-        start: 292
-        length: 1
-  - Text:
-      content: "true"
-      span:
-        start: 293
-        length: 4
-  - Text:
-      content: "\n"
+      content: "\n            };"
       span:
         start: 297
-        length: 1
+        length: 15
   - Text:
-      content: "            "
-      span:
-        start: 298
-        length: 12
-  - Text:
-      content: "};"
-      span:
-        start: 310
-        length: 2
-  - Text:
-      content: "\n"
+      content: "\n        </script>"
       span:
         start: 312
-        length: 1
+        length: 18
   - Text:
-      content: "        "
-      span:
-        start: 313
-        length: 8
-  - Text:
-      content: "</script>"
-      span:
-        start: 321
-        length: 9
-  - Text:
-      content: "\n"
+      content: "\n    </head>"
       span:
         start: 330
-        length: 1
+        length: 12
   - Text:
-      content: "    "
-      span:
-        start: 331
-        length: 4
-  - Text:
-      content: "</head>"
-      span:
-        start: 335
-        length: 7
-  - Text:
-      content: "\n"
+      content: "\n    <body>"
       span:
         start: 342
-        length: 1
+        length: 11
   - Text:
-      content: "    "
-      span:
-        start: 343
-        length: 4
-  - Text:
-      content: "<body>"
-      span:
-        start: 347
-        length: 6
-  - Text:
-      content: "\n"
+      content: "\n        <!-- Header section -->"
       span:
         start: 353
-        length: 1
+        length: 32
   - Text:
-      content: "        "
-      span:
-        start: 354
-        length: 8
-  - Text:
-      content: "<!--"
-      span:
-        start: 362
-        length: 4
-  - Text:
-      content: " "
-      span:
-        start: 366
-        length: 1
-  - Text:
-      content: Header
-      span:
-        start: 367
-        length: 6
-  - Text:
-      content: " "
-      span:
-        start: 373
-        length: 1
-  - Text:
-      content: section
-      span:
-        start: 374
-        length: 7
-  - Text:
-      content: " "
-      span:
-        start: 381
-        length: 1
-  - Text:
-      content: "-->"
-      span:
-        start: 382
-        length: 3
-  - Text:
-      content: "\n"
+      content: "\n        <div class=\"header\" id=\"main\" data-value=\"123\" disabled>"
       span:
         start: 385
-        length: 1
+        length: 65
   - Text:
-      content: "        "
-      span:
-        start: 386
-        length: 8
-  - Text:
-      content: "<div"
-      span:
-        start: 394
-        length: 4
-  - Text:
-      content: " "
-      span:
-        start: 398
-        length: 1
-  - Text:
-      content: "class=\"header\""
-      span:
-        start: 399
-        length: 14
-  - Text:
-      content: " "
-      span:
-        start: 413
-        length: 1
-  - Text:
-      content: "id=\"main\""
-      span:
-        start: 414
-        length: 9
-  - Text:
-      content: " "
-      span:
-        start: 423
-        length: 1
-  - Text:
-      content: "data-value=\"123\""
-      span:
-        start: 424
-        length: 16
-  - Text:
-      content: " "
-      span:
-        start: 440
-        length: 1
-  - Text:
-      content: disabled>
-      span:
-        start: 441
-        length: 9
-  - Text:
-      content: "\n"
+      content: "\n            "
       span:
         start: 450
-        length: 1
-  - Text:
-      content: "            "
-      span:
-        start: 451
-        length: 12
+        length: 13
   - Block:
       Block:
         tag:
@@ -534,40 +114,20 @@ nodes:
           assignment: ~
         nodes:
           - Text:
-              content: "\n"
+              content: "\n                "
               span:
                 start: 493
-                length: 1
-          - Text:
-              content: "                "
-              span:
-                start: 494
-                length: 16
+                length: 17
           - Comment:
               content: Welcome message
               span:
                 start: 510
                 length: 19
           - Text:
-              content: "\n"
+              content: "\n                <h1>Welcome, "
               span:
                 start: 531
-                length: 1
-          - Text:
-              content: "                "
-              span:
-                start: 532
-                length: 16
-          - Text:
-              content: "<h1>Welcome,"
-              span:
-                start: 548
-                length: 12
-          - Text:
-              content: " "
-              span:
-                start: 560
-                length: 1
+                length: 30
           - Variable:
               bits:
                 - user
@@ -593,15 +153,10 @@ nodes:
                 start: 598
                 length: 6
           - Text:
-              content: "\n"
+              content: "\n                "
               span:
                 start: 604
-                length: 1
-          - Text:
-              content: "                "
-              span:
-                start: 605
-                length: 16
+                length: 17
           - Block:
               Block:
                 tag:
@@ -618,30 +173,15 @@ nodes:
                   assignment: ~
                 nodes:
                   - Text:
-                      content: "\n"
+                      content: "\n                    <span>Admin</span>"
                       span:
                         start: 643
-                        length: 1
+                        length: 39
                   - Text:
-                      content: "                    "
-                      span:
-                        start: 644
-                        length: 20
-                  - Text:
-                      content: "<span>Admin</span>"
-                      span:
-                        start: 664
-                        length: 18
-                  - Text:
-                      content: "\n"
+                      content: "\n                "
                       span:
                         start: 682
-                        length: 1
-                  - Text:
-                      content: "                "
-                      span:
-                        start: 683
-                        length: 16
+                        length: 17
                   - Block:
                       Tag:
                         tag:
@@ -656,30 +196,15 @@ nodes:
                             length: 4
                           assignment: ~
                   - Text:
-                      content: "\n"
+                      content: "\n                    <span>User</span>"
                       span:
                         start: 709
-                        length: 1
+                        length: 38
                   - Text:
-                      content: "                    "
-                      span:
-                        start: 710
-                        length: 20
-                  - Text:
-                      content: "<span>User</span>"
-                      span:
-                        start: 730
-                        length: 17
-                  - Text:
-                      content: "\n"
+                      content: "\n                "
                       span:
                         start: 747
-                        length: 1
-                  - Text:
-                      content: "                "
-                      span:
-                        start: 748
-                        length: 16
+                        length: 17
                 closing:
                   Closing:
                     tag:
@@ -695,15 +220,10 @@ nodes:
                       assignment: ~
                 assignments: []
           - Text:
-              content: "\n"
+              content: "\n            "
               span:
                 start: 775
-                length: 1
-          - Text:
-              content: "            "
-              span:
-                start: 776
-                length: 12
+                length: 13
         closing:
           Closing:
             tag:
@@ -719,45 +239,20 @@ nodes:
               assignment: ~
         assignments: []
   - Text:
-      content: "\n"
+      content: "\n        </div>"
       span:
         start: 799
-        length: 1
+        length: 15
   - Text:
-      content: "        "
-      span:
-        start: 800
-        length: 8
-  - Text:
-      content: "</div>"
-      span:
-        start: 808
-        length: 6
-  - Text:
-      content: "\n"
+      content: "\n    </body>"
       span:
         start: 814
-        length: 1
+        length: 12
   - Text:
-      content: "    "
-      span:
-        start: 815
-        length: 4
-  - Text:
-      content: "</body>"
-      span:
-        start: 819
-        length: 7
-  - Text:
-      content: "\n"
+      content: "\n</html>"
       span:
         start: 826
-        length: 1
-  - Text:
-      content: "</html>"
-      span:
-        start: 827
-        length: 7
+        length: 8
 line_offsets:
   - 0
   - 16
