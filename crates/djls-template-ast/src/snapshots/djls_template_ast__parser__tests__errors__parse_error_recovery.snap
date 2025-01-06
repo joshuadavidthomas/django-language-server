@@ -9,10 +9,10 @@ nodes:
         start: 0
         length: 23
   - Text:
-      content: "    <h1>Header</h1>"
+      content: "<h1>Header</h1>"
       span:
-        start: 24
-        length: 19
+        start: 28
+        length: 15
   - Block:
       Block:
         tag:
@@ -34,10 +34,10 @@ nodes:
                 start: 87
                 length: 43
           - Text:
-              content: "        <p>Welcome "
+              content: "<p>Welcome "
               span:
-                start: 131
-                length: 19
+                start: 139
+                length: 11
           - Variable:
               bits:
                 - user
@@ -52,10 +52,10 @@ nodes:
                 start: 165
                 length: 4
           - Text:
-              content: "        <div>"
+              content: "<div>"
               span:
-                start: 170
-                length: 13
+                start: 178
+                length: 5
           - Comment:
               content: "This div is unclosed which doesn't matter"
               span:
@@ -79,10 +79,10 @@ nodes:
                   assignment: ~
                 nodes:
                   - Text:
-                      content: "            <span>"
+                      content: "<span>"
                       span:
-                        start: 276
-                        length: 18
+                        start: 288
+                        length: 6
                   - Variable:
                       bits:
                         - item
@@ -110,10 +110,10 @@ nodes:
                       assignment: ~
                 assignments: ~
           - Text:
-              content: "    <footer>Page Footer</footer>"
+              content: "<footer>Page Footer</footer>"
               span:
-                start: 333
-                length: 32
+                start: 337
+                length: 28
           - Text:
               content: "</div>"
               span:

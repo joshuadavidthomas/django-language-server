@@ -14,20 +14,20 @@ nodes:
         start: 36
         length: 22
   - Text:
-      content: "    const x = 1;"
+      content: const x = 1;
       span:
-        start: 59
-        length: 16
+        start: 63
+        length: 12
   - Text:
       content: "/* Multi-line\n        comment */"
       span:
         start: 80
         length: 32
   - Text:
-      content: "    console.log(x);"
+      content: console.log(x);
       span:
-        start: 113
-        length: 19
+        start: 117
+        length: 15
   - Text:
       content: "</script>"
       span:

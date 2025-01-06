@@ -14,20 +14,20 @@ nodes:
         start: 28
         length: 19
   - Text:
-      content: "    .header {"
+      content: ".header {"
       span:
-        start: 48
-        length: 13
+        start: 52
+        length: 9
   - Text:
-      content: "        color: blue;"
+      content: "color: blue;"
       span:
-        start: 62
-        length: 20
+        start: 70
+        length: 12
   - Text:
-      content: "    }"
+      content: "}"
       span:
-        start: 83
-        length: 5
+        start: 87
+        length: 1
   - Text:
       content: "</style>"
       span:

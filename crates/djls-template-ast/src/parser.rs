@@ -54,6 +54,11 @@ impl Parser {
     fn next_node(&mut self) -> Result<Node, ParserError> {
         let token = self.peek()?;
         match token.token_type() {
+            TokenType::Comment(content, start, end) => {
+                self.consume()?;
+                self.parse_comment(content, start, end.as_deref())
+            }
+            TokenType::Eof => Err(ParserError::Ast(AstError::StreamError("AtEnd".to_string()))),
             TokenType::DjangoBlock(content) => {
                 self.consume()?;
                 self.parse_django_block(content)
@@ -62,24 +67,39 @@ impl Parser {
                 self.consume()?;
                 self.parse_django_variable(content)
             }
-            TokenType::Comment(content, start, end) => {
-                self.consume()?;
-                self.parse_comment(content, start, end.as_deref())
-            }
-            TokenType::Text(_)
-            | TokenType::Whitespace(_)
-            | TokenType::Newline
+            TokenType::HtmlTagClose(_)
             | TokenType::HtmlTagOpen(_)
-            | TokenType::HtmlTagClose(_)
             | TokenType::HtmlTagVoid(_)
-            | TokenType::ScriptTagOpen(_)
+            | TokenType::Newline
             | TokenType::ScriptTagClose(_)
+            | TokenType::ScriptTagOpen(_)
+            | TokenType::StyleTagClose(_)
             | TokenType::StyleTagOpen(_)
-            | TokenType::StyleTagClose(_) => {
+            | TokenType::Text(_)
+            | TokenType::Whitespace(_) => {
                 self.consume()?;
                 self.parse_text()
             }
-            TokenType::Eof => Err(ParserError::Ast(AstError::StreamError("AtEnd".to_string()))),
+        }
+    }
+
+    fn parse_comment(
+        &mut self,
+        content: &str,
+        start: &str,
+        end: Option<&str>,
+    ) -> Result<Node, ParserError> {
+        let token = self.peek_previous()?;
+        let start_pos = token.start().unwrap_or(0);
+
+        // Only treat Django comments as Comment nodes
+        if start == "{#" && end == Some("#}") {
+            Ok(Node::Comment {
+                content: content.to_string(),
+                span: Span::new(start_pos, token.token_type().len().unwrap_or(0) as u32),
+            })
+        } else {
+            self.parse_text()
         }
     }
 
@@ -209,7 +229,7 @@ impl Parser {
             ..
         } = &block
         {
-            if let Some(expected_closing) = &spec.closing {
+            if let Some(_expected_closing) = &spec.closing {
                 self.errors.push(ParserError::Ast(AstError::UnclosedTag(
                     tag_ref.name.clone(),
                 )));
@@ -245,7 +265,7 @@ impl Parser {
                 filters.push(DjangoFilter {
                     name: filter_name.to_string(),
                     args: filter_args,
-                    span: Span::new(start + 4, content.len() as u32), // Account for {{ and space
+                    span: Span::new(start + 4, content.len() as u32),
                 });
             }
         }
@@ -253,7 +273,7 @@ impl Parser {
         Ok(Node::Variable {
             bits,
             filters,
-            span: Span::new(start + 3, content.len() as u32), // Account for {{ and space
+            span: Span::new(start + 3, content.len() as u32),
         })
     }
 
@@ -261,8 +281,16 @@ impl Parser {
         let start_token = self.peek_previous()?;
         let start_pos = start_token.start().unwrap_or(0);
 
-        if matches!(start_token.token_type(), TokenType::Newline) {
-            return self.next_node();
+        match start_token.token_type() {
+            TokenType::Newline => return self.next_node(),
+            TokenType::Whitespace(_)
+                if self
+                    .peek_at(-2)
+                    .map_or(false, |t| matches!(t.token_type(), TokenType::Newline)) =>
+            {
+                return self.next_node()
+            }
+            _ => {}
         }
 
         let mut text = start_token.token_type().to_string();
@@ -291,26 +319,6 @@ impl Parser {
                 content: text,
                 span: Span::new(start_pos, total_length),
             })
-        }
-    }
-
-    fn parse_comment(
-        &mut self,
-        content: &str,
-        start: &str,
-        end: Option<&str>,
-    ) -> Result<Node, ParserError> {
-        let token = self.peek_previous()?;
-        let start_pos = token.start().unwrap_or(0);
-
-        // Only treat Django comments as Comment nodes
-        if start == "{#" && end == Some("#}") {
-            Ok(Node::Comment {
-                content: content.to_string(),
-                span: Span::new(start_pos, token.token_type().len().unwrap_or(0) as u32),
-            })
-        } else {
-            self.parse_text()
         }
     }
 
