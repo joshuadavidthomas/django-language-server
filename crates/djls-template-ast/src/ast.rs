@@ -98,12 +98,11 @@ impl Span {
 
 #[derive(Clone, Debug, Serialize)]
 pub enum Node {
-    Block(Block),
-    Comment {
+    Text {
         content: String,
         span: Span,
     },
-    Text {
+    Comment {
         content: String,
         span: Span,
     },
@@ -112,6 +111,7 @@ pub enum Node {
         filters: Vec<DjangoFilter>,
         span: Span,
     },
+    Block(Block),
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -158,16 +158,16 @@ pub struct Assignment {
 
 #[derive(Clone, Debug, Serialize)]
 pub struct DjangoFilter {
-    name: String,
-    arguments: Vec<String>,
-    span: Span,
+    pub name: String,
+    pub args: Vec<String>,
+    pub span: Span,
 }
 
 impl DjangoFilter {
-    pub fn new(name: String, arguments: Vec<String>, span: Span) -> Self {
+    pub fn new(name: String, args: Vec<String>, span: Span) -> Self {
         Self {
             name,
-            arguments,
+            args,
             span,
         }
     }

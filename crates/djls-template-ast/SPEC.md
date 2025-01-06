@@ -290,42 +290,39 @@ required = true | false
 #### If Tag
 
 ```toml
-[if]
+[django.template.defaulttags.if]
 type = "block"
 closing = "endif"
 supports_assignment = false
 branches = ["elif", "else"]
 
-[[if.args]]
+[[django.template.defaulttags.if.args]]
 name = "condition"
 required = true
-position = 0
 ```
 
 #### Include Tag
 
 ```toml
-[include]
+[django.template.defaulttags.includes]
 type = "inclusion"
 supports_assignment = true
 
-[[include.args]]
+[[django.template.defaulttags.includes.args]]
 name = "template_name"
 required = true
-position = 0
 ```
 
 #### Custom Tag Example
 
 ```toml
-[my_custom_tag]
+[my_module.templatetags.my_tags.my_custom_tag]
 type = "tag"
 supports_assignment = true
 
-[[my_custom_tag.args]]
+{[my_module.templatetags.my_tags.my_custom_tag.args]]
 name = "arg1"
 required = false
-position = 0
 ```
 
 ### AST Examples
