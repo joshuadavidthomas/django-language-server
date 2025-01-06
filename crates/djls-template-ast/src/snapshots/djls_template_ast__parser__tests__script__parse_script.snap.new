@@ -1,0 +1,51 @@
+---
+source: crates/djls-template-ast/src/parser.rs
+assertion_line: 505
+expression: ast
+snapshot_kind: text
+---
+nodes:
+  - Text:
+      content: "<script type=\"text/javascript\">"
+      span:
+        start: 0
+        length: 32
+  - Text:
+      content: "    // Single line comment"
+      span:
+        start: 32
+        length: 27
+  - Text:
+      content: "    const x = 1;"
+      span:
+        start: 59
+        length: 17
+  - Text:
+      content: "    /* Multi-line"
+      span:
+        start: 76
+        length: 18
+  - Text:
+      content: "        comment */"
+      span:
+        start: 94
+        length: 19
+  - Text:
+      content: "    console.log(x);"
+      span:
+        start: 113
+        length: 20
+  - Text:
+      content: "</script>"
+      span:
+        start: 133
+        length: 9
+line_offsets:
+  - 0
+  - 32
+  - 59
+  - 76
+  - 94
+  - 113
+  - 133
+errors: []

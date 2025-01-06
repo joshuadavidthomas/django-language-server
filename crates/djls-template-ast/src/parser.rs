@@ -214,39 +214,57 @@ impl Parser {
         let start_pos = start_token.start().unwrap_or(0);
         let mut total_length = start_token.length().unwrap_or(0);
         
+        // Handle newlines by returning next node
+        if matches!(start_token.token_type(), TokenType::Newline) {
+            self.consume()?;
+            let (next_node, _) = self.next_node()?;
+            return Ok(next_node);
+        }
+        
         let mut content = match start_token.token_type() {
             TokenType::Text(text) => text.to_string(),
             TokenType::Whitespace(count) => " ".repeat(*count),
-            TokenType::Newline => "\n".to_string(),
             _ => {
                 return Err(ParserError::Ast(AstError::InvalidTag(
-                    "Expected text, whitespace, or newline token".to_string(),
+                    "Expected text or whitespace token".to_string(),
                 )))
             }
         };
         self.consume()?;
 
-        // Look ahead for more text/whitespace tokens
+        // Look ahead for more tokens until newline
         while let Ok(next_token) = self.peek() {
             match next_token.token_type() {
                 TokenType::Text(text) => {
                     content.push_str(text);
-                    total_length = total_length.checked_add(text.len() as u32).unwrap_or(0);
+                    total_length += next_token.length().unwrap_or(0);
                     self.consume()?;
                 }
                 TokenType::Whitespace(count) => {
                     content.push_str(&" ".repeat(*count));
-                    total_length = total_length.checked_add(*count as u32).unwrap_or(0);
+                    total_length += next_token.length().unwrap_or(0);
                     self.consume()?;
+                }
+                TokenType::Newline => {
+                    // Include newline in span but not content
+                    total_length += next_token.length().unwrap_or(0);
+                    self.consume()?;
+                    break;
                 }
                 _ => break,
             }
         }
 
-        Ok(Node::Text {
-            content,
-            span: Span::new(start_pos, total_length),
-        })
+        // Skip empty text nodes
+        if content.trim().is_empty() {
+            let (next_node, _) = self.next_node()?;
+            Ok(next_node)
+        } else {
+            Ok(Node::Text {
+                content,
+                span: Span::new(start_pos, total_length),
+            })
+        }
     }
 
     fn parse_comment(
