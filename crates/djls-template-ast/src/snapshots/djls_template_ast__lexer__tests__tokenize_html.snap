@@ -3,33 +3,13 @@ source: crates/djls-template-ast/src/lexer.rs
 expression: tokens
 ---
 - token_type:
-    Text: "<div"
+    HtmlTagOpen: "div class=\"container\" id=\"main\" disabled"
   line: 1
   start: 0
 - token_type:
-    Whitespace: 1
+    HtmlTagClose: div
   line: 1
-  start: 4
-- token_type:
-    Text: "class=\"container\""
-  line: 1
-  start: 5
-- token_type:
-    Whitespace: 1
-  line: 1
-  start: 22
-- token_type:
-    Text: "id=\"main\""
-  line: 1
-  start: 23
-- token_type:
-    Whitespace: 1
-  line: 1
-  start: 32
-- token_type:
-    Text: disabled></div>
-  line: 1
-  start: 33
+  start: 42
 - token_type: Eof
   line: 1
   start: ~
