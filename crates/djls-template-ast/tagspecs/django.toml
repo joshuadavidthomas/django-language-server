@@ -1,30 +1,16 @@
 [django.template.defaulttags.if]
-type = "block"
+branches = ["elif", "else"]
 closing = "endif"
-
-# We keep the intermediates field name in TOML since we're using serde rename
-# to map it to branches in the Rust code
-[[django.template.defaulttags.if.branches]]
-name = "elif"
-args = true
-
-[[django.template.defaulttags.if.branches]]
-name = "else"
-args = false
+type = "block"
 
 [[django.template.defaulttags.if.args]]
 name = "condition"
 required = true
 
 [django.template.defaulttags.for]
-type = "block"
+branches = ["empty"]
 closing = "endfor"
-
-# We keep the intermediates field name in TOML since we're using serde rename
-# to map it to branches in the Rust code
-[[django.template.defaulttags.for.branches]]
-name = "empty"
-args = false
+type = "block"
 
 [[django.template.defaulttags.for.args]]
 name = "{item}"
