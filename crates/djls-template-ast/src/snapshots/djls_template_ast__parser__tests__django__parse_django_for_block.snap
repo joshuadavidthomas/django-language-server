@@ -19,39 +19,41 @@ nodes:
             span:
               start: 26
               length: 4
-        - Block:
-            block_type: Branch
-            name: empty
-            bits: []
-            children:
-              - Text:
-                  content: No items
-                  span:
-                    start: 44
-                    length: 8
-            span:
-              start: 0
-              length: 0
-            tag_span:
-              start: 0
-              length: 17
-        - Block:
-            block_type: Closing
-            name: endfor
-            bits: []
-            children: ~
-            span:
-              start: 52
-              length: 11
-            tag_span:
-              start: 0
-              length: 17
       span:
         start: 0
-        length: 63
+        length: 17
       tag_span:
         start: 0
         length: 17
+  - Block:
+      block_type: Standalone
+      name: empty
+      bits:
+        - empty
+      children: ~
+      span:
+        start: 33
+        length: 5
+      tag_span:
+        start: 33
+        length: 5
+  - Text:
+      content: No items
+      span:
+        start: 44
+        length: 8
+  - Block:
+      block_type: Standalone
+      name: endfor
+      bits:
+        - endfor
+      children: ~
+      span:
+        start: 52
+        length: 6
+      tag_span:
+        start: 52
+        length: 6
 line_offsets:
   - 0
 errors: []

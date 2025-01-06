@@ -5,7 +5,6 @@ use thiserror::Error;
 pub struct Ast {
     nodes: Vec<Node>,
     line_offsets: LineOffsets,
-    errors: Vec<AstError>,
 }
 
 impl Ast {
@@ -17,10 +16,6 @@ impl Ast {
         &self.line_offsets
     }
 
-    pub fn errors(&self) -> &Vec<AstError> {
-        &self.errors
-    }
-
     pub fn add_node(&mut self, node: Node) {
         self.nodes.push(node);
     }
@@ -29,12 +24,8 @@ impl Ast {
         self.line_offsets = line_offsets
     }
 
-    pub fn add_error(&mut self, error: AstError) {
-        self.errors.push(error);
-    }
-
     pub fn finalize(&mut self) -> Result<Ast, AstError> {
-        if self.nodes.is_empty() && self.errors.is_empty() {
+        if self.nodes.is_empty() {
             return Err(AstError::EmptyAst);
         }
         Ok(self.clone())
@@ -55,15 +46,13 @@ impl LineOffsets {
     }
 
     pub fn position_to_line_col(&self, offset: u32) -> (u32, u32) {
-        eprintln!("LineOffsets: Converting position {} to line/col. Offsets: {:?}", offset, self.0);
-
         // Find which line contains this offset by looking for the first line start
         // that's greater than our position
         let line = match self.0.binary_search(&offset) {
-            Ok(exact_line) => exact_line,  // We're exactly at a line start, so we're on that line
+            Ok(exact_line) => exact_line, // We're exactly at a line start, so we're on that line
             Err(next_line) => {
                 if next_line == 0 {
-                    0  // Before first line start, so we're on line 0
+                    0 // Before first line start, so we're on line 0
                 } else {
                     let prev_line = next_line - 1;
                     // If we're at the start of the next line, we're on that line
@@ -79,9 +68,6 @@ impl LineOffsets {
 
         // Calculate column as offset from line start
         let col = offset - self.0[line];
-
-        eprintln!("LineOffsets: Found line {} starting at offset {}", line, self.0[line]);
-        eprintln!("LineOffsets: Calculated col {} as {} - {}", col, offset, self.0[line]);
         (line as u32, col)
     }
 
@@ -93,11 +79,11 @@ impl LineOffsets {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub struct Span {
     start: u32,
-    length: u16,
+    length: u32,
 }
 
 impl Span {
-    pub fn new(start: u32, length: u16) -> Self {
+    pub fn new(start: u32, length: u32) -> Self {
         Self { start, length }
     }
 
@@ -105,28 +91,21 @@ impl Span {
         &self.start
     }
 
-    pub fn length(&self) -> &u16 {
+    pub fn length(&self) -> &u32 {
         &self.length
     }
 }
 
 #[derive(Clone, Debug, Serialize)]
 pub enum Node {
-    Text {
-        content: String,
-        span: Span,
-    },
+    Block(Block),
     Comment {
         content: String,
         span: Span,
     },
-    Block {
-        block_type: BlockType,
-        name: String,
-        bits: Vec<String>,
-        children: Option<Vec<Node>>,
+    Text {
+        content: String,
         span: Span,
-        tag_span: Span,
     },
     Variable {
         bits: Vec<String>,
@@ -136,10 +115,45 @@ pub enum Node {
 }
 
 #[derive(Clone, Debug, Serialize)]
-pub enum BlockType {
-    Standard,
-    Branch,
-    Closing,
+pub enum Block {
+    Block {
+        tag: Tag,
+        nodes: Vec<Node>,
+        closing: Option<Box<Block>>,
+        assignments: Option<Vec<Assignment>>,
+    },
+    Branch {
+        tag: Tag,
+        nodes: Vec<Node>,
+    },
+    Tag {
+        tag: Tag,
+    },
+    Inclusion {
+        tag: Tag,
+        template_name: String,
+    },
+    Variable {
+        tag: Tag,
+    },
+    Closing {
+        tag: Tag,
+    },
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct Tag {
+    pub name: String,
+    pub bits: Vec<String>,
+    pub span: Span,
+    pub tag_span: Span,
+    pub assignment: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct Assignment {
+    pub target: String,
+    pub value: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -271,8 +285,8 @@ mod tests {
                     }
                 }
 
-                // Full block span should cover entire template
-                assert_eq!(*span.length() as u32, 42);
+                // Full block span should cover only the opening tag
+                assert_eq!(*span.length() as u32, 14);
             }
         }
 
@@ -292,48 +306,43 @@ mod tests {
             let ast = parser.parse().unwrap();
 
             // Test nested block positions
-            let (outer_if, inner_if) = {
-                let nodes = ast.nodes();
-                let outer = nodes
+            let nodes = ast.nodes();
+            let outer_if = nodes
+                .iter()
+                .find(|n| matches!(n, Node::Block { .. }))
+                .unwrap();
+
+            if let Node::Block {
+                span: outer_span,
+                children: Some(children),
+                ..
+            } = outer_if
+            {
+                // Find the inner if block in the children
+                let inner_if = children
                     .iter()
                     .find(|n| matches!(n, Node::Block { .. }))
                     .unwrap();
-                let inner = if let Node::Block { children, .. } = outer {
-                    children
-                        .as_ref()
-                        .unwrap()
-                        .iter()
-                        .find(|n| matches!(n, Node::Block { .. }))
-                        .unwrap()
-                } else {
-                    panic!("Expected block with children");
-                };
-                (outer, inner)
-            };
 
-            if let (
-                Node::Block {
-                    span: outer_span, ..
-                },
-                Node::Block {
+                if let Node::Block {
                     span: inner_span, ..
-                },
-            ) = (outer_if, inner_if)
-            {
-                // Verify outer if starts at the right line/column
-                let (outer_line, outer_col) =
-                    ast.line_offsets.position_to_line_col(*outer_span.start());
-                assert_eq!(
-                    (outer_line, outer_col),
-                    (1, 4),
-                    "Outer if should be indented"
-                );
+                } = inner_if
+                {
+                    // Verify outer if starts at the right line/column
+                    let (outer_line, outer_col) =
+                        ast.line_offsets.position_to_line_col(*outer_span.start());
+                    assert_eq!(
+                        (outer_line, outer_col),
+                        (1, 4),
+                        "Outer if should be indented"
+                    );
 
-                // Verify inner if is more indented than outer if
-                let (inner_line, inner_col) =
-                    ast.line_offsets.position_to_line_col(*inner_span.start());
-                assert!(inner_col > outer_col, "Inner if should be more indented");
-                assert!(inner_line > outer_line, "Inner if should be on later line");
+                    // Verify inner if is more indented than outer if
+                    let (inner_line, inner_col) =
+                        ast.line_offsets.position_to_line_col(*inner_span.start());
+                    assert!(inner_col > outer_col, "Inner if should be more indented");
+                    assert!(inner_line > outer_line, "Inner if should be on later line");
+                }
             }
         }
     }

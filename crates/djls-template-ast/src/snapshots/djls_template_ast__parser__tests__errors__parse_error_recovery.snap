@@ -53,60 +53,61 @@ nodes:
             span:
               start: 252
               length: 9
-        - Block:
-            block_type: Standard
-            name: for
-            bits:
-              - for
-              - item
-              - in
-              - items
-            children:
-              - Text:
-                  content: "\n            <span>"
-                  span:
-                    start: 288
-                    length: 19
-              - Variable:
-                  bits:
-                    - item
-                  filters: []
-                  span:
-                    start: 297
-                    length: 4
-              - Text:
-                  content: "</span>\n        "
-                  span:
-                    start: 304
-                    length: 16
-              - Block:
-                  block_type: Closing
-                  name: endfor
-                  bits: []
-                  children: ~
-                  span:
-                    start: 320
-                    length: 11
-                  tag_span:
-                    start: 252
-                    length: 17
-            span:
-              start: 252
-              length: 79
-            tag_span:
-              start: 252
-              length: 17
-        - Text:
-            content: "\n    <footer>Page Footer</footer>\n</div>"
-            span:
-              start: 337
-              length: 40
       span:
         start: 48
-        length: 0
+        length: 24
       tag_span:
         start: 48
         length: 24
+  - Block:
+      block_type: Standard
+      name: for
+      bits:
+        - for
+        - item
+        - in
+        - items
+      children:
+        - Text:
+            content: "\n            <span>"
+            span:
+              start: 288
+              length: 19
+        - Variable:
+            bits:
+              - item
+            filters: []
+            span:
+              start: 297
+              length: 4
+        - Text:
+            content: "</span>\n        "
+            span:
+              start: 304
+              length: 16
+      span:
+        start: 252
+        length: 17
+      tag_span:
+        start: 252
+        length: 17
+  - Block:
+      block_type: Standalone
+      name: endfor
+      bits:
+        - endfor
+      children: ~
+      span:
+        start: 320
+        length: 6
+      tag_span:
+        start: 320
+        length: 6
+  - Text:
+      content: "\n    <footer>Page Footer</footer>\n</div>"
+      span:
+        start: 337
+        length: 40
 line_offsets:
   - 0
   - 24
@@ -120,5 +121,4 @@ line_offsets:
   - 312
   - 333
   - 366
-errors:
-  - UnclosedTag: if
+errors: []

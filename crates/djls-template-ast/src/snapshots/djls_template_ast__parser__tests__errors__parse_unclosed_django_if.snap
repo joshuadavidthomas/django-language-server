@@ -17,11 +17,10 @@ nodes:
               length: 7
       span:
         start: 0
-        length: 0
+        length: 24
       tag_span:
         start: 0
         length: 24
 line_offsets:
   - 0
-errors:
-  - UnclosedTag: if
+errors: []

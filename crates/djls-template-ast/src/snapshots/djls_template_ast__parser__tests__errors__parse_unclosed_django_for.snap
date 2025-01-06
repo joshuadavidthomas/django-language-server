@@ -22,11 +22,10 @@ nodes:
               length: 9
       span:
         start: 0
-        length: 0
+        length: 17
       tag_span:
         start: 0
         length: 17
 line_offsets:
   - 0
-errors:
-  - UnclosedTag: for
+errors: []

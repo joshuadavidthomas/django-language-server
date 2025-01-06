@@ -54,73 +54,76 @@ nodes:
             span:
               start: 598
               length: 23
-        - Block:
-            block_type: Standard
-            name: if
-            bits:
-              - if
-              - user.is_staff
-            children:
-              - Text:
-                  content: "\n                    <span>Admin</span>\n                "
-                  span:
-                    start: 664
-                    length: 56
-              - Block:
-                  block_type: Branch
-                  name: else
-                  bits: []
-                  children:
-                    - Text:
-                        content: "\n                    <span>User</span>\n                "
-                        span:
-                          start: 730
-                          length: 55
-                  span:
-                    start: 621
-                    length: 0
-                  tag_span:
-                    start: 621
-                    length: 16
-              - Block:
-                  block_type: Closing
-                  name: endif
-                  bits: []
-                  children: ~
-                  span:
-                    start: 764
-                    length: 10
-                  tag_span:
-                    start: 621
-                    length: 16
-            span:
-              start: 621
-              length: 153
-            tag_span:
-              start: 621
-              length: 16
-        - Text:
-            content: "\n            "
-            span:
-              start: 788
-              length: 13
-        - Block:
-            block_type: Closing
-            name: endif
-            bits: []
-            children: ~
-            span:
-              start: 788
-              length: 10
-            tag_span:
-              start: 463
-              length: 24
       span:
         start: 463
-        length: 335
+        length: 24
       tag_span:
         start: 463
         length: 24
+  - Block:
+      block_type: Standard
+      name: if
+      bits:
+        - if
+        - user.is_staff
+      children:
+        - Text:
+            content: "\n                    <span>Admin</span>\n                "
+            span:
+              start: 664
+              length: 56
+      span:
+        start: 621
+        length: 16
+      tag_span:
+        start: 621
+        length: 16
+  - Block:
+      block_type: Standalone
+      name: else
+      bits:
+        - else
+      children: ~
+      span:
+        start: 699
+        length: 4
+      tag_span:
+        start: 699
+        length: 4
+  - Text:
+      content: "\n                    <span>User</span>\n                "
+      span:
+        start: 730
+        length: 55
+  - Block:
+      block_type: Standalone
+      name: endif
+      bits:
+        - endif
+      children: ~
+      span:
+        start: 764
+        length: 5
+      tag_span:
+        start: 764
+        length: 5
+  - Text:
+      content: "\n            "
+      span:
+        start: 788
+        length: 13
+  - Block:
+      block_type: Standalone
+      name: endif
+      bits:
+        - endif
+      children: ~
+      span:
+        start: 788
+        length: 5
+      tag_span:
+        start: 788
+        length: 5
   - Text:
       content: "\n        </div>\n    </body>\n</html>"
       span:
