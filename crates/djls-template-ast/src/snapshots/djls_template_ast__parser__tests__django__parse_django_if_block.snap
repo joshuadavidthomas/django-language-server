@@ -11,10 +11,10 @@ nodes:
             - if
             - user.is_authenticated
           span:
-            start: 0
+            start: 3
             length: 24
           tag_span:
-            start: 0
+            start: 3
             length: 24
           assignment: ~
         nodes:
@@ -30,10 +30,10 @@ nodes:
               bits:
                 - endif
               span:
-                start: 37
+                start: 40
                 length: 5
               tag_span:
-                start: 37
+                start: 40
                 length: 5
               assignment: ~
         assignments: ~

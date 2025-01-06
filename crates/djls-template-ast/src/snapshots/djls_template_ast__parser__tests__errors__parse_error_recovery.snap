@@ -21,17 +21,17 @@ nodes:
             - if
             - user.is_authenticated
           span:
-            start: 48
+            start: 51
             length: 24
           tag_span:
-            start: 48
+            start: 51
             length: 24
           assignment: ~
         nodes:
           - Comment:
               content: This if is unclosed which does matter
               span:
-                start: 87
+                start: 89
                 length: 37
           - Text:
               content: "<p>Welcome"
@@ -59,7 +59,7 @@ nodes:
           - Comment:
               content: "This div is unclosed which doesn't matter"
               span:
-                start: 196
+                start: 198
                 length: 41
           - Block:
               Block:
@@ -71,10 +71,10 @@ nodes:
                     - in
                     - items
                   span:
-                    start: 252
+                    start: 255
                     length: 17
                   tag_span:
-                    start: 252
+                    start: 255
                     length: 17
                   assignment: ~
                 nodes:
@@ -102,10 +102,10 @@ nodes:
                       bits:
                         - endfor
                       span:
-                        start: 320
+                        start: 323
                         length: 6
                       tag_span:
-                        start: 320
+                        start: 323
                         length: 6
                       assignment: ~
                 assignments: ~

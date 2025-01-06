@@ -13,10 +13,10 @@ nodes:
             - in
             - items
           span:
-            start: 0
+            start: 3
             length: 17
           tag_span:
-            start: 0
+            start: 3
             length: 17
           assignment: ~
         nodes:
@@ -28,10 +28,10 @@ nodes:
                     - if
                     - item.active
                   span:
-                    start: 23
+                    start: 26
                     length: 14
                   tag_span:
-                    start: 23
+                    start: 26
                     length: 14
                   assignment: ~
                 nodes:
@@ -50,10 +50,10 @@ nodes:
                       bits:
                         - endif
                       span:
-                        start: 58
+                        start: 61
                         length: 5
                       tag_span:
-                        start: 58
+                        start: 61
                         length: 5
                       assignment: ~
                 assignments: ~
@@ -64,10 +64,10 @@ nodes:
               bits:
                 - endfor
               span:
-                start: 69
+                start: 72
                 length: 6
               tag_span:
-                start: 69
+                start: 72
                 length: 6
               assignment: ~
         assignments: ~

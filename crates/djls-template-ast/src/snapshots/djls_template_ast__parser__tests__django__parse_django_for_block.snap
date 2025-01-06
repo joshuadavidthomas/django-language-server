@@ -13,10 +13,10 @@ nodes:
             - in
             - items
           span:
-            start: 0
+            start: 3
             length: 17
           tag_span:
-            start: 0
+            start: 3
             length: 17
           assignment: ~
         nodes:
@@ -34,10 +34,10 @@ nodes:
                   bits:
                     - empty
                   span:
-                    start: 33
+                    start: 36
                     length: 5
                   tag_span:
-                    start: 33
+                    start: 36
                     length: 5
                   assignment: ~
                 nodes:
@@ -53,10 +53,10 @@ nodes:
               bits:
                 - endfor
               span:
-                start: 52
+                start: 55
                 length: 6
               tag_span:
-                start: 52
+                start: 55
                 length: 6
               assignment: ~
         assignments: ~
