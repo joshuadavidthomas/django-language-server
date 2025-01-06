@@ -5,7 +5,6 @@ use thiserror::Error;
 pub struct Ast {
     nodes: Vec<Node>,
     line_offsets: LineOffsets,
-    errors: Vec<AstError>,
 }
 
 impl Ast {
@@ -17,16 +16,8 @@ impl Ast {
         &self.line_offsets
     }
 
-    pub fn errors(&self) -> &Vec<AstError> {
-        &self.errors
-    }
-
     pub fn add_node(&mut self, node: Node) {
         self.nodes.push(node);
-    }
-
-    pub fn add_error(&mut self, error: AstError) {
-        self.errors.push(error);
     }
 
     pub fn set_line_offsets(&mut self, line_offsets: LineOffsets) {
@@ -46,8 +37,6 @@ pub struct LineOffsets(pub Vec<u32>);
 
 impl LineOffsets {
     pub fn new() -> Self {
-        // Start with offset 0 for line 1
-        // This maintains compatibility with existing code
         Self(vec![0])
     }
 
@@ -327,7 +316,6 @@ mod tests {
             let ast = Ast {
                 nodes,
                 line_offsets: LineOffsets::new(),
-                errors: vec![],
             };
 
             let node = &ast.nodes()[0];

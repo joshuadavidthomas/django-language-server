@@ -6,17 +6,21 @@ use thiserror::Error;
 pub struct Parser {
     tokens: TokenStream,
     current: usize,
+    errors: Vec<ParserError>,
 }
 
 impl Parser {
     pub fn new(tokens: TokenStream) -> Self {
-        Self { tokens, current: 0 }
+        Self {
+            tokens,
+            current: 0,
+            errors: Vec::new(),
+        }
     }
 
-    pub fn parse(&mut self) -> Result<(Ast, Vec<AstError>), ParserError> {
+    pub fn parse(&mut self) -> Result<(Ast, Vec<ParserError>), ParserError> {
         let mut ast = Ast::default();
         let mut line_offsets = LineOffsets::new();
-        let mut all_errors = Vec::new();
 
         // First pass: collect line offsets
         for token in self.tokens.tokens() {
@@ -33,23 +37,21 @@ impl Parser {
         // Second pass: parse nodes
         while !self.is_at_end() {
             match self.next_node() {
-                Ok((node, errors)) => {
+                Ok(node) => {
                     ast.add_node(node);
-                    all_errors.extend(errors);
                 }
                 Err(_) => self.synchronize()?,
             }
         }
 
         ast.set_line_offsets(line_offsets);
-        Ok((ast, all_errors))
+        Ok((ast, std::mem::take(&mut self.errors)))
     }
 
-    fn next_node(&mut self) -> Result<(Node, Vec<AstError>), ParserError> {
+    fn next_node(&mut self) -> Result<Node, ParserError> {
         if self.is_at_end() {
             return Err(ParserError::Ast(AstError::StreamError("AtEnd".to_string())));
         }
-
         let token = self.peek()?;
         match token.token_type() {
             TokenType::DjangoBlock(content) => {
@@ -58,7 +60,7 @@ impl Parser {
             }
             TokenType::DjangoVariable(content) => {
                 self.consume()?;
-                Ok((self.parse_django_variable(content)?, vec![]))
+                self.parse_django_variable(content)
             }
             TokenType::Text(_)
             | TokenType::Whitespace(_)
@@ -69,7 +71,7 @@ impl Parser {
             | TokenType::ScriptTagOpen(_)
             | TokenType::ScriptTagClose(_)
             | TokenType::StyleTagOpen(_)
-            | TokenType::StyleTagClose(_) => Ok((self.parse_text()?, vec![])),
+            | TokenType::StyleTagClose(_) => self.parse_text(),
             TokenType::Comment(content, start, end) => {
                 self.consume()?;
                 self.parse_comment(content, start, end.as_deref())
@@ -78,7 +80,7 @@ impl Parser {
         }
     }
 
-    fn parse_django_block(&mut self, content: &str) -> Result<(Node, Vec<AstError>), ParserError> {
+    fn parse_django_block(&mut self, content: &str) -> Result<Node, ParserError> {
         let token = self.peek_previous()?;
         let start_pos = token.start().unwrap_or(0);
         let total_length = token.length().unwrap_or(0);
@@ -110,63 +112,54 @@ impl Parser {
 
         // Check if this is a closing tag
         if tag_name.starts_with("end") {
-            return Ok((Node::Block(Block::Closing { tag }), vec![]));
+            return Ok(Node::Block(Block::Closing { tag }));
         }
 
         // Load tag specs
         let specs = TagSpec::load_builtin_specs()?;
         let spec = match specs.get(&tag_name) {
             Some(spec) => spec,
-            None => return Ok((Node::Block(Block::Tag { tag }), vec![])),
+            None => return Ok(Node::Block(Block::Tag { tag })),
         };
 
         match spec.tag_type {
             TagType::Block => {
                 let mut nodes = Vec::new();
-                let mut all_errors = Vec::new();
 
                 // Parse child nodes until we find the closing tag
-                while let Ok((node, errors)) = self.next_node() {
+                while let Ok(node) = self.next_node() {
                     if let Node::Block(Block::Closing { tag: closing_tag }) = &node {
                         if let Some(expected_closing) = &spec.closing {
                             if closing_tag.name == *expected_closing {
-                                return Ok((
-                                    Node::Block(Block::Block {
-                                        tag,
-                                        nodes,
-                                        closing: Some(Box::new(Block::Closing {
-                                            tag: closing_tag.clone(),
-                                        })),
-                                        assignments: Some(assignments),
-                                    }),
-                                    all_errors,
-                                ));
+                                return Ok(Node::Block(Block::Block {
+                                    tag,
+                                    nodes,
+                                    closing: Some(Box::new(Block::Closing {
+                                        tag: closing_tag.clone(),
+                                    })),
+                                    assignments: Some(assignments),
+                                }));
                             }
                         }
                     }
                     nodes.push(node);
-                    all_errors.extend(errors);
                 }
 
                 // Add error for unclosed tag
-                all_errors.push(AstError::UnclosedTag(tag_name.clone()));
+                self.errors.push(ParserError::Ast(AstError::UnclosedTag(tag_name.clone())));
 
-                // Return the partial block with the error
-                Ok((
-                    Node::Block(Block::Block {
-                        tag,
-                        nodes,
-                        closing: None,
-                        assignments: Some(assignments),
-                    }),
-                    all_errors,
-                ))
+                Ok(Node::Block(Block::Block {
+                    tag,
+                    nodes,
+                    closing: None,
+                    assignments: Some(assignments),
+                }))
             }
-            TagType::Tag => Ok((Node::Block(Block::Tag { tag }), vec![])),
-            TagType::Variable => Ok((Node::Block(Block::Variable { tag }), vec![])),
+            TagType::Tag => Ok(Node::Block(Block::Tag { tag })),
+            TagType::Variable => Ok(Node::Block(Block::Variable { tag })),
             TagType::Inclusion => {
                 let template_name = bits_vec.get(1).cloned().unwrap_or_default();
-                Ok((Node::Block(Block::Inclusion { tag, template_name }), vec![]))
+                Ok(Node::Block(Block::Inclusion { tag, template_name }))
             }
         }
     }
@@ -213,14 +206,14 @@ impl Parser {
         let start_token = self.peek()?;
         let start_pos = start_token.start().unwrap_or(0);
         let mut total_length = start_token.length().unwrap_or(0);
-        
+
         // Handle newlines by returning next node
         if matches!(start_token.token_type(), TokenType::Newline) {
             self.consume()?;
-            let (next_node, _) = self.next_node()?;
-            return Ok(next_node);
+            let node = self.next_node()?;
+            return Ok(node);
         }
-        
+
         let mut content = match start_token.token_type() {
             TokenType::Text(text) => text.to_string(),
             TokenType::Whitespace(count) => " ".repeat(*count),
@@ -257,8 +250,8 @@ impl Parser {
 
         // Skip empty text nodes
         if content.trim().is_empty() {
-            let (next_node, _) = self.next_node()?;
-            Ok(next_node)
+            let node = self.next_node()?;
+            Ok(node)
         } else {
             Ok(Node::Text {
                 content,
@@ -272,18 +265,15 @@ impl Parser {
         content: &str,
         start: &str,
         end: Option<&str>,
-    ) -> Result<(Node, Vec<AstError>), ParserError> {
+    ) -> Result<Node, ParserError> {
         let start_token = self.peek_previous()?;
         let start_pos = start_token.start().unwrap_or(0);
         let total_length = (content.len() + start.len() + end.map_or(0, |e| e.len())) as u32;
         let span = Span::new(start_pos, total_length);
-        Ok((
-            Node::Comment {
-                content: content.to_string(),
-                span,
-            },
-            vec![],
-        ))
+        Ok(Node::Comment {
+            content: content.to_string(),
+            span,
+        })
     }
 
     fn peek(&self) -> Result<Token, ParserError> {
@@ -554,7 +544,7 @@ mod tests {
             let (ast, errors) = parser.parse().unwrap();
             insta::assert_yaml_snapshot!(ast);
             assert_eq!(errors.len(), 1);
-            assert!(matches!(&errors[0], AstError::UnclosedTag(tag) if tag == "if"));
+            assert!(matches!(&errors[0], ParserError::Ast(AstError::UnclosedTag(tag)) if tag == "if"));
         }
         #[test]
         fn test_parse_unclosed_django_for() {
@@ -564,7 +554,7 @@ mod tests {
             let (ast, errors) = parser.parse().unwrap();
             insta::assert_yaml_snapshot!(ast);
             assert_eq!(errors.len(), 1);
-            assert!(matches!(&errors[0], AstError::UnclosedTag(tag) if tag == "for"));
+            assert!(matches!(&errors[0], ParserError::Ast(AstError::UnclosedTag(tag)) if tag == "for"));
         }
         #[test]
         fn test_parse_unclosed_script() {
@@ -603,7 +593,7 @@ mod tests {
             let (ast, errors) = parser.parse().unwrap();
             insta::assert_yaml_snapshot!(ast);
             assert_eq!(errors.len(), 1);
-            assert!(matches!(&errors[0], AstError::UnclosedTag(tag) if tag == "if"));
+            assert!(matches!(&errors[0], ParserError::Ast(AstError::UnclosedTag(tag)) if tag == "if"));
         }
     }
 
