@@ -329,9 +329,11 @@ impl Parser {
         if text.trim().is_empty() {
             self.next_node()
         } else {
+            let trimmed = text.trim();
             Ok(Node::Text {
-                content: text,
-                span: Span::new(start_pos, total_length),
+                content: trimmed.to_string(),
+                span: Span::new(start_pos + u32::try_from(text.find(trimmed).unwrap_or(0)).unwrap(), 
+                               u32::try_from(trimmed.len()).unwrap()),
             })
         }
     }
