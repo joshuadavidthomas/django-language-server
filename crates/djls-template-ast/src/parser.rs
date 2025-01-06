@@ -125,7 +125,7 @@ impl Parser {
                             }
                             // If we get here, either there was no expected closing tag or it didn't match
                             if let Some(branches) = &spec.branches {
-                                if branches.iter().any(|b| b.name == tag.name) {
+                                if branches.iter().any(|b| b == &tag.name) {
                                     let mut branch_tag = tag.clone();
                                     let mut branch_nodes = Vec::new();
                                     let mut found_closing = false;
@@ -147,8 +147,7 @@ impl Parser {
                                                     }
                                                 }
                                                 // Check if this is another branch tag
-                                                if branches.iter().any(|b| b.name == next_tag.name)
-                                                {
+                                                if branches.iter().any(|b| b == &next_tag.name) {
                                                     // Push the current branch and start a new one
                                                     nodes.push(Node::Block(Block::Branch {
                                                         tag: branch_tag.clone(),
