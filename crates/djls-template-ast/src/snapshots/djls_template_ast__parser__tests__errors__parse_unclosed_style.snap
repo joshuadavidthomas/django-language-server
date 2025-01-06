@@ -4,9 +4,9 @@ expression: ast
 ---
 nodes:
   - Text:
-      content: "<style>body { color: blue; "
+      content: "<style>body { color: blue;"
       span:
         start: 0
-        length: 27
+        length: 26
 line_offsets:
   - 0

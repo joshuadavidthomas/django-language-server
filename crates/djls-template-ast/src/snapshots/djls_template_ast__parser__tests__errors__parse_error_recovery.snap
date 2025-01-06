@@ -34,10 +34,10 @@ nodes:
                 start: 87
                 length: 43
           - Text:
-              content: "<p>Welcome "
+              content: "<p>Welcome"
               span:
                 start: 139
-                length: 11
+                length: 10
           - Variable:
               bits:
                 - user
