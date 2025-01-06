@@ -1,5 +1,5 @@
 use crate::ast::{Ast, AstError, Block, DjangoFilter, LineOffsets, Node, Span, Tag};
-use crate::tagspecs::{TagSpec, TagType};
+use crate::tagspecs::{TagType, TagSpecs};
 use crate::tokens::{Token, TokenStream, TokenType};
 use thiserror::Error;
 
@@ -103,7 +103,7 @@ impl Parser {
             assignment: None,
         };
 
-        let specs = TagSpec::load_builtin_specs()?;
+        let specs = TagSpecs::load_builtin_specs()?;
         let spec = match specs.get(&tag_name) {
             Some(spec) => spec,
             None => return Ok(Node::Block(Block::Tag { tag })),
