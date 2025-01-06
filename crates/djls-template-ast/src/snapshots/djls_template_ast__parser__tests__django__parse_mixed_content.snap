@@ -188,7 +188,7 @@ nodes:
                               content: "        (no groups)"
                               span:
                                 start: 290
-                                length: 20
+                                length: 19
                 closing:
                   Closing:
                     tag:
@@ -221,7 +221,7 @@ nodes:
                       content: "    Guest"
                       span:
                         start: 338
-                        length: 10
+                        length: 9
         closing:
           Closing:
             tag:

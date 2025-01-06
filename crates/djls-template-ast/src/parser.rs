@@ -261,12 +261,10 @@ impl Parser {
         let start_token = self.peek_previous()?;
         let start_pos = start_token.start().unwrap_or(0);
 
-        // If we start with a newline, skip it
         if matches!(start_token.token_type(), TokenType::Newline) {
             return self.next_node();
         }
 
-        // Use TokenType's Display implementation for formatting
         let mut text = start_token.token_type().to_string();
         let mut total_length: u32 = u32::try_from(text.len()).unwrap();
 
@@ -286,7 +284,6 @@ impl Parser {
             }
         }
 
-        // Skip empty text nodes
         if text.trim().is_empty() {
             self.next_node()
         } else {
@@ -303,14 +300,18 @@ impl Parser {
         start: &str,
         end: Option<&str>,
     ) -> Result<Node, ParserError> {
-        let start_token = self.peek_previous()?;
-        let start_pos = start_token.start().unwrap_or(0);
-        let total_length = (content.len() + start.len() + end.map_or(0, |e| e.len())) as u32;
-        let span = Span::new(start_pos, total_length);
-        Ok(Node::Comment {
-            content: content.to_string(),
-            span,
-        })
+        let token = self.peek_previous()?;
+        let start_pos = token.start().unwrap_or(0);
+
+        // Only treat Django comments as Comment nodes
+        if start == "{#" && end == Some("#}") {
+            Ok(Node::Comment {
+                content: content.to_string(),
+                span: Span::new(start_pos, token.token_type().len().unwrap_or(0) as u32),
+            })
+        } else {
+            self.parse_text()
+        }
     }
 
     fn peek(&self) -> Result<Token, ParserError> {

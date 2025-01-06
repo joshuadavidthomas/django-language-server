@@ -33,10 +33,11 @@ impl TokenType {
             | TokenType::StyleTagOpen(s)
             | TokenType::StyleTagClose(s)
             | TokenType::Text(s) => Some(s.len()),
-            TokenType::Comment(content, start, end) => {
-                Some(content.len() + start.len() + end.as_ref().map_or(0, |e| e.len()))
-            }
-            TokenType::Whitespace(len) => Some(len.clone()),
+            TokenType::Comment(content, start, end) => match end {
+                Some(end) => Some(start.len() + 1 + content.len() + 1 + end.len()),
+                None => Some(start.len() + 1 + content.len()),
+            },
+            TokenType::Whitespace(len) => Some(*len),
             TokenType::Newline => Some(1),
             TokenType::Eof => None,
         }
@@ -54,7 +55,7 @@ impl TokenType {
             | TokenType::StyleTagOpen(s)
             | TokenType::StyleTagClose(s)
             | TokenType::Text(s) => s,
-            TokenType::Comment(content, _, _) => content, // Just return the content
+            TokenType::Comment(content, _, _) => content,
             TokenType::Whitespace(_) => " ",
             TokenType::Newline => "\n",
             TokenType::Eof => "",
@@ -68,8 +69,8 @@ impl fmt::Display for TokenType {
 
         match self {
             Comment(content, start, end) => match end {
-                Some(end) => write!(f, "{}{}{}", start, content, end),
-                None => write!(f, "{}{}", start, content),
+                Some(end) => write!(f, "{} {} {}", start, content, end),
+                None => write!(f, "{} {}", start, content),
             },
             DjangoBlock(s) => write!(f, "{{% {} %}}", s),
             DjangoVariable(s) => write!(f, "{{{{ {} }}}}", s),
