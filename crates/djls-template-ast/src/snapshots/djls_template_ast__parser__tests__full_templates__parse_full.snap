@@ -109,7 +109,7 @@ nodes:
           assignment: ~
         nodes:
           - Comment:
-              content: Welcome message
+              content: "{# Welcome message #}"
               span:
                 start: 510
                 length: 21
