@@ -7,14 +7,9 @@ nodes:
       bits:
         - user
         - name
-      filters:
-        - name: title
-          args: []
-          span:
-            start: 4
-            length: 15
+      filters: []
       span:
         start: 3
-        length: 15
+        length: 9
 line_offsets:
   - 0
