@@ -4,45 +4,20 @@ expression: ast
 ---
 nodes:
   - Text:
-      content: "<div"
+      content: "<div class=\"container\">"
       span:
         start: 0
-        length: 4
+        length: 23
   - Text:
-      content: " "
-      span:
-        start: 4
-        length: 1
-  - Text:
-      content: "class=\"container\">"
-      span:
-        start: 5
-        length: 18
-  - Text:
-      content: "\n"
+      content: "\n    <h1>Header</h1>"
       span:
         start: 23
-        length: 1
+        length: 20
   - Text:
-      content: "    "
-      span:
-        start: 24
-        length: 4
-  - Text:
-      content: "<h1>Header</h1>"
-      span:
-        start: 28
-        length: 15
-  - Text:
-      content: "\n"
+      content: "\n    "
       span:
         start: 43
-        length: 1
-  - Text:
-      content: "    "
-      span:
-        start: 44
-        length: 4
+        length: 5
   - Block:
       Block:
         tag:
@@ -59,40 +34,20 @@ nodes:
           assignment: ~
         nodes:
           - Text:
-              content: "\n"
+              content: "\n        "
               span:
                 start: 78
-                length: 1
-          - Text:
-              content: "        "
-              span:
-                start: 79
-                length: 8
+                length: 9
           - Comment:
               content: This if is unclosed which does matter
               span:
                 start: 87
                 length: 41
           - Text:
-              content: "\n"
+              content: "\n        <p>Welcome "
               span:
                 start: 130
-                length: 1
-          - Text:
-              content: "        "
-              span:
-                start: 131
-                length: 8
-          - Text:
-              content: "<p>Welcome"
-              span:
-                start: 139
-                length: 10
-          - Text:
-              content: " "
-              span:
-                start: 149
-                length: 1
+                length: 20
           - Variable:
               bits:
                 - user
@@ -107,45 +62,25 @@ nodes:
                 start: 165
                 length: 4
           - Text:
-              content: "\n"
+              content: "\n        <div>"
               span:
                 start: 169
-                length: 1
+                length: 14
           - Text:
-              content: "        "
-              span:
-                start: 170
-                length: 8
-          - Text:
-              content: "<div>"
-              span:
-                start: 178
-                length: 5
-          - Text:
-              content: "\n"
+              content: "\n            "
               span:
                 start: 183
-                length: 1
-          - Text:
-              content: "            "
-              span:
-                start: 184
-                length: 12
+                length: 13
           - Comment:
               content: "This div is unclosed which doesn't matter"
               span:
                 start: 196
                 length: 45
           - Text:
-              content: "\n"
+              content: "\n        "
               span:
                 start: 243
-                length: 1
-          - Text:
-              content: "        "
-              span:
-                start: 244
-                length: 8
+                length: 9
           - Block:
               Block:
                 tag:
@@ -164,20 +99,10 @@ nodes:
                   assignment: ~
                 nodes:
                   - Text:
-                      content: "\n"
+                      content: "\n            <span>"
                       span:
                         start: 275
-                        length: 1
-                  - Text:
-                      content: "            "
-                      span:
-                        start: 276
-                        length: 12
-                  - Text:
-                      content: "<span>"
-                      span:
-                        start: 288
-                        length: 6
+                        length: 19
                   - Variable:
                       bits:
                         - item
@@ -191,15 +116,10 @@ nodes:
                         start: 304
                         length: 7
                   - Text:
-                      content: "\n"
+                      content: "\n        "
                       span:
                         start: 311
-                        length: 1
-                  - Text:
-                      content: "        "
-                      span:
-                        start: 312
-                        length: 8
+                        length: 9
                 closing:
                   Closing:
                     tag:
@@ -215,40 +135,15 @@ nodes:
                       assignment: ~
                 assignments: []
           - Text:
-              content: "\n"
+              content: "\n    <footer>Page Footer</footer>"
               span:
                 start: 332
-                length: 1
+                length: 33
           - Text:
-              content: "    "
-              span:
-                start: 333
-                length: 4
-          - Text:
-              content: "<footer>Page"
-              span:
-                start: 337
-                length: 12
-          - Text:
-              content: " "
-              span:
-                start: 349
-                length: 1
-          - Text:
-              content: Footer</footer>
-              span:
-                start: 350
-                length: 15
-          - Text:
-              content: "\n"
+              content: "\n</div>"
               span:
                 start: 365
-                length: 1
-          - Text:
-              content: "</div>"
-              span:
-                start: 366
-                length: 6
+                length: 7
         closing: ~
         assignments: []
 line_offsets:

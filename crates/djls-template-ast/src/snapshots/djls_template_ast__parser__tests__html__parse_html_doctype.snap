@@ -4,20 +4,10 @@ expression: ast
 ---
 nodes:
   - Text:
-      content: "<!DOCTYPE"
+      content: "<!DOCTYPE html>"
       span:
         start: 0
-        length: 9
-  - Text:
-      content: " "
-      span:
-        start: 9
-        length: 1
-  - Text:
-      content: html>
-      span:
-        start: 10
-        length: 5
+        length: 15
 line_offsets:
   - 0
 errors: []
