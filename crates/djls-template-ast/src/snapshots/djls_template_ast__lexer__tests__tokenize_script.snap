@@ -3,143 +3,66 @@ source: crates/djls-template-ast/src/lexer.rs
 expression: tokens
 ---
 - token_type:
-    Text: "<script"
+    ScriptTagOpen: "script type=\"text/javascript\""
   line: 1
   start: 0
-- token_type:
-    Whitespace: 1
-  line: 1
-  start: 7
-- token_type:
-    Text: "type=\"text/javascript\">"
-  line: 1
-  start: 8
 - token_type: Newline
-  line: 2
+  line: 1
   start: 31
 - token_type:
     Whitespace: 4
   line: 2
   start: 32
 - token_type:
-    Text: //
+    Comment:
+      - Single line comment
+      - //
+      - ~
   line: 2
   start: 36
-- token_type:
-    Whitespace: 1
-  line: 2
-  start: 38
-- token_type:
-    Text: Single
-  line: 2
-  start: 39
-- token_type:
-    Whitespace: 1
-  line: 2
-  start: 45
-- token_type:
-    Text: line
-  line: 2
-  start: 46
-- token_type:
-    Whitespace: 1
-  line: 2
-  start: 50
-- token_type:
-    Text: comment
-  line: 2
-  start: 51
 - token_type: Newline
-  line: 3
+  line: 2
   start: 58
 - token_type:
     Whitespace: 4
   line: 3
   start: 59
 - token_type:
-    Text: const
+    Text: const x = 1;
   line: 3
   start: 63
-- token_type:
-    Whitespace: 1
-  line: 3
-  start: 68
-- token_type:
-    Text: x
-  line: 3
-  start: 69
-- token_type:
-    Whitespace: 1
-  line: 3
-  start: 70
-- token_type:
-    Text: "="
-  line: 3
-  start: 71
-- token_type:
-    Whitespace: 1
-  line: 3
-  start: 72
-- token_type:
-    Text: 1;
-  line: 3
-  start: 73
 - token_type: Newline
-  line: 4
+  line: 3
   start: 75
 - token_type:
     Whitespace: 4
   line: 4
   start: 76
 - token_type:
-    Text: /*
+    Comment:
+      - "Multi-line\n       comment"
+      - /*
+      - "*/"
   line: 4
   start: 80
-- token_type:
-    Whitespace: 1
-  line: 4
-  start: 82
-- token_type:
-    Text: Multi-line
-  line: 4
-  start: 83
 - token_type: Newline
-  line: 5
-  start: 93
-- token_type:
-    Whitespace: 7
-  line: 5
-  start: 94
-- token_type:
-    Text: comment
-  line: 5
-  start: 101
-- token_type:
-    Whitespace: 1
-  line: 5
-  start: 108
-- token_type:
-    Text: "*/"
-  line: 5
-  start: 109
-- token_type: Newline
-  line: 6
+  line: 4
   start: 111
 - token_type:
     Whitespace: 4
-  line: 6
+  line: 5
   start: 112
 - token_type:
     Text: console.log(x);
-  line: 6
+  line: 5
   start: 116
 - token_type: Newline
-  line: 7
+  line: 5
   start: 131
 - token_type:
-    Text: "</script>"
-  line: 7
+    HtmlTagClose: script
+  line: 6
   start: 132
 - token_type: Eof
-  line: 7
+  line: 6
   start: ~

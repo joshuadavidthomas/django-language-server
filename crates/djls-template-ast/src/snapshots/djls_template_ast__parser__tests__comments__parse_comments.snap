@@ -3,11 +3,11 @@ source: crates/djls-template-ast/src/parser.rs
 expression: ast
 ---
 nodes:
-  - Text:
-      content: "<!-- HTML comment -->"
+  - Comment:
+      content: HTML comment
       span:
         start: 0
-        length: 21
+        length: 19
   - Comment:
       content: Django comment
       span:

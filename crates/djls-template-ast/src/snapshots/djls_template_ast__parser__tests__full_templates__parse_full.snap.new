@@ -1,0 +1,38 @@
+---
+source: crates/djls-template-ast/src/parser.rs
+assertion_line: 688
+expression: ast
+snapshot_kind: text
+---
+nodes: []
+line_offsets:
+  - 0
+  - 16
+  - 23
+  - 34
+  - 66
+  - 97
+  - 134
+  - 151
+  - 191
+  - 215
+  - 241
+  - 270
+  - 298
+  - 313
+  - 331
+  - 343
+  - 354
+  - 386
+  - 451
+  - 494
+  - 532
+  - 605
+  - 644
+  - 683
+  - 710
+  - 748
+  - 776
+  - 800
+  - 815
+  - 827
