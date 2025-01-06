@@ -45,7 +45,7 @@ impl Lexer {
                     self.consume_n(2)?; // {{
                     let content = self.consume_until("}}")?;
                     self.consume_n(2)?; // }}
-                    TokenType::DjangoVariable(content)
+                    TokenType::DjangoVariable(content.trim().to_string())
                 }
                 '#' => {
                     self.consume_n(2)?; // {#
@@ -81,16 +81,11 @@ impl Lexer {
             _ => {
                 let mut text = String::new();
                 while !self.is_at_end() {
-                    match self.peek()? {
-                        '{' => break,
-                        '\n' | ' ' | '\t' | '\r' => break,
-                        _ => {
-                            text.push(self.consume()?);
-                        }
+                    let c = self.peek()?;
+                    if c == '{' || c == '\n' || c == ' ' || c == '\t' || c == '\r' {
+                        break;
                     }
-                }
-                if text.is_empty() {
-                    return Err(LexerError::EmptyToken(self.line));
+                    text.push(self.consume()?);
                 }
                 TokenType::Text(text)
             }

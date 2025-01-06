@@ -4,65 +4,73 @@ expression: ast
 ---
 nodes:
   - Block:
-      block_type: Standard
-      name: for
-      bits:
-        - for
-        - item
-        - in
-        - items
-      children: []
-      span:
-        start: 0
-        length: 17
-      tag_span:
-        start: 0
-        length: 17
-  - Block:
-      block_type: Standard
-      name: if
-      bits:
-        - if
-        - item.active
-      children:
-        - Variable:
-            bits:
-              - item
-              - name
-            filters: []
-            span:
-              start: 46
-              length: 9
-      span:
-        start: 23
-        length: 14
-      tag_span:
-        start: 23
-        length: 14
-  - Block:
-      block_type: Standalone
-      name: endif
-      bits:
-        - endif
-      children: ~
-      span:
-        start: 58
-        length: 5
-      tag_span:
-        start: 58
-        length: 5
-  - Block:
-      block_type: Standalone
-      name: endfor
-      bits:
-        - endfor
-      children: ~
-      span:
-        start: 69
-        length: 6
-      tag_span:
-        start: 69
-        length: 6
+      Block:
+        tag:
+          name: for
+          bits:
+            - for
+            - item
+            - in
+            - items
+          span:
+            start: 0
+            length: 17
+          tag_span:
+            start: 0
+            length: 17
+          assignment: ~
+        nodes:
+          - Block:
+              Block:
+                tag:
+                  name: if
+                  bits:
+                    - if
+                    - item.active
+                  span:
+                    start: 23
+                    length: 14
+                  tag_span:
+                    start: 23
+                    length: 14
+                  assignment: ~
+                nodes:
+                  - Variable:
+                      bits:
+                        - item
+                        - name
+                      filters: []
+                      span:
+                        start: 46
+                        length: 9
+                closing:
+                  Closing:
+                    tag:
+                      name: endif
+                      bits:
+                        - endif
+                      span:
+                        start: 58
+                        length: 5
+                      tag_span:
+                        start: 58
+                        length: 5
+                      assignment: ~
+                assignments: []
+        closing:
+          Closing:
+            tag:
+              name: endfor
+              bits:
+                - endfor
+              span:
+                start: 69
+                length: 6
+              tag_span:
+                start: 69
+                length: 6
+              assignment: ~
+        assignments: []
 line_offsets:
   - 0
 errors: []

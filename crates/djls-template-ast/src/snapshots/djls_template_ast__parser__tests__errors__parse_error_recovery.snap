@@ -4,110 +4,253 @@ expression: ast
 ---
 nodes:
   - Text:
-      content: "<div class=\"container\">\n    <h1>Header</h1>\n    "
+      content: "<div"
       span:
         start: 0
-        length: 48
-  - Block:
-      block_type: Standard
-      name: if
-      bits:
-        - if
-        - user.is_authenticated
-      children:
-        - Text:
-            content: "\n        "
-            span:
-              start: 87
-              length: 9
-        - Comment:
-            content: This if is unclosed which does matter
-            span:
-              start: 87
-              length: 41
-        - Text:
-            content: "\n        <p>Welcome "
-            span:
-              start: 139
-              length: 20
-        - Variable:
-            bits:
-              - user
-              - name
-            filters: []
-            span:
-              start: 153
-              length: 9
-        - Text:
-            content: "</p>\n        <div>\n            "
-            span:
-              start: 165
-              length: 31
-        - Comment:
-            content: "This div is unclosed which doesn't matter"
-            span:
-              start: 196
-              length: 45
-        - Text:
-            content: "\n        "
-            span:
-              start: 252
-              length: 9
-      span:
-        start: 48
-        length: 24
-      tag_span:
-        start: 48
-        length: 24
-  - Block:
-      block_type: Standard
-      name: for
-      bits:
-        - for
-        - item
-        - in
-        - items
-      children:
-        - Text:
-            content: "\n            <span>"
-            span:
-              start: 288
-              length: 19
-        - Variable:
-            bits:
-              - item
-            filters: []
-            span:
-              start: 297
-              length: 4
-        - Text:
-            content: "</span>\n        "
-            span:
-              start: 304
-              length: 16
-      span:
-        start: 252
-        length: 17
-      tag_span:
-        start: 252
-        length: 17
-  - Block:
-      block_type: Standalone
-      name: endfor
-      bits:
-        - endfor
-      children: ~
-      span:
-        start: 320
-        length: 6
-      tag_span:
-        start: 320
-        length: 6
+        length: 4
   - Text:
-      content: "\n    <footer>Page Footer</footer>\n</div>"
+      content: " "
       span:
-        start: 337
-        length: 40
+        start: 4
+        length: 1
+  - Text:
+      content: "class=\"container\">"
+      span:
+        start: 5
+        length: 18
+  - Text:
+      content: "\n"
+      span:
+        start: 23
+        length: 1
+  - Text:
+      content: "    "
+      span:
+        start: 24
+        length: 4
+  - Text:
+      content: "<h1>Header</h1>"
+      span:
+        start: 28
+        length: 15
+  - Text:
+      content: "\n"
+      span:
+        start: 43
+        length: 1
+  - Text:
+      content: "    "
+      span:
+        start: 44
+        length: 4
+  - Block:
+      Block:
+        tag:
+          name: if
+          bits:
+            - if
+            - user.is_authenticated
+          span:
+            start: 48
+            length: 24
+          tag_span:
+            start: 48
+            length: 24
+          assignment: ~
+        nodes:
+          - Text:
+              content: "\n"
+              span:
+                start: 78
+                length: 1
+          - Text:
+              content: "        "
+              span:
+                start: 79
+                length: 8
+          - Comment:
+              content: This if is unclosed which does matter
+              span:
+                start: 87
+                length: 41
+          - Text:
+              content: "\n"
+              span:
+                start: 130
+                length: 1
+          - Text:
+              content: "        "
+              span:
+                start: 131
+                length: 8
+          - Text:
+              content: "<p>Welcome"
+              span:
+                start: 139
+                length: 10
+          - Text:
+              content: " "
+              span:
+                start: 149
+                length: 1
+          - Variable:
+              bits:
+                - user
+                - name
+              filters: []
+              span:
+                start: 153
+                length: 9
+          - Text:
+              content: "</p>"
+              span:
+                start: 165
+                length: 4
+          - Text:
+              content: "\n"
+              span:
+                start: 169
+                length: 1
+          - Text:
+              content: "        "
+              span:
+                start: 170
+                length: 8
+          - Text:
+              content: "<div>"
+              span:
+                start: 178
+                length: 5
+          - Text:
+              content: "\n"
+              span:
+                start: 183
+                length: 1
+          - Text:
+              content: "            "
+              span:
+                start: 184
+                length: 12
+          - Comment:
+              content: "This div is unclosed which doesn't matter"
+              span:
+                start: 196
+                length: 45
+          - Text:
+              content: "\n"
+              span:
+                start: 243
+                length: 1
+          - Text:
+              content: "        "
+              span:
+                start: 244
+                length: 8
+          - Block:
+              Block:
+                tag:
+                  name: for
+                  bits:
+                    - for
+                    - item
+                    - in
+                    - items
+                  span:
+                    start: 252
+                    length: 17
+                  tag_span:
+                    start: 252
+                    length: 17
+                  assignment: ~
+                nodes:
+                  - Text:
+                      content: "\n"
+                      span:
+                        start: 275
+                        length: 1
+                  - Text:
+                      content: "            "
+                      span:
+                        start: 276
+                        length: 12
+                  - Text:
+                      content: "<span>"
+                      span:
+                        start: 288
+                        length: 6
+                  - Variable:
+                      bits:
+                        - item
+                      filters: []
+                      span:
+                        start: 297
+                        length: 4
+                  - Text:
+                      content: "</span>"
+                      span:
+                        start: 304
+                        length: 7
+                  - Text:
+                      content: "\n"
+                      span:
+                        start: 311
+                        length: 1
+                  - Text:
+                      content: "        "
+                      span:
+                        start: 312
+                        length: 8
+                closing:
+                  Closing:
+                    tag:
+                      name: endfor
+                      bits:
+                        - endfor
+                      span:
+                        start: 320
+                        length: 6
+                      tag_span:
+                        start: 320
+                        length: 6
+                      assignment: ~
+                assignments: []
+          - Text:
+              content: "\n"
+              span:
+                start: 332
+                length: 1
+          - Text:
+              content: "    "
+              span:
+                start: 333
+                length: 4
+          - Text:
+              content: "<footer>Page"
+              span:
+                start: 337
+                length: 12
+          - Text:
+              content: " "
+              span:
+                start: 349
+                length: 1
+          - Text:
+              content: Footer</footer>
+              span:
+                start: 350
+                length: 15
+          - Text:
+              content: "\n"
+              span:
+                start: 365
+                length: 1
+          - Text:
+              content: "</div>"
+              span:
+                start: 366
+                length: 6
+        closing: ~
+        assignments: []
 line_offsets:
   - 0
   - 24

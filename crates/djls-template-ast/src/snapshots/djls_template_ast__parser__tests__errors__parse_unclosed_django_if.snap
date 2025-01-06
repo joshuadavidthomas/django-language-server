@@ -4,23 +4,27 @@ expression: ast
 ---
 nodes:
   - Block:
-      block_type: Standard
-      name: if
-      bits:
-        - if
-        - user.is_authenticated
-      children:
-        - Text:
-            content: Welcome
-            span:
-              start: 30
-              length: 7
-      span:
-        start: 0
-        length: 24
-      tag_span:
-        start: 0
-        length: 24
+      Block:
+        tag:
+          name: if
+          bits:
+            - if
+            - user.is_authenticated
+          span:
+            start: 0
+            length: 24
+          tag_span:
+            start: 0
+            length: 24
+          assignment: ~
+        nodes:
+          - Text:
+              content: Welcome
+              span:
+                start: 30
+                length: 7
+        closing: ~
+        assignments: []
 line_offsets:
   - 0
 errors: []

@@ -4,10 +4,140 @@ expression: ast
 ---
 nodes:
   - Text:
-      content: "<style type=\"text/css\">\n    /* Header styles */\n    .header {\n        color: blue;\n    }\n</style>"
+      content: "<style"
       span:
         start: 0
-        length: 97
+        length: 6
+  - Text:
+      content: " "
+      span:
+        start: 6
+        length: 1
+  - Text:
+      content: "type=\"text/css\">"
+      span:
+        start: 7
+        length: 16
+  - Text:
+      content: "\n"
+      span:
+        start: 23
+        length: 1
+  - Text:
+      content: "    "
+      span:
+        start: 24
+        length: 4
+  - Text:
+      content: /*
+      span:
+        start: 28
+        length: 2
+  - Text:
+      content: " "
+      span:
+        start: 30
+        length: 1
+  - Text:
+      content: Header
+      span:
+        start: 31
+        length: 6
+  - Text:
+      content: " "
+      span:
+        start: 37
+        length: 1
+  - Text:
+      content: styles
+      span:
+        start: 38
+        length: 6
+  - Text:
+      content: " "
+      span:
+        start: 44
+        length: 1
+  - Text:
+      content: "*/"
+      span:
+        start: 45
+        length: 2
+  - Text:
+      content: "\n"
+      span:
+        start: 47
+        length: 1
+  - Text:
+      content: "    "
+      span:
+        start: 48
+        length: 4
+  - Text:
+      content: ".header"
+      span:
+        start: 52
+        length: 7
+  - Text:
+      content: " "
+      span:
+        start: 59
+        length: 1
+  - Text:
+      content: "{"
+      span:
+        start: 60
+        length: 1
+  - Text:
+      content: "\n"
+      span:
+        start: 61
+        length: 1
+  - Text:
+      content: "        "
+      span:
+        start: 62
+        length: 8
+  - Text:
+      content: "color:"
+      span:
+        start: 70
+        length: 6
+  - Text:
+      content: " "
+      span:
+        start: 76
+        length: 1
+  - Text:
+      content: blue;
+      span:
+        start: 77
+        length: 5
+  - Text:
+      content: "\n"
+      span:
+        start: 82
+        length: 1
+  - Text:
+      content: "    "
+      span:
+        start: 83
+        length: 4
+  - Text:
+      content: "}"
+      span:
+        start: 87
+        length: 1
+  - Text:
+      content: "\n"
+      span:
+        start: 88
+        length: 1
+  - Text:
+      content: "</style>"
+      span:
+        start: 89
+        length: 8
 line_offsets:
   - 0
   - 24

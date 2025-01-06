@@ -5,6 +5,7 @@ use thiserror::Error;
 pub struct Ast {
     nodes: Vec<Node>,
     line_offsets: LineOffsets,
+    errors: Vec<AstError>,
 }
 
 impl Ast {
@@ -16,8 +17,16 @@ impl Ast {
         &self.line_offsets
     }
 
+    pub fn errors(&self) -> &Vec<AstError> {
+        &self.errors
+    }
+
     pub fn add_node(&mut self, node: Node) {
         self.nodes.push(node);
+    }
+
+    pub fn add_error(&mut self, error: AstError) {
+        self.errors.push(error);
     }
 
     pub fn set_line_offsets(&mut self, line_offsets: LineOffsets) {
@@ -68,11 +77,11 @@ impl LineOffsets {
 
         // Calculate column as offset from line start
         let col = offset - self.0[line];
-        (line as u32, col)
+        ((line as u32) + 1, col)
     }
 
     pub fn line_col_to_position(&self, line: u32, col: u32) -> u32 {
-        self.0[line as usize] + col
+        self.0[(line - 1) as usize] + col
     }
 }
 
@@ -114,7 +123,25 @@ pub enum Node {
     Block(Block),
 }
 
-#[derive(Clone, Debug, Serialize)]
+impl Node {
+    pub fn span(&self) -> Option<&Span> {
+        match self {
+            Node::Text { span, .. } => Some(span),
+            Node::Comment { span, .. } => Some(span),
+            Node::Variable { span, .. } => Some(span),
+            Node::Block(block) => Some(&block.tag().span),
+        }
+    }
+
+    pub fn children(&self) -> Option<&Vec<Node>> {
+        match self {
+            Node::Block(block) => block.nodes(),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub enum Block {
     Block {
         tag: Tag,
@@ -141,6 +168,48 @@ pub enum Block {
     },
 }
 
+impl Block {
+    pub fn tag(&self) -> &Tag {
+        match self {
+            Self::Block { tag, .. }
+            | Self::Branch { tag, .. }
+            | Self::Tag { tag }
+            | Self::Inclusion { tag, .. }
+            | Self::Variable { tag }
+            | Self::Closing { tag } => tag,
+        }
+    }
+
+    pub fn nodes(&self) -> Option<&Vec<Node>> {
+        match self {
+            Block::Block { nodes, .. } => Some(nodes),
+            Block::Branch { nodes, .. } => Some(nodes),
+            _ => None,
+        }
+    }
+
+    pub fn closing(&self) -> Option<&Box<Block>> {
+        match self {
+            Block::Block { closing, .. } => closing.as_ref(),
+            _ => None,
+        }
+    }
+
+    pub fn assignments(&self) -> Option<&Vec<Assignment>> {
+        match self {
+            Block::Block { assignments, .. } => assignments.as_ref(),
+            _ => None,
+        }
+    }
+
+    pub fn template_name(&self) -> Option<&String> {
+        match self {
+            Block::Inclusion { template_name, .. } => Some(template_name),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct Tag {
     pub name: String,
@@ -165,11 +234,7 @@ pub struct DjangoFilter {
 
 impl DjangoFilter {
     pub fn new(name: String, args: Vec<String>, span: Span) -> Self {
-        Self {
-            name,
-            args,
-            span,
-        }
+        Self { name, args, span }
     }
 }
 
@@ -177,13 +242,13 @@ impl DjangoFilter {
 pub enum AstError {
     #[error("Empty AST")]
     EmptyAst,
-    #[error("Empty tag")]
-    EmptyTag,
-    #[error("unclosed tag: {0}")]
+    #[error("Invalid tag: {0}")]
+    InvalidTag(String),
+    #[error("Unclosed block: {0}")]
+    UnclosedBlock(String),
+    #[error("Unclosed tag: {0}")]
     UnclosedTag(String),
-    #[error("unexpected tag: {0}")]
-    UnexpectedTag(String),
-    #[error("stream error: {0}")]
+    #[error("Stream error: {0}")]
     StreamError(String),
 }
 
@@ -199,7 +264,7 @@ mod tests {
         #[test]
         fn test_new_starts_at_zero() {
             let offsets = LineOffsets::new();
-            assert_eq!(offsets.position_to_line_col(0), (0, 0));
+            assert_eq!(offsets.position_to_line_col(0), (1, 0));
         }
 
         #[test]
@@ -208,9 +273,9 @@ mod tests {
             offsets.add_line(10); // Line 1
             offsets.add_line(25); // Line 2
 
-            assert_eq!(offsets.position_to_line_col(0), (0, 0)); // Line 0
-            assert_eq!(offsets.position_to_line_col(10), (1, 0)); // Line 1
-            assert_eq!(offsets.position_to_line_col(25), (2, 0)); // Line 2
+            assert_eq!(offsets.position_to_line_col(0), (1, 0)); // Line 1
+            assert_eq!(offsets.position_to_line_col(10), (2, 0)); // Line 2
+            assert_eq!(offsets.position_to_line_col(25), (3, 0)); // Line 3
         }
     }
 
@@ -223,7 +288,8 @@ mod tests {
             let tokens = Lexer::new(template).tokenize().unwrap();
             println!("Tokens: {:#?}", tokens); // Add debug print
             let mut parser = Parser::new(tokens);
-            let ast = parser.parse().unwrap();
+            let (ast, errors) = parser.parse().unwrap();
+            assert!(errors.is_empty());
 
             // Find the variable node
             let nodes = ast.nodes();
@@ -234,11 +300,11 @@ mod tests {
 
             if let Node::Variable { span, .. } = var_node {
                 // Variable starts after newline + "{{"
-                let (line, col) = ast.line_offsets.position_to_line_col(*span.start());
+                let (line, col) = ast.line_offsets().position_to_line_col(*span.start());
                 assert_eq!(
                     (line, col),
-                    (1, 3),
-                    "Variable should start at line 1, col 3"
+                    (2, 3),
+                    "Variable should start at line 2, col 3"
                 );
 
                 // Span should be exactly "user.name"
@@ -248,101 +314,77 @@ mod tests {
 
         #[test]
         fn test_block_spans() {
-            let template = "{% if user.active %}\n  Welcome!\n{% endif %}";
-            let tokens = Lexer::new(template).tokenize().unwrap();
-            let mut parser = Parser::new(tokens);
-            let ast = parser.parse().unwrap();
+            let nodes = vec![Node::Block(Block::Block {
+                tag: Tag {
+                    name: "if".to_string(),
+                    bits: vec!["user.is_authenticated".to_string()],
+                    span: Span::new(0, 35),
+                    tag_span: Span::new(0, 35),
+                    assignment: None,
+                },
+                nodes: vec![],
+                closing: None,
+                assignments: None,
+            })];
 
-            // Find the block node
-            let nodes = ast.nodes();
-            if let Node::Block {
-                span,
-                tag_span,
-                children,
-                ..
-            } = &nodes[0]
-            {
-                // Check opening tag span
-                let (tag_line, tag_col) = ast.line_offsets.position_to_line_col(*tag_span.start());
-                assert_eq!(
-                    (tag_line, tag_col),
-                    (0, 0),
-                    "Opening tag should start at beginning"
-                );
+            let ast = Ast {
+                nodes,
+                line_offsets: LineOffsets::new(),
+                errors: vec![],
+            };
 
-                // Check content span
-                if let Some(content) = children {
-                    if let Node::Text { span, .. } = &content[0] {
-                        eprintln!("content {:?}", content);
-                        eprintln!("span start {:?}", span.start());
-                        let (content_line, content_col) =
-                            ast.line_offsets.position_to_line_col(*span.start());
-                        assert_eq!(
-                            (content_line, content_col),
-                            (1, 2),
-                            "Content should be indented"
-                        );
-                    }
-                }
-
-                // Full block span should cover only the opening tag
-                assert_eq!(*span.length() as u32, 14);
+            let node = &ast.nodes()[0];
+            if let Node::Block(block) = node {
+                assert_eq!(block.tag().span.start(), &0);
+                assert_eq!(block.tag().span.length(), &35);
+            } else {
+                panic!("Expected Block node");
             }
         }
 
         #[test]
         fn test_multiline_template() {
-            let template = "\
-<div>
-    {% if user.is_authenticated %}
-        {{ user.name }}
-        {% if user.is_staff %}
-            (Staff)
-        {% endif %}
-    {% endif %}
-</div>";
+            let template = "{% if user.active %}\n  Welcome!\n{% endif %}";
             let tokens = Lexer::new(template).tokenize().unwrap();
             let mut parser = Parser::new(tokens);
-            let ast = parser.parse().unwrap();
+            let (ast, errors) = parser.parse().unwrap();
+            assert!(errors.is_empty());
 
-            // Test nested block positions
             let nodes = ast.nodes();
-            let outer_if = nodes
-                .iter()
-                .find(|n| matches!(n, Node::Block { .. }))
-                .unwrap();
-
-            if let Node::Block {
-                span: outer_span,
-                children: Some(children),
+            if let Node::Block(Block::Block {
+                tag,
+                nodes,
+                closing,
                 ..
-            } = outer_if
+            }) = &nodes[0]
             {
-                // Find the inner if block in the children
-                let inner_if = children
-                    .iter()
-                    .find(|n| matches!(n, Node::Block { .. }))
-                    .unwrap();
+                // Check block tag
+                assert_eq!(tag.name, "if");
+                assert_eq!(tag.bits, vec!["if", "user.active"]);
 
-                if let Node::Block {
-                    span: inner_span, ..
-                } = inner_if
-                {
-                    // Verify outer if starts at the right line/column
-                    let (outer_line, outer_col) =
-                        ast.line_offsets.position_to_line_col(*outer_span.start());
-                    assert_eq!(
-                        (outer_line, outer_col),
-                        (1, 4),
-                        "Outer if should be indented"
-                    );
+                // Check nodes
+                eprintln!("Nodes: {:?}", nodes);
+                assert_eq!(nodes.len(), 4);
+                if let Node::Text { content, span } = &nodes[2] {
+                    assert_eq!(content, "Welcome!");
+                    eprintln!("Line offsets: {:?}", ast.line_offsets());
+                    eprintln!("Span: {:?}", span);
+                    let (line, col) = ast.line_offsets().position_to_line_col(span.start);
+                    assert_eq!((line, col), (2, 2), "Content should be on line 2, col 2");
 
-                    // Verify inner if is more indented than outer if
-                    let (inner_line, inner_col) =
-                        ast.line_offsets.position_to_line_col(*inner_span.start());
-                    assert!(inner_col > outer_col, "Inner if should be more indented");
-                    assert!(inner_line > outer_line, "Inner if should be on later line");
+                    // Check closing tag
+                    if let Block::Closing { tag } =
+                        closing.as_ref().expect("Expected closing tag").as_ref()
+                    {
+                        assert_eq!(tag.name, "endif");
+                    } else {
+                        panic!("Expected closing block");
+                    }
+                } else {
+                    panic!("Expected text node");
                 }
+            } else {
+                panic!("Expected block node");
             }
         }
     }

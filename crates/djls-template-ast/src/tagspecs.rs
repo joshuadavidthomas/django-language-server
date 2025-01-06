@@ -22,9 +22,52 @@ pub struct BranchSpec {
 
 impl TagSpec {
     pub fn load_builtin_specs() -> Result<HashMap<String, TagSpec>> {
-        let specs_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tagspecs");
+        let mut specs = HashMap::new();
 
-        let mut all_specs = HashMap::new();
+        // Add built-in tag specs
+        specs.insert(
+            "if".to_string(),
+            TagSpec {
+                tag_type: TagType::Block,
+                closing: Some("endif".to_string()),
+                branches: Some(vec![
+                    BranchSpec {
+                        name: "elif".to_string(),
+                        args: true,
+                    },
+                    BranchSpec {
+                        name: "else".to_string(),
+                        args: false,
+                    },
+                ]),
+                args: None,
+            },
+        );
+
+        specs.insert(
+            "for".to_string(),
+            TagSpec {
+                tag_type: TagType::Block,
+                closing: Some("endfor".to_string()),
+                branches: Some(vec![BranchSpec {
+                    name: "empty".to_string(),
+                    args: false,
+                }]),
+                args: None,
+            },
+        );
+
+        specs.insert(
+            "block".to_string(),
+            TagSpec {
+                tag_type: TagType::Block,
+                closing: Some("endblock".to_string()),
+                branches: None,
+                args: None,
+            },
+        );
+
+        let specs_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tagspecs");
 
         for entry in fs::read_dir(&specs_dir)? {
             let entry = entry?;
@@ -37,11 +80,11 @@ impl TagSpec {
                 let value: Value = toml::from_str(&content)
                     .with_context(|| format!("Failed to parse {:?}", path))?;
 
-                Self::extract_specs(&value, "", &mut all_specs)?;
+                Self::extract_specs(&value, "", &mut specs)?;
             }
         }
 
-        Ok(all_specs)
+        Ok(specs)
     }
 
     fn extract_specs(
@@ -78,7 +121,7 @@ impl TagSpec {
 pub enum TagType {
     Block,
     Tag,
-    Assignment,
+    Inclusion,
     Variable,
 }
 

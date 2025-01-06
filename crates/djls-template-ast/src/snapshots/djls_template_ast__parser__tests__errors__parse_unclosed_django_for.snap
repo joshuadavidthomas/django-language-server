@@ -4,28 +4,32 @@ expression: ast
 ---
 nodes:
   - Block:
-      block_type: Standard
-      name: for
-      bits:
-        - for
-        - item
-        - in
-        - items
-      children:
-        - Variable:
-            bits:
-              - item
-              - name
-            filters: []
-            span:
-              start: 26
-              length: 9
-      span:
-        start: 0
-        length: 17
-      tag_span:
-        start: 0
-        length: 17
+      Block:
+        tag:
+          name: for
+          bits:
+            - for
+            - item
+            - in
+            - items
+          span:
+            start: 0
+            length: 17
+          tag_span:
+            start: 0
+            length: 17
+          assignment: ~
+        nodes:
+          - Variable:
+              bits:
+                - item
+                - name
+              filters: []
+              span:
+                start: 26
+                length: 9
+        closing: ~
+        assignments: []
 line_offsets:
   - 0
 errors: []

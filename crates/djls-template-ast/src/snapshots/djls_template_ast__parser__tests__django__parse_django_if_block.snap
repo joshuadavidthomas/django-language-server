@@ -4,35 +4,39 @@ expression: ast
 ---
 nodes:
   - Block:
-      block_type: Standard
-      name: if
-      bits:
-        - if
-        - user.is_authenticated
-      children:
-        - Text:
-            content: Welcome
-            span:
-              start: 30
-              length: 7
-      span:
-        start: 0
-        length: 24
-      tag_span:
-        start: 0
-        length: 24
-  - Block:
-      block_type: Standalone
-      name: endif
-      bits:
-        - endif
-      children: ~
-      span:
-        start: 37
-        length: 5
-      tag_span:
-        start: 37
-        length: 5
+      Block:
+        tag:
+          name: if
+          bits:
+            - if
+            - user.is_authenticated
+          span:
+            start: 0
+            length: 24
+          tag_span:
+            start: 0
+            length: 24
+          assignment: ~
+        nodes:
+          - Text:
+              content: Welcome
+              span:
+                start: 30
+                length: 7
+        closing:
+          Closing:
+            tag:
+              name: endif
+              bits:
+                - endif
+              span:
+                start: 37
+                length: 5
+              tag_span:
+                start: 37
+                length: 5
+              assignment: ~
+        assignments: []
 line_offsets:
   - 0
 errors: []

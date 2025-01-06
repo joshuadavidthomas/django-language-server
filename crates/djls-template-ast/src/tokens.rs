@@ -123,8 +123,12 @@ impl Token {
         &self.line
     }
 
-    pub fn start(&self) -> &Option<usize> {
-        &self.start
+    pub fn start(&self) -> Option<u32> {
+        self.start.map(|s| s as u32)
+    }
+
+    pub fn length(&self) -> Option<u32> {
+        self.token_type.len().map(|l| l as u32)
     }
 
     pub fn is_token_type(&self, token_type: &TokenType) -> bool {

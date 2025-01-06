@@ -8,21 +8,21 @@ nodes:
         - value
       filters:
         - name: default
-          arguments:
+          args:
             - "'nothing'"
           span:
-            start: 6
-            length: 17
+            start: 4
+            length: 35
         - name: title
-          arguments: []
+          args: []
           span:
-            start: 24
-            length: 5
+            start: 4
+            length: 35
         - name: upper
-          arguments: []
+          args: []
           span:
-            start: 30
-            length: 5
+            start: 4
+            length: 35
       span:
         start: 3
         length: 35

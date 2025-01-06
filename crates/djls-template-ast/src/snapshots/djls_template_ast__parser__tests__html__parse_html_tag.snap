@@ -4,10 +4,20 @@ expression: ast
 ---
 nodes:
   - Text:
-      content: "<div class=\"container\">Hello</div>"
+      content: "<div"
       span:
         start: 0
-        length: 34
+        length: 4
+  - Text:
+      content: " "
+      span:
+        start: 4
+        length: 1
+  - Text:
+      content: "class=\"container\">Hello</div>"
+      span:
+        start: 5
+        length: 29
 line_offsets:
   - 0
 errors: []

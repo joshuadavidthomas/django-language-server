@@ -4,10 +4,185 @@ expression: ast
 ---
 nodes:
   - Text:
-      content: "<script type=\"text/javascript\">\n    // Single line comment\n    const x = 1;\n    /* Multi-line\n        comment */\n    console.log(x);\n</script>"
+      content: "<script"
       span:
         start: 0
-        length: 142
+        length: 7
+  - Text:
+      content: " "
+      span:
+        start: 7
+        length: 1
+  - Text:
+      content: "type=\"text/javascript\">"
+      span:
+        start: 8
+        length: 23
+  - Text:
+      content: "\n"
+      span:
+        start: 31
+        length: 1
+  - Text:
+      content: "    "
+      span:
+        start: 32
+        length: 4
+  - Text:
+      content: //
+      span:
+        start: 36
+        length: 2
+  - Text:
+      content: " "
+      span:
+        start: 38
+        length: 1
+  - Text:
+      content: Single
+      span:
+        start: 39
+        length: 6
+  - Text:
+      content: " "
+      span:
+        start: 45
+        length: 1
+  - Text:
+      content: line
+      span:
+        start: 46
+        length: 4
+  - Text:
+      content: " "
+      span:
+        start: 50
+        length: 1
+  - Text:
+      content: comment
+      span:
+        start: 51
+        length: 7
+  - Text:
+      content: "\n"
+      span:
+        start: 58
+        length: 1
+  - Text:
+      content: "    "
+      span:
+        start: 59
+        length: 4
+  - Text:
+      content: const
+      span:
+        start: 63
+        length: 5
+  - Text:
+      content: " "
+      span:
+        start: 68
+        length: 1
+  - Text:
+      content: x
+      span:
+        start: 69
+        length: 1
+  - Text:
+      content: " "
+      span:
+        start: 70
+        length: 1
+  - Text:
+      content: "="
+      span:
+        start: 71
+        length: 1
+  - Text:
+      content: " "
+      span:
+        start: 72
+        length: 1
+  - Text:
+      content: 1;
+      span:
+        start: 73
+        length: 2
+  - Text:
+      content: "\n"
+      span:
+        start: 75
+        length: 1
+  - Text:
+      content: "    "
+      span:
+        start: 76
+        length: 4
+  - Text:
+      content: /*
+      span:
+        start: 80
+        length: 2
+  - Text:
+      content: " "
+      span:
+        start: 82
+        length: 1
+  - Text:
+      content: Multi-line
+      span:
+        start: 83
+        length: 10
+  - Text:
+      content: "\n"
+      span:
+        start: 93
+        length: 1
+  - Text:
+      content: "        "
+      span:
+        start: 94
+        length: 8
+  - Text:
+      content: comment
+      span:
+        start: 102
+        length: 7
+  - Text:
+      content: " "
+      span:
+        start: 109
+        length: 1
+  - Text:
+      content: "*/"
+      span:
+        start: 110
+        length: 2
+  - Text:
+      content: "\n"
+      span:
+        start: 112
+        length: 1
+  - Text:
+      content: "    "
+      span:
+        start: 113
+        length: 4
+  - Text:
+      content: console.log(x);
+      span:
+        start: 117
+        length: 15
+  - Text:
+      content: "\n"
+      span:
+        start: 132
+        length: 1
+  - Text:
+      content: "</script>"
+      span:
+        start: 133
+        length: 9
 line_offsets:
   - 0
   - 32
