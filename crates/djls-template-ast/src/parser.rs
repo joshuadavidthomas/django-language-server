@@ -1,4 +1,4 @@
-use crate::ast::{Assignment, Ast, AstError, Block, DjangoFilter, LineOffsets, Node, Span, Tag};
+use crate::ast::{Ast, AstError, Block, DjangoFilter, LineOffsets, Node, Span, Tag};
 use crate::tagspecs::{TagSpec, TagType};
 use crate::tokens::{Token, TokenStream, TokenType};
 use thiserror::Error;
@@ -52,21 +52,13 @@ impl Parser {
     }
 
     fn next_node(&mut self) -> Result<Node, ParserError> {
-        let token = self.peek()?;
+        let token = self.consume()?;
+
         match token.token_type() {
-            TokenType::Comment(content, start, end) => {
-                self.consume()?;
-                self.parse_comment(content, start, end.as_deref())
-            }
+            TokenType::Comment(content, open, _) => self.parse_comment(content, open),
             TokenType::Eof => Err(ParserError::Ast(AstError::StreamError("AtEnd".to_string()))),
-            TokenType::DjangoBlock(content) => {
-                self.consume()?;
-                self.parse_django_block(content)
-            }
-            TokenType::DjangoVariable(content) => {
-                self.consume()?;
-                self.parse_django_variable(content)
-            }
+            TokenType::DjangoBlock(content) => self.parse_django_block(content),
+            TokenType::DjangoVariable(content) => self.parse_django_variable(content),
             TokenType::HtmlTagClose(_)
             | TokenType::HtmlTagOpen(_)
             | TokenType::HtmlTagVoid(_)
@@ -76,38 +68,31 @@ impl Parser {
             | TokenType::StyleTagClose(_)
             | TokenType::StyleTagOpen(_)
             | TokenType::Text(_)
-            | TokenType::Whitespace(_) => {
-                self.consume()?;
-                self.parse_text()
-            }
+            | TokenType::Whitespace(_) => self.parse_text(),
         }
     }
 
-    fn parse_comment(
-        &mut self,
-        content: &str,
-        start: &str,
-        end: Option<&str>,
-    ) -> Result<Node, ParserError> {
-        let token = self.peek_previous()?;
-        let start_pos = token.start().unwrap_or(0);
-
+    fn parse_comment(&mut self, content: &str, open: &str) -> Result<Node, ParserError> {
         // Only treat Django comments as Comment nodes
-        if start == "{#" && end == Some("#}") {
-            Ok(Node::Comment {
-                content: content.to_string(),
-                span: Span::new(start_pos, token.token_type().len().unwrap_or(0) as u32),
-            })
-        } else {
-            self.parse_text()
-        }
+        if open != "{#" {
+            return self.parse_text();
+        };
+
+        let token = self.peek_previous()?;
+        let start = token.start().unwrap_or(0);
+
+        Ok(Node::Comment {
+            content: content.to_string(),
+            span: Span::new(start, token.token_type().len().unwrap_or(0) as u32),
+        })
     }
 
     fn parse_django_block(&mut self, content: &str) -> Result<Node, ParserError> {
         let token = self.peek_previous()?;
-        let start_pos = token.start().unwrap_or(0);
-        let total_length = token.length().unwrap_or(0);
-        let span = Span::new(start_pos, total_length);
+        let start = token.start().unwrap_or(0);
+        let length = token.length().unwrap_or(0);
+
+        let span = Span::new(start, length);
 
         let bits: Vec<String> = content.split_whitespace().map(String::from).collect();
         let tag_name = bits.first().ok_or(ParserError::EmptyTag)?.clone();
@@ -278,14 +263,14 @@ impl Parser {
     }
 
     fn parse_text(&mut self) -> Result<Node, ParserError> {
-        let start_token = self.peek_previous()?;
-        let start_pos = start_token.start().unwrap_or(0);
+        let token = self.peek_previous()?;
+        let start = token.start().unwrap_or(0);
 
-        if start_token.token_type() == &TokenType::Newline {
+        if token.token_type() == &TokenType::Newline {
             return self.next_node();
         }
 
-        let mut text = start_token.token_type().to_string();
+        let mut text = token.token_type().to_string();
 
         while let Ok(token) = self.peek() {
             match token.token_type() {
@@ -311,7 +296,7 @@ impl Parser {
 
         Ok(Node::Text {
             content,
-            span: Span::new(start_pos + offset, length),
+            span: Span::new(start + offset, length),
         })
     }
 
@@ -445,8 +430,19 @@ mod tests {
 
     mod django {
         use super::*;
+
         #[test]
         fn test_parse_django_variable() {
+            let source = "{{ user.name }}";
+            let tokens = Lexer::new(source).tokenize().unwrap();
+            let mut parser = Parser::new(tokens);
+            let (ast, errors) = parser.parse().unwrap();
+            insta::assert_yaml_snapshot!(ast);
+            assert!(errors.is_empty());
+        }
+
+        #[test]
+        fn test_parse_django_variable_with_filter() {
             let source = "{{ user.name|title }}";
             let tokens = Lexer::new(source).tokenize().unwrap();
             let mut parser = Parser::new(tokens);
