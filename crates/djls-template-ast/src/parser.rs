@@ -138,148 +138,160 @@ impl Parser {
     }
 
     fn parse_django_block(&mut self, s: &str) -> Result<Node, ParserError> {
-        let start_token = self.peek_previous()?;
-        let start_pos = start_token.start().unwrap_or(0) as u32;
-        let tag_span = Span::new(start_pos, s.len() as u16);
+        let token = self.peek_previous()?;
+        let start = *token.start().unwrap();
+        let length = token.length().unwrap();
+        let span = Span::new(start as u32, length as u32);
 
+        // Parse the tag content
         let bits: Vec<String> = s.split_whitespace().map(String::from).collect();
-        let tag_name = bits.first().ok_or(AstError::EmptyTag)?.clone();
-
-        let specs = TagSpec::load_builtin_specs().unwrap_or_default();
-        
-        // Get the tag spec if it exists
-        let tag_spec = specs.get(&tag_name);
-
-        // Check if this is a closing tag
-        if let Some(spec) = tag_spec {
-            if let Some(closing) = &spec.closing {
-                if tag_name == *closing {
-                    // This is a closing tag, return a signal instead of a node
-                    return Err(ParserError::Signal(Signal::ClosingTagFound(tag_name)));
-                }
-            }
-        }
-
-        // Check if this is a branch tag
-        if let Some(spec) = tag_spec {
-            if let Some(branches) = &spec.branches {
-                if branches.iter().any(|b| b.name == tag_name) {
-                    let mut children = Vec::new();
-                    while !self.is_at_end() {
-                        match self.peek()?.token_type() {
-                            TokenType::DjangoBlock(next_block) => {
-                                let next_bits: Vec<String> = next_block.split_whitespace().map(String::from).collect();
-                                if let Some(next_tag) = next_bits.first() {
-                                    // If we hit another branch or closing tag, we're done
-                                    if branches.iter().any(|b| &b.name == next_tag) || 
-                                       spec.closing.as_ref().map(|s| s.as_str()) == Some(next_tag.as_str()) {
-                                        break;
-                                    }
-                                }
-                                children.push(self.next_node()?);
-                            }
-                            _ => children.push(self.next_node()?),
-                        }
-                    }
-                    return Ok(Node::Block {
-                        block_type: BlockType::Branch,
-                        name: tag_name,
-                        bits,
-                        children: Some(children),
-                        span: tag_span,
-                        tag_span,
-                    });
-                }
-            }
-        }
-
-        // This is a standard block
-        let mut children = Vec::new();
-        let mut found_closing = false;
-        let mut end_pos = start_pos + s.len() as u32;
-
-        while !self.is_at_end() {
-            match self.peek()?.token_type() {
-                TokenType::DjangoBlock(next_block) => {
-                    let next_bits: Vec<String> = next_block.split_whitespace().map(String::from).collect();
-                    if let Some(next_tag) = next_bits.first() {
-                        // Check if this is a closing tag
-                        if let Some(spec) = tag_spec {
-                            if let Some(closing) = &spec.closing {
-                                if next_tag == closing {
-                                    found_closing = true;
-                                    let closing_token = self.consume()?;
-                                    end_pos = closing_token.start().unwrap_or(0) as u32 + next_block.len() as u32;
-                                    break;
-                                }
-                            }
-                            // Check if this is a branch tag
-                            if let Some(branches) = &spec.branches {
-                                if branches.iter().any(|b| &b.name == next_tag) {
-                                    children.push(self.next_node()?);
-                                    continue;
-                                }
-                            }
-                        }
-                    }
-                    children.push(self.next_node()?);
-                }
-                _ => children.push(self.next_node()?),
-            }
-        }
-
-        if !found_closing && tag_spec.map_or(false, |s| s.closing.is_some()) {
-            return Err(ParserError::from(
-                AstError::UnclosedTag(tag_name.clone()),
+        if bits.is_empty() {
+            return Err(ParserError::Ast(
+                AstError::InvalidTag("Empty tag".to_string()),
+                None,
             ));
         }
 
-        Ok(Node::Block {
-            block_type: BlockType::Standard,
-            name: tag_name,
+        let tag_name = bits[0].clone();
+        
+        // Check for assignments
+        let mut assignments = None;
+        let mut assignment = None;
+        if let Some(assign_idx) = bits.iter().position(|b| b.contains('=')) {
+            let mut assign_vec = Vec::new();
+            for bit in &bits[assign_idx..] {
+                if let Some((target, value)) = bit.split_once('=') {
+                    assign_vec.push(Assignment {
+                        target: target.trim().to_string(),
+                        value: value.trim_matches('"').to_string(),
+                    });
+                }
+            }
+            if !assign_vec.is_empty() {
+                assignments = Some(assign_vec);
+            }
+        }
+
+        let tag = Tag {
+            name: tag_name.clone(),
             bits,
-            children: Some(children),
-            span: Span::new(start_pos, (end_pos - start_pos) as u16),
-            tag_span,
-        })
+            span,
+            tag_span: span,  // For now, tag_span is same as full span
+            assignment,
+        };
+
+        // Handle different tag types based on tagspecs
+        let spec = match TagSpec::load_builtin_specs()?.get(&tag_name) {
+            Some(spec) => spec.clone(),
+            None => return Ok(Node::Block(Block::Tag { tag })),
+        };
+
+        match spec.tag_type {
+            TagType::Block => {
+                let mut nodes = Vec::new();
+                
+                // Parse child nodes until we find the closing tag
+                while !self.is_at_end() {
+                    match self.next_node() {
+                        Ok(node) => nodes.push(node),
+                        Err(ParserError::ErrorSignal(Signal::ClosingTagFound(closing_name))) => {
+                            let closing_tag = Tag {
+                                name: closing_name,
+                                bits: vec![],
+                                span,
+                                tag_span: span,  // For now, tag_span is same as full span
+                                assignment: None,
+                            };
+                            return Ok(Node::Block(Block::Block {
+                                tag,
+                                nodes,
+                                closing: Some(Box::new(Block::Closing { tag: closing_tag })),
+                                assignments,
+                            }));
+                        }
+                        Err(e) => return Err(e),
+                    }
+                }
+
+                Err(ParserError::Ast(
+                    AstError::UnclosedBlock(tag_name),
+                    Some(Node::Block(Block::Block {
+                        tag,
+                        nodes,
+                        closing: None,
+                        assignments,
+                    })),
+                ))
+            }
+            TagType::Tag => Ok(Node::Block(Block::Tag { tag })),
+            TagType::Variable => Ok(Node::Block(Block::Variable { tag })),
+            TagType::Assignment => {
+                if let Some(target) = assignment {
+                    let mut nodes = Vec::new();
+                    while !self.is_at_end() {
+                        match self.next_node() {
+                            Ok(node) => nodes.push(node),
+                            Err(ParserError::ErrorSignal(Signal::ClosingTagFound(_))) => {
+                                return Ok(Node::Block(Block::Block {
+                                    tag,
+                                    nodes,
+                                    closing: None,
+                                    assignments: Some(vec![Assignment {
+                                        target,
+                                        value: bits[1..].join(" "),
+                                    }]),
+                                }));
+                            }
+                            Err(e) => return Err(e),
+                        }
+                    }
+                    Ok(Node::Block(Block::Block {
+                        tag,
+                        nodes,
+                        closing: None,
+                        assignments: Some(vec![Assignment {
+                            target,
+                            value: bits[1..].join(" "),
+                        }]),
+                    }))
+                } else {
+                    Ok(Node::Block(Block::Tag { tag }))
+                }
+            }
+        }
     }
 
     fn parse_django_variable(&mut self, s: &str) -> Result<Node, ParserError> {
         let token = self.peek_previous()?;
-        let start_pos = token.start().unwrap_or(0) as u32;
-        let s = s.trim();  // Trim whitespace
-        let length = s.len() as u16;
-        let span = Span::new(start_pos + 3, length);  // Add 3 to skip "{{ "
+        let start = *token.start().unwrap();
+        let length = token.length().unwrap();
+        let span = Span::new(start as u32, length as u32);
 
+        // Split into variable and filters
         let parts: Vec<&str> = s.split('|').collect();
-        let bits: Vec<String> = parts[0].trim().split('.').map(String::from).collect();
+        let bits: Vec<String> = parts[0]
+            .trim()
+            .split('.')
+            .map(|s| s.trim().to_string())
+            .collect();
 
-        // Track position in the string for filter spans
-        let mut current_pos = parts[0].len() + 1; // +1 for the pipe
-
-        let filters: Vec<DjangoFilter> = parts[1..]
-            .iter()
-            .map(|filter_str| {
-                let filter_parts: Vec<&str> = filter_str.trim().split(':').collect();
-                let name = filter_parts[0].to_string();
-
+        let mut filters = Vec::new();
+        if parts.len() > 1 {
+            for filter_part in &parts[1..] {
+                let filter_parts: Vec<&str> = filter_part.trim().split(':').collect();
+                let name = filter_parts[0].trim().to_string();
                 let arguments = if filter_parts.len() > 1 {
                     filter_parts[1]
-                        .trim_matches('"')
                         .split(',')
-                        .map(|arg| arg.trim().to_string())
+                        .map(|s| s.trim().to_string())
                         .collect()
                 } else {
                     Vec::new()
                 };
 
-                let filter_span =
-                    Span::new(start_pos + current_pos as u32, filter_str.len() as u16);
-                current_pos += filter_str.len() + 1; // +1 for the pipe
-
-                DjangoFilter::new(name, arguments, filter_span)
-            })
-            .collect();
+                filters.push(DjangoFilter::new(name, arguments, span));
+            }
+        }
 
         Ok(Node::Variable {
             bits,
