@@ -281,20 +281,11 @@ impl Parser {
         let start_token = self.peek_previous()?;
         let start_pos = start_token.start().unwrap_or(0);
 
-        match start_token.token_type() {
-            TokenType::Newline => return self.next_node(),
-            TokenType::Whitespace(_)
-                if self
-                    .peek_at(-2)
-                    .map_or(false, |t| matches!(t.token_type(), TokenType::Newline)) =>
-            {
-                return self.next_node()
-            }
-            _ => {}
+        if start_token.token_type() == &TokenType::Newline {
+            return self.next_node();
         }
 
         let mut text = start_token.token_type().to_string();
-        let mut total_length: u32 = u32::try_from(text.len()).unwrap();
 
         while let Ok(token) = self.peek() {
             match token.token_type() {
@@ -303,39 +294,25 @@ impl Parser {
                 | TokenType::Comment(_, _, _)
                 | TokenType::Newline
                 | TokenType::Eof => break,
-                TokenType::Whitespace(_) => {
-                    // Check if next token is a newline
-                    if let Ok(next) = self.peek_at(1) {
-                        if matches!(next.token_type(), TokenType::Newline) {
-                            self.consume()?;
-                            break;
-                        }
-                    }
-                    // Not before newline, treat as normal text
-                    let token_text = token.token_type().to_string();
-                    text.push_str(&token_text);
-                    total_length += u32::try_from(token_text.len()).unwrap();
-                    self.consume()?;
-                }
                 _ => {
                     let token_text = token.token_type().to_string();
                     text.push_str(&token_text);
-                    total_length += u32::try_from(token_text.len()).unwrap();
                     self.consume()?;
                 }
             }
         }
 
-        if text.trim().is_empty() {
-            self.next_node()
-        } else {
-            let trimmed = text.trim();
-            Ok(Node::Text {
-                content: trimmed.to_string(),
-                span: Span::new(start_pos + u32::try_from(text.find(trimmed).unwrap_or(0)).unwrap(), 
-                               u32::try_from(trimmed.len()).unwrap()),
-            })
-        }
+        let content = match text.trim() {
+            "" => return self.next_node(),
+            trimmed => trimmed.to_string(),
+        };
+        let offset = u32::try_from(text.find(content.as_str()).unwrap_or(0)).unwrap();
+        let length = u32::try_from(content.len()).unwrap();
+
+        Ok(Node::Text {
+            content,
+            span: Span::new(start_pos + offset, length),
+        })
     }
 
     fn peek(&self) -> Result<Token, ParserError> {

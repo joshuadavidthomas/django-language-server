@@ -4,10 +4,10 @@ expression: ast
 ---
 nodes:
   - Text:
-      content: "Welcome, "
+      content: "Welcome,"
       span:
         start: 0
-        length: 9
+        length: 8
   - Block:
       Block:
         tag:
@@ -118,10 +118,10 @@ nodes:
                           assignment: ~
                         nodes:
                           - Text:
-                              content: ", "
+                              content: ","
                               span:
                                 start: 218
-                                length: 2
+                                length: 1
                         closing:
                           Closing:
                             tag:
