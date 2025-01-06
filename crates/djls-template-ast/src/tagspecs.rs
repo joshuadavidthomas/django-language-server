@@ -1,80 +1,112 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde::Deserialize;
 use std::collections::HashMap;
+use std::convert::TryFrom;
 use std::fs;
 use std::ops::{Deref, Index};
 use std::path::Path;
+use thiserror::Error;
 use toml::Value;
 
-#[derive(Debug, Default)]
+#[derive(Debug, Error)]
+pub enum TagSpecError {
+    #[error("Failed to read file: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("Failed to parse TOML: {0}")]
+    Toml(#[from] toml::de::Error),
+    #[error("Failed to extract specs: {0}")]
+    Extract(String),
+    #[error(transparent)]
+    Other(#[from] anyhow::Error),
+}
+
+#[derive(Clone, Debug, Default)]
 pub struct TagSpecs(HashMap<String, TagSpec>);
 
 impl TagSpecs {
     pub fn get(&self, key: &str) -> Option<&TagSpec> {
         self.0.get(key)
     }
-}
 
-impl From<&Path> for TagSpecs {
-    fn from(specs_dir: &Path) -> Self {
+    /// Load specs from a TOML file, looking under the specified table path
+    fn load_from_toml(path: &Path, table_path: &[&str]) -> Result<Self, anyhow::Error> {
+        let content = fs::read_to_string(path)?;
+        let value: Value = toml::from_str(&content)?;
+
+        // Navigate to the specified table
+        let table = table_path
+            .iter()
+            .try_fold(&value, |current, &key| {
+                current
+                    .get(key)
+                    .ok_or_else(|| anyhow::anyhow!("Missing table: {}", key))
+            })
+            .unwrap_or(&value);
+
+        let mut specs = HashMap::new();
+        TagSpec::extract_specs(table, None, &mut specs)
+            .map_err(|e| TagSpecError::Extract(e.to_string()))?;
+        Ok(TagSpecs(specs))
+    }
+
+    /// Load specs from a user's project directory
+    pub fn load_user_specs(project_root: &Path) -> Result<Self, anyhow::Error> {
+        // List of config files to try, in priority order
+        let config_files = ["djls.toml", ".djls.toml", "pyproject.toml"];
+
+        for &file in &config_files {
+            let path = project_root.join(file);
+            if path.exists() {
+                return match file {
+                    "pyproject.toml" => {
+                        Self::load_from_toml(&path, &["tool", "djls", "template", "tags"])
+                    }
+                    _ => Self::load_from_toml(&path, &[]), // Root level for other files
+                };
+            }
+        }
+        Ok(Self::default())
+    }
+
+    /// Load builtin specs from the crate's tagspecs directory
+    pub fn load_builtin_specs() -> Result<Self, anyhow::Error> {
+        let specs_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tagspecs");
         let mut specs = HashMap::new();
 
-        for entry in fs::read_dir(specs_dir).expect("Failed to read specs directory") {
-            let entry = entry.expect("Failed to read directory entry");
+        for entry in fs::read_dir(&specs_dir)? {
+            let entry = entry?;
             let path = entry.path();
-
             if path.extension().and_then(|ext| ext.to_str()) == Some("toml") {
-                let content = fs::read_to_string(&path).expect("Failed to read spec file");
-
-                let value: Value = toml::from_str(&content).expect("Failed to parse TOML");
-
-                TagSpec::extract_specs(&value, None, &mut specs).expect("Failed to extract specs");
+                let file_specs = Self::load_from_toml(&path, &[])?;
+                specs.extend(file_specs.0);
             }
         }
 
-        TagSpecs(specs)
+        Ok(TagSpecs(specs))
+    }
+
+    /// Merge another TagSpecs into this one, with the other taking precedence
+    pub fn merge(&mut self, other: TagSpecs) -> &mut Self {
+        self.0.extend(other.0);
+        self
+    }
+
+    /// Load both builtin and user specs, with user specs taking precedence
+    pub fn load_all(project_root: &Path) -> Result<Self, anyhow::Error> {
+        let mut specs = Self::load_builtin_specs()?;
+        let user_specs = Self::load_user_specs(project_root)?;
+        Ok(specs.merge(user_specs).clone())
     }
 }
 
-impl Deref for TagSpecs {
-    type Target = HashMap<String, TagSpec>;
+impl TryFrom<&Path> for TagSpecs {
+    type Error = TagSpecError;
 
-    fn deref(&self) -> &Self::Target {
-        &self.0
+    fn try_from(path: &Path) -> Result<Self, Self::Error> {
+        Self::load_from_toml(path, &[]).map_err(Into::into)
     }
 }
 
-impl IntoIterator for TagSpecs {
-    type Item = (String, TagSpec);
-    type IntoIter = std::collections::hash_map::IntoIter<String, TagSpec>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.into_iter()
-    }
-}
-
-impl<'a> IntoIterator for &'a TagSpecs {
-    type Item = (&'a String, &'a TagSpec);
-    type IntoIter = std::collections::hash_map::Iter<'a, String, TagSpec>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.iter()
-    }
-}
-
-impl Index<&str> for TagSpecs {
-    type Output = TagSpec;
-
-    fn index(&self, index: &str) -> &Self::Output {
-        &self.0[index]
-    }
-}
-
-impl AsRef<HashMap<String, TagSpec>> for TagSpecs {
-    fn as_ref(&self) -> &HashMap<String, TagSpec> {
-        &self.0
-    }
-}
 #[derive(Debug, Clone, Deserialize)]
 pub struct TagSpec {
     #[serde(rename = "type")]
@@ -86,16 +118,11 @@ pub struct TagSpec {
 }
 
 impl TagSpec {
-    pub fn load_builtin_specs() -> Result<TagSpecs> {
-        let specs_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tagspecs");
-        Ok(TagSpecs::from(specs_dir.as_path()))
-    }
-
     fn extract_specs(
         value: &Value,
         prefix: Option<&str>,
         specs: &mut HashMap<String, TagSpec>,
-    ) -> Result<()> {
+    ) -> Result<(), String> {
         // Try to deserialize as a tag spec first
         match TagSpec::deserialize(value.clone()) {
             Ok(tag_spec) => {
@@ -159,63 +186,145 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_specs_are_valid() -> Result<()> {
-        let specs = TagSpec::load_builtin_specs()?;
+    fn test_specs_are_valid() -> Result<(), anyhow::Error> {
+        let specs = TagSpecs::load_builtin_specs()?;
 
         assert!(!specs.0.is_empty(), "Should have loaded at least one spec");
 
-        println!("Loaded {} tag specs:", specs.0.len());
         for (name, spec) in &specs.0 {
-            println!("  {} ({:?})", name, spec.tag_type);
+            assert!(!name.is_empty(), "Tag name should not be empty");
+            assert!(
+                spec.tag_type == TagType::Block || spec.tag_type == TagType::Variable,
+                "Tag type should be block or variable"
+            );
         }
+        Ok(())
+    }
+
+    #[test]
+    fn test_builtin_django_tags() -> Result<(), anyhow::Error> {
+        let specs = TagSpecs::load_builtin_specs()?;
+
+        // Test using get method
+        let if_tag = specs.get("if").expect("if tag should be present");
+        assert_eq!(if_tag.tag_type, TagType::Block);
+        assert_eq!(if_tag.closing.as_deref(), Some("endif"));
+        assert_eq!(if_tag.branches.as_ref().map(|b| b.len()), Some(2));
+        assert!(if_tag
+            .branches
+            .as_ref()
+            .unwrap()
+            .contains(&"elif".to_string()));
+        assert!(if_tag
+            .branches
+            .as_ref()
+            .unwrap()
+            .contains(&"else".to_string()));
+
+        let for_tag = specs.get("for").expect("for tag should be present");
+        assert_eq!(for_tag.tag_type, TagType::Block);
+        assert_eq!(for_tag.closing.as_deref(), Some("endfor"));
+        assert_eq!(for_tag.branches.as_ref().map(|b| b.len()), Some(1));
+        assert!(for_tag
+            .branches
+            .as_ref()
+            .unwrap()
+            .contains(&"empty".to_string()));
+
+        let block_tag = specs.get("block").expect("block tag should be present");
+        assert_eq!(block_tag.tag_type, TagType::Block);
+        assert_eq!(block_tag.closing.as_deref(), Some("endblock"));
 
         Ok(())
     }
 
     #[test]
-    fn test_builtin_django_tags() -> Result<()> {
-        let specs = TagSpec::load_builtin_specs()?;
+    fn test_user_defined_tags() -> Result<(), anyhow::Error> {
+        // Create a temporary directory for our test project
+        let dir = tempfile::tempdir()?;
+        let root = dir.path();
 
-        // Test using Index trait
-        let if_tag = &specs["if"];
+        // Create a pyproject.toml with custom tags
+        let pyproject_content = r#"
+[tool.djls.template.tags.mytag]
+type = "block"
+closing = "endmytag"
+branches = ["mybranch"]
+args = [{ name = "myarg", required = true }]
+"#;
+        fs::write(root.join("pyproject.toml"), pyproject_content)?;
+
+        // Load both builtin and user specs
+        let specs = TagSpecs::load_all(root)?;
+
+        // Check that builtin tags are still there
+        let if_tag = specs.get("if").expect("if tag should be present");
         assert_eq!(if_tag.tag_type, TagType::Block);
-        assert_eq!(if_tag.closing, Some("endif".to_string()));
 
-        let if_branches = if_tag
+        // Check our custom tag
+        let my_tag = specs.get("mytag").expect("mytag should be present");
+        assert_eq!(my_tag.tag_type, TagType::Block);
+        assert_eq!(my_tag.closing, Some("endmytag".to_string()));
+
+        let branches = my_tag
             .branches
             .as_ref()
-            .expect("if tag should have branches");
-        assert!(if_branches.iter().any(|b| b == "elif"));
-        assert!(if_branches.iter().any(|b| b == "else"));
+            .expect("mytag should have branches");
+        assert!(branches.iter().any(|b| b == "mybranch"));
 
-        // Test using get method
-        let for_tag = specs.get("for").expect("for tag should be present");
-        assert_eq!(for_tag.tag_type, TagType::Block);
-        assert_eq!(for_tag.closing, Some("endfor".to_string()));
+        let args = my_tag.args.as_ref().expect("mytag should have args");
+        let arg = &args[0];
+        assert_eq!(arg.name, "myarg");
+        assert!(arg.required);
 
-        let for_branches = for_tag
-            .branches
-            .as_ref()
-            .expect("for tag should have branches");
-        assert!(for_branches.iter().any(|b| b == "empty"));
+        // Clean up temp dir
+        dir.close()?;
+        Ok(())
+    }
 
-        // Test using HashMap method directly via Deref
-        let block_tag = specs.get("block").expect("block tag should be present");
-        assert_eq!(block_tag.tag_type, TagType::Block);
-        assert_eq!(block_tag.closing, Some("endblock".to_string()));
+    #[test]
+    fn test_config_file_priority() -> Result<(), anyhow::Error> {
+        // Create a temporary directory for our test project
+        let dir = tempfile::tempdir()?;
+        let root = dir.path();
 
-        // Test iteration
-        let mut count = 0;
-        for (name, spec) in &specs {
-            println!("Found tag: {} ({:?})", name, spec.tag_type);
-            count += 1;
-        }
-        assert!(count > 0, "Should have found some tags");
+        // Create all config files with different tags
+        let djls_content = r#"
+[mytag1]
+type = "block"
+closing = "endmytag1"
+"#;
+        fs::write(root.join("djls.toml"), djls_content)?;
 
-        // Test as_ref
-        let map_ref: &HashMap<_, _> = specs.as_ref();
-        assert_eq!(map_ref.len(), count);
+        let pyproject_content = r#"
+[tool.djls.template.tags]
+mytag2.type = "block"
+mytag2.closing = "endmytag2"
+"#;
+        fs::write(root.join("pyproject.toml"), pyproject_content)?;
 
+        // Load user specs
+        let specs = TagSpecs::load_user_specs(root)?;
+
+        // Should only have mytag1 since djls.toml has highest priority
+        assert!(specs.get("mytag1").is_some(), "mytag1 should be present");
+        assert!(
+            specs.get("mytag2").is_none(),
+            "mytag2 should not be present"
+        );
+
+        // Remove djls.toml and try again
+        fs::remove_file(root.join("djls.toml"))?;
+        let specs = TagSpecs::load_user_specs(root)?;
+
+        // Should now have mytag2 since pyproject.toml has second priority
+        assert!(
+            specs.get("mytag1").is_none(),
+            "mytag1 should not be present"
+        );
+        assert!(specs.get("mytag2").is_some(), "mytag2 should be present");
+
+        dir.close()?;
         Ok(())
     }
 }
