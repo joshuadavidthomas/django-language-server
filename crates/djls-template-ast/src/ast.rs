@@ -1,6 +1,8 @@
 use serde::Serialize;
 use thiserror::Error;
 
+use crate::tokens::{Token, TokenType};
+
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct Ast {
     nodes: Vec<Node>,
@@ -86,6 +88,22 @@ impl Span {
 
     pub fn length(&self) -> &u32 {
         &self.length
+    }
+}
+
+impl From<Token> for Span {
+    fn from(token: Token) -> Self {
+        let start = {
+            let token_start = token.start().unwrap_or(0);
+            match token.token_type() {
+                TokenType::Comment(_, start, _) => token_start + start.len() as u32,
+                TokenType::DjangoBlock(_) | TokenType::DjangoVariable(_) => token_start + 2,
+                _ => token_start,
+            }
+        };
+        let length = token.content().len() as u32;
+
+        Span::new(start, length)
     }
 }
 
