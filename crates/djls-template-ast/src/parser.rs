@@ -228,31 +228,27 @@ impl Parser {
         let token = self.peek_previous()?;
         let start = token.start().unwrap_or(0);
 
-        let mut bits = Vec::new();
+        let parts: Vec<&str> = content.split('|').collect();
+        let bits: Vec<String> = parts[0].split('.').map(|s| s.trim().to_string()).collect();
         let mut filters = Vec::new();
 
-        let parts: Vec<&str> = content.split('|').map(|s| s.trim()).collect();
-        if !parts.is_empty() {
-            bits = parts[0].split('.').map(|s| s.trim().to_string()).collect();
+        for filter_part in parts.iter().skip(1) {
+            let filter_parts: Vec<&str> = filter_part.split(':').collect();
+            let name = filter_parts[0].trim();
+            let args = if filter_parts.len() > 1 {
+                filter_parts[1]
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .collect()
+            } else {
+                Vec::new()
+            };
 
-            for filter_part in parts.iter().skip(1) {
-                let filter_parts: Vec<&str> = filter_part.split(':').collect();
-                let filter_name = filter_parts[0].trim();
-                let filter_args = if filter_parts.len() > 1 {
-                    filter_parts[1]
-                        .split(',')
-                        .map(|s| s.trim().to_string())
-                        .collect()
-                } else {
-                    Vec::new()
-                };
-
-                filters.push(DjangoFilter {
-                    name: filter_name.to_string(),
-                    args: filter_args,
-                    span: Span::new(start + 4, content.len() as u32),
-                });
-            }
+            filters.push(DjangoFilter {
+                name: name.to_string(),
+                args,
+                span: Span::new(start + 4, content.len() as u32),
+            });
         }
 
         Ok(Node::Variable {
