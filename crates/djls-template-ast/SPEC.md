@@ -35,17 +35,17 @@ Enumeration of all possible node types in the AST.
 ```rust
 pub enum Node {
     Text {
-        content: String, // The raw text content
-        span: Span,      // The position of the text in the template
+        content: String, 
+        span: Span,
     },
     Comment {
-        content: String, // The comment content
-        span: Span,      // The position of the comment in the template
+        content: String, 
+        span: Span,
     },
     Variable {
-        bits: Vec<String>,          // Components of the variable path
-        filters: Vec<DjangoFilter>, // Filters applied to the variable
-        span: Span,                 // The position of the variable in the template
+        bits: Vec<String>,
+        filters: Vec<DjangoFilter>,
+        span: Span,
     },
     Block(Block),
 }
@@ -113,8 +113,8 @@ pub enum Block {
     Block {
         tag: Tag,
         nodes: Vec<Node>,
-        closing: Option<Box<Block>>,   // Contains Block::Closing if present
-        assignments: Option<Vec<Assignment>>, // Assignments declared within the tag (e.g., `{% with var=value %}`)
+        closing: Option<Box<Block>>,
+        assignments: Option<Vec<Assignment>>,
     },
     Branch {
         tag: Tag,
@@ -270,15 +270,43 @@ Tag Specifications (TagSpecs) define how tags are parsed and understood. They al
 
 ```toml
 [package.module.path.tag_name]  # Path where tag is registered, e.g., django.template.defaulttags
-type = "block" | "tag" | "inclusion" | "variable"
+type = "block" | "inclusion" | "tag" | "variable"
 closing = "closing_tag_name"        # For block tags that require a closing tag
-supports_assignment = true | false  # Whether the tag supports 'as' assignment
 branches = ["branch_tag_name", ...] # For block tags that support branches
 
 [[package.module.path.tag_name.args]]
 name = "argument_name"
 required = true | false
 ```
+
+### Tag Types
+
+- `block`: Tags that wrap content and require a closing tag
+
+  ```django
+  {% if condition %}content{% endif %}
+  {% for item in items %}content{% endfor %}
+  ```
+
+- `inclusion`: Tags that include or extend templates.
+
+  ```django
+  {% extends "base.html" %}
+  {% include "partial.html" %}
+  ```
+
+- `tag`: Single tags that don't wrap content
+
+  ```django
+  {% csrf_token %}
+  ```
+
+- `variable`: Tags that output a value directly
+
+  ```django
+  {% cycle 'odd' 'even' %}
+  {% firstof var1 var2 var3 %}
+  ```
 
 ### Configuration
 
@@ -293,7 +321,6 @@ required = true | false
 [django.template.defaulttags.if]
 type = "block"
 closing = "endif"
-supports_assignment = false
 branches = ["elif", "else"]
 
 [[django.template.defaulttags.if.args]]
@@ -306,174 +333,19 @@ required = true
 ```toml
 [django.template.defaulttags.includes]
 type = "inclusion"
-supports_assignment = true
 
 [[django.template.defaulttags.includes.args]]
 name = "template_name"
 required = true
 ```
 
-#### Custom Tag Example
+#### Custom Tag
 
 ```toml
 [my_module.templatetags.my_tags.my_custom_tag]
 type = "tag"
-supports_assignment = true
 
 {[my_module.templatetags.my_tags.my_custom_tag.args]]
 name = "arg1"
 required = false
 ```
-
-### AST Examples
-
-#### Standard Block with Branches
-
-Template:
-
-```django
-{% if user.is_authenticated %}
-    Hello, {{ user.name }}!
-{% elif user.is_guest %}
-    Welcome, guest!
-{% else %}
-    Please log in.
-{% endif %}
-```
-
-AST Representation:
-
-```rust
-Node::Block(Block::Block {
-    tag: Tag {
-        name: "if".to_string(),
-        bits: vec!["user.is_authenticated".to_string()],
-        span: Span { start: 0, length: 35 },
-        tag_span: Span { start: 0, length: 28 },
-        assignment: None,
-    },
-    nodes: vec![
-        Node::Text {
-            content: "    Hello, ".to_string(),
-            span: Span { start: 35, length: 12 },
-        },
-        Node::Variable {
-            bits: vec!["user".to_string(), "name".to_string()],
-            filters: vec![],
-            span: Span { start: 47, length: 13 },
-        },
-        Node::Text {
-            content: "!\n".to_string(),
-            span: Span { start: 60, length: 2 },
-        },
-        Node::Block(Block::Branch {
-            tag: Tag {
-                name: "elif".to_string(),
-                bits: vec!["user.is_guest".to_string()],
-                span: Span { start: 62, length: 32 },
-                tag_span: Span { start: 62, length: 26 },
-                assignment: None,
-            },
-            nodes: vec![
-                Node::Text {
-                    content: "    Welcome, guest!\n".to_string(),
-                    span: Span { start: 94, length: 22 },
-                },
-            ],
-        }),
-        Node::Block(Block::Branch {
-            tag: Tag {
-                name: "else".to_string(),
-                bits: vec![],
-                span: Span { start: 116, length: 22 },
-                tag_span: Span { start: 116, length: 16 },
-                assignment: None,
-            },
-            nodes: vec![
-                Node::Text {
-                    content: "    Please log in.\n".to_string(),
-                    span: Span { start: 138, length: 21 },
-                },
-            ],
-        }),
-    ],
-    closing: Some(Box::new(Block::Closing {
-        tag: Tag {
-            name: "endif".to_string(),
-            bits: vec![],
-            span: Span { start: 159, length: 9 },
-            tag_span: Span { start: 159, length: 9 },
-            assignment: None,
-        },
-    })),
-    assignments: None,
-})
-```
-
-#### Inclusion Tag with Assignment
-
-Template:
-
-```django
-{% include "header.html" as header_content %}
-```
-
-AST Representation:
-
-```rust
-Node::Block(Block::Inclusion {
-    tag: Tag {
-        name: "include".to_string(),
-        bits: vec!["\"header.html\"".to_string()],
-        span: Span { start: 0, length: 45 },
-        tag_span: Span { start: 0, length: 45 },
-        assignment: Some("header_content".to_string()),
-    },
-    template_name: "header.html".to_string(),
-})
-```
-
-#### Variable Tag
-
-Template:
-
-```django
-{% cycle 'odd' 'even' %}
-```
-
-AST Representation:
-
-```rust
-Node::Block(Block::Variable {
-    tag: Tag {
-        name: "cycle".to_string(),
-        bits: vec!["'odd'".to_string(), "'even'".to_string()],
-        span: Span { start: 0, length: 24 },
-        tag_span: Span { start: 0, length: 24 },
-        assignment: None,
-    },
-})
-```
-
-## LSP Support
-
-The AST design supports integration with Language Server Protocol (LSP) features:
-
-- **Diagnostics**:
-    - Detect unclosed or mismatched tags.
-    - Identify invalid arguments or unknown tags/filters.
-    - Highlight syntax errors with precise location information.
-- **Code Navigation**:
-    - Go to definitions of variables, tags, and included templates.
-    - Find references and usages of variables and blocks.
-    - Provide an outline of the template structure.
-- **Code Completion**:
-    - Suggest tags, filters, and variables in context.
-    - Auto-complete tag names and attributes based on TagSpecs.
-- **Hover Information**:
-    - Display documentation and usage information for tags and filters.
-    - Show variable types and values in context.
-- **Refactoring Tools**:
-    - Support renaming of variables and blocks.
-    - Assist in extracting or inlining templates.
-    - Provide code actions for common refactoring tasks.
