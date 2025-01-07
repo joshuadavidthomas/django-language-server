@@ -64,6 +64,19 @@ impl TagSpecs {
         Ok(Self::default())
     }
 
+    /// Merge another TagSpecs into this one, with the other taking precedence
+    pub fn merge(&mut self, other: TagSpecs) -> &mut Self {
+        self.0.extend(other.0);
+        self
+    }
+
+    /// Load both builtin and user specs, with user specs taking precedence
+    pub fn load_all(project_root: &Path) -> Result<Self, anyhow::Error> {
+        let mut specs = Self::load_builtin_specs()?;
+        let user_specs = Self::load_user_specs(project_root)?;
+        Ok(specs.merge(user_specs).clone())
+    }
+
     /// Load builtin specs from the crate's tagspecs directory
     pub fn load_builtin_specs() -> Result<Self, anyhow::Error> {
         let specs_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tagspecs");
