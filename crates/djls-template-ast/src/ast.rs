@@ -1,7 +1,6 @@
+use crate::tokens::{Token, TokenType};
 use serde::Serialize;
 use thiserror::Error;
-
-use crate::tokens::{Token, TokenType};
 
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct Ast {
@@ -271,13 +270,15 @@ mod tests {
 
     mod spans_and_positions {
         use super::*;
+        use crate::tagspecs::TagSpecs;
 
         #[test]
         fn test_variable_spans() {
             let template = "Hello\n{{ user.name }}\nWorld";
             let tokens = Lexer::new(template).tokenize().unwrap();
             println!("Tokens: {:#?}", tokens); // Add debug print
-            let mut parser = Parser::new(tokens);
+            let tags = TagSpecs::load_builtin_specs().unwrap();
+            let mut parser = Parser::new(tokens, tags);
             let (ast, errors) = parser.parse().unwrap();
             assert!(errors.is_empty());
 
@@ -336,7 +337,8 @@ mod tests {
         fn test_multiline_template() {
             let template = "{% if user.active %}\n  Welcome!\n{% endif %}";
             let tokens = Lexer::new(template).tokenize().unwrap();
-            let mut parser = Parser::new(tokens);
+            let tags = TagSpecs::load_builtin_specs().unwrap();
+            let mut parser = Parser::new(tokens, tags);
             let (ast, errors) = parser.parse().unwrap();
             assert!(errors.is_empty());
 
