@@ -47,7 +47,7 @@ impl Parser {
 
         ast.set_line_offsets(line_offsets);
         let ast = ast.finalize();
-        let mut validator = Validator::new(&ast);
+        let mut validator = Validator::new(&ast, &self.tags);
         let errors = validator.validate();
         
         // Combine parser errors with validation errors
