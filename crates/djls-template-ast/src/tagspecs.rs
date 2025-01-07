@@ -193,16 +193,30 @@ mod tests {
     fn test_builtin_django_tags() -> Result<(), anyhow::Error> {
         let specs = TagSpecs::load_builtin_specs()?;
 
-        let expected_tags = ["if", "for", "block"];
+        let expected_tags = ["block", "for", "if"];
         let missing_tags = [
-            "extends",
-            "include",
-            "with",
             "autoescape",
             "comment",
+            "csrf_token",
+            "cycle",
+            "debug",
+            "extends",
             "filter",
+            "firstof",
+            "ifchanged",
+            "include",
+            "load",
+            "lorem",
+            "now",
+            "querystring", // 5.1
+            "regroup",
+            "resetcycle",
             "spaceless",
+            "templatetag",
+            "url",
             "verbatim",
+            "widthratio",
+            "with",
         ];
 
         for tag in expected_tags {
