@@ -1,13 +1,13 @@
+use crate::diagnostics::Diagnostics;
 use anyhow::{anyhow, Result};
 use djls_project::TemplateTags;
 use std::collections::HashMap;
 use tower_lsp::lsp_types::{
-    DidOpenTextDocumentParams, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
-    CompletionItem, CompletionItemKind, CompletionResponse, Documentation, InsertTextFormat,
+    CompletionItem, CompletionItemKind, CompletionResponse, DidChangeTextDocumentParams,
+    DidCloseTextDocumentParams, DidOpenTextDocumentParams, Documentation, InsertTextFormat,
     MarkupContent, MarkupKind, Position, Range, Url,
 };
 use tower_lsp::Client;
-use crate::diagnostics::Diagnostics;
 
 #[derive(Debug)]
 pub struct Store {
@@ -23,7 +23,11 @@ impl Store {
         }
     }
 
-    pub fn handle_did_open(&mut self, params: DidOpenTextDocumentParams, client: &Client) -> Result<()> {
+    pub fn handle_did_open(
+        &mut self,
+        params: DidOpenTextDocumentParams,
+        client: &Client,
+    ) -> Result<()> {
         let uri = params.text_document.uri.clone(); // Clone the URI here
         let document = TextDocument::new(
             uri.to_string(), // Use the cloned URI
@@ -48,7 +52,11 @@ impl Store {
         }
     }
 
-    pub fn handle_did_change(&mut self, params: DidChangeTextDocumentParams, client: &Client) -> Result<()> {
+    pub fn handle_did_change(
+        &mut self,
+        params: DidChangeTextDocumentParams,
+        client: &Client,
+    ) -> Result<()> {
         let uri = params.text_document.uri.as_str().to_string();
         let version = params.text_document.version;
 
