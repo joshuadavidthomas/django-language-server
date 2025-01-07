@@ -23,7 +23,7 @@ impl Store {
         }
     }
 
-    pub fn handle_did_open(&mut self, params: DidOpenTextDocumentParams) -> Result<()> {
+    pub fn handle_did_open(&mut self, params: DidOpenTextDocumentParams, client: &Client) -> Result<()> {
         let document = TextDocument::new(
             String::from(params.text_document.uri),
             params.text_document.text,
@@ -32,11 +32,22 @@ impl Store {
         );
 
         self.add_document(document);
-
+        self.publish_diagnostics(&params.text_document.uri, client);
         Ok(())
     }
 
-    pub fn handle_did_change(&mut self, params: DidChangeTextDocumentParams) -> Result<()> {
+    pub fn publish_diagnostics(&self, uri: &str, client: &Client) {
+        if let Some(document) = self.get_document(uri) {
+            let diagnostics = Diagnostics::generate_for_document(document);
+            client.publish_diagnostics(
+                Url::parse(uri).unwrap(),
+                diagnostics,
+                Some(document.version),
+            );
+        }
+    }
+
+    pub fn handle_did_change(&mut self, params: DidChangeTextDocumentParams, client: &Client) -> Result<()> {
         let uri = params.text_document.uri.as_str().to_string();
         let version = params.text_document.version;
 
@@ -54,7 +65,8 @@ impl Store {
         }
 
         document.version = version;
-        self.versions.insert(uri, version);
+        self.versions.insert(uri.clone(), version);
+        self.publish_diagnostics(&uri, client);
 
         Ok(())
     }
