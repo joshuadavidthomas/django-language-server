@@ -22,7 +22,6 @@ impl Parser {
         let mut ast = Ast::default();
         let mut line_offsets = LineOffsets::new();
 
-        // First pass: collect line offsets
         for token in self.tokens.tokens() {
             if let TokenType::Newline = token.token_type() {
                 if let Some(start) = token.start() {
@@ -32,10 +31,8 @@ impl Parser {
             }
         }
 
-        // Reset current position
         self.current = 0;
 
-        // Second pass: parse nodes
         while !self.is_at_end() {
             match self.next_node() {
                 Ok(node) => {
