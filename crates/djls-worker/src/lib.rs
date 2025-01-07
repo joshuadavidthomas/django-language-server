@@ -83,7 +83,7 @@ impl Worker {
     }
 
     /// Submits a task asynchronously, waiting if the channel is full.
-    /// 
+    ///
     /// Good for tasks that must be processed but where you don't need
     /// the result immediately.
     pub async fn submit<T>(&self, task: T) -> Result<()>
