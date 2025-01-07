@@ -24,15 +24,16 @@ impl Store {
     }
 
     pub fn handle_did_open(&mut self, params: DidOpenTextDocumentParams, client: &Client) -> Result<()> {
+        let uri = params.text_document.uri.clone(); // Clone the URI here
         let document = TextDocument::new(
-            String::from(params.text_document.uri),
+            uri.to_string(), // Use the cloned URI
             params.text_document.text,
             params.text_document.version,
             params.text_document.language_id,
         );
 
         self.add_document(document);
-        self.publish_diagnostics(params.text_document.uri.as_str(), client);
+        self.publish_diagnostics(uri.as_str(), client); // Use the cloned URI
         Ok(())
     }
 
