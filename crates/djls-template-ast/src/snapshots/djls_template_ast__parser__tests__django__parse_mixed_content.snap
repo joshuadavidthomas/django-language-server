@@ -9,7 +9,7 @@ nodes:
         start: 0
         length: 8
   - Block:
-      Block:
+      Container:
         tag:
           name: if
           bits:
@@ -43,7 +43,7 @@ nodes:
                 start: 47
                 length: 31
           - Block:
-              Block:
+              Container:
                 tag:
                   name: for
                   bits:
@@ -60,7 +60,7 @@ nodes:
                   assignment: ~
                 nodes:
                   - Block:
-                      Block:
+                      Container:
                         tag:
                           name: if
                           bits:
@@ -101,7 +101,7 @@ nodes:
                         start: 171
                         length: 10
                   - Block:
-                      Block:
+                      Container:
                         tag:
                           name: if
                           bits:
@@ -135,7 +135,7 @@ nodes:
                                 length: 5
                               assignment: ~
                   - Block:
-                      Block:
+                      Container:
                         tag:
                           name: if
                           bits:

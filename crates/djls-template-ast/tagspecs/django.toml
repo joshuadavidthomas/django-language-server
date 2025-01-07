@@ -1,14 +1,14 @@
 [django.template.defaulttags.autoescape]
 args = [{ name = "setting", required = true, allowed_values = ["on", "off"] }]
 closing = "endautoescape"
-type = "block"
+type = "container"
 
 [django.template.defaulttags.block]
 closing = "endblock"
-type = "block"
+type = "container"
 
 [django.template.defaulttags.comment]
-type = "block"
+type = "container"
 closing = "endcomment"
 
 
@@ -34,10 +34,10 @@ args = [
 ]
 branches = ["empty"]
 closing = "endfor"
-type = "block"
+type = "container"
 
 [django.template.defaulttags.filter]
-type = "block"
+type = "container"
 closing = "endfilter"
 args = [{ name = "filter_expr", required = true }]
 
@@ -49,7 +49,7 @@ args = [{ name = "variables", required = true }]
 args = [{ name = "condition", required = true }]
 branches = ["elif", "else"]
 closing = "endif"
-type = "block"
+type = "container"
 
 [django.template.defaulttags.include]
 type = "inclusion"
@@ -68,7 +68,7 @@ type = "single"
 args = [{ name = "format_string", required = true }]
 
 [django.template.defaulttags.spaceless]
-type = "block"
+type = "container"
 closing = "endspaceless"
 
 [django.template.defaulttags.templatetag]
@@ -96,10 +96,10 @@ args = [
 ]
 
 [django.template.defaulttags.verbatim]
-type = "block"
+type = "container"
 closing = "endverbatim"
 
 [django.template.defaulttags.with]
-type = "block"
+type = "container"
 closing = "endwith"
 args = [{ name = "extra_context", required = true }]
