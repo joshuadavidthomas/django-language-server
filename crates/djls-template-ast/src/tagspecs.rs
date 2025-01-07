@@ -193,7 +193,6 @@ mod tests {
     fn test_builtin_django_tags() -> Result<(), anyhow::Error> {
         let specs = TagSpecs::load_builtin_specs()?;
 
-        // Just verify that common Django tags exist
         let expected_tags = ["if", "for", "block"];
         let missing_tags = [
             "extends",
@@ -211,7 +210,11 @@ mod tests {
         }
 
         for tag in missing_tags {
-            assert!(specs.get(tag).is_none(), "{} tag should not be present yet", tag);
+            assert!(
+                specs.get(tag).is_none(),
+                "{} tag should not be present yet",
+                tag
+            );
         }
 
         Ok(())
@@ -219,11 +222,9 @@ mod tests {
 
     #[test]
     fn test_user_defined_tags() -> Result<(), anyhow::Error> {
-        // Create a temporary directory for our test project
         let dir = tempfile::tempdir()?;
         let root = dir.path();
 
-        // Create a pyproject.toml with custom tags
         let pyproject_content = r#"
 [tool.djls.template.tags.mytag]
 type = "block"
@@ -233,14 +234,11 @@ args = [{ name = "myarg", required = true }]
 "#;
         fs::write(root.join("pyproject.toml"), pyproject_content)?;
 
-        // Load both builtin and user specs
         let specs = TagSpecs::load_all(root)?;
 
-        // Check that builtin tags are still there
         let if_tag = specs.get("if").expect("if tag should be present");
         assert_eq!(if_tag.tag_type, TagType::Block);
 
-        // Check our custom tag
         let my_tag = specs.get("mytag").expect("mytag should be present");
         assert_eq!(my_tag.tag_type, TagType::Block);
         assert_eq!(my_tag.closing, Some("endmytag".to_string()));
@@ -256,18 +254,15 @@ args = [{ name = "myarg", required = true }]
         assert_eq!(arg.name, "myarg");
         assert!(arg.required);
 
-        // Clean up temp dir
         dir.close()?;
         Ok(())
     }
 
     #[test]
     fn test_config_file_priority() -> Result<(), anyhow::Error> {
-        // Create a temporary directory for our test project
         let dir = tempfile::tempdir()?;
         let root = dir.path();
 
-        // Create all config files with different tags
         let djls_content = r#"
 [mytag1]
 type = "block"
@@ -282,21 +277,17 @@ mytag2.closing = "endmytag2"
 "#;
         fs::write(root.join("pyproject.toml"), pyproject_content)?;
 
-        // Load user specs
         let specs = TagSpecs::load_user_specs(root)?;
 
-        // Should only have mytag1 since djls.toml has highest priority
         assert!(specs.get("mytag1").is_some(), "mytag1 should be present");
         assert!(
             specs.get("mytag2").is_none(),
             "mytag2 should not be present"
         );
 
-        // Remove djls.toml and try again
         fs::remove_file(root.join("djls.toml"))?;
         let specs = TagSpecs::load_user_specs(root)?;
 
-        // Should now have mytag2 since pyproject.toml has second priority
         assert!(
             specs.get("mytag1").is_none(),
             "mytag1 should not be present"
