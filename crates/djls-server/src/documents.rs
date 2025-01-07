@@ -41,15 +41,16 @@ impl Store {
         Ok(())
     }
 
-    pub fn publish_diagnostics(&self, uri: &str, client: &Client) {
+    pub async fn publish_diagnostics(&self, uri: &str, client: &Client) -> Result<()> {
         if let Some(document) = self.get_document(uri) {
             let diagnostics = Diagnostics::generate_for_document(document);
             client.publish_diagnostics(
                 Url::parse(uri).unwrap(),
                 diagnostics,
                 Some(document.version),
-            );
+            ).await;
         }
+        Ok(())
     }
 
     pub fn handle_did_change(
