@@ -3,17 +3,17 @@ closing = "endblock"
 type = "block"
 
 [django.template.defaulttags.for]
-branches = ["empty"]
-closing = "endfor"
-type = "block"
 args = [
   { name = "{item}", required = true },
   { name = "in", required = true },
   { name = "{iterable}", required = true },
 ]
+branches = ["empty"]
+closing = "endfor"
+type = "block"
 
 [django.template.defaulttags.if]
+args = [{ name = "condition", required = true }]
 branches = ["elif", "else"]
 closing = "endif"
 type = "block"
-args = [{ name = "condition", required = true }]
