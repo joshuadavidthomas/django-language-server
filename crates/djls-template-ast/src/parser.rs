@@ -46,7 +46,15 @@ impl Parser {
         }
 
         ast.set_line_offsets(line_offsets);
-        Ok((ast, std::mem::take(&mut self.errors)))
+        let ast = ast.finalize();
+        let mut validator = Validator::new(&ast);
+        let errors = validator.validate();
+        
+        // Combine parser errors with validation errors
+        let mut all_errors = std::mem::take(&mut self.errors);
+        all_errors.extend(errors.into_iter().map(ParserError::Ast));
+        
+        Ok((ast, all_errors))
     }
 
     fn next_node(&mut self) -> Result<Node, ParserError> {

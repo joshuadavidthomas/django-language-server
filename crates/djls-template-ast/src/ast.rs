@@ -1,4 +1,5 @@
 use crate::tokens::{Token, TokenType};
+pub mod validator;
 use serde::Serialize;
 use thiserror::Error;
 
@@ -25,54 +26,8 @@ impl Ast {
         self.line_offsets = line_offsets
     }
 
-    pub fn finalize(&mut self) -> Result<Ast, AstError> {
-        self.validate()?;
-        Ok(self.clone())
-    }
-
-    pub fn validate(&self) -> Result<(), AstError> {
-        if self.nodes.is_empty() {
-            return Err(AstError::EmptyAst);
-        }
-
-        for node in &self.nodes {
-            if let Node::Block(block) = node {
-                self.validate_block(block)?;
-            }
-        }
-        Ok(())
-    }
-
-    fn validate_block(&self, block: &Block) -> Result<(), AstError> {
-        match block {
-            Block::Container { tag, nodes: _, closing } => {
-                if tag.name == "if" && closing.is_none() {
-                    return Err(AstError::UnbalancedStructure {
-                        opening_tag: tag.name.clone(),
-                        expected_closing: "endif".to_string(),
-                        opening_span: tag.span,
-                        closing_span: None,
-                    });
-                }
-                // TODO: Add more validations for other block types
-            }
-            Block::Branch { tag, nodes: _ } => {
-                if tag.name == "elif" && !self.has_parent_if(tag) {
-                    return Err(AstError::InvalidTagStructure {
-                        tag: tag.name.clone(),
-                        reason: "elif without preceding if".to_string(),
-                        span: tag.span,
-                    });
-                }
-            }
-            _ => {}
-        }
-        Ok(())
-    }
-
-    fn has_parent_if(&self, tag: &Tag) -> bool {
-        // TODO: Implement parent tracking to validate elif/else structure
-        false
+    pub fn finalize(&mut self) -> Ast {
+        self.clone()
     }
 }
 
