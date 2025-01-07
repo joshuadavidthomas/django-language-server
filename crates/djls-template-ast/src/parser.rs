@@ -120,7 +120,7 @@ impl Parser {
 
         match spec {
             Some(spec) => match spec.tag_type {
-                TagType::Block => self.parse_block_tag(tag, spec),
+                TagType::Container => self.parse_block_tag(tag, spec),
                 TagType::Single => Ok(Node::Block(Block::Single { tag })),
                 TagType::Inclusion => {
                     let template_name = tag.bits.get(1).cloned().unwrap_or_default();
@@ -161,7 +161,7 @@ impl Parser {
                 .push(ParserError::Ast(AstError::UnclosedTag(tag.name.clone())));
         }
 
-        Ok(Node::Block(Block::Block {
+        Ok(Node::Block(Block::Container {
             tag,
             nodes,
             closing,

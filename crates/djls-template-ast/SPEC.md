@@ -110,17 +110,17 @@ Represents Django template tags that may have nested content, assignments, and c
 
 ```rust
 pub enum Block {
-    Block {
-        tag: Tag,
-        nodes: Vec<Node>,
-        closing: Option<Box<Block>>,
-    },
     Branch {
         tag: Tag,
         nodes: Vec<Node>,
     },
     Closing {
         tag: Tag,
+    },
+    Container {
+        tag: Tag,
+        nodes: Vec<Node>,
+        closing: Option<Box<Block>>,
     },
     Inclusion {
         tag: Tag,
@@ -159,24 +159,6 @@ pub struct Assignment {
 
 #### Variants
 
-##### `Block::Block`
-
-Represents standard block tags that may contain child nodes and require a closing tag.
-
-```rust
-Block::Block {
-    tag: Tag,                             // The opening Tag of the block
-    nodes: Vec<Node>,                     // Nodes contained within the block
-    closing: Option<Box<Block>>,          // Contains Block::Closing if present
-}
-```
-
-Examples:
-
-- `{% if %}...{% endif %}`
-- `{% for %}...{% endfor %}`
-- `{% with %}...{% endwith %}`
-
 ##### `Block::Branch`
 
 Represents branch tags that are part of control flow structures and contain child nodes.
@@ -209,6 +191,24 @@ Examples:
 - `{% endif %}`
 - `{% endfor %}`
 - `{% endwith %}`
+
+##### `Block::Container`
+
+Represents standard block tags that may contain child nodes and require a closing tag.
+
+```rust
+Block::Block {
+    tag: Tag,                             // The opening Tag of the block
+    nodes: Vec<Node>,                     // Nodes contained within the block
+    closing: Option<Box<Block>>,          // Contains Block::Closing if present
+}
+```
+
+Examples:
+
+- `{% if %}...{% endif %}`
+- `{% for %}...{% endfor %}`
+- `{% with %}...{% endwith %}`
 
 ##### `Block::Inclusion`
 
@@ -250,7 +250,7 @@ Tag Specifications (TagSpecs) define how tags are parsed and understood. They al
 
 ```toml
 [package.module.path.tag_name]  # Path where tag is registered, e.g., django.template.defaulttags
-type = "block" | "inclusion" | "single"
+type = "container" | "inclusion" | "single"
 closing = "closing_tag_name"        # For block tags that require a closing tag
 branches = ["branch_tag_name", ...] # For block tags that support branches
 
@@ -267,7 +267,7 @@ The `name` field in args should match the internal name used in Django's node im
 
 ### Tag Types
 
-- `block`: Tags that wrap content and require a closing tag
+- `container`: Tags that wrap content and require a closing tag
 
   ```django
   {% if condition %}content{% endif %}
@@ -298,7 +298,7 @@ The `name` field in args should match the internal name used in Django's node im
 
 ```toml
 [django.template.defaulttags.if]
-type = "block"
+type = "container"
 closing = "endif"
 branches = ["elif", "else"]
 args = [{ name = "condition", required = true }]
@@ -316,7 +316,7 @@ args = [{ name = "template_name", required = true }]
 
 ```toml
 [django.template.defaulttags.autoescape]
-type = "block"
+type = "container"
 closing = "endautoescape"
 args = [{ name = "setting", required = true, allowed_values = ["on", "off"] }]
 ```

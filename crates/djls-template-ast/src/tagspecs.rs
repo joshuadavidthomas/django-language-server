@@ -137,9 +137,9 @@ impl TagSpec {
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum TagType {
-    Block,
-    Single,
+    Container,
     Inclusion,
+    Single,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -238,7 +238,7 @@ mod tests {
 
         let pyproject_content = r#"
 [tool.djls.template.tags.mytag]
-type = "block"
+type = "container"
 closing = "endmytag"
 branches = ["mybranch"]
 args = [{ name = "myarg", required = true }]
@@ -248,10 +248,10 @@ args = [{ name = "myarg", required = true }]
         let specs = TagSpecs::load_all(root)?;
 
         let if_tag = specs.get("if").expect("if tag should be present");
-        assert_eq!(if_tag.tag_type, TagType::Block);
+        assert_eq!(if_tag.tag_type, TagType::Container);
 
         let my_tag = specs.get("mytag").expect("mytag should be present");
-        assert_eq!(my_tag.tag_type, TagType::Block);
+        assert_eq!(my_tag.tag_type, TagType::Container);
         assert_eq!(my_tag.closing, Some("endmytag".to_string()));
 
         let branches = my_tag
@@ -276,14 +276,14 @@ args = [{ name = "myarg", required = true }]
 
         let djls_content = r#"
 [mytag1]
-type = "block"
+type = "container"
 closing = "endmytag1"
 "#;
         fs::write(root.join("djls.toml"), djls_content)?;
 
         let pyproject_content = r#"
 [tool.djls.template.tags]
-mytag2.type = "block"
+mytag2.type = "container"
 mytag2.closing = "endmytag2"
 "#;
         fs::write(root.join("pyproject.toml"), pyproject_content)?;

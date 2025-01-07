@@ -145,17 +145,17 @@ impl Node {
 
 #[derive(Debug, Clone, Serialize)]
 pub enum Block {
-    Block {
-        tag: Tag,
-        nodes: Vec<Node>,
-        closing: Option<Box<Block>>,
-    },
     Branch {
         tag: Tag,
         nodes: Vec<Node>,
     },
     Closing {
         tag: Tag,
+    },
+    Container {
+        tag: Tag,
+        nodes: Vec<Node>,
+        closing: Option<Box<Block>>,
     },
     Inclusion {
         tag: Tag,
@@ -169,7 +169,7 @@ pub enum Block {
 impl Block {
     pub fn tag(&self) -> &Tag {
         match self {
-            Self::Block { tag, .. }
+            Self::Container { tag, .. }
             | Self::Branch { tag, .. }
             | Self::Single { tag }
             | Self::Inclusion { tag, .. }
@@ -179,7 +179,7 @@ impl Block {
 
     pub fn nodes(&self) -> Option<&Vec<Node>> {
         match self {
-            Block::Block { nodes, .. } => Some(nodes),
+            Block::Container { nodes, .. } => Some(nodes),
             Block::Branch { nodes, .. } => Some(nodes),
             _ => None,
         }
@@ -187,7 +187,7 @@ impl Block {
 
     pub fn closing(&self) -> Option<&Block> {
         match self {
-            Block::Block { closing, .. } => closing.as_deref(),
+            Block::Container { closing, .. } => closing.as_deref(),
             _ => None,
         }
     }
@@ -306,7 +306,7 @@ mod tests {
 
         #[test]
         fn test_block_spans() {
-            let nodes = vec![Node::Block(Block::Block {
+            let nodes = vec![Node::Block(Block::Container {
                 tag: Tag {
                     name: "if".to_string(),
                     bits: vec!["user.is_authenticated".to_string()],
@@ -341,7 +341,7 @@ mod tests {
             assert!(errors.is_empty());
 
             let nodes = ast.nodes();
-            if let Node::Block(Block::Block {
+            if let Node::Block(Block::Container {
                 tag,
                 nodes,
                 closing,
