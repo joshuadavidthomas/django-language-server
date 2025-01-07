@@ -34,11 +34,12 @@ Enumeration of all possible node types in the AST.
 
 ```rust
 pub enum Node {
-    Text {
+    Block(Block),
+    Comment {
         content: String,
         span: Span,
     },
-    Comment {
+    Text {
         content: String,
         span: Span,
     },
@@ -47,52 +48,6 @@ pub enum Node {
         filters: Vec<DjangoFilter>,
         span: Span,
     },
-    Block(Block),
-}
-```
-
-#### `Node::Text`
-
-Represents raw text and HTML content outside of Django template tags.
-
-```rust
-Node::Text {
-    content: String, // The raw text content
-    span: Span,      // The position of the text in the template
-}
-```
-
-#### `Node::Comment`
-
-Represents Django template comments (`{# ... #}`).
-
-```rust
-Node::Comment {
-    content: String, // The comment content
-    span: Span,      // The position of the comment in the template
-}
-```
-
-#### `Node::Variable`
-
-Represents variable interpolation (`{{ variable|filter }}`).
-
-```rust
-Node::Variable {
-    bits: Vec<String>,          // Components of the variable path
-    filters: Vec<DjangoFilter>, // Filters applied to the variable
-    span: Span,                 // The position of the variable in the template
-}
-```
-
-##### `DjangoFilter`
-
-Represents a filter applied to a variable.
-
-```rust
-pub struct DjangoFilter {
-    pub name: String,      // Name of the filter
-    pub args: Vec<String>, // Arguments passed to the filter
 }
 ```
 
@@ -241,6 +196,51 @@ Examples:
 - `{% csrf_token %}`
 - `{% load %}`
 - `{% now "Y-m-d" %}`
+
+#### `Node::Comment`
+
+Represents Django template comments (`{# ... #}`).
+
+```rust
+Node::Comment {
+    content: String, // The comment content
+    span: Span,      // The position of the comment in the template
+}
+```
+
+#### `Node::Text`
+
+Represents raw text and HTML content outside of Django template tags.
+
+```rust
+Node::Text {
+    content: String, // The raw text content
+    span: Span,      // The position of the text in the template
+}
+```
+
+#### `Node::Variable`
+
+Represents variable interpolation (`{{ variable|filter }}`).
+
+```rust
+Node::Variable {
+    bits: Vec<String>,          // Components of the variable path
+    filters: Vec<DjangoFilter>, // Filters applied to the variable
+    span: Span,                 // The position of the variable in the template
+}
+```
+
+##### `DjangoFilter`
+
+Represents a filter applied to a variable.
+
+```rust
+pub struct DjangoFilter {
+    pub name: String,      // Name of the filter
+    pub args: Vec<String>, // Arguments passed to the filter
+}
+```
 
 ## TagSpecs
 
