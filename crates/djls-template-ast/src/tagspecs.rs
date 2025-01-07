@@ -152,19 +152,7 @@ pub struct ArgSpec {
     pub is_kwarg: bool,
 }
 
-impl ArgSpec {
-    pub fn is_placeholder(arg: &str) -> bool {
-        arg.starts_with('{') && arg.ends_with('}')
-    }
-
-    pub fn get_placeholder_name(arg: &str) -> Option<&str> {
-        if Self::is_placeholder(arg) {
-            Some(&arg[1..arg.len() - 1])
-        } else {
-            None
-        }
-    }
-}
+impl ArgSpec {}
 
 #[cfg(test)]
 mod tests {

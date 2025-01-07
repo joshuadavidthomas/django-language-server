@@ -262,17 +262,8 @@ pub enum LexerError {
     #[error("source is empty")]
     EmptySource,
 
-    #[error("at beginning of source")]
-    AtBeginningOfSource,
-
     #[error("at end of source")]
     AtEndOfSource,
-
-    #[error("invalid character access")]
-    InvalidCharacterAccess,
-
-    #[error("unexpected token type '{0:?}'")]
-    UnexpectedTokenType(TokenType),
 }
 
 #[cfg(test)]

@@ -2,11 +2,12 @@ use anyhow::{anyhow, Result};
 use djls_project::TemplateTags;
 use std::collections::HashMap;
 use tower_lsp::lsp_types::{
+    DidOpenTextDocumentParams, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
     CompletionItem, CompletionItemKind, CompletionResponse, Documentation, InsertTextFormat,
     MarkupContent, MarkupKind, Position, Range, Url,
 };
 use tower_lsp::Client;
-use super::diagnostics::Diagnostics;
+use crate::diagnostics::Diagnostics;
 
 #[derive(Debug)]
 pub struct Store {
