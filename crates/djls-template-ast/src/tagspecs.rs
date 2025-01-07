@@ -93,19 +93,6 @@ impl TagSpecs {
 
         Ok(TagSpecs(specs))
     }
-
-    /// Merge another TagSpecs into this one, with the other taking precedence
-    pub fn merge(&mut self, other: TagSpecs) -> &mut Self {
-        self.0.extend(other.0);
-        self
-    }
-
-    /// Load both builtin and user specs, with user specs taking precedence
-    pub fn load_all(project_root: &Path) -> Result<Self, anyhow::Error> {
-        let mut specs = Self::load_builtin_specs()?;
-        let user_specs = Self::load_user_specs(project_root)?;
-        Ok(specs.merge(user_specs).clone())
-    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
