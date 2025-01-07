@@ -69,36 +69,45 @@ impl LanguageServer for DjangoLanguageServer {
             }
         }
 
-        Ok(InitializeResult {
-            capabilities: ServerCapabilities {
-                text_document_sync: Some(TextDocumentSyncCapability::Options(
-                    TextDocumentSyncOptions {
-                        open_close: Some(true),
-                        change: Some(TextDocumentSyncKind::INCREMENTAL),
-                        will_save: Some(false),
-                        will_save_wait_until: Some(false),
-                        save: Some(SaveOptions::default().into()),
-                    },
-                )),
-                completion_provider: Some(CompletionOptions {
-                    resolve_provider: Some(false),
-                    trigger_characters: Some(vec![
-                        "{".to_string(),
-                        "%".to_string(),
-                        " ".to_string(),
-                    ]),
-                    ..Default::default()
-                }),
-                diagnostic_provider: Some(DiagnosticServerCapabilities::Options(DiagnosticOptions {
-                    identifier: Some("django".to_string()),
-                    inter_file_dependencies: false,
-                    workspace_diagnostics: false,
-                    work_done_progress_options: WorkDoneProgressOptions {
-                        work_done_progress: Some(true),
-                    },
-                })),
+        let capabilities = ServerCapabilities {
+            text_document_sync: Some(TextDocumentSyncCapability::Options(
+                TextDocumentSyncOptions {
+                    open_close: Some(true),
+                    change: Some(TextDocumentSyncKind::INCREMENTAL),
+                    will_save: Some(false),
+                    will_save_wait_until: Some(false),
+                    save: Some(SaveOptions::default().into()),
+                },
+            )),
+            completion_provider: Some(CompletionOptions {
+                resolve_provider: Some(false),
+                trigger_characters: Some(vec![
+                    "{".to_string(),
+                    "%".to_string(),
+                    " ".to_string(),
+                ]),
                 ..Default::default()
-            },
+            }),
+            diagnostic_provider: Some(DiagnosticServerCapabilities::Options(DiagnosticOptions {
+                identifier: Some("django".to_string()),
+                inter_file_dependencies: false,
+                workspace_diagnostics: false,
+                work_done_progress_options: WorkDoneProgressOptions {
+                    work_done_progress: Some(true),
+                },
+            })),
+            ..Default::default()
+        };
+
+        self.log_message(
+            MessageType::INFO,
+            &format!("Advertising capabilities: {:?}", capabilities),
+        )
+        .await
+        .ok();
+
+        Ok(InitializeResult {
+            capabilities,
             server_info: Some(ServerInfo {
                 name: SERVER_NAME.to_string(),
                 version: Some(SERVER_VERSION.to_string()),
