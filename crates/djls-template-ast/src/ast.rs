@@ -162,9 +162,6 @@ pub enum Block {
         tag: Tag,
         template_name: String,
     },
-    Variable {
-        tag: Tag,
-    },
     Closing {
         tag: Tag,
     },
@@ -177,7 +174,6 @@ impl Block {
             | Self::Branch { tag, .. }
             | Self::Tag { tag }
             | Self::Inclusion { tag, .. }
-            | Self::Variable { tag }
             | Self::Closing { tag } => tag,
         }
     }

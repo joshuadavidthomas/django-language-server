@@ -110,7 +110,6 @@ impl Parser {
             Some(spec) => match spec.tag_type {
                 TagType::Block => self.parse_block_tag(tag, spec),
                 TagType::Tag => Ok(Node::Block(Block::Tag { tag })),
-                TagType::Variable => Ok(Node::Block(Block::Variable { tag })),
                 TagType::Inclusion => {
                     let template_name = tag.bits.get(1).cloned().unwrap_or_default();
                     Ok(Node::Block(Block::Inclusion { tag, template_name }))

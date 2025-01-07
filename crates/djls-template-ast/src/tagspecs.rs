@@ -117,11 +117,6 @@ impl TagSpec {
                 let name = prefix.map_or_else(String::new, |p| {
                     p.split('.').last().unwrap_or(p).to_string()
                 });
-                eprintln!(
-                    "Found tag spec at '{}', using name '{}'",
-                    prefix.unwrap_or(""),
-                    name
-                );
                 specs.insert(name, tag_spec);
             }
             Err(_) => {
@@ -131,7 +126,6 @@ impl TagSpec {
                         None => key.clone(),
                         Some(p) => format!("{}.{}", p, key),
                     };
-                    eprintln!("Recursing into prefix: {}", new_prefix);
                     Self::extract_specs(value, Some(&new_prefix), specs)?;
                 }
             }
@@ -146,13 +140,16 @@ pub enum TagType {
     Block,
     Tag,
     Inclusion,
-    Variable,
 }
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct ArgSpec {
     pub name: String,
     pub required: bool,
+    #[serde(default)]
+    pub allowed_values: Option<Vec<String>>,
+    #[serde(default)]
+    pub is_kwarg: bool,
 }
 
 impl ArgSpec {
@@ -179,12 +176,8 @@ mod tests {
 
         assert!(!specs.0.is_empty(), "Should have loaded at least one spec");
 
-        for (name, spec) in &specs.0 {
+        for name in specs.0.keys() {
             assert!(!name.is_empty(), "Tag name should not be empty");
-            assert!(
-                spec.tag_type == TagType::Block || spec.tag_type == TagType::Variable,
-                "Tag type should be block or variable"
-            );
         }
         Ok(())
     }
@@ -193,30 +186,34 @@ mod tests {
     fn test_builtin_django_tags() -> Result<(), anyhow::Error> {
         let specs = TagSpecs::load_builtin_specs()?;
 
-        let expected_tags = ["block", "for", "if"];
-        let missing_tags = [
+        let expected_tags = [
             "autoescape",
+            "block",
             "comment",
-            "csrf_token",
             "cycle",
             "debug",
             "extends",
             "filter",
+            "for",
             "firstof",
-            "ifchanged",
+            "if",
             "include",
             "load",
-            "lorem",
             "now",
-            "querystring", // 5.1
-            "regroup",
-            "resetcycle",
             "spaceless",
             "templatetag",
             "url",
             "verbatim",
-            "widthratio",
             "with",
+        ];
+        let missing_tags = [
+            "csrf_token",
+            "ifchanged",
+            "lorem",
+            "querystring", // 5.1
+            "regroup",
+            "resetcycle",
+            "widthratio",
         ];
 
         for tag in expected_tags {
