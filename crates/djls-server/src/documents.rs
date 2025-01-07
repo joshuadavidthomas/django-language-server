@@ -73,22 +73,13 @@ impl Store {
                 )
                 .await;
             
-            if let Err(e) = client
+            client
                 .publish_diagnostics(
                     Url::parse(uri).unwrap(),
                     diagnostics,
                     Some(document.version),
                 )
-                .await
-            {
-                client
-                    .log_message(
-                        MessageType::ERROR,
-                        &format!("Failed to publish diagnostics: {}", e)
-                    )
-                    .await;
-                return Err(anyhow!("Failed to publish diagnostics: {}", e));
-            }
+                .await?;
         } else {
             client
                 .log_message(
