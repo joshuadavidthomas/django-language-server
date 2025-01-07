@@ -153,7 +153,6 @@ impl Parser {
             tag,
             nodes,
             closing,
-            assignments: None,
         }))
     }
 

@@ -92,7 +92,6 @@ nodes:
                                 start: 151
                                 length: 5
                               assignment: ~
-                        assignments: ~
                   - Variable:
                       bits:
                         - group
@@ -135,7 +134,6 @@ nodes:
                                 start: 223
                                 length: 5
                               assignment: ~
-                        assignments: ~
                   - Block:
                       Block:
                         tag:
@@ -169,7 +167,6 @@ nodes:
                                 start: 265
                                 length: 5
                               assignment: ~
-                        assignments: ~
                   - Block:
                       Branch:
                         tag:
@@ -202,7 +199,6 @@ nodes:
                         start: 317
                         length: 6
                       assignment: ~
-                assignments: ~
           - Block:
               Branch:
                 tag:
@@ -235,7 +231,6 @@ nodes:
                 start: 351
                 length: 5
               assignment: ~
-        assignments: ~
   - Text:
       content: "!"
       span:

@@ -79,6 +79,5 @@ nodes:
                 start: 63
                 length: 5
               assignment: ~
-        assignments: ~
 line_offsets:
   - 0
