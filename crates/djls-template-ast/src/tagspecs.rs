@@ -174,7 +174,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_specs_are_valid() -> Result<(), anyhow::Error> {
+    fn test_can_load_builtins() -> Result<(), anyhow::Error> {
         let specs = TagSpecs::load_builtin_specs()?;
 
         assert!(!specs.0.is_empty(), "Should have loaded at least one spec");
