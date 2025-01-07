@@ -5,7 +5,7 @@ use djls_worker::Worker;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tower_lsp::jsonrpc::Result as LspResult;
-use tower_lsp::lsp_types::*;
+use tower_lsp::lsp_types::{*, PublishDiagnosticsParams};
 use tower_lsp::{Client, LanguageServer};
 
 const SERVER_NAME: &str = "Django Language Server";
@@ -203,6 +203,15 @@ impl LanguageServer for DjangoLanguageServer {
         self.log_message(
             MessageType::INFO,
             &format!("Closed document: {}", params.text_document.uri),
+        )
+        .await
+        .ok();
+    }
+
+    async fn publish_diagnostics(&self, params: PublishDiagnosticsParams) {
+        self.log_message(
+            MessageType::INFO,
+            &format!("Received diagnostics for: {}", params.uri),
         )
         .await
         .ok();

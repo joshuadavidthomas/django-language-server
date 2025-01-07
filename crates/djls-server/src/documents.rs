@@ -114,7 +114,11 @@ impl Store {
 
         document.version = version;
         self.versions.insert(uri.clone(), version);
-        self.publish_diagnostics(&uri, client).await?;
+        
+        // Only publish diagnostics if the document is valid
+        if self.is_version_valid(&uri, version) {
+            self.publish_diagnostics(&uri, client).await?;
+        }
 
         Ok(())
     }
