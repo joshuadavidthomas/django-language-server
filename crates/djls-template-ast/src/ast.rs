@@ -1,5 +1,93 @@
 use crate::tokens::{Token, TokenType};
-pub mod validator;
+pub mod validator {
+    use super::{Ast, AstError, Block, Node, Tag, TagSpecs};
+
+    pub struct Validator<'a> {
+        ast: &'a Ast,
+        tags: &'a TagSpecs,
+        errors: Vec<AstError>,
+    }
+
+    impl<'a> Validator<'a> {
+        pub fn new(ast: &'a Ast, tags: &'a TagSpecs) -> Self {
+            Self {
+                ast,
+                tags,
+                errors: Vec::new(),
+            }
+        }
+
+        pub fn validate(&mut self) -> Vec<AstError> {
+            if self.ast.nodes().is_empty() {
+                self.errors.push(AstError::EmptyAst);
+                return self.errors;
+            }
+
+            self.validate_nodes(self.ast.nodes());
+            self.errors
+        }
+
+        fn validate_nodes(&mut self, nodes: &[Node]) {
+            for node in nodes {
+                match node {
+                    Node::Block(block) => self.validate_block(block),
+                    _ => {}
+                }
+            }
+        }
+
+        fn validate_block(&mut self, block: &Block) {
+            match block {
+                Block::Container { tag, nodes, closing } => {
+                    self.validate_tag(tag);
+                    self.validate_nodes(nodes);
+                    if let Some(closing) = closing {
+                        self.validate_closing_tag(tag, closing);
+                    }
+                }
+                Block::Branch { tag, nodes } => {
+                    self.validate_tag(tag);
+                    self.validate_nodes(nodes);
+                }
+                _ => {}
+            }
+        }
+
+        fn validate_tag(&mut self, tag: &Tag) {
+            if let Some(spec) = self.tags.get(&tag.name) {
+                // Validate required arguments
+                if let Some(args) = &spec.args {
+                    for arg in args {
+                        if arg.required && !tag.bits.iter().any(|bit| bit == &arg.name) {
+                            self.errors.push(AstError::InvalidTagStructure {
+                                tag: tag.name.clone(),
+                                reason: format!("Missing required argument: {}", arg.name),
+                                span: tag.span,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        fn validate_closing_tag(&mut self, opening_tag: &Tag, closing: &Block) {
+            if let Block::Closing { tag: closing_tag } = closing {
+                if let Some(spec) = self.tags.get(&opening_tag.name) {
+                    if let Some(expected_closing) = &spec.closing {
+                        if closing_tag.name != *expected_closing {
+                            self.errors.push(AstError::UnbalancedStructure {
+                                opening_tag: opening_tag.name.clone(),
+                                expected_closing: expected_closing.clone(),
+                                opening_span: opening_tag.span,
+                                closing_span: Some(closing_tag.span),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 use serde::Serialize;
 use thiserror::Error;
 
