@@ -292,7 +292,7 @@ mod tests {
                 // Variable starts after newline + "{{"
                 let (line, col) = ast
                     .line_offsets()
-                    .position_to_line_col(*span.start() as usize);
+                    .position_to_line_col(*span.start()() as usize);
                 assert_eq!(
                     (line, col),
                     (2, 3),
@@ -300,7 +300,11 @@ mod tests {
                 );
 
                 // Span should be exactly "user.name"
-                assert_eq!(*span.length(), 9, "Variable span should cover 'user.name'");
+                assert_eq!(
+                    *span.length()(),
+                    9,
+                    "Variable span should cover 'user.name'"
+                );
             }
         }
 
@@ -325,8 +329,8 @@ mod tests {
 
             let node = &ast.nodes()[0];
             if let Node::Block(block) = node {
-                assert_eq!(block.tag().span.start(), &0);
-                assert_eq!(block.tag().span.length(), &35);
+                assert_eq!(block.tag().span.start()(), &0);
+                assert_eq!(block.tag().span.length()(), &35);
             } else {
                 panic!("Expected Block node");
             }
@@ -359,7 +363,9 @@ mod tests {
                     assert_eq!(content, "Welcome!");
                     eprintln!("Line offsets: {:?}", ast.line_offsets());
                     eprintln!("Span: {:?}", span);
-                    let (line, col) = ast.line_offsets().position_to_line_col(span.start as usize);
+                    let (line, col) = ast
+                        .line_offsets()
+                        .position_to_line_col(span.start() as usize);
                     assert_eq!((line, col), (2, 2), "Content should be on line 2, col 2");
 
                     // Check closing tag
