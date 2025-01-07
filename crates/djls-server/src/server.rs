@@ -96,6 +96,13 @@ impl LanguageServer for DjangoLanguageServer {
                     work_done_progress: Some(true),
                 },
             })),
+            workspace: Some(WorkspaceServerCapabilities {
+                workspace_folders: Some(WorkspaceFoldersServerCapabilities {
+                    supported: Some(true),
+                    change_notifications: Some(OneOf::Left(true)),
+                }),
+                ..Default::default()
+            }),
             ..Default::default()
         };
 
