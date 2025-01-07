@@ -55,7 +55,7 @@ impl Store {
         Ok(())
     }
 
-    pub fn handle_did_change(
+    pub async fn handle_did_change(
         &mut self,
         params: DidChangeTextDocumentParams,
         client: &Client,
@@ -78,7 +78,7 @@ impl Store {
 
         document.version = version;
         self.versions.insert(uri.clone(), version);
-        self.publish_diagnostics(&uri, client);
+        self.publish_diagnostics(&uri, client).await?;
 
         Ok(())
     }

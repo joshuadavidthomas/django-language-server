@@ -129,6 +129,7 @@ impl LanguageServer for DjangoLanguageServer {
             .write()
             .await
             .handle_did_change(params.clone(), &self.client)
+            .await
         {
             eprintln!("Error handling document change: {}", e);
             return;
