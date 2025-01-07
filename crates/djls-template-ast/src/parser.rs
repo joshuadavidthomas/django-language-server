@@ -92,7 +92,7 @@ impl Parser {
         let tag_name = bits.first().ok_or(ParserError::EmptyTag)?.clone();
 
         let span = Span::from(token);
-        let tag_span = Span::new(*span.start(), tag_name.len() as u32);
+        let tag_span = Span::new(span.start(), tag_name.len() as u32);
 
         let assignment = if bits.len() >= 2 {
             let second_to_last_index = bits.len() - 2;

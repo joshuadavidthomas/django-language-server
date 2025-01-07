@@ -1,3 +1,4 @@
+mod diagnostics;
 mod documents;
 mod server;
 mod tasks;

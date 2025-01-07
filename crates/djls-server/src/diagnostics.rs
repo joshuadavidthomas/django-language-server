@@ -1,17 +1,16 @@
-use tower_lsp::lsp_types::*;
 use crate::documents::TextDocument;
+use djls_template_ast::ast::{LineOffsets, Node, Span};
 use djls_template_ast::{Lexer, Parser};
-use djls_template_ast::ast::{Ast, Node, LineOffsets, Span};
-use djls_template_ast::tokens::TokenStream;
+use tower_lsp::lsp_types::*;
 
 pub struct Diagnostics;
 
 impl Diagnostics {
     pub fn generate_for_document(document: &TextDocument) -> Vec<Diagnostic> {
         let mut diagnostics = Vec::new();
-        
+
         let text = document.get_text();
-        let lexer = Lexer::new(text);
+        let mut lexer = Lexer::new(text);
         let token_stream = match lexer.tokenize() {
             Ok(tokens) => tokens,
             Err(e) => {
@@ -60,7 +59,7 @@ impl Diagnostics {
                     if let Some(closing) = block.closing() {
                     } else {
                         let span = block.tag().span;
-                        let range = get_range_from_span(&ast.line_offsets(), &span);
+                        let range = get_range_from_span(ast.line_offsets(), &span);
                         diagnostics.push(Diagnostic {
                             range,
                             severity: Some(DiagnosticSeverity::ERROR),
@@ -70,9 +69,9 @@ impl Diagnostics {
                             ..Default::default()
                         });
                     }
-                },
-                Node::Variable { .. } => {},
-                _ => {},
+                }
+                Node::Variable { .. } => {}
+                _ => {}
             }
         }
 
@@ -81,8 +80,9 @@ impl Diagnostics {
 }
 
 fn get_range_from_span(line_offsets: &LineOffsets, span: &Span) -> Range {
-    let (start_line, start_col) = line_offsets.position_to_line_col(span.start as usize);
-    let (end_line, end_col) = line_offsets.position_to_line_col((span.start + span.length) as usize);
+    let (start_line, start_col) = line_offsets.position_to_line_col(span.start() as usize);
+    let (end_line, end_col) =
+        line_offsets.position_to_line_col((span.start() + span.length()) as usize);
 
     Range {
         start: Position::new(start_line as u32 - 1, start_col as u32),

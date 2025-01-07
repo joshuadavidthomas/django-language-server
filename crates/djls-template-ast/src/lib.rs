@@ -1,8 +1,8 @@
-mod ast;
-mod lexer;
-mod parser;
+pub mod ast;
+pub mod lexer;
+pub mod parser;
 mod tagspecs;
-mod tokens;
+pub mod tokens;
 
-pub use ast::Ast;
+pub use lexer::Lexer;
 pub use parser::Parser;
