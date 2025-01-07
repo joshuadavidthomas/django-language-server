@@ -109,11 +109,12 @@ impl From<Token> for Span {
 
 #[derive(Clone, Debug, Serialize)]
 pub enum Node {
-    Text {
+    Block(Block),
+    Comment {
         content: String,
         span: Span,
     },
-    Comment {
+    Text {
         content: String,
         span: Span,
     },
@@ -122,16 +123,15 @@ pub enum Node {
         filters: Vec<DjangoFilter>,
         span: Span,
     },
-    Block(Block),
 }
 
 impl Node {
     pub fn span(&self) -> Option<&Span> {
         match self {
-            Node::Text { span, .. } => Some(span),
-            Node::Comment { span, .. } => Some(span),
-            Node::Variable { span, .. } => Some(span),
             Node::Block(block) => Some(&block.tag().span),
+            Node::Comment { span, .. } => Some(span),
+            Node::Text { span, .. } => Some(span),
+            Node::Variable { span, .. } => Some(span),
         }
     }
 
@@ -169,18 +169,18 @@ pub enum Block {
 impl Block {
     pub fn tag(&self) -> &Tag {
         match self {
-            Self::Container { tag, .. }
-            | Self::Branch { tag, .. }
-            | Self::Single { tag }
+            Self::Branch { tag, .. }
+            | Self::Container { tag, .. }
+            | Self::Closing { tag }
             | Self::Inclusion { tag, .. }
-            | Self::Closing { tag } => tag,
+            | Self::Single { tag } => tag,
         }
     }
 
     pub fn nodes(&self) -> Option<&Vec<Node>> {
         match self {
-            Block::Container { nodes, .. } => Some(nodes),
             Block::Branch { nodes, .. } => Some(nodes),
+            Block::Container { nodes, .. } => Some(nodes),
             _ => None,
         }
     }
