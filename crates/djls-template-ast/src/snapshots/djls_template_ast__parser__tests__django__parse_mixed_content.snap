@@ -20,7 +20,7 @@ nodes:
             length: 24
           tag_span:
             start: 12
-            length: 24
+            length: 2
           assignment: ~
         nodes:
           - Variable:
@@ -56,7 +56,7 @@ nodes:
                     length: 24
                   tag_span:
                     start: 89
-                    length: 24
+                    length: 3
                   assignment: ~
                 nodes:
                   - Block:
@@ -71,7 +71,7 @@ nodes:
                             length: 16
                           tag_span:
                             start: 128
-                            length: 16
+                            length: 2
                           assignment: ~
                         nodes:
                           - Text:
@@ -113,7 +113,7 @@ nodes:
                             length: 19
                           tag_span:
                             start: 196
-                            length: 19
+                            length: 2
                           assignment: ~
                         nodes:
                           - Text:
@@ -146,7 +146,7 @@ nodes:
                             length: 15
                           tag_span:
                             start: 243
-                            length: 15
+                            length: 2
                           assignment: ~
                         nodes:
                           - Text:

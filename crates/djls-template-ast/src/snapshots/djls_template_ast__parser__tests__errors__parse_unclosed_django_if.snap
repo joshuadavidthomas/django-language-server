@@ -15,7 +15,7 @@ nodes:
             length: 24
           tag_span:
             start: 3
-            length: 24
+            length: 2
           assignment: ~
         nodes:
           - Text:

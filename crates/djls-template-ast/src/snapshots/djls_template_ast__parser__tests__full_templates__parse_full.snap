@@ -105,7 +105,7 @@ nodes:
             length: 24
           tag_span:
             start: 466
-            length: 24
+            length: 2
           assignment: ~
         nodes:
           - Comment:
@@ -154,7 +154,7 @@ nodes:
                     length: 16
                   tag_span:
                     start: 624
-                    length: 16
+                    length: 2
                   assignment: ~
                 nodes:
                   - Text:
