@@ -1,5 +1,5 @@
 use crate::ast::{Ast, AstError, Block, DjangoFilter, LineOffsets, Node, Span, Tag};
-use crate::tagspecs::{TagType, TagSpecs};
+use crate::tagspecs::{TagSpec, TagSpecs, TagType};
 use crate::tokens::{Token, TokenStream, TokenType};
 use thiserror::Error;
 
@@ -84,7 +84,7 @@ impl Parser {
         })
     }
 
-    fn parse_django_block(&mut self) -> Result<Node, ParserError> {
+    pub fn parse_django_block(&mut self) -> Result<Node, ParserError> {
         let token = self.peek_previous()?;
 
         let bits: Vec<String> = token
@@ -104,121 +104,101 @@ impl Parser {
         };
 
         let specs = TagSpecs::load_builtin_specs()?;
-        let spec = match specs.get(&tag_name) {
-            Some(spec) => spec,
-            None => return Ok(Node::Block(Block::Tag { tag })),
-        };
+        let spec = specs.get(&tag_name);
 
-        let block = match spec.tag_type {
-            TagType::Block => {
-                let mut nodes = Vec::new();
-                let mut closing = None;
+        match spec {
+            Some(spec) => match spec.tag_type {
+                TagType::Block => self.parse_block_tag(tag, spec),
+                TagType::Tag => Ok(Node::Block(Block::Tag { tag })),
+                TagType::Variable => Ok(Node::Block(Block::Variable { tag })),
+                TagType::Inclusion => {
+                    let template_name = tag.bits.get(1).cloned().unwrap_or_default();
+                    Ok(Node::Block(Block::Inclusion { tag, template_name }))
+                }
+            },
 
-                while !self.is_at_end() {
-                    match self.next_node() {
-                        Ok(Node::Block(Block::Tag { tag })) => {
-                            if let Some(expected_closing) = &spec.closing {
-                                if tag.name == *expected_closing {
-                                    closing = Some(Box::new(Block::Closing { tag }));
-                                    break;
-                                }
-                            }
-                            // If we get here, either there was no expected closing tag or it didn't match
-                            if let Some(branches) = &spec.branches {
-                                if branches.iter().any(|b| b == &tag.name) {
-                                    let mut branch_tag = tag.clone();
-                                    let mut branch_nodes = Vec::new();
-                                    let mut found_closing = false;
-                                    while let Ok(node) = self.next_node() {
-                                        match &node {
-                                            Node::Block(Block::Tag { tag: next_tag }) => {
-                                                if let Some(expected_closing) = &spec.closing {
-                                                    if next_tag.name == *expected_closing {
-                                                        // Found the closing tag
-                                                        nodes.push(Node::Block(Block::Branch {
-                                                            tag: branch_tag.clone(),
-                                                            nodes: branch_nodes.clone(),
-                                                        }));
-                                                        closing = Some(Box::new(Block::Closing {
-                                                            tag: next_tag.clone(),
-                                                        }));
-                                                        found_closing = true;
-                                                        break;
-                                                    }
-                                                }
-                                                // Check if this is another branch tag
-                                                if branches.iter().any(|b| b == &next_tag.name) {
-                                                    // Push the current branch and start a new one
-                                                    nodes.push(Node::Block(Block::Branch {
-                                                        tag: branch_tag.clone(),
-                                                        nodes: branch_nodes.clone(),
-                                                    }));
-                                                    branch_nodes = Vec::new();
-                                                    branch_tag = next_tag.clone();
-                                                    continue;
-                                                }
-                                                branch_nodes.push(node);
-                                            }
-                                            _ => branch_nodes.push(node),
-                                        }
-                                    }
-                                    if !found_closing {
-                                        // Push the last branch if we didn't find a closing tag
-                                        nodes.push(Node::Block(Block::Branch {
-                                            tag: branch_tag.clone(),
-                                            nodes: branch_nodes.clone(),
-                                        }));
-                                        // Add error for unclosed tag
-                                        self.errors.push(ParserError::Ast(AstError::UnclosedTag(
-                                            tag_name.clone(),
-                                        )));
-                                    }
-                                    if found_closing {
-                                        break;
-                                    }
-                                    continue;
-                                }
-                            }
-                            nodes.push(Node::Block(Block::Tag { tag }));
-                        }
-                        Ok(node) => nodes.push(node),
-                        Err(e) => {
-                            self.errors.push(e);
-                            break;
-                        }
+            None => Ok(Node::Block(Block::Tag { tag })),
+        }
+    }
+
+    fn parse_block_tag(&mut self, tag: Tag, spec: &TagSpec) -> Result<Node, ParserError> {
+        let mut nodes = Vec::new();
+        let mut closing = None;
+
+        while !self.is_at_end() {
+            match self.next_node() {
+                Ok(Node::Block(Block::Tag { tag: inner_tag })) => {
+                    if self.is_closing_tag(&inner_tag, spec) {
+                        closing = Some(Box::new(Block::Closing { tag: inner_tag }));
+                        break;
+                    } else if self.is_branch_tag(&inner_tag, spec) {
+                        nodes.push(self.parse_branch_tag(inner_tag, spec)?);
+                    } else {
+                        nodes.push(Node::Block(Block::Tag { tag: inner_tag }));
                     }
                 }
-
-                Block::Block {
-                    tag,
-                    nodes,
-                    closing,
-                    assignments: None,
+                Ok(node) => nodes.push(node),
+                Err(e) => {
+                    self.errors.push(e);
+                    break;
                 }
-            }
-            TagType::Tag => Block::Tag { tag },
-            TagType::Variable => Block::Variable { tag },
-            TagType::Inclusion => {
-                let template_name = bits.get(1).cloned().unwrap_or_default();
-                Block::Inclusion { tag, template_name }
-            }
-        };
-
-        // Add error if we didn't find a closing tag for a block
-        if let Block::Block {
-            closing: None,
-            tag: tag_ref,
-            ..
-        } = &block
-        {
-            if let Some(_expected_closing) = &spec.closing {
-                self.errors.push(ParserError::Ast(AstError::UnclosedTag(
-                    tag_ref.name.clone(),
-                )));
             }
         }
 
-        Ok(Node::Block(block))
+        if spec.closing.is_some() && closing.is_none() {
+            self.errors
+                .push(ParserError::Ast(AstError::UnclosedTag(tag.name.clone())));
+        }
+
+        Ok(Node::Block(Block::Block {
+            tag,
+            nodes,
+            closing,
+            assignments: None,
+        }))
+    }
+
+    fn parse_branch_tag(&mut self, branch_tag: Tag, spec: &TagSpec) -> Result<Node, ParserError> {
+        let mut branch_nodes = Vec::new();
+
+        while !self.is_at_end() {
+            match self.next_node() {
+                Ok(Node::Block(Block::Tag { tag: inner_tag })) => {
+                    if self.is_closing_tag(&inner_tag, spec) || self.is_branch_tag(&inner_tag, spec)
+                    {
+                        self.backtrack(1)?;
+                        break;
+                    } else {
+                        branch_nodes.push(Node::Block(Block::Tag { tag: inner_tag }));
+                    }
+                }
+                Ok(node) => branch_nodes.push(node),
+                Err(e) => {
+                    self.errors.push(e);
+                    break;
+                }
+            }
+        }
+
+        Ok(Node::Block(Block::Branch {
+            tag: branch_tag,
+            nodes: branch_nodes,
+        }))
+    }
+
+    fn is_closing_tag(&self, tag: &Tag, spec: &TagSpec) -> bool {
+        match &spec.closing {
+            Some(expected_closing) => &tag.name == expected_closing,
+            None => false,
+        }
+    }
+
+    fn is_branch_tag(&self, tag: &Tag, spec: &TagSpec) -> bool {
+        if let Some(branches) = &spec.branches {
+            branches.contains(&tag.name)
+        } else {
+            false
+        }
     }
 
     fn parse_django_variable(&mut self) -> Result<Node, ParserError> {
@@ -304,6 +284,10 @@ impl Parser {
         self.peek_at(0)
     }
 
+    fn peek_next(&self) -> Result<Token, ParserError> {
+        self.peek_at(1)
+    }
+
     fn peek_previous(&self) -> Result<Token, ParserError> {
         self.peek_at(-1)
     }
@@ -340,6 +324,14 @@ impl Parser {
         }
         self.current += 1;
         self.peek_previous()
+    }
+
+    fn backtrack(&mut self, steps: usize) -> Result<Token, ParserError> {
+        if self.current < steps {
+            return Err(ParserError::stream_error("AtBeginning"));
+        }
+        self.current -= steps;
+        self.peek_next()
     }
 
     fn synchronize(&mut self) -> Result<(), ParserError> {
