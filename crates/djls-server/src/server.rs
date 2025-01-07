@@ -86,14 +86,6 @@ impl LanguageServer for DjangoLanguageServer {
                 trigger_characters: Some(vec!["{".to_string(), "%".to_string(), " ".to_string()]),
                 ..Default::default()
             }),
-            diagnostic_provider: Some(DiagnosticServerCapabilities::Options(DiagnosticOptions {
-                identifier: Some("django".to_string()),
-                inter_file_dependencies: false,
-                workspace_diagnostics: false,
-                work_done_progress_options: WorkDoneProgressOptions {
-                    work_done_progress: Some(true),
-                },
-            })),
             workspace: Some(WorkspaceServerCapabilities {
                 workspace_folders: Some(WorkspaceFoldersServerCapabilities {
                     supported: Some(true),
