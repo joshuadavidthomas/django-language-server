@@ -5,7 +5,7 @@ use djls_worker::Worker;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tower_lsp::jsonrpc::Result as LspResult;
-use tower_lsp::lsp_types::{*, PublishDiagnosticsParams};
+use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
 
 const SERVER_NAME: &str = "Django Language Server";
@@ -37,8 +37,10 @@ impl DjangoLanguageServer {
 #[tower_lsp::async_trait]
 impl LanguageServer for DjangoLanguageServer {
     async fn initialize(&self, params: InitializeParams) -> LspResult<InitializeResult> {
-        self.log_message(MessageType::INFO, "Initializing Django Language Server").await.ok();
-        
+        self.log_message(MessageType::INFO, "Initializing Django Language Server")
+            .await
+            .ok();
+
         let project = DjangoProject::from_initialize_params(&params);
         self.log_message(
             MessageType::INFO,
@@ -81,11 +83,7 @@ impl LanguageServer for DjangoLanguageServer {
             )),
             completion_provider: Some(CompletionOptions {
                 resolve_provider: Some(false),
-                trigger_characters: Some(vec![
-                    "{".to_string(),
-                    "%".to_string(),
-                    " ".to_string(),
-                ]),
+                trigger_characters: Some(vec!["{".to_string(), "%".to_string(), " ".to_string()]),
                 ..Default::default()
             }),
             diagnostic_provider: Some(DiagnosticServerCapabilities::Options(DiagnosticOptions {
@@ -141,7 +139,13 @@ impl LanguageServer for DjangoLanguageServer {
         .await
         .ok();
 
-        match self.documents.write().await.handle_did_open(params.clone(), &self.client).await {
+        match self
+            .documents
+            .write()
+            .await
+            .handle_did_open(params.clone(), &self.client)
+            .await
+        {
             Ok(_) => {
                 self.log_message(
                     MessageType::INFO,
