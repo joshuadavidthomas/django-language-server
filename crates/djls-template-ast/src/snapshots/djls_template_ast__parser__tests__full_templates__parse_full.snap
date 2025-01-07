@@ -101,17 +101,17 @@ nodes:
             - if
             - user.is_authenticated
           span:
-            start: 466
+            start: 463
             length: 24
           tag_span:
-            start: 466
+            start: 463
             length: 2
           assignment: ~
         nodes:
           - Comment:
               content: Welcome message
               span:
-                start: 512
+                start: 510
                 length: 15
           - Text:
               content: "<h1>Welcome,"
@@ -135,7 +135,7 @@ nodes:
                     start: 577
                     length: 15
               span:
-                start: 564
+                start: 561
                 length: 31
           - Text:
               content: "!</h1>"
@@ -150,10 +150,10 @@ nodes:
                     - if
                     - user.is_staff
                   span:
-                    start: 624
+                    start: 621
                     length: 16
                   tag_span:
-                    start: 624
+                    start: 621
                     length: 2
                   assignment: ~
                 nodes:
@@ -169,10 +169,10 @@ nodes:
                           bits:
                             - else
                           span:
-                            start: 702
+                            start: 699
                             length: 4
                           tag_span:
-                            start: 702
+                            start: 699
                             length: 4
                           assignment: ~
                         nodes:
@@ -188,10 +188,10 @@ nodes:
                       bits:
                         - endif
                       span:
-                        start: 767
+                        start: 764
                         length: 5
                       tag_span:
-                        start: 767
+                        start: 764
                         length: 5
                       assignment: ~
         closing:
@@ -201,10 +201,10 @@ nodes:
               bits:
                 - endif
               span:
-                start: 791
+                start: 788
                 length: 5
               tag_span:
-                start: 791
+                start: 788
                 length: 5
               assignment: ~
   - Text:

@@ -11,10 +11,10 @@ nodes:
             - url
             - "'view-name'"
           span:
-            start: 3
+            start: 0
             length: 23
           tag_span:
-            start: 3
+            start: 0
             length: 3
           assignment: view
 line_offsets:

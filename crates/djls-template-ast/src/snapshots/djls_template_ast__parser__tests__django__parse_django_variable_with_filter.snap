@@ -14,7 +14,7 @@ nodes:
             start: 10
             length: 5
       span:
-        start: 3
+        start: 0
         length: 15
 line_offsets:
   - 0

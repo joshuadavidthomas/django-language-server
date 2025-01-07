@@ -9,7 +9,7 @@ nodes:
         - name
       filters: []
       span:
-        start: 3
+        start: 0
         length: 9
 line_offsets:
   - 0

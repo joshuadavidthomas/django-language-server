@@ -21,17 +21,17 @@ nodes:
             - if
             - user.is_authenticated
           span:
-            start: 51
+            start: 48
             length: 24
           tag_span:
-            start: 51
+            start: 48
             length: 2
           assignment: ~
         nodes:
           - Comment:
               content: This if is unclosed which does matter
               span:
-                start: 89
+                start: 87
                 length: 37
           - Text:
               content: "<p>Welcome"
@@ -44,7 +44,7 @@ nodes:
                 - name
               filters: []
               span:
-                start: 153
+                start: 150
                 length: 9
           - Text:
               content: "</p>"
@@ -59,7 +59,7 @@ nodes:
           - Comment:
               content: "This div is unclosed which doesn't matter"
               span:
-                start: 198
+                start: 196
                 length: 41
           - Block:
               Container:
@@ -71,10 +71,10 @@ nodes:
                     - in
                     - items
                   span:
-                    start: 255
+                    start: 252
                     length: 17
                   tag_span:
-                    start: 255
+                    start: 252
                     length: 3
                   assignment: ~
                 nodes:
@@ -88,7 +88,7 @@ nodes:
                         - item
                       filters: []
                       span:
-                        start: 297
+                        start: 294
                         length: 4
                   - Text:
                       content: "</span>"
@@ -102,10 +102,10 @@ nodes:
                       bits:
                         - endfor
                       span:
-                        start: 323
+                        start: 320
                         length: 6
                       tag_span:
-                        start: 323
+                        start: 320
                         length: 6
                       assignment: ~
           - Text:

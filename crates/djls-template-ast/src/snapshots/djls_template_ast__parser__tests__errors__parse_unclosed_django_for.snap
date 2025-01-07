@@ -13,10 +13,10 @@ nodes:
             - in
             - items
           span:
-            start: 3
+            start: 0
             length: 17
           tag_span:
-            start: 3
+            start: 0
             length: 3
           assignment: ~
         nodes:
@@ -26,7 +26,7 @@ nodes:
                 - name
               filters: []
               span:
-                start: 26
+                start: 23
                 length: 9
         closing: ~
 line_offsets:

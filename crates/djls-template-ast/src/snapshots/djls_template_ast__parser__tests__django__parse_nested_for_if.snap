@@ -13,10 +13,10 @@ nodes:
             - in
             - items
           span:
-            start: 3
+            start: 0
             length: 17
           tag_span:
-            start: 3
+            start: 0
             length: 3
           assignment: ~
         nodes:
@@ -28,10 +28,10 @@ nodes:
                     - if
                     - item.active
                   span:
-                    start: 26
+                    start: 23
                     length: 14
                   tag_span:
-                    start: 26
+                    start: 23
                     length: 2
                   assignment: ~
                 nodes:
@@ -41,7 +41,7 @@ nodes:
                         - name
                       filters: []
                       span:
-                        start: 46
+                        start: 43
                         length: 9
                 closing:
                   Closing:
@@ -50,10 +50,10 @@ nodes:
                       bits:
                         - endif
                       span:
-                        start: 61
+                        start: 58
                         length: 5
                       tag_span:
-                        start: 61
+                        start: 58
                         length: 5
                       assignment: ~
         closing:
@@ -63,10 +63,10 @@ nodes:
               bits:
                 - endfor
               span:
-                start: 72
+                start: 69
                 length: 6
               tag_span:
-                start: 72
+                start: 69
                 length: 6
               assignment: ~
 line_offsets:

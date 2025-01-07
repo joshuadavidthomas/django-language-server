@@ -11,7 +11,7 @@ nodes:
   - Comment:
       content: Django comment
       span:
-        start: 23
+        start: 21
         length: 14
 line_offsets:
   - 0

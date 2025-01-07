@@ -24,7 +24,7 @@ nodes:
             start: 30
             length: 5
       span:
-        start: 3
+        start: 0
         length: 35
 line_offsets:
   - 0
