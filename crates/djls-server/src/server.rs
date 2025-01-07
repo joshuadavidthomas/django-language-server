@@ -63,15 +63,6 @@ impl LanguageServer for DjangoLanguageServer {
 
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
-                completion_provider: Some(CompletionOptions {
-                    resolve_provider: Some(false),
-                    trigger_characters: Some(vec![
-                        "{".to_string(),
-                        "%".to_string(),
-                        " ".to_string(),
-                    ]),
-                    ..Default::default()
-                }),
                 text_document_sync: Some(TextDocumentSyncCapability::Options(
                     TextDocumentSyncOptions {
                         open_close: Some(true),
@@ -81,6 +72,15 @@ impl LanguageServer for DjangoLanguageServer {
                         save: Some(SaveOptions::default().into()),
                     },
                 )),
+                completion_provider: Some(CompletionOptions {
+                    resolve_provider: Some(false),
+                    trigger_characters: Some(vec![
+                        "{".to_string(),
+                        "%".to_string(),
+                        " ".to_string(),
+                    ]),
+                    ..Default::default()
+                }),
                 diagnostic_provider: Some(DiagnosticServerCapabilities::Options(DiagnosticOptions {
                     identifier: Some("django".to_string()),
                     inter_file_dependencies: false,
