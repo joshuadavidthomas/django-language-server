@@ -23,7 +23,7 @@ impl Store {
         }
     }
 
-    pub fn handle_did_open(
+    pub async fn handle_did_open(
         &mut self,
         params: DidOpenTextDocumentParams,
         client: &Client,
@@ -37,7 +37,7 @@ impl Store {
         );
 
         self.add_document(document);
-        self.publish_diagnostics(uri.as_str(), client); // Use the cloned URI
+        self.publish_diagnostics(uri.as_str(), client).await?; // Use the cloned URI
         Ok(())
     }
 
