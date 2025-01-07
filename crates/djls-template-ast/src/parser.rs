@@ -87,7 +87,7 @@ impl Parser {
     pub fn parse_django_block(&mut self) -> Result<Node, ParserError> {
         let token = self.peek_previous()?;
 
-        let bits: Vec<String> = token
+        let mut bits: Vec<String> = token
             .content()
             .split_whitespace()
             .map(String::from)
@@ -97,12 +97,25 @@ impl Parser {
         let span = Span::from(token);
         let tag_span = Span::new(*span.start(), tag_name.len() as u32);
 
+        let assignment = if bits.len() >= 2 {
+            let second_to_last_index = bits.len() - 2;
+            if bits[second_to_last_index] == "as" {
+                let value = bits.last().cloned();
+                bits.truncate(bits.len() - 2);
+                value
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         let tag = Tag {
             name: tag_name.clone(),
-            bits: bits.clone(),
+            bits,
             span,
             tag_span,
-            assignment: None,
+            assignment,
         };
 
         let specs = TagSpecs::load_builtin_specs()?;
@@ -476,6 +489,16 @@ mod tests {
         #[test]
         fn test_parse_complex_if_elif() {
             let source = "{% if x > 0 %}Positive{% elif x < 0 %}Negative{% else %}Zero{% endif %}";
+            let tokens = Lexer::new(source).tokenize().unwrap();
+            let mut parser = Parser::new(tokens);
+            let (ast, errors) = parser.parse().unwrap();
+            insta::assert_yaml_snapshot!(ast);
+            assert!(errors.is_empty());
+        }
+
+        #[test]
+        fn test_parse_django_tag_assignment() {
+            let source = "{% url 'view-name' as view %}";
             let tokens = Lexer::new(source).tokenize().unwrap();
             let mut parser = Parser::new(tokens);
             let (ast, errors) = parser.parse().unwrap();
