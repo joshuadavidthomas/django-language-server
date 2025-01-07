@@ -30,8 +30,12 @@ impl Store {
     ) -> Result<()> {
         let uri = params.text_document.uri.clone();
         client
-            .log_message(MessageType::INFO, &format!("Opening document: {}", uri))
+            .log_message(
+                MessageType::INFO, 
+                &format!("Opening document: {} (version: {})", uri, params.text_document.version)
+            )
             .await;
+            
         let document = TextDocument::new(
             uri.to_string(), // Use the cloned URI
             params.text_document.text,
@@ -39,8 +43,23 @@ impl Store {
             params.text_document.language_id,
         );
 
+        client
+            .log_message(
+                MessageType::INFO,
+                &format!("Created document with {} lines", document.line_count())
+            )
+            .await;
+
         self.add_document(document);
+        client
+            .log_message(MessageType::INFO, "Document added to store")
+            .await;
+
         self.publish_diagnostics(uri.as_str(), client).await?; // Use the cloned URI
+        client
+            .log_message(MessageType::INFO, "Diagnostics published successfully")
+            .await;
+            
         Ok(())
     }
 
@@ -48,10 +67,33 @@ impl Store {
         if let Some(document) = self.get_document(uri) {
             let diagnostics = Diagnostics::generate_for_document(document);
             client
+                .log_message(
+                    MessageType::INFO, 
+                    &format!("Publishing {} diagnostics for {}", diagnostics.len(), uri)
+                )
+                .await;
+            
+            if let Err(e) = client
                 .publish_diagnostics(
                     Url::parse(uri).unwrap(),
                     diagnostics,
                     Some(document.version),
+                )
+                .await
+            {
+                client
+                    .log_message(
+                        MessageType::ERROR,
+                        &format!("Failed to publish diagnostics: {}", e)
+                    )
+                    .await;
+                return Err(anyhow!("Failed to publish diagnostics: {}", e));
+            }
+        } else {
+            client
+                .log_message(
+                    MessageType::WARNING,
+                    &format!("No document found for {}", uri)
                 )
                 .await;
         }
