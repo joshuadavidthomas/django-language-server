@@ -68,6 +68,10 @@ impl Worker {
         }
     }
 
+    /// Attempts to execute a task immediately without waiting.
+    /// Returns an error if the worker's channel is full.
+    ///
+    /// Best for non-critical tasks where backpressure is desired.
     pub fn execute<T>(&self, task: T) -> Result<()>
     where
         T: Task + 'static,
@@ -78,6 +82,10 @@ impl Worker {
             .map_err(|e| anyhow::anyhow!("Failed to execute task: {}", e))
     }
 
+    /// Submits a task asynchronously, waiting if the channel is full.
+    /// 
+    /// Good for tasks that must be processed but where you don't need
+    /// the result immediately.
     pub async fn submit<T>(&self, task: T) -> Result<()>
     where
         T: Task + 'static,
@@ -89,6 +97,10 @@ impl Worker {
             .map_err(|e| anyhow::anyhow!("Failed to submit task: {}", e))
     }
 
+    /// Submits a task and waits for its result.
+    ///
+    /// Best when you need the output of the task. This method will
+    /// wait both for space to submit the task and for its completion.
     pub async fn wait_for<T>(&self, task: T) -> Result<T::Output>
     where
         T: Task + 'static,
