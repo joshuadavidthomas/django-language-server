@@ -204,14 +204,6 @@ impl LanguageServer for DjangoLanguageServer {
         .ok();
     }
 
-    async fn publish_diagnostics(&self, params: PublishDiagnosticsParams) {
-        self.log_message(
-            MessageType::INFO,
-            &format!("Received diagnostics for: {}", params.uri),
-        )
-        .await
-        .ok();
-    }
 
     async fn completion(&self, params: CompletionParams) -> LspResult<Option<CompletionResponse>> {
         let project_guard = self.project.read().await;
