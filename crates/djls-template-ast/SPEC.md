@@ -35,11 +35,11 @@ Enumeration of all possible node types in the AST.
 ```rust
 pub enum Node {
     Text {
-        content: String, 
+        content: String,
         span: Span,
     },
     Comment {
-        content: String, 
+        content: String,
         span: Span,
     },
     Variable {
