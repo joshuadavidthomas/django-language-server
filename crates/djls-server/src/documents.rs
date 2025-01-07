@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use tower_lsp::lsp_types::{
     CompletionItem, CompletionItemKind, CompletionResponse, DidChangeTextDocumentParams,
     DidCloseTextDocumentParams, DidOpenTextDocumentParams, Documentation, InsertTextFormat,
-    MarkupContent, MarkupKind, Position, Range, Url,
+    MarkupContent, MarkupKind, MessageType, Position, Range, Url,
 };
 use tower_lsp::Client;
 
@@ -29,11 +29,9 @@ impl Store {
         client: &Client,
     ) -> Result<()> {
         let uri = params.text_document.uri.clone();
-        client.log_message(
-            MessageType::INFO,
-            &format!("Opening document: {}", uri),
-        )
-        .await;
+        client
+            .log_message(MessageType::INFO, &format!("Opening document: {}", uri))
+            .await;
         let document = TextDocument::new(
             uri.to_string(), // Use the cloned URI
             params.text_document.text,
