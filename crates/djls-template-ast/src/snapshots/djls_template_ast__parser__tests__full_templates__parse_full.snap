@@ -194,7 +194,6 @@ nodes:
                         start: 767
                         length: 5
                       assignment: ~
-                assignments: ~
         closing:
           Closing:
             tag:
@@ -208,7 +207,6 @@ nodes:
                 start: 791
                 length: 5
               assignment: ~
-        assignments: ~
   - Text:
       content: "</div>"
       span:

@@ -114,7 +114,6 @@ pub enum Block {
         tag: Tag,
         nodes: Vec<Node>,
         closing: Option<Box<Block>>,
-        assignments: Option<Vec<Assignment>>,
     },
     Branch {
         tag: Tag,
@@ -169,7 +168,6 @@ Block::Block {
     tag: Tag,                             // The opening Tag of the block
     nodes: Vec<Node>,                     // Nodes contained within the block
     closing: Option<Box<Block>>,          // Contains Block::Closing if present
-    assignments: Option<Vec<Assignment>>, // Assignments declared within the tag
 }
 ```
 

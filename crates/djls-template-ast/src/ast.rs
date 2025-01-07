@@ -149,7 +149,6 @@ pub enum Block {
         tag: Tag,
         nodes: Vec<Node>,
         closing: Option<Box<Block>>,
-        assignments: Option<Vec<Assignment>>,
     },
     Branch {
         tag: Tag,
@@ -189,13 +188,6 @@ impl Block {
     pub fn closing(&self) -> Option<&Box<Block>> {
         match self {
             Block::Block { closing, .. } => closing.as_ref(),
-            _ => None,
-        }
-    }
-
-    pub fn assignments(&self) -> Option<&Vec<Assignment>> {
-        match self {
-            Block::Block { assignments, .. } => assignments.as_ref(),
             _ => None,
         }
     }
@@ -324,7 +316,6 @@ mod tests {
                 },
                 nodes: vec![],
                 closing: None,
-                assignments: None,
             })];
 
             let ast = Ast {
