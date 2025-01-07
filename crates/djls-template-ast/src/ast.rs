@@ -185,9 +185,9 @@ impl Block {
         }
     }
 
-    pub fn closing(&self) -> Option<&Box<Block>> {
+    pub fn closing(&self) -> Option<&Block> {
         match self {
-            Block::Block { closing, .. } => closing.as_ref(),
+            Block::Block { closing, .. } => closing.as_deref(),
             _ => None,
         }
     }
