@@ -127,9 +127,6 @@ pub enum Block {
         tag: Tag,
         template_name: String,
     },
-    Variable {
-        tag: Tag,
-    },
     Closing {
         tag: Tag,
     },
@@ -231,21 +228,6 @@ Examples:
 - `{% include "template.html" %}`
 - `{% extends "base.html" %}`
 
-##### `Block::Variable`
-
-Represents tags that output a value directly.
-
-```rust
-Block::Variable {
-    tag: Tag, // The Tag of the variable tag
-}
-```
-
-Examples:
-
-- `{% cycle %}`
-- `{% firstof %}`
-
 ##### `Block::Closing`
 
 Represents closing tags corresponding to opening block tags.
@@ -270,14 +252,20 @@ Tag Specifications (TagSpecs) define how tags are parsed and understood. They al
 
 ```toml
 [package.module.path.tag_name]  # Path where tag is registered, e.g., django.template.defaulttags
-type = "block" | "inclusion" | "tag" | "variable"
+type = "block" | "inclusion" | "tag"
 closing = "closing_tag_name"        # For block tags that require a closing tag
 branches = ["branch_tag_name", ...] # For block tags that support branches
 
-[[package.module.path.tag_name.args]]
-name = "argument_name"
-required = true | false
+# Arguments can be positional (matched by order) or keyword (matched by name)
+args = [
+    # Positional argument (position inferred from array index)
+    { name = "setting", required = true, allowed_values = ["on", "off"] },
+    # Keyword argument
+    { name = "key", required = false, is_kwarg = true }
+]
 ```
+
+The `name` field in args should match the internal name used in Django's node implementation. For example, the `autoescape` tag's argument is stored as `setting` in Django's `AutoEscapeControlNode`.
 
 ### Tag Types
 
@@ -301,13 +289,6 @@ required = true | false
   {% csrf_token %}
   ```
 
-- `variable`: Tags that output a value directly
-
-  ```django
-  {% cycle 'odd' 'even' %}
-  {% firstof var1 var2 var3 %}
-  ```
-
 ### Configuration
 
 - **Built-in TagSpecs**: The parser includes TagSpecs for Django's built-in tags and popular third-party tags.
@@ -322,10 +303,7 @@ required = true | false
 type = "block"
 closing = "endif"
 branches = ["elif", "else"]
-
-[[django.template.defaulttags.if.args]]
-name = "condition"
-required = true
+args = [{ name = "condition", required = true }]
 ```
 
 #### Include Tag
@@ -333,19 +311,25 @@ required = true
 ```toml
 [django.template.defaulttags.includes]
 type = "inclusion"
-
-[[django.template.defaulttags.includes.args]]
-name = "template_name"
-required = true
+args = [{ name = "template_name", required = true }]
 ```
 
-#### Custom Tag
+#### Autoescape Tag
+
+```toml
+[django.template.defaulttags.autoescape]
+type = "block"
+closing = "endautoescape"
+args = [{ name = "setting", required = true, allowed_values = ["on", "off"] }]
+```
+
+#### Custom Tag with Kwargs
 
 ```toml
 [my_module.templatetags.my_tags.my_custom_tag]
 type = "tag"
-
-{[my_module.templatetags.my_tags.my_custom_tag.args]]
-name = "arg1"
-required = false
+args = [
+    { name = "arg1", required = true },
+    { name = "kwarg1", required = false, is_kwarg = true }
+]
 ```
