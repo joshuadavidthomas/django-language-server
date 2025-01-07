@@ -135,6 +135,18 @@ impl Parser {
     }
 
     fn parse_block_tag(&mut self, tag: Tag, spec: &TagSpec) -> Result<Node, ParserError> {
+        // Pure parsing logic
+        if tag.name.is_empty() {
+            return Err(ParserError::EmptyTag);
+        }
+
+        // Syntax validation
+        if !self.is_valid_tag_syntax(&tag.name) {
+            return Err(ParserError::InvalidSyntax {
+                context: format!("Invalid tag syntax: {}", tag.name),
+            });
+        }
+
         let mut nodes = Vec::new();
         let mut closing = None;
 
@@ -158,16 +170,16 @@ impl Parser {
             }
         }
 
-        if spec.closing.is_some() && closing.is_none() {
-            self.errors
-                .push(ParserError::Ast(AstError::UnclosedTag(tag.name.clone())));
-        }
-
         Ok(Node::Block(Block::Container {
             tag,
             nodes,
             closing,
         }))
+    }
+
+    fn is_valid_tag_syntax(&self, tag_name: &str) -> bool {
+        // Basic syntax validation without span concerns
+        !tag_name.is_empty() && tag_name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
     }
 
     fn parse_branch_tag(&mut self, branch_tag: Tag, spec: &TagSpec) -> Result<Node, ParserError> {
@@ -378,21 +390,28 @@ pub enum Signal {
 
 #[derive(Debug, Error)]
 pub enum ParserError {
-    #[error("{0}")]
-    Ast(#[from] AstError),
-    #[error("Signal: {0:?}")]
-    ErrorSignal(Signal),
-    #[error("{0}")]
-    Other(#[from] anyhow::Error),
-    #[error("empty tag")]
+    #[error("Unexpected token: expected {expected:?}, found {found}")]
+    UnexpectedToken {
+        expected: Vec<String>,
+        found: String,
+    },
+    #[error("Invalid syntax: {context}")]
+    InvalidSyntax {
+        context: String,
+    },
+    #[error("Empty tag")]
     EmptyTag,
-    #[error("{0}")]
+    #[error("Lexer error: {0}")]
     Lexer(#[from] LexerError),
+    #[error("Stream error: {kind}")]
+    StreamError {
+        kind: String,
+    },
 }
 
 impl ParserError {
     pub fn stream_error(kind: impl Into<String>) -> Self {
-        Self::Ast(AstError::StreamError(kind.into()))
+        Self::StreamError { kind: kind.into() }
     }
 }
 

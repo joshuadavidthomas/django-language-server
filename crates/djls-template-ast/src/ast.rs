@@ -26,10 +26,53 @@ impl Ast {
     }
 
     pub fn finalize(&mut self) -> Result<Ast, AstError> {
+        self.validate()?;
+        Ok(self.clone())
+    }
+
+    pub fn validate(&self) -> Result<(), AstError> {
         if self.nodes.is_empty() {
             return Err(AstError::EmptyAst);
         }
-        Ok(self.clone())
+
+        for node in &self.nodes {
+            if let Node::Block(block) = node {
+                self.validate_block(block)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_block(&self, block: &Block) -> Result<(), AstError> {
+        match block {
+            Block::Container { tag, nodes: _, closing } => {
+                if tag.name == "if" && closing.is_none() {
+                    return Err(AstError::UnbalancedStructure {
+                        opening_tag: tag.name.clone(),
+                        expected_closing: "endif".to_string(),
+                        opening_span: tag.span,
+                        closing_span: None,
+                    });
+                }
+                // TODO: Add more validations for other block types
+            }
+            Block::Branch { tag, nodes: _ } => {
+                if tag.name == "elif" && !self.has_parent_if(tag) {
+                    return Err(AstError::InvalidTagStructure {
+                        tag: tag.name.clone(),
+                        reason: "elif without preceding if".to_string(),
+                        span: tag.span,
+                    });
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    fn has_parent_if(&self, tag: &Tag) -> bool {
+        // TODO: Implement parent tracking to validate elif/else structure
+        false
     }
 }
 
@@ -223,14 +266,25 @@ impl DjangoFilter {
 pub enum AstError {
     #[error("Empty AST")]
     EmptyAst,
-    #[error("Invalid tag: {0}")]
-    InvalidTag(String),
-    #[error("Unclosed block: {0}")]
-    UnclosedBlock(String),
-    #[error("Unclosed tag: {0}")]
-    UnclosedTag(String),
-    #[error("Stream error: {0}")]
-    StreamError(String),
+    #[error("Invalid tag '{tag}' structure: {reason}")]
+    InvalidTagStructure {
+        tag: String,
+        reason: String,
+        span: Span,
+    },
+    #[error("Unbalanced structure: '{opening_tag}' at {opening_span:?} missing closing '{expected_closing}'")]
+    UnbalancedStructure {
+        opening_tag: String,
+        expected_closing: String,
+        opening_span: Span,
+        closing_span: Option<Span>,
+    },
+    #[error("Invalid {node_type} node: {reason}")]
+    InvalidNode {
+        node_type: String,
+        reason: String,
+        span: Span,
+    },
 }
 
 #[cfg(test)]
