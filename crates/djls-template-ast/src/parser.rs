@@ -93,13 +93,15 @@ impl Parser {
             .map(String::from)
             .collect();
         let tag_name = bits.first().ok_or(ParserError::EmptyTag)?.clone();
+
         let span = Span::from(token);
+        let tag_span = Span::new(*span.start(), tag_name.len() as u32);
 
         let tag = Tag {
             name: tag_name.clone(),
             bits: bits.clone(),
             span,
-            tag_span: span,
+            tag_span,
             assignment: None,
         };
 

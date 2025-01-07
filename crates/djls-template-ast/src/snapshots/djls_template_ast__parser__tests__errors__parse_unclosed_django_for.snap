@@ -17,7 +17,7 @@ nodes:
             length: 17
           tag_span:
             start: 3
-            length: 17
+            length: 3
           assignment: ~
         nodes:
           - Variable:

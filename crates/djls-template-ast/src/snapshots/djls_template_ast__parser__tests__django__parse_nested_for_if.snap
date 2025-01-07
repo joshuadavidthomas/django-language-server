@@ -17,7 +17,7 @@ nodes:
             length: 17
           tag_span:
             start: 3
-            length: 17
+            length: 3
           assignment: ~
         nodes:
           - Block:
@@ -32,7 +32,7 @@ nodes:
                     length: 14
                   tag_span:
                     start: 26
-                    length: 14
+                    length: 2
                   assignment: ~
                 nodes:
                   - Variable:

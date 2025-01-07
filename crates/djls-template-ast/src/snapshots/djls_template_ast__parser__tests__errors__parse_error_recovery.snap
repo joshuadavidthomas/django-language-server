@@ -25,7 +25,7 @@ nodes:
             length: 24
           tag_span:
             start: 51
-            length: 24
+            length: 2
           assignment: ~
         nodes:
           - Comment:
@@ -75,7 +75,7 @@ nodes:
                     length: 17
                   tag_span:
                     start: 255
-                    length: 17
+                    length: 3
                   assignment: ~
                 nodes:
                   - Text:
