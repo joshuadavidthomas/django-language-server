@@ -138,7 +138,7 @@ impl TagSpec {
 #[serde(rename_all = "lowercase")]
 pub enum TagType {
     Block,
-    Tag,
+    Single,
     Inclusion,
 }
 

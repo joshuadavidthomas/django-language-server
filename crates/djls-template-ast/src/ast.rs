@@ -154,14 +154,14 @@ pub enum Block {
         tag: Tag,
         nodes: Vec<Node>,
     },
-    Tag {
+    Closing {
         tag: Tag,
     },
     Inclusion {
         tag: Tag,
         template_name: String,
     },
-    Closing {
+    Single {
         tag: Tag,
     },
 }
@@ -171,7 +171,7 @@ impl Block {
         match self {
             Self::Block { tag, .. }
             | Self::Branch { tag, .. }
-            | Self::Tag { tag }
+            | Self::Single { tag }
             | Self::Inclusion { tag, .. }
             | Self::Closing { tag } => tag,
         }

@@ -121,14 +121,14 @@ impl Parser {
         match spec {
             Some(spec) => match spec.tag_type {
                 TagType::Block => self.parse_block_tag(tag, spec),
-                TagType::Tag => Ok(Node::Block(Block::Tag { tag })),
+                TagType::Single => Ok(Node::Block(Block::Single { tag })),
                 TagType::Inclusion => {
                     let template_name = tag.bits.get(1).cloned().unwrap_or_default();
                     Ok(Node::Block(Block::Inclusion { tag, template_name }))
                 }
             },
 
-            None => Ok(Node::Block(Block::Tag { tag })),
+            None => Ok(Node::Block(Block::Single { tag })),
         }
     }
 
@@ -138,14 +138,14 @@ impl Parser {
 
         while !self.is_at_end() {
             match self.next_node() {
-                Ok(Node::Block(Block::Tag { tag: inner_tag })) => {
+                Ok(Node::Block(Block::Single { tag: inner_tag })) => {
                     if self.is_closing_tag(&inner_tag, spec) {
                         closing = Some(Box::new(Block::Closing { tag: inner_tag }));
                         break;
                     } else if self.is_branch_tag(&inner_tag, spec) {
                         nodes.push(self.parse_branch_tag(inner_tag, spec)?);
                     } else {
-                        nodes.push(Node::Block(Block::Tag { tag: inner_tag }));
+                        nodes.push(Node::Block(Block::Single { tag: inner_tag }));
                     }
                 }
                 Ok(node) => nodes.push(node),
@@ -173,13 +173,13 @@ impl Parser {
 
         while !self.is_at_end() {
             match self.next_node() {
-                Ok(Node::Block(Block::Tag { tag: inner_tag })) => {
+                Ok(Node::Block(Block::Single { tag: inner_tag })) => {
                     if self.is_closing_tag(&inner_tag, spec) || self.is_branch_tag(&inner_tag, spec)
                     {
                         self.backtrack(1)?;
                         break;
                     } else {
-                        branch_nodes.push(Node::Block(Block::Tag { tag: inner_tag }));
+                        branch_nodes.push(Node::Block(Block::Single { tag: inner_tag }));
                     }
                 }
                 Ok(node) => branch_nodes.push(node),
