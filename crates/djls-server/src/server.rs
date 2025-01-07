@@ -110,7 +110,7 @@ impl LanguageServer for DjangoLanguageServer {
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
-        if let Err(e) = self.documents.write().await.handle_did_open(params.clone(), &self.client).await {
+        if let Err(e) = self.documents.write().await.handle_did_open(params.clone(), &self.client) {
             eprintln!("Error handling document open: {}", e);
             return;
         }
@@ -129,7 +129,6 @@ impl LanguageServer for DjangoLanguageServer {
             .write()
             .await
             .handle_did_change(params.clone(), &self.client)
-            .await
         {
             eprintln!("Error handling document change: {}", e);
             return;

@@ -7,7 +7,7 @@ use tower_lsp::lsp_types::{
     Documentation, InsertTextFormat, MarkupContent, MarkupKind, NumberOrString, Position, Range, Url,
 };
 use tower_lsp::Client;
-use crate::diagnostics::Diagnostics;
+use super::diagnostics::Diagnostics;
 
 #[derive(Debug)]
 pub struct Store {
@@ -32,7 +32,7 @@ impl Store {
         );
 
         self.add_document(document);
-        self.publish_diagnostics(&params.text_document.uri, client);
+        self.publish_diagnostics(params.text_document.uri.as_str(), client);
         Ok(())
     }
 
