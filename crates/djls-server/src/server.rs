@@ -81,6 +81,14 @@ impl LanguageServer for DjangoLanguageServer {
                         save: Some(SaveOptions::default().into()),
                     },
                 )),
+                diagnostic_provider: Some(DiagnosticServerCapabilities::Options(DiagnosticOptions {
+                    identifier: Some("django".to_string()),
+                    inter_file_dependencies: false,
+                    workspace_diagnostics: false,
+                    work_done_progress_options: WorkDoneProgressOptions {
+                        work_done_progress: Some(true),
+                    },
+                })),
                 ..Default::default()
             },
             server_info: Some(ServerInfo {
@@ -102,7 +110,7 @@ impl LanguageServer for DjangoLanguageServer {
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
-        if let Err(e) = self.documents.write().await.handle_did_open(params.clone()) {
+        if let Err(e) = self.documents.write().await.handle_did_open(params.clone(), &self.client).await {
             eprintln!("Error handling document open: {}", e);
             return;
         }
@@ -120,7 +128,8 @@ impl LanguageServer for DjangoLanguageServer {
             .documents
             .write()
             .await
-            .handle_did_change(params.clone())
+            .handle_did_change(params.clone(), &self.client)
+            .await
         {
             eprintln!("Error handling document change: {}", e);
             return;
