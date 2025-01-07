@@ -2,9 +2,8 @@ use anyhow::{anyhow, Result};
 use djls_project::TemplateTags;
 use std::collections::HashMap;
 use tower_lsp::lsp_types::{
-    CompletionItem, CompletionItemKind, CompletionResponse, Diagnostic, DiagnosticSeverity,
-    DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-    Documentation, InsertTextFormat, MarkupContent, MarkupKind, NumberOrString, Position, Range, Url,
+    CompletionItem, CompletionItemKind, CompletionResponse, Documentation, InsertTextFormat,
+    MarkupContent, MarkupKind, Position, Range, Url,
 };
 use tower_lsp::Client;
 use super::diagnostics::Diagnostics;
