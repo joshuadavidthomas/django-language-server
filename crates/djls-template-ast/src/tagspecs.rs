@@ -57,9 +57,9 @@ impl TagSpecs {
             if path.exists() {
                 return match file {
                     "pyproject.toml" => {
-                        Self::load_from_toml(&path, &["tool", "djls", "template", "tags"])
+                        Self::load_from_toml(&path, &["tool", "djls", "tagspecs"])
                     }
-                    _ => Self::load_from_toml(&path, &[]), // Root level for other files
+                    _ => Self::load_from_toml(&path, &["tagspecs"]), // Root level for other files
                 };
             }
         }
