@@ -82,12 +82,12 @@ impl Span {
         Self { start, length }
     }
 
-    pub fn start(&self) -> &u32 {
-        &self.start
+    pub fn start(&self) -> u32 {
+        self.start
     }
 
-    pub fn length(&self) -> &u32 {
-        &self.length
+    pub fn length(&self) -> u32 {
+        self.length
     }
 }
 
