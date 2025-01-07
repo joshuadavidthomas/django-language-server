@@ -13,14 +13,14 @@ closing = "endcomment"
 
 
 [django.template.defaulttags.cycle]
-type = "tag"
+type = "single"
 args = [
   { name = "cyclevars", required = true },
   { name = "variable_name", required = false, is_kwarg = true },
 ]
 
 [django.template.defaulttags.debug]
-type = "tag"
+type = "single"
 
 [django.template.defaulttags.extends]
 type = "inclusion"
@@ -42,7 +42,7 @@ closing = "endfilter"
 args = [{ name = "filter_expr", required = true }]
 
 [django.template.defaulttags.firstof]
-type = "tag"
+type = "single"
 args = [{ name = "variables", required = true }]
 
 [django.template.defaulttags.if]
@@ -60,11 +60,11 @@ args = [
 ]
 
 [django.template.defaulttags.load]
-type = "tag"
+type = "single"
 args = [{ name = "library", required = true }]
 
 [django.template.defaulttags.now]
-type = "tag"
+type = "single"
 args = [{ name = "format_string", required = true }]
 
 [django.template.defaulttags.spaceless]
@@ -72,7 +72,7 @@ type = "block"
 closing = "endspaceless"
 
 [django.template.defaulttags.templatetag]
-type = "tag"
+type = "single"
 
 [[django.template.defaulttags.templatetag.args]]
 name = "tagtype"
@@ -89,7 +89,7 @@ allowed_values = [
 ]
 
 [django.template.defaulttags.url]
-type = "tag"
+type = "single"
 args = [
   { name = "view_name", required = true },
   { name = "asvar", required = false, is_kwarg = true },

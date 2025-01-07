@@ -119,14 +119,14 @@ pub enum Block {
         tag: Tag,
         nodes: Vec<Node>,
     },
-    Tag {
+    Closing {
         tag: Tag,
     },
     Inclusion {
         tag: Tag,
         template_name: String,
     },
-    Closing {
+    Single {
         tag: Tag,
     },
 }
@@ -194,21 +194,21 @@ Examples:
 - `{% else %}`
 - `{% empty %}`
 
-##### `Block::Tag`
+##### `Block::Closing`
 
-Represents standalone tags that do not contain child nodes or require a closing tag.
+Represents closing tags corresponding to opening block tags.
 
 ```rust
-Block::Tag {
-    tag: Tag, // The Tag of the standalone tag
+Block::Closing {
+    tag: Tag, // The Tag of the closing tag
 }
 ```
 
 Examples:
 
-- `{% csrf_token %}`
-- `{% load %}`
-- `{% now "Y-m-d" %}`
+- `{% endif %}`
+- `{% endfor %}`
+- `{% endwith %}`
 
 ##### `Block::Inclusion`
 
@@ -226,21 +226,21 @@ Examples:
 - `{% include "template.html" %}`
 - `{% extends "base.html" %}`
 
-##### `Block::Closing`
+##### `Block::Single`
 
-Represents closing tags corresponding to opening block tags.
+Represents standalone tags that do not contain child nodes or require a closing tag.
 
 ```rust
-Block::Closing {
-    tag: Tag, // The Tag of the closing tag
+Block::Single {
+    tag: Tag, // The Tag of the standalone tag
 }
 ```
 
 Examples:
 
-- `{% endif %}`
-- `{% endfor %}`
-- `{% endwith %}`
+- `{% csrf_token %}`
+- `{% load %}`
+- `{% now "Y-m-d" %}`
 
 ## TagSpecs
 
@@ -250,7 +250,7 @@ Tag Specifications (TagSpecs) define how tags are parsed and understood. They al
 
 ```toml
 [package.module.path.tag_name]  # Path where tag is registered, e.g., django.template.defaulttags
-type = "block" | "inclusion" | "tag"
+type = "block" | "inclusion" | "single"
 closing = "closing_tag_name"        # For block tags that require a closing tag
 branches = ["branch_tag_name", ...] # For block tags that support branches
 
@@ -281,7 +281,7 @@ The `name` field in args should match the internal name used in Django's node im
   {% include "partial.html" %}
   ```
 
-- `tag`: Single tags that don't wrap content
+- `single`: Single tags that don't wrap content
 
   ```django
   {% csrf_token %}
@@ -325,7 +325,7 @@ args = [{ name = "setting", required = true, allowed_values = ["on", "off"] }]
 
 ```toml
 [my_module.templatetags.my_tags.my_custom_tag]
-type = "tag"
+type = "single"
 args = [
     { name = "arg1", required = true },
     { name = "kwarg1", required = false, is_kwarg = true }
