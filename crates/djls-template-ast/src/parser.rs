@@ -7,7 +7,19 @@ pub struct Parser {
     tokens: TokenStream,
     current: usize,
     errors: Vec<ParserError>,
+    tag_specs: TagSpecs, // Add TagSpecs field
 }
+
+impl Parser {
+    // Modify the constructor to accept TagSpecs
+    pub fn new(tokens: TokenStream, tag_specs: TagSpecs) -> Self {
+        Self {
+            tokens,
+            current: 0,
+            errors: Vec::new(),
+            tag_specs,
+        }
+    }
 
 impl Parser {
     pub fn new(tokens: TokenStream) -> Self {
@@ -115,8 +127,7 @@ impl Parser {
             assignment,
         };
 
-        let specs = TagSpecs::load_builtin_specs()?;
-        let spec = specs.get(&tag_name);
+        let spec = self.tag_specs.get(&tag_name);
 
         match spec {
             Some(spec) => match spec.tag_type {
