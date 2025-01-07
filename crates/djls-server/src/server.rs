@@ -37,7 +37,15 @@ impl DjangoLanguageServer {
 #[tower_lsp::async_trait]
 impl LanguageServer for DjangoLanguageServer {
     async fn initialize(&self, params: InitializeParams) -> LspResult<InitializeResult> {
+        self.log_message(MessageType::INFO, "Initializing Django Language Server").await.ok();
+        
         let project = DjangoProject::from_initialize_params(&params);
+        self.log_message(
+            MessageType::INFO,
+            &format!("Found project root: {:?}", params.root_uri),
+        )
+        .await
+        .ok();
 
         if let Some(mut project) = project {
             match project.initialize() {
@@ -110,9 +118,31 @@ impl LanguageServer for DjangoLanguageServer {
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
-        if let Err(e) = self.documents.write().await.handle_did_open(params.clone(), &self.client).await {
-            eprintln!("Error handling document open: {}", e);
-            return;
+        self.log_message(
+            MessageType::INFO,
+            &format!("Processing did_open for: {}", params.text_document.uri),
+        )
+        .await
+        .ok();
+
+        match self.documents.write().await.handle_did_open(params.clone(), &self.client).await {
+            Ok(_) => {
+                self.log_message(
+                    MessageType::INFO,
+                    &format!("Successfully opened document: {}", params.text_document.uri),
+                )
+                .await
+                .ok();
+            }
+            Err(e) => {
+                self.log_message(
+                    MessageType::ERROR,
+                    &format!("Error handling document open: {}", e),
+                )
+                .await
+                .ok();
+                eprintln!("Error handling document open: {}", e);
+            }
         }
 
         self.log_message(

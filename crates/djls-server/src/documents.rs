@@ -28,7 +28,12 @@ impl Store {
         params: DidOpenTextDocumentParams,
         client: &Client,
     ) -> Result<()> {
-        let uri = params.text_document.uri.clone(); // Clone the URI here
+        let uri = params.text_document.uri.clone();
+        client.log_message(
+            MessageType::INFO,
+            &format!("Opening document: {}", uri),
+        )
+        .await;
         let document = TextDocument::new(
             uri.to_string(), // Use the cloned URI
             params.text_document.text,
