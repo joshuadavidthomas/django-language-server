@@ -79,7 +79,7 @@ impl Store {
                     diagnostics,
                     Some(document.version),
                 )
-                .await?;
+                .await;
         } else {
             client
                 .log_message(
