@@ -95,6 +95,7 @@ impl fmt::Display for DjangoProject {
 
 #[derive(Debug)]
 struct PythonEnvironment {
+    #[allow(dead_code)]
     python_path: PathBuf,
     sys_path: Vec<PathBuf>,
     sys_prefix: PathBuf,

@@ -1,6 +1,7 @@
 mod ast;
 mod error;
 mod lexer;
+use crate::ast::validator::Validator;
 mod parser;
 mod tagspecs;
 mod tokens;
@@ -23,7 +24,8 @@ pub fn parse_template(
     source: &str,
     tag_specs: Option<&TagSpecs>,
 ) -> Result<(Ast, Vec<TemplateError>), TemplateError> {
-    let tokens = Lexer::new(source).tokenize().map_err(TemplateError::Lexer)?;
+    let tokens = Lexer::new(source).tokenize()
+        .map_err(|e| TemplateError::Lexer(e.to_string()))?;
 
     let tag_specs = match tag_specs {
         Some(specs) => specs.clone(),
@@ -33,12 +35,13 @@ pub fn parse_template(
     };
 
     let mut parser = Parser::new(tokens, tag_specs.clone());
-    let (ast, parser_errors) = parser.parse().map_err(TemplateError::Parser)?;
+    let (ast, parser_errors) = parser.parse()
+        .map_err(|e| TemplateError::Parser(e.to_string()))?;
 
     // Convert parser errors to TemplateError
     let mut all_errors = parser_errors
         .into_iter()
-        .map(TemplateError::Parser)
+        .map(|e| TemplateError::Parser(e.to_string()))
         .collect::<Vec<_>>();
 
     // Run validation

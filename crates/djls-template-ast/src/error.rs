@@ -4,7 +4,6 @@ use crate::parser::ParserError;
 use lsp_types;
 use serde::Serialize;
 use thiserror::Error;
-use std::fmt;
 
 #[derive(Debug, Error, Serialize)]
 pub enum TemplateError {
