@@ -13,3 +13,12 @@ toml = "0.8"
 [dev-dependencies]
 insta = { version = "1.41", features = ["yaml"] }
 tempfile = "3.8"
+[package]
+name = "djls-template-ast"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+lsp-types = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }

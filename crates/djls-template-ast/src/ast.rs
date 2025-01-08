@@ -329,6 +329,8 @@ pub enum AstError {
         reason: String,
         span: Span,
     },
+    #[error("Unclosed tag: {0}")]
+    UnclosedTag(String),
 }
 
 #[cfg(test)]

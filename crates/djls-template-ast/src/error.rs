@@ -4,23 +4,42 @@ use crate::parser::ParserError;
 use lsp_types;
 use serde::Serialize;
 use thiserror::Error;
+use std::fmt;
 
 #[derive(Debug, Error, Serialize)]
 pub enum TemplateError {
     #[error("Lexer error: {0}")]
-    Lexer(#[from] LexerError),
+    Lexer(String),
     
     #[error("Parser error: {0}")]
-    Parser(#[from] ParserError),
+    Parser(String),
     
     #[error("Validation error: {0}")]
     Validation(#[from] AstError),
     
     #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
+    Io(String),
     
     #[error("Configuration error: {0}")]
     Config(String),
+}
+
+impl From<LexerError> for TemplateError {
+    fn from(err: LexerError) -> Self {
+        Self::Lexer(err.to_string())
+    }
+}
+
+impl From<ParserError> for TemplateError {
+    fn from(err: ParserError) -> Self {
+        Self::Parser(err.to_string())
+    }
+}
+
+impl From<std::io::Error> for TemplateError {
+    fn from(err: std::io::Error) -> Self {
+        Self::Io(err.to_string())
+    }
 }
 
 impl TemplateError {

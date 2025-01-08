@@ -408,6 +408,8 @@ pub enum ParserError {
     StreamError {
         kind: String,
     },
+    #[error("AST error: {0}")]
+    Ast(#[from] AstError),
 }
 
 impl ParserError {
