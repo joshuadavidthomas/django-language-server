@@ -1,4 +1,5 @@
-use crate::tokens::{Token, TokenType};
+use crate::tokens::Token;
+use crate::tagspecs::TagSpecs;
 pub mod validator {
     use super::{Ast, AstError, Block, Node, Tag, TagSpecs};
 
@@ -20,11 +21,11 @@ pub mod validator {
         pub fn validate(&mut self) -> Vec<AstError> {
             if self.ast.nodes().is_empty() {
                 self.errors.push(AstError::EmptyAst);
-                return self.errors;
+                return self.errors.clone();
             }
 
             self.validate_nodes(self.ast.nodes());
-            self.errors
+            self.errors.clone()
         }
 
         fn validate_nodes(&mut self, nodes: &[Node]) {

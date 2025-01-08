@@ -64,8 +64,8 @@ pub fn to_lsp_diagnostic(error: &TemplateError, source: &str) -> lsp_types::Diag
     let range = error.span().map_or_else(
         || lsp_types::Range::default(),
         |span| {
-            let start = lsp_types::Position::new(0, span.start);
-            let end = lsp_types::Position::new(0, span.start + span.length);
+            let start = lsp_types::Position::new(0, *span.start());
+            let end = lsp_types::Position::new(0, span.start() + span.length());
             lsp_types::Range::new(start, end)
         },
     );

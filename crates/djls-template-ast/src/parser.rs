@@ -54,7 +54,7 @@ impl Parser {
 
         match token.token_type() {
             TokenType::Comment(_, open, _) => self.parse_comment(open),
-            TokenType::Eof => Err(ParserError::Ast(AstError::StreamError("AtEnd".to_string()))),
+            TokenType::Eof => Err(ParserError::stream_error("AtEnd")),
             TokenType::DjangoBlock(_) => self.parse_django_block(),
             TokenType::DjangoVariable(_) => self.parse_django_variable(),
             TokenType::HtmlTagClose(_)
