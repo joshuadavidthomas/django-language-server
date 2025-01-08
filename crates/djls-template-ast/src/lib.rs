@@ -1,8 +1,11 @@
 mod ast;
+mod error;
 mod lexer;
 mod parser;
 mod tagspecs;
 mod tokens;
+
+pub use error::{TemplateError, to_lsp_diagnostic, QuickFix};
 
 pub use ast::Ast;
 use lexer::Lexer;
@@ -19,34 +22,29 @@ use tagspecs::TagSpecs;
 pub fn parse_template(
     source: &str,
     tag_specs: Option<&TagSpecs>,
-) -> Result<(Ast, Vec<AstError>), ParserError> {
-    let tokens = Lexer::new(source).tokenize()?;
+) -> Result<(Ast, Vec<TemplateError>), TemplateError> {
+    let tokens = Lexer::new(source).tokenize().map_err(TemplateError::Lexer)?;
 
     let tag_specs = match tag_specs {
         Some(specs) => specs.clone(),
-        None => TagSpecs::load_builtin_specs()?,
+        None => TagSpecs::load_builtin_specs().map_err(|e| {
+            TemplateError::Config(format!("Failed to load builtin specs: {}", e))
+        })?,
     };
 
     let mut parser = Parser::new(tokens, tag_specs.clone());
-    let (ast, parser_errors) = parser.parse()?;
+    let (ast, parser_errors) = parser.parse().map_err(TemplateError::Parser)?;
 
-    // Run validation after parsing
-    let mut validator = Validator::new(&ast, &tag_specs);
-    let validation_errors = validator.validate();
-
-    // Combine parser and validation errors
+    // Convert parser errors to TemplateError
     let mut all_errors = parser_errors
         .into_iter()
-        .map(|e| match e {
-            ParserError::Ast(ast_error) => ast_error,
-            _ => AstError::InvalidNode {
-                node_type: "unknown".to_string(),
-                reason: format!("Parser error: {}", e),
-                span: Span::new(0, 0),
-            },
-        })
+        .map(TemplateError::Parser)
         .collect::<Vec<_>>();
-    all_errors.extend(validation_errors);
+
+    // Run validation
+    let mut validator = Validator::new(&ast, &tag_specs);
+    let validation_errors = validator.validate();
+    all_errors.extend(validation_errors.into_iter().map(TemplateError::Validation));
 
     Ok((ast, all_errors))
 }

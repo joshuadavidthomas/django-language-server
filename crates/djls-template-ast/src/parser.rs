@@ -390,10 +390,11 @@ pub enum Signal {
 
 #[derive(Debug, Error)]
 pub enum ParserError {
-    #[error("Unexpected token: expected {expected:?}, found {found}")]
+    #[error("Unexpected token: expected {expected:?}, found {found} at position {position}")]
     UnexpectedToken {
         expected: Vec<String>,
         found: String,
+        position: usize,
     },
     #[error("Invalid syntax: {context}")]
     InvalidSyntax {
