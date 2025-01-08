@@ -44,12 +44,6 @@ impl From<std::io::Error> for TemplateError {
 impl TemplateError {
     pub fn span(&self) -> Option<Span> {
         match self {
-            TemplateError::Lexer(LexerError::InvalidCharacter { position, .. }) => {
-                Some(Span::new(*position as u32, 1))
-            }
-            TemplateError::Parser(ParserError::UnexpectedToken { position, .. }) => {
-                Some(Span::new(*position as u32, 1))
-            }
             TemplateError::Validation(AstError::InvalidTagStructure { span, .. }) => {
                 Some(*span)
             }
@@ -78,7 +72,7 @@ impl TemplateError {
     }
 }
 
-pub fn to_lsp_diagnostic(error: &TemplateError, source: &str) -> lsp_types::Diagnostic {
+pub fn to_lsp_diagnostic(error: &TemplateError, _source: &str) -> lsp_types::Diagnostic {
     let range = error.span().map_or_else(
         || lsp_types::Range::default(),
         |span| {
