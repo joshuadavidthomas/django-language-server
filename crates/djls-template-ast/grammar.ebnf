@@ -1,0 +1,119 @@
+(* Django Template Language Grammar for LSP Integration in EBNF *)
+
+(* Lexical Elements *)
+
+LETTER          = "A"..."Z" | "a"..."z" ;
+DIGIT           = "0"..."9" ;
+IDENTIFIER      = LETTER , { LETTER | DIGIT | "_" } ;
+NUMBER_LITERAL  = [ "-" ] , DIGIT , { DIGIT } ,
+                  [ "." , DIGIT , { DIGIT } ] ,
+                  [ ( "e" | "E" ) , [ "+" | "-" ] , DIGIT , { DIGIT } ] ;
+STRING_LITERAL  = "\"" , { STRING_CHAR } , "\""
+                | "'" , { STRING_CHAR } , "'" ;
+STRING_CHAR     = ANY_CHAR - "\"" - "'" - NEWLINE ;
+WHITESPACE      = ( " " | "\t" )+ ;
+WHITESPACE_OPT  = WHITESPACE | "" ;
+NEWLINE         = ( "\n" | "\r\n" | "\r" ) ;
+ANY_CHAR        = ? any character except EOF ? ;
+
+(* Tokens *)
+
+VAR_START           = "{{" ;
+VAR_END             = "}}" ;
+TAG_START           = "{%" ;
+TAG_END             = "%}" ;
+COMMENT_START       = "{#" ;
+COMMENT_END         = "#}" ;
+
+TEXT_CHAR           = ANY_CHAR - VAR_START - VAR_END
+                               - TAG_START - TAG_END
+                               - COMMENT_START - COMMENT_END ;
+TEXT                = { TEXT_CHAR }+ ;
+
+(* Grammar Rules *)
+
+Template            = { Element } ;
+
+Element             = Text
+                    | Variable
+                    | Tag
+                    | Comment
+                    | ErrorElement ;
+
+Text                = TEXT ;
+
+Variable            = VAR_START , WHITESPACE_OPT , FilteredExpression , WHITESPACE_OPT , VAR_END ;
+
+Tag                 = TAG_START , WHITESPACE_OPT , TagContent , WHITESPACE_OPT , TAG_END ,
+                      [ TagBlock ] ;
+
+TagContent          = TagName , { WHITESPACE , TagArgument } ;
+
+TagName             = IDENTIFIER ;
+
+TagArgument         = Expression | IDENTIFIER ;
+
+TagBlock            = TemplateContent ,
+                      TAG_START , WHITESPACE_OPT , EndTagContent , WHITESPACE_OPT , TAG_END ;
+
+EndTagContent       = EndTagName ;
+
+EndTagName          = IDENTIFIER ;
+
+TemplateContent     = { Element } ;
+
+Comment             = COMMENT_START , CommentContent , COMMENT_END ;
+
+CommentContent      = { ANY_CHAR - COMMENT_END } ;
+
+ErrorElement        = ANY_CHAR , { ANY_CHAR - VAR_START - TAG_START - COMMENT_START } ;
+
+(* Expressions *)
+
+Expression          = OrExpression ;
+
+OrExpression        = AndExpression , { WHITESPACE_OPT , "or" , WHITESPACE_OPT , AndExpression } ;
+
+AndExpression       = NotExpression , { WHITESPACE_OPT , "and" , WHITESPACE_OPT , NotExpression } ;
+
+NotExpression       = [ "not" , WHITESPACE_OPT ] , Comparison ;
+
+Comparison          = ArithmeticExpression ,
+                      [ WHITESPACE_OPT , Comparator , WHITESPACE_OPT , ArithmeticExpression ] ;
+
+Comparator          = "==" | "!=" | ">" | "<" | ">=" | "<=" ;
+
+ArithmeticExpression= Term , { WHITESPACE_OPT , AddOp , WHITESPACE_OPT , Term } ;
+
+AddOp               = "+" | "-" ;
+
+Term                = Factor , { WHITESPACE_OPT , MulOp , WHITESPACE_OPT , Factor } ;
+
+MulOp               = "*" | "/" | "//" | "%" ;
+
+Factor              = [ AddOp ] , Atom ;
+
+Atom                = Literal
+                    | VariableReference
+                    | "(" , WHITESPACE_OPT , Expression , WHITESPACE_OPT , ")" ;
+
+Literal             = NUMBER_LITERAL | STRING_LITERAL ;
+
+VariableReference   = IDENTIFIER , { "." , IDENTIFIER } ;
+
+(* Filters *)
+
+FilteredExpression  = Expression , { WHITESPACE_OPT , "|" , WHITESPACE_OPT , Filter } ;
+
+Filter              = IDENTIFIER , [ ":" , FilterArguments ] ;
+
+FilterArguments     = FilterArgument , { ":" , FilterArgument } ;
+
+FilterArgument      = Expression ;
+
+(* Error Handling *)
+
+ErrorElement        = ANY_CHAR , { ANY_CHAR - VAR_START - TAG_START - COMMENT_START } ;
+(* ErrorElement matches any characters until the next variable, tag, or comment start for error recovery *)
+
+(* End of Grammar *)
