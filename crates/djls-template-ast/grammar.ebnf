@@ -5,9 +5,7 @@
 LETTER          = "A"..."Z" | "a"..."z" ;
 DIGIT           = "0"..."9" ;
 IDENTIFIER      = LETTER , { LETTER | DIGIT | "_" } ;
-NUMBER_LITERAL  = [ "-" ] , DIGIT , { DIGIT } ,
-                  [ "." , DIGIT , { DIGIT } ] ,
-                  [ ( "e" | "E" ) , [ "+" | "-" ] , DIGIT , { DIGIT } ] ;
+NUMBER_LITERAL  = [ "-" ] , DIGIT , { DIGIT } ;
 STRING_LITERAL  = "\"" , { STRING_CHAR } , "\""
                 | "'" , { STRING_CHAR } , "'" ;
 STRING_CHAR     = ANY_CHAR - "\"" - "'" - NEWLINE ;
@@ -25,9 +23,9 @@ TAG_END             = "%}" ;
 COMMENT_START       = "{#" ;
 COMMENT_END         = "#}" ;
 
-TEXT_CHAR           = ANY_CHAR - VAR_START - VAR_END
-                               - TAG_START - TAG_END
-                               - COMMENT_START - COMMENT_END ;
+SPECIAL_SEQUENCE    = VAR_START | VAR_END | TAG_START | TAG_END 
+                   | COMMENT_START | COMMENT_END ;
+TEXT_CHAR          = ANY_CHAR - SPECIAL_SEQUENCE ;
 TEXT                = { TEXT_CHAR }+ ;
 
 (* Grammar Rules *)
@@ -51,7 +49,7 @@ TagContent          = TagName , { WHITESPACE , TagArgument } ;
 
 TagName             = IDENTIFIER ;
 
-TagArgument         = Expression | IDENTIFIER ;
+TagArgument         = Expression ;  (* Arguments passed to a tag, such as in loops or conditionals *)
 
 TagBlock            = TemplateContent ,
                       TAG_START , WHITESPACE_OPT , EndTagContent , WHITESPACE_OPT , TAG_END ;
@@ -110,10 +108,5 @@ Filter              = IDENTIFIER , [ ":" , FilterArguments ] ;
 FilterArguments     = FilterArgument , { ":" , FilterArgument } ;
 
 FilterArgument      = Expression ;
-
-(* Error Handling *)
-
-ErrorElement        = ANY_CHAR , { ANY_CHAR - VAR_START - TAG_START - COMMENT_START } ;
-(* ErrorElement matches any characters until the next variable, tag, or comment start for error recovery *)
 
 (* End of Grammar *)
