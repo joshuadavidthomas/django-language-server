@@ -8,6 +8,7 @@ repos:
       - id: check-symlinks
       - id: check-toml
       - id: check-yaml
+        args: ["--unsafe"] # breaks on .mkdocs.yml otherwise
       - id: end-of-file-fixer
       - id: mixed-line-ending
       - id: trailing-whitespace
