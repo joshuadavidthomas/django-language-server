@@ -1,0 +1,252 @@
+---
+source: crates/djls-template-ast/src/parser.rs
+expression: ast
+---
+nodes:
+  - Text:
+      content: "Welcome,"
+      span:
+        start: 0
+        length: 8
+  - Block:
+      Container:
+        tag:
+          name: if
+          bits:
+            - if
+            - user.is_authenticated
+          span:
+            start: 12
+            length: 24
+          tag_span:
+            start: 12
+            length: 2
+          assignment: ~
+        nodes:
+          - Variable:
+              bits:
+                - user
+                - name
+              filters:
+                - name: title
+                  args: []
+                  span:
+                    start: 54
+                    length: 5
+                - name: default
+                  args:
+                    - "'Guest'"
+                  span:
+                    start: 60
+                    length: 15
+              span:
+                start: 47
+                length: 31
+          - Block:
+              Container:
+                tag:
+                  name: for
+                  bits:
+                    - for
+                    - group
+                    - in
+                    - user.groups
+                  span:
+                    start: 89
+                    length: 24
+                  tag_span:
+                    start: 89
+                    length: 3
+                  assignment: ~
+                nodes:
+                  - Block:
+                      Container:
+                        tag:
+                          name: if
+                          bits:
+                            - if
+                            - forloop.first
+                          span:
+                            start: 128
+                            length: 16
+                          tag_span:
+                            start: 128
+                            length: 2
+                          assignment: ~
+                        nodes:
+                          - Text:
+                              content: (
+                              span:
+                                start: 147
+                                length: 1
+                        closing:
+                          Closing:
+                            tag:
+                              name: endif
+                              bits:
+                                - endif
+                              span:
+                                start: 151
+                                length: 5
+                              tag_span:
+                                start: 151
+                                length: 5
+                              assignment: ~
+                  - Variable:
+                      bits:
+                        - group
+                        - name
+                      filters: []
+                      span:
+                        start: 171
+                        length: 10
+                  - Block:
+                      Container:
+                        tag:
+                          name: if
+                          bits:
+                            - if
+                            - not
+                            - forloop.last
+                          span:
+                            start: 196
+                            length: 19
+                          tag_span:
+                            start: 196
+                            length: 2
+                          assignment: ~
+                        nodes:
+                          - Text:
+                              content: ","
+                              span:
+                                start: 218
+                                length: 1
+                        closing:
+                          Closing:
+                            tag:
+                              name: endif
+                              bits:
+                                - endif
+                              span:
+                                start: 223
+                                length: 5
+                              tag_span:
+                                start: 223
+                                length: 5
+                              assignment: ~
+                  - Block:
+                      Container:
+                        tag:
+                          name: if
+                          bits:
+                            - if
+                            - forloop.last
+                          span:
+                            start: 243
+                            length: 15
+                          tag_span:
+                            start: 243
+                            length: 2
+                          assignment: ~
+                        nodes:
+                          - Text:
+                              content: )
+                              span:
+                                start: 261
+                                length: 1
+                        closing:
+                          Closing:
+                            tag:
+                              name: endif
+                              bits:
+                                - endif
+                              span:
+                                start: 265
+                                length: 5
+                              tag_span:
+                                start: 265
+                                length: 5
+                              assignment: ~
+                  - Block:
+                      Branch:
+                        tag:
+                          name: empty
+                          bits:
+                            - empty
+                          span:
+                            start: 281
+                            length: 5
+                          tag_span:
+                            start: 281
+                            length: 5
+                          assignment: ~
+                        nodes:
+                          - Text:
+                              content: (no groups)
+                              span:
+                                start: 298
+                                length: 11
+                closing:
+                  Closing:
+                    tag:
+                      name: endfor
+                      bits:
+                        - endfor
+                      span:
+                        start: 317
+                        length: 6
+                      tag_span:
+                        start: 317
+                        length: 6
+                      assignment: ~
+          - Block:
+              Branch:
+                tag:
+                  name: else
+                  bits:
+                    - else
+                  span:
+                    start: 330
+                    length: 4
+                  tag_span:
+                    start: 330
+                    length: 4
+                  assignment: ~
+                nodes:
+                  - Text:
+                      content: Guest
+                      span:
+                        start: 342
+                        length: 5
+        closing:
+          Closing:
+            tag:
+              name: endif
+              bits:
+                - endif
+              span:
+                start: 351
+                length: 5
+              tag_span:
+                start: 351
+                length: 5
+              assignment: ~
+  - Text:
+      content: "!"
+      span:
+        start: 359
+        length: 1
+line_offsets:
+  - 0
+  - 40
+  - 82
+  - 117
+  - 160
+  - 185
+  - 232
+  - 274
+  - 290
+  - 310
+  - 327
+  - 338
+  - 348

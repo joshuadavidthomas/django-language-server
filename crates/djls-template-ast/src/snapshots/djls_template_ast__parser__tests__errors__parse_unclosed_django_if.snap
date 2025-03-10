@@ -1,0 +1,28 @@
+---
+source: crates/djls-template-ast/src/parser.rs
+expression: ast
+---
+nodes:
+  - Block:
+      Container:
+        tag:
+          name: if
+          bits:
+            - if
+            - user.is_authenticated
+          span:
+            start: 3
+            length: 24
+          tag_span:
+            start: 3
+            length: 2
+          assignment: ~
+        nodes:
+          - Text:
+              content: Welcome
+              span:
+                start: 30
+                length: 7
+        closing: ~
+line_offsets:
+  - 0

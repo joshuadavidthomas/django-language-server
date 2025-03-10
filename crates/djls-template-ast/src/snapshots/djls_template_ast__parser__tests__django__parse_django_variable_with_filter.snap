@@ -1,0 +1,20 @@
+---
+source: crates/djls-template-ast/src/parser.rs
+expression: ast
+---
+nodes:
+  - Variable:
+      bits:
+        - user
+        - name
+      filters:
+        - name: title
+          args: []
+          span:
+            start: 10
+            length: 5
+      span:
+        start: 3
+        length: 15
+line_offsets:
+  - 0

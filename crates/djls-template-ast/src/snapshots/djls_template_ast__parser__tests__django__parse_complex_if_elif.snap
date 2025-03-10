@@ -1,0 +1,83 @@
+---
+source: crates/djls-template-ast/src/parser.rs
+expression: ast
+---
+nodes:
+  - Block:
+      Container:
+        tag:
+          name: if
+          bits:
+            - if
+            - x
+            - ">"
+            - "0"
+          span:
+            start: 3
+            length: 8
+          tag_span:
+            start: 3
+            length: 2
+          assignment: ~
+        nodes:
+          - Text:
+              content: Positive
+              span:
+                start: 14
+                length: 8
+          - Block:
+              Branch:
+                tag:
+                  name: elif
+                  bits:
+                    - elif
+                    - x
+                    - "<"
+                    - "0"
+                  span:
+                    start: 25
+                    length: 10
+                  tag_span:
+                    start: 25
+                    length: 4
+                  assignment: ~
+                nodes:
+                  - Text:
+                      content: Negative
+                      span:
+                        start: 38
+                        length: 8
+          - Block:
+              Branch:
+                tag:
+                  name: else
+                  bits:
+                    - else
+                  span:
+                    start: 49
+                    length: 4
+                  tag_span:
+                    start: 49
+                    length: 4
+                  assignment: ~
+                nodes:
+                  - Text:
+                      content: Zero
+                      span:
+                        start: 56
+                        length: 4
+        closing:
+          Closing:
+            tag:
+              name: endif
+              bits:
+                - endif
+              span:
+                start: 63
+                length: 5
+              tag_span:
+                start: 63
+                length: 5
+              assignment: ~
+line_offsets:
+  - 0

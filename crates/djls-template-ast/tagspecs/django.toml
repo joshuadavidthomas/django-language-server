@@ -1,0 +1,105 @@
+[django.template.defaulttags.autoescape]
+args = [{ name = "setting", required = true, allowed_values = ["on", "off"] }]
+closing = "endautoescape"
+type = "container"
+
+[django.template.defaulttags.block]
+closing = "endblock"
+type = "container"
+
+[django.template.defaulttags.comment]
+type = "container"
+closing = "endcomment"
+
+
+[django.template.defaulttags.cycle]
+type = "single"
+args = [
+  { name = "cyclevars", required = true },
+  { name = "variable_name", required = false, is_kwarg = true },
+]
+
+[django.template.defaulttags.debug]
+type = "single"
+
+[django.template.defaulttags.extends]
+type = "inclusion"
+args = [{ name = "parent_name", required = true }]
+
+[django.template.defaulttags.for]
+args = [
+  { name = "{item}", required = true },
+  { name = "in", required = true },
+  { name = "{iterable}", required = true },
+]
+branches = ["empty"]
+closing = "endfor"
+type = "container"
+
+[django.template.defaulttags.filter]
+type = "container"
+closing = "endfilter"
+args = [{ name = "filter_expr", required = true }]
+
+[django.template.defaulttags.firstof]
+type = "single"
+args = [{ name = "variables", required = true }]
+
+[django.template.defaulttags.if]
+args = [{ name = "condition", required = true }]
+branches = ["elif", "else"]
+closing = "endif"
+type = "container"
+
+[django.template.defaulttags.include]
+type = "inclusion"
+args = [
+  { name = "template", required = true },
+  { name = "with", required = false, is_kwarg = true },
+  { name = "only", required = false, is_kwarg = true },
+]
+
+[django.template.defaulttags.load]
+type = "single"
+args = [{ name = "library", required = true }]
+
+[django.template.defaulttags.now]
+type = "single"
+args = [{ name = "format_string", required = true }]
+
+[django.template.defaulttags.spaceless]
+type = "container"
+closing = "endspaceless"
+
+[django.template.defaulttags.templatetag]
+type = "single"
+
+[[django.template.defaulttags.templatetag.args]]
+name = "tagtype"
+required = true
+allowed_values = [
+  "openblock",
+  "closeblock",
+  "openvariable",
+  "closevariable",
+  "openbrace",
+  "closebrace",
+  "opencomment",
+  "closecomment",
+]
+
+[django.template.defaulttags.url]
+type = "single"
+args = [
+  { name = "view_name", required = true },
+  { name = "asvar", required = false, is_kwarg = true },
+]
+
+[django.template.defaulttags.verbatim]
+type = "container"
+closing = "endverbatim"
+
+[django.template.defaulttags.with]
+type = "container"
+closing = "endwith"
+args = [{ name = "extra_context", required = true }]
