@@ -27,9 +27,19 @@ repos:
       entry: cargo fmt
       args:
         - --
-  - repo: https://github.com/backplane/pre-commit-rust-hooks
-    rev: v1.1.0
-    hooks:
-      - id: check
-      - id: clippy
-      - id: test
+    - id: check
+      name: cargo check
+      description: check the package for errors with "cargo check"
+      types:
+        - rust
+      language: rust
+      entry: cargo check
+      pass_filenames: false
+    - id: clippy
+      name: cargo clippy
+      description: check the package with "cargo clippy"
+      types:
+        - rust
+      language: rust
+      entry: cargo clippy
+      pass_filenames: false
