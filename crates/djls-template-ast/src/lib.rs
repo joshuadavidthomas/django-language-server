@@ -1,17 +1,18 @@
 mod ast;
 mod error;
 mod lexer;
-use crate::ast::validator::Validator;
 mod parser;
 mod tagspecs;
 mod tokens;
+mod validator;
 
-pub use error::{TemplateError, to_lsp_diagnostic, QuickFix};
+pub use error::{to_lsp_diagnostic, QuickFix, TemplateError};
 
 pub use ast::Ast;
 use lexer::Lexer;
 pub use parser::{Parser, ParserError};
 use tagspecs::TagSpecs;
+use validator::Validator;
 
 /// Parses a Django template and returns the AST and any parsing errors.
 ///
@@ -24,18 +25,19 @@ pub fn parse_template(
     source: &str,
     tag_specs: Option<&TagSpecs>,
 ) -> Result<(Ast, Vec<TemplateError>), TemplateError> {
-    let tokens = Lexer::new(source).tokenize()
+    let tokens = Lexer::new(source)
+        .tokenize()
         .map_err(|e| TemplateError::Lexer(e.to_string()))?;
 
     let tag_specs = match tag_specs {
         Some(specs) => specs.clone(),
-        None => TagSpecs::load_builtin_specs().map_err(|e| {
-            TemplateError::Config(format!("Failed to load builtin specs: {}", e))
-        })?,
+        None => TagSpecs::load_builtin_specs()
+            .map_err(|e| TemplateError::Config(format!("Failed to load builtin specs: {}", e)))?,
     };
 
     let mut parser = Parser::new(tokens, tag_specs.clone());
-    let (ast, parser_errors) = parser.parse()
+    let (ast, parser_errors) = parser
+        .parse()
         .map_err(|e| TemplateError::Parser(e.to_string()))?;
 
     // Convert parser errors to TemplateError

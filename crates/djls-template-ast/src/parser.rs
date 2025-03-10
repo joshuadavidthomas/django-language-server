@@ -149,10 +149,11 @@ impl Parser {
 
         let mut nodes = Vec::new();
         let mut closing = None;
-
         while !self.is_at_end() {
+            eprintln!("not at end");
             match self.next_node() {
                 Ok(Node::Block(Block::Single { tag: inner_tag })) => {
+                    eprintln!("{:?}", inner_tag);
                     if self.is_closing_tag(&inner_tag, spec) {
                         closing = Some(Box::new(Block::Closing { tag: inner_tag }));
                         break;
@@ -179,7 +180,10 @@ impl Parser {
 
     fn is_valid_tag_syntax(&self, tag_name: &str) -> bool {
         // Basic syntax validation without span concerns
-        !tag_name.is_empty() && tag_name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+        !tag_name.is_empty()
+            && tag_name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_')
     }
 
     fn parse_branch_tag(&mut self, branch_tag: Tag, spec: &TagSpec) -> Result<Node, ParserError> {
@@ -397,17 +401,13 @@ pub enum ParserError {
         position: usize,
     },
     #[error("Invalid syntax: {context}")]
-    InvalidSyntax {
-        context: String,
-    },
+    InvalidSyntax { context: String },
     #[error("Empty tag")]
     EmptyTag,
     #[error("Lexer error: {0}")]
     Lexer(#[from] LexerError),
     #[error("Stream error: {kind}")]
-    StreamError {
-        kind: String,
-    },
+    StreamError { kind: String },
     #[error("AST error: {0}")]
     Ast(#[from] AstError),
 }
@@ -698,8 +698,9 @@ mod tests {
             let source = "{% if user.is_authenticated %}Welcome";
             let tokens = Lexer::new(source).tokenize().unwrap();
             let tags = TagSpecs::load_builtin_specs().unwrap();
-            let mut parser = Parser::new(tokens, tags);
+            let mut parser = Parser::new(tokens.clone(), tags);
             let (ast, errors) = parser.parse().unwrap();
+            eprintln!("{:?}", tokens);
             insta::assert_yaml_snapshot!(ast);
             assert_eq!(errors.len(), 1);
             assert!(
@@ -712,8 +713,9 @@ mod tests {
             let source = "{% for item in items %}{{ item.name }}";
             let tokens = Lexer::new(source).tokenize().unwrap();
             let tags = TagSpecs::load_builtin_specs().unwrap();
-            let mut parser = Parser::new(tokens, tags);
+            let mut parser = Parser::new(tokens.clone(), tags);
             let (ast, errors) = parser.parse().unwrap();
+            eprintln!("{:?}", tokens);
             insta::assert_yaml_snapshot!(ast);
             assert_eq!(errors.len(), 1);
             assert!(

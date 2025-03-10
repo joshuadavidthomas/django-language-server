@@ -19,18 +19,17 @@ impl<'a> Validator<'a> {
     pub fn validate(&mut self) -> Vec<AstError> {
         if self.ast.nodes().is_empty() {
             self.errors.push(AstError::EmptyAst);
-            return self.errors;
+        } else {
+            self.validate_nodes(self.ast.nodes());
         }
 
-        self.validate_nodes(self.ast.nodes());
-        self.errors
+        self.errors.clone()
     }
 
     fn validate_nodes(&mut self, nodes: &[Node]) {
         for node in nodes {
-            match node {
-                Node::Block(block) => self.validate_block(block),
-                _ => {}
+            if let Node::Block(block) = node {
+                self.validate_block(block)
             }
         }
     }
@@ -39,7 +38,11 @@ impl<'a> Validator<'a> {
         let tag = block.tag();
         if let Some(spec) = self.tags.get(&tag.name) {
             match block {
-                Block::Container { tag, nodes, closing } => {
+                Block::Container {
+                    tag,
+                    nodes,
+                    closing,
+                } => {
                     self.validate_container(tag, nodes, closing, spec);
                 }
                 Block::Branch { tag, nodes } => {
