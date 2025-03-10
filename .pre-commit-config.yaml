@@ -1,16 +1,19 @@
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.6.0
+    rev: v5.0.0
     hooks:
-      - id: check-byte-order-marker
+      - id: fix-byte-order-marker
       - id: check-case-conflict
       - id: check-merge-conflict
       - id: check-symlinks
       - id: check-toml
       - id: check-yaml
+        args: ["--unsafe"] # breaks on .mkdocs.yml otherwise
       - id: end-of-file-fixer
       - id: mixed-line-ending
       - id: trailing-whitespace
+      - id: no-commit-to-branch
+        args: ["--branch", "main"]
   - repo: https://github.com/backplane/pre-commit-rust-hooks
     rev: v1.1.0
     hooks:
