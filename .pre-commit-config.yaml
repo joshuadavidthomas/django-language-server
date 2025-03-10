@@ -16,10 +16,20 @@ repos:
       - id: trailing-whitespace
       - id: no-commit-to-branch
         args: ["--branch", "main"]
+  - repo: local
+    hooks:
+    - id: fmt
+      name: cargo fmt
+      description: format files with "cargo fmt"
+      types:
+        - rust
+      language: rust
+      entry: cargo fmt
+      args:
+        - --
   - repo: https://github.com/backplane/pre-commit-rust-hooks
     rev: v1.1.0
     hooks:
-      - id: fmt
       - id: check
       - id: clippy
       - id: test
