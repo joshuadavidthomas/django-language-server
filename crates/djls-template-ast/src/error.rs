@@ -9,16 +9,16 @@ use thiserror::Error;
 pub enum TemplateError {
     #[error("Lexer error: {0}")]
     Lexer(String),
-    
+
     #[error("Parser error: {0}")]
     Parser(String),
-    
+
     #[error("Validation error: {0}")]
     Validation(#[from] AstError),
-    
+
     #[error("IO error: {0}")]
     Io(String),
-    
+
     #[error("Configuration error: {0}")]
     Config(String),
 }
@@ -50,7 +50,7 @@ impl TemplateError {
             _ => None,
         }
     }
-    
+
     pub fn severity(&self) -> lsp_types::DiagnosticSeverity {
         match self {
             TemplateError::Lexer(_) | TemplateError::Parser(_) => {

@@ -23,7 +23,7 @@ TAG_END             = "%}" ;
 COMMENT_START       = "{#" ;
 COMMENT_END         = "#}" ;
 
-SPECIAL_SEQUENCE    = VAR_START | VAR_END | TAG_START | TAG_END 
+SPECIAL_SEQUENCE    = VAR_START | VAR_END | TAG_START | TAG_END
                    | COMMENT_START | COMMENT_END ;
 TEXT_CHAR          = ANY_CHAR - SPECIAL_SEQUENCE ;
 TEXT                = { TEXT_CHAR }+ ;
