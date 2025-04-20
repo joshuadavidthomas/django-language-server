@@ -8,23 +8,22 @@ closing = "endblock"
 type = "container"
 
 [django.template.defaulttags.comment]
-type = "container"
 closing = "endcomment"
-
+type = "container"
 
 [django.template.defaulttags.cycle]
-type = "single"
 args = [
   { name = "cyclevars", required = true },
   { name = "variable_name", required = false, is_kwarg = true },
 ]
+type = "single"
 
 [django.template.defaulttags.debug]
 type = "single"
 
 [django.template.defaulttags.extends]
-type = "inclusion"
 args = [{ name = "parent_name", required = true }]
+type = "inclusion"
 
 [django.template.defaulttags.for]
 args = [
@@ -37,13 +36,13 @@ closing = "endfor"
 type = "container"
 
 [django.template.defaulttags.filter]
-type = "container"
-closing = "endfilter"
 args = [{ name = "filter_expr", required = true }]
+closing = "endfilter"
+type = "container"
 
 [django.template.defaulttags.firstof]
-type = "single"
 args = [{ name = "variables", required = true }]
+type = "single"
 
 [django.template.defaulttags.if]
 args = [{ name = "condition", required = true }]
@@ -52,31 +51,29 @@ closing = "endif"
 type = "container"
 
 [django.template.defaulttags.include]
-type = "inclusion"
 args = [
-  { name = "template", required = true },
-  { name = "with", required = false, is_kwarg = true },
-  { name = "only", required = false, is_kwarg = true },
+{ name = "template", required = true },
+{ name = "with", required = false, is_kwarg = true },
+{ name = "only", required = false, is_kwarg = true },
 ]
+type = "inclusion"
 
 [django.template.defaulttags.load]
-type = "single"
 args = [{ name = "library", required = true }]
+type = "single"
 
 [django.template.defaulttags.now]
-type = "single"
 args = [{ name = "format_string", required = true }]
+type = "single"
 
 [django.template.defaulttags.spaceless]
-type = "container"
 closing = "endspaceless"
+type = "container"
 
 [django.template.defaulttags.templatetag]
 type = "single"
 
 [[django.template.defaulttags.templatetag.args]]
-name = "tagtype"
-required = true
 allowed_values = [
   "openblock",
   "closeblock",
@@ -87,19 +84,21 @@ allowed_values = [
   "opencomment",
   "closecomment",
 ]
+name = "tagtype"
+required = true
 
 [django.template.defaulttags.url]
-type = "single"
 args = [
-  { name = "view_name", required = true },
-  { name = "asvar", required = false, is_kwarg = true },
+{ name = "view_name", required = true },
+{ name = "asvar", required = false, is_kwarg = true },
 ]
+type = "single"
 
 [django.template.defaulttags.verbatim]
-type = "container"
 closing = "endverbatim"
+type = "container"
 
 [django.template.defaulttags.with]
-type = "container"
-closing = "endwith"
 args = [{ name = "extra_context", required = true }]
+closing = "endwith"
+type = "container"
