@@ -1,3 +1,6 @@
+default_language_version:
+  rust: "1.86"
+
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
@@ -14,10 +17,38 @@ repos:
       - id: trailing-whitespace
       - id: no-commit-to-branch
         args: ["--branch", "main"]
-  - repo: https://github.com/backplane/pre-commit-rust-hooks
-    rev: v1.1.0
+  - repo: local
     hooks:
       - id: fmt
+        name: cargo fmt
+        description: format files with "cargo fmt"
+        types:
+          - rust
+        language: rust
+        entry: cargo fmt
+        args:
+          - --
       - id: check
+        name: cargo check
+        description: check the package for errors with "cargo check"
+        types:
+          - rust
+        language: rust
+        entry: cargo check
+        pass_filenames: false
       - id: clippy
+        name: cargo clippy
+        description: check the package with "cargo clippy"
+        types:
+          - rust
+        language: rust
+        entry: cargo clippy
+        pass_filenames: false
       - id: test
+        name: cargo test
+        description: run the tests with "cargo test"
+        types:
+          - rust
+        language: rust
+        entry: cargo test
+        pass_filenames: false
