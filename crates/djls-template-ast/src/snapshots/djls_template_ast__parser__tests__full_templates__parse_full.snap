@@ -1,6 +1,6 @@
 ---
 source: crates/djls-template-ast/src/parser.rs
-expression: ast
+expression: nodelist
 ---
 nodes:
   - Text:
@@ -93,120 +93,71 @@ nodes:
       span:
         start: 394
         length: 56
-  - Block:
-      Container:
-        tag:
-          name: if
-          bits:
-            - if
-            - user.is_authenticated
-          span:
-            start: 463
-            length: 24
-          tag_span:
-            start: 463
-            length: 2
-          assignment: ~
-        nodes:
-          - Comment:
-              content: Welcome message
-              span:
-                start: 510
-                length: 15
-          - Text:
-              content: "<h1>Welcome,"
-              span:
-                start: 548
-                length: 12
-          - Variable:
-              bits:
-                - user
-                - name
-              filters:
-                - name: title
-                  args: []
-                  span:
-                    start: 571
-                    length: 5
-                - name: default
-                  args:
-                    - "'Guest'"
-                  span:
-                    start: 577
-                    length: 15
-              span:
-                start: 561
-                length: 31
-          - Text:
-              content: "!</h1>"
-              span:
-                start: 598
-                length: 6
-          - Block:
-              Container:
-                tag:
-                  name: if
-                  bits:
-                    - if
-                    - user.is_staff
-                  span:
-                    start: 621
-                    length: 16
-                  tag_span:
-                    start: 621
-                    length: 2
-                  assignment: ~
-                nodes:
-                  - Text:
-                      content: "<span>Admin</span>"
-                      span:
-                        start: 664
-                        length: 18
-                  - Block:
-                      Branch:
-                        tag:
-                          name: else
-                          bits:
-                            - else
-                          span:
-                            start: 699
-                            length: 4
-                          tag_span:
-                            start: 699
-                            length: 4
-                          assignment: ~
-                        nodes:
-                          - Text:
-                              content: "<span>User</span>"
-                              span:
-                                start: 730
-                                length: 17
-                closing:
-                  Closing:
-                    tag:
-                      name: endif
-                      bits:
-                        - endif
-                      span:
-                        start: 764
-                        length: 5
-                      tag_span:
-                        start: 764
-                        length: 5
-                      assignment: ~
-        closing:
-          Closing:
-            tag:
-              name: endif
-              bits:
-                - endif
-              span:
-                start: 788
-                length: 5
-              tag_span:
-                start: 788
-                length: 5
-              assignment: ~
+  - Tag:
+      name: if
+      bits:
+        - user.is_authenticated
+      span:
+        start: 463
+        length: 24
+  - Comment:
+      content: Welcome message
+      span:
+        start: 510
+        length: 15
+  - Text:
+      content: "<h1>Welcome,"
+      span:
+        start: 548
+        length: 12
+  - Variable:
+      var: user.name
+      filters:
+        - title
+        - "default:'Guest'"
+      span:
+        start: 561
+        length: 31
+  - Text:
+      content: "!</h1>"
+      span:
+        start: 598
+        length: 6
+  - Tag:
+      name: if
+      bits:
+        - user.is_staff
+      span:
+        start: 621
+        length: 16
+  - Text:
+      content: "<span>Admin</span>"
+      span:
+        start: 664
+        length: 18
+  - Tag:
+      name: else
+      bits: []
+      span:
+        start: 699
+        length: 4
+  - Text:
+      content: "<span>User</span>"
+      span:
+        start: 730
+        length: 17
+  - Tag:
+      name: endif
+      bits: []
+      span:
+        start: 764
+        length: 5
+  - Tag:
+      name: endif
+      bits: []
+      span:
+        start: 788
+        length: 5
   - Text:
       content: "</div>"
       span:

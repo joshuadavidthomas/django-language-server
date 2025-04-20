@@ -2,13 +2,13 @@ use crate::tokens::Token;
 use serde::Serialize;
 use thiserror::Error;
 
-#[derive(Clone, Debug, Default, Serialize)]
-pub struct Ast {
+#[derive(Clone, Default, Debug, Serialize)]
+pub struct NodeList {
     nodes: Vec<Node>,
     line_offsets: LineOffsets,
 }
 
-impl Ast {
+impl NodeList {
     pub fn nodes(&self) -> &Vec<Node> {
         &self.nodes
     }
@@ -25,7 +25,7 @@ impl Ast {
         self.line_offsets = line_offsets
     }
 
-    pub fn finalize(&mut self) -> Ast {
+    pub fn finalize(&mut self) -> NodeList {
         self.clone()
     }
 }
@@ -67,6 +67,28 @@ impl LineOffsets {
     }
 }
 
+#[derive(Clone, Debug, Serialize)]
+pub enum Node {
+    Tag {
+        name: String,
+        bits: Vec<String>,
+        span: Span,
+    },
+    Comment {
+        content: String,
+        span: Span,
+    },
+    Text {
+        content: String,
+        span: Span,
+    },
+    Variable {
+        var: String,
+        filters: Vec<String>,
+        span: Span,
+    },
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub struct Span {
     start: u32,
@@ -92,127 +114,6 @@ impl From<Token> for Span {
         let start = token.start().unwrap_or(0);
         let length = token.content().len() as u32;
         Span::new(start, length)
-    }
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub enum Node {
-    Block(Block),
-    Comment {
-        content: String,
-        span: Span,
-    },
-    Text {
-        content: String,
-        span: Span,
-    },
-    Variable {
-        bits: Vec<String>,
-        filters: Vec<DjangoFilter>,
-        span: Span,
-    },
-}
-
-impl Node {
-    pub fn span(&self) -> Option<&Span> {
-        match self {
-            Node::Block(block) => Some(&block.tag().span),
-            Node::Comment { span, .. } => Some(span),
-            Node::Text { span, .. } => Some(span),
-            Node::Variable { span, .. } => Some(span),
-        }
-    }
-
-    pub fn children(&self) -> Option<&Vec<Node>> {
-        match self {
-            Node::Block(block) => block.nodes(),
-            _ => None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub enum Block {
-    Branch {
-        tag: Tag,
-        nodes: Vec<Node>,
-    },
-    Closing {
-        tag: Tag,
-    },
-    Container {
-        tag: Tag,
-        nodes: Vec<Node>,
-        closing: Option<Box<Block>>,
-    },
-    Inclusion {
-        tag: Tag,
-        template_name: String,
-    },
-    Single {
-        tag: Tag,
-    },
-}
-
-impl Block {
-    pub fn tag(&self) -> &Tag {
-        match self {
-            Self::Branch { tag, .. }
-            | Self::Container { tag, .. }
-            | Self::Closing { tag }
-            | Self::Inclusion { tag, .. }
-            | Self::Single { tag } => tag,
-        }
-    }
-
-    pub fn nodes(&self) -> Option<&Vec<Node>> {
-        match self {
-            Block::Branch { nodes, .. } => Some(nodes),
-            Block::Container { nodes, .. } => Some(nodes),
-            _ => None,
-        }
-    }
-
-    pub fn closing(&self) -> Option<&Block> {
-        match self {
-            Block::Container { closing, .. } => closing.as_deref(),
-            _ => None,
-        }
-    }
-
-    pub fn template_name(&self) -> Option<&String> {
-        match self {
-            Block::Inclusion { template_name, .. } => Some(template_name),
-            _ => None,
-        }
-    }
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct Tag {
-    pub name: String,
-    pub bits: Vec<String>,
-    pub span: Span,
-    pub tag_span: Span,
-    pub assignment: Option<String>,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct Assignment {
-    pub target: String,
-    pub value: String,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct DjangoFilter {
-    pub name: String,
-    pub args: Vec<String>,
-    pub span: Span,
-}
-
-impl DjangoFilter {
-    pub fn new(name: String, args: Vec<String>, span: Span) -> Self {
-        Self { name, args, span }
     }
 }
 
@@ -272,20 +173,17 @@ mod tests {
 
     mod spans_and_positions {
         use super::*;
-        use crate::tagspecs::TagSpecs;
 
         #[test]
         fn test_variable_spans() {
             let template = "Hello\n{{ user.name }}\nWorld";
             let tokens = Lexer::new(template).tokenize().unwrap();
-            println!("Tokens: {:#?}", tokens); // Add debug print
-            let tags = TagSpecs::load_builtin_specs().unwrap();
-            let mut parser = Parser::new(tokens, tags);
-            let (ast, errors) = parser.parse().unwrap();
+            let mut parser = Parser::new(tokens);
+            let (nodelist, errors) = parser.parse().unwrap();
             assert!(errors.is_empty());
 
             // Find the variable node
-            let nodes = ast.nodes();
+            let nodes = nodelist.nodes();
             let var_node = nodes
                 .iter()
                 .find(|n| matches!(n, Node::Variable { .. }))
@@ -293,7 +191,7 @@ mod tests {
 
             if let Node::Variable { span, .. } = var_node {
                 // Variable starts after newline + "{{"
-                let (line, col) = ast
+                let (line, col) = nodelist
                     .line_offsets()
                     .position_to_line_col(*span.start() as usize);
                 assert_eq!(
@@ -302,83 +200,7 @@ mod tests {
                     "Variable should start at line 2, col 3"
                 );
 
-                // Span should be exactly "user.name"
                 assert_eq!(*span.length(), 9, "Variable span should cover 'user.name'");
-            }
-        }
-
-        #[test]
-        fn test_block_spans() {
-            let nodes = vec![Node::Block(Block::Container {
-                tag: Tag {
-                    name: "if".to_string(),
-                    bits: vec!["user.is_authenticated".to_string()],
-                    span: Span::new(0, 35),
-                    tag_span: Span::new(0, 35),
-                    assignment: None,
-                },
-                nodes: vec![],
-                closing: None,
-            })];
-
-            let ast = Ast {
-                nodes,
-                line_offsets: LineOffsets::new(),
-            };
-
-            let node = &ast.nodes()[0];
-            if let Node::Block(block) = node {
-                assert_eq!(block.tag().span.start(), &0);
-                assert_eq!(block.tag().span.length(), &35);
-            } else {
-                panic!("Expected Block node");
-            }
-        }
-
-        #[test]
-        fn test_multiline_template() {
-            let template = "{% if user.active %}\n  Welcome!\n{% endif %}";
-            let tokens = Lexer::new(template).tokenize().unwrap();
-            let tags = TagSpecs::load_builtin_specs().unwrap();
-            let mut parser = Parser::new(tokens, tags);
-            let (ast, errors) = parser.parse().unwrap();
-            assert!(errors.is_empty());
-
-            let nodes = ast.nodes();
-            if let Node::Block(Block::Container {
-                tag,
-                nodes,
-                closing,
-                ..
-            }) = &nodes[0]
-            {
-                // Check block tag
-                assert_eq!(tag.name, "if");
-                assert_eq!(tag.bits, vec!["if", "user.active"]);
-
-                // Check nodes
-                eprintln!("Nodes: {:?}", nodes);
-                assert_eq!(nodes.len(), 1);
-                if let Node::Text { content, span } = &nodes[0] {
-                    assert_eq!(content, "Welcome!");
-                    eprintln!("Line offsets: {:?}", ast.line_offsets());
-                    eprintln!("Span: {:?}", span);
-                    let (line, col) = ast.line_offsets().position_to_line_col(span.start as usize);
-                    assert_eq!((line, col), (2, 2), "Content should be on line 2, col 2");
-
-                    // Check closing tag
-                    if let Block::Closing { tag } =
-                        closing.as_ref().expect("Expected closing tag").as_ref()
-                    {
-                        assert_eq!(tag.name, "endif");
-                    } else {
-                        panic!("Expected closing block");
-                    }
-                } else {
-                    panic!("Expected text node");
-                }
-            } else {
-                panic!("Expected block node");
             }
         }
     }

@@ -1,12 +1,10 @@
 ---
 source: crates/djls-template-ast/src/parser.rs
-expression: ast
+expression: nodelist
 ---
 nodes:
   - Variable:
-      bits:
-        - user
-        - name
+      var: user.name
       filters: []
       span:
         start: 0

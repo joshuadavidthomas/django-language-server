@@ -1,6 +1,5 @@
-use crate::ast::{Ast, AstError, Block, DjangoFilter, LineOffsets, Node, Span, Tag};
+use crate::ast::{AstError, LineOffsets, Node, NodeList, Span};
 use crate::lexer::LexerError;
-use crate::tagspecs::{TagSpec, TagSpecs, TagType};
 use crate::tokens::{Token, TokenStream, TokenType};
 use thiserror::Error;
 
@@ -8,21 +7,19 @@ pub struct Parser {
     tokens: TokenStream,
     current: usize,
     errors: Vec<ParserError>,
-    tags: TagSpecs,
 }
 
 impl Parser {
-    pub fn new(tokens: TokenStream, tags: TagSpecs) -> Self {
+    pub fn new(tokens: TokenStream) -> Self {
         Self {
             tokens,
             current: 0,
             errors: Vec::new(),
-            tags,
         }
     }
 
-    pub fn parse(&mut self) -> Result<(Ast, Vec<ParserError>), ParserError> {
-        let mut ast = Ast::default();
+    pub fn parse(&mut self) -> Result<(NodeList, Vec<ParserError>), ParserError> {
+        let mut nodelist = NodeList::default();
         let mut line_offsets = LineOffsets::new();
 
         for token in self.tokens.tokens() {
@@ -39,14 +36,19 @@ impl Parser {
         while !self.is_at_end() {
             match self.next_node() {
                 Ok(node) => {
-                    ast.add_node(node);
+                    nodelist.add_node(node);
                 }
-                Err(_) => self.synchronize()?,
+                Err(err) => {
+                    if !self.is_at_end() {
+                        self.errors.push(err);
+                        self.synchronize()?
+                    }
+                }
             }
         }
 
-        ast.set_line_offsets(line_offsets);
-        Ok((ast.finalize(), std::mem::take(&mut self.errors)))
+        nodelist.set_line_offsets(line_offsets);
+        Ok((nodelist.finalize(), std::mem::take(&mut self.errors)))
     }
 
     fn next_node(&mut self) -> Result<Node, ParserError> {
@@ -54,7 +56,7 @@ impl Parser {
 
         match token.token_type() {
             TokenType::Comment(_, open, _) => self.parse_comment(open),
-            TokenType::Eof => Err(ParserError::stream_error("AtEnd")),
+            TokenType::Eof => Err(ParserError::stream_error(StreamError::AtEnd)),
             TokenType::DjangoBlock(_) => self.parse_django_block(),
             TokenType::DjangoVariable(_) => self.parse_django_variable(),
             TokenType::HtmlTagClose(_)
@@ -87,186 +89,36 @@ impl Parser {
     pub fn parse_django_block(&mut self) -> Result<Node, ParserError> {
         let token = self.peek_previous()?;
 
-        let mut bits: Vec<String> = token
+        let args: Vec<String> = token
             .content()
             .split_whitespace()
             .map(String::from)
             .collect();
-        let tag_name = bits.first().ok_or(ParserError::EmptyTag)?.clone();
-
+        let name = args.first().ok_or(ParserError::EmptyTag)?.clone();
+        let bits = args.into_iter().skip(1).collect();
         let span = Span::from(token);
-        let tag_span = Span::new(*span.start(), tag_name.len() as u32);
 
-        let assignment = if bits.len() >= 2 {
-            let second_to_last_index = bits.len() - 2;
-            if bits[second_to_last_index] == "as" {
-                let value = bits.last().cloned();
-                bits.truncate(bits.len() - 2);
-                value
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-
-        let tag = Tag {
-            name: tag_name.clone(),
-            bits,
-            span,
-            tag_span,
-            assignment,
-        };
-
-        let spec = self.tags.get(&tag_name).cloned();
-
-        match spec {
-            Some(spec) => match spec.tag_type {
-                TagType::Container => self.parse_block_tag(tag, &spec),
-                TagType::Single => Ok(Node::Block(Block::Single { tag })),
-                TagType::Inclusion => {
-                    let template_name = tag.bits.get(1).cloned().unwrap_or_default();
-                    Ok(Node::Block(Block::Inclusion { tag, template_name }))
-                }
-            },
-
-            None => Ok(Node::Block(Block::Single { tag })),
-        }
-    }
-
-    fn parse_block_tag(&mut self, tag: Tag, spec: &TagSpec) -> Result<Node, ParserError> {
-        // Pure parsing logic
-        if tag.name.is_empty() {
-            return Err(ParserError::EmptyTag);
-        }
-
-        // Syntax validation
-        if !self.is_valid_tag_syntax(&tag.name) {
-            return Err(ParserError::InvalidSyntax {
-                context: format!("Invalid tag syntax: {}", tag.name),
-            });
-        }
-
-        let mut nodes = Vec::new();
-        let mut closing = None;
-        while !self.is_at_end() {
-            eprintln!("not at end");
-            match self.next_node() {
-                Ok(Node::Block(Block::Single { tag: inner_tag })) => {
-                    eprintln!("{:?}", inner_tag);
-                    if self.is_closing_tag(&inner_tag, spec) {
-                        closing = Some(Box::new(Block::Closing { tag: inner_tag }));
-                        break;
-                    } else if self.is_branch_tag(&inner_tag, spec) {
-                        nodes.push(self.parse_branch_tag(inner_tag, spec)?);
-                    } else {
-                        nodes.push(Node::Block(Block::Single { tag: inner_tag }));
-                    }
-                }
-                Ok(node) => nodes.push(node),
-                Err(e) => {
-                    self.errors.push(e);
-                    break;
-                }
-            }
-        }
-
-        Ok(Node::Block(Block::Container {
-            tag,
-            nodes,
-            closing,
-        }))
-    }
-
-    fn is_valid_tag_syntax(&self, tag_name: &str) -> bool {
-        // Basic syntax validation without span concerns
-        !tag_name.is_empty()
-            && tag_name
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || c == '_')
-    }
-
-    fn parse_branch_tag(&mut self, branch_tag: Tag, spec: &TagSpec) -> Result<Node, ParserError> {
-        let mut branch_nodes = Vec::new();
-
-        while !self.is_at_end() {
-            match self.next_node() {
-                Ok(Node::Block(Block::Single { tag: inner_tag })) => {
-                    if self.is_closing_tag(&inner_tag, spec) || self.is_branch_tag(&inner_tag, spec)
-                    {
-                        self.backtrack(1)?;
-                        break;
-                    } else {
-                        branch_nodes.push(Node::Block(Block::Single { tag: inner_tag }));
-                    }
-                }
-                Ok(node) => branch_nodes.push(node),
-                Err(e) => {
-                    self.errors.push(e);
-                    break;
-                }
-            }
-        }
-
-        Ok(Node::Block(Block::Branch {
-            tag: branch_tag,
-            nodes: branch_nodes,
-        }))
-    }
-
-    fn is_closing_tag(&self, tag: &Tag, spec: &TagSpec) -> bool {
-        match &spec.closing {
-            Some(expected_closing) => &tag.name == expected_closing,
-            None => false,
-        }
-    }
-
-    fn is_branch_tag(&self, tag: &Tag, spec: &TagSpec) -> bool {
-        if let Some(branches) = &spec.branches {
-            branches.contains(&tag.name)
-        } else {
-            false
-        }
+        Ok(Node::Tag { name, bits, span })
     }
 
     fn parse_django_variable(&mut self) -> Result<Node, ParserError> {
         let token = self.peek_previous()?;
 
         let content = token.content();
-        let parts: Vec<&str> = content.split('|').collect();
-        let bits: Vec<String> = parts[0].split('.').map(|s| s.trim().to_string()).collect();
+        let bits: Vec<&str> = content.split('|').collect();
+        let var = bits
+            .first()
+            .ok_or(ParserError::EmptyTag)?
+            .trim()
+            .to_string();
+        let filters = bits
+            .into_iter()
+            .skip(1)
+            .map(|s| s.trim().to_string())
+            .collect();
+        let span = Span::from(token);
 
-        let mut filters = Vec::new();
-        let mut filter_offset = parts[0].len() as u32 + 1;
-
-        for filter_part in parts.iter().skip(1) {
-            let filter_parts: Vec<&str> = filter_part.split(':').collect();
-            let args = if filter_parts.len() > 1 {
-                filter_parts[1]
-                    .split(',')
-                    .map(|s| s.trim().to_string())
-                    .collect()
-            } else {
-                Vec::new()
-            };
-
-            filters.push(DjangoFilter {
-                name: filter_parts[0].trim().to_string(),
-                args,
-                span: Span::new(
-                    token.start().unwrap_or(0) + filter_offset,
-                    filter_part.len() as u32,
-                ),
-            });
-
-            filter_offset += filter_part.len() as u32 + 1;
-        }
-
-        Ok(Node::Variable {
-            bits,
-            filters,
-            span: Span::from(token),
-        })
+        Ok(Node::Variable { var, filters, span })
     }
 
     fn parse_text(&mut self) -> Result<Node, ParserError> {
@@ -301,11 +153,9 @@ impl Parser {
         let start = token.start().unwrap_or(0);
         let offset = text.find(content.as_str()).unwrap_or(0) as u32;
         let length = content.len() as u32;
+        let span = Span::new(start + offset, length);
 
-        Ok(Node::Text {
-            content,
-            span: Span::new(start + offset, length),
-        })
+        Ok(Node::Text { content, span })
     }
 
     fn peek(&self) -> Result<Token, ParserError> {
@@ -330,13 +180,13 @@ impl Parser {
             Ok(token.clone())
         } else {
             let error = if self.tokens.is_empty() {
-                ParserError::stream_error("Empty")
+                ParserError::stream_error(StreamError::Empty)
             } else if index < self.current {
-                ParserError::stream_error("AtBeginning")
+                ParserError::stream_error(StreamError::AtBeginning)
             } else if index >= self.tokens.len() {
-                ParserError::stream_error("AtEnd")
+                ParserError::stream_error(StreamError::AtEnd)
             } else {
-                ParserError::stream_error("InvalidAccess")
+                ParserError::stream_error(StreamError::InvalidAccess)
             };
             Err(error)
         }
@@ -348,7 +198,7 @@ impl Parser {
 
     fn consume(&mut self) -> Result<Token, ParserError> {
         if self.is_at_end() {
-            return Err(ParserError::stream_error("AtEnd"));
+            return Err(ParserError::stream_error(StreamError::AtEnd));
         }
         self.current += 1;
         self.peek_previous()
@@ -356,7 +206,7 @@ impl Parser {
 
     fn backtrack(&mut self, steps: usize) -> Result<Token, ParserError> {
         if self.current < steps {
-            return Err(ParserError::stream_error("AtBeginning"));
+            return Err(ParserError::stream_error(StreamError::AtBeginning));
         }
         self.current -= steps;
         self.peek_next()
@@ -384,12 +234,11 @@ impl Parser {
 }
 
 #[derive(Debug)]
-pub enum Signal {
-    ClosingTagFound(String),
-    IntermediateTagFound(String, Vec<String>),
-    IntermediateTag(String),
-    SpecialTag(String),
-    ClosingTag,
+pub enum StreamError {
+    AtBeginning,
+    AtEnd,
+    Empty,
+    InvalidAccess,
 }
 
 #[derive(Debug, Error)]
@@ -406,14 +255,14 @@ pub enum ParserError {
     EmptyTag,
     #[error("Lexer error: {0}")]
     Lexer(#[from] LexerError),
-    #[error("Stream error: {kind}")]
-    StreamError { kind: String },
+    #[error("Stream error: {kind:?}")]
+    StreamError { kind: StreamError },
     #[error("AST error: {0}")]
     Ast(#[from] AstError),
 }
 
 impl ParserError {
-    pub fn stream_error(kind: impl Into<String>) -> Self {
+    pub fn stream_error(kind: impl Into<StreamError>) -> Self {
         Self::StreamError { kind: kind.into() }
     }
 }
@@ -429,10 +278,9 @@ mod tests {
         fn test_parse_html_doctype() {
             let source = "<!DOCTYPE html>";
             let tokens = Lexer::new(source).tokenize().unwrap();
-            let tags = TagSpecs::load_builtin_specs().unwrap();
-            let mut parser = Parser::new(tokens, tags);
-            let (ast, errors) = parser.parse().unwrap();
-            insta::assert_yaml_snapshot!(ast);
+            let mut parser = Parser::new(tokens);
+            let (nodelist, errors) = parser.parse().unwrap();
+            insta::assert_yaml_snapshot!(nodelist);
             assert!(errors.is_empty());
         }
 
@@ -440,10 +288,9 @@ mod tests {
         fn test_parse_html_tag() {
             let source = "<div class=\"container\">Hello</div>";
             let tokens = Lexer::new(source).tokenize().unwrap();
-            let tags = TagSpecs::load_builtin_specs().unwrap();
-            let mut parser = Parser::new(tokens, tags);
-            let (ast, errors) = parser.parse().unwrap();
-            insta::assert_yaml_snapshot!(ast);
+            let mut parser = Parser::new(tokens);
+            let (nodelist, errors) = parser.parse().unwrap();
+            insta::assert_yaml_snapshot!(nodelist);
             assert!(errors.is_empty());
         }
 
@@ -451,10 +298,9 @@ mod tests {
         fn test_parse_html_void() {
             let source = "<input type=\"text\" />";
             let tokens = Lexer::new(source).tokenize().unwrap();
-            let tags = TagSpecs::load_builtin_specs().unwrap();
-            let mut parser = Parser::new(tokens, tags);
-            let (ast, errors) = parser.parse().unwrap();
-            insta::assert_yaml_snapshot!(ast);
+            let mut parser = Parser::new(tokens);
+            let (nodelist, errors) = parser.parse().unwrap();
+            insta::assert_yaml_snapshot!(nodelist);
             assert!(errors.is_empty());
         }
     }
@@ -466,10 +312,9 @@ mod tests {
         fn test_parse_django_variable() {
             let source = "{{ user.name }}";
             let tokens = Lexer::new(source).tokenize().unwrap();
-            let tags = TagSpecs::load_builtin_specs().unwrap();
-            let mut parser = Parser::new(tokens, tags);
-            let (ast, errors) = parser.parse().unwrap();
-            insta::assert_yaml_snapshot!(ast);
+            let mut parser = Parser::new(tokens);
+            let (nodelist, errors) = parser.parse().unwrap();
+            insta::assert_yaml_snapshot!(nodelist);
             assert!(errors.is_empty());
         }
 
@@ -477,10 +322,9 @@ mod tests {
         fn test_parse_django_variable_with_filter() {
             let source = "{{ user.name|title }}";
             let tokens = Lexer::new(source).tokenize().unwrap();
-            let tags = TagSpecs::load_builtin_specs().unwrap();
-            let mut parser = Parser::new(tokens, tags);
-            let (ast, errors) = parser.parse().unwrap();
-            insta::assert_yaml_snapshot!(ast);
+            let mut parser = Parser::new(tokens);
+            let (nodelist, errors) = parser.parse().unwrap();
+            insta::assert_yaml_snapshot!(nodelist);
             assert!(errors.is_empty());
         }
 
@@ -488,10 +332,9 @@ mod tests {
         fn test_parse_filter_chains() {
             let source = "{{ value|default:'nothing'|title|upper }}";
             let tokens = Lexer::new(source).tokenize().unwrap();
-            let tags = TagSpecs::load_builtin_specs().unwrap();
-            let mut parser = Parser::new(tokens, tags);
-            let (ast, errors) = parser.parse().unwrap();
-            insta::assert_yaml_snapshot!(ast);
+            let mut parser = Parser::new(tokens);
+            let (nodelist, errors) = parser.parse().unwrap();
+            insta::assert_yaml_snapshot!(nodelist);
             assert!(errors.is_empty());
         }
 
@@ -499,10 +342,9 @@ mod tests {
         fn test_parse_django_if_block() {
             let source = "{% if user.is_authenticated %}Welcome{% endif %}";
             let tokens = Lexer::new(source).tokenize().unwrap();
-            let tags = TagSpecs::load_builtin_specs().unwrap();
-            let mut parser = Parser::new(tokens, tags);
-            let (ast, errors) = parser.parse().unwrap();
-            insta::assert_yaml_snapshot!(ast);
+            let mut parser = Parser::new(tokens);
+            let (nodelist, errors) = parser.parse().unwrap();
+            insta::assert_yaml_snapshot!(nodelist);
             assert!(errors.is_empty());
         }
 
@@ -510,10 +352,9 @@ mod tests {
         fn test_parse_django_for_block() {
             let source = "{% for item in items %}{{ item }}{% empty %}No items{% endfor %}";
             let tokens = Lexer::new(source).tokenize().unwrap();
-            let tags = TagSpecs::load_builtin_specs().unwrap();
-            let mut parser = Parser::new(tokens, tags);
-            let (ast, errors) = parser.parse().unwrap();
-            insta::assert_yaml_snapshot!(ast);
+            let mut parser = Parser::new(tokens);
+            let (nodelist, errors) = parser.parse().unwrap();
+            insta::assert_yaml_snapshot!(nodelist);
             assert!(errors.is_empty());
         }
 
@@ -521,10 +362,9 @@ mod tests {
         fn test_parse_complex_if_elif() {
             let source = "{% if x > 0 %}Positive{% elif x < 0 %}Negative{% else %}Zero{% endif %}";
             let tokens = Lexer::new(source).tokenize().unwrap();
-            let tags = TagSpecs::load_builtin_specs().unwrap();
-            let mut parser = Parser::new(tokens, tags);
-            let (ast, errors) = parser.parse().unwrap();
-            insta::assert_yaml_snapshot!(ast);
+            let mut parser = Parser::new(tokens);
+            let (nodelist, errors) = parser.parse().unwrap();
+            insta::assert_yaml_snapshot!(nodelist);
             assert!(errors.is_empty());
         }
 
@@ -532,10 +372,9 @@ mod tests {
         fn test_parse_django_tag_assignment() {
             let source = "{% url 'view-name' as view %}";
             let tokens = Lexer::new(source).tokenize().unwrap();
-            let tags = TagSpecs::load_builtin_specs().unwrap();
-            let mut parser = Parser::new(tokens, tags);
-            let (ast, errors) = parser.parse().unwrap();
-            insta::assert_yaml_snapshot!(ast);
+            let mut parser = Parser::new(tokens);
+            let (nodelist, errors) = parser.parse().unwrap();
+            insta::assert_yaml_snapshot!(nodelist);
             assert!(errors.is_empty());
         }
 
@@ -544,10 +383,9 @@ mod tests {
             let source =
                 "{% for item in items %}{% if item.active %}{{ item.name }}{% endif %}{% endfor %}";
             let tokens = Lexer::new(source).tokenize().unwrap();
-            let tags = TagSpecs::load_builtin_specs().unwrap();
-            let mut parser = Parser::new(tokens, tags);
-            let (ast, errors) = parser.parse().unwrap();
-            insta::assert_yaml_snapshot!(ast);
+            let mut parser = Parser::new(tokens);
+            let (nodelist, errors) = parser.parse().unwrap();
+            insta::assert_yaml_snapshot!(nodelist);
             assert!(errors.is_empty());
         }
 
@@ -567,10 +405,9 @@ mod tests {
     Guest
 {% endif %}!";
             let tokens = Lexer::new(source).tokenize().unwrap();
-            let tags = TagSpecs::load_builtin_specs().unwrap();
-            let mut parser = Parser::new(tokens, tags);
-            let (ast, errors) = parser.parse().unwrap();
-            insta::assert_yaml_snapshot!(ast);
+            let mut parser = Parser::new(tokens);
+            let (nodelist, errors) = parser.parse().unwrap();
+            insta::assert_yaml_snapshot!(nodelist);
             assert!(errors.is_empty());
         }
     }
@@ -588,10 +425,9 @@ mod tests {
     console.log(x);
 </script>"#;
             let tokens = Lexer::new(source).tokenize().unwrap();
-            let tags = TagSpecs::load_builtin_specs().unwrap();
-            let mut parser = Parser::new(tokens, tags);
-            let (ast, errors) = parser.parse().unwrap();
-            insta::assert_yaml_snapshot!(ast);
+            let mut parser = Parser::new(tokens);
+            let (nodelist, errors) = parser.parse().unwrap();
+            insta::assert_yaml_snapshot!(nodelist);
             assert!(errors.is_empty());
         }
     }
@@ -608,10 +444,9 @@ mod tests {
     }
 </style>"#;
             let tokens = Lexer::new(source).tokenize().unwrap();
-            let tags = TagSpecs::load_builtin_specs().unwrap();
-            let mut parser = Parser::new(tokens, tags);
-            let (ast, errors) = parser.parse().unwrap();
-            insta::assert_yaml_snapshot!(ast);
+            let mut parser = Parser::new(tokens);
+            let (nodelist, errors) = parser.parse().unwrap();
+            insta::assert_yaml_snapshot!(nodelist);
             assert!(errors.is_empty());
         }
     }
@@ -623,10 +458,9 @@ mod tests {
         fn test_parse_comments() {
             let source = "<!-- HTML comment -->{# Django comment #}";
             let tokens = Lexer::new(source).tokenize().unwrap();
-            let tags = TagSpecs::load_builtin_specs().unwrap();
-            let mut parser = Parser::new(tokens, tags);
-            let (ast, errors) = parser.parse().unwrap();
-            insta::assert_yaml_snapshot!(ast);
+            let mut parser = Parser::new(tokens);
+            let (nodelist, errors) = parser.parse().unwrap();
+            insta::assert_yaml_snapshot!(nodelist);
             assert!(errors.is_empty());
         }
     }
@@ -638,10 +472,9 @@ mod tests {
         fn test_parse_with_leading_whitespace() {
             let source = "     hello";
             let tokens = Lexer::new(source).tokenize().unwrap();
-            let tags = TagSpecs::load_builtin_specs().unwrap();
-            let mut parser = Parser::new(tokens, tags);
-            let (ast, errors) = parser.parse().unwrap();
-            insta::assert_yaml_snapshot!(ast);
+            let mut parser = Parser::new(tokens);
+            let (nodelist, errors) = parser.parse().unwrap();
+            insta::assert_yaml_snapshot!(nodelist);
             assert!(errors.is_empty());
         }
 
@@ -649,10 +482,9 @@ mod tests {
         fn test_parse_with_leading_whitespace_newline() {
             let source = "\n     hello";
             let tokens = Lexer::new(source).tokenize().unwrap();
-            let tags = TagSpecs::load_builtin_specs().unwrap();
-            let mut parser = Parser::new(tokens, tags);
-            let (ast, errors) = parser.parse().unwrap();
-            insta::assert_yaml_snapshot!(ast);
+            let mut parser = Parser::new(tokens);
+            let (nodelist, errors) = parser.parse().unwrap();
+            insta::assert_yaml_snapshot!(nodelist);
             assert!(errors.is_empty());
         }
 
@@ -660,10 +492,9 @@ mod tests {
         fn test_parse_with_trailing_whitespace() {
             let source = "hello     ";
             let tokens = Lexer::new(source).tokenize().unwrap();
-            let tags = TagSpecs::load_builtin_specs().unwrap();
-            let mut parser = Parser::new(tokens, tags);
-            let (ast, errors) = parser.parse().unwrap();
-            insta::assert_yaml_snapshot!(ast);
+            let mut parser = Parser::new(tokens);
+            let (nodelist, errors) = parser.parse().unwrap();
+            insta::assert_yaml_snapshot!(nodelist);
             assert!(errors.is_empty());
         }
 
@@ -671,10 +502,10 @@ mod tests {
         fn test_parse_with_trailing_whitespace_newline() {
             let source = "hello     \n";
             let tokens = Lexer::new(source).tokenize().unwrap();
-            let tags = TagSpecs::load_builtin_specs().unwrap();
-            let mut parser = Parser::new(tokens, tags);
-            let (ast, errors) = parser.parse().unwrap();
-            insta::assert_yaml_snapshot!(ast);
+            let mut parser = Parser::new(tokens);
+            let (nodelist, errors) = parser.parse().unwrap();
+            insta::assert_yaml_snapshot!(nodelist);
+            eprintln!("{:?}", errors);
             assert!(errors.is_empty());
         }
     }
@@ -686,10 +517,9 @@ mod tests {
         fn test_parse_unclosed_html_tag() {
             let source = "<div>";
             let tokens = Lexer::new(source).tokenize().unwrap();
-            let tags = TagSpecs::load_builtin_specs().unwrap();
-            let mut parser = Parser::new(tokens, tags);
-            let (ast, errors) = parser.parse().unwrap();
-            insta::assert_yaml_snapshot!(ast);
+            let mut parser = Parser::new(tokens);
+            let (nodelist, errors) = parser.parse().unwrap();
+            insta::assert_yaml_snapshot!(nodelist);
             assert!(errors.is_empty());
         }
 
@@ -697,40 +527,29 @@ mod tests {
         fn test_parse_unclosed_django_if() {
             let source = "{% if user.is_authenticated %}Welcome";
             let tokens = Lexer::new(source).tokenize().unwrap();
-            let tags = TagSpecs::load_builtin_specs().unwrap();
-            let mut parser = Parser::new(tokens.clone(), tags);
-            let (ast, errors) = parser.parse().unwrap();
-            eprintln!("{:?}", tokens);
-            insta::assert_yaml_snapshot!(ast);
-            assert_eq!(errors.len(), 1);
-            assert!(
-                matches!(&errors[0], ParserError::Ast(AstError::UnclosedTag(tag)) if tag == "if")
-            );
+            let mut parser = Parser::new(tokens);
+            let (nodelist, errors) = parser.parse().unwrap();
+            insta::assert_yaml_snapshot!(nodelist);
+            assert!(errors.is_empty()); // Parser doesn't care about semantics at this point
         }
 
         #[test]
         fn test_parse_unclosed_django_for() {
             let source = "{% for item in items %}{{ item.name }}";
             let tokens = Lexer::new(source).tokenize().unwrap();
-            let tags = TagSpecs::load_builtin_specs().unwrap();
-            let mut parser = Parser::new(tokens.clone(), tags);
-            let (ast, errors) = parser.parse().unwrap();
-            eprintln!("{:?}", tokens);
-            insta::assert_yaml_snapshot!(ast);
-            assert_eq!(errors.len(), 1);
-            assert!(
-                matches!(&errors[0], ParserError::Ast(AstError::UnclosedTag(tag)) if tag == "for")
-            );
+            let mut parser = Parser::new(tokens);
+            let (nodelist, errors) = parser.parse().unwrap();
+            insta::assert_yaml_snapshot!(nodelist);
+            assert!(errors.is_empty()); // Parser doesn't care about semantics at this point
         }
 
         #[test]
         fn test_parse_unclosed_script() {
             let source = "<script>console.log('test');";
             let tokens = Lexer::new(source).tokenize().unwrap();
-            let tags = TagSpecs::load_builtin_specs().unwrap();
-            let mut parser = Parser::new(tokens, tags);
-            let (ast, errors) = parser.parse().unwrap();
-            insta::assert_yaml_snapshot!(ast);
+            let mut parser = Parser::new(tokens);
+            let (nodelist, errors) = parser.parse().unwrap();
+            insta::assert_yaml_snapshot!(nodelist);
             assert!(errors.is_empty());
         }
 
@@ -738,10 +557,9 @@ mod tests {
         fn test_parse_unclosed_style() {
             let source = "<style>body { color: blue; ";
             let tokens = Lexer::new(source).tokenize().unwrap();
-            let tags = TagSpecs::load_builtin_specs().unwrap();
-            let mut parser = Parser::new(tokens, tags);
-            let (ast, errors) = parser.parse().unwrap();
-            insta::assert_yaml_snapshot!(ast);
+            let mut parser = Parser::new(tokens);
+            let (nodelist, errors) = parser.parse().unwrap();
+            insta::assert_yaml_snapshot!(nodelist);
             assert!(errors.is_empty());
         }
 
@@ -749,7 +567,7 @@ mod tests {
         fn test_parse_error_recovery() {
             let source = r#"<div class="container">
     <h1>Header</h1>
-    {% if user.is_authenticated %}
+    {% %}
         {# This if is unclosed which does matter #}
         <p>Welcome {{ user.name }}</p>
         <div>
@@ -760,14 +578,11 @@ mod tests {
     <footer>Page Footer</footer>
 </div>"#;
             let tokens = Lexer::new(source).tokenize().unwrap();
-            let tags = TagSpecs::load_builtin_specs().unwrap();
-            let mut parser = Parser::new(tokens, tags);
-            let (ast, errors) = parser.parse().unwrap();
-            insta::assert_yaml_snapshot!(ast);
+            let mut parser = Parser::new(tokens);
+            let (nodelist, errors) = parser.parse().unwrap();
+            insta::assert_yaml_snapshot!(nodelist);
             assert_eq!(errors.len(), 1);
-            assert!(
-                matches!(&errors[0], ParserError::Ast(AstError::UnclosedTag(tag)) if tag == "if")
-            );
+            assert!(matches!(&errors[0], ParserError::EmptyTag));
         }
     }
 
@@ -807,10 +622,9 @@ mod tests {
     </body>
 </html>"#;
             let tokens = Lexer::new(source).tokenize().unwrap();
-            let tags = TagSpecs::load_builtin_specs().unwrap();
-            let mut parser = Parser::new(tokens, tags);
-            let (ast, errors) = parser.parse().unwrap();
-            insta::assert_yaml_snapshot!(ast);
+            let mut parser = Parser::new(tokens);
+            let (nodelist, errors) = parser.parse().unwrap();
+            insta::assert_yaml_snapshot!(nodelist);
             assert!(errors.is_empty());
         }
     }
@@ -822,11 +636,10 @@ mod tests {
         fn test_parser_tracks_line_offsets() {
             let source = "line1\nline2";
             let tokens = Lexer::new(source).tokenize().unwrap();
-            let tags = TagSpecs::load_builtin_specs().unwrap();
-            let mut parser = Parser::new(tokens, tags);
-            let (ast, errors) = parser.parse().unwrap();
+            let mut parser = Parser::new(tokens);
+            let (nodelist, errors) = parser.parse().unwrap();
 
-            let offsets = ast.line_offsets();
+            let offsets = nodelist.line_offsets();
             eprintln!("{:?}", offsets);
             assert_eq!(offsets.position_to_line_col(0), (1, 0)); // Start of line 1
             assert_eq!(offsets.position_to_line_col(6), (2, 0)); // Start of line 2

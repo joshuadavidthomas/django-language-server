@@ -1,83 +1,52 @@
 ---
 source: crates/djls-template-ast/src/parser.rs
-expression: ast
+expression: nodelist
 ---
 nodes:
-  - Block:
-      Container:
-        tag:
-          name: if
-          bits:
-            - if
-            - x
-            - ">"
-            - "0"
-          span:
-            start: 0
-            length: 8
-          tag_span:
-            start: 0
-            length: 2
-          assignment: ~
-        nodes:
-          - Text:
-              content: Positive
-              span:
-                start: 14
-                length: 8
-          - Block:
-              Branch:
-                tag:
-                  name: elif
-                  bits:
-                    - elif
-                    - x
-                    - "<"
-                    - "0"
-                  span:
-                    start: 22
-                    length: 10
-                  tag_span:
-                    start: 22
-                    length: 4
-                  assignment: ~
-                nodes:
-                  - Text:
-                      content: Negative
-                      span:
-                        start: 38
-                        length: 8
-          - Block:
-              Branch:
-                tag:
-                  name: else
-                  bits:
-                    - else
-                  span:
-                    start: 46
-                    length: 4
-                  tag_span:
-                    start: 46
-                    length: 4
-                  assignment: ~
-                nodes:
-                  - Text:
-                      content: Zero
-                      span:
-                        start: 56
-                        length: 4
-        closing:
-          Closing:
-            tag:
-              name: endif
-              bits:
-                - endif
-              span:
-                start: 60
-                length: 5
-              tag_span:
-                start: 60
-                length: 5
-              assignment: ~
+  - Tag:
+      name: if
+      bits:
+        - x
+        - ">"
+        - "0"
+      span:
+        start: 0
+        length: 8
+  - Text:
+      content: Positive
+      span:
+        start: 14
+        length: 8
+  - Tag:
+      name: elif
+      bits:
+        - x
+        - "<"
+        - "0"
+      span:
+        start: 22
+        length: 10
+  - Text:
+      content: Negative
+      span:
+        start: 38
+        length: 8
+  - Tag:
+      name: else
+      bits: []
+      span:
+        start: 46
+        length: 4
+  - Text:
+      content: Zero
+      span:
+        start: 56
+        length: 4
+  - Tag:
+      name: endif
+      bits: []
+      span:
+        start: 60
+        length: 5
 line_offsets:
   - 0
