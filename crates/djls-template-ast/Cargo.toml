@@ -11,5 +11,5 @@ thiserror = { workspace = true }
 toml = "0.8"
 
 [dev-dependencies]
-insta = { version = "1.41", features = ["yaml"] }
-tempfile = "3.8"
+insta = { version = "1.42", features = ["yaml"] }
+tempfile = "3.19"
