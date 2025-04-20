@@ -1,225 +1,207 @@
+use crate::tokens::Token;
 use serde::Serialize;
-use std::collections::BTreeMap;
-use std::str::FromStr;
 use thiserror::Error;
 
-#[derive(Clone, Debug, Default, Serialize)]
-pub struct Ast {
+#[derive(Clone, Default, Debug, Serialize)]
+pub struct NodeList {
     nodes: Vec<Node>,
+    line_offsets: LineOffsets,
 }
 
-impl Ast {
+impl NodeList {
     pub fn nodes(&self) -> &Vec<Node> {
         &self.nodes
+    }
+
+    pub fn line_offsets(&self) -> &LineOffsets {
+        &self.line_offsets
     }
 
     pub fn add_node(&mut self, node: Node) {
         self.nodes.push(node);
     }
 
-    pub fn finalize(&mut self) -> Result<Ast, AstError> {
-        if self.nodes.is_empty() {
-            return Err(AstError::EmptyAst);
-        }
-        Ok(self.clone())
+    pub fn set_line_offsets(&mut self, line_offsets: LineOffsets) {
+        self.line_offsets = line_offsets
+    }
+
+    pub fn finalize(&mut self) -> NodeList {
+        self.clone()
+    }
+}
+
+#[derive(Clone, Default, Debug, Serialize)]
+pub struct LineOffsets(pub Vec<u32>);
+
+impl LineOffsets {
+    pub fn new() -> Self {
+        Self(vec![0])
+    }
+
+    pub fn add_line(&mut self, offset: u32) {
+        self.0.push(offset);
+    }
+
+    pub fn position_to_line_col(&self, position: usize) -> (usize, usize) {
+        let position = position as u32;
+        let line = match self.0.binary_search(&position) {
+            Ok(exact_line) => exact_line,    // Position is at start of this line
+            Err(0) => 0,                     // Before first line start
+            Err(next_line) => next_line - 1, // We're on the previous line
+        };
+
+        // Calculate column as offset from line start
+        let col = if line == 0 {
+            position as usize
+        } else {
+            (position - self.0[line]) as usize
+        };
+
+        // Convert to 1-based line number
+        (line + 1, col)
+    }
+
+    pub fn line_col_to_position(&self, line: u32, col: u32) -> u32 {
+        // line is 1-based, so subtract 1 to get the index
+        self.0[(line - 1) as usize] + col
     }
 }
 
 #[derive(Clone, Debug, Serialize)]
 pub enum Node {
-    Django(DjangoNode),
-    Html(HtmlNode),
-    Script(ScriptNode),
-    Style(StyleNode),
-    Text(String),
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub enum DjangoNode {
-    Comment(String),
     Tag {
-        kind: DjangoTagKind,
+        name: String,
         bits: Vec<String>,
-        children: Vec<Node>,
+        span: Span,
     },
-    Variable {
-        bits: Vec<String>,
-        filters: Vec<DjangoFilter>,
-    },
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub enum DjangoTagKind {
-    Autoescape,
-    Block,
-    Comment,
-    CsrfToken,
-    Cycle,
-    Debug,
-    Elif,
-    Else,
-    Empty,
-    Extends,
-    Filter,
-    FirstOf,
-    For,
-    If,
-    IfChanged,
-    Include,
-    Load,
-    Lorem,
-    Now,
-    Other(String),
-    Querystring, // 5.1
-    Regroup,
-    ResetCycle,
-    Spaceless,
-    TemplateTag,
-    Url,
-    Verbatim,
-    WidthRatio,
-    With,
-}
-
-impl DjangoTagKind {
-    const AUTOESCAPE: &'static str = "autoescape";
-    const BLOCK: &'static str = "block";
-    const COMMENT: &'static str = "comment";
-    const CSRF_TOKEN: &'static str = "csrf_token";
-    const CYCLE: &'static str = "cycle";
-    const DEBUG: &'static str = "debug";
-    const ELIF: &'static str = "elif";
-    const ELSE: &'static str = "else";
-    const EMPTY: &'static str = "empty";
-    const EXTENDS: &'static str = "extends";
-    const FILTER: &'static str = "filter";
-    const FIRST_OF: &'static str = "firstof";
-    const FOR: &'static str = "for";
-    const IF: &'static str = "if";
-    const IF_CHANGED: &'static str = "ifchanged";
-    const INCLUDE: &'static str = "include";
-    const LOAD: &'static str = "load";
-    const LOREM: &'static str = "lorem";
-    const NOW: &'static str = "now";
-    const QUERYSTRING: &'static str = "querystring";
-    const REGROUP: &'static str = "regroup";
-    const RESET_CYCLE: &'static str = "resetcycle";
-    const SPACELESS: &'static str = "spaceless";
-    const TEMPLATE_TAG: &'static str = "templatetag";
-    const URL: &'static str = "url";
-    const VERBATIM: &'static str = "verbatim";
-    const WIDTH_RATIO: &'static str = "widthratio";
-    const WITH: &'static str = "with";
-}
-
-impl FromStr for DjangoTagKind {
-    type Err = AstError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s.is_empty() {
-            return Err(AstError::EmptyTag);
-        }
-
-        match s {
-            Self::AUTOESCAPE => Ok(Self::Autoescape),
-            Self::BLOCK => Ok(Self::Block),
-            Self::COMMENT => Ok(Self::Comment),
-            Self::CSRF_TOKEN => Ok(Self::CsrfToken),
-            Self::CYCLE => Ok(Self::Cycle),
-            Self::DEBUG => Ok(Self::Debug),
-            Self::ELIF => Ok(Self::Elif),
-            Self::ELSE => Ok(Self::Else),
-            Self::EMPTY => Ok(Self::Empty),
-            Self::EXTENDS => Ok(Self::Extends),
-            Self::FILTER => Ok(Self::Filter),
-            Self::FIRST_OF => Ok(Self::FirstOf),
-            Self::FOR => Ok(Self::For),
-            Self::IF => Ok(Self::If),
-            Self::IF_CHANGED => Ok(Self::IfChanged),
-            Self::INCLUDE => Ok(Self::Include),
-            Self::LOAD => Ok(Self::Load),
-            Self::LOREM => Ok(Self::Lorem),
-            Self::NOW => Ok(Self::Now),
-            Self::QUERYSTRING => Ok(Self::Querystring),
-            Self::REGROUP => Ok(Self::Regroup),
-            Self::RESET_CYCLE => Ok(Self::ResetCycle),
-            Self::SPACELESS => Ok(Self::Spaceless),
-            Self::TEMPLATE_TAG => Ok(Self::TemplateTag),
-            Self::URL => Ok(Self::Url),
-            Self::VERBATIM => Ok(Self::Verbatim),
-            Self::WIDTH_RATIO => Ok(Self::WidthRatio),
-            Self::WITH => Ok(Self::With),
-            other => Ok(Self::Other(other.to_string())),
-        }
-    }
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct DjangoFilter {
-    name: String,
-    arguments: Vec<String>,
-}
-
-impl DjangoFilter {
-    pub fn new(name: String, arguments: Vec<String>) -> Self {
-        Self { name, arguments }
-    }
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub enum HtmlNode {
-    Comment(String),
-    Doctype(String),
-    Element {
-        tag_name: String,
-        attributes: Attributes,
-        children: Vec<Node>,
-    },
-    Void {
-        tag_name: String,
-        attributes: Attributes,
-    },
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub enum ScriptNode {
     Comment {
         content: String,
-        kind: ScriptCommentKind,
+        span: Span,
     },
-    Element {
-        attributes: Attributes,
-        children: Vec<Node>,
+    Text {
+        content: String,
+        span: Span,
     },
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub enum ScriptCommentKind {
-    SingleLine, // //
-    MultiLine,  // /* */
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub enum StyleNode {
-    Comment(String),
-    Element {
-        attributes: Attributes,
-        children: Vec<Node>,
+    Variable {
+        var: String,
+        filters: Vec<String>,
+        span: Span,
     },
 }
 
-#[derive(Clone, Debug, Serialize)]
-pub enum AttributeValue {
-    Value(String),
-    Boolean,
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+pub struct Span {
+    start: u32,
+    length: u32,
 }
 
-pub type Attributes = BTreeMap<String, AttributeValue>;
+impl Span {
+    pub fn new(start: u32, length: u32) -> Self {
+        Self { start, length }
+    }
 
-#[derive(Error, Debug)]
+    pub fn start(&self) -> &u32 {
+        &self.start
+    }
+
+    pub fn length(&self) -> &u32 {
+        &self.length
+    }
+}
+
+impl From<Token> for Span {
+    fn from(token: Token) -> Self {
+        let start = token.start().unwrap_or(0);
+        let length = token.content().len() as u32;
+        Span::new(start, length)
+    }
+}
+
+#[derive(Clone, Debug, Error, Serialize)]
 pub enum AstError {
-    #[error("error parsing django tag, recieved empty tag name")]
-    EmptyTag,
-    #[error("empty ast")]
+    #[error("Empty AST")]
     EmptyAst,
+    #[error("Invalid tag '{tag}' structure: {reason}")]
+    InvalidTagStructure {
+        tag: String,
+        reason: String,
+        span: Span,
+    },
+    #[error("Unbalanced structure: '{opening_tag}' at {opening_span:?} missing closing '{expected_closing}'")]
+    UnbalancedStructure {
+        opening_tag: String,
+        expected_closing: String,
+        opening_span: Span,
+        closing_span: Option<Span>,
+    },
+    #[error("Invalid {node_type} node: {reason}")]
+    InvalidNode {
+        node_type: String,
+        reason: String,
+        span: Span,
+    },
+    #[error("Unclosed tag: {0}")]
+    UnclosedTag(String),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::lexer::Lexer;
+    use crate::parser::Parser;
+
+    mod line_offsets {
+        use super::*;
+
+        #[test]
+        fn test_new_starts_at_zero() {
+            let offsets = LineOffsets::new();
+            assert_eq!(offsets.position_to_line_col(0), (1, 0)); // Line 1, column 0
+        }
+
+        #[test]
+        fn test_start_of_lines() {
+            let mut offsets = LineOffsets::new();
+            offsets.add_line(10); // Line 2 starts at offset 10
+            offsets.add_line(25); // Line 3 starts at offset 25
+
+            assert_eq!(offsets.position_to_line_col(0), (1, 0)); // Line 1, start
+            assert_eq!(offsets.position_to_line_col(10), (2, 0)); // Line 2, start
+            assert_eq!(offsets.position_to_line_col(25), (3, 0)); // Line 3, start
+        }
+    }
+
+    mod spans_and_positions {
+        use super::*;
+
+        #[test]
+        fn test_variable_spans() {
+            let template = "Hello\n{{ user.name }}\nWorld";
+            let tokens = Lexer::new(template).tokenize().unwrap();
+            let mut parser = Parser::new(tokens);
+            let (nodelist, errors) = parser.parse().unwrap();
+            assert!(errors.is_empty());
+
+            // Find the variable node
+            let nodes = nodelist.nodes();
+            let var_node = nodes
+                .iter()
+                .find(|n| matches!(n, Node::Variable { .. }))
+                .unwrap();
+
+            if let Node::Variable { span, .. } = var_node {
+                // Variable starts after newline + "{{"
+                let (line, col) = nodelist
+                    .line_offsets()
+                    .position_to_line_col(*span.start() as usize);
+                assert_eq!(
+                    (line, col),
+                    (2, 0),
+                    "Variable should start at line 2, col 3"
+                );
+
+                assert_eq!(*span.length(), 9, "Variable span should cover 'user.name'");
+            }
+        }
+    }
 }

@@ -14,7 +14,6 @@ env:
   CARGO_TERM_COLOR: always
   FORCE_COLOR: "1"
   PYTHONUNBUFFERED: "1"
-  UV_VERSION: "0.4.x"
 
 jobs:
   test:
@@ -33,7 +32,7 @@ jobs:
         uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-          version: ${{ env.UV_VERSION }}
+          pyproject-file: pyproject.toml
 
       - name: Install dependencies and build
         run: |

@@ -1,0 +1,17 @@
+---
+source: crates/djls-template-ast/src/parser.rs
+expression: nodelist
+---
+nodes:
+  - Text:
+      content: "<!-- HTML comment -->"
+      span:
+        start: 0
+        length: 21
+  - Comment:
+      content: Django comment
+      span:
+        start: 21
+        length: 14
+line_offsets:
+  - 0

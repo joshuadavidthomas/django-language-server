@@ -22,138 +22,134 @@ impl Lexer {
 
     pub fn tokenize(&mut self) -> Result<TokenStream, LexerError> {
         let mut tokens = TokenStream::default();
+
         while !self.is_at_end() {
-            let token = self.next_token()?;
+            self.start = self.current;
+
+            let token_type = match self.peek()? {
+                '{' => match self.peek_next()? {
+                    '%' => {
+                        self.consume_n(2)?; // {%
+                        let content = self.consume_until("%}")?;
+                        self.consume_n(2)?; // %}
+                        TokenType::DjangoBlock(content)
+                    }
+                    '{' => {
+                        self.consume_n(2)?; // {{
+                        let content = self.consume_until("}}")?;
+                        self.consume_n(2)?; // }}
+                        TokenType::DjangoVariable(content)
+                    }
+                    '#' => {
+                        self.consume_n(2)?; // {#
+                        let content = self.consume_until("#}")?;
+                        self.consume_n(2)?; // #}
+                        TokenType::Comment(content, "{#".to_string(), Some("#}".to_string()))
+                    }
+                    _ => {
+                        self.consume()?; // {
+                        TokenType::Text(String::from("{"))
+                    }
+                },
+
+                '<' => match self.peek_next()? {
+                    '/' => {
+                        self.consume_n(2)?; // </
+                        let tag = self.consume_until(">")?;
+                        self.consume()?; // >
+                        TokenType::HtmlTagClose(tag)
+                    }
+                    '!' if self.matches("<!--")? => {
+                        self.consume_n(4)?; // <!--
+                        let content = self.consume_until("-->")?;
+                        self.consume_n(3)?; // -->
+                        TokenType::Comment(content, "<!--".to_string(), Some("-->".to_string()))
+                    }
+                    _ => {
+                        self.consume()?; // consume <
+                        let tag = self.consume_until(">")?;
+                        self.consume()?; // consume >
+                        if tag.starts_with("script") {
+                            TokenType::ScriptTagOpen(tag)
+                        } else if tag.starts_with("style") {
+                            TokenType::StyleTagOpen(tag)
+                        } else if tag.ends_with("/") {
+                            TokenType::HtmlTagVoid(tag.trim_end_matches("/").to_string())
+                        } else {
+                            TokenType::HtmlTagOpen(tag)
+                        }
+                    }
+                },
+
+                '/' => match self.peek_next()? {
+                    '/' => {
+                        self.consume_n(2)?; // //
+                        let content = self.consume_until("\n")?;
+                        TokenType::Comment(content, "//".to_string(), None)
+                    }
+                    '*' => {
+                        self.consume_n(2)?; // /*
+                        let content = self.consume_until("*/")?;
+                        self.consume_n(2)?; // */
+                        TokenType::Comment(content, "/*".to_string(), Some("*/".to_string()))
+                    }
+                    _ => {
+                        self.consume()?;
+                        TokenType::Text("/".to_string())
+                    }
+                },
+
+                c if c.is_whitespace() => {
+                    if c == '\n' || c == '\r' {
+                        self.consume()?; // \r or \n
+                        if c == '\r' && self.peek()? == '\n' {
+                            self.consume()?; // \n of \r\n
+                        }
+                        TokenType::Newline
+                    } else {
+                        self.consume()?; // Consume the first whitespace
+                        while !self.is_at_end() && self.peek()?.is_whitespace() {
+                            if self.peek()? == '\n' || self.peek()? == '\r' {
+                                break;
+                            }
+                            self.consume()?;
+                        }
+                        let whitespace_count = self.current - self.start;
+                        TokenType::Whitespace(whitespace_count)
+                    }
+                }
+
+                _ => {
+                    let mut text = String::new();
+                    while !self.is_at_end() {
+                        let c = self.peek()?;
+                        if c == '{' || c == '<' || c == '\n' {
+                            break;
+                        }
+                        text.push(c);
+                        self.consume()?;
+                    }
+                    TokenType::Text(text)
+                }
+            };
+
+            let token = Token::new(token_type, self.line, Some(self.start));
+
+            match self.peek_previous()? {
+                '\n' => self.line += 1,
+                '\r' => {
+                    self.line += 1;
+                    if self.peek()? == '\n' {
+                        self.current += 1;
+                    }
+                }
+                _ => {}
+            }
+
             tokens.add_token(token);
         }
         tokens.finalize(self.line);
         Ok(tokens)
-    }
-
-    fn next_token(&mut self) -> Result<Token, LexerError> {
-        self.start = self.current;
-
-        let token_type = match self.peek()? {
-            '{' => match self.peek_next()? {
-                '%' => {
-                    self.consume_n(2)?; // {%
-                    let content = self.consume_until("%}")?;
-                    self.consume_n(2)?; // %}
-                    TokenType::DjangoBlock(content)
-                }
-                '{' => {
-                    self.consume_n(2)?; // {{
-                    let content = self.consume_until("}}")?;
-                    self.consume_n(2)?; // }}
-                    TokenType::DjangoVariable(content)
-                }
-                '#' => {
-                    self.consume_n(2)?; // {#
-                    let content = self.consume_until("#}")?;
-                    self.consume_n(2)?; // #}
-                    TokenType::Comment(content, "{#".to_string(), Some("#}".to_string()))
-                }
-                _ => {
-                    self.consume()?; // {
-                    TokenType::Text(String::from("{"))
-                }
-            },
-
-            '<' => match self.peek_next()? {
-                '/' => {
-                    self.consume_n(2)?; // </
-                    let tag = self.consume_until(">")?;
-                    self.consume()?; // >
-                    TokenType::HtmlTagClose(tag)
-                }
-                '!' if self.matches("<!--")? => {
-                    self.consume_n(4)?; // <!--
-                    let content = self.consume_until("-->")?;
-                    self.consume_n(3)?; // -->
-                    TokenType::Comment(content, "<!--".to_string(), Some("-->".to_string()))
-                }
-                _ => {
-                    self.consume()?; // consume <
-                    let tag = self.consume_until(">")?;
-                    self.consume()?; // consume >
-                    if tag.starts_with("script") {
-                        TokenType::ScriptTagOpen(tag)
-                    } else if tag.starts_with("style") {
-                        TokenType::StyleTagOpen(tag)
-                    } else if tag.ends_with("/") {
-                        TokenType::HtmlTagVoid(tag.trim_end_matches("/").to_string())
-                    } else {
-                        TokenType::HtmlTagOpen(tag)
-                    }
-                }
-            },
-
-            '/' => match self.peek_next()? {
-                '/' => {
-                    self.consume_n(2)?; // //
-                    let content = self.consume_until("\n")?;
-                    TokenType::Comment(content, "//".to_string(), None)
-                }
-                '*' => {
-                    self.consume_n(2)?; // /*
-                    let content = self.consume_until("*/")?;
-                    self.consume_n(2)?; // */
-                    TokenType::Comment(content, "/*".to_string(), Some("*/".to_string()))
-                }
-                _ => {
-                    self.consume()?;
-                    TokenType::Text("/".to_string())
-                }
-            },
-
-            c if c.is_whitespace() => {
-                if c == '\n' || c == '\r' {
-                    self.consume()?; // \r or \n
-                    if c == '\r' && self.peek()? == '\n' {
-                        self.consume()?; // \n of \r\n
-                    }
-                    TokenType::Newline
-                } else {
-                    self.consume()?; // Consume the first whitespace
-                    while !self.is_at_end() && self.peek()?.is_whitespace() {
-                        if self.peek()? == '\n' || self.peek()? == '\r' {
-                            break;
-                        }
-                        self.consume()?;
-                    }
-                    let whitespace_count = self.current - self.start;
-                    TokenType::Whitespace(whitespace_count)
-                }
-            }
-
-            _ => {
-                let mut text = String::new();
-                while !self.is_at_end() {
-                    let c = self.peek()?;
-                    if c == '{' || c == '<' || c == '\n' {
-                        break;
-                    }
-                    text.push(c);
-                    self.consume()?;
-                }
-                TokenType::Text(text)
-            }
-        };
-
-        let token = Token::new(token_type, self.line, Some(self.start));
-
-        match self.peek_previous()? {
-            '\n' => self.line += 1,
-            '\r' => {
-                self.line += 1;
-                if self.peek()? == '\n' {
-                    self.current += 1;
-                }
-            }
-            _ => {}
-        }
-
-        Ok(token)
     }
 
     fn peek(&self) -> Result<char, LexerError> {
