@@ -25,6 +25,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 ### Changed
 
 - Bumped Rust toolchain from 1.83 to 1.86
+- Bumped PyO3 to 0.24.
 
 ## [5.1.0a2]
 
