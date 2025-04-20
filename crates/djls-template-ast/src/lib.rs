@@ -4,7 +4,6 @@ mod lexer;
 mod parser;
 mod tagspecs;
 mod tokens;
-mod validator;
 
 use ast::NodeList;
 pub use error::{to_lsp_diagnostic, QuickFix, TemplateError};

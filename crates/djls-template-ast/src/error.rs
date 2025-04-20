@@ -44,9 +44,7 @@ impl From<std::io::Error> for TemplateError {
 impl TemplateError {
     pub fn span(&self) -> Option<Span> {
         match self {
-            TemplateError::Validation(AstError::InvalidTagStructure { span, .. }) => {
-                Some(*span)
-            }
+            TemplateError::Validation(AstError::InvalidTagStructure { span, .. }) => Some(*span),
             _ => None,
         }
     }
