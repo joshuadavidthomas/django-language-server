@@ -1,5 +1,5 @@
 default_language_version:
-  rust: 1.86
+  rust: "1.86"
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
