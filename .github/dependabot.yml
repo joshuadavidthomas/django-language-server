@@ -22,7 +22,7 @@ updates:
       gha:
         patterns:
           - "*"
-  - package-ecosystem: "uv"
+  - package-ecosystem: uv
     directory: "/"
     schedule:
       interval: weekly
