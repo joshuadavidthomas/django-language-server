@@ -22,6 +22,10 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 - Added `html-django` as an alternative Language ID for Django templates
 
+### Changed
+
+- Bumped Rust toolchain from 1.83 to 1.86
+
 ## [5.1.0a2]
 
 ### Added
