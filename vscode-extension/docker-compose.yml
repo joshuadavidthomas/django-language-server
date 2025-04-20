@@ -1,0 +1,11 @@
+version: '3'
+
+services:
+  vscode:
+    build: .
+    ports:
+      - "12000:12000"
+    volumes:
+      - ./:/app
+    environment:
+      - DOCKER_BUILDKIT=1

@@ -1,0 +1,110 @@
+{
+  "name": "vscode-django-language-server",
+  "displayName": "Django Language Server",
+  "description": "Language server support for Django templates and Python files",
+  "version": "0.1.0",
+  "publisher": "django-language-server",
+  "license": "Apache-2.0",
+  "icon": "images/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/joshuadavidthomas/django-language-server"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters"
+  ],
+  "keywords": [
+    "django",
+    "python",
+    "templates",
+    "language-server",
+    "lsp"
+  ],
+  "activationEvents": [
+    "onLanguage:django-html",
+    "onLanguage:htmldjango",
+    "onLanguage:python"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "django-html",
+        "aliases": [
+          "Django HTML",
+          "django-html"
+        ],
+        "extensions": [
+          ".html",
+          ".djhtml"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "configuration": {
+      "type": "object",
+      "title": "Django Language Server",
+      "properties": {
+        "djangoLanguageServer.command": {
+          "type": "string",
+          "default": "djls",
+          "description": "Path to the Django Language Server executable"
+        },
+        "djangoLanguageServer.args": {
+          "type": "array",
+          "default": [
+            "serve"
+          ],
+          "description": "Arguments to pass to the Django Language Server"
+        },
+        "djangoLanguageServer.trace.server": {
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "default": "off",
+          "description": "Traces the communication between VS Code and the Django language server"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts",
+    "package": "vsce package",
+    "publish": "vsce publish",
+    "clean": "./clean.sh",
+    "test-project": "./create-test-project.sh",
+    "install-local": "./install-local.sh",
+    "uninstall": "./uninstall.sh",
+    "update-version": "./update-version.sh",
+    "debug": "./debug.sh",
+    "setup-tests": "./run-tests.sh",
+    "docs": "./generate-docs.sh",
+    "web": "./run-web.sh",
+    "vscode-web": "./run-vscode-web.sh",
+    "remote": "./run-remote.sh",
+    "docker": "./run-docker.sh",
+    "codespace": "./run-codespace.sh",
+    "insiders": "./run-insiders.sh",
+    "portable": "./run-portable.sh",
+    "dev-host": "./run-dev-host.sh",
+    "dev-host-debug": "./run-dev-host-debug.sh"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.30",
+    "@types/vscode": "1.85.0",
+    "typescript": "^5.8.3"
+  }
+}
