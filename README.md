@@ -158,6 +158,29 @@ Code contributions are welcome from developers of all backgrounds. Rust expertis
 
 So far it's all been built by a [a simple country CRUD web developer](https://youtu.be/7ij_1SQqbVo?si=hwwPyBjmaOGnvPPI&t=53) learning Rust along the way - send help!
 
+### Testing
+
+The project includes a comprehensive end-to-end testing framework that tests the language server against:
+
+- Multiple Python versions (3.9, 3.10, 3.11, 3.12, 3.13)
+- Multiple Django versions (4.2, 5.0, 5.1)
+- Different LSP clients (VS Code, Neovim)
+
+To run the tests locally:
+
+```bash
+# Install tox
+pip install tox
+
+# Run tests with the default Python and Django versions
+tox
+
+# Run tests with a specific Python and Django version
+tox -e py311-django50
+```
+
+For more information about the testing framework, see the [tests/README.md](tests/README.md) file.
+
 ## License
 
 django-language-server is licensed under the Apache License, Version 2.0. See the [`LICENSE`](LICENSE) file for more information.
