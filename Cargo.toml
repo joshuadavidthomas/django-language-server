@@ -11,8 +11,8 @@ djls-worker = { path = "crates/djls-worker" }
 
 anyhow = "1.0"
 async-trait = "0.1"
-pyo3 = "0.23"
-pyo3-async-runtimes = "0.23"
+pyo3 = "0.24"
+pyo3-async-runtimes = "0.24"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "2.0"
