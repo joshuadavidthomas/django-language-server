@@ -117,13 +117,17 @@ def lint(session):
 @nox.session
 def gha_matrix(session):
     sessions = session.run("nox", "-l", "--json", silent=True)
-    matrix = [
-        {
-            "python-version": session["python"],
-            "django-version": session["call_spec"]["django"],
-        }
-        for session in json.loads(sessions)
-        if session["name"] == "tests"
-    ]
+    matrix = {
+        "include": [
+            {
+                "django-version": session["call_spec"]["django"],
+                "os": os,
+                "python-version": session["python"],
+            }
+            for session in json.loads(sessions)
+            for os in ["macos-latest", "ubuntu-latest", "windows-latest"]
+            if session["name"] == "tests"
+        ]
+    }
     with Path(os.environ["GITHUB_OUTPUT"]).open("a") as fh:
         print(f"matrix={matrix}", file=fh)

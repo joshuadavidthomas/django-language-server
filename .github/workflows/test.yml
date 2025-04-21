@@ -39,12 +39,7 @@ jobs:
     needs: generate-matrix
     strategy:
       fail-fast: false
-      matrix:
-        os:
-          - macos-latest
-          - ubuntu-latest
-          - windows-latest
-        include: ${{ fromJson(needs.generate-matrix.outputs.matrix) }}
+      matrix: ${{ fromJSON(needs.generate-matrix.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v4
 
@@ -56,4 +51,4 @@ jobs:
 
       - name: Run tests
         run: |
-          uv run nox --session "tests(python='${{ matrix.python-version }}', django='${{ matrix.django-version }}')" -- --slow
+          uv run nox --session "tests(python='${{ matrix.python-version }}', django='${{ matrix.django-version }}')"
