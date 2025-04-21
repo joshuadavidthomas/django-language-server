@@ -139,7 +139,9 @@ def gha_matrix(session):
         if session["name"] == "tests"
     ]
 
-    matrix = [{**combo, "os": os} for os in os_list for combo in versions_list]
+    matrix = {
+        "include": [{**combo, "os": os} for os in os_list for combo in versions_list]
+    }
 
     if os.environ.get("GITHUB_OUTPUT"):
         with Path(os.environ["GITHUB_OUTPUT"]).open("a") as fh:
