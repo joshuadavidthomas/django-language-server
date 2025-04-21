@@ -75,4 +75,3 @@ jobs:
       - name: Fail
         if: ${{ contains(needs.*.result, 'failure') }}
         run: exit 1
-
