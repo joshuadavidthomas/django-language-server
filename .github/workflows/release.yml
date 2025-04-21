@@ -81,9 +81,8 @@ jobs:
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
-          target: ${{ matrix.platform.target }}-unknown-linux-musl
+          target: ${{ matrix.platform.target }}
           args: --release --out dist --find-interpreter
-          sccache: "true"
           manylinux: musllinux_1_2
 
       - name: Upload wheels
