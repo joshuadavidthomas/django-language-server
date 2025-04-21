@@ -29,6 +29,10 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Bumped PyO3 to 0.24.
 - **Internal**: Renamed template parsing crate to `djls-templates`
 
+### Removed
+
+- Dropped support for 5.0.
+
 ## [5.1.0a2]
 
 ### Added
