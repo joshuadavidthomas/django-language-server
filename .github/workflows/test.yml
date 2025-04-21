@@ -16,15 +16,10 @@ env:
   PYTHONUNBUFFERED: "1"
 
 jobs:
-  test:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os:
-          - macos-latest
-          - ubuntu-latest
-          - windows-latest
+  generate-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
       - uses: actions/checkout@v4
 
@@ -34,10 +29,31 @@ jobs:
           enable-cache: true
           pyproject-file: pyproject.toml
 
-      - name: Install dependencies and build
+      - id: set-matrix
         run: |
-          uv sync --frozen
-          uv run maturin build
+          uv run nox --session "gha_matrix"
+
+  test:
+    name: Python ${{ matrix.python-version }}, Django ${{ matrix.django-version }} (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    needs: generate-matrix
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - macos-latest
+          - ubuntu-latest
+          - windows-latest
+        include: ${{ fromJson(needs.generate-matrix.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          pyproject-file: pyproject.toml
 
       - name: Run tests
-        run: cargo test --verbose
+        run: |
+          uv run nox --session "tests(python='${{ matrix.python-version }}', django='${{ matrix.django-version }}')" -- --slow

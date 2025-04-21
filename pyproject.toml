@@ -6,6 +6,7 @@ build-backend = "maturin"
 dev = [
     "django-stubs>=5.1.1",
     "maturin>=1.7.8",
+    "nox[uv]>=2025.2.9",
     "ruff>=0.8.2",
 ]
 docs = [
