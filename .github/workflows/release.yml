@@ -9,6 +9,7 @@ on:
   push:
     branches:
       - main
+      - "release/*"
     tags:
       - "*"
   pull_request:
@@ -17,7 +18,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: test-${{ github.head_ref }}
+  group: ${{ github.workflow }}-${{ github.head_ref }}
   cancel-in-progress: true
 
 permissions:
@@ -158,10 +159,16 @@ jobs:
           name: wheels-sdist
           path: dist
 
+  test:
+    uses: ./.github/workflows/test.yml
+    if: ${{ startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' }}
+    with:
+      os: "macos-latest,ubuntu-latest,windows-latest"
+
   release:
     runs-on: ubuntu-latest
     if: ${{ startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' }}
-    needs: [linux, musllinux, windows, macos, sdist]
+    needs: [linux, musllinux, windows, macos, sdist, test]
     environment: release
     permissions:
       # Use to sign the release artifacts
