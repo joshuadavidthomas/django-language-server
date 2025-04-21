@@ -21,17 +21,18 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 ### Added
 
 - Added `html-django` as an alternative Language ID for Django templates
-- Support for Django 5.2.
+- Added support for Django 5.2.
 
 ### Changed
 
 - Bumped Rust toolchain from 1.83 to 1.86
 - Bumped PyO3 to 0.24.
 - **Internal**: Renamed template parsing crate to `djls-templates`
+- **Internal**: Swapped from `tower-lsp` to `tower-lsp-server` for primary LSP framework.
 
 ### Removed
 
-- Dropped support for 5.0.
+- Dropped support for Django 5.0.
 
 ## [5.1.0a2]
 
