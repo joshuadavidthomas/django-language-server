@@ -10,12 +10,21 @@ Generated via docs/processor.py from README.md
 
 # django-language-server
 
+<!-- [[[cog
+import subprocess
+import cog
+
+from noxfile import DJ_VERSIONS
+from noxfile import PY_VERSIONS
+
+cog.outl("[![PyPI](https://img.shields.io/pypi/v/django-language-server)](https://pypi.org/project/django-language-server/)")
+cog.outl("![PyPI - Python Version](https://img.shields.io/pypi/pyversions/django-language-server)")
+cog.outl(f"![Django Version](https://img.shields.io/badge/django-{'%20%7C%20'.join(DJ_VERSIONS)}-%2344B78B?labelColor=%23092E20)")
+]]] -->
 [![PyPI](https://img.shields.io/pypi/v/django-language-server)](https://pypi.org/project/django-language-server/)
 ![PyPI - Python Version](https://img.shields.io/pypi/pyversions/django-language-server)
-![Django Version](https://img.shields.io/badge/django-4.2%20%7C%205.0%20%7C%205.1-%2344B78B?labelColor=%23092E20)
-<!-- https://shields.io/badges -->
-<!-- django-4.2 | 5.0 | 5.1-#44B78B -->
-<!-- labelColor=%23092E20 -->
+![Django Version](https://img.shields.io/badge/django-4.2%20%7C%205.1%20%7C%205.2%20%7C%20main-%2344B78B?labelColor=%23092E20)
+<!-- [[[end]]] -->
 
 A language server for the Django web framework.
 
@@ -57,8 +66,19 @@ An editor that supports the Language Server Protocol (LSP) is required.
 
 The Django Language Server aims to supports all actively maintained versions of Python and Django. Currently this includes:
 
+<!-- [[[cog
+import subprocess
+import cog
+
+from noxfile import DJ_VERSIONS
+from noxfile import PY_VERSIONS
+
+cog.outl(f"- Python {', '.join([version for version in PY_VERSIONS])}")
+cog.outl(f"- Django {', '.join([version for version in DJ_VERSIONS if version != 'main'])}")
+]]] -->
 - Python 3.9, 3.10, 3.11, 3.12, 3.13
-- Django 4.2, 5.0, 5.1
+- Django 4.2, 5.1, 5.2
+<!-- [[[end]]] -->
 
 See the [Versioning](#versioning) section for details on how this project's version indicates Django compatibility.
 
