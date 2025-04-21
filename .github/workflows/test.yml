@@ -10,6 +10,12 @@ on:
         description: "Comma-delineated list of OS targets to run tests on"
         required: false
         type: string
+  workflow_dispatch:
+    inputs:
+      os:
+        description: "Comma-delineated list of OS targets to run tests on"
+        required: false
+        type: string
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref }}
