@@ -1,0 +1,206 @@
+---
+source: crates/djls-templates/src/parser.rs
+expression: nodelist
+---
+nodes:
+  - Text:
+      content: "<!DOCTYPE html>"
+      span:
+        start: 0
+        length: 15
+  - Text:
+      content: "<html>"
+      span:
+        start: 16
+        length: 6
+  - Text:
+      content: "<head>"
+      span:
+        start: 27
+        length: 6
+  - Text:
+      content: "<style type=\"text/css\">"
+      span:
+        start: 42
+        length: 23
+  - Text:
+      content: /* Style header */
+      span:
+        start: 78
+        length: 18
+  - Text:
+      content: ".header { color: blue; }"
+      span:
+        start: 109
+        length: 24
+  - Text:
+      content: "</style>"
+      span:
+        start: 142
+        length: 8
+  - Text:
+      content: "<script type=\"text/javascript\">"
+      span:
+        start: 159
+        length: 31
+  - Text:
+      content: // Init app
+      span:
+        start: 203
+        length: 11
+  - Text:
+      content: "const app = {"
+      span:
+        start: 227
+        length: 13
+  - Text:
+      content: /* Config */
+      span:
+        start: 257
+        length: 12
+  - Text:
+      content: "debug: true"
+      span:
+        start: 286
+        length: 11
+  - Text:
+      content: "};"
+      span:
+        start: 310
+        length: 2
+  - Text:
+      content: "</script>"
+      span:
+        start: 321
+        length: 9
+  - Text:
+      content: "</head>"
+      span:
+        start: 335
+        length: 7
+  - Text:
+      content: "<body>"
+      span:
+        start: 347
+        length: 6
+  - Text:
+      content: "<!-- Header section -->"
+      span:
+        start: 362
+        length: 23
+  - Text:
+      content: "<div class=\"header\" id=\"main\" data-value=\"123\" disabled>"
+      span:
+        start: 394
+        length: 56
+  - Tag:
+      name: if
+      bits:
+        - user.is_authenticated
+      span:
+        start: 463
+        length: 24
+  - Comment:
+      content: Welcome message
+      span:
+        start: 510
+        length: 15
+  - Text:
+      content: "<h1>Welcome,"
+      span:
+        start: 548
+        length: 12
+  - Variable:
+      var: user.name
+      filters:
+        - title
+        - "default:'Guest'"
+      span:
+        start: 561
+        length: 31
+  - Text:
+      content: "!</h1>"
+      span:
+        start: 598
+        length: 6
+  - Tag:
+      name: if
+      bits:
+        - user.is_staff
+      span:
+        start: 621
+        length: 16
+  - Text:
+      content: "<span>Admin</span>"
+      span:
+        start: 664
+        length: 18
+  - Tag:
+      name: else
+      bits: []
+      span:
+        start: 699
+        length: 4
+  - Text:
+      content: "<span>User</span>"
+      span:
+        start: 730
+        length: 17
+  - Tag:
+      name: endif
+      bits: []
+      span:
+        start: 764
+        length: 5
+  - Tag:
+      name: endif
+      bits: []
+      span:
+        start: 788
+        length: 5
+  - Text:
+      content: "</div>"
+      span:
+        start: 808
+        length: 6
+  - Text:
+      content: "</body>"
+      span:
+        start: 819
+        length: 7
+  - Text:
+      content: "</html>"
+      span:
+        start: 827
+        length: 7
+line_offsets:
+  - 0
+  - 16
+  - 23
+  - 34
+  - 66
+  - 97
+  - 134
+  - 151
+  - 191
+  - 215
+  - 241
+  - 270
+  - 298
+  - 313
+  - 331
+  - 343
+  - 354
+  - 386
+  - 451
+  - 494
+  - 532
+  - 605
+  - 644
+  - 683
+  - 710
+  - 748
+  - 776
+  - 800
+  - 815
+  - 827

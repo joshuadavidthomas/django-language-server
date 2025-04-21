@@ -1,0 +1,11 @@
+---
+source: crates/djls-templates/src/lexer.rs
+expression: tokens
+---
+- token_type:
+    DjangoVariable: "user.name|default:\"Anonymous\"|title"
+  line: 1
+  start: 0
+- token_type: Eof
+  line: 1
+  start: ~

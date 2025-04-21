@@ -1,0 +1,68 @@
+---
+source: crates/djls-templates/src/lexer.rs
+expression: tokens
+---
+- token_type:
+    ScriptTagOpen: "script type=\"text/javascript\""
+  line: 1
+  start: 0
+- token_type: Newline
+  line: 1
+  start: 31
+- token_type:
+    Whitespace: 4
+  line: 2
+  start: 32
+- token_type:
+    Comment:
+      - Single line comment
+      - //
+      - ~
+  line: 2
+  start: 36
+- token_type: Newline
+  line: 2
+  start: 58
+- token_type:
+    Whitespace: 4
+  line: 3
+  start: 59
+- token_type:
+    Text: const x = 1;
+  line: 3
+  start: 63
+- token_type: Newline
+  line: 3
+  start: 75
+- token_type:
+    Whitespace: 4
+  line: 4
+  start: 76
+- token_type:
+    Comment:
+      - "Multi-line\n       comment"
+      - /*
+      - "*/"
+  line: 4
+  start: 80
+- token_type: Newline
+  line: 4
+  start: 111
+- token_type:
+    Whitespace: 4
+  line: 5
+  start: 112
+- token_type:
+    Text: console.log(x);
+  line: 5
+  start: 116
+- token_type: Newline
+  line: 5
+  start: 131
+- token_type:
+    HtmlTagClose: script
+  line: 6
+  start: 132
+- token_type: Eof
+  line: 6
+  start: ~

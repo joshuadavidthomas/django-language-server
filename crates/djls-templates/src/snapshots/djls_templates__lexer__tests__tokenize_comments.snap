@@ -1,0 +1,94 @@
+---
+source: crates/djls-templates/src/lexer.rs
+expression: tokens
+---
+- token_type:
+    Comment:
+      - HTML comment
+      - "<!--"
+      - "-->"
+  line: 1
+  start: 0
+- token_type: Newline
+  line: 1
+  start: 21
+- token_type:
+    Comment:
+      - Django comment
+      - "{#"
+      - "#}"
+  line: 2
+  start: 22
+- token_type: Newline
+  line: 2
+  start: 42
+- token_type:
+    ScriptTagOpen: script
+  line: 3
+  start: 43
+- token_type: Newline
+  line: 3
+  start: 51
+- token_type:
+    Whitespace: 4
+  line: 4
+  start: 52
+- token_type:
+    Comment:
+      - JS single line comment
+      - //
+      - ~
+  line: 4
+  start: 56
+- token_type: Newline
+  line: 4
+  start: 81
+- token_type:
+    Whitespace: 4
+  line: 5
+  start: 82
+- token_type:
+    Comment:
+      - "JS multi-line\n       comment"
+      - /*
+      - "*/"
+  line: 5
+  start: 86
+- token_type: Newline
+  line: 5
+  start: 120
+- token_type:
+    HtmlTagClose: script
+  line: 6
+  start: 121
+- token_type: Newline
+  line: 6
+  start: 130
+- token_type:
+    StyleTagOpen: style
+  line: 7
+  start: 131
+- token_type: Newline
+  line: 7
+  start: 138
+- token_type:
+    Whitespace: 4
+  line: 8
+  start: 139
+- token_type:
+    Comment:
+      - CSS comment
+      - /*
+      - "*/"
+  line: 8
+  start: 143
+- token_type: Newline
+  line: 8
+  start: 160
+- token_type:
+    HtmlTagClose: style
+  line: 9
+  start: 161
+- token_type: Eof
+  line: 9
+  start: ~

@@ -1,0 +1,42 @@
+---
+source: crates/djls-templates/src/parser.rs
+expression: nodelist
+---
+nodes:
+  - Text:
+      content: "<style type=\"text/css\">"
+      span:
+        start: 0
+        length: 23
+  - Text:
+      content: /* Header styles */
+      span:
+        start: 28
+        length: 19
+  - Text:
+      content: ".header {"
+      span:
+        start: 52
+        length: 9
+  - Text:
+      content: "color: blue;"
+      span:
+        start: 70
+        length: 12
+  - Text:
+      content: "}"
+      span:
+        start: 87
+        length: 1
+  - Text:
+      content: "</style>"
+      span:
+        start: 89
+        length: 8
+line_offsets:
+  - 0
+  - 24
+  - 48
+  - 62
+  - 83
+  - 89
