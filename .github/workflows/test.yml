@@ -34,7 +34,7 @@ jobs:
           uv run noxfile.py --session gha_matrix
 
   test:
-    name: Python ${{ matrix.python-version }}, Django ${{ matrix.django-version }} (${{ runs-on }})
+    name: Python ${{ matrix.python-version }}, Django ${{ matrix.django-version }}
     runs-on: ubuntu-latest
     needs: generate-matrix
     strategy:
