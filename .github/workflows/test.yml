@@ -42,9 +42,9 @@ jobs:
 
       - id: set-os-matrix
         run: |
-          os_input="${{ inputs.os }}"
+          os_input="${{ inputs.os || 'ubuntu-latest' }}"
           # -R reads raw string, split(",") creates array, map(gsub(...)) trims whitespace, -c outputs compact JSON
-          echo "os=$(echo '${{ inputs.os }}' | jq -R -c 'split(",") | map(gsub("^ *| *$"; ""))')" >> "$GITHUB_OUTPUT"
+          echo "os=$(echo '${{ inputs.os || 'ubuntu-latest' }}' | jq -R -c 'split(",") | map(gsub("^ *| *$"; ""))')" >> "$GITHUB_OUTPUT"
 
   test:
     name: Python ${{ matrix.python-version }}, Django ${{ matrix.django-version }} (${{ matrix.os }})
