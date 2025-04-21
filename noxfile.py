@@ -124,7 +124,7 @@ def lint(session):
 
 @nox.session
 def gha_matrix(session):
-    os_args = session.posargs[0]
+    os_args = session.posargs[0] if session.posargs else ""
     os_list = [os.strip() for os in os_args.split(",") if os_args.strip()] or [
         "ubuntu-latest"
     ]
