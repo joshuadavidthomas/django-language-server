@@ -1,3 +1,11 @@
+#!/usr/bin/env -S uv run --quiet
+# /// script
+# requires-python = ">=3.13"
+# dependencies = [
+#     "nox",
+# ]
+# ///
+
 from __future__ import annotations
 
 import json
@@ -121,13 +129,15 @@ def gha_matrix(session):
         "include": [
             {
                 "django-version": session["call_spec"]["django"],
-                "os": os,
                 "python-version": session["python"],
             }
             for session in json.loads(sessions)
-            for os in ["macos-latest", "ubuntu-latest", "windows-latest"]
             if session["name"] == "tests"
         ]
     }
     with Path(os.environ["GITHUB_OUTPUT"]).open("a") as fh:
         print(f"matrix={matrix}", file=fh)
+
+
+if __name__ == "__main__":
+    nox.main()
