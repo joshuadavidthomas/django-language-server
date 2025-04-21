@@ -7,7 +7,6 @@ on:
   workflow_call:
     inputs:
       os:
-        default: "ubuntu-latest"
         description: "Comma-delineated list of OS targets to run tests on"
         required: false
         type: string
@@ -37,7 +36,7 @@ jobs:
 
       - id: set-matrix
         run: |
-          uv run noxfile.py --session gha_matrix
+          uv run noxfile.py --session gha_matrix -- "${{ inputs.os }}"
 
   test:
     name: Python ${{ matrix.python-version }}, Django ${{ matrix.django-version }} (${{ matrix.os }})
