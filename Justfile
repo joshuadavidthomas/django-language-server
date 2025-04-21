@@ -9,6 +9,10 @@ default:
     @just --list
 
 [private]
+cog:
+    uv run --with cogapp --with nox --no-project cog -r CONTRIBUTING.md README.md pyproject.toml
+
+[private]
 nox SESSION *ARGS:
     uv run noxfile.py --session "{{ SESSION }}" -- "{{ ARGS }}"
 
