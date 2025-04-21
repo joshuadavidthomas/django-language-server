@@ -18,7 +18,7 @@ serde_json = "1.0"
 thiserror = "2.0"
 tokio = { version = "1.42", features = ["full"] }
 tower-lsp = { version = "0.20", features = ["proposed"] }
-lsp-types = "0.94"
+lsp-types = "0.97"
 
 [profile.dev.package]
 insta.opt-level = 3
