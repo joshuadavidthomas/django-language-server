@@ -39,7 +39,9 @@ jobs:
     needs: generate-matrix
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.generate-matrix.outputs.matrix) }}
+      matrix:
+        django-version: ${{ fromJSON(needs.generate-matrix.outputs.matrix.django-version) }}
+        python-version: ${{ fromJSON(needs.generate-matrix.outputs.matrix.python-version) }}
     steps:
       - uses: actions/checkout@v4
 
