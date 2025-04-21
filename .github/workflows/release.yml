@@ -12,7 +12,13 @@ on:
     tags:
       - "*"
   pull_request:
+    branches:
+      - "release/*"
   workflow_dispatch:
+
+concurrency:
+  group: test-${{ github.head_ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read

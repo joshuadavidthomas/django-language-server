@@ -6,6 +6,10 @@ on:
     branches: [main]
   workflow_call:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -13,7 +17,6 @@ env:
   CARGO_TERM_COLOR: always
   FORCE_COLOR: "1"
   PYTHONUNBUFFERED: "1"
-  UV_VERSION: "0.4.x"
 
 jobs:
   pre-commit:
@@ -25,7 +28,7 @@ jobs:
         uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-          version: ${{ env.UV_VERSION }}
+          pyproject-file: pyproject.toml
 
       - uses: actions/cache@v4
         with:

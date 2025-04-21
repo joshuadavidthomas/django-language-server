@@ -8,6 +8,10 @@ mod docs ".just/docs.just"
 default:
     @just --list
 
+[private]
+nox SESSION *ARGS:
+    uv run noxfile.py --session "{{ SESSION }}" -- "{{ ARGS }}"
+
 bumpver *ARGS:
     uv run --with bumpver bumpver {{ ARGS }}
 
@@ -17,4 +21,10 @@ clean:
 # run pre-commit on all files
 lint:
     @just --fmt
-    uv run --with pre-commit-uv pre-commit run --all-files
+    @just nox lint
+
+test *ARGS:
+    @just nox test {{ ARGS }}
+
+testall *ARGS:
+    @just nox tests {{ ARGS }}
