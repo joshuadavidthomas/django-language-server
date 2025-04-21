@@ -2,6 +2,7 @@
 # /// script
 # requires-python = ">=3.13"
 # dependencies = [
+#     "bumpver",
 #     "nox",
 # ]
 # ///
@@ -10,9 +11,11 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 
 import nox
+from bumpver.version import to_pep440
 
 nox.options.default_venv_backend = "uv|virtualenv"
 nox.options.reuse_existing_virtualenvs = True
@@ -148,6 +151,138 @@ def gha_matrix(session):
             print(f"matrix={matrix}", file=fh)
     else:
         print(matrix)
+
+
+@nox.session
+def cog(session):
+    COG_FILES = [
+        "CONTRIBUTING.md",
+        "README.md",
+        "pyproject.toml",
+    ]
+    session.run(
+        "uv",
+        "run",
+        "--with",
+        "bumpver",
+        "--with",
+        "cogapp",
+        "--with",
+        "nox",
+        "cog",
+        "-r",
+        *COG_FILES,
+    )
+    git_status = session.run("git", "status", "--porcelain", external=True, silent=True)
+    if not any(cog_file in git_status for cog_file in COG_FILES):
+        session.log("No changes to documentation files, skipping commit")
+        return
+    session.run("git", "add", *COG_FILES, external=True)
+    session.run(
+        "git",
+        "commit",
+        "-m",
+        "auto-regenerate docs using cog",
+        external=True,
+        silent=True,
+    )
+
+
+@nox.session
+def process_docs(session):
+    session.run("uv", "run", "docs/processor.py")
+    session.run("git", "add", "docs/", external=True)
+    session.run(
+        "git",
+        "commit",
+        "-m",
+        "process docs from GHFM to mkdocs-style",
+        external=True,
+        silent=True,
+    )
+
+
+@nox.session
+def update_changelog(session):
+    version = get_version(session)
+
+    with open("CHANGELOG.md", "r") as f:
+        changelog = f.read()
+
+    changelog = changelog.replace("## [Unreleased]", f"## [{version}]", 1)
+    changelog = changelog.replace(
+        f"## [{version}]", f"## [Unreleased]\n\n## [{version}]"
+    )
+
+    repo_url = session.run("git", "remote", "get-url", "origin", silent=True).strip()
+    repo_url = repo_url.replace(".git", "")
+
+    changelog += f"\n[{version}]: {repo_url}/releases/tag/v{version}"
+    changelog = re.sub(
+        r"\[unreleased\]: .+",
+        f"[unreleased]: {repo_url}/compare/v{version}...HEAD",
+        changelog,
+    )
+
+    with open("CHANGELOG.md", "w") as f:
+        f.write(changelog)
+
+    session.run("git", "add", "CHANGELOG.md", external=True)
+    session.run(
+        "git",
+        "commit",
+        "-m",
+        f"update CHANGELOG for version {version}",
+        external=True,
+        silent=True,
+    )
+
+
+@nox.session
+def update_uvlock(session):
+    version = get_version(session)
+
+    session.run("uv", "lock")
+
+    git_status = session.run("git", "status", "--porcelain", external=True, silent=True)
+    if "uv.lock" not in git_status:
+        session.log("No changes to uv.lock, skipping commit")
+        return
+
+    session.run("git", "add", "uv.lock", external=True)
+    session.run(
+        "git",
+        "commit",
+        "-m",
+        f"update uv.lock for version {version}",
+        external=True,
+        silent=True,
+    )
+
+
+def get_version(session):
+    command = ["uv", "run", "bumpver", "update", "--dry", "--no-fetch"]
+    if session.posargs:
+        args = []
+        for arg in session.posargs:
+            if arg and arg not in ["--dry", "--no-fetch"]:
+                args.extend(arg.split(" "))
+        command.extend(args)
+    output = session.run(*command, silent=True)
+    match = re.search(r"New Version: (.+)", output)
+    return to_pep440(match.group(1)) if match else None
+
+
+@nox.session(requires=["cog", "process_docs", "update_changelog", "update_uvlock"])
+def release(session):
+    command = ["uv", "run", "bumpver", "update"]
+    if session.posargs:
+        args = []
+        for arg in session.posargs:
+            if arg:
+                args.extend(arg.split(" "))
+        command.extend(args)
+    session.run(*command)
 
 
 if __name__ == "__main__":
