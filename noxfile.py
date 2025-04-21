@@ -27,12 +27,11 @@ PY_DEFAULT = PY_VERSIONS[0]
 PY_LATEST = PY_VERSIONS[-1]
 
 DJ42 = "4.2"
-DJ50 = "5.0"
 DJ51 = "5.1"
 DJ52 = "5.2"
 DJMAIN = "main"
 DJMAIN_MIN_PY = PY312
-DJ_VERSIONS = [DJ42, DJ50, DJ51, DJ52, DJMAIN]
+DJ_VERSIONS = [DJ42, DJ51, DJ52, DJMAIN]
 DJ_LTS = [
     version for version in DJ_VERSIONS if version.endswith(".2") and version != DJMAIN
 ]
@@ -58,10 +57,6 @@ def should_skip(python: str, django: str) -> bool:
 
     if django == DJ51 and version(python) < version(PY310):
         # Django 5.1 requires Python 3.10+
-        return True
-
-    if django == DJ50 and version(python) < version(PY310):
-        # Django 5.0 requires Python 3.10+
         return True
 
     return False
