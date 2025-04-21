@@ -24,20 +24,42 @@ requires-python = ">=3.9"
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Framework :: Django",
+  # [[[cog
+  # import subprocess
+  # import cog
+  #
+  # from noxfile import DJ_VERSIONS
+  #
+  # for version in DJ_VERSIONS:
+  #     if version == "main":
+  #         continue
+  #     cog.outl(f'  "Framework :: Django :: {version}",')
+  # ]]] -->
   "Framework :: Django :: 4.2",
   "Framework :: Django :: 5.0",
   "Framework :: Django :: 5.1",
+  # [[[end]]]
   "Intended Audience :: Developers",
   "License :: OSI Approved :: Apache Software License",
   "Operating System :: OS Independent",
   "Programming Language :: Python",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3 :: Only",
+  # [[[cog
+  # import subprocess
+  # import cog
+  #
+  # from noxfile import PY_VERSIONS
+  #
+  # for version in PY_VERSIONS:
+  #     cog.outl(f'  "Programming Language :: Python :: {version}",')
+  # ]]] -->
   "Programming Language :: Python :: 3.9",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
+  # [[[end]]]
   "Programming Language :: Python :: Implementation :: CPython",
   "Programming Language :: Rust",
   "Topic :: Software Development",
