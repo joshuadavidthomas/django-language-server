@@ -5,6 +5,12 @@ on:
   push:
     branches: [main]
   workflow_call:
+    inputs:
+      os:
+        default: "ubuntu-latest"
+        description: "Comma-delineated list of OS targets to run tests on"
+        required: false
+        type: string
 
 concurrency:
   group: test-${{ github.head_ref }}
@@ -19,7 +25,8 @@ jobs:
   generate-matrix:
     runs-on: ubuntu-latest
     outputs:
-      include: ${{ steps.set-matrix.outputs.include }}
+      include: ${{ steps.set-version-matrix.outputs.include }}
+      os: ${{ steps.set-os-matrix.outputs.os }}
     steps:
       - uses: actions/checkout@v4
 
@@ -29,17 +36,23 @@ jobs:
           enable-cache: true
           pyproject-file: pyproject.toml
 
-      - id: set-matrix
+      - id: set-version-matrix
         run: |
           uv run noxfile.py --session gha_matrix
 
+      - id: set-os-matrix
+        run: |
+          # -R reads raw string, split(",") creates array, map(gsub(...)) trims whitespace, -c outputs compact JSON
+          echo "os=$(echo "${{ inputs.os }}" | jq -R -c 'split(",") | map(gsub("^ *| *$"; ""))')" >> "$GITHUB_OUTPUT"
+
   test:
-    name: Python ${{ matrix.python-version }}, Django ${{ matrix.django-version }}
-    runs-on: ubuntu-latest
+    name: Python ${{ matrix.python-version }}, Django ${{ matrix.django-version }} (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
     needs: generate-matrix
     strategy:
       fail-fast: false
       matrix:
+        os: ${{ fromJSON(needs.generate-matrix.outputs.os) }}
         include: ${{ fromJSON(needs.generate-matrix.outputs.include) }}
     steps:
       - uses: actions/checkout@v4
