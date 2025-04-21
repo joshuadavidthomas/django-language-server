@@ -1,0 +1,12 @@
+---
+source: crates/djls-templates/src/parser.rs
+expression: nodelist
+---
+nodes:
+  - Text:
+      content: "<input type=\"text\" />"
+      span:
+        start: 0
+        length: 21
+line_offsets:
+  - 0

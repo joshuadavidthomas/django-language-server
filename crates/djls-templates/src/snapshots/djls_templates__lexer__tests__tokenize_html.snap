@@ -1,0 +1,15 @@
+---
+source: crates/djls-templates/src/lexer.rs
+expression: tokens
+---
+- token_type:
+    HtmlTagOpen: "div class=\"container\" id=\"main\" disabled"
+  line: 1
+  start: 0
+- token_type:
+    HtmlTagClose: div
+  line: 1
+  start: 42
+- token_type: Eof
+  line: 1
+  start: ~

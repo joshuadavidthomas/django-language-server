@@ -6,7 +6,7 @@ resolver = "2"
 djls = { path = "crates/djls" }
 djls-project = { path = "crates/djls-project" }
 djls-server = { path = "crates/djls-server" }
-djls-template-ast = { path = "crates/djls-template-ast" }
+djls-templates = { path = "crates/djls-templates" }
 djls-worker = { path = "crates/djls-worker" }
 
 anyhow = "1.0"
