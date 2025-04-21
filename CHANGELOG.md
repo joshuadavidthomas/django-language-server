@@ -21,6 +21,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 ### Added
 
 - Added `html-django` as an alternative Language ID for Django templates
+- Support for Django 5.2.
 
 ### Changed
 
