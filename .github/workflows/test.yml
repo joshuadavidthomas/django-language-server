@@ -40,8 +40,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        django-version: ${{ fromJSON(needs.generate-matrix.outputs.matrix.django-version) }}
-        python-version: ${{ fromJSON(needs.generate-matrix.outputs.matrix.python-version) }}
+        include: ${{ fromJSON(needs.generate-matrix.outputs.matrix.include) }}
     steps:
       - uses: actions/checkout@v4
 
