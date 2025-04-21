@@ -40,7 +40,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(needs.generate-matrix.outputs.matrix) }}
+        include: ${{ fromJSON(needs.generate-matrix.outputs.include) }}
     steps:
       - uses: actions/checkout@v4
 
