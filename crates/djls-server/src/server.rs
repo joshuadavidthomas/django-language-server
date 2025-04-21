@@ -1,12 +1,13 @@
 use crate::documents::Store;
+use crate::workspace::get_project_path;
 use anyhow::Result;
 use djls_project::DjangoProject;
 use djls_worker::Worker;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tower_lsp::jsonrpc::Result as LspResult;
-use tower_lsp::lsp_types::*;
-use tower_lsp::{Client, LanguageServer};
+use tower_lsp_server::jsonrpc::Result as LspResult;
+use tower_lsp_server::lsp_types::*;
+use tower_lsp_server::{Client, LanguageServer};
 
 const SERVER_NAME: &str = "Django Language Server";
 const SERVER_VERSION: &str = "0.1.0";
@@ -34,12 +35,12 @@ impl DjangoLanguageServer {
     }
 }
 
-#[tower_lsp::async_trait]
 impl LanguageServer for DjangoLanguageServer {
     async fn initialize(&self, params: InitializeParams) -> LspResult<InitializeResult> {
-        let project = DjangoProject::from_initialize_params(&params);
+        let project_path = get_project_path(&params);
 
-        if let Some(mut project) = project {
+        if let Some(path) = project_path {
+            let mut project = DjangoProject::new(path);
             match project.initialize() {
                 Ok(()) => {
                     self.log_message(
@@ -109,7 +110,7 @@ impl LanguageServer for DjangoLanguageServer {
 
         self.log_message(
             MessageType::INFO,
-            &format!("Opened document: {}", params.text_document.uri),
+            &format!("Opened document: {:?}", params.text_document.uri),
         )
         .await
         .ok();
@@ -128,7 +129,7 @@ impl LanguageServer for DjangoLanguageServer {
 
         self.log_message(
             MessageType::INFO,
-            &format!("Changed document: {}", params.text_document.uri),
+            &format!("Changed document: {:?}", params.text_document.uri),
         )
         .await
         .ok();
@@ -147,7 +148,7 @@ impl LanguageServer for DjangoLanguageServer {
 
         self.log_message(
             MessageType::INFO,
-            &format!("Closed document: {}", params.text_document.uri),
+            &format!("Closed document: {:?}", params.text_document.uri),
         )
         .await
         .ok();

@@ -1,9 +1,9 @@
 use crate::ast::{AstError, Span};
 use crate::lexer::LexerError;
 use crate::parser::ParserError;
-use lsp_types;
 use serde::Serialize;
 use thiserror::Error;
+use tower_lsp_server::lsp_types;
 
 #[derive(Debug, Error, Serialize)]
 pub enum TemplateError {
@@ -71,14 +71,11 @@ impl TemplateError {
 }
 
 pub fn to_lsp_diagnostic(error: &TemplateError, _source: &str) -> lsp_types::Diagnostic {
-    let range = error.span().map_or_else(
-        || lsp_types::Range::default(),
-        |span| {
-            let start = lsp_types::Position::new(0, *span.start());
-            let end = lsp_types::Position::new(0, span.start() + span.length());
-            lsp_types::Range::new(start, end)
-        },
-    );
+    let range = error.span().map_or_else(lsp_types::Range::default, |span| {
+        let start = lsp_types::Position::new(0, *span.start());
+        let end = lsp_types::Position::new(0, span.start() + span.length());
+        lsp_types::Range::new(start, end)
+    });
 
     lsp_types::Diagnostic {
         range,

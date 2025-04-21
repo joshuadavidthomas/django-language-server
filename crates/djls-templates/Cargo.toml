@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = { workspace = true }
-lsp-types = { workspace = true }
+tower-lsp-server = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 toml = "0.8"

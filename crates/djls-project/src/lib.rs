@@ -5,7 +5,7 @@ pub use templatetags::TemplateTags;
 use pyo3::prelude::*;
 use std::fmt;
 use std::path::{Path, PathBuf};
-use tower_lsp::lsp_types::*;
+use tower_lsp_server::lsp_types::*;
 use which::which;
 
 #[derive(Debug)]
@@ -22,21 +22,6 @@ impl DjangoProject {
             env: None,
             template_tags: None,
         }
-    }
-
-    pub fn from_initialize_params(params: &InitializeParams) -> Option<Self> {
-        // Try current directory first
-        let path = std::env::current_dir()
-            .ok()
-            // Fall back to workspace root if provided
-            .or_else(|| {
-                params
-                    .root_uri
-                    .as_ref()
-                    .and_then(|uri| uri.to_file_path().ok())
-            });
-
-        path.map(Self::new)
     }
 
     pub fn initialize(&mut self) -> PyResult<()> {

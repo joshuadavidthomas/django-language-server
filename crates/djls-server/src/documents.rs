@@ -1,11 +1,7 @@
 use anyhow::{anyhow, Result};
 use djls_project::TemplateTags;
 use std::collections::HashMap;
-use tower_lsp::lsp_types::{
-    CompletionItem, CompletionItemKind, CompletionResponse, DidChangeTextDocumentParams,
-    DidCloseTextDocumentParams, DidOpenTextDocumentParams, Documentation, InsertTextFormat,
-    MarkupContent, MarkupKind, Position, Range,
-};
+use tower_lsp_server::lsp_types::*;
 
 #[derive(Debug)]
 pub struct Store {
@@ -23,7 +19,7 @@ impl Store {
 
     pub fn handle_did_open(&mut self, params: DidOpenTextDocumentParams) -> Result<()> {
         let document = TextDocument::new(
-            String::from(params.text_document.uri),
+            params.text_document.uri.to_string(),
             params.text_document.text,
             params.text_document.version,
             params.text_document.language_id,
@@ -58,7 +54,7 @@ impl Store {
     }
 
     pub fn handle_did_close(&mut self, params: DidCloseTextDocumentParams) -> Result<()> {
-        self.remove_document(&String::from(params.text_document.uri));
+        self.remove_document(params.text_document.uri.as_str());
 
         Ok(())
     }
