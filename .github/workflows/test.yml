@@ -31,7 +31,7 @@ jobs:
 
       - id: set-matrix
         run: |
-          uv run nox --session gha_matrix
+          uv run noxfile.py --session gha_matrix
 
   test:
     name: Python ${{ matrix.python-version }}, Django ${{ matrix.django-version }} (${{ runs-on }})
@@ -51,4 +51,4 @@ jobs:
 
       - name: Run tests
         run: |
-          uv run nox --session "tests(python='${{ matrix.python-version }}', django='${{ matrix.django-version }}')"
+          uv run noxfile.py --session "tests(python='${{ matrix.python-version }}', django='${{ matrix.django-version }}')"
