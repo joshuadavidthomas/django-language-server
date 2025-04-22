@@ -7,7 +7,6 @@ djls = { path = "crates/djls" }
 djls-project = { path = "crates/djls-project" }
 djls-server = { path = "crates/djls-server" }
 djls-templates = { path = "crates/djls-templates" }
-djls-worker = { path = "crates/djls-worker" }
 
 anyhow = "1.0"
 async-trait = "0.1"

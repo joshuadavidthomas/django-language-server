@@ -1,6 +1,6 @@
 mod documents;
+mod queue;
 mod server;
-mod tasks;
 mod workspace;
 
 use crate::server::DjangoLanguageServer;

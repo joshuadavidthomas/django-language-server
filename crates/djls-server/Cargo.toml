@@ -6,7 +6,6 @@ edition = "2021"
 [dependencies]
 djls-project = { workspace = true }
 djls-templates = { workspace = true }
-djls-worker = { workspace = true }
 
 anyhow = { workspace = true }
 pyo3 = { workspace = true }
