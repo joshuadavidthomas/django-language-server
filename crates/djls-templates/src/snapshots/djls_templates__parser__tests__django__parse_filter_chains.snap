@@ -2,7 +2,7 @@
 source: crates/djls-templates/src/parser.rs
 expression: nodelist
 ---
-nodes:
+nodelist:
   - Variable:
       var: value
       filters:

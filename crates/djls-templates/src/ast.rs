@@ -1,16 +1,16 @@
-use crate::tokens::Token;
+use crate::tokens::{Token, TokenStream, TokenType};
 use serde::Serialize;
 use thiserror::Error;
 
-#[derive(Clone, Default, Debug, Serialize)]
-pub struct NodeList {
-    nodes: Vec<Node>,
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct Ast {
+    nodelist: Vec<Node>,
     line_offsets: LineOffsets,
 }
 
-impl NodeList {
-    pub fn nodes(&self) -> &Vec<Node> {
-        &self.nodes
+impl Ast {
+    pub fn nodelist(&self) -> &Vec<Node> {
+        &self.nodelist
     }
 
     pub fn line_offsets(&self) -> &LineOffsets {
@@ -18,26 +18,25 @@ impl NodeList {
     }
 
     pub fn add_node(&mut self, node: Node) {
-        self.nodes.push(node);
+        self.nodelist.push(node);
     }
 
-    pub fn set_line_offsets(&mut self, line_offsets: LineOffsets) {
-        self.line_offsets = line_offsets
-    }
-
-    pub fn finalize(&mut self) -> NodeList {
-        self.clone()
+    pub fn set_line_offsets(&mut self, tokens: &TokenStream) {
+        for token in tokens.tokens() {
+            if let TokenType::Newline = token.token_type() {
+                if let Some(start) = token.start() {
+                    // Add offset for next line
+                    self.line_offsets.add_line(start + 1);
+                }
+            }
+        }
     }
 }
 
-#[derive(Clone, Default, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct LineOffsets(pub Vec<u32>);
 
 impl LineOffsets {
-    pub fn new() -> Self {
-        Self(vec![0])
-    }
-
     pub fn add_line(&mut self, offset: u32) {
         self.0.push(offset);
     }
@@ -64,6 +63,12 @@ impl LineOffsets {
     pub fn line_col_to_position(&self, line: u32, col: u32) -> u32 {
         // line is 1-based, so subtract 1 to get the index
         self.0[(line - 1) as usize] + col
+    }
+}
+
+impl Default for LineOffsets {
+    fn default() -> Self {
+        Self(vec![0])
     }
 }
 
@@ -155,13 +160,13 @@ mod tests {
 
         #[test]
         fn test_new_starts_at_zero() {
-            let offsets = LineOffsets::new();
+            let offsets = LineOffsets::default();
             assert_eq!(offsets.position_to_line_col(0), (1, 0)); // Line 1, column 0
         }
 
         #[test]
         fn test_start_of_lines() {
-            let mut offsets = LineOffsets::new();
+            let mut offsets = LineOffsets::default();
             offsets.add_line(10); // Line 2 starts at offset 10
             offsets.add_line(25); // Line 3 starts at offset 25
 
@@ -183,7 +188,7 @@ mod tests {
             assert!(errors.is_empty());
 
             // Find the variable node
-            let nodes = nodelist.nodes();
+            let nodes = nodelist.nodelist();
             let var_node = nodes
                 .iter()
                 .find(|n| matches!(n, Node::Variable { .. }))

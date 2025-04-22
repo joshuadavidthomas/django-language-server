@@ -2,7 +2,7 @@
 source: crates/djls-templates/src/parser.rs
 expression: nodelist
 ---
-nodes:
+nodelist:
   - Text:
       content: "<div class=\"container\">Hello</div>"
       span:
