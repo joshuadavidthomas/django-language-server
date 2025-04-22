@@ -1,8 +1,8 @@
 use crate::documents::Store;
+use crate::queue::Queue;
 use crate::workspace::get_project_path;
 use anyhow::Result;
 use djls_project::DjangoProject;
-use djls_worker::Worker;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tower_lsp_server::jsonrpc::Result as LspResult;
@@ -16,7 +16,7 @@ pub struct DjangoLanguageServer {
     client: Client,
     project: Arc<RwLock<Option<DjangoProject>>>,
     documents: Arc<RwLock<Store>>,
-    worker: Worker,
+    queue: Queue,
 }
 
 impl DjangoLanguageServer {
@@ -25,7 +25,7 @@ impl DjangoLanguageServer {
             client,
             project: Arc::new(RwLock::new(None)),
             documents: Arc::new(RwLock::new(Store::new())),
-            worker: Worker::new(),
+            queue: Queue::new(),
         }
     }
 
