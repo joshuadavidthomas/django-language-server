@@ -260,6 +260,21 @@ def update_uvlock(session):
     )
 
 
+@nox.session(requires=["cog", "process_docs", "update_changelog", "update_uvlock"])
+def release(session):
+    version = get_version(session)
+    session.run("git", "checkout", "-b", f"release/v{version}")
+    command = ["uv", "run", "bumpver", "update"]
+    if session.posargs:
+        args = []
+        for arg in session.posargs:
+            if arg:
+                args.extend(arg.split(" "))
+        command.extend(args)
+    session.run(*command)
+    session.run("gh", "pr", "create", "--fill", "--head")
+
+
 def get_version(session):
     command = ["uv", "run", "bumpver", "update", "--dry", "--no-fetch"]
     if session.posargs:
@@ -271,18 +286,6 @@ def get_version(session):
     output = session.run(*command, silent=True)
     match = re.search(r"New Version: (.+)", output)
     return to_pep440(match.group(1)) if match else None
-
-
-@nox.session(requires=["cog", "process_docs", "update_changelog", "update_uvlock"])
-def release(session):
-    command = ["uv", "run", "bumpver", "update"]
-    if session.posargs:
-        args = []
-        for arg in session.posargs:
-            if arg:
-                args.extend(arg.split(" "))
-        command.extend(args)
-    session.run(*command)
 
 
 if __name__ == "__main__":
