@@ -1,4 +1,4 @@
-use crate::ast::{AstError, LineOffsets, Node, NodeList, Span};
+use crate::ast::{Ast, AstError, Node, Span};
 use crate::lexer::LexerError;
 use crate::tokens::{Token, TokenStream, TokenType};
 use thiserror::Error;
@@ -18,25 +18,14 @@ impl Parser {
         }
     }
 
-    pub fn parse(&mut self) -> Result<(NodeList, Vec<ParserError>), ParserError> {
-        let mut nodelist = NodeList::default();
-        let mut line_offsets = LineOffsets::new();
-
-        for token in self.tokens.tokens() {
-            if let TokenType::Newline = token.token_type() {
-                if let Some(start) = token.start() {
-                    // Add offset for next line
-                    line_offsets.add_line(start + 1);
-                }
-            }
-        }
-
-        self.current = 0;
+    pub fn parse(&mut self) -> Result<(Ast, Vec<ParserError>), ParserError> {
+        let mut ast = Ast::default();
+        ast.set_line_offsets(&self.tokens);
 
         while !self.is_at_end() {
             match self.next_node() {
                 Ok(node) => {
-                    nodelist.add_node(node);
+                    ast.add_node(node);
                 }
                 Err(err) => {
                     if !self.is_at_end() {
@@ -47,8 +36,7 @@ impl Parser {
             }
         }
 
-        nodelist.set_line_offsets(line_offsets);
-        Ok((nodelist.finalize(), std::mem::take(&mut self.errors)))
+        Ok((ast.clone(), std::mem::take(&mut self.errors)))
     }
 
     fn next_node(&mut self) -> Result<Node, ParserError> {

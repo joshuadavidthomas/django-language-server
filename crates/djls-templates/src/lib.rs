@@ -5,7 +5,7 @@ mod parser;
 mod tagspecs;
 mod tokens;
 
-use ast::NodeList;
+use ast::Ast;
 pub use error::{to_lsp_diagnostic, QuickFix, TemplateError};
 
 use lexer::Lexer;
@@ -18,7 +18,7 @@ pub use parser::{Parser, ParserError};
 ///
 /// Returns a `Result` containing a tuple of `(Ast, Vec<ParserError>)` on success,
 /// or a `ParserError` on failure.
-pub fn parse_template(source: &str) -> Result<(NodeList, Vec<TemplateError>), TemplateError> {
+pub fn parse_template(source: &str) -> Result<(Ast, Vec<TemplateError>), TemplateError> {
     let tokens = Lexer::new(source)
         .tokenize()
         .map_err(|e| TemplateError::Lexer(e.to_string()))?;
