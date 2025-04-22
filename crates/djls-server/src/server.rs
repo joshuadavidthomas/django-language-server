@@ -1,7 +1,6 @@
 use crate::documents::Store;
 use crate::queue::Queue;
 use crate::workspace::get_project_path;
-use anyhow::Result;
 use djls_project::DjangoProject;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -29,38 +28,41 @@ impl DjangoLanguageServer {
         }
     }
 
-    async fn log_message(&self, type_: MessageType, message: &str) -> Result<()> {
+    async fn log_message(&self, type_: MessageType, message: &str) {
         self.client.log_message(type_, message).await;
-        Ok(())
     }
 }
 
 impl LanguageServer for DjangoLanguageServer {
     async fn initialize(&self, params: InitializeParams) -> LspResult<InitializeResult> {
+        self.log_message(MessageType::INFO, "Initializing server...")
+            .await;
+
         let project_path = get_project_path(&params);
 
-        if let Some(path) = project_path {
-            let mut project = DjangoProject::new(path);
-            match project.initialize() {
-                Ok(()) => {
-                    self.log_message(
-                        MessageType::INFO,
-                        &format!("Using project path: {}", project.path().display()),
-                    )
-                    .await
-                    .ok();
-                    *self.project.write().await = Some(project);
-                }
-                Err(e) => {
-                    self.log_message(
-                        MessageType::ERROR,
-                        &format!("Failed to initialize Django project: {}", e),
-                    )
-                    .await
-                    .ok();
-                }
+        {
+            // Scope for write lock
+            let mut project_guard = self.project.write().await;
+            if let Some(ref path) = project_path {
+                self.log_message(
+                    MessageType::INFO,
+                    &format!(
+                        "Project root identified: {}. Creating project instance.",
+                        path.display()
+                    ),
+                )
+                .await;
+                *project_guard = Some(DjangoProject::new(path.clone()));
+            } else {
+                self.log_message(
+                    MessageType::WARNING,
+                    "Could not determine project root. Project features will be unavailable.",
+                )
+                .await;
+                // Ensure it's None if no path
+                *project_guard = None;
             }
-        }
+        } // Lock released
 
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
@@ -92,10 +94,76 @@ impl LanguageServer for DjangoLanguageServer {
         })
     }
 
-    async fn initialized(&self, _: InitializedParams) {
-        self.log_message(MessageType::INFO, "server initialized!")
-            .await
-            .ok();
+    async fn initialized(&self, _params: InitializedParams) {
+        self.log_message(
+            MessageType::INFO,
+            "Server received initialized notification.",
+        )
+        .await;
+
+        let project_arc = Arc::clone(&self.project);
+        let client = self.client.clone();
+
+        let task = move || async move {
+            let mut project_guard = project_arc.write().await;
+            if let Some(project) = project_guard.as_mut() {
+                let path_display = project.path().display().to_string();
+                client
+                    .log_message(
+                        MessageType::INFO,
+                        &format!(
+                            "Task: Starting initialization for project at: {}",
+                            path_display
+                        ),
+                    )
+                    .await;
+
+                match project.initialize() {
+                    Ok(()) => {
+                        client
+                            .log_message(
+                                MessageType::INFO,
+                                &format!(
+                                    "Task: Successfully initialized project: {}",
+                                    path_display
+                                ),
+                            )
+                            .await;
+                    }
+                    Err(e) => {
+                        client
+                            .log_message(
+                                MessageType::ERROR,
+                                &format!(
+                                    "Task: Failed to initialize Django project at {}: {}",
+                                    path_display, e
+                                ),
+                            )
+                            .await;
+                        *project_guard = None;
+                    }
+                }
+            } else {
+                client
+                    .log_message(
+                        MessageType::INFO,
+                        "Task: No project instance found to initialize.",
+                    )
+                    .await;
+            }
+            Ok(())
+        };
+
+        if let Err(e) = self.queue.submit(task).await {
+            self.log_message(
+                MessageType::ERROR,
+                &format!("Failed to submit project initialization task: {}", e),
+            )
+            .await;
+        } else {
+            self.log_message(MessageType::INFO, "Scheduled project initialization task.")
+                .await;
+        }
     }
 
     async fn shutdown(&self) -> LspResult<()> {
@@ -112,8 +180,7 @@ impl LanguageServer for DjangoLanguageServer {
             MessageType::INFO,
             &format!("Opened document: {:?}", params.text_document.uri),
         )
-        .await
-        .ok();
+        .await;
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
@@ -131,8 +198,7 @@ impl LanguageServer for DjangoLanguageServer {
             MessageType::INFO,
             &format!("Changed document: {:?}", params.text_document.uri),
         )
-        .await
-        .ok();
+        .await;
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
@@ -150,8 +216,7 @@ impl LanguageServer for DjangoLanguageServer {
             MessageType::INFO,
             &format!("Closed document: {:?}", params.text_document.uri),
         )
-        .await
-        .ok();
+        .await;
     }
 
     async fn completion(&self, params: CompletionParams) -> LspResult<Option<CompletionResponse>> {

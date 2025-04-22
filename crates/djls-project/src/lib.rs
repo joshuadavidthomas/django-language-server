@@ -5,7 +5,6 @@ pub use templatetags::TemplateTags;
 use pyo3::prelude::*;
 use std::fmt;
 use std::path::{Path, PathBuf};
-use tower_lsp_server::lsp_types::*;
 use which::which;
 
 #[derive(Debug)]
