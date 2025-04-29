@@ -20,6 +20,7 @@ pub enum ConfigError {
 #[serde(default)]
 pub struct Settings {
     debug: bool,
+    venv_path: Option<String>,
 }
 
 impl Settings {
@@ -76,6 +77,10 @@ impl Settings {
     pub fn debug(&self) -> bool {
         self.debug
     }
+
+    pub fn venv_path(&self) -> Option<&str> {
+        self.venv_path.as_deref()
+    }
 }
 
 #[cfg(test)]
@@ -92,7 +97,13 @@ mod tests {
             let dir = tempdir().unwrap();
             let settings = Settings::new(dir.path()).unwrap();
             // Should load defaults
-            assert_eq!(settings, Settings { debug: false });
+            assert_eq!(
+                settings,
+                Settings {
+                    debug: false,
+                    venv_path: None
+                }
+            );
             // Add assertions for future default fields here
         }
     }
@@ -105,7 +116,34 @@ mod tests {
             let dir = tempdir().unwrap();
             fs::write(dir.path().join("djls.toml"), "debug = true").unwrap();
             let settings = Settings::new(dir.path()).unwrap();
-            assert_eq!(settings, Settings { debug: true });
+            assert_eq!(
+                settings,
+                Settings {
+                    debug: true,
+                    ..Default::default() // Use default for venv_path and future fields
+                }
+            );
+        }
+
+        #[test]
+        fn test_load_venv_path_config() {
+            let dir = tempdir().unwrap();
+            fs::write(
+                dir.path().join("djls.toml"),
+                r#"
+                debug = false
+                venv_path = "/path/to/venv"
+            "#,
+            )
+            .unwrap();
+            let settings = Settings::new(dir.path()).unwrap();
+            assert_eq!(
+                settings,
+                Settings {
+                    debug: false,
+                    venv_path: Some("/path/to/venv".to_string())
+                }
+            );
         }
 
         #[test]
@@ -113,7 +151,8 @@ mod tests {
             let dir = tempdir().unwrap();
             fs::write(dir.path().join(".djls.toml"), "debug = true").unwrap();
             let settings = Settings::new(dir.path()).unwrap();
-            assert_eq!(settings, Settings { debug: true });
+            // Change this assertion:
+            assert_eq!(settings, Settings { debug: true, ..Default::default() });
         }
 
         #[test]
@@ -123,7 +162,8 @@ mod tests {
             let content = "[tool.djls]\ndebug = true\n";
             fs::write(dir.path().join("pyproject.toml"), content).unwrap();
             let settings = Settings::new(dir.path()).unwrap();
-            assert_eq!(settings, Settings { debug: true });
+            // Change this assertion:
+            assert_eq!(settings, Settings { debug: true, ..Default::default() });
         }
     }
 
@@ -136,7 +176,8 @@ mod tests {
             fs::write(dir.path().join(".djls.toml"), "debug = false").unwrap();
             fs::write(dir.path().join("djls.toml"), "debug = true").unwrap();
             let settings = Settings::new(dir.path()).unwrap();
-            assert_eq!(settings, Settings { debug: true }); // djls.toml wins
+            // Change this assertion:
+            assert_eq!(settings, Settings { debug: true, ..Default::default() }); // djls.toml wins
         }
 
         #[test]
@@ -146,7 +187,8 @@ mod tests {
             fs::write(dir.path().join("pyproject.toml"), pyproject_content).unwrap();
             fs::write(dir.path().join(".djls.toml"), "debug = true").unwrap();
             let settings = Settings::new(dir.path()).unwrap();
-            assert_eq!(settings, Settings { debug: true }); // .djls.toml wins
+            // Change this assertion:
+            assert_eq!(settings, Settings { debug: true, ..Default::default() }); // .djls.toml wins
         }
 
         #[test]
@@ -157,7 +199,8 @@ mod tests {
             fs::write(dir.path().join(".djls.toml"), "debug = false").unwrap();
             fs::write(dir.path().join("djls.toml"), "debug = true").unwrap();
             let settings = Settings::new(dir.path()).unwrap();
-            assert_eq!(settings, Settings { debug: true }); // djls.toml wins
+            // Change this assertion:
+            assert_eq!(settings, Settings { debug: true, ..Default::default() }); // djls.toml wins
         }
 
         #[test]
@@ -171,7 +214,8 @@ mod tests {
 
             let settings =
                 Settings::load_from_paths(project_dir.path(), Some(&user_conf_path)).unwrap();
-            assert_eq!(settings, Settings { debug: false }); // pyproject.toml overrides user
+            // Change this assertion:
+            assert_eq!(settings, Settings { debug: false, ..Default::default() }); // pyproject.toml overrides user
         }
 
         #[test]
@@ -184,7 +228,8 @@ mod tests {
 
             let settings =
                 Settings::load_from_paths(project_dir.path(), Some(&user_conf_path)).unwrap();
-            assert_eq!(settings, Settings { debug: false }); // djls.toml overrides user
+            // Change this assertion:
+            assert_eq!(settings, Settings { debug: false, ..Default::default() }); // djls.toml overrides user
         }
     }
 
@@ -200,7 +245,8 @@ mod tests {
 
             let settings =
                 Settings::load_from_paths(project_dir.path(), Some(&user_conf_path)).unwrap();
-            assert_eq!(settings, Settings { debug: true });
+            // Change this assertion:
+            assert_eq!(settings, Settings { debug: true, ..Default::default() });
         }
 
         #[test]
@@ -214,7 +260,8 @@ mod tests {
             // Should load project settings fine, ignoring non-existent user config
             let settings =
                 Settings::load_from_paths(project_dir.path(), Some(&user_conf_path)).unwrap();
-            assert_eq!(settings, Settings { debug: true });
+            // Change this assertion:
+            assert_eq!(settings, Settings { debug: true, ..Default::default() });
         }
 
         #[test]
@@ -225,7 +272,8 @@ mod tests {
 
             // Call helper with None for user path
             let settings = Settings::load_from_paths(project_dir.path(), None).unwrap();
-            assert_eq!(settings, Settings { debug: true });
+            // Change this assertion:
+            assert_eq!(settings, Settings { debug: true, ..Default::default() });
         }
     }
 

@@ -22,10 +22,12 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 - Added support for loading server settings from user files (`~/.config/djls/djls.toml`) and project files (`djls.toml`, `.djls.toml`, and `pyproject.toml` via `[tool.djls]` table).
 - Implemented dynamic settings reloading via `workspace/didChangeConfiguration`.
+- Added `venv_path` setting to allow explicit configuration of Python virtual environment.
 
 ### Changed
 
 - **Internal**: Moved task queueing functionality to `djls-server` crate, renamed from `Worker` to `Queue`, and simplified API.
+- Improved Python environment detection.
 
 ## [5.2.0a0]
 
