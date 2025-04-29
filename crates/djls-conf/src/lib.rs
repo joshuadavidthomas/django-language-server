@@ -17,8 +17,8 @@ pub enum ConfigError {
 }
 
 #[derive(Debug, Deserialize, Default, PartialEq)]
-#[serde(default)]
 pub struct Settings {
+    #[serde(default)]
     debug: bool,
     venv_path: Option<String>,
 }
@@ -132,8 +132,8 @@ mod tests {
             assert_eq!(
                 settings,
                 Settings {
-                    debug: false,
-                    venv_path: Some("/path/to/venv".to_string())
+                    venv_path: Some("/path/to/venv".to_string()),
+                    ..Default::default()
                 }
             );
         }
