@@ -1,8 +1,9 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf}; // Add PathBuf
 use thiserror::Error;
 use toml::Value;
 
@@ -116,7 +117,16 @@ impl TagSpecs {
 
     /// Load builtin specs from the crate's tagspecs directory.
     pub fn load_builtin_specs() -> Result<Self, anyhow::Error> {
-        let specs_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tagspecs");
+        // Call the internal function with no override, using the compile-time path.
+        Self::load_builtin_specs_from(None)
+    }
+
+    /// Internal helper to load built-in specs, allowing path override for testing.
+    fn load_builtin_specs_from(base_dir_override: Option<&Path>) -> Result<Self, anyhow::Error> {
+        let base_dir = base_dir_override
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")));
+        let specs_dir = base_dir.join("tagspecs");
         let mut all_specs = HashMap::new();
 
         if !specs_dir.is_dir() {
@@ -165,7 +175,10 @@ impl TagSpecs {
 
     /// Load both builtin and user specs, with user specs taking precedence.
     pub fn load_all(project_root: &Path) -> Result<Self, anyhow::Error> {
-        let mut specs = Self::load_builtin_specs()?;
+        // In production `load_all`, always use the default built-in path.
+        // Tests needing specific built-ins should test merging manually.
+        let mut specs = Self::load_builtin_specs_from(None)?;
+
         let user_specs = Self::load_user_specs(project_root)?;
         // User specs loaded later will overwrite built-ins if keys conflict
         Ok(specs.merge(user_specs).clone())
@@ -290,13 +303,10 @@ end = { tag = "endblock" }
 intermediates = ["inner"]
 "#;
         let dir = setup_temp_spec_dir("django.toml", content)?;
-        // Temporarily override CARGO_MANIFEST_DIR for this test
-        let original_manifest_dir = std::env::var("CARGO_MANIFEST_DIR");
-        std::env::set_var("CARGO_MANIFEST_DIR", dir.path());
 
-        let specs = TagSpecs::load_builtin_specs()?;
+        // Call the internal function with the temp dir path
+        let specs = TagSpecs::load_builtin_specs_from(Some(dir.path()))?;
         eprintln!("Loaded Builtin Specs: {:?}", specs);
-
         assert_eq!(specs.0.len(), 2);
         assert!(specs.get("if").is_some());
         assert!(specs.get("block").is_some());
@@ -311,12 +321,6 @@ intermediates = ["inner"]
         assert!(!block_spec.end.as_ref().unwrap().optional);
         assert_eq!(block_spec.intermediates.as_ref().unwrap(), &["inner"]);
 
-        // Restore original env var if it existed
-        if let Ok(val) = original_manifest_dir {
-            std::env::set_var("CARGO_MANIFEST_DIR", val);
-        } else {
-            std::env::remove_var("CARGO_MANIFEST_DIR");
-        }
         dir.close()?; // Ensure temp dir is cleaned up
         Ok(())
     }
@@ -328,22 +332,15 @@ intermediates = ["inner"]
 end = { tag = "endmytag", optional = true }
 "#;
         let dir = setup_temp_spec_dir("custom.toml", content)?;
-        let original_manifest_dir = std::env::var("CARGO_MANIFEST_DIR");
-        std::env::set_var("CARGO_MANIFEST_DIR", dir.path());
 
-        let specs = TagSpecs::load_builtin_specs()?;
+        // Call the internal function with the temp dir path
+        let specs = TagSpecs::load_builtin_specs_from(Some(dir.path()))?;
         eprintln!("Loaded Builtin Specs: {:?}", specs);
-
         assert_eq!(specs.0.len(), 1);
         let mytag_spec = specs.get("mytag").unwrap();
         assert_eq!(mytag_spec.end.as_ref().unwrap().tag, "endmytag");
         assert!(mytag_spec.end.as_ref().unwrap().optional); // Check optional=true
 
-        if let Ok(val) = original_manifest_dir {
-            std::env::set_var("CARGO_MANIFEST_DIR", val);
-        } else {
-            std::env::remove_var("CARGO_MANIFEST_DIR");
-        }
         dir.close()?;
         Ok(())
     }
@@ -496,13 +493,13 @@ end = { tag = "endif_user" } # Override built-in 'if'
 "#;
         fs::write(root.join("djls.toml"), user_content)?;
 
-        // Temporarily override CARGO_MANIFEST_DIR for load_builtin_specs
-        let original_manifest_dir = std::env::var("CARGO_MANIFEST_DIR");
-        std::env::set_var("CARGO_MANIFEST_DIR", root.to_str().unwrap());
+        // Load temporary built-ins and user specs separately to test merging
+        let mut specs = TagSpecs::load_builtin_specs_from(Some(root))?;
+        let user_specs = TagSpecs::load_user_specs(root)?;
+        specs.merge(user_specs); // Perform the merge manually for the test assertion
 
-        // Load all, user should override built-in
-        let specs = TagSpecs::load_all(root)?;
-        eprintln!("Loaded Specs (Load All): {:?}", specs);
+        // Assert against the manually merged specs
+        eprintln!("Loaded Specs (Load All - Manual Merge): {:?}", specs);
 
         assert_eq!(
             specs.0.len(),
@@ -529,33 +526,22 @@ end = { tag = "endif_user" } # Override built-in 'if'
             "endcustom_user"
         );
 
-        if let Ok(val) = original_manifest_dir {
-            std::env::set_var("CARGO_MANIFEST_DIR", val);
-        } else {
-            std::env::remove_var("CARGO_MANIFEST_DIR");
-        }
         dir.close()?;
         Ok(())
     }
 
     #[test]
     fn test_load_builtin_missing_dir() -> Result<(), anyhow::Error> {
-        // Point CARGO_MANIFEST_DIR to a non-existent path temporarily
-        let dir = tempfile::tempdir()?; // Need a valid path for temp env var setting
-        let original_manifest_dir = std::env::var("CARGO_MANIFEST_DIR");
-        std::env::set_var("CARGO_MANIFEST_DIR", dir.path().join("nonexistent"));
+        // Point to a non-existent path temporarily
+        let dir = tempfile::tempdir()?;
+        let non_existent_path = dir.path().join("nonexistent");
 
-        let specs = TagSpecs::load_builtin_specs()?;
+        let specs = TagSpecs::load_builtin_specs_from(Some(&non_existent_path))?;
         assert!(
             specs.0.is_empty(),
             "Should return empty specs if dir is missing"
         );
 
-        if let Ok(val) = original_manifest_dir {
-            std::env::set_var("CARGO_MANIFEST_DIR", val);
-        } else {
-            std::env::remove_var("CARGO_MANIFEST_DIR");
-        }
         dir.close()?;
         Ok(())
     }
@@ -568,23 +554,16 @@ end = { tag = "endif_user" } # Override built-in 'if'
 key = "value"
 "#;
         let dir = setup_temp_spec_dir("invalid.toml", content)?;
-        let original_manifest_dir = std::env::var("CARGO_MANIFEST_DIR");
-        std::env::set_var("CARGO_MANIFEST_DIR", dir.path());
 
-        // load_builtin_specs expects [tagspecs], so load_from_toml will error
-        // Check that load_builtin_specs handles this gracefully (logs warning, returns empty)
-        let specs = TagSpecs::load_builtin_specs()?;
+        // load_builtin_specs_from expects [tagspecs], so load_from_toml will error
+        // Check that load_builtin_specs_from handles this gracefully (logs warning, returns empty)
+        let specs = TagSpecs::load_builtin_specs_from(Some(dir.path()))?;
         assert!(
             specs.0.is_empty(),
-            "Should return empty specs if base table is missing"
+            "Should return empty specs if base table is missing in built-in file"
         );
         // TODO: Capture stderr to verify warning was printed?
 
-        if let Ok(val) = original_manifest_dir {
-            std::env::set_var("CARGO_MANIFEST_DIR", val);
-        } else {
-            std::env::remove_var("CARGO_MANIFEST_DIR");
-        }
         dir.close()?;
         Ok(())
     }
