@@ -1,0 +1,16 @@
+[package]
+name = "djls-conf"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+anyhow = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+config = { version ="0.15", features = ["toml"] }
+directories = "6.0"
+toml = "0.8"
+
+[dev-dependencies]
+tempfile = "3.19"
