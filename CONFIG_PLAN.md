@@ -41,26 +41,36 @@ This document outlines the plan to refactor the configuration system for the Dja
         -   Passes merged specs to `djls_templates::parse()`.
     -   Handles `workspace/didChangeConfiguration` by calling `djls_config::Config::load()` and updating its stored config.
 
-## 4. Implementation Phases
+## 4. Implementation Checklist
 
-1.  **Refactor `djls-templates`:**
-    -   Implement internal loading and static accessor for built-in `TagSpecs`.
-    -   Remove all user config loading functions and tests (`load_user_specs`, `load_all`, etc.).
-    -   Adjust dependencies.
-2.  **Implement `djls-config`:**
-    -   Create crate, define dependencies.
-    -   Define `Config` struct and `ConfigError`.
-    -   Implement `Config::load` using `config` crate for files + manual env var checks.
-    -   Add unit tests.
-3.  **Integrate into `djls-server`:**
-    -   Add dependencies.
-    -   Update server state to hold `djls_config::Config`.
-    -   Update initialization logic.
-    -   Update parsing logic to fetch, merge, and pass specs.
-    -   Implement `didChangeConfiguration` handler.
-4.  **Cleanup & Final Testing:**
-    -   Remove dead code.
-    -   Run all tests, including integration tests.
+-   [ ] **Phase 1: Refactor `djls-templates`**
+    -   [ ] Add `lazy_static` or `once_cell` dependency.
+    -   [ ] Implement internal `load_embedded_builtins()` using `include_dir!`.
+    -   [ ] Implement static `BUILTIN_TAGSPECS` using `Lazy::new()`.
+    -   [ ] Implement `pub fn get_builtin_specs() -> &'static TagSpecs`.
+    -   [ ] Ensure `TagSpecs`, `TagSpec`, `EndTag` have necessary derives (`Serialize`, `Deserialize`, `Default`, `Clone`, `Debug`, `PartialEq`).
+    -   [ ] Remove `load_user_specs`, `load_all`, `load_from_toml`, `extract_specs`, `load_builtin_specs_from`.
+    -   [ ] Remove associated tests for removed functions.
+    -   [ ] Adjust dependencies (add `toml`, `include_dir`, `lazy_static`/`once_cell`; remove `config` if present; ensure no `djls-config` dep).
+-   [ ] **Phase 2: Implement `djls-config`**
+    -   [ ] Create crate `crates/djls-config`.
+    -   [ ] Add crate to workspace `Cargo.toml`.
+    -   [ ] Define dependencies (`djls-templates`, `config`, `serde`, `log`, `thiserror`, `toml`).
+    -   [ ] Define `Config` struct (with `custom_tagspecs: TagSpecs`, `debug`, etc.).
+    -   [ ] Define `ConfigError` enum.
+    -   [ ] Implement `Config::load(project_root)` using `config` crate for files.
+    -   [ ] Add manual environment variable override logic within `Config::load`.
+    -   [ ] Add unit tests for `Config::load` (file priority, env vars, errors).
+-   [ ] **Phase 3: Integrate into `djls-server`**
+    -   [ ] Add `djls-config` dependency.
+    -   [ ] Update `DjangoLanguageServer` state to hold `Arc<RwLock<djls_config::Config>>`.
+    -   [ ] Update initialization/workspace loading to call `djls_config::Config::load()`.
+    -   [ ] Update parsing logic to call `get_builtin_specs()`, read user config, merge specs, and pass to `djls_templates::parse()`.
+    -   [ ] Implement `workspace/didChangeConfiguration` handler to reload config and update state.
+-   [ ] **Phase 4: Cleanup & Final Testing**
+    -   [ ] Remove any old config-loading code from `djls-server` or other crates.
+    -   [ ] Run all tests (`cargo test --workspace`).
+    -   [ ] Perform manual integration testing if applicable.
 
 ## 5. Open Questions / Considerations
 
