@@ -174,7 +174,6 @@ impl LanguageServer for DjangoLanguageServer {
                     )
                     .await;
 
-                // Get the venv_path from settings
                 let venv_path = {
                     let settings = settings_arc.read().await;
                     settings.venv_path().map(|s| s.to_string())
