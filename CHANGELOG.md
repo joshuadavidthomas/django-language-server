@@ -20,7 +20,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Added
 
-- Added support for loading server settings from user files (`~/.config/djls/config.toml`) and project files (`djls.toml`, `.djls.toml`, and `pyproject.toml` via `[tool.djls]` table).
+- Added support for loading server settings from user files (`~/.config/djls/djls.toml`) and project files (`djls.toml`, `.djls.toml`, and `pyproject.toml` via `[tool.djls]` table).
 - Implemented dynamic settings reloading via `workspace/didChangeConfiguration`.
 
 ### Changed
