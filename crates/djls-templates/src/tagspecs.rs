@@ -46,11 +46,14 @@ impl TagSpecs {
 
         match base_table_result {
             Ok(base_table) => {
+            Ok(base_table) => {
                 // Base table path found, extract specs from it recursively
                 let mut specs = HashMap::new();
-                // Start recursion with the base table and an empty initial path prefix
+                // Start recursion with the base table and an empty initial path prefix.
+                // Use map_err to ensure the error type matches.
                 extract_specs(base_table, "", &mut specs)
                     .map_err(|e| TagSpecError::Extract(path.display().to_string(), e))?;
+                // If base_table_result was Ok and extract_specs succeeded, return the populated specs map
                 Ok(TagSpecs(specs))
             }
             Err(e @ TagSpecError::Config(_, _)) => {
@@ -59,7 +62,7 @@ impl TagSpecs {
                 // Alternatively, could return Ok(TagSpecs::default()) if missing base is acceptable.
                 // Let's refine this based on how load_user_specs uses it.
                 // For now, propagate the specific Config error.
-                // If load_user_specs handles this Config error, it can proceed.
+                // load_user_specs and load_builtin_specs should handle this variant.
                 Err(e)
             }
             Err(e) => {
@@ -131,10 +134,10 @@ impl TagSpecs {
             let path = entry.path();
             if path.is_file() && path.extension().and_then(|ext| ext.to_str()) == Some("toml") {
                 match Self::load_from_toml(&path, &["tagspecs"]) {
-                    Ok(file_specs) => {
+                    Ok(file_specs) => { // Successfully loaded and extracted from this file
                         all_specs.extend(file_specs.0);
                     }
-                    Err(e) => {
+                    Err(e @ TagSpecError::Config(_, _)) | Err(e @ TagSpecError::Extract(_, _)) => {
                         eprintln!(
                             "Warning: Failed to load built-in tag specs from {}: {}",
                             path.display(),
@@ -172,7 +175,7 @@ fn extract_specs(
     current_value: &Value,
     current_path: &str, // The path leading up to current_value, e.g., "django.template.defaulttags"
     specs_map: &mut HashMap<String, TagSpec>,
-) -> Result<(), String> { // Return Result for error handling
+) -> Result<(), String> {
 
     // First, check if the current_value *itself* could be a TagSpec definition.
     // This happens when the current_path represents the full path to the tag.
@@ -182,7 +185,7 @@ fn extract_specs(
             Ok(tag_spec) => {
                 // Success! current_value represents a TagSpec definition.
                 // Extract tag_name from the *end* of current_path.
-                if let Some(tag_name) = current_path.split('.').last() {
+                if let Some(tag_name) = current_path.split('.').last().filter(|s| !s.is_empty()) {
                     // Insert into the map. Handle potential duplicates/overrides if needed.
                     specs_map.insert(tag_name.to_string(), tag_spec);
                     // Don't recurse further down this branch, we found the spec.
@@ -193,7 +196,7 @@ fn extract_specs(
                     return Err(format!("Could not extract tag name from non-empty path '{}'", current_path));
                 }
             }
-            Err(_) => {
+            Err(_) => { // Keep Err(_) to catch deserialization errors gracefully
                 // Deserialization as TagSpec failed. It might be a namespace table.
                 // Continue below to check if it's a table and recurse.
             }
@@ -207,7 +210,11 @@ fn extract_specs(
             // Construct the new path for the recursive call
             let new_path = if current_path.is_empty() { key.clone() } else { format!("{}.{}", current_path, key) };
             // Recurse
-            extract_specs(inner_value, &new_path, specs_map)?;
+            if let Err(e) = extract_specs(inner_value, &new_path, specs_map) {
+                // Propagate errors from recursive calls
+                // Optionally add more context here if needed
+                return Err(e);
+            }
         }
     }
     // If it's not a table and not a TagSpec, ignore it.
@@ -219,7 +226,7 @@ fn extract_specs(
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TagSpec {
     /// Information about the closing tag, if one exists.
-    pub end: Option<EndTag>, // Changed from EndTagInfo
+    pub end: Option<EndTag>,
 
     /// List of intermediate tag names.
     #[serde(default)]
@@ -228,7 +235,7 @@ pub struct TagSpec {
 
 /// Defines properties of the end tag associated with a TagSpec.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct EndTag { // Changed from EndTagInfo
+pub struct EndTag {
     /// The name of the closing tag.
     pub tag: String,
 
@@ -247,18 +254,18 @@ mod tests {
         filename: &str,
         content: &str,
     ) -> Result<tempfile::TempDir, anyhow::Error> {
-        let dir = tempfile::tempdir()?;
+        let dir = tempfile::tempdir()?; // Create temp dir in system default location
         let specs_dir = dir.path().join("tagspecs");
-        fs::create_dir(&specs_dir)?;
+        fs::create_dir_all(&specs_dir)?; // Use create_dir_all
         fs::write(specs_dir.join(filename), content)?;
         Ok(dir)
     }
 
     #[test]
-    fn test_load_builtin_simple() -> Result<(), anyhow::Error> {
+    fn test_load_builtin_simple() -> Result<(), anyhow::Error> { // Renamed from test_can_load_builtins
         let content = r#"
 # Using dotted path table names under [tagspecs] base
-[tagspecs.django.template.defaulttags.if]
+[tagspecs.django.template.defaulttags.if] // Corrected path
 end = { tag = "endif" }
 [tagspecs.django.template.defaulttags.block]
 end = { tag = "endblock" }
@@ -298,7 +305,7 @@ intermediates = ["inner"]
 
     #[test]
     fn test_load_builtin_optional_end() -> Result<(), anyhow::Error> {
-        let content = r#"
+         let content = r#"
 [tagspecs.custom.mytag]
 end = { tag = "endmytag", optional = true }
 "#;
@@ -324,10 +331,10 @@ end = { tag = "endmytag", optional = true }
     }
 
     #[test]
-    fn test_load_user_djls_toml() -> Result<(), anyhow::Error> {
+    fn test_load_user_djls_toml() -> Result<(), anyhow::Error> { // Renamed from test_user_defined_tags
         let dir = tempfile::tempdir()?;
         let root = dir.path();
-        // User specs under [tagspecs] base table
+         // User specs under [tagspecs] base table
         let djls_content = r#"
 [tagspecs.custom.app.tags.mytag]
 end = { tag = "endmytag" }
@@ -352,7 +359,7 @@ end = { tag = "endmytag" }
     fn test_load_user_pyproject_toml() -> Result<(), anyhow::Error> {
         let dir = tempfile::tempdir()?;
         let root = dir.path();
-        // User specs under [tool.djls.tagspecs] base table
+         // User specs under [tool.djls.tagspecs] base table
         let pyproject_content = r#"
 [tool.djls.tagspecs.another.lib.othertag]
 end = { tag = "endother" }
@@ -379,16 +386,16 @@ intermediates = ["branch"]
         let root = dir.path();
 
         // djls.toml has higher priority
-        // Uses [tagspecs] base
+         // Uses [tagspecs] base
         let djls_content = r#"
 [tagspecs.common.tag1]
 end = { tag = "endtag1_djls" }
 [tagspecs.common.tag_djls]
 end = { tag = "end_djls_only"}
 "#;
-        fs::write(root.join("djls.toml"), djls_content)?;
+         fs::write(root.join("djls.toml"), djls_content)?;
 
-        // pyproject.toml has lower priority, uses [tool.djls.tagspecs] base
+         // pyproject.toml has lower priority, uses [tool.djls.tagspecs] base
         let pyproject_content = r#"
 [tool.djls.tagspecs.common.tag1]
 end = { tag = "endtag1_pyproj" }
@@ -457,16 +464,16 @@ end = { tag = "endif_builtin" }
 [tagspecs.django.template.defaulttags.block]
 end = { tag = "endblock_builtin" }
 "#;
-        let specs_dir = root.join("tagspecs"); // Simulate built-in dir inside temp
-        fs::create_dir(&specs_dir)?;
+         let specs_dir = root.join("tagspecs"); // Simulate built-in dir inside temp
+        fs::create_dir_all(&specs_dir)?; // Use create_dir_all
         fs::write(specs_dir.join("django.toml"), builtin_content)?;
 
-        // Create a user override file (djls.toml has priority)
+         // Create a user override file (djls.toml has priority)
         let user_content = r#"
 [tagspecs.django.template.defaulttags.if]
 end = { tag = "endif_user" } # Override built-in 'if'
 [tagspecs.custom.custom]
-end = { tag = "endcustom_user" } # Add user tag
+ end = { tag = "endcustom_user" } # Add user tag
 "#;
         fs::write(root.join("djls.toml"), user_content)?;
 
@@ -519,7 +526,7 @@ end = { tag = "endcustom_user" } # Add user tag
         let original_manifest_dir = std::env::var("CARGO_MANIFEST_DIR");
         std::env::set_var("CARGO_MANIFEST_DIR", dir.path().join("nonexistent"));
 
-        let specs = TagSpecs::load_builtin_specs()?;
+         let specs = TagSpecs::load_builtin_specs()?;
         assert!(
             specs.0.is_empty(),
             "Should return empty specs if dir is missing"
@@ -547,7 +554,7 @@ key = "value"
 
         // load_builtin_specs expects [tagspecs], so load_from_toml will error
         // Check that load_builtin_specs handles this gracefully (logs warning, returns empty)
-        let specs = TagSpecs::load_builtin_specs()?;
+         let specs = TagSpecs::load_builtin_specs()?;
         assert!(
             specs.0.is_empty(),
             "Should return empty specs if base table is missing"
@@ -575,7 +582,7 @@ key = "value"
         fs::write(root.join("djls.toml"), djls_content)?;
 
         // load_user_specs should ignore this file because base table is missing
-        let specs = TagSpecs::load_user_specs(root)?;
+         let specs = TagSpecs::load_user_specs(root)?;
         assert!(
             specs.0.is_empty(),
             "Should return empty specs if base table is missing in user file"
