@@ -1,5 +1,5 @@
 use anyhow::Result;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
@@ -27,38 +27,41 @@ impl TagSpecs {
     }
 
     /// Load specs from a TOML file, looking under the specified table path
-    fn load_from_toml(path: &Path, table_path: &[&str]) -> Result<Self, anyhow::Error> {
+    fn load_from_toml(path: &Path, table_path: &[&str]) -> Result<Self, TagSpecError> {
         let content = fs::read_to_string(path)?;
         let value: Value = toml::from_str(&content)?;
 
-        // Navigate to the specified table
-        let table = table_path
+        let start_node = table_path
             .iter()
-            .try_fold(&value, |current, &key| {
-                current
-                    .get(key)
-                    .ok_or_else(|| anyhow::anyhow!("Missing table: {}", key))
-            })
-            .unwrap_or(&value);
+            .try_fold(&value, |current, &key| current.get(key));
 
         let mut specs = HashMap::new();
-        TagSpec::extract_specs(table, None, &mut specs)
-            .map_err(|e| TagSpecError::Extract(e.to_string()))?;
+
+        if let Some(node) = start_node {
+            let initial_prefix = if table_path.is_empty() {
+                None
+            } else {
+                Some(table_path.join("."))
+            };
+            TagSpec::extract_specs(node, initial_prefix.as_deref(), &mut specs)
+                .map_err(TagSpecError::Extract)?;
+        }
+
         Ok(TagSpecs(specs))
     }
 
     /// Load specs from a user's project directory
     pub fn load_user_specs(project_root: &Path) -> Result<Self, anyhow::Error> {
-        // List of config files to try, in priority order
         let config_files = ["djls.toml", ".djls.toml", "pyproject.toml"];
 
         for &file in &config_files {
             let path = project_root.join(file);
             if path.exists() {
-                return match file {
+                let result = match file {
                     "pyproject.toml" => Self::load_from_toml(&path, &["tool", "djls", "tagspecs"]),
-                    _ => Self::load_from_toml(&path, &["tagspecs"]), // Root level for other files
+                    _ => Self::load_from_toml(&path, &["tagspecs"]),
                 };
+                return result.map_err(anyhow::Error::from);
             }
         }
         Ok(Self::default())
@@ -72,8 +75,8 @@ impl TagSpecs {
         for entry in fs::read_dir(&specs_dir)? {
             let entry = entry?;
             let path = entry.path();
-            if path.extension().and_then(|ext| ext.to_str()) == Some("toml") {
-                let file_specs = Self::load_from_toml(&path, &[])?;
+            if path.is_file() && path.extension().and_then(|ext| ext.to_str()) == Some("toml") {
+                let file_specs = Self::load_from_toml(&path, &["tagspecs"])?;
                 specs.extend(file_specs.0);
             }
         }
@@ -95,86 +98,93 @@ impl TagSpecs {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TagSpec {
-    #[serde(rename = "type")]
-    pub tag_type: TagType,
-    pub closing: Option<String>,
+    pub end: Option<EndTag>,
     #[serde(default)]
-    pub branches: Option<Vec<String>>,
-    pub args: Option<Vec<ArgSpec>>,
+    pub intermediates: Option<Vec<String>>,
 }
 
 impl TagSpec {
+    /// Recursive extraction: Check if node is spec, otherwise recurse if table.
     fn extract_specs(
         value: &Value,
-        prefix: Option<&str>,
+        prefix: Option<&str>, // Path *to* this value node
         specs: &mut HashMap<String, TagSpec>,
     ) -> Result<(), String> {
-        // Try to deserialize as a tag spec first
-        match TagSpec::deserialize(value.clone()) {
-            Ok(tag_spec) => {
-                let name = prefix.map_or_else(String::new, |p| {
-                    p.split('.').last().unwrap_or(p).to_string()
-                });
-                specs.insert(name, tag_spec);
+        // Check if the current node *itself* represents a TagSpec definition
+        // We can be more specific: check if it's a table containing 'end' or 'intermediates'
+        let mut is_spec_node = false;
+        if let Some(table) = value.as_table() {
+            if table.contains_key("end") || table.contains_key("intermediates") {
+                // Looks like a spec, try to deserialize
+                match TagSpec::deserialize(value.clone()) {
+                    Ok(tag_spec) => {
+                        // It is a TagSpec. Get name from prefix.
+                        if let Some(p) = prefix {
+                            if let Some(name) = p.split('.').next_back().filter(|s| !s.is_empty()) {
+                                specs.insert(name.to_string(), tag_spec);
+                                is_spec_node = true;
+                            } else {
+                                return Err(format!(
+                                    "Invalid prefix '{}' resulted in empty tag name component.",
+                                    p
+                                ));
+                            }
+                        } else {
+                            return Err("Cannot determine tag name for TagSpec: prefix is None."
+                                .to_string());
+                        }
+                    }
+                    Err(e) => {
+                        // Looked like a spec but failed to deserialize. This is an error.
+                        return Err(format!(
+                            "Failed to deserialize potential TagSpec at prefix '{}': {}",
+                            prefix.unwrap_or("<root>"),
+                            e
+                        ));
+                    }
+                }
             }
-            Err(_) => {
-                // Not a tag spec, try recursing into any table values
-                for (key, value) in value.as_table().iter().flat_map(|t| t.iter()) {
+        }
+
+        // If the node was successfully processed as a spec, DO NOT recurse into its fields.
+        // Otherwise, if it's a table, recurse into its children.
+        if !is_spec_node {
+            if let Some(table) = value.as_table() {
+                for (key, inner_value) in table.iter() {
                     let new_prefix = match prefix {
                         None => key.clone(),
                         Some(p) => format!("{}.{}", p, key),
                     };
-                    Self::extract_specs(value, Some(&new_prefix), specs)?;
+                    Self::extract_specs(inner_value, Some(&new_prefix), specs)?;
                 }
             }
         }
+
         Ok(())
     }
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(rename_all = "lowercase")]
-pub enum TagType {
-    Container,
-    Inclusion,
-    Single,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-pub struct ArgSpec {
-    pub name: String,
-    pub required: bool,
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct EndTag {
+    pub tag: String,
     #[serde(default)]
-    pub allowed_values: Option<Vec<String>>,
-    #[serde(default)]
-    pub is_kwarg: bool,
-}
-
-impl ArgSpec {
-    pub fn is_placeholder(arg: &str) -> bool {
-        arg.starts_with('{') && arg.ends_with('}')
-    }
-
-    pub fn get_placeholder_name(arg: &str) -> Option<&str> {
-        if Self::is_placeholder(arg) {
-            Some(&arg[1..arg.len() - 1])
-        } else {
-            None
-        }
-    }
+    pub optional: bool,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
 
     #[test]
     fn test_can_load_builtins() -> Result<(), anyhow::Error> {
         let specs = TagSpecs::load_builtin_specs()?;
 
         assert!(!specs.0.is_empty(), "Should have loaded at least one spec");
+
+        assert!(specs.get("if").is_some(), "'if' tag should be present");
 
         for name in specs.0.keys() {
             assert!(!name.is_empty(), "Tag name should not be empty");
@@ -190,29 +200,34 @@ mod tests {
             "autoescape",
             "block",
             "comment",
-            "cycle",
-            "debug",
-            "extends",
             "filter",
             "for",
-            "firstof",
             "if",
-            "include",
-            "load",
-            "now",
+            "ifchanged",
             "spaceless",
-            "templatetag",
-            "url",
             "verbatim",
             "with",
+            "cache",
+            "localize",
+            "blocktranslate",
+            "localtime",
+            "timezone",
         ];
         let missing_tags = [
             "csrf_token",
-            "ifchanged",
+            "cycle",
+            "debug",
+            "extends",
+            "firstof",
+            "include",
+            "load",
             "lorem",
+            "now",
             "querystring", // 5.1
             "regroup",
             "resetcycle",
+            "templatetag",
+            "url",
             "widthratio",
         ];
 
@@ -237,33 +252,44 @@ mod tests {
         let root = dir.path();
 
         let pyproject_content = r#"
-[tool.djls.template.tags.mytag]
-type = "container"
-closing = "endmytag"
-branches = ["mybranch"]
-args = [{ name = "myarg", required = true }]
+[tool.djls.tagspecs.mytag]
+end = { tag = "endmytag" }
+intermediates = ["mybranch"]
+
+[tool.djls.tagspecs.anothertag]
+end = { tag = "endanothertag", optional = true }
 "#;
         fs::write(root.join("pyproject.toml"), pyproject_content)?;
 
+        // Load all (built-in + user)
         let specs = TagSpecs::load_all(root)?;
 
-        let if_tag = specs.get("if").expect("if tag should be present");
-        assert_eq!(if_tag.tag_type, TagType::Container);
+        assert!(specs.get("if").is_some(), "'if' tag should be present");
 
         let my_tag = specs.get("mytag").expect("mytag should be present");
-        assert_eq!(my_tag.tag_type, TagType::Container);
-        assert_eq!(my_tag.closing, Some("endmytag".to_string()));
+        assert_eq!(
+            my_tag.end,
+            Some(EndTag {
+                tag: "endmytag".to_string(),
+                optional: false
+            })
+        );
+        assert_eq!(my_tag.intermediates, Some(vec!["mybranch".to_string()]));
 
-        let branches = my_tag
-            .branches
-            .as_ref()
-            .expect("mytag should have branches");
-        assert!(branches.iter().any(|b| b == "mybranch"));
-
-        let args = my_tag.args.as_ref().expect("mytag should have args");
-        let arg = &args[0];
-        assert_eq!(arg.name, "myarg");
-        assert!(arg.required);
+        let another_tag = specs
+            .get("anothertag")
+            .expect("anothertag should be present");
+        assert_eq!(
+            another_tag.end,
+            Some(EndTag {
+                tag: "endanothertag".to_string(),
+                optional: true
+            })
+        );
+        assert!(
+            another_tag.intermediates.is_none(),
+            "anothertag should have no intermediates"
+        );
 
         dir.close()?;
         Ok(())
@@ -274,36 +300,45 @@ args = [{ name = "myarg", required = true }]
         let dir = tempfile::tempdir()?;
         let root = dir.path();
 
+        // djls.toml has higher priority
         let djls_content = r#"
-[mytag1]
-type = "container"
-closing = "endmytag1"
+[tagspecs.mytag1]
+end = { tag = "endmytag1_from_djls" }
 "#;
         fs::write(root.join("djls.toml"), djls_content)?;
 
+        // pyproject.toml has lower priority
         let pyproject_content = r#"
-[tool.djls.template.tags]
-mytag2.type = "container"
-mytag2.closing = "endmytag2"
+[tool.djls.tagspecs.mytag1]
+end = { tag = "endmytag1_from_pyproject" }
+
+[tool.djls.tagspecs.mytag2]
+end = { tag = "endmytag2_from_pyproject" }
 "#;
         fs::write(root.join("pyproject.toml"), pyproject_content)?;
 
         let specs = TagSpecs::load_user_specs(root)?;
 
-        assert!(specs.get("mytag1").is_some(), "mytag1 should be present");
+        let tag1 = specs.get("mytag1").expect("mytag1 should be present");
+        assert_eq!(tag1.end.as_ref().unwrap().tag, "endmytag1_from_djls");
+
+        // Should not find mytag2 because djls.toml was found first
         assert!(
             specs.get("mytag2").is_none(),
-            "mytag2 should not be present"
+            "mytag2 should not be present when djls.toml exists"
         );
 
+        // Remove djls.toml, now pyproject.toml should be used
         fs::remove_file(root.join("djls.toml"))?;
         let specs = TagSpecs::load_user_specs(root)?;
 
+        let tag1 = specs.get("mytag1").expect("mytag1 should be present now");
+        assert_eq!(tag1.end.as_ref().unwrap().tag, "endmytag1_from_pyproject");
+
         assert!(
-            specs.get("mytag1").is_none(),
-            "mytag1 should not be present"
+            specs.get("mytag2").is_some(),
+            "mytag2 should be present when only pyproject.toml exists"
         );
-        assert!(specs.get("mytag2").is_some(), "mytag2 should be present");
 
         dir.close()?;
         Ok(())
