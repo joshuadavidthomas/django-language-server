@@ -81,24 +81,155 @@ impl fmt::Display for DjangoProject {
     }
 }
 
+#[derive(Debug, PartialEq)]
+struct PythonEnvironment {
+    python_path: PathBuf,
+    sys_path: Vec<PathBuf>,
+    sys_prefix: PathBuf,
+}
+
+impl PythonEnvironment {
+    fn new(project_path: &Path, venv_path: Option<&str>) -> Option<Self> {
+        if let Some(path) = venv_path {
+            let prefix = PathBuf::from(path);
+            // If explicit path is provided and valid, use it.
+            // If it's invalid, we *don't* fall through according to current logic.
+            // Let's refine this: if explicit path is given but invalid, maybe we should error or log?
+            // For now, stick to the current implementation: if from_venv_prefix returns Some, we use it.
+            if let Some(env) = Self::from_venv_prefix(&prefix) {
+                return Some(env);
+            } else {
+                // Explicit path provided but invalid. Should we stop here?
+                // The current code implicitly continues to VIRTUAL_ENV check.
+                // Let's keep the current behavior for now, but it's worth noting.
+                eprintln!(
+                    "Warning: Explicit venv_path '{}' provided but seems invalid. Continuing search.",
+                    path
+                );
+            }
+        }
+
+        if let Ok(virtual_env) = env::var("VIRTUAL_ENV") {
+            if !virtual_env.is_empty() {
+                let prefix = PathBuf::from(virtual_env);
+                if let Some(env) = Self::from_venv_prefix(&prefix) {
+                    return Some(env);
+                }
+            }
+        }
+
+        for venv_dir in &[".venv", "venv", "env", ".env"] {
+            let potential_venv = project_path.join(venv_dir);
+            if potential_venv.is_dir() {
+                if let Some(env) = Self::from_venv_prefix(&potential_venv) {
+                    return Some(env);
+                }
+            }
+        }
+
+        Self::from_system_python()
+    }
+
+    fn from_venv_prefix(prefix: &Path) -> Option<Self> {
+        #[cfg(not(windows))]
+        let python_path = prefix.join("bin").join("python");
+        #[cfg(not(windows))]
+        let bin_dir = prefix.join("bin");
+
+        #[cfg(windows)]
+        let python_path = prefix.join("Scripts").join("python.exe");
+        #[cfg(windows)]
+        let bin_dir = prefix.join("Scripts");
+
+        // Check if the *prefix* and the *binary* exist.
+        // Checking prefix helps avoid issues if only bin/python exists somehow.
+        if !prefix.is_dir() || !python_path.exists() {
+            return None;
+        }
+
+        let mut sys_path = Vec::new();
+        sys_path.push(bin_dir); // Add bin/ or Scripts/
+
+        if let Some(site_packages) = Self::find_site_packages(prefix) {
+            if site_packages.is_dir() {
+                sys_path.push(site_packages);
+            }
+        }
+
+        Some(Self {
+            python_path: python_path.clone(),
+            sys_path,
+            sys_prefix: prefix.to_path_buf(),
+        })
+    }
+
+    fn from_system_python() -> Option<Self> {
+        let python_path = which("python").ok()?;
+        // which() might return a path inside a bin/Scripts dir, or directly the executable
+        // We need the prefix, which is usually two levels up from the executable in standard layouts
+        let bin_dir = python_path.parent()?;
+        let prefix = bin_dir.parent()?; // This assumes standard bin/ or Scripts/ layout
+
+        let mut sys_path = Vec::new();
+        sys_path.push(bin_dir.to_path_buf());
+
+        if let Some(site_packages) = Self::find_site_packages(prefix) {
+            if site_packages.is_dir() {
+                sys_path.push(site_packages);
+            }
+        }
+
+        Some(Self {
+            python_path: python_path.clone(),
+            sys_path,
+            sys_prefix: prefix.to_path_buf(),
+        })
+    }
+
+    #[cfg(not(windows))]
+    fn find_site_packages(prefix: &Path) -> Option<PathBuf> {
+        // Look for lib/pythonX.Y/site-packages
+        let lib_dir = prefix.join("lib");
+        if !lib_dir.is_dir() {
+            return None;
+        }
+        std::fs::read_dir(lib_dir)
+            .ok()?
+            .filter_map(Result::ok)
+            .find(|e| {
+                e.file_type().is_ok_and(|ft| ft.is_dir()) && // Ensure it's a directory
+                e.file_name().to_string_lossy().starts_with("python")
+            })
+            .map(|e| e.path().join("site-packages"))
+    }
+
+    #[cfg(windows)]
+    fn find_site_packages(prefix: &Path) -> Option<PathBuf> {
+        Some(prefix.join("Lib").join("site-packages"))
+    }
+}
+
+impl fmt::Display for PythonEnvironment {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "Python path: {}", self.python_path.display())?;
+        writeln!(f, "Sys prefix: {}", self.sys_prefix.display())?;
+        writeln!(f, "Sys paths:")?;
+        for path in &self.sys_path {
+            writeln!(f, "  {}", path.display())?;
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::fs;
-    use tempfile::{tempdir, TempDir};
+    use tempfile::tempdir;
 
-    // Helper to create a mock virtual environment structure
     fn create_mock_venv(dir: &Path, version: Option<&str>) -> PathBuf {
         let prefix = dir.to_path_buf();
-        #[cfg(windows)]
-        {
-            let bin_dir = prefix.join("Scripts");
-            fs::create_dir_all(&bin_dir).unwrap();
-            fs::write(bin_dir.join("python.exe"), "").unwrap(); // Create dummy executable
-            let lib_dir = prefix.join("Lib");
-            fs::create_dir_all(&lib_dir).unwrap();
-            fs::create_dir_all(lib_dir.join("site-packages")).unwrap();
-        }
+
         #[cfg(not(windows))]
         {
             let bin_dir = prefix.join("bin");
@@ -110,10 +241,20 @@ mod tests {
             fs::create_dir_all(&py_version_dir).unwrap();
             fs::create_dir_all(py_version_dir.join("site-packages")).unwrap();
         }
+
+        #[cfg(windows)]
+        {
+            let bin_dir = prefix.join("Scripts");
+            fs::create_dir_all(&bin_dir).unwrap();
+            fs::write(bin_dir.join("python.exe"), "").unwrap(); // Create dummy executable
+            let lib_dir = prefix.join("Lib");
+            fs::create_dir_all(&lib_dir).unwrap();
+            fs::create_dir_all(lib_dir.join("site-packages")).unwrap();
+        }
+
         prefix
     }
 
-    // Helper to manage VIRTUAL_ENV environment variable during tests
     struct VirtualEnvGuard<'a> {
         key: &'a str,
         original_value: Option<String>,
@@ -123,17 +264,23 @@ mod tests {
         fn set(key: &'a str, value: &str) -> Self {
             let original_value = env::var(key).ok();
             env::set_var(key, value);
-            Self { key, original_value }
+            Self {
+                key,
+                original_value,
+            }
         }
 
         fn clear(key: &'a str) -> Self {
             let original_value = env::var(key).ok();
             env::remove_var(key);
-            Self { key, original_value }
+            Self {
+                key,
+                original_value,
+            }
         }
     }
 
-    impl<'a> Drop for VirtualEnvGuard<'a> {
+    impl Drop for VirtualEnvGuard<'_> {
         fn drop(&mut self) {
             if let Some(ref val) = self.original_value {
                 env::set_var(self.key, val);
@@ -149,24 +296,27 @@ mod tests {
         let venv_dir = tempdir().unwrap();
         let venv_prefix = create_mock_venv(venv_dir.path(), None);
 
-        let env = PythonEnvironment::new(
-            project_dir.path(),
-            Some(venv_prefix.to_str().unwrap()),
-        )
-        .expect("Should find environment with explicit path");
+        let env = PythonEnvironment::new(project_dir.path(), Some(venv_prefix.to_str().unwrap()))
+            .expect("Should find environment with explicit path");
 
         assert_eq!(env.sys_prefix, venv_prefix);
-        #[cfg(windows)]
-        {
-            assert!(env.python_path.ends_with("Scripts\\python.exe"));
-            assert!(env.sys_path.contains(&venv_prefix.join("Scripts")));
-            assert!(env.sys_path.contains(&venv_prefix.join("Lib").join("site-packages")));
-        }
+
         #[cfg(not(windows))]
         {
             assert!(env.python_path.ends_with("bin/python"));
             assert!(env.sys_path.contains(&venv_prefix.join("bin")));
-            assert!(env.sys_path.contains(&venv_prefix.join("lib/python3.9/site-packages")));
+            assert!(env
+                .sys_path
+                .contains(&venv_prefix.join("lib/python3.9/site-packages")));
+        }
+
+        #[cfg(windows)]
+        {
+            assert!(env.python_path.ends_with("Scripts\\python.exe"));
+            assert!(env.sys_path.contains(&venv_prefix.join("Scripts")));
+            assert!(env
+                .sys_path
+                .contains(&venv_prefix.join("Lib").join("site-packages")));
         }
     }
 
@@ -181,17 +331,14 @@ mod tests {
 
         // Provide an invalid explicit path
         let invalid_path = project_dir.path().join("non_existent_venv");
-        let env = PythonEnvironment::new(
-            project_dir.path(),
-            Some(invalid_path.to_str().unwrap()),
-        )
-        .expect("Should fall through to VIRTUAL_ENV");
+        let env = PythonEnvironment::new(project_dir.path(), Some(invalid_path.to_str().unwrap()))
+            .expect("Should fall through to VIRTUAL_ENV");
 
         // Should have found the one from VIRTUAL_ENV
         assert_eq!(env.sys_prefix, venv_prefix);
     }
 
-     #[test]
+    #[test]
     fn test_explicit_venv_path_invalid_falls_through_to_project_venv() {
         let project_dir = tempdir().unwrap();
         let project_venv_prefix = create_mock_venv(&project_dir.path().join(".venv"), None);
@@ -201,16 +348,12 @@ mod tests {
 
         // Provide an invalid explicit path
         let invalid_path = project_dir.path().join("non_existent_venv");
-        let env = PythonEnvironment::new(
-            project_dir.path(),
-            Some(invalid_path.to_str().unwrap()),
-        )
-        .expect("Should fall through to project .venv");
+        let env = PythonEnvironment::new(project_dir.path(), Some(invalid_path.to_str().unwrap()))
+            .expect("Should fall through to project .venv");
 
         // Should have found the one in the project dir
         assert_eq!(env.sys_prefix, project_venv_prefix);
     }
-
 
     #[test]
     fn test_virtual_env_variable_found() {
@@ -224,10 +367,12 @@ mod tests {
             .expect("Should find environment via VIRTUAL_ENV");
 
         assert_eq!(env.sys_prefix, venv_prefix);
-         #[cfg(windows)]
-        assert!(env.python_path.ends_with("Scripts\\python.exe"));
+
         #[cfg(not(windows))]
         assert!(env.python_path.ends_with("bin/python"));
+
+        #[cfg(windows)]
+        assert!(env.python_path.ends_with("Scripts\\python.exe"));
     }
 
     #[test]
@@ -246,7 +391,10 @@ mod tests {
         )
         .expect("Should find environment via explicit path");
 
-        assert_eq!(env.sys_prefix, venv2_prefix, "Explicit path should take precedence");
+        assert_eq!(
+            env.sys_prefix, venv2_prefix,
+            "Explicit path should take precedence"
+        );
     }
 
     #[test]
@@ -272,8 +420,8 @@ mod tests {
 
         let _guard = VirtualEnvGuard::clear("VIRTUAL_ENV");
 
-        let env = PythonEnvironment::new(project_dir.path(), None)
-            .expect("Should find environment");
+        let env =
+            PythonEnvironment::new(project_dir.path(), None).expect("Should find environment");
 
         // Asserts it finds .venv because it's checked first in the loop
         assert_eq!(env.sys_prefix, dot_venv_prefix);
@@ -291,10 +439,13 @@ mod tests {
         // This test assumes `which python` works and points to a standard layout
         let system_env = PythonEnvironment::new(project_dir.path(), None);
 
-        assert!(system_env.is_some(), "Should fall back to system python if available");
+        assert!(
+            system_env.is_some(),
+            "Should fall back to system python if available"
+        );
 
         if let Some(env) = system_env {
-             // Basic checks - exact paths depend heavily on the test environment
+            // Basic checks - exact paths depend heavily on the test environment
             assert!(env.python_path.exists());
             assert!(env.sys_prefix.exists());
             assert!(!env.sys_path.is_empty());
@@ -302,7 +453,7 @@ mod tests {
         }
     }
 
-     #[test]
+    #[test]
     fn test_no_python_found() {
         let project_dir = tempdir().unwrap();
 
@@ -334,8 +485,10 @@ mod tests {
         // This assertion depends on whether system python is actually found or not.
         // assert!(env.is_none(), "Expected no environment to be found");
         // Given the difficulty, let's skip asserting None directly unless we mock `which`.
-        println!("Test 'test_no_python_found' ran. Result depends on system state: {:?}", env);
-
+        println!(
+            "Test 'test_no_python_found' ran. Result depends on system state: {:?}",
+            env
+        );
     }
 
     #[test]
@@ -352,23 +505,25 @@ mod tests {
         let py_version_dir1 = lib_dir.join("python3.8");
         fs::create_dir_all(&py_version_dir1).unwrap();
         fs::create_dir_all(py_version_dir1.join("site-packages")).unwrap();
-         let py_version_dir2 = lib_dir.join("python3.10");
+        let py_version_dir2 = lib_dir.join("python3.10");
         fs::create_dir_all(&py_version_dir2).unwrap();
         fs::create_dir_all(py_version_dir2.join("site-packages")).unwrap();
-
 
         let env = PythonEnvironment::from_venv_prefix(prefix).unwrap();
 
         // It should find *a* site-packages dir. The exact one depends on read_dir order.
         let found_site_packages = env.sys_path.iter().any(|p| p.ends_with("site-packages"));
-        assert!(found_site_packages, "Should have found a site-packages directory");
+        assert!(
+            found_site_packages,
+            "Should have found a site-packages directory"
+        );
 
         // Ensure it contains the bin dir as well
         assert!(env.sys_path.contains(&prefix.join("bin")));
     }
 
-     #[test]
-    #[cfg(windows)] // Test specific site-packages structure on Windows
+    #[test]
+    #[cfg(windows)]
     fn test_windows_site_packages_discovery() {
         let venv_dir = tempdir().unwrap();
         let prefix = venv_dir.path();
@@ -383,7 +538,10 @@ mod tests {
         let env = PythonEnvironment::from_venv_prefix(prefix).unwrap();
 
         assert!(env.sys_path.contains(&prefix.join("Scripts")));
-        assert!(env.sys_path.contains(&site_packages), "Should have found Lib/site-packages");
+        assert!(
+            env.sys_path.contains(&site_packages),
+            "Should have found Lib/site-packages"
+        );
     }
 
     #[test]
@@ -400,164 +558,14 @@ mod tests {
         let prefix = dir.path();
         // Create prefix dir but not the binary
         fs::create_dir_all(prefix).unwrap();
-         #[cfg(windows)]
-        fs::create_dir_all(prefix.join("Scripts")).unwrap();
+
         #[cfg(not(windows))]
         fs::create_dir_all(prefix.join("bin")).unwrap();
 
+        #[cfg(windows)]
+        fs::create_dir_all(prefix.join("Scripts")).unwrap();
+
         let result = PythonEnvironment::from_venv_prefix(prefix);
         assert!(result.is_none());
-    }
-
-}
-
-#[derive(Debug, PartialEq)] // Added PartialEq for easier testing
-struct PythonEnvironment {
-    #[allow(dead_code)]
-    python_path: PathBuf,
-    sys_path: Vec<PathBuf>,
-    sys_prefix: PathBuf,
-}
-
-impl PythonEnvironment {
-    fn new(project_path: &Path, venv_path: Option<&str>) -> Option<Self> {
-        // 1. Use explicit venv_path from settings if provided
-        if let Some(path) = venv_path {
-            let prefix = PathBuf::from(path);
-            // If explicit path is provided and valid, use it.
-            // If it's invalid, we *don't* fall through according to current logic.
-            // Let's refine this: if explicit path is given but invalid, maybe we should error or log?
-            // For now, stick to the current implementation: if from_venv_prefix returns Some, we use it.
-            if let Some(env) = Self::from_venv_prefix(&prefix) {
-                return Some(env);
-            } else {
-                // Explicit path provided but invalid. Should we stop here?
-                // The current code implicitly continues to VIRTUAL_ENV check.
-                // Let's keep the current behavior for now, but it's worth noting.
-                eprintln!(
-                    "Warning: Explicit venv_path '{}' provided but seems invalid. Continuing search.",
-                    path
-                );
-            }
-        }
-
-        // 2. Check VIRTUAL_ENV environment variable
-        if let Ok(virtual_env) = env::var("VIRTUAL_ENV") {
-            if !virtual_env.is_empty() {
-                let prefix = PathBuf::from(virtual_env);
-                if let Some(env) = Self::from_venv_prefix(&prefix) {
-                    return Some(env);
-                }
-            }
-        }
-
-        // 3. Look for common virtual environment directories in the project path
-        for venv_dir in &[".venv", "venv", "env", ".env"] {
-            let potential_venv = project_path.join(venv_dir);
-            // Check if it exists and is a directory before calling from_venv_prefix
-            if potential_venv.is_dir() {
-                if let Some(env) = Self::from_venv_prefix(&potential_venv) {
-                    return Some(env);
-                }
-            }
-        }
-
-        // 4. Fallback to the system Python as last resort
-        Self::from_system_python()
-    }
-
-    fn from_venv_prefix(prefix: &Path) -> Option<Self> {
-        // Construct Python binary path based on platform
-        #[cfg(windows)]
-        let python_path = prefix.join("Scripts").join("python.exe");
-        #[cfg(windows)]
-        let bin_dir = prefix.join("Scripts");
-
-        #[cfg(not(windows))]
-        let python_path = prefix.join("bin").join("python");
-        #[cfg(not(windows))]
-        let bin_dir = prefix.join("bin");
-
-
-        // Check if the *prefix* and the *binary* exist.
-        // Checking prefix helps avoid issues if only bin/python exists somehow.
-        if !prefix.is_dir() || !python_path.exists() {
-            return None;
-        }
-
-        let mut sys_path = Vec::new();
-        sys_path.push(bin_dir); // Add bin/ or Scripts/
-
-        if let Some(site_packages) = Self::find_site_packages(prefix) {
-            // Ensure site-packages actually exists before adding
-            if site_packages.is_dir() {
-                sys_path.push(site_packages);
-            }
-        }
-
-        Some(Self {
-            python_path: python_path.clone(),
-            sys_path,
-            sys_prefix: prefix.to_path_buf(),
-        })
-    }
-
-    fn from_system_python() -> Option<Self> {
-        let python_path = which("python").ok()?;
-        // which() might return a path inside a bin/Scripts dir, or directly the executable
-        // We need the prefix, which is usually two levels up from the executable in standard layouts
-        let bin_dir = python_path.parent()?;
-        let prefix = bin_dir.parent()?; // This assumes standard bin/ or Scripts/ layout
-
-        let mut sys_path = Vec::new();
-        sys_path.push(bin_dir.to_path_buf()); // Add the bin dir containing python
-
-        // Attempt to find site-packages relative to the system prefix
-        if let Some(site_packages) = Self::find_site_packages(prefix) {
-             if site_packages.is_dir() {
-                sys_path.push(site_packages);
-            }
-        }
-
-        Some(Self {
-            python_path: python_path.clone(),
-            sys_path,
-            sys_prefix: prefix.to_path_buf(),
-        })
-    }
-
-    #[cfg(windows)]
-    fn find_site_packages(prefix: &Path) -> Option<PathBuf> {
-        // Standard location on Windows
-        Some(prefix.join("Lib").join("site-packages"))
-    }
-
-    #[cfg(not(windows))]
-    fn find_site_packages(prefix: &Path) -> Option<PathBuf> {
-        // Look for lib/pythonX.Y/site-packages
-        let lib_dir = prefix.join("lib");
-        if !lib_dir.is_dir() {
-            return None;
-        }
-        std::fs::read_dir(lib_dir)
-            .ok()?
-            .filter_map(Result::ok)
-            .find(|e| {
-                e.file_type().map_or(false, |ft| ft.is_dir()) && // Ensure it's a directory
-                e.file_name().to_string_lossy().starts_with("python")
-            })
-            .map(|e| e.path().join("site-packages"))
-    }
-}
-
-impl fmt::Display for PythonEnvironment {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "Python path: {}", self.python_path.display())?;
-        writeln!(f, "Sys prefix: {}", self.sys_prefix.display())?;
-        writeln!(f, "Sys paths:")?;
-        for path in &self.sys_path {
-            writeln!(f, "  {}", path.display())?;
-        }
-        Ok(())
     }
 }
