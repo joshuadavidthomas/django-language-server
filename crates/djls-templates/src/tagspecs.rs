@@ -48,17 +48,23 @@ impl TagSpecs {
             Ok(base_table) => {
                 // Base table path found, extract specs from it recursively
                 let mut specs = HashMap::new();
+                // Start recursion with the base table and an empty initial path prefix
                 extract_specs(base_table, "", &mut specs)
                     .map_err(|e| TagSpecError::Extract(path.display().to_string(), e))?;
                 Ok(TagSpecs(specs))
             }
-            Err(e) => {
+            Err(e @ TagSpecError::Config(_, _)) => {
                 // Base table path not found. Check if it's an optional path (like user config)
                 // For now, let's treat missing base paths as an error unless handled upstream.
                 // Alternatively, could return Ok(TagSpecs::default()) if missing base is acceptable.
                 // Let's refine this based on how load_user_specs uses it.
                 // For now, propagate the specific Config error.
+                // If load_user_specs handles this Config error, it can proceed.
                 Err(e)
+            }
+            Err(e) => {
+                // Other errors (IO, TOML parse, Extract) should be reported.
+                Err(e) // Propagate other errors directly
             }
         }
     }
@@ -159,73 +165,70 @@ impl TagSpecs {
     }
 }
 
-/// Recursive helper function to extract TagSpec definitions.
+
+/// Recursive helper function to extract TagSpec definitions from dotted path keys.
 /// Expects the TOML structure: [base...namespace.tag_name] containing TagSpec fields.
 fn extract_specs(
     current_value: &Value,
-    current_path: &str,
+    current_path: &str, // The path leading up to current_value, e.g., "django.template.defaulttags"
     specs_map: &mut HashMap<String, TagSpec>,
-) -> Result<(), String> {
-    // Attempt to deserialize current_value *itself* into a TagSpec.
-    // This handles the case where current_path ends with the tag name.
-    match TagSpec::deserialize(current_value.clone()) {
-        Ok(tag_spec) => {
-            // Success! current_value represents a TagSpec definition.
-            // Extract tag_name from the *end* of current_path.
-            if let Some(tag_name) = current_path.split('.').last() {
-                if !tag_name.is_empty() {
+) -> Result<(), String> { // Return Result for error handling
+
+    // First, check if the current_value *itself* could be a TagSpec definition.
+    // This happens when the current_path represents the full path to the tag.
+    // We only attempt this if current_path is not empty (i.e., we are not at the root base table).
+    if !current_path.is_empty() {
+        match TagSpec::deserialize(current_value.clone()) {
+            Ok(tag_spec) => {
+                // Success! current_value represents a TagSpec definition.
+                // Extract tag_name from the *end* of current_path.
+                if let Some(tag_name) = current_path.split('.').last() {
                     // Insert into the map. Handle potential duplicates/overrides if needed.
                     specs_map.insert(tag_name.to_string(), tag_spec);
                     // Don't recurse further down this branch, we found the spec.
                     return Ok(());
                 } else {
-                    // Handle error: path ended unexpectedly?
-                    return Err(format!(
-                        "Empty tag name derived from path '{}'",
-                        current_path
-                    ));
-                }
-            } else {
-                // Handle error: couldn't get last part of path?
-                return Err(format!(
-                    "Could not extract tag name from path '{}'",
-                    current_path
-                ));
-            }
-        }
-        Err(_) => {
-            // Deserialization as TagSpec failed.
-            // If it's a table, assume it's a namespace part and recurse.
-            if let Some(table) = current_value.as_table() {
-                for (key, inner_value) in table.iter() {
-                    // Construct the new path for the recursive call
-                    let new_path = if current_path.is_empty() {
-                        key.clone()
-                    } else {
-                        format!("{}.{}", current_path, key)
-                    };
-                    // Recurse
-                    extract_specs(inner_value, &new_path, specs_map)?;
+                     // This case should ideally not happen if current_path is not empty,
+                     // but handle defensively.
+                    return Err(format!("Could not extract tag name from non-empty path '{}'", current_path));
                 }
             }
-            // If it's not a table and not a TagSpec, ignore it or log a warning.
+            Err(_) => {
+                // Deserialization as TagSpec failed. It might be a namespace table.
+                // Continue below to check if it's a table and recurse.
+            }
         }
     }
+
+    // If it wasn't a TagSpec or if we were at the root (empty path),
+    // check if it's a table and recurse into its children.
+    if let Some(table) = current_value.as_table() {
+        for (key, inner_value) in table.iter() {
+            // Construct the new path for the recursive call
+            let new_path = if current_path.is_empty() { key.clone() } else { format!("{}.{}", current_path, key) };
+            // Recurse
+            extract_specs(inner_value, &new_path, specs_map)?;
+        }
+    }
+    // If it's not a table and not a TagSpec, ignore it.
     Ok(())
 }
 
+
+/// Defines the structure and relationships for a specific template tag.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TagSpec {
     /// Information about the closing tag, if one exists.
-    pub end: Option<EndTag>,
+    pub end: Option<EndTag>, // Changed from EndTagInfo
 
     /// List of intermediate tag names.
     #[serde(default)]
     pub intermediates: Option<Vec<String>>,
 }
 
+/// Defines properties of the end tag associated with a TagSpec.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct EndTag {
+pub struct EndTag { // Changed from EndTagInfo
     /// The name of the closing tag.
     pub tag: String,
 
@@ -254,9 +257,9 @@ mod tests {
     #[test]
     fn test_load_builtin_simple() -> Result<(), anyhow::Error> {
         let content = r#"
+# Using dotted path table names under [tagspecs] base
 [tagspecs.django.template.defaulttags.if]
 end = { tag = "endif" }
-
 [tagspecs.django.template.defaulttags.block]
 end = { tag = "endblock" }
 intermediates = ["inner"]
@@ -296,8 +299,8 @@ intermediates = ["inner"]
     #[test]
     fn test_load_builtin_optional_end() -> Result<(), anyhow::Error> {
         let content = r#"
-[tagspecs.custom.app.tags.mytag]
-end = { tag = "endmytag" }
+[tagspecs.custom.mytag]
+end = { tag = "endmytag", optional = true }
 "#;
         let dir = setup_temp_spec_dir("custom.toml", content)?;
         let original_manifest_dir = std::env::var("CARGO_MANIFEST_DIR");
@@ -309,7 +312,7 @@ end = { tag = "endmytag" }
         assert_eq!(specs.0.len(), 1);
         let mytag_spec = specs.get("mytag").unwrap();
         assert_eq!(mytag_spec.end.as_ref().unwrap().tag, "endmytag");
-        assert!(mytag_spec.end.as_ref().unwrap().optional); // Explicitly true
+        assert!(mytag_spec.end.as_ref().unwrap().optional); // Check optional=true
 
         if let Ok(val) = original_manifest_dir {
             std::env::set_var("CARGO_MANIFEST_DIR", val);
@@ -324,6 +327,7 @@ end = { tag = "endmytag" }
     fn test_load_user_djls_toml() -> Result<(), anyhow::Error> {
         let dir = tempfile::tempdir()?;
         let root = dir.path();
+        // User specs under [tagspecs] base table
         let djls_content = r#"
 [tagspecs.custom.app.tags.mytag]
 end = { tag = "endmytag" }
@@ -348,6 +352,7 @@ end = { tag = "endmytag" }
     fn test_load_user_pyproject_toml() -> Result<(), anyhow::Error> {
         let dir = tempfile::tempdir()?;
         let root = dir.path();
+        // User specs under [tool.djls.tagspecs] base table
         let pyproject_content = r#"
 [tool.djls.tagspecs.another.lib.othertag]
 end = { tag = "endother" }
@@ -373,19 +378,20 @@ intermediates = ["branch"]
         let dir = tempfile::tempdir()?;
         let root = dir.path();
 
+        // djls.toml has higher priority
+        // Uses [tagspecs] base
         let djls_content = r#"
 [tagspecs.common.tag1]
 end = { tag = "endtag1_djls" }
-
 [tagspecs.common.tag_djls]
 end = { tag = "end_djls_only"}
 "#;
         fs::write(root.join("djls.toml"), djls_content)?;
 
+        // pyproject.toml has lower priority, uses [tool.djls.tagspecs] base
         let pyproject_content = r#"
-[tool.djls.tagspecs.common.tag1] # also defined here
+[tool.djls.tagspecs.common.tag1]
 end = { tag = "endtag1_pyproj" }
-
 [tool.djls.tagspecs.common.tag_pyproj]
 end = { tag = "end_pyproj_only"}
 "#;
@@ -444,24 +450,23 @@ end = { tag = "end_pyproj_only"}
         let dir = tempfile::tempdir()?;
         let root = dir.path();
 
+        // Create a dummy built-in spec file
         let builtin_content = r#"
 [tagspecs.django.template.defaulttags.if]
 end = { tag = "endif_builtin" }
-
 [tagspecs.django.template.defaulttags.block]
 end = { tag = "endblock_builtin" }
 "#;
-        // Simulate built-in dir inside temp
-        let specs_dir = root.join("tagspecs");
+        let specs_dir = root.join("tagspecs"); // Simulate built-in dir inside temp
         fs::create_dir(&specs_dir)?;
         fs::write(specs_dir.join("django.toml"), builtin_content)?;
 
+        // Create a user override file (djls.toml has priority)
         let user_content = r#"
-[tagspecs.django.template.defaulttags.if] # Override built-in 'if'
-end = { tag = "endif_user" }
-
-[tagspecs.django.template.defaulttags.custom] # Add user tag
-end = { tag = "endcustom_user" }
+[tagspecs.django.template.defaulttags.if]
+end = { tag = "endif_user" } # Override built-in 'if'
+[tagspecs.custom.custom]
+end = { tag = "endcustom_user" } # Add user tag
 "#;
         fs::write(root.join("djls.toml"), user_content)?;
 
@@ -480,7 +485,7 @@ end = { tag = "endcustom_user" }
         );
         assert!(specs.get("if").is_some());
         assert!(specs.get("block").is_some());
-        assert!(specs.get("custom").is_some());
+        assert!(specs.get("custom").is_some()); // Check the user-added tag name
 
         // Check override
         assert_eq!(
