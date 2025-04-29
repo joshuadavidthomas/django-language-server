@@ -146,6 +146,10 @@ impl TagSpecs {
                         // Decide whether to propagate or continue. Let's continue.
                         // return Err(e.into()); // Option to propagate
                     }
+                    // Propagate IO/Toml errors
+                    Err(e) => {
+                        return Err(e.into());
+                    }
                 }
             }
         }
