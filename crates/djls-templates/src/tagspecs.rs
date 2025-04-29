@@ -190,8 +190,7 @@ fn extract_specs(
                 if let Some(tag_name) = current_path.split('.').last().filter(|s| !s.is_empty()) {
                     // Insert into the map. Handle potential duplicates/overrides if needed.
                     specs_map.insert(tag_name.to_string(), tag_spec);
-                    // Don't recurse further down this branch, we found the spec.
-                    return Ok(());
+                    // DO NOT return Ok(()); here. A node might be both a spec and contain nested tables.
                 } else {
                     // This case should ideally not happen if current_path is not empty,
                     // but handle defensively.
@@ -217,15 +216,11 @@ fn extract_specs(
                 key.clone()
             } else {
                 format!("{}.{}", current_path, key)
-            };
-            // Recurse
-            if let Err(e) = extract_specs(inner_value, &new_path, specs_map) {
-                // Propagate errors from recursive calls
-                // Optionally add more context here if needed
-                return Err(e);
-            }
-        }
-    }
+           };
+           // Recurse
+           extract_specs(inner_value, &new_path, specs_map)?; // Propagate errors using ?
+       }
+   }
     // If it's not a table and not a TagSpec, ignore it.
     Ok(())
 }
