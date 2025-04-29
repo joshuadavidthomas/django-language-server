@@ -184,13 +184,13 @@ fn extract_specs(
     // We only attempt this if current_path is not empty (i.e., we are not at the root base table).
     if !current_path.is_empty() {
         match TagSpec::deserialize(current_value.clone()) {
+            // Successfully deserialized as a TagSpec
             Ok(tag_spec) => {
                 // Success! current_value represents a TagSpec definition.
                 // Extract tag_name from the *end* of current_path.
                 if let Some(tag_name) = current_path.split('.').last().filter(|s| !s.is_empty()) {
                     // Insert into the map. Handle potential duplicates/overrides if needed.
                     specs_map.insert(tag_name.to_string(), tag_spec);
-                    // DO NOT return Ok(()); here. A node might be both a spec and contain nested tables.
                 } else {
                     // This case should ideally not happen if current_path is not empty,
                     // but handle defensively.
@@ -199,15 +199,20 @@ fn extract_specs(
                         current_path
                     ));
                 }
+                // Since we successfully parsed this node as a TagSpec,
+                // we assume it's a leaf node for specs and don't recurse further down
+                // into its fields (like 'end' or 'intermediates').
+                return Ok(()); // Stop processing this branch
             }
+            // Failed to deserialize as TagSpec - it might be a namespace table.
             Err(_) => { // Keep Err(_) to catch deserialization errors gracefully
                  // Deserialization as TagSpec failed. It might be a namespace table.
                  // Continue below to check if it's a table and recurse.
             }
         }
     }
-
-    // If it wasn't a TagSpec or if we were at the root (empty path),
+    // If we reached here, it means the node was NOT successfully deserialized as a TagSpec
+    // (either because the path was empty, or deserialization failed).
     // check if it's a table and recurse into its children.
     if let Some(table) = current_value.as_table() {
         for (key, inner_value) in table.iter() {
