@@ -12,15 +12,14 @@ pub enum ConfigError {
     PyprojectIo(#[from] std::io::Error),
     #[error("Failed to parse pyproject.toml TOML")]
     PyprojectParse(#[from] toml::de::Error),
-    #[error("Failed to serialize extracted pyproject data")]
+    #[error("Failed to serialize extracted pyproject.toml data")]
     PyprojectSerialize(#[from] toml::ser::Error),
 }
 
 #[derive(Debug, Deserialize, Default, PartialEq)]
 #[serde(default)]
 pub struct Settings {
-    // Make field public or add getter if server needs access
-    pub debug: bool,
+    debug: bool,
 }
 
 impl Settings {
@@ -80,6 +79,10 @@ impl Settings {
         let config = builder.build()?;
         let settings = config.try_deserialize()?;
         Ok(settings)
+    }
+
+    pub fn debug(&self) -> bool {
+        self.debug
     }
 }
 
