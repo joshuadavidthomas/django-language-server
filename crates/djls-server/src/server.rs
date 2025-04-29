@@ -1,6 +1,7 @@
 use crate::documents::Store;
 use crate::queue::Queue;
 use crate::workspace::get_project_path;
+use djls_conf::Settings;
 use djls_project::DjangoProject;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -15,6 +16,7 @@ pub struct DjangoLanguageServer {
     client: Client,
     project: Arc<RwLock<Option<DjangoProject>>>,
     documents: Arc<RwLock<Store>>,
+    settings: Arc<RwLock<Settings>>,
     queue: Queue,
 }
 
@@ -24,12 +26,55 @@ impl DjangoLanguageServer {
             client,
             project: Arc::new(RwLock::new(None)),
             documents: Arc::new(RwLock::new(Store::new())),
+            settings: Arc::new(RwLock::new(Settings::default())),
             queue: Queue::new(),
         }
     }
 
     async fn log_message(&self, type_: MessageType, message: &str) {
         self.client.log_message(type_, message).await;
+    }
+
+    async fn update_settings(&self, project_path: Option<&std::path::Path>) {
+        if let Some(path) = project_path {
+            match Settings::new(path) {
+                Ok(loaded_settings) => {
+                    let mut settings_guard = self.settings.write().await;
+                    *settings_guard = loaded_settings;
+                    // Could potentially check if settings actually changed before logging
+                    self.log_message(
+                        MessageType::INFO,
+                        &format!(
+                            "Successfully loaded/reloaded settings for {}",
+                            path.display()
+                        ),
+                    )
+                    .await;
+                }
+                Err(e) => {
+                    // Keep existing settings if loading/reloading fails
+                    self.log_message(
+                        MessageType::ERROR,
+                        &format!(
+                            "Failed to load/reload settings for {}: {}",
+                            path.display(),
+                            e
+                        ),
+                    )
+                    .await;
+                }
+            }
+        } else {
+            // If no project path, ensure we're using defaults (might already be the case)
+            // Or log that project-specific settings can't be loaded.
+            let mut settings_guard = self.settings.write().await;
+            *settings_guard = Settings::default(); // Reset to default if no project path
+            self.log_message(
+                MessageType::INFO,
+                "No project root identified. Using default settings.",
+            )
+            .await;
+        }
     }
 }
 
@@ -62,7 +107,9 @@ impl LanguageServer for DjangoLanguageServer {
                 // Ensure it's None if no path
                 *project_guard = None;
             }
-        } // Lock released
+        }
+
+        self.update_settings(project_path.as_deref()).await;
 
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
@@ -74,6 +121,14 @@ impl LanguageServer for DjangoLanguageServer {
                         " ".to_string(),
                     ]),
                     ..Default::default()
+                }),
+                workspace: Some(WorkspaceServerCapabilities {
+                    workspace_folders: Some(WorkspaceFoldersServerCapabilities {
+                        supported: Some(true),
+                        change_notifications: Some(OneOf::Left(true)),
+                    }),
+                    // Add file operations if needed later
+                    file_operations: None,
                 }),
                 text_document_sync: Some(TextDocumentSyncCapability::Options(
                     TextDocumentSyncOptions {
@@ -233,5 +288,20 @@ impl LanguageServer for DjangoLanguageServer {
             }
         }
         Ok(None)
+    }
+
+    async fn did_change_configuration(&self, _params: DidChangeConfigurationParams) {
+        self.log_message(
+            MessageType::INFO,
+            "Configuration change detected. Reloading settings...",
+        )
+        .await;
+
+        let project_path = {
+            let project_guard = self.project.read().await;
+            project_guard.as_ref().map(|p| p.path().to_path_buf())
+        };
+
+        self.update_settings(project_path.as_deref()).await;
     }
 }
