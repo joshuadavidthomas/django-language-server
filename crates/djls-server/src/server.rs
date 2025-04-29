@@ -1,7 +1,7 @@
 use crate::documents::Store;
 use crate::queue::Queue;
 use crate::workspace::get_project_path;
-use djls_conf::Settings; // Import Settings
+use djls_conf::Settings;
 use djls_project::DjangoProject;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -16,7 +16,7 @@ pub struct DjangoLanguageServer {
     client: Client,
     project: Arc<RwLock<Option<DjangoProject>>>,
     documents: Arc<RwLock<Store>>,
-    settings: Arc<RwLock<Settings>>, // Add settings field
+    settings: Arc<RwLock<Settings>>,
     queue: Queue,
 }
 
@@ -26,7 +26,7 @@ impl DjangoLanguageServer {
             client,
             project: Arc::new(RwLock::new(None)),
             documents: Arc::new(RwLock::new(Store::new())),
-            settings: Arc::new(RwLock::new(Settings::default())), // Initialize with defaults
+            settings: Arc::new(RwLock::new(Settings::default())),
             queue: Queue::new(),
         }
     }
@@ -109,7 +109,6 @@ impl LanguageServer for DjangoLanguageServer {
             }
         }
 
-        // Load settings if project path was found
         self.update_settings(project_path.as_deref()).await;
 
         Ok(InitializeResult {
@@ -123,13 +122,13 @@ impl LanguageServer for DjangoLanguageServer {
                     ]),
                     ..Default::default()
                 }),
-                // Register for configuration changes
                 workspace: Some(WorkspaceServerCapabilities {
                     workspace_folders: Some(WorkspaceFoldersServerCapabilities {
                         supported: Some(true),
                         change_notifications: Some(OneOf::Left(true)),
                     }),
-                    file_operations: None, // Add file operations if needed later
+                    // Add file operations if needed later
+                    file_operations: None,
                 }),
                 text_document_sync: Some(TextDocumentSyncCapability::Options(
                     TextDocumentSyncOptions {
