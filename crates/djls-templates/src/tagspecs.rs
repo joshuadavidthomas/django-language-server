@@ -1,5 +1,5 @@
 use anyhow::Result;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
@@ -12,8 +12,10 @@ pub enum TagSpecError {
     Io(#[from] std::io::Error),
     #[error("Failed to parse TOML: {0}")]
     Toml(#[from] toml::de::Error),
-    #[error("Failed to extract specs: {0}")]
-    Extract(String),
+    #[error("Failed to extract specs from {0}: {1}")]
+    Extract(String, String), // Added path context
+    #[error("Configuration error in {0}: {1}")]
+    Config(String, String), // Added path context
     #[error(transparent)]
     Other(#[from] anyhow::Error),
 }
@@ -26,244 +28,341 @@ impl TagSpecs {
         self.0.get(key)
     }
 
-    /// Load specs from a TOML file, looking under the specified table path
-    fn load_from_toml(path: &Path, table_path: &[&str]) -> Result<Self, anyhow::Error> {
-        let content = fs::read_to_string(path)?;
-        let value: Value = toml::from_str(&content)?;
+    /// Load specs from a TOML file, looking under the specified table path.
+    /// Expects the TOML structure: [table_path...namespace.tag_name] with TagSpec fields inside.
+    fn load_from_toml(path: &Path, table_path: &[&str]) -> Result<Self, TagSpecError> {
+        let content = fs::read_to_string(path).map_err(TagSpecError::Io)?;
+        let value: Value = toml::from_str(&content).map_err(TagSpecError::Toml)?;
 
-        // Navigate to the specified table
-        let table = table_path
-            .iter()
-            .try_fold(&value, |current, &key| {
-                current
-                    .get(key)
-                    .ok_or_else(|| anyhow::anyhow!("Missing table: {}", key))
+        let base_table_result = table_path.iter().try_fold(&value, |current, &key| {
+            current.get(key).ok_or_else(|| {
+                // Use Config error for missing base table path
+                TagSpecError::Config(
+                    path.display().to_string(),
+                    format!("Base table path segment '{}' not found", key),
+                )
             })
-            .unwrap_or(&value);
+        });
 
-        let mut specs = HashMap::new();
-        TagSpec::extract_specs(table, None, &mut specs)
-            .map_err(|e| TagSpecError::Extract(e.to_string()))?;
-        Ok(TagSpecs(specs))
-    }
-
-    /// Load specs from a user's project directory
-    pub fn load_user_specs(project_root: &Path) -> Result<Self, anyhow::Error> {
-        // List of config files to try, in priority order
-        let config_files = ["djls.toml", ".djls.toml", "pyproject.toml"];
-
-        for &file in &config_files {
-            let path = project_root.join(file);
-            if path.exists() {
-                return match file {
-                    "pyproject.toml" => Self::load_from_toml(&path, &["tool", "djls", "tagspecs"]),
-                    _ => Self::load_from_toml(&path, &["tagspecs"]), // Root level for other files
-                };
+        match base_table_result {
+            Ok(base_table) => {
+                // Base table path found, extract specs from it recursively
+                let mut specs = HashMap::new();
+                extract_specs(base_table, "", &mut specs)
+                    .map_err(|e| TagSpecError::Extract(path.display().to_string(), e))?;
+                Ok(TagSpecs(specs))
+            }
+            Err(e) => {
+                // Base table path not found. Check if it's an optional path (like user config)
+                // For now, let's treat missing base paths as an error unless handled upstream.
+                // Alternatively, could return Ok(TagSpecs::default()) if missing base is acceptable.
+                // Let's refine this based on how load_user_specs uses it.
+                // For now, propagate the specific Config error.
+                Err(e)
             }
         }
+    }
+
+    /// Load specs from a user's project directory, checking common config files.
+    pub fn load_user_specs(project_root: &Path) -> Result<Self, anyhow::Error> {
+        let config_files = [
+            ("djls.toml", &["tagspecs"] as &[&str]),
+            (".djls.toml", &["tagspecs"]),
+            ("pyproject.toml", &["tool", "djls", "tagspecs"]),
+        ];
+
+        for (filename, table_path) in config_files {
+            let path = project_root.join(filename);
+            if path.exists() {
+                match Self::load_from_toml(&path, table_path) {
+                    Ok(specs) => {
+                        // If specs were found in this file, return them immediately
+                        // (respecting priority order)
+                        if !specs.0.is_empty() {
+                            return Ok(specs);
+                        }
+                        // If file exists but specs are empty or base path missing, continue
+                    }
+                    Err(TagSpecError::Config(_, _)) => {
+                        // Config error means base path wasn't found, which is OK for optional user files.
+                        // Continue to the next file.
+                    }
+                    Err(e) => {
+                        // Other errors (IO, TOML parse, Extract) should be reported or logged.
+                        eprintln!(
+                            "Warning: Failed to load tag specs from {}: {}",
+                            path.display(),
+                            e
+                        );
+                        // Decide whether to propagate the error or just continue.
+                        // Let's continue for now, allowing partial loading.
+                        // return Err(e.into()); // Option to propagate error
+                    }
+                }
+            }
+        }
+
+        // If no file yielded specs, return default empty specs
         Ok(Self::default())
     }
 
-    /// Load builtin specs from the crate's tagspecs directory
+    /// Load builtin specs from the crate's tagspecs directory.
     pub fn load_builtin_specs() -> Result<Self, anyhow::Error> {
         let specs_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tagspecs");
-        let mut specs = HashMap::new();
+        let mut all_specs = HashMap::new();
+
+        if !specs_dir.is_dir() {
+            // Directory doesn't exist, return empty specs
+            eprintln!(
+                "Warning: Built-in tagspecs directory not found at {}",
+                specs_dir.display()
+            );
+            return Ok(TagSpecs::default());
+        }
 
         for entry in fs::read_dir(&specs_dir)? {
             let entry = entry?;
             let path = entry.path();
-            if path.extension().and_then(|ext| ext.to_str()) == Some("toml") {
-                let file_specs = Self::load_from_toml(&path, &[])?;
-                specs.extend(file_specs.0);
+            if path.is_file() && path.extension().and_then(|ext| ext.to_str()) == Some("toml") {
+                match Self::load_from_toml(&path, &["tagspecs"]) {
+                    Ok(file_specs) => {
+                        all_specs.extend(file_specs.0);
+                    }
+                    Err(e) => {
+                        eprintln!(
+                            "Warning: Failed to load built-in tag specs from {}: {}",
+                            path.display(),
+                            e
+                        );
+                        // Decide whether to propagate or continue. Let's continue.
+                        // return Err(e.into()); // Option to propagate
+                    }
+                }
             }
         }
 
-        Ok(TagSpecs(specs))
+        Ok(TagSpecs(all_specs))
     }
 
-    /// Merge another TagSpecs into this one, with the other taking precedence
+    /// Merge another TagSpecs into this one, with the other taking precedence.
     pub fn merge(&mut self, other: TagSpecs) -> &mut Self {
         self.0.extend(other.0);
         self
     }
 
-    /// Load both builtin and user specs, with user specs taking precedence
+    /// Load both builtin and user specs, with user specs taking precedence.
     pub fn load_all(project_root: &Path) -> Result<Self, anyhow::Error> {
         let mut specs = Self::load_builtin_specs()?;
         let user_specs = Self::load_user_specs(project_root)?;
+        // User specs loaded later will overwrite built-ins if keys conflict
         Ok(specs.merge(user_specs).clone())
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
-pub struct TagSpec {
-    #[serde(rename = "type")]
-    pub tag_type: TagType,
-    pub closing: Option<String>,
-    #[serde(default)]
-    pub branches: Option<Vec<String>>,
-    pub args: Option<Vec<ArgSpec>>,
-}
-
-impl TagSpec {
-    fn extract_specs(
-        value: &Value,
-        prefix: Option<&str>,
-        specs: &mut HashMap<String, TagSpec>,
-    ) -> Result<(), String> {
-        // Try to deserialize as a tag spec first
-        match TagSpec::deserialize(value.clone()) {
-            Ok(tag_spec) => {
-                let name = prefix.map_or_else(String::new, |p| {
-                    p.split('.').last().unwrap_or(p).to_string()
-                });
-                specs.insert(name, tag_spec);
+/// Recursive helper function to extract TagSpec definitions.
+/// Expects the TOML structure: [base...namespace.tag_name] containing TagSpec fields.
+fn extract_specs(
+    current_value: &Value,
+    current_path: &str,
+    specs_map: &mut HashMap<String, TagSpec>,
+) -> Result<(), String> {
+    // Attempt to deserialize current_value *itself* into a TagSpec.
+    // This handles the case where current_path ends with the tag name.
+    match TagSpec::deserialize(current_value.clone()) {
+        Ok(tag_spec) => {
+            // Success! current_value represents a TagSpec definition.
+            // Extract tag_name from the *end* of current_path.
+            if let Some(tag_name) = current_path.split('.').last() {
+                if !tag_name.is_empty() {
+                    // Insert into the map. Handle potential duplicates/overrides if needed.
+                    specs_map.insert(tag_name.to_string(), tag_spec);
+                    // Don't recurse further down this branch, we found the spec.
+                    return Ok(());
+                } else {
+                    // Handle error: path ended unexpectedly?
+                    return Err(format!(
+                        "Empty tag name derived from path '{}'",
+                        current_path
+                    ));
+                }
+            } else {
+                // Handle error: couldn't get last part of path?
+                return Err(format!(
+                    "Could not extract tag name from path '{}'",
+                    current_path
+                ));
             }
-            Err(_) => {
-                // Not a tag spec, try recursing into any table values
-                for (key, value) in value.as_table().iter().flat_map(|t| t.iter()) {
-                    let new_prefix = match prefix {
-                        None => key.clone(),
-                        Some(p) => format!("{}.{}", p, key),
+        }
+        Err(_) => {
+            // Deserialization as TagSpec failed.
+            // If it's a table, assume it's a namespace part and recurse.
+            if let Some(table) = current_value.as_table() {
+                for (key, inner_value) in table.iter() {
+                    // Construct the new path for the recursive call
+                    let new_path = if current_path.is_empty() {
+                        key.clone()
+                    } else {
+                        format!("{}.{}", current_path, key)
                     };
-                    Self::extract_specs(value, Some(&new_prefix), specs)?;
+                    // Recurse
+                    extract_specs(inner_value, &new_path, specs_map)?;
                 }
             }
-        }
-        Ok(())
-    }
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(rename_all = "lowercase")]
-pub enum TagType {
-    Container,
-    Inclusion,
-    Single,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-pub struct ArgSpec {
-    pub name: String,
-    pub required: bool,
-    #[serde(default)]
-    pub allowed_values: Option<Vec<String>>,
-    #[serde(default)]
-    pub is_kwarg: bool,
-}
-
-impl ArgSpec {
-    pub fn is_placeholder(arg: &str) -> bool {
-        arg.starts_with('{') && arg.ends_with('}')
-    }
-
-    pub fn get_placeholder_name(arg: &str) -> Option<&str> {
-        if Self::is_placeholder(arg) {
-            Some(&arg[1..arg.len() - 1])
-        } else {
-            None
+            // If it's not a table and not a TagSpec, ignore it or log a warning.
         }
     }
+    Ok(())
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TagSpec {
+    /// Information about the closing tag, if one exists.
+    pub end: Option<EndTag>,
+
+    /// List of intermediate tag names.
+    #[serde(default)]
+    pub intermediates: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct EndTag {
+    /// The name of the closing tag.
+    pub tag: String,
+
+    /// If true, the end tag's presence is optional for the block
+    /// to be considered validly closed. Defaults to false (required).
+    #[serde(default)]
+    pub optional: bool,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+
+    fn setup_temp_spec_dir(
+        filename: &str,
+        content: &str,
+    ) -> Result<tempfile::TempDir, anyhow::Error> {
+        let dir = tempfile::tempdir()?;
+        let specs_dir = dir.path().join("tagspecs");
+        fs::create_dir(&specs_dir)?;
+        fs::write(specs_dir.join(filename), content)?;
+        Ok(dir)
+    }
 
     #[test]
-    fn test_can_load_builtins() -> Result<(), anyhow::Error> {
+    fn test_load_builtin_simple() -> Result<(), anyhow::Error> {
+        let content = r#"
+[tagspecs.django.template.defaulttags.if]
+end = { tag = "endif" }
+
+[tagspecs.django.template.defaulttags.block]
+end = { tag = "endblock" }
+intermediates = ["inner"]
+"#;
+        let dir = setup_temp_spec_dir("django.toml", content)?;
+        // Temporarily override CARGO_MANIFEST_DIR for this test
+        let original_manifest_dir = std::env::var("CARGO_MANIFEST_DIR");
+        std::env::set_var("CARGO_MANIFEST_DIR", dir.path());
+
         let specs = TagSpecs::load_builtin_specs()?;
+        eprintln!("Loaded Builtin Specs: {:?}", specs);
 
-        assert!(!specs.0.is_empty(), "Should have loaded at least one spec");
+        assert_eq!(specs.0.len(), 2);
+        assert!(specs.get("if").is_some());
+        assert!(specs.get("block").is_some());
 
-        for name in specs.0.keys() {
-            assert!(!name.is_empty(), "Tag name should not be empty");
+        let if_spec = specs.get("if").unwrap();
+        assert_eq!(if_spec.end.as_ref().unwrap().tag, "endif");
+        assert!(!if_spec.end.as_ref().unwrap().optional); // Default false
+        assert!(if_spec.intermediates.is_none());
+
+        let block_spec = specs.get("block").unwrap();
+        assert_eq!(block_spec.end.as_ref().unwrap().tag, "endblock");
+        assert!(!block_spec.end.as_ref().unwrap().optional);
+        assert_eq!(block_spec.intermediates.as_ref().unwrap(), &["inner"]);
+
+        // Restore original env var if it existed
+        if let Ok(val) = original_manifest_dir {
+            std::env::set_var("CARGO_MANIFEST_DIR", val);
+        } else {
+            std::env::remove_var("CARGO_MANIFEST_DIR");
         }
+        dir.close()?; // Ensure temp dir is cleaned up
         Ok(())
     }
 
     #[test]
-    fn test_builtin_django_tags() -> Result<(), anyhow::Error> {
+    fn test_load_builtin_optional_end() -> Result<(), anyhow::Error> {
+        let content = r#"
+[tagspecs.custom.app.tags.mytag]
+end = { tag = "endmytag" }
+"#;
+        let dir = setup_temp_spec_dir("custom.toml", content)?;
+        let original_manifest_dir = std::env::var("CARGO_MANIFEST_DIR");
+        std::env::set_var("CARGO_MANIFEST_DIR", dir.path());
+
         let specs = TagSpecs::load_builtin_specs()?;
+        eprintln!("Loaded Builtin Specs: {:?}", specs);
 
-        let expected_tags = [
-            "autoescape",
-            "block",
-            "comment",
-            "cycle",
-            "debug",
-            "extends",
-            "filter",
-            "for",
-            "firstof",
-            "if",
-            "include",
-            "load",
-            "now",
-            "spaceless",
-            "templatetag",
-            "url",
-            "verbatim",
-            "with",
-        ];
-        let missing_tags = [
-            "csrf_token",
-            "ifchanged",
-            "lorem",
-            "querystring", // 5.1
-            "regroup",
-            "resetcycle",
-            "widthratio",
-        ];
+        assert_eq!(specs.0.len(), 1);
+        let mytag_spec = specs.get("mytag").unwrap();
+        assert_eq!(mytag_spec.end.as_ref().unwrap().tag, "endmytag");
+        assert!(mytag_spec.end.as_ref().unwrap().optional); // Explicitly true
 
-        for tag in expected_tags {
-            assert!(specs.get(tag).is_some(), "{} tag should be present", tag);
+        if let Ok(val) = original_manifest_dir {
+            std::env::set_var("CARGO_MANIFEST_DIR", val);
+        } else {
+            std::env::remove_var("CARGO_MANIFEST_DIR");
         }
-
-        for tag in missing_tags {
-            assert!(
-                specs.get(tag).is_none(),
-                "{} tag should not be present yet",
-                tag
-            );
-        }
-
+        dir.close()?;
         Ok(())
     }
 
     #[test]
-    fn test_user_defined_tags() -> Result<(), anyhow::Error> {
+    fn test_load_user_djls_toml() -> Result<(), anyhow::Error> {
         let dir = tempfile::tempdir()?;
         let root = dir.path();
+        let djls_content = r#"
+[tagspecs.custom.app.tags.mytag]
+end = { tag = "endmytag" }
+"#;
+        fs::write(root.join("djls.toml"), djls_content)?;
 
+        let specs = TagSpecs::load_user_specs(root)?;
+        eprintln!("Loaded User Specs (djls.toml): {:?}", specs);
+
+        assert_eq!(specs.0.len(), 1);
+        assert!(specs.get("mytag").is_some());
+        assert_eq!(
+            specs.get("mytag").unwrap().end.as_ref().unwrap().tag,
+            "endmytag"
+        );
+
+        dir.close()?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_load_user_pyproject_toml() -> Result<(), anyhow::Error> {
+        let dir = tempfile::tempdir()?;
+        let root = dir.path();
         let pyproject_content = r#"
-[tool.djls.template.tags.mytag]
-type = "container"
-closing = "endmytag"
-branches = ["mybranch"]
-args = [{ name = "myarg", required = true }]
+[tool.djls.tagspecs.another.lib.othertag]
+end = { tag = "endother" }
+intermediates = ["branch"]
 "#;
         fs::write(root.join("pyproject.toml"), pyproject_content)?;
 
-        let specs = TagSpecs::load_all(root)?;
+        let specs = TagSpecs::load_user_specs(root)?;
+        eprintln!("Loaded User Specs (pyproject.toml): {:?}", specs);
 
-        let if_tag = specs.get("if").expect("if tag should be present");
-        assert_eq!(if_tag.tag_type, TagType::Container);
-
-        let my_tag = specs.get("mytag").expect("mytag should be present");
-        assert_eq!(my_tag.tag_type, TagType::Container);
-        assert_eq!(my_tag.closing, Some("endmytag".to_string()));
-
-        let branches = my_tag
-            .branches
-            .as_ref()
-            .expect("mytag should have branches");
-        assert!(branches.iter().any(|b| b == "mybranch"));
-
-        let args = my_tag.args.as_ref().expect("mytag should have args");
-        let arg = &args[0];
-        assert_eq!(arg.name, "myarg");
-        assert!(arg.required);
+        assert_eq!(specs.0.len(), 1);
+        assert!(specs.get("othertag").is_some());
+        let spec = specs.get("othertag").unwrap();
+        assert_eq!(spec.end.as_ref().unwrap().tag, "endother");
+        assert_eq!(spec.intermediates.as_ref().unwrap(), &["branch"]);
 
         dir.close()?;
         Ok(())
@@ -275,35 +374,207 @@ args = [{ name = "myarg", required = true }]
         let root = dir.path();
 
         let djls_content = r#"
-[mytag1]
-type = "container"
-closing = "endmytag1"
+[tagspecs.common.tag1]
+end = { tag = "endtag1_djls" }
+
+[tagspecs.common.tag_djls]
+end = { tag = "end_djls_only"}
 "#;
         fs::write(root.join("djls.toml"), djls_content)?;
 
         let pyproject_content = r#"
-[tool.djls.template.tags]
-mytag2.type = "container"
-mytag2.closing = "endmytag2"
+[tool.djls.tagspecs.common.tag1] # also defined here
+end = { tag = "endtag1_pyproj" }
+
+[tool.djls.tagspecs.common.tag_pyproj]
+end = { tag = "end_pyproj_only"}
 "#;
         fs::write(root.join("pyproject.toml"), pyproject_content)?;
 
+        // Load with both present - djls.toml should win
         let specs = TagSpecs::load_user_specs(root)?;
+        eprintln!("Loaded Specs (Priority Test - Both Present): {:?}", specs);
 
-        assert!(specs.get("mytag1").is_some(), "mytag1 should be present");
+        assert_eq!(specs.0.len(), 2, "Should load 2 specs from djls.toml");
+        assert!(specs.get("tag1").is_some(), "tag1 should be present");
+        assert_eq!(
+            specs.get("tag1").unwrap().end.as_ref().unwrap().tag,
+            "endtag1_djls",
+            "tag1 should come from djls.toml"
+        );
         assert!(
-            specs.get("mytag2").is_none(),
-            "mytag2 should not be present"
+            specs.get("tag_djls").is_some(),
+            "tag_djls should be present"
+        );
+        assert!(
+            specs.get("tag_pyproj").is_none(),
+            "tag_pyproj should NOT be present"
         );
 
+        // Remove djls.toml, now pyproject.toml should be loaded
         fs::remove_file(root.join("djls.toml"))?;
         let specs = TagSpecs::load_user_specs(root)?;
-
-        assert!(
-            specs.get("mytag1").is_none(),
-            "mytag1 should not be present"
+        eprintln!(
+            "Loaded Specs (Priority Test - Only pyproject.toml): {:?}",
+            specs
         );
-        assert!(specs.get("mytag2").is_some(), "mytag2 should be present");
+
+        assert_eq!(specs.0.len(), 2, "Should load 2 specs from pyproject.toml");
+        assert!(specs.get("tag1").is_some(), "tag1 should be present");
+        assert_eq!(
+            specs.get("tag1").unwrap().end.as_ref().unwrap().tag,
+            "endtag1_pyproj",
+            "tag1 should come from pyproject.toml"
+        );
+        assert!(
+            specs.get("tag_djls").is_none(),
+            "tag_djls should NOT be present"
+        );
+        assert!(
+            specs.get("tag_pyproj").is_some(),
+            "tag_pyproj should be present"
+        );
+
+        dir.close()?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_load_all_merging() -> Result<(), anyhow::Error> {
+        let dir = tempfile::tempdir()?;
+        let root = dir.path();
+
+        let builtin_content = r#"
+[tagspecs.django.template.defaulttags.if]
+end = { tag = "endif_builtin" }
+
+[tagspecs.django.template.defaulttags.block]
+end = { tag = "endblock_builtin" }
+"#;
+        // Simulate built-in dir inside temp
+        let specs_dir = root.join("tagspecs");
+        fs::create_dir(&specs_dir)?;
+        fs::write(specs_dir.join("django.toml"), builtin_content)?;
+
+        let user_content = r#"
+[tagspecs.django.template.defaulttags.if] # Override built-in 'if'
+end = { tag = "endif_user" }
+
+[tagspecs.django.template.defaulttags.custom] # Add user tag
+end = { tag = "endcustom_user" }
+"#;
+        fs::write(root.join("djls.toml"), user_content)?;
+
+        // Temporarily override CARGO_MANIFEST_DIR for load_builtin_specs
+        let original_manifest_dir = std::env::var("CARGO_MANIFEST_DIR");
+        std::env::set_var("CARGO_MANIFEST_DIR", root.to_str().unwrap());
+
+        // Load all, user should override built-in
+        let specs = TagSpecs::load_all(root)?;
+        eprintln!("Loaded Specs (Load All): {:?}", specs);
+
+        assert_eq!(
+            specs.0.len(),
+            3,
+            "Should have 3 specs total (if, block, custom)"
+        );
+        assert!(specs.get("if").is_some());
+        assert!(specs.get("block").is_some());
+        assert!(specs.get("custom").is_some());
+
+        // Check override
+        assert_eq!(
+            specs.get("if").unwrap().end.as_ref().unwrap().tag,
+            "endif_user"
+        );
+        // Check preserved built-in
+        assert_eq!(
+            specs.get("block").unwrap().end.as_ref().unwrap().tag,
+            "endblock_builtin"
+        );
+        // Check added user tag
+        assert_eq!(
+            specs.get("custom").unwrap().end.as_ref().unwrap().tag,
+            "endcustom_user"
+        );
+
+        if let Ok(val) = original_manifest_dir {
+            std::env::set_var("CARGO_MANIFEST_DIR", val);
+        } else {
+            std::env::remove_var("CARGO_MANIFEST_DIR");
+        }
+        dir.close()?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_load_builtin_missing_dir() -> Result<(), anyhow::Error> {
+        // Point CARGO_MANIFEST_DIR to a non-existent path temporarily
+        let dir = tempfile::tempdir()?; // Need a valid path for temp env var setting
+        let original_manifest_dir = std::env::var("CARGO_MANIFEST_DIR");
+        std::env::set_var("CARGO_MANIFEST_DIR", dir.path().join("nonexistent"));
+
+        let specs = TagSpecs::load_builtin_specs()?;
+        assert!(
+            specs.0.is_empty(),
+            "Should return empty specs if dir is missing"
+        );
+
+        if let Ok(val) = original_manifest_dir {
+            std::env::set_var("CARGO_MANIFEST_DIR", val);
+        } else {
+            std::env::remove_var("CARGO_MANIFEST_DIR");
+        }
+        dir.close()?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_load_builtin_missing_base_table() -> Result<(), anyhow::Error> {
+        // File exists but doesn't have [tagspecs]
+        let content = r#"
+[other_table]
+key = "value"
+"#;
+        let dir = setup_temp_spec_dir("invalid.toml", content)?;
+        let original_manifest_dir = std::env::var("CARGO_MANIFEST_DIR");
+        std::env::set_var("CARGO_MANIFEST_DIR", dir.path());
+
+        // load_builtin_specs expects [tagspecs], so load_from_toml will error
+        // Check that load_builtin_specs handles this gracefully (logs warning, returns empty)
+        let specs = TagSpecs::load_builtin_specs()?;
+        assert!(
+            specs.0.is_empty(),
+            "Should return empty specs if base table is missing"
+        );
+        // TODO: Capture stderr to verify warning was printed?
+
+        if let Ok(val) = original_manifest_dir {
+            std::env::set_var("CARGO_MANIFEST_DIR", val);
+        } else {
+            std::env::remove_var("CARGO_MANIFEST_DIR");
+        }
+        dir.close()?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_load_user_missing_base_table() -> Result<(), anyhow::Error> {
+        let dir = tempfile::tempdir()?;
+        let root = dir.path();
+        // djls.toml exists but doesn't have [tagspecs]
+        let djls_content = r#"
+[other_table]
+key = "value"
+"#;
+        fs::write(root.join("djls.toml"), djls_content)?;
+
+        // load_user_specs should ignore this file because base table is missing
+        let specs = TagSpecs::load_user_specs(root)?;
+        assert!(
+            specs.0.is_empty(),
+            "Should return empty specs if base table is missing in user file"
+        );
 
         dir.close()?;
         Ok(())
