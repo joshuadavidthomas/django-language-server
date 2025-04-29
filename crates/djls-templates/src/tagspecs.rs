@@ -19,7 +19,7 @@ pub enum TagSpecError {
 }
 
 #[derive(Clone, Debug, Default)]
-pub struct TagSpecs(pub HashMap<String, TagSpec>);
+pub struct TagSpecs(HashMap<String, TagSpec>);
 
 impl TagSpecs {
     pub fn get(&self, key: &str) -> Option<&TagSpec> {
@@ -122,19 +122,27 @@ impl TagSpec {
                     Ok(tag_spec) => {
                         // It is a TagSpec. Get name from prefix.
                         if let Some(p) = prefix {
-                            if let Some(name) = p.split('.').last().filter(|s| !s.is_empty()) {
+                            if let Some(name) = p.split('.').next_back().filter(|s| !s.is_empty()) {
                                 specs.insert(name.to_string(), tag_spec);
-                                is_spec_node = true; // Mark as processed
+                                is_spec_node = true;
                             } else {
-                                return Err(format!("Invalid prefix '{}' resulted in empty tag name component.", p));
+                                return Err(format!(
+                                    "Invalid prefix '{}' resulted in empty tag name component.",
+                                    p
+                                ));
                             }
                         } else {
-                            return Err("Cannot determine tag name for TagSpec: prefix is None.".to_string());
+                            return Err("Cannot determine tag name for TagSpec: prefix is None."
+                                .to_string());
                         }
                     }
                     Err(e) => {
                         // Looked like a spec but failed to deserialize. This is an error.
-                        return Err(format!("Failed to deserialize potential TagSpec at prefix '{}': {}", prefix.unwrap_or("<root>"), e));
+                        return Err(format!(
+                            "Failed to deserialize potential TagSpec at prefix '{}': {}",
+                            prefix.unwrap_or("<root>"),
+                            e
+                        ));
                     }
                 }
             }
@@ -167,9 +175,8 @@ pub struct EndTag {
 
 #[cfg(test)]
 mod tests {
-    // --- Tests remain unchanged ---
     use super::*;
-    use std::fs; // Ensure fs is imported
+    use std::fs;
 
     #[test]
     fn test_can_load_builtins() -> Result<(), anyhow::Error> {
@@ -177,10 +184,8 @@ mod tests {
 
         assert!(!specs.0.is_empty(), "Should have loaded at least one spec");
 
-        // Check a known tag
         assert!(specs.get("if").is_some(), "'if' tag should be present");
 
-        // Ensure no empty names were loaded
         for name in specs.0.keys() {
             assert!(!name.is_empty(), "Tag name should not be empty");
         }
@@ -214,7 +219,6 @@ mod tests {
             "debug",
             "extends",
             "firstof",
-            // "ifchanged", // This one IS expected
             "include",
             "load",
             "lorem",
@@ -247,7 +251,6 @@ mod tests {
         let dir = tempfile::tempdir()?;
         let root = dir.path();
 
-        // Use a structure matching pyproject.toml target path
         let pyproject_content = r#"
 [tool.djls.tagspecs.mytag]
 end = { tag = "endmytag" }
@@ -261,11 +264,9 @@ end = { tag = "endanothertag", optional = true }
         // Load all (built-in + user)
         let specs = TagSpecs::load_all(root)?;
 
-        // Check built-in still exists
         assert!(specs.get("if").is_some(), "'if' tag should be present");
 
-        // Check user tag 1
-        let my_tag = specs.get("mytag").expect("mytag should be present"); // This was failing
+        let my_tag = specs.get("mytag").expect("mytag should be present");
         assert_eq!(
             my_tag.end,
             Some(EndTag {
@@ -275,7 +276,6 @@ end = { tag = "endanothertag", optional = true }
         );
         assert_eq!(my_tag.intermediates, Some(vec!["mybranch".to_string()]));
 
-        // Check user tag 2
         let another_tag = specs
             .get("anothertag")
             .expect("anothertag should be present");
@@ -290,7 +290,6 @@ end = { tag = "endanothertag", optional = true }
             another_tag.intermediates.is_none(),
             "anothertag should have no intermediates"
         );
-
 
         dir.close()?;
         Ok(())
@@ -318,11 +317,9 @@ end = { tag = "endmytag2_from_pyproject" }
 "#;
         fs::write(root.join("pyproject.toml"), pyproject_content)?;
 
-        // Load only user specs
         let specs = TagSpecs::load_user_specs(root)?;
 
-        // Should find mytag1 from djls.toml
-        let tag1 = specs.get("mytag1").expect("mytag1 should be present"); // This was failing
+        let tag1 = specs.get("mytag1").expect("mytag1 should be present");
         assert_eq!(tag1.end.as_ref().unwrap().tag, "endmytag1_from_djls");
 
         // Should not find mytag2 because djls.toml was found first
@@ -335,16 +332,13 @@ end = { tag = "endmytag2_from_pyproject" }
         fs::remove_file(root.join("djls.toml"))?;
         let specs = TagSpecs::load_user_specs(root)?;
 
-        // Should find mytag1 from pyproject.toml now
         let tag1 = specs.get("mytag1").expect("mytag1 should be present now");
         assert_eq!(tag1.end.as_ref().unwrap().tag, "endmytag1_from_pyproject");
 
-        // Should find mytag2 from pyproject.toml now
         assert!(
             specs.get("mytag2").is_some(),
             "mytag2 should be present when only pyproject.toml exists"
         );
-
 
         dir.close()?;
         Ok(())
