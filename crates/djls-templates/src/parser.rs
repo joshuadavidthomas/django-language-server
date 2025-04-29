@@ -1,5 +1,5 @@
-use crate::ast::{Ast, AstError, Node, Span};
 use crate::lexer::LexerError;
+use crate::nodes::{AstError, Node, NodeList, Span};
 use crate::tokens::{Token, TokenStream, TokenType};
 use thiserror::Error;
 
@@ -18,8 +18,8 @@ impl Parser {
         }
     }
 
-    pub fn parse(&mut self) -> Result<(Ast, Vec<ParserError>), ParserError> {
-        let mut ast = Ast::default();
+    pub fn parse(&mut self) -> Result<(NodeList, Vec<ParserError>), ParserError> {
+        let mut ast = NodeList::default();
         ast.set_line_offsets(&self.tokens);
 
         while !self.is_at_end() {

@@ -1,6 +1,5 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf}; // Add PathBuf
@@ -226,7 +225,8 @@ fn extract_specs(
         if !current_path.is_empty() {
             match TagSpec::deserialize(current_value.clone()) {
                 Ok(tag_spec) => {
-                    if let Some(tag_name) = current_path.split('.').last().filter(|s| !s.is_empty()) {
+                    if let Some(tag_name) = current_path.split('.').last().filter(|s| !s.is_empty())
+                    {
                         specs_map.insert(tag_name.to_string(), tag_spec);
                     } else {
                         return Err(format!(
@@ -296,7 +296,7 @@ mod tests {
         // Renamed from test_can_load_builtins
         let content = r#"
 # Using dotted path table names under [tagspecs] base
-[tagspecs.django.template.defaulttags.if] // Corrected path
+[tagspecs.django.template.defaulttags.if]
 end = { tag = "endif" }
 [tagspecs.django.template.defaulttags.block]
 end = { tag = "endblock" }

@@ -1,5 +1,5 @@
-use crate::ast::{AstError, Span};
 use crate::lexer::LexerError;
+use crate::nodes::{AstError, Span};
 use crate::parser::ParserError;
 use serde::Serialize;
 use thiserror::Error;

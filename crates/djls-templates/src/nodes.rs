@@ -3,14 +3,14 @@ use serde::Serialize;
 use thiserror::Error;
 
 #[derive(Clone, Debug, Default, Serialize)]
-pub struct Ast {
-    nodelist: Vec<Node>,
+pub struct NodeList {
+    nodes: Vec<Node>,
     line_offsets: LineOffsets,
 }
 
-impl Ast {
-    pub fn nodelist(&self) -> &Vec<Node> {
-        &self.nodelist
+impl NodeList {
+    pub fn nodes(&self) -> &Vec<Node> {
+        &self.nodes
     }
 
     pub fn line_offsets(&self) -> &LineOffsets {
@@ -18,18 +18,11 @@ impl Ast {
     }
 
     pub fn add_node(&mut self, node: Node) {
-        self.nodelist.push(node);
+        self.nodes.push(node);
     }
 
     pub fn set_line_offsets(&mut self, tokens: &TokenStream) {
-        for token in tokens.tokens() {
-            if let TokenType::Newline = token.token_type() {
-                if let Some(start) = token.start() {
-                    // Add offset for next line
-                    self.line_offsets.add_line(start + 1);
-                }
-            }
-        }
+        self.line_offsets = LineOffsets::from_tokens(tokens)
     }
 }
 
@@ -37,8 +30,20 @@ impl Ast {
 pub struct LineOffsets(pub Vec<u32>);
 
 impl LineOffsets {
+    pub fn from_tokens(tokens: &TokenStream) -> Self {
+        let mut offsets = LineOffsets::default();
+        for token in tokens.tokens() {
+            if let TokenType::Newline = token.token_type() {
+                if let Some(start) = token.start() {
+                    offsets.add_line(start + token.length().unwrap_or(1));
+                }
+            }
+        }
+        offsets
+    }
+
     pub fn add_line(&mut self, offset: u32) {
-        self.0.push(offset);
+        self.0.push(offset)
     }
 
     pub fn position_to_line_col(&self, position: usize) -> (usize, usize) {
@@ -188,7 +193,7 @@ mod tests {
             assert!(errors.is_empty());
 
             // Find the variable node
-            let nodes = nodelist.nodelist();
+            let nodes = nodelist.nodes();
             let var_node = nodes
                 .iter()
                 .find(|n| matches!(n, Node::Variable { .. }))
