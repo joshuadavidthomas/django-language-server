@@ -43,25 +43,17 @@ impl Settings {
         let pyproject_path = project_root.join("pyproject.toml");
         if pyproject_path.exists() {
             let content = fs::read_to_string(&pyproject_path)?;
-            let full_toml_value: toml::Value = toml::from_str(&content)?;
-
-            let table_path = ["tool", "djls"];
-
-            let djls_value_opt: Option<&toml::Value> =
-                table_path
-                    .iter()
-                    .try_fold(&full_toml_value, |current_val, &key| {
-                        // Attempt to get the next key. If it exists, return Some(value) to continue.
-                        // If get returns None, try_fold automatically stops and returns None overall.
-                        current_val.get(key)
-                    });
-
-            if let Some(djls_table) = djls_value_opt.and_then(|v| v.as_table()) {
-                let djls_toml_string = toml::to_string(djls_table)?;
-                builder = builder.add_source(File::from_str(&djls_toml_string, FileFormat::Toml));
+            let toml_str: toml::Value = toml::from_str(&content)?;
+            let tool_djls_value: Option<&toml::Value> =
+                ["tool", "djls"].iter().try_fold(&toml_str, |val, &key| {
+                    // Attempt to get the next key. If it exists, return Some(value) to continue.
+                    // If get returns None, try_fold automatically stops and returns None overall.
+                    val.get(key)
+                });
+            if let Some(tool_djls_table) = tool_djls_value.and_then(|v| v.as_table()) {
+                let tool_djls_string = toml::to_string(tool_djls_table)?;
+                builder = builder.add_source(File::from_str(&tool_djls_string, FileFormat::Toml));
             }
-            // If djls_value_opt was None, or if the value wasn't a table,
-            // the and_then returns None, and we skip adding the source.
         }
 
         builder = builder.add_source(
