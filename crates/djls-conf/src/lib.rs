@@ -127,14 +127,7 @@ mod tests {
         #[test]
         fn test_load_venv_path_config() {
             let dir = tempdir().unwrap();
-            fs::write(
-                dir.path().join("djls.toml"),
-                r#"
-                debug = false
-                venv_path = "/path/to/venv"
-            "#,
-            )
-            .unwrap();
+            fs::write(dir.path().join("djls.toml"), "venv_path = /path/to/venv").unwrap();
             let settings = Settings::new(dir.path()).unwrap();
             assert_eq!(
                 settings,
