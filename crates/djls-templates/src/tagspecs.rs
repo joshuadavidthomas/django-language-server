@@ -179,53 +179,62 @@ fn extract_specs(
     current_path: &str, // The path leading up to current_value, e.g., "django.template.defaulttags"
     specs_map: &mut HashMap<String, TagSpec>,
 ) -> Result<(), String> {
-    // First, check if the current_value *itself* could be a TagSpec definition.
-    // This happens when the current_path represents the full path to the tag.
-    // We only attempt this if current_path is not empty (i.e., we are not at the root base table).
-    if !current_path.is_empty() {
-        match TagSpec::deserialize(current_value.clone()) {
-            // Successfully deserialized as a TagSpec
-            Ok(tag_spec) => {
-                // Success! current_value represents a TagSpec definition.
-                // Extract tag_name from the *end* of current_path.
-                if let Some(tag_name) = current_path.split('.').last().filter(|s| !s.is_empty()) {
-                    // Insert into the map. Handle potential duplicates/overrides if needed.
-                    specs_map.insert(tag_name.to_string(), tag_spec);
-                } else {
-                    // This case should ideally not happen if current_path is not empty,
-                    // but handle defensively.
-                    return Err(format!(
-                        "Could not extract tag name from non-empty path '{}'",
-                        current_path
-                    ));
-                }
-                // Since we successfully parsed this node as a TagSpec,
-                // we assume it's a leaf node for specs and don't recurse further down
-                // into its fields (like 'end' or 'intermediates').
-                return Ok(()); // Stop processing this branch
-            }
-            // Failed to deserialize as TagSpec - it might be a namespace table.
-            Err(_) => { // Keep Err(_) to catch deserialization errors gracefully
-                 // Deserialization as TagSpec failed. It might be a namespace table.
-                 // Continue below to check if it's a table and recurse.
+    let mut is_namespace_table = false;
+    if let Some(table) = current_value.as_table() {
+        // Check if it contains keys other than 'end' or 'intermediates'
+        for key in table.keys() {
+            if key != "end" && key != "intermediates" {
+                is_namespace_table = true;
+                break;
             }
         }
+    } else {
+        // Not a table. Cannot be a spec or a namespace. Ignore.
+        return Ok(());
     }
-    // If we reached here, it means the node was NOT successfully deserialized as a TagSpec
-    // (either because the path was empty, or deserialization failed).
-    // check if it's a table and recurse into its children.
-    if let Some(table) = current_value.as_table() {
+
+    if is_namespace_table {
+        // It's a namespace table, recurse into its children
+        // We know it's a table because is_namespace_table is true only if it was a table.
+        let table = current_value.as_table().unwrap(); // Safe unwrap
         for (key, inner_value) in table.iter() {
             // Construct the new path for the recursive call
             let new_path = if current_path.is_empty() {
                 key.clone()
             } else {
                 format!("{}.{}", current_path, key)
-           };
-           // Recurse
-           extract_specs(inner_value, &new_path, specs_map)?; // Propagate errors using ?
-       }
-   }
+            };
+            // Recurse
+            extract_specs(inner_value, &new_path, specs_map)?; // Propagate errors using ?
+        }
+    } else {
+        // It's NOT a namespace table (only 'end'/'intermediates' keys or empty table).
+        // Try to deserialize it as a TagSpec, but only if the path is non-empty.
+        if !current_path.is_empty() {
+            match TagSpec::deserialize(current_value.clone()) {
+                Ok(tag_spec) => {
+                    if let Some(tag_name) = current_path.split('.').last().filter(|s| !s.is_empty()) {
+                        specs_map.insert(tag_name.to_string(), tag_spec);
+                    } else {
+                        return Err(format!(
+                            "Could not extract tag name from non-empty path '{}'",
+                            current_path
+                        ));
+                    }
+                    // Don't recurse further, we found the spec leaf node.
+                }
+                Err(e) => {
+                    // Deserialization failed for a node that *should* have been a spec.
+                    return Err(format!(
+                        "Failed to deserialize potential TagSpec at path '{}': {}",
+                        current_path, e
+                    ));
+                }
+            }
+        }
+        // If current_path was empty (root table), we don't try to deserialize, just continue.
+    }
+
     // If it's not a table and not a TagSpec, ignore it.
     Ok(())
 }
