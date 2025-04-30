@@ -90,13 +90,13 @@ struct PythonEnvironment {
 
 impl PythonEnvironment {
     fn new(project_path: &Path, venv_path: Option<&str>) -> Option<Self> {
-        // eprintln!(
-        //     "[PythonEnvironment::new] Start search. Project: '{}', Explicit venv_path: {:?}",
-        //     project_path.display(), venv_path
-        // );
+        eprintln!(
+            "[PythonEnvironment::new] Start search. Project: '{}', Explicit venv_path: {:?}",
+            project_path.display(), venv_path
+        );
 
         if let Some(path) = venv_path {
-            // eprintln!("[PythonEnvironment::new] Checking explicit venv_path: '{}'", path);
+            eprintln!("[PythonEnvironment::new] Checking explicit venv_path: '{}'", path);
             let prefix = PathBuf::from(path);
             // Call from_venv_prefix for the explicit path
             let explicit_env = Self::from_venv_prefix(&prefix);
@@ -105,40 +105,40 @@ impl PythonEnvironment {
             // Let's refine this: if explicit path is given but invalid, maybe we should error or log?
             // For now, stick to the current implementation: if from_venv_prefix returns Some, we use it.
             if let Some(env) = explicit_env {
-                // eprintln!(
-                //     "[PythonEnvironment::new] Found environment via explicit path: '{}'",
-                //     path
-                // );
+                eprintln!(
+                    "[PythonEnvironment::new] Found environment via explicit path: '{}'",
+                    path
+                );
                 return Some(env);
             } else {
                 // Explicit path provided but invalid. Should we stop here?
                 // The current code implicitly continues to VIRTUAL_ENV check.
                 // Let's keep the current behavior for now, but it's worth noting.
-                // eprintln!(
-                //     "[PythonEnvironment::new] Explicit venv_path '{}' is invalid or incomplete. Continuing search...",
-                //     path
-                // );
+                eprintln!(
+                    "[PythonEnvironment::new] Explicit venv_path '{}' is invalid or incomplete. Continuing search...",
+                    path
+                );
             }
         } else {
-            // eprintln!("[PythonEnvironment::new] No explicit venv_path provided.");
+            eprintln!("[PythonEnvironment::new] No explicit venv_path provided.");
         }
 
         if let Ok(virtual_env) = env::var("VIRTUAL_ENV") {
             if !virtual_env.is_empty() {
-                // eprintln!("[PythonEnvironment::new] Checking VIRTUAL_ENV: '{}'", virtual_env);
+                eprintln!("[PythonEnvironment::new] Checking VIRTUAL_ENV: '{}'", virtual_env);
                 let prefix = PathBuf::from(virtual_env);
                 // Call from_venv_prefix for the VIRTUAL_ENV path
                 if let Some(env) = Self::from_venv_prefix(&prefix) {
-                    // eprintln!(
-                    //     "[PythonEnvironment::new] Found environment via VIRTUAL_ENV: '{}'",
-                    //     prefix.display()
-                    // );
+                    eprintln!(
+                        "[PythonEnvironment::new] Found environment via VIRTUAL_ENV: '{}'",
+                        prefix.display()
+                    );
                     return Some(env);
                 } else {
-                    // eprintln!(
-                    //     "[PythonEnvironment::new] VIRTUAL_ENV path '{}' is invalid or incomplete. Continuing search...",
-                    //     prefix.display()
-                    // );
+                    eprintln!(
+                        "[PythonEnvironment::new] VIRTUAL_ENV path '{}' is invalid or incomplete. Continuing search...",
+                        prefix.display()
+                    );
                 }
             } else {
                 eprintln!("[PythonEnvironment::new] VIRTUAL_ENV variable is set but empty.");
@@ -147,32 +147,39 @@ impl PythonEnvironment {
             eprintln!("[PythonEnvironment::new] VIRTUAL_ENV variable not found.");
         }
 
-        // eprintln!("[PythonEnvironment::new] Checking common venv directories within project: '{}'", project_path.display());
+        eprintln!("[PythonEnvironment::new] Checking common venv directories within project: '{}'", project_path.display());
         for venv_dir in &[".venv", "venv", "env", ".env"] {
             let potential_venv = project_path.join(venv_dir);
+            eprintln!("[PythonEnvironment::new] Checking project path: '{}'", potential_venv.display());
             if potential_venv.is_dir() {
+                eprintln!("[PythonEnvironment::new] Path is a directory. Calling from_venv_prefix...");
                 if let Some(env) = Self::from_venv_prefix(&potential_venv) {
+                    eprintln!("[PythonEnvironment::new] Found environment via project directory: '{}'", potential_venv.display());
                     return Some(env);
+                } else {
+                    eprintln!("[PythonEnvironment::new] from_venv_prefix returned None for project path: '{}'", potential_venv.display());
                 }
+            } else {
+                eprintln!("[PythonEnvironment::new] Path is not a directory: '{}'", potential_venv.display());
             }
         }
-        // eprintln!("[PythonEnvironment::new] No valid environment found in common project directories.");
+        eprintln!("[PythonEnvironment::new] No valid environment found in common project directories.");
 
-        // eprintln!("[PythonEnvironment::new] Falling back to system Python search...");
+        eprintln!("[PythonEnvironment::new] Falling back to system Python search...");
         let system_env = Self::from_system_python();
-        // if system_env.is_some() {
-        //     eprintln!("[PythonEnvironment::new] Found system Python.");
-        // } else {
-        //     eprintln!("[PythonEnvironment::new] Could not find system Python via 'which python'.");
-        // }
+        if system_env.is_some() {
+            eprintln!("[PythonEnvironment::new] Found system Python.");
+        } else {
+            eprintln!("[PythonEnvironment::new] Could not find system Python via 'which python'.");
+        }
         system_env // Return the result of the system python search
     }
 
     fn from_venv_prefix(prefix: &Path) -> Option<Self> {
-        // eprintln!(
-        //     "[from_venv_prefix] Checking potential venv prefix: '{}'",
-        //     prefix.display()
-        // );
+        eprintln!(
+            "[from_venv_prefix] Checking potential venv prefix: '{}'",
+            prefix.display()
+        );
         #[cfg(not(windows))]
         let python_path = prefix.join("bin").join("python");
         #[cfg(not(windows))]
@@ -186,19 +193,19 @@ impl PythonEnvironment {
         let prefix_is_dir = prefix.is_dir();
         let python_exists = python_path.exists();
 
-        // eprintln!(
-        //     "[from_venv_prefix] Checking prefix directory '{}': Exists = {}",
-        //     prefix.display(), prefix_is_dir
-        // );
-        // eprintln!(
-        //     "[from_venv_prefix] Checking Python binary '{}': Exists = {}",
-        //     python_path.display(), python_exists
-        // );
+        eprintln!(
+            "[from_venv_prefix] Checking prefix directory '{}': Exists = {}",
+            prefix.display(), prefix_is_dir
+        );
+        eprintln!(
+            "[from_venv_prefix] Checking Python binary '{}': Exists = {}",
+            python_path.display(), python_exists
+        );
 
         // Check if the *prefix* and the *binary* exist.
         // Checking prefix helps avoid issues if only bin/python exists somehow.
         if !prefix_is_dir || !python_exists {
-            // eprintln!("[from_venv_prefix] Basic requirements not met (prefix dir or python binary missing). Returning None.");
+            eprintln!("[from_venv_prefix] Basic requirements not met (prefix dir or python binary missing). Returning None.");
             return None;
         }
 
@@ -208,13 +215,13 @@ impl PythonEnvironment {
         if let Some(site_packages) = Self::find_site_packages(prefix) {
             // Check existence inside the if let, as find_site_packages might return a path that doesn't exist
             if site_packages.is_dir() {
-                // eprintln!("[from_venv_prefix] Confirmed site-packages directory '{}' exists. Adding to sys_path.", site_packages.display());
+                eprintln!("[from_venv_prefix] Confirmed site-packages directory '{}' exists. Adding to sys_path.", site_packages.display());
                 sys_path.push(site_packages);
             } else {
-                // eprintln!("[from_venv_prefix] Warning: Found site-packages path '{}' but it's not a directory.", site_packages.display());
+                eprintln!("[from_venv_prefix] Warning: Found site-packages path '{}' but it's not a directory.", site_packages.display());
             }
         }
-        // eprintln!("[from_venv_prefix] Successfully created environment for prefix '{}'", prefix.display());
+        eprintln!("[from_venv_prefix] Successfully created environment for prefix '{}'", prefix.display());
 
         Some(Self {
             python_path: python_path.clone(),
@@ -224,11 +231,28 @@ impl PythonEnvironment {
     }
 
     fn from_system_python() -> Option<Self> {
-        let python_path = which("python").ok()?;
+        eprintln!("[from_system_python] Trying 'which python'");
+        let python_path = match which("python") {
+            Ok(p) => {
+                eprintln!("[from_system_python] Found python via which: '{}'", p.display());
+                p
+            }
+            Err(e) => {
+                eprintln!("[from_system_python] 'which python' failed: {}", e);
+                return None;
+            }
+        };
         // which() might return a path inside a bin/Scripts dir, or directly the executable
         // We need the prefix, which is usually two levels up from the executable in standard layouts
-        let bin_dir = python_path.parent()?;
-        let prefix = bin_dir.parent()?; // This assumes standard bin/ or Scripts/ layout
+        let bin_dir = python_path.parent().or_else(|| {
+            eprintln!("[from_system_python] Could not get parent (bin) dir for '{}'", python_path.display());
+            None
+        })?;
+        let prefix = bin_dir.parent().or_else(|| {
+            eprintln!("[from_system_python] Could not get parent (prefix) dir for '{}'", bin_dir.display());
+            None // If we can't get prefix, fail for system python
+        })?;
+        eprintln!("[from_system_python] Deduced prefix: '{}'", prefix.display());
 
         let mut sys_path = Vec::new();
         sys_path.push(bin_dir.to_path_buf());
@@ -239,6 +263,7 @@ impl PythonEnvironment {
             }
         }
 
+        eprintln!("[from_system_python] Successfully created env for system python");
         Some(Self {
             python_path: python_path.clone(),
             sys_path,
