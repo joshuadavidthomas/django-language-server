@@ -329,13 +329,46 @@ mod tests {
         // Set VIRTUAL_ENV to the valid path
         let _guard = VirtualEnvGuard::set("VIRTUAL_ENV", venv_prefix.to_str().unwrap());
 
-        // Provide an invalid explicit path
+        // Provide an invalid explicit path (points to a non-existent directory)
         let invalid_path = project_dir.path().join("non_existent_venv");
+        // Ensure the invalid path doesn't accidentally exist
+        assert!(!invalid_path.exists(), "Invalid path should not exist");
+
         let env = PythonEnvironment::new(project_dir.path(), Some(invalid_path.to_str().unwrap()))
             .expect("Should fall through to VIRTUAL_ENV");
 
         // Should have found the one from VIRTUAL_ENV
-        assert_eq!(env.sys_prefix, venv_prefix);
+        assert_eq!(
+            env.sys_prefix, venv_prefix,
+            "Environment prefix should match VIRTUAL_ENV path"
+        );
+
+        // Add more specific checks to ensure it's the correct environment
+        #[cfg(not(windows))]
+        {
+            let expected_python_path = venv_prefix.join("bin").join("python");
+            assert_eq!(
+                env.python_path, expected_python_path,
+                "Python path should match the one in VIRTUAL_ENV bin dir"
+            );
+            assert!(
+                env.sys_path.contains(&venv_prefix.join("bin")),
+                "Sys path should contain VIRTUAL_ENV bin dir"
+            );
+        }
+
+        #[cfg(windows)]
+        {
+            let expected_python_path = venv_prefix.join("Scripts").join("python.exe");
+            assert_eq!(
+                env.python_path, expected_python_path,
+                "Python path should match the one in VIRTUAL_ENV Scripts dir"
+            );
+            assert!(
+                env.sys_path.contains(&venv_prefix.join("Scripts")),
+                "Sys path should contain VIRTUAL_ENV Scripts dir"
+            );
+        }
     }
 
     #[test]
