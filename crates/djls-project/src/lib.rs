@@ -92,9 +92,8 @@ impl PythonEnvironment {
     fn new(project_path: &Path, venv_path: Option<&str>) -> Option<Self> {
         if let Some(path) = venv_path {
             let prefix = PathBuf::from(path);
-            let explicit_env = Self::from_venv_prefix(&prefix);
             // If an explicit path is provided and it's a valid venv, use it immediately.
-            if let Some(env) = explicit_env {
+            if let Some(env) = Self::from_venv_prefix(&prefix) {
                 return Some(env);
             }
             // Explicit path was provided but was invalid. Continue searching.
@@ -124,23 +123,21 @@ impl PythonEnvironment {
     fn from_venv_prefix(prefix: &Path) -> Option<Self> {
         #[cfg(not(windows))]
         let python_path = prefix.join("bin").join("python");
-        #[cfg(not(windows))]
-        let bin_dir = prefix.join("bin");
-
         #[cfg(windows)]
         let python_path = prefix.join("Scripts").join("python.exe");
-        #[cfg(windows)]
-        let bin_dir = prefix.join("Scripts");
-
-        let prefix_is_dir = prefix.is_dir();
-        let python_exists = python_path.exists();
 
         // Check if the *prefix* and the *binary* exist.
-        if !prefix_is_dir || !python_exists {
+        if !prefix.is_dir() || !python_path.exists() {
             return None;
         }
 
         let mut sys_path = Vec::new();
+
+        #[cfg(not(windows))]
+        let bin_dir = prefix.join("bin");
+        #[cfg(windows)]
+        let bin_dir = prefix.join("Scripts");
+
         sys_path.push(bin_dir); // Add bin/ or Scripts/
 
         if let Some(site_packages) = Self::find_site_packages(prefix) {
