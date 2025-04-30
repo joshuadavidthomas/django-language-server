@@ -129,13 +129,12 @@ impl PythonEnvironment {
             return None;
         }
 
-        let mut sys_path = Vec::new();
-
         #[cfg(not(windows))]
         let bin_dir = prefix.join("bin");
         #[cfg(windows)]
         let bin_dir = prefix.join("Scripts");
 
+        let mut sys_path = Vec::new();
         sys_path.push(bin_dir); // Add bin/ or Scripts/
 
         if let Some(site_packages) = Self::find_site_packages(prefix) {
@@ -157,12 +156,13 @@ impl PythonEnvironment {
             Ok(p) => p,
             Err(_) => return None,
         };
-        let mut sys_path = Vec::new();
 
         // which() might return a path inside a bin/Scripts dir, or directly the executable
         // We need the prefix, which is usually two levels up from the executable in standard layouts
         let bin_dir = python_path.parent()?;
         let prefix = bin_dir.parent()?;
+
+        let mut sys_path = Vec::new();
         sys_path.push(bin_dir.to_path_buf());
 
         if let Some(site_packages) = Self::find_site_packages(prefix) {
