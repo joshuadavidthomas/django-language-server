@@ -159,6 +159,7 @@ impl LanguageServer for DjangoLanguageServer {
         let project_arc = Arc::clone(&self.project);
         let client = self.client.clone();
 
+        let settings_arc = Arc::clone(&self.settings);
         let task = move || async move {
             let mut project_guard = project_arc.write().await;
             if let Some(project) = project_guard.as_mut() {
@@ -173,7 +174,21 @@ impl LanguageServer for DjangoLanguageServer {
                     )
                     .await;
 
-                match project.initialize() {
+                let venv_path = {
+                    let settings = settings_arc.read().await;
+                    settings.venv_path().map(|s| s.to_string())
+                };
+
+                if let Some(ref path) = venv_path {
+                    client
+                        .log_message(
+                            MessageType::INFO,
+                            &format!("Using virtual environment from config: {}", path),
+                        )
+                        .await;
+                }
+
+                match project.initialize(venv_path.as_deref()) {
                     Ok(()) => {
                         client
                             .log_message(
