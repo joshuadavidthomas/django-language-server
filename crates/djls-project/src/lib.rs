@@ -331,11 +331,22 @@ mod tests {
 
         // Provide an invalid explicit path (points to a non-existent directory)
         let invalid_path = project_dir.path().join("non_existent_venv");
+        let invalid_path_str = invalid_path.to_str().unwrap();
         // Ensure the invalid path doesn't accidentally exist
-        assert!(!invalid_path.exists(), "Invalid path should not exist");
+        assert!(!invalid_path.exists(), "Invalid path '{}' should not exist before test", invalid_path.display());
 
-        let env = PythonEnvironment::new(project_dir.path(), Some(invalid_path.to_str().unwrap()))
-            .expect("Should fall through to VIRTUAL_ENV");
+        // --- Add a small delay before calling the function under test ---
+        eprintln!("--- Adding small delay before PythonEnvironment::new call ---");
+        std::thread::sleep(std::time::Duration::from_millis(50)); // 50ms delay
+        eprintln!("--- Delay finished. Starting PythonEnvironment::new call for the test ---");
+        // --- End added delay ---
+
+        eprintln!("--- Starting PythonEnvironment::new call for the test ---");
+        // Call the function under test
+        let env_result = PythonEnvironment::new(project_dir.path(), Some(invalid_path_str));
+        eprintln!("--- Finished PythonEnvironment::new call for the test ---");
+
+        let env = env_result.expect("Should fall through to VIRTUAL_ENV");
 
         // Should have found the one from VIRTUAL_ENV
         assert_eq!(
