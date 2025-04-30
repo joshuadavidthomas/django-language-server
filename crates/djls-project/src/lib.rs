@@ -96,9 +96,8 @@ impl PythonEnvironment {
             // If an explicit path is provided and it's a valid venv, use it immediately.
             if let Some(env) = explicit_env {
                 return Some(env);
-            } else {
-                // Explicit path was provided but was invalid. Continue searching.
             }
+            // Explicit path was provided but was invalid. Continue searching.
         }
 
         if let Ok(virtual_env) = env::var("VIRTUAL_ENV") {
@@ -119,8 +118,7 @@ impl PythonEnvironment {
             }
         }
 
-        let system_env = Self::from_system_python();
-        system_env // Return the result of the system python search
+        Self::from_system_python()
     }
 
     fn from_venv_prefix(prefix: &Path) -> Option<Self> {
@@ -318,117 +316,6 @@ mod tests {
                 .contains(&venv_prefix.join("Lib").join("site-packages")));
         }
     }
-
-    // #[test]
-    // // Renamed test
-    // fn test_explicit_venv_path_invalid_falls_through_to_project_venv_discovery() {
-    //     let project_dir = tempdir().unwrap();
-    //     // Create the expected venv *inside* the project directory
-    //     let project_venv_prefix = create_mock_venv(&project_dir.path().join(".venv"), None);
-    //     // Keep None here for consistency with original test logic - This line seems redundant now, removing.
-    //     // let venv_prefix = create_mock_venv(venv_dir.path(), None);
-    //     // let venv_prefix_str = venv_prefix.to_str().expect("Failed to convert venv_prefix path to string");
-    //
-    //     // --- Add checks immediately after creating the mock venv ---
-    //     #[cfg(not(windows))]
-    //     {
-    //         // let expected_bin = venv_prefix.join("bin"); // Check against project_venv_prefix
-    //         let expected_py = project_venv_prefix.join("bin").join("python");
-    //         let expected_sp = project_venv_prefix.join("lib").join("python3.9").join("site-packages"); // Matches default in create_mock_venv
-    //         assert!(expected_py.exists(), "Mock project python binary should exist at '{}'", expected_py.display());
-    //         assert!(expected_sp.is_dir(), "Mock project site-packages dir should exist at '{}'", expected_sp.display());
-    //     }
-    //     #[cfg(windows)]
-    //     {
-    //         // let expected_scripts = venv_prefix.join("Scripts"); // Check against project_venv_prefix
-    //         let expected_py = project_venv_prefix.join("Scripts").join("python.exe");
-    //         let expected_sp = project_venv_prefix.join("Lib").join("site-packages");
-    //         assert!(expected_py.exists(), "Mock project python binary should exist at '{}'", expected_py.display());
-    //         assert!(expected_sp.is_dir(), "Mock project site-packages dir should exist at '{}'", expected_sp.display());
-    //     }
-    //     // --- End added checks ---
-    //
-    //     // Set VIRTUAL_ENV to the valid path - No, clear it for this test case
-    //     // let _guard = VirtualEnvGuard::set("VIRTUAL_ENV", venv_prefix_str);
-    //     // Ensure VIRTUAL_ENV is not set, so it falls through to project discovery
-    //     let _guard = VirtualEnvGuard::clear("VIRTUAL_ENV");
-    //
-    //
-    //     // Provide an invalid explicit path (points to a non-existent directory)
-    //     // let invalid_path = project_dir.path().join("non_existent_venv");
-    //     // Provide an invalid explicit path
-    //     let invalid_path = project_dir.path().join("another_non_existent_venv");
-    //     let invalid_path_str = invalid_path.to_str().unwrap();
-    //     // Ensure the invalid path doesn't accidentally exist
-    //     assert!(!invalid_path.exists(), "Invalid path '{}' should not exist before test", invalid_path.display());
-    //
-    //     // eprintln!("--- Starting PythonEnvironment::new call for the test ---"); // Removed logging
-    //     // Call the function under test
-    //     let env_result = PythonEnvironment::new(project_dir.path(), Some(invalid_path_str));
-    //     // eprintln!("--- Finished PythonEnvironment::new call for the test ---"); // Removed logging
-    //
-    //     // Check the result with more detailed error message if it's None
-    //     let env = env_result.unwrap_or_else(|| {
-    //         // This path indicates `new` returned None, meaning the VIRTUAL_ENV check likely failed.
-    //         panic!(
-    //             "PythonEnvironment::new returned None unexpectedly. It should have fallen back to project venv discovery. \
-    //             Project: '{}', Invalid Explicit Path: '{}'. \
-    //             Check logs if available.",
-    //             // No longer relevant to include venv_prefix_str here
-    //             // venv_prefix_str,
-    //             project_dir.path().display(),
-    //             invalid_path_str
-    //         );
-    //     });
-    //
-    //     // Should have found the one from VIRTUAL_ENV - No, should find project venv
-    //     // Should have found the one created in the project dir
-    //     assert_eq!(
-    //         env.sys_prefix, project_venv_prefix,
-    //         "Environment prefix should match project venv path"
-    //     );
-    //
-    //     // Add more specific checks to ensure it's the correct environment
-    //     #[cfg(not(windows))]
-    //     {
-    //         let expected_python_path = project_venv_prefix.join("bin").join("python");
-    //         assert_eq!(
-    //             env.python_path, expected_python_path,
-    //             "Python path should match the one in project venv bin dir"
-    //         );
-    //         let expected_bin_dir = project_venv_prefix.join("bin");
-    //         assert!(
-    //             env.sys_path.contains(&expected_bin_dir),
-    //             "Sys path should contain project venv bin dir"
-    //         );
-    //         // Check against the default version used by create_mock_venv when None is passed
-    //         let expected_site_packages = project_venv_prefix.join("lib").join("python3.9").join("site-packages");
-    //          assert!(
-    //             env.sys_path.contains(&expected_site_packages),
-    //             "Sys path should contain project venv site-packages dir ('{}')", expected_site_packages.display()
-    //         );
-    //     }
-    //
-    //     #[cfg(windows)]
-    //     {
-    //         let expected_python_path = project_venv_prefix.join("Scripts").join("python.exe");
-    //         assert_eq!(
-    //             env.python_path, expected_python_path,
-    //             "Python path should match the one in project venv Scripts dir"
-    //         );
-    //         let expected_scripts_dir = project_venv_prefix.join("Scripts"); // Corrected variable name
-    //         assert!(
-    //             env.sys_path.contains(&expected_scripts_dir), // Use corrected variable
-    //             "Sys path should contain project venv Scripts dir" // Corrected message part
-    //         );
-    //         // let expected_site_packages = venv_prefix.join("Lib").join("site-packages"); // Check against project_venv_prefix
-    //         let expected_site_packages = project_venv_prefix.join("Lib").join("site-packages");
-    //          assert!(
-    //             env.sys_path.contains(&expected_site_packages),
-    //             "Sys path should contain project venv site-packages dir ('{}')", expected_site_packages.display()
-    //         );
-    //     }
-    // }
 
     #[test]
     fn test_explicit_venv_path_invalid_falls_through_to_project_venv() {
