@@ -90,13 +90,7 @@ struct PythonEnvironment {
 
 impl PythonEnvironment {
     fn new(project_path: &Path, venv_path: Option<&str>) -> Option<Self> {
-        // eprintln!(
-        //     "[PythonEnvironment::new] Start search. Project: '{}', Explicit venv_path: {:?}",
-        //     project_path.display(), venv_path
-        // );
-
         if let Some(path) = venv_path {
-            // eprintln!("[PythonEnvironment::new] Checking explicit venv_path: '{}'", path);
             let prefix = PathBuf::from(path);
             // Call from_venv_prefix for the explicit path
             let explicit_env = Self::from_venv_prefix(&prefix);
