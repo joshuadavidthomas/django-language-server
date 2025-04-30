@@ -28,7 +28,6 @@ jobs:
         uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-          pyproject-file: pyproject.toml
 
       - uses: actions/cache@v4
         with:
