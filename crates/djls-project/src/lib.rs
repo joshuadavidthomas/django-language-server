@@ -587,6 +587,8 @@ mod tests {
 
             let test_env = create_test_env(vec![path1.clone(), path2.clone()]);
 
+            pyo3::prepare_freethreaded_python();
+
             Python::with_gil(|py| {
                 let initial_sys_path = get_sys_path(py)?;
                 let initial_len = initial_sys_path.len();
@@ -618,6 +620,8 @@ mod tests {
         fn test_activate_empty_sys_path() -> PyResult<()> {
             let test_env = create_test_env(vec![]);
 
+            pyo3::prepare_freethreaded_python();
+
             Python::with_gil(|py| {
                 let initial_sys_path = get_sys_path(py)?;
 
@@ -641,6 +645,8 @@ mod tests {
             let path2 = temp_dir.path().join("another_missing/path");
 
             let test_env = create_test_env(vec![path1.clone(), path2.clone()]);
+
+            pyo3::prepare_freethreaded_python();
 
             Python::with_gil(|py| {
                 let initial_sys_path = get_sys_path(py)?;
@@ -688,6 +694,8 @@ mod tests {
             );
 
             let test_env = create_test_env(vec![valid_path.clone(), non_utf8_path.clone()]);
+
+            pyo3::prepare_freethreaded_python();
 
             Python::with_gil(|py| {
                 let initial_sys_path = get_sys_path(py)?;
@@ -746,6 +754,8 @@ mod tests {
             );
 
             let test_env = create_test_env(vec![valid_path.clone(), non_utf8_path.clone()]);
+
+            pyo3::prepare_freethreaded_python();
 
             Python::with_gil(|py| {
                 let initial_sys_path = get_sys_path(py)?;
