@@ -16,3 +16,6 @@ tokio = { workspace = true }
 tower-lsp-server = { workspace = true }
 
 percent-encoding = "2.3"
+
+[build-dependencies]
+pyo3-build-config = { workspace = true, features = ["resolve-config"] }

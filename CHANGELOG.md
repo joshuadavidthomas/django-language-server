@@ -27,7 +27,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 ### Changed
 
 - **Internal**: Moved task queueing functionality to `djls-server` crate, renamed from `Worker` to `Queue`, and simplified API.
-- Improved Python environment detection.
+- **Internal**: Improved Python environment handling, including refactored activation logic.
 
 ## [5.2.0a0]
 

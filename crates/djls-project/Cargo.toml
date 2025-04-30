@@ -4,10 +4,13 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-pyo3 = { workspace = true }
+pyo3 = { workspace = true, features = ["auto-initialize"] }
 tower-lsp-server = { workspace = true, features = ["proposed"] }
 
 which = "7.0.1"
 
+[build-dependencies]
+pyo3-build-config = { workspace = true, features = ["resolve-config"] }
+
 [dev-dependencies]
-tempfile = "3.19"
+tempfile = { workspace = true }
