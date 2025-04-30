@@ -29,13 +29,12 @@ fn uri_to_pathbuf(uri: &Uri) -> Option<PathBuf> {
 
     // Decode the percent-encoded path string
     let decoded_path_cow = percent_decode_str(encoded_path_str).decode_utf8_lossy();
-    let path_str = decoded_path_cow.as_ref();
 
+    #[cfg(unix)]
+    let path_str = decoded_path_cow.as_ref();
     #[cfg(windows)]
-    let path_str = {
-        // Remove leading '/' for paths like /C:/...
-        path_str.strip_prefix('/').unwrap_or(path_str)
-    };
+    // Remove leading '/' for paths like /C:/...
+    let path_str = path_str.strip_prefix('/').unwrap_or(path_str);
 
     Some(PathBuf::from(path_str))
 }
