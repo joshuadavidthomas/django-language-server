@@ -90,34 +90,64 @@ struct PythonEnvironment {
 
 impl PythonEnvironment {
     fn new(project_path: &Path, venv_path: Option<&str>) -> Option<Self> {
+        eprintln!(
+            "[PythonEnvironment::new] Start search. Project: '{}', Explicit venv_path: {:?}",
+            project_path.display(), venv_path
+        );
+
         if let Some(path) = venv_path {
+            eprintln!("[PythonEnvironment::new] Checking explicit venv_path: '{}'", path);
             let prefix = PathBuf::from(path);
+            // Call from_venv_prefix for the explicit path
+            let explicit_env = Self::from_venv_prefix(&prefix);
             // If explicit path is provided and valid, use it.
             // If it's invalid, we *don't* fall through according to current logic.
             // Let's refine this: if explicit path is given but invalid, maybe we should error or log?
             // For now, stick to the current implementation: if from_venv_prefix returns Some, we use it.
-            if let Some(env) = Self::from_venv_prefix(&prefix) {
+            if let Some(env) = explicit_env {
+                eprintln!(
+                    "[PythonEnvironment::new] Found environment via explicit path: '{}'",
+                    path
+                );
                 return Some(env);
             } else {
                 // Explicit path provided but invalid. Should we stop here?
                 // The current code implicitly continues to VIRTUAL_ENV check.
                 // Let's keep the current behavior for now, but it's worth noting.
                 eprintln!(
-                    "Warning: Explicit venv_path '{}' provided but seems invalid. Continuing search.",
+                    "[PythonEnvironment::new] Explicit venv_path '{}' is invalid or incomplete. Continuing search...",
                     path
                 );
             }
+        } else {
+            eprintln!("[PythonEnvironment::new] No explicit venv_path provided.");
         }
 
         if let Ok(virtual_env) = env::var("VIRTUAL_ENV") {
             if !virtual_env.is_empty() {
+                eprintln!("[PythonEnvironment::new] Checking VIRTUAL_ENV: '{}'", virtual_env);
                 let prefix = PathBuf::from(virtual_env);
+                // Call from_venv_prefix for the VIRTUAL_ENV path
                 if let Some(env) = Self::from_venv_prefix(&prefix) {
+                    eprintln!(
+                        "[PythonEnvironment::new] Found environment via VIRTUAL_ENV: '{}'",
+                        prefix.display()
+                    );
                     return Some(env);
+                } else {
+                    eprintln!(
+                        "[PythonEnvironment::new] VIRTUAL_ENV path '{}' is invalid or incomplete. Continuing search...",
+                        prefix.display()
+                    );
                 }
+            } else {
+                eprintln!("[PythonEnvironment::new] VIRTUAL_ENV variable is set but empty.");
             }
+        } else {
+            eprintln!("[PythonEnvironment::new] VIRTUAL_ENV variable not found.");
         }
 
+        eprintln!("[PythonEnvironment::new] Checking common venv directories within project: '{}'", project_path.display());
         for venv_dir in &[".venv", "venv", "env", ".env"] {
             let potential_venv = project_path.join(venv_dir);
             if potential_venv.is_dir() {
@@ -126,11 +156,23 @@ impl PythonEnvironment {
                 }
             }
         }
+        eprintln!("[PythonEnvironment::new] No valid environment found in common project directories.");
 
-        Self::from_system_python()
+        eprintln!("[PythonEnvironment::new] Falling back to system Python search...");
+        let system_env = Self::from_system_python();
+        if system_env.is_some() {
+            eprintln!("[PythonEnvironment::new] Found system Python.");
+        } else {
+            eprintln!("[PythonEnvironment::new] Could not find system Python via 'which python'.");
+        }
+        system_env // Return the result of the system python search
     }
 
     fn from_venv_prefix(prefix: &Path) -> Option<Self> {
+        eprintln!(
+            "[from_venv_prefix] Checking potential venv prefix: '{}'",
+            prefix.display()
+        );
         #[cfg(not(windows))]
         let python_path = prefix.join("bin").join("python");
         #[cfg(not(windows))]
@@ -141,9 +183,22 @@ impl PythonEnvironment {
         #[cfg(windows)]
         let bin_dir = prefix.join("Scripts");
 
+        let prefix_is_dir = prefix.is_dir();
+        let python_exists = python_path.exists();
+
+        eprintln!(
+            "[from_venv_prefix] Checking prefix directory '{}': Exists = {}",
+            prefix.display(), prefix_is_dir
+        );
+        eprintln!(
+            "[from_venv_prefix] Checking Python binary '{}': Exists = {}",
+            python_path.display(), python_exists
+        );
+
         // Check if the *prefix* and the *binary* exist.
         // Checking prefix helps avoid issues if only bin/python exists somehow.
-        if !prefix.is_dir() || !python_path.exists() {
+        if !prefix_is_dir || !python_exists {
+            eprintln!("[from_venv_prefix] Basic requirements not met (prefix dir or python binary missing). Returning None.");
             return None;
         }
 
@@ -151,10 +206,15 @@ impl PythonEnvironment {
         sys_path.push(bin_dir); // Add bin/ or Scripts/
 
         if let Some(site_packages) = Self::find_site_packages(prefix) {
+            // Check existence inside the if let, as find_site_packages might return a path that doesn't exist
             if site_packages.is_dir() {
+                eprintln!("[from_venv_prefix] Confirmed site-packages directory '{}' exists. Adding to sys_path.", site_packages.display());
                 sys_path.push(site_packages);
+            } else {
+                eprintln!("[from_venv_prefix] Warning: Found site-packages path '{}' but it's not a directory.", site_packages.display());
             }
         }
+        eprintln!("[from_venv_prefix] Successfully created environment for prefix '{}'", prefix.display());
 
         Some(Self {
             python_path: python_path.clone(),
@@ -324,10 +384,31 @@ mod tests {
     fn test_explicit_venv_path_invalid_falls_through_to_virtual_env() {
         let project_dir = tempdir().unwrap();
         let venv_dir = tempdir().unwrap();
+        // Keep None here for consistency with original test logic
         let venv_prefix = create_mock_venv(venv_dir.path(), None);
+        let venv_prefix_str = venv_prefix.to_str().expect("Failed to convert venv_prefix path to string");
+
+        // --- Add checks immediately after creating the mock venv ---
+        #[cfg(not(windows))]
+        {
+            let expected_bin = venv_prefix.join("bin");
+            let expected_py = expected_bin.join("python");
+            let expected_sp = venv_prefix.join("lib").join("python3.9").join("site-packages"); // Matches default in create_mock_venv
+            assert!(expected_py.exists(), "Mock python binary should exist at '{}'", expected_py.display());
+            assert!(expected_sp.is_dir(), "Mock site-packages dir should exist at '{}'", expected_sp.display());
+        }
+        #[cfg(windows)]
+        {
+            let expected_scripts = venv_prefix.join("Scripts");
+            let expected_py = expected_scripts.join("python.exe");
+            let expected_sp = venv_prefix.join("Lib").join("site-packages");
+            assert!(expected_py.exists(), "Mock python binary should exist at '{}'", expected_py.display());
+            assert!(expected_sp.is_dir(), "Mock site-packages dir should exist at '{}'", expected_sp.display());
+        }
+        // --- End added checks ---
 
         // Set VIRTUAL_ENV to the valid path
-        let _guard = VirtualEnvGuard::set("VIRTUAL_ENV", venv_prefix.to_str().unwrap());
+        let _guard = VirtualEnvGuard::set("VIRTUAL_ENV", venv_prefix_str);
 
         // Provide an invalid explicit path (points to a non-existent directory)
         let invalid_path = project_dir.path().join("non_existent_venv");
@@ -335,18 +416,24 @@ mod tests {
         // Ensure the invalid path doesn't accidentally exist
         assert!(!invalid_path.exists(), "Invalid path '{}' should not exist before test", invalid_path.display());
 
-        // --- Add a small delay before calling the function under test ---
-        eprintln!("--- Adding small delay before PythonEnvironment::new call ---");
-        std::thread::sleep(std::time::Duration::from_millis(50)); // 50ms delay
-        eprintln!("--- Delay finished. Starting PythonEnvironment::new call for the test ---");
-        // --- End added delay ---
-
         eprintln!("--- Starting PythonEnvironment::new call for the test ---");
         // Call the function under test
         let env_result = PythonEnvironment::new(project_dir.path(), Some(invalid_path_str));
         eprintln!("--- Finished PythonEnvironment::new call for the test ---");
 
-        let env = env_result.expect("Should fall through to VIRTUAL_ENV");
+        // Check the result with more detailed error message if it's None
+        let env = env_result.unwrap_or_else(|| {
+            // This path indicates `new` returned None, meaning the VIRTUAL_ENV check likely failed.
+            panic!(
+                "PythonEnvironment::new returned None unexpectedly. \
+                It should have fallen back to VIRTUAL_ENV ('{}'). \
+                Project: '{}', Invalid Explicit Path: '{}'. \
+                Check logs above for details on why from_venv_prefix might have failed for the VIRTUAL_ENV path.",
+                venv_prefix_str,
+                project_dir.path().display(),
+                invalid_path_str
+            );
+        });
 
         // Should have found the one from VIRTUAL_ENV
         assert_eq!(
@@ -362,9 +449,16 @@ mod tests {
                 env.python_path, expected_python_path,
                 "Python path should match the one in VIRTUAL_ENV bin dir"
             );
+            let expected_bin_dir = venv_prefix.join("bin");
             assert!(
-                env.sys_path.contains(&venv_prefix.join("bin")),
+                env.sys_path.contains(&expected_bin_dir),
                 "Sys path should contain VIRTUAL_ENV bin dir"
+            );
+            // Check against the default version used by create_mock_venv when None is passed
+            let expected_site_packages = venv_prefix.join("lib").join("python3.9").join("site-packages");
+             assert!(
+                env.sys_path.contains(&expected_site_packages),
+                "Sys path should contain VIRTUAL_ENV site-packages dir ('{}')", expected_site_packages.display()
             );
         }
 
@@ -375,9 +469,15 @@ mod tests {
                 env.python_path, expected_python_path,
                 "Python path should match the one in VIRTUAL_ENV Scripts dir"
             );
+            let expected_scripts_dir = venv_prefix.join("Scripts");
             assert!(
-                env.sys_path.contains(&venv_prefix.join("Scripts")),
+                env.sys_path.contains(&expected_scripts_dir),
                 "Sys path should contain VIRTUAL_ENV Scripts dir"
+            );
+            let expected_site_packages = venv_prefix.join("Lib").join("site-packages");
+             assert!(
+                env.sys_path.contains(&expected_site_packages),
+                "Sys path should contain VIRTUAL_ENV site-packages dir ('{}')", expected_site_packages.display()
             );
         }
     }
