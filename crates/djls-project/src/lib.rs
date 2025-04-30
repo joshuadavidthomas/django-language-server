@@ -91,8 +91,9 @@ struct PythonEnvironment {
 impl PythonEnvironment {
     fn new(project_path: &Path, venv_path: Option<&str>) -> Option<Self> {
         if let Some(path) = venv_path {
+            let prefix = PathBuf::from(path);
             // If an explicit path is provided and it's a valid venv, use it immediately.
-            if let Some(env) = Self::from_venv_prefix(&PathBuf::from(path)) {
+            if let Some(env) = Self::from_venv_prefix(&prefix) {
                 return Some(env);
             }
             // Explicit path was provided but was invalid. Continue searching.
@@ -100,7 +101,8 @@ impl PythonEnvironment {
 
         if let Ok(virtual_env) = env::var("VIRTUAL_ENV") {
             if !virtual_env.is_empty() {
-                if let Some(env) = Self::from_venv_prefix(&PathBuf::from(virtual_env)) {
+                let prefix = PathBuf::from(virtual_env);
+                if let Some(env) = Self::from_venv_prefix(&prefix) {
                     return Some(env);
                 }
             }
@@ -157,12 +159,12 @@ impl PythonEnvironment {
             Ok(p) => p,
             Err(_) => return None,
         };
-        let mut sys_path = Vec::new();
-
         // which() might return a path inside a bin/Scripts dir, or directly the executable
         // We need the prefix, which is usually two levels up from the executable in standard layouts
         let bin_dir = python_path.parent()?;
         let prefix = bin_dir.parent()?;
+
+        let mut sys_path = Vec::new();
         sys_path.push(bin_dir.to_path_buf());
 
         if let Some(site_packages) = Self::find_site_packages(prefix) {
