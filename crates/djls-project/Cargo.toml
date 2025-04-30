@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-pyo3 = { workspace = true, features = ["auto-initialize"] }
+pyo3 = { workspace = true }
 tower-lsp-server = { workspace = true, features = ["proposed"] }
 
 which = "7.0.1"
