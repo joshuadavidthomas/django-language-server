@@ -10,7 +10,7 @@ tower-lsp-server = { workspace = true, features = ["proposed"] }
 which = "7.0.1"
 
 [build-dependencies]
-pyo3-build-config = { workspace = true, features = ["resolve-config"] }
+djls-dev = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
