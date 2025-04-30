@@ -134,12 +134,12 @@ impl PythonEnvironment {
                     //     prefix.display()
                     // );
                 }
-            } else {
-                eprintln!("[PythonEnvironment::new] VIRTUAL_ENV variable is set but empty.");
-            }
-        } else {
-            eprintln!("[PythonEnvironment::new] VIRTUAL_ENV variable not found.");
-        }
+            } // else {
+              // eprintln!("[PythonEnvironment::new] VIRTUAL_ENV variable is set but empty.");
+              // }
+        } // else {
+          // eprintln!("[PythonEnvironment::new] VIRTUAL_ENV variable not found.");
+          // }
 
         // eprintln!("[PythonEnvironment::new] Checking common venv directories within project: '{}'", project_path.display());
         for venv_dir in &[".venv", "venv", "env", ".env"] {
@@ -231,8 +231,8 @@ impl PythonEnvironment {
                 // eprintln!("[from_system_python] Found python via which: '{}'", p.display());
                 p
             }
-            Err(e) => {
-                eprintln!("[from_system_python] 'which python' failed: {}", e);
+            Err(_e) => {
+                // eprintln!("[from_system_python] 'which python' failed: {}", _e);
                 return None;
             }
         };
