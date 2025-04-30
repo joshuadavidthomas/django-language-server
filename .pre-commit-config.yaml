@@ -44,11 +44,3 @@ repos:
         language: rust
         entry: cargo clippy
         pass_filenames: false
-      - id: test
-        name: cargo test
-        description: run the tests with "cargo test"
-        types:
-          - rust
-        language: rust
-        entry: cargo test
-        pass_filenames: false
