@@ -3,6 +3,10 @@ name = "djls-project"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+extension-module = []
+default = []
+
 [dependencies]
 pyo3 = { workspace = true }
 tower-lsp-server = { workspace = true, features = ["proposed"] }
