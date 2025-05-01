@@ -327,10 +327,8 @@ mod tests {
             // Set VIRTUAL_ENV to something known to be invalid, rather than clearing.
             // This prevents the test runner's VIRTUAL_ENV (e.g., from Nox) from interfering.
             let invalid_virtual_env_path = project_dir.path().join("non_existent_virtual_env");
-            let _guard = VirtualEnvGuard::set(
-                "VIRTUAL_ENV",
-                invalid_virtual_env_path.to_str().unwrap(),
-            );
+            let _guard =
+                VirtualEnvGuard::set("VIRTUAL_ENV", invalid_virtual_env_path.to_str().unwrap());
 
             // Provide an invalid explicit path
             let invalid_path = project_dir.path().join("non_existent_venv");
@@ -390,10 +388,8 @@ mod tests {
 
             // Set VIRTUAL_ENV to something known to be invalid to ensure it's ignored.
             let invalid_virtual_env_path = project_dir.path().join("non_existent_venv_proj_found");
-            let _guard = VirtualEnvGuard::set(
-                "VIRTUAL_ENV",
-                invalid_virtual_env_path.to_str().unwrap(),
-            );
+            let _guard =
+                VirtualEnvGuard::set("VIRTUAL_ENV", invalid_virtual_env_path.to_str().unwrap());
 
             let env = PythonEnvironment::new(project_dir.path(), None)
                 .expect("Should find environment in project .venv");
@@ -410,10 +406,8 @@ mod tests {
 
             // Set VIRTUAL_ENV to something known to be invalid to ensure it's ignored.
             let invalid_virtual_env_path = project_dir.path().join("non_existent_venv_priority");
-            let _guard = VirtualEnvGuard::set(
-                "VIRTUAL_ENV",
-                invalid_virtual_env_path.to_str().unwrap(),
-            );
+            let _guard =
+                VirtualEnvGuard::set("VIRTUAL_ENV", invalid_virtual_env_path.to_str().unwrap());
 
             let env =
                 PythonEnvironment::new(project_dir.path(), None).expect("Should find environment");
@@ -428,11 +422,10 @@ mod tests {
             let project_dir = tempdir().unwrap();
 
             // Set VIRTUAL_ENV to something known to be invalid to ensure it's ignored.
-            let invalid_virtual_env_path = project_dir.path().join("non_existent_venv_sys_fallback");
-            let _guard = VirtualEnvGuard::set(
-                "VIRTUAL_ENV",
-                invalid_virtual_env_path.to_str().unwrap(),
-            );
+            let invalid_virtual_env_path =
+                project_dir.path().join("non_existent_venv_sys_fallback");
+            let _guard =
+                VirtualEnvGuard::set("VIRTUAL_ENV", invalid_virtual_env_path.to_str().unwrap());
             // We don't create any venvs in project_dir
 
             // This test assumes `which python` works and points to a standard layout
@@ -458,10 +451,8 @@ mod tests {
 
             // Ensure no explicit path, no project venvs, and set VIRTUAL_ENV to invalid.
             let invalid_virtual_env_path = project_dir.path().join("non_existent_venv_no_python");
-            let _guard = VirtualEnvGuard::set(
-                "VIRTUAL_ENV",
-                invalid_virtual_env_path.to_str().unwrap(),
-            );
+            let _guard =
+                VirtualEnvGuard::set("VIRTUAL_ENV", invalid_virtual_env_path.to_str().unwrap());
 
             // To *ensure* system fallback fails, we'd need to manipulate PATH,
             // which is tricky and platform-dependent. Instead, we test the scenario
