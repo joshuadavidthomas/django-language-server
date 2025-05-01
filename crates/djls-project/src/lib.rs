@@ -231,6 +231,8 @@ impl fmt::Display for PythonEnvironment {
 mod tests {
     use super::*;
     use std::fs;
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt; // Needed for setting execute permission
     use tempfile::tempdir;
 
     mod env_discovery {
@@ -285,6 +287,29 @@ mod tests {
                     env::set_var(self.key, val);
                 } else {
                     env::remove_var(self.key);
+                }
+            }
+        }
+
+        // Guard struct to temporarily modify the PATH environment variable
+        struct PathGuard {
+            original_path: Option<String>,
+        }
+
+        impl PathGuard {
+            fn set(new_path_val: &str) -> Self {
+                let original_path = env::var("PATH").ok();
+                env::set_var("PATH", new_path_val);
+                Self { original_path }
+            }
+        }
+
+        impl Drop for PathGuard {
+            fn drop(&mut self) {
+                // Restore original PATH, or remove if it wasn't set initially
+                match self.original_path.as_deref() {
+                    Some(val) => env::set_var("PATH", val),
+                    None => env::remove_var("PATH"),
                 }
             }
         }
@@ -417,15 +442,56 @@ mod tests {
         }
 
         #[test]
-        #[ignore = "Relies on system python being available and having standard layout"]
+        // #[ignore = "Relies on system python being available and having standard layout"] // No longer ignored!
         fn test_system_python_fallback() {
-            let project_dir = tempdir().unwrap();
+            let project_dir = tempdir().unwrap(); // Dummy project dir, not used for discovery here.
 
             // Set VIRTUAL_ENV to something known to be invalid to ensure it's ignored.
             let invalid_virtual_env_path =
                 project_dir.path().join("non_existent_venv_sys_fallback");
             let _guard =
                 VirtualEnvGuard::set("VIRTUAL_ENV", invalid_virtual_env_path.to_str().unwrap());
+
+            // --- Set up mock system python ---
+            let mock_sys_python_dir = tempdir().unwrap();
+            let mock_sys_python_prefix = mock_sys_python_dir.path();
+
+            #[cfg(unix)]
+            let (bin_subdir, python_exe, site_packages_rel_path) = (
+                "bin",
+                "python",
+                Path::new("lib").join("python3.9").join("site-packages"),
+            );
+            #[cfg(windows)]
+            let (bin_subdir, python_exe, site_packages_rel_path) = (
+                "Scripts",
+                "python.exe",
+                Path::new("Lib").join("site-packages"),
+            );
+
+            let bin_dir = mock_sys_python_prefix.join(bin_subdir);
+            fs::create_dir_all(&bin_dir).unwrap();
+            let python_path = bin_dir.join(python_exe);
+            fs::write(&python_path, "").unwrap(); // Create dummy executable
+
+            // Ensure the dummy executable has execute permissions (required by `which` on Unix)
+            #[cfg(unix)]
+            {
+                let mut perms = fs::metadata(&python_path).unwrap().permissions();
+                perms.set_mode(0o755); // rwxr-xr-x
+                fs::set_permissions(&python_path, perms).unwrap();
+            }
+
+            let site_packages_path = mock_sys_python_prefix.join(site_packages_rel_path);
+            fs::create_dir_all(&site_packages_path).unwrap();
+
+            // --- Manipulate PATH ---
+            // Completely overwrite PATH to only include the mock bin directory
+            let canonical_bin_dir =
+                bin_dir.canonicalize().expect("Failed to canonicalize mock bin dir");
+            let new_path = canonical_bin_dir.to_str().unwrap().to_string();
+            let _path_guard = PathGuard::set(&new_path);
+
             // We don't create any venvs in project_dir
 
             // This test assumes `which python` works and points to a standard layout
@@ -433,15 +499,26 @@ mod tests {
 
             assert!(
                 system_env.is_some(),
-                "Should fall back to system python if available"
+                "Should fall back to the mock system python"
             );
 
             if let Some(env) = system_env {
-                // Basic checks - exact paths depend heavily on the test environment
-                assert!(env.python_path.exists());
-                assert!(env.sys_prefix.exists());
-                assert!(!env.sys_path.is_empty());
-                assert!(env.sys_path[0].exists()); // Should contain the bin/Scripts dir
+                assert_eq!(env.python_path, python_path, "Python path should match mock");
+                assert_eq!(
+                    env.sys_prefix,
+                    mock_sys_python_prefix,
+                    "Sys prefix should match mock prefix"
+                );
+                assert!(
+                    env.sys_path.contains(&bin_dir),
+                    "Sys path should contain mock bin dir"
+                );
+                assert!(
+                    env.sys_path.contains(&site_packages_path),
+                    "Sys path should contain mock site-packages"
+                );
+            } else {
+                panic!("Expected to find environment, but got None"); // Should not happen if assert above passed
             }
         }
 
