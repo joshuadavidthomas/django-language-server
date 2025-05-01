@@ -26,6 +26,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Changed
 
+- **Internal (djls-project)**: Added `system` module to improve reliability of environment discovery tests.
 - **Internal**: Moved task queueing functionality to `djls-server` crate, renamed from `Worker` to `Queue`, and simplified API.
 - **Internal**: Improved Python environment handling, including refactored activation logic.
 - **Internal**: Centralized Python linking build logic into a shared `djls-dev` crate to reduce duplication.
