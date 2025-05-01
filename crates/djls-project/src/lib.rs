@@ -277,15 +277,6 @@ mod tests {
                     original_value,
                 }
             }
-
-            fn clear(key: &'a str) -> Self {
-                let original_value = env::var(key).ok();
-                env::remove_var(key);
-                Self {
-                    key,
-                    original_value,
-                }
-            }
         }
 
         impl Drop for VirtualEnvGuard<'_> {
