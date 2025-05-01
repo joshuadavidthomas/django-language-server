@@ -333,8 +333,13 @@ mod tests {
             let project_dir = tempdir().unwrap();
             let project_venv_prefix = create_mock_venv(&project_dir.path().join(".venv"), None);
 
-            // Clear VIRTUAL_ENV just in case
-            let _guard = VirtualEnvGuard::clear("VIRTUAL_ENV");
+            // Set VIRTUAL_ENV to something known to be invalid, rather than clearing.
+            // This prevents the test runner's VIRTUAL_ENV (e.g., from Nox) from interfering.
+            let invalid_virtual_env_path = project_dir.path().join("non_existent_virtual_env");
+            let _guard = VirtualEnvGuard::set(
+                "VIRTUAL_ENV",
+                invalid_virtual_env_path.to_str().unwrap(),
+            );
 
             // Provide an invalid explicit path
             let invalid_path = project_dir.path().join("non_existent_venv");
