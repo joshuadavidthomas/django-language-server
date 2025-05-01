@@ -1,20 +1,28 @@
-use std::path::PathBuf;
 use std::env::VarError;
+use std::path::PathBuf;
 use which::Error as WhichError;
 
-// --- Public API ---
-
 pub fn find_executable(name: &str) -> Result<PathBuf, WhichError> {
-    #[cfg(not(test))] { which::which(name) }
-    #[cfg(test)]     { mock::find_executable_mocked(name) }
+    #[cfg(not(test))]
+    {
+        which::which(name)
+    }
+    #[cfg(test)]
+    {
+        mock::find_executable_mocked(name)
+    }
 }
 
 pub fn env_var(key: &str) -> Result<String, VarError> {
-    #[cfg(not(test))] { std::env::var(key) }
-    #[cfg(test)]     { mock::env_var_mocked(key) }
+    #[cfg(not(test))]
+    {
+        std::env::var(key)
+    }
+    #[cfg(test)]
+    {
+        mock::env_var_mocked(key)
+    }
 }
-
-// --- Test-only Mocking Logic ---
 
 #[cfg(test)]
 pub mod mock {
@@ -28,17 +36,23 @@ pub mod mock {
         static MOCK_ENV_RESULTS: RefCell<HashMap<String, Result<String, VarError>>> = RefCell::new(HashMap::new());
     }
 
-    // Mock impl for finding executables
     pub(super) fn find_executable_mocked(name: &str) -> Result<PathBuf, WhichError> {
         MOCK_EXEC_RESULTS.with(|mocks| {
-            mocks.borrow().get(name).cloned().unwrap_or_else(|| Err(WhichError::CannotFindBinaryPath))
+            mocks
+                .borrow()
+                .get(name)
+                .cloned()
+                .unwrap_or(Err(WhichError::CannotFindBinaryPath))
         })
     }
 
-    // Mock impl for reading env vars
     pub(super) fn env_var_mocked(key: &str) -> Result<String, VarError> {
         MOCK_ENV_RESULTS.with(|mocks| {
-            mocks.borrow().get(key).cloned().unwrap_or(Err(VarError::NotPresent))
+            mocks
+                .borrow()
+                .get(key)
+                .cloned()
+                .unwrap_or(Err(VarError::NotPresent))
         })
     }
 
@@ -51,9 +65,6 @@ pub mod mock {
         }
     }
 
-    // --- Test Setup Functions ---
-
-    // Executables
     pub fn set_exec_path(name: &str, path: PathBuf) {
         MOCK_EXEC_RESULTS.with(|mocks| {
             mocks.borrow_mut().insert(name.to_string(), Ok(path));
@@ -66,7 +77,6 @@ pub mod mock {
         });
     }
 
-    // Environment Variables
     pub fn set_env_var(key: &str, value: String) {
         MOCK_ENV_RESULTS.with(|mocks| {
             mocks.borrow_mut().insert(key.to_string(), Ok(value));
@@ -76,28 +86,20 @@ pub mod mock {
     // Simulates VarError::NotPresent
     pub fn remove_env_var(key: &str) {
         MOCK_ENV_RESULTS.with(|mocks| {
-             mocks.borrow_mut().insert(key.to_string(), Err(VarError::NotPresent));
+            mocks
+                .borrow_mut()
+                .insert(key.to_string(), Err(VarError::NotPresent));
         });
     }
-
-     // Simulates VarError::NotUnicode - rarely needed
-    // pub fn set_env_error(key: &str, error: VarError) {
-    //     MOCK_ENV_RESULTS.with(|mocks| {
-    //         mocks.borrow_mut().insert(key.to_string(), Err(error));
-    //     });
-    // }
-
-} // end mod mock
+}
 
 #[cfg(test)]
 mod tests {
-    use super::mock::{self as sys_mock, MockGuard}; // Renamed alias
+    use super::mock::{self as sys_mock, MockGuard};
     use super::*;
-    use std::env::VarError; // Need this for tests
+    use std::env::VarError;
     use std::path::PathBuf;
     use which::Error as WhichError;
-
-    // --- Executable Tests ---
 
     #[test]
     fn test_exec_mock_path_retrieval() {
@@ -123,8 +125,6 @@ mod tests {
         assert!(matches!(result, Err(WhichError::CannotFindBinaryPath)));
     }
 
-    // --- Env Var Tests ---
-
     #[test]
     fn test_env_mock_set_var_retrieval() {
         let _guard = MockGuard;
@@ -143,14 +143,12 @@ mod tests {
         assert!(matches!(result, Err(VarError::NotPresent)));
     }
 
-     #[test]
+    #[test]
     fn test_env_mock_default_error_if_unmocked() {
         let _guard = MockGuard;
         let result = env_var("UNMOCKED_VAR"); // Not mocked
         assert!(matches!(result, Err(VarError::NotPresent)));
     }
-
-    // --- Guard/Isolation Tests ---
 
     #[test]
     fn test_mock_guard_clears_all_mocks() {
@@ -174,11 +172,14 @@ mod tests {
 
     #[test]
     fn test_mocks_are_separate_between_tests() {
-         let _guard = MockGuard; // Ensures clean state
+        let _guard = MockGuard; // Ensures clean state
 
         // Check state from previous tests (should be cleared)
         let result_python = find_executable("python");
-        assert!(matches!(result_python, Err(WhichError::CannotFindBinaryPath)));
+        assert!(matches!(
+            result_python,
+            Err(WhichError::CannotFindBinaryPath)
+        ));
         let result_myvar = env_var("MY_VAR");
         assert!(matches!(result_myvar, Err(VarError::NotPresent)));
 
@@ -193,4 +194,3 @@ mod tests {
         assert_eq!(result_node_env.unwrap(), "production");
     }
 }
-

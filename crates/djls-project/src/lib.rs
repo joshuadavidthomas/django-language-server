@@ -1,3 +1,4 @@
+mod system;
 mod templatetags;
 
 pub use templatetags::TemplateTags;
@@ -5,8 +6,6 @@ pub use templatetags::TemplateTags;
 use pyo3::prelude::*;
 use std::fmt;
 use std::path::{Path, PathBuf};
-
-mod system; // Use the consolidated system interaction module
 
 #[derive(Debug)]
 pub struct DjangoProject {
@@ -90,7 +89,6 @@ struct PythonEnvironment {
 
 impl PythonEnvironment {
     fn new(project_path: &Path, venv_path: Option<&str>) -> Option<Self> {
-        // 1. Check explicit path argument
         if let Some(path) = venv_path {
             let prefix = PathBuf::from(path);
             if let Some(env) = Self::from_venv_prefix(&prefix) {
@@ -99,9 +97,6 @@ impl PythonEnvironment {
             // Invalid explicit path, continue searching...
         }
 
-        // 2. Check VIRTUAL_ENV (using mockable system module)
-        // We ignore VarError::NotPresent, letting the logic fall through.
-        // Rely on from_venv_prefix to handle potentially empty strings if the var is set but empty.
         if let Ok(virtual_env) = system::env_var("VIRTUAL_ENV") {
             let prefix = PathBuf::from(virtual_env);
             if let Some(env) = Self::from_venv_prefix(&prefix) {
@@ -109,7 +104,6 @@ impl PythonEnvironment {
             }
         }
 
-        // 3. Check standard project venv directories
         for venv_dir in &[".venv", "venv", "env", ".env"] {
             let potential_venv = project_path.join(venv_dir);
             if potential_venv.is_dir() {
@@ -119,7 +113,6 @@ impl PythonEnvironment {
             }
         }
 
-        // 4. Fallback to system python (using mockable system module)
         Self::from_system_python()
     }
 
@@ -168,7 +161,6 @@ impl PythonEnvironment {
     }
 
     fn from_system_python() -> Option<Self> {
-        // Use mockable system module
         let python_path = match system::find_executable("python") {
             Ok(p) => p,
             Err(_) => return None,
@@ -202,8 +194,8 @@ impl PythonEnvironment {
             .ok()?
             .filter_map(Result::ok)
             .find(|e| {
-                e.file_type().is_ok_and(|ft| ft.is_dir()) &&
-                e.file_name().to_string_lossy().starts_with("python")
+                e.file_type().is_ok_and(|ft| ft.is_dir())
+                    && e.file_name().to_string_lossy().starts_with("python")
             })
             .map(|e| e.path().join("site-packages"))
     }
@@ -235,8 +227,8 @@ mod tests {
     use tempfile::tempdir;
 
     mod env_discovery {
+        use super::system::mock::{self as sys_mock, MockGuard};
         use super::*;
-        use super::system::mock::{self as sys_mock, MockGuard}; // Use system mock
         use which::Error as WhichError;
 
         fn create_mock_venv(dir: &Path, version: Option<&str>) -> PathBuf {
@@ -266,15 +258,12 @@ mod tests {
             prefix
         }
 
-        // VirtualEnvGuard removed - replaced by system::mock
-
         #[test]
         fn test_explicit_venv_path_found() {
             let project_dir = tempdir().unwrap();
             let venv_dir = tempdir().unwrap();
             let venv_prefix = create_mock_venv(venv_dir.path(), None);
 
-            // No mocking needed here, testing explicit path works
             let env =
                 PythonEnvironment::new(project_dir.path(), Some(venv_prefix.to_str().unwrap()))
                     .expect("Should find environment with explicit path");
@@ -352,11 +341,9 @@ mod tests {
             sys_mock::set_env_var("VIRTUAL_ENV", venv1_prefix.to_str().unwrap().to_string());
 
             // Call with explicit path to venv2
-            let env = PythonEnvironment::new(
-                project_dir.path(),
-                Some(venv2_prefix.to_str().unwrap()),
-            )
-            .expect("Should find environment via explicit path");
+            let env =
+                PythonEnvironment::new(project_dir.path(), Some(venv2_prefix.to_str().unwrap()))
+                    .expect("Should find environment via explicit path");
 
             // Explicit path (venv2) should take precedence
             assert_eq!(
@@ -405,7 +392,6 @@ mod tests {
             // Ensure VIRTUAL_ENV is not set
             sys_mock::remove_env_var("VIRTUAL_ENV");
 
-            // --- Set up mock system python filesystem structure ---
             let mock_sys_python_dir = tempdir().unwrap();
             let mock_sys_python_prefix = mock_sys_python_dir.path();
 
@@ -437,12 +423,8 @@ mod tests {
             let site_packages_path = mock_sys_python_prefix.join(site_packages_rel_path);
             fs::create_dir_all(&site_packages_path).unwrap();
 
-            // --- Mock executable finder ---
             sys_mock::set_exec_path("python", python_path.clone());
 
-            // We don't create any real venvs in project_dir
-
-            // Call the function under test
             let system_env = PythonEnvironment::new(project_dir.path(), None);
 
             // Assert it found the mock system python via the mocked finder
@@ -483,25 +465,15 @@ mod tests {
             sys_mock::remove_env_var("VIRTUAL_ENV");
 
             // Ensure find_executable returns an error
-            sys_mock::set_exec_error(
-                "python",
-                WhichError::CannotFindBinaryPath,
-            );
+            sys_mock::set_exec_error("python", WhichError::CannotFindBinaryPath);
 
-            // We don't create any venvs in project_dir
-            // No explicit path is provided
-
-            // Call the function under test
             let env = PythonEnvironment::new(project_dir.path(), None);
 
-            // Assert that no environment was found
             assert!(
                 env.is_none(),
                 "Expected no environment to be found when all discovery methods fail"
             );
         }
-
-        // --- Tests for from_venv_prefix and site-packages logic (no mocking needed) ---
 
         #[test]
         #[cfg(unix)]
@@ -576,7 +548,6 @@ mod tests {
     }
 
     mod env_activation {
-        // These tests don't interact with env discovery, so no changes needed.
         use super::*;
 
         fn get_sys_path(py: Python) -> PyResult<Vec<String>> {
