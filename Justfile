@@ -1,12 +1,13 @@
 set dotenv-load := true
 set unstable := true
 
+mod dev ".just/devtools.just"
 mod docs ".just/docs.just"
 
 # List all available commands
 [private]
 default:
-    @just --list
+    @just --list --list-submodules
 
 [private]
 cog:

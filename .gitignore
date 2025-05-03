@@ -192,3 +192,6 @@ Cargo.lock
 
 # mkdocs
 site/
+
+# lsp-devtools db
+djls.db
