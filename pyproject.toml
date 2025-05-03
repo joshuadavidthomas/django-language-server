@@ -4,14 +4,14 @@ build-backend = "maturin"
 
 [dependency-groups]
 dev = [
-    "bumpver>=2024.1130",
-    "cogapp>=3.4.1",
-    "django-stubs>=5.1.1",
-    "maturin>=1.7.8",
-    "ruff>=0.8.2",
+  "bumpver>=2024.1130",
+  "cogapp>=3.4.1",
+  "django-stubs>=5.1.1",
+  "maturin>=1.7.8",
+  "ruff>=0.8.2",
 ]
 docs = [
-    "mkdocs-material>=9.5.49",
+  "mkdocs-material>=9.5.49",
 ]
 
 [project]
@@ -20,7 +20,7 @@ version = "5.2.0a0"
 description = "A language server for the Django web framework"
 readme = "README.md"
 authors = [
-    { name = "Josh Thomas", email = "josh@joshthomas.dev" }
+  { name = "Josh Thomas", email = "josh@joshthomas.dev" }
 ]
 requires-python = ">=3.9"
 classifiers = [
@@ -86,19 +86,19 @@ version_pattern = "MAJOR.MINOR.PATCH[-TAG[.NUM]]"
 
 [tool.bumpver.file_patterns]
 "crates/djls/Cargo.toml" = [
-    'version = "{version}"',
+  'version = "{version}"',
 ]
 "pyproject.toml" = [
-    'version = "{pep440_version}"',
-    'current_version = "{version}"',
+  'version = "{pep440_version}"',
+  'current_version = "{version}"',
 ]
 
 [tool.maturin]
 manifest-path = "crates/djls/Cargo.toml"
 strip = true
 include = [
-    { path = "LICENSE", format = "sdist" },
-    { path = "rust-toolchain.toml", format = ["sdist", "wheel"] },
+  { path = "LICENSE", format = "sdist" },
+  { path = "rust-toolchain.toml", format = ["sdist", "wheel"] },
 ]
 
 [tool.ruff]

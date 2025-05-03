@@ -16,7 +16,7 @@ indent_size = 4
 line_length = 120
 multi_line_output = 3
 
-[*.{css,html,js,json,jsx,proto,sass,scss,svelte,ts,tsx,yml,yaml}]
+[*.{css,html,js,json,jsx,proto,sass,scss,svelte,toml,ts,tsx,yml,yaml}]
 indent_size = 2
 
 [*.md]
