@@ -93,6 +93,21 @@ version_pattern = "MAJOR.MINOR.PATCH[-TAG[.NUM]]"
   'current_version = "{version}"',
 ]
 
+[tool.djlint]
+blank_line_after_tag = "endblock,extends,load"
+blank_line_before_tag = "block"
+format_css = true
+format_js = true
+ignore = "H031"  # Don't require `meta` tag keywords
+indent = 2
+profile = "django"
+
+[tool.djlint.css]
+indent_size = 2
+
+[tool.djlint.js]
+indent_size = 2
+
 [tool.maturin]
 manifest-path = "crates/djls/Cargo.toml"
 strip = true
