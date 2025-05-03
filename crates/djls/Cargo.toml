@@ -3,16 +3,11 @@ name = "djls"
 version = "5.2.0-alpha"
 edition = "2021"
 
-[lib]
+[[bin]]
 name = "djls"
-crate-type = ["cdylib"]
+path = "src/main.rs"
 
 [features]
-extension-module = [
-  "djls-server/extension-module",
-  "djls-project/extension-module",
-  "pyo3/extension-module"
-]
 default = []
 
 [dependencies]

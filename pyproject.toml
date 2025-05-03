@@ -68,9 +68,6 @@ classifiers = [
   "Topic :: Text Editors :: Integrated Development Environments (IDE)"
 ]
 
-[project.scripts]
-djls = "djls:entrypoint"
-
 [project.urls]
 Documentation = "https://django-language-server.readthedocs.io/"
 Issues = "https://github.com/joshuadavidthomas/django-language-server/issues"
@@ -110,6 +107,7 @@ indent_size = 2
 
 [tool.maturin]
 manifest-path = "crates/djls/Cargo.toml"
+bindings = "bin"
 strip = true
 include = [
   { path = "LICENSE", format = "sdist" },
