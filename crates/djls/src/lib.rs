@@ -1,45 +1,13 @@
+mod args;
+mod cli;
 mod commands;
 
-use crate::commands::Serve;
-use anyhow::Result;
-use clap::{Parser, Subcommand};
 use pyo3::prelude::*;
 use std::env;
 use std::process::ExitCode;
 
-#[derive(Parser)]
-#[command(name = "djls")]
-#[command(version, about, long_about = None)]
-pub struct Cli {
-    #[command(subcommand)]
-    command: Command,
-
-    #[command(flatten)]
-    args: Args,
-}
-
-#[derive(Debug, Subcommand)]
-enum Command {
-    /// Start the LSP server
-    Serve(Serve),
-}
-
-#[derive(Parser)]
-pub struct Args {
-    #[command(flatten)]
-    global: GlobalArgs,
-}
-
-#[derive(Parser, Debug, Clone)]
-struct GlobalArgs {
-    /// Do not print any output.
-    #[arg(global = true, long, short, conflicts_with = "verbose")]
-    pub quiet: bool,
-
-    /// Use verbose output.
-    #[arg(global = true, action = clap::ArgAction::Count, long, short, conflicts_with = "quiet")]
-    pub verbose: u8,
-}
+// Re-export the CLI module
+pub use cli::Cli;
 
 #[pyfunction]
 fn entrypoint(_py: Python) -> PyResult<()> {
@@ -53,7 +21,7 @@ fn entrypoint(_py: Python) -> PyResult<()> {
         .build()
         .unwrap();
 
-    let result = runtime.block_on(main(args));
+    let result = runtime.block_on(cli::run(args));
 
     match result {
         Ok(code) => {
@@ -70,18 +38,6 @@ fn entrypoint(_py: Python) -> PyResult<()> {
             std::process::exit(1);
         }
     }
-}
-
-async fn main(args: Vec<String>) -> Result<ExitCode> {
-    let cli = Cli::try_parse_from(args).unwrap_or_else(|e| {
-        e.exit();
-    });
-
-    match cli.command {
-        Command::Serve(_serve) => djls_server::serve().await?,
-    }
-
-    Ok(ExitCode::SUCCESS)
 }
 
 #[pymodule]
