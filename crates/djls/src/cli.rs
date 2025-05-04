@@ -22,5 +22,9 @@ pub async fn run(args: Vec<String>) -> Result<ExitCode> {
         e.exit();
     });
 
-    cli.command.execute(&cli.args).await
+    match &cli.command {
+        crate::commands::DjlsCommand::Serve(cmd) => cmd.execute(&cli.args).await,
+        // When adding a new command, add a new match arm here
+        // DjlsCommand::NewCommand(cmd) => cmd.execute(&cli.args).await,
+    }
 }

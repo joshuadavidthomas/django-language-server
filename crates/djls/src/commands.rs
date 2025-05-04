@@ -14,11 +14,3 @@ pub enum DjlsCommand {
     /// Start the LSP server
     Serve(self::serve::Serve),
 }
-
-impl Command for DjlsCommand {
-    async fn execute(&self, args: &Args) -> Result<ExitCode> {
-        match self {
-            DjlsCommand::Serve(cmd) => cmd.execute(args).await,
-        }
-    }
-}
