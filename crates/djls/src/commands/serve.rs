@@ -24,4 +24,3 @@ impl Command for Serve {
         Ok(ExitCode::SUCCESS)
     }
 }
-
