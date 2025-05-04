@@ -24,7 +24,5 @@ pub async fn run(args: Vec<String>) -> Result<ExitCode> {
 
     match &cli.command {
         DjlsCommand::Serve(cmd) => cmd.execute(&cli.args).await,
-        // When adding a new command, add a new match arm here
-        // DjlsCommand::NewCommand(cmd) => cmd.execute(&cli.args).await,
     }
 }
