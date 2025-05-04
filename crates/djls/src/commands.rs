@@ -1,4 +1,4 @@
-pub mod serve;
+mod serve;
 
 use crate::args::Args;
 use anyhow::Result;

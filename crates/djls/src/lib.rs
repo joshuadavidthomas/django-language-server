@@ -6,8 +6,6 @@ use pyo3::prelude::*;
 use std::env;
 use std::process::ExitCode;
 
-pub use cli::Cli;
-
 #[pyfunction]
 fn entrypoint(_py: Python) -> PyResult<()> {
     // Skip python interpreter and script path, add command name
