@@ -18,8 +18,6 @@ enum ConnectionType {
 
 impl Command for Serve {
     async fn execute(&self, _args: &Args) -> Result<ExitCode> {
-        // You can use args here to adjust behavior
-        // For example: if _args.verbose > 0 { println!("Starting server..."); }
         djls_server::serve().await?;
         Ok(ExitCode::SUCCESS)
     }

@@ -6,7 +6,6 @@ use pyo3::prelude::*;
 use std::env;
 use std::process::ExitCode;
 
-// Re-export the CLI module
 pub use cli::Cli;
 
 #[pyfunction]

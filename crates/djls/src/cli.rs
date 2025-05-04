@@ -4,7 +4,7 @@ use anyhow::Result;
 use clap::Parser;
 use std::process::ExitCode;
 
-/// The main CLI structure that defines the command-line interface
+/// Main CLI structure that defines the command-line interface
 #[derive(Parser)]
 #[command(name = "djls")]
 #[command(version, about)]
