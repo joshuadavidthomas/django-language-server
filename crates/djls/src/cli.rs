@@ -22,5 +22,5 @@ pub async fn run(args: Vec<String>) -> Result<ExitCode> {
         e.exit();
     });
 
-    cli.command.execute(&cli.args.global).await
+    cli.command.execute(&cli.args).await
 }

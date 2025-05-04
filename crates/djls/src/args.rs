@@ -1,13 +1,7 @@
 use clap::Parser;
 
-#[derive(Parser)]
-pub struct Args {
-    #[command(flatten)]
-    pub global: GlobalArgs,
-}
-
 #[derive(Parser, Debug, Clone)]
-pub struct GlobalArgs {
+pub struct Args {
     /// Do not print any output.
     #[arg(global = true, long, short, conflicts_with = "verbose")]
     pub quiet: bool,

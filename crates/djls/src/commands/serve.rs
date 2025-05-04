@@ -1,4 +1,4 @@
-use crate::args::GlobalArgs;
+use crate::args::Args;
 use crate::commands::Command;
 use anyhow::Result;
 use clap::{Parser, ValueEnum};
@@ -17,9 +17,9 @@ enum ConnectionType {
 }
 
 impl Command for Serve {
-    async fn execute(&self, _global_args: &GlobalArgs) -> Result<ExitCode> {
-        // You can use global_args here to adjust behavior
-        // For example: if global_args.verbose > 0 { println!("Starting server..."); }
+    async fn execute(&self, _args: &Args) -> Result<ExitCode> {
+        // You can use args here to adjust behavior
+        // For example: if _args.verbose > 0 { println!("Starting server..."); }
         djls_server::serve().await?;
         Ok(ExitCode::SUCCESS)
     }
