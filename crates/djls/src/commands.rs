@@ -1,13 +1,16 @@
-use clap::{Parser, ValueEnum};
+pub mod serve;
 
-#[derive(Debug, Parser)]
-pub struct Serve {
-    #[arg(short, long, default_value_t = ConnectionType::Stdio, value_enum)]
-    connection_type: ConnectionType,
+use crate::args::Args;
+use anyhow::Result;
+use clap::Subcommand;
+use std::process::ExitCode;
+
+pub trait Command {
+    async fn execute(&self, args: &Args) -> Result<ExitCode>;
 }
 
-#[derive(Clone, Debug, ValueEnum)]
-enum ConnectionType {
-    Stdio,
-    Tcp,
+#[derive(Debug, Subcommand)]
+pub enum DjlsCommand {
+    /// Start the LSP server
+    Serve(self::serve::Serve),
 }
