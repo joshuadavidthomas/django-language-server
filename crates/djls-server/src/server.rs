@@ -158,9 +158,9 @@ impl LanguageServer for DjangoLanguageServer {
 
         let project_arc = Arc::clone(&self.project);
         let client = self.client.clone();
-
         let settings_arc = Arc::clone(&self.settings);
-        let task = move || async move {
+        
+        if let Err(e) = self.queue.submit(async move {
             let mut project_guard = project_arc.write().await;
             if let Some(project) = project_guard.as_mut() {
                 let path_display = project.path().display().to_string();
@@ -222,9 +222,7 @@ impl LanguageServer for DjangoLanguageServer {
                     .await;
             }
             Ok(())
-        };
-
-        if let Err(e) = self.queue.submit(task).await {
+        }).await {
             self.log_message(
                 MessageType::ERROR,
                 &format!("Failed to submit project initialization task: {}", e),
