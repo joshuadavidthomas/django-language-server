@@ -26,22 +26,30 @@ env:
   FORCE_COLOR: "1"
   PYTHONUNBUFFERED: "1"
 
+permissions: {}
+
 jobs:
   generate-matrix:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@6b9c6063abd6010835644d4c2e1bef4cf5cd0fca  # v6.0.1
         with:
           enable-cache: true
 
       - id: set-matrix
+        env:
+          OS: ${{ inputs.os }}
         run: |
-          uv run noxfile.py --session gha_matrix -- "${{ inputs.os }}"
+          uv run noxfile.py --session gha_matrix -- "${OS}"
 
   test:
     name: Python ${{ matrix.python-version }}, Django ${{ matrix.django-version }} (${{ matrix.os }})
@@ -50,17 +58,24 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.generate-matrix.outputs.matrix) }}
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@6b9c6063abd6010835644d4c2e1bef4cf5cd0fca  # v6.0.1
         with:
           enable-cache: true
 
       - name: Run tests
+        env:
+          DJANGO_VERSION: ${{ matrix.django-version }}
+          PYTHON_VERSION: ${{ matrix.python-version }}
         run: |
-          uv run noxfile.py --session "tests(python='${{ matrix.python-version }}', django='${{ matrix.django-version }}')"
+          uv run noxfile.py --session "tests(python='${PYTHON_VERSION}', django='${DJANGO_VERSION}')"
 
   tests:
     runs-on: ubuntu-latest

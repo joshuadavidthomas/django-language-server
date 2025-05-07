@@ -31,13 +31,15 @@ jobs:
             target: ppc64le
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-python@v5
         with:
           python-version: 3.x
 
       - name: Build wheels
-        uses: PyO3/maturin-action@v1
+        uses: PyO3/maturin-action@aef21716ff3dcae8a1c301d23ec3e4446972a6e3  # v1.49.1
         with:
           target: ${{ matrix.platform.target }}
           args: --release --out dist --find-interpreter --features extension-module
@@ -65,13 +67,15 @@ jobs:
             target: armv7
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-python@v5
         with:
           python-version: 3.x
 
       - name: Build wheels
-        uses: PyO3/maturin-action@v1
+        uses: PyO3/maturin-action@aef21716ff3dcae8a1c301d23ec3e4446972a6e3  # v1.49.1
         with:
           target: ${{ matrix.platform.target }}
           args: --release --out dist --find-interpreter --features extension-module
@@ -94,6 +98,8 @@ jobs:
             target: x86
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-python@v5
         with:
@@ -101,7 +107,7 @@ jobs:
           architecture: ${{ matrix.platform.target }}
 
       - name: Build wheels
-        uses: PyO3/maturin-action@v1
+        uses: PyO3/maturin-action@aef21716ff3dcae8a1c301d23ec3e4446972a6e3  # v1.49.1
         with:
           target: ${{ matrix.platform.target }}
           args: --release --out dist --find-interpreter --features extension-module
@@ -124,13 +130,15 @@ jobs:
             target: aarch64
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-python@v5
         with:
           python-version: 3.x
 
       - name: Build wheels
-        uses: PyO3/maturin-action@v1
+        uses: PyO3/maturin-action@aef21716ff3dcae8a1c301d23ec3e4446972a6e3  # v1.49.1
         with:
           target: ${{ matrix.platform.target }}
           args: --release --out dist --find-interpreter --features extension-module
@@ -146,9 +154,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Build sdist
-        uses: PyO3/maturin-action@v1
+        uses: PyO3/maturin-action@aef21716ff3dcae8a1c301d23ec3e4446972a6e3  # v1.49.1
         with:
           command: sdist
           args: --out dist
