@@ -159,70 +159,74 @@ impl LanguageServer for DjangoLanguageServer {
         let project_arc = Arc::clone(&self.project);
         let client = self.client.clone();
         let settings_arc = Arc::clone(&self.settings);
-        
-        if let Err(e) = self.queue.submit(async move {
-            let mut project_guard = project_arc.write().await;
-            if let Some(project) = project_guard.as_mut() {
-                let path_display = project.path().display().to_string();
-                client
-                    .log_message(
-                        MessageType::INFO,
-                        &format!(
-                            "Task: Starting initialization for project at: {}",
-                            path_display
-                        ),
-                    )
-                    .await;
 
-                let venv_path = {
-                    let settings = settings_arc.read().await;
-                    settings.venv_path().map(|s| s.to_string())
-                };
-
-                if let Some(ref path) = venv_path {
+        if let Err(e) = self
+            .queue
+            .submit(async move {
+                let mut project_guard = project_arc.write().await;
+                if let Some(project) = project_guard.as_mut() {
+                    let path_display = project.path().display().to_string();
                     client
                         .log_message(
                             MessageType::INFO,
-                            &format!("Using virtual environment from config: {}", path),
+                            &format!(
+                                "Task: Starting initialization for project at: {}",
+                                path_display
+                            ),
                         )
                         .await;
-                }
 
-                match project.initialize(venv_path.as_deref()) {
-                    Ok(()) => {
+                    let venv_path = {
+                        let settings = settings_arc.read().await;
+                        settings.venv_path().map(|s| s.to_string())
+                    };
+
+                    if let Some(ref path) = venv_path {
                         client
                             .log_message(
                                 MessageType::INFO,
-                                &format!(
-                                    "Task: Successfully initialized project: {}",
-                                    path_display
-                                ),
+                                &format!("Using virtual environment from config: {}", path),
                             )
                             .await;
                     }
-                    Err(e) => {
-                        client
-                            .log_message(
-                                MessageType::ERROR,
-                                &format!(
-                                    "Task: Failed to initialize Django project at {}: {}",
-                                    path_display, e
-                                ),
-                            )
-                            .await;
-                        *project_guard = None;
+
+                    match project.initialize(venv_path.as_deref()) {
+                        Ok(()) => {
+                            client
+                                .log_message(
+                                    MessageType::INFO,
+                                    &format!(
+                                        "Task: Successfully initialized project: {}",
+                                        path_display
+                                    ),
+                                )
+                                .await;
+                        }
+                        Err(e) => {
+                            client
+                                .log_message(
+                                    MessageType::ERROR,
+                                    &format!(
+                                        "Task: Failed to initialize Django project at {}: {}",
+                                        path_display, e
+                                    ),
+                                )
+                                .await;
+                            *project_guard = None;
+                        }
                     }
+                } else {
+                    client
+                        .log_message(
+                            MessageType::INFO,
+                            "Task: No project instance found to initialize.",
+                        )
+                        .await;
                 }
-            } else {
-                client
-                    .log_message(
-                        MessageType::INFO,
-                        "Task: No project instance found to initialize.",
-                    )
-                    .await;
-            }
-            Ok(())
-        }).await {
+                Ok(())
+            })
+            .await
+        {
             self.log_message(
                 MessageType::ERROR,
                 &format!("Failed to submit project initialization task: {}", e),
