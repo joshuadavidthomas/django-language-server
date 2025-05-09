@@ -9,6 +9,7 @@ default = []
 
 [dependencies]
 pyo3 = { workspace = true }
+salsa = { workspace = true }
 tower-lsp-server = { workspace = true, features = ["proposed"] }
 
 which = "7.0.1"

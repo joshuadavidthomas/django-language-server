@@ -15,6 +15,7 @@ async-trait = "0.1"
 pyo3 = "0.24"
 pyo3-async-runtimes = "0.24"
 pyo3-build-config = "0.24"
+salsa = { git = "https://github.com/salsa-rs/salsa.git", rev = "7edce6e248f35c8114b4b021cdb474a3fb2813b3" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tempfile = "3.19"
