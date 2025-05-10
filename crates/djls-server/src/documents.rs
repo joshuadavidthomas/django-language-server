@@ -80,10 +80,12 @@ impl Store {
         self.documents.get_mut(uri)
     }
 
+    #[allow(dead_code)]
     pub fn get_all_documents(&self) -> impl Iterator<Item = &TextDocument> {
         self.documents.values()
     }
 
+    #[allow(dead_code)]
     pub fn get_documents_by_language(
         &self,
         language_id: LanguageId,
@@ -93,10 +95,12 @@ impl Store {
             .filter(move |doc| doc.language_id == language_id)
     }
 
+    #[allow(dead_code)]
     pub fn get_version(&self, uri: &str) -> Option<i32> {
         self.versions.get(uri).copied()
     }
 
+    #[allow(dead_code)]
     pub fn is_version_valid(&self, uri: &str, version: i32) -> bool {
         self.get_version(uri).map_or(false, |v| v == version)
     }
@@ -203,10 +207,12 @@ impl TextDocument {
         self.index = LineIndex::new(&self.contents);
     }
 
+    #[allow(dead_code)]
     pub fn get_text(&self) -> &str {
         &self.contents
     }
 
+    #[allow(dead_code)]
     pub fn get_text_range(&self, range: Range) -> Option<&str> {
         let start = self.index.offset(range.start)? as usize;
         let end = self.index.offset(range.end)? as usize;
@@ -226,6 +232,7 @@ impl TextDocument {
         Some(&self.contents[*start as usize..end as usize])
     }
 
+    #[allow(dead_code)]
     pub fn line_count(&self) -> usize {
         self.index.line_starts.len()
     }
@@ -287,6 +294,7 @@ impl LineIndex {
         Some(line_start + position.character)
     }
 
+    #[allow(dead_code)]
     pub fn position(&self, offset: u32) -> Position {
         let line = match self.line_starts.binary_search(&offset) {
             Ok(line) => line,

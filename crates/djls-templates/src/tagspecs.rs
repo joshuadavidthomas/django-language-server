@@ -13,20 +13,24 @@ pub enum TagSpecError {
     #[error("Failed to parse TOML: {0}")]
     Toml(#[from] toml::de::Error),
     #[error("Failed to extract specs: {0}")]
+    #[allow(dead_code)]
     Extract(String),
     #[error(transparent)]
     Other(#[from] anyhow::Error),
 }
 
 #[derive(Clone, Debug, Default)]
+#[allow(dead_code)]
 pub struct TagSpecs(HashMap<String, TagSpec>);
 
 impl TagSpecs {
+    #[allow(dead_code)]
     pub fn get(&self, key: &str) -> Option<&TagSpec> {
         self.0.get(key)
     }
 
     /// Load specs from a TOML file, looking under the specified table path
+    #[allow(dead_code)]
     fn load_from_toml(path: &Path, table_path: &[&str]) -> Result<Self, TagSpecError> {
         let content = fs::read_to_string(path)?;
         let value: Value = toml::from_str(&content)?;
@@ -51,6 +55,7 @@ impl TagSpecs {
     }
 
     /// Load specs from a user's project directory
+    #[allow(dead_code)]
     pub fn load_user_specs(project_root: &Path) -> Result<Self, anyhow::Error> {
         let config_files = ["djls.toml", ".djls.toml", "pyproject.toml"];
 
@@ -68,6 +73,7 @@ impl TagSpecs {
     }
 
     /// Load builtin specs from the crate's tagspecs directory
+    #[allow(dead_code)]
     pub fn load_builtin_specs() -> Result<Self, anyhow::Error> {
         let specs_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tagspecs");
         let mut specs = HashMap::new();
@@ -85,12 +91,14 @@ impl TagSpecs {
     }
 
     /// Merge another TagSpecs into this one, with the other taking precedence
+    #[allow(dead_code)]
     pub fn merge(&mut self, other: TagSpecs) -> &mut Self {
         self.0.extend(other.0);
         self
     }
 
     /// Load both builtin and user specs, with user specs taking precedence
+    #[allow(dead_code)]
     pub fn load_all(project_root: &Path) -> Result<Self, anyhow::Error> {
         let mut specs = Self::load_builtin_specs()?;
         let user_specs = Self::load_user_specs(project_root)?;
@@ -107,6 +115,7 @@ pub struct TagSpec {
 
 impl TagSpec {
     /// Recursive extraction: Check if node is spec, otherwise recurse if table.
+    #[allow(dead_code)]
     fn extract_specs(
         value: &Value,
         prefix: Option<&str>, // Path *to* this value node
