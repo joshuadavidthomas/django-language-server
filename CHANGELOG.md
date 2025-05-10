@@ -30,6 +30,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - **Internal**: Moved task queueing functionality to `djls-server` crate, renamed from `Worker` to `Queue`, and simplified API.
 - **Internal**: Improved Python environment handling, including refactored activation logic.
 - **Internal**: Centralized Python linking build logic into a shared `djls-dev` crate to reduce duplication.
+- **Internal (djls-project)**: Started Salsa integration for incremental computation with database structure and initial Python environment discovery functionality.
 
 ## [5.2.0a0]
 

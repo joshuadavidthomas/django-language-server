@@ -164,6 +164,7 @@ impl Lexer {
         self.peek_at(-1)
     }
 
+    #[allow(dead_code)]
     fn peek_until(&self, end: &str) -> Result<bool, LexerError> {
         let mut index = self.current;
         let end_chars: Vec<char> = end.chars().collect();
@@ -224,6 +225,7 @@ impl Lexer {
         Ok(self.source[start..self.current].trim().to_string())
     }
 
+    #[allow(dead_code)]
     fn consume_chars(&mut self, s: &str) -> Result<char, LexerError> {
         for c in s.chars() {
             if c != self.peek()? {

@@ -150,6 +150,7 @@ impl Parser {
         self.peek_at(0)
     }
 
+    #[allow(dead_code)]
     fn peek_next(&self) -> Result<Token, ParserError> {
         self.peek_at(1)
     }
@@ -192,6 +193,7 @@ impl Parser {
         self.peek_previous()
     }
 
+    #[allow(dead_code)]
     fn backtrack(&mut self, steps: usize) -> Result<Token, ParserError> {
         if self.current < steps {
             return Err(ParserError::stream_error(StreamError::AtBeginning));
