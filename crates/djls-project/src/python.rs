@@ -6,10 +6,10 @@ use std::path::{Path, PathBuf};
 
 #[salsa::tracked]
 pub fn find_python_environment(db: &dyn Db) -> Option<PythonEnvironment> {
-    let project_path = db.metadata().root();
-    let venv_path = db.metadata().venv();
+    let project_path = db.metadata().root().as_path();
+    let venv_path = db.metadata().venv().and_then(|p| p.to_str());
 
-    PythonEnvironment::new(project_path.as_path(), venv_path.and_then(|p| p.to_str()))
+    PythonEnvironment::new(project_path, venv_path)
 }
 
 #[derive(Clone, Debug, PartialEq)]
