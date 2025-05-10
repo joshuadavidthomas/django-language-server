@@ -4,6 +4,7 @@ use crate::meta::ProjectMetadata;
 pub trait Db: salsa::Database {
     fn metadata(&self) -> &ProjectMetadata;
 }
+
 #[salsa::db]
 #[derive(Clone)]
 pub struct ProjectDatabase {
