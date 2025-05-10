@@ -141,4 +141,3 @@ mod tests {
         assert!(display_str.contains(&format!("Project path: {}", project_path.display())));
     }
 }
-
