@@ -8,10 +8,8 @@ use std::path::{Path, PathBuf};
 pub fn find_python_environment(db: &dyn Db) -> Option<PythonEnvironment> {
     let project_path = db.metadata().root();
     let venv_path = db.metadata().venv();
-    PythonEnvironment::new(
-        project_path.as_path(),
-        venv_path.map(|p| p.to_str()).flatten(),
-    )
+
+    PythonEnvironment::new(project_path.as_path(), venv_path.and_then(|p| p.to_str()))
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -159,8 +157,7 @@ mod tests {
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
     use tempfile::tempdir;
-    
-    // Test helpers at the top level of the module
+
     fn create_mock_venv(dir: &Path, version: Option<&str>) -> PathBuf {
         let prefix = dir.to_path_buf();
 
@@ -203,8 +200,8 @@ mod tests {
     }
 
     mod env_discovery {
-        use super::super::system::mock::{self as sys_mock, MockGuard};
         use super::*;
+        use crate::system::mock::{self as sys_mock, MockGuard};
         use which::Error as WhichError;
 
         #[test]
@@ -697,7 +694,7 @@ mod tests {
             })
         }
     }
-    
+
     // Add tests for the salsa tracked function
     mod salsa_integration {
         use super::*;
@@ -708,28 +705,26 @@ mod tests {
         fn test_find_python_environment_with_salsa_db() {
             let project_dir = tempdir().unwrap();
             let venv_dir = tempdir().unwrap();
-            
+
             // Create a mock venv
             let venv_prefix = create_mock_venv(venv_dir.path(), None);
-            
+
             // Create a metadata instance with project path and explicit venv path
-            let metadata = ProjectMetadata::new(
-                project_dir.path().to_path_buf(),
-                Some(venv_prefix.clone()),
-            );
-            
+            let metadata =
+                ProjectMetadata::new(project_dir.path().to_path_buf(), Some(venv_prefix.clone()));
+
             // Create a ProjectDatabase with the metadata
             let db = ProjectDatabase::new(metadata);
-            
+
             // Call the tracked function
             let env = find_python_environment(&db);
-            
+
             // Verify we found the environment
             assert!(env.is_some(), "Should find environment via salsa db");
-            
+
             if let Some(env) = env {
                 assert_eq!(env.sys_prefix, venv_prefix);
-                
+
                 #[cfg(unix)]
                 {
                     assert!(env.python_path.ends_with("bin/python"));
@@ -742,39 +737,37 @@ mod tests {
                 }
             }
         }
-        
+
         #[test]
         fn test_find_python_environment_with_project_venv() {
             let project_dir = tempdir().unwrap();
-            
+
             // Create a .venv in the project directory
-            let venv_prefix = create_mock_venv(
-                &project_dir.path().join(".venv"), 
-                None
-            );
-            
+            let venv_prefix = create_mock_venv(&project_dir.path().join(".venv"), None);
+
             // Create a metadata instance with project path but no explicit venv path
-            let metadata = ProjectMetadata::new(
-                project_dir.path().to_path_buf(),
-                None,
-            );
-            
+            let metadata = ProjectMetadata::new(project_dir.path().to_path_buf(), None);
+
             // Create a ProjectDatabase with the metadata
             let db = ProjectDatabase::new(metadata);
-            
+
             // Mock to ensure VIRTUAL_ENV is not set
             let _guard = system::mock::MockGuard;
             system::mock::remove_env_var("VIRTUAL_ENV");
-            
+
             // Call the tracked function
             let env = find_python_environment(&db);
-            
+
             // Verify we found the environment
-            assert!(env.is_some(), "Should find environment in project .venv via salsa db");
-            
+            assert!(
+                env.is_some(),
+                "Should find environment in project .venv via salsa db"
+            );
+
             if let Some(env) = env {
                 assert_eq!(env.sys_prefix, venv_prefix);
             }
         }
     }
 }
+

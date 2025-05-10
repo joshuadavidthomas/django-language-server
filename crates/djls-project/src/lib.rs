@@ -97,15 +97,15 @@ mod tests {
     fn create_mock_django_project(dir: &Path) -> PathBuf {
         let project_path = dir.to_path_buf();
         fs::create_dir_all(&project_path).unwrap();
-        
+
         // Create a mock Django project structure
         fs::create_dir_all(project_path.join("myapp")).unwrap();
         fs::create_dir_all(project_path.join("myapp/templates")).unwrap();
         fs::write(project_path.join("manage.py"), "#!/usr/bin/env python").unwrap();
-        
+
         project_path
     }
-    
+
     #[test]
     fn test_django_project_initialization() {
         // This test needs to be run in an environment with Django installed
@@ -113,31 +113,32 @@ mod tests {
         // Here we're just testing the creation of the DjangoProject object
         let project_dir = tempdir().unwrap();
         let project_path = create_mock_django_project(project_dir.path());
-        
+
         let project = DjangoProject::new(project_path);
-        
+
         assert!(project.env.is_none()); // Environment not initialized yet
         assert!(project.template_tags.is_none()); // Template tags not loaded yet
     }
-    
+
     #[test]
     fn test_django_project_path() {
         let project_dir = tempdir().unwrap();
         let project_path = create_mock_django_project(project_dir.path());
-        
+
         let project = DjangoProject::new(project_path.clone());
-        
+
         assert_eq!(project.path(), project_path.as_path());
     }
-    
+
     #[test]
     fn test_django_project_display() {
         let project_dir = tempdir().unwrap();
         let project_path = create_mock_django_project(project_dir.path());
-        
+
         let project = DjangoProject::new(project_path.clone());
-        
+
         let display_str = format!("{}", project);
         assert!(display_str.contains(&format!("Project path: {}", project_path.display())));
     }
 }
+
