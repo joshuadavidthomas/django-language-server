@@ -1,8 +1,8 @@
 use crate::args::Args;
 use crate::commands::{Command, DjlsCommand};
+use crate::exit::Exit;
 use anyhow::Result;
 use clap::Parser;
-use std::process::ExitCode;
 
 /// Main CLI structure that defines the command-line interface
 #[derive(Parser)]
@@ -16,13 +16,24 @@ pub struct Cli {
     pub args: Args,
 }
 
-/// Parse CLI arguments and execute the chosen command
-pub async fn run(args: Vec<String>) -> Result<ExitCode> {
+/// Parse CLI arguments, execute the chosen command, and handle results
+pub fn run(args: Vec<String>) -> Result<()> {
     let cli = Cli::try_parse_from(args).unwrap_or_else(|e| {
         e.exit();
     });
 
-    match &cli.command {
-        DjlsCommand::Serve(cmd) => cmd.execute(&cli.args).await,
+    let result = match &cli.command {
+        DjlsCommand::Serve(cmd) => cmd.execute(&cli.args),
+    };
+
+    match result {
+        Ok(exit) => exit.process_exit(),
+        Err(e) => {
+            let mut msg = e.to_string();
+            if let Some(source) = e.source() {
+                msg += &format!(", caused by {}", source);
+            }
+            Exit::error().with_message(msg).process_exit()
+        }
     }
 }

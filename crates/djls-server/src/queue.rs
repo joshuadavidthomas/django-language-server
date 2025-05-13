@@ -105,7 +105,7 @@ impl Queue {
                     }
                 }
             }
-            eprintln!("Queue worker task shutting down.");
+            eprintln!("Queue worker task shutting down");
         });
 
         Self {
@@ -179,7 +179,7 @@ impl Drop for QueueInner {
             // `.ok()` ignores the result, as the receiver might have already
             // terminated if the channel closed naturally or panicked.
             sender.send(()).ok();
-            eprintln!("Sent shutdown signal to queue worker.");
+            eprintln!("Sent shutdown signal to queue worker");
         }
     }
 }

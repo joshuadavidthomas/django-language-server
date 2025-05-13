@@ -1,12 +1,12 @@
 mod serve;
 
 use crate::args::Args;
+use crate::exit::Exit;
 use anyhow::Result;
 use clap::Subcommand;
-use std::process::ExitCode;
 
 pub trait Command {
-    async fn execute(&self, args: &Args) -> Result<ExitCode>;
+    fn execute(&self, args: &Args) -> Result<Exit>;
 }
 
 #[derive(Debug, Subcommand)]
