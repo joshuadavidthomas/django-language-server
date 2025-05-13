@@ -1,40 +1,29 @@
+/// PyO3 entrypoint for the Django Language Server CLI.
+///
+/// This module provides a Python interface using PyO3 to solve Python runtime
+/// interpreter linking issues. The PyO3 approach avoids complexities with
+/// static/dynamic linking when building binaries that interact with Python.
 mod args;
 mod cli;
 mod commands;
+mod exit;
 
 use pyo3::prelude::*;
 use std::env;
-use std::process::ExitCode;
 
 #[pyfunction]
+/// Entry point called by Python when the CLI is invoked.
+/// This function handles argument parsing from Python and routes to the Rust CLI logic.
 fn entrypoint(_py: Python) -> PyResult<()> {
     // Skip python interpreter and script path, add command name
     let args: Vec<String> = std::iter::once("djls".to_string())
         .chain(env::args().skip(2))
         .collect();
 
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .unwrap();
+    // Run the CLI with the adjusted args
+    cli::run(args).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
 
-    let result = runtime.block_on(cli::run(args));
-
-    match result {
-        Ok(code) => {
-            if code != ExitCode::SUCCESS {
-                std::process::exit(1);
-            }
-            Ok(())
-        }
-        Err(e) => {
-            eprintln!("Error: {}", e);
-            if let Some(source) = e.source() {
-                eprintln!("Caused by: {}", source);
-            }
-            std::process::exit(1);
-        }
-    }
+    Ok(())
 }
 
 #[pymodule]
