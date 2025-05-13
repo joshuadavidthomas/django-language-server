@@ -21,6 +21,23 @@ fmt:
     @just --fmt --justfile {{ justfile }}
 
 [no-cd]
+debug:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    tmux has-session -t django-debug 2>/dev/null && tmux kill-session -t django-debug
+    pkill -f "lsp-devtools" || true
+
+    tmux new-session -d -s django-debug "nvim tests/project/djls_app/templates/djls_app/base.html"
+    tmux split-window -h -p 20 "just dev devtools record"
+
+    tmux select-pane -L
+
+    tmux attach-session -t django-debug
+
+    pkill -f "lsp-devtools" || true
+
+[no-cd]
 explore FILENAME="djls.db":
     @just dev datasette -o {{ FILENAME }}
 
