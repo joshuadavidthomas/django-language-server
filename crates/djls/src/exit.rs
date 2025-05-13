@@ -5,7 +5,7 @@ use std::fmt;
 type ExitMessage = Option<String>;
 
 #[derive(Debug)]
-pub(crate) enum ExitStatus {
+pub enum ExitStatus {
     Success,
     Error,
 }
@@ -40,7 +40,7 @@ impl fmt::Display for ExitStatus {
 }
 
 #[derive(Debug)]
-pub(crate) struct Exit {
+pub struct Exit {
     status: ExitStatus,
     message: ExitMessage,
 }
