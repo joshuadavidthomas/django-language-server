@@ -25,8 +25,8 @@ impl Session {
         }
     }
 
-    pub fn client_capabilities(&self) -> &Option<ClientCapabilities> {
-        &self.client_capabilities
+    pub fn client_capabilities(&self) -> Option<&ClientCapabilities> {
+        self.client_capabilities.as_ref()
     }
 
     pub fn client_capabilities_mut(&mut self) -> &mut Option<ClientCapabilities> {

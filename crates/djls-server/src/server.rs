@@ -86,6 +86,7 @@ impl LanguageServer for DjangoLanguageServer {
         })
     }
 
+    #[allow(clippy::too_many_lines)]
     async fn initialized(&self, _params: InitializedParams) {
         self.client
             .log_message(
@@ -240,16 +241,11 @@ impl LanguageServer for DjangoLanguageServer {
             )
             .await;
 
-        let result = self
-            .with_session_mut(|session| {
+        self.with_session_mut(|session| {
                 let db = session.db_handle().db();
-                session.documents_mut().handle_did_open(&db, params.clone())
+                session.documents_mut().handle_did_open(&db, &params);
             })
             .await;
-
-        if let Err(e) = result {
-            eprintln!("Error handling document open: {e}");
-        }
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
@@ -260,18 +256,13 @@ impl LanguageServer for DjangoLanguageServer {
             )
             .await;
 
-        let result = self
-            .with_session_mut(|session| {
+        self.with_session_mut(|session| {
                 let db = session.db_handle().db();
-                session
+                let _ = session
                     .documents_mut()
-                    .handle_did_change(&db, params.clone())
+                    .handle_did_change(&db, &params);
             })
             .await;
-
-        if let Err(e) = result {
-            eprintln!("Error handling document change: {e}");
-        }
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
@@ -282,13 +273,10 @@ impl LanguageServer for DjangoLanguageServer {
             )
             .await;
 
-        let result = self
-            .with_session_mut(|session| session.documents_mut().handle_did_close(params.clone()))
+        self.with_session_mut(|session| {
+                session.documents_mut().handle_did_close(&params);
+            })
             .await;
-
-        if let Err(e) = result {
-            eprintln!("Error handling document close: {e}");
-        }
     }
 
     async fn completion(&self, params: CompletionParams) -> LspResult<Option<CompletionResponse>> {

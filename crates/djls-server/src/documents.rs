@@ -23,23 +23,21 @@ impl Store {
     pub fn handle_did_open(
         &mut self,
         db: &dyn Database,
-        params: DidOpenTextDocumentParams,
-    ) -> Result<()> {
+        params: &DidOpenTextDocumentParams,
+    ) {
         let uri = params.text_document.uri.to_string();
         let version = params.text_document.version;
 
-        let document = TextDocument::from_did_open_params(db, &params);
+        let document = TextDocument::from_did_open_params(db, params);
 
         self.add_document(document, uri.clone());
         self.versions.insert(uri, version);
-
-        Ok(())
     }
 
     pub fn handle_did_change(
         &mut self,
         db: &dyn Database,
-        params: DidChangeTextDocumentParams,
+        params: &DidChangeTextDocumentParams,
     ) -> Result<()> {
         let uri = params.text_document.uri.as_str().to_string();
         let version = params.text_document.version;
@@ -56,10 +54,8 @@ impl Store {
         Ok(())
     }
 
-    pub fn handle_did_close(&mut self, params: DidCloseTextDocumentParams) -> Result<()> {
+    pub fn handle_did_close(&mut self, params: &DidCloseTextDocumentParams) {
         self.remove_document(params.text_document.uri.as_str());
-
-        Ok(())
     }
 
     fn add_document(&mut self, document: TextDocument, uri: String) {
@@ -173,7 +169,7 @@ pub struct TextDocument {
 impl TextDocument {
     pub fn from_did_open_params(db: &dyn Database, params: &DidOpenTextDocumentParams) -> Self {
         let uri = params.text_document.uri.to_string();
-        let contents = params.text_document.text.clone();
+        let contents = params.text_document.text.clone(); // Need to clone here since we don't own params
         let version = params.text_document.version;
         let language_id = LanguageId::from(params.text_document.language_id.as_str());
 
@@ -182,7 +178,7 @@ impl TextDocument {
     }
 
     pub fn with_changes(
-        &self,
+        self,
         db: &dyn Database,
         changes: &[TextDocumentContentChangeEvent],
         new_version: i32,
@@ -209,7 +205,7 @@ impl TextDocument {
                 }
             } else {
                 // Full document update
-                new_contents = change.text.clone();
+                new_contents.clone_from(&change.text);
             }
         }
 
@@ -225,12 +221,12 @@ impl TextDocument {
     }
 
     #[allow(dead_code)]
-    pub fn get_text(&self, db: &dyn Database) -> String {
+    pub fn get_text(self, db: &dyn Database) -> String {
         self.contents(db).to_string()
     }
 
     #[allow(dead_code)]
-    pub fn get_text_range(&self, db: &dyn Database, range: Range) -> Option<String> {
+    pub fn get_text_range(self, db: &dyn Database, range: Range) -> Option<String> {
         let index = self.index(db);
         let start = index.offset(range.start)? as usize;
         let end = index.offset(range.end)? as usize;
@@ -238,7 +234,7 @@ impl TextDocument {
         Some(contents[start..end].to_string())
     }
 
-    pub fn get_line(&self, db: &dyn Database, line: u32) -> Option<String> {
+    pub fn get_line(self, db: &dyn Database, line: u32) -> Option<String> {
         let index = self.index(db);
         let start = index.line_starts.get(line as usize)?;
         let end = index
@@ -252,12 +248,12 @@ impl TextDocument {
     }
 
     #[allow(dead_code)]
-    pub fn line_count(&self, db: &dyn Database) -> usize {
+    pub fn line_count(self, db: &dyn Database) -> usize {
         self.index(db).line_starts.len()
     }
 
     pub fn get_template_tag_context(
-        &self,
+        self,
         db: &dyn Database,
         position: Position,
     ) -> Option<TemplateTagContext> {
@@ -300,7 +296,7 @@ impl LineIndex {
         let mut pos = 0;
 
         for c in text.chars() {
-            pos += c.len_utf8() as u32;
+            pos += u32::try_from(c.len_utf8()).unwrap_or(0);
             if c == '\n' {
                 line_starts.push(pos);
             }
@@ -328,7 +324,7 @@ impl LineIndex {
         let line_start = self.line_starts[line];
         let character = offset - line_start;
 
-        Position::new(line as u32, character)
+        Position::new(u32::try_from(line).unwrap_or(0), character)
     }
 }
 
