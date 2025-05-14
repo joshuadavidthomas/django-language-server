@@ -38,58 +38,55 @@ jobs:
 
       - name: pre-commit
         run: |
-          SKIP=no-commit-to-branch,clippy,fmt,check \
+          SKIP=no-commit-to-branch \
           uv run --with pre-commit-uv pre-commit run \
             --all-files \
             --show-diff-on-failure \
             --color always
-  
+
   rustfmt:
-    name: Rustfmt
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-          
-      - name: Install nightly toolchain for rustfmt
+
+      - name: Install nightly Rust toolchain
         uses: dtolnay/rust-toolchain@b3b07ba8b418998c39fb20f53e8b695cdcc8de1b
         with:
           toolchain: nightly
           components: rustfmt
-          
+
       - name: Run rustfmt
         run: cargo +nightly fmt --all -- --check
 
   clippy:
-    name: Clippy
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-          
-      - name: Install stable toolchain with clippy
+
+      - name: Install stable Rust toolchain
         uses: dtolnay/rust-toolchain@b3b07ba8b418998c39fb20f53e8b695cdcc8de1b
         with:
           toolchain: stable
           components: clippy
-          
+
       - name: Run clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
   cargo-check:
-    name: Cargo Check
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-          
-      - name: Install stable toolchain
+
+      - name: Install stable Rust toolchain
         uses: dtolnay/rust-toolchain@b3b07ba8b418998c39fb20f53e8b695cdcc8de1b
         with:
           toolchain: stable
-          
+
       - name: Run cargo check
         run: cargo check --all-targets --all-features
