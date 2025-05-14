@@ -1,8 +1,5 @@
-use crate::documents::Store;
 use crate::queue::Queue;
-use crate::workspace::get_project_path;
-use djls_conf::Settings;
-use djls_project::DjangoProject;
+use crate::session::Session;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tower_lsp_server::jsonrpc::Result as LspResult;
@@ -14,9 +11,7 @@ const SERVER_VERSION: &str = "0.1.0";
 
 pub struct DjangoLanguageServer {
     client: Client,
-    project: Arc<RwLock<Option<DjangoProject>>>,
-    documents: Arc<RwLock<Store>>,
-    settings: Arc<RwLock<Settings>>,
+    session: Arc<RwLock<Session>>,
     queue: Queue,
 }
 
@@ -24,92 +19,32 @@ impl DjangoLanguageServer {
     pub fn new(client: Client) -> Self {
         Self {
             client,
-            project: Arc::new(RwLock::new(None)),
-            documents: Arc::new(RwLock::new(Store::new())),
-            settings: Arc::new(RwLock::new(Settings::default())),
+            session: Arc::new(RwLock::new(Session::default())),
             queue: Queue::new(),
         }
     }
 
-    async fn log_message(&self, type_: MessageType, message: &str) {
-        self.client.log_message(type_, message).await;
+    pub async fn with_session<R>(&self, f: impl FnOnce(&Session) -> R) -> R {
+        let session = self.session.read().await;
+        f(&session)
     }
 
-    async fn update_settings(&self, project_path: Option<&std::path::Path>) {
-        if let Some(path) = project_path {
-            match Settings::new(path) {
-                Ok(loaded_settings) => {
-                    let mut settings_guard = self.settings.write().await;
-                    *settings_guard = loaded_settings;
-                    // Could potentially check if settings actually changed before logging
-                    self.log_message(
-                        MessageType::INFO,
-                        &format!(
-                            "Successfully loaded/reloaded settings for {}",
-                            path.display()
-                        ),
-                    )
-                    .await;
-                }
-                Err(e) => {
-                    // Keep existing settings if loading/reloading fails
-                    self.log_message(
-                        MessageType::ERROR,
-                        &format!(
-                            "Failed to load/reload settings for {}: {}",
-                            path.display(),
-                            e
-                        ),
-                    )
-                    .await;
-                }
-            }
-        } else {
-            // If no project path, ensure we're using defaults (might already be the case)
-            // Or log that project-specific settings can't be loaded.
-            let mut settings_guard = self.settings.write().await;
-            *settings_guard = Settings::default(); // Reset to default if no project path
-            self.log_message(
-                MessageType::INFO,
-                "No project root identified. Using default settings.",
-            )
-            .await;
-        }
+    pub async fn with_session_mut<R>(&self, f: impl FnOnce(&mut Session) -> R) -> R {
+        let mut session = self.session.write().await;
+        f(&mut session)
     }
 }
 
 impl LanguageServer for DjangoLanguageServer {
     async fn initialize(&self, params: InitializeParams) -> LspResult<InitializeResult> {
-        self.log_message(MessageType::INFO, "Initializing server...")
+        self.client
+            .log_message(MessageType::INFO, "Initializing server...")
             .await;
 
-        let project_path = get_project_path(&params);
-
-        {
-            // Scope for write lock
-            let mut project_guard = self.project.write().await;
-            if let Some(ref path) = project_path {
-                self.log_message(
-                    MessageType::INFO,
-                    &format!(
-                        "Project root identified: {}. Creating project instance.",
-                        path.display()
-                    ),
-                )
-                .await;
-                *project_guard = Some(DjangoProject::new(path.clone()));
-            } else {
-                self.log_message(
-                    MessageType::WARNING,
-                    "Could not determine project root. Project features will be unavailable.",
-                )
-                .await;
-                // Ensure it's None if no path
-                *project_guard = None;
-            }
-        }
-
-        self.update_settings(project_path.as_deref()).await;
+        self.with_session_mut(|session| {
+            *session.client_capabilities_mut() = Some(params.capabilities);
+        })
+        .await;
 
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
@@ -127,7 +62,6 @@ impl LanguageServer for DjangoLanguageServer {
                         supported: Some(true),
                         change_notifications: Some(OneOf::Left(true)),
                     }),
-                    // Add file operations if needed later
                     file_operations: None,
                 }),
                 text_document_sync: Some(TextDocumentSyncCapability::Options(
@@ -150,22 +84,68 @@ impl LanguageServer for DjangoLanguageServer {
     }
 
     async fn initialized(&self, _params: InitializedParams) {
-        self.log_message(
-            MessageType::INFO,
-            "Server received initialized notification.",
-        )
-        .await;
+        self.client
+            .log_message(
+                MessageType::INFO,
+                "Server received initialized notification.",
+            )
+            .await;
 
-        let project_arc = Arc::clone(&self.project);
+        let init_params = InitializeParams {
+            // Using the current directory by default right now, but we should switch to
+            // *falling back* to current dir if workspace folders is empty
+            workspace_folders: None,
+            ..Default::default()
+        };
+
+        let has_project =
+            if let Some(project_path) = crate::workspace::get_project_path(&init_params) {
+                self.with_session_mut(|session| {
+                    let settings = djls_conf::Settings::new(&project_path)
+                        .unwrap_or_else(|_| djls_conf::Settings::default());
+                    *session.settings_mut() = settings;
+
+                    *session.project_mut() = Some(djls_project::DjangoProject::new(project_path));
+                    true
+                })
+                .await
+            } else {
+                false
+            };
+
+        if has_project {
+            self.client
+                .log_message(
+                    MessageType::INFO,
+                    "Project discovered from current directory",
+                )
+                .await;
+        } else {
+            self.client
+                .log_message(
+                    MessageType::INFO,
+                    "No project discovered; running without project context",
+                )
+                .await;
+        }
+
+        let session_arc = Arc::clone(&self.session);
         let client = self.client.clone();
-        let settings_arc = Arc::clone(&self.settings);
 
         if let Err(e) = self
             .queue
             .submit(async move {
-                let mut project_guard = project_arc.write().await;
-                if let Some(project) = project_guard.as_mut() {
-                    let path_display = project.path().display().to_string();
+                let project_path_and_venv = {
+                    let session = session_arc.read().await;
+                    session.project().map(|p| {
+                        (
+                            p.path().display().to_string(),
+                            session.settings().venv_path().map(|s| s.to_string()),
+                        )
+                    })
+                };
+
+                if let Some((path_display, venv_path)) = project_path_and_venv {
                     client
                         .log_message(
                             MessageType::INFO,
@@ -176,11 +156,6 @@ impl LanguageServer for DjangoLanguageServer {
                         )
                         .await;
 
-                    let venv_path = {
-                        let settings = settings_arc.read().await;
-                        settings.venv_path().map(|s| s.to_string())
-                    };
-
                     if let Some(ref path) = venv_path {
                         client
                             .log_message(
@@ -190,7 +165,17 @@ impl LanguageServer for DjangoLanguageServer {
                             .await;
                     }
 
-                    match project.initialize(venv_path.as_deref()) {
+                    let init_result = {
+                        let mut session = session_arc.write().await;
+                        if let Some(project) = session.project_mut().as_mut() {
+                            project.initialize(venv_path.as_deref())
+                        } else {
+                            // Project was removed between read and write locks
+                            Ok(())
+                        }
+                    };
+
+                    match init_result {
                         Ok(()) => {
                             client
                                 .log_message(
@@ -212,7 +197,10 @@ impl LanguageServer for DjangoLanguageServer {
                                     ),
                                 )
                                 .await;
-                            *project_guard = None;
+
+                            // Clear project on error
+                            let mut session = session_arc.write().await;
+                            *session.project_mut() = None;
                         }
                     }
                 } else {
@@ -227,13 +215,15 @@ impl LanguageServer for DjangoLanguageServer {
             })
             .await
         {
-            self.log_message(
-                MessageType::ERROR,
-                &format!("Failed to submit project initialization task: {}", e),
-            )
-            .await;
+            self.client
+                .log_message(
+                    MessageType::ERROR,
+                    &format!("Failed to submit project initialization task: {}", e),
+                )
+                .await;
         } else {
-            self.log_message(MessageType::INFO, "Scheduled project initialization task.")
+            self.client
+                .log_message(MessageType::INFO, "Scheduled project initialization task.")
                 .await;
         }
     }
@@ -243,82 +233,98 @@ impl LanguageServer for DjangoLanguageServer {
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
-        if let Err(e) = self.documents.write().await.handle_did_open(params.clone()) {
+        let result = self
+            .with_session_mut(|session| session.documents_mut().handle_did_open(params.clone()))
+            .await;
+
+        if let Err(e) = result {
             eprintln!("Error handling document open: {}", e);
             return;
         }
 
-        self.log_message(
-            MessageType::INFO,
-            &format!("Opened document: {:?}", params.text_document.uri),
-        )
-        .await;
+        self.client
+            .log_message(
+                MessageType::INFO,
+                &format!("Opened document: {:?}", params.text_document.uri),
+            )
+            .await;
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
-        if let Err(e) = self
-            .documents
-            .write()
-            .await
-            .handle_did_change(params.clone())
-        {
+        let result = self
+            .with_session_mut(|session| session.documents_mut().handle_did_change(params.clone()))
+            .await;
+
+        if let Err(e) = result {
             eprintln!("Error handling document change: {}", e);
             return;
         }
 
-        self.log_message(
-            MessageType::INFO,
-            &format!("Changed document: {:?}", params.text_document.uri),
-        )
-        .await;
+        self.client
+            .log_message(
+                MessageType::INFO,
+                &format!("Changed document: {:?}", params.text_document.uri),
+            )
+            .await;
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
-        if let Err(e) = self
-            .documents
-            .write()
-            .await
-            .handle_did_close(params.clone())
-        {
+        let result = self
+            .with_session_mut(|session| session.documents_mut().handle_did_close(params.clone()))
+            .await;
+
+        if let Err(e) = result {
             eprintln!("Error handling document close: {}", e);
             return;
         }
 
-        self.log_message(
-            MessageType::INFO,
-            &format!("Closed document: {:?}", params.text_document.uri),
-        )
-        .await;
+        self.client
+            .log_message(
+                MessageType::INFO,
+                &format!("Closed document: {:?}", params.text_document.uri),
+            )
+            .await;
     }
 
     async fn completion(&self, params: CompletionParams) -> LspResult<Option<CompletionResponse>> {
-        let project_guard = self.project.read().await;
-        let documents_guard = self.documents.read().await;
-
-        if let Some(project) = project_guard.as_ref() {
-            if let Some(tags) = project.template_tags() {
-                return Ok(documents_guard.get_completions(
-                    params.text_document_position.text_document.uri.as_str(),
-                    params.text_document_position.position,
-                    tags,
-                ));
-            }
-        }
-        Ok(None)
+        Ok(self
+            .with_session(|session| {
+                if let Some(project) = session.project() {
+                    if let Some(tags) = project.template_tags() {
+                        return session.documents().get_completions(
+                            params.text_document_position.text_document.uri.as_str(),
+                            params.text_document_position.position,
+                            tags,
+                        );
+                    }
+                }
+                None
+            })
+            .await)
     }
 
     async fn did_change_configuration(&self, _params: DidChangeConfigurationParams) {
-        self.log_message(
-            MessageType::INFO,
-            "Configuration change detected. Reloading settings...",
-        )
-        .await;
+        self.client
+            .log_message(
+                MessageType::INFO,
+                "Configuration change detected. Reloading settings...",
+            )
+            .await;
 
-        let project_path = {
-            let project_guard = self.project.read().await;
-            project_guard.as_ref().map(|p| p.path().to_path_buf())
-        };
+        let project_path = self
+            .with_session(|session| session.project().map(|p| p.path().to_path_buf()))
+            .await;
 
-        self.update_settings(project_path.as_deref()).await;
+        if let Some(path) = project_path {
+            self.with_session_mut(|session| match djls_conf::Settings::new(path.as_path()) {
+                Ok(new_settings) => {
+                    *session.settings_mut() = new_settings;
+                }
+                Err(e) => {
+                    eprintln!("Error loading settings: {}", e);
+                }
+            })
+            .await;
+        }
     }
 }

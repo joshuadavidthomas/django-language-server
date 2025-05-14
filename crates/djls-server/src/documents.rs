@@ -3,7 +3,7 @@ use djls_project::TemplateTags;
 use std::collections::HashMap;
 use tower_lsp_server::lsp_types::*;
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Store {
     documents: HashMap<String, TextDocument>,
     versions: HashMap<String, i32>,
