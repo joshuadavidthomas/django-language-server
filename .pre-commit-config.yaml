@@ -48,5 +48,5 @@ repos:
         types:
           - rust
         language: rust
-        entry: cargo +nightly check
+        entry: cargo check
         pass_filenames: false
