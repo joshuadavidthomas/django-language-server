@@ -1,3 +1,5 @@
+use std::fmt::Write;
+
 use anyhow::Result;
 use clap::Parser;
 
@@ -33,7 +35,6 @@ pub fn run(args: Vec<String>) -> Result<()> {
         Err(e) => {
             let mut msg = e.to_string();
             if let Some(source) = e.source() {
-                use std::fmt::Write;
                 let _ = write!(msg, ", caused by {source}");
             }
             Exit::error().with_message(msg).process_exit()

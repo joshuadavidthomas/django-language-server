@@ -107,7 +107,8 @@ impl Token {
     }
 
     pub fn start(&self) -> Option<u32> {
-        self.start.map(|s| u32::try_from(s).expect("Start position should fit in u32"))
+        self.start
+            .map(|s| u32::try_from(s).expect("Start position should fit in u32"))
     }
 
     pub fn length(&self) -> u32 {
