@@ -1,3 +1,4 @@
+mod db;
 mod documents;
 mod queue;
 mod server;

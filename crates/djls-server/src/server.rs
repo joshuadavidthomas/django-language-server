@@ -236,57 +236,62 @@ impl LanguageServer for DjangoLanguageServer {
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
-        let result = self
-            .with_session_mut(|session| session.documents_mut().handle_did_open(params.clone()))
-            .await;
-
-        if let Err(e) = result {
-            eprintln!("Error handling document open: {}", e);
-            return;
-        }
-
         self.client
             .log_message(
                 MessageType::INFO,
                 &format!("Opened document: {:?}", params.text_document.uri),
             )
             .await;
-    }
 
-    async fn did_change(&self, params: DidChangeTextDocumentParams) {
         let result = self
-            .with_session_mut(|session| session.documents_mut().handle_did_change(params.clone()))
+            .with_session_mut(|session| {
+                let db = session.db_handle().db();
+                session.documents_mut().handle_did_open(&db, params.clone())
+            })
             .await;
 
         if let Err(e) = result {
-            eprintln!("Error handling document change: {}", e);
-            return;
+            eprintln!("Error handling document open: {}", e);
         }
+    }
 
+    async fn did_change(&self, params: DidChangeTextDocumentParams) {
         self.client
             .log_message(
                 MessageType::INFO,
                 &format!("Changed document: {:?}", params.text_document.uri),
             )
             .await;
-    }
 
-    async fn did_close(&self, params: DidCloseTextDocumentParams) {
         let result = self
-            .with_session_mut(|session| session.documents_mut().handle_did_close(params.clone()))
+            .with_session_mut(|session| {
+                let db = session.db_handle().db();
+                session
+                    .documents_mut()
+                    .handle_did_change(&db, params.clone())
+            })
             .await;
 
         if let Err(e) = result {
-            eprintln!("Error handling document close: {}", e);
-            return;
+            eprintln!("Error handling document change: {}", e);
         }
+    }
 
+    async fn did_close(&self, params: DidCloseTextDocumentParams) {
         self.client
             .log_message(
                 MessageType::INFO,
                 &format!("Closed document: {:?}", params.text_document.uri),
             )
             .await;
+
+        let result = self
+            .with_session_mut(|session| session.documents_mut().handle_did_close(params.clone()))
+            .await;
+
+        if let Err(e) = result {
+            eprintln!("Error handling document close: {}", e);
+        }
     }
 
     async fn completion(&self, params: CompletionParams) -> LspResult<Option<CompletionResponse>> {
@@ -294,7 +299,10 @@ impl LanguageServer for DjangoLanguageServer {
             .with_session(|session| {
                 if let Some(project) = session.project() {
                     if let Some(tags) = project.template_tags() {
+                        // Get a database instance from the handle
+                        let db = session.db_handle().db();
                         return session.documents().get_completions(
+                            &db,
                             params.text_document_position.text_document.uri.as_str(),
                             params.text_document_position.position,
                             tags,

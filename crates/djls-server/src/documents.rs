@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use anyhow::anyhow;
 use anyhow::Result;
 use djls_project::TemplateTags;
+use salsa::Database;
 use tower_lsp_server::lsp_types::*;
 
 #[derive(Debug, Default)]
@@ -19,37 +20,37 @@ impl Store {
         }
     }
 
-    pub fn handle_did_open(&mut self, params: DidOpenTextDocumentParams) -> Result<()> {
-        let document = TextDocument::new(
-            params.text_document.uri.to_string(),
-            params.text_document.text,
-            params.text_document.version,
-            params.text_document.language_id,
-        );
+    pub fn handle_did_open(
+        &mut self,
+        db: &dyn Database,
+        params: DidOpenTextDocumentParams,
+    ) -> Result<()> {
+        let uri = params.text_document.uri.to_string();
+        let version = params.text_document.version;
 
-        self.add_document(document);
+        let document = TextDocument::from_did_open_params(db, &params);
+
+        self.add_document(document, uri.clone());
+        self.versions.insert(uri, version);
 
         Ok(())
     }
 
-    pub fn handle_did_change(&mut self, params: DidChangeTextDocumentParams) -> Result<()> {
+    pub fn handle_did_change(
+        &mut self,
+        db: &dyn Database,
+        params: DidChangeTextDocumentParams,
+    ) -> Result<()> {
         let uri = params.text_document.uri.as_str().to_string();
         let version = params.text_document.version;
 
         let document = self
-            .get_document_mut(&uri)
+            .get_document(&uri)
             .ok_or_else(|| anyhow!("Document not found: {}", uri))?;
 
-        for change in params.content_changes {
-            if let Some(range) = change.range {
-                document.apply_change(range, &change.text)?;
-            } else {
-                // Full document update
-                document.set_content(change.text);
-            }
-        }
+        let new_document = document.with_changes(db, &params.content_changes, version);
 
-        document.version = version;
+        self.documents.insert(uri.clone(), new_document);
         self.versions.insert(uri, version);
 
         Ok(())
@@ -61,12 +62,8 @@ impl Store {
         Ok(())
     }
 
-    fn add_document(&mut self, document: TextDocument) {
-        let uri = document.uri.clone();
-        let version = document.version;
-
-        self.documents.insert(uri.clone(), document);
-        self.versions.insert(uri, version);
+    fn add_document(&mut self, document: TextDocument, uri: String) {
+        self.documents.insert(uri, document);
     }
 
     fn remove_document(&mut self, uri: &str) {
@@ -78,6 +75,7 @@ impl Store {
         self.documents.get(uri)
     }
 
+    #[allow(dead_code)]
     fn get_document_mut(&mut self, uri: &str) -> Option<&mut TextDocument> {
         self.documents.get_mut(uri)
     }
@@ -88,13 +86,14 @@ impl Store {
     }
 
     #[allow(dead_code)]
-    pub fn get_documents_by_language(
-        &self,
+    pub fn get_documents_by_language<'db>(
+        &'db self,
+        db: &'db dyn Database,
         language_id: LanguageId,
-    ) -> impl Iterator<Item = &TextDocument> {
+    ) -> impl Iterator<Item = &'db TextDocument> + 'db {
         self.documents
             .values()
-            .filter(move |doc| doc.language_id == language_id)
+            .filter(move |doc| doc.language_id(db) == language_id)
     }
 
     #[allow(dead_code)]
@@ -109,17 +108,18 @@ impl Store {
 
     pub fn get_completions(
         &self,
+        db: &dyn Database,
         uri: &str,
         position: Position,
         tags: &TemplateTags,
     ) -> Option<CompletionResponse> {
         let document = self.get_document(uri)?;
 
-        if document.language_id != LanguageId::HtmlDjango {
+        if document.language_id(db) != LanguageId::HtmlDjango {
             return None;
         }
 
-        let context = document.get_template_tag_context(position)?;
+        let context = document.get_template_tag_context(db, position)?;
 
         let mut completions: Vec<CompletionItem> = tags
             .iter()
@@ -158,89 +158,110 @@ impl Store {
     }
 }
 
-#[derive(Clone, Debug)]
+#[salsa::input(debug)]
 pub struct TextDocument {
+    #[return_ref]
     uri: String,
+    #[return_ref]
     contents: String,
+    #[return_ref]
     index: LineIndex,
     version: i32,
     language_id: LanguageId,
 }
 
 impl TextDocument {
-    fn new(uri: String, contents: String, version: i32, language_id: String) -> Self {
+    pub fn from_did_open_params(db: &dyn Database, params: &DidOpenTextDocumentParams) -> Self {
+        let uri = params.text_document.uri.to_string();
+        let contents = params.text_document.text.clone();
+        let version = params.text_document.version;
+        let language_id = LanguageId::from(params.text_document.language_id.as_str());
+
         let index = LineIndex::new(&contents);
-        Self {
-            uri,
-            contents,
-            index,
-            version,
-            language_id: LanguageId::from(language_id),
+        TextDocument::new(db, uri, contents, index, version, language_id)
+    }
+
+    pub fn with_changes(
+        &self,
+        db: &dyn Database,
+        changes: &[TextDocumentContentChangeEvent],
+        new_version: i32,
+    ) -> Self {
+        let mut new_contents = self.contents(db).to_string();
+
+        for change in changes {
+            if let Some(range) = change.range {
+                let index = LineIndex::new(&new_contents);
+
+                if let (Some(start_offset), Some(end_offset)) = (
+                    index.offset(range.start).map(|o| o as usize),
+                    index.offset(range.end).map(|o| o as usize),
+                ) {
+                    let mut updated_content = String::with_capacity(
+                        new_contents.len() - (end_offset - start_offset) + change.text.len(),
+                    );
+
+                    updated_content.push_str(&new_contents[..start_offset]);
+                    updated_content.push_str(&change.text);
+                    updated_content.push_str(&new_contents[end_offset..]);
+
+                    new_contents = updated_content;
+                }
+            } else {
+                // Full document update
+                new_contents = change.text.clone();
+            }
         }
-    }
 
-    pub fn apply_change(&mut self, range: Range, new_text: &str) -> Result<()> {
-        let start_offset = self
-            .index
-            .offset(range.start)
-            .ok_or_else(|| anyhow!("Invalid start position: {:?}", range.start))?
-            as usize;
-        let end_offset = self
-            .index
-            .offset(range.end)
-            .ok_or_else(|| anyhow!("Invalid end position: {:?}", range.end))?
-            as usize;
-
-        let mut new_content = String::with_capacity(
-            self.contents.len() - (end_offset - start_offset) + new_text.len(),
-        );
-
-        new_content.push_str(&self.contents[..start_offset]);
-        new_content.push_str(new_text);
-        new_content.push_str(&self.contents[end_offset..]);
-
-        self.set_content(new_content);
-
-        Ok(())
-    }
-
-    pub fn set_content(&mut self, new_content: String) {
-        self.contents = new_content;
-        self.index = LineIndex::new(&self.contents);
+        let index = LineIndex::new(&new_contents);
+        TextDocument::new(
+            db,
+            self.uri(db).to_string(),
+            new_contents,
+            index,
+            new_version,
+            self.language_id(db),
+        )
     }
 
     #[allow(dead_code)]
-    pub fn get_text(&self) -> &str {
-        &self.contents
+    pub fn get_text(&self, db: &dyn Database) -> String {
+        self.contents(db).to_string()
     }
 
     #[allow(dead_code)]
-    pub fn get_text_range(&self, range: Range) -> Option<&str> {
-        let start = self.index.offset(range.start)? as usize;
-        let end = self.index.offset(range.end)? as usize;
-
-        Some(&self.contents[start..end])
+    pub fn get_text_range(&self, db: &dyn Database, range: Range) -> Option<String> {
+        let index = self.index(db);
+        let start = index.offset(range.start)? as usize;
+        let end = index.offset(range.end)? as usize;
+        let contents = self.contents(db);
+        Some(contents[start..end].to_string())
     }
 
-    pub fn get_line(&self, line: u32) -> Option<&str> {
-        let start = self.index.line_starts.get(line as usize)?;
-        let end = self
-            .index
+    pub fn get_line(&self, db: &dyn Database, line: u32) -> Option<String> {
+        let index = self.index(db);
+        let start = index.line_starts.get(line as usize)?;
+        let end = index
             .line_starts
             .get(line as usize + 1)
             .copied()
-            .unwrap_or(self.index.length);
+            .unwrap_or(index.length);
 
-        Some(&self.contents[*start as usize..end as usize])
+        let contents = self.contents(db);
+        Some(contents[*start as usize..end as usize].to_string())
     }
 
     #[allow(dead_code)]
-    pub fn line_count(&self) -> usize {
-        self.index.line_starts.len()
+    pub fn line_count(&self, db: &dyn Database) -> usize {
+        self.index(db).line_starts.len()
     }
 
-    pub fn get_template_tag_context(&self, position: Position) -> Option<TemplateTagContext> {
-        let line = self.get_line(position.line)?;
+    pub fn get_template_tag_context(
+        &self,
+        db: &dyn Database,
+        position: Position,
+    ) -> Option<TemplateTagContext> {
+        let line = self.get_line(db, position.line)?;
         let char_pos: usize = position.character.try_into().ok()?;
         let prefix = &line[..char_pos];
         let rest_of_line = &line[char_pos..];
