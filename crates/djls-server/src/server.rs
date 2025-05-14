@@ -91,22 +91,20 @@ impl LanguageServer for DjangoLanguageServer {
             )
             .await;
 
-        // Create a basic InitializeParams to use workspace.get_project_path
         let init_params = InitializeParams {
-            workspace_folders: None, // Will use current_dir first anyway
+            // Using the current directory by default right now, but we should switch to
+            // *falling back* to current dir if workspace folders is empty
+            workspace_folders: None,
             ..Default::default()
         };
 
-        // Use workspace's get_project_path to determine the project path
         let has_project =
             if let Some(project_path) = crate::workspace::get_project_path(&init_params) {
                 self.with_session_mut(|session| {
-                    // Load settings from the project path
                     let settings = djls_conf::Settings::new(&project_path)
                         .unwrap_or_else(|_| djls_conf::Settings::default());
                     *session.settings_mut() = settings;
 
-                    // Create and initialize the project
                     *session.project_mut() = Some(djls_project::DjangoProject::new(project_path));
                     true
                 })
@@ -131,14 +129,12 @@ impl LanguageServer for DjangoLanguageServer {
                 .await;
         }
 
-        // Create separate references to what's needed in the task
         let session_arc = Arc::clone(&self.session);
         let client = self.client.clone();
 
         if let Err(e) = self
             .queue
             .submit(async move {
-                // First read to check if we have a project and get relevant info
                 let project_path_and_venv = {
                     let session = session_arc.read().await;
                     session.project().map(|p| {
@@ -169,7 +165,6 @@ impl LanguageServer for DjangoLanguageServer {
                             .await;
                     }
 
-                    // Now get write lock for initialization
                     let init_result = {
                         let mut session = session_arc.write().await;
                         if let Some(project) = session.project_mut().as_mut() {
@@ -316,12 +311,10 @@ impl LanguageServer for DjangoLanguageServer {
             )
             .await;
 
-        // First get the project path using with_session
         let project_path = self
             .with_session(|session| session.project().map(|p| p.path().to_path_buf()))
             .await;
 
-        // Then update settings using with_session_mut
         if let Some(path) = project_path {
             self.with_session_mut(|session| match djls_conf::Settings::new(path.as_path()) {
                 Ok(new_settings) => {
