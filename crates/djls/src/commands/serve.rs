@@ -1,10 +1,13 @@
+use anyhow::Result;
+use clap::Parser;
+use clap::ValueEnum;
+use djls_server::DjangoLanguageServer;
+use tower_lsp_server::LspService;
+use tower_lsp_server::Server;
+
 use crate::args::Args;
 use crate::commands::Command;
 use crate::exit::Exit;
-use anyhow::Result;
-use clap::{Parser, ValueEnum};
-use djls_server::DjangoLanguageServer;
-use tower_lsp_server::{LspService, Server};
 
 #[derive(Debug, Parser)]
 pub struct Serve {

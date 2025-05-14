@@ -8,8 +8,9 @@ mod cli;
 mod commands;
 mod exit;
 
-use pyo3::prelude::*;
 use std::env;
+
+use pyo3::prelude::*;
 
 #[pyfunction]
 /// Entry point called by Python when the CLI is invoked.

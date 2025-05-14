@@ -1,5 +1,8 @@
-use crate::tokens::{Token, TokenStream, TokenType};
 use thiserror::Error;
+
+use crate::tokens::Token;
+use crate::tokens::TokenStream;
+use crate::tokens::TokenType;
 
 pub struct Lexer {
     source: String,

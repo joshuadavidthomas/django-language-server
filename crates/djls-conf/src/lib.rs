@@ -1,7 +1,12 @@
-use config::{Config, ConfigError as ExternalConfigError, File, FileFormat};
+use std::fs;
+use std::path::Path;
+
+use config::Config;
+use config::ConfigError as ExternalConfigError;
+use config::File;
+use config::FileFormat;
 use directories::ProjectDirs;
 use serde::Deserialize;
-use std::{fs, path::Path};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -85,9 +90,11 @@ impl Settings {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::fs;
+
     use tempfile::tempdir;
+
+    use super::*;
 
     mod defaults {
         use super::*;

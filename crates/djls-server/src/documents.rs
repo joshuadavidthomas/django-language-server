@@ -1,6 +1,8 @@
-use anyhow::{anyhow, Result};
-use djls_project::TemplateTags;
 use std::collections::HashMap;
+
+use anyhow::anyhow;
+use anyhow::Result;
+use djls_project::TemplateTags;
 use tower_lsp_server::lsp_types::*;
 
 #[derive(Debug, Default)]

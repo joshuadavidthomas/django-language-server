@@ -6,10 +6,12 @@ mod tagspecs;
 mod tokens;
 
 use ast::Ast;
-pub use error::{to_lsp_diagnostic, QuickFix, TemplateError};
-
+pub use error::to_lsp_diagnostic;
+pub use error::QuickFix;
+pub use error::TemplateError;
 use lexer::Lexer;
-pub use parser::{Parser, ParserError};
+pub use parser::Parser;
+pub use parser::ParserError;
 
 /// Parses a Django template and returns the AST and any parsing errors.
 ///

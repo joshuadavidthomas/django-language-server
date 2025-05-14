@@ -1,7 +1,13 @@
-use crate::ast::{Ast, AstError, Node, Span};
-use crate::lexer::LexerError;
-use crate::tokens::{Token, TokenStream, TokenType};
 use thiserror::Error;
+
+use crate::ast::Ast;
+use crate::ast::AstError;
+use crate::ast::Node;
+use crate::ast::Span;
+use crate::lexer::LexerError;
+use crate::tokens::Token;
+use crate::tokens::TokenStream;
+use crate::tokens::TokenType;
 
 pub struct Parser {
     tokens: TokenStream,

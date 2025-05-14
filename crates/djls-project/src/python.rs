@@ -1,8 +1,11 @@
+use std::fmt;
+use std::path::Path;
+use std::path::PathBuf;
+
+use pyo3::prelude::*;
+
 use crate::db::Db;
 use crate::system;
-use pyo3::prelude::*;
-use std::fmt;
-use std::path::{Path, PathBuf};
 
 #[salsa::tracked]
 pub fn find_python_environment(db: &dyn Db) -> Option<PythonEnvironment> {
@@ -152,11 +155,13 @@ impl fmt::Display for PythonEnvironment {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::fs;
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
+
     use tempfile::tempdir;
+
+    use super::*;
 
     fn create_mock_venv(dir: &Path, version: Option<&str>) -> PathBuf {
         let prefix = dir.to_path_buf();
@@ -200,9 +205,13 @@ mod tests {
     }
 
     mod env_discovery {
-        use super::*;
-        use crate::system::mock::{self as sys_mock, MockGuard};
         use which::Error as WhichError;
+
+        use super::*;
+        use crate::system::mock::MockGuard;
+        use crate::system::mock::{
+            self as sys_mock,
+        };
 
         #[test]
         fn test_explicit_venv_path_found() {

@@ -1,6 +1,8 @@
-use percent_encoding::percent_decode_str;
 use std::path::PathBuf;
-use tower_lsp_server::lsp_types::{InitializeParams, Uri};
+
+use percent_encoding::percent_decode_str;
+use tower_lsp_server::lsp_types::InitializeParams;
+use tower_lsp_server::lsp_types::Uri;
 
 /// Determines the project root path from initialization parameters.
 ///

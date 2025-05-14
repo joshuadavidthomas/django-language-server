@@ -1,8 +1,11 @@
-use anyhow::{anyhow, Result};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
-use tokio::sync::{mpsc, oneshot};
+
+use anyhow::anyhow;
+use anyhow::Result;
+use tokio::sync::mpsc;
+use tokio::sync::oneshot;
 
 /// Type alias for a type-erased, pinned, heap-allocated, Send-able future
 /// that resolves to `Result<()>`.
@@ -186,11 +189,14 @@ impl Drop for QueueInner {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use anyhow::anyhow;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
     use std::time::Duration;
+
+    use anyhow::anyhow;
     use tokio::time::sleep;
+
+    use super::*;
 
     #[tokio::test]
     async fn test_submit_and_process() {

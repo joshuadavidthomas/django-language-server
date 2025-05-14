@@ -4,14 +4,16 @@ mod python;
 mod system;
 mod templatetags;
 
+use std::fmt;
+use std::path::Path;
+use std::path::PathBuf;
+
 use db::ProjectDatabase;
 use meta::ProjectMetadata;
-use python::{find_python_environment, PythonEnvironment};
-pub use templatetags::TemplateTags;
-
 use pyo3::prelude::*;
-use std::fmt;
-use std::path::{Path, PathBuf};
+use python::find_python_environment;
+use python::PythonEnvironment;
+pub use templatetags::TemplateTags;
 
 #[derive(Debug)]
 pub struct DjangoProject {
@@ -90,9 +92,11 @@ impl fmt::Display for DjangoProject {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::fs;
+
     use tempfile::tempdir;
+
+    use super::*;
 
     fn create_mock_django_project(dir: &Path) -> PathBuf {
         let project_path = dir.to_path_buf();

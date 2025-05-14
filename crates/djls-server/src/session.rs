@@ -1,7 +1,8 @@
-use crate::documents::Store;
 use djls_conf::Settings;
 use djls_project::DjangoProject;
 use tower_lsp_server::lsp_types::ClientCapabilities;
+
+use crate::documents::Store;
 
 #[derive(Debug, Default)]
 pub struct Session {
