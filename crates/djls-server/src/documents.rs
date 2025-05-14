@@ -240,9 +240,10 @@ impl TextDocument {
     }
 
     pub fn get_template_tag_context(&self, position: Position) -> Option<TemplateTagContext> {
-        let line = self.get_line(position.line.try_into().ok()?)?;
-        let prefix = &line[..position.character.try_into().ok()?];
-        let rest_of_line = &line[position.character.try_into().ok()?..];
+        let line = self.get_line(position.line)?;
+        let char_pos: usize = position.character.try_into().ok()?;
+        let prefix = &line[..char_pos];
+        let rest_of_line = &line[char_pos..];
         let rest_trimmed = rest_of_line.trim_start();
 
         prefix.rfind("{%").map(|tag_start| {

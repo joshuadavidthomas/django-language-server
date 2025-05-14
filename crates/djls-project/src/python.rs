@@ -96,9 +96,8 @@ impl PythonEnvironment {
     }
 
     fn from_system_python() -> Option<Self> {
-        let python_path = match system::find_executable("python") {
-            Ok(p) => p,
-            Err(_) => return None,
+        let Ok(python_path) = system::find_executable("python") else {
+            return None;
         };
         let bin_dir = python_path.parent()?;
         let prefix = bin_dir.parent()?;

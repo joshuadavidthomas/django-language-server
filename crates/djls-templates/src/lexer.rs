@@ -63,7 +63,7 @@ impl Lexer {
                         self.consume()?; // >
                         TokenType::HtmlTagClose(tag)
                     }
-                    '!' if self.matches("<!--")? => {
+                    '!' if self.matches("<!--") => {
                         self.consume_n(4)?; // <!--
                         let content = self.consume_until("-->")?;
                         self.consume_n(3)?; // -->
@@ -169,22 +169,34 @@ impl Lexer {
     }
 
     #[allow(dead_code)]
-    fn peek_until(&self, end: &str) -> Result<bool, LexerError> {
+    fn peek_until(&self, end: &str) -> bool {
         let mut index = self.current;
         let end_chars: Vec<char> = end.chars().collect();
 
         while index < self.chars.len() {
             if self.chars[index..].starts_with(&end_chars) {
-                return Ok(true);
+                return true;
             }
             index += 1;
         }
-        Ok(false)
+        false
     }
 
+    #[allow(clippy::cast_sign_loss)]
     fn peek_at(&self, offset: isize) -> Result<char, LexerError> {
-        let index = self.current as isize + offset;
-        self.item_at(index as usize)
+        // Safely handle negative offsets
+        let index = if offset < 0 {
+            // Check if we would underflow
+            if self.current < offset.unsigned_abs() {
+                return Err(LexerError::AtBeginningOfSource);
+            }
+            self.current - offset.unsigned_abs()
+        } else {
+            // Safe addition since offset is positive
+            self.current + (offset as usize)
+        };
+        
+        self.item_at(index)
     }
 
     fn item_at(&self, index: usize) -> Result<char, LexerError> {
@@ -194,19 +206,19 @@ impl Lexer {
             // much easier
             Ok('\0')
         } else {
-            Ok(self.source.chars().nth(index).unwrap())
+            self.source.chars().nth(index).ok_or(LexerError::InvalidCharacterAccess)
         }
     }
 
-    fn matches(&mut self, pattern: &str) -> Result<bool, LexerError> {
+    fn matches(&mut self, pattern: &str) -> bool {
         let mut i = self.current;
         for c in pattern.chars() {
             if i >= self.chars.len() || self.chars[i] != c {
-                return Ok(false);
+                return false;
             }
             i += 1;
         }
-        Ok(true)
+        true
     }
 
     fn is_at_end(&self) -> bool {

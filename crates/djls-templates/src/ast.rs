@@ -108,12 +108,14 @@ impl Span {
         Self { start, length }
     }
 
-    pub fn start(&self) -> &u32 {
-        &self.start
+    #[allow(clippy::trivially_copy_pass_by_ref)]
+    pub fn start(&self) -> u32 {
+        self.start
     }
 
-    pub fn length(&self) -> &u32 {
-        &self.length
+    #[allow(clippy::trivially_copy_pass_by_ref)]
+    pub fn length(&self) -> u32 {
+        self.length
     }
 }
 
@@ -201,14 +203,14 @@ mod tests {
                 // Variable starts after newline + "{{"
                 let (line, col) = nodelist
                     .line_offsets()
-                    .position_to_line_col(*span.start() as usize);
+                    .position_to_line_col(span.start() as usize);
                 assert_eq!(
                     (line, col),
                     (2, 0),
                     "Variable should start at line 2, col 3"
                 );
 
-                assert_eq!(*span.length(), 9, "Variable span should cover 'user.name'");
+                assert_eq!(span.length(), 9, "Variable span should cover 'user.name'");
             }
         }
     }

@@ -78,7 +78,7 @@ impl Exit {
     pub fn ok(self) -> Result<()> {
         match self.status {
             ExitStatus::Success => Ok(()),
-            _ => Err(self.into()),
+            ExitStatus::Error => Err(self.into()),
         }
     }
 

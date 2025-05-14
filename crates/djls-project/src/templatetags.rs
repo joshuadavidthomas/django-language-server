@@ -90,7 +90,7 @@ impl TemplateTag {
         &self.library
     }
 
-    pub fn doc(&self) -> &Option<String> {
-        &self.doc
+    pub fn doc(&self) -> Option<&String> {
+        self.doc.as_ref()
     }
 }
