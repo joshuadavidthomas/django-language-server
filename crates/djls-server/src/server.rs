@@ -2,7 +2,26 @@ use std::sync::Arc;
 
 use tokio::sync::RwLock;
 use tower_lsp_server::jsonrpc::Result as LspResult;
-use tower_lsp_server::lsp_types::{CompletionOptions, CompletionParams, CompletionResponse, DidChangeConfigurationParams, DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams, InitializeParams, InitializeResult, InitializedParams, MessageType, OneOf, SaveOptions, ServerCapabilities, ServerInfo, TextDocumentSyncCapability, TextDocumentSyncKind, TextDocumentSyncOptions, WorkspaceFoldersServerCapabilities, WorkspaceServerCapabilities};
+use tower_lsp_server::lsp_types::CompletionOptions;
+use tower_lsp_server::lsp_types::CompletionParams;
+use tower_lsp_server::lsp_types::CompletionResponse;
+use tower_lsp_server::lsp_types::DidChangeConfigurationParams;
+use tower_lsp_server::lsp_types::DidChangeTextDocumentParams;
+use tower_lsp_server::lsp_types::DidCloseTextDocumentParams;
+use tower_lsp_server::lsp_types::DidOpenTextDocumentParams;
+use tower_lsp_server::lsp_types::InitializeParams;
+use tower_lsp_server::lsp_types::InitializeResult;
+use tower_lsp_server::lsp_types::InitializedParams;
+use tower_lsp_server::lsp_types::MessageType;
+use tower_lsp_server::lsp_types::OneOf;
+use tower_lsp_server::lsp_types::SaveOptions;
+use tower_lsp_server::lsp_types::ServerCapabilities;
+use tower_lsp_server::lsp_types::ServerInfo;
+use tower_lsp_server::lsp_types::TextDocumentSyncCapability;
+use tower_lsp_server::lsp_types::TextDocumentSyncKind;
+use tower_lsp_server::lsp_types::TextDocumentSyncOptions;
+use tower_lsp_server::lsp_types::WorkspaceFoldersServerCapabilities;
+use tower_lsp_server::lsp_types::WorkspaceServerCapabilities;
 use tower_lsp_server::Client;
 use tower_lsp_server::LanguageServer;
 
@@ -19,7 +38,8 @@ pub struct DjangoLanguageServer {
 }
 
 impl DjangoLanguageServer {
-    #[must_use] pub fn new(client: Client) -> Self {
+    #[must_use]
+    pub fn new(client: Client) -> Self {
         Self {
             client,
             session: Arc::new(RwLock::new(Session::default())),
@@ -242,10 +262,10 @@ impl LanguageServer for DjangoLanguageServer {
             .await;
 
         self.with_session_mut(|session| {
-                let db = session.db_handle().db();
-                session.documents_mut().handle_did_open(&db, &params);
-            })
-            .await;
+            let db = session.db_handle().db();
+            session.documents_mut().handle_did_open(&db, &params);
+        })
+        .await;
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
@@ -257,12 +277,10 @@ impl LanguageServer for DjangoLanguageServer {
             .await;
 
         self.with_session_mut(|session| {
-                let db = session.db_handle().db();
-                let _ = session
-                    .documents_mut()
-                    .handle_did_change(&db, &params);
-            })
-            .await;
+            let db = session.db_handle().db();
+            let _ = session.documents_mut().handle_did_change(&db, &params);
+        })
+        .await;
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
@@ -274,9 +292,9 @@ impl LanguageServer for DjangoLanguageServer {
             .await;
 
         self.with_session_mut(|session| {
-                session.documents_mut().handle_did_close(&params);
-            })
-            .await;
+            session.documents_mut().handle_did_close(&params);
+        })
+        .await;
     }
 
     async fn completion(&self, params: CompletionParams) -> LspResult<Option<CompletionResponse>> {

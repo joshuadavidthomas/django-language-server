@@ -4,7 +4,19 @@ use anyhow::anyhow;
 use anyhow::Result;
 use djls_project::TemplateTags;
 use salsa::Database;
-use tower_lsp_server::lsp_types::{CompletionItem, CompletionItemKind, CompletionResponse, DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams, Documentation, InsertTextFormat, MarkupContent, MarkupKind, Position, Range, TextDocumentContentChangeEvent};
+use tower_lsp_server::lsp_types::CompletionItem;
+use tower_lsp_server::lsp_types::CompletionItemKind;
+use tower_lsp_server::lsp_types::CompletionResponse;
+use tower_lsp_server::lsp_types::DidChangeTextDocumentParams;
+use tower_lsp_server::lsp_types::DidCloseTextDocumentParams;
+use tower_lsp_server::lsp_types::DidOpenTextDocumentParams;
+use tower_lsp_server::lsp_types::Documentation;
+use tower_lsp_server::lsp_types::InsertTextFormat;
+use tower_lsp_server::lsp_types::MarkupContent;
+use tower_lsp_server::lsp_types::MarkupKind;
+use tower_lsp_server::lsp_types::Position;
+use tower_lsp_server::lsp_types::Range;
+use tower_lsp_server::lsp_types::TextDocumentContentChangeEvent;
 
 #[derive(Debug, Default)]
 pub struct Store {
@@ -20,11 +32,7 @@ impl Store {
         }
     }
 
-    pub fn handle_did_open(
-        &mut self,
-        db: &dyn Database,
-        params: &DidOpenTextDocumentParams,
-    ) {
+    pub fn handle_did_open(&mut self, db: &dyn Database, params: &DidOpenTextDocumentParams) {
         let uri = params.text_document.uri.to_string();
         let version = params.text_document.version;
 

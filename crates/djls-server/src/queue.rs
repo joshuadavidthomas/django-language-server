@@ -282,7 +282,9 @@ mod tests {
                 println!("Successfully submitted 33rd task");
             }
             Ok(Err(e)) => panic!("Submit failed unexpectedly: {e}"),
-            Err(_) => panic!("Submit timed out, likely blocked due to backpressure not resolving"),
+            Err(timeout_err) => panic!(
+                "Submit timed out: {timeout_err}, likely blocked due to backpressure not resolving"
+            ),
         }
 
         sleep(Duration::from_millis(200)).await;
