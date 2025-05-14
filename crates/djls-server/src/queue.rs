@@ -98,7 +98,7 @@ impl Queue {
                             if let Err(e) = task_future.await {
                                 // Log the error if the task failed.
                                 // TODO: Integrate with a proper logging framework.
-                                eprintln!("Task failed: {}", e);
+                                eprintln!("Task failed: {e}");
                             }
                         } else {
                             // Channel closed, implies all senders (Queue instances)
@@ -209,7 +209,7 @@ mod tests {
             queue
                 .submit(async move {
                     sleep(Duration::from_millis(5)).await;
-                    println!("Processing task {}", i);
+                    println!("Processing task {i}");
                     counter_clone.fetch_add(1, Ordering::SeqCst);
                     Ok(())
                 })
@@ -262,7 +262,7 @@ mod tests {
                     })
                     .await
                     .expect("Submit should succeed");
-                println!("Submitted task {}", i);
+                println!("Submitted task {i}");
             }));
         }
         for task in tasks {
@@ -278,10 +278,10 @@ mod tests {
         });
 
         match tokio::time::timeout(Duration::from_millis(500), submit_task).await {
-            Ok(Ok(_)) => {
+            Ok(Ok(())) => {
                 println!("Successfully submitted 33rd task");
             }
-            Ok(Err(e)) => panic!("Submit failed unexpectedly: {}", e),
+            Ok(Err(e)) => panic!("Submit failed unexpectedly: {e}"),
             Err(_) => panic!("Submit timed out, likely blocked due to backpressure not resolving"),
         }
 
@@ -318,7 +318,7 @@ mod tests {
         sleep(Duration::from_millis(200)).await;
 
         let final_count = counter.load(Ordering::SeqCst);
-        println!("Final count after shutdown: {}", final_count);
+        println!("Final count after shutdown: {final_count}");
         assert!(final_count <= 2);
     }
 

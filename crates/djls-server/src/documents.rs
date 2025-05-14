@@ -4,7 +4,7 @@ use anyhow::anyhow;
 use anyhow::Result;
 use djls_project::TemplateTags;
 use salsa::Database;
-use tower_lsp_server::lsp_types::*;
+use tower_lsp_server::lsp_types::{CompletionItem, CompletionItemKind, CompletionResponse, DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams, Documentation, InsertTextFormat, MarkupContent, MarkupKind, Position, Range, TextDocumentContentChangeEvent};
 
 #[derive(Debug, Default)]
 pub struct Store {
@@ -135,7 +135,7 @@ impl Store {
                     documentation: tag.doc().as_ref().map(|doc| {
                         Documentation::MarkupContent(MarkupContent {
                             kind: MarkupKind::Markdown,
-                            value: doc.to_string(),
+                            value: (*doc).to_string(),
                         })
                     }),
                     insert_text: Some(match context.closing_brace {
@@ -273,7 +273,7 @@ impl TextDocument {
 
             let closing_brace = if rest_trimmed.starts_with("%}") {
                 ClosingBrace::FullClose
-            } else if rest_trimmed.starts_with("}") {
+            } else if rest_trimmed.starts_with('}') {
                 ClosingBrace::PartialClose
             } else {
                 ClosingBrace::None
