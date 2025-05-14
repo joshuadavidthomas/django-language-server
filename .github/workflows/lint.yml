@@ -26,12 +26,6 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install nightly toolchain for rustfmt
-        uses: dtolnay/rust-toolchain@b3b07ba8b418998c39fb20f53e8b695cdcc8de1b
-        with:
-          toolchain: nightly
-          components: clippy,rustfmt
-
       - name: Install uv
         uses: astral-sh/setup-uv@6b9c6063abd6010835644d4c2e1bef4cf5cd0fca  # v6.0.1
         with:
@@ -44,8 +38,58 @@ jobs:
 
       - name: pre-commit
         run: |
-          SKIP=no-commit-to-branch \
+          SKIP=no-commit-to-branch,clippy,fmt,check \
           uv run --with pre-commit-uv pre-commit run \
             --all-files \
             --show-diff-on-failure \
             --color always
+  
+  rustfmt:
+    name: Rustfmt
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          
+      - name: Install nightly toolchain for rustfmt
+        uses: dtolnay/rust-toolchain@b3b07ba8b418998c39fb20f53e8b695cdcc8de1b
+        with:
+          toolchain: nightly
+          components: rustfmt
+          
+      - name: Run rustfmt
+        run: cargo +nightly fmt --all -- --check
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          
+      - name: Install stable toolchain with clippy
+        uses: dtolnay/rust-toolchain@b3b07ba8b418998c39fb20f53e8b695cdcc8de1b
+        with:
+          toolchain: stable
+          components: clippy
+          
+      - name: Run clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+  cargo-check:
+    name: Cargo Check
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@b3b07ba8b418998c39fb20f53e8b695cdcc8de1b
+        with:
+          toolchain: stable
+          
+      - name: Run cargo check
+        run: cargo check --all-targets --all-features
