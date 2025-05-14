@@ -6,3 +6,6 @@ publish = false
 
 [dependencies]
 pyo3-build-config = { workspace = true, features = ["resolve-config"] }
+
+[lints]
+workspace = true

@@ -23,6 +23,9 @@ thiserror = "2.0"
 tokio = { version = "1.42", features = ["full"] }
 tower-lsp-server = { version = "0.21", features = ["proposed"] }
 
+[workspace.lints.clippy]
+pedantic = "warn"
+
 [profile.dev.package]
 insta.opt-level = 3
 similar.opt-level = 3
