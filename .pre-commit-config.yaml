@@ -23,6 +23,14 @@ repos:
     - id: zizmor
   - repo: local
     hooks:
+      - id: clippy
+        name: cargo clippy
+        description: lint the package with "cargo clippy"
+        types:
+          - rust
+        language: rust
+        entry: cargo clippy
+        pass_filenames: false
       - id: fmt
         name: cargo fmt
         description: format files with "cargo fmt"
@@ -39,12 +47,4 @@ repos:
           - rust
         language: rust
         entry: cargo check
-        pass_filenames: false
-      - id: clippy
-        name: cargo clippy
-        description: check the package with "cargo clippy"
-        types:
-          - rust
-        language: rust
-        entry: cargo clippy
         pass_filenames: false
