@@ -42,7 +42,7 @@ jobs:
         uses: PyO3/maturin-action@aef21716ff3dcae8a1c301d23ec3e4446972a6e3  # v1.49.1
         with:
           target: ${{ matrix.platform.target }}
-          args: --release --out dist --find-interpreter --features extension-module
+          args: --release --out dist --find-interpreter --features extension-module --zig
           sccache: "true"
           manylinux: auto
 
@@ -78,7 +78,7 @@ jobs:
         uses: PyO3/maturin-action@aef21716ff3dcae8a1c301d23ec3e4446972a6e3  # v1.49.1
         with:
           target: ${{ matrix.platform.target }}
-          args: --release --out dist --find-interpreter --features extension-module
+          args: --release --out dist --find-interpreter --features extension-module --zig
           manylinux: musllinux_1_2
 
       - name: Upload wheels
@@ -110,7 +110,7 @@ jobs:
         uses: PyO3/maturin-action@aef21716ff3dcae8a1c301d23ec3e4446972a6e3  # v1.49.1
         with:
           target: ${{ matrix.platform.target }}
-          args: --release --out dist --find-interpreter --features extension-module
+          args: --release --out dist --find-interpreter --features extension-module --zig
           sccache: "true"
 
       - name: Upload wheels
@@ -141,7 +141,7 @@ jobs:
         uses: PyO3/maturin-action@aef21716ff3dcae8a1c301d23ec3e4446972a6e3  # v1.49.1
         with:
           target: ${{ matrix.platform.target }}
-          args: --release --out dist --find-interpreter --features extension-module
+          args: --release --out dist --find-interpreter --features extension-module --zig
           sccache: "true"
 
       - name: Upload wheels
