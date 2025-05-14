@@ -29,7 +29,7 @@ repos:
         types:
           - rust
         language: rust
-        entry: cargo clippy
+        entry: cargo +nightly clippy
         args:
           - --fix
         pass_filenames: false
@@ -48,5 +48,5 @@ repos:
         types:
           - rust
         language: rust
-        entry: cargo check
+        entry: cargo +nightly check
         pass_filenames: false
