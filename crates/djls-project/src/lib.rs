@@ -23,6 +23,7 @@ pub struct DjangoProject {
 }
 
 impl DjangoProject {
+    #[must_use]
     pub fn new(path: PathBuf) -> Self {
         Self {
             path,
@@ -64,17 +65,19 @@ impl DjangoProject {
                     Ok(())
                 }
                 Err(e) => {
-                    eprintln!("Failed to import Django: {}", e);
+                    eprintln!("Failed to import Django: {e}");
                     Err(e)
                 }
             }
         })
     }
 
+    #[must_use]
     pub fn template_tags(&self) -> Option<&TemplateTags> {
         self.template_tags.as_ref()
     }
 
+    #[must_use]
     pub fn path(&self) -> &Path {
         &self.path
     }
@@ -84,7 +87,7 @@ impl fmt::Display for DjangoProject {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "Project path: {}", self.path.display())?;
         if let Some(py_env) = &self.env {
-            write!(f, "{}", py_env)?;
+            write!(f, "{py_env}")?;
         }
         Ok(())
     }
@@ -141,7 +144,7 @@ mod tests {
 
         let project = DjangoProject::new(project_path.clone());
 
-        let display_str = format!("{}", project);
+        let display_str = format!("{project}");
         assert!(display_str.contains(&format!("Project path: {}", project_path.display())));
     }
 }

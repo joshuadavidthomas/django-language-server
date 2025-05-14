@@ -16,6 +16,7 @@ pub struct Parser {
 }
 
 impl Parser {
+    #[must_use]
     pub fn new(tokens: TokenStream) -> Self {
         Self {
             tokens,
@@ -36,7 +37,7 @@ impl Parser {
                 Err(err) => {
                     if !self.is_at_end() {
                         self.errors.push(err);
-                        self.synchronize()?
+                        self.synchronize()?;
                     }
                 }
             }
@@ -70,7 +71,7 @@ impl Parser {
         // Only treat Django comments as Comment nodes
         if open != "{#" {
             return self.parse_text();
-        };
+        }
 
         let token = self.peek_previous()?;
 
@@ -145,8 +146,9 @@ impl Parser {
         };
 
         let start = token.start().unwrap_or(0);
-        let offset = text.find(content.as_str()).unwrap_or(0) as u32;
-        let length = content.len() as u32;
+        let offset = u32::try_from(text.find(content.as_str()).unwrap_or(0))
+            .expect("Offset should fit in u32");
+        let length = u32::try_from(content.len()).expect("Content length should fit in u32");
         let span = Span::new(start + offset, length);
 
         Ok(Node::Text { content, span })
@@ -165,9 +167,21 @@ impl Parser {
         self.peek_at(-1)
     }
 
+    #[allow(clippy::cast_sign_loss)]
     fn peek_at(&self, offset: isize) -> Result<Token, ParserError> {
-        let index = self.current as isize + offset;
-        self.item_at(index as usize)
+        // Safely handle negative offsets
+        let index = if offset < 0 {
+            // Check if we would underflow
+            if self.current < offset.unsigned_abs() {
+                return Err(ParserError::stream_error(StreamError::BeforeStart));
+            }
+            self.current - offset.unsigned_abs()
+        } else {
+            // Safe addition since offset is positive
+            self.current + (offset as usize)
+        };
+
+        self.item_at(index)
     }
 
     fn item_at(&self, index: usize) -> Result<Token, ParserError> {
@@ -232,6 +246,7 @@ impl Parser {
 #[derive(Debug)]
 pub enum StreamError {
     AtBeginning,
+    BeforeStart,
     AtEnd,
     Empty,
     InvalidAccess,
@@ -501,7 +516,7 @@ mod tests {
             let mut parser = Parser::new(tokens);
             let (nodelist, errors) = parser.parse().unwrap();
             insta::assert_yaml_snapshot!(nodelist);
-            eprintln!("{:?}", errors);
+            eprintln!("{errors:?}");
             assert!(errors.is_empty());
         }
     }
@@ -636,7 +651,7 @@ mod tests {
             let (nodelist, errors) = parser.parse().unwrap();
 
             let offsets = nodelist.line_offsets();
-            eprintln!("{:?}", offsets);
+            eprintln!("{offsets:?}");
             assert_eq!(offsets.position_to_line_col(0), (1, 0)); // Start of line 1
             assert_eq!(offsets.position_to_line_col(6), (2, 0)); // Start of line 2
             assert!(errors.is_empty());

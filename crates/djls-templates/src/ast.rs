@@ -45,7 +45,7 @@ impl LineOffsets {
     }
 
     pub fn position_to_line_col(&self, position: usize) -> (usize, usize) {
-        let position = position as u32;
+        let position = u32::try_from(position).unwrap_or_default();
         let line = match self.0.binary_search(&position) {
             Ok(exact_line) => exact_line,    // Position is at start of this line
             Err(0) => 0,                     // Before first line start
@@ -108,19 +108,21 @@ impl Span {
         Self { start, length }
     }
 
-    pub fn start(&self) -> &u32 {
-        &self.start
+    #[allow(clippy::trivially_copy_pass_by_ref)]
+    pub fn start(&self) -> u32 {
+        self.start
     }
 
-    pub fn length(&self) -> &u32 {
-        &self.length
+    #[allow(clippy::trivially_copy_pass_by_ref)]
+    pub fn length(&self) -> u32 {
+        self.length
     }
 }
 
 impl From<Token> for Span {
     fn from(token: Token) -> Self {
         let start = token.start().unwrap_or(0);
-        let length = token.content().len() as u32;
+        let length = u32::try_from(token.content().len()).unwrap_or(0);
         Span::new(start, length)
     }
 }
@@ -201,14 +203,14 @@ mod tests {
                 // Variable starts after newline + "{{"
                 let (line, col) = nodelist
                     .line_offsets()
-                    .position_to_line_col(*span.start() as usize);
+                    .position_to_line_col(span.start() as usize);
                 assert_eq!(
                     (line, col),
                     (2, 0),
                     "Variable should start at line 2, col 3"
                 );
 
-                assert_eq!(*span.length(), 9, "Variable span should cover 'user.name'");
+                assert_eq!(span.length(), 9, "Variable span should cover 'user.name'");
             }
         }
     }

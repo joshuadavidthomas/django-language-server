@@ -36,7 +36,7 @@ impl From<ExitStatus> for i32 {
 impl fmt::Display for ExitStatus {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let msg = self.as_str();
-        write!(f, "{}", msg)
+        write!(f, "{msg}")
     }
 }
 
@@ -69,7 +69,7 @@ impl Exit {
 
     pub fn process_exit(self) -> ! {
         if let Some(message) = self.message {
-            println!("{}", message)
+            println!("{message}");
         }
         std::process::exit(self.status.as_raw())
     }
@@ -78,7 +78,7 @@ impl Exit {
     pub fn ok(self) -> Result<()> {
         match self.status {
             ExitStatus::Success => Ok(()),
-            _ => Err(self.into()),
+            ExitStatus::Error => Err(self.into()),
         }
     }
 
@@ -92,8 +92,8 @@ impl fmt::Display for Exit {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let status_str = self.status.as_str();
         match &self.message {
-            Some(msg) => write!(f, "{}: {}", status_str, msg),
-            None => write!(f, "{}", status_str),
+            Some(msg) => write!(f, "{status_str}: {msg}"),
+            None => write!(f, "{status_str}"),
         }
     }
 }

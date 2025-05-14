@@ -1,6 +1,3 @@
-default_language_version:
-  rust: "1.86"
-
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
@@ -21,30 +18,3 @@ repos:
     rev: v1.6.0
     hooks:
     - id: zizmor
-  - repo: local
-    hooks:
-      - id: fmt
-        name: cargo fmt
-        description: format files with "cargo fmt"
-        types:
-          - rust
-        language: rust
-        entry: cargo +nightly fmt
-        args:
-          - --
-      - id: check
-        name: cargo check
-        description: check the package for errors with "cargo check"
-        types:
-          - rust
-        language: rust
-        entry: cargo check
-        pass_filenames: false
-      - id: clippy
-        name: cargo clippy
-        description: check the package with "cargo clippy"
-        types:
-          - rust
-        language: rust
-        entry: cargo clippy
-        pass_filenames: false

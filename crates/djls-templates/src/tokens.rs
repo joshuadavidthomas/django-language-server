@@ -22,7 +22,7 @@ pub enum TokenType {
 }
 
 impl TokenType {
-    pub fn len(&self) -> Option<usize> {
+    pub fn len(&self) -> usize {
         match self {
             TokenType::DjangoBlock(s)
             | TokenType::DjangoVariable(s)
@@ -33,17 +33,18 @@ impl TokenType {
             | TokenType::ScriptTagClose(s)
             | TokenType::StyleTagOpen(s)
             | TokenType::StyleTagClose(s)
-            | TokenType::Text(s) => Some(s.len()),
-            TokenType::Comment(content, _, _) => Some(content.len()),
-            TokenType::Whitespace(n) => Some(*n),
-            TokenType::Newline => Some(1),
-            TokenType::Eof => Some(0),
+            | TokenType::Text(s) => s.len(),
+            TokenType::Comment(content, _, _) => content.len(),
+            TokenType::Whitespace(n) => *n,
+            TokenType::Newline => 1,
+            TokenType::Eof => 0,
         }
     }
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub struct Token {
+    #[allow(clippy::struct_field_names)]
     token_type: TokenType,
     line: usize,
     start: Option<usize>,
@@ -93,7 +94,7 @@ impl Token {
             | TokenType::StyleTagClose(s) => s.to_string(),
             TokenType::Whitespace(len) => " ".repeat(*len),
             TokenType::Newline => "\n".to_string(),
-            TokenType::Eof => "".to_string(),
+            TokenType::Eof => String::new(),
         }
     }
 
@@ -106,11 +107,12 @@ impl Token {
     }
 
     pub fn start(&self) -> Option<u32> {
-        self.start.map(|s| s as u32)
+        self.start
+            .map(|s| u32::try_from(s).expect("Start position should fit in u32"))
     }
 
-    pub fn length(&self) -> Option<u32> {
-        self.token_type.len().map(|l| l as u32)
+    pub fn length(&self) -> u32 {
+        u32::try_from(self.token_type.len()).expect("Token length should fit in u32")
     }
 
     pub fn is_token_type(&self, token_type: &TokenType) -> bool {

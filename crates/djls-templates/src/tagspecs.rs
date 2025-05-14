@@ -92,7 +92,7 @@ impl TagSpecs {
         Ok(TagSpecs(specs))
     }
 
-    /// Merge another TagSpecs into this one, with the other taking precedence
+    /// Merge another `TagSpecs` into this one, with the other taking precedence
     #[allow(dead_code)]
     pub fn merge(&mut self, other: TagSpecs) -> &mut Self {
         self.0.extend(other.0);
@@ -138,8 +138,7 @@ impl TagSpec {
                                 is_spec_node = true;
                             } else {
                                 return Err(format!(
-                                    "Invalid prefix '{}' resulted in empty tag name component.",
-                                    p
+                                    "Invalid prefix '{p}' resulted in empty tag name component."
                                 ));
                             }
                         } else {
@@ -163,10 +162,10 @@ impl TagSpec {
         // Otherwise, if it's a table, recurse into its children.
         if !is_spec_node {
             if let Some(table) = value.as_table() {
-                for (key, inner_value) in table.iter() {
+                for (key, inner_value) in table {
                     let new_prefix = match prefix {
                         None => key.clone(),
-                        Some(p) => format!("{}.{}", p, key),
+                        Some(p) => format!("{p}.{key}"),
                     };
                     Self::extract_specs(inner_value, Some(&new_prefix), specs)?;
                 }
@@ -244,14 +243,13 @@ mod tests {
         ];
 
         for tag in expected_tags {
-            assert!(specs.get(tag).is_some(), "{} tag should be present", tag);
+            assert!(specs.get(tag).is_some(), "{tag} tag should be present");
         }
 
         for tag in missing_tags {
             assert!(
                 specs.get(tag).is_none(),
-                "{} tag should not be present yet",
-                tag
+                "{tag} tag should not be present yet"
             );
         }
 
