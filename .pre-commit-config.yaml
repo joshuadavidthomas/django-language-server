@@ -30,6 +30,8 @@ repos:
           - rust
         language: rust
         entry: cargo clippy
+        args:
+          - --fix
         pass_filenames: false
       - id: fmt
         name: cargo fmt
