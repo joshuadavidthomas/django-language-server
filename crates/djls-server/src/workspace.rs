@@ -20,7 +20,7 @@ pub fn get_project_path(params: &InitializeParams) -> Option<PathBuf> {
 /// Converts a `file:` URI into an absolute `PathBuf`.
 fn uri_to_pathbuf(uri: &Uri) -> Option<PathBuf> {
     // Check if the scheme is "file"
-    if uri.scheme().map_or(true, |s| s.as_str() != "file") {
+    if uri.scheme().is_none_or(|s| s.as_str() != "file") {
         return None;
     }
 
