@@ -70,6 +70,7 @@ jobs:
       - name: Install Rust toolchain with clippy
         uses: dtolnay/rust-toolchain@b3b07ba8b418998c39fb20f53e8b695cdcc8de1b
         with:
+          toolchain: 1.86
           components: clippy
 
       - name: Run clippy
@@ -84,6 +85,8 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@b3b07ba8b418998c39fb20f53e8b695cdcc8de1b
+        with:
+          toolchain: 1.86
 
       - name: Run cargo check
         run: cargo check --all-targets --all-features
