@@ -96,22 +96,24 @@ impl LanguageServer for DjangoLanguageServer {
             workspace_folders: None, // Will use current_dir first anyway
             ..Default::default()
         };
-        
+
         // Use workspace's get_project_path to determine the project path
-        let has_project = if let Some(project_path) = crate::workspace::get_project_path(&init_params) {
-            self.with_session_mut(|session| {
-                // Load settings from the project path
-                let settings = djls_conf::Settings::new(&project_path).unwrap_or_else(|_| djls_conf::Settings::default());
-                *session.settings_mut() = settings;
-                
-                // Create and initialize the project
-                *session.project_mut() = Some(djls_project::DjangoProject::new(project_path));
-                true
-            })
-            .await
-        } else {
-            false
-        };
+        let has_project =
+            if let Some(project_path) = crate::workspace::get_project_path(&init_params) {
+                self.with_session_mut(|session| {
+                    // Load settings from the project path
+                    let settings = djls_conf::Settings::new(&project_path)
+                        .unwrap_or_else(|_| djls_conf::Settings::default());
+                    *session.settings_mut() = settings;
+
+                    // Create and initialize the project
+                    *session.project_mut() = Some(djls_project::DjangoProject::new(project_path));
+                    true
+                })
+                .await
+            } else {
+                false
+            };
 
         if has_project {
             self.client
