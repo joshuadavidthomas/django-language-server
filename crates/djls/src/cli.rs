@@ -33,7 +33,7 @@ pub fn run(args: Vec<String>) -> Result<()> {
         Err(e) => {
             let mut msg = e.to_string();
             if let Some(source) = e.source() {
-                msg += &format!(", caused by {}", source);
+                msg += &format!(", caused by {source}");
             }
             Exit::error().with_message(msg).process_exit()
         }

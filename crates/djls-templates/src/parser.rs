@@ -16,6 +16,7 @@ pub struct Parser {
 }
 
 impl Parser {
+    #[must_use]
     pub fn new(tokens: TokenStream) -> Self {
         Self {
             tokens,
@@ -36,7 +37,7 @@ impl Parser {
                 Err(err) => {
                     if !self.is_at_end() {
                         self.errors.push(err);
-                        self.synchronize()?
+                        self.synchronize()?;
                     }
                 }
             }
@@ -70,7 +71,7 @@ impl Parser {
         // Only treat Django comments as Comment nodes
         if open != "{#" {
             return self.parse_text();
-        };
+        }
 
         let token = self.peek_previous()?;
 
@@ -501,7 +502,7 @@ mod tests {
             let mut parser = Parser::new(tokens);
             let (nodelist, errors) = parser.parse().unwrap();
             insta::assert_yaml_snapshot!(nodelist);
-            eprintln!("{:?}", errors);
+            eprintln!("{errors:?}");
             assert!(errors.is_empty());
         }
     }
@@ -636,7 +637,7 @@ mod tests {
             let (nodelist, errors) = parser.parse().unwrap();
 
             let offsets = nodelist.line_offsets();
-            eprintln!("{:?}", offsets);
+            eprintln!("{offsets:?}");
             assert_eq!(offsets.position_to_line_col(0), (1, 0)); // Start of line 1
             assert_eq!(offsets.position_to_line_col(6), (2, 0)); // Start of line 2
             assert!(errors.is_empty());

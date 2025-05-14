@@ -1,7 +1,7 @@
-/// PyO3 entrypoint for the Django Language Server CLI.
+/// `PyO3` entrypoint for the Django Language Server CLI.
 ///
-/// This module provides a Python interface using PyO3 to solve Python runtime
-/// interpreter linking issues. The PyO3 approach avoids complexities with
+/// This module provides a Python interface using `PyO3` to solve Python runtime
+/// interpreter linking issues. The `PyO3` approach avoids complexities with
 /// static/dynamic linking when building binaries that interact with Python.
 mod args;
 mod cli;

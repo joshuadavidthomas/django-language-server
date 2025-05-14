@@ -31,7 +31,7 @@ pub fn setup_python_linking() {
     // Only link libpython explicitly if we are NOT building an extension module.
     if !is_extension_module {
         if let Some(lib_name) = &config.lib_name {
-            println!("cargo:rustc-link-lib=dylib={}", lib_name);
+            println!("cargo:rustc-link-lib=dylib={lib_name}");
         } else {
             // Warn only if linking is actually needed but we can't find the lib name
             println!("cargo:warning=Python library name not found in config (needed for non-extension module
@@ -43,9 +43,9 @@ builds).");
     // These are needed for test executables and potential future standalone binaries,
     // and generally harmless for extension modules.
     if let Some(lib_dir) = &config.lib_dir {
-        println!("cargo:rustc-link-search=native={}", lib_dir);
+        println!("cargo:rustc-link-search=native={lib_dir}");
         #[cfg(not(windows))]
-        println!("cargo:rustc-link-arg=-Wl,-rpath,{}", lib_dir);
+        println!("cargo:rustc-link-arg=-Wl,-rpath,{lib_dir}");
     } else {
         // Warn only if linking is actually needed but we can't find the lib dir
         if !is_extension_module {

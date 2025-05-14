@@ -79,10 +79,12 @@ impl Settings {
         Ok(settings)
     }
 
+    #[must_use]
     pub fn debug(&self) -> bool {
         self.debug
     }
 
+    #[must_use]
     pub fn venv_path(&self) -> Option<&str> {
         self.venv_path.as_deref()
     }

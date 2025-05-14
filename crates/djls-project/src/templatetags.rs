@@ -35,7 +35,7 @@ impl TemplateTags {
             let library_name = if module_name.is_empty() {
                 "builtins".to_string()
             } else {
-                module_name.split('.').last().unwrap_or("").to_string()
+                module_name.split('.').next_back().unwrap_or("").to_string()
             };
 
             tags.push(TemplateTag::new(tag_name, library_name, doc));

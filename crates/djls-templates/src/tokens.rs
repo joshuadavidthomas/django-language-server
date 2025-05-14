@@ -93,7 +93,7 @@ impl Token {
             | TokenType::StyleTagClose(s) => s.to_string(),
             TokenType::Whitespace(len) => " ".repeat(*len),
             TokenType::Newline => "\n".to_string(),
-            TokenType::Eof => "".to_string(),
+            TokenType::Eof => String::new(),
         }
     }
 

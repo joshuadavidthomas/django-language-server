@@ -104,7 +104,7 @@ impl Store {
 
     #[allow(dead_code)]
     pub fn is_version_valid(&self, uri: &str, version: i32) -> bool {
-        self.get_version(uri).map_or(false, |v| v == version)
+        self.get_version(uri) == Some(version)
     }
 
     pub fn get_completions(

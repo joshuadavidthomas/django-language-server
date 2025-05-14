@@ -23,6 +23,7 @@ impl Lexer {
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     pub fn tokenize(&mut self) -> Result<TokenStream, LexerError> {
         let mut tokens = TokenStream::default();
 
@@ -76,8 +77,8 @@ impl Lexer {
                             TokenType::ScriptTagOpen(tag)
                         } else if tag.starts_with("style") {
                             TokenType::StyleTagOpen(tag)
-                        } else if tag.ends_with("/") {
-                            TokenType::HtmlTagVoid(tag.trim_end_matches("/").to_string())
+                        } else if tag.ends_with('/') {
+                            TokenType::HtmlTagVoid(tag.trim_end_matches('/').to_string())
                         } else {
                             TokenType::HtmlTagOpen(tag)
                         }
@@ -310,7 +311,7 @@ mod tests {
 
     #[test]
     fn test_tokenize_comments() {
-        let source = r#"<!-- HTML comment -->
+        let source = r"<!-- HTML comment -->
 {# Django comment #}
 <script>
     // JS single line comment
@@ -319,7 +320,7 @@ mod tests {
 </script>
 <style>
     /* CSS comment */
-</style>"#;
+</style>";
         let mut lexer = Lexer::new(source);
         let tokens = lexer.tokenize().unwrap();
         insta::assert_yaml_snapshot!(tokens);
@@ -368,11 +369,11 @@ mod tests {
 
     #[test]
     fn test_tokenize_nested_delimiters() {
-        let source = r#"{{ user.name }}
+        let source = r"{{ user.name }}
 {% if true %}
 {# comment #}
 <!-- html comment -->
-<div>text</div>"#;
+<div>text</div>";
         assert!(Lexer::new(source).tokenize().is_ok());
     }
 
