@@ -1,5 +1,6 @@
 use std::env::VarError;
 use std::path::PathBuf;
+
 use which::Error as WhichError;
 
 pub fn find_executable(name: &str) -> Result<PathBuf, WhichError> {
@@ -26,10 +27,11 @@ pub fn env_var(key: &str) -> Result<String, VarError> {
 
 #[cfg(test)]
 pub mod mock {
-    use super::*;
     use std::cell::RefCell;
     use std::collections::HashMap;
     use std::thread_local;
+
+    use super::*;
 
     thread_local! {
         static MOCK_EXEC_RESULTS: RefCell<HashMap<String, Result<PathBuf, WhichError>>> = RefCell::new(HashMap::new());
@@ -95,11 +97,16 @@ pub mod mock {
 
 #[cfg(test)]
 mod tests {
-    use super::mock::{self as sys_mock, MockGuard};
-    use super::*;
     use std::env::VarError;
     use std::path::PathBuf;
+
     use which::Error as WhichError;
+
+    use super::mock::MockGuard;
+    use super::mock::{
+        self as sys_mock,
+    };
+    use super::*;
 
     #[test]
     fn test_exec_mock_path_retrieval() {

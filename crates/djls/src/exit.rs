@@ -1,6 +1,7 @@
-use anyhow::Result;
 use std::error::Error;
 use std::fmt;
+
+use anyhow::Result;
 
 type ExitMessage = Option<String>;
 

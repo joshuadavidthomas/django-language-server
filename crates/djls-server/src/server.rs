@@ -1,10 +1,13 @@
-use crate::queue::Queue;
-use crate::session::Session;
 use std::sync::Arc;
+
 use tokio::sync::RwLock;
 use tower_lsp_server::jsonrpc::Result as LspResult;
 use tower_lsp_server::lsp_types::*;
-use tower_lsp_server::{Client, LanguageServer};
+use tower_lsp_server::Client;
+use tower_lsp_server::LanguageServer;
+
+use crate::queue::Queue;
+use crate::session::Session;
 
 const SERVER_NAME: &str = "Django Language Server";
 const SERVER_VERSION: &str = "0.1.0";

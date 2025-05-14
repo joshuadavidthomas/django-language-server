@@ -1,8 +1,10 @@
-use crate::args::Args;
-use crate::commands::{Command, DjlsCommand};
-use crate::exit::Exit;
 use anyhow::Result;
 use clap::Parser;
+
+use crate::args::Args;
+use crate::commands::Command;
+use crate::commands::DjlsCommand;
+use crate::exit::Exit;
 
 /// Main CLI structure that defines the command-line interface
 #[derive(Parser)]

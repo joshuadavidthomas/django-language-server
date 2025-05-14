@@ -1,5 +1,7 @@
+use std::ops::Deref;
+use std::ops::DerefMut;
+
 use serde::Serialize;
-use std::ops::{Deref, DerefMut};
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub enum TokenType {

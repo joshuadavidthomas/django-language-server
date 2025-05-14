@@ -1,8 +1,10 @@
-use anyhow::Result;
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
+
+use anyhow::Result;
+use serde::Deserialize;
+use serde::Serialize;
 use thiserror::Error;
 use toml::Value;
 
@@ -184,8 +186,9 @@ pub struct EndTag {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::fs;
+
+    use super::*;
 
     #[test]
     fn test_can_load_builtins() -> Result<(), anyhow::Error> {

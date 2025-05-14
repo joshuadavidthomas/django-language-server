@@ -1,6 +1,8 @@
-use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyList};
 use std::ops::Deref;
+
+use pyo3::prelude::*;
+use pyo3::types::PyDict;
+use pyo3::types::PyList;
 
 #[derive(Debug, Default, Clone)]
 pub struct TemplateTags(Vec<TemplateTag>);

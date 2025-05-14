@@ -1,6 +1,9 @@
-use crate::tokens::{Token, TokenStream, TokenType};
 use serde::Serialize;
 use thiserror::Error;
+
+use crate::tokens::Token;
+use crate::tokens::TokenStream;
+use crate::tokens::TokenType;
 
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct Ast {

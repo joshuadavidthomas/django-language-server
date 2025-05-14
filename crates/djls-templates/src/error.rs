@@ -1,9 +1,11 @@
-use crate::ast::{AstError, Span};
-use crate::lexer::LexerError;
-use crate::parser::ParserError;
 use serde::Serialize;
 use thiserror::Error;
 use tower_lsp_server::lsp_types;
+
+use crate::ast::AstError;
+use crate::ast::Span;
+use crate::lexer::LexerError;
+use crate::parser::ParserError;
 
 #[derive(Debug, Error, Serialize)]
 pub enum TemplateError {

@@ -29,7 +29,7 @@ repos:
         types:
           - rust
         language: rust
-        entry: cargo fmt
+        entry: cargo +nightly fmt
         args:
           - --
       - id: check
