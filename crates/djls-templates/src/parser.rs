@@ -148,8 +148,7 @@ impl Parser {
         let start = token.start().unwrap_or(0);
         let offset = u32::try_from(text.find(content.as_str()).unwrap_or(0))
             .expect("Offset should fit in u32");
-        let length = u32::try_from(content.len())
-            .expect("Content length should fit in u32");
+        let length = u32::try_from(content.len()).expect("Content length should fit in u32");
         let span = Span::new(start + offset, length);
 
         Ok(Node::Text { content, span })
@@ -181,7 +180,7 @@ impl Parser {
             // Safe addition since offset is positive
             self.current + (offset as usize)
         };
-        
+
         self.item_at(index)
     }
 
@@ -247,7 +246,7 @@ impl Parser {
 #[derive(Debug)]
 pub enum StreamError {
     AtBeginning,
-    BeforeStart,  // Added to match the usage in peek_at
+    BeforeStart,
     AtEnd,
     Empty,
     InvalidAccess,

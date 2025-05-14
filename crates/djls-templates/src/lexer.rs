@@ -195,7 +195,7 @@ impl Lexer {
             // Safe addition since offset is positive
             self.current + (offset as usize)
         };
-        
+
         self.item_at(index)
     }
 
@@ -206,7 +206,10 @@ impl Lexer {
             // much easier
             Ok('\0')
         } else {
-            self.source.chars().nth(index).ok_or(LexerError::InvalidCharacterAccess)
+            self.source
+                .chars()
+                .nth(index)
+                .ok_or(LexerError::InvalidCharacterAccess)
         }
     }
 
