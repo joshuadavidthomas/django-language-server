@@ -1,5 +1,4 @@
 use std::sync::Arc;
-
 use tokio::sync::RwLock;
 use tower_lsp_server::jsonrpc::Result as LspResult;
 use tower_lsp_server::lsp_types::CompletionOptions;
@@ -24,7 +23,10 @@ use tower_lsp_server::lsp_types::WorkspaceFoldersServerCapabilities;
 use tower_lsp_server::lsp_types::WorkspaceServerCapabilities;
 use tower_lsp_server::Client;
 use tower_lsp_server::LanguageServer;
+use tower_lsp_server::LspService;
+use tower_lsp_server::Server;
 
+use anyhow::Result;
 use crate::queue::Queue;
 use crate::session::Session;
 
@@ -45,6 +47,28 @@ impl DjangoLanguageServer {
             session: Arc::new(RwLock::new(Session::default())),
             queue: Queue::new(),
         }
+    }
+
+    /// Run the language server with a single-threaded tokio runtime.
+    ///
+    /// This method creates and manages the tokio runtime internally,
+    /// providing a synchronous API to the rest of the application.
+    pub fn run_sync() -> Result<()> {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+
+        runtime.block_on(async {
+            let stdin = tokio::io::stdin();
+            let stdout = tokio::io::stdout();
+
+            let (service, socket) = LspService::build(DjangoLanguageServer::new).finish();
+
+            Server::new(stdin, stdout, socket).serve(service).await;
+            
+            Ok(())
+        })
     }
 
     pub async fn with_session<R>(&self, f: impl FnOnce(&Session) -> R) -> R {

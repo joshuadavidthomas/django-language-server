@@ -43,10 +43,9 @@ type TaskClosure = Box<dyn FnOnce() -> TaskFuture + Send + 'static>;
 /// to a dedicated worker task which executes them one at a time in the order
 /// they were received. This ensures sequential processing of background tasks.
 ///
-/// The queue is cloneable (`Arc`-based internally), allowing multiple producers
-/// to submit tasks concurrently.
+/// The queue is cloneable, allowing multiple producers to submit tasks concurrently.
 ///
-/// Shutdown is handled gracefully when the last `Queue` instance is dropped.
+/// The queue structure with an internal arc for shared ownership
 #[derive(Clone)]
 pub struct Queue {
     inner: Arc<QueueInner>,
