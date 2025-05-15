@@ -20,8 +20,17 @@ nox SESSION *ARGS:
 bumpver *ARGS:
     uv run --with bumpver bumpver {{ ARGS }}
 
+check *ARGS:
+    cargo check {{ ARGS }}
+
 clean:
     cargo clean
+
+clippy:
+    cargo clippy --all-targets --all-features -- -D warnings
+
+fmt *ARGS:
+    cargo +nightly fmt {{ ARGS }}
 
 # run pre-commit on all files
 lint:
