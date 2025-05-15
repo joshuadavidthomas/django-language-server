@@ -302,7 +302,6 @@ impl LanguageServer for DjangoLanguageServer {
             .with_session(|session| {
                 if let Some(project) = session.project() {
                     if let Some(tags) = project.template_tags() {
-                        // Get a database instance directly
                         let db = session.db();
                         return session.documents().get_completions(
                             &db,
