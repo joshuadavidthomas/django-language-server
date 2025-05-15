@@ -262,7 +262,7 @@ impl LanguageServer for DjangoLanguageServer {
             .await;
 
         self.with_session_mut(|session| {
-            let db = session.db_handle().db();
+            let db = session.db();
             session.documents_mut().handle_did_open(&db, &params);
         })
         .await;
@@ -277,7 +277,7 @@ impl LanguageServer for DjangoLanguageServer {
             .await;
 
         self.with_session_mut(|session| {
-            let db = session.db_handle().db();
+            let db = session.db();
             let _ = session.documents_mut().handle_did_change(&db, &params);
         })
         .await;
@@ -302,8 +302,8 @@ impl LanguageServer for DjangoLanguageServer {
             .with_session(|session| {
                 if let Some(project) = session.project() {
                     if let Some(tags) = project.template_tags() {
-                        // Get a database instance from the handle
-                        let db = session.db_handle().db();
+                        // Get a database instance directly
+                        let db = session.db();
                         return session.documents().get_completions(
                             &db,
                             params.text_document_position.text_document.uri.as_str(),
