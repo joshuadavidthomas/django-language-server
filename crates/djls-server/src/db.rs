@@ -24,9 +24,7 @@ use salsa::Database;
 /// });
 /// ```
 #[derive(Clone, Default)]
-pub struct ServerDatabaseHandle {
-    handle: salsa::StorageHandle<ServerDatabase>,
-}
+pub struct ServerDatabaseHandle(salsa::StorageHandle<ServerDatabase>);
 
 impl ServerDatabaseHandle {
     /// Create a new thread-safe database handle
@@ -34,9 +32,7 @@ impl ServerDatabaseHandle {
     /// This creates a handle that can be safely shared between threads and cloned
     /// to create new references to the same underlying database storage.
     pub fn new() -> Self {
-        Self {
-            handle: salsa::StorageHandle::new(None),
-        }
+        Self(salsa::StorageHandle::new(None))
     }
 
     /// Get a database instance from this handle
@@ -45,7 +41,7 @@ impl ServerDatabaseHandle {
     /// to query and update data in the database. The database can be cloned
     /// cheaply as it's just a reference to the underlying storage.
     pub fn db(&self) -> ServerDatabase {
-        let storage = self.handle.clone().into_storage();
+        let storage = self.0.clone().into_storage();
         ServerDatabase { storage }
     }
 }
