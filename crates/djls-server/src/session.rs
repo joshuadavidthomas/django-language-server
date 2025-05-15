@@ -12,7 +12,7 @@ pub struct Session {
     project: Option<DjangoProject>,
     documents: Store,
     settings: Settings,
-    
+
     /// A thread-safe Salsa database handle that can be shared between threads.
     ///
     /// This implements the insight from [this Salsa Zulip discussion](https://salsa.zulipchat.com/#narrow/channel/145099-Using-Salsa/topic/.E2.9C.94.20Advice.20on.20using.20salsa.20from.20Sync.20.2B.20Send.20context/with/495497515)
