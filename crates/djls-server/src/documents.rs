@@ -177,7 +177,7 @@ pub struct TextDocument {
 impl TextDocument {
     pub fn from_did_open_params(db: &dyn Database, params: &DidOpenTextDocumentParams) -> Self {
         let uri = params.text_document.uri.to_string();
-        let contents = params.text_document.text.clone(); // Need to clone here since we don't own params
+        let contents = params.text_document.text.clone();
         let version = params.text_document.version;
         let language_id = LanguageId::from(params.text_document.language_id.as_str());
 
