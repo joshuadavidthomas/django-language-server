@@ -25,13 +25,6 @@ pub struct Store {
 }
 
 impl Store {
-    pub fn new() -> Self {
-        Self {
-            documents: HashMap::new(),
-            versions: HashMap::new(),
-        }
-    }
-
     pub fn handle_did_open(&mut self, db: &dyn Database, params: &DidOpenTextDocumentParams) {
         let uri = params.text_document.uri.to_string();
         let version = params.text_document.version;

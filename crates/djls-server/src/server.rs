@@ -24,12 +24,9 @@ use tower_lsp_server::lsp_types::WorkspaceFoldersServerCapabilities;
 use tower_lsp_server::lsp_types::WorkspaceServerCapabilities;
 use tower_lsp_server::Client;
 use tower_lsp_server::LanguageServer;
-use tower_lsp_server::LspService;
-use tower_lsp_server::Server;
 
 use crate::queue::Queue;
 use crate::session::Session;
-use anyhow::Result;
 
 const SERVER_NAME: &str = "Django Language Server";
 const SERVER_VERSION: &str = "0.1.0";
