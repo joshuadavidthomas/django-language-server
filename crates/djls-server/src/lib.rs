@@ -5,10 +5,11 @@ mod server;
 mod session;
 mod workspace;
 
-use crate::server::DjangoLanguageServer;
 use anyhow::Result;
 use tower_lsp_server::LspService;
 use tower_lsp_server::Server;
+
+use crate::server::DjangoLanguageServer;
 
 pub fn run() -> Result<()> {
     let runtime = tokio::runtime::Builder::new_current_thread()
