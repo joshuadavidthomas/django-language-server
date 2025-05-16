@@ -20,9 +20,6 @@ use tower_lsp_server::lsp_types::TextDocumentContentChangeEvent;
 
 #[derive(Debug, Default)]
 pub struct Store {
-    // TODO: Potential future optimization - Since Store is always accessed through 
-    // Session which already has a lock, we could potentially use a more efficient
-    // non-thread-safe HashMap implementation here if profiling shows a benefit.
     documents: HashMap<String, TextDocument>,
     versions: HashMap<String, i32>,
 }

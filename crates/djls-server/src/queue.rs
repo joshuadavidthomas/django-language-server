@@ -7,21 +7,24 @@ use anyhow::Result;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 
-/// Type alias for a type-erased, pinned, heap-allocated future
+/// Type alias for a type-erased, pinned, heap-allocated, Send-able future
 /// that resolves to `Result<()>`.
 ///
 /// This allows storing different concrete `Future` types (resulting from
 /// various `async` blocks) in a uniform way, suitable for sending over a channel
-/// or storing in collections, as long as they produce the expected `Result<()>`.
+/// or storing in collections, as long as they meet the `Send` bound and
+/// produce the expected `Result<()>`.
 ///
 /// - `Pin`: Ensures the `Future`'s memory location is stable, which is often
 ///   required for self-referential `async` blocks.
 /// - `Box`: Allocates the `Future` on the heap.
 /// - `dyn Future`: Type erasure - hides the specific concrete `Future` type.
-/// - `+ Send`: Required by the LSP trait bounds, even in our single-threaded runtime.
+/// - `+ Send`: Ensures the `Future` can be safely sent across threads and required
+///    by the tower-lsp-server LSP server trait bounds, even in our single-threaded
+///    runtime.
 type TaskFuture = Pin<Box<dyn Future<Output = Result<()>> + Send>>;
 
-/// Type alias for a type-erased, heap-allocated closure that,
+/// Type alias for a type-erased, heap-allocated, Send-able closure that,
 /// when called, returns a `TaskFuture`.
 ///
 /// This represents a unit of work that can be sent to the queue's worker task.
@@ -32,7 +35,9 @@ type TaskFuture = Pin<Box<dyn Future<Output = Result<()>> + Send>>;
 /// - `dyn FnOnce()`: Type erasure - hides the specific closure type. It takes no
 ///   arguments.
 /// - `-> TaskFuture`: Specifies that calling the closure produces the type-erased future.
-/// - `+ Send + 'static`: Required for compatibility with our async runtime and LSP traits.
+/// - `+ Send + 'static`: Ensures the closure itself can be safely sent across
+///   threads and has a static lifetime (doesn't borrow short-lived data). Required
+///   for compatibility with our async runtime and LSP traits.
 type TaskClosure = Box<dyn FnOnce() -> TaskFuture + Send + 'static>;
 
 /// A simple asynchronous task queue for sequential execution.
@@ -44,12 +49,14 @@ type TaskClosure = Box<dyn FnOnce() -> TaskFuture + Send + 'static>;
 /// The queue runs within our single-threaded runtime but maintains compatibility
 /// with the Send+Sync requirements of the LSP. This provides the benefits of
 /// simpler execution while maintaining the required trait bounds.
+///
+/// Shutdown is handled gracefully when the last `Queue` instance is dropped.
 #[derive(Clone)]
 pub struct Queue {
     inner: Arc<QueueInner>,
 }
 
-/// Internal state of the queue.
+/// Internal state of the queue, managed by an Arc for shared ownership.
 struct QueueInner {
     /// The sender half of the MPSC channel used to send tasks (as closures)
     /// to the worker task.

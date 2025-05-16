@@ -3,8 +3,6 @@ use salsa::Database;
 #[salsa::db]
 #[derive(Clone, Default)]
 pub struct ServerDatabase {
-    // We need to use Salsa's thread-safe storage approach even in our single-threaded runtime
-    // because the DjangoLanguageServer must implement Send+Sync for LSP compatibility
     storage: salsa::Storage<Self>,
 }
 

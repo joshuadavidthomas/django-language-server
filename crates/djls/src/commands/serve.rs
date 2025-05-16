@@ -1,7 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
 use clap::ValueEnum;
-use djls_server::DjangoLanguageServer;
 
 use crate::args::Args;
 use crate::commands::Command;
@@ -21,13 +20,14 @@ enum ConnectionType {
 
 impl Command for Serve {
     fn execute(&self, _args: &Args) -> Result<Exit> {
-        // Use the synchronous API that internally manages the tokio runtime
-        DjangoLanguageServer::run_sync()?;
-        
+        djls_server::run()?;
+
         // Exit here instead of returning control to the `Cli`, for ... reasons?
         // If we don't exit here, ~~~ something ~~~ goes on with PyO3 (I assume)
         // or the Python entrypoint wrapper to indefinitely hang the CLI and keep
         // the process running
-        Ok(Exit::success().with_message("Server completed successfully"))
+        Exit::success()
+            .with_message("Server completed successfully")
+            .process_exit()
     }
 }

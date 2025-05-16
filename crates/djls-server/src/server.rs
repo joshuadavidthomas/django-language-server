@@ -1,4 +1,5 @@
 use std::sync::Arc;
+
 use tokio::sync::RwLock;
 use tower_lsp_server::jsonrpc::Result as LspResult;
 use tower_lsp_server::lsp_types::CompletionOptions;
@@ -26,9 +27,9 @@ use tower_lsp_server::LanguageServer;
 use tower_lsp_server::LspService;
 use tower_lsp_server::Server;
 
-use anyhow::Result;
 use crate::queue::Queue;
 use crate::session::Session;
+use anyhow::Result;
 
 const SERVER_NAME: &str = "Django Language Server";
 const SERVER_VERSION: &str = "0.1.0";
@@ -44,42 +45,9 @@ impl DjangoLanguageServer {
     pub fn new(client: Client) -> Self {
         Self {
             client,
-            // We need to use Arc<RwLock<>> for thread-safety due to LSP requirements
-            // even though we're using a single-threaded runtime
             session: Arc::new(RwLock::new(Session::default())),
             queue: Queue::new(),
         }
-    }
-
-    /// Run the language server with a single-threaded tokio runtime.
-    ///
-    /// This method creates and manages the tokio runtime internally,
-    /// providing a synchronous API to the rest of the application.
-    ///
-    /// Note: For CPU-intensive operations, consider using `tokio::task::spawn_blocking` 
-    /// to offload work to a worker thread so it doesn't block the main async thread.
-    /// Example:
-    /// ```ignore
-    /// tokio::task::spawn_blocking(move || {
-    ///     // CPU-intensive work here, like template parsing
-    /// }).await
-    /// ```
-    pub fn run_sync() -> Result<()> {
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-
-        runtime.block_on(async {
-            let stdin = tokio::io::stdin();
-            let stdout = tokio::io::stdout();
-
-            let (service, socket) = LspService::build(DjangoLanguageServer::new).finish();
-
-            Server::new(stdin, stdout, socket).serve(service).await;
-            
-            Ok(())
-        })
     }
 
     pub async fn with_session<R>(&self, f: impl FnOnce(&Session) -> R) -> R {
