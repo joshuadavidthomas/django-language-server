@@ -44,6 +44,8 @@ impl DjangoLanguageServer {
     pub fn new(client: Client) -> Self {
         Self {
             client,
+            // We need to use Arc<RwLock<>> for thread-safety due to LSP requirements
+            // even though we're using a single-threaded runtime
             session: Arc::new(RwLock::new(Session::default())),
             queue: Queue::new(),
         }
@@ -53,6 +55,15 @@ impl DjangoLanguageServer {
     ///
     /// This method creates and manages the tokio runtime internally,
     /// providing a synchronous API to the rest of the application.
+    ///
+    /// Note: For CPU-intensive operations, consider using `tokio::task::spawn_blocking` 
+    /// to offload work to a worker thread so it doesn't block the main async thread.
+    /// Example:
+    /// ```ignore
+    /// tokio::task::spawn_blocking(move || {
+    ///     // CPU-intensive work here, like template parsing
+    /// }).await
+    /// ```
     pub fn run_sync() -> Result<()> {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
