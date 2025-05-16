@@ -19,7 +19,9 @@ use tokio::sync::oneshot;
 ///   required for self-referential `async` blocks.
 /// - `Box`: Allocates the `Future` on the heap.
 /// - `dyn Future`: Type erasure - hides the specific concrete `Future` type.
-/// - `+ Send`: Ensures the `Future` can be safely sent across threads.
+/// - `+ Send`: Ensures the `Future` can be safely sent across threads and required
+///   by the tower-lsp-server LSP server trait bounds, even in our single-threaded
+///   runtime.
 type TaskFuture = Pin<Box<dyn Future<Output = Result<()>> + Send>>;
 
 /// Type alias for a type-erased, heap-allocated, Send-able closure that,
@@ -34,7 +36,8 @@ type TaskFuture = Pin<Box<dyn Future<Output = Result<()>> + Send>>;
 ///   arguments.
 /// - `-> TaskFuture`: Specifies that calling the closure produces the type-erased future.
 /// - `+ Send + 'static`: Ensures the closure itself can be safely sent across
-///   threads and has a static lifetime (doesn't borrow short-lived data).
+///   threads and has a static lifetime (doesn't borrow short-lived data). Required
+///   for compatibility with our async runtime and LSP traits.
 type TaskClosure = Box<dyn FnOnce() -> TaskFuture + Send + 'static>;
 
 /// A simple asynchronous task queue for sequential execution.
@@ -43,8 +46,9 @@ type TaskClosure = Box<dyn FnOnce() -> TaskFuture + Send + 'static>;
 /// to a dedicated worker task which executes them one at a time in the order
 /// they were received. This ensures sequential processing of background tasks.
 ///
-/// The queue is cloneable (`Arc`-based internally), allowing multiple producers
-/// to submit tasks concurrently.
+/// The queue runs within our single-threaded runtime but maintains compatibility
+/// with the Send+Sync requirements of the LSP. This provides the benefits of
+/// simpler execution while maintaining the required trait bounds.
 ///
 /// Shutdown is handled gracefully when the last `Queue` instance is dropped.
 #[derive(Clone)]

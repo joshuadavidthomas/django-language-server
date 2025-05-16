@@ -6,7 +6,6 @@ mod tagspecs;
 mod tokens;
 
 use ast::Ast;
-pub use error::to_lsp_diagnostic;
 pub use error::QuickFix;
 pub use error::TemplateError;
 use lexer::Lexer;

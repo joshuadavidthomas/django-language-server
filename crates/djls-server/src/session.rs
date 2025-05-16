@@ -19,6 +19,10 @@ pub struct Session {
     /// where we're using the `StorageHandle` to create a thread-safe handle that can be
     /// shared between threads. When we need to use it, we clone the handle to get a new reference.
     ///
+    /// This handle allows us to create database instances as needed.
+    /// Even though we're using a single-threaded runtime, we still need
+    /// this to be thread-safe because of LSP trait requirements.
+    ///
     /// Usage:
     /// ```rust,ignore
     /// // Use the StorageHandle in Session
@@ -41,20 +45,6 @@ pub struct Session {
 }
 
 impl Session {
-    pub fn new(client_capabilities: ClientCapabilities) -> Self {
-        Self {
-            client_capabilities: Some(client_capabilities),
-            project: None,
-            documents: Store::new(),
-            settings: Settings::default(),
-            db_handle: StorageHandle::new(None),
-        }
-    }
-
-    pub fn client_capabilities(&self) -> Option<&ClientCapabilities> {
-        self.client_capabilities.as_ref()
-    }
-
     pub fn client_capabilities_mut(&mut self) -> &mut Option<ClientCapabilities> {
         &mut self.client_capabilities
     }
@@ -81,14 +71,6 @@ impl Session {
 
     pub fn settings_mut(&mut self) -> &mut Settings {
         &mut self.settings
-    }
-
-    /// Get the raw database handle from the session
-    ///
-    /// Note: In most cases, you'll want to use `db()` instead to get a usable
-    /// database instance directly.
-    pub fn db_handle(&self) -> &StorageHandle<ServerDatabase> {
-        &self.db_handle
     }
 
     /// Get a database instance directly from the session
