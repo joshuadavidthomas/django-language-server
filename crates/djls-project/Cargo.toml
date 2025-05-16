@@ -10,8 +10,7 @@ default = []
 [dependencies]
 pyo3 = { workspace = true }
 salsa = { workspace = true }
-
-which = "7.0.1"
+which = { workspace = true}
 
 [build-dependencies]
 djls-dev = { workspace = true }

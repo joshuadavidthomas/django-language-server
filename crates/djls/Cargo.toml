@@ -20,10 +20,9 @@ djls-project = { workspace = true }
 djls-server = { workspace = true }
 
 anyhow = { workspace = true }
+clap = { workspace = true }
 pyo3 = { workspace = true }
 serde_json = { workspace = true }
-
-clap = { version = "4.5", features = ["derive"] }
 
 [build-dependencies]
 djls-dev = { workspace = true }

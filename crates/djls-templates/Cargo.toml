@@ -7,11 +7,11 @@ edition = "2021"
 anyhow = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
-toml = "0.8"
+toml = { workspace = true }
 
 [dev-dependencies]
-insta = { version = "1.42", features = ["yaml"] }
-tempfile = "3.19"
+insta = { workspace = true }
+tempfile = { workspace = true }
 
 [lints]
 workspace = true
