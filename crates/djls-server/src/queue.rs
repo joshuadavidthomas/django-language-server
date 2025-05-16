@@ -20,8 +20,8 @@ use tokio::sync::oneshot;
 /// - `Box`: Allocates the `Future` on the heap.
 /// - `dyn Future`: Type erasure - hides the specific concrete `Future` type.
 /// - `+ Send`: Ensures the `Future` can be safely sent across threads and required
-///    by the tower-lsp-server LSP server trait bounds, even in our single-threaded
-///    runtime.
+///   by the tower-lsp-server LSP server trait bounds, even in our single-threaded
+///   runtime.
 type TaskFuture = Pin<Box<dyn Future<Output = Result<()>> + Send>>;
 
 /// Type alias for a type-erased, heap-allocated, Send-able closure that,
