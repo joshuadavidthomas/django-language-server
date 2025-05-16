@@ -31,6 +31,8 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - **Internal**: Improved Python environment handling, including refactored activation logic.
 - **Internal**: Centralized Python linking build logic into a shared `djls-dev` crate to reduce duplication.
 - **Internal (djls-project)**: Started Salsa integration for incremental computation with database structure and initial Python environment discovery functionality.
+- Bumped Rust toolchain from 1.86 to 1.87
+- Bumped PyO3 to 0.25.
 
 ## [5.2.0a0]
 
