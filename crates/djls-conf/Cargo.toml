@@ -5,15 +5,14 @@ edition = "2021"
 
 [dependencies]
 anyhow = { workspace = true }
+config = { workspace = true }
+directories = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
-
-config = { version ="0.15", features = ["toml"] }
-directories = "6.0"
-toml = "0.8"
+toml = { workspace = true }
 
 [dev-dependencies]
-tempfile = "3.19"
+tempfile = { workspace = true }
 
 [lints]
 workspace = true

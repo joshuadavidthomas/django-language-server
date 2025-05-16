@@ -13,14 +13,13 @@ djls-project = { workspace = true }
 djls-templates = { workspace = true }
 
 anyhow = { workspace = true }
+percent-encoding = { workspace = true }
 pyo3 = { workspace = true }
 salsa = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-
-percent-encoding = "2.3.1"
-tokio = { version = "1.45.0", features = ["full"] }
-tower-lsp-server = { version = "0.21.1", features = ["proposed"] }
+tokio = { workspace = true }
+tower-lsp-server = { workspace = true }
 
 [build-dependencies]
 djls-dev = { workspace = true }
