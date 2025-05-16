@@ -10,24 +10,24 @@ djls-project = { path = "crates/djls-project" }
 djls-server = { path = "crates/djls-server" }
 djls-templates = { path = "crates/djls-templates" }
 
-anyhow = "1.0"
-async-trait = "0.1"
-clap = { version = "4.5", features = ["derive"] }
-config = { version ="0.15", features = ["toml"] }
-directories = "6.0"
-insta = { version = "1.42", features = ["yaml"] }
+anyhow = "1.0.98"
+async-trait = "0.1.88"
+clap = { version = "4.5.38", features = ["derive"] }
+config = { version ="0.15.5", features = ["toml"] }
+directories = "6.0.0"
+insta = { version = "1.43.1", features = ["yaml"] }
 percent-encoding = "2.3.1"
 pyo3 = "0.24"
 pyo3-build-config = { version = "0.24", features = ["resolve-config"] }
 salsa = { git = "https://github.com/salsa-rs/salsa.git", rev = "7edce6e248f35c8114b4b021cdb474a3fb2813b3" }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-tempfile = "3.19"
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.140"
+tempfile = "3.20.0"
 tokio = { version = "1.45.0", features = ["full"] }
-toml = "0.8"
+toml = "0.8.22"
 tower-lsp-server = { version = "0.21.1", features = ["proposed"] }
-thiserror = "2.0"
-which = "7.0.1"
+thiserror = "2.0.12"
+which = "7.0.3"
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }
