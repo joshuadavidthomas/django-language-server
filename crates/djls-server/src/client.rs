@@ -2,10 +2,9 @@ use std::fmt::Display;
 use std::sync::Arc;
 use std::sync::OnceLock;
 
+pub use messages::*;
 use tower_lsp_server::jsonrpc::Error;
 use tower_lsp_server::Client;
-
-pub use messages::*;
 
 static CLIENT: OnceLock<Arc<Client>> = OnceLock::new();
 
