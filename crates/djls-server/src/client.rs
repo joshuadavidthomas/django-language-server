@@ -5,7 +5,7 @@ use std::sync::OnceLock;
 use tower_lsp_server::jsonrpc::Error;
 use tower_lsp_server::Client;
 
-pub use messages::*;
+pub use crate::messages::*;
 
 static CLIENT: OnceLock<Arc<Client>> = OnceLock::new();
 
@@ -61,7 +61,9 @@ pub mod messages {
     use tower_lsp_server::lsp_types::MessageType;
     use tower_lsp_server::lsp_types::ShowDocumentParams;
 
-    use super::*;
+    use super::get_client;
+    use super::Display;
+    use super::Error;
 
     notify!(log_message, message_type: MessageType, message: impl Display + Send + 'static);
     notify!(show_message, message_type: MessageType, message: impl Display + Send + 'static);
@@ -73,7 +75,7 @@ pub mod diagnostics {
     use tower_lsp_server::lsp_types::Diagnostic;
     use tower_lsp_server::lsp_types::Uri;
 
-    use super::*;
+    use super::get_client;
 
     notify!(publish_diagnostics, uri: Uri, diagnostics: Vec<Diagnostic>, version: Option<i32>);
     notify_discard!(workspace_diagnostic_refresh,);
@@ -86,7 +88,8 @@ pub mod workspace {
     use tower_lsp_server::lsp_types::WorkspaceEdit;
     use tower_lsp_server::lsp_types::WorkspaceFolder;
 
-    use super::*;
+    use super::get_client;
+    use super::Error;
 
     request!(apply_edit, edit: WorkspaceEdit ; ApplyWorkspaceEditResponse);
     request!(configuration, items: Vec<ConfigurationItem> ; Vec<LSPAny>);
@@ -94,7 +97,7 @@ pub mod workspace {
 }
 
 pub mod editor {
-    use super::*;
+    use super::get_client;
 
     notify_discard!(code_lens_refresh,);
     notify_discard!(semantic_tokens_refresh,);
@@ -106,7 +109,7 @@ pub mod capabilities {
     use tower_lsp_server::lsp_types::Registration;
     use tower_lsp_server::lsp_types::Unregistration;
 
-    use super::*;
+    use super::get_client;
 
     notify_discard!(register_capability, registrations: Vec<Registration>);
     notify_discard!(unregister_capability, unregisterations: Vec<Unregistration>);
@@ -117,7 +120,7 @@ pub mod monitoring {
     use tower_lsp_server::lsp_types::ProgressToken;
     use tower_lsp_server::Progress;
 
-    use super::*;
+    use super::get_client;
 
     pub fn telemetry_event<S: Serialize + Send + 'static>(data: S) {
         if let Some(client) = get_client() {
@@ -136,7 +139,8 @@ pub mod protocol {
     use tower_lsp_server::lsp_types::notification::Notification;
     use tower_lsp_server::lsp_types::request::Request;
 
-    use super::*;
+    use super::get_client;
+    use super::Error;
 
     pub fn send_notification<N>(params: N::Params)
     where
