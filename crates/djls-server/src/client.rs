@@ -5,6 +5,8 @@ use std::sync::OnceLock;
 use tower_lsp_server::jsonrpc::Error;
 use tower_lsp_server::Client;
 
+pub use messages::*;
+
 static CLIENT: OnceLock<Arc<Client>> = OnceLock::new();
 
 pub fn init_client(client: Client) {
@@ -19,31 +21,37 @@ fn get_client() -> Option<Arc<Client>> {
 }
 
 macro_rules! notify {
-      ($method:ident, $($arg:expr),*) => {
-          if let Some(client) = get_client() {
-              tokio::spawn(async move {
-                  client.$method($($arg),*).await;
-              });
+      ($name:ident, $($param:ident: $type:ty),*) => {
+          pub fn $name($($param: $type),*) {
+              if let Some(client) = get_client() {
+                  tokio::spawn(async move {
+                      client.$name($($param),*).await;
+                  });
+              }
           }
       };
   }
 
 macro_rules! notify_discard {
-      ($method:ident, $($arg:expr),*) => {
-          if let Some(client) = get_client() {
-              tokio::spawn(async move {
-                  let _ = client.$method($($arg),*).await;
-              });
+      ($name:ident, $($param:ident: $type:ty),*) => {
+          pub fn $name($($param: $type),*) {
+              if let Some(client) = get_client() {
+                  tokio::spawn(async move {
+                      let _ = client.$name($($param),*).await;
+                  });
+              }
           }
       };
   }
 
 macro_rules! request {
-      ($method:ident, $($arg:expr),*) => {
-          if let Some(client) = get_client() {
-              client.$method($($arg),*).await
-          } else {
-              Err(Error::internal_error())
+        ($name:ident, $($param:ident: $type:ty),* ; $result:ty) => {
+          pub async fn $name($($param: $type),*) -> Result<$result, Error> {
+              if let Some(client) = get_client() {
+                  client.$name($($param),*).await
+              } else {
+                  Err(Error::internal_error())
+              }
           }
       };
   }
@@ -55,25 +63,10 @@ pub mod messages {
 
     use super::*;
 
-    pub fn log_message(message_type: MessageType, message: impl Display + Send + 'static) {
-        notify!(log_message, message_type, message);
-    }
-
-    pub fn show_message(message_type: MessageType, message: impl Display + Send + 'static) {
-        notify!(show_message, message_type, message);
-    }
-
-    pub async fn show_message_request(
-        message_type: MessageType,
-        message: impl Display + Send + 'static,
-        actions: Option<Vec<MessageActionItem>>,
-    ) -> Result<Option<MessageActionItem>, Error> {
-        request!(show_message_request, message_type, message, actions)
-    }
-
-    pub async fn show_document(params: ShowDocumentParams) -> Result<bool, Error> {
-        request!(show_document, params)
-    }
+    notify!(log_message, message_type: MessageType, message: impl Display + Send + 'static);
+    notify!(show_message, message_type: MessageType, message: impl Display + Send + 'static);
+    request!(show_message_request, message_type: MessageType, message: impl Display + Send + 'static, actions: Option<Vec<MessageActionItem>> ; Option<MessageActionItem>);
+    request!(show_document, params: ShowDocumentParams ; bool);
 }
 
 pub mod diagnostics {
@@ -82,21 +75,8 @@ pub mod diagnostics {
 
     use super::*;
 
-    pub fn publish_diagnostics(uri: Uri, diagnostics: Vec<Diagnostic>, version: Option<i32>) {
-        if let Some(client) = get_client() {
-            tokio::spawn(async move {
-                client.publish_diagnostics(uri, diagnostics, version).await;
-            });
-        }
-    }
-
-    pub fn workspace_diagnostic_refresh() {
-        if let Some(client) = get_client() {
-            tokio::spawn(async move {
-                let _ = client.workspace_diagnostic_refresh().await;
-            });
-        }
-    }
+    notify!(publish_diagnostics, uri: Uri, diagnostics: Vec<Diagnostic>, version: Option<i32>);
+    notify_discard!(workspace_diagnostic_refresh,);
 }
 
 pub mod workspace {
@@ -108,65 +88,18 @@ pub mod workspace {
 
     use super::*;
 
-    pub async fn apply_edit(edit: WorkspaceEdit) -> Result<ApplyWorkspaceEditResponse, Error> {
-        if let Some(client) = get_client() {
-            client.apply_edit(edit).await
-        } else {
-            Err(Error::internal_error())
-        }
-    }
-
-    pub async fn configuration(items: Vec<ConfigurationItem>) -> Result<Vec<LSPAny>, Error> {
-        if let Some(client) = get_client() {
-            client.configuration(items).await
-        } else {
-            Err(Error::internal_error())
-        }
-    }
-
-    pub async fn workspace_folders() -> Result<Option<Vec<WorkspaceFolder>>, Error> {
-        if let Some(client) = get_client() {
-            client.workspace_folders().await
-        } else {
-            Err(Error::internal_error())
-        }
-    }
+    request!(apply_edit, edit: WorkspaceEdit ; ApplyWorkspaceEditResponse);
+    request!(configuration, items: Vec<ConfigurationItem> ; Vec<LSPAny>);
+    request!(workspace_folders, ; Option<Vec<WorkspaceFolder>>);
 }
 
 pub mod editor {
     use super::*;
 
-    pub fn code_lens_refresh() {
-        if let Some(client) = get_client() {
-            tokio::spawn(async move {
-                let _ = client.code_lens_refresh().await;
-            });
-        }
-    }
-
-    pub fn semantic_tokens_refresh() {
-        if let Some(client) = get_client() {
-            tokio::spawn(async move {
-                let _ = client.semantic_tokens_refresh().await;
-            });
-        }
-    }
-
-    pub fn inline_value_refresh() {
-        if let Some(client) = get_client() {
-            tokio::spawn(async move {
-                let _ = client.inline_value_refresh().await;
-            });
-        }
-    }
-
-    pub fn inlay_hint_refresh() {
-        if let Some(client) = get_client() {
-            tokio::spawn(async move {
-                let _ = client.inlay_hint_refresh().await;
-            });
-        }
-    }
+    notify_discard!(code_lens_refresh,);
+    notify_discard!(semantic_tokens_refresh,);
+    notify_discard!(inline_value_refresh,);
+    notify_discard!(inlay_hint_refresh,);
 }
 
 pub mod capabilities {
@@ -175,21 +108,8 @@ pub mod capabilities {
 
     use super::*;
 
-    pub fn register_capability(registrations: Vec<Registration>) {
-        if let Some(client) = get_client() {
-            tokio::spawn(async move {
-                let _ = client.register_capability(registrations).await;
-            });
-        }
-    }
-
-    pub fn unregister_capability(unregisterations: Vec<Unregistration>) {
-        if let Some(client) = get_client() {
-            tokio::spawn(async move {
-                let _ = client.unregister_capability(unregisterations).await;
-            });
-        }
-    }
+    notify_discard!(register_capability, registrations: Vec<Registration>);
+    notify_discard!(unregister_capability, unregisterations: Vec<Unregistration>);
 }
 
 pub mod monitoring {
