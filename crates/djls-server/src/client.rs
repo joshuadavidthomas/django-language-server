@@ -5,7 +5,7 @@ use std::sync::OnceLock;
 use tower_lsp_server::jsonrpc::Error;
 use tower_lsp_server::Client;
 
-pub use crate::messages::*;
+pub use messages::*;
 
 static CLIENT: OnceLock<Arc<Client>> = OnceLock::new();
 
