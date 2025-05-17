@@ -20,40 +20,40 @@ fn get_client() -> Option<Arc<Client>> {
 }
 
 macro_rules! notify {
-      ($name:ident, $($param:ident: $type:ty),*) => {
-          pub fn $name($($param: $type),*) {
-              if let Some(client) = get_client() {
-                  tokio::spawn(async move {
-                      client.$name($($param),*).await;
-                  });
-              }
-          }
-      };
-  }
+    ($name:ident, $($param:ident: $type:ty),*) => {
+        pub fn $name($($param: $type),*) {
+            if let Some(client) = get_client() {
+                tokio::spawn(async move {
+                    client.$name($($param),*).await;
+                });
+            }
+        }
+    };
+}
 
 macro_rules! notify_discard {
-      ($name:ident, $($param:ident: $type:ty),*) => {
-          pub fn $name($($param: $type),*) {
-              if let Some(client) = get_client() {
-                  tokio::spawn(async move {
-                      let _ = client.$name($($param),*).await;
-                  });
-              }
-          }
-      };
-  }
+    ($name:ident, $($param:ident: $type:ty),*) => {
+        pub fn $name($($param: $type),*) {
+            if let Some(client) = get_client() {
+                tokio::spawn(async move {
+                    let _ = client.$name($($param),*).await;
+                });
+            }
+        }
+    };
+}
 
 macro_rules! request {
-        ($name:ident, $($param:ident: $type:ty),* ; $result:ty) => {
-          pub async fn $name($($param: $type),*) -> Result<$result, Error> {
-              if let Some(client) = get_client() {
-                  client.$name($($param),*).await
-              } else {
-                  Err(Error::internal_error())
-              }
-          }
-      };
-  }
+    ($name:ident, $($param:ident: $type:ty),* ; $result:ty) => {
+        pub async fn $name($($param: $type),*) -> Result<$result, Error> {
+            if let Some(client) = get_client() {
+                client.$name($($param),*).await
+            } else {
+                Err(Error::internal_error())
+            }
+        }
+    };
+}
 
 pub mod messages {
     use tower_lsp_server::lsp_types::MessageActionItem;
