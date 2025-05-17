@@ -19,6 +19,28 @@ fn get_client() -> Option<Arc<Client>> {
     CLIENT.get().cloned()
 }
 
+/// Generates a fire-and-forget notification function that spawns an async task.
+///
+/// This macro creates a wrapper function that:
+/// 1. Gets the global client instance
+/// 2. Spawns a new Tokio task that calls the client method asynchronously
+/// 3. Does not wait for completion or handle errors
+///
+/// # Usage
+/// ```
+/// notify!(log_message, message_type: MessageType, message: impl Display + Send + 'static);
+/// ```
+///
+/// # Expansion
+/// ```
+/// pub fn log_message(message_type: MessageType, message: impl Display + Send + 'static) {
+///     if let Some(client) = get_client() {
+///         tokio::spawn(async move {
+///             client.log_message(message_type, message).await;
+///         });
+///     }
+/// }
+/// ```
 macro_rules! notify {
     ($name:ident, $($param:ident: $type:ty),*) => {
         pub fn $name($($param: $type),*) {
@@ -31,6 +53,26 @@ macro_rules! notify {
     };
 }
 
+/// Generates a fire-and-forget notification function that spawns an async task and discards any errors.
+///
+/// Similar to `notify!`, but explicitly discards any errors returned by the client method.
+/// This is useful for methods that might return a Result but where you don't care about the outcome.
+///
+/// # Usage
+/// ```
+/// notify_discard!(code_lens_refresh,);
+/// ```
+///
+/// # Expansion
+/// ```
+/// pub fn code_lens_refresh() {
+///     if let Some(client) = get_client() {
+///         tokio::spawn(async move {
+///             let _ = client.code_lens_refresh().await;
+///         });
+///     }
+/// }
+/// ```
 macro_rules! notify_discard {
     ($name:ident, $($param:ident: $type:ty),*) => {
         pub fn $name($($param: $type),*) {
@@ -43,6 +85,30 @@ macro_rules! notify_discard {
     };
 }
 
+/// Generates an async request function that awaits a response from the client.
+///
+/// Unlike the notification macros, this creates a function that:
+/// 1. Is marked as `async` and must be awaited
+/// 2. Returns a `Result<T, Error>` with the response type
+/// 3. Fails with an internal error if the client is not available
+///
+/// The semi-colon (`;`) separates the parameters from the return type.
+///
+/// # Usage
+/// ```
+/// request!(show_document, params: ShowDocumentParams ; bool);
+/// ```
+///
+/// # Expansion
+/// ```
+/// pub async fn show_document(params: ShowDocumentParams) -> Result<bool, Error> {
+///     if let Some(client) = get_client() {
+///         client.show_document(params).await
+///     } else {
+///         Err(Error::internal_error())
+///     }
+/// }
+/// ```
 macro_rules! request {
     ($name:ident, $($param:ident: $type:ty),* ; $result:ty) => {
         pub async fn $name($($param: $type),*) -> Result<$result, Error> {
