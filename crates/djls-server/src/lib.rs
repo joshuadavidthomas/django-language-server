@@ -26,7 +26,8 @@ pub fn run() -> Result<()> {
             client::init_client(client);
             // Then create the server instance
             DjangoLanguageServer::new()
-        }).finish();
+        })
+        .finish();
 
         Server::new(stdin, stdout, socket).serve(service).await;
 

@@ -1,12 +1,15 @@
 use std::future::Future;
-use std::sync::{
-    atomic::{AtomicU8, Ordering},
-    Arc, OnceLock,
-};
+use std::sync::atomic::AtomicU8;
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
+use std::sync::OnceLock;
 
 use tower_lsp_server::jsonrpc::Error;
 use tower_lsp_server::lsp_types::notification::Notification;
-use tower_lsp_server::lsp_types::{Diagnostic, MessageType, NumberOrString, Uri};
+use tower_lsp_server::lsp_types::Diagnostic;
+use tower_lsp_server::lsp_types::MessageType;
+use tower_lsp_server::lsp_types::NumberOrString;
+use tower_lsp_server::lsp_types::Uri;
 use tower_lsp_server::Client;
 
 pub static CLIENT: OnceLock<Arc<Client>> = OnceLock::new();
