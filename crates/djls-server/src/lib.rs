@@ -10,6 +10,7 @@ use anyhow::Result;
 use tower_lsp_server::LspService;
 use tower_lsp_server::Server;
 
+use crate::client::init_client;
 use crate::server::DjangoLanguageServer;
 
 pub fn run() -> Result<()> {
@@ -22,9 +23,7 @@ pub fn run() -> Result<()> {
         let stdout = tokio::io::stdout();
 
         let (service, socket) = LspService::build(|client| {
-            // Initialize the global client
-            client::init_client(client);
-            // Then create the server instance
+            init_client(client);
             DjangoLanguageServer::new()
         })
         .finish();

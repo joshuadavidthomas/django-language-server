@@ -1,18 +1,11 @@
-use std::future::Future;
-use std::sync::atomic::AtomicU8;
-use std::sync::atomic::Ordering;
+use std::fmt::Display;
 use std::sync::Arc;
 use std::sync::OnceLock;
 
 use tower_lsp_server::jsonrpc::Error;
-use tower_lsp_server::lsp_types::notification::Notification;
-use tower_lsp_server::lsp_types::Diagnostic;
-use tower_lsp_server::lsp_types::MessageType;
-use tower_lsp_server::lsp_types::NumberOrString;
-use tower_lsp_server::lsp_types::Uri;
 use tower_lsp_server::Client;
 
-pub static CLIENT: OnceLock<Arc<Client>> = OnceLock::new();
+static CLIENT: OnceLock<Arc<Client>> = OnceLock::new();
 
 pub fn init_client(client: Client) {
     let client_arc = Arc::new(client);
@@ -21,305 +14,232 @@ pub fn init_client(client: Client) {
         .expect("client should only be initialized once");
 }
 
-/// Run an async operation with the client if available
-///
-/// This helper function encapsulates the common pattern of checking if the client
-/// is available, then spawning a task to run an async operation with it.
-fn with_client<F, Fut>(f: F)
-where
-    F: FnOnce(Arc<Client>) -> Fut + Send + 'static,
-    Fut: Future<Output = ()> + Send + 'static,
-{
-    if let Some(client) = CLIENT.get().cloned() {
-        tokio::spawn(async move {
-            f(client).await;
-        });
+fn get_client() -> Option<Arc<Client>> {
+    CLIENT.get().cloned()
+}
+
+macro_rules! notify {
+      ($method:ident, $($arg:expr),*) => {
+          if let Some(client) = get_client() {
+              tokio::spawn(async move {
+                  client.$method($($arg),*).await;
+              });
+          }
+      };
+  }
+
+macro_rules! notify_discard {
+      ($method:ident, $($arg:expr),*) => {
+          if let Some(client) = get_client() {
+              tokio::spawn(async move {
+                  let _ = client.$method($($arg),*).await;
+              });
+          }
+      };
+  }
+
+macro_rules! request {
+      ($method:ident, $($arg:expr),*) => {
+          if let Some(client) = get_client() {
+              client.$method($($arg),*).await
+          } else {
+              Err(Error::internal_error())
+          }
+      };
+  }
+
+pub mod messages {
+    use tower_lsp_server::lsp_types::MessageActionItem;
+    use tower_lsp_server::lsp_types::MessageType;
+    use tower_lsp_server::lsp_types::ShowDocumentParams;
+
+    use super::*;
+
+    pub fn log_message(message_type: MessageType, message: impl Display + Send + 'static) {
+        notify!(log_message, message_type, message);
+    }
+
+    pub fn show_message(message_type: MessageType, message: impl Display + Send + 'static) {
+        notify!(show_message, message_type, message);
+    }
+
+    pub async fn show_message_request(
+        message_type: MessageType,
+        message: impl Display + Send + 'static,
+        actions: Option<Vec<MessageActionItem>>,
+    ) -> Result<Option<MessageActionItem>, Error> {
+        request!(show_message_request, message_type, message, actions)
+    }
+
+    pub async fn show_document(params: ShowDocumentParams) -> Result<bool, Error> {
+        request!(show_document, params)
     }
 }
 
-pub fn log_message(message_type: MessageType, message: &str) {
-    let message = message.to_string();
-    with_client(move |client| async move {
-        client.log_message(message_type, &message).await;
-    });
-}
+pub mod diagnostics {
+    use tower_lsp_server::lsp_types::Diagnostic;
+    use tower_lsp_server::lsp_types::Uri;
 
-pub fn show_message(message_type: MessageType, message: &str) {
-    let message = message.to_string();
-    with_client(move |client| async move {
-        client.show_message(message_type, &message).await;
-    });
-}
+    use super::*;
 
-pub fn publish_diagnostics(uri: &str, diagnostics: Vec<Diagnostic>, version: Option<i32>) {
-    let uri = match uri.parse::<Uri>() {
-        Ok(uri) => uri,
-        Err(e) => {
-            eprintln!("Invalid URI for diagnostics: {uri} - {e}");
-            return;
-        }
-    };
-
-    with_client(move |client| async move {
-        client.publish_diagnostics(uri, diagnostics, version).await;
-    });
-}
-
-pub fn send_notification<N>(params: N::Params)
-where
-    N: Notification,
-    N::Params: Send + 'static,
-{
-    with_client(move |client| async move {
-        client.send_notification::<N>(params).await;
-    });
-}
-
-/// Start progress reporting
-pub fn start_progress(
-    token: impl Into<NumberOrString> + Send + 'static,
-    title: &str,
-    message: Option<String>,
-) {
-    let token = token.into();
-    let title = title.to_string();
-
-    with_client(move |client| async move {
-        let progress = client.progress(token, title);
-
-        // Add optional message if provided
-        let progress = if let Some(msg) = message {
-            progress.with_message(msg)
-        } else {
-            progress
-        };
-
-        // Begin the progress reporting
-        let _ = progress.begin().await;
-    });
-}
-
-/// Report progress
-pub fn report_progress(
-    token: impl Into<NumberOrString> + Send + 'static,
-    title: &str,
-    message: Option<String>,
-    percentage: Option<u32>,
-) {
-    let token = token.into();
-    let title = title.to_string();
-
-    with_client(move |client| async move {
-        // First begin the progress
-        let ongoing_progress = client.progress(token, title).begin().await;
-
-        match (message, percentage) {
-            (Some(msg), Some(_pct)) => {
-                // Both message and percentage - can't easily represent both with unbounded
-                ongoing_progress.report(msg).await;
-            }
-            (Some(msg), None) => {
-                // Only message
-                ongoing_progress.report(msg).await;
-            }
-            (None, Some(_pct)) => {
-                // Only percentage - not supported in unbounded progress
-                // We'd need to use bounded progress with percentage
-            }
-            (None, None) => {
-                // Nothing to report
-            }
-        }
-    });
-}
-
-/// End progress reporting
-pub fn end_progress(
-    token: impl Into<NumberOrString> + Send + 'static,
-    title: &str,
-    message: Option<String>,
-) {
-    let token = token.into();
-    let title = title.to_string();
-
-    with_client(move |client| async move {
-        let ongoing_progress = client.progress(token, title).begin().await;
-
-        if let Some(msg) = message {
-            ongoing_progress.finish_with_message(msg).await;
-        } else {
-            ongoing_progress.finish().await;
-        }
-    });
-}
-
-/// States for progress tracking
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ProgressState {
-    NotStarted = 0,
-    Started = 1,
-    Finished = 2,
-}
-
-/// A handle for managing progress reporting with lifecycle tracking
-#[derive(Clone)]
-pub struct ProgressHandle {
-    client: Arc<Client>,
-    token: NumberOrString,
-    title: String,
-    state: Arc<AtomicU8>,
-}
-
-impl ProgressHandle {
-    /// Create a new progress operation and return a handle to it
-    pub fn new(token: impl Into<NumberOrString>, title: &str) -> Option<Self> {
-        let token = token.into();
-        let title = title.to_string();
-
-        CLIENT.get().cloned().map(|client| {
-            // Create the handle
-            let handle = Self {
-                client: client.clone(),
-                token: token.clone(),
-                title: title.clone(),
-                state: Arc::new(AtomicU8::new(ProgressState::NotStarted as u8)),
-            };
-
-            // Clone for the closure
-            let handle_clone = handle.clone();
-
-            // Start the progress and update state
+    pub fn publish_diagnostics(uri: Uri, diagnostics: Vec<Diagnostic>, version: Option<i32>) {
+        if let Some(client) = get_client() {
             tokio::spawn(async move {
-                let _ = client.progress(token, title).begin().await;
-                handle_clone.update_state(ProgressState::Started);
+                client.publish_diagnostics(uri, diagnostics, version).await;
             });
-
-            handle
-        })
-    }
-
-    /// Update the progress state
-    fn update_state(&self, state: ProgressState) {
-        self.state.store(state as u8, Ordering::SeqCst);
-    }
-
-    /// Get the current progress state
-    pub fn state(&self) -> ProgressState {
-        match self.state.load(Ordering::SeqCst) {
-            0 => ProgressState::NotStarted,
-            1 => ProgressState::Started,
-            _ => ProgressState::Finished,
         }
     }
 
-    /// Check if already finished - returns true if already finished
-    fn is_finished(&self) -> bool {
-        self.state
-            .swap(ProgressState::Finished as u8, Ordering::SeqCst)
-            == ProgressState::Finished as u8
-    }
-
-    /// Report progress with a message
-    pub fn report(&self, message: impl Into<String>) {
-        // Only report if in Started state
-        if self.state() != ProgressState::Started {
-            return;
+    pub fn workspace_diagnostic_refresh() {
+        if let Some(client) = get_client() {
+            tokio::spawn(async move {
+                let _ = client.workspace_diagnostic_refresh().await;
+            });
         }
-
-        let token = self.token.clone();
-        let title = self.title.clone();
-        let message = message.into();
-        let client = self.client.clone();
-
-        tokio::spawn(async move {
-            let ongoing = client.progress(token, title).begin().await;
-            ongoing.report(message).await;
-        });
     }
+}
 
-    /// Complete the progress
-    pub fn finish(self, message: impl Into<String>) {
-        // Only finish if not already finished
-        if self.is_finished() {
-            return;
+pub mod workspace {
+    use tower_lsp_server::lsp_types::ApplyWorkspaceEditResponse;
+    use tower_lsp_server::lsp_types::ConfigurationItem;
+    use tower_lsp_server::lsp_types::LSPAny;
+    use tower_lsp_server::lsp_types::WorkspaceEdit;
+    use tower_lsp_server::lsp_types::WorkspaceFolder;
+
+    use super::*;
+
+    pub async fn apply_edit(edit: WorkspaceEdit) -> Result<ApplyWorkspaceEditResponse, Error> {
+        if let Some(client) = get_client() {
+            client.apply_edit(edit).await
+        } else {
+            Err(Error::internal_error())
         }
-
-        let token = self.token.clone();
-        let title = self.title.clone();
-        let message = message.into();
-        let client = self.client.clone();
-
-        tokio::spawn(async move {
-            let ongoing = client.progress(token, title).begin().await;
-            ongoing.finish_with_message(message).await;
-        });
     }
 
-    /// Complete the progress without a message
-    pub fn finish_without_message(self) {
-        // Only finish if not already finished
-        if self.is_finished() {
-            return;
+    pub async fn configuration(items: Vec<ConfigurationItem>) -> Result<Vec<LSPAny>, Error> {
+        if let Some(client) = get_client() {
+            client.configuration(items).await
+        } else {
+            Err(Error::internal_error())
         }
+    }
 
-        let client = self.client.clone();
-        let token = self.token.clone();
-        let title = self.title.clone();
-
-        tokio::spawn(async move {
-            let ongoing = client.progress(token, title).begin().await;
-            ongoing.finish().await;
-        });
+    pub async fn workspace_folders() -> Result<Option<Vec<WorkspaceFolder>>, Error> {
+        if let Some(client) = get_client() {
+            client.workspace_folders().await
+        } else {
+            Err(Error::internal_error())
+        }
     }
 }
 
-/// Send a custom request to the client using a specific LSP request type
-///
-/// Unlike other methods, this one needs to be async since it returns a result.
-pub async fn send_request<R>(params: R::Params) -> Result<R::Result, Error>
-where
-    R: tower_lsp_server::lsp_types::request::Request,
-    R::Params: Send,
-    R::Result: Send,
-{
-    if let Some(client) = CLIENT.get() {
-        client.send_request::<R>(params).await
-    } else {
-        Err(Error::internal_error())
+pub mod editor {
+    use super::*;
+
+    pub fn code_lens_refresh() {
+        if let Some(client) = get_client() {
+            tokio::spawn(async move {
+                let _ = client.code_lens_refresh().await;
+            });
+        }
+    }
+
+    pub fn semantic_tokens_refresh() {
+        if let Some(client) = get_client() {
+            tokio::spawn(async move {
+                let _ = client.semantic_tokens_refresh().await;
+            });
+        }
+    }
+
+    pub fn inline_value_refresh() {
+        if let Some(client) = get_client() {
+            tokio::spawn(async move {
+                let _ = client.inline_value_refresh().await;
+            });
+        }
+    }
+
+    pub fn inlay_hint_refresh() {
+        if let Some(client) = get_client() {
+            tokio::spawn(async move {
+                let _ = client.inlay_hint_refresh().await;
+            });
+        }
     }
 }
 
-/// Show an info message in the client's UI
-pub fn info(message: &str) {
-    show_message(MessageType::INFO, message);
+pub mod capabilities {
+    use tower_lsp_server::lsp_types::Registration;
+    use tower_lsp_server::lsp_types::Unregistration;
+
+    use super::*;
+
+    pub fn register_capability(registrations: Vec<Registration>) {
+        if let Some(client) = get_client() {
+            tokio::spawn(async move {
+                let _ = client.register_capability(registrations).await;
+            });
+        }
+    }
+
+    pub fn unregister_capability(unregisterations: Vec<Unregistration>) {
+        if let Some(client) = get_client() {
+            tokio::spawn(async move {
+                let _ = client.unregister_capability(unregisterations).await;
+            });
+        }
+    }
 }
 
-/// Show a warning message in the client's UI
-pub fn warn(message: &str) {
-    show_message(MessageType::WARNING, message);
+pub mod monitoring {
+    use serde::Serialize;
+    use tower_lsp_server::lsp_types::ProgressToken;
+    use tower_lsp_server::Progress;
+
+    use super::*;
+
+    pub fn telemetry_event<S: Serialize + Send + 'static>(data: S) {
+        if let Some(client) = get_client() {
+            tokio::spawn(async move {
+                client.telemetry_event(data).await;
+            });
+        }
+    }
+
+    pub fn progress<T: Into<String> + Send>(token: ProgressToken, title: T) -> Option<Progress> {
+        get_client().map(|client| client.progress(token, title))
+    }
 }
 
-/// Show an error message in the client's UI
-pub fn error(message: &str) {
-    show_message(MessageType::ERROR, message);
-}
+pub mod protocol {
+    use tower_lsp_server::lsp_types::notification::Notification;
+    use tower_lsp_server::lsp_types::request::Request;
 
-/// Log an info message to the client's log
-pub fn log_info(message: &str) {
-    log_message(MessageType::INFO, message);
-}
+    use super::*;
 
-/// Log a warning message to the client's log
-pub fn log_warn(message: &str) {
-    log_message(MessageType::WARNING, message);
-}
+    pub fn send_notification<N>(params: N::Params)
+    where
+        N: Notification,
+        N::Params: Send + 'static,
+    {
+        if let Some(client) = get_client() {
+            tokio::spawn(async move {
+                client.send_notification::<N>(params).await;
+            });
+        }
+    }
 
-/// Log an error message to the client's log
-pub fn log_error(message: &str) {
-    log_message(MessageType::ERROR, message);
-}
-
-/// Clear all diagnostics for a file by publishing an empty array
-pub fn clear_diagnostics(uri: &str) {
-    publish_diagnostics(uri, vec![], None);
+    pub async fn send_request<R>(params: R::Params) -> Result<R::Result, Error>
+    where
+        R: Request,
+        R::Params: Send + 'static,
+        R::Result: Send + 'static,
+    {
+        if let Some(client) = get_client() {
+            client.send_request::<R>(params).await
+        } else {
+            Err(Error::internal_error())
+        }
+    }
 }

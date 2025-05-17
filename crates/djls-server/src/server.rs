@@ -301,9 +301,10 @@ impl LanguageServer for DjangoLanguageServer {
                     *session.settings_mut() = new_settings;
                 }
                 Err(e) => {
-                    let error_msg = format!("Error loading settings: {e}");
-                    eprintln!("{error_msg}");
-                    client::log_message(MessageType::ERROR, &error_msg);
+                    client::log_message(
+                        MessageType::ERROR,
+                        &format!("Error loading settings: {e}"),
+                    );
                 }
             })
             .await;
