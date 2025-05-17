@@ -161,7 +161,7 @@ impl LanguageServer for DjangoLanguageServer {
                 if let Some((path_display, venv_path)) = project_path_and_venv {
                     client::log_message(
                         MessageType::INFO,
-                        &format!(
+                        format!(
                             "Task: Starting initialization for project at: {path_display}"
                         ),
                     );
@@ -169,7 +169,7 @@ impl LanguageServer for DjangoLanguageServer {
                     if let Some(ref path) = venv_path {
                         client::log_message(
                             MessageType::INFO,
-                            &format!("Using virtual environment from config: {path}"),
+                            format!("Using virtual environment from config: {path}"),
                         );
                     }
 
@@ -187,7 +187,7 @@ impl LanguageServer for DjangoLanguageServer {
                         Ok(()) => {
                             client::log_message(
                                 MessageType::INFO,
-                                &format!(
+                                format!(
                                     "Task: Successfully initialized project: {path_display}"
                                 ),
                             );
@@ -195,7 +195,7 @@ impl LanguageServer for DjangoLanguageServer {
                         Err(e) => {
                             client::log_message(
                                 MessageType::ERROR,
-                                &format!(
+                                format!(
                                     "Task: Failed to initialize Django project at {path_display}: {e}"
                                 ),
                             );
@@ -217,7 +217,7 @@ impl LanguageServer for DjangoLanguageServer {
         {
             client::log_message(
                 MessageType::ERROR,
-                &format!("Failed to submit project initialization task: {e}"),
+                format!("Failed to submit project initialization task: {e}"),
             );
         } else {
             client::log_message(MessageType::INFO, "Scheduled project initialization task.");
@@ -231,7 +231,7 @@ impl LanguageServer for DjangoLanguageServer {
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
         client::log_message(
             MessageType::INFO,
-            &format!("Opened document: {:?}", params.text_document.uri),
+            format!("Opened document: {:?}", params.text_document.uri),
         );
 
         self.with_session_mut(|session| {
@@ -244,7 +244,7 @@ impl LanguageServer for DjangoLanguageServer {
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
         client::log_message(
             MessageType::INFO,
-            &format!("Changed document: {:?}", params.text_document.uri),
+            format!("Changed document: {:?}", params.text_document.uri),
         );
 
         self.with_session_mut(|session| {
@@ -257,7 +257,7 @@ impl LanguageServer for DjangoLanguageServer {
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
         client::log_message(
             MessageType::INFO,
-            &format!("Closed document: {:?}", params.text_document.uri),
+            format!("Closed document: {:?}", params.text_document.uri),
         );
 
         self.with_session_mut(|session| {
@@ -301,10 +301,7 @@ impl LanguageServer for DjangoLanguageServer {
                     *session.settings_mut() = new_settings;
                 }
                 Err(e) => {
-                    client::log_message(
-                        MessageType::ERROR,
-                        &format!("Error loading settings: {e}"),
-                    );
+                    client::log_message(MessageType::ERROR, format!("Error loading settings: {e}"));
                 }
             })
             .await;
