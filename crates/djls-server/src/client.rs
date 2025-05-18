@@ -26,13 +26,13 @@ fn get_client() -> Option<Arc<Client>> {
 /// 2. Spawns a new Tokio task that calls the client method asynchronously
 /// 3. Does not wait for completion or handle errors
 ///
-/// # Usage
-/// ```
+/// This...
+/// ```rust,ignore
 /// notify!(log_message, message_type: MessageType, message: impl Display + Send + 'static);
 /// ```
 ///
-/// # Expansion
-/// ```
+/// ...expands to:
+/// ```rust,ignore
 /// pub fn log_message(message_type: MessageType, message: impl Display + Send + 'static) {
 ///     if let Some(client) = get_client() {
 ///         tokio::spawn(async move {
@@ -58,13 +58,13 @@ macro_rules! notify {
 /// Similar to `notify!`, but explicitly discards any errors returned by the client method.
 /// This is useful for methods that might return a Result but where you don't care about the outcome.
 ///
-/// # Usage
-/// ```
+/// This...
+/// ```rust,ignore
 /// notify_discard!(code_lens_refresh,);
 /// ```
 ///
-/// # Expansion
-/// ```
+/// ...expands to:
+/// ```rust,ignore
 /// pub fn code_lens_refresh() {
 ///     if let Some(client) = get_client() {
 ///         tokio::spawn(async move {
@@ -94,13 +94,13 @@ macro_rules! notify_discard {
 ///
 /// The semi-colon (`;`) separates the parameters from the return type.
 ///
-/// # Usage
-/// ```
+/// This...
+/// ```rust,ignore
 /// request!(show_document, params: ShowDocumentParams ; bool);
 /// ```
 ///
-/// # Expansion
-/// ```
+/// ...expands to:
+/// ```rust,ignore
 /// pub async fn show_document(params: ShowDocumentParams) -> Result<bool, Error> {
 ///     if let Some(client) = get_client() {
 ///         client.show_document(params).await
