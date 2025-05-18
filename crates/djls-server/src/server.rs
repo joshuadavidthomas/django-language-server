@@ -22,9 +22,9 @@ use tower_lsp_server::lsp_types::TextDocumentSyncKind;
 use tower_lsp_server::lsp_types::TextDocumentSyncOptions;
 use tower_lsp_server::lsp_types::WorkspaceFoldersServerCapabilities;
 use tower_lsp_server::lsp_types::WorkspaceServerCapabilities;
-use tower_lsp_server::Client;
 use tower_lsp_server::LanguageServer;
 
+use crate::client;
 use crate::queue::Queue;
 use crate::session::Session;
 
@@ -32,16 +32,14 @@ const SERVER_NAME: &str = "Django Language Server";
 const SERVER_VERSION: &str = "0.1.0";
 
 pub struct DjangoLanguageServer {
-    client: Client,
     session: Arc<RwLock<Session>>,
     queue: Queue,
 }
 
 impl DjangoLanguageServer {
     #[must_use]
-    pub fn new(client: Client) -> Self {
+    pub fn new() -> Self {
         Self {
-            client,
             session: Arc::new(RwLock::new(Session::default())),
             queue: Queue::new(),
         }
@@ -60,9 +58,7 @@ impl DjangoLanguageServer {
 
 impl LanguageServer for DjangoLanguageServer {
     async fn initialize(&self, params: InitializeParams) -> LspResult<InitializeResult> {
-        self.client
-            .log_message(MessageType::INFO, "Initializing server...")
-            .await;
+        client::log_message(MessageType::INFO, "Initializing server...");
 
         self.with_session_mut(|session| {
             *session.client_capabilities_mut() = Some(params.capabilities);
@@ -108,12 +104,10 @@ impl LanguageServer for DjangoLanguageServer {
 
     #[allow(clippy::too_many_lines)]
     async fn initialized(&self, _params: InitializedParams) {
-        self.client
-            .log_message(
-                MessageType::INFO,
-                "Server received initialized notification.",
-            )
-            .await;
+        client::log_message(
+            MessageType::INFO,
+            "Server received initialized notification.",
+        );
 
         let init_params = InitializeParams {
             // Using the current directory by default right now, but we should switch to
@@ -138,23 +132,18 @@ impl LanguageServer for DjangoLanguageServer {
             };
 
         if has_project {
-            self.client
-                .log_message(
-                    MessageType::INFO,
-                    "Project discovered from current directory",
-                )
-                .await;
+            client::log_message(
+                MessageType::INFO,
+                "Project discovered from current directory",
+            );
         } else {
-            self.client
-                .log_message(
-                    MessageType::INFO,
-                    "No project discovered; running without project context",
-                )
-                .await;
+            client::log_message(
+                MessageType::INFO,
+                "No project discovered; running without project context",
+            );
         }
 
         let session_arc = Arc::clone(&self.session);
-        let client = self.client.clone();
 
         if let Err(e) = self
             .queue
@@ -170,22 +159,18 @@ impl LanguageServer for DjangoLanguageServer {
                 };
 
                 if let Some((path_display, venv_path)) = project_path_and_venv {
-                    client
-                        .log_message(
-                            MessageType::INFO,
-                            &format!(
-                                "Task: Starting initialization for project at: {path_display}"
-                            ),
-                        )
-                        .await;
+                    client::log_message(
+                        MessageType::INFO,
+                        format!(
+                            "Task: Starting initialization for project at: {path_display}"
+                        ),
+                    );
 
                     if let Some(ref path) = venv_path {
-                        client
-                            .log_message(
-                                MessageType::INFO,
-                                &format!("Using virtual environment from config: {path}"),
-                            )
-                            .await;
+                        client::log_message(
+                            MessageType::INFO,
+                            format!("Using virtual environment from config: {path}"),
+                        );
                     }
 
                     let init_result = {
@@ -200,24 +185,20 @@ impl LanguageServer for DjangoLanguageServer {
 
                     match init_result {
                         Ok(()) => {
-                            client
-                                .log_message(
-                                    MessageType::INFO,
-                                    &format!(
-                                        "Task: Successfully initialized project: {path_display}"
-                                    ),
-                                )
-                                .await;
+                            client::log_message(
+                                MessageType::INFO,
+                                format!(
+                                    "Task: Successfully initialized project: {path_display}"
+                                ),
+                            );
                         }
                         Err(e) => {
-                            client
-                                .log_message(
-                                    MessageType::ERROR,
-                                    &format!(
-                                        "Task: Failed to initialize Django project at {path_display}: {e}"
-                                    ),
-                                )
-                                .await;
+                            client::log_message(
+                                MessageType::ERROR,
+                                format!(
+                                    "Task: Failed to initialize Django project at {path_display}: {e}"
+                                ),
+                            );
 
                             // Clear project on error
                             let mut session = session_arc.write().await;
@@ -225,27 +206,21 @@ impl LanguageServer for DjangoLanguageServer {
                         }
                     }
                 } else {
-                    client
-                        .log_message(
-                            MessageType::INFO,
-                            "Task: No project instance found to initialize.",
-                        )
-                        .await;
+                    client::log_message(
+                        MessageType::INFO,
+                        "Task: No project instance found to initialize.",
+                    );
                 }
                 Ok(())
             })
             .await
         {
-            self.client
-                .log_message(
-                    MessageType::ERROR,
-                    &format!("Failed to submit project initialization task: {e}"),
-                )
-                .await;
+            client::log_message(
+                MessageType::ERROR,
+                format!("Failed to submit project initialization task: {e}"),
+            );
         } else {
-            self.client
-                .log_message(MessageType::INFO, "Scheduled project initialization task.")
-                .await;
+            client::log_message(MessageType::INFO, "Scheduled project initialization task.");
         }
     }
 
@@ -254,12 +229,10 @@ impl LanguageServer for DjangoLanguageServer {
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
-        self.client
-            .log_message(
-                MessageType::INFO,
-                &format!("Opened document: {:?}", params.text_document.uri),
-            )
-            .await;
+        client::log_message(
+            MessageType::INFO,
+            format!("Opened document: {:?}", params.text_document.uri),
+        );
 
         self.with_session_mut(|session| {
             let db = session.db();
@@ -269,12 +242,10 @@ impl LanguageServer for DjangoLanguageServer {
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
-        self.client
-            .log_message(
-                MessageType::INFO,
-                &format!("Changed document: {:?}", params.text_document.uri),
-            )
-            .await;
+        client::log_message(
+            MessageType::INFO,
+            format!("Changed document: {:?}", params.text_document.uri),
+        );
 
         self.with_session_mut(|session| {
             let db = session.db();
@@ -284,12 +255,10 @@ impl LanguageServer for DjangoLanguageServer {
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
-        self.client
-            .log_message(
-                MessageType::INFO,
-                &format!("Closed document: {:?}", params.text_document.uri),
-            )
-            .await;
+        client::log_message(
+            MessageType::INFO,
+            format!("Closed document: {:?}", params.text_document.uri),
+        );
 
         self.with_session_mut(|session| {
             session.documents_mut().handle_did_close(&params);
@@ -317,12 +286,10 @@ impl LanguageServer for DjangoLanguageServer {
     }
 
     async fn did_change_configuration(&self, _params: DidChangeConfigurationParams) {
-        self.client
-            .log_message(
-                MessageType::INFO,
-                "Configuration change detected. Reloading settings...",
-            )
-            .await;
+        client::log_message(
+            MessageType::INFO,
+            "Configuration change detected. Reloading settings...",
+        );
 
         let project_path = self
             .with_session(|session| session.project().map(|p| p.path().to_path_buf()))
@@ -334,7 +301,7 @@ impl LanguageServer for DjangoLanguageServer {
                     *session.settings_mut() = new_settings;
                 }
                 Err(e) => {
-                    eprintln!("Error loading settings: {e}");
+                    client::log_message(MessageType::ERROR, format!("Error loading settings: {e}"));
                 }
             })
             .await;
