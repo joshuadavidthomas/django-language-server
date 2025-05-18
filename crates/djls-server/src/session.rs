@@ -45,8 +45,8 @@ pub struct Session {
 }
 
 impl Session {
-    pub fn client_capabilities_mut(&mut self) -> &mut Option<ClientCapabilities> {
-        &mut self.client_capabilities
+    pub fn set_client_capabilities(&mut self, client_capabilities: ClientCapabilities) {
+        self.client_capabilities = Some(client_capabilities);
     }
 
     pub fn project(&self) -> Option<&DjangoProject> {
@@ -55,6 +55,9 @@ impl Session {
 
     pub fn project_mut(&mut self) -> &mut Option<DjangoProject> {
         &mut self.project
+    }
+    pub fn set_project(&mut self, project: DjangoProject) {
+        self.project = Some(project);
     }
 
     pub fn documents(&self) -> &Store {
@@ -69,8 +72,8 @@ impl Session {
         &self.settings
     }
 
-    pub fn settings_mut(&mut self) -> &mut Settings {
-        &mut self.settings
+    pub fn set_settings(&mut self, settings: Settings) {
+        self.settings = settings;
     }
 
     /// Get a database instance directly from the session

@@ -61,7 +61,7 @@ impl LanguageServer for DjangoLanguageServer {
         client::log_message(MessageType::INFO, "Initializing server...");
 
         self.with_session_mut(|session| {
-            *session.client_capabilities_mut() = Some(params.capabilities);
+            session.set_client_capabilities(params.capabilities);
         })
         .await;
 
@@ -121,9 +121,11 @@ impl LanguageServer for DjangoLanguageServer {
                 self.with_session_mut(|session| {
                     let settings = djls_conf::Settings::new(&project_path)
                         .unwrap_or_else(|_| djls_conf::Settings::default());
-                    *session.settings_mut() = settings;
+                    session.set_settings(settings);
 
-                    *session.project_mut() = Some(djls_project::DjangoProject::new(project_path));
+                    let project = djls_project::DjangoProject::new(project_path);
+                    session.set_project(project);
+
                     true
                 })
                 .await
@@ -298,7 +300,7 @@ impl LanguageServer for DjangoLanguageServer {
         if let Some(path) = project_path {
             self.with_session_mut(|session| match djls_conf::Settings::new(path.as_path()) {
                 Ok(new_settings) => {
-                    *session.settings_mut() = new_settings;
+                    session.set_settings(new_settings);
                 }
                 Err(e) => {
                     client::log_message(MessageType::ERROR, format!("Error loading settings: {e}"));
