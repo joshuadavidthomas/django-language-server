@@ -1,4 +1,3 @@
-#[allow(dead_code)]
 use std::fmt::Display;
 use std::sync::Arc;
 use std::sync::OnceLock;
@@ -122,6 +121,7 @@ macro_rules! request {
     };
 }
 
+#[allow(dead_code)]
 pub mod messages {
     use tower_lsp_server::lsp_types::MessageActionItem;
     use tower_lsp_server::lsp_types::MessageType;
@@ -137,6 +137,7 @@ pub mod messages {
     request!(show_document, params: ShowDocumentParams ; bool);
 }
 
+#[allow(dead_code)]
 pub mod diagnostics {
     use tower_lsp_server::lsp_types::Diagnostic;
     use tower_lsp_server::lsp_types::Uri;
@@ -147,6 +148,7 @@ pub mod diagnostics {
     notify_discard!(workspace_diagnostic_refresh,);
 }
 
+#[allow(dead_code)]
 pub mod workspace {
     use tower_lsp_server::lsp_types::ApplyWorkspaceEditResponse;
     use tower_lsp_server::lsp_types::ConfigurationItem;
@@ -162,6 +164,7 @@ pub mod workspace {
     request!(workspace_folders, ; Option<Vec<WorkspaceFolder>>);
 }
 
+#[allow(dead_code)]
 pub mod editor {
     use super::get_client;
 
@@ -171,6 +174,7 @@ pub mod editor {
     notify_discard!(inlay_hint_refresh,);
 }
 
+#[allow(dead_code)]
 pub mod capabilities {
     use tower_lsp_server::lsp_types::Registration;
     use tower_lsp_server::lsp_types::Unregistration;
@@ -181,6 +185,7 @@ pub mod capabilities {
     notify_discard!(unregister_capability, unregisterations: Vec<Unregistration>);
 }
 
+#[allow(dead_code)]
 pub mod monitoring {
     use serde::Serialize;
     use tower_lsp_server::lsp_types::ProgressToken;
@@ -201,6 +206,7 @@ pub mod monitoring {
     }
 }
 
+#[allow(dead_code)]
 pub mod protocol {
     use tower_lsp_server::lsp_types::notification::Notification;
     use tower_lsp_server::lsp_types::request::Request;
