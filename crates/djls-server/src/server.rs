@@ -1,3 +1,4 @@
+use std::future::Future;
 use std::sync::Arc;
 
 use tokio::sync::RwLock;
@@ -32,7 +33,7 @@ const SERVER_NAME: &str = "Django Language Server";
 const SERVER_VERSION: &str = "0.1.0";
 
 pub struct DjangoLanguageServer {
-    session: Arc<RwLock<Session>>,
+    session: Arc<RwLock<Option<Session>>>,
     queue: Queue,
 }
 
@@ -40,19 +41,57 @@ impl DjangoLanguageServer {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            session: Arc::new(RwLock::new(Session::default())),
+            session: Arc::new(RwLock::new(None)),
             queue: Queue::new(),
         }
     }
 
-    pub async fn with_session<R>(&self, f: impl FnOnce(&Session) -> R) -> R {
+    pub async fn with_session<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&Session) -> R,
+        R: Default,
+    {
         let session = self.session.read().await;
-        f(&session)
+        if let Some(s) = &*session {
+            f(s)
+        } else {
+            client::log_message(
+                MessageType::ERROR,
+                "Attempted to access session before initialization",
+            );
+            R::default()
+        }
     }
 
-    pub async fn with_session_mut<R>(&self, f: impl FnOnce(&mut Session) -> R) -> R {
+    pub async fn with_session_mut<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&mut Session) -> R,
+        R: Default,
+    {
         let mut session = self.session.write().await;
-        f(&mut session)
+        if let Some(s) = &mut *session {
+            f(s)
+        } else {
+            client::log_message(
+                MessageType::ERROR,
+                "Attempted to access session before initialization",
+            );
+            R::default()
+        }
+    }
+
+    pub async fn with_session_task<F, Fut>(&self, f: F)
+    where
+        F: FnOnce(Arc<RwLock<Option<Session>>>) -> Fut + Send + 'static,
+        Fut: Future<Output = anyhow::Result<()>> + Send + 'static,
+    {
+        let session_arc = Arc::clone(&self.session);
+
+        if let Err(e) = self.queue.submit(async move { f(session_arc).await }).await {
+            client::log_message(MessageType::ERROR, format!("Failed to submit task: {e}"));
+        } else {
+            client::log_message(MessageType::INFO, "Task submitted successfully");
+        }
     }
 }
 
@@ -60,10 +99,12 @@ impl LanguageServer for DjangoLanguageServer {
     async fn initialize(&self, params: InitializeParams) -> LspResult<InitializeResult> {
         client::log_message(MessageType::INFO, "Initializing server...");
 
-        self.with_session_mut(|session| {
-            session.set_client_capabilities(params.capabilities);
-        })
-        .await;
+        let session = Session::new(&params);
+
+        {
+            let mut session_lock = self.session.write().await;
+            *session_lock = Some(session);
+        }
 
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
@@ -109,121 +150,82 @@ impl LanguageServer for DjangoLanguageServer {
             "Server received initialized notification.",
         );
 
-        let init_params = InitializeParams {
-            // Using the current directory by default right now, but we should switch to
-            // *falling back* to current dir if workspace folders is empty
-            workspace_folders: None,
-            ..Default::default()
-        };
-
-        let has_project =
-            if let Some(project_path) = crate::workspace::get_project_path(&init_params) {
-                self.with_session_mut(|session| {
-                    let settings = djls_conf::Settings::new(&project_path)
-                        .unwrap_or_else(|_| djls_conf::Settings::default());
-                    session.set_settings(settings);
-
-                    let project = djls_project::DjangoProject::new(project_path);
-                    session.set_project(project);
-
-                    true
-                })
-                .await
-            } else {
-                false
-            };
-
-        if has_project {
-            client::log_message(
-                MessageType::INFO,
-                "Project discovered from current directory",
-            );
-        } else {
-            client::log_message(
-                MessageType::INFO,
-                "No project discovered; running without project context",
-            );
-        }
-
-        let session_arc = Arc::clone(&self.session);
-
-        if let Err(e) = self
-            .queue
-            .submit(async move {
-                let project_path_and_venv = {
-                    let session = session_arc.read().await;
-                    session.project().map(|p| {
+        self.with_session_task(|session_arc| async move {
+            let project_path_and_venv = {
+                let session_lock = session_arc.read().await;
+                match &*session_lock {
+                    Some(session) => session.project().map(|p| {
                         (
                             p.path().display().to_string(),
-                            session.settings().venv_path().map(std::string::ToString::to_string),
+                            session
+                                .settings()
+                                .venv_path()
+                                .map(std::string::ToString::to_string),
                         )
-                    })
-                };
+                    }),
+                    None => None,
+                }
+            };
 
-                if let Some((path_display, venv_path)) = project_path_and_venv {
+            if let Some((path_display, venv_path)) = project_path_and_venv {
+                client::log_message(
+                    MessageType::INFO,
+                    format!("Task: Starting initialization for project at: {path_display}"),
+                );
+
+                if let Some(ref path) = venv_path {
                     client::log_message(
                         MessageType::INFO,
-                        format!(
-                            "Task: Starting initialization for project at: {path_display}"
-                        ),
+                        format!("Using virtual environment from config: {path}"),
                     );
+                }
 
-                    if let Some(ref path) = venv_path {
+                let init_result = {
+                    let mut session_lock = session_arc.write().await;
+                    match &mut *session_lock {
+                        Some(session) => {
+                            if let Some(project) = session.project_mut().as_mut() {
+                                project.initialize(venv_path.as_deref())
+                            } else {
+                                // Project was removed between read and write locks
+                                Ok(())
+                            }
+                        }
+                        None => Ok(()),
+                    }
+                };
+
+                match init_result {
+                    Ok(()) => {
                         client::log_message(
                             MessageType::INFO,
-                            format!("Using virtual environment from config: {path}"),
+                            format!("Task: Successfully initialized project: {path_display}"),
                         );
                     }
+                    Err(e) => {
+                        client::log_message(
+                            MessageType::ERROR,
+                            format!(
+                                "Task: Failed to initialize Django project at {path_display}: {e}"
+                            ),
+                        );
 
-                    let init_result = {
-                        let mut session = session_arc.write().await;
-                        if let Some(project) = session.project_mut().as_mut() {
-                            project.initialize(venv_path.as_deref())
-                        } else {
-                            // Project was removed between read and write locks
-                            Ok(())
-                        }
-                    };
-
-                    match init_result {
-                        Ok(()) => {
-                            client::log_message(
-                                MessageType::INFO,
-                                format!(
-                                    "Task: Successfully initialized project: {path_display}"
-                                ),
-                            );
-                        }
-                        Err(e) => {
-                            client::log_message(
-                                MessageType::ERROR,
-                                format!(
-                                    "Task: Failed to initialize Django project at {path_display}: {e}"
-                                ),
-                            );
-
-                            // Clear project on error
-                            let mut session = session_arc.write().await;
+                        // Clear project on error
+                        let mut session_lock = session_arc.write().await;
+                        if let Some(session) = &mut *session_lock {
                             *session.project_mut() = None;
                         }
                     }
-                } else {
-                    client::log_message(
-                        MessageType::INFO,
-                        "Task: No project instance found to initialize.",
-                    );
                 }
-                Ok(())
-            })
-            .await
-        {
-            client::log_message(
-                MessageType::ERROR,
-                format!("Failed to submit project initialization task: {e}"),
-            );
-        } else {
-            client::log_message(MessageType::INFO, "Scheduled project initialization task.");
-        }
+            } else {
+                client::log_message(
+                    MessageType::INFO,
+                    "Task: No project instance found to initialize.",
+                );
+            }
+            Ok(())
+        })
+        .await;
     }
 
     async fn shutdown(&self) -> LspResult<()> {
