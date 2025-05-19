@@ -2,16 +2,19 @@ use djls_conf::Settings;
 use djls_project::DjangoProject;
 use salsa::StorageHandle;
 use tower_lsp_server::lsp_types::ClientCapabilities;
+use tower_lsp_server::lsp_types::InitializeParams;
 
 use crate::db::ServerDatabase;
 use crate::documents::Store;
 
 #[derive(Default)]
 pub struct Session {
-    client_capabilities: Option<ClientCapabilities>,
     project: Option<DjangoProject>,
     documents: Store,
     settings: Settings,
+
+    #[allow(dead_code)]
+    client_capabilities: ClientCapabilities,
 
     /// A thread-safe Salsa database handle that can be shared between threads.
     ///
@@ -45,8 +48,27 @@ pub struct Session {
 }
 
 impl Session {
-    pub fn set_client_capabilities(&mut self, client_capabilities: ClientCapabilities) {
-        self.client_capabilities = Some(client_capabilities);
+    pub fn new(params: &InitializeParams) -> Self {
+        let project_path = crate::workspace::get_project_path(params);
+
+        let (project, settings) = if let Some(path) = &project_path {
+            let settings =
+                djls_conf::Settings::new(path).unwrap_or_else(|_| djls_conf::Settings::default());
+
+            let project = Some(djls_project::DjangoProject::new(path.clone()));
+
+            (project, settings)
+        } else {
+            (None, Settings::default())
+        };
+
+        Self {
+            client_capabilities: params.capabilities.clone(),
+            project,
+            documents: Store::default(),
+            settings,
+            db_handle: StorageHandle::new(None),
+        }
     }
 
     pub fn project(&self) -> Option<&DjangoProject> {
@@ -55,9 +77,6 @@ impl Session {
 
     pub fn project_mut(&mut self) -> &mut Option<DjangoProject> {
         &mut self.project
-    }
-    pub fn set_project(&mut self, project: DjangoProject) {
-        self.project = Some(project);
     }
 
     pub fn documents(&self) -> &Store {
