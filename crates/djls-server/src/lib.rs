@@ -6,8 +6,9 @@ mod server;
 mod session;
 mod workspace;
 
-use anyhow::Result;
 use std::io::IsTerminal;
+
+use anyhow::Result;
 use tower_lsp_server::LspService;
 use tower_lsp_server::Server;
 
