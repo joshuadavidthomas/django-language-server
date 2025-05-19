@@ -1,0 +1,11 @@
+id = "django-language-server"
+name = "Django Language Server"
+version = "5.1.0-alpha.2"
+schema_version = 1
+authors = ["Josh Thomas <josh@joshthomas.dev>"]
+description = "A Zed extension for the Zed editor"
+repository = "https://github.com/joshuadavidthomas/django-language-server"
+
+[language_servers.htmldjango]
+name = "Django Language Server"
+languages = ["htmldjango"]
