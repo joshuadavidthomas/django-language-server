@@ -1,7 +1,8 @@
 use djls_conf::Settings;
 use djls_project::DjangoProject;
 use salsa::StorageHandle;
-use tower_lsp_server::lsp_types::{ClientCapabilities, InitializeParams};
+use tower_lsp_server::lsp_types::ClientCapabilities;
+use tower_lsp_server::lsp_types::InitializeParams;
 
 use crate::db::ServerDatabase;
 use crate::documents::Store;
