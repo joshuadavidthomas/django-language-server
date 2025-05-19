@@ -15,7 +15,7 @@ use tower_lsp_server::Server;
 use crate::server::DjangoLanguageServer;
 
 pub fn run() -> Result<()> {
-    if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() {
+    if std::io::stdin().is_terminal() {
         eprintln!(
             "---------------------------------------------------------------------------------"
         );
