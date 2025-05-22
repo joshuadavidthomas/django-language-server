@@ -28,8 +28,13 @@ debug:
     tmux has-session -t djls-debug 2>/dev/null && tmux kill-session -t djls-debug
     pkill -f "lsp-devtools" || true
 
-    tmux new-session -d -s djls-debug "nvim tests/project/djls_app/templates/djls_app/base.html"
+    # Get XDG cache directory for logs
+    LOG_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/django-language-server"
+    LOG_FILE="$LOG_DIR/djls.$(date +%Y-%m-%d).log"
+
+    tmux new-session -d -s djls-debug "RUST_LOG=djls_server=debug nvim tests/project/djls_app/templates/djls_app/base.html"
     tmux split-window -h -p 20 "just dev devtools record"
+    tmux split-window -v -p 50 "mkdir -p '$LOG_DIR' && touch '$LOG_FILE' && tail -f '$LOG_FILE'"
 
     tmux select-pane -L
 

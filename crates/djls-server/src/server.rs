@@ -98,8 +98,11 @@ impl DjangoLanguageServer {
 impl LanguageServer for DjangoLanguageServer {
     async fn initialize(&self, params: InitializeParams) -> LspResult<InitializeResult> {
         client::log_message(MessageType::INFO, "Initializing server...");
+        tracing::info!("LSP server initializing");
+        tracing::debug!("Initialize params: {:?}", params);
 
         let session = Session::new(&params);
+        tracing::debug!("Session created successfully");
 
         {
             let mut session_lock = self.session.write().await;
@@ -149,6 +152,7 @@ impl LanguageServer for DjangoLanguageServer {
             MessageType::INFO,
             "Server received initialized notification.",
         );
+        tracing::info!("LSP server initialized and ready");
 
         self.with_session_task(|session_arc| async move {
             let project_path_and_venv = {
@@ -237,6 +241,8 @@ impl LanguageServer for DjangoLanguageServer {
             MessageType::INFO,
             format!("Opened document: {:?}", params.text_document.uri),
         );
+        tracing::info!("Document opened: {:?}", params.text_document.uri);
+        tracing::debug!("Document language: {}", params.text_document.language_id);
 
         self.with_session_mut(|session| {
             let db = session.db();
