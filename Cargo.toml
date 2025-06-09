@@ -27,7 +27,7 @@ tokio = { version = "1.45.0", features = ["full"] }
 toml = "0.8.22"
 tower-lsp-server = { version = "0.21.1", features = ["proposed"] }
 thiserror = "2.0.12"
-which = "7.0.3"
+which = "8.0.0"
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }
