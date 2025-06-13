@@ -507,6 +507,24 @@ def main():
         ],
     )
 
+    changelog = File(
+        input_path="CHANGELOG.md",
+        output_path="docs/changelog.md",
+        processors=[
+            *common_processors,
+            add_frontmatter({"title": "Changelog"}),
+        ],
+    )
+
+    release = File(
+        input_path="RELEASING.md",
+        output_path="docs/development/releasing.md",
+        processors=[
+            *common_processors,
+            add_frontmatter({"title": "Releasing a New Version"}),
+        ],
+    )
+
     nvim = File(
         input_path="editors/nvim/README.md",
         output_path="docs/editors/neovim.md",
@@ -518,14 +536,18 @@ def main():
 
     # Process files
     readme_success = readme.process(preview=True)
+    changelog_success = changelog.process(preview=True)
+    release_success = release.process(preview=True)
     nvim_success = nvim.process(preview=True)
 
-    if readme_success and nvim_success:
+    if readme_success and changelog_success and release_success and nvim_success:
         console.print("\n[green]✨ All files processed successfully![/green]")
     else:
         console.print("\n[red]Some files failed to process:[/red]")
         for name, success in [
             ("README.md → docs/index.md", readme_success),
+            ("CHANGELOG.md → docs/changelog.md", changelog),
+            ("RELEASING.md → docs/development/releasing.md", release_success),
             ("Neovim docs → docs/editors/neovim.md", nvim_success),
         ]:
             status = "[green]✓[/green]" if success else "[red]✗[/red]"
