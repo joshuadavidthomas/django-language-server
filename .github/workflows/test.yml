@@ -43,6 +43,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@e92bafb6253dcd438e0484186d7669ea7a8ca1cc
         with:
+          activate-environment: true
           enable-cache: true
 
       - id: set-matrix
@@ -68,6 +69,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@e92bafb6253dcd438e0484186d7669ea7a8ca1cc
         with:
+          activate-environment: true
           enable-cache: true
 
       - name: Run tests
