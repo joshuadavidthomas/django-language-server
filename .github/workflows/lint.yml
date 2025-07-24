@@ -36,13 +36,10 @@ jobs:
           path: ~/.cache/pre-commit/
           key: pre-commit-1|${{ hashFiles('.pre-commit-config.yaml') }}
 
-      - name: pre-commit
+      - name: Run pre-commit
         run: |
           SKIP=no-commit-to-branch \
-          uv run --with pre-commit-uv pre-commit run \
-            --all-files \
-            --show-diff-on-failure \
-            --color always
+          uv run noxfile.py --session lint
 
   rustfmt:
     runs-on: ubuntu-24.04
