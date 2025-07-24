@@ -27,22 +27,27 @@ jobs:
           persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@445689ea25e0de0a23313031f5fe577c74ae45a1  # v6.3.0
+        uses: astral-sh/setup-uv@e92bafb6253dcd438e0484186d7669ea7a8ca1cc
         with:
+          activate-environment: true
           enable-cache: true
+
+      # HACK: there's a bug in either `astral-sh/setup-uv` or pre-commit-uv or both
+      # because uv gets installed to `/opt/hostedtoolcache/uv/<version>/x86_64/uv`
+      # and pre-commit-uv apparently only looks for it at `~/.local/bin/uv`
+      - run: |
+          mkdir -p ~/.local/bin
+          ln -sf $(which uv) ~/.local/bin/uv
 
       - uses: actions/cache@v4
         with:
           path: ~/.cache/pre-commit/
           key: pre-commit-1|${{ hashFiles('.pre-commit-config.yaml') }}
 
-      - name: pre-commit
+      - name: Run pre-commit
         run: |
           SKIP=no-commit-to-branch \
-          uv run --with pre-commit-uv pre-commit run \
-            --all-files \
-            --show-diff-on-failure \
-            --color always
+          uv run noxfile.py --session lint
 
   rustfmt:
     runs-on: ubuntu-24.04
