@@ -36,6 +36,9 @@ jobs:
           path: ~/.cache/pre-commit/
           key: pre-commit-1|${{ hashFiles('.pre-commit-config.yaml') }}
 
+      - run: |
+          ls -la /home/runner/.local/bin/
+
       - name: Run pre-commit
         run: |
           SKIP=no-commit-to-branch \
