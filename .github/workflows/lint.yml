@@ -39,6 +39,8 @@ jobs:
 
       - run: |
           which uv
+          mkdir -p ~/.local/bin
+          ln -sf $(which uv) ~/.local/bin/uv
 
       - name: Run pre-commit
         run: |
