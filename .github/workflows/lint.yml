@@ -30,17 +30,19 @@ jobs:
         uses: astral-sh/setup-uv@e92bafb6253dcd438e0484186d7669ea7a8ca1cc
         with:
           activate-environment: true
-          enable-cache: false
+          enable-cache: true
+
+      # HACK: there's a bug in either `astral-sh/setup-uv` or pre-commit-uv or both
+      # because uv gets installed to `/opt/hostedtoolcache/uv/<version>/x86_64/uv`
+      # and pre-commit-uv apparently only looks for it at `~/.local/bin/uv`
+      - run: |
+          mkdir -p ~/.local/bin
+          ln -sf $(which uv) ~/.local/bin/uv
 
       - uses: actions/cache@v4
         with:
           path: ~/.cache/pre-commit/
           key: pre-commit-1|${{ hashFiles('.pre-commit-config.yaml') }}
-
-      - run: |
-          which uv
-          mkdir -p ~/.local/bin
-          ln -sf $(which uv) ~/.local/bin/uv
 
       - name: Run pre-commit
         run: |
