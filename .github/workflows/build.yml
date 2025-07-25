@@ -42,7 +42,7 @@ jobs:
         uses: PyO3/maturin-action@e10f6c464b90acceb5f640d31beda6d586ba7b4a
         with:
           target: ${{ matrix.platform.target }}
-          args: --release --out dist --find-interpreter --features extension-module --zig
+          args: --release --out dist --find-interpreter --features extension-module
           sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
           manylinux: auto
 
