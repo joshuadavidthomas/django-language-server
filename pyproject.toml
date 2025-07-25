@@ -7,7 +7,7 @@ dev = [
   "bumpver>=2024.1130",
   "cogapp>=3.4.1",
   "django-stubs>=5.1.1",
-  "maturin>=1.7.8",
+  "maturin[zig]>=1.7.8",
   "nox>=2025.5.1",
   "ruff>=0.8.2",
 ]
