@@ -157,11 +157,11 @@ impl Store {
 
 #[salsa::input(debug)]
 pub struct TextDocument {
-    #[return_ref]
+    #[returns(ref)]
     uri: String,
-    #[return_ref]
+    #[returns(ref)]
     contents: String,
-    #[return_ref]
+    #[returns(ref)]
     index: LineIndex,
     version: i32,
     language_id: LanguageId,
