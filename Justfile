@@ -15,7 +15,7 @@ cog:
 
 [private]
 nox SESSION *ARGS:
-    uv run noxfile.py --session "{{ SESSION }}" -- "{{ ARGS }}"
+    uv run nox --session "{{ SESSION }}" -- "{{ ARGS }}"
 
 bumpver *ARGS:
     uv run --with bumpver bumpver {{ ARGS }}

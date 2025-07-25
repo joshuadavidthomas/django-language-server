@@ -1,12 +1,3 @@
-#!/usr/bin/env -S uv run --quiet
-# /// script
-# requires-python = ">=3.13"
-# dependencies = [
-#     "bumpver",
-#     "nox",
-# ]
-# ///
-
 from __future__ import annotations
 
 import json
@@ -289,7 +280,3 @@ def get_version(session):
     output = session.run(*command, silent=True)
     match = re.search(r"New Version: (.+)", output)
     return to_pep440(match.group(1)) if match else None
-
-
-if __name__ == "__main__":
-    nox.main()
