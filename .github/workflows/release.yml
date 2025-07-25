@@ -50,7 +50,7 @@ jobs:
           subject-path: "wheels-*/*"
 
       - name: Publish to PyPI
-        uses: PyO3/maturin-action@35be3186fc8e037e329f06b68dcd807d83dcc6dc  # v1.49.2
+        uses: PyO3/maturin-action@e10f6c464b90acceb5f640d31beda6d586ba7b4a
         with:
           command: upload
           args: --non-interactive --skip-existing wheels-*/*
