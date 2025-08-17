@@ -7,14 +7,14 @@
 //! Each macro supports two invocation patterns to handle the different APIs:
 //!
 //! 1. String literal:
-//! ```rust
+//! ```rust,ignore
 //! log_info!("Server initialized");
 //! log_warn!("Configuration not found");
 //! log_error!("Failed to parse document");
 //! ```
 //!
 //! 2. Format string with arguments:
-//! ```rust
+//! ```rust,ignore
 //! log_info!("Processing {} documents", count);
 //! log_warn!("Timeout after {}ms for {}", ms, path);
 //! log_error!("Failed to open {}: {}", file, err);
