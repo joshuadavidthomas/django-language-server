@@ -22,20 +22,7 @@ fmt:
 
 [no-cd]
 debug:
-    #!/usr/bin/env bash
-    set -euo pipefail
-
-    tmux has-session -t djls-debug 2>/dev/null && tmux kill-session -t djls-debug
-    pkill -f "lsp-devtools" || true
-
-    tmux new-session -d -s djls-debug "nvim tests/project/djls_app/templates/djls_app/base.html"
-    tmux split-window -h -p 20 "just dev devtools record"
-
-    tmux select-pane -L
-
-    tmux attach-session -t djls-debug
-
-    pkill -f "lsp-devtools" || true
+    cargo run --bin djls-tmux --package djls-dev
 
 [no-cd]
 explore FILENAME="djls.db":
