@@ -58,12 +58,10 @@ use tracing_subscriber::Registry;
 /// that are sent to the client. It filters events by level to avoid overwhelming
 /// the client with verbose trace logs.
 pub struct LspLayer {
-    /// Function to send messages to the LSP client
     send_message: Arc<dyn Fn(MessageType, String) + Send + Sync>,
 }
 
 impl LspLayer {
-    /// Create a new `LspLayer` with the given message sender function.
     pub fn new<F>(send_message: F) -> Self
     where
         F: Fn(MessageType, String) + Send + Sync + 'static,
