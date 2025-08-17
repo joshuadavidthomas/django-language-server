@@ -13,7 +13,7 @@ use tower_lsp_server::lsp_types::DidOpenTextDocumentParams;
 use tower_lsp_server::lsp_types::InitializeParams;
 use tower_lsp_server::lsp_types::InitializeResult;
 use tower_lsp_server::lsp_types::InitializedParams;
-use tower_lsp_server::lsp_types::MessageType;
+
 use tower_lsp_server::lsp_types::OneOf;
 use tower_lsp_server::lsp_types::SaveOptions;
 use tower_lsp_server::lsp_types::ServerCapabilities;
@@ -25,7 +25,7 @@ use tower_lsp_server::lsp_types::WorkspaceFoldersServerCapabilities;
 use tower_lsp_server::lsp_types::WorkspaceServerCapabilities;
 use tower_lsp_server::LanguageServer;
 
-use crate::client;
+use crate::{log_error, log_info};
 use crate::queue::Queue;
 use crate::session::Session;
 
@@ -55,10 +55,7 @@ impl DjangoLanguageServer {
         if let Some(s) = &*session {
             f(s)
         } else {
-            client::log_message(
-                MessageType::ERROR,
-                "Attempted to access session before initialization",
-            );
+            log_error!("Attempted to access session before initialization");
             R::default()
         }
     }
@@ -72,10 +69,7 @@ impl DjangoLanguageServer {
         if let Some(s) = &mut *session {
             f(s)
         } else {
-            client::log_message(
-                MessageType::ERROR,
-                "Attempted to access session before initialization",
-            );
+            log_error!("Attempted to access session before initialization");
             R::default()
         }
     }
@@ -88,16 +82,16 @@ impl DjangoLanguageServer {
         let session_arc = Arc::clone(&self.session);
 
         if let Err(e) = self.queue.submit(async move { f(session_arc).await }).await {
-            client::log_message(MessageType::ERROR, format!("Failed to submit task: {e}"));
+            log_error!("Failed to submit task: {}", e);
         } else {
-            client::log_message(MessageType::INFO, "Task submitted successfully");
+            log_info!("Task submitted successfully");
         }
     }
 }
 
 impl LanguageServer for DjangoLanguageServer {
     async fn initialize(&self, params: InitializeParams) -> LspResult<InitializeResult> {
-        client::log_message(MessageType::INFO, "Initializing server...");
+        log_info!("Initializing server...");
 
         let session = Session::new(&params);
 
@@ -145,10 +139,7 @@ impl LanguageServer for DjangoLanguageServer {
 
     #[allow(clippy::too_many_lines)]
     async fn initialized(&self, _params: InitializedParams) {
-        client::log_message(
-            MessageType::INFO,
-            "Server received initialized notification.",
-        );
+        log_info!("Server received initialized notification.");
 
         self.with_session_task(|session_arc| async move {
             let project_path_and_venv = {
@@ -168,16 +159,10 @@ impl LanguageServer for DjangoLanguageServer {
             };
 
             if let Some((path_display, venv_path)) = project_path_and_venv {
-                client::log_message(
-                    MessageType::INFO,
-                    format!("Task: Starting initialization for project at: {path_display}"),
-                );
+                log_info!("Task: Starting initialization for project at: {}", path_display);
 
                 if let Some(ref path) = venv_path {
-                    client::log_message(
-                        MessageType::INFO,
-                        format!("Using virtual environment from config: {path}"),
-                    );
+                    log_info!("Using virtual environment from config: {}", path);
                 }
 
                 let init_result = {
@@ -197,18 +182,10 @@ impl LanguageServer for DjangoLanguageServer {
 
                 match init_result {
                     Ok(()) => {
-                        client::log_message(
-                            MessageType::INFO,
-                            format!("Task: Successfully initialized project: {path_display}"),
-                        );
+                        log_info!("Task: Successfully initialized project: {}", path_display);
                     }
                     Err(e) => {
-                        client::log_message(
-                            MessageType::ERROR,
-                            format!(
-                                "Task: Failed to initialize Django project at {path_display}: {e}"
-                            ),
-                        );
+                        log_error!("Task: Failed to initialize Django project at {}: {}", path_display, e);
 
                         // Clear project on error
                         let mut session_lock = session_arc.write().await;
@@ -218,10 +195,7 @@ impl LanguageServer for DjangoLanguageServer {
                     }
                 }
             } else {
-                client::log_message(
-                    MessageType::INFO,
-                    "Task: No project instance found to initialize.",
-                );
+                log_info!("Task: No project instance found to initialize.");
             }
             Ok(())
         })
@@ -233,10 +207,7 @@ impl LanguageServer for DjangoLanguageServer {
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
-        client::log_message(
-            MessageType::INFO,
-            format!("Opened document: {:?}", params.text_document.uri),
-        );
+        log_info!("Opened document: {:?}", params.text_document.uri);
 
         self.with_session_mut(|session| {
             let db = session.db();
@@ -246,10 +217,7 @@ impl LanguageServer for DjangoLanguageServer {
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
-        client::log_message(
-            MessageType::INFO,
-            format!("Changed document: {:?}", params.text_document.uri),
-        );
+        log_info!("Changed document: {:?}", params.text_document.uri);
 
         self.with_session_mut(|session| {
             let db = session.db();
@@ -259,10 +227,7 @@ impl LanguageServer for DjangoLanguageServer {
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
-        client::log_message(
-            MessageType::INFO,
-            format!("Closed document: {:?}", params.text_document.uri),
-        );
+        log_info!("Closed document: {:?}", params.text_document.uri);
 
         self.with_session_mut(|session| {
             session.documents_mut().handle_did_close(&params);
@@ -290,10 +255,7 @@ impl LanguageServer for DjangoLanguageServer {
     }
 
     async fn did_change_configuration(&self, _params: DidChangeConfigurationParams) {
-        client::log_message(
-            MessageType::INFO,
-            "Configuration change detected. Reloading settings...",
-        );
+        log_info!("Configuration change detected. Reloading settings...");
 
         let project_path = self
             .with_session(|session| session.project().map(|p| p.path().to_path_buf()))
@@ -305,7 +267,7 @@ impl LanguageServer for DjangoLanguageServer {
                     session.set_settings(new_settings);
                 }
                 Err(e) => {
-                    client::log_message(MessageType::ERROR, format!("Error loading settings: {e}"));
+                    log_error!("Error loading settings: {}", e);
                 }
             })
             .await;

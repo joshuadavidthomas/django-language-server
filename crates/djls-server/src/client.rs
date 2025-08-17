@@ -15,7 +15,7 @@ pub fn init_client(client: Client) {
         .expect("client should only be initialized once");
 }
 
-fn get_client() -> Option<Arc<Client>> {
+pub fn get_client() -> Option<Arc<Client>> {
     CLIENT.get().cloned()
 }
 
