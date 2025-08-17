@@ -48,7 +48,12 @@ pub fn run() -> Result<()> {
 
         let (service, socket) = LspService::build(|client| {
             client::init_client(client);
-            DjangoLanguageServer::new()
+
+            let log_guard = logging::init_tracing(|message_type, message| {
+                client::log_message(message_type, message);
+            });
+
+            DjangoLanguageServer::new(log_guard)
         })
         .finish();
 
