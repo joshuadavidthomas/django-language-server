@@ -1,6 +1,7 @@
 mod client;
 mod db;
 mod documents;
+mod logging;
 mod queue;
 mod server;
 mod session;
