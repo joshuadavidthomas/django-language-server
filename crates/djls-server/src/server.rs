@@ -23,6 +23,7 @@ use tower_lsp_server::lsp_types::TextDocumentSyncOptions;
 use tower_lsp_server::lsp_types::WorkspaceFoldersServerCapabilities;
 use tower_lsp_server::lsp_types::WorkspaceServerCapabilities;
 use tower_lsp_server::LanguageServer;
+use tracing_appender::non_blocking::WorkerGuard;
 
 use crate::log_error;
 use crate::log_info;
@@ -35,14 +36,16 @@ const SERVER_VERSION: &str = "0.1.0";
 pub struct DjangoLanguageServer {
     session: Arc<RwLock<Option<Session>>>,
     queue: Queue,
+    _log_guard: WorkerGuard,
 }
 
 impl DjangoLanguageServer {
     #[must_use]
-    pub fn new() -> Self {
+    pub fn new(log_guard: WorkerGuard) -> Self {
         Self {
             session: Arc::new(RwLock::new(None)),
             queue: Queue::new(),
+            _log_guard: log_guard,
         }
     }
 
