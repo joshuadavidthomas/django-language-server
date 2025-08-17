@@ -13,7 +13,6 @@ use tower_lsp_server::lsp_types::DidOpenTextDocumentParams;
 use tower_lsp_server::lsp_types::InitializeParams;
 use tower_lsp_server::lsp_types::InitializeResult;
 use tower_lsp_server::lsp_types::InitializedParams;
-
 use tower_lsp_server::lsp_types::OneOf;
 use tower_lsp_server::lsp_types::SaveOptions;
 use tower_lsp_server::lsp_types::ServerCapabilities;
@@ -25,9 +24,9 @@ use tower_lsp_server::lsp_types::WorkspaceFoldersServerCapabilities;
 use tower_lsp_server::lsp_types::WorkspaceServerCapabilities;
 use tower_lsp_server::LanguageServer;
 
-use crate::{log_error, log_info};
 use crate::queue::Queue;
 use crate::session::Session;
+use crate::{log_error, log_info};
 
 const SERVER_NAME: &str = "Django Language Server";
 const SERVER_VERSION: &str = "0.1.0";
@@ -159,7 +158,10 @@ impl LanguageServer for DjangoLanguageServer {
             };
 
             if let Some((path_display, venv_path)) = project_path_and_venv {
-                log_info!("Task: Starting initialization for project at: {}", path_display);
+                log_info!(
+                    "Task: Starting initialization for project at: {}",
+                    path_display
+                );
 
                 if let Some(ref path) = venv_path {
                     log_info!("Using virtual environment from config: {}", path);
@@ -185,7 +187,11 @@ impl LanguageServer for DjangoLanguageServer {
                         log_info!("Task: Successfully initialized project: {}", path_display);
                     }
                     Err(e) => {
-                        log_error!("Task: Failed to initialize Django project at {}: {}", path_display, e);
+                        log_error!(
+                            "Task: Failed to initialize Django project at {}: {}",
+                            path_display,
+                            e
+                        );
 
                         // Clear project on error
                         let mut session_lock = session_arc.write().await;
