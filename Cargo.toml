@@ -10,26 +10,30 @@ djls-project = { path = "crates/djls-project" }
 djls-server = { path = "crates/djls-server" }
 djls-templates = { path = "crates/djls-templates" }
 
+# core deps, pin exact versions
+pyo3 = "0.25.0"
+pyo3-build-config = { version = "0.25.0", features = ["resolve-config"] }
+salsa = "0.23.0"
+tower-lsp-server = { version = "0.22.0", features = ["proposed"] }
+
 anyhow = "1.0"
 clap = { version = "4.5", features = ["derive"] }
 config = { version ="0.15", features = ["toml"] }
 directories = "6.0"
-insta = { version = "1.43", features = ["yaml"] }
 percent-encoding = "2.3"
-pyo3 = "0.25.0"
-pyo3-build-config = { version = "0.25.0", features = ["resolve-config"] }
-salsa = "0.23.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-tempfile = "3.0"
 thiserror = "2.0"
 tokio = { version = "1.0", features = ["full"] }
 toml = "0.9"
-tower-lsp-server = { version = "0.22.0", features = ["proposed"] }
 tracing = "0.1"
 tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "time"] }
 which = "8.0"
+
+# testing
+insta = { version = "1.43", features = ["yaml"] }
+tempfile = "3.0"
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }
