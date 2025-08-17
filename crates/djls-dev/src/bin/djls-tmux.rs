@@ -8,14 +8,14 @@ use anyhow::Result;
 fn main() -> Result<()> {
     // Kill any existing session
     let _ = Command::new("tmux")
-        .args(&["kill-session", "-t", "djls-debug"])
+        .args(["kill-session", "-t", "djls-debug"])
         .output();
 
-    let _ = Command::new("pkill").args(&["-f", "lsp-devtools"]).output();
+    let _ = Command::new("pkill").args(["-f", "lsp-devtools"]).output();
 
     // Start tmux in control mode
     let mut tmux = Command::new("tmux")
-        .args(&["-C", "-f", "/dev/null"])
+        .args(["-C", "-f", "/dev/null"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()
@@ -86,12 +86,12 @@ fn main() -> Result<()> {
 
     // Attach to session
     Command::new("tmux")
-        .args(&["attach-session", "-t", "djls-debug"])
+        .args(["attach-session", "-t", "djls-debug"])
         .status()
         .context("Failed to attach to session")?;
 
     // Cleanup on exit
-    let _ = Command::new("pkill").args(&["-f", "lsp-devtools"]).output();
+    let _ = Command::new("pkill").args(["-f", "lsp-devtools"]).output();
 
     Ok(())
 }
