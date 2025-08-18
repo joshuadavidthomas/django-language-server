@@ -10,23 +10,6 @@
 //! - ERROR, WARN, INFO, DEBUG → forwarded to LSP client
 //! - TRACE → kept server-side only (for performance)
 //!
-//! ## Usage
-//!
-//! Use standard tracing macros throughout the codebase:
-//!
-//! ```rust,ignore
-//! tracing::info!("Server initialized");
-//! tracing::warn!("Configuration not found");
-//! tracing::error!("Failed to parse document");
-//! ```
-//!
-//! For formatted messages:
-//! ```rust,ignore
-//! tracing::info!("Processing {} documents", count);
-//! tracing::warn!("Timeout after {}ms for {}", ms, path);
-//! tracing::error!("Failed to open {}: {}", file, err);
-//! ```
-//!
 //! The `LspLayer` automatically handles forwarding appropriate log levels
 //! to the LSP client while preserving structured logging data for file output.
 
@@ -63,7 +46,6 @@ impl LspLayer {
     }
 }
 
-/// Visitor that extracts the message field from tracing events.
 struct MessageVisitor {
     message: Option<String>,
 }
