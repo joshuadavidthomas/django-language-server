@@ -36,18 +36,22 @@ fn main() -> Result<()> {
     )?;
 
     // Split the right pane horizontally for server logs (50/50 split)
+    // Updated to handle dated log files properly
     writeln!(
         stdin,
-        "split-window -t djls-debug:0.1 -v -p 50 'tail -f /tmp/djls.log'"
+        r#"split-window -t djls-debug:0.1 -v -p 50 'bash -c "log=\$(ls -t /tmp/djls.log.* 2>/dev/null | head -1); if [ -z \"\$log\" ]; then echo \"Waiting for server logs...\"; while [ -z \"\$log\" ]; do sleep 1; log=\$(ls -t /tmp/djls.log.* 2>/dev/null | head -1); done; fi; echo \"Tailing \$log\"; tail -F \"\$log\""'"#
     )?;
 
     // Set pane titles
     writeln!(stdin, "select-pane -t djls-debug:0.0 -T 'Editor'")?;
-    writeln!(stdin, "select-pane -t djls-debug:0.1 -T 'LSP DevTools'")?;
+    writeln!(stdin, "select-pane -t djls-debug:0.1 -T 'LSP Messages'")?;
     writeln!(stdin, "select-pane -t djls-debug:0.2 -T 'Server Logs'")?;
 
     // Enable pane borders with titles at the top
     writeln!(stdin, "set -t djls-debug pane-border-status top")?;
+
+    // Enable mouse support for scrolling and pane interaction
+    writeln!(stdin, "set -t djls-debug mouse on")?;
 
     // Add custom keybind to kill session (capital K)
     writeln!(stdin, "bind-key K kill-session")?;
@@ -64,9 +68,9 @@ fn main() -> Result<()> {
     writeln!(stdin, "set -t djls-debug status-left '[#S] '")?;
     writeln!(stdin, "set -t djls-debug status-left-length 20")?;
 
-    // Right side: keybind hints
-    writeln!(stdin, "set -t djls-debug status-right ' C-b d: detach | C-b K: kill session | C-b x: kill pane | C-b z: zoom | C-b ?: help '")?;
-    writeln!(stdin, "set -t djls-debug status-right-length 90")?;
+    // Right side: keybind hints - updated to include mouse info
+    writeln!(stdin, "set -t djls-debug status-right ' Mouse: scroll/click | C-b d: detach | C-b K: kill | C-b x: kill pane | C-b z: zoom | C-b ?: help '")?;
+    writeln!(stdin, "set -t djls-debug status-right-length 120")?;
 
     // Center: window name
     writeln!(stdin, "set -t djls-debug status-justify centre")?;
