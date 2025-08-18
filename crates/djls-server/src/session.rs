@@ -5,7 +5,7 @@ use tower_lsp_server::lsp_types::ClientCapabilities;
 use tower_lsp_server::lsp_types::InitializeParams;
 
 use crate::db::ServerDatabase;
-use crate::documents::Store;
+use crate::workspace::Store;
 
 #[derive(Default)]
 pub struct Session {
