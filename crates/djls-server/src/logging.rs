@@ -1,6 +1,6 @@
 //! Logging infrastructure for forwarding tracing events to LSP client messages.
 //!
-//! This module provides the `LspLayer` implementation for forwarding tracing 
+//! This module provides the `LspLayer` implementation for forwarding tracing
 //! events to the LSP client through the tracing infrastructure.
 //!
 //! ## `LspLayer`
@@ -153,5 +153,3 @@ where
 
     guard
 }
-
-
