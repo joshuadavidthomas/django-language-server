@@ -25,8 +25,7 @@ use tower_lsp_server::lsp_types::WorkspaceServerCapabilities;
 use tower_lsp_server::LanguageServer;
 use tracing_appender::non_blocking::WorkerGuard;
 
-use crate::log_error;
-use crate::log_info;
+
 use crate::queue::Queue;
 use crate::session::Session;
 
@@ -58,7 +57,7 @@ impl DjangoLanguageServer {
         if let Some(s) = &*session {
             f(s)
         } else {
-            log_error!("Attempted to access session before initialization");
+            tracing::error!("Attempted to access session before initialization");
             R::default()
         }
     }
@@ -72,7 +71,7 @@ impl DjangoLanguageServer {
         if let Some(s) = &mut *session {
             f(s)
         } else {
-            log_error!("Attempted to access session before initialization");
+            tracing::error!("Attempted to access session before initialization");
             R::default()
         }
     }
@@ -85,16 +84,16 @@ impl DjangoLanguageServer {
         let session_arc = Arc::clone(&self.session);
 
         if let Err(e) = self.queue.submit(async move { f(session_arc).await }).await {
-            log_error!("Failed to submit task: {}", e);
+            tracing::error!("Failed to submit task: {}", e);
         } else {
-            log_info!("Task submitted successfully");
+            tracing::info!("Task submitted successfully");
         }
     }
 }
 
 impl LanguageServer for DjangoLanguageServer {
     async fn initialize(&self, params: InitializeParams) -> LspResult<InitializeResult> {
-        log_info!("Initializing server...");
+        tracing::info!("Initializing server...");
 
         let session = Session::new(&params);
 
@@ -142,7 +141,7 @@ impl LanguageServer for DjangoLanguageServer {
 
     #[allow(clippy::too_many_lines)]
     async fn initialized(&self, _params: InitializedParams) {
-        log_info!("Server received initialized notification.");
+        tracing::info!("Server received initialized notification.");
 
         self.with_session_task(|session_arc| async move {
             let project_path_and_venv = {
@@ -162,13 +161,13 @@ impl LanguageServer for DjangoLanguageServer {
             };
 
             if let Some((path_display, venv_path)) = project_path_and_venv {
-                log_info!(
+                tracing::info!(
                     "Task: Starting initialization for project at: {}",
                     path_display
                 );
 
                 if let Some(ref path) = venv_path {
-                    log_info!("Using virtual environment from config: {}", path);
+                    tracing::info!("Using virtual environment from config: {}", path);
                 }
 
                 let init_result = {
@@ -188,10 +187,10 @@ impl LanguageServer for DjangoLanguageServer {
 
                 match init_result {
                     Ok(()) => {
-                        log_info!("Task: Successfully initialized project: {}", path_display);
+                        tracing::info!("Task: Successfully initialized project: {}", path_display);
                     }
                     Err(e) => {
-                        log_error!(
+                        tracing::error!(
                             "Task: Failed to initialize Django project at {}: {}",
                             path_display,
                             e
@@ -205,7 +204,7 @@ impl LanguageServer for DjangoLanguageServer {
                     }
                 }
             } else {
-                log_info!("Task: No project instance found to initialize.");
+                tracing::info!("Task: No project instance found to initialize.");
             }
             Ok(())
         })
@@ -217,7 +216,7 @@ impl LanguageServer for DjangoLanguageServer {
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
-        log_info!("Opened document: {:?}", params.text_document.uri);
+        tracing::info!("Opened document: {:?}", params.text_document.uri);
 
         self.with_session_mut(|session| {
             let db = session.db();
@@ -227,7 +226,7 @@ impl LanguageServer for DjangoLanguageServer {
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
-        log_info!("Changed document: {:?}", params.text_document.uri);
+        tracing::info!("Changed document: {:?}", params.text_document.uri);
 
         self.with_session_mut(|session| {
             let db = session.db();
@@ -237,7 +236,7 @@ impl LanguageServer for DjangoLanguageServer {
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
-        log_info!("Closed document: {:?}", params.text_document.uri);
+        tracing::info!("Closed document: {:?}", params.text_document.uri);
 
         self.with_session_mut(|session| {
             session.documents_mut().handle_did_close(&params);
@@ -265,7 +264,7 @@ impl LanguageServer for DjangoLanguageServer {
     }
 
     async fn did_change_configuration(&self, _params: DidChangeConfigurationParams) {
-        log_info!("Configuration change detected. Reloading settings...");
+        tracing::info!("Configuration change detected. Reloading settings...");
 
         let project_path = self
             .with_session(|session| session.project().map(|p| p.path().to_path_buf()))
@@ -277,7 +276,7 @@ impl LanguageServer for DjangoLanguageServer {
                     session.set_settings(new_settings);
                 }
                 Err(e) => {
-                    log_error!("Error loading settings: {}", e);
+                    tracing::error!("Error loading settings: {}", e);
                 }
             })
             .await;
