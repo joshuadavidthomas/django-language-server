@@ -7,7 +7,7 @@ use tower_lsp_server::lsp_types::InitializeParams;
 use crate::db::ServerDatabase;
 use crate::workspace::Store;
 
-#[derive(Default)]
+
 pub struct Session {
     project: Option<DjangoProject>,
     documents: Store,
@@ -65,7 +65,7 @@ impl Session {
         Self {
             client_capabilities: params.capabilities.clone(),
             project,
-            documents: Store::default(),
+            documents: Store::new(project_path.as_ref().unwrap_or(&std::env::current_dir().unwrap())).unwrap(),
             settings,
             db_handle: StorageHandle::new(None),
         }

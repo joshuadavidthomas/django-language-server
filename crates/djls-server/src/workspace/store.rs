@@ -1,4 +1,6 @@
+use super::fs::FileSystem;
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 use anyhow::anyhow;
 use anyhow::Result;
@@ -20,13 +22,26 @@ use super::document::ClosingBrace;
 use super::document::LanguageId;
 use super::document::TextDocument;
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Store {
     documents: HashMap<String, TextDocument>,
     versions: HashMap<String, i32>,
+    vfs: FileSystem,
+    root_path: PathBuf,
 }
 
 impl Store {
+    pub fn new<P: AsRef<std::path::Path>>(root_path: P) -> anyhow::Result<Self> {
+        let root_path = root_path.as_ref().to_path_buf();
+        let vfs = FileSystem::new(&root_path)?;
+
+        Ok(Store {
+            documents: HashMap::new(),
+            versions: HashMap::new(),
+            vfs,
+            root_path,
+        })
+    }
     pub fn handle_did_open(&mut self, db: &dyn Database, params: &DidOpenTextDocumentParams) {
         let uri = params.text_document.uri.to_string();
         let version = params.text_document.version;

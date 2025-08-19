@@ -23,9 +23,13 @@ tower-lsp-server = { workspace = true }
 tracing = { workspace = true }
 tracing-appender = { workspace = true }
 tracing-subscriber = { workspace = true }
+vfs = { workspace = true }
 
 [build-dependencies]
 djls-dev = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
 
 [lints]
 workspace = true
