@@ -21,6 +21,7 @@ use tower_lsp_server::lsp_types::Position;
 use super::document::ClosingBrace;
 use super::document::LanguageId;
 use super::document::TextDocument;
+use super::utils::uri_to_pathbuf;
 
 #[derive(Debug)]
 pub struct Store {
@@ -42,7 +43,24 @@ impl Store {
             root_path,
         })
     }
+    
+    /// Check if a URI represents a file within the workspace
+    fn is_workspace_file(&self, uri: &tower_lsp_server::lsp_types::Uri) -> bool {
+        if let Some(path) = uri_to_pathbuf(uri) {
+            // Check if the path is under the workspace root
+            path.starts_with(&self.root_path)
+        } else {
+            // Not a file URI, ignore
+            false
+        }
+    }
     pub fn handle_did_open(&mut self, db: &dyn Database, params: &DidOpenTextDocumentParams) {
+        // Only process files within the workspace
+        if !self.is_workspace_file(&params.text_document.uri) {
+            // Silently ignore files outside workspace
+            return;
+        }
+        
         let uri = params.text_document.uri.to_string();
         let version = params.text_document.version;
 
@@ -57,6 +75,12 @@ impl Store {
         db: &dyn Database,
         params: &DidChangeTextDocumentParams,
     ) -> Result<()> {
+        // Only process files within the workspace
+        if !self.is_workspace_file(&params.text_document.uri) {
+            // Return Ok to avoid errors for files outside workspace
+            return Ok(());
+        }
+        
         let uri = params.text_document.uri.as_str().to_string();
         let version = params.text_document.version;
 
