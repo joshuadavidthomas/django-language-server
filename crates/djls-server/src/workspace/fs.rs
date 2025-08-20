@@ -3,15 +3,41 @@ use vfs::{MemoryFS, PhysicalFS, VfsPath, VfsResult, VfsMetadata, SeekAndRead, Se
 use std::time::SystemTime;
 use std::collections::BTreeSet;
 
-/// A file system for managing workspace file content with manual layer management.
+/// A custom VFS implementation optimized for Language Server Protocol operations.
 /// 
-/// The file system uses two separate layers:
-/// - Memory layer: for unsaved edits and temporary content
-/// - Physical layer: for disk-based files
+/// This FileSystem provides a dual-layer architecture specifically designed for LSP needs:
+/// - **Memory layer**: Tracks unsaved editor changes and temporary content
+/// - **Physical layer**: Provides access to the actual files on disk
 /// 
-/// When reading, the memory layer is checked first, falling back to physical layer.
-/// Write operations go to memory layer only, preserving original files on disk.
-/// Clearing memory layer allows immediate fallback to physical layer without whiteout markers.
+/// ## Design Rationale
+/// 
+/// This custom implementation was chosen over existing overlay filesystems (see `decision-2`)
+/// because it provides:
+/// - Proper deletion semantics without whiteout markers
+/// - LSP-specific behavior for handling editor lifecycle events
+/// - Predictable exists() behavior that aligns with LSP client expectations
+/// - Full control over layer management for optimal language server performance
+/// 
+/// ## Layer Management
+/// 
+/// - **Read operations**: Check memory layer first, then fall back to physical layer
+/// - **Write operations**: Always go to memory layer only, preserving original disk files
+/// - **Existence checks**: Return true if file exists in either layer
+/// - **Deletions**: Remove from memory layer only (no whiteout markers)
+/// 
+/// ## LSP Integration
+/// 
+/// The FileSystem is designed around the LSP document lifecycle:
+/// - `didOpen`: File tracking begins (no immediate memory allocation)
+/// - `didChange`: Content changes stored in memory layer via [`write_string`]
+/// - `didSave`: Editor saves to disk; memory layer can be cleared via [`discard_changes`]
+/// - `didClose`: Memory layer cleaned up via [`discard_changes`]
+/// 
+/// This ensures language analysis always uses the current editor state while
+/// preserving the original files until the editor explicitly saves them.
+/// 
+/// [`write_string`]: FileSystem::write_string
+/// [`discard_changes`]: FileSystem::discard_changes
 #[derive(Debug)]
 pub struct FileSystem {
     memory: VfsPath,
@@ -19,7 +45,24 @@ pub struct FileSystem {
 }
 
 impl FileSystem {
-    /// Create a new FileSystem with separate memory and physical layers
+    // Implementation follows decision-2: Custom vfs::FileSystem Implementation for Language Server
+    // See backlog/decisions/decision-2 for detailed rationale
+    
+    /// Creates a new FileSystem rooted at the specified path.
+    /// 
+    /// The FileSystem will provide access to files within the root path through both
+    /// the physical layer (disk) and memory layer (unsaved changes). All file paths
+    /// used with this FileSystem should be relative to this root.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `root_path` - The workspace root directory (typically from LSP initialization)
+    /// 
+    /// # Example
+    /// 
+    /// ```rust,ignore
+    /// let fs = FileSystem::new("/path/to/django/project")?;
+    /// ```
     pub fn new<P: AsRef<Path>>(root_path: P) -> VfsResult<Self> {
         let memory = VfsPath::new(MemoryFS::new());
         let physical = VfsPath::new(PhysicalFS::new(root_path.as_ref()));
@@ -27,10 +70,28 @@ impl FileSystem {
         Ok(FileSystem { memory, physical })
     }
     
-    /// Read file content as string (checks unsaved edits first, then disk)
+    /// Reads file content as a UTF-8 string, prioritizing unsaved editor changes.
     /// 
-    /// This is a high-level convenience method for LSP operations.
-    /// Checks memory layer (unsaved edits) first, then falls back to physical layer (disk).
+    /// This method implements the core LSP behavior of always providing the most current
+    /// view of a file. It checks the memory layer first (which contains any unsaved
+    /// changes from `textDocument/didChange` events), then falls back to reading from
+    /// the physical disk if no memory version exists.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `path` - Relative path from the workspace root (e.g., "myapp/models.py")
+    /// 
+    /// # Returns
+    /// 
+    /// The current content of the file as a string, or an error if the file doesn't
+    /// exist in either layer or cannot be read.
+    /// 
+    /// # Example
+    /// 
+    /// ```rust,ignore
+    /// // This will return unsaved changes if the file was modified in the editor
+    /// let content = fs.read_to_string("templates/base.html")?;
+    /// ```
     pub fn read_to_string(&self, path: &str) -> VfsResult<String> {
         let memory_path = self.memory.join(path)?;
         if memory_path.exists().unwrap_or(false) {
@@ -41,11 +102,30 @@ impl FileSystem {
         physical_path.read_to_string()
     }
     
-    /// Write string content to memory layer (tracks unsaved edits from editor)
+    /// Writes content to the memory layer to track unsaved editor changes.
     /// 
-    /// This is a high-level convenience method for LSP operations.
-    /// Writes to memory layer only, preserving the original file on disk.
-    /// The editor is responsible for actual disk writes via didSave.
+    /// This method is typically called in response to `textDocument/didChange` events
+    /// from the LSP client. It stores the content in the memory layer only, ensuring
+    /// that subsequent reads via [`read_to_string`] will return this updated content
+    /// while preserving the original file on disk.
+    /// 
+    /// The editor client is responsible for actual disk writes when the user saves
+    /// the file (`textDocument/didSave`). The language server only tracks the
+    /// in-memory changes for analysis purposes.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `path` - Relative path from the workspace root
+    /// * `content` - The new file content as provided by the editor
+    /// 
+    /// # Example
+    /// 
+    /// ```rust,ignore
+    /// // Store unsaved changes from textDocument/didChange
+    /// fs.write_string("models.py", "class User(models.Model):\n    pass")?;
+    /// ```
+    /// 
+    /// [`read_to_string`]: FileSystem::read_to_string
     pub fn write_string(&self, path: &str, content: &str) -> VfsResult<()> {
         let memory_path = self.memory.join(path)?;
         
@@ -59,11 +139,26 @@ impl FileSystem {
         Ok(())
     }
     
-    /// Discard unsaved changes for a file (removes from memory layer)
+    /// Discards unsaved changes by removing the file from the memory layer.
     /// 
-    /// This is a high-level convenience method for LSP operations.
-    /// After discarding, reads will fall back to the physical layer (disk state).
-    /// Typically called when editor sends didClose without saving.
+    /// This method is typically called in response to `textDocument/didSave` (after
+    /// the editor has written changes to disk) or `textDocument/didClose` (when the
+    /// user closes a file without saving). After calling this method, subsequent
+    /// reads will return the physical file content from disk.
+    /// 
+    /// This operation is safe to call even if the file doesn't exist in the memory
+    /// layer - it will simply have no effect.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `path` - Relative path from the workspace root
+    /// 
+    /// # Example
+    /// 
+    /// ```rust,ignore
+    /// // After textDocument/didSave, discard the memory copy since it's now on disk
+    /// fs.discard_changes("models.py")?;
+    /// ```
     pub fn discard_changes(&self, path: &str) -> VfsResult<()> {
         let memory_path = self.memory.join(path)?;
         
@@ -75,8 +170,25 @@ impl FileSystem {
         Ok(())
     }
     
-    /// Check if a path exists in either layer
-    /// Checks memory layer first, then physical layer
+    /// Checks if a file exists in either the memory or physical layer.
+    /// 
+    /// Returns `true` if the file exists in the memory layer (unsaved changes)
+    /// or in the physical layer (on disk). This provides the LSP client's
+    /// expected view of file existence, including files that exist only as
+    /// unsaved editor content.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `path` - Relative path from the workspace root
+    /// 
+    /// # Example
+    /// 
+    /// ```rust,ignore
+    /// if fs.exists("settings.py")? {
+    ///     let content = fs.read_to_string("settings.py")?;
+    ///     // Process file content...
+    /// }
+    /// ```
     pub fn exists(&self, path: &str) -> VfsResult<bool> {
         let memory_path = self.memory.join(path)?;
         if memory_path.exists().unwrap_or(false) {
@@ -90,7 +202,19 @@ impl FileSystem {
 
 }
 
-// Implement vfs::FileSystem trait to make our FileSystem compatible with VfsPath
+/// Implementation of the `vfs::FileSystem` trait for VfsPath compatibility.
+/// 
+/// This trait implementation allows our custom FileSystem to be used with VfsPath
+/// while maintaining the dual-layer architecture. All operations respect the
+/// memory-over-physical priority, ensuring LSP semantics are preserved even when
+/// accessed through the generic VFS interface.
+/// 
+/// Most LSP code should prefer the inherent methods ([`read_to_string`], [`write_string`], 
+/// [`discard_changes`]) as they provide more explicit semantics for language server operations.
+/// 
+/// [`read_to_string`]: FileSystem::read_to_string
+/// [`write_string`]: FileSystem::write_string  
+/// [`discard_changes`]: FileSystem::discard_changes
 impl vfs::FileSystem for FileSystem {
     fn read_dir(&self, path: &str) -> VfsResult<Box<dyn Iterator<Item = String> + Send>> {
         // Collect entries from both layers and merge them
