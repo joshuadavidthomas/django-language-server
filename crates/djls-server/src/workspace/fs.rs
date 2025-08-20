@@ -168,34 +168,7 @@ impl FileSystem {
         Ok(())
     }
 
-    /// Checks if a file exists in either the memory or physical layer.
-    ///
-    /// Returns `true` if the file exists in the memory layer (unsaved changes)
-    /// or in the physical layer (on disk). This provides the LSP client's
-    /// expected view of file existence, including files that exist only as
-    /// unsaved editor content.
-    ///
-    /// # Arguments
-    ///
-    /// * `path` - Relative path from the workspace root
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// if fs.exists("settings.py")? {
-    ///     let content = fs.read_to_string("settings.py")?;
-    ///     // Process file content...
-    /// }
-    /// ```
-    pub fn exists(&self, path: &str) -> VfsResult<bool> {
-        let memory_path = self.memory.join(path)?;
-        if memory_path.exists().unwrap_or(false) {
-            return Ok(true);
-        }
 
-        let physical_path = self.physical.join(path)?;
-        Ok(physical_path.exists().unwrap_or(false))
-    }
 }
 
 /// Implementation of the `vfs::FileSystem` trait for VfsPath compatibility.
@@ -294,8 +267,14 @@ impl vfs::FileSystem for FileSystem {
     }
 
     fn exists(&self, path: &str) -> VfsResult<bool> {
-        // Call our inherent method which handles layer checking properly
-        FileSystem::exists(self, path)
+        // Check memory layer first, then physical layer
+        let memory_path = self.memory.join(path)?;
+        if memory_path.exists().unwrap_or(false) {
+            return Ok(true);
+        }
+
+        let physical_path = self.physical.join(path)?;
+        Ok(physical_path.exists().unwrap_or(false))
     }
 
     fn remove_file(&self, path: &str) -> VfsResult<()> {
@@ -322,6 +301,7 @@ mod tests {
     use super::*;
     use std::fs;
     use tempfile::TempDir;
+    use vfs::FileSystem as VfsFileSystem;
 
     #[test]
     fn test_new_vfs() {
