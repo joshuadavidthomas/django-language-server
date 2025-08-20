@@ -29,8 +29,9 @@
 //!
 //! ## Design Decisions
 //!
-//! See `backlog/decisions/decision-2` for the detailed rationale behind the custom
-//! VFS implementation instead of using existing overlay filesystem libraries.
+//! The custom VFS implementation was chosen over existing overlay filesystem libraries
+//! to provide proper deletion semantics and LSP-specific behavior optimized for
+//! language server operations.
 
 mod document;
 mod store;

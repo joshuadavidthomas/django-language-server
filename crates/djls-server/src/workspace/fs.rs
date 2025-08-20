@@ -11,8 +11,7 @@ use std::collections::BTreeSet;
 /// 
 /// ## Design Rationale
 /// 
-/// This custom implementation was chosen over existing overlay filesystems (see `decision-2`)
-/// because it provides:
+/// This custom implementation was chosen over existing overlay filesystems because it provides:
 /// - Proper deletion semantics without whiteout markers
 /// - LSP-specific behavior for handling editor lifecycle events
 /// - Predictable exists() behavior that aligns with LSP client expectations
@@ -45,9 +44,6 @@ pub struct FileSystem {
 }
 
 impl FileSystem {
-    // Implementation follows decision-2: Custom vfs::FileSystem Implementation for Language Server
-    // See backlog/decisions/decision-2 for detailed rationale
-    
     /// Creates a new FileSystem rooted at the specified path.
     /// 
     /// The FileSystem will provide access to files within the root path through both
