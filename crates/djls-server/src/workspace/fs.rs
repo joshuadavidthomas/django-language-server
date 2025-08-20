@@ -61,11 +61,11 @@ impl FileSystem {
     /// ```rust,ignore
     /// let fs = FileSystem::new("/path/to/django/project")?;
     /// ```
-    pub fn new<P: AsRef<Path>>(root_path: P) -> VfsResult<Self> {
+    pub fn new<P: AsRef<Path>>(root_path: P) -> Self {
         let memory = VfsPath::new(MemoryFS::new());
         let physical = VfsPath::new(PhysicalFS::new(root_path.as_ref()));
 
-        Ok(FileSystem { memory, physical })
+        FileSystem { memory, physical }
     }
 
     /// Reads file content as a UTF-8 string, prioritizing unsaved editor changes.
@@ -127,7 +127,6 @@ impl FileSystem {
     pub fn write_string(&self, path: &str, content: &str) -> VfsResult<()> {
         let memory_path = self.memory.join(path)?;
 
-        // Ensure parent directories exist in memory layer
         let parent = memory_path.parent();
         if !parent.is_root() && !parent.exists().unwrap_or(false) {
             parent.create_dir_all()?;
@@ -167,8 +166,6 @@ impl FileSystem {
 
         Ok(())
     }
-
-
 }
 
 /// Implementation of the `vfs::FileSystem` trait for VfsPath compatibility.
@@ -189,7 +186,6 @@ impl vfs::FileSystem for FileSystem {
         // Collect entries from both layers and merge them
         let mut entries = BTreeSet::new();
 
-        // Add memory layer entries
         let memory_path = self.memory.join(path)?;
         if memory_path.exists().unwrap_or(false) {
             for entry in memory_path.read_dir()? {
@@ -197,7 +193,6 @@ impl vfs::FileSystem for FileSystem {
             }
         }
 
-        // Add physical layer entries
         let physical_path = self.physical.join(path)?;
         if physical_path.exists().unwrap_or(false) {
             for entry in physical_path.read_dir()? {
@@ -205,18 +200,15 @@ impl vfs::FileSystem for FileSystem {
             }
         }
 
-        // Return merged, deduplicated entries
         Ok(Box::new(entries.into_iter()))
     }
 
     fn create_dir(&self, path: &str) -> VfsResult<()> {
-        // Create directory in memory layer only
         let memory_path = self.memory.join(path)?;
         memory_path.create_dir()
     }
 
     fn open_file(&self, path: &str) -> VfsResult<Box<dyn SeekAndRead + Send>> {
-        // Check memory layer first, then physical
         let memory_path = self.memory.join(path)?;
         if memory_path.exists().unwrap_or(false) {
             return memory_path.open_file();
@@ -227,10 +219,8 @@ impl vfs::FileSystem for FileSystem {
     }
 
     fn create_file(&self, path: &str) -> VfsResult<Box<dyn SeekAndWrite + Send>> {
-        // Create file in memory layer only
         let memory_path = self.memory.join(path)?;
 
-        // Ensure parent directories exist in memory layer
         let parent = memory_path.parent();
         if !parent.is_root() && !parent.exists().unwrap_or(false) {
             parent.create_dir_all()?;
@@ -256,7 +246,6 @@ impl vfs::FileSystem for FileSystem {
     }
 
     fn metadata(&self, path: &str) -> VfsResult<VfsMetadata> {
-        // Check memory layer first, then physical
         let memory_path = self.memory.join(path)?;
         if memory_path.exists().unwrap_or(false) {
             return memory_path.metadata();
@@ -267,7 +256,6 @@ impl vfs::FileSystem for FileSystem {
     }
 
     fn exists(&self, path: &str) -> VfsResult<bool> {
-        // Check memory layer first, then physical layer
         let memory_path = self.memory.join(path)?;
         if memory_path.exists().unwrap_or(false) {
             return Ok(true);
@@ -278,7 +266,6 @@ impl vfs::FileSystem for FileSystem {
     }
 
     fn remove_file(&self, path: &str) -> VfsResult<()> {
-        // Only remove from memory layer - this aligns with our LSP semantics
         let memory_path = self.memory.join(path)?;
         if memory_path.exists().unwrap_or(false) {
             memory_path.remove_file()?;
@@ -287,7 +274,6 @@ impl vfs::FileSystem for FileSystem {
     }
 
     fn remove_dir(&self, path: &str) -> VfsResult<()> {
-        // Only remove from memory layer - this aligns with our LSP semantics
         let memory_path = self.memory.join(path)?;
         if memory_path.exists().unwrap_or(false) {
             memory_path.remove_dir()?;
@@ -302,15 +288,6 @@ mod tests {
     use std::fs;
     use tempfile::TempDir;
     use vfs::FileSystem as VfsFileSystem;
-
-    #[test]
-    fn test_new_vfs() {
-        let temp_dir = TempDir::new().unwrap();
-        let _vfs = FileSystem::new(temp_dir.path()).unwrap();
-
-        // FileSystem should be created successfully
-        // (removed testing of internal-exposing methods)
-    }
 
     #[test]
     fn test_read_physical_file() {
