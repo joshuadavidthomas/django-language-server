@@ -117,4 +117,3 @@ pub struct TemplateTagContext {
     pub closing_brace: ClosingBrace,
     pub needs_leading_space: bool,
 }
-

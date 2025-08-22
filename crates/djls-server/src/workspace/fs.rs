@@ -168,9 +168,9 @@ impl FileSystem {
     }
 }
 
-/// Implementation of the `vfs::FileSystem` trait for VfsPath compatibility.
+/// Implementation of the `vfs::FileSystem` trait for `VfsPath` compatibility.
 ///
-/// This trait implementation allows our custom FileSystem to be used with VfsPath
+/// This trait implementation allows our custom `FileSystem` to be used with `VfsPath`
 /// while maintaining the dual-layer architecture. All operations respect the
 /// memory-over-physical priority, ensuring LSP semantics are preserved even when
 /// accessed through the generic VFS interface.

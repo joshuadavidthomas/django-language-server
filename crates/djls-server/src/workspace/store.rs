@@ -1,7 +1,6 @@
 use super::fs::FileSystem;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use serde_json;
 
 use anyhow::anyhow;
 use anyhow::Result;
@@ -48,7 +47,7 @@ impl Store {
             root_path,
         })
     }
-    
+
     /// Check if a URI represents a file within the workspace
     fn is_workspace_file(&self, uri: &tower_lsp_server::lsp_types::Uri) -> bool {
         if let Some(path) = uri_to_pathbuf(uri) {
@@ -65,7 +64,7 @@ impl Store {
             // Silently ignore files outside workspace
             return;
         }
-        
+
         let uri = params.text_document.uri.to_string();
         let version = params.text_document.version;
         let content = &params.text_document.text;
@@ -79,7 +78,7 @@ impl Store {
                     &relative_path.to_string_lossy(),
                     content
                 ) {
-                    eprintln!("Warning: Failed to write file to VFS: {}", e);
+                    eprintln!("Warning: Failed to write file to VFS: {e}");
                     // Continue with normal processing despite VFS error
                 }
             }
@@ -101,7 +100,7 @@ impl Store {
             // Return Ok to avoid errors for files outside workspace
             return Ok(());
         }
-        
+
         let uri = params.text_document.uri.as_str().to_string();
         let version = params.text_document.version;
 
@@ -109,7 +108,7 @@ impl Store {
         if let Some(absolute_path) = uri_to_pathbuf(&params.text_document.uri) {
             if let Ok(relative_path) = absolute_path.strip_prefix(&self.root_path) {
                 let relative_path_str = relative_path.to_string_lossy();
-                
+
                 // Read current content from VFS (single source of truth)
                 let current_content = self.vfs.read_to_string(&relative_path_str)
                     .map_err(|e| anyhow!("Failed to read from VFS: {}", e))?;
@@ -119,7 +118,7 @@ impl Store {
 
                 // Write updated content back to VFS
                 if let Err(e) = self.vfs.write_string(&relative_path_str, &updated_content) {
-                    eprintln!("Warning: Failed to write to VFS: {}", e);
+                    eprintln!("Warning: Failed to write to VFS: {e}");
                 }
 
                 // Update document metadata (just version)
@@ -143,10 +142,10 @@ impl Store {
             if let Some(absolute_path) = uri_to_pathbuf(&params.text_document.uri) {
                 if let Ok(relative_path) = absolute_path.strip_prefix(&self.root_path) {
                     let relative_path_str = relative_path.to_string_lossy();
-                    
+
                     // Discard any unsaved changes in VFS (clean up memory layer)
                     if let Err(e) = self.vfs.discard_changes(&relative_path_str) {
-                        eprintln!("Warning: Failed to discard VFS changes on close: {}", e);
+                        eprintln!("Warning: Failed to discard VFS changes on close: {e}");
                         // Continue with document removal despite VFS error
                     }
                 }
@@ -168,10 +167,10 @@ impl Store {
         if let Some(absolute_path) = uri_to_pathbuf(&params.text_document.uri) {
             if let Ok(relative_path) = absolute_path.strip_prefix(&self.root_path) {
                 let relative_path_str = relative_path.to_string_lossy();
-                
+
                 // Discard changes in VFS (clear memory layer so reads return disk content)
                 if let Err(e) = self.vfs.discard_changes(&relative_path_str) {
-                    eprintln!("Warning: Failed to discard VFS changes on save: {}", e);
+                    eprintln!("Warning: Failed to discard VFS changes on save: {e}");
                     // Continue normally - this is not a critical error
                 }
             }
@@ -180,7 +179,7 @@ impl Store {
         Ok(())
     }
 
-    /// Apply text changes to content (similar to TextDocument::with_changes but for strings)
+    /// Apply text changes to content (similar to `TextDocument::with_changes` but for strings)
     fn apply_changes_to_content(
         &self,
         mut content: String,
@@ -190,7 +189,7 @@ impl Store {
             if let Some(range) = change.range {
                 // Incremental change with range
                 let index = LineIndex::new(&content);
-                
+
                 if let (Some(start_offset), Some(end_offset)) = (
                     index.offset(range.start).map(|o| o as usize),
                     index.offset(range.end).map(|o| o as usize),
@@ -277,7 +276,7 @@ impl Store {
             if let Some(absolute_path) = uri_to_pathbuf(&parsed_uri) {
                 if let Ok(relative_path) = absolute_path.strip_prefix(&self.root_path) {
                     let relative_path_str = relative_path.to_string_lossy();
-                    
+
                     // Try to read from VFS first (includes unsaved changes)
                     match self.vfs.read_to_string(&relative_path_str) {
                         Ok(vfs_content) => vfs_content,
@@ -338,19 +337,19 @@ impl Store {
         }
     }
 
-    /// Debug method to expose VFS state (only enabled with DJLS_DEBUG)
+    /// Debug method to expose VFS state (only enabled with `DJLS_DEBUG`)
     pub fn debug_vfs_state(&self) -> serde_json::Value {
         use std::collections::HashMap;
-        
+
         // Get memory layer contents by trying to read all known documents
         let mut memory_layer = HashMap::new();
-        
+
         for uri_str in self.documents.keys() {
             if let Ok(uri) = uri_str.parse::<tower_lsp_server::lsp_types::Uri>() {
                 if let Some(absolute_path) = super::utils::uri_to_pathbuf(&uri) {
                     if let Ok(relative_path) = absolute_path.strip_prefix(&self.root_path) {
                         let relative_path_str = relative_path.to_string_lossy();
-                        
+
                         // Try to read from VFS - this will show us if there's content in memory layer
                         if let Ok(content) = self.vfs.read_to_string(&relative_path_str) {
                             memory_layer.insert(relative_path_str.to_string(), content);
@@ -359,7 +358,7 @@ impl Store {
                 }
             }
         }
-        
+
         serde_json::json!({
             "memory_layer_files": memory_layer,
             "physical_root": self.root_path.display().to_string()
@@ -405,19 +404,19 @@ impl Store {
         })
     }
 
-    /// Debug method to expose Store state (only enabled with DJLS_DEBUG)  
+    /// Debug method to expose Store state (only enabled with `DJLS_DEBUG`)
     pub fn debug_store_state(&self) -> serde_json::Value {
         use std::collections::HashMap;
-        
+
         let mut documents_info = HashMap::new();
-        
-        for (uri, _doc) in &self.documents {
+
+        for uri in self.documents.keys() {
             documents_info.insert(uri.clone(), serde_json::json!({
                 "version": self.versions.get(uri),
                 "tracked": true
             }));
         }
-        
+
         serde_json::json!({
             "documents": documents_info,
             "document_count": self.documents.len(),

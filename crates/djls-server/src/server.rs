@@ -2,7 +2,6 @@ use std::future::Future;
 use std::sync::Arc;
 
 use tokio::sync::RwLock;
-use serde_json;
 use tower_lsp_server::jsonrpc::Result as LspResult;
 use tower_lsp_server::lsp_types::CompletionOptions;
 use tower_lsp_server::lsp_types::CompletionParams;
@@ -282,31 +281,28 @@ impl LanguageServer for DjangoLanguageServer {
     }
 
     async fn execute_command(&self, params: ExecuteCommandParams) -> LspResult<Option<serde_json::Value>> {
-        match params.command.as_str() {
-            "djls/dumpState" => {
-                tracing::info!("Executing djls/dumpState command");
-                
-                // Check if debug mode is enabled
-                if std::env::var("DJLS_DEBUG").is_err() {
-                    tracing::warn!("djls/dumpState command requires DJLS_DEBUG environment variable");
-                    return Ok(Some(serde_json::json!({
-                        "error": "Debug mode not enabled. Set DJLS_DEBUG environment variable."
-                    })));
-                }
+        if params.command.as_str() == "djls/dumpState" {
+            tracing::info!("Executing djls/dumpState command");
 
-                let result = self.with_session(|session| {
-                    session.dump_debug_state()
-                }).await;
+            // Check if debug mode is enabled
+            if std::env::var("DJLS_DEBUG").is_err() {
+                tracing::warn!("djls/dumpState command requires DJLS_DEBUG environment variable");
+                return Ok(Some(serde_json::json!({
+                    "error": "Debug mode not enabled. Set DJLS_DEBUG environment variable."
+                })));
+            }
 
-                Ok(Some(serde_json::json!({
-                    "success": true,
-                    "message": result
-                })))
-            }
-            _ => {
-                tracing::warn!("Unknown command: {}", params.command);
-                Ok(None)
-            }
+            let result = self.with_session(|session| {
+                session.dump_debug_state()
+            }).await;
+
+            Ok(Some(serde_json::json!({
+                "success": true,
+                "message": result
+            })))
+        } else {
+            tracing::warn!("Unknown command: {}", params.command);
+            Ok(None)
         }
     }
 
