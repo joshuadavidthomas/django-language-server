@@ -18,6 +18,7 @@
 //! ### LSP Integration
 //!
 //! The workspace module is designed around LSP lifecycle events:
+//!
 //! - `textDocument/didOpen`: Files are tracked but not immediately loaded into memory
 //! - `textDocument/didChange`: Changes are stored in the memory layer
 //! - `textDocument/didSave`: Memory layer changes can be discarded (editor handles disk writes)
@@ -34,10 +35,9 @@
 //! language server operations.
 
 mod document;
+mod fs;
 mod store;
 mod utils;
-mod fs;
 
 pub use store::Store;
 pub use utils::get_project_path;
-pub use fs::FileSystem;

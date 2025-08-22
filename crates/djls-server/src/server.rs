@@ -10,6 +10,7 @@ use tower_lsp_server::lsp_types::DidChangeConfigurationParams;
 use tower_lsp_server::lsp_types::DidChangeTextDocumentParams;
 use tower_lsp_server::lsp_types::DidCloseTextDocumentParams;
 use tower_lsp_server::lsp_types::DidOpenTextDocumentParams;
+use tower_lsp_server::lsp_types::DidSaveTextDocumentParams;
 use tower_lsp_server::lsp_types::InitializeParams;
 use tower_lsp_server::lsp_types::InitializeResult;
 use tower_lsp_server::lsp_types::InitializedParams;
@@ -239,6 +240,17 @@ impl LanguageServer for DjangoLanguageServer {
 
         self.with_session_mut(|session| {
             session.documents_mut().handle_did_close(&params);
+        })
+        .await;
+    }
+
+    async fn did_save(&self, params: DidSaveTextDocumentParams) {
+        tracing::info!("Saved document: {:?}", params.text_document.uri);
+
+        self.with_session_mut(|session| {
+            if let Err(e) = session.documents_mut().handle_did_save(&params) {
+                tracing::error!("Failed to handle did_save: {}", e);
+            }
         })
         .await;
     }

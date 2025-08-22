@@ -295,7 +295,7 @@ mod tests {
         let test_file = temp_dir.path().join("test.html");
         fs::write(&test_file, "physical content").unwrap();
 
-        let vfs = FileSystem::new(temp_dir.path()).unwrap();
+        let vfs = FileSystem::new(temp_dir.path());
         let content = vfs.read_to_string("test.html").unwrap();
 
         assert_eq!(content, "physical content");
@@ -304,7 +304,7 @@ mod tests {
     #[test]
     fn test_write_string_and_read_to_string() {
         let temp_dir = TempDir::new().unwrap();
-        let vfs = FileSystem::new(temp_dir.path()).unwrap();
+        let vfs = FileSystem::new(temp_dir.path());
 
         vfs.write_string("test.html", "memory content").unwrap();
         let content = vfs.read_to_string("test.html").unwrap();
@@ -318,7 +318,7 @@ mod tests {
         let test_file = temp_dir.path().join("test.html");
         fs::write(&test_file, "physical content").unwrap();
 
-        let vfs = FileSystem::new(temp_dir.path()).unwrap();
+        let vfs = FileSystem::new(temp_dir.path());
 
         // First read should get physical content
         assert_eq!(vfs.read_to_string("test.html").unwrap(), "physical content");
@@ -340,7 +340,7 @@ mod tests {
         let test_file = temp_dir.path().join("test.html");
         fs::write(&test_file, "physical content").unwrap();
 
-        let vfs = FileSystem::new(temp_dir.path()).unwrap();
+        let vfs = FileSystem::new(temp_dir.path());
 
         // Write to memory
         vfs.write_string("test.html", "memory content").unwrap();
@@ -359,7 +359,7 @@ mod tests {
         let test_file = temp_dir.path().join("physical.html");
         fs::write(&test_file, "content").unwrap();
 
-        let vfs = FileSystem::new(temp_dir.path()).unwrap();
+        let vfs = FileSystem::new(temp_dir.path());
 
         // Physical file exists
         assert!(vfs.exists("physical.html").unwrap());
@@ -375,7 +375,7 @@ mod tests {
     #[test]
     fn test_discard_changes_nonexistent() {
         let temp_dir = TempDir::new().unwrap();
-        let vfs = FileSystem::new(temp_dir.path()).unwrap();
+        let vfs = FileSystem::new(temp_dir.path());
 
         // Should not error when clearing non-existent memory file
         vfs.discard_changes("nonexistent.html").unwrap();
@@ -387,7 +387,7 @@ mod tests {
         let test_file = temp_dir.path().join("trait_test.html");
         fs::write(&test_file, "trait physical content").unwrap();
 
-        let filesystem = FileSystem::new(temp_dir.path()).unwrap();
+        let filesystem = FileSystem::new(temp_dir.path());
 
         // Test our trait implementation directly instead of through VfsPath
         // VfsPath would create absolute paths which our security validation rejects
@@ -428,7 +428,7 @@ mod tests {
         fs::write(test_dir.join("physical1.txt"), "content").unwrap();
         fs::write(test_dir.join("physical2.txt"), "content").unwrap();
 
-        let filesystem = FileSystem::new(temp_dir.path()).unwrap();
+        let filesystem = FileSystem::new(temp_dir.path());
 
         // Create memory layer files using the trait methods
         use vfs::FileSystem as VfsFileSystemTrait;
