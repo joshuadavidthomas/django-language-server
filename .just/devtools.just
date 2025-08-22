@@ -2,6 +2,8 @@ set unstable := true
 
 justfile := justfile_directory() + "/.just/devtools.just"
 
+export DJLS_DEBUG := "1"
+
 [private]
 default:
     @just --list --justfile {{ justfile }}
@@ -22,6 +24,7 @@ fmt:
 
 [no-cd]
 debug:
+    echo $DJLS_DEBUG
     cargo run --bin djls-tmux --package djls-dev
 
 [no-cd]

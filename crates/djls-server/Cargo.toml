@@ -13,6 +13,7 @@ djls-project = { workspace = true }
 djls-templates = { workspace = true }
 
 anyhow = { workspace = true }
+chrono = { workspace = true }
 percent-encoding = { workspace = true }
 pyo3 = { workspace = true }
 salsa = { workspace = true }

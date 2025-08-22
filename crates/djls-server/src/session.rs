@@ -3,6 +3,7 @@ use djls_project::DjangoProject;
 use salsa::StorageHandle;
 use tower_lsp_server::lsp_types::ClientCapabilities;
 use tower_lsp_server::lsp_types::InitializeParams;
+use serde_json;
 
 use crate::db::ServerDatabase;
 use crate::workspace::Store;
@@ -102,5 +103,35 @@ impl Session {
     pub fn db(&self) -> ServerDatabase {
         let storage = self.db_handle.clone().into_storage();
         ServerDatabase::new(storage)
+    }
+
+    /// Dump debug state to file for development/debugging purposes
+    pub fn dump_debug_state(&self) -> String {
+        use std::fs;
+        use chrono::{DateTime, Utc};
+
+        let timestamp: DateTime<Utc> = Utc::now();
+        let filename = format!("djls-debug-state-{}.json", timestamp.format("%Y%m%d-%H%M%S"));
+        
+        let debug_info = serde_json::json!({
+            "timestamp": timestamp.to_rfc3339(),
+            "vfs": self.documents.debug_vfs_state(),
+            "store": self.documents.debug_store_state(),
+            "project": {
+                "path": self.project.as_ref().map(|p| p.path().display().to_string()),
+                "has_project": self.project.is_some()
+            }
+        });
+
+        match fs::write(&filename, serde_json::to_string_pretty(&debug_info).unwrap_or_else(|_| "{}".to_string())) {
+            Ok(_) => {
+                tracing::info!("Debug state dumped to: {}", filename);
+                format!("Debug state written to: {}", filename)
+            }
+            Err(e) => {
+                tracing::error!("Failed to write debug state: {}", e);
+                format!("Failed to write debug state: {}", e)
+            }
+        }
     }
 }

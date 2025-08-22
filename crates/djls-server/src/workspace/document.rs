@@ -176,6 +176,16 @@ impl LineIndex {
 
         Position::new(u32::try_from(line).unwrap_or(0), character)
     }
+
+    /// Get line start offset for a given line number
+    pub fn line_start(&self, line: usize) -> Option<u32> {
+        self.line_starts.get(line).copied()
+    }
+
+    /// Get total content length
+    pub fn length(&self) -> u32 {
+        self.length
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
