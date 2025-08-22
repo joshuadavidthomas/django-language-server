@@ -21,12 +21,12 @@ pub fn get_project_path(params: &InitializeParams) -> Option<PathBuf> {
             tracing::debug!("Processing workspace folder URI: {}", folder.uri.as_str());
             uri_to_pathbuf(&folder.uri)
         });
-    
+
     if let Some(path) = workspace_path {
         tracing::info!("Using workspace folder as project path: {}", path.display());
         return Some(path);
     }
-    
+
     // Fall back to current directory if no workspace folders provided
     let current_dir = std::env::current_dir().ok();
     if let Some(ref dir) = current_dir {
@@ -73,13 +73,13 @@ mod tests {
             uri: workspace_uri.clone(),
             name: "project".to_string(),
         };
-        
+
         let mut params = InitializeParams::default();
         params.workspace_folders = Some(vec![workspace_folder]);
-        
+
         // Get the project path
         let result = get_project_path(&params);
-        
+
         // Should return the workspace folder path, not current_dir
         assert!(result.is_some());
         let path = result.unwrap();
@@ -90,10 +90,10 @@ mod tests {
     fn test_get_project_path_falls_back_to_current_dir() {
         // Create InitializeParams without workspace folders
         let params = InitializeParams::default();
-        
+
         // Get the project path
         let result = get_project_path(&params);
-        
+
         // Should return current directory as fallback
         assert!(result.is_some());
         let path = result.unwrap();
@@ -107,8 +107,8 @@ mod tests {
         let uri: Uri = "file:///home/user/project".parse().unwrap();
         let result = uri_to_pathbuf(&uri);
         assert_eq!(result, Some(PathBuf::from("/home/user/project")));
-        
-        // Test non-file URI  
+
+        // Test non-file URI
         let uri: Uri = "https://example.com".parse().unwrap();
         let result = uri_to_pathbuf(&uri);
         assert_eq!(result, None);
