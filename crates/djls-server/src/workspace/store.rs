@@ -59,7 +59,7 @@ impl Store {
             false
         }
     }
-    pub fn handle_did_open(&mut self, db: &dyn Database, params: &DidOpenTextDocumentParams) {
+    pub fn handle_did_open(&mut self, _db: &dyn Database, params: &DidOpenTextDocumentParams) {
         // Only process files within the workspace
         if !self.is_workspace_file(&params.text_document.uri) {
             // Silently ignore files outside workspace
@@ -85,7 +85,7 @@ impl Store {
             }
         }
 
-        let document = TextDocument::from_did_open_params(db, params);
+        let document = TextDocument::from_did_open_params(params);
 
         self.add_document(document, uri.clone());
         self.versions.insert(uri, version);
@@ -93,7 +93,7 @@ impl Store {
 
     pub fn handle_did_change(
         &mut self,
-        db: &dyn Database,
+        _db: &dyn Database,
         params: &DidChangeTextDocumentParams,
     ) -> Result<()> {
         // Only process files within the workspace
@@ -110,21 +110,9 @@ impl Store {
             if let Ok(relative_path) = absolute_path.strip_prefix(&self.root_path) {
                 let relative_path_str = relative_path.to_string_lossy();
                 
-                // Read current content from VFS
-                let current_content = match self.vfs.read_to_string(&relative_path_str) {
-                    Ok(content) => content,
-                    Err(e) => {
-                        eprintln!("Warning: Failed to read from VFS, falling back to TextDocument: {}", e);
-                        // Fallback to existing TextDocument approach
-                        let document = self
-                            .get_document(&uri)
-                            .ok_or_else(|| anyhow!("Document not found: {}", uri))?;
-                        let new_document = document.with_changes(db, &params.content_changes, version);
-                        self.documents.insert(uri.clone(), new_document);
-                        self.versions.insert(uri, version);
-                        return Ok(());
-                    }
-                };
+                // Read current content from VFS (single source of truth)
+                let current_content = self.vfs.read_to_string(&relative_path_str)
+                    .map_err(|e| anyhow!("Failed to read from VFS: {}", e))?;
 
                 // Apply text changes to VFS content
                 let updated_content = self.apply_changes_to_content(current_content, &params.content_changes)?;
@@ -134,31 +122,18 @@ impl Store {
                     eprintln!("Warning: Failed to write to VFS: {}", e);
                 }
 
-                // Create new TextDocument with updated content for backward compatibility
-                let index = LineIndex::new(&updated_content);
-                let language_id = self.get_document(&uri)
-                    .map(|doc| doc.language_id(db))
-                    .unwrap_or(LanguageId::HtmlDjango);
-                
-                let new_document = TextDocument::new(db, uri.clone(), updated_content.clone(), index, version, language_id);
-                self.documents.insert(uri.clone(), new_document);
+                // Update document metadata (just version)
+                if let Some(document) = self.documents.get_mut(&uri) {
+                    document.version = version;
+                }
                 self.versions.insert(uri, version);
 
                 return Ok(());
             }
         }
 
-        // Fallback to original implementation if path conversion fails
-        let document = self
-            .get_document(&uri)
-            .ok_or_else(|| anyhow!("Document not found: {}", uri))?;
-
-        let new_document = document.with_changes(db, &params.content_changes, version);
-
-        self.documents.insert(uri.clone(), new_document);
-        self.versions.insert(uri, version);
-
-        Ok(())
+        // If path conversion fails, this is an error since we need VFS
+        Err(anyhow!("Document not in workspace or path conversion failed: {}", uri))
     }
 
     pub fn handle_did_close(&mut self, params: &DidCloseTextDocumentParams) {
@@ -266,12 +241,12 @@ impl Store {
     #[allow(dead_code)]
     pub fn get_documents_by_language<'db>(
         &'db self,
-        db: &'db dyn Database,
+        _db: &'db dyn Database,
         language_id: LanguageId,
     ) -> impl Iterator<Item = &'db TextDocument> + 'db {
         self.documents
             .values()
-            .filter(move |doc| doc.language_id(db) == language_id)
+            .filter(move |doc| doc.language_id == language_id)
     }
 
     #[allow(dead_code)]
@@ -286,14 +261,14 @@ impl Store {
 
     pub fn get_completions(
         &self,
-        db: &dyn Database,
+        _db: &dyn Database,
         uri: &str,
         position: Position,
         tags: &TemplateTags,
     ) -> Option<CompletionResponse> {
         let document = self.get_document(uri)?;
 
-        if document.language_id(db) != LanguageId::HtmlDjango {
+        if document.language_id != LanguageId::HtmlDjango {
             return None;
         }
 
@@ -307,21 +282,21 @@ impl Store {
                     match self.vfs.read_to_string(&relative_path_str) {
                         Ok(vfs_content) => vfs_content,
                         Err(_) => {
-                            // Fallback to document content if VFS read fails
-                            document.contents(db).to_string()
+                            // Return None if we can't read from VFS
+                            return None;
                         }
                     }
                 } else {
-                    // Path not within workspace, use document content
-                    document.contents(db).to_string()
+                    // Path not within workspace
+                    return None;
                 }
             } else {
-                // URI parsing failed, use document content
-                document.contents(db).to_string()
+                // URI parsing failed
+                return None;
             }
         } else {
-            // URI parsing failed, use document content
-            document.contents(db).to_string()
+            // URI parsing failed
+            return None;
         };
 
         // Use standalone analyzer instead of salsa-tracked method
