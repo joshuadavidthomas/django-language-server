@@ -26,8 +26,8 @@ check *ARGS:
 clean:
     cargo clean
 
-clippy:
-    cargo clippy --all-targets --all-features --fix -- -D warnings
+clippy *ARGS:
+    cargo clippy --all-targets --all-features --fix {{ ARGS }} -- -D warnings
 
 fmt *ARGS:
     cargo +nightly fmt {{ ARGS }}
