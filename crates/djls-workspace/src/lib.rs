@@ -5,8 +5,7 @@ mod watcher;
 
 pub use bridge::FileStore;
 pub use db::{
-    parse_template, template_errors, Database, FileKindMini, SourceFile, TemplateAst,
-    TemplateLoaderOrder,
+    parse_template, template_errors, Database, SourceFile, TemplateAst, TemplateLoaderOrder,
 };
 pub use vfs::{FileKind, FileMeta, FileRecord, Revision, TextSource, Vfs, VfsSnapshot};
 pub use watcher::{VfsWatcher, WatchConfig, WatchEvent};

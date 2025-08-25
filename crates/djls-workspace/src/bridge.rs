@@ -9,10 +9,7 @@ use std::{collections::HashMap, sync::Arc};
 use salsa::Setter;
 
 use super::{
-    db::{
-        parse_template, template_errors, Database, FileKindMini, SourceFile, TemplateAst,
-        TemplateLoaderOrder,
-    },
+    db::{parse_template, template_errors, Database, SourceFile, TemplateAst, TemplateLoaderOrder},
     vfs::{FileKind, VfsSnapshot},
     FileId,
 };
@@ -69,16 +66,12 @@ impl FileStore {
     pub fn apply_vfs_snapshot(&mut self, snap: &VfsSnapshot) {
         for (id, rec) in &snap.files {
             let new_text = snap.get_text(*id).unwrap_or_else(|| Arc::<str>::from(""));
-            let new_kind = match rec.meta.kind {
-                FileKind::Python => FileKindMini::Python,
-                FileKind::Template => FileKindMini::Template,
-                FileKind::Other => FileKindMini::Other,
-            };
+            let new_kind = rec.meta.kind;
 
             if let Some(sf) = self.files.get(id) {
                 // Update if changed — avoid touching Salsa when not needed
                 if sf.kind(&self.db) != new_kind {
-                    sf.set_kind(&mut self.db).to(new_kind.clone());
+                    sf.set_kind(&mut self.db).to(new_kind);
                 }
                 if sf.text(&self.db).as_ref() != &*new_text {
                     sf.set_text(&mut self.db).to(new_text.clone());
@@ -100,7 +93,7 @@ impl FileStore {
     /// Get the file kind classification by its [`FileId`].
     ///
     /// Returns `None` if the file is not tracked in the [`FileStore`].
-    pub fn file_kind(&self, id: FileId) -> Option<FileKindMini> {
+    pub fn file_kind(&self, id: FileId) -> Option<FileKind> {
         self.files.get(&id).map(|sf| sf.kind(&self.db))
     }
 

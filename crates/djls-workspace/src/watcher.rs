@@ -317,4 +317,3 @@ mod tests {
         assert_ne!(deleted, renamed);
     }
 }
-

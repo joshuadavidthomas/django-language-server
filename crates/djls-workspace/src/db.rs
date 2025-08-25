@@ -7,6 +7,8 @@ use std::sync::Arc;
 #[cfg(test)]
 use std::sync::Mutex;
 
+use crate::vfs::FileKind;
+
 /// Salsa database root for workspace
 ///
 /// The [`Database`] provides default storage and, in tests, captures Salsa events for
@@ -49,21 +51,6 @@ impl Default for Database {
 #[salsa::db]
 impl salsa::Database for Database {}
 
-/// Minimal classification for analysis routing.
-///
-/// [`FileKindMini`] provides a lightweight categorization of files to determine which
-/// analysis pipelines should process them. This is the Salsa-side representation
-/// of file types, mapped from the VFS layer's `vfs::FileKind`.
-#[derive(Clone, Eq, PartialEq, Hash, Debug)]
-pub enum FileKindMini {
-    /// Python source file (.py)
-    Python,
-    /// Django template file (.html, .jinja, etc.)
-    Template,
-    /// Other file types not requiring specialized analysis
-    Other,
-}
-
 /// Represents a single file's classification and current content.
 ///
 /// [`SourceFile`] is a Salsa input entity that tracks both the file's type (for routing
@@ -72,7 +59,7 @@ pub enum FileKindMini {
 #[salsa::input]
 pub struct SourceFile {
     /// The file's classification for analysis routing
-    pub kind: FileKindMini,
+    pub kind: FileKind,
     /// The current text content of the file
     #[returns(ref)]
     pub text: Arc<str>,
@@ -113,7 +100,7 @@ pub struct TemplateAst {
 #[salsa::tracked]
 pub fn parse_template(db: &dyn salsa::Database, file: SourceFile) -> Option<Arc<TemplateAst>> {
     // Only parse template files
-    if file.kind(db) != FileKindMini::Template {
+    if file.kind(db) != FileKind::Template {
         return None;
     }
 
@@ -161,7 +148,7 @@ mod tests {
 
         // Create a template file
         let template_content: Arc<str> = Arc::from("{% if user %}Hello {{ user.name }}{% endif %}");
-        let file = SourceFile::new(&db, FileKindMini::Template, template_content.clone());
+        let file = SourceFile::new(&db, FileKind::Template, template_content.clone());
 
         // First parse - should execute the parsing
         let ast1 = parse_template(&db, file);
@@ -181,7 +168,7 @@ mod tests {
 
         // Create a template file
         let template_content1: Arc<str> = Arc::from("{% if user %}Hello{% endif %}");
-        let file = SourceFile::new(&db, FileKindMini::Template, template_content1);
+        let file = SourceFile::new(&db, FileKind::Template, template_content1);
 
         // First parse
         let ast1 = parse_template(&db, file);
@@ -206,7 +193,7 @@ mod tests {
 
         // Create a Python file
         let python_content: Arc<str> = Arc::from("def hello():\n    print('Hello')");
-        let file = SourceFile::new(&db, FileKindMini::Python, python_content);
+        let file = SourceFile::new(&db, FileKind::Python, python_content);
 
         // Should return None for non-template files
         let ast = parse_template(&db, file);
@@ -223,7 +210,7 @@ mod tests {
 
         // Create a template with an error (unclosed tag)
         let template_content: Arc<str> = Arc::from("{% if user %}Hello {{ user.name }");
-        let file = SourceFile::new(&db, FileKindMini::Template, template_content);
+        let file = SourceFile::new(&db, FileKind::Template, template_content);
 
         // Get errors
         let errors1 = template_errors(&db, file);
