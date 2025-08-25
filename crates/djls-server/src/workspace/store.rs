@@ -12,6 +12,7 @@ use tower_lsp_server::lsp_types::CompletionResponse;
 use tower_lsp_server::lsp_types::DidChangeTextDocumentParams;
 use tower_lsp_server::lsp_types::DidCloseTextDocumentParams;
 use tower_lsp_server::lsp_types::DidOpenTextDocumentParams;
+use tower_lsp_server::lsp_types::TextDocumentContentChangeEvent;
 use tower_lsp_server::lsp_types::Documentation;
 use tower_lsp_server::lsp_types::InsertTextFormat;
 use tower_lsp_server::lsp_types::MarkupContent;
@@ -92,35 +93,14 @@ impl Store {
             .get_text(file_id)
             .ok_or_else(|| anyhow!("File content not found: {}", uri_str))?;
 
-        // Apply text changes
-        let mut new_content = current_content.to_string();
-        for change in &params.content_changes {
-            if let Some(range) = change.range {
-                // Get current line index for position calculations
-                let line_index = self
-                    .line_indices
-                    .get(&file_id)
-                    .ok_or_else(|| anyhow!("Line index not found for: {}", uri_str))?;
+        // Get current line index for position calculations
+        let line_index = self
+            .line_indices
+            .get(&file_id)
+            .ok_or_else(|| anyhow!("Line index not found for: {}", uri_str))?;
 
-                if let (Some(start_offset), Some(end_offset)) = (
-                    line_index.offset(range.start).map(|o| o as usize),
-                    line_index.offset(range.end).map(|o| o as usize),
-                ) {
-                    let mut updated_content = String::with_capacity(
-                        new_content.len() - (end_offset - start_offset) + change.text.len(),
-                    );
-
-                    updated_content.push_str(&new_content[..start_offset]);
-                    updated_content.push_str(&change.text);
-                    updated_content.push_str(&new_content[end_offset..]);
-
-                    new_content = updated_content;
-                }
-            } else {
-                // Full document update
-                new_content.clone_from(&change.text);
-            }
-        }
+        // Apply text changes using the new function
+        let new_content = apply_text_changes(&current_content, &params.content_changes, line_index)?;
 
         // Update TextDocument version
         if let Some(document) = self.documents.get_mut(&uri_str) {
@@ -233,5 +213,243 @@ impl Store {
             completions.sort_by(|a, b| a.label.cmp(&b.label));
             Some(CompletionResponse::Array(completions))
         }
+    }
+}
+
+/// Apply text changes to content, handling multiple changes correctly
+fn apply_text_changes(
+    content: &str,
+    changes: &[TextDocumentContentChangeEvent],
+    line_index: &LineIndex,
+) -> Result<String> {
+    if changes.is_empty() {
+        return Ok(content.to_string());
+    }
+
+    // Check for full document replacement first
+    for change in changes {
+        if change.range.is_none() {
+            return Ok(change.text.clone());
+        }
+    }
+
+    // Sort changes by start position in reverse order (end to start)
+    let mut sorted_changes = changes.to_vec();
+    sorted_changes.sort_by(|a, b| {
+        match (a.range, b.range) {
+            (Some(range_a), Some(range_b)) => {
+                // Primary sort: by line (reverse)
+                let line_cmp = range_b.start.line.cmp(&range_a.start.line);
+                if line_cmp != std::cmp::Ordering::Equal {
+                    line_cmp
+                } else {
+                    // Secondary sort: by character (reverse)
+                    range_b.start.character.cmp(&range_a.start.character)
+                }
+            }
+            _ => std::cmp::Ordering::Equal,
+        }
+    });
+
+    let mut result = content.to_string();
+
+    for change in &sorted_changes {
+        if let Some(range) = change.range {
+            // Convert UTF-16 positions to UTF-8 offsets
+            let start_offset = line_index.offset_utf16(range.start, &result)
+                .ok_or_else(|| anyhow!("Invalid start position: {:?}", range.start))?;
+            let end_offset = line_index.offset_utf16(range.end, &result)
+                .ok_or_else(|| anyhow!("Invalid end position: {:?}", range.end))?;
+
+            if start_offset as usize > result.len() || end_offset as usize > result.len() {
+                return Err(anyhow!("Offset out of bounds: start={}, end={}, len={}", 
+                    start_offset, end_offset, result.len()));
+            }
+
+            // Apply the change
+            result.replace_range(start_offset as usize..end_offset as usize, &change.text);
+        }
+    }
+
+    Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tower_lsp_server::lsp_types::Range;
+
+    #[test]
+    fn test_apply_single_character_insertion() {
+        let content = "Hello world";
+        let line_index = LineIndex::new(content);
+        
+        let changes = vec![TextDocumentContentChangeEvent {
+            range: Some(Range::new(Position::new(0, 6), Position::new(0, 6))),
+            range_length: None,
+            text: "beautiful ".to_string(),
+        }];
+
+        let result = apply_text_changes(content, &changes, &line_index).unwrap();
+        assert_eq!(result, "Hello beautiful world");
+    }
+
+    #[test]
+    fn test_apply_single_character_deletion() {
+        let content = "Hello world";
+        let line_index = LineIndex::new(content);
+        
+        let changes = vec![TextDocumentContentChangeEvent {
+            range: Some(Range::new(Position::new(0, 5), Position::new(0, 6))),
+            range_length: None,
+            text: "".to_string(),
+        }];
+
+        let result = apply_text_changes(content, &changes, &line_index).unwrap();
+        assert_eq!(result, "Helloworld");
+    }
+
+    #[test]
+    fn test_apply_multiple_changes_in_reverse_order() {
+        let content = "line 1\nline 2\nline 3";
+        let line_index = LineIndex::new(content);
+        
+        // Insert "new " at position (1, 0) and "another " at position (0, 0)
+        let changes = vec![
+            TextDocumentContentChangeEvent {
+                range: Some(Range::new(Position::new(0, 0), Position::new(0, 0))),
+                range_length: None,
+                text: "another ".to_string(),
+            },
+            TextDocumentContentChangeEvent {
+                range: Some(Range::new(Position::new(1, 0), Position::new(1, 0))),
+                range_length: None,
+                text: "new ".to_string(),
+            },
+        ];
+
+        let result = apply_text_changes(content, &changes, &line_index).unwrap();
+        assert_eq!(result, "another line 1\nnew line 2\nline 3");
+    }
+
+    #[test]
+    fn test_apply_multiline_replacement() {
+        let content = "line 1\nline 2\nline 3";
+        let line_index = LineIndex::new(content);
+        
+        let changes = vec![TextDocumentContentChangeEvent {
+            range: Some(Range::new(Position::new(0, 0), Position::new(2, 6))),
+            range_length: None,
+            text: "completely new content".to_string(),
+        }];
+
+        let result = apply_text_changes(content, &changes, &line_index).unwrap();
+        assert_eq!(result, "completely new content");
+    }
+
+    #[test]
+    fn test_apply_full_document_replacement() {
+        let content = "old content";
+        let line_index = LineIndex::new(content);
+        
+        let changes = vec![TextDocumentContentChangeEvent {
+            range: None,
+            range_length: None,
+            text: "brand new content".to_string(),
+        }];
+
+        let result = apply_text_changes(content, &changes, &line_index).unwrap();
+        assert_eq!(result, "brand new content");
+    }
+
+    #[test]
+    fn test_utf16_line_index_basic() {
+        let content = "hello world";
+        let line_index = LineIndex::new(content);
+        
+        // ASCII characters should have 1:1 UTF-8:UTF-16 mapping
+        let pos = Position::new(0, 6);
+        let offset = line_index.offset_utf16(pos, content).unwrap();
+        assert_eq!(offset, 6);
+        assert_eq!(&content[6..7], "w");
+    }
+
+    #[test]
+    fn test_utf16_line_index_with_emoji() {
+        let content = "hello 👋 world";
+        let line_index = LineIndex::new(content);
+        
+        // 👋 is 2 UTF-16 code units but 4 UTF-8 bytes
+        let pos_after_emoji = Position::new(0, 8); // UTF-16 position after "hello 👋"
+        let offset = line_index.offset_utf16(pos_after_emoji, content).unwrap();
+        
+        // Should point to the space before "world"
+        assert_eq!(offset, 10); // UTF-8 byte offset
+        assert_eq!(&content[10..11], " ");
+    }
+
+    #[test]
+    fn test_utf16_line_index_multiline() {
+        let content = "first line\nsecond line";
+        let line_index = LineIndex::new(content);
+        
+        let pos = Position::new(1, 7); // Position at 'l' in "line" on second line
+        let offset = line_index.offset_utf16(pos, content).unwrap();
+        assert_eq!(offset, 18); // 11 (first line + \n) + 7
+        assert_eq!(&content[18..19], "l");
+    }
+
+    #[test]
+    fn test_apply_changes_with_emoji() {
+        let content = "hello 👋 world";
+        let line_index = LineIndex::new(content);
+        
+        // Insert text after the space following the emoji (UTF-16 position 9)
+        let changes = vec![TextDocumentContentChangeEvent {
+            range: Some(Range::new(Position::new(0, 9), Position::new(0, 9))),
+            range_length: None,
+            text: "beautiful ".to_string(),
+        }];
+
+        let result = apply_text_changes(content, &changes, &line_index).unwrap();
+        assert_eq!(result, "hello 👋 beautiful world");
+    }
+
+    #[test]
+    fn test_line_index_utf16_tracking() {
+        let content = "a👋b";
+        let line_index = LineIndex::new(content);
+        
+        // Check UTF-16 line starts are tracked correctly
+        assert_eq!(line_index.line_starts_utf16, vec![0]);
+        assert_eq!(line_index.length_utf16, 4); // 'a' (1) + 👋 (2) + 'b' (1) = 4 UTF-16 units
+        assert_eq!(line_index.length, 6); // 'a' (1) + 👋 (4) + 'b' (1) = 6 UTF-8 bytes
+    }
+
+    #[test] 
+    fn test_edge_case_changes_at_boundaries() {
+        let content = "abc";
+        let line_index = LineIndex::new(content);
+        
+        // Insert at beginning
+        let changes = vec![TextDocumentContentChangeEvent {
+            range: Some(Range::new(Position::new(0, 0), Position::new(0, 0))),
+            range_length: None,
+            text: "start".to_string(),
+        }];
+        
+        let result = apply_text_changes(content, &changes, &line_index).unwrap();
+        assert_eq!(result, "startabc");
+        
+        // Insert at end
+        let line_index = LineIndex::new(content);
+        let changes = vec![TextDocumentContentChangeEvent {
+            range: Some(Range::new(Position::new(0, 3), Position::new(0, 3))),
+            range_length: None,
+            text: "end".to_string(),
+        }];
+        
+        let result = apply_text_changes(content, &changes, &line_index).unwrap();
+        assert_eq!(result, "abcend");
     }
 }
