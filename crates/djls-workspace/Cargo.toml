@@ -9,10 +9,13 @@ djls-templates = { workspace = true }
 anyhow = { workspace = true }
 camino = { workspace = true }
 dashmap = { workspace = true }
+notify = { workspace = true }
 salsa = { workspace = true }
+tokio = { workspace = true }
 url = { workspace = true }
 
 [dev-dependencies]
+tempfile = { workspace = true }
 
 [lints]
 workspace = true

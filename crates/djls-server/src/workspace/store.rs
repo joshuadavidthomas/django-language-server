@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use anyhow::anyhow;
 use anyhow::Result;
@@ -26,7 +26,7 @@ use super::document::{ClosingBrace, LanguageId, LineIndex, TextDocument};
 
 pub struct Store {
     vfs: Arc<Vfs>,
-    file_store: FileStore,
+    file_store: Arc<Mutex<FileStore>>,
     file_ids: HashMap<String, FileId>,
     line_indices: HashMap<FileId, LineIndex>,
     versions: HashMap<String, i32>,
@@ -37,7 +37,7 @@ impl Default for Store {
     fn default() -> Self {
         Self {
             vfs: Arc::new(Vfs::default()),
-            file_store: FileStore::new(),
+            file_store: Arc::new(Mutex::new(FileStore::new())),
             file_ids: HashMap::new(),
             line_indices: HashMap::new(),
             versions: HashMap::new(),
@@ -71,7 +71,8 @@ impl Store {
 
         // Sync VFS snapshot to FileStore for Salsa tracking
         let snapshot = self.vfs.snapshot();
-        self.file_store.apply_vfs_snapshot(&snapshot);
+        let mut file_store = self.file_store.lock().unwrap();
+        file_store.apply_vfs_snapshot(&snapshot);
 
         // Create TextDocument metadata
         let document = TextDocument::new(uri_str.clone(), version, language_id.clone(), file_id);
@@ -122,7 +123,8 @@ impl Store {
 
         // Sync VFS snapshot to FileStore for Salsa tracking
         let snapshot = self.vfs.snapshot();
-        self.file_store.apply_vfs_snapshot(&snapshot);
+        let mut file_store = self.file_store.lock().unwrap();
+        file_store.apply_vfs_snapshot(&snapshot);
 
         // Update cached line index and version
         self.line_indices
@@ -190,7 +192,8 @@ impl Store {
         // Try to get cached AST from FileStore for better context analysis
         // This demonstrates using the cached AST, though we still fall back to string parsing
         let file_id = document.file_id();
-        if let Some(_ast) = self.file_store.get_template_ast(file_id) {
+        let file_store = self.file_store.lock().unwrap();
+        if let Some(_ast) = file_store.get_template_ast(file_id) {
             // TODO: In a future enhancement, we could use the AST to provide
             // more intelligent completions based on the current node context
             // For now, we continue with the existing string-based approach
@@ -258,7 +261,8 @@ impl Store {
         };
 
         // Get cached template errors from FileStore
-        let errors = self.file_store.get_template_errors(file_id);
+        let file_store = self.file_store.lock().unwrap();
+        let errors = file_store.get_template_errors(file_id);
 
         // Convert template errors to LSP diagnostics
         errors

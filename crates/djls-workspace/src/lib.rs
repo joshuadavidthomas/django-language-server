@@ -1,11 +1,13 @@
 mod bridge;
 mod db;
 mod vfs;
+mod watcher;
 
 // Re-export public API
 pub use bridge::FileStore;
 pub use db::{parse_template, template_errors, Database, FileKindMini, SourceFile, TemplateAst, TemplateLoaderOrder};
 pub use vfs::{FileKind, FileMeta, FileRecord, Revision, TextSource, Vfs, VfsSnapshot};
+pub use watcher::{VfsWatcher, WatchConfig, WatchEvent};
 
 /// Stable, compact identifier for files across the subsystem.
 ///
