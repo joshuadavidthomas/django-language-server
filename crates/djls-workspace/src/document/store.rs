@@ -49,6 +49,7 @@ impl Default for DocumentStore {
 }
 
 impl DocumentStore {
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -134,88 +135,6 @@ impl DocumentStore {
         Ok(())
     }
 
-    pub fn handle_did_open(&mut self, params: &DidOpenTextDocumentParams) -> Result<()> {
-        let uri_str = params.text_document.uri.to_string();
-        let uri = params.text_document.uri.clone();
-        let version = params.text_document.version;
-        let content = params.text_document.text.clone();
-        let language_id = LanguageId::from(params.text_document.language_id.as_str());
-        let kind = FileKind::from(language_id.clone());
-
-        // Convert URI to Url for VFS
-        let vfs_url =
-            url::Url::parse(&uri.to_string()).map_err(|e| anyhow!("Invalid URI: {}", e))?;
-
-        // Convert to path - simplified for now, just use URI string
-        let path = Utf8PathBuf::from(uri.as_str());
-
-        // Store content in VFS
-        let text_source = TextSource::Overlay(Arc::from(content.as_str()));
-        let file_id = self.vfs.intern_file(vfs_url, path, kind, text_source);
-
-        // Set overlay content in VFS
-        self.vfs.set_overlay(file_id, Arc::from(content.as_str()))?;
-
-        // Sync VFS snapshot to FileStore for Salsa tracking
-        let snapshot = self.vfs.snapshot();
-        let mut file_store = self.file_store.lock().unwrap();
-        file_store.apply_vfs_snapshot(&snapshot);
-
-        // Create TextDocument metadata
-        let document = TextDocument::new(
-            uri_str.clone(),
-            version,
-            language_id.clone(),
-            file_id,
-            &content,
-        );
-        self.documents.insert(uri_str, document);
-
-        Ok(())
-    }
-
-    pub fn handle_did_change(&mut self, params: &DidChangeTextDocumentParams) -> Result<()> {
-        let uri_str = params.text_document.uri.as_str().to_string();
-        let version = params.text_document.version;
-
-        // Get document and file_id from the documents HashMap
-        let document = self
-            .documents
-            .get(&uri_str)
-            .ok_or_else(|| anyhow!("Document not found: {}", uri_str))?;
-        let file_id = document.file_id();
-
-        // Get current content from VFS
-        let snapshot = self.vfs.snapshot();
-        let current_content = snapshot
-            .get_text(file_id)
-            .ok_or_else(|| anyhow!("File content not found: {}", uri_str))?;
-
-        // Get line index from the document (TextDocument now stores its own LineIndex)
-        let line_index = document.line_index();
-
-        // Apply text changes using the new function
-        let new_content =
-            apply_text_changes(&current_content, &params.content_changes, line_index)?;
-
-        // Update TextDocument version and content
-        if let Some(document) = self.documents.get_mut(&uri_str) {
-            document.version = version;
-            document.update_content(&new_content);
-        }
-
-        // Update VFS with new content
-        self.vfs
-            .set_overlay(file_id, Arc::from(new_content.as_str()))?;
-
-        // Sync VFS snapshot to FileStore for Salsa tracking
-        let snapshot = self.vfs.snapshot();
-        let mut file_store = self.file_store.lock().unwrap();
-        file_store.apply_vfs_snapshot(&snapshot);
-
-        Ok(())
-    }
-
     /// Close a document with the given URI.
     /// This removes the document from internal storage and cleans up resources.
     pub fn close_document(&mut self, uri: &url::Url) {
@@ -228,31 +147,25 @@ impl DocumentStore {
         // The VFS will handle cleanup internally
     }
 
-    pub fn handle_did_close(&mut self, params: &DidCloseTextDocumentParams) {
-        let uri_str = params.text_document.uri.as_str();
-
-        // Remove TextDocument metadata
-        self.documents.remove(uri_str);
-
-        // Note: We don't remove from VFS as it might be useful for caching
-        // The VFS will handle cleanup internally
-    }
-
+    #[must_use]
     pub fn get_line_index(&self, uri: &str) -> Option<&LineIndex> {
-        self.documents.get(uri).map(|doc| doc.line_index())
+        self.documents.get(uri).map(super::TextDocument::line_index)
     }
 
     #[allow(dead_code)]
+    #[must_use]
     pub fn get_version(&self, uri: &str) -> Option<i32> {
-        self.documents.get(uri).map(|doc| doc.version())
+        self.documents.get(uri).map(super::TextDocument::version)
     }
 
     #[allow(dead_code)]
+    #[must_use]
     pub fn is_version_valid(&self, uri: &str, version: i32) -> bool {
         self.get_version(uri) == Some(version)
     }
 
     // TextDocument helper methods
+    #[must_use]
     pub fn get_document(&self, uri: &str) -> Option<&TextDocument> {
         self.documents.get(uri)
     }
@@ -262,10 +175,12 @@ impl DocumentStore {
     }
 
     // URI-based query methods (new API)
+    #[must_use]
     pub fn get_document_by_url(&self, uri: &url::Url) -> Option<&TextDocument> {
         self.get_document(uri.as_str())
     }
 
+    #[must_use]
     pub fn get_document_text(&self, uri: &url::Url) -> Option<Arc<str>> {
         let document = self.get_document_by_url(uri)?;
         let file_id = document.file_id();
@@ -273,6 +188,7 @@ impl DocumentStore {
         snapshot.get_text(file_id)
     }
 
+    #[must_use]
     pub fn get_line_text(&self, uri: &url::Url, line: u32) -> Option<String> {
         let document = self.get_document_by_url(uri)?;
         let snapshot = self.vfs.snapshot();
@@ -280,6 +196,7 @@ impl DocumentStore {
         document.get_line(content.as_ref(), line)
     }
 
+    #[must_use]
     pub fn get_word_at_position(&self, uri: &url::Url, position: Position) -> Option<String> {
         // This is a simplified implementation - get the line and extract word at position
         let line_text = self.get_line_text(uri, position.line)?;
@@ -312,11 +229,13 @@ impl DocumentStore {
     }
 
     // Position mapping methods
+    #[must_use]
     pub fn offset_to_position(&self, uri: &url::Url, offset: usize) -> Option<Position> {
         let document = self.get_document_by_url(uri)?;
         Some(document.offset_to_position(offset as u32))
     }
 
+    #[must_use]
     pub fn position_to_offset(&self, uri: &url::Url, position: Position) -> Option<usize> {
         let document = self.get_document_by_url(uri)?;
         document
@@ -325,6 +244,7 @@ impl DocumentStore {
     }
 
     // Template-specific methods
+    #[must_use]
     pub fn get_template_ast(&self, uri: &url::Url) -> Option<Arc<TemplateAst>> {
         let document = self.get_document_by_url(uri)?;
         let file_id = document.file_id();
@@ -332,10 +252,10 @@ impl DocumentStore {
         file_store.get_template_ast(file_id)
     }
 
+    #[must_use]
     pub fn get_template_errors(&self, uri: &url::Url) -> Vec<String> {
-        let document = match self.get_document_by_url(uri) {
-            Some(doc) => doc,
-            None => return vec![],
+        let Some(document) = self.get_document_by_url(uri) else {
+            return vec![];
         };
         let file_id = document.file_id();
         let file_store = self.file_store.lock().unwrap();
@@ -343,6 +263,7 @@ impl DocumentStore {
         errors.to_vec()
     }
 
+    #[must_use]
     pub fn get_template_context(
         &self,
         uri: &url::Url,
@@ -354,6 +275,7 @@ impl DocumentStore {
         document.get_template_tag_context(content.as_ref(), position)
     }
 
+    #[must_use]
     pub fn get_completions(
         &self,
         uri: &str,
@@ -379,8 +301,7 @@ impl DocumentStore {
         // Get template tag context from document
         let vfs_snapshot = self.vfs.snapshot();
         let text_content = vfs_snapshot.get_text(file_id)?;
-        let content = text_content.as_ref();
-        let context = document.get_template_tag_context(content, position)?;
+        let context = document.get_template_tag_context(text_content.as_ref(), position)?;
 
         let mut completions: Vec<CompletionItem> = tags
             .iter()

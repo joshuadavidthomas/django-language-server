@@ -9,6 +9,7 @@ pub struct LineIndex {
 }
 
 impl LineIndex {
+    #[must_use]
     pub fn new(text: &str) -> Self {
         let mut line_starts = vec![0];
         let mut line_starts_utf16 = vec![0];
@@ -32,6 +33,7 @@ impl LineIndex {
         }
     }
 
+    #[must_use]
     pub fn offset(&self, position: Position) -> Option<u32> {
         let line_start = self.line_starts.get(position.line as usize)?;
 
@@ -73,6 +75,7 @@ impl LineIndex {
     }
 
     #[allow(dead_code)]
+    #[must_use]
     pub fn position(&self, offset: u32) -> Position {
         let line = match self.line_starts.binary_search(&offset) {
             Ok(line) => line,
