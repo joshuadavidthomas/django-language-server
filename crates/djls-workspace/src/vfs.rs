@@ -8,6 +8,7 @@ use anyhow::{anyhow, Result};
 use camino::Utf8PathBuf;
 use dashmap::DashMap;
 use std::collections::hash_map::DefaultHasher;
+use std::fs;
 use std::hash::{Hash, Hasher};
 use std::{
     collections::HashMap,
@@ -18,7 +19,10 @@ use std::{
 };
 use url::Url;
 
-use super::{FileId, watcher::{VfsWatcher, WatchConfig, WatchEvent}};
+use super::{
+    watcher::{VfsWatcher, WatchConfig, WatchEvent},
+    FileId,
+};
 
 /// Monotonic counter representing global VFS state.
 ///
@@ -115,7 +119,7 @@ pub struct Vfs {
     head: AtomicU64,
     /// Optional file system watcher for external change detection
     watcher: std::sync::Mutex<Option<VfsWatcher>>,
-    /// Map from filesystem path to FileId for watcher events
+    /// Map from filesystem path to [`FileId`] for watcher events
     by_path: DashMap<Utf8PathBuf, FileId>,
 }
 
@@ -155,10 +159,6 @@ impl Vfs {
     /// (detected via hash comparison).
     ///
     /// Returns a tuple of (new global revision, whether content changed).
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the provided `FileId` does not exist in the VFS.
     pub fn set_overlay(&self, id: FileId, new_text: Arc<str>) -> Result<(Revision, bool)> {
         let mut rec = self
             .files
@@ -200,7 +200,10 @@ impl Vfs {
     /// Returns an error if file watching is disabled in the config or fails to start.
     pub fn enable_file_watching(&self, config: WatchConfig) -> Result<()> {
         let watcher = VfsWatcher::new(config)?;
-        *self.watcher.lock().unwrap() = Some(watcher);
+        *self
+            .watcher
+            .lock()
+            .map_err(|e| anyhow!("Failed to lock watcher mutex: {}", e))? = Some(watcher);
         Ok(())
     }
 
@@ -211,36 +214,38 @@ impl Vfs {
     pub fn process_file_events(&self) -> usize {
         // Get events from the watcher
         let events = {
-            let guard = self.watcher.lock().unwrap();
+            let Ok(guard) = self.watcher.lock() else {
+                return 0; // Return 0 if mutex is poisoned
+            };
             if let Some(watcher) = guard.as_ref() {
                 watcher.try_recv_events()
             } else {
                 return 0;
             }
         };
-        
+
         let mut updated_count = 0;
-        
+
         for event in events {
             match event {
                 WatchEvent::Modified(path) | WatchEvent::Created(path) => {
                     if let Err(e) = self.load_from_disk(&path) {
-                        eprintln!("Failed to load file from disk: {}: {}", path, e);
+                        eprintln!("Failed to load file from disk: {path}: {e}");
                     } else {
                         updated_count += 1;
                     }
                 }
                 WatchEvent::Deleted(path) => {
                     // For now, we don't remove deleted files from VFS
-                    // This maintains stable FileIds for consumers
-                    eprintln!("File deleted (keeping in VFS): {}", path);
+                    // This maintains stable `FileId`s for consumers
+                    eprintln!("File deleted (keeping in VFS): {path}");
                 }
                 WatchEvent::Renamed { from, to } => {
                     // Handle rename by updating the path mapping
                     if let Some(file_id) = self.by_path.remove(&from).map(|(_, id)| id) {
                         self.by_path.insert(to.clone(), file_id);
                         if let Err(e) = self.load_from_disk(&to) {
-                            eprintln!("Failed to load renamed file: {}: {}", to, e);
+                            eprintln!("Failed to load renamed file: {to}: {e}");
                         } else {
                             updated_count += 1;
                         }
@@ -256,17 +261,15 @@ impl Vfs {
     /// This method reads the file from the filesystem and updates the VFS entry
     /// if the content has changed. It's used by the file watcher to sync external changes.
     fn load_from_disk(&self, path: &Utf8PathBuf) -> Result<()> {
-        use std::fs;
-
         // Check if we have this file tracked
         if let Some(file_id) = self.by_path.get(path).map(|entry| *entry.value()) {
             // Read content from disk
             let content = fs::read_to_string(path.as_std_path())
                 .map_err(|e| anyhow!("Failed to read file {}: {}", path, e))?;
-            
+
             let new_text = TextSource::Disk(Arc::from(content.as_str()));
             let new_hash = content_hash(&new_text);
-            
+
             // Update the file if content changed
             if let Some(mut record) = self.files.get_mut(&file_id) {
                 if record.hash != new_hash {
@@ -281,7 +284,7 @@ impl Vfs {
 
     /// Check if file watching is currently enabled.
     pub fn is_file_watching_enabled(&self) -> bool {
-        self.watcher.lock().unwrap().is_some()
+        self.watcher.lock().map(|g| g.is_some()).unwrap_or(false) // Return false if mutex is poisoned
     }
 }
 

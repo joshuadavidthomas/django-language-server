@@ -9,7 +9,10 @@ use std::{collections::HashMap, sync::Arc};
 use salsa::Setter;
 
 use super::{
-    db::{parse_template, template_errors, Database, FileKindMini, SourceFile, TemplateAst, TemplateLoaderOrder},
+    db::{
+        parse_template, template_errors, Database, FileKindMini, SourceFile, TemplateAst,
+        TemplateLoaderOrder,
+    },
     vfs::{FileKind, VfsSnapshot},
     FileId,
 };
@@ -31,6 +34,7 @@ pub struct FileStore {
 
 impl FileStore {
     /// Construct an empty store and DB.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             db: Database::default(),
@@ -118,8 +122,7 @@ impl FileStore {
     pub fn get_template_errors(&self, id: FileId) -> Arc<[String]> {
         self.files
             .get(&id)
-            .map(|sf| template_errors(&self.db, *sf))
-            .unwrap_or_else(|| Arc::from(vec![]))
+            .map_or_else(|| Arc::from(vec![]), |sf| template_errors(&self.db, *sf))
     }
 }
 
@@ -139,7 +142,7 @@ mod tests {
     fn test_filestore_template_ast_caching() {
         let mut store = FileStore::new();
         let vfs = Vfs::default();
-        
+
         // Create a template file in VFS
         let url = url::Url::parse("file:///test.html").unwrap();
         let path = Utf8PathBuf::from("/test.html");
@@ -151,15 +154,15 @@ mod tests {
             TextSource::Overlay(content.clone()),
         );
         vfs.set_overlay(file_id, content.clone()).unwrap();
-        
+
         // Apply VFS snapshot to FileStore
         let snapshot = vfs.snapshot();
         store.apply_vfs_snapshot(&snapshot);
-        
+
         // Get template AST - should parse and cache
         let ast1 = store.get_template_ast(file_id);
         assert!(ast1.is_some());
-        
+
         // Get again - should return cached
         let ast2 = store.get_template_ast(file_id);
         assert!(ast2.is_some());
@@ -170,7 +173,7 @@ mod tests {
     fn test_filestore_template_errors() {
         let mut store = FileStore::new();
         let vfs = Vfs::default();
-        
+
         // Create a template with an unclosed tag
         let url = url::Url::parse("file:///error.html").unwrap();
         let path = Utf8PathBuf::from("/error.html");
@@ -182,16 +185,16 @@ mod tests {
             TextSource::Overlay(content.clone()),
         );
         vfs.set_overlay(file_id, content).unwrap();
-        
+
         // Apply VFS snapshot
         let snapshot = vfs.snapshot();
         store.apply_vfs_snapshot(&snapshot);
-        
+
         // Get errors - should contain parsing errors
         let errors = store.get_template_errors(file_id);
         // The template has unclosed tags, so there should be errors
         // We don't assert on specific error count as the parser may evolve
-        
+
         // Verify errors are cached
         let errors2 = store.get_template_errors(file_id);
         assert!(Arc::ptr_eq(&errors, &errors2));
@@ -201,7 +204,7 @@ mod tests {
     fn test_filestore_invalidation_on_content_change() {
         let mut store = FileStore::new();
         let vfs = Vfs::default();
-        
+
         // Create initial template
         let url = url::Url::parse("file:///change.html").unwrap();
         let path = Utf8PathBuf::from("/change.html");
@@ -213,20 +216,20 @@ mod tests {
             TextSource::Overlay(content1.clone()),
         );
         vfs.set_overlay(file_id, content1).unwrap();
-        
+
         // Apply snapshot and get AST
         let snapshot1 = vfs.snapshot();
         store.apply_vfs_snapshot(&snapshot1);
         let ast1 = store.get_template_ast(file_id);
-        
+
         // Change content
         let content2: Arc<str> = Arc::from("{% for item in items %}{{ item }}{% endfor %}");
         vfs.set_overlay(file_id, content2).unwrap();
-        
+
         // Apply new snapshot
         let snapshot2 = vfs.snapshot();
         store.apply_vfs_snapshot(&snapshot2);
-        
+
         // Get AST again - should be different due to content change
         let ast2 = store.get_template_ast(file_id);
         assert!(ast1.is_some() && ast2.is_some());

@@ -27,10 +27,7 @@ pub enum WatchEvent {
     /// A file was deleted
     Deleted(Utf8PathBuf),
     /// A file was renamed from one path to another
-    Renamed {
-        from: Utf8PathBuf,
-        to: Utf8PathBuf,
-    },
+    Renamed { from: Utf8PathBuf, to: Utf8PathBuf },
 }
 
 /// Configuration for the file watcher.
@@ -51,6 +48,7 @@ pub struct WatchConfig {
     pub exclude_patterns: Vec<String>,
 }
 
+// TODO: Allow for user config instead of hardcoding defaults
 impl Default for WatchConfig {
     fn default() -> Self {
         Self {
@@ -119,7 +117,7 @@ impl VfsWatcher {
         // Spawn background thread for event processing
         let config_clone = config.clone();
         let handle = thread::spawn(move || {
-            Self::process_events(event_rx, watch_tx, config_clone);
+            Self::process_events(&event_rx, &watch_tx, &config_clone);
         });
 
         Ok(Self {
@@ -134,23 +132,19 @@ impl VfsWatcher {
     ///
     /// This is a non-blocking operation that returns immediately. If no events
     /// are available, it returns an empty vector.
+    #[must_use]
     pub fn try_recv_events(&self) -> Vec<WatchEvent> {
-        match self.rx.try_recv() {
-            Ok(events) => events,
-            Err(_) => Vec::new(),
-        }
+        self.rx.try_recv().unwrap_or_default()
     }
-
-
 
     /// Background thread function for processing raw file system events.
     ///
     /// This function handles debouncing, filtering, and batching of events before
     /// sending them to the main thread for VFS synchronization.
     fn process_events(
-        event_rx: mpsc::Receiver<Event>,
-        watch_tx: mpsc::Sender<Vec<WatchEvent>>,
-        config: WatchConfig,
+        event_rx: &mpsc::Receiver<Event>,
+        watch_tx: &mpsc::Sender<Vec<WatchEvent>>,
+        config: &WatchConfig,
     ) {
         let mut pending_events: HashMap<Utf8PathBuf, WatchEvent> = HashMap::new();
         let mut last_batch_time = Instant::now();
@@ -161,12 +155,11 @@ impl VfsWatcher {
             match event_rx.recv_timeout(Duration::from_millis(50)) {
                 Ok(event) => {
                     // Process the raw notify event into our WatchEvent format
-                    if let Some(watch_events) = Self::convert_notify_event(event, &config) {
+                    if let Some(watch_events) = Self::convert_notify_event(event, config) {
                         for watch_event in watch_events {
-                            if let Some(path) = Self::get_event_path(&watch_event) {
-                                // Only keep the latest event for each path
-                                pending_events.insert(path.clone(), watch_event);
-                            }
+                            let path = Self::get_event_path(&watch_event);
+                            // Only keep the latest event for each path
+                            pending_events.insert(path.clone(), watch_event);
                         }
                     }
                 }
@@ -180,11 +173,9 @@ impl VfsWatcher {
             }
 
             // Check if we should flush pending events
-            if !pending_events.is_empty()
-                && last_batch_time.elapsed() >= debounce_duration
-            {
+            if !pending_events.is_empty() && last_batch_time.elapsed() >= debounce_duration {
                 let events: Vec<WatchEvent> = pending_events.values().cloned().collect();
-                if let Err(_) = watch_tx.send(events) {
+                if watch_tx.send(events).is_err() {
                     // Main thread disconnected, exit
                     break;
                 }
@@ -194,7 +185,7 @@ impl VfsWatcher {
         }
     }
 
-    /// Convert a notify Event into our WatchEvent format.
+    /// Convert a [`notify::Event`] into our [`WatchEvent`] format.
     fn convert_notify_event(event: Event, config: &WatchConfig) -> Option<Vec<WatchEvent>> {
         let mut watch_events = Vec::new();
 
@@ -236,8 +227,7 @@ impl VfsWatcher {
 
         // Check include patterns
         for pattern in &config.include_patterns {
-            if pattern.starts_with("*.") {
-                let extension = &pattern[2..];
+            if let Some(extension) = pattern.strip_prefix("*.") {
                 if path_str.ends_with(extension) {
                     return true;
                 }
@@ -249,13 +239,13 @@ impl VfsWatcher {
         false
     }
 
-    /// Extract the path from a WatchEvent.
-    fn get_event_path(event: &WatchEvent) -> Option<&Utf8PathBuf> {
+    /// Extract the path from a [`WatchEvent`].
+    fn get_event_path(event: &WatchEvent) -> &Utf8PathBuf {
         match event {
-            WatchEvent::Modified(path) => Some(path),
-            WatchEvent::Created(path) => Some(path),
-            WatchEvent::Deleted(path) => Some(path),
-            WatchEvent::Renamed { to, .. } => Some(to),
+            WatchEvent::Modified(path) | WatchEvent::Created(path) | WatchEvent::Deleted(path) => {
+                path
+            }
+            WatchEvent::Renamed { to, .. } => to,
         }
     }
 }
@@ -269,7 +259,6 @@ impl Drop for VfsWatcher {
 #[cfg(test)]
 mod tests {
     use super::*;
-
 
     #[test]
     fn test_watch_config_default() {
@@ -328,3 +317,4 @@ mod tests {
         assert_ne!(deleted, renamed);
     }
 }
+
