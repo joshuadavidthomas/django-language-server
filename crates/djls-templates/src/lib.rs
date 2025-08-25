@@ -5,7 +5,7 @@ mod parser;
 mod tagspecs;
 mod tokens;
 
-use ast::Ast;
+pub use ast::Ast;
 pub use error::QuickFix;
 pub use error::TemplateError;
 use lexer::Lexer;

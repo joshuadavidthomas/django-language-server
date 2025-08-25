@@ -509,6 +509,7 @@ dependencies = [
  "anyhow",
  "camino",
  "dashmap",
+ "djls-templates",
  "salsa",
  "url",
 ]

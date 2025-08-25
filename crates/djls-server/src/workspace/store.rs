@@ -5,24 +5,28 @@ use anyhow::anyhow;
 use anyhow::Result;
 use camino::Utf8PathBuf;
 use djls_project::TemplateTags;
-use djls_workspace::{FileId, FileKind, TextSource, Vfs};
+use djls_workspace::{FileId, FileKind, FileStore, TextSource, Vfs};
 use tower_lsp_server::lsp_types::CompletionItem;
 use tower_lsp_server::lsp_types::CompletionItemKind;
 use tower_lsp_server::lsp_types::CompletionResponse;
+use tower_lsp_server::lsp_types::Diagnostic;
+use tower_lsp_server::lsp_types::DiagnosticSeverity;
 use tower_lsp_server::lsp_types::DidChangeTextDocumentParams;
 use tower_lsp_server::lsp_types::DidCloseTextDocumentParams;
 use tower_lsp_server::lsp_types::DidOpenTextDocumentParams;
-use tower_lsp_server::lsp_types::TextDocumentContentChangeEvent;
 use tower_lsp_server::lsp_types::Documentation;
 use tower_lsp_server::lsp_types::InsertTextFormat;
 use tower_lsp_server::lsp_types::MarkupContent;
 use tower_lsp_server::lsp_types::MarkupKind;
 use tower_lsp_server::lsp_types::Position;
+use tower_lsp_server::lsp_types::Range;
+use tower_lsp_server::lsp_types::TextDocumentContentChangeEvent;
 
 use super::document::{ClosingBrace, LanguageId, LineIndex, TextDocument};
 
 pub struct Store {
     vfs: Arc<Vfs>,
+    file_store: FileStore,
     file_ids: HashMap<String, FileId>,
     line_indices: HashMap<FileId, LineIndex>,
     versions: HashMap<String, i32>,
@@ -33,6 +37,7 @@ impl Default for Store {
     fn default() -> Self {
         Self {
             vfs: Arc::new(Vfs::default()),
+            file_store: FileStore::new(),
             file_ids: HashMap::new(),
             line_indices: HashMap::new(),
             versions: HashMap::new(),
@@ -63,6 +68,10 @@ impl Store {
 
         // Set overlay content in VFS
         self.vfs.set_overlay(file_id, Arc::from(content.as_str()))?;
+
+        // Sync VFS snapshot to FileStore for Salsa tracking
+        let snapshot = self.vfs.snapshot();
+        self.file_store.apply_vfs_snapshot(&snapshot);
 
         // Create TextDocument metadata
         let document = TextDocument::new(uri_str.clone(), version, language_id.clone(), file_id);
@@ -110,6 +119,10 @@ impl Store {
         // Update VFS with new content
         self.vfs
             .set_overlay(file_id, Arc::from(new_content.as_str()))?;
+
+        // Sync VFS snapshot to FileStore for Salsa tracking
+        let snapshot = self.vfs.snapshot();
+        self.file_store.apply_vfs_snapshot(&snapshot);
 
         // Update cached line index and version
         self.line_indices
@@ -174,9 +187,18 @@ impl Store {
             return None;
         }
 
+        // Try to get cached AST from FileStore for better context analysis
+        // This demonstrates using the cached AST, though we still fall back to string parsing
+        let file_id = document.file_id();
+        if let Some(_ast) = self.file_store.get_template_ast(file_id) {
+            // TODO: In a future enhancement, we could use the AST to provide
+            // more intelligent completions based on the current node context
+            // For now, we continue with the existing string-based approach
+        }
+
         // Get template tag context from document
         let vfs_snapshot = self.vfs.snapshot();
-        let line_index = self.get_line_index(document.file_id())?;
+        let line_index = self.get_line_index(file_id)?;
         let context = document.get_template_tag_context(&vfs_snapshot, line_index, position)?;
 
         let mut completions: Vec<CompletionItem> = tags
@@ -213,6 +235,57 @@ impl Store {
             completions.sort_by(|a, b| a.label.cmp(&b.label));
             Some(CompletionResponse::Array(completions))
         }
+    }
+
+    /// Get template parsing diagnostics for a file.
+    ///
+    /// This method uses the cached template errors from Salsa to generate LSP diagnostics.
+    /// The errors are only re-computed when the file content changes, providing efficient
+    /// incremental error reporting.
+    pub fn get_template_diagnostics(&self, uri: &str) -> Vec<Diagnostic> {
+        let Some(document) = self.get_document(uri) else {
+            return vec![];
+        };
+
+        // Only process template files
+        if document.language_id != LanguageId::HtmlDjango {
+            return vec![];
+        }
+
+        let file_id = document.file_id();
+        let Some(_line_index) = self.get_line_index(file_id) else {
+            return vec![];
+        };
+
+        // Get cached template errors from FileStore
+        let errors = self.file_store.get_template_errors(file_id);
+
+        // Convert template errors to LSP diagnostics
+        errors
+            .iter()
+            .map(|error| {
+                // For now, we'll place all errors at the start of the file
+                // In a future enhancement, we could use error spans for precise locations
+                let range = Range {
+                    start: Position {
+                        line: 0,
+                        character: 0,
+                    },
+                    end: Position {
+                        line: 0,
+                        character: 0,
+                    },
+                };
+
+                Diagnostic {
+                    range,
+                    severity: Some(DiagnosticSeverity::ERROR),
+                    source: Some("djls-templates".to_string()),
+                    message: error.clone(),
+                    ..Default::default()
+                }
+            })
+            .collect()
     }
 }
 

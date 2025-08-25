@@ -5,7 +5,7 @@ use crate::tokens::Token;
 use crate::tokens::TokenStream;
 use crate::tokens::TokenType;
 
-#[derive(Clone, Debug, Default, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 pub struct Ast {
     nodelist: Vec<Node>,
     line_offsets: LineOffsets,
@@ -36,7 +36,7 @@ impl Ast {
     }
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct LineOffsets(pub Vec<u32>);
 
 impl LineOffsets {
@@ -75,7 +75,7 @@ impl Default for LineOffsets {
     }
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub enum Node {
     Tag {
         name: String,

@@ -4,7 +4,7 @@ mod vfs;
 
 // Re-export public API
 pub use bridge::FileStore;
-pub use db::{Database, FileKindMini, SourceFile, TemplateLoaderOrder};
+pub use db::{parse_template, template_errors, Database, FileKindMini, SourceFile, TemplateAst, TemplateLoaderOrder};
 pub use vfs::{FileKind, FileMeta, FileRecord, Revision, TextSource, Vfs, VfsSnapshot};
 
 /// Stable, compact identifier for files across the subsystem.

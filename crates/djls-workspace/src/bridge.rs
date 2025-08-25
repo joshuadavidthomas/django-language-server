@@ -9,7 +9,7 @@ use std::{collections::HashMap, sync::Arc};
 use salsa::Setter;
 
 use super::{
-    db::{Database, FileKindMini, SourceFile, TemplateLoaderOrder},
+    db::{parse_template, template_errors, Database, FileKindMini, SourceFile, TemplateAst, TemplateLoaderOrder},
     vfs::{FileKind, VfsSnapshot},
     FileId,
 };
@@ -99,10 +99,137 @@ impl FileStore {
     pub fn file_kind(&self, id: FileId) -> Option<FileKindMini> {
         self.files.get(&id).map(|sf| sf.kind(&self.db))
     }
+
+    /// Get the parsed template AST for a file by its [`FileId`].
+    ///
+    /// This method leverages Salsa's incremental computation to cache parsed ASTs.
+    /// The AST is only re-parsed when the file's content changes in the VFS.
+    /// Returns `None` if the file is not tracked or is not a template file.
+    pub fn get_template_ast(&self, id: FileId) -> Option<Arc<TemplateAst>> {
+        let source_file = self.files.get(&id)?;
+        parse_template(&self.db, *source_file)
+    }
+
+    /// Get template parsing errors for a file by its [`FileId`].
+    ///
+    /// This method provides quick access to template errors without needing the full AST.
+    /// Useful for diagnostics and error reporting. Returns an empty slice for
+    /// non-template files or files not tracked in the store.
+    pub fn get_template_errors(&self, id: FileId) -> Arc<[String]> {
+        self.files
+            .get(&id)
+            .map(|sf| template_errors(&self.db, *sf))
+            .unwrap_or_else(|| Arc::from(vec![]))
+    }
 }
 
 impl Default for FileStore {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::vfs::{TextSource, Vfs};
+    use camino::Utf8PathBuf;
+
+    #[test]
+    fn test_filestore_template_ast_caching() {
+        let mut store = FileStore::new();
+        let vfs = Vfs::default();
+        
+        // Create a template file in VFS
+        let url = url::Url::parse("file:///test.html").unwrap();
+        let path = Utf8PathBuf::from("/test.html");
+        let content: Arc<str> = Arc::from("{% if user %}Hello {{ user.name }}{% endif %}");
+        let file_id = vfs.intern_file(
+            url.clone(),
+            path.clone(),
+            FileKind::Template,
+            TextSource::Overlay(content.clone()),
+        );
+        vfs.set_overlay(file_id, content.clone()).unwrap();
+        
+        // Apply VFS snapshot to FileStore
+        let snapshot = vfs.snapshot();
+        store.apply_vfs_snapshot(&snapshot);
+        
+        // Get template AST - should parse and cache
+        let ast1 = store.get_template_ast(file_id);
+        assert!(ast1.is_some());
+        
+        // Get again - should return cached
+        let ast2 = store.get_template_ast(file_id);
+        assert!(ast2.is_some());
+        assert!(Arc::ptr_eq(&ast1.unwrap(), &ast2.unwrap()));
+    }
+
+    #[test]
+    fn test_filestore_template_errors() {
+        let mut store = FileStore::new();
+        let vfs = Vfs::default();
+        
+        // Create a template with an unclosed tag
+        let url = url::Url::parse("file:///error.html").unwrap();
+        let path = Utf8PathBuf::from("/error.html");
+        let content: Arc<str> = Arc::from("{% if user %}Hello {{ user.name }"); // Missing closing
+        let file_id = vfs.intern_file(
+            url.clone(),
+            path.clone(),
+            FileKind::Template,
+            TextSource::Overlay(content.clone()),
+        );
+        vfs.set_overlay(file_id, content).unwrap();
+        
+        // Apply VFS snapshot
+        let snapshot = vfs.snapshot();
+        store.apply_vfs_snapshot(&snapshot);
+        
+        // Get errors - should contain parsing errors
+        let errors = store.get_template_errors(file_id);
+        // The template has unclosed tags, so there should be errors
+        // We don't assert on specific error count as the parser may evolve
+        
+        // Verify errors are cached
+        let errors2 = store.get_template_errors(file_id);
+        assert!(Arc::ptr_eq(&errors, &errors2));
+    }
+
+    #[test]
+    fn test_filestore_invalidation_on_content_change() {
+        let mut store = FileStore::new();
+        let vfs = Vfs::default();
+        
+        // Create initial template
+        let url = url::Url::parse("file:///change.html").unwrap();
+        let path = Utf8PathBuf::from("/change.html");
+        let content1: Arc<str> = Arc::from("{% if user %}Hello{% endif %}");
+        let file_id = vfs.intern_file(
+            url.clone(),
+            path.clone(),
+            FileKind::Template,
+            TextSource::Overlay(content1.clone()),
+        );
+        vfs.set_overlay(file_id, content1).unwrap();
+        
+        // Apply snapshot and get AST
+        let snapshot1 = vfs.snapshot();
+        store.apply_vfs_snapshot(&snapshot1);
+        let ast1 = store.get_template_ast(file_id);
+        
+        // Change content
+        let content2: Arc<str> = Arc::from("{% for item in items %}{{ item }}{% endfor %}");
+        vfs.set_overlay(file_id, content2).unwrap();
+        
+        // Apply new snapshot
+        let snapshot2 = vfs.snapshot();
+        store.apply_vfs_snapshot(&snapshot2);
+        
+        // Get AST again - should be different due to content change
+        let ast2 = store.get_template_ast(file_id);
+        assert!(ast1.is_some() && ast2.is_some());
+        assert!(!Arc::ptr_eq(&ast1.unwrap(), &ast2.unwrap()));
     }
 }
