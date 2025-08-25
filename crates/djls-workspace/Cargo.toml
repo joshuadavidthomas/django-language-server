@@ -4,6 +4,7 @@ version = "0.0.0"
 edition = "2021"
 
 [dependencies]
+anyhow = { workspace = true }
 camino = { workspace = true }
 dashmap = { workspace = true }
 salsa = { workspace = true }

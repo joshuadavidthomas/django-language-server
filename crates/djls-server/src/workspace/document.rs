@@ -1,113 +1,66 @@
-use salsa::Database;
-use tower_lsp_server::lsp_types::DidOpenTextDocumentParams;
-use tower_lsp_server::lsp_types::Position;
-use tower_lsp_server::lsp_types::Range;
-use tower_lsp_server::lsp_types::TextDocumentContentChangeEvent;
+use std::sync::Arc;
+use tower_lsp_server::lsp_types::{Position, Range};
+use djls_workspace::{FileId, VfsSnapshot};
 
-#[salsa::input(debug)]
+/// Document metadata container - no longer a Salsa input, just plain data
+#[derive(Clone, Debug)]
 pub struct TextDocument {
-    #[returns(ref)]
     pub uri: String,
-    #[returns(ref)]
-    pub contents: String,
-    #[returns(ref)]
-    pub index: LineIndex,
     pub version: i32,
     pub language_id: LanguageId,
+    file_id: FileId,
 }
 
 impl TextDocument {
-    pub fn from_did_open_params(db: &dyn Database, params: &DidOpenTextDocumentParams) -> Self {
-        let uri = params.text_document.uri.to_string();
-        let contents = params.text_document.text.clone();
-        let version = params.text_document.version;
-        let language_id = LanguageId::from(params.text_document.language_id.as_str());
-
-        let index = LineIndex::new(&contents);
-        TextDocument::new(db, uri, contents, index, version, language_id)
-    }
-
-    pub fn with_changes(
-        self,
-        db: &dyn Database,
-        changes: &[TextDocumentContentChangeEvent],
-        new_version: i32,
-    ) -> Self {
-        let mut new_contents = self.contents(db).to_string();
-
-        for change in changes {
-            if let Some(range) = change.range {
-                let index = LineIndex::new(&new_contents);
-
-                if let (Some(start_offset), Some(end_offset)) = (
-                    index.offset(range.start).map(|o| o as usize),
-                    index.offset(range.end).map(|o| o as usize),
-                ) {
-                    let mut updated_content = String::with_capacity(
-                        new_contents.len() - (end_offset - start_offset) + change.text.len(),
-                    );
-
-                    updated_content.push_str(&new_contents[..start_offset]);
-                    updated_content.push_str(&change.text);
-                    updated_content.push_str(&new_contents[end_offset..]);
-
-                    new_contents = updated_content;
-                }
-            } else {
-                // Full document update
-                new_contents.clone_from(&change.text);
-            }
+    pub fn new(uri: String, version: i32, language_id: LanguageId, file_id: FileId) -> Self {
+        Self {
+            uri,
+            version,
+            language_id,
+            file_id,
         }
-
-        let index = LineIndex::new(&new_contents);
-        TextDocument::new(
-            db,
-            self.uri(db).to_string(),
-            new_contents,
-            index,
-            new_version,
-            self.language_id(db),
-        )
     }
-
-    #[allow(dead_code)]
-    pub fn get_text(self, db: &dyn Database) -> String {
-        self.contents(db).to_string()
+    
+    pub fn file_id(&self) -> FileId {
+        self.file_id
     }
-
-    #[allow(dead_code)]
-    pub fn get_text_range(self, db: &dyn Database, range: Range) -> Option<String> {
-        let index = self.index(db);
-        let start = index.offset(range.start)? as usize;
-        let end = index.offset(range.end)? as usize;
-        let contents = self.contents(db);
-        Some(contents[start..end].to_string())
+    
+    pub fn get_content(&self, vfs: &VfsSnapshot) -> Option<Arc<str>> {
+        vfs.get_text(self.file_id)
     }
-
-    pub fn get_line(self, db: &dyn Database, line: u32) -> Option<String> {
-        let index = self.index(db);
-        let start = index.line_starts.get(line as usize)?;
-        let end = index
-            .line_starts
+    
+    pub fn get_line(&self, vfs: &VfsSnapshot, line_index: &LineIndex, line: u32) -> Option<String> {
+        let content = self.get_content(vfs)?;
+        
+        let line_start = *line_index.line_starts.get(line as usize)?;
+        let line_end = line_index.line_starts
             .get(line as usize + 1)
             .copied()
-            .unwrap_or(index.length);
-
-        let contents = self.contents(db);
-        Some(contents[*start as usize..end as usize].to_string())
+            .unwrap_or(line_index.length);
+        
+        Some(content[line_start as usize..line_end as usize].to_string())
     }
-
-    #[allow(dead_code)]
-    pub fn line_count(self, db: &dyn Database) -> usize {
-        self.index(db).line_starts.len()
+    
+    pub fn get_text_range(&self, vfs: &VfsSnapshot, line_index: &LineIndex, range: Range) -> Option<String> {
+        let content = self.get_content(vfs)?;
+        
+        let start_offset = line_index.offset(range.start)? as usize;
+        let end_offset = line_index.offset(range.end)? as usize;
+        
+        Some(content[start_offset..end_offset].to_string())
     }
+    
+    pub fn get_template_tag_context(&self, vfs: &VfsSnapshot, line_index: &LineIndex, position: Position) -> Option<TemplateTagContext> {
+        let content = self.get_content(vfs)?;
+        
+        let start = line_index.line_starts.get(position.line as usize)?;
+        let end = line_index
+            .line_starts
+            .get(position.line as usize + 1)
+            .copied()
+            .unwrap_or(line_index.length);
 
-    pub fn get_template_tag_context(
-        self,
-        db: &dyn Database,
-        position: Position,
-    ) -> Option<TemplateTagContext> {
-        let line = self.get_line(db, position.line)?;
+        let line = &content[*start as usize..end as usize];
         let char_pos: usize = position.character.try_into().ok()?;
         let prefix = &line[..char_pos];
         let rest_of_line = &line[char_pos..];
@@ -136,8 +89,8 @@ impl TextDocument {
 
 #[derive(Clone, Debug)]
 pub struct LineIndex {
-    line_starts: Vec<u32>,
-    length: u32,
+    pub line_starts: Vec<u32>,
+    pub length: u32,
 }
 
 impl LineIndex {
@@ -201,6 +154,16 @@ impl From<String> for LanguageId {
     }
 }
 
+impl From<LanguageId> for djls_workspace::FileKind {
+    fn from(language_id: LanguageId) -> Self {
+        match language_id {
+            LanguageId::Python => Self::Python,
+            LanguageId::HtmlDjango => Self::Template,
+            LanguageId::Other => Self::Other,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum ClosingBrace {
     None,
@@ -214,3 +177,4 @@ pub struct TemplateTagContext {
     pub closing_brace: ClosingBrace,
     pub needs_leading_space: bool,
 }
+

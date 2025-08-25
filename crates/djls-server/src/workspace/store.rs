@@ -1,9 +1,11 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use anyhow::anyhow;
 use anyhow::Result;
+use camino::Utf8PathBuf;
 use djls_project::TemplateTags;
-use salsa::Database;
+use djls_workspace::{FileId, FileKind, TextSource, Vfs};
 use tower_lsp_server::lsp_types::CompletionItem;
 use tower_lsp_server::lsp_types::CompletionItemKind;
 use tower_lsp_server::lsp_types::CompletionResponse;
@@ -16,83 +18,149 @@ use tower_lsp_server::lsp_types::MarkupContent;
 use tower_lsp_server::lsp_types::MarkupKind;
 use tower_lsp_server::lsp_types::Position;
 
-use super::document::ClosingBrace;
-use super::document::LanguageId;
-use super::document::TextDocument;
+use super::document::{ClosingBrace, LanguageId, LineIndex, TextDocument};
 
-#[derive(Debug, Default)]
 pub struct Store {
-    documents: HashMap<String, TextDocument>,
+    vfs: Arc<Vfs>,
+    file_ids: HashMap<String, FileId>,
+    line_indices: HashMap<FileId, LineIndex>,
     versions: HashMap<String, i32>,
+    documents: HashMap<String, TextDocument>,
+}
+
+impl Default for Store {
+    fn default() -> Self {
+        Self {
+            vfs: Arc::new(Vfs::default()),
+            file_ids: HashMap::new(),
+            line_indices: HashMap::new(),
+            versions: HashMap::new(),
+            documents: HashMap::new(),
+        }
+    }
 }
 
 impl Store {
-    pub fn handle_did_open(&mut self, db: &dyn Database, params: &DidOpenTextDocumentParams) {
-        let uri = params.text_document.uri.to_string();
+    pub fn handle_did_open(&mut self, params: &DidOpenTextDocumentParams) -> Result<()> {
+        let uri_str = params.text_document.uri.to_string();
+        let uri = params.text_document.uri.clone();
         let version = params.text_document.version;
+        let content = params.text_document.text.clone();
+        let language_id = LanguageId::from(params.text_document.language_id.as_str());
+        let kind = FileKind::from(language_id.clone());
 
-        let document = TextDocument::from_did_open_params(db, params);
+        // Convert URI to Url for VFS
+        let vfs_url =
+            url::Url::parse(&uri.to_string()).map_err(|e| anyhow!("Invalid URI: {}", e))?;
 
-        self.add_document(document, uri.clone());
-        self.versions.insert(uri, version);
+        // Convert to path - simplified for now, just use URI string
+        let path = Utf8PathBuf::from(uri.as_str());
+
+        // Store content in VFS
+        let text_source = TextSource::Overlay(Arc::from(content.as_str()));
+        let file_id = self.vfs.intern_file(vfs_url, path, kind, text_source);
+
+        // Set overlay content in VFS
+        self.vfs.set_overlay(file_id, Arc::from(content.as_str()))?;
+
+        // Create TextDocument metadata
+        let document = TextDocument::new(uri_str.clone(), version, language_id.clone(), file_id);
+        self.documents.insert(uri_str.clone(), document);
+
+        // Cache mappings and indices
+        self.file_ids.insert(uri_str.clone(), file_id);
+        self.line_indices.insert(file_id, LineIndex::new(&content));
+        self.versions.insert(uri_str, version);
+
+        Ok(())
     }
 
-    pub fn handle_did_change(
-        &mut self,
-        db: &dyn Database,
-        params: &DidChangeTextDocumentParams,
-    ) -> Result<()> {
-        let uri = params.text_document.uri.as_str().to_string();
+    pub fn handle_did_change(&mut self, params: &DidChangeTextDocumentParams) -> Result<()> {
+        let uri_str = params.text_document.uri.as_str().to_string();
         let version = params.text_document.version;
 
-        let document = self
-            .get_document(&uri)
-            .ok_or_else(|| anyhow!("Document not found: {}", uri))?;
+        // Look up FileId
+        let file_id = self
+            .file_ids
+            .get(&uri_str)
+            .copied()
+            .ok_or_else(|| anyhow!("Document not found: {}", uri_str))?;
 
-        let new_document = document.with_changes(db, &params.content_changes, version);
+        // Get current content from VFS
+        let snapshot = self.vfs.snapshot();
+        let current_content = snapshot
+            .get_text(file_id)
+            .ok_or_else(|| anyhow!("File content not found: {}", uri_str))?;
 
-        self.documents.insert(uri.clone(), new_document);
-        self.versions.insert(uri, version);
+        // Apply text changes
+        let mut new_content = current_content.to_string();
+        for change in &params.content_changes {
+            if let Some(range) = change.range {
+                // Get current line index for position calculations
+                let line_index = self
+                    .line_indices
+                    .get(&file_id)
+                    .ok_or_else(|| anyhow!("Line index not found for: {}", uri_str))?;
+
+                if let (Some(start_offset), Some(end_offset)) = (
+                    line_index.offset(range.start).map(|o| o as usize),
+                    line_index.offset(range.end).map(|o| o as usize),
+                ) {
+                    let mut updated_content = String::with_capacity(
+                        new_content.len() - (end_offset - start_offset) + change.text.len(),
+                    );
+
+                    updated_content.push_str(&new_content[..start_offset]);
+                    updated_content.push_str(&change.text);
+                    updated_content.push_str(&new_content[end_offset..]);
+
+                    new_content = updated_content;
+                }
+            } else {
+                // Full document update
+                new_content.clone_from(&change.text);
+            }
+        }
+
+        // Update TextDocument version
+        if let Some(document) = self.documents.get_mut(&uri_str) {
+            document.version = version;
+        }
+
+        // Update VFS with new content
+        self.vfs
+            .set_overlay(file_id, Arc::from(new_content.as_str()))?;
+
+        // Update cached line index and version
+        self.line_indices
+            .insert(file_id, LineIndex::new(&new_content));
+        self.versions.insert(uri_str, version);
 
         Ok(())
     }
 
     pub fn handle_did_close(&mut self, params: &DidCloseTextDocumentParams) {
-        self.remove_document(params.text_document.uri.as_str());
+        let uri_str = params.text_document.uri.as_str();
+
+        // Remove TextDocument metadata
+        self.documents.remove(uri_str);
+
+        // Look up FileId and remove mappings
+        if let Some(file_id) = self.file_ids.remove(uri_str) {
+            self.line_indices.remove(&file_id);
+        }
+        self.versions.remove(uri_str);
+
+        // Note: We don't remove from VFS as it might be useful for caching
+        // The VFS will handle cleanup internally
     }
 
-    fn add_document(&mut self, document: TextDocument, uri: String) {
-        self.documents.insert(uri, document);
+    pub fn get_file_id(&self, uri: &str) -> Option<FileId> {
+        self.file_ids.get(uri).copied()
     }
 
-    fn remove_document(&mut self, uri: &str) {
-        self.documents.remove(uri);
-        self.versions.remove(uri);
-    }
-
-    fn get_document(&self, uri: &str) -> Option<&TextDocument> {
-        self.documents.get(uri)
-    }
-
-    #[allow(dead_code)]
-    fn get_document_mut(&mut self, uri: &str) -> Option<&mut TextDocument> {
-        self.documents.get_mut(uri)
-    }
-
-    #[allow(dead_code)]
-    pub fn get_all_documents(&self) -> impl Iterator<Item = &TextDocument> {
-        self.documents.values()
-    }
-
-    #[allow(dead_code)]
-    pub fn get_documents_by_language<'db>(
-        &'db self,
-        db: &'db dyn Database,
-        language_id: LanguageId,
-    ) -> impl Iterator<Item = &'db TextDocument> + 'db {
-        self.documents
-            .values()
-            .filter(move |doc| doc.language_id(db) == language_id)
+    pub fn get_line_index(&self, file_id: FileId) -> Option<&LineIndex> {
+        self.line_indices.get(&file_id)
     }
 
     #[allow(dead_code)]
@@ -105,20 +173,31 @@ impl Store {
         self.get_version(uri) == Some(version)
     }
 
+    // TextDocument helper methods
+    pub fn get_document(&self, uri: &str) -> Option<&TextDocument> {
+        self.documents.get(uri)
+    }
+
+    pub fn get_document_mut(&mut self, uri: &str) -> Option<&mut TextDocument> {
+        self.documents.get_mut(uri)
+    }
+
     pub fn get_completions(
         &self,
-        db: &dyn Database,
         uri: &str,
         position: Position,
         tags: &TemplateTags,
     ) -> Option<CompletionResponse> {
+        // Check if this is a Django template using TextDocument metadata
         let document = self.get_document(uri)?;
-
-        if document.language_id(db) != LanguageId::HtmlDjango {
+        if document.language_id != LanguageId::HtmlDjango {
             return None;
         }
 
-        let context = document.get_template_tag_context(db, position)?;
+        // Get template tag context from document
+        let vfs_snapshot = self.vfs.snapshot();
+        let line_index = self.get_line_index(document.file_id())?;
+        let context = document.get_template_tag_context(&vfs_snapshot, line_index, position)?;
 
         let mut completions: Vec<CompletionItem> = tags
             .iter()

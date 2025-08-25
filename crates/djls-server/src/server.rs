@@ -218,8 +218,9 @@ impl LanguageServer for DjangoLanguageServer {
         tracing::info!("Opened document: {:?}", params.text_document.uri);
 
         self.with_session_mut(|session| {
-            let db = session.db();
-            session.documents_mut().handle_did_open(&db, &params);
+            if let Err(e) = session.documents_mut().handle_did_open(&params) {
+                tracing::error!("Failed to handle did_open: {}", e);
+            }
         })
         .await;
     }
@@ -228,8 +229,7 @@ impl LanguageServer for DjangoLanguageServer {
         tracing::info!("Changed document: {:?}", params.text_document.uri);
 
         self.with_session_mut(|session| {
-            let db = session.db();
-            let _ = session.documents_mut().handle_did_change(&db, &params);
+            let _ = session.documents_mut().handle_did_change(&params);
         })
         .await;
     }
@@ -248,9 +248,7 @@ impl LanguageServer for DjangoLanguageServer {
             .with_session(|session| {
                 if let Some(project) = session.project() {
                     if let Some(tags) = project.template_tags() {
-                        let db = session.db();
                         return session.documents().get_completions(
-                            &db,
                             params.text_document_position.text_document.uri.as_str(),
                             params.text_document_position.position,
                             tags,

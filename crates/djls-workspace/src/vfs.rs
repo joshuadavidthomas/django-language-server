@@ -4,6 +4,7 @@
 //! and snapshotting. Downstream systems consume snapshots to avoid locking and to
 //! batch updates.
 
+use anyhow::{anyhow, Result};
 use camino::Utf8PathBuf;
 use dashmap::DashMap;
 use std::collections::hash_map::DefaultHasher;
@@ -29,11 +30,13 @@ pub struct Revision(u64);
 
 impl Revision {
     /// Create a [`Revision`] from a raw u64 value.
+    #[must_use]
     pub fn from_raw(raw: u64) -> Self {
         Revision(raw)
     }
 
     /// Get the underlying u64 value.
+    #[must_use]
     pub fn value(self) -> u64 {
         self.0
     }
@@ -56,8 +59,7 @@ pub enum FileKind {
 /// Metadata associated with a file in the VFS.
 ///
 /// [`FileMeta`] contains all non-content information about a file, including its
-/// identity (URI), filesystem path, classification, and optional version number
-/// from the LSP client.
+/// identity (URI), filesystem path, and classification.
 #[derive(Clone, Debug)]
 pub struct FileMeta {
     /// The file's URI (typically file:// scheme)
@@ -66,8 +68,6 @@ pub struct FileMeta {
     pub path: Utf8PathBuf,
     /// Classification for routing to analyzers
     pub kind: FileKind,
-    /// Optional LSP document version
-    pub version: Option<i64>,
 }
 
 /// Source of text content in the VFS.
@@ -116,16 +116,6 @@ pub struct Vfs {
 }
 
 impl Vfs {
-    /// Construct an empty VFS.
-    pub fn new() -> Self {
-        Self {
-            next_file_id: AtomicU32::new(0),
-            by_uri: DashMap::new(),
-            files: DashMap::new(),
-            head: AtomicU64::new(0),
-        }
-    }
-
     /// Get or create a [`FileId`] for the given URI.
     ///
     /// Returns the existing [`FileId`] if the URI is already known, or creates a new
@@ -146,7 +136,6 @@ impl Vfs {
             uri: uri.clone(),
             path,
             kind,
-            version: None,
         };
         let hash = content_hash(&text);
         self.by_uri.insert(uri, id);
@@ -161,14 +150,15 @@ impl Vfs {
     /// (detected via hash comparison).
     ///
     /// Returns a tuple of (new global revision, whether content changed).
-    pub fn set_overlay(
-        &self,
-        id: FileId,
-        version: Option<i64>,
-        new_text: Arc<str>,
-    ) -> (Revision, bool) {
-        let mut rec = self.files.get_mut(&id).expect("unknown file");
-        rec.meta.version = version;
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the provided `FileId` does not exist in the VFS.
+    pub fn set_overlay(&self, id: FileId, new_text: Arc<str>) -> Result<(Revision, bool)> {
+        let mut rec = self
+            .files
+            .get_mut(&id)
+            .ok_or_else(|| anyhow!("unknown file: {:?}", id))?;
         let next = TextSource::Overlay(new_text);
         let new_hash = content_hash(&next);
         let changed = new_hash != rec.hash;
@@ -177,10 +167,10 @@ impl Vfs {
             rec.hash = new_hash;
             self.head.fetch_add(1, Ordering::SeqCst);
         }
-        (
+        Ok((
             Revision::from_raw(self.head.load(Ordering::SeqCst)),
             changed,
-        )
+        ))
     }
 
     /// Create an immutable snapshot of the current VFS state.
@@ -196,6 +186,17 @@ impl Vfs {
                 .iter()
                 .map(|entry| (*entry.key(), entry.value().clone()))
                 .collect(),
+        }
+    }
+}
+
+impl Default for Vfs {
+    fn default() -> Self {
+        Self {
+            next_file_id: AtomicU32::new(0),
+            by_uri: DashMap::new(),
+            files: DashMap::new(),
+            head: AtomicU64::new(0),
         }
     }
 }
@@ -230,6 +231,7 @@ impl VfsSnapshot {
     /// Get the text content of a file in this snapshot.
     ///
     /// Returns `None` if the [`FileId`] is not present in the snapshot.
+    #[must_use]
     pub fn get_text(&self, id: FileId) -> Option<Arc<str>> {
         self.files.get(&id).map(|r| match &r.text {
             TextSource::Disk(s) | TextSource::Overlay(s) | TextSource::Generated(s) => s.clone(),
@@ -239,6 +241,7 @@ impl VfsSnapshot {
     /// Get the metadata for a file in this snapshot.
     ///
     /// Returns `None` if the [`FileId`] is not present in the snapshot.
+    #[must_use]
     pub fn meta(&self, id: FileId) -> Option<&FileMeta> {
         self.files.get(&id).map(|r| &r.meta)
     }

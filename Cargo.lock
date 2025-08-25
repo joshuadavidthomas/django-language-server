@@ -506,6 +506,7 @@ dependencies = [
 name = "djls-workspace"
 version = "0.0.0"
 dependencies = [
+ "anyhow",
  "camino",
  "dashmap",
  "salsa",
