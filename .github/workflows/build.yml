@@ -30,7 +30,7 @@ jobs:
           - runner: ubuntu-22.04
             target: ppc64le
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           persist-credentials: false
 
@@ -39,7 +39,7 @@ jobs:
           python-version: 3.x
 
       - name: Build wheels
-        uses: PyO3/maturin-action@e10f6c464b90acceb5f640d31beda6d586ba7b4a
+        uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380
         with:
           target: ${{ matrix.platform.target }}
           args: --release --out dist --find-interpreter --features extension-module
@@ -66,7 +66,7 @@ jobs:
           - runner: ubuntu-22.04
             target: armv7
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           persist-credentials: false
 
@@ -75,7 +75,7 @@ jobs:
           python-version: 3.x
 
       - name: Build wheels
-        uses: PyO3/maturin-action@e10f6c464b90acceb5f640d31beda6d586ba7b4a
+        uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380
         with:
           target: ${{ matrix.platform.target }}
           args: --release --out dist --find-interpreter --features extension-module
@@ -98,7 +98,7 @@ jobs:
           - runner: windows-latest
             target: x86
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           persist-credentials: false
 
@@ -108,7 +108,7 @@ jobs:
           architecture: ${{ matrix.platform.target }}
 
       - name: Build wheels
-        uses: PyO3/maturin-action@e10f6c464b90acceb5f640d31beda6d586ba7b4a
+        uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380
         with:
           target: ${{ matrix.platform.target }}
           args: --release --out dist --find-interpreter --features extension-module
@@ -130,7 +130,7 @@ jobs:
           - runner: macos-14
             target: aarch64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           persist-credentials: false
 
@@ -139,7 +139,7 @@ jobs:
           python-version: 3.x
 
       - name: Build wheels
-        uses: PyO3/maturin-action@e10f6c464b90acceb5f640d31beda6d586ba7b4a
+        uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380
         with:
           target: ${{ matrix.platform.target }}
           args: --release --out dist --find-interpreter --features extension-module
@@ -154,12 +154,12 @@ jobs:
   sdist:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           persist-credentials: false
 
       - name: Build sdist
-        uses: PyO3/maturin-action@e10f6c464b90acceb5f640d31beda6d586ba7b4a
+        uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380
         with:
           command: sdist
           args: --out dist
