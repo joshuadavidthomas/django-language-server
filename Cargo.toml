@@ -33,7 +33,7 @@ which = "8.0"
 
 # testing
 insta = { version = "1.43", features = ["yaml"] }
-tempfile = "3.0"
+tempfile = "3.21"
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }
