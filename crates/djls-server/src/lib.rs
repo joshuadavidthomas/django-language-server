@@ -1,5 +1,4 @@
 mod client;
-mod db;
 mod logging;
 mod queue;
 mod server;
