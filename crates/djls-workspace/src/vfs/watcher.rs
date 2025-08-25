@@ -4,15 +4,21 @@
 //! and synchronize them with the VFS. It uses cross-platform file watching with
 //! debouncing to handle rapid changes efficiently.
 
-use anyhow::{anyhow, Result};
+use std::collections::HashMap;
+use std::sync::mpsc;
+use std::thread;
+use std::time::Duration;
+use std::time::Instant;
+
+use anyhow::anyhow;
+use anyhow::Result;
 use camino::Utf8PathBuf;
-use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
-use std::{
-    collections::HashMap,
-    sync::mpsc,
-    thread,
-    time::{Duration, Instant},
-};
+use notify::Config;
+use notify::Event;
+use notify::EventKind;
+use notify::RecommendedWatcher;
+use notify::RecursiveMode;
+use notify::Watcher;
 
 /// Event types that can occur in the file system.
 ///

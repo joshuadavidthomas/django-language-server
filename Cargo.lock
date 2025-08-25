@@ -509,11 +509,13 @@ dependencies = [
  "anyhow",
  "camino",
  "dashmap",
+ "djls-project",
  "djls-templates",
  "notify",
  "salsa",
  "tempfile",
  "tokio",
+ "tower-lsp-server",
  "url",
 ]
 

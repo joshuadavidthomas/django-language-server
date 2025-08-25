@@ -4,15 +4,20 @@
 //! It ensures we only touch Salsa when content or classification changes, maximizing
 //! incremental performance.
 
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
+use std::sync::Arc;
 
 use salsa::Setter;
 
-use super::{
-    db::{parse_template, template_errors, Database, SourceFile, TemplateAst, TemplateLoaderOrder},
-    vfs::{FileKind, VfsSnapshot},
-    FileId,
-};
+use super::db::parse_template;
+use super::db::template_errors;
+use super::db::Database;
+use super::db::SourceFile;
+use super::db::TemplateAst;
+use super::db::TemplateLoaderOrder;
+use super::vfs::FileKind;
+use super::vfs::VfsSnapshot;
+use super::FileId;
 
 /// Owner of the Salsa [`Database`] plus the handles for updating inputs.
 ///
@@ -63,7 +68,7 @@ impl FileStore {
     ///
     /// The method is idempotent and minimizes Salsa invalidations by checking for
     /// actual changes before updating inputs.
-    pub fn apply_vfs_snapshot(&mut self, snap: &VfsSnapshot) {
+    pub(crate) fn apply_vfs_snapshot(&mut self, snap: &VfsSnapshot) {
         for (id, rec) in &snap.files {
             let new_text = snap.get_text(*id).unwrap_or_else(|| Arc::<str>::from(""));
             let new_kind = rec.meta.kind;
@@ -86,14 +91,14 @@ impl FileStore {
     /// Get the text content of a file by its [`FileId`].
     ///
     /// Returns `None` if the file is not tracked in the [`FileStore`].
-    pub fn file_text(&self, id: FileId) -> Option<Arc<str>> {
+    pub(crate) fn file_text(&self, id: FileId) -> Option<Arc<str>> {
         self.files.get(&id).map(|sf| sf.text(&self.db).clone())
     }
 
     /// Get the file kind classification by its [`FileId`].
     ///
     /// Returns `None` if the file is not tracked in the [`FileStore`].
-    pub fn file_kind(&self, id: FileId) -> Option<FileKind> {
+    pub(crate) fn file_kind(&self, id: FileId) -> Option<FileKind> {
         self.files.get(&id).map(|sf| sf.kind(&self.db))
     }
 
@@ -102,7 +107,7 @@ impl FileStore {
     /// This method leverages Salsa's incremental computation to cache parsed ASTs.
     /// The AST is only re-parsed when the file's content changes in the VFS.
     /// Returns `None` if the file is not tracked or is not a template file.
-    pub fn get_template_ast(&self, id: FileId) -> Option<Arc<TemplateAst>> {
+    pub(crate) fn get_template_ast(&self, id: FileId) -> Option<Arc<TemplateAst>> {
         let source_file = self.files.get(&id)?;
         parse_template(&self.db, *source_file)
     }
@@ -112,7 +117,7 @@ impl FileStore {
     /// This method provides quick access to template errors without needing the full AST.
     /// Useful for diagnostics and error reporting. Returns an empty slice for
     /// non-template files or files not tracked in the store.
-    pub fn get_template_errors(&self, id: FileId) -> Arc<[String]> {
+    pub(crate) fn get_template_errors(&self, id: FileId) -> Arc<[String]> {
         self.files
             .get(&id)
             .map_or_else(|| Arc::from(vec![]), |sf| template_errors(&self.db, *sf))
@@ -127,9 +132,11 @@ impl Default for FileStore {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::vfs::{TextSource, Vfs};
     use camino::Utf8PathBuf;
+
+    use super::*;
+    use crate::vfs::TextSource;
+    use crate::vfs::Vfs;
 
     #[test]
     fn test_filestore_template_ast_caching() {

@@ -1,14 +1,14 @@
 mod bridge;
 mod db;
+mod document;
 mod vfs;
-mod watcher;
 
-pub use bridge::FileStore;
-pub use db::{
-    parse_template, template_errors, Database, SourceFile, TemplateAst, TemplateLoaderOrder,
-};
-pub use vfs::{FileKind, FileMeta, FileRecord, Revision, TextSource, Vfs, VfsSnapshot};
-pub use watcher::{VfsWatcher, WatchConfig, WatchEvent};
+pub use document::ClosingBrace;
+pub use document::DocumentStore;
+pub use document::LanguageId;
+pub use document::LineIndex;
+pub use document::TemplateTagContext;
+pub use document::TextDocument;
 
 /// Stable, compact identifier for files across the subsystem.
 ///
@@ -16,7 +16,7 @@ pub use watcher::{VfsWatcher, WatchConfig, WatchEvent};
 /// Salsa inputs. Once assigned to a file (via its URI), a [`FileId`] remains stable for the
 /// lifetime of the VFS, even if the file's content or metadata changes.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
-pub struct FileId(u32);
+pub(crate) struct FileId(u32);
 
 impl FileId {
     /// Create a [`FileId`] from a raw u32 value.

@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 djls-templates = { workspace = true }
+djls-project = { workspace = true }
 
 anyhow = { workspace = true }
 camino = { workspace = true }
@@ -12,6 +13,7 @@ dashmap = { workspace = true }
 notify = { workspace = true }
 salsa = { workspace = true }
 tokio = { workspace = true }
+tower-lsp-server = { workspace = true }
 url = { workspace = true }
 
 [dev-dependencies]

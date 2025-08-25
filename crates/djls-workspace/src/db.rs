@@ -7,6 +7,8 @@ use std::sync::Arc;
 #[cfg(test)]
 use std::sync::Mutex;
 
+use djls_templates::Ast;
+
 use crate::vfs::FileKind;
 
 /// Salsa database root for workspace
@@ -139,8 +141,9 @@ pub fn template_errors(db: &dyn salsa::Database, file: SourceFile) -> Arc<[Strin
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use salsa::Setter;
+
+    use super::*;
 
     #[test]
     fn test_template_parsing_caches_result() {

@@ -4,25 +4,28 @@
 //! and snapshotting. Downstream systems consume snapshots to avoid locking and to
 //! batch updates.
 
-use anyhow::{anyhow, Result};
+mod watcher;
+
+use std::collections::hash_map::DefaultHasher;
+use std::collections::HashMap;
+use std::fs;
+use std::hash::Hash;
+use std::hash::Hasher;
+use std::sync::atomic::AtomicU32;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
+
+use anyhow::anyhow;
+use anyhow::Result;
 use camino::Utf8PathBuf;
 use dashmap::DashMap;
-use std::collections::hash_map::DefaultHasher;
-use std::fs;
-use std::hash::{Hash, Hasher};
-use std::{
-    collections::HashMap,
-    sync::{
-        atomic::{AtomicU32, AtomicU64, Ordering},
-        Arc,
-    },
-};
 use url::Url;
+use watcher::VfsWatcher;
+use watcher::WatchConfig;
+use watcher::WatchEvent;
 
-use super::{
-    watcher::{VfsWatcher, WatchConfig, WatchEvent},
-    FileId,
-};
+use super::FileId;
 
 /// Monotonic counter representing global VFS state.
 ///
@@ -30,18 +33,18 @@ use super::{
 /// This provides a cheap way to detect if any changes have occurred since
 /// a previous snapshot was taken.
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, Default, PartialOrd, Ord)]
-pub struct Revision(u64);
+pub(crate) struct Revision(u64);
 
 impl Revision {
     /// Create a [`Revision`] from a raw u64 value.
     #[must_use]
-    pub fn from_raw(raw: u64) -> Self {
+    fn from_raw(raw: u64) -> Self {
         Revision(raw)
     }
 
     /// Get the underlying u64 value.
     #[must_use]
-    pub fn value(self) -> u64 {
+    fn value(self) -> u64 {
         self.0
     }
 }
@@ -65,11 +68,11 @@ pub enum FileKind {
 /// [`FileMeta`] contains all non-content information about a file, including its
 /// identity (URI), filesystem path, and classification.
 #[derive(Clone, Debug)]
-pub struct FileMeta {
+pub(crate) struct FileMeta {
     /// The file's URI (typically file:// scheme)
-    pub uri: Url,
+    uri: Url,
     /// The file's path in the filesystem
-    pub path: Utf8PathBuf,
+    path: Utf8PathBuf,
     /// Classification for routing to analyzers
     pub kind: FileKind,
 }
@@ -80,7 +83,7 @@ pub struct FileMeta {
 /// debugging and understanding the current state of the VFS. All variants hold
 /// `Arc<str>` for efficient sharing.
 #[derive(Clone)]
-pub enum TextSource {
+pub(crate) enum TextSource {
     /// Content loaded from disk
     Disk(Arc<str>),
     /// Content from LSP client overlay (in-memory edits)
@@ -89,18 +92,47 @@ pub enum TextSource {
     Generated(Arc<str>),
 }
 
+/// Content hash for efficient change detection.
+///
+/// [`FileHash`] encapsulates the hashing logic used to detect when file content
+/// has changed, avoiding unnecessary recomputation in downstream systems like Salsa.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+struct FileHash(u64);
+
+impl FileHash {
+    /// Compute hash from text source content.
+    fn from_text_source(src: &TextSource) -> Self {
+        let s: &str = match src {
+            TextSource::Disk(s) | TextSource::Overlay(s) | TextSource::Generated(s) => s,
+        };
+        let mut h = DefaultHasher::new();
+        s.hash(&mut h);
+        Self(h.finish())
+    }
+
+    /// Check if this hash differs from another, indicating content changed.
+    fn differs_from(self, other: Self) -> bool {
+        self.0 != other.0
+    }
+
+    /// Get raw hash value (for debugging/logging).
+    fn raw(self) -> u64 {
+        self.0
+    }
+}
+
 /// Complete record of a file in the VFS.
 ///
 /// [`FileRecord`] combines metadata, current text content, and a content hash
 /// for efficient change detection.
 #[derive(Clone)]
-pub struct FileRecord {
+pub(crate) struct FileRecord {
     /// File metadata (URI, path, kind, version)
     pub meta: FileMeta,
     /// Current text content and its source
-    pub text: TextSource,
+    text: TextSource,
     /// Hash of current content for change detection
-    pub hash: u64,
+    hash: FileHash,
 }
 
 /// Thread-safe virtual file system with change tracking.
@@ -129,7 +161,7 @@ impl Vfs {
     /// Returns the existing [`FileId`] if the URI is already known, or creates a new
     /// [`FileRecord`] with the provided metadata and text. This method computes and
     /// stores a content hash for change detection.
-    pub fn intern_file(
+    pub(crate) fn intern_file(
         &self,
         uri: Url,
         path: Utf8PathBuf,
@@ -145,7 +177,7 @@ impl Vfs {
             path: path.clone(),
             kind,
         };
-        let hash = content_hash(&text);
+        let hash = FileHash::from_text_source(&text);
         self.by_uri.insert(uri, id);
         self.by_path.insert(path, id);
         self.files.insert(id, FileRecord { meta, text, hash });
@@ -159,14 +191,14 @@ impl Vfs {
     /// (detected via hash comparison).
     ///
     /// Returns a tuple of (new global revision, whether content changed).
-    pub fn set_overlay(&self, id: FileId, new_text: Arc<str>) -> Result<(Revision, bool)> {
+    pub(crate) fn set_overlay(&self, id: FileId, new_text: Arc<str>) -> Result<(Revision, bool)> {
         let mut rec = self
             .files
             .get_mut(&id)
             .ok_or_else(|| anyhow!("unknown file: {:?}", id))?;
         let next = TextSource::Overlay(new_text);
-        let new_hash = content_hash(&next);
-        let changed = new_hash != rec.hash;
+        let new_hash = FileHash::from_text_source(&next);
+        let changed = new_hash.differs_from(rec.hash);
         if changed {
             rec.text = next;
             rec.hash = new_hash;
@@ -183,7 +215,7 @@ impl Vfs {
     /// Materializes a consistent view of all files for downstream consumers.
     /// The snapshot includes the current revision and a clone of all file records.
     /// This operation is relatively cheap due to `Arc` sharing of text content.
-    pub fn snapshot(&self) -> VfsSnapshot {
+    pub(crate) fn snapshot(&self) -> VfsSnapshot {
         VfsSnapshot {
             revision: Revision::from_raw(self.head.load(Ordering::SeqCst)),
             files: self
@@ -268,11 +300,11 @@ impl Vfs {
                 .map_err(|e| anyhow!("Failed to read file {}: {}", path, e))?;
 
             let new_text = TextSource::Disk(Arc::from(content.as_str()));
-            let new_hash = content_hash(&new_text);
+            let new_hash = FileHash::from_text_source(&new_text);
 
             // Update the file if content changed
             if let Some(mut record) = self.files.get_mut(&file_id) {
-                if record.hash != new_hash {
+                if new_hash.differs_from(record.hash) {
                     record.text = new_text;
                     record.hash = new_hash;
                     self.head.fetch_add(1, Ordering::SeqCst);
@@ -301,28 +333,15 @@ impl Default for Vfs {
     }
 }
 
-/// Compute a stable hash over file content.
-///
-/// Used for efficient change detection - if the hash hasn't changed,
-/// the content hasn't changed, avoiding unnecessary Salsa invalidations.
-fn content_hash(src: &TextSource) -> u64 {
-    let s: &str = match src {
-        TextSource::Disk(s) | TextSource::Overlay(s) | TextSource::Generated(s) => s,
-    };
-    let mut h = DefaultHasher::new();
-    s.hash(&mut h);
-    h.finish()
-}
-
 /// Immutable snapshot view of the VFS at a specific revision.
 ///
 /// [`VfsSnapshot`] provides a consistent view of all files for downstream consumers,
 /// avoiding the need for locking during processing. Snapshots are created atomically
 /// and can be safely shared across threads.
 #[derive(Clone)]
-pub struct VfsSnapshot {
+pub(crate) struct VfsSnapshot {
     /// The global revision at the time of snapshot
-    pub revision: Revision,
+    revision: Revision,
     /// All files in the VFS at snapshot time
     pub files: HashMap<FileId, FileRecord>,
 }

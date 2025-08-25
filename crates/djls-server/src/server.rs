@@ -218,8 +218,23 @@ impl LanguageServer for DjangoLanguageServer {
         tracing::info!("Opened document: {:?}", params.text_document.uri);
 
         self.with_session_mut(|session| {
-            if let Err(e) = session.documents_mut().handle_did_open(&params) {
-                tracing::error!("Failed to handle did_open: {}", e);
+            let uri = params.text_document.uri.clone();
+            let version = params.text_document.version;
+            let language_id =
+                djls_workspace::LanguageId::from(params.text_document.language_id.as_str());
+            let text = params.text_document.text.clone();
+
+            // Convert LSP Uri to url::Url
+            if let Ok(url) = url::Url::parse(&uri.to_string()) {
+                if let Err(e) =
+                    session
+                        .documents_mut()
+                        .open_document(url, version, language_id, text)
+                {
+                    tracing::error!("Failed to handle did_open: {}", e);
+                }
+            } else {
+                tracing::error!("Invalid URI: {:?}", uri);
             }
         })
         .await;
@@ -229,7 +244,21 @@ impl LanguageServer for DjangoLanguageServer {
         tracing::info!("Changed document: {:?}", params.text_document.uri);
 
         self.with_session_mut(|session| {
-            let _ = session.documents_mut().handle_did_change(&params);
+            let uri = &params.text_document.uri;
+            let version = params.text_document.version;
+            let changes = params.content_changes.clone();
+
+            // Convert LSP Uri to url::Url
+            if let Ok(url) = url::Url::parse(&uri.to_string()) {
+                if let Err(e) = session
+                    .documents_mut()
+                    .update_document(&url, version, changes)
+                {
+                    tracing::error!("Failed to handle did_change: {}", e);
+                }
+            } else {
+                tracing::error!("Invalid URI: {:?}", uri);
+            }
         })
         .await;
     }
@@ -238,7 +267,14 @@ impl LanguageServer for DjangoLanguageServer {
         tracing::info!("Closed document: {:?}", params.text_document.uri);
 
         self.with_session_mut(|session| {
-            session.documents_mut().handle_did_close(&params);
+            let uri = &params.text_document.uri;
+
+            // Convert LSP Uri to url::Url
+            if let Ok(url) = url::Url::parse(&uri.to_string()) {
+                session.documents_mut().close_document(&url);
+            } else {
+                tracing::error!("Invalid URI: {:?}", uri);
+            }
         })
         .await;
     }
@@ -248,14 +284,61 @@ impl LanguageServer for DjangoLanguageServer {
             .with_session(|session| {
                 if let Some(project) = session.project() {
                     if let Some(tags) = project.template_tags() {
-                        return session.documents().get_completions(
-                            params.text_document_position.text_document.uri.as_str(),
-                            params.text_document_position.position,
-                            tags,
-                        );
+                        let uri = &params.text_document_position.text_document.uri;
+                        let position = params.text_document_position.position;
+
+                        // Convert LSP Uri to url::Url
+                        if let Ok(url) = url::Url::parse(&uri.to_string()) {
+                            if let Some(context) = session.documents().get_template_context(&url, position) {
+                                // Use the context to generate completions
+                                let mut completions: Vec<tower_lsp_server::lsp_types::CompletionItem> = tags
+                                    .iter()
+                                    .filter(|tag| {
+                                        context.partial_tag.is_empty() || tag.name().starts_with(&context.partial_tag)
+                                    })
+                                    .map(|tag| {
+                                        let leading_space = if context.needs_leading_space { " " } else { "" };
+                                        tower_lsp_server::lsp_types::CompletionItem {
+                                            label: tag.name().to_string(),
+                                            kind: Some(tower_lsp_server::lsp_types::CompletionItemKind::KEYWORD),
+                                            detail: Some(format!("Template tag from {}", tag.library())),
+                                            documentation: tag.doc().as_ref().map(|doc| {
+                                                tower_lsp_server::lsp_types::Documentation::MarkupContent(
+                                                    tower_lsp_server::lsp_types::MarkupContent {
+                                                        kind: tower_lsp_server::lsp_types::MarkupKind::Markdown,
+                                                        value: (*doc).to_string(),
+                                                    }
+                                                )
+                                            }),
+                                            insert_text: Some(match context.closing_brace {
+                                                djls_workspace::ClosingBrace::None => format!("{}{} %}}", leading_space, tag.name()),
+                                                djls_workspace::ClosingBrace::PartialClose => format!("{}{} %", leading_space, tag.name()),
+                                                djls_workspace::ClosingBrace::FullClose => format!("{}{} ", leading_space, tag.name()),
+                                            }),
+                                            insert_text_format: Some(tower_lsp_server::lsp_types::InsertTextFormat::PLAIN_TEXT),
+                                            ..Default::default()
+                                        }
+                                    })
+                                    .collect();
+
+                                if completions.is_empty() {
+                                    None
+                                } else {
+                                    completions.sort_by(|a, b| a.label.cmp(&b.label));
+                                    Some(tower_lsp_server::lsp_types::CompletionResponse::Array(completions))
+                                }
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
                     }
+                } else {
+                    None
                 }
-                None
             })
             .await)
     }

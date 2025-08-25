@@ -3,7 +3,6 @@ mod logging;
 mod queue;
 mod server;
 mod session;
-mod workspace;
 
 use std::io::IsTerminal;
 
