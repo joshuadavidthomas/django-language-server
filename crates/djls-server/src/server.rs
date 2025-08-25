@@ -3,25 +3,7 @@ use std::sync::Arc;
 
 use tokio::sync::RwLock;
 use tower_lsp_server::jsonrpc::Result as LspResult;
-use tower_lsp_server::lsp_types::CompletionOptions;
-use tower_lsp_server::lsp_types::CompletionParams;
-use tower_lsp_server::lsp_types::CompletionResponse;
-use tower_lsp_server::lsp_types::DidChangeConfigurationParams;
-use tower_lsp_server::lsp_types::DidChangeTextDocumentParams;
-use tower_lsp_server::lsp_types::DidCloseTextDocumentParams;
-use tower_lsp_server::lsp_types::DidOpenTextDocumentParams;
-use tower_lsp_server::lsp_types::InitializeParams;
-use tower_lsp_server::lsp_types::InitializeResult;
-use tower_lsp_server::lsp_types::InitializedParams;
-use tower_lsp_server::lsp_types::OneOf;
-use tower_lsp_server::lsp_types::SaveOptions;
-use tower_lsp_server::lsp_types::ServerCapabilities;
-use tower_lsp_server::lsp_types::ServerInfo;
-use tower_lsp_server::lsp_types::TextDocumentSyncCapability;
-use tower_lsp_server::lsp_types::TextDocumentSyncKind;
-use tower_lsp_server::lsp_types::TextDocumentSyncOptions;
-use tower_lsp_server::lsp_types::WorkspaceFoldersServerCapabilities;
-use tower_lsp_server::lsp_types::WorkspaceServerCapabilities;
+use tower_lsp_server::lsp_types;
 use tower_lsp_server::LanguageServer;
 use tracing_appender::non_blocking::WorkerGuard;
 
@@ -91,7 +73,10 @@ impl DjangoLanguageServer {
 }
 
 impl LanguageServer for DjangoLanguageServer {
-    async fn initialize(&self, params: InitializeParams) -> LspResult<InitializeResult> {
+    async fn initialize(
+        &self,
+        params: lsp_types::InitializeParams,
+    ) -> LspResult<lsp_types::InitializeResult> {
         tracing::info!("Initializing server...");
 
         let session = Session::new(&params);
@@ -101,9 +86,9 @@ impl LanguageServer for DjangoLanguageServer {
             *session_lock = Some(session);
         }
 
-        Ok(InitializeResult {
-            capabilities: ServerCapabilities {
-                completion_provider: Some(CompletionOptions {
+        Ok(lsp_types::InitializeResult {
+            capabilities: lsp_types::ServerCapabilities {
+                completion_provider: Some(lsp_types::CompletionOptions {
                     resolve_provider: Some(false),
                     trigger_characters: Some(vec![
                         "{".to_string(),
@@ -112,25 +97,25 @@ impl LanguageServer for DjangoLanguageServer {
                     ]),
                     ..Default::default()
                 }),
-                workspace: Some(WorkspaceServerCapabilities {
-                    workspace_folders: Some(WorkspaceFoldersServerCapabilities {
+                workspace: Some(lsp_types::WorkspaceServerCapabilities {
+                    workspace_folders: Some(lsp_types::WorkspaceFoldersServerCapabilities {
                         supported: Some(true),
-                        change_notifications: Some(OneOf::Left(true)),
+                        change_notifications: Some(lsp_types::OneOf::Left(true)),
                     }),
                     file_operations: None,
                 }),
-                text_document_sync: Some(TextDocumentSyncCapability::Options(
-                    TextDocumentSyncOptions {
+                text_document_sync: Some(lsp_types::TextDocumentSyncCapability::Options(
+                    lsp_types::TextDocumentSyncOptions {
                         open_close: Some(true),
-                        change: Some(TextDocumentSyncKind::INCREMENTAL),
+                        change: Some(lsp_types::TextDocumentSyncKind::INCREMENTAL),
                         will_save: Some(false),
                         will_save_wait_until: Some(false),
-                        save: Some(SaveOptions::default().into()),
+                        save: Some(lsp_types::SaveOptions::default().into()),
                     },
                 )),
                 ..Default::default()
             },
-            server_info: Some(ServerInfo {
+            server_info: Some(lsp_types::ServerInfo {
                 name: SERVER_NAME.to_string(),
                 version: Some(SERVER_VERSION.to_string()),
             }),
@@ -139,7 +124,7 @@ impl LanguageServer for DjangoLanguageServer {
     }
 
     #[allow(clippy::too_many_lines)]
-    async fn initialized(&self, _params: InitializedParams) {
+    async fn initialized(&self, _params: lsp_types::InitializedParams) {
         tracing::info!("Server received initialized notification.");
 
         self.with_session_task(|session_arc| async move {
@@ -214,7 +199,7 @@ impl LanguageServer for DjangoLanguageServer {
         Ok(())
     }
 
-    async fn did_open(&self, params: DidOpenTextDocumentParams) {
+    async fn did_open(&self, params: lsp_types::DidOpenTextDocumentParams) {
         tracing::info!("Opened document: {:?}", params.text_document.uri);
 
         self.with_session_mut(|session| {
@@ -240,7 +225,7 @@ impl LanguageServer for DjangoLanguageServer {
         .await;
     }
 
-    async fn did_change(&self, params: DidChangeTextDocumentParams) {
+    async fn did_change(&self, params: lsp_types::DidChangeTextDocumentParams) {
         tracing::info!("Changed document: {:?}", params.text_document.uri);
 
         self.with_session_mut(|session| {
@@ -263,7 +248,7 @@ impl LanguageServer for DjangoLanguageServer {
         .await;
     }
 
-    async fn did_close(&self, params: DidCloseTextDocumentParams) {
+    async fn did_close(&self, params: lsp_types::DidCloseTextDocumentParams) {
         tracing::info!("Closed document: {:?}", params.text_document.uri);
 
         self.with_session_mut(|session| {
@@ -279,7 +264,10 @@ impl LanguageServer for DjangoLanguageServer {
         .await;
     }
 
-    async fn completion(&self, params: CompletionParams) -> LspResult<Option<CompletionResponse>> {
+    async fn completion(
+        &self,
+        params: lsp_types::CompletionParams,
+    ) -> LspResult<Option<lsp_types::CompletionResponse>> {
         Ok(self
             .with_session(|session| {
                 if let Some(project) = session.project() {
@@ -289,33 +277,48 @@ impl LanguageServer for DjangoLanguageServer {
 
                         // Convert LSP Uri to url::Url
                         if let Ok(url) = url::Url::parse(&uri.to_string()) {
-                            if let Some(context) = session.documents().get_template_context(&url, position) {
+                            if let Some(context) =
+                                session.documents().get_template_context(&url, position)
+                            {
                                 // Use the context to generate completions
-                                let mut completions: Vec<tower_lsp_server::lsp_types::CompletionItem> = tags
+                                let mut completions: Vec<lsp_types::CompletionItem> = tags
                                     .iter()
                                     .filter(|tag| {
-                                        context.partial_tag.is_empty() || tag.name().starts_with(&context.partial_tag)
+                                        context.partial_tag.is_empty()
+                                            || tag.name().starts_with(&context.partial_tag)
                                     })
                                     .map(|tag| {
-                                        let leading_space = if context.needs_leading_space { " " } else { "" };
-                                        tower_lsp_server::lsp_types::CompletionItem {
+                                        let leading_space =
+                                            if context.needs_leading_space { " " } else { "" };
+                                        lsp_types::CompletionItem {
                                             label: tag.name().to_string(),
-                                            kind: Some(tower_lsp_server::lsp_types::CompletionItemKind::KEYWORD),
-                                            detail: Some(format!("Template tag from {}", tag.library())),
+                                            kind: Some(lsp_types::CompletionItemKind::KEYWORD),
+                                            detail: Some(format!(
+                                                "Template tag from {}",
+                                                tag.library()
+                                            )),
                                             documentation: tag.doc().as_ref().map(|doc| {
-                                                tower_lsp_server::lsp_types::Documentation::MarkupContent(
-                                                    tower_lsp_server::lsp_types::MarkupContent {
-                                                        kind: tower_lsp_server::lsp_types::MarkupKind::Markdown,
+                                                lsp_types::Documentation::MarkupContent(
+                                                    lsp_types::MarkupContent {
+                                                        kind: lsp_types::MarkupKind::Markdown,
                                                         value: (*doc).to_string(),
-                                                    }
+                                                    },
                                                 )
                                             }),
                                             insert_text: Some(match context.closing_brace {
-                                                djls_workspace::ClosingBrace::None => format!("{}{} %}}", leading_space, tag.name()),
-                                                djls_workspace::ClosingBrace::PartialClose => format!("{}{} %", leading_space, tag.name()),
-                                                djls_workspace::ClosingBrace::FullClose => format!("{}{} ", leading_space, tag.name()),
+                                                djls_workspace::ClosingBrace::None => {
+                                                    format!("{}{} %}}", leading_space, tag.name())
+                                                }
+                                                djls_workspace::ClosingBrace::PartialClose => {
+                                                    format!("{}{} %", leading_space, tag.name())
+                                                }
+                                                djls_workspace::ClosingBrace::FullClose => {
+                                                    format!("{}{} ", leading_space, tag.name())
+                                                }
                                             }),
-                                            insert_text_format: Some(tower_lsp_server::lsp_types::InsertTextFormat::PLAIN_TEXT),
+                                            insert_text_format: Some(
+                                                lsp_types::InsertTextFormat::PLAIN_TEXT,
+                                            ),
                                             ..Default::default()
                                         }
                                     })
@@ -325,7 +328,7 @@ impl LanguageServer for DjangoLanguageServer {
                                     None
                                 } else {
                                     completions.sort_by(|a, b| a.label.cmp(&b.label));
-                                    Some(tower_lsp_server::lsp_types::CompletionResponse::Array(completions))
+                                    Some(lsp_types::CompletionResponse::Array(completions))
                                 }
                             } else {
                                 None
@@ -343,7 +346,7 @@ impl LanguageServer for DjangoLanguageServer {
             .await)
     }
 
-    async fn did_change_configuration(&self, _params: DidChangeConfigurationParams) {
+    async fn did_change_configuration(&self, _params: lsp_types::DidChangeConfigurationParams) {
         tracing::info!("Configuration change detected. Reloading settings...");
 
         let project_path = self

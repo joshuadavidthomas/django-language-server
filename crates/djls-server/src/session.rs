@@ -4,9 +4,7 @@ use djls_conf::Settings;
 use djls_project::DjangoProject;
 use djls_workspace::DocumentStore;
 use percent_encoding::percent_decode_str;
-use tower_lsp_server::lsp_types::ClientCapabilities;
-use tower_lsp_server::lsp_types::InitializeParams;
-use tower_lsp_server::lsp_types::Uri;
+use tower_lsp_server::lsp_types;
 
 #[derive(Default)]
 pub struct Session {
@@ -15,14 +13,14 @@ pub struct Session {
     settings: Settings,
 
     #[allow(dead_code)]
-    client_capabilities: ClientCapabilities,
+    client_capabilities: lsp_types::ClientCapabilities,
 }
 
 impl Session {
     /// Determines the project root path from initialization parameters.
     ///
     /// Tries the current directory first, then falls back to the first workspace folder.
-    fn get_project_path(params: &InitializeParams) -> Option<PathBuf> {
+    fn get_project_path(params: &lsp_types::InitializeParams) -> Option<PathBuf> {
         // Try current directory first
         std::env::current_dir().ok().or_else(|| {
             // Fall back to the first workspace folder URI
@@ -35,7 +33,7 @@ impl Session {
     }
 
     /// Converts a `file:` URI into an absolute `PathBuf`.
-    fn uri_to_pathbuf(uri: &Uri) -> Option<PathBuf> {
+    fn uri_to_pathbuf(uri: &lsp_types::Uri) -> Option<PathBuf> {
         // Check if the scheme is "file"
         if uri.scheme().is_none_or(|s| s.as_str() != "file") {
             return None;
@@ -57,7 +55,7 @@ impl Session {
         Some(PathBuf::from(path_str))
     }
 
-    pub fn new(params: &InitializeParams) -> Self {
+    pub fn new(params: &lsp_types::InitializeParams) -> Self {
         let project_path = Self::get_project_path(params);
 
         let (project, settings) = if let Some(path) = &project_path {

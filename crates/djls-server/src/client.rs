@@ -123,45 +123,38 @@ macro_rules! request {
 
 #[allow(dead_code)]
 pub mod messages {
-    use tower_lsp_server::lsp_types::MessageActionItem;
-    use tower_lsp_server::lsp_types::MessageType;
-    use tower_lsp_server::lsp_types::ShowDocumentParams;
+    use tower_lsp_server::lsp_types;
 
     use super::get_client;
     use super::Display;
     use super::Error;
 
-    notify!(log_message, message_type: MessageType, message: impl Display + Send + 'static);
-    notify!(show_message, message_type: MessageType, message: impl Display + Send + 'static);
-    request!(show_message_request, message_type: MessageType, message: impl Display + Send + 'static, actions: Option<Vec<MessageActionItem>> ; Option<MessageActionItem>);
-    request!(show_document, params: ShowDocumentParams ; bool);
+    notify!(log_message, message_type: lsp_types::MessageType, message: impl Display + Send + 'static);
+    notify!(show_message, message_type: lsp_types::MessageType, message: impl Display + Send + 'static);
+    request!(show_message_request, message_type: lsp_types::MessageType, message: impl Display + Send + 'static, actions: Option<Vec<lsp_types::MessageActionItem>> ; Option<lsp_types::MessageActionItem>);
+    request!(show_document, params: lsp_types::ShowDocumentParams ; bool);
 }
 
 #[allow(dead_code)]
 pub mod diagnostics {
-    use tower_lsp_server::lsp_types::Diagnostic;
-    use tower_lsp_server::lsp_types::Uri;
+    use tower_lsp_server::lsp_types;
 
     use super::get_client;
 
-    notify!(publish_diagnostics, uri: Uri, diagnostics: Vec<Diagnostic>, version: Option<i32>);
+    notify!(publish_diagnostics, uri: lsp_types::Uri, diagnostics: Vec<lsp_types::Diagnostic>, version: Option<i32>);
     notify_discard!(workspace_diagnostic_refresh,);
 }
 
 #[allow(dead_code)]
 pub mod workspace {
-    use tower_lsp_server::lsp_types::ApplyWorkspaceEditResponse;
-    use tower_lsp_server::lsp_types::ConfigurationItem;
-    use tower_lsp_server::lsp_types::LSPAny;
-    use tower_lsp_server::lsp_types::WorkspaceEdit;
-    use tower_lsp_server::lsp_types::WorkspaceFolder;
+    use tower_lsp_server::lsp_types;
 
     use super::get_client;
     use super::Error;
 
-    request!(apply_edit, edit: WorkspaceEdit ; ApplyWorkspaceEditResponse);
-    request!(configuration, items: Vec<ConfigurationItem> ; Vec<LSPAny>);
-    request!(workspace_folders, ; Option<Vec<WorkspaceFolder>>);
+    request!(apply_edit, edit: lsp_types::WorkspaceEdit ; lsp_types::ApplyWorkspaceEditResponse);
+    request!(configuration, items: Vec<lsp_types::ConfigurationItem> ; Vec<lsp_types::LSPAny>);
+    request!(workspace_folders, ; Option<Vec<lsp_types::WorkspaceFolder>>);
 }
 
 #[allow(dead_code)]
@@ -176,19 +169,18 @@ pub mod editor {
 
 #[allow(dead_code)]
 pub mod capabilities {
-    use tower_lsp_server::lsp_types::Registration;
-    use tower_lsp_server::lsp_types::Unregistration;
+    use tower_lsp_server::lsp_types;
 
     use super::get_client;
 
-    notify_discard!(register_capability, registrations: Vec<Registration>);
-    notify_discard!(unregister_capability, unregisterations: Vec<Unregistration>);
+    notify_discard!(register_capability, registrations: Vec<lsp_types::Registration>);
+    notify_discard!(unregister_capability, unregisterations: Vec<lsp_types::Unregistration>);
 }
 
 #[allow(dead_code)]
 pub mod monitoring {
     use serde::Serialize;
-    use tower_lsp_server::lsp_types::ProgressToken;
+    use tower_lsp_server::lsp_types;
     use tower_lsp_server::Progress;
 
     use super::get_client;
@@ -201,22 +193,21 @@ pub mod monitoring {
         }
     }
 
-    pub fn progress<T: Into<String> + Send>(token: ProgressToken, title: T) -> Option<Progress> {
+    pub fn progress<T: Into<String> + Send>(token: lsp_types::ProgressToken, title: T) -> Option<Progress> {
         get_client().map(|client| client.progress(token, title))
     }
 }
 
 #[allow(dead_code)]
 pub mod protocol {
-    use tower_lsp_server::lsp_types::notification::Notification;
-    use tower_lsp_server::lsp_types::request::Request;
+    use tower_lsp_server::lsp_types;
 
     use super::get_client;
     use super::Error;
 
     pub fn send_notification<N>(params: N::Params)
     where
-        N: Notification,
+        N: lsp_types::notification::Notification,
         N::Params: Send + 'static,
     {
         if let Some(client) = get_client() {
@@ -228,7 +219,7 @@ pub mod protocol {
 
     pub async fn send_request<R>(params: R::Params) -> Result<R::Result, Error>
     where
-        R: Request,
+        R: lsp_types::request::Request,
         R::Params: Send + 'static,
         R::Result: Send + 'static,
     {
