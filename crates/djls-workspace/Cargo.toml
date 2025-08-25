@@ -1,0 +1,15 @@
+[package]
+name = "djls-workspace"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+camino = { workspace = true }
+dashmap = { workspace = true }
+salsa = { workspace = true }
+url = { workspace = true }
+
+[dev-dependencies]
+
+[lints]
+workspace = true
