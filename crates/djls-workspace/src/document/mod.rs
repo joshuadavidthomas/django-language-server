@@ -1,11 +1,9 @@
 mod language;
 mod line_index;
-mod store;
 mod template;
 
 pub use language::LanguageId;
 pub use line_index::LineIndex;
-pub use store::DocumentStore;
 pub use template::ClosingBrace;
 pub use template::TemplateTagContext;
 use tower_lsp_server::lsp_types::Position;

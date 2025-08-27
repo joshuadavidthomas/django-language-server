@@ -4,23 +4,36 @@
 //! Inputs are kept minimal to avoid unnecessary recomputation.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 #[cfg(test)]
 use std::sync::Mutex;
 
-use djls_templates::Ast;
+use dashmap::DashMap;
+use url::Url;
 
-use crate::vfs::FileKind;
+use crate::{FileId, FileKind};
 
 /// Salsa database root for workspace
 ///
 /// The [`Database`] provides default storage and, in tests, captures Salsa events for
 /// reuse/diagnostics. It serves as the core incremental computation engine, tracking
 /// dependencies and invalidations across all inputs and derived queries.
+/// 
+/// This database also manages the file system overlay for the workspace,
+/// mapping URLs to FileIds and storing file content.
 #[salsa::db]
 #[derive(Clone)]
-#[cfg_attr(not(test), derive(Default))]
 pub struct Database {
     storage: salsa::Storage<Self>,
+    
+    /// Map from file URL to FileId (thread-safe)
+    files: DashMap<Url, FileId>,
+    
+    /// Map from FileId to file content (thread-safe)
+    content: DashMap<FileId, Arc<str>>,
+    
+    /// Next FileId to allocate (thread-safe counter)
+    next_file_id: Arc<AtomicU32>,
 
     // The logs are only used for testing and demonstrating reuse:
     #[cfg(test)]
@@ -45,8 +58,83 @@ impl Default for Database {
                     }
                 }
             }))),
+            files: DashMap::new(),
+            content: DashMap::new(),
+            next_file_id: Arc::new(AtomicU32::new(0)),
             logs,
         }
+    }
+}
+
+impl Database {
+    /// Create a new database instance
+    pub fn new() -> Self {
+        Self {
+            storage: salsa::Storage::new(None),
+            files: DashMap::new(),
+            content: DashMap::new(),
+            next_file_id: Arc::new(AtomicU32::new(0)),
+            #[cfg(test)]
+            logs: Arc::new(Mutex::new(None)),
+        }
+    }
+    
+    /// Create a new database instance from a storage handle.
+    /// This is used by Session::db() to create databases from the StorageHandle.
+    pub fn from_storage(storage: salsa::Storage<Self>) -> Self {
+        Self {
+            storage,
+            files: DashMap::new(),
+            content: DashMap::new(),
+            next_file_id: Arc::new(AtomicU32::new(0)),
+            #[cfg(test)]
+            logs: Arc::new(Mutex::new(None)),
+        }
+    }
+    
+    /// Add or update a file in the workspace
+    pub fn set_file(&mut self, url: Url, content: String, _kind: FileKind) {
+        let file_id = if let Some(existing_id) = self.files.get(&url) {
+            *existing_id
+        } else {
+            let new_id = FileId::from_raw(self.next_file_id.fetch_add(1, Ordering::SeqCst));
+            self.files.insert(url.clone(), new_id);
+            new_id
+        };
+
+        let content = Arc::<str>::from(content);
+        self.content.insert(file_id, content.clone());
+
+        // TODO: Update Salsa inputs here when we connect them
+    }
+    
+    /// Remove a file from the workspace
+    pub fn remove_file(&mut self, url: &Url) {
+        if let Some((_, file_id)) = self.files.remove(url) {
+            self.content.remove(&file_id);
+            // TODO: Remove from Salsa when we connect inputs
+        }
+    }
+    
+    /// Get the content of a file by URL
+    pub fn get_file_content(&self, url: &Url) -> Option<Arc<str>> {
+        let file_id = self.files.get(url)?;
+        self.content.get(&*file_id).map(|content| content.clone())
+    }
+    
+    /// Get the content of a file by FileId
+    pub(crate) fn get_content_by_id(&self, file_id: FileId) -> Option<Arc<str>> {
+        self.content.get(&file_id).map(|content| content.clone())
+    }
+    
+    /// Check if a file exists in the workspace
+    pub fn has_file(&self, url: &Url) -> bool {
+        self.files.contains_key(url)
+    }
+    
+    /// Get all file URLs in the workspace
+    pub fn files(&self) -> impl Iterator<Item = Url> + use<'_> {
+        self.files.iter().map(|entry| entry.key().clone())
     }
 }
 

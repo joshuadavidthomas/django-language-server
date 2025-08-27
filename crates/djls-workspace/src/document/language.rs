@@ -1,4 +1,4 @@
-use crate::vfs::FileKind;
+use crate::FileKind;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum LanguageId {
