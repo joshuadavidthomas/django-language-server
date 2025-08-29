@@ -6,12 +6,12 @@
 //! ## Architecture
 //!
 //! The system uses a two-layer approach:
-//! 1. **Buffer layer** ([`crate::Buffers`]) - Stores open document content in memory
+//! 1. **Buffer layer** ([`Buffers`]) - Stores open document content in memory
 //! 2. **Salsa layer** ([`Database`]) - Tracks files and computes derived queries
 //!
 //! When Salsa needs file content, it calls [`source_text`] which:
 //! 1. Creates a dependency on the file's revision (critical!)
-//! 2. Reads through [`crate::WorkspaceFileSystem`] which checks buffers first
+//! 2. Reads through [`WorkspaceFileSystem`] which checks buffers first
 //! 3. Falls back to disk if no buffer exists
 //!
 //! ## The Revision Dependency
@@ -22,7 +22,9 @@
 //! ```ignore
 //! let _ = file.revision(db);  // Creates the dependency chain!
 //! ```
-
+//!
+//! [`Buffers`]: crate::buffers::Buffers
+//! [`WorkspaceFileSystem`]: crate::fs::WorkspaceFileSystem
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -36,36 +38,29 @@ use crate::{FileKind, FileSystem};
 /// Database trait that provides file system access for Salsa queries
 #[salsa::db]
 pub trait Db: salsa::Database {
-    /// Get the file system for reading files (with overlay support)
+    /// Get the file system for reading files.
     fn fs(&self) -> Option<Arc<dyn FileSystem>>;
 
-    /// Read file content through the file system
-    /// This is the primary way Salsa queries should read files, as it
-    /// automatically checks overlays before falling back to disk.
+    /// Read file content through the file system.
+    /// 
+    /// Checks buffers first via [`crate::WorkspaceFileSystem`], then falls back to disk.
     fn read_file_content(&self, path: &Path) -> std::io::Result<String>;
 }
 
-/// Salsa database root for workspace
+/// Salsa database for incremental computation.
 ///
-/// The [`Database`] provides default storage and, in tests, captures Salsa events for
-/// reuse/diagnostics. It serves as the core incremental computation engine, tracking
-/// dependencies and invalidations across all inputs and derived queries.
-///
-/// The database integrates with the FileSystem abstraction to read files through
-/// the LspFileSystem, which automatically checks overlays before falling back to disk.
+/// Tracks files and computes derived queries incrementally. Integrates with
+/// [`crate::WorkspaceFileSystem`] to read file content, which checks buffers
+/// before falling back to disk.
 #[salsa::db]
 #[derive(Clone)]
 pub struct Database {
     storage: salsa::Storage<Self>,
 
-    /// FileSystem integration for reading files (with overlay support)
-    /// This allows the database to read files through LspFileSystem, which
-    /// automatically checks for overlays before falling back to disk files.
+    /// File system for reading file content (checks buffers first, then disk).
     fs: Option<Arc<dyn FileSystem>>,
 
-    /// File tracking outside of Salsa but within Database (Arc for cheap cloning).
-    /// This follows Ruff's pattern where files are tracked in the Database struct
-    /// but not as part of Salsa's storage, enabling cheap clones via Arc.
+    /// Maps paths to [`SourceFile`] entities for O(1) lookup.
     files: Arc<DashMap<PathBuf, SourceFile>>,
 
     // The logs are only used for testing and demonstrating reuse:
@@ -126,9 +121,7 @@ impl Database {
         }
     }
 
-    /// Read file content through the file system
-    /// This is the primary way Salsa queries should read files, as it
-    /// automatically checks overlays before falling back to disk.
+    /// Read file content through the file system.
     pub fn read_file_content(&self, path: &Path) -> std::io::Result<String> {
         if let Some(fs) = &self.fs {
             fs.read_to_string(path)
@@ -214,12 +207,10 @@ pub struct SourceFile {
     pub revision: u64,
 }
 
-/// Read file content through the FileSystem, creating proper Salsa dependencies.
+/// Read file content, creating a Salsa dependency on the file's revision.
 ///
-/// This is the CRITICAL function that implements Ruff's two-layer architecture.
-/// The call to `file.revision(db)` creates a Salsa dependency, ensuring that
-/// when the revision changes, this function (and all dependent queries) are
-/// invalidated and re-executed.
+/// **Critical**: The call to `file.revision(db)` creates the dependency chain.
+/// Without it, revision changes won't trigger query invalidation.
 #[salsa::tracked]
 pub fn source_text(db: &dyn Db, file: SourceFile) -> Arc<str> {
     // This line creates the Salsa dependency on revision! Without this call,
