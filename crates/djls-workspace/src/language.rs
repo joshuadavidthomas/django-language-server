@@ -8,7 +8,8 @@ use crate::FileKind;
 /// Language identifier as reported by the LSP client.
 ///
 /// These identifiers follow VS Code's language ID conventions and determine
-/// which analyzers and features are available for a document.
+/// which analyzers and features are available for a document. Converts to
+/// [`FileKind`] to route files to appropriate analyzers (Python vs Template).
 #[derive(Clone, Debug, PartialEq)]
 pub enum LanguageId {
     Html,

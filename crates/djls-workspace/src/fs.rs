@@ -66,10 +66,13 @@ impl FileSystem for OsFileSystem {
 
 /// LSP file system that intercepts reads for buffered files
 ///
-/// This implements Ruff's two-layer architecture where Layer 1 (open buffers)
+/// This implements Ruff's two-layer architecture where Layer 1 (open [`Buffers`])
 /// takes precedence over Layer 2 (Salsa database). When a file is read,
-/// this system first checks for a buffer (in-memory content) and returns
-/// that content. If no buffer exists, it falls back to reading from disk.
+/// this system first checks for a buffer (in-memory content from [`TextDocument`])
+/// and returns that content. If no buffer exists, it falls back to reading from disk.
+///
+/// This type is used by the [`Database`] to ensure all file reads go through
+/// the buffer system first.
 pub struct WorkspaceFileSystem {
     /// In-memory buffers that take precedence over disk files
     buffers: Buffers,

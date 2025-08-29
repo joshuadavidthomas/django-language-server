@@ -14,9 +14,12 @@ use crate::document::TextDocument;
 /// Shared buffer storage between Session and FileSystem
 ///
 /// Buffers represent the in-memory content of open files that takes
-/// precedence over disk content when reading through the FileSystem.
+/// precedence over disk content when reading through the [`FileSystem`].
 /// This is the key abstraction that makes the sharing between Session
-/// and WorkspaceFileSystem explicit and type-safe.
+/// and [`WorkspaceFileSystem`] explicit and type-safe.
+/// 
+/// The [`WorkspaceFileSystem`] holds a clone of this structure and checks
+/// it before falling back to disk reads.
 #[derive(Clone, Debug)]
 pub struct Buffers {
     inner: Arc<DashMap<Url, TextDocument>>,
