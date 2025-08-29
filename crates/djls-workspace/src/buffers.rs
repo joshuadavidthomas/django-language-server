@@ -24,6 +24,7 @@ pub struct Buffers {
 
 impl Buffers {
     /// Create a new empty buffer storage
+    #[must_use]
     pub fn new() -> Self {
         Self {
             inner: Arc::new(DashMap::new()),
@@ -41,23 +42,28 @@ impl Buffers {
     }
 
     /// Close a document and return it if it was open
+    #[must_use]
     pub fn close(&self, url: &Url) -> Option<TextDocument> {
         self.inner.remove(url).map(|(_, doc)| doc)
     }
 
     /// Get a document if it's open
+    #[must_use]
     pub fn get(&self, url: &Url) -> Option<TextDocument> {
         self.inner.get(url).map(|entry| entry.clone())
     }
 
     /// Check if a document is open
+    #[must_use]
     pub fn contains(&self, url: &Url) -> bool {
         self.inner.contains_key(url)
     }
 
     /// Iterate over all open buffers (for debugging)
     pub fn iter(&self) -> impl Iterator<Item = (Url, TextDocument)> + '_ {
-        self.inner.iter().map(|entry| (entry.key().clone(), entry.value().clone()))
+        self.inner
+            .iter()
+            .map(|entry| (entry.key().clone(), entry.value().clone()))
     }
 }
 
@@ -66,3 +72,4 @@ impl Default for Buffers {
         Self::new()
     }
 }
+

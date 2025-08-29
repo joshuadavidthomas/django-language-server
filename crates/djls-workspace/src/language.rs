@@ -1,5 +1,14 @@
+//! Language identification for document routing
+//!
+//! Maps LSP language identifiers to internal [`FileKind`] for analyzer routing.
+//! Language IDs come from the LSP client and determine how files are processed.
+
 use crate::FileKind;
 
+/// Language identifier as reported by the LSP client.
+///
+/// These identifiers follow VS Code's language ID conventions and determine
+/// which analyzers and features are available for a document.
 #[derive(Clone, Debug, PartialEq)]
 pub enum LanguageId {
     Html,

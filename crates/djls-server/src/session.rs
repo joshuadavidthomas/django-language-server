@@ -39,9 +39,8 @@ use djls_conf::Settings;
 use djls_project::DjangoProject;
 use djls_workspace::{
     db::{Database, SourceFile},
-    Buffers, FileSystem, OsFileSystem, TextDocument, WorkspaceFileSystem,
+    paths, Buffers, FileSystem, OsFileSystem, TextDocument, WorkspaceFileSystem,
 };
-use percent_encoding::percent_decode_str;
 use salsa::{Setter, StorageHandle};
 use tower_lsp_server::lsp_types;
 use url::Url;
@@ -171,25 +170,7 @@ impl Session {
 
     /// Converts a `file:` URI into an absolute `PathBuf`.
     fn uri_to_pathbuf(uri: &lsp_types::Uri) -> Option<PathBuf> {
-        // Check if the scheme is "file"
-        if uri.scheme().is_none_or(|s| s.as_str() != "file") {
-            return None;
-        }
-
-        // Get the path part as a string
-        let encoded_path_str = uri.path().as_str();
-
-        // Decode the percent-encoded path string
-        let decoded_path_cow = percent_decode_str(encoded_path_str).decode_utf8_lossy();
-        let path_str = decoded_path_cow.as_ref();
-
-        #[cfg(windows)]
-        let path_str = {
-            // Remove leading '/' for paths like /C:/...
-            path_str.strip_prefix('/').unwrap_or(path_str)
-        };
-
-        Some(PathBuf::from(path_str))
+        paths::lsp_uri_to_path(uri)
     }
 
     pub fn project(&self) -> Option<&DjangoProject> {
@@ -353,29 +334,6 @@ impl Session {
         f(&db)
     }
 
-    /// Convert a URL to a PathBuf for file operations.
-    ///
-    /// This is needed to convert between LSP URLs and file paths for
-    /// SourceFile creation and tracking.
-    pub fn url_to_path(&self, url: &Url) -> Option<PathBuf> {
-        // Only handle file:// URLs
-        if url.scheme() != "file" {
-            return None;
-        }
-
-        // Decode and convert to PathBuf
-        let path = percent_decode_str(url.path()).decode_utf8().ok()?;
-
-        #[cfg(windows)]
-        let path = path.strip_prefix('/').unwrap_or(&path);
-
-        Some(PathBuf::from(path.as_ref()))
-    }
-
-    // ===== Document Lifecycle Management =====
-    // These methods encapsulate the two-layer architecture coordination:
-    // Layer 1 (overlays) and Layer 2 (Salsa revision tracking)
-
     /// Handle opening a document - sets buffer and creates file.
     ///
     /// This method coordinates both layers:
@@ -390,12 +348,12 @@ impl Session {
         // Layer 2: Create file and bump revision if it already exists
         // This is crucial: if the file was already read from disk, we need to
         // invalidate Salsa's cache so it re-reads through the buffer system
-        if let Some(path) = self.url_to_path(&url) {
+        if let Some(path) = paths::url_to_path(&url) {
             self.with_db_mut(|db| {
                 // Check if file already exists (was previously read from disk)
                 let already_exists = db.has_file(&path);
                 let file = db.get_or_create_file(path.clone());
-                
+
                 if already_exists {
                     // File was already read - bump revision to invalidate cache
                     let current_rev = file.revision(db);
@@ -407,7 +365,6 @@ impl Session {
                         current_rev,
                         new_rev
                     );
-
                 } else {
                     // New file - starts at revision 0
                     tracing::debug!(
@@ -433,7 +390,7 @@ impl Session {
         self.buffers.update(url.clone(), document);
 
         // Layer 2: Bump revision to trigger invalidation
-        if let Some(path) = self.url_to_path(&url) {
+        if let Some(path) = paths::url_to_path(&url) {
             self.notify_file_changed(path);
         }
     }
@@ -460,7 +417,7 @@ impl Session {
 
         // Layer 2: Bump revision to trigger re-read from disk
         // We keep the file alive for potential re-opening
-        if let Some(path) = self.url_to_path(url) {
+        if let Some(path) = paths::url_to_path(url) {
             self.notify_file_changed(path);
         }
 

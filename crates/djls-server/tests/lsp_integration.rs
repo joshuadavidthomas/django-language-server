@@ -15,7 +15,7 @@ use tempfile::TempDir;
 use tower_lsp_server::lsp_types::{
     DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
     InitializeParams, InitializedParams, TextDocumentContentChangeEvent, TextDocumentIdentifier,
-    TextDocumentItem, Uri, VersionedTextDocumentIdentifier, WorkspaceFolder,
+    TextDocumentItem, VersionedTextDocumentIdentifier, WorkspaceFolder,
 };
 use tower_lsp_server::LanguageServer;
 use url::Url;
@@ -35,7 +35,7 @@ impl TestServer {
         let workspace_root = temp_dir.path().to_path_buf();
 
         // Set up logging
-        let (non_blocking, guard) = tracing_appender::non_blocking(std::io::sink());
+        let (_non_blocking, guard) = tracing_appender::non_blocking(std::io::sink());
 
         // Create server (guard is moved into server, so we return it too)
         let server = DjangoLanguageServer::new(guard);
@@ -73,7 +73,7 @@ impl TestServer {
 
     /// Helper to create a file URL in the test workspace
     fn workspace_url(&self, name: &str) -> Url {
-        Url::from_file_path(self.workspace_file(name)).unwrap()
+        djls_workspace::paths::path_to_url(&self.workspace_file(name)).unwrap()
     }
 
     /// Open a document in the LSP server

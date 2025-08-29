@@ -1,9 +1,21 @@
+//! LSP text document representation with efficient line indexing
+//!
+//! [`TextDocument`] stores open file content with version tracking for the LSP protocol.
+//! Pre-computed line indices enable O(1) position lookups, which is critical for
+//! performance when handling frequent position-based operations like hover, completion,
+//! and diagnostics.
+
 use crate::language::LanguageId;
 use crate::template::ClosingBrace;
 use crate::template::TemplateTagContext;
 use tower_lsp_server::lsp_types::Position;
 use tower_lsp_server::lsp_types::Range;
 
+/// In-memory representation of an open document in the LSP.
+///
+/// Combines document content with metadata needed for LSP operations,
+/// including version tracking for synchronization and pre-computed line
+/// indices for efficient position lookups.
 #[derive(Clone, Debug)]
 pub struct TextDocument {
     /// The document's content
@@ -18,6 +30,7 @@ pub struct TextDocument {
 
 impl TextDocument {
     /// Create a new TextDocument with the given content
+    #[must_use]
     pub fn new(content: String, version: i32, language_id: LanguageId) -> Self {
         let line_index = LineIndex::new(&content);
         Self {
@@ -29,20 +42,24 @@ impl TextDocument {
     }
 
     /// Get the document's content
+    #[must_use]
     pub fn content(&self) -> &str {
         &self.content
     }
 
     /// Get the version number
+    #[must_use]
     pub fn version(&self) -> i32 {
         self.version
     }
 
     /// Get the language identifier
+    #[must_use]
     pub fn language_id(&self) -> LanguageId {
         self.language_id.clone()
     }
 
+    #[must_use]
     pub fn line_index(&self) -> &LineIndex {
         &self.line_index
     }
@@ -126,6 +143,11 @@ impl TextDocument {
     }
 }
 
+/// Pre-computed line start positions for efficient position/offset conversion.
+///
+/// Computing line positions on every lookup would be O(n) where n is the document size.
+/// By pre-computing during document creation/updates, we get O(1) lookups for line starts
+/// and O(log n) for position-to-offset conversions via binary search.
 #[derive(Clone, Debug)]
 pub struct LineIndex {
     pub line_starts: Vec<u32>,

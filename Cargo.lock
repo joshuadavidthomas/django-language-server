@@ -513,6 +513,7 @@ dependencies = [
  "djls-project",
  "djls-templates",
  "notify",
+ "percent-encoding",
  "salsa",
  "tempfile",
  "tokio",

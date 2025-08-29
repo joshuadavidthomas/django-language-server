@@ -6,9 +6,8 @@
 use std::io;
 use std::path::Path;
 use std::sync::Arc;
-use url::Url;
 
-use crate::buffers::Buffers;
+use crate::{buffers::Buffers, paths};
 
 /// Trait for file system operations
 ///
@@ -80,6 +79,7 @@ pub struct WorkspaceFileSystem {
 
 impl WorkspaceFileSystem {
     /// Create a new [`WorkspaceFileSystem`] with the given buffer storage and fallback
+    #[must_use]
     pub fn new(buffers: Buffers, disk: Arc<dyn FileSystem>) -> Self {
         Self { buffers, disk }
     }
@@ -87,7 +87,7 @@ impl WorkspaceFileSystem {
 
 impl FileSystem for WorkspaceFileSystem {
     fn read_to_string(&self, path: &Path) -> io::Result<String> {
-        if let Some(url) = path_to_url(path) {
+        if let Some(url) = paths::path_to_url(path) {
             if let Some(document) = self.buffers.get(&url) {
                 return Ok(document.content().to_string());
             }
@@ -96,12 +96,12 @@ impl FileSystem for WorkspaceFileSystem {
     }
 
     fn exists(&self, path: &Path) -> bool {
-        path_to_url(path).is_some_and(|url| self.buffers.contains(&url))
+        paths::path_to_url(path).is_some_and(|url| self.buffers.contains(&url))
             || self.disk.exists(path)
     }
 
     fn is_file(&self, path: &Path) -> bool {
-        path_to_url(path).is_some_and(|url| self.buffers.contains(&url))
+        paths::path_to_url(path).is_some_and(|url| self.buffers.contains(&url))
             || self.disk.is_file(path)
     }
 
@@ -122,31 +122,13 @@ impl FileSystem for WorkspaceFileSystem {
     }
 }
 
-/// Convert a file path to URL for overlay lookup
-///
-/// This is a simplified conversion - in a full implementation,
-/// you might want more robust path-to-URL conversion
-fn path_to_url(path: &Path) -> Option<Url> {
-    // For absolute paths, use them directly without canonicalization
-    // This ensures consistency with how URLs are created when storing overlays
-    if path.is_absolute() {
-        return Url::from_file_path(path).ok();
-    }
-
-    // Only try to canonicalize for relative paths
-    if let Ok(absolute_path) = std::fs::canonicalize(path) {
-        return Url::from_file_path(absolute_path).ok();
-    }
-
-    None
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::buffers::Buffers;
     use crate::document::TextDocument;
     use crate::language::LanguageId;
+    use url::Url;
 
     /// In-memory file system for testing
     pub struct InMemoryFileSystem {

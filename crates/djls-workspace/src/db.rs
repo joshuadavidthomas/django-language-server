@@ -406,7 +406,6 @@ mod tests {
     use salsa::Setter;
     use std::collections::HashMap;
     use std::io;
-    use url::Url;
 
     // Simple in-memory filesystem for testing
     struct InMemoryFileSystem {
@@ -485,7 +484,7 @@ mod tests {
         assert!(ast1.errors.is_empty(), "Should have no errors");
 
         // Add an overlay with updated content
-        let url = Url::from_file_path(&template_path).unwrap();
+        let url = crate::paths::path_to_url(&template_path).unwrap();
         let updated_document = TextDocument::new(
             "{% block content %}Updated from overlay{% endblock %}".to_string(),
             2,
@@ -544,7 +543,7 @@ mod tests {
         assert!(Arc::ptr_eq(&ast1, &ast2), "Should return cached result");
 
         // Update overlay content
-        let url = Url::from_file_path(&template_path).unwrap();
+        let url = crate::paths::path_to_url(&template_path).unwrap();
         let updated_document = TextDocument::new(
             "{% if false %}Changed{% endif %}".to_string(),
             2,
