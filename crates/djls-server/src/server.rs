@@ -6,6 +6,7 @@ use tower_lsp_server::jsonrpc::Result as LspResult;
 use tower_lsp_server::lsp_types;
 use tower_lsp_server::LanguageServer;
 use tracing_appender::non_blocking::WorkerGuard;
+use url::Url;
 
 use crate::queue::Queue;
 use crate::session::Session;
@@ -202,13 +203,19 @@ impl LanguageServer for DjangoLanguageServer {
     async fn did_open(&self, params: lsp_types::DidOpenTextDocumentParams) {
         tracing::info!("Opened document: {:?}", params.text_document.uri);
 
-        self.with_session_mut(|_session| {
-            // TODO: Handle document open after refactoring
-            let _uri = params.text_document.uri.clone();
-            let _version = params.text_document.version;
-            let _language_id =
+        self.with_session_mut(|session| {
+            // Convert LSP types to our types
+            let url =
+                Url::parse(&params.text_document.uri.to_string()).expect("Valid URI from LSP");
+            let language_id =
                 djls_workspace::LanguageId::from(params.text_document.language_id.as_str());
-            let _text = params.text_document.text.clone();
+            let document = djls_workspace::TextDocument::new(
+                params.text_document.text,
+                params.text_document.version,
+                language_id,
+            );
+
+            session.open_document(url, document);
         })
         .await;
     }
@@ -216,11 +223,29 @@ impl LanguageServer for DjangoLanguageServer {
     async fn did_change(&self, params: lsp_types::DidChangeTextDocumentParams) {
         tracing::info!("Changed document: {:?}", params.text_document.uri);
 
-        self.with_session_mut(|_session| {
-            // TODO: Handle document change after refactoring
-            let _uri = &params.text_document.uri;
-            let _version = params.text_document.version;
-            let _changes = params.content_changes.clone();
+        self.with_session_mut(|session| {
+            let url =
+                Url::parse(&params.text_document.uri.to_string()).expect("Valid URI from LSP");
+            let new_version = params.text_document.version;
+            let changes = params.content_changes;
+
+            if let Some(mut document) = session.get_overlay(&url) {
+                document.update(changes, new_version);
+                session.update_document(url, document);
+            } else {
+                // No existing overlay - shouldn't normally happen
+                tracing::warn!("Received change for document without overlay: {}", url);
+
+                // Handle full content changes only for recovery
+                if let Some(change) = changes.into_iter().next() {
+                    let document = djls_workspace::TextDocument::new(
+                        change.text,
+                        new_version,
+                        djls_workspace::LanguageId::Other,
+                    );
+                    session.update_document(url, document);
+                }
+            }
         })
         .await;
     }
@@ -228,19 +253,60 @@ impl LanguageServer for DjangoLanguageServer {
     async fn did_close(&self, params: lsp_types::DidCloseTextDocumentParams) {
         tracing::info!("Closed document: {:?}", params.text_document.uri);
 
-        self.with_session_mut(|_session| {
-            // TODO: Handle document close after refactoring
-            let _uri = &params.text_document.uri;
+        self.with_session_mut(|session| {
+            let url =
+                Url::parse(&params.text_document.uri.to_string()).expect("Valid URI from LSP");
+
+            if session.close_document(&url).is_none() {
+                tracing::warn!("Attempted to close document without overlay: {}", url);
+            }
         })
         .await;
     }
 
     async fn completion(
         &self,
-        _params: lsp_types::CompletionParams,
+        params: lsp_types::CompletionParams,
     ) -> LspResult<Option<lsp_types::CompletionResponse>> {
-        // TODO: Handle completion after refactoring
-        Ok(None)
+        let response = self
+            .with_session(|session| {
+                let lsp_uri = &params.text_document_position.text_document.uri;
+                let url = Url::parse(&lsp_uri.to_string()).expect("Valid URI from LSP");
+                let position = params.text_document_position.position;
+
+                tracing::debug!("Completion requested for {} at {:?}", url, position);
+
+                // Check if we have an overlay for this document
+                if let Some(document) = session.get_overlay(&url) {
+                    tracing::debug!("Using overlay content for completion in {}", url);
+
+                    // Use the overlay content for completion
+                    // For now, we'll return None, but this is where completion logic would go
+                    // The key point is that we're using overlay content, not disk content
+                    let _content = document.content();
+                    let _version = document.version();
+
+                    // TODO: Implement actual completion logic using overlay content
+                    // This would involve:
+                    // 1. Getting context around the cursor position
+                    // 2. Analyzing the Django template or Python content
+                    // 3. Returning appropriate completions
+
+                    None
+                } else {
+                    tracing::debug!("No overlay found for {}, using disk content", url);
+
+                    // No overlay - would use disk content via the file system
+                    // The LspFileSystem will automatically fall back to disk
+                    // when no overlay is available
+
+                    // TODO: Implement completion using file system content
+                    None
+                }
+            })
+            .await;
+
+        Ok(response)
     }
 
     async fn did_change_configuration(&self, _params: lsp_types::DidChangeConfigurationParams) {

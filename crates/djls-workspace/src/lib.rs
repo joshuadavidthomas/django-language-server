@@ -1,25 +1,13 @@
-mod bridge;
 pub mod db;
 mod document;
-mod lsp_system;
-mod system;
+mod fs;
+mod language;
+mod template;
 
 pub use db::Database;
-pub use document::{TextDocument, LanguageId};
-pub use system::{FileSystem, StdFileSystem};
-
-/// File classification for routing to analyzers.
-///
-/// [`FileKind`] determines how a file should be processed by downstream analyzers.
-#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
-pub enum FileKind {
-    /// Python source file
-    Python,
-    /// Django template file
-    Template,
-    /// Other file type
-    Other,
-}
+pub use document::TextDocument;
+pub use fs::{FileSystem, OsFileSystem, WorkspaceFileSystem};
+pub use language::LanguageId;
 
 /// Stable, compact identifier for files across the subsystem.
 ///
@@ -41,5 +29,30 @@ impl FileId {
     #[allow(dead_code)]
     pub fn index(self) -> u32 {
         self.0
+    }
+}
+
+/// File classification for routing to analyzers.
+///
+/// [`FileKind`] determines how a file should be processed by downstream analyzers.
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
+pub enum FileKind {
+    /// Python source file
+    Python,
+    /// Django template file
+    Template,
+    /// Other file type
+    Other,
+}
+
+impl FileKind {
+    /// Determine `FileKind` from a file path extension.
+    #[must_use]
+    pub fn from_path(path: &std::path::Path) -> Self {
+        match path.extension().and_then(|s| s.to_str()) {
+            Some("py") => FileKind::Python,
+            Some("html" | "htm") => FileKind::Template,
+            _ => FileKind::Other,
+        }
     }
 }
