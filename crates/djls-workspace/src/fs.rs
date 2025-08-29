@@ -10,9 +10,6 @@ use std::sync::Arc;
 use crate::{buffers::Buffers, paths};
 
 /// Trait for file system operations
-///
-/// This follows Ruff's pattern of abstracting file system operations behind a trait,
-/// allowing different implementations for testing, in-memory operation, and real file access.
 pub trait FileSystem: Send + Sync {
     /// Read the entire contents of a file
     fn read_to_string(&self, path: &Path) -> io::Result<String>;

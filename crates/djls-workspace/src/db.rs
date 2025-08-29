@@ -1,56 +1,28 @@
-//! Salsa database and input entities for workspace.
+//! Salsa database for incremental computation.
 //!
-//! This module implements a two-layer architecture inspired by Ruff's design pattern
-//! for efficient LSP document management with Salsa incremental computation.
+//! This module provides the [`Database`] which integrates with Salsa for
+//! incremental computation of Django template parsing and analysis.
 //!
-//! # Two-Layer Architecture
+//! ## Architecture
 //!
-//! ## Layer 1: LSP Document Management (in Session)
-//! - Stores overlays in `Session` using `Arc<DashMap<Url, TextDocument>>`
-//! - TextDocument contains actual content, version, language_id
-//! - Changes are immediate, no Salsa invalidation on every keystroke
-//! - Thread-safe via DashMap for tower-lsp's Send+Sync requirements
+//! The system uses a two-layer approach:
+//! 1. **Buffer layer** ([`crate::Buffers`]) - Stores open document content in memory
+//! 2. **Salsa layer** ([`Database`]) - Tracks files and computes derived queries
 //!
-//! ## Layer 2: Salsa Incremental Computation (in Database)
-//! - Database is pure Salsa, no file content storage
-//! - Files tracked via `Arc<DashMap<PathBuf, SourceFile>>` for O(1) lookups
-//! - SourceFile inputs only have path and revision (no text)
-//! - Content read lazily through FileSystem trait
-//! - LspFileSystem intercepts reads, returns overlay or disk content
+//! When Salsa needs file content, it calls [`source_text`] which:
+//! 1. Creates a dependency on the file's revision (critical!)
+//! 2. Reads through [`crate::WorkspaceFileSystem`] which checks buffers first
+//! 3. Falls back to disk if no buffer exists
 //!
-//! # Critical Implementation Details
+//! ## The Revision Dependency
 //!
-//! ## The Revision Dependency Trick
-//! The `source_text` tracked function MUST call `file.revision(db)` to create
-//! the Salsa dependency chain. Without this, revision changes won't trigger
-//! invalidation of dependent queries.
+//! The [`source_text`] function **must** call `file.revision(db)` to create
+//! a Salsa dependency. Without this, revision changes won't invalidate queries:
 //!
-//! ## StorageHandle Pattern (for tower-lsp)
-//! - Database itself is NOT Send+Sync (due to RefCell in Salsa's Storage)
-//! - `StorageHandle<Database>` IS Send+Sync, enabling use across threads
-//! - Session stores StorageHandle, creates Database instances on-demand
-//!
-//! ## Why Files are in Database, Overlays in Session
-//! - Files need persistent tracking across all queries (thus in Database)
-//! - Overlays are LSP-specific and change frequently (thus in Session)
-//! - This separation prevents Salsa invalidation cascades on every keystroke
-//! - Both are accessed via `Arc<DashMap>` for thread safety and cheap cloning
-//!
-//! # Data Flow
-//!
-//! 1. **did_open/did_change** → Update overlays in Session
-//! 2. **notify_file_changed()** → Bump revision, tell Salsa something changed
-//! 3. **Salsa query executes** → Calls source_text()
-//! 4. **source_text() calls file.revision(db)** → Creates dependency
-//! 5. **source_text() calls db.read_file_content()** → Goes through FileSystem
-//! 6. **LspFileSystem intercepts** → Returns overlay if exists, else disk
-//! 7. **Query gets content** → Without knowing about LSP/overlays
-//!
-//! This design achieves:
-//! - Fast overlay updates (no Salsa invalidation)
-//! - Proper incremental computation (via revision tracking)
-//! - Thread safety (via `Arc<DashMap>` and StorageHandle)
-//! - Clean separation of concerns (LSP vs computation)
+//! ```ignore
+//! let _ = file.revision(db);  // Creates the dependency chain!
+//! ```
+
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
