@@ -27,14 +27,14 @@
 //!
 //! ## StorageHandle Pattern (for tower-lsp)
 //! - Database itself is NOT Send+Sync (due to RefCell in Salsa's Storage)
-//! - StorageHandle<Database> IS Send+Sync, enabling use across threads
+//! - `StorageHandle<Database>` IS Send+Sync, enabling use across threads
 //! - Session stores StorageHandle, creates Database instances on-demand
 //!
 //! ## Why Files are in Database, Overlays in Session
 //! - Files need persistent tracking across all queries (thus in Database)
 //! - Overlays are LSP-specific and change frequently (thus in Session)
 //! - This separation prevents Salsa invalidation cascades on every keystroke
-//! - Both are accessed via Arc<DashMap> for thread safety and cheap cloning
+//! - Both are accessed via `Arc<DashMap>` for thread safety and cheap cloning
 //!
 //! # Data Flow
 //!
@@ -49,7 +49,7 @@
 //! This design achieves:
 //! - Fast overlay updates (no Salsa invalidation)
 //! - Proper incremental computation (via revision tracking)
-//! - Thread safety (via Arc<DashMap> and StorageHandle)
+//! - Thread safety (via `Arc<DashMap>` and StorageHandle)
 //! - Clean separation of concerns (LSP vs computation)
 
 use std::path::{Path, PathBuf};
@@ -168,7 +168,7 @@ impl Database {
     /// Get or create a SourceFile for the given path.
     ///
     /// This method implements Ruff's pattern for lazy file creation. Files are created
-    /// with an initial revision of 0 and tracked in the Database's DashMap. The Arc
+    /// with an initial revision of 0 and tracked in the Database's `DashMap`. The `Arc`
     /// ensures cheap cloning while maintaining thread safety.
     pub fn get_or_create_file(&mut self, path: PathBuf) -> SourceFile {
         if let Some(file_ref) = self.files.get(&path) {
