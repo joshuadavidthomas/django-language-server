@@ -39,7 +39,7 @@ use djls_conf::Settings;
 use djls_project::DjangoProject;
 use djls_workspace::{
     db::{Database, SourceFile},
-    FileSystem, OsFileSystem, TextDocument, WorkspaceFileSystem,
+    Buffers, FileSystem, OsFileSystem, TextDocument, WorkspaceFileSystem,
 };
 use percent_encoding::percent_decode_str;
 use salsa::{Setter, StorageHandle};
@@ -77,22 +77,23 @@ pub struct Session {
     /// LSP server settings
     settings: Settings,
 
-    /// Layer 1: Thread-safe overlay storage (Arc<DashMap<Url, TextDocument>>)
+    /// Layer 1: Shared buffer storage for open documents
     ///
     /// This implements Ruff's two-layer architecture where Layer 1 contains
-    /// LSP overlays that take precedence over disk files. The overlays map
-    /// document URLs to TextDocuments containing current in-memory content.
+    /// open document buffers that take precedence over disk files. The buffers
+    /// are shared between Session (which manages them) and WorkspaceFileSystem
+    /// (which reads from them).
     ///
     /// Key properties:
-    /// - Thread-safe via Arc<DashMap> for Send+Sync requirements
+    /// - Thread-safe via the Buffers abstraction
     /// - Contains full TextDocument with content, version, and metadata
     /// - Never becomes Salsa inputs - only intercepted at read time
-    overlays: Arc<DashMap<Url, TextDocument>>,
+    buffers: Buffers,
 
-    /// File system abstraction with overlay interception
+    /// File system abstraction with buffer interception
     ///
-    /// This LspFileSystem bridges Layer 1 (overlays) and Layer 2 (Salsa).
-    /// It intercepts FileSystem::read_to_string() calls to return overlay
+    /// This WorkspaceFileSystem bridges Layer 1 (buffers) and Layer 2 (Salsa).
+    /// It intercepts FileSystem::read_to_string() calls to return buffer
     /// content when available, falling back to disk otherwise.
     file_system: Arc<dyn FileSystem>,
 
@@ -132,10 +133,10 @@ impl Session {
             (None, Settings::default())
         };
 
-        let overlays = Arc::new(DashMap::new());
+        let buffers = Buffers::new();
         let files = Arc::new(DashMap::new());
         let file_system = Arc::new(WorkspaceFileSystem::new(
-            overlays.clone(),
+            buffers.clone(),
             Arc::new(OsFileSystem),
         ));
         let db_handle = Database::new(file_system.clone(), files.clone())
@@ -146,7 +147,7 @@ impl Session {
         Self {
             project,
             settings,
-            overlays,
+            buffers,
             file_system,
             files,
             client_capabilities: params.capabilities.clone(),
@@ -230,32 +231,32 @@ impl Session {
         self.file_system.clone()
     }
 
-    /// Set or update an overlay for the given document URL
+    /// Set or update a buffer for the given document URL
     ///
     /// This implements Layer 1 of Ruff's architecture - storing in-memory
     /// document changes that take precedence over disk content.
     #[allow(dead_code)] // Used in tests
     pub fn set_overlay(&self, url: Url, document: TextDocument) {
-        self.overlays.insert(url, document);
+        self.buffers.open(url, document);
     }
 
-    /// Remove an overlay for the given document URL
+    /// Remove a buffer for the given document URL
     ///
     /// After removal, file reads will fall back to disk content.
     #[allow(dead_code)] // Used in tests
     pub fn remove_overlay(&self, url: &Url) -> Option<TextDocument> {
-        self.overlays.remove(url).map(|(_, doc)| doc)
+        self.buffers.close(url)
     }
 
-    /// Check if an overlay exists for the given URL
+    /// Check if a buffer exists for the given URL
     #[allow(dead_code)]
     pub fn has_overlay(&self, url: &Url) -> bool {
-        self.overlays.contains_key(url)
+        self.buffers.contains(url)
     }
 
-    /// Get a copy of an overlay document
+    /// Get a copy of a buffered document
     pub fn get_overlay(&self, url: &Url) -> Option<TextDocument> {
-        self.overlays.get(url).map(|doc| doc.clone())
+        self.buffers.get(url)
     }
 
     /// Takes exclusive ownership of the database handle for mutation operations.
@@ -375,41 +376,61 @@ impl Session {
     // These methods encapsulate the two-layer architecture coordination:
     // Layer 1 (overlays) and Layer 2 (Salsa revision tracking)
 
-    /// Handle opening a document - sets overlay and creates file.
+    /// Handle opening a document - sets buffer and creates file.
     ///
     /// This method coordinates both layers:
-    /// - Layer 1: Stores the document content in overlays
+    /// - Layer 1: Stores the document content in buffers
     /// - Layer 2: Creates the SourceFile in Salsa (if path is resolvable)
     pub fn open_document(&mut self, url: Url, document: TextDocument) {
         tracing::debug!("Opening document: {}", url);
 
-        // Layer 1: Set overlay
-        self.overlays.insert(url.clone(), document);
+        // Layer 1: Set buffer
+        self.buffers.open(url.clone(), document);
 
-        // Layer 2: Create file if needed (starts at revision 0)
+        // Layer 2: Create file and bump revision if it already exists
+        // This is crucial: if the file was already read from disk, we need to
+        // invalidate Salsa's cache so it re-reads through the buffer system
         if let Some(path) = self.url_to_path(&url) {
             self.with_db_mut(|db| {
+                // Check if file already exists (was previously read from disk)
+                let already_exists = db.has_file(&path);
                 let file = db.get_or_create_file(path.clone());
-                tracing::debug!(
-                    "Created/retrieved SourceFile for {}: revision {}",
-                    path.display(),
-                    file.revision(db)
-                );
+                
+                if already_exists {
+                    // File was already read - bump revision to invalidate cache
+                    let current_rev = file.revision(db);
+                    let new_rev = current_rev + 1;
+                    file.set_revision(db).to(new_rev);
+                    tracing::debug!(
+                        "Bumped revision for {} on open: {} -> {}",
+                        path.display(),
+                        current_rev,
+                        new_rev
+                    );
+
+                } else {
+                    // New file - starts at revision 0
+                    tracing::debug!(
+                        "Created new SourceFile for {}: revision {}",
+                        path.display(),
+                        file.revision(db)
+                    );
+                }
             });
         }
     }
 
-    /// Handle document changes - updates overlay and bumps revision.
+    /// Handle document changes - updates buffer and bumps revision.
     ///
     /// This method coordinates both layers:
-    /// - Layer 1: Updates the document content in overlays
+    /// - Layer 1: Updates the document content in buffers
     /// - Layer 2: Bumps the file revision to trigger Salsa invalidation
     pub fn update_document(&mut self, url: Url, document: TextDocument) {
         let version = document.version();
         tracing::debug!("Updating document: {} (version {})", url, version);
 
-        // Layer 1: Update overlay
-        self.overlays.insert(url.clone(), document);
+        // Layer 1: Update buffer
+        self.buffers.update(url.clone(), document);
 
         // Layer 2: Bump revision to trigger invalidation
         if let Some(path) = self.url_to_path(&url) {
@@ -417,25 +438,25 @@ impl Session {
         }
     }
 
-    /// Handle closing a document - removes overlay and bumps revision.
+    /// Handle closing a document - removes buffer and bumps revision.
     ///
     /// This method coordinates both layers:
-    /// - Layer 1: Removes the overlay (falls back to disk)
+    /// - Layer 1: Removes the buffer (falls back to disk)
     /// - Layer 2: Bumps revision to trigger re-read from disk
     ///
     /// Returns the removed document if it existed.
     pub fn close_document(&mut self, url: &Url) -> Option<TextDocument> {
         tracing::debug!("Closing document: {}", url);
 
-        // Layer 1: Remove overlay
-        let removed = self.overlays.remove(url).map(|(_, doc)| {
+        // Layer 1: Remove buffer
+        let removed = self.buffers.close(url);
+        if let Some(ref doc) = removed {
             tracing::debug!(
-                "Removed overlay for closed document: {} (was version {})",
+                "Removed buffer for closed document: {} (was version {})",
                 url,
                 doc.version()
             );
-            doc
-        });
+        }
 
         // Layer 2: Bump revision to trigger re-read from disk
         // We keep the file alive for potential re-opening
@@ -512,10 +533,10 @@ impl Session {
 
 impl Default for Session {
     fn default() -> Self {
-        let overlays = Arc::new(DashMap::new());
+        let buffers = Buffers::new();
         let files = Arc::new(DashMap::new());
         let file_system = Arc::new(WorkspaceFileSystem::new(
-            overlays.clone(),
+            buffers.clone(),
             Arc::new(OsFileSystem),
         ));
         let db_handle = Database::new(file_system.clone(), files.clone())
@@ -529,7 +550,7 @@ impl Default for Session {
             db_handle,
             file_system,
             files,
-            overlays,
+            buffers,
             client_capabilities: lsp_types::ClientCapabilities::default(),
         }
     }

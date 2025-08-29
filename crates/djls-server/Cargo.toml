@@ -31,5 +31,8 @@ url = { workspace = true }
 [build-dependencies]
 djls-dev = { workspace = true }
 
+[dev-dependencies]
+tempfile = { workspace = true }
+
 [lints]
 workspace = true

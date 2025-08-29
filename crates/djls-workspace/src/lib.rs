@@ -1,9 +1,11 @@
+mod buffers;
 pub mod db;
 mod document;
 mod fs;
 mod language;
 mod template;
 
+pub use buffers::Buffers;
 pub use db::Database;
 pub use document::TextDocument;
 pub use fs::{FileSystem, OsFileSystem, WorkspaceFileSystem};

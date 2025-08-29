@@ -3,13 +3,12 @@
 //! This module provides the `FileSystem` trait that abstracts file I/O operations.
 //! This allows the LSP to work with both real files and in-memory overlays.
 
-use dashmap::DashMap;
 use std::io;
 use std::path::Path;
 use std::sync::Arc;
 use url::Url;
 
-use crate::document::TextDocument;
+use crate::buffers::Buffers;
 
 /// Trait for file system operations
 ///
@@ -66,43 +65,43 @@ impl FileSystem for OsFileSystem {
     }
 }
 
-/// LSP file system that intercepts reads for overlay files
+/// LSP file system that intercepts reads for buffered files
 ///
-/// This implements Ruff's two-layer architecture where Layer 1 (LSP overlays)
+/// This implements Ruff's two-layer architecture where Layer 1 (open buffers)
 /// takes precedence over Layer 2 (Salsa database). When a file is read,
-/// this system first checks for an overlay (in-memory changes) and returns
-/// that content. If no overlay exists, it falls back to reading from disk.
+/// this system first checks for a buffer (in-memory content) and returns
+/// that content. If no buffer exists, it falls back to reading from disk.
 pub struct WorkspaceFileSystem {
-    /// In-memory overlays that take precedence over disk files
-    /// Maps URL to `TextDocument` containing current content
-    buffers: Arc<DashMap<Url, TextDocument>>,
+    /// In-memory buffers that take precedence over disk files
+    buffers: Buffers,
     /// Fallback file system for disk operations
     disk: Arc<dyn FileSystem>,
 }
 
 impl WorkspaceFileSystem {
-    /// Create a new [`LspFileSystem`] with the given overlay storage and fallback
-    pub fn new(buffers: Arc<DashMap<Url, TextDocument>>, disk: Arc<dyn FileSystem>) -> Self {
+    /// Create a new [`WorkspaceFileSystem`] with the given buffer storage and fallback
+    pub fn new(buffers: Buffers, disk: Arc<dyn FileSystem>) -> Self {
         Self { buffers, disk }
     }
 }
 
 impl FileSystem for WorkspaceFileSystem {
     fn read_to_string(&self, path: &Path) -> io::Result<String> {
-        if let Some(document) = path_to_url(path).and_then(|url| self.buffers.get(&url)) {
-            Ok(document.content().to_string())
-        } else {
-            self.disk.read_to_string(path)
+        if let Some(url) = path_to_url(path) {
+            if let Some(document) = self.buffers.get(&url) {
+                return Ok(document.content().to_string());
+            }
         }
+        self.disk.read_to_string(path)
     }
 
     fn exists(&self, path: &Path) -> bool {
-        path_to_url(path).is_some_and(|url| self.buffers.contains_key(&url))
+        path_to_url(path).is_some_and(|url| self.buffers.contains(&url))
             || self.disk.exists(path)
     }
 
     fn is_file(&self, path: &Path) -> bool {
-        path_to_url(path).is_some_and(|url| self.buffers.contains_key(&url))
+        path_to_url(path).is_some_and(|url| self.buffers.contains(&url))
             || self.disk.is_file(path)
     }
 
@@ -128,14 +127,15 @@ impl FileSystem for WorkspaceFileSystem {
 /// This is a simplified conversion - in a full implementation,
 /// you might want more robust path-to-URL conversion
 fn path_to_url(path: &Path) -> Option<Url> {
-    if let Ok(absolute_path) = std::fs::canonicalize(path) {
-        return Url::from_file_path(absolute_path).ok();
-    }
-
-    // For test scenarios where the file doesn't exist on disk,
-    // try to create URL from the path directly if it's absolute
+    // For absolute paths, use them directly without canonicalization
+    // This ensures consistency with how URLs are created when storing overlays
     if path.is_absolute() {
         return Url::from_file_path(path).ok();
+    }
+
+    // Only try to canonicalize for relative paths
+    if let Ok(absolute_path) = std::fs::canonicalize(path) {
+        return Url::from_file_path(absolute_path).ok();
     }
 
     None
@@ -144,6 +144,7 @@ fn path_to_url(path: &Path) -> Option<Url> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::buffers::Buffers;
     use crate::document::TextDocument;
     use crate::language::LanguageId;
 
@@ -207,22 +208,22 @@ mod tests {
             "original content".to_string(),
         );
 
-        // Create overlay storage
-        let overlays = Arc::new(DashMap::new());
+        // Create buffer storage
+        let buffers = Buffers::new();
 
         // Create LspFileSystem with memory fallback
-        let lsp_fs = WorkspaceFileSystem::new(overlays.clone(), Arc::new(memory_fs));
+        let lsp_fs = WorkspaceFileSystem::new(buffers.clone(), Arc::new(memory_fs));
 
-        // Before adding overlay, should read from fallback
+        // Before adding buffer, should read from fallback
         let path = std::path::Path::new("/test/file.py");
         assert_eq!(lsp_fs.read_to_string(path).unwrap(), "original content");
 
-        // Add overlay - this simulates having an open document with changes
+        // Add buffer - this simulates having an open document with changes
         let url = Url::from_file_path("/test/file.py").unwrap();
         let document = TextDocument::new("overlay content".to_string(), 1, LanguageId::Python);
-        overlays.insert(url, document);
+        buffers.open(url, document);
 
-        // Now should read from overlay
+        // Now should read from buffer
         assert_eq!(lsp_fs.read_to_string(path).unwrap(), "overlay content");
     }
 
@@ -235,13 +236,13 @@ mod tests {
             "disk content".to_string(),
         );
 
-        // Create empty overlay storage
-        let overlays = Arc::new(DashMap::new());
+        // Create empty buffer storage
+        let buffers = Buffers::new();
 
         // Create LspFileSystem
-        let lsp_fs = WorkspaceFileSystem::new(overlays, Arc::new(memory_fs));
+        let lsp_fs = WorkspaceFileSystem::new(buffers, Arc::new(memory_fs));
 
-        // Should fall back to disk when no overlay exists
+        // Should fall back to disk when no buffer exists
         let path = std::path::Path::new("/test/file.py");
         assert_eq!(lsp_fs.read_to_string(path).unwrap(), "disk content");
     }
@@ -256,8 +257,8 @@ mod tests {
         );
 
         // Create LspFileSystem
-        let overlays = Arc::new(DashMap::new());
-        let lsp_fs = WorkspaceFileSystem::new(overlays, Arc::new(memory_fs));
+        let buffers = Buffers::new();
+        let lsp_fs = WorkspaceFileSystem::new(buffers, Arc::new(memory_fs));
 
         let path = std::path::Path::new("/test/file.py");
 

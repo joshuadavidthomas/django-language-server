@@ -398,6 +398,7 @@ pub fn template_errors(db: &dyn Db, file: SourceFile) -> Arc<[String]> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::buffers::Buffers;
     use crate::document::TextDocument;
     use crate::fs::WorkspaceFileSystem;
     use crate::language::LanguageId;
@@ -464,11 +465,11 @@ mod tests {
         );
 
         // Create overlay storage
-        let overlays = Arc::new(DashMap::new());
+        let buffers = Buffers::new();
 
         // Create WorkspaceFileSystem that checks overlays first
         let file_system = Arc::new(WorkspaceFileSystem::new(
-            overlays.clone(),
+            buffers.clone(),
             Arc::new(memory_fs),
         ));
 
@@ -490,7 +491,7 @@ mod tests {
             2,
             LanguageId::Other,
         );
-        overlays.insert(url, updated_document);
+        buffers.open(url, updated_document);
 
         // Bump the file revision to trigger re-parse
         file.set_revision(&mut db).to(1);
@@ -520,11 +521,11 @@ mod tests {
         );
 
         // Create overlay storage
-        let overlays = Arc::new(DashMap::new());
+        let buffers = Buffers::new();
 
         // Create WorkspaceFileSystem
         let file_system = Arc::new(WorkspaceFileSystem::new(
-            overlays.clone(),
+            buffers.clone(),
             Arc::new(memory_fs),
         ));
 
@@ -549,7 +550,7 @@ mod tests {
             2,
             LanguageId::Other,
         );
-        overlays.insert(url, updated_document);
+        buffers.open(url, updated_document);
 
         // Bump revision to trigger invalidation
         file.set_revision(&mut db).to(1);
