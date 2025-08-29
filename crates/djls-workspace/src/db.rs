@@ -394,3 +394,178 @@ pub fn template_errors_by_path(db: &dyn Db, file_path: FilePath) -> Arc<[String]
 pub fn template_errors(db: &dyn Db, file: SourceFile) -> Arc<[String]> {
     parse_template(db, file).map_or_else(|| Arc::from(vec![]), |ast| Arc::from(ast.errors.clone()))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::document::TextDocument;
+    use crate::fs::WorkspaceFileSystem;
+    use crate::language::LanguageId;
+    use dashmap::DashMap;
+    use salsa::Setter;
+    use std::collections::HashMap;
+    use std::io;
+    use url::Url;
+
+    // Simple in-memory filesystem for testing
+    struct InMemoryFileSystem {
+        files: HashMap<PathBuf, String>,
+    }
+
+    impl InMemoryFileSystem {
+        fn new() -> Self {
+            Self {
+                files: HashMap::new(),
+            }
+        }
+
+        fn add_file(&mut self, path: PathBuf, content: String) {
+            self.files.insert(path, content);
+        }
+    }
+
+    impl FileSystem for InMemoryFileSystem {
+        fn read_to_string(&self, path: &Path) -> io::Result<String> {
+            self.files
+                .get(path)
+                .cloned()
+                .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "File not found"))
+        }
+
+        fn exists(&self, path: &Path) -> bool {
+            self.files.contains_key(path)
+        }
+
+        fn is_file(&self, path: &Path) -> bool {
+            self.files.contains_key(path)
+        }
+
+        fn is_directory(&self, _path: &Path) -> bool {
+            false
+        }
+
+        fn read_directory(&self, _path: &Path) -> io::Result<Vec<PathBuf>> {
+            Ok(vec![])
+        }
+
+        fn metadata(&self, _path: &Path) -> io::Result<std::fs::Metadata> {
+            Err(io::Error::new(io::ErrorKind::Unsupported, "Not supported"))
+        }
+    }
+
+    #[test]
+    fn test_parse_template_with_overlay() {
+        // Create a memory filesystem with initial template content
+        let mut memory_fs = InMemoryFileSystem::new();
+        let template_path = PathBuf::from("/test/template.html");
+        memory_fs.add_file(
+            template_path.clone(),
+            "{% block content %}Original{% endblock %}".to_string(),
+        );
+
+        // Create overlay storage
+        let overlays = Arc::new(DashMap::new());
+
+        // Create WorkspaceFileSystem that checks overlays first
+        let file_system = Arc::new(WorkspaceFileSystem::new(
+            overlays.clone(),
+            Arc::new(memory_fs),
+        ));
+
+        // Create database with the file system
+        let files = Arc::new(DashMap::new());
+        let mut db = Database::new(file_system, files);
+
+        // Create a SourceFile for the template
+        let file = db.get_or_create_file(template_path.clone());
+
+        // Parse template - should get original content from disk
+        let ast1 = parse_template(&db, file).expect("Should parse template");
+        assert!(ast1.errors.is_empty(), "Should have no errors");
+
+        // Add an overlay with updated content
+        let url = Url::from_file_path(&template_path).unwrap();
+        let updated_document = TextDocument::new(
+            "{% block content %}Updated from overlay{% endblock %}".to_string(),
+            2,
+            LanguageId::Other,
+        );
+        overlays.insert(url, updated_document);
+
+        // Bump the file revision to trigger re-parse
+        file.set_revision(&mut db).to(1);
+
+        // Parse again - should now get overlay content
+        let ast2 = parse_template(&db, file).expect("Should parse template");
+        assert!(ast2.errors.is_empty(), "Should have no errors");
+
+        // Verify the content changed (we can't directly check the text,
+        // but the AST should be different)
+        // The AST will have different content in the block
+        assert_ne!(
+            format!("{:?}", ast1.ast),
+            format!("{:?}", ast2.ast),
+            "AST should change when overlay is added"
+        );
+    }
+
+    #[test]
+    fn test_parse_template_invalidation_on_revision_change() {
+        // Create a memory filesystem
+        let mut memory_fs = InMemoryFileSystem::new();
+        let template_path = PathBuf::from("/test/template.html");
+        memory_fs.add_file(
+            template_path.clone(),
+            "{% if true %}Initial{% endif %}".to_string(),
+        );
+
+        // Create overlay storage
+        let overlays = Arc::new(DashMap::new());
+
+        // Create WorkspaceFileSystem
+        let file_system = Arc::new(WorkspaceFileSystem::new(
+            overlays.clone(),
+            Arc::new(memory_fs),
+        ));
+
+        // Create database
+        let files = Arc::new(DashMap::new());
+        let mut db = Database::new(file_system, files);
+
+        // Create a SourceFile for the template
+        let file = db.get_or_create_file(template_path.clone());
+
+        // Parse template first time
+        let ast1 = parse_template(&db, file).expect("Should parse");
+
+        // Parse again without changing revision - should return same Arc (cached)
+        let ast2 = parse_template(&db, file).expect("Should parse");
+        assert!(Arc::ptr_eq(&ast1, &ast2), "Should return cached result");
+
+        // Update overlay content
+        let url = Url::from_file_path(&template_path).unwrap();
+        let updated_document = TextDocument::new(
+            "{% if false %}Changed{% endif %}".to_string(),
+            2,
+            LanguageId::Other,
+        );
+        overlays.insert(url, updated_document);
+
+        // Bump revision to trigger invalidation
+        file.set_revision(&mut db).to(1);
+
+        // Parse again - should get different result due to invalidation
+        let ast3 = parse_template(&db, file).expect("Should parse");
+        assert!(
+            !Arc::ptr_eq(&ast1, &ast3),
+            "Should re-execute after revision change"
+        );
+
+        // Content should be different
+        assert_ne!(
+            format!("{:?}", ast1.ast),
+            format!("{:?}", ast3.ast),
+            "AST should be different after content change"
+        );
+    }
+}
