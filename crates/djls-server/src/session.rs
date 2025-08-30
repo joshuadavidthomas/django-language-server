@@ -41,7 +41,7 @@ use djls_workspace::{
     db::{Database, SourceFile},
     paths, Buffers, FileSystem, OsFileSystem, TextDocument, WorkspaceFileSystem,
 };
-use salsa::{Setter, StorageHandle};
+use salsa::StorageHandle;
 use tower_lsp_server::lsp_types;
 use url::Url;
 
@@ -286,13 +286,13 @@ impl Session {
     /// This method coordinates both layers:
     /// - Layer 1: Stores the document content in buffers
     /// - Layer 2: Creates the SourceFile in Salsa (if path is resolvable)
-    pub fn open_document(&mut self, url: Url, document: TextDocument) {
+    pub fn open_document(&mut self, url: &Url, document: TextDocument) {
         tracing::debug!("Opening document: {}", url);
 
         // Layer 1: Set buffer
         self.buffers.open(url.clone(), document);
 
-        // Layer 2: Create file and bump revision if it already exists
+        // Layer 2: Create file and touch if it already exists
         // This is crucial: if the file was already read from disk, we need to
         // invalidate Salsa's cache so it re-reads through the buffer system
         if let Some(path) = paths::url_to_path(&url) {
@@ -302,16 +302,8 @@ impl Session {
                 let file = db.get_or_create_file(path.clone());
 
                 if already_exists {
-                    // File was already read - bump revision to invalidate cache
-                    let current_rev = file.revision(db);
-                    let new_rev = current_rev + 1;
-                    file.set_revision(db).to(new_rev);
-                    tracing::debug!(
-                        "Bumped revision for {} on open: {} -> {}",
-                        path.display(),
-                        current_rev,
-                        new_rev
-                    );
+                    // File was already read - touch to invalidate cache
+                    db.touch_file(&path);
                 } else {
                     // New file - starts at revision 0
                     tracing::debug!(
@@ -336,9 +328,9 @@ impl Session {
         // Layer 1: Update buffer
         self.buffers.update(url.clone(), document);
 
-        // Layer 2: Bump revision to trigger invalidation
+        // Layer 2: Touch file to trigger invalidation
         if let Some(path) = paths::url_to_path(url) {
-            self.notify_file_changed(&path);
+            self.with_db_mut(|db| db.touch_file(&path));
         }
     }
 
@@ -383,41 +375,13 @@ impl Session {
             );
         }
 
-        // Layer 2: Bump revision to trigger re-read from disk
+        // Layer 2: Touch file to trigger re-read from disk
         // We keep the file alive for potential re-opening
         if let Some(path) = paths::url_to_path(url) {
-            self.notify_file_changed(&path);
+            self.with_db_mut(|db| db.touch_file(&path));
         }
 
         removed
-    }
-
-    /// Internal: Notify that a file's content has changed.
-    ///
-    /// This bumps the file's revision number in Salsa, which triggers
-    /// invalidation of any queries that depend on the file's content.
-    fn notify_file_changed(&mut self, path: &Path) {
-        self.with_db_mut(|db| {
-            // Only bump revision if file is already being tracked
-            // We don't create files just for notifications
-            if db.has_file(path) {
-                let file = db.get_or_create_file(path.to_path_buf());
-                let current_rev = file.revision(db);
-                let new_rev = current_rev + 1;
-                file.set_revision(db).to(new_rev);
-                tracing::debug!(
-                    "Bumped revision for {}: {} -> {}",
-                    path.display(),
-                    current_rev,
-                    new_rev
-                );
-            } else {
-                tracing::debug!(
-                    "File {} not tracked, skipping revision bump",
-                    path.display()
-                );
-            }
-        });
     }
 
     // ===== Safe Query API =====
@@ -503,7 +467,7 @@ mod tests {
             1,
             LanguageId::Other,
         );
-        session.open_document(url.clone(), document);
+        session.open_document(&url, document);
 
         // Try to read content - this might be where it hangs
         println!("**[test]** try to read content - this might be where it hangs");

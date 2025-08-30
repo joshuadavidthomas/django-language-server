@@ -216,7 +216,7 @@ impl LanguageServer for DjangoLanguageServer {
                 language_id,
             );
 
-            session.open_document(url, document);
+            session.open_document(&url, document);
         })
         .await;
     }

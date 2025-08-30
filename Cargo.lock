@@ -518,6 +518,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tower-lsp-server",
+ "tracing",
  "url",
 ]
 

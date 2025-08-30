@@ -32,6 +32,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 use dashmap::DashMap;
+use salsa::Setter;
 
 use crate::{FileKind, FileSystem};
 
@@ -158,6 +159,36 @@ impl Database {
     /// created without affecting the database state.
     pub fn has_file(&self, path: &Path) -> bool {
         self.files.contains_key(path)
+    }
+
+    /// Touch a file to mark it as modified, triggering re-evaluation of dependent queries.
+    ///
+    /// Similar to Unix `touch`, this updates the file's revision number to signal
+    /// that cached query results depending on this file should be invalidated.
+    ///
+    /// This is typically called when:
+    /// - A file is opened in the editor (if it was previously cached from disk)
+    /// - A file's content is modified
+    /// - A file's buffer is closed (reverting to disk content)
+    pub fn touch_file(&mut self, path: &Path) {
+        // Get the file if it exists
+        let Some(file_ref) = self.files.get(path) else {
+            tracing::debug!("File {} not tracked, skipping touch", path.display());
+            return;
+        };
+        let file = *file_ref;
+        drop(file_ref); // Explicitly drop to release the lock
+
+        let current_rev = file.revision(self);
+        let new_rev = current_rev + 1;
+        file.set_revision(self).to(new_rev);
+
+        tracing::debug!(
+            "Touched {}: revision {} -> {}",
+            path.display(),
+            current_rev,
+            new_rev
+        );
     }
 
     /// Get a reference to the storage for handle extraction.
