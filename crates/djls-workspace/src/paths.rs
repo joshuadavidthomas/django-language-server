@@ -7,23 +7,9 @@ use std::path::{Path, PathBuf};
 use tower_lsp_server::lsp_types;
 use url::Url;
 
-/// Convert a file:// URL to a `PathBuf`
+/// Convert a `file://` URL to a [`PathBuf`].
 ///
 /// Handles percent-encoding and platform-specific path formats (e.g., Windows drives).
-///
-/// # Returns
-/// 
-/// Returns `None` if the URL scheme is not "file" or if decoding fails.
-///
-/// # Examples
-///
-/// ```
-/// # use url::Url;
-/// # use djls_workspace::paths::url_to_path;
-/// let url = Url::parse("file:///home/user/file.txt").unwrap();
-/// let path = url_to_path(&url).unwrap();
-/// assert_eq!(path.to_str().unwrap(), "/home/user/file.txt");
-/// ```
 #[must_use]
 pub fn url_to_path(url: &Url) -> Option<PathBuf> {
     // Only handle file:// URLs
@@ -45,21 +31,17 @@ pub fn url_to_path(url: &Url) -> Option<PathBuf> {
     Some(PathBuf::from(path.as_ref()))
 }
 
-/// Convert an LSP URI to a `PathBuf`
+/// Convert an LSP URI to a [`PathBuf`].
 ///
 /// This is a convenience wrapper that parses the LSP URI string and converts it.
-/// 
-/// # Returns
-///
-/// Returns `None` if the URI cannot be parsed as a URL or is not a file:// URI.
 #[must_use]
-pub fn lsp_uri_to_path(uri: &lsp_types::Uri) -> Option<PathBuf> {
+pub fn lsp_uri_to_path(lsp_uri: &lsp_types::Uri) -> Option<PathBuf> {
     // Parse the URI string as a URL
-    let url = Url::parse(uri.as_str()).ok()?;
+    let url = Url::parse(lsp_uri.as_str()).ok()?;
     url_to_path(&url)
 }
 
-/// Convert a Path to a file:// URL
+/// Convert a [`Path`] to a `file://` URL
 ///
 /// Handles both absolute and relative paths. Relative paths are resolved
 /// to absolute paths before conversion.

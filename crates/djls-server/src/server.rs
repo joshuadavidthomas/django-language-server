@@ -1,6 +1,7 @@
 use std::future::Future;
 use std::sync::Arc;
 
+use djls_workspace::paths;
 use tokio::sync::RwLock;
 use tower_lsp_server::jsonrpc::Result as LspResult;
 use tower_lsp_server::lsp_types;
@@ -229,21 +230,19 @@ impl LanguageServer for DjangoLanguageServer {
             let new_version = params.text_document.version;
             let changes = params.content_changes;
 
-            if let Some(mut document) = session.get_overlay(&url) {
-                document.update(changes, new_version);
-                session.update_document(url, document);
-            } else {
-                // No existing overlay - shouldn't normally happen
-                tracing::warn!("Received change for document without overlay: {}", url);
-
-                // Handle full content changes only for recovery
-                if let Some(change) = changes.into_iter().next() {
-                    let document = djls_workspace::TextDocument::new(
-                        change.text,
-                        new_version,
-                        djls_workspace::LanguageId::Other,
-                    );
-                    session.update_document(url, document);
+            match session.apply_document_changes(&url, changes.clone(), new_version) {
+                Ok(()) => {}
+                Err(err) => {
+                    tracing::warn!("{}", err);
+                    // Recovery: handle full content changes only
+                    if let Some(change) = changes.into_iter().next() {
+                        let document = djls_workspace::TextDocument::new(
+                            change.text,
+                            new_version,
+                            djls_workspace::LanguageId::Other,
+                        );
+                        session.update_document(&url, document);
+                    }
                 }
             }
         })
@@ -269,40 +268,24 @@ impl LanguageServer for DjangoLanguageServer {
         params: lsp_types::CompletionParams,
     ) -> LspResult<Option<lsp_types::CompletionResponse>> {
         let response = self
-            .with_session(|session| {
+            .with_session_mut(|session| {
                 let lsp_uri = &params.text_document_position.text_document.uri;
                 let url = Url::parse(&lsp_uri.to_string()).expect("Valid URI from LSP");
                 let position = params.text_document_position.position;
 
                 tracing::debug!("Completion requested for {} at {:?}", url, position);
 
-                // Check if we have an overlay for this document
-                if let Some(document) = session.get_overlay(&url) {
-                    tracing::debug!("Using overlay content for completion in {}", url);
-
-                    // Use the overlay content for completion
-                    // For now, we'll return None, but this is where completion logic would go
-                    // The key point is that we're using overlay content, not disk content
-                    let _content = document.content();
-                    let _version = document.version();
-
-                    // TODO: Implement actual completion logic using overlay content
-                    // This would involve:
-                    // 1. Getting context around the cursor position
-                    // 2. Analyzing the Django template or Python content
-                    // 3. Returning appropriate completions
-
-                    None
-                } else {
-                    tracing::debug!("No overlay found for {}, using disk content", url);
-
-                    // No overlay - would use disk content via the file system
-                    // The LspFileSystem will automatically fall back to disk
-                    // when no overlay is available
-
-                    // TODO: Implement completion using file system content
-                    None
+                if let Some(path) = paths::url_to_path(&url) {
+                    let content = session.file_content(path);
+                    if content.is_empty() {
+                        tracing::debug!("File {} has no content", url);
+                    } else {
+                        tracing::debug!("Using content for completion in {}", url);
+                        // TODO: Implement actual completion logic using content
+                    }
                 }
+
+                None
             })
             .await;
 

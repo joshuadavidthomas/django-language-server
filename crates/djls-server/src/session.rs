@@ -164,15 +164,11 @@ impl Session {
                 .workspace_folders
                 .as_ref()
                 .and_then(|folders| folders.first())
-                .and_then(|folder| Self::uri_to_pathbuf(&folder.uri))
+                .and_then(|folder| paths::lsp_uri_to_path(&folder.uri))
         })
     }
 
-    /// Converts a `file:` URI into an absolute `PathBuf`.
-    fn uri_to_pathbuf(uri: &lsp_types::Uri) -> Option<PathBuf> {
-        paths::lsp_uri_to_path(uri)
-    }
-
+    #[must_use]
     pub fn project(&self) -> Option<&DjangoProject> {
         self.project.as_ref()
     }
@@ -181,6 +177,7 @@ impl Session {
         &mut self.project
     }
 
+    #[must_use]
     pub fn settings(&self) -> &Settings {
         &self.settings
     }
@@ -189,70 +186,19 @@ impl Session {
         self.settings = settings;
     }
 
-    /// Get a database instance from the session.
-    ///
-    /// This creates a usable database from the handle, which can be used
-    /// to query and update data. The database itself is not Send/Sync,
-    /// but the `StorageHandle` is, allowing us to work with tower-lsp-server.
-    ///
-    /// The database will read files through the LspFileSystem, which
-    /// automatically returns overlay content when available.
-    ///
-    /// CRITICAL: We pass the shared files Arc to preserve file tracking
-    /// across Database reconstructions from StorageHandle.
-    #[allow(dead_code)]
-    pub fn db(&self) -> Database {
-        let storage = self.db_handle.clone().into_storage();
-        Database::from_storage(storage, self.file_system.clone(), self.files.clone())
-    }
-
-    /// Get access to the file system (for Salsa integration)
-    #[allow(dead_code)]
-    pub fn file_system(&self) -> Arc<dyn FileSystem> {
-        self.file_system.clone()
-    }
-
-    /// Set or update a buffer for the given document URL
-    ///
-    /// This implements Layer 1 of Ruff's architecture - storing in-memory
-    /// document changes that take precedence over disk content.
-    #[allow(dead_code)] // Used in tests
-    pub fn set_overlay(&self, url: Url, document: TextDocument) {
-        self.buffers.open(url, document);
-    }
-
-    /// Remove a buffer for the given document URL
-    ///
-    /// After removal, file reads will fall back to disk content.
-    #[allow(dead_code)] // Used in tests
-    pub fn remove_overlay(&self, url: &Url) -> Option<TextDocument> {
-        self.buffers.close(url)
-    }
-
-    /// Check if a buffer exists for the given URL
-    #[allow(dead_code)]
-    pub fn has_overlay(&self, url: &Url) -> bool {
-        self.buffers.contains(url)
-    }
-
-    /// Get a copy of a buffered document
-    pub fn get_overlay(&self, url: &Url) -> Option<TextDocument> {
-        self.buffers.get(url)
-    }
-
     /// Takes exclusive ownership of the database handle for mutation operations.
     ///
     /// This method extracts the `StorageHandle` from the session, replacing it
     /// with a temporary placeholder. This ensures there's exactly one handle
     /// active during mutations, preventing deadlocks in Salsa's `cancel_others()`.
     ///
-    /// # Why Not Clone?
+    /// ## Why Not Clone?
     ///
     /// Cloning would create multiple handles. When Salsa needs to mutate inputs,
     /// it calls `cancel_others()` which waits for all handles to drop. With
     /// multiple handles, this wait would never complete → deadlock.
     ///
-    /// # Panics
+    /// ## Panics
     ///
     /// This is an internal method that should only be called by `with_db_mut`.
     /// Multiple concurrent calls would panic when trying to take an already-taken handle.
@@ -272,12 +218,13 @@ impl Session {
     /// Execute a closure with mutable access to the database.
     ///
     /// This method implements Salsa's required protocol for mutations:
-    /// 1. Takes exclusive ownership of the StorageHandle (no clones exist)
+    /// 1. Takes exclusive ownership of the [`StorageHandle`](salsa::StorageHandle)
+    ///    (no clones exist)
     /// 2. Creates a temporary Database for the operation
     /// 3. Executes your closure with `&mut Database`
     /// 4. Extracts and restores the updated handle
     ///
-    /// # Example
+    /// ## Example
     ///
     /// ```rust,ignore
     /// session.with_db_mut(|db| {
@@ -286,7 +233,7 @@ impl Session {
     /// });
     /// ```
     ///
-    /// # Why This Pattern?
+    /// ## Why This Pattern?
     ///
     /// This ensures that when Salsa needs to modify inputs (via setters like
     /// `set_revision`), it has exclusive access. The internal `cancel_others()`
@@ -312,11 +259,11 @@ impl Session {
 
     /// Execute a closure with read-only access to the database.
     ///
-    /// For read-only operations, we can safely clone the `StorageHandle`
+    /// For read-only operations, we can safely clone the [`StorageHandle`](salsa::StorageHandle)
     /// since Salsa allows multiple concurrent readers. This is more
     /// efficient than taking exclusive ownership.
     ///
-    /// # Example
+    /// ## Example
     ///
     /// ```rust,ignore
     /// let content = session.with_db(|db| {
@@ -382,7 +329,7 @@ impl Session {
     /// This method coordinates both layers:
     /// - Layer 1: Updates the document content in buffers
     /// - Layer 2: Bumps the file revision to trigger Salsa invalidation
-    pub fn update_document(&mut self, url: Url, document: TextDocument) {
+    pub fn update_document(&mut self, url: &Url, document: TextDocument) {
         let version = document.version();
         tracing::debug!("Updating document: {} (version {})", url, version);
 
@@ -390,8 +337,29 @@ impl Session {
         self.buffers.update(url.clone(), document);
 
         // Layer 2: Bump revision to trigger invalidation
-        if let Some(path) = paths::url_to_path(&url) {
-            self.notify_file_changed(path);
+        if let Some(path) = paths::url_to_path(url) {
+            self.notify_file_changed(&path);
+        }
+    }
+
+    /// Apply incremental changes to an open document.
+    ///
+    /// This encapsulates the full update cycle: retrieving the document,
+    /// applying changes, updating the buffer, and bumping Salsa revision.
+    ///
+    /// Returns an error if the document is not currently open.
+    pub fn apply_document_changes(
+        &mut self,
+        url: &Url,
+        changes: Vec<lsp_types::TextDocumentContentChangeEvent>,
+        new_version: i32,
+    ) -> Result<(), String> {
+        if let Some(mut document) = self.buffers.get(url) {
+            document.update(changes, new_version);
+            self.update_document(url, document);
+            Ok(())
+        } else {
+            Err(format!("Document not open: {url}"))
         }
     }
 
@@ -418,7 +386,7 @@ impl Session {
         // Layer 2: Bump revision to trigger re-read from disk
         // We keep the file alive for potential re-opening
         if let Some(path) = paths::url_to_path(url) {
-            self.notify_file_changed(path);
+            self.notify_file_changed(&path);
         }
 
         removed
@@ -428,12 +396,12 @@ impl Session {
     ///
     /// This bumps the file's revision number in Salsa, which triggers
     /// invalidation of any queries that depend on the file's content.
-    fn notify_file_changed(&mut self, path: PathBuf) {
+    fn notify_file_changed(&mut self, path: &Path) {
         self.with_db_mut(|db| {
             // Only bump revision if file is already being tracked
             // We don't create files just for notifications
-            if db.has_file(&path) {
-                let file = db.get_or_create_file(path.clone());
+            if db.has_file(path) {
+                let file = db.get_or_create_file(path.to_path_buf());
                 let current_rev = file.revision(db);
                 let new_rev = current_rev + 1;
                 file.set_revision(db).to(new_rev);
@@ -519,50 +487,6 @@ mod tests {
     use djls_workspace::LanguageId;
 
     #[test]
-    fn test_session_overlay_management() {
-        let session = Session::default();
-
-        let url = Url::parse("file:///test/file.py").unwrap();
-        let document = TextDocument::new("print('hello')".to_string(), 1, LanguageId::Python);
-
-        // Initially no overlay
-        assert!(!session.has_overlay(&url));
-        assert!(session.get_overlay(&url).is_none());
-
-        // Set overlay
-        session.set_overlay(url.clone(), document.clone());
-        assert!(session.has_overlay(&url));
-
-        let retrieved = session.get_overlay(&url).unwrap();
-        assert_eq!(retrieved.content(), document.content());
-        assert_eq!(retrieved.version(), document.version());
-
-        // Remove overlay
-        let removed = session.remove_overlay(&url).unwrap();
-        assert_eq!(removed.content(), document.content());
-        assert!(!session.has_overlay(&url));
-    }
-
-    #[test]
-    fn test_session_two_layer_architecture() {
-        let session = Session::default();
-
-        // Verify we have both layers
-        let _filesystem = session.file_system(); // Layer 2: FileSystem bridge
-        let _db = session.db(); // Layer 2: Salsa database
-
-        // Verify overlay operations work (Layer 1)
-        let url = Url::parse("file:///test/integration.py").unwrap();
-        let document = TextDocument::new("# Layer 1 content".to_string(), 1, LanguageId::Python);
-
-        session.set_overlay(url.clone(), document);
-        assert!(session.has_overlay(&url));
-
-        // FileSystem should now return overlay content through LspFileSystem
-        // (This would be tested more thoroughly in integration tests)
-    }
-
-    #[test]
     fn test_revision_invalidation_chain() {
         use std::path::PathBuf;
 
@@ -590,7 +514,7 @@ mod tests {
         println!("**[test]** Update document with new content");
         let updated_document =
             TextDocument::new("<h1>Updated Content</h1>".to_string(), 2, LanguageId::Other);
-        session.update_document(url.clone(), updated_document);
+        session.update_document(&url, updated_document);
 
         // Read content again (should get new overlay content due to invalidation)
         println!(

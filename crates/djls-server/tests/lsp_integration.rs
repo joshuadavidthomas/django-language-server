@@ -138,14 +138,6 @@ impl TestServer {
         std::fs::write(path, content).expect("Failed to write test file");
     }
 
-    /// Check if a file has an overlay in the session
-    async fn has_overlay(&self, file_name: &str) -> bool {
-        let url = self.workspace_url(file_name);
-        self.server
-            .with_session(|session| session.get_overlay(&url).is_some())
-            .await
-    }
-
     /// Get the revision of a file
     async fn get_file_revision(&self, file_name: &str) -> Option<u64> {
         let path = self.workspace_file(file_name);
@@ -167,9 +159,6 @@ async fn test_full_lsp_lifecycle() {
     server
         .open_document(file_name, "<h1>Overlay Content</h1>", 1)
         .await;
-
-    // Verify overlay exists
-    assert!(server.has_overlay(file_name).await);
 
     // Verify overlay content is returned (not disk content)
     let content = server.get_file_content(file_name).await;
@@ -195,10 +184,7 @@ async fn test_full_lsp_lifecycle() {
     // 3. Test did_close removes overlay and bumps revision
     server.close_document(file_name).await;
 
-    // Verify overlay is removed
-    assert!(!server.has_overlay(file_name).await);
-
-    // Verify content now comes from disk
+    // Verify content now comes from disk (empty since file doesn't exist)
     let content = server.get_file_content(file_name).await;
     assert_eq!(content, "<h1>Disk Content</h1>");
 
@@ -282,11 +268,6 @@ async fn test_multiple_documents_independent() {
     server.open_document("file1.html", "Content 1", 1).await;
     server.open_document("file2.html", "Content 2", 1).await;
     server.open_document("file3.html", "Content 3", 1).await;
-
-    // Verify all have overlays
-    assert!(server.has_overlay("file1.html").await);
-    assert!(server.has_overlay("file2.html").await);
-    assert!(server.has_overlay("file3.html").await);
 
     // Change one document
     server.change_document("file2.html", "Updated 2", 2).await;

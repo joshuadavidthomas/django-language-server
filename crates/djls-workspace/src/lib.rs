@@ -20,6 +20,8 @@ mod language;
 pub mod paths;
 mod template;
 
+use std::path::Path;
+
 pub use buffers::Buffers;
 pub use db::Database;
 pub use document::TextDocument;
@@ -63,9 +65,9 @@ pub enum FileKind {
 }
 
 impl FileKind {
-    /// Determine `FileKind` from a file path extension.
+    /// Determine [`FileKind`] from a file path extension.
     #[must_use]
-    pub fn from_path(path: &std::path::Path) -> Self {
+    pub fn from_path(path: &Path) -> Self {
         match path.extension().and_then(|s| s.to_str()) {
             Some("py") => FileKind::Python,
             Some("html" | "htm") => FileKind::Template,

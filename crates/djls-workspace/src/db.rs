@@ -42,16 +42,17 @@ pub trait Db: salsa::Database {
     fn fs(&self) -> Option<Arc<dyn FileSystem>>;
 
     /// Read file content through the file system.
-    /// 
-    /// Checks buffers first via [`crate::WorkspaceFileSystem`], then falls back to disk.
+    ///
+    /// Checks buffers first via [`WorkspaceFileSystem`](crate::fs::WorkspaceFileSystem),
+    /// then falls back to disk.
     fn read_file_content(&self, path: &Path) -> std::io::Result<String>;
 }
 
 /// Salsa database for incremental computation.
 ///
 /// Tracks files and computes derived queries incrementally. Integrates with
-/// [`crate::WorkspaceFileSystem`] to read file content, which checks buffers
-/// before falling back to disk.
+/// [`WorkspaceFileSystem`](crate::fs::WorkspaceFileSystem) to read file content,
+/// which checks buffers before falling back to disk.
 #[salsa::db]
 #[derive(Clone)]
 pub struct Database {
@@ -130,10 +131,10 @@ impl Database {
         }
     }
 
-    /// Get or create a SourceFile for the given path.
+    /// Get or create a [`SourceFile`] for the given path.
     ///
     /// This method implements Ruff's pattern for lazy file creation. Files are created
-    /// with an initial revision of 0 and tracked in the Database's `DashMap`. The `Arc`
+    /// with an initial revision of 0 and tracked in the [`Database`]'s `DashMap`. The `Arc`
     /// ensures cheap cloning while maintaining thread safety.
     pub fn get_or_create_file(&mut self, path: PathBuf) -> SourceFile {
         if let Some(file_ref) = self.files.get(&path) {
@@ -161,7 +162,7 @@ impl Database {
 
     /// Get a reference to the storage for handle extraction.
     ///
-    /// This is used by Session to extract the StorageHandle after mutations.
+    /// This is used by `Session` to extract the [`StorageHandle`](salsa::StorageHandle) after mutations.
     pub fn storage(&self) -> &salsa::Storage<Self> {
         &self.storage
     }
@@ -363,58 +364,11 @@ mod tests {
     use super::*;
     use crate::buffers::Buffers;
     use crate::document::TextDocument;
+    use crate::fs::InMemoryFileSystem;
     use crate::fs::WorkspaceFileSystem;
     use crate::language::LanguageId;
     use dashmap::DashMap;
     use salsa::Setter;
-    use std::collections::HashMap;
-    use std::io;
-
-    // Simple in-memory filesystem for testing
-    struct InMemoryFileSystem {
-        files: HashMap<PathBuf, String>,
-    }
-
-    impl InMemoryFileSystem {
-        fn new() -> Self {
-            Self {
-                files: HashMap::new(),
-            }
-        }
-
-        fn add_file(&mut self, path: PathBuf, content: String) {
-            self.files.insert(path, content);
-        }
-    }
-
-    impl FileSystem for InMemoryFileSystem {
-        fn read_to_string(&self, path: &Path) -> io::Result<String> {
-            self.files
-                .get(path)
-                .cloned()
-                .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "File not found"))
-        }
-
-        fn exists(&self, path: &Path) -> bool {
-            self.files.contains_key(path)
-        }
-
-        fn is_file(&self, path: &Path) -> bool {
-            self.files.contains_key(path)
-        }
-
-        fn is_directory(&self, _path: &Path) -> bool {
-            false
-        }
-
-        fn read_directory(&self, _path: &Path) -> io::Result<Vec<PathBuf>> {
-            Ok(vec![])
-        }
-
-        fn metadata(&self, _path: &Path) -> io::Result<std::fs::Metadata> {
-            Err(io::Error::new(io::ErrorKind::Unsupported, "Not supported"))
-        }
-    }
 
     #[test]
     fn test_parse_template_with_overlay() {

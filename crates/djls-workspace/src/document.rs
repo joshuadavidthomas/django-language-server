@@ -29,7 +29,7 @@ pub struct TextDocument {
 }
 
 impl TextDocument {
-    /// Create a new TextDocument with the given content
+    /// Create a new [`TextDocument`] with the given content
     #[must_use]
     pub fn new(content: String, version: i32, language_id: LanguageId) -> Self {
         let line_index = LineIndex::new(&content);
