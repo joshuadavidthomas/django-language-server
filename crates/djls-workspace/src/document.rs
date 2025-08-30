@@ -5,11 +5,12 @@
 //! performance when handling frequent position-based operations like hover, completion,
 //! and diagnostics.
 
+use tower_lsp_server::lsp_types::Position;
+use tower_lsp_server::lsp_types::Range;
+
 use crate::language::LanguageId;
 use crate::template::ClosingBrace;
 use crate::template::TemplateTagContext;
-use tower_lsp_server::lsp_types::Position;
-use tower_lsp_server::lsp_types::Range;
 
 /// In-memory representation of an open document in the LSP.
 ///

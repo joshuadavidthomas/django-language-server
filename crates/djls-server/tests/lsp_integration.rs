@@ -12,11 +12,16 @@ use std::sync::Arc;
 
 use djls_server::DjangoLanguageServer;
 use tempfile::TempDir;
-use tower_lsp_server::lsp_types::{
-    DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-    InitializeParams, InitializedParams, TextDocumentContentChangeEvent, TextDocumentIdentifier,
-    TextDocumentItem, VersionedTextDocumentIdentifier, WorkspaceFolder,
-};
+use tower_lsp_server::lsp_types::DidChangeTextDocumentParams;
+use tower_lsp_server::lsp_types::DidCloseTextDocumentParams;
+use tower_lsp_server::lsp_types::DidOpenTextDocumentParams;
+use tower_lsp_server::lsp_types::InitializeParams;
+use tower_lsp_server::lsp_types::InitializedParams;
+use tower_lsp_server::lsp_types::TextDocumentContentChangeEvent;
+use tower_lsp_server::lsp_types::TextDocumentIdentifier;
+use tower_lsp_server::lsp_types::TextDocumentItem;
+use tower_lsp_server::lsp_types::VersionedTextDocumentIdentifier;
+use tower_lsp_server::lsp_types::WorkspaceFolder;
 use tower_lsp_server::LanguageServer;
 use url::Url;
 
@@ -240,7 +245,7 @@ async fn test_template_parsing_with_overlays() {
         .await;
     use djls_workspace::db::parse_template;
 
-    // Parse template through the session  
+    // Parse template through the session
     let workspace_path = server.workspace_file(file_name);
     let ast = server
         .server
@@ -441,4 +446,3 @@ async fn test_revision_tracking_across_lifecycle() {
     server.change_document(file_name, "Final", 11).await;
     assert_eq!(server.get_file_revision(file_name).await, Some(7));
 }
-

@@ -6,10 +6,12 @@
 #[cfg(test)]
 use std::collections::HashMap;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::{buffers::Buffers, paths};
+use crate::buffers::Buffers;
+use crate::paths;
 
 /// Trait for file system operations
 pub trait FileSystem: Send + Sync {
@@ -181,11 +183,12 @@ impl FileSystem for WorkspaceFileSystem {
 
 #[cfg(test)]
 mod tests {
+    use url::Url;
+
     use super::*;
     use crate::buffers::Buffers;
     use crate::document::TextDocument;
     use crate::language::LanguageId;
-    use url::Url;
 
     #[test]
     fn test_lsp_filesystem_overlay_precedence() {

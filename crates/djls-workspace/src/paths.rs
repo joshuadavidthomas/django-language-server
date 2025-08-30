@@ -3,7 +3,9 @@
 //! This module provides consistent conversion between file paths and URLs,
 //! handling platform-specific differences and encoding issues.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
+
 use tower_lsp_server::lsp_types;
 use url::Url;
 

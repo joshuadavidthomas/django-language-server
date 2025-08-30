@@ -26,7 +26,8 @@
 //! [`Buffers`]: crate::buffers::Buffers
 //! [`WorkspaceFileSystem`]: crate::fs::WorkspaceFileSystem
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 #[cfg(test)]
 use std::sync::Mutex;
@@ -34,7 +35,8 @@ use std::sync::Mutex;
 use dashmap::DashMap;
 use salsa::Setter;
 
-use crate::{FileKind, FileSystem};
+use crate::FileKind;
+use crate::FileSystem;
 
 /// Database trait that provides file system access for Salsa queries
 #[salsa::db]
@@ -392,14 +394,15 @@ pub fn template_errors(db: &dyn Db, file: SourceFile) -> Arc<[String]> {
 
 #[cfg(test)]
 mod tests {
+    use dashmap::DashMap;
+    use salsa::Setter;
+
     use super::*;
     use crate::buffers::Buffers;
     use crate::document::TextDocument;
     use crate::fs::InMemoryFileSystem;
     use crate::fs::WorkspaceFileSystem;
     use crate::language::LanguageId;
-    use dashmap::DashMap;
-    use salsa::Setter;
 
     #[test]
     fn test_parse_template_with_overlay() {

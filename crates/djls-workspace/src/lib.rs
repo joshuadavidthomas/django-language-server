@@ -25,7 +25,9 @@ use std::path::Path;
 pub use buffers::Buffers;
 pub use db::Database;
 pub use document::TextDocument;
-pub use fs::{FileSystem, OsFileSystem, WorkspaceFileSystem};
+pub use fs::FileSystem;
+pub use fs::OsFileSystem;
+pub use fs::WorkspaceFileSystem;
 pub use language::LanguageId;
 
 /// Stable, compact identifier for files across the subsystem.

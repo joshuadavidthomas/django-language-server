@@ -193,7 +193,10 @@ pub mod monitoring {
         }
     }
 
-    pub fn progress<T: Into<String> + Send>(token: lsp_types::ProgressToken, title: T) -> Option<Progress> {
+    pub fn progress<T: Into<String> + Send>(
+        token: lsp_types::ProgressToken,
+        title: T,
+    ) -> Option<Progress> {
         get_client().map(|client| client.progress(token, title))
     }
 }

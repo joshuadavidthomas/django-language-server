@@ -31,16 +31,21 @@
 //!
 //! The explicit method names make the intent clear and prevent accidental misuse.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use dashmap::DashMap;
 use djls_conf::Settings;
 use djls_project::DjangoProject;
-use djls_workspace::{
-    db::{Database, SourceFile},
-    paths, Buffers, FileSystem, OsFileSystem, TextDocument, WorkspaceFileSystem,
-};
+use djls_workspace::db::Database;
+use djls_workspace::db::SourceFile;
+use djls_workspace::paths;
+use djls_workspace::Buffers;
+use djls_workspace::FileSystem;
+use djls_workspace::OsFileSystem;
+use djls_workspace::TextDocument;
+use djls_workspace::WorkspaceFileSystem;
 use salsa::StorageHandle;
 use tower_lsp_server::lsp_types;
 use url::Url;
@@ -447,8 +452,9 @@ impl Default for Session {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use djls_workspace::LanguageId;
+
+    use super::*;
 
     #[test]
     fn test_revision_invalidation_chain() {

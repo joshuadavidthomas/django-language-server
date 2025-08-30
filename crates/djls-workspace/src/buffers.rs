@@ -5,8 +5,9 @@
 //! (which manages document lifecycle) and the [`WorkspaceFileSystem`](crate::fs::WorkspaceFileSystem) (which
 //! reads from them).
 
-use dashmap::DashMap;
 use std::sync::Arc;
+
+use dashmap::DashMap;
 use url::Url;
 
 use crate::document::TextDocument;
