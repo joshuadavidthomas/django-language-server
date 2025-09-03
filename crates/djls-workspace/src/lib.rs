@@ -15,6 +15,7 @@
 mod buffers;
 pub mod db;
 mod document;
+pub mod encoding;
 mod fs;
 mod language;
 pub mod paths;
@@ -25,6 +26,7 @@ use std::path::Path;
 pub use buffers::Buffers;
 pub use db::Database;
 pub use document::TextDocument;
+pub use encoding::PositionEncoding;
 pub use fs::FileSystem;
 pub use fs::OsFileSystem;
 pub use fs::WorkspaceFileSystem;

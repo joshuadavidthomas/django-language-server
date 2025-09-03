@@ -52,6 +52,8 @@ use salsa::StorageHandle;
 use tower_lsp_server::lsp_types;
 use url::Url;
 
+use djls_workspace::PositionEncoding;
+
 /// LSP Session with thread-safe Salsa database access.
 ///
 /// Uses Salsa's [`StorageHandle`] pattern to maintain `Send + Sync + 'static`
@@ -115,6 +117,9 @@ pub struct Session {
     #[allow(dead_code)]
     client_capabilities: lsp_types::ClientCapabilities,
 
+    /// Position encoding negotiated with client
+    position_encoding: PositionEncoding,
+
     /// Layer 2: Thread-safe Salsa database handle for pure computation
     ///
     /// where we're using the [`StorageHandle`](salsa::StorageHandle) to create a thread-safe handle that can be
@@ -152,6 +157,9 @@ impl Session {
             .clone()
             .into_zalsa_handle();
 
+        // Negotiate position encoding with client
+        let position_encoding = PositionEncoding::negotiate(params);
+
         Self {
             project,
             settings,
@@ -159,6 +167,7 @@ impl Session {
             file_system,
             files,
             client_capabilities: params.capabilities.clone(),
+            position_encoding,
             db_handle,
         }
     }
@@ -193,6 +202,11 @@ impl Session {
 
     pub fn set_settings(&mut self, settings: Settings) {
         self.settings = settings;
+    }
+
+    #[must_use]
+    pub fn position_encoding(&self) -> PositionEncoding {
+        self.position_encoding
     }
 
     // TODO: Explore an abstraction around [`salsa::StorageHandle`] and the following two methods
@@ -451,6 +465,7 @@ impl Default for Session {
             files,
             buffers,
             client_capabilities: lsp_types::ClientCapabilities::default(),
+            position_encoding: PositionEncoding::default(),
         }
     }
 }

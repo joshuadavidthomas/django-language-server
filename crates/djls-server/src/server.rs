@@ -82,6 +82,7 @@ impl LanguageServer for DjangoLanguageServer {
         tracing::info!("Initializing server...");
 
         let session = Session::new(&params);
+        let encoding = session.position_encoding();
 
         {
             let mut session_lock = self.session.write().await;
@@ -115,13 +116,14 @@ impl LanguageServer for DjangoLanguageServer {
                         save: Some(lsp_types::SaveOptions::default().into()),
                     },
                 )),
+                position_encoding: Some(encoding.to_lsp_kind()),
                 ..Default::default()
             },
             server_info: Some(lsp_types::ServerInfo {
                 name: SERVER_NAME.to_string(),
                 version: Some(SERVER_VERSION.to_string()),
             }),
-            offset_encoding: None,
+            offset_encoding: Some(encoding.as_str().to_string()),
         })
     }
 
@@ -269,9 +271,10 @@ impl LanguageServer for DjangoLanguageServer {
     ) -> LspResult<Option<lsp_types::CompletionResponse>> {
         let response = self
             .with_session_mut(|session| {
-                let lsp_uri = &params.text_document_position.text_document.uri;
+                let lsp_uri = params.text_document_position.text_document.uri;
                 let url = Url::parse(&lsp_uri.to_string()).expect("Valid URI from LSP");
                 let position = params.text_document_position.position;
+                let _encoding = session.position_encoding();
 
                 tracing::debug!("Completion requested for {} at {:?}", url, position);
 
@@ -281,7 +284,7 @@ impl LanguageServer for DjangoLanguageServer {
                         tracing::debug!("File {} has no content", url);
                     } else {
                         tracing::debug!("Using content for completion in {}", url);
-                        // TODO: Implement actual completion logic using content
+                        // TODO: Implement actual completion logic using content and encoding
                     }
                 }
 
