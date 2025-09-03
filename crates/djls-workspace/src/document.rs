@@ -92,7 +92,6 @@ impl TextDocument {
         // For now, we'll just handle full document updates
         // TODO: Handle incremental updates
         for change in changes {
-            // TextDocumentContentChangeEvent has a `text` field that's a String, not Option<String>
             self.content = change.text;
             self.line_index = LineIndex::new(&self.content);
         }
@@ -226,7 +225,9 @@ impl LineIndex {
         // ASCII fast path optimization
         if matches!(self.kind, IndexKind::Ascii) {
             // For ASCII text, all encodings are equivalent to byte offsets
-            let char_offset = position.character.min(line_text.len() as u32);
+            let char_offset = position
+                .character
+                .min(u32::try_from(line_text.len()).unwrap_or(u32::MAX));
             return line_start_utf8 + char_offset;
         }
 
@@ -234,7 +235,9 @@ impl LineIndex {
         match encoding {
             PositionEncoding::Utf8 => {
                 // UTF-8: character positions are already byte offsets
-                let char_offset = position.character.min(line_text.len() as u32);
+                let char_offset = position
+                    .character
+                    .min(u32::try_from(line_text.len()).unwrap_or(u32::MAX));
                 line_start_utf8 + char_offset
             }
             PositionEncoding::Utf16 => {
@@ -246,28 +249,22 @@ impl LineIndex {
                     if utf16_pos >= position.character {
                         break;
                     }
-                    utf16_pos += c.len_utf16() as u32;
-                    utf8_pos += c.len_utf8() as u32;
+                    utf16_pos += u32::try_from(c.len_utf16()).unwrap_or(0);
+                    utf8_pos += u32::try_from(c.len_utf8()).unwrap_or(0);
                 }
 
                 // If character position exceeds line length, clamp to line end
-                if utf16_pos < position.character && utf8_pos == line_text.len() as u32 {
-                    line_start_utf8 + utf8_pos
-                } else {
-                    line_start_utf8 + utf8_pos
-                }
+                line_start_utf8 + utf8_pos
             }
             PositionEncoding::Utf32 => {
                 // UTF-32: count Unicode code points (characters)
-                let mut char_count = 0;
                 let mut utf8_pos = 0;
 
-                for c in line_text.chars() {
-                    if char_count >= position.character {
+                for (char_count, c) in line_text.chars().enumerate() {
+                    if char_count >= position.character as usize {
                         break;
                     }
-                    char_count += 1;
-                    utf8_pos += c.len_utf8() as u32;
+                    utf8_pos += u32::try_from(c.len_utf8()).unwrap_or(0);
                 }
 
                 // If character position exceeds line length, clamp to line end
@@ -321,7 +318,7 @@ mod tests {
 
         // The UTF-8 byte offset should be at the "!" character
         assert_eq!(doc.content().chars().nth(7).unwrap(), '!');
-        assert_eq!(&doc.content()[offset as usize..offset as usize + 1], "!");
+        assert_eq!(&doc.content()[(offset as usize)..=(offset as usize)], "!");
 
         // Test range extraction with non-ASCII characters
         let range = Range::new(Position::new(0, 0), Position::new(0, 7));
@@ -342,7 +339,7 @@ mod tests {
         let line2_start = doc.content().find('\n').unwrap() + 1;
         let line2_offset = offset_cjk as usize - line2_start;
         let line2 = &doc.content()[line2_start..];
-        assert_eq!(&line2[line2_offset..line2_offset + 1], " ");
+        assert_eq!(&line2[line2_offset..=line2_offset], " ");
     }
 
     #[test]
@@ -353,12 +350,12 @@ mod tests {
 
         // Position after "for" - UTF-16 position 17 (after 'r')
         let pos = Position::new(0, 17);
-        let context = doc
+        let tag_context = doc
             .get_template_tag_context(pos, PositionEncoding::Utf16)
             .expect("Should get template context");
 
-        assert_eq!(context.partial_tag, "for");
-        assert!(!context.needs_leading_space);
+        assert_eq!(tag_context.partial_tag, "for");
+        assert!(!tag_context.needs_leading_space);
     }
 
     #[test]
@@ -385,7 +382,7 @@ mod tests {
         // Test position conversion with emoji on first line
         let pos_emoji = Position::new(0, 7); // After emoji
         let offset = line_index.offset(pos_emoji, text, PositionEncoding::Utf16);
-        assert_eq!(&text[offset as usize..offset as usize + 1], "!");
+        assert_eq!(&text[(offset as usize)..=(offset as usize)], "!");
 
         // Test position conversion with CJK on second line
         // "World 行 test"
@@ -393,6 +390,6 @@ mod tests {
         // Position after CJK character should be at UTF-16 position 7
         let pos_cjk = Position::new(1, 7);
         let offset_cjk = line_index.offset(pos_cjk, text, PositionEncoding::Utf16);
-        assert_eq!(&text[offset_cjk as usize..offset_cjk as usize + 1], " ");
+        assert_eq!(&text[(offset_cjk as usize)..=(offset_cjk as usize)], " ");
     }
 }

@@ -116,14 +116,14 @@ impl LanguageServer for DjangoLanguageServer {
                         save: Some(lsp_types::SaveOptions::default().into()),
                     },
                 )),
-                position_encoding: Some(encoding.to_lsp_kind()),
+                position_encoding: Some(lsp_types::PositionEncodingKind::from(encoding)),
                 ..Default::default()
             },
             server_info: Some(lsp_types::ServerInfo {
                 name: SERVER_NAME.to_string(),
                 version: Some(SERVER_VERSION.to_string()),
             }),
-            offset_encoding: Some(encoding.as_str().to_string()),
+            offset_encoding: Some(encoding.to_string()),
         })
     }
 
