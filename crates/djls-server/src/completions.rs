@@ -41,9 +41,9 @@ pub struct TemplateTagContext {
 #[derive(Debug)]
 pub struct LineInfo {
     /// The complete line text
-    pub line_text: String,
+    pub text: String,
     /// The cursor offset within the line (in characters)
-    pub cursor_offset_in_line: usize,
+    pub cursor_offset: usize,
 }
 
 /// Main entry point for handling completion requests
@@ -65,9 +65,7 @@ pub fn handle_completion(
     };
 
     // Analyze template context at cursor position
-    let Some(context) =
-        analyze_template_context(&line_info.line_text, line_info.cursor_offset_in_line)
-    else {
+    let Some(context) = analyze_template_context(&line_info.text, line_info.cursor_offset) else {
         return Vec::new();
     };
 
@@ -113,8 +111,8 @@ fn get_line_info(
     };
 
     Some(LineInfo {
-        line_text,
-        cursor_offset_in_line: cursor_offset_in_line.min(lines[line_index].chars().count()),
+        text: line_text,
+        cursor_offset: cursor_offset_in_line.min(lines[line_index].chars().count()),
     })
 }
 

@@ -258,23 +258,20 @@ impl LanguageServer for DjangoLanguageServer {
             .with_session_mut(|session| {
                 let lsp_uri = params.text_document_position.text_document.uri;
                 let url = Url::parse(&lsp_uri.to_string()).expect("Valid URI from LSP");
-                let position = params.text_document_position.position;
-                let encoding = session.position_encoding();
 
-                tracing::debug!("Completion requested for {} at {:?}", url, position);
+                tracing::debug!(
+                    "Completion requested for {} at {:?}",
+                    url,
+                    params.text_document_position.position
+                );
 
-                // Get file path and determine file type
                 if let Some(path) = paths::url_to_path(&url) {
-                    let file_kind = FileKind::from_path(&path);
-
-                    // Get the document from buffers
                     let document = session.get_document(&url)?;
-                    
-                    // Get template tags from the project
-                    let template_tags = session.project()
-                        .and_then(|p| p.template_tags());
+                    let position = params.text_document_position.position;
+                    let encoding = session.position_encoding();
+                    let file_kind = FileKind::from_path(&path);
+                    let template_tags = session.project().and_then(|p| p.template_tags());
 
-                    // Generate completions using the new completions module
                     let completions = crate::completions::handle_completion(
                         &document,
                         position,
