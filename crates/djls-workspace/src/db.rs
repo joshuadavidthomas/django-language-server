@@ -290,42 +290,8 @@ pub fn parse_template(db: &dyn Db, file: SourceFile) -> Option<Arc<TemplateAst>>
     let text = text_arc.as_ref();
 
     // Call the pure parsing function from djls-templates
-    match djls_templates::parse_template(text) {
-        Ok((ast, errors)) => {
-            // Convert errors to strings
-            let error_strings = errors.into_iter().map(|e| e.to_string()).collect();
-            Some(Arc::new(TemplateAst {
-                ast,
-                errors: error_strings,
-            }))
-        }
-        Err(err) => {
-            // Even on fatal errors, return an empty AST with the error
-            Some(Arc::new(TemplateAst {
-                ast: djls_templates::Ast::default(),
-                errors: vec![err.to_string()],
-            }))
-        }
-    }
-}
-
-/// Parse a Django template file by path using the file system.
-///
-/// This Salsa tracked function reads file content through the FileSystem, which automatically
-/// checks overlays before falling back to disk, implementing Ruff's two-layer architecture.
-///
-/// Returns `None` for non-template files or if file cannot be read.
-#[salsa::tracked]
-pub fn parse_template_by_path(db: &dyn Db, file_path: FilePath) -> Option<Arc<TemplateAst>> {
-    // Read file content through the FileSystem (checks overlays first)
-    let path = Path::new(file_path.path(db).as_ref());
-    let Ok(text) = db.read_file_content(path) else {
-        return None;
-    };
-
-    // Call the parsing function from djls-templates
     // TODO: Move this whole function into djls-templates
-    match djls_templates::parse_template(&text) {
+    match djls_templates::parse_template(text) {
         Ok((ast, errors)) => {
             // Convert errors to strings
             let error_strings = errors.into_iter().map(|e| e.to_string()).collect();
