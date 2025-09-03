@@ -1,13 +1,13 @@
-//! # Salsa StorageHandle Pattern for LSP
+//! # Salsa [`StorageHandle`] Pattern for LSP
 //!
 //! This module implements a thread-safe Salsa database wrapper for use with
 //! tower-lsp's async runtime. The key challenge is that tower-lsp requires
 //! `Send + Sync + 'static` bounds, but Salsa's `Storage` contains thread-local
 //! state and is not `Send`.
 //!
-//! ## The Solution: StorageHandle
+//! ## The Solution: [`StorageHandle`]
 //!
-//! Salsa provides `StorageHandle` which IS `Send + Sync` because it contains
+//! Salsa provides [`StorageHandle`] which IS `Send + Sync` because it contains
 //! no thread-local state. We store the handle and create `Storage`/`Database`
 //! instances on-demand.
 //!
@@ -26,10 +26,12 @@
 //!
 //! ## The Pattern
 //!
-//! - **Reads**: Clone the handle freely (`with_db`)
-//! - **Mutations**: Take exclusive ownership (`with_db_mut` via `take_db_handle_for_mutation`)
+//! - **Reads**: Clone the handle freely ([`with_db`](Session::with_db))
+//! - **Mutations**: Take exclusive ownership ([`with_db_mut`](Session::with_db_mut) via [`take_db_handle_for_mutation`](Session::take_db_handle_for_mutation))
 //!
 //! The explicit method names make the intent clear and prevent accidental misuse.
+//!
+//! [`StorageHandle`]: salsa::StorageHandle
 
 use std::path::Path;
 use std::path::PathBuf;
@@ -52,12 +54,12 @@ use url::Url;
 
 /// LSP Session with thread-safe Salsa database access.
 ///
-/// Uses Salsa's `StorageHandle` pattern to maintain `Send + Sync + 'static`
+/// Uses Salsa's [`StorageHandle`] pattern to maintain `Send + Sync + 'static`
 /// compatibility required by tower-lsp. The handle can be safely shared
 /// across threads and async boundaries.
 ///
 /// See [this Salsa Zulip discussion](https://salsa.zulipchat.com/#narrow/channel/145099-Using-Salsa/topic/.E2.9C.94.20Advice.20on.20using.20salsa.20from.20Sync.20.2B.20Send.20context/with/495497515)
-/// for more information about `StorageHandle`.
+/// for more information about [`StorageHandle`].
 ///
 /// ## Architecture
 ///
@@ -69,11 +71,13 @@ use url::Url;
 ///
 /// When mutating Salsa inputs (like changing file revisions), we must ensure
 /// exclusive access to prevent race conditions. Salsa enforces this through
-/// its `cancel_others()` mechanism, which waits for all `StorageHandle` clones
+/// its `cancel_others()` mechanism, which waits for all [`StorageHandle`] clones
 /// to drop before allowing mutations.
 ///
 /// We use explicit methods (`take_db_handle_for_mutation`/`restore_db_handle`)
 /// to make this ownership transfer clear and prevent accidental deadlocks.
+///
+/// [`StorageHandle`]: salsa::StorageHandle
 pub struct Session {
     /// The Django project configuration
     project: Option<DjangoProject>,
@@ -85,27 +89,27 @@ pub struct Session {
     ///
     /// This implements Ruff's two-layer architecture where Layer 1 contains
     /// open document buffers that take precedence over disk files. The buffers
-    /// are shared between Session (which manages them) and WorkspaceFileSystem
-    /// (which reads from them).
+    /// are shared between Session (which manages them) and
+    /// [`WorkspaceFileSystem`](djls_workspace::WorkspaceFileSystem) (which reads from them).
     ///
     /// Key properties:
     /// - Thread-safe via the Buffers abstraction
-    /// - Contains full TextDocument with content, version, and metadata
+    /// - Contains full [`TextDocument`](djls_workspace::TextDocument) with content, version, and metadata
     /// - Never becomes Salsa inputs - only intercepted at read time
     buffers: Buffers,
 
     /// File system abstraction with buffer interception
     ///
-    /// This WorkspaceFileSystem bridges Layer 1 (buffers) and Layer 2 (Salsa).
-    /// It intercepts FileSystem::read_to_string() calls to return buffer
+    /// This [`WorkspaceFileSystem`](djls_workspace::WorkspaceFileSystem) bridges Layer 1 (buffers) and Layer 2 (Salsa).
+    /// It intercepts [`FileSystem::read_to_string()`](djls_workspace::FileSystem::read_to_string()) calls to return buffer
     /// content when available, falling back to disk otherwise.
     file_system: Arc<dyn FileSystem>,
 
     /// Shared file tracking across all Database instances
     ///
     /// This is the canonical Salsa pattern from the lazy-input example.
-    /// The DashMap provides O(1) lookups and is shared via Arc across
-    /// all Database instances created from StorageHandle.
+    /// The [`DashMap`] provides O(1) lookups and is shared via Arc across
+    /// all Database instances created from [`StorageHandle`](salsa::StorageHandle).
     files: Arc<DashMap<PathBuf, SourceFile>>,
 
     #[allow(dead_code)]
@@ -113,11 +117,11 @@ pub struct Session {
 
     /// Layer 2: Thread-safe Salsa database handle for pure computation
     ///
-    /// where we're using the `StorageHandle` to create a thread-safe handle that can be
+    /// where we're using the [`StorageHandle`](salsa::StorageHandle) to create a thread-safe handle that can be
     /// shared between threads.
     ///
-    /// The database receives file content via the FileSystem trait, which
-    /// is intercepted by our LspFileSystem to provide overlay content.
+    /// The database receives file content via the [`FileSystem`](djls_workspace::FileSystem) trait, which
+    /// is intercepted by our [`WorkspaceFileSystem`](djls_workspace::WorkspaceFileSystem) to provide overlay content.
     /// This maintains proper separation between Layer 1 and Layer 2.
     db_handle: StorageHandle<Database>,
 }
@@ -191,9 +195,13 @@ impl Session {
         self.settings = settings;
     }
 
+    // TODO: Explore an abstraction around [`salsa::StorageHandle`] and the following two methods
+    // to make it easy in the future to avoid deadlocks. For now, this is simpler and TBH may be
+    // all we ever need, but still.. might be a nice CYA for future me
+
     /// Takes exclusive ownership of the database handle for mutation operations.
     ///
-    /// This method extracts the `StorageHandle` from the session, replacing it
+    /// This method extracts the [`StorageHandle`](salsa::StorageHandle) from the session, replacing it
     /// with a temporary placeholder. This ensures there's exactly one handle
     /// active during mutations, preventing deadlocks in Salsa's `cancel_others()`.
     ///
@@ -205,8 +213,9 @@ impl Session {
     ///
     /// ## Panics
     ///
-    /// This is an internal method that should only be called by `with_db_mut`.
-    /// Multiple concurrent calls would panic when trying to take an already-taken handle.
+    /// This is an internal method that should only be called by
+    /// [`with_db_mut`](Session::with_db_mut). Multiple concurrent calls would panic when trying
+    /// to take an already-taken handle.
     fn take_db_handle_for_mutation(&mut self) -> StorageHandle<Database> {
         std::mem::replace(&mut self.db_handle, StorageHandle::new(None))
     }
@@ -290,7 +299,7 @@ impl Session {
     ///
     /// This method coordinates both layers:
     /// - Layer 1: Stores the document content in buffers
-    /// - Layer 2: Creates the SourceFile in Salsa (if path is resolvable)
+    /// - Layer 2: Creates the [`SourceFile`](djls_workspace::SourceFile) in Salsa (if path is resolvable)
     pub fn open_document(&mut self, url: &Url, document: TextDocument) {
         tracing::debug!("Opening document: {}", url);
 
@@ -300,7 +309,7 @@ impl Session {
         // Layer 2: Create file and touch if it already exists
         // This is crucial: if the file was already read from disk, we need to
         // invalidate Salsa's cache so it re-reads through the buffer system
-        if let Some(path) = paths::url_to_path(&url) {
+        if let Some(path) = paths::url_to_path(url) {
             self.with_db_mut(|db| {
                 // Check if file already exists (was previously read from disk)
                 let already_exists = db.has_file(&path);
@@ -389,15 +398,11 @@ impl Session {
         removed
     }
 
-    // ===== Safe Query API =====
-    // These methods encapsulate all Salsa interactions, preventing the
-    // "mixed database instance" bug by never exposing SourceFile or Database.
-
     /// Get the current content of a file (from overlay or disk).
     ///
     /// This is the safe way to read file content through the system.
     /// The file is created if it doesn't exist, and content is read
-    /// through the FileSystem abstraction (overlay first, then disk).
+    /// through the `FileSystem` abstraction (overlay first, then disk).
     pub fn file_content(&mut self, path: PathBuf) -> String {
         use djls_workspace::db::source_text;
 
@@ -452,22 +457,17 @@ impl Default for Session {
 
 #[cfg(test)]
 mod tests {
-    use djls_workspace::LanguageId;
-
     use super::*;
+    use djls_workspace::LanguageId;
 
     #[test]
     fn test_revision_invalidation_chain() {
-        use std::path::PathBuf;
-
         let mut session = Session::default();
 
-        // Create a test file path
         let path = PathBuf::from("/test/template.html");
         let url = Url::parse("file:///test/template.html").unwrap();
 
         // Open document with initial content
-        println!("**[test]** open document with initial content");
         let document = TextDocument::new(
             "<h1>Original Content</h1>".to_string(),
             1,
@@ -475,50 +475,36 @@ mod tests {
         );
         session.open_document(&url, document);
 
-        // Try to read content - this might be where it hangs
-        println!("**[test]** try to read content - this might be where it hangs");
         let content1 = session.file_content(path.clone());
         assert_eq!(content1, "<h1>Original Content</h1>");
 
         // Update document with new content
-        println!("**[test]** Update document with new content");
         let updated_document =
             TextDocument::new("<h1>Updated Content</h1>".to_string(), 2, LanguageId::Other);
         session.update_document(&url, updated_document);
 
         // Read content again (should get new overlay content due to invalidation)
-        println!(
-            "**[test]** Read content again (should get new overlay content due to invalidation)"
-        );
         let content2 = session.file_content(path.clone());
         assert_eq!(content2, "<h1>Updated Content</h1>");
         assert_ne!(content1, content2);
 
         // Close document (removes overlay, bumps revision)
-        println!("**[test]** Close document (removes overlay, bumps revision)");
         session.close_document(&url);
 
         // Read content again (should now read from disk, which returns empty for missing files)
-        println!(
-            "**[test]** Read content again (should now read from disk, which returns empty for missing files)"
-        );
         let content3 = session.file_content(path.clone());
         assert_eq!(content3, ""); // No file on disk, returns empty
     }
 
     #[test]
     fn test_with_db_mut_preserves_files() {
-        use std::path::PathBuf;
-
         let mut session = Session::default();
 
-        // Create multiple files
         let path1 = PathBuf::from("/test/file1.py");
         let path2 = PathBuf::from("/test/file2.py");
 
-        // Create files through safe API
-        session.file_content(path1.clone()); // Creates file1
-        session.file_content(path2.clone()); // Creates file2
+        session.file_content(path1.clone());
+        session.file_content(path2.clone());
 
         // Verify files are preserved across operations
         assert!(session.has_file(&path1));
@@ -532,7 +518,6 @@ mod tests {
         assert_eq!(content1, "");
         assert_eq!(content2, "");
 
-        // One more verification
         assert!(session.has_file(&path1));
         assert!(session.has_file(&path2));
     }
