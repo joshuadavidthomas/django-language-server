@@ -60,12 +60,11 @@ pub fn path_to_url(path: &Path) -> Option<Url> {
     // First try to get the current directory
     let current_dir = std::env::current_dir().ok()?;
     let absolute_path = current_dir.join(path);
-    
+
     // Try to canonicalize if the file exists (to resolve symlinks, etc.)
     // but if it doesn't exist, use the joined path as-is
-    let final_path = std::fs::canonicalize(&absolute_path)
-        .unwrap_or(absolute_path);
-    
+    let final_path = std::fs::canonicalize(&absolute_path).unwrap_or(absolute_path);
+
     Url::from_file_path(final_path).ok()
 }
 
@@ -177,7 +176,7 @@ mod tests {
             assert!(u.path().ends_with("some/nonexistent/path.txt"));
         }
     }
-    
+
     #[test]
     fn test_non_existent_absolute_path() {
         // Test that absolute paths work even if they don't exist
@@ -186,7 +185,7 @@ mod tests {
         } else {
             PathBuf::from("/nonexistent/directory/file.txt")
         };
-        
+
         let url = path_to_url(&path);
         assert!(url.is_some(), "Should handle non-existent absolute paths");
         if let Some(u) = url {
@@ -194,13 +193,13 @@ mod tests {
             assert!(u.path().contains("file.txt"));
         }
     }
-    
+
     #[test]
     fn test_non_existent_relative_path() {
         // Test that relative paths work even if they don't exist
         let path = PathBuf::from("nonexistent/file.txt");
         let url = path_to_url(&path);
-        
+
         assert!(url.is_some(), "Should handle non-existent relative paths");
         if let Some(u) = url {
             assert_eq!(u.scheme(), "file");

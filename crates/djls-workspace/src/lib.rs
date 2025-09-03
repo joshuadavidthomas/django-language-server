@@ -19,7 +19,7 @@ pub mod encoding;
 mod fs;
 mod language;
 pub mod paths;
-mod template;
+
 
 use std::path::Path;
 

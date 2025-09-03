@@ -1,4 +1,5 @@
 mod client;
+mod completions;
 mod logging;
 mod queue;
 pub mod server;

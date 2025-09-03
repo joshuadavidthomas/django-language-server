@@ -1,0 +1,288 @@
+//! Completion logic for Django Language Server
+//!
+//! This module handles all LSP completion requests, analyzing cursor context
+//! and generating appropriate completion items for Django templates.
+
+use djls_project::TemplateTags;
+use djls_workspace::{FileKind, PositionEncoding, TextDocument};
+use tower_lsp_server::lsp_types::{
+    CompletionItem, CompletionItemKind, Documentation, InsertTextFormat, Position,
+};
+
+/// Tracks what closing characters are needed to complete a template tag.
+///
+/// Used to determine whether the completion system needs to insert
+/// closing braces when completing a Django template tag.
+#[derive(Debug)]
+pub enum ClosingBrace {
+    /// No closing brace present - need to add full `%}` or `}}`
+    None,
+    /// Partial close present (just `}`) - need to add `%` or second `}`
+    PartialClose,
+    /// Full close present (`%}` or `}}`) - no closing needed
+    FullClose,
+}
+
+/// Cursor context within a Django template tag for completion support.
+///
+/// Captures the state around the cursor position to provide intelligent
+/// completions and determine what text needs to be inserted.
+#[derive(Debug)]
+pub struct TemplateTagContext {
+    /// The partial tag text before the cursor (e.g., "loa" for "{% loa|")
+    pub partial_tag: String,
+    /// What closing characters are already present after the cursor
+    pub closing_brace: ClosingBrace,
+    /// Whether a space is needed before the completion (true if cursor is right after `{%`)
+    pub needs_leading_space: bool,
+}
+
+/// Information about a line of text and cursor position within it
+#[derive(Debug)]
+pub struct LineInfo {
+    /// The complete line text
+    pub line_text: String,
+    /// The cursor offset within the line (in characters)
+    pub cursor_offset_in_line: usize,
+}
+
+/// Main entry point for handling completion requests
+pub fn handle_completion(
+    document: &TextDocument,
+    position: Position,
+    encoding: PositionEncoding,
+    file_kind: FileKind,
+    template_tags: Option<&TemplateTags>,
+) -> Vec<CompletionItem> {
+    // Only handle template files
+    if file_kind != FileKind::Template {
+        return Vec::new();
+    }
+
+    // Get line information from document
+    let Some(line_info) = get_line_info(document, position, encoding) else {
+        return Vec::new();
+    };
+
+    // Analyze template context at cursor position
+    let Some(context) =
+        analyze_template_context(&line_info.line_text, line_info.cursor_offset_in_line)
+    else {
+        return Vec::new();
+    };
+
+    // Generate completions based on available template tags
+    generate_template_completions(&context, template_tags)
+}
+
+/// Extract line information from document at given position
+fn get_line_info(
+    document: &TextDocument,
+    position: Position,
+    encoding: PositionEncoding,
+) -> Option<LineInfo> {
+    // Get the line content and calculate cursor position within line
+    let content = document.content();
+    let lines: Vec<&str> = content.lines().collect();
+
+    let line_index = position.line as usize;
+    if line_index >= lines.len() {
+        return None;
+    }
+
+    let line_text = lines[line_index].to_string();
+
+    // For UTF-16 encoding, we need to convert the character position
+    let cursor_offset_in_line = match encoding {
+        PositionEncoding::Utf16 => {
+            // Convert UTF-16 position to UTF-8 character offset
+            let utf16_pos = position.character as usize;
+            let mut utf8_offset = 0;
+            let mut utf16_offset = 0;
+
+            for ch in line_text.chars() {
+                if utf16_offset >= utf16_pos {
+                    break;
+                }
+                utf16_offset += ch.len_utf16();
+                utf8_offset += 1;
+            }
+            utf8_offset
+        }
+        _ => position.character as usize,
+    };
+
+    Some(LineInfo {
+        line_text,
+        cursor_offset_in_line: cursor_offset_in_line.min(lines[line_index].chars().count()),
+    })
+}
+
+/// Analyze a line of template text to determine completion context
+fn analyze_template_context(line: &str, cursor_offset: usize) -> Option<TemplateTagContext> {
+    if cursor_offset > line.chars().count() {
+        return None;
+    }
+
+    let chars: Vec<char> = line.chars().collect();
+    let prefix = chars[..cursor_offset].iter().collect::<String>();
+    let rest_of_line = chars[cursor_offset..].iter().collect::<String>();
+    let rest_trimmed = rest_of_line.trim_start();
+
+    prefix.rfind("{%").map(|tag_start| {
+        let closing_brace = if rest_trimmed.starts_with("%}") {
+            ClosingBrace::FullClose
+        } else if rest_trimmed.starts_with('}') {
+            ClosingBrace::PartialClose
+        } else {
+            ClosingBrace::None
+        };
+
+        let partial_tag_start = tag_start + 2; // Skip "{%"
+        let content_after_tag = if partial_tag_start < prefix.len() {
+            &prefix[partial_tag_start..]
+        } else {
+            ""
+        };
+
+        // Check if we need a leading space - true if there's no space after {%
+        let needs_leading_space =
+            !content_after_tag.starts_with(' ') && !content_after_tag.is_empty();
+
+        let partial_tag = content_after_tag.trim().to_string();
+
+        TemplateTagContext {
+            partial_tag,
+            closing_brace,
+            needs_leading_space,
+        }
+    })
+}
+
+/// Generate Django template tag completion items based on context
+fn generate_template_completions(
+    context: &TemplateTagContext,
+    template_tags: Option<&TemplateTags>,
+) -> Vec<CompletionItem> {
+    let Some(tags) = template_tags else {
+        return Vec::new();
+    };
+
+    let mut completions = Vec::new();
+
+    for tag in tags.iter() {
+        // Filter tags based on partial match
+        if tag.name().starts_with(&context.partial_tag) {
+            // Determine insertion text based on context
+            let mut insert_text = String::new();
+
+            // Add leading space if needed (cursor right after {%)
+            if context.needs_leading_space {
+                insert_text.push(' ');
+            }
+
+            // Add the tag name
+            insert_text.push_str(tag.name());
+
+            // Add closing based on what's already present
+            match context.closing_brace {
+                ClosingBrace::None => insert_text.push_str(" %}"),
+                ClosingBrace::PartialClose => insert_text.push('%'),
+                ClosingBrace::FullClose => {} // No closing needed
+            }
+
+            // Create completion item
+            let completion_item = CompletionItem {
+                label: tag.name().clone(),
+                kind: Some(CompletionItemKind::FUNCTION),
+                detail: Some(format!("from {}", tag.library())),
+                documentation: tag.doc().map(|doc| Documentation::String(doc.clone())),
+                insert_text: Some(insert_text),
+                insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
+                filter_text: Some(tag.name().clone()),
+                ..Default::default()
+            };
+
+            completions.push(completion_item);
+        }
+    }
+
+    completions
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_analyze_template_context_basic() {
+        let line = "{% loa";
+        let cursor_offset = 6; // After "loa"
+
+        let context = analyze_template_context(line, cursor_offset).expect("Should get context");
+
+        assert_eq!(context.partial_tag, "loa");
+        assert!(!context.needs_leading_space);
+        assert!(matches!(context.closing_brace, ClosingBrace::None));
+    }
+
+    #[test]
+    fn test_analyze_template_context_needs_leading_space() {
+        let line = "{%loa";
+        let cursor_offset = 5; // After "loa"
+
+        let context = analyze_template_context(line, cursor_offset).expect("Should get context");
+
+        assert_eq!(context.partial_tag, "loa");
+        assert!(context.needs_leading_space);
+        assert!(matches!(context.closing_brace, ClosingBrace::None));
+    }
+
+    #[test]
+    fn test_analyze_template_context_with_closing() {
+        let line = "{% load %}";
+        let cursor_offset = 7; // After "load"
+
+        let context = analyze_template_context(line, cursor_offset).expect("Should get context");
+
+        assert_eq!(context.partial_tag, "load");
+        assert!(!context.needs_leading_space);
+        assert!(matches!(context.closing_brace, ClosingBrace::FullClose));
+    }
+
+    #[test]
+    fn test_analyze_template_context_partial_closing() {
+        let line = "{% load }";
+        let cursor_offset = 7; // After "load"
+
+        let context = analyze_template_context(line, cursor_offset).expect("Should get context");
+
+        assert_eq!(context.partial_tag, "load");
+        assert!(!context.needs_leading_space);
+        assert!(matches!(context.closing_brace, ClosingBrace::PartialClose));
+    }
+
+    #[test]
+    fn test_analyze_template_context_no_template() {
+        let line = "Just regular HTML";
+        let cursor_offset = 5;
+
+        let context = analyze_template_context(line, cursor_offset);
+
+        assert!(context.is_none());
+    }
+
+    #[test]
+    fn test_generate_template_completions_empty_tags() {
+        let context = TemplateTagContext {
+            partial_tag: "loa".to_string(),
+            needs_leading_space: false,
+            closing_brace: ClosingBrace::None,
+        };
+
+        let completions = generate_template_completions(&context, None);
+
+        assert!(completions.is_empty());
+    }
+}
+

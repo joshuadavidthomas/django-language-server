@@ -2,6 +2,7 @@ use std::future::Future;
 use std::sync::Arc;
 
 use djls_workspace::paths;
+use djls_workspace::FileKind;
 use tokio::sync::RwLock;
 use tower_lsp_server::jsonrpc::Result as LspResult;
 use tower_lsp_server::lsp_types;
@@ -258,21 +259,38 @@ impl LanguageServer for DjangoLanguageServer {
                 let lsp_uri = params.text_document_position.text_document.uri;
                 let url = Url::parse(&lsp_uri.to_string()).expect("Valid URI from LSP");
                 let position = params.text_document_position.position;
-                let _encoding = session.position_encoding();
+                let encoding = session.position_encoding();
 
                 tracing::debug!("Completion requested for {} at {:?}", url, position);
 
+                // Get file path and determine file type
                 if let Some(path) = paths::url_to_path(&url) {
-                    let content = session.file_content(path);
-                    if content.is_empty() {
-                        tracing::debug!("File {} has no content", url);
-                    } else {
-                        tracing::debug!("Using content for completion in {}", url);
-                        // TODO: Implement actual completion logic using content and encoding
-                    }
-                }
+                    let file_kind = FileKind::from_path(&path);
 
-                None
+                    // Get the document from buffers
+                    let document = session.get_document(&url)?;
+                    
+                    // Get template tags from the project
+                    let template_tags = session.project()
+                        .and_then(|p| p.template_tags());
+
+                    // Generate completions using the new completions module
+                    let completions = crate::completions::handle_completion(
+                        &document,
+                        position,
+                        encoding,
+                        file_kind,
+                        template_tags,
+                    );
+
+                    if completions.is_empty() {
+                        None
+                    } else {
+                        Some(lsp_types::CompletionResponse::Array(completions))
+                    }
+                } else {
+                    None
+                }
             })
             .await;
 

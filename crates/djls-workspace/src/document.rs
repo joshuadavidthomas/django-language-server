@@ -5,13 +5,10 @@
 //! performance when handling frequent position-based operations like hover, completion,
 //! and diagnostics.
 
-use tower_lsp_server::lsp_types::Position;
-use tower_lsp_server::lsp_types::Range;
+use tower_lsp_server::lsp_types::{Position, Range};
 
 use crate::encoding::PositionEncoding;
 use crate::language::LanguageId;
-use crate::template::ClosingBrace;
-use crate::template::TemplateTagContext;
 
 /// In-memory representation of an open document in the LSP.
 ///
@@ -95,7 +92,7 @@ impl TextDocument {
     ) {
         // Fast path: single change without range = full document replacement
         if changes.len() == 1 && changes[0].range.is_none() {
-            self.content = changes[0].text.clone();
+            self.content.clone_from(&changes[0].text);
             self.line_index = LineIndex::new(&self.content);
             self.version = version;
             return;
@@ -135,50 +132,6 @@ impl TextDocument {
         // Store the rebuilt document
         self.content = new_content;
         self.version = version;
-    }
-
-    #[must_use]
-    pub fn get_template_tag_context(
-        &self,
-        position: Position,
-        encoding: PositionEncoding,
-    ) -> Option<TemplateTagContext> {
-        let start = self.line_index.line_starts.get(position.line as usize)?;
-        let end = self
-            .line_index
-            .line_starts
-            .get(position.line as usize + 1)
-            .copied()
-            .unwrap_or(self.line_index.length);
-
-        let line = &self.content[*start as usize..end as usize];
-
-        // Use the new offset method with the specified encoding
-        let char_offset = self.line_index.offset(position, &self.content, encoding) as usize;
-        let char_pos = char_offset - *start as usize;
-
-        let prefix = &line[..char_pos];
-        let rest_of_line = &line[char_pos..];
-        let rest_trimmed = rest_of_line.trim_start();
-
-        prefix.rfind("{%").map(|tag_start| {
-            // Check if we're immediately after {% with no space
-            let needs_leading_space = prefix.ends_with("{%");
-
-            let closing_brace = if rest_trimmed.starts_with("%}") {
-                ClosingBrace::FullClose
-            } else if rest_trimmed.starts_with('}') {
-                ClosingBrace::PartialClose
-            } else {
-                ClosingBrace::None
-            };
-
-            TemplateTagContext {
-                partial_tag: prefix[tag_start + 2..].trim().to_string(),
-                needs_leading_space,
-                closing_brace,
-            }
-        })
     }
 
     #[must_use]
@@ -514,22 +467,6 @@ mod tests {
         let line2_offset = offset_cjk as usize - line2_start;
         let line2 = &doc.content()[line2_start..];
         assert_eq!(&line2[line2_offset..=line2_offset], " ");
-    }
-
-    #[test]
-    fn test_template_tag_context_with_utf16() {
-        // Test template with non-ASCII characters before template tag
-        let content = "Título 🌍: {% for";
-        let doc = TextDocument::new(content.to_string(), 1, LanguageId::HtmlDjango);
-
-        // Position after "for" - UTF-16 position 17 (after 'r')
-        let pos = Position::new(0, 17);
-        let tag_context = doc
-            .get_template_tag_context(pos, PositionEncoding::Utf16)
-            .expect("Should get template context");
-
-        assert_eq!(tag_context.partial_tag, "for");
-        assert!(!tag_context.needs_leading_space);
     }
 
     #[test]
