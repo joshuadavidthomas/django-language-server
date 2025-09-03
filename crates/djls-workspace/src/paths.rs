@@ -46,7 +46,9 @@ pub fn lsp_uri_to_path(lsp_uri: &lsp_types::Uri) -> Option<PathBuf> {
 /// Convert a [`Path`] to a `file://` URL
 ///
 /// Handles both absolute and relative paths. Relative paths are resolved
-/// to absolute paths before conversion.
+/// to absolute paths before conversion. This function does not require
+/// the path to exist on the filesystem, making it suitable for overlay
+/// files and other virtual content.
 #[must_use]
 pub fn path_to_url(path: &Path) -> Option<Url> {
     // For absolute paths, convert directly
@@ -54,13 +56,17 @@ pub fn path_to_url(path: &Path) -> Option<Url> {
         return Url::from_file_path(path).ok();
     }
 
-    // For relative paths, try to make them absolute first
-    if let Ok(absolute_path) = std::fs::canonicalize(path) {
-        return Url::from_file_path(absolute_path).ok();
-    }
-
-    // If canonicalization fails, try converting as-is (might fail)
-    Url::from_file_path(path).ok()
+    // For relative paths, make them absolute without requiring existence
+    // First try to get the current directory
+    let current_dir = std::env::current_dir().ok()?;
+    let absolute_path = current_dir.join(path);
+    
+    // Try to canonicalize if the file exists (to resolve symlinks, etc.)
+    // but if it doesn't exist, use the joined path as-is
+    let final_path = std::fs::canonicalize(&absolute_path)
+        .unwrap_or(absolute_path);
+    
+    Url::from_file_path(final_path).ok()
 }
 
 #[cfg(test)]
@@ -164,9 +170,44 @@ mod tests {
         let path = PathBuf::from("../some/nonexistent/path.txt");
         let url = path_to_url(&path);
 
-        // This might fail if the path doesn't exist and can't be canonicalized
-        // Current implementation falls back to trying direct conversion
-        assert!(url.is_none() || url.is_some());
+        // Should now work even for non-existent files
+        assert!(url.is_some(), "Should handle non-existent relative paths");
+        if let Some(u) = url {
+            assert_eq!(u.scheme(), "file");
+            assert!(u.path().ends_with("some/nonexistent/path.txt"));
+        }
+    }
+    
+    #[test]
+    fn test_non_existent_absolute_path() {
+        // Test that absolute paths work even if they don't exist
+        let path = if cfg!(windows) {
+            PathBuf::from("C:/NonExistent/Directory/file.txt")
+        } else {
+            PathBuf::from("/nonexistent/directory/file.txt")
+        };
+        
+        let url = path_to_url(&path);
+        assert!(url.is_some(), "Should handle non-existent absolute paths");
+        if let Some(u) = url {
+            assert_eq!(u.scheme(), "file");
+            assert!(u.path().contains("file.txt"));
+        }
+    }
+    
+    #[test]
+    fn test_non_existent_relative_path() {
+        // Test that relative paths work even if they don't exist
+        let path = PathBuf::from("nonexistent/file.txt");
+        let url = path_to_url(&path);
+        
+        assert!(url.is_some(), "Should handle non-existent relative paths");
+        if let Some(u) = url {
+            assert_eq!(u.scheme(), "file");
+            assert!(u.path().ends_with("nonexistent/file.txt"));
+            // Should be an absolute URL
+            assert!(u.path().starts_with('/') || cfg!(windows));
+        }
     }
 
     #[test]

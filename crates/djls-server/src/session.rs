@@ -174,17 +174,18 @@ impl Session {
     }
     /// Determines the project root path from initialization parameters.
     ///
-    /// Tries the current directory first, then falls back to the first workspace folder.
+    /// Tries workspace folders first (using the first one), then falls back to current directory.
     fn get_project_path(params: &lsp_types::InitializeParams) -> Option<PathBuf> {
-        // Try current directory first
-        std::env::current_dir().ok().or_else(|| {
-            // Fall back to the first workspace folder URI
-            params
-                .workspace_folders
-                .as_ref()
-                .and_then(|folders| folders.first())
-                .and_then(|folder| paths::lsp_uri_to_path(&folder.uri))
-        })
+        // Try workspace folders first
+        params
+            .workspace_folders
+            .as_ref()
+            .and_then(|folders| folders.first())
+            .and_then(|folder| paths::lsp_uri_to_path(&folder.uri))
+            .or_else(|| {
+                // Fall back to current directory
+                std::env::current_dir().ok()
+            })
     }
 
     #[must_use]
@@ -231,6 +232,20 @@ impl Session {
     /// This is an internal method that should only be called by
     /// [`with_db_mut`](Session::with_db_mut). Multiple concurrent calls would panic when trying
     /// to take an already-taken handle.
+    ///
+    /// ## Safety Note on Placeholder Handle
+    ///
+    /// This method uses `StorageHandle::new(None)` as a temporary placeholder, which
+    /// creates a new Salsa instance without event callbacks. While this could theoretically
+    /// lose state if called concurrently, the outer `Arc<RwLock<Option<Session>>>` at the
+    /// server level ensures this method is only called with exclusive access to the Session.
+    ///
+    /// The placeholder is immediately replaced when `restore_db_handle()` is called at the
+    /// end of the mutation operation, so no actual state is lost.
+    ///
+    /// A future improvement (see TODO above) would be to implement a `StorageHandleGuard`
+    /// abstraction that makes these state transitions more explicit and type-safe. See
+    /// task-152 for the planned implementation.
     fn take_db_handle_for_mutation(&mut self) -> StorageHandle<Database> {
         std::mem::replace(&mut self.db_handle, StorageHandle::new(None))
     }

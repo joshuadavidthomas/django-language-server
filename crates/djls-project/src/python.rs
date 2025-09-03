@@ -208,9 +208,7 @@ mod tests {
 
         use super::*;
         use crate::system::mock::MockGuard;
-        use crate::system::mock::{
-            self as sys_mock,
-        };
+        use crate::system::mock::{self as sys_mock};
 
         #[test]
         fn test_explicit_venv_path_found() {

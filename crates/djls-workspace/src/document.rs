@@ -104,26 +104,24 @@ impl TextDocument {
         // Incremental path: apply changes to rebuild the document
         // Clone current content and apply each change
         let mut new_content = self.content.clone();
-        
+
         for change in changes {
             if let Some(range) = change.range {
                 // Convert LSP range to byte offsets
                 // Note: We use UTF-16 encoding by default for LSP compatibility
                 // This will need to use the negotiated encoding in the future
-                let start_offset = self.line_index.offset(
-                    range.start,
-                    &new_content,
-                    PositionEncoding::Utf16,
-                ) as usize;
-                let end_offset = self.line_index.offset(
-                    range.end,
-                    &new_content,
-                    PositionEncoding::Utf16,
-                ) as usize;
+                let start_offset =
+                    self.line_index
+                        .offset(range.start, &new_content, PositionEncoding::Utf16)
+                        as usize;
+                let end_offset =
+                    self.line_index
+                        .offset(range.end, &new_content, PositionEncoding::Utf16)
+                        as usize;
 
                 // Apply the change by replacing the range
                 new_content.replace_range(start_offset..end_offset, &change.text);
-                
+
                 // Rebuild line index after each change since positions shift
                 // This is necessary for subsequent changes to have correct offsets
                 self.line_index = LineIndex::new(&new_content);
@@ -362,7 +360,11 @@ mod tests {
 
     #[test]
     fn test_incremental_update_multiple_changes() {
-        let mut doc = TextDocument::new("First line\nSecond line\nThird line".to_string(), 1, LanguageId::Other);
+        let mut doc = TextDocument::new(
+            "First line\nSecond line\nThird line".to_string(),
+            1,
+            LanguageId::Other,
+        );
 
         // Multiple changes: replace "First" with "1st" and "Third" with "3rd"
         let changes = vec![

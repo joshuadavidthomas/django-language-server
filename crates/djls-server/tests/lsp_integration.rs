@@ -291,16 +291,11 @@ async fn test_incremental_sync() {
     let file_name = "test.html";
 
     // Open document with initial content
-    server
-        .open_document(file_name, "Hello world", 1)
-        .await;
+    server.open_document(file_name, "Hello world", 1).await;
 
     // Apply incremental change to replace "world" with "Rust"
     let changes = vec![TextDocumentContentChangeEvent {
-        range: Some(Range::new(
-            Position::new(0, 6),
-            Position::new(0, 11),
-        )),
+        range: Some(Range::new(Position::new(0, 6), Position::new(0, 11))),
         range_length: None,
         text: "Rust".to_string(),
     }];
@@ -317,19 +312,13 @@ async fn test_incremental_sync() {
     let changes = vec![
         // Insert " programming" after "Rust"
         TextDocumentContentChangeEvent {
-            range: Some(Range::new(
-                Position::new(0, 10),
-                Position::new(0, 10),
-            )),
+            range: Some(Range::new(Position::new(0, 10), Position::new(0, 10))),
             range_length: None,
             text: " programming".to_string(),
         },
         // Replace "Hello" with "Learning"
         TextDocumentContentChangeEvent {
-            range: Some(Range::new(
-                Position::new(0, 0),
-                Position::new(0, 5),
-            )),
+            range: Some(Range::new(Position::new(0, 0), Position::new(0, 5))),
             range_length: None,
             text: "Learning".to_string(),
         },
@@ -357,8 +346,8 @@ async fn test_incremental_sync_with_newlines() {
     // Replace text spanning multiple lines
     let changes = vec![TextDocumentContentChangeEvent {
         range: Some(Range::new(
-            Position::new(0, 5),  // After "Line " on first line
-            Position::new(2, 4),  // Before " 3" on third line
+            Position::new(0, 5), // After "Line " on first line
+            Position::new(2, 4), // Before " 3" on third line
         )),
         range_length: None,
         text: "A\nB\nC".to_string(),
@@ -556,6 +545,98 @@ async fn test_revision_tracking_across_lifecycle() {
 }
 
 #[tokio::test]
+async fn test_workspace_folder_priority() {
+    // Set up logging
+    let (_non_blocking, guard) = tracing_appender::non_blocking(std::io::sink());
+    let server = DjangoLanguageServer::new(guard);
+
+    // Test case 1: Workspace folders provided - should use first workspace folder
+    let workspace_folder1 = WorkspaceFolder {
+        uri: "file:///workspace/folder1".parse().unwrap(),
+        name: "workspace1".to_string(),
+    };
+    let workspace_folder2 = WorkspaceFolder {
+        uri: "file:///workspace/folder2".parse().unwrap(),
+        name: "workspace2".to_string(),
+    };
+
+    let init_params = InitializeParams {
+        workspace_folders: Some(vec![workspace_folder1.clone(), workspace_folder2.clone()]),
+        ..Default::default()
+    };
+
+    server
+        .initialize(init_params)
+        .await
+        .expect("Failed to initialize");
+    server.initialized(InitializedParams {}).await;
+
+    // Check that the session uses the first workspace folder
+    let project_path = server
+        .with_session(|session| {
+            session
+                .project()
+                .map(|project| project.path().to_path_buf())
+        })
+        .await;
+
+    assert_eq!(project_path, Some(PathBuf::from("/workspace/folder1")));
+
+    // Test case 2: No workspace folders - should fall back to current directory
+    let (_non_blocking2, guard2) = tracing_appender::non_blocking(std::io::sink());
+    let server2 = DjangoLanguageServer::new(guard2);
+
+    let init_params2 = InitializeParams {
+        workspace_folders: None,
+        ..Default::default()
+    };
+
+    server2
+        .initialize(init_params2)
+        .await
+        .expect("Failed to initialize");
+    server2.initialized(InitializedParams {}).await;
+
+    // Check that the session falls back to current directory
+    let current_dir = std::env::current_dir().ok();
+    let project_path2 = server2
+        .with_session(|session| {
+            session
+                .project()
+                .map(|project| project.path().to_path_buf())
+        })
+        .await;
+
+    assert_eq!(project_path2, current_dir);
+
+    // Test case 3: Empty workspace folders array - should fall back to current directory
+    let (_non_blocking3, guard3) = tracing_appender::non_blocking(std::io::sink());
+    let server3 = DjangoLanguageServer::new(guard3);
+
+    let init_params3 = InitializeParams {
+        workspace_folders: Some(vec![]),
+        ..Default::default()
+    };
+
+    server3
+        .initialize(init_params3)
+        .await
+        .expect("Failed to initialize");
+    server3.initialized(InitializedParams {}).await;
+
+    // Check that the session falls back to current directory
+    let project_path3 = server3
+        .with_session(|session| {
+            session
+                .project()
+                .map(|project| project.path().to_path_buf())
+        })
+        .await;
+
+    assert_eq!(project_path3, current_dir);
+}
+
+#[tokio::test]
 async fn test_language_id_preservation_during_fallback() {
     let server = TestServer::new().await;
     let file_name = "template.html";
@@ -568,8 +649,10 @@ async fn test_language_id_preservation_during_fallback() {
         version: 1,
         text: "{% block content %}Initial{% endblock %}".to_string(),
     };
-    
-    let params = DidOpenTextDocumentParams { text_document: document };
+
+    let params = DidOpenTextDocumentParams {
+        text_document: document,
+    };
     server.server.did_open(params).await;
 
     // Verify the document was opened with the correct language_id
@@ -578,7 +661,7 @@ async fn test_language_id_preservation_during_fallback() {
         .with_session_mut(|session| session.get_document(&url))
         .await;
     match document.unwrap().language_id() {
-        djls_workspace::LanguageId::HtmlDjango => {}, // Expected
+        djls_workspace::LanguageId::HtmlDjango => {} // Expected
         _ => panic!("Expected HtmlDjango language_id"),
     }
 
@@ -591,14 +674,20 @@ async fn test_language_id_preservation_during_fallback() {
         },
         content_changes: vec![TextDocumentContentChangeEvent {
             range: Some(Range {
-                start: Position { line: 100, character: 0 }, // Invalid position
-                end: Position { line: 100, character: 0 },
+                start: Position {
+                    line: 100,
+                    character: 0,
+                }, // Invalid position
+                end: Position {
+                    line: 100,
+                    character: 0,
+                },
             }),
             range_length: None,
             text: "Fallback content".to_string(),
         }],
     };
-    
+
     server.server.did_change(params).await;
 
     // Verify the document still has the correct language_id after fallback
@@ -607,10 +696,10 @@ async fn test_language_id_preservation_during_fallback() {
         .with_session_mut(|session| session.get_document(&url))
         .await;
     match document.unwrap().language_id() {
-        djls_workspace::LanguageId::HtmlDjango => {}, // Expected
+        djls_workspace::LanguageId::HtmlDjango => {} // Expected
         _ => panic!("Expected HtmlDjango language_id after fallback"),
     }
-    
+
     // Also test with a Python file
     let py_file_name = "views.py";
     let py_url = server.workspace_url(py_file_name);
@@ -620,8 +709,10 @@ async fn test_language_id_preservation_during_fallback() {
         version: 1,
         text: "def hello():\n    return 'world'".to_string(),
     };
-    
-    let params = DidOpenTextDocumentParams { text_document: document };
+
+    let params = DidOpenTextDocumentParams {
+        text_document: document,
+    };
     server.server.did_open(params).await;
 
     // Verify the Python document was opened with the correct language_id
@@ -630,7 +721,7 @@ async fn test_language_id_preservation_during_fallback() {
         .with_session_mut(|session| session.get_document(&py_url))
         .await;
     match document.unwrap().language_id() {
-        djls_workspace::LanguageId::Python => {}, // Expected
+        djls_workspace::LanguageId::Python => {} // Expected
         _ => panic!("Expected Python language_id"),
     }
 
@@ -642,14 +733,20 @@ async fn test_language_id_preservation_during_fallback() {
         },
         content_changes: vec![TextDocumentContentChangeEvent {
             range: Some(Range {
-                start: Position { line: 100, character: 0 }, // Invalid position
-                end: Position { line: 100, character: 0 },
+                start: Position {
+                    line: 100,
+                    character: 0,
+                }, // Invalid position
+                end: Position {
+                    line: 100,
+                    character: 0,
+                },
             }),
             range_length: None,
             text: "def fallback():\n    pass".to_string(),
         }],
     };
-    
+
     server.server.did_change(params).await;
 
     // Verify the Python document still has the correct language_id after fallback
@@ -658,7 +755,7 @@ async fn test_language_id_preservation_during_fallback() {
         .with_session_mut(|session| session.get_document(&py_url))
         .await;
     match document.unwrap().language_id() {
-        djls_workspace::LanguageId::Python => {}, // Expected
+        djls_workspace::LanguageId::Python => {} // Expected
         _ => panic!("Expected Python language_id after fallback"),
     }
 }

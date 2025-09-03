@@ -42,7 +42,7 @@ use crate::FileSystem;
 #[salsa::db]
 pub trait Db: salsa::Database {
     /// Get the file system for reading files.
-    fn fs(&self) -> Option<Arc<dyn FileSystem>>;
+    fn fs(&self) -> Arc<dyn FileSystem>;
 
     /// Read file content through the file system.
     ///
@@ -61,9 +61,8 @@ pub trait Db: salsa::Database {
 pub struct Database {
     storage: salsa::Storage<Self>,
 
-    // TODO: does this need to be an Option?
     /// File system for reading file content (checks buffers first, then disk).
-    fs: Option<Arc<dyn FileSystem>>,
+    fs: Arc<dyn FileSystem>,
 
     /// Maps paths to [`SourceFile`] entities for O(1) lookup.
     files: Arc<DashMap<PathBuf, SourceFile>>,
@@ -76,6 +75,8 @@ pub struct Database {
 #[cfg(test)]
 impl Default for Database {
     fn default() -> Self {
+        use crate::fs::InMemoryFileSystem;
+
         let logs = <Arc<Mutex<Option<Vec<String>>>>>::default();
         Self {
             storage: salsa::Storage::new(Some(Box::new({
@@ -91,7 +92,7 @@ impl Default for Database {
                     }
                 }
             }))),
-            fs: None,
+            fs: Arc::new(InMemoryFileSystem::new()),
             files: Arc::new(DashMap::new()),
             logs,
         }
@@ -102,7 +103,7 @@ impl Database {
     pub fn new(file_system: Arc<dyn FileSystem>, files: Arc<DashMap<PathBuf, SourceFile>>) -> Self {
         Self {
             storage: salsa::Storage::new(None),
-            fs: Some(file_system),
+            fs: file_system,
             files,
             #[cfg(test)]
             logs: Arc::new(Mutex::new(None)),
@@ -116,7 +117,7 @@ impl Database {
     ) -> Self {
         Self {
             storage,
-            fs: Some(file_system),
+            fs: file_system,
             files,
             #[cfg(test)]
             logs: Arc::new(Mutex::new(None)),
@@ -125,11 +126,7 @@ impl Database {
 
     /// Read file content through the file system.
     pub fn read_file_content(&self, path: &Path) -> std::io::Result<String> {
-        if let Some(fs) = &self.fs {
-            fs.read_to_string(path)
-        } else {
-            std::fs::read_to_string(path)
-        }
+        self.fs.read_to_string(path)
     }
 
     /// Get or create a [`SourceFile`] for the given path.
@@ -210,15 +207,12 @@ impl salsa::Database for Database {}
 
 #[salsa::db]
 impl Db for Database {
-    fn fs(&self) -> Option<Arc<dyn FileSystem>> {
+    fn fs(&self) -> Arc<dyn FileSystem> {
         self.fs.clone()
     }
 
     fn read_file_content(&self, path: &Path) -> std::io::Result<String> {
-        match &self.fs {
-            Some(fs) => fs.read_to_string(path),
-            None => std::fs::read_to_string(path), // Fallback to direct disk access
-        }
+        self.fs.read_to_string(path)
     }
 }
 

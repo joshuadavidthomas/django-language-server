@@ -29,9 +29,6 @@ pub trait FileSystem: Send + Sync {
 
     /// List directory contents
     fn read_directory(&self, path: &Path) -> io::Result<Vec<PathBuf>>;
-
-    /// Get file metadata (size, modified time, etc.)
-    fn metadata(&self, path: &Path) -> io::Result<std::fs::Metadata>;
 }
 
 /// In-memory file system for testing
@@ -79,13 +76,6 @@ impl FileSystem for InMemoryFileSystem {
         // Simplified for testing
         Ok(Vec::new())
     }
-
-    fn metadata(&self, _path: &Path) -> io::Result<std::fs::Metadata> {
-        Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "Metadata not supported in memory filesystem",
-        ))
-    }
 }
 
 /// Standard file system implementation that uses [`std::fs`].
@@ -113,10 +103,6 @@ impl FileSystem for OsFileSystem {
             .map(|entry| entry.map(|e| e.path()))
             .collect()
     }
-
-    fn metadata(&self, path: &Path) -> io::Result<std::fs::Metadata> {
-        std::fs::metadata(path)
-    }
 }
 
 /// LSP file system that intercepts reads for buffered files.
@@ -126,6 +112,16 @@ impl FileSystem for OsFileSystem {
 /// this system first checks for a buffer (in-memory content from
 /// [`TextDocument`](crate::document::TextDocument)) and returns that content.
 /// If no buffer exists, it falls back to reading from disk.
+///
+/// ## Overlay Semantics
+///
+/// Files in the overlay (buffered files) are treated as first-class files:
+/// - `exists()` returns true for overlay files even if they don't exist on disk
+/// - `is_file()` returns true for overlay files
+/// - `read_to_string()` returns the overlay content
+///
+/// This ensures consistent behavior across all filesystem operations for
+/// buffered files that may not yet be saved to disk.
 ///
 /// This type is used by the [`Database`](crate::db::Database) to ensure all file reads go
 /// through the buffer system first.
@@ -171,12 +167,6 @@ impl FileSystem for WorkspaceFileSystem {
     fn read_directory(&self, path: &Path) -> io::Result<Vec<PathBuf>> {
         // Overlays are never directories, so just delegate
         self.disk.read_directory(path)
-    }
-
-    fn metadata(&self, path: &Path) -> io::Result<std::fs::Metadata> {
-        // For overlays, we could synthesize metadata, but for simplicity,
-        // fall back to disk. This might need refinement for edge cases.
-        self.disk.metadata(path)
     }
 }
 
@@ -246,5 +236,66 @@ mod tests {
         assert!(lsp_fs.exists(path));
         assert!(lsp_fs.is_file(path));
         assert!(!lsp_fs.is_directory(path));
+    }
+
+    #[test]
+    fn test_overlay_consistency() {
+        // Create an empty filesystem (no files on disk)
+        let memory_fs = InMemoryFileSystem::new();
+        let buffers = Buffers::new();
+        let lsp_fs = WorkspaceFileSystem::new(buffers.clone(), Arc::new(memory_fs));
+
+        let path = std::path::Path::new("/test/overlay_only.py");
+        
+        // Before adding to overlay, file doesn't exist
+        assert!(!lsp_fs.exists(path));
+        assert!(!lsp_fs.is_file(path));
+        
+        // Add file to overlay only (not on disk)
+        let url = Url::from_file_path("/test/overlay_only.py").unwrap();
+        let document = TextDocument::new("overlay content".to_string(), 1, LanguageId::Python);
+        buffers.open(url, document);
+        
+        // Now file should exist and be recognized as a file
+        assert!(lsp_fs.exists(path), "Overlay file should exist");
+        assert!(lsp_fs.is_file(path), "Overlay file should be recognized as a file");
+        assert!(!lsp_fs.is_directory(path), "Overlay file should not be a directory");
+        
+        // And we should be able to read its content
+        assert_eq!(
+            lsp_fs.read_to_string(path).unwrap(),
+            "overlay content",
+            "Should read overlay content"
+        );
+    }
+    
+    #[test]
+    fn test_overlay_with_relative_path() {
+        // Create an empty filesystem (no files on disk)
+        let memory_fs = InMemoryFileSystem::new();
+        let buffers = Buffers::new();
+        let lsp_fs = WorkspaceFileSystem::new(buffers.clone(), Arc::new(memory_fs));
+        
+        // Use a relative path that doesn't exist on disk
+        let relative_path = std::path::Path::new("nonexistent/overlay.py");
+        
+        // Convert to absolute URL for the buffer (simulating how LSP would provide it)
+        let absolute_path = std::env::current_dir()
+            .unwrap()
+            .join(relative_path);
+        let url = Url::from_file_path(&absolute_path).unwrap();
+        
+        // Add to overlay
+        let document = TextDocument::new("relative overlay".to_string(), 1, LanguageId::Python);
+        buffers.open(url, document);
+        
+        // The relative path should now work through the overlay
+        assert!(lsp_fs.exists(relative_path), "Relative overlay file should exist");
+        assert!(lsp_fs.is_file(relative_path), "Relative overlay file should be a file");
+        assert_eq!(
+            lsp_fs.read_to_string(relative_path).unwrap(),
+            "relative overlay",
+            "Should read relative overlay content"
+        );
     }
 }
