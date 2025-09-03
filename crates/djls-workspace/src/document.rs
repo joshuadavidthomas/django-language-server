@@ -30,7 +30,6 @@ pub struct TextDocument {
 }
 
 impl TextDocument {
-    /// Create a new [`TextDocument`] with the given content
     #[must_use]
     pub fn new(content: String, version: i32, language_id: LanguageId) -> Self {
         let line_index = LineIndex::new(&content);
@@ -42,19 +41,16 @@ impl TextDocument {
         }
     }
 
-    /// Get the document's content
     #[must_use]
     pub fn content(&self) -> &str {
         &self.content
     }
 
-    /// Get the version number
     #[must_use]
     pub fn version(&self) -> i32 {
         self.version
     }
 
-    /// Get the language identifier
     #[must_use]
     pub fn language_id(&self) -> LanguageId {
         self.language_id.clone()
@@ -65,6 +61,7 @@ impl TextDocument {
         &self.line_index
     }
 
+    #[must_use]
     pub fn get_line(&self, line: u32) -> Option<String> {
         let line_start = *self.line_index.line_starts.get(line as usize)?;
         let line_end = self
@@ -77,6 +74,7 @@ impl TextDocument {
         Some(self.content[line_start as usize..line_end as usize].to_string())
     }
 
+    #[must_use]
     pub fn get_text_range(&self, range: Range) -> Option<String> {
         let start_offset = self.line_index.offset(range.start)? as usize;
         let end_offset = self.line_index.offset(range.end)? as usize;
@@ -100,6 +98,7 @@ impl TextDocument {
         self.version = version;
     }
 
+    #[must_use]
     pub fn get_template_tag_context(&self, position: Position) -> Option<TemplateTagContext> {
         let start = self.line_index.line_starts.get(position.line as usize)?;
         let end = self
@@ -135,10 +134,12 @@ impl TextDocument {
         })
     }
 
+    #[must_use]
     pub fn position_to_offset(&self, position: Position) -> Option<u32> {
         self.line_index.offset(position)
     }
 
+    #[must_use]
     pub fn offset_to_position(&self, offset: u32) -> Position {
         self.line_index.position(offset)
     }

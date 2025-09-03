@@ -61,6 +61,7 @@ pub trait Db: salsa::Database {
 pub struct Database {
     storage: salsa::Storage<Self>,
 
+    // TODO: does this need to be an Option?
     /// File system for reading file content (checks buffers first, then disk).
     fs: Option<Arc<dyn FileSystem>>,
 
@@ -98,7 +99,6 @@ impl Default for Database {
 }
 
 impl Database {
-    /// Create a new database with fresh storage.
     pub fn new(file_system: Arc<dyn FileSystem>, files: Arc<DashMap<PathBuf, SourceFile>>) -> Self {
         Self {
             storage: salsa::Storage::new(None),
@@ -109,8 +109,6 @@ impl Database {
         }
     }
 
-    /// Create a database instance from an existing storage.
-    /// This preserves both the file system and files Arc across database operations.
     pub fn from_storage(
         storage: salsa::Storage<Self>,
         file_system: Arc<dyn FileSystem>,
@@ -136,9 +134,8 @@ impl Database {
 
     /// Get or create a [`SourceFile`] for the given path.
     ///
-    /// This method implements Ruff's pattern for lazy file creation. Files are created
-    /// with an initial revision of 0 and tracked in the [`Database`]'s `DashMap`. The `Arc`
-    /// ensures cheap cloning while maintaining thread safety.
+    /// Files are created with an initial revision of 0 and tracked in the [`Database`]'s
+    /// `DashMap`. The `Arc` ensures cheap cloning while maintaining thread safety.
     pub fn get_or_create_file(&mut self, path: PathBuf) -> SourceFile {
         if let Some(file_ref) = self.files.get(&path) {
             // Copy the value (SourceFile is Copy) and drop the guard immediately
@@ -242,9 +239,6 @@ pub struct SourceFile {
 }
 
 /// Read file content, creating a Salsa dependency on the file's revision.
-///
-/// **Critical**: The call to `file.revision(db)` creates the dependency chain.
-/// Without it, revision changes won't trigger query invalidation.
 #[salsa::tracked]
 pub fn source_text(db: &dyn Db, file: SourceFile) -> Arc<str> {
     // This line creates the Salsa dependency on revision! Without this call,
@@ -258,18 +252,6 @@ pub fn source_text(db: &dyn Db, file: SourceFile) -> Arc<str> {
             Arc::from("") // Return empty string for missing files
         }
     }
-}
-
-/// Global input configuring ordered template loader roots.
-///
-/// [`TemplateLoaderOrder`] represents the Django `TEMPLATES[n]['DIRS']` configuration,
-/// defining the search order for template resolution. This is a global input that
-/// affects template name resolution across the entire project.
-#[salsa::input]
-pub struct TemplateLoaderOrder {
-    /// Ordered list of template root directories
-    #[returns(ref)]
-    pub roots: Arc<[String]>,
 }
 
 /// Represents a file path for Salsa tracking.
@@ -347,7 +329,8 @@ pub fn parse_template_by_path(db: &dyn Db, file_path: FilePath) -> Option<Arc<Te
         return None;
     };
 
-    // Call the pure parsing function from djls-templates
+    // Call the parsing function from djls-templates
+    // TODO: Move this whole function into djls-templates
     match djls_templates::parse_template(&text) {
         Ok((ast, errors)) => {
             // Convert errors to strings
@@ -365,31 +348,6 @@ pub fn parse_template_by_path(db: &dyn Db, file_path: FilePath) -> Option<Arc<Te
             }))
         }
     }
-}
-
-/// Get template parsing errors for a file by path.
-///
-/// This Salsa tracked function extracts just the errors from the parsed template,
-/// useful for diagnostics without needing the full AST.
-///
-/// Reads files through the FileSystem for overlay support.
-///
-/// Returns an empty vector for non-template files.
-#[salsa::tracked]
-pub fn template_errors_by_path(db: &dyn Db, file_path: FilePath) -> Arc<[String]> {
-    parse_template_by_path(db, file_path)
-        .map_or_else(|| Arc::from(vec![]), |ast| Arc::from(ast.errors.clone()))
-}
-
-/// Get template parsing errors for a file.
-///
-/// This Salsa tracked function extracts just the errors from the parsed template,
-/// useful for diagnostics without needing the full AST.
-///
-/// Returns an empty vector for non-template files.
-#[salsa::tracked]
-pub fn template_errors(db: &dyn Db, file: SourceFile) -> Arc<[String]> {
-    parse_template(db, file).map_or_else(|| Arc::from(vec![]), |ast| Arc::from(ast.errors.clone()))
 }
 
 #[cfg(test)]

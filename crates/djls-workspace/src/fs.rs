@@ -1,4 +1,4 @@
-//! File system abstraction following Ruff's pattern
+//! Virtual file system abstraction
 //!
 //! This module provides the [`FileSystem`] trait that abstracts file I/O operations.
 //! This allows the LSP to work with both real files and in-memory overlays.
@@ -121,7 +121,7 @@ impl FileSystem for OsFileSystem {
 
 /// LSP file system that intercepts reads for buffered files.
 ///
-/// This implements Ruff's two-layer architecture where Layer 1 (open [`Buffers`])
+/// This implements a two-layer architecture where Layer 1 (open [`Buffers`])
 /// takes precedence over Layer 2 (Salsa database). When a file is read,
 /// this system first checks for a buffer (in-memory content from
 /// [`TextDocument`](crate::document::TextDocument)) and returns that content.
@@ -137,7 +137,6 @@ pub struct WorkspaceFileSystem {
 }
 
 impl WorkspaceFileSystem {
-    /// Create a new [`WorkspaceFileSystem`] with the given buffer storage and fallback
     #[must_use]
     pub fn new(buffers: Buffers, disk: Arc<dyn FileSystem>) -> Self {
         Self { buffers, disk }

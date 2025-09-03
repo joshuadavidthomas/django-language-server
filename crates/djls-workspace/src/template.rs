@@ -3,6 +3,8 @@
 //! Detects cursor position context within Django template tags to provide
 //! appropriate completions and auto-closing behavior.
 
+// TODO: is this module in the right spot or even needed?
+
 /// Tracks what closing characters are needed to complete a template tag.
 ///
 /// Used to determine whether the completion system needs to insert
