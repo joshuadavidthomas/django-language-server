@@ -229,24 +229,8 @@ impl LanguageServer for DjangoLanguageServer {
         self.with_session_mut(|session| {
             let url =
                 Url::parse(&params.text_document.uri.to_string()).expect("Valid URI from LSP");
-            let new_version = params.text_document.version;
-            let changes = params.content_changes;
 
-            match session.apply_document_changes(&url, changes.clone(), new_version) {
-                Ok(()) => {}
-                Err(err) => {
-                    tracing::warn!("{}", err);
-                    // Recovery: handle full content changes only
-                    if let Some(change) = changes.into_iter().next() {
-                        let document = djls_workspace::TextDocument::new(
-                            change.text,
-                            new_version,
-                            djls_workspace::LanguageId::Other,
-                        );
-                        session.update_document(&url, document);
-                    }
-                }
-            }
+            session.update_document(&url, params.content_changes, params.text_document.version);
         })
         .await;
     }

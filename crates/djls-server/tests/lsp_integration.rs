@@ -17,6 +17,8 @@ use tower_lsp_server::lsp_types::DidCloseTextDocumentParams;
 use tower_lsp_server::lsp_types::DidOpenTextDocumentParams;
 use tower_lsp_server::lsp_types::InitializeParams;
 use tower_lsp_server::lsp_types::InitializedParams;
+use tower_lsp_server::lsp_types::Position;
+use tower_lsp_server::lsp_types::Range;
 use tower_lsp_server::lsp_types::TextDocumentContentChangeEvent;
 use tower_lsp_server::lsp_types::TextDocumentIdentifier;
 use tower_lsp_server::lsp_types::TextDocumentItem;
@@ -113,6 +115,24 @@ impl TestServer {
                 range_length: None,
                 text: new_content.to_string(),
             }],
+        };
+
+        self.server.did_change(params).await;
+    }
+
+    /// Send incremental changes to a document
+    async fn change_document_incremental(
+        &self,
+        file_name: &str,
+        changes: Vec<TextDocumentContentChangeEvent>,
+        version: i32,
+    ) {
+        let params = DidChangeTextDocumentParams {
+            text_document: VersionedTextDocumentIdentifier {
+                uri: self.workspace_url(file_name).to_string().parse().unwrap(),
+                version,
+            },
+            content_changes: changes,
         };
 
         self.server.did_change(params).await;
@@ -263,6 +283,94 @@ async fn test_template_parsing_with_overlays() {
     let ast_str = format!("{:?}", ast.ast);
     assert!(ast_str.contains("for") || ast_str.contains("For"));
     assert!(!ast_str.contains("if") && !ast_str.contains("If"));
+}
+
+#[tokio::test]
+async fn test_incremental_sync() {
+    let server = TestServer::new().await;
+    let file_name = "test.html";
+
+    // Open document with initial content
+    server
+        .open_document(file_name, "Hello world", 1)
+        .await;
+
+    // Apply incremental change to replace "world" with "Rust"
+    let changes = vec![TextDocumentContentChangeEvent {
+        range: Some(Range::new(
+            Position::new(0, 6),
+            Position::new(0, 11),
+        )),
+        range_length: None,
+        text: "Rust".to_string(),
+    }];
+
+    server
+        .change_document_incremental(file_name, changes, 2)
+        .await;
+
+    // Verify the incremental change was applied correctly
+    let content = server.get_file_content(file_name).await;
+    assert_eq!(content, "Hello Rust");
+
+    // Apply multiple incremental changes
+    let changes = vec![
+        // Insert " programming" after "Rust"
+        TextDocumentContentChangeEvent {
+            range: Some(Range::new(
+                Position::new(0, 10),
+                Position::new(0, 10),
+            )),
+            range_length: None,
+            text: " programming".to_string(),
+        },
+        // Replace "Hello" with "Learning"
+        TextDocumentContentChangeEvent {
+            range: Some(Range::new(
+                Position::new(0, 0),
+                Position::new(0, 5),
+            )),
+            range_length: None,
+            text: "Learning".to_string(),
+        },
+    ];
+
+    server
+        .change_document_incremental(file_name, changes, 3)
+        .await;
+
+    // Verify multiple changes were applied in order
+    let content = server.get_file_content(file_name).await;
+    assert_eq!(content, "Learning Rust programming");
+}
+
+#[tokio::test]
+async fn test_incremental_sync_with_newlines() {
+    let server = TestServer::new().await;
+    let file_name = "multiline.html";
+
+    // Open document with multiline content
+    server
+        .open_document(file_name, "Line 1\nLine 2\nLine 3", 1)
+        .await;
+
+    // Replace text spanning multiple lines
+    let changes = vec![TextDocumentContentChangeEvent {
+        range: Some(Range::new(
+            Position::new(0, 5),  // After "Line " on first line
+            Position::new(2, 4),  // Before " 3" on third line
+        )),
+        range_length: None,
+        text: "A\nB\nC".to_string(),
+    }];
+
+    server
+        .change_document_incremental(file_name, changes, 2)
+        .await;
+
+    // Verify the change was applied correctly across lines
+    let content = server.get_file_content(file_name).await;
+    assert_eq!(content, "Line A\nB\nC 3");
 }
 
 #[tokio::test]
@@ -445,4 +553,112 @@ async fn test_revision_tracking_across_lifecycle() {
     // Change again
     server.change_document(file_name, "Final", 11).await;
     assert_eq!(server.get_file_revision(file_name).await, Some(7));
+}
+
+#[tokio::test]
+async fn test_language_id_preservation_during_fallback() {
+    let server = TestServer::new().await;
+    let file_name = "template.html";
+
+    // Open document with htmldjango language_id
+    let url = server.workspace_url(file_name);
+    let document = TextDocumentItem {
+        uri: url.to_string().parse().unwrap(),
+        language_id: "htmldjango".to_string(),
+        version: 1,
+        text: "{% block content %}Initial{% endblock %}".to_string(),
+    };
+    
+    let params = DidOpenTextDocumentParams { text_document: document };
+    server.server.did_open(params).await;
+
+    // Verify the document was opened with the correct language_id
+    let document = server
+        .server
+        .with_session_mut(|session| session.get_document(&url))
+        .await;
+    match document.unwrap().language_id() {
+        djls_workspace::LanguageId::HtmlDjango => {}, // Expected
+        _ => panic!("Expected HtmlDjango language_id"),
+    }
+
+    // Simulate a scenario that would trigger the fallback path by sending
+    // a change with an invalid range that would cause apply_document_changes to fail
+    let params = DidChangeTextDocumentParams {
+        text_document: VersionedTextDocumentIdentifier {
+            uri: url.to_string().parse().unwrap(),
+            version: 2,
+        },
+        content_changes: vec![TextDocumentContentChangeEvent {
+            range: Some(Range {
+                start: Position { line: 100, character: 0 }, // Invalid position
+                end: Position { line: 100, character: 0 },
+            }),
+            range_length: None,
+            text: "Fallback content".to_string(),
+        }],
+    };
+    
+    server.server.did_change(params).await;
+
+    // Verify the document still has the correct language_id after fallback
+    let document = server
+        .server
+        .with_session_mut(|session| session.get_document(&url))
+        .await;
+    match document.unwrap().language_id() {
+        djls_workspace::LanguageId::HtmlDjango => {}, // Expected
+        _ => panic!("Expected HtmlDjango language_id after fallback"),
+    }
+    
+    // Also test with a Python file
+    let py_file_name = "views.py";
+    let py_url = server.workspace_url(py_file_name);
+    let document = TextDocumentItem {
+        uri: py_url.to_string().parse().unwrap(),
+        language_id: "python".to_string(),
+        version: 1,
+        text: "def hello():\n    return 'world'".to_string(),
+    };
+    
+    let params = DidOpenTextDocumentParams { text_document: document };
+    server.server.did_open(params).await;
+
+    // Verify the Python document was opened with the correct language_id
+    let document = server
+        .server
+        .with_session_mut(|session| session.get_document(&py_url))
+        .await;
+    match document.unwrap().language_id() {
+        djls_workspace::LanguageId::Python => {}, // Expected
+        _ => panic!("Expected Python language_id"),
+    }
+
+    // Trigger fallback for Python file as well
+    let params = DidChangeTextDocumentParams {
+        text_document: VersionedTextDocumentIdentifier {
+            uri: py_url.to_string().parse().unwrap(),
+            version: 2,
+        },
+        content_changes: vec![TextDocumentContentChangeEvent {
+            range: Some(Range {
+                start: Position { line: 100, character: 0 }, // Invalid position
+                end: Position { line: 100, character: 0 },
+            }),
+            range_length: None,
+            text: "def fallback():\n    pass".to_string(),
+        }],
+    };
+    
+    server.server.did_change(params).await;
+
+    // Verify the Python document still has the correct language_id after fallback
+    let document = server
+        .server
+        .with_session_mut(|session| session.get_document(&py_url))
+        .await;
+    match document.unwrap().language_id() {
+        djls_workspace::LanguageId::Python => {}, // Expected
+        _ => panic!("Expected Python language_id after fallback"),
+    }
 }

@@ -84,17 +84,58 @@ impl TextDocument {
     }
 
     /// Update the document content with LSP text changes
+    ///
+    /// Supports both full document replacement and incremental updates.
+    /// Following ruff's approach: incremental sync is used for network efficiency,
+    /// but we rebuild the full document text internally.
     pub fn update(
         &mut self,
         changes: Vec<tower_lsp_server::lsp_types::TextDocumentContentChangeEvent>,
         version: i32,
     ) {
-        // For now, we'll just handle full document updates
-        // TODO: Handle incremental updates
-        for change in changes {
-            self.content = change.text;
+        // Fast path: single change without range = full document replacement
+        if changes.len() == 1 && changes[0].range.is_none() {
+            self.content = changes[0].text.clone();
             self.line_index = LineIndex::new(&self.content);
+            self.version = version;
+            return;
         }
+
+        // Incremental path: apply changes to rebuild the document
+        // Clone current content and apply each change
+        let mut new_content = self.content.clone();
+        
+        for change in changes {
+            if let Some(range) = change.range {
+                // Convert LSP range to byte offsets
+                // Note: We use UTF-16 encoding by default for LSP compatibility
+                // This will need to use the negotiated encoding in the future
+                let start_offset = self.line_index.offset(
+                    range.start,
+                    &new_content,
+                    PositionEncoding::Utf16,
+                ) as usize;
+                let end_offset = self.line_index.offset(
+                    range.end,
+                    &new_content,
+                    PositionEncoding::Utf16,
+                ) as usize;
+
+                // Apply the change by replacing the range
+                new_content.replace_range(start_offset..end_offset, &change.text);
+                
+                // Rebuild line index after each change since positions shift
+                // This is necessary for subsequent changes to have correct offsets
+                self.line_index = LineIndex::new(&new_content);
+            } else {
+                // No range means full replacement
+                new_content = change.text;
+                self.line_index = LineIndex::new(&new_content);
+            }
+        }
+
+        // Store the rebuilt document
+        self.content = new_content;
         self.version = version;
     }
 
@@ -301,6 +342,137 @@ pub enum IndexKind {
 mod tests {
     use super::*;
     use crate::language::LanguageId;
+    use tower_lsp_server::lsp_types::TextDocumentContentChangeEvent;
+
+    #[test]
+    fn test_incremental_update_single_change() {
+        let mut doc = TextDocument::new("Hello world".to_string(), 1, LanguageId::Other);
+
+        // Replace "world" with "Rust"
+        let changes = vec![TextDocumentContentChangeEvent {
+            range: Some(Range::new(Position::new(0, 6), Position::new(0, 11))),
+            range_length: None,
+            text: "Rust".to_string(),
+        }];
+
+        doc.update(changes, 2);
+        assert_eq!(doc.content(), "Hello Rust");
+        assert_eq!(doc.version(), 2);
+    }
+
+    #[test]
+    fn test_incremental_update_multiple_changes() {
+        let mut doc = TextDocument::new("First line\nSecond line\nThird line".to_string(), 1, LanguageId::Other);
+
+        // Multiple changes: replace "First" with "1st" and "Third" with "3rd"
+        let changes = vec![
+            TextDocumentContentChangeEvent {
+                range: Some(Range::new(Position::new(0, 0), Position::new(0, 5))),
+                range_length: None,
+                text: "1st".to_string(),
+            },
+            TextDocumentContentChangeEvent {
+                range: Some(Range::new(Position::new(2, 0), Position::new(2, 5))),
+                range_length: None,
+                text: "3rd".to_string(),
+            },
+        ];
+
+        doc.update(changes, 2);
+        assert_eq!(doc.content(), "1st line\nSecond line\n3rd line");
+    }
+
+    #[test]
+    fn test_incremental_update_insertion() {
+        let mut doc = TextDocument::new("Hello world".to_string(), 1, LanguageId::Other);
+
+        // Insert text at position (empty range)
+        let changes = vec![TextDocumentContentChangeEvent {
+            range: Some(Range::new(Position::new(0, 5), Position::new(0, 5))),
+            range_length: None,
+            text: " beautiful".to_string(),
+        }];
+
+        doc.update(changes, 2);
+        assert_eq!(doc.content(), "Hello beautiful world");
+    }
+
+    #[test]
+    fn test_incremental_update_deletion() {
+        let mut doc = TextDocument::new("Hello beautiful world".to_string(), 1, LanguageId::Other);
+
+        // Delete "beautiful " (replace with empty string)
+        let changes = vec![TextDocumentContentChangeEvent {
+            range: Some(Range::new(Position::new(0, 6), Position::new(0, 16))),
+            range_length: None,
+            text: String::new(),
+        }];
+
+        doc.update(changes, 2);
+        assert_eq!(doc.content(), "Hello world");
+    }
+
+    #[test]
+    fn test_full_document_replacement() {
+        let mut doc = TextDocument::new("Old content".to_string(), 1, LanguageId::Other);
+
+        // Full document replacement (no range)
+        let changes = vec![TextDocumentContentChangeEvent {
+            range: None,
+            range_length: None,
+            text: "Completely new content".to_string(),
+        }];
+
+        doc.update(changes, 2);
+        assert_eq!(doc.content(), "Completely new content");
+        assert_eq!(doc.version(), 2);
+    }
+
+    #[test]
+    fn test_incremental_update_multiline() {
+        let mut doc = TextDocument::new("Line 1\nLine 2\nLine 3".to_string(), 1, LanguageId::Other);
+
+        // Replace across multiple lines
+        let changes = vec![TextDocumentContentChangeEvent {
+            range: Some(Range::new(Position::new(0, 5), Position::new(2, 4))),
+            range_length: None,
+            text: "A\nB\nC".to_string(),
+        }];
+
+        doc.update(changes, 2);
+        assert_eq!(doc.content(), "Line A\nB\nC 3");
+    }
+
+    #[test]
+    fn test_incremental_update_with_emoji() {
+        let mut doc = TextDocument::new("Hello 🌍 world".to_string(), 1, LanguageId::Other);
+
+        // Replace "world" after emoji - must handle UTF-16 positions correctly
+        // "Hello " = 6 UTF-16 units, "🌍" = 2 UTF-16 units, " " = 1 unit, "world" starts at 9
+        let changes = vec![TextDocumentContentChangeEvent {
+            range: Some(Range::new(Position::new(0, 9), Position::new(0, 14))),
+            range_length: None,
+            text: "Rust".to_string(),
+        }];
+
+        doc.update(changes, 2);
+        assert_eq!(doc.content(), "Hello 🌍 Rust");
+    }
+
+    #[test]
+    fn test_incremental_update_newline_at_end() {
+        let mut doc = TextDocument::new("Hello".to_string(), 1, LanguageId::Other);
+
+        // Add newline and new line at end
+        let changes = vec![TextDocumentContentChangeEvent {
+            range: Some(Range::new(Position::new(0, 5), Position::new(0, 5))),
+            range_length: None,
+            text: "\nWorld".to_string(),
+        }];
+
+        doc.update(changes, 2);
+        assert_eq!(doc.content(), "Hello\nWorld");
+    }
 
     #[test]
     fn test_utf16_position_handling() {

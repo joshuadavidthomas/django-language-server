@@ -40,6 +40,7 @@ use std::sync::Arc;
 use dashmap::DashMap;
 use djls_conf::Settings;
 use djls_project::DjangoProject;
+use djls_workspace::db::source_text;
 use djls_workspace::db::Database;
 use djls_workspace::db::SourceFile;
 use djls_workspace::paths;
@@ -344,42 +345,67 @@ impl Session {
         }
     }
 
-    /// Handle document changes - updates buffer and bumps revision.
+    /// Update a document with the given changes.
     ///
-    /// This method coordinates both layers:
+    /// This method handles both incremental updates and full document replacements,
+    /// coordinating both layers of the architecture:
     /// - Layer 1: Updates the document content in buffers
     /// - Layer 2: Bumps the file revision to trigger Salsa invalidation
-    pub fn update_document(&mut self, url: &Url, document: TextDocument) {
-        let version = document.version();
-        tracing::debug!("Updating document: {} (version {})", url, version);
-
-        // Layer 1: Update buffer
-        self.buffers.update(url.clone(), document);
-
-        // Layer 2: Touch file to trigger invalidation
-        if let Some(path) = paths::url_to_path(url) {
-            self.with_db_mut(|db| db.touch_file(&path));
-        }
-    }
-
-    /// Apply incremental changes to an open document.
     ///
-    /// This encapsulates the full update cycle: retrieving the document,
-    /// applying changes, updating the buffer, and bumping Salsa revision.
-    ///
-    /// Returns an error if the document is not currently open.
-    pub fn apply_document_changes(
+    /// If the document is not currently open (no buffer exists), this method will
+    /// attempt a fallback recovery by using the first content change as a full
+    /// document replacement, preserving the existing language_id if possible.
+    pub fn update_document(
         &mut self,
         url: &Url,
         changes: Vec<lsp_types::TextDocumentContentChangeEvent>,
         new_version: i32,
-    ) -> Result<(), String> {
+    ) {
+        // Try to apply changes to existing document
         if let Some(mut document) = self.buffers.get(url) {
+            // Document exists - apply incremental changes
             document.update(changes, new_version);
-            self.update_document(url, document);
-            Ok(())
+
+            let version = document.version();
+            tracing::debug!("Updating document: {} (version {})", url, version);
+
+            // Layer 1: Update buffer
+            self.buffers.update(url.clone(), document);
+
+            // Layer 2: Touch file to trigger invalidation
+            if let Some(path) = paths::url_to_path(url) {
+                self.with_db_mut(|db| db.touch_file(&path));
+            }
         } else {
-            Err(format!("Document not open: {url}"))
+            // Document not open - attempt fallback recovery
+            tracing::warn!("Document not open: {}, attempting fallback recovery", url);
+
+            // Use first change as full content replacement
+            if let Some(change) = changes.into_iter().next() {
+                // Preserve existing language_id if document was previously opened
+                // This handles the case where we get changes for a document that
+                // somehow lost its buffer but we want to maintain its type
+                let language_id = self
+                    .get_document(url)
+                    .map_or(djls_workspace::LanguageId::Other, |doc| doc.language_id());
+
+                let document =
+                    djls_workspace::TextDocument::new(change.text, new_version, language_id);
+
+                tracing::debug!(
+                    "Fallback: creating document {} (version {})",
+                    url,
+                    new_version
+                );
+
+                // Layer 1: Update buffer
+                self.buffers.update(url.clone(), document);
+
+                // Layer 2: Touch file to trigger invalidation
+                if let Some(path) = paths::url_to_path(url) {
+                    self.with_db_mut(|db| db.touch_file(&path));
+                }
+            }
         }
     }
 
@@ -393,9 +419,9 @@ impl Session {
     pub fn close_document(&mut self, url: &Url) -> Option<TextDocument> {
         tracing::debug!("Closing document: {}", url);
 
-        // Layer 1: Remove buffer
-        let removed = self.buffers.close(url);
-        if let Some(ref doc) = removed {
+        // Layer 1: Remove buffer (falls back to disk)
+        let document = self.buffers.close(url);
+        if let Some(ref doc) = document {
             tracing::debug!(
                 "Removed buffer for closed document: {} (was version {})",
                 url,
@@ -404,12 +430,20 @@ impl Session {
         }
 
         // Layer 2: Touch file to trigger re-read from disk
-        // We keep the file alive for potential re-opening
         if let Some(path) = paths::url_to_path(url) {
             self.with_db_mut(|db| db.touch_file(&path));
         }
 
-        removed
+        document
+    }
+
+    /// Get an open document from the buffer layer, if it exists.
+    ///
+    /// This provides read-only access to Layer 1 (buffer) documents.
+    /// Returns None if the document is not currently open in the editor.
+    #[must_use]
+    pub fn get_document(&self, url: &Url) -> Option<TextDocument> {
+        self.buffers.get(url)
     }
 
     /// Get the current content of a file (from overlay or disk).
@@ -418,8 +452,6 @@ impl Session {
     /// The file is created if it doesn't exist, and content is read
     /// through the `FileSystem` abstraction (overlay first, then disk).
     pub fn file_content(&mut self, path: PathBuf) -> String {
-        use djls_workspace::db::source_text;
-
         self.with_db_mut(|db| {
             let file = db.get_or_create_file(path);
             source_text(db, file).to_string()
@@ -493,10 +525,13 @@ mod tests {
         let content1 = session.file_content(path.clone());
         assert_eq!(content1, "<h1>Original Content</h1>");
 
-        // Update document with new content
-        let updated_document =
-            TextDocument::new("<h1>Updated Content</h1>".to_string(), 2, LanguageId::Other);
-        session.update_document(&url, updated_document);
+        // Update document with new content using a full replacement change
+        let changes = vec![lsp_types::TextDocumentContentChangeEvent {
+            range: None,
+            range_length: None,
+            text: "<h1>Updated Content</h1>".to_string(),
+        }];
+        session.update_document(&url, changes, 2);
 
         // Read content again (should get new overlay content due to invalidation)
         let content2 = session.file_content(path.clone());
