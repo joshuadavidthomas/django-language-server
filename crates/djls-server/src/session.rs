@@ -1,86 +1,32 @@
-//! # Salsa [`StorageHandle`] Pattern for LSP
+//! # LSP Session Management
 //!
-//! This module implements a thread-safe Salsa database wrapper for use with
-//! tower-lsp's async runtime. The key challenge is that tower-lsp requires
-//! `Send + Sync + 'static` bounds, but Salsa's `Storage` contains thread-local
-//! state and is not `Send`.
-//!
-//! ## The Solution: [`StorageHandle`]
-//!
-//! Salsa provides [`StorageHandle`] which IS `Send + Sync` because it contains
-//! no thread-local state. We store the handle and create `Storage`/`Database`
-//! instances on-demand.
-//!
-//! ## The Mutation Challenge
-//!
-//! When mutating Salsa inputs (e.g., updating file revisions), Salsa must
-//! ensure exclusive access to prevent race conditions. It does this via
-//! `cancel_others()` which:
-//!
-//! 1. Sets a cancellation flag (causes other threads to panic with `Cancelled`)
-//! 2. Waits for all `StorageHandle` clones to drop
-//! 3. Proceeds with the mutation
-//!
-//! If we accidentally clone the handle instead of taking ownership, step 2
-//! never completes → deadlock!
-//!
-//! ## The Pattern
-//!
-//! - **Reads**: Clone the handle freely ([`with_db`](Session::with_db))
-//! - **Mutations**: Take exclusive ownership ([`with_db_mut`](Session::with_db_mut) via [`take_db_handle_for_mutation`](Session::take_db_handle_for_mutation))
-//!
-//! The explicit method names make the intent clear and prevent accidental misuse.
-//!
-//! [`StorageHandle`]: salsa::StorageHandle
+//! This module implements the LSP session abstraction that manages project-specific
+//! state and delegates workspace operations to the Workspace facade.
 
 use std::path::Path;
 use std::path::PathBuf;
-use std::sync::Arc;
 
-use dashmap::DashMap;
 use djls_conf::Settings;
 use djls_project::DjangoProject;
 use djls_workspace::db::source_text;
 use djls_workspace::db::Database;
-use djls_workspace::db::SourceFile;
 use djls_workspace::paths;
-use djls_workspace::Buffers;
-use djls_workspace::FileSystem;
-use djls_workspace::OsFileSystem;
+use djls_workspace::PositionEncoding;
 use djls_workspace::TextDocument;
-use djls_workspace::WorkspaceFileSystem;
-use salsa::StorageHandle;
+use djls_workspace::Workspace;
 use tower_lsp_server::lsp_types;
 use url::Url;
 
-use djls_workspace::PositionEncoding;
-
-/// LSP Session with thread-safe Salsa database access.
+/// LSP Session managing project-specific state and workspace operations.
 ///
-/// Uses Salsa's [`StorageHandle`] pattern to maintain `Send + Sync + 'static`
-/// compatibility required by tower-lsp. The handle can be safely shared
-/// across threads and async boundaries.
+/// The Session serves as the main entry point for LSP operations, managing:
+/// - Project configuration and settings
+/// - Client capabilities and position encoding
+/// - Workspace operations (delegated to the Workspace facade)
 ///
-/// See [this Salsa Zulip discussion](https://salsa.zulipchat.com/#narrow/channel/145099-Using-Salsa/topic/.E2.9C.94.20Advice.20on.20using.20salsa.20from.20Sync.20.2B.20Send.20context/with/495497515)
-/// for more information about [`StorageHandle`].
-///
-/// ## Architecture
-///
-/// Two-layer system inspired by Ruff/Ty:
-/// - **Layer 1**: In-memory overlays (LSP document edits)
-/// - **Layer 2**: Salsa database (incremental computation cache)
-///
-/// ## Salsa Mutation Protocol
-///
-/// When mutating Salsa inputs (like changing file revisions), we must ensure
-/// exclusive access to prevent race conditions. Salsa enforces this through
-/// its `cancel_others()` mechanism, which waits for all [`StorageHandle`] clones
-/// to drop before allowing mutations.
-///
-/// We use explicit methods (`take_db_handle_for_mutation`/`restore_db_handle`)
-/// to make this ownership transfer clear and prevent accidental deadlocks.
-///
-/// [`StorageHandle`]: salsa::StorageHandle
+/// All document lifecycle and database operations are delegated to the
+/// encapsulated Workspace, which provides thread-safe Salsa database
+/// management with proper mutation safety through StorageHandleGuard.
 pub struct Session {
     /// The Django project configuration
     project: Option<DjangoProject>,
@@ -88,48 +34,18 @@ pub struct Session {
     /// LSP server settings
     settings: Settings,
 
-    /// Layer 1: Shared buffer storage for open documents
+    /// Workspace facade that encapsulates all workspace-related functionality
     ///
-    /// This implements Ruff's two-layer architecture where Layer 1 contains
-    /// open document buffers that take precedence over disk files. The buffers
-    /// are shared between Session (which manages them) and
-    /// [`WorkspaceFileSystem`](djls_workspace::WorkspaceFileSystem) (which reads from them).
-    ///
-    /// Key properties:
-    /// - Thread-safe via the Buffers abstraction
-    /// - Contains full [`TextDocument`](djls_workspace::TextDocument) with content, version, and metadata
-    /// - Never becomes Salsa inputs - only intercepted at read time
-    buffers: Buffers,
-
-    /// File system abstraction with buffer interception
-    ///
-    /// This [`WorkspaceFileSystem`](djls_workspace::WorkspaceFileSystem) bridges Layer 1 (buffers) and Layer 2 (Salsa).
-    /// It intercepts [`FileSystem::read_to_string()`](djls_workspace::FileSystem::read_to_string()) calls to return buffer
-    /// content when available, falling back to disk otherwise.
-    file_system: Arc<dyn FileSystem>,
-
-    /// Shared file tracking across all Database instances
-    ///
-    /// This is the canonical Salsa pattern from the lazy-input example.
-    /// The [`DashMap`] provides O(1) lookups and is shared via Arc across
-    /// all Database instances created from [`StorageHandle`](salsa::StorageHandle).
-    files: Arc<DashMap<PathBuf, SourceFile>>,
+    /// This includes document buffers, file system abstraction, and the Salsa database.
+    /// The workspace provides a clean interface for document lifecycle management
+    /// and database operations while maintaining proper isolation and thread safety.
+    workspace: Workspace,
 
     #[allow(dead_code)]
     client_capabilities: lsp_types::ClientCapabilities,
 
     /// Position encoding negotiated with client
     position_encoding: PositionEncoding,
-
-    /// Layer 2: Thread-safe Salsa database handle for pure computation
-    ///
-    /// where we're using the [`StorageHandle`](salsa::StorageHandle) to create a thread-safe handle that can be
-    /// shared between threads.
-    ///
-    /// The database receives file content via the [`FileSystem`](djls_workspace::FileSystem) trait, which
-    /// is intercepted by our [`WorkspaceFileSystem`](djls_workspace::WorkspaceFileSystem) to provide overlay content.
-    /// This maintains proper separation between Layer 1 and Layer 2.
-    db_handle: StorageHandle<Database>,
 }
 
 impl Session {
@@ -147,16 +63,7 @@ impl Session {
             (None, Settings::default())
         };
 
-        let buffers = Buffers::new();
-        let files = Arc::new(DashMap::new());
-        let file_system = Arc::new(WorkspaceFileSystem::new(
-            buffers.clone(),
-            Arc::new(OsFileSystem),
-        ));
-        let db_handle = Database::new(file_system.clone(), files.clone())
-            .storage()
-            .clone()
-            .into_zalsa_handle();
+        let workspace = Workspace::new();
 
         // Negotiate position encoding with client
         let position_encoding = PositionEncoding::negotiate(params);
@@ -164,12 +71,9 @@ impl Session {
         Self {
             project,
             settings,
-            buffers,
-            file_system,
-            files,
+            workspace,
             client_capabilities: params.capabilities.clone(),
             position_encoding,
-            db_handle,
         }
     }
     /// Determines the project root path from initialization parameters.
@@ -211,254 +115,62 @@ impl Session {
         self.position_encoding
     }
 
-    // TODO: Explore an abstraction around [`salsa::StorageHandle`] and the following two methods
-    // to make it easy in the future to avoid deadlocks. For now, this is simpler and TBH may be
-    // all we ever need, but still.. might be a nice CYA for future me
 
-    /// Takes exclusive ownership of the database handle for mutation operations.
-    ///
-    /// This method extracts the [`StorageHandle`](salsa::StorageHandle) from the session, replacing it
-    /// with a temporary placeholder. This ensures there's exactly one handle
-    /// active during mutations, preventing deadlocks in Salsa's `cancel_others()`.
-    ///
-    /// ## Why Not Clone?
-    ///
-    /// Cloning would create multiple handles. When Salsa needs to mutate inputs,
-    /// it calls `cancel_others()` which waits for all handles to drop. With
-    /// multiple handles, this wait would never complete → deadlock.
-    ///
-    /// ## Panics
-    ///
-    /// This is an internal method that should only be called by
-    /// [`with_db_mut`](Session::with_db_mut). Multiple concurrent calls would panic when trying
-    /// to take an already-taken handle.
-    ///
-    /// ## Safety Note on Placeholder Handle
-    ///
-    /// This method uses `StorageHandle::new(None)` as a temporary placeholder, which
-    /// creates a new Salsa instance without event callbacks. While this could theoretically
-    /// lose state if called concurrently, the outer `Arc<RwLock<Option<Session>>>` at the
-    /// server level ensures this method is only called with exclusive access to the Session.
-    ///
-    /// The placeholder is immediately replaced when `restore_db_handle()` is called at the
-    /// end of the mutation operation, so no actual state is lost.
-    ///
-    /// A future improvement (see TODO above) would be to implement a `StorageHandleGuard`
-    /// abstraction that makes these state transitions more explicit and type-safe. See
-    /// task-152 for the planned implementation.
-    fn take_db_handle_for_mutation(&mut self) -> StorageHandle<Database> {
-        std::mem::replace(&mut self.db_handle, StorageHandle::new(None))
-    }
-
-    /// Restores the database handle after a mutation operation completes.
-    ///
-    /// This should be called with the handle extracted from the database
-    /// after mutations are complete. It updates the session's handle to
-    /// reflect any changes made during the mutation.
-    fn restore_db_handle(&mut self, handle: StorageHandle<Database>) {
-        self.db_handle = handle;
-    }
 
     /// Execute a closure with mutable access to the database.
     ///
-    /// This method implements Salsa's required protocol for mutations:
-    /// 1. Takes exclusive ownership of the [`StorageHandle`](salsa::StorageHandle)
-    ///    (no clones exist)
-    /// 2. Creates a temporary Database for the operation
-    /// 3. Executes your closure with `&mut Database`
-    /// 4. Extracts and restores the updated handle
-    ///
-    /// ## Example
-    ///
-    /// ```rust,ignore
-    /// session.with_db_mut(|db| {
-    ///     let file = db.get_or_create_file(path);
-    ///     file.set_revision(db).to(new_revision);  // Mutation requires exclusive access
-    /// });
-    /// ```
-    ///
-    /// ## Why This Pattern?
-    ///
-    /// This ensures that when Salsa needs to modify inputs (via setters like
-    /// `set_revision`), it has exclusive access. The internal `cancel_others()`
-    /// call will succeed because we guarantee only one handle exists.
+    /// Delegates to the workspace's safe database mutation mechanism.
     pub fn with_db_mut<F, R>(&mut self, f: F) -> R
     where
         F: FnOnce(&mut Database) -> R,
     {
-        let handle = self.take_db_handle_for_mutation();
-
-        let storage = handle.into_storage();
-        let mut db = Database::from_storage(storage, self.file_system.clone(), self.files.clone());
-
-        let result = f(&mut db);
-
-        // The database may have changed during mutations, so we need
-        // to extract its current handle state
-        let new_handle = db.storage().clone().into_zalsa_handle();
-        self.restore_db_handle(new_handle);
-
-        result
+        self.workspace.with_db_mut(f)
     }
 
     /// Execute a closure with read-only access to the database.
     ///
-    /// For read-only operations, we can safely clone the [`StorageHandle`](salsa::StorageHandle)
-    /// since Salsa allows multiple concurrent readers. This is more
-    /// efficient than taking exclusive ownership.
-    ///
-    /// ## Example
-    ///
-    /// ```rust,ignore
-    /// let content = session.with_db(|db| {
-    ///     let file = db.get_file(path)?;
-    ///     source_text(db, file).to_string()  // Read-only query
-    /// });
-    /// ```
+    /// Delegates to the workspace's safe database read mechanism.
     pub fn with_db<F, R>(&self, f: F) -> R
     where
         F: FnOnce(&Database) -> R,
     {
-        // For reads, cloning is safe and efficient
-        let storage = self.db_handle.clone().into_storage();
-        let db = Database::from_storage(storage, self.file_system.clone(), self.files.clone());
-        f(&db)
+        self.workspace.with_db(f)
     }
 
     /// Handle opening a document - sets buffer and creates file.
     ///
-    /// This method coordinates both layers:
-    /// - Layer 1: Stores the document content in buffers
-    /// - Layer 2: Creates the [`SourceFile`](djls_workspace::SourceFile) in Salsa (if path is resolvable)
+    /// Delegates to the workspace's document management.
     pub fn open_document(&mut self, url: &Url, document: TextDocument) {
         tracing::debug!("Opening document: {}", url);
-
-        // Layer 1: Set buffer
-        self.buffers.open(url.clone(), document);
-
-        // Layer 2: Create file and touch if it already exists
-        // This is crucial: if the file was already read from disk, we need to
-        // invalidate Salsa's cache so it re-reads through the buffer system
-        if let Some(path) = paths::url_to_path(url) {
-            self.with_db_mut(|db| {
-                // Check if file already exists (was previously read from disk)
-                let already_exists = db.has_file(&path);
-                let file = db.get_or_create_file(path.clone());
-
-                if already_exists {
-                    // File was already read - touch to invalidate cache
-                    db.touch_file(&path);
-                } else {
-                    // New file - starts at revision 0
-                    tracing::debug!(
-                        "Created new SourceFile for {}: revision {}",
-                        path.display(),
-                        file.revision(db)
-                    );
-                }
-            });
-        }
+        self.workspace.open_document(url, document);
     }
 
     /// Update a document with the given changes.
     ///
-    /// This method handles both incremental updates and full document replacements,
-    /// coordinating both layers of the architecture:
-    /// - Layer 1: Updates the document content in buffers
-    /// - Layer 2: Bumps the file revision to trigger Salsa invalidation
-    ///
-    /// If the document is not currently open (no buffer exists), this method will
-    /// attempt a fallback recovery by using the first content change as a full
-    /// document replacement, preserving the existing language_id if possible.
+    /// Delegates to the workspace's document management.
     pub fn update_document(
         &mut self,
         url: &Url,
         changes: Vec<lsp_types::TextDocumentContentChangeEvent>,
         new_version: i32,
     ) {
-        // Try to apply changes to existing document
-        if let Some(mut document) = self.buffers.get(url) {
-            // Document exists - apply incremental changes
-            document.update(changes, new_version);
-
-            let version = document.version();
-            tracing::debug!("Updating document: {} (version {})", url, version);
-
-            // Layer 1: Update buffer
-            self.buffers.update(url.clone(), document);
-
-            // Layer 2: Touch file to trigger invalidation
-            if let Some(path) = paths::url_to_path(url) {
-                self.with_db_mut(|db| db.touch_file(&path));
-            }
-        } else {
-            // Document not open - attempt fallback recovery
-            tracing::warn!("Document not open: {}, attempting fallback recovery", url);
-
-            // Use first change as full content replacement
-            if let Some(change) = changes.into_iter().next() {
-                // Preserve existing language_id if document was previously opened
-                // This handles the case where we get changes for a document that
-                // somehow lost its buffer but we want to maintain its type
-                let language_id = self
-                    .get_document(url)
-                    .map_or(djls_workspace::LanguageId::Other, |doc| doc.language_id());
-
-                let document =
-                    djls_workspace::TextDocument::new(change.text, new_version, language_id);
-
-                tracing::debug!(
-                    "Fallback: creating document {} (version {})",
-                    url,
-                    new_version
-                );
-
-                // Layer 1: Update buffer
-                self.buffers.update(url.clone(), document);
-
-                // Layer 2: Touch file to trigger invalidation
-                if let Some(path) = paths::url_to_path(url) {
-                    self.with_db_mut(|db| db.touch_file(&path));
-                }
-            }
-        }
+        self.workspace.update_document(url, changes, new_version);
     }
 
     /// Handle closing a document - removes buffer and bumps revision.
     ///
-    /// This method coordinates both layers:
-    /// - Layer 1: Removes the buffer (falls back to disk)
-    /// - Layer 2: Bumps revision to trigger re-read from disk
-    ///
-    /// Returns the removed document if it existed.
+    /// Delegates to the workspace's document management.
     pub fn close_document(&mut self, url: &Url) -> Option<TextDocument> {
         tracing::debug!("Closing document: {}", url);
-
-        // Layer 1: Remove buffer (falls back to disk)
-        let document = self.buffers.close(url);
-        if let Some(ref doc) = document {
-            tracing::debug!(
-                "Removed buffer for closed document: {} (was version {})",
-                url,
-                doc.version()
-            );
-        }
-
-        // Layer 2: Touch file to trigger re-read from disk
-        if let Some(path) = paths::url_to_path(url) {
-            self.with_db_mut(|db| db.touch_file(&path));
-        }
-
-        document
+        self.workspace.close_document(url)
     }
 
     /// Get an open document from the buffer layer, if it exists.
     ///
-    /// This provides read-only access to Layer 1 (buffer) documents.
-    /// Returns None if the document is not currently open in the editor.
+    /// Delegates to the workspace's document management.
     #[must_use]
     pub fn get_document(&self, url: &Url) -> Option<TextDocument> {
-        self.buffers.get(url)
+        self.workspace.get_document(url)
     }
 
     /// Get the current content of a file (from overlay or disk).
@@ -476,42 +188,23 @@ impl Session {
     /// Get the current revision of a file, if it's being tracked.
     ///
     /// Returns None if the file hasn't been created yet.
-    pub fn file_revision(&mut self, path: &Path) -> Option<u64> {
-        self.with_db_mut(|db| {
-            db.has_file(path).then(|| {
-                let file = db.get_or_create_file(path.to_path_buf());
-                file.revision(db)
-            })
-        })
+    pub fn file_revision(&self, path: &Path) -> Option<u64> {
+        self.workspace.file_revision(path)
     }
 
     /// Check if a file is currently being tracked in Salsa.
-    pub fn has_file(&mut self, path: &Path) -> bool {
+    pub fn has_file(&self, path: &Path) -> bool {
         self.with_db(|db| db.has_file(path))
     }
 }
 
 impl Default for Session {
     fn default() -> Self {
-        let buffers = Buffers::new();
-        let files = Arc::new(DashMap::new());
-        let file_system = Arc::new(WorkspaceFileSystem::new(
-            buffers.clone(),
-            Arc::new(OsFileSystem),
-        ));
-        let db_handle = Database::new(file_system.clone(), files.clone())
-            .storage()
-            .clone()
-            .into_zalsa_handle();
-
         Self {
             project: None,
             settings: Settings::default(),
-            db_handle,
-            file_system,
-            files,
-            buffers,
-            client_capabilities: lsp_types::ClientCapabilities::default(),
+            workspace: Workspace::new(),
+            client_capabilities: Default::default(),
             position_encoding: PositionEncoding::default(),
         }
     }

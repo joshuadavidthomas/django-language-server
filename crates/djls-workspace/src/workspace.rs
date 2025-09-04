@@ -315,15 +315,26 @@ impl Workspace {
 
     /// Open a document in the workspace.
     ///
-    /// Updates both the buffer layer and database layer. If the file exists
-    /// in the database, it's marked as touched to trigger invalidation.
+    /// Updates both the buffer layer and database layer. Creates the file in
+    /// the database or invalidates it if it already exists.
     pub fn open_document(&mut self, url: &Url, document: TextDocument) {
         // Layer 1: Add to buffers
         self.buffers.open(url.clone(), document);
 
-        // Layer 2: Update database if file exists
+        // Layer 2: Create file and touch if it already exists
+        // This matches the original Session behavior for test compatibility
         if let Some(path) = url_to_path(url) {
-            self.invalidate_file_if_exists(&path);
+            self.with_db_mut(|db| {
+                // Check if file already exists (was previously read from disk)
+                let already_exists = db.has_file(&path);
+                let _file = db.get_or_create_file(path.clone());
+
+                if already_exists {
+                    // File was already read - touch to invalidate cache
+                    db.touch_file(&path);
+                }
+                // Note: New files automatically start at revision 0, no additional action needed
+            });
         }
     }
 
@@ -499,6 +510,10 @@ impl Default for Workspace {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::source_text;
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
+    use tempfile::tempdir;
 
     #[test]
     fn test_normal_mutation_flow_with_guard() {
@@ -763,6 +778,145 @@ mod tests {
         let _guard = StorageHandleGuard::new(&mut workspace.db_handle);
 
         // Guard drops here without handle() being called
+    }
+
+    // Error Recovery Tests
+
+    #[test]
+    fn test_missing_file_returns_empty_content() {
+        // Tests that source_text returns "" for non-existent files
+        // instead of panicking or propagating errors
+        let mut workspace = Workspace::new();
+        
+        // Create a file reference for non-existent path
+        let content = workspace.with_db_mut(|db| {
+            let file = db.get_or_create_file("/nonexistent/file.py".into());
+            source_text(db, file).to_string()
+        });
+        
+        assert_eq!(content, "");
+    }
+
+    #[test]
+    #[cfg(unix)] // Only on Unix systems
+    fn test_permission_denied_file_handling() {
+        // Create a file with no read permissions
+        let temp_dir = tempdir().unwrap();
+        let file_path = temp_dir.path().join("no_read.py");
+        std::fs::write(&file_path, "content").unwrap();
+        
+        // Remove read permissions
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&file_path, 
+            std::fs::Permissions::from_mode(0o000)).unwrap();
+        
+        let mut workspace = Workspace::new();
+        let content = workspace.with_db_mut(|db| {
+            let file = db.get_or_create_file(file_path.clone());
+            source_text(db, file).to_string()
+        });
+        
+        // Should return empty string, not panic
+        assert_eq!(content, "");
+    }
+
+    #[test]
+    fn test_invalid_utf8_file_handling() {
+        // Create a file with invalid UTF-8
+        let temp_dir = tempdir().unwrap();
+        let file_path = temp_dir.path().join("invalid.py");
+        std::fs::write(&file_path, &[0xFF, 0xFE, 0xFD]).unwrap();
+        
+        let mut workspace = Workspace::new();
+        let content = workspace.with_db_mut(|db| {
+            let file = db.get_or_create_file(file_path.clone());
+            source_text(db, file).to_string()
+        });
+        
+        // Should handle gracefully (empty or replacement chars)
+        assert!(content.is_empty() || content.contains('�'));
+    }
+
+    #[test]  
+    fn test_file_deleted_after_tracking() {
+        let temp_dir = tempdir().unwrap();
+        let file_path = temp_dir.path().join("disappearing.py");
+        std::fs::write(&file_path, "original").unwrap();
+        
+        let mut workspace = Workspace::new();
+        
+        // First read should succeed
+        let content1 = workspace.with_db_mut(|db| {
+            let file = db.get_or_create_file(file_path.clone());
+            source_text(db, file).to_string()
+        });
+        assert_eq!(content1, "original");
+        
+        // Delete the file
+        std::fs::remove_file(&file_path).unwrap();
+        
+        // Touch to invalidate cache
+        workspace.with_db_mut(|db| {
+            db.touch_file(&file_path);
+        });
+        
+        // Second read should return empty (not panic)
+        let content2 = workspace.with_db_mut(|db| {
+            let file = db.get_or_create_file(file_path.clone());
+            source_text(db, file).to_string()
+        });
+        assert_eq!(content2, "");
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_broken_symlink_handling() {
+        let temp_dir = tempdir().unwrap();
+        let symlink_path = temp_dir.path().join("broken_link.py");
+        
+        // Create broken symlink
+        std::os::unix::fs::symlink("/nonexistent/target", &symlink_path).unwrap();
+        
+        let mut workspace = Workspace::new();
+        let content = workspace.with_db_mut(|db| {
+            let file = db.get_or_create_file(symlink_path.clone());
+            source_text(db, file).to_string()
+        });
+        
+        // Should handle gracefully
+        assert_eq!(content, "");
+    }
+
+    #[test]
+    fn test_file_modified_during_operations() {
+        // Tests that concurrent file modifications don't crash
+        let temp_dir = tempdir().unwrap();
+        let file_path = temp_dir.path().join("racing.py");
+        
+        let workspace = Arc::new(Mutex::new(Workspace::new()));
+        let path_clone = file_path.clone();
+        let workspace_clone = workspace.clone();
+        
+        // Writer thread
+        let writer = std::thread::spawn(move || {
+            for i in 0..10 {
+                std::fs::write(&path_clone, format!("version {}", i)).ok();
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        });
+        
+        // Reader thread - should never panic
+        for _ in 0..10 {
+            let content = workspace_clone.lock().unwrap().with_db_mut(|db| {
+                let file = db.get_or_create_file(file_path.clone());
+                source_text(db, file).to_string()
+            });
+            // Content may vary but shouldn't crash
+            assert!(content.is_empty() || content.starts_with("version"));
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        
+        writer.join().unwrap();
     }
 }
 
