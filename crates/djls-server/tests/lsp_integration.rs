@@ -392,7 +392,7 @@ async fn test_concurrent_overlay_updates() {
     // Open initial documents
     for i in 0..5 {
         server
-            .open_document(&format!("file{}.html", i), &format!("Initial {}", i), 1)
+            .open_document(&format!("file{i}.html"), &format!("Initial {i}"), 1)
             .await;
     }
 
@@ -406,8 +406,8 @@ async fn test_concurrent_overlay_updates() {
             for version in 2..10 {
                 server_clone
                     .change_document(
-                        &format!("file{}.html", i),
-                        &format!("Updated {} v{}", i, version),
+                        &format!("file{i}.html"),
+                        &format!("Updated {i} v{version}"),
                         version,
                     )
                     .await;
@@ -426,11 +426,11 @@ async fn test_concurrent_overlay_updates() {
 
     // Verify final state of all documents
     for i in 0..5 {
-        let content = server.get_file_content(&format!("file{}.html", i)).await;
-        assert_eq!(content, format!("Updated {} v9", i));
+        let content = server.get_file_content(&format!("file{i}.html")).await;
+        assert_eq!(content, format!("Updated {i} v9"));
 
         // Each document should have had 8 changes (versions 2-9)
-        let revision = server.get_file_revision(&format!("file{}.html", i)).await;
+        let revision = server.get_file_revision(&format!("file{i}.html")).await;
         assert_eq!(revision, Some(8));
     }
 }
@@ -453,7 +453,7 @@ async fn test_caching_behavior() {
     // Parse all templates once to populate cache
     for i in 1..=3 {
         let _ = server
-            .get_file_content(&format!("template{}.html", i))
+            .get_file_content(&format!("template{i}.html"))
             .await;
     }
 
@@ -516,7 +516,7 @@ async fn test_revision_tracking_across_lifecycle() {
     // Change document multiple times
     for i in 2..=5 {
         server
-            .change_document(file_name, &format!("Change {}", i), i)
+            .change_document(file_name, &format!("Change {i}"), i)
             .await;
         assert_eq!(
             server.get_file_revision(file_name).await,

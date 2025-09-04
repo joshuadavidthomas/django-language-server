@@ -12,11 +12,11 @@ pub struct Ast {
 }
 
 impl Ast {
-    pub fn nodelist(&self) -> &Vec<Node> {
+    #[must_use] pub fn nodelist(&self) -> &Vec<Node> {
         &self.nodelist
     }
 
-    pub fn line_offsets(&self) -> &LineOffsets {
+    #[must_use] pub fn line_offsets(&self) -> &LineOffsets {
         &self.line_offsets
     }
 
@@ -44,7 +44,7 @@ impl LineOffsets {
         self.0.push(offset);
     }
 
-    pub fn position_to_line_col(&self, position: usize) -> (usize, usize) {
+    #[must_use] pub fn position_to_line_col(&self, position: usize) -> (usize, usize) {
         let position = u32::try_from(position).unwrap_or_default();
         let line = match self.0.binary_search(&position) {
             Ok(exact_line) => exact_line,    // Position is at start of this line
@@ -63,7 +63,7 @@ impl LineOffsets {
         (line + 1, col)
     }
 
-    pub fn line_col_to_position(&self, line: u32, col: u32) -> u32 {
+    #[must_use] pub fn line_col_to_position(&self, line: u32, col: u32) -> u32 {
         // line is 1-based, so subtract 1 to get the index
         self.0[(line - 1) as usize] + col
     }
@@ -104,17 +104,17 @@ pub struct Span {
 }
 
 impl Span {
-    pub fn new(start: u32, length: u32) -> Self {
+    #[must_use] pub fn new(start: u32, length: u32) -> Self {
         Self { start, length }
     }
 
     #[allow(clippy::trivially_copy_pass_by_ref)]
-    pub fn start(&self) -> u32 {
+    #[must_use] pub fn start(&self) -> u32 {
         self.start
     }
 
     #[allow(clippy::trivially_copy_pass_by_ref)]
-    pub fn length(&self) -> u32 {
+    #[must_use] pub fn length(&self) -> u32 {
         self.length
     }
 }

@@ -26,7 +26,7 @@ use url::Url;
 ///
 /// All document lifecycle and database operations are delegated to the
 /// encapsulated Workspace, which provides thread-safe Salsa database
-/// management with proper mutation safety through StorageHandleGuard.
+/// management with proper mutation safety through `StorageHandleGuard`.
 pub struct Session {
     /// The Django project configuration
     project: Option<DjangoProject>,
@@ -186,7 +186,7 @@ impl Session {
     /// Get the current revision of a file, if it's being tracked.
     ///
     /// Returns None if the file hasn't been created yet.
-    pub fn file_revision(&self, path: &Path) -> Option<u64> {
+    #[must_use] pub fn file_revision(&self, path: &Path) -> Option<u64> {
         {
             let this = &self.workspace;
             this.with_db(|db| db.get_file(path).map(|file| file.revision(db)))
@@ -194,7 +194,7 @@ impl Session {
     }
 
     /// Check if a file is currently being tracked in Salsa.
-    pub fn has_file(&self, path: &Path) -> bool {
+    #[must_use] pub fn has_file(&self, path: &Path) -> bool {
         self.with_db(|db| db.has_file(path))
     }
 }
