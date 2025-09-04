@@ -519,13 +519,13 @@ async fn test_revision_tracking_across_lifecycle() {
     assert_eq!(server.get_file_revision(file_name).await, Some(0));
 
     // Change document multiple times
-    for i in 2..=5 {
+    for i in 2u64..=5 {
         server
-            .change_document(file_name, &format!("Change {i}"), i)
+            .change_document(file_name, &format!("Change {i}"), i.try_into().unwrap())
             .await;
         assert_eq!(
             server.get_file_revision(file_name).await,
-            Some((i - 1) as u64),
+            Some(i - 1),
             "Revision should be {} after change {}",
             i - 1,
             i
