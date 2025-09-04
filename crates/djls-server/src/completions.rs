@@ -4,10 +4,14 @@
 //! and generating appropriate completion items for Django templates.
 
 use djls_project::TemplateTags;
-use djls_workspace::{FileKind, PositionEncoding, TextDocument};
-use tower_lsp_server::lsp_types::{
-    CompletionItem, CompletionItemKind, Documentation, InsertTextFormat, Position,
-};
+use djls_workspace::FileKind;
+use djls_workspace::PositionEncoding;
+use djls_workspace::TextDocument;
+use tower_lsp_server::lsp_types::CompletionItem;
+use tower_lsp_server::lsp_types::CompletionItemKind;
+use tower_lsp_server::lsp_types::Documentation;
+use tower_lsp_server::lsp_types::InsertTextFormat;
+use tower_lsp_server::lsp_types::Position;
 
 /// Tracks what closing characters are needed to complete a template tag.
 ///

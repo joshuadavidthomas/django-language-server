@@ -21,7 +21,6 @@ mod language;
 pub mod paths;
 mod workspace;
 
-
 use std::path::Path;
 
 pub use buffers::Buffers;
@@ -33,8 +32,6 @@ pub use fs::OsFileSystem;
 pub use fs::WorkspaceFileSystem;
 pub use language::LanguageId;
 pub use workspace::Workspace;
-
-
 
 /// File classification for routing to analyzers.
 ///

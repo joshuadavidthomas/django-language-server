@@ -4,7 +4,8 @@
 //! components including buffers, file system, file tracking, and database handle.
 //! This provides a clean API boundary between server and workspace layers.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use dashmap::DashMap;
@@ -13,9 +14,12 @@ use tower_lsp_server::lsp_types::TextDocumentContentChangeEvent;
 use url::Url;
 
 use crate::buffers::Buffers;
-use crate::db::{source_text, Database, SourceFile};
+use crate::db::source_text;
+use crate::db::Database;
+use crate::db::SourceFile;
 use crate::document::TextDocument;
-use crate::fs::{OsFileSystem, WorkspaceFileSystem};
+use crate::fs::OsFileSystem;
+use crate::fs::WorkspaceFileSystem;
 use crate::paths::url_to_path;
 
 /// Safe wrapper for [`StorageHandle`](salsa::StorageHandle) that prevents misuse through type safety.
@@ -482,14 +486,17 @@ impl Default for Workspace {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::db::source_text;
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
     use std::str::FromStr;
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
+    use std::sync::Mutex;
     use std::time::Duration;
+
     use tempfile::tempdir;
+
+    use super::*;
+    use crate::db::source_text;
 
     #[test]
     fn test_normal_mutation_flow_with_guard() {

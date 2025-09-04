@@ -215,8 +215,9 @@ impl Default for Session {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use djls_workspace::LanguageId;
+
+    use super::*;
 
     #[test]
     fn test_revision_invalidation_chain() {

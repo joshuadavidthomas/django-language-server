@@ -5,7 +5,8 @@
 //! performance when handling frequent position-based operations like hover, completion,
 //! and diagnostics.
 
-use tower_lsp_server::lsp_types::{Position, Range};
+use tower_lsp_server::lsp_types::Position;
+use tower_lsp_server::lsp_types::Range;
 
 use crate::encoding::PositionEncoding;
 use crate::language::LanguageId;
@@ -291,9 +292,10 @@ pub enum IndexKind {
 
 #[cfg(test)]
 mod tests {
+    use tower_lsp_server::lsp_types::TextDocumentContentChangeEvent;
+
     use super::*;
     use crate::language::LanguageId;
-    use tower_lsp_server::lsp_types::TextDocumentContentChangeEvent;
 
     #[test]
     fn test_incremental_update_single_change() {

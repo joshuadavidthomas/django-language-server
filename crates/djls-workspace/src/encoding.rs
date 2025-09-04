@@ -1,6 +1,8 @@
 use std::fmt;
 use std::str::FromStr;
-use tower_lsp_server::lsp_types::{InitializeParams, PositionEncodingKind};
+
+use tower_lsp_server::lsp_types::InitializeParams;
+use tower_lsp_server::lsp_types::PositionEncodingKind;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum PositionEncoding {
@@ -84,8 +86,10 @@ impl TryFrom<PositionEncodingKind> for PositionEncoding {
 
 #[cfg(test)]
 mod tests {
+    use tower_lsp_server::lsp_types::ClientCapabilities;
+    use tower_lsp_server::lsp_types::GeneralClientCapabilities;
+
     use super::*;
-    use tower_lsp_server::lsp_types::{ClientCapabilities, GeneralClientCapabilities};
 
     #[test]
     fn test_encoding_str_conversion() {
