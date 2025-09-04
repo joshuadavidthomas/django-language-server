@@ -7,6 +7,7 @@
 //! The tests ensure that document changes properly invalidate cached queries
 //! and that overlays take precedence over disk content.
 
+use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -89,9 +90,15 @@ impl TestServer {
         let params = DidOpenTextDocumentParams {
             text_document: TextDocumentItem {
                 uri: self.workspace_url(file_name).to_string().parse().unwrap(),
-                language_id: if file_name.ends_with(".html") {
+                language_id: if Path::new(file_name)
+                    .extension()
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("html"))
+                {
                     "html".to_string()
-                } else if file_name.ends_with(".py") {
+                } else if Path::new(file_name)
+                    .extension()
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("py"))
+                {
                     "python".to_string()
                 } else {
                     "plaintext".to_string()
@@ -154,7 +161,7 @@ impl TestServer {
     async fn get_file_content(&self, file_name: &str) -> String {
         let path = self.workspace_file(file_name);
         self.server
-            .with_session_mut(|session| session.file_content(path))
+            .with_session_mut(|session| session.file_content(&path))
             .await
     }
 
@@ -452,9 +459,7 @@ async fn test_caching_behavior() {
 
     // Parse all templates once to populate cache
     for i in 1..=3 {
-        let _ = server
-            .get_file_content(&format!("template{i}.html"))
-            .await;
+        let _ = server.get_file_content(&format!("template{i}.html")).await;
     }
 
     // Store initial revisions

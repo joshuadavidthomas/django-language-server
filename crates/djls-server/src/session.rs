@@ -176,9 +176,9 @@ impl Session {
     /// This is the safe way to read file content through the system.
     /// The file is created if it doesn't exist, and content is read
     /// through the `FileSystem` abstraction (overlay first, then disk).
-    pub fn file_content(&mut self, path: PathBuf) -> String {
+    pub fn file_content(&mut self, path: &PathBuf) -> String {
         self.with_db_mut(|db| {
-            let file = db.get_or_create_file(&path);
+            let file = db.get_or_create_file(path);
             source_text(db, file).to_string()
         })
     }
@@ -186,7 +186,8 @@ impl Session {
     /// Get the current revision of a file, if it's being tracked.
     ///
     /// Returns None if the file hasn't been created yet.
-    #[must_use] pub fn file_revision(&self, path: &Path) -> Option<u64> {
+    #[must_use]
+    pub fn file_revision(&self, path: &Path) -> Option<u64> {
         {
             let this = &self.workspace;
             this.with_db(|db| db.get_file(path).map(|file| file.revision(db)))
@@ -194,7 +195,8 @@ impl Session {
     }
 
     /// Check if a file is currently being tracked in Salsa.
-    #[must_use] pub fn has_file(&self, path: &Path) -> bool {
+    #[must_use]
+    pub fn has_file(&self, path: &Path) -> bool {
         self.with_db(|db| db.has_file(path))
     }
 }
@@ -205,7 +207,7 @@ impl Default for Session {
             project: None,
             settings: Settings::default(),
             workspace: Workspace::new(),
-            client_capabilities: Default::default(),
+            client_capabilities: lsp_types::ClientCapabilities::default(),
             position_encoding: PositionEncoding::default(),
         }
     }
@@ -231,7 +233,7 @@ mod tests {
         );
         session.open_document(&url, document);
 
-        let content1 = session.file_content(path.clone());
+        let content1 = session.file_content(&path);
         assert_eq!(content1, "<h1>Original Content</h1>");
 
         // Update document with new content using a full replacement change
@@ -243,7 +245,7 @@ mod tests {
         session.update_document(&url, changes, 2);
 
         // Read content again (should get new overlay content due to invalidation)
-        let content2 = session.file_content(path.clone());
+        let content2 = session.file_content(&path);
         assert_eq!(content2, "<h1>Updated Content</h1>");
         assert_ne!(content1, content2);
 
@@ -251,7 +253,7 @@ mod tests {
         session.close_document(&url);
 
         // Read content again (should now read from disk, which returns empty for missing files)
-        let content3 = session.file_content(path.clone());
+        let content3 = session.file_content(&path);
         assert_eq!(content3, ""); // No file on disk, returns empty
     }
 
@@ -262,16 +264,16 @@ mod tests {
         let path1 = PathBuf::from("/test/file1.py");
         let path2 = PathBuf::from("/test/file2.py");
 
-        session.file_content(path1.clone());
-        session.file_content(path2.clone());
+        session.file_content(&path1);
+        session.file_content(&path2);
 
         // Verify files are preserved across operations
         assert!(session.has_file(&path1));
         assert!(session.has_file(&path2));
 
         // Files should persist even after multiple operations
-        let content1 = session.file_content(path1.clone());
-        let content2 = session.file_content(path2.clone());
+        let content1 = session.file_content(&path1);
+        let content2 = session.file_content(&path2);
 
         // Both should return empty (no disk content)
         assert_eq!(content1, "");

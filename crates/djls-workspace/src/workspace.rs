@@ -388,9 +388,9 @@ impl Workspace {
     /// First attempts read-only access for existing files, then escalates to write
     /// access only if the file needs to be created. This improves concurrency by
     /// avoiding unnecessary write locks.
-    pub fn file_content(&mut self, path: PathBuf) -> String {
+    pub fn file_content(&mut self, path: &PathBuf) -> String {
         // Try read-only access first for existing files
-        if let Some(content) = self.try_read_file(&path) {
+        if let Some(content) = self.try_read_file(path) {
             return content;
         }
 
@@ -400,7 +400,7 @@ impl Workspace {
             path.display()
         );
         self.with_db_mut(|db| {
-            let file = db.get_or_create_file(&path);
+            let file = db.get_or_create_file(path);
             source_text(db, file).to_string()
         })
     }
