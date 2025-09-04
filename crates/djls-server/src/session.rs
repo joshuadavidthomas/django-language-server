@@ -115,8 +115,6 @@ impl Session {
         self.position_encoding
     }
 
-
-
     /// Execute a closure with mutable access to the database.
     ///
     /// Delegates to the workspace's safe database mutation mechanism.
@@ -180,7 +178,7 @@ impl Session {
     /// through the `FileSystem` abstraction (overlay first, then disk).
     pub fn file_content(&mut self, path: PathBuf) -> String {
         self.with_db_mut(|db| {
-            let file = db.get_or_create_file(path);
+            let file = db.get_or_create_file(&path);
             source_text(db, file).to_string()
         })
     }
@@ -189,7 +187,10 @@ impl Session {
     ///
     /// Returns None if the file hasn't been created yet.
     pub fn file_revision(&self, path: &Path) -> Option<u64> {
-        self.workspace.file_revision(path)
+        {
+            let this = &self.workspace;
+            this.with_db(|db| db.get_file(path).map(|file| file.revision(db)))
+        }
     }
 
     /// Check if a file is currently being tracked in Salsa.

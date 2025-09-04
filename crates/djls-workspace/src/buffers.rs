@@ -2,9 +2,10 @@
 //!
 //! This module provides the [`Buffers`] type which represents the in-memory
 //! content of open files. These buffers are shared between the `Session`
-//! (which manages document lifecycle) and the [`WorkspaceFileSystem`](crate::fs::WorkspaceFileSystem) (which
+//! (which manages document lifecycle) and the [`WorkspaceFileSystem`] (which
 //! reads from them).
-
+///
+/// [`WorkspaceFileSystem`]: crate::fs::WorkspaceFileSystem
 use std::sync::Arc;
 
 use dashmap::DashMap;

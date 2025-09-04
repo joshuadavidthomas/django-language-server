@@ -69,6 +69,7 @@ pub struct Database {
 
     // The logs are only used for testing and demonstrating reuse:
     #[cfg(test)]
+    #[allow(dead_code)]
     logs: Arc<Mutex<Option<Vec<String>>>>,
 }
 
@@ -141,8 +142,8 @@ impl Database {
     ///
     /// Files are created with an initial revision of 0 and tracked in the [`Database`]'s
     /// `DashMap`. The `Arc` ensures cheap cloning while maintaining thread safety.
-    pub fn get_or_create_file(&mut self, path: PathBuf) -> SourceFile {
-        if let Some(file_ref) = self.files.get(&path) {
+    pub fn get_or_create_file(&mut self, path: &PathBuf) -> SourceFile {
+        if let Some(file_ref) = self.files.get(path) {
             // Copy the value (SourceFile is Copy) and drop the guard immediately
             let file = *file_ref;
             drop(file_ref); // Explicitly drop the guard to release the lock
@@ -150,7 +151,7 @@ impl Database {
         }
 
         // File doesn't exist, so we need to create it
-        let kind = FileKind::from_path(&path);
+        let kind = FileKind::from_path(path);
         let file = SourceFile::new(self, kind, Arc::from(path.to_string_lossy().as_ref()), 0);
 
         self.files.insert(path.clone(), file);
@@ -354,7 +355,7 @@ mod tests {
         let mut db = Database::new(file_system, files);
 
         // Create a SourceFile for the template
-        let file = db.get_or_create_file(template_path.clone());
+        let file = db.get_or_create_file(&template_path);
 
         // Parse template - should get original content from disk
         let ast1 = parse_template(&db, file).expect("Should parse template");
@@ -410,7 +411,7 @@ mod tests {
         let mut db = Database::new(file_system, files);
 
         // Create a SourceFile for the template
-        let file = db.get_or_create_file(template_path.clone());
+        let file = db.get_or_create_file(&template_path);
 
         // Parse template first time
         let ast1 = parse_template(&db, file).expect("Should parse");

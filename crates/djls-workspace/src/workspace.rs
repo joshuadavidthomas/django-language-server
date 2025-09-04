@@ -18,7 +18,7 @@ use crate::document::TextDocument;
 use crate::fs::{OsFileSystem, WorkspaceFileSystem};
 use crate::paths::url_to_path;
 
-/// Safe wrapper for StorageHandle that prevents misuse through type safety.
+/// Safe wrapper for [`StorageHandle`](salsa::StorageHandle) that prevents misuse through type safety.
 ///
 /// This enum ensures that database handles can only be in one of two valid states,
 /// making invalid states unrepresentable and eliminating the need for placeholder
@@ -31,14 +31,14 @@ enum SafeStorageHandle {
 }
 
 impl SafeStorageHandle {
-    /// Create a new SafeStorageHandle in the Available state
+    /// Create a new `SafeStorageHandle` in the `Available` state
     fn new(handle: StorageHandle<Database>) -> Self {
         Self::Available(handle)
     }
 
-    /// Take the handle for mutation, leaving the enum in TakenForMutation state.
+    /// Take the handle for mutation, leaving the enum in `TakenForMutation` state.
     ///
-    /// # Panics
+    /// ## Panics
     ///
     /// Panics if the handle has already been taken for mutation.
     fn take_for_mutation(&mut self) -> StorageHandle<Database> {
@@ -52,9 +52,9 @@ impl SafeStorageHandle {
         }
     }
 
-    /// Restore the handle after mutation, returning it to Available state.
+    /// Restore the handle after mutation, returning it to `Available` state.
     ///
-    /// # Panics
+    /// ## Panics
     ///
     /// Panics if the handle is not currently taken for mutation.
     fn restore_from_mutation(&mut self, handle: StorageHandle<Database>) {
@@ -71,7 +71,7 @@ impl SafeStorageHandle {
 
     /// Get a clone of the handle for read-only operations.
     ///
-    /// # Panics
+    /// ## Panics
     ///
     /// Panics if the handle is currently taken for mutation.
     fn clone_for_read(&self) -> StorageHandle<Database> {
@@ -85,41 +85,19 @@ impl SafeStorageHandle {
     }
 }
 
-/// State of the StorageHandleGuard during its lifetime.
+/// State of the [`StorageHandleGuard`] during its lifetime.
 ///
-/// This enum captures the exact state of the guard and the handle it manages,
-/// making state transitions explicit and preventing invalid combinations.
-///
-/// ## State Machine
-///
-/// The valid state transitions are:
-/// - `Active` → `Consumed` (via `handle()`)
-/// - `Consumed` → `Restored` (via `restore()`)
-///
-/// Invalid transitions will panic with specific error messages:
-/// - `handle()` on `Consumed` state: "StorageHandle already consumed"
-/// - `handle()` on `Restored` state: "Cannot consume handle - guard has already been restored"
-/// - `restore()` on `Active` state: "Cannot restore handle - it hasn't been consumed yet"
-/// - `restore()` on `Restored` state: "Handle has already been restored"
-///
-/// ## Drop Behavior
-///
-/// The guard will panic on drop unless it's in the `Restored` state:
-/// - Drop in `Active` state: "StorageHandleGuard dropped without using the handle"
-/// - Drop in `Consumed` state: "StorageHandleGuard dropped without restoring handle"
-/// - Drop in `Restored` state: No panic - proper cleanup
+/// See [`StorageHandleGuard`] for usage and state machine details.
 enum GuardState {
-    /// Guard holds the handle and it's ready to be consumed via `handle()`
+    /// Guard holds the handle, ready to be consumed
     Active { handle: StorageHandle<Database> },
-
-    /// Handle has been consumed via `handle()` method, awaiting restoration via `restore()`
+    /// Handle consumed, awaiting restoration
     Consumed,
-
-    /// Handle has been properly restored to the SafeStorageHandle - guard is complete
+    /// Handle restored to [`SafeStorageHandle`]
     Restored,
 }
 
-/// RAII guard for safe StorageHandle management during mutations.
+/// RAII guard for safe [`StorageHandle`](salsa::StorageHandle) management during mutations.
 ///
 /// This guard ensures that database handles are automatically restored even if
 /// panics occur during mutation operations. It prevents double-takes and
@@ -127,20 +105,44 @@ enum GuardState {
 ///
 /// ## State Machine
 ///
-/// The guard follows a clear state machine:
-/// - `Active` → `Consumed` (via `handle()`)
-/// - `Consumed` → `Restored` (via `restore()`)
-/// - `Active` → `Restored` (direct restore without consuming - future extension)
+/// The guard follows these valid state transitions:
+/// - `Active` → `Consumed` (via `handle()` method)
+/// - `Consumed` → `Restored` (via `restore()` method)
+///
+/// ## Invalid Transitions
+///
+/// Invalid operations will panic with specific error messages:
+/// - `handle()` on `Consumed` state: "[`StorageHandle`](salsa::StorageHandle) already consumed"
+/// - `handle()` on `Restored` state: "Cannot consume handle - guard has already been restored"
+/// - `restore()` on `Active` state: "Cannot restore handle - it hasn't been consumed yet"
+/// - `restore()` on `Restored` state: "Handle has already been restored"
+///
+/// ## Drop Behavior
+///
+/// The guard will panic on drop unless it's in the `Restored` state:
+/// - Drop in `Active` state: "`StorageHandleGuard` dropped without using the handle"
+/// - Drop in `Consumed` state: "`StorageHandleGuard` dropped without restoring handle"
+/// - Drop in `Restored` state: No panic - proper cleanup completed
+///
+/// ## Usage Example
+///
+/// ```rust,ignore
+/// let mut guard = StorageHandleGuard::new(&mut safe_handle);
+/// let handle = guard.handle();           // Active → Consumed
+/// // ... perform mutations with handle ...
+/// guard.restore(updated_handle);         // Consumed → Restored
+/// // Guard drops cleanly in Restored state
+/// ```
 #[must_use = "StorageHandleGuard must be used - dropping it immediately defeats the purpose"]
 pub struct StorageHandleGuard<'a> {
-    /// Reference to the workspace's SafeStorageHandle for restoration
+    /// Reference to the workspace's `SafeStorageHandle` for restoration
     safe_handle: &'a mut SafeStorageHandle,
     /// Current state of the guard and handle
     state: GuardState,
 }
 
 impl<'a> StorageHandleGuard<'a> {
-    /// Create a new guard by taking the handle from the SafeStorageHandle.
+    /// Create a new guard by taking the handle from the `SafeStorageHandle`.
     fn new(safe_handle: &'a mut SafeStorageHandle) -> Self {
         let handle = safe_handle.take_for_mutation();
         Self {
@@ -149,9 +151,9 @@ impl<'a> StorageHandleGuard<'a> {
         }
     }
 
-    /// Get the StorageHandle for mutation operations.
+    /// Get the [`StorageHandle`](salsa::StorageHandle) for mutation operations.
     ///
-    /// # Panics
+    /// ## Panics
     ///
     /// Panics if the handle has already been consumed or restored.
     pub fn handle(&mut self) -> StorageHandle<Database> {
@@ -173,7 +175,7 @@ impl<'a> StorageHandleGuard<'a> {
     /// This is useful when you want to restore the handle and continue using
     /// the workspace in the same scope.
     ///
-    /// # Panics
+    /// ## Panics
     ///
     /// Panics if the handle hasn't been consumed yet, or if already restored.
     pub fn restore(mut self, handle: StorageHandle<Database>) {
@@ -193,7 +195,7 @@ impl<'a> StorageHandleGuard<'a> {
     }
 }
 
-impl<'a> Drop for StorageHandleGuard<'a> {
+impl Drop for StorageHandleGuard<'_> {
     fn drop(&mut self) {
         // Provide specific error messages based on the exact state
         // Avoid double-panic during unwinding
@@ -225,37 +227,20 @@ impl<'a> Drop for StorageHandleGuard<'a> {
 ///
 /// This struct provides a unified interface for managing workspace state,
 /// including in-memory buffers, file system abstraction, file tracking,
-/// and the Salsa database handle. It follows the same initialization pattern
-/// as the Session but encapsulates it in a reusable component.
-///
-/// ## Components
-///
-/// - **Buffers**: Thread-safe storage for open document content
-/// - **WorkspaceFileSystem**: File system abstraction with buffer interception
-/// - **Files**: Shared file tracking across all Database instances
-/// - **Database Handle**: Thread-safe Salsa database handle for incremental computation
+/// and the Salsa database handle.
 pub struct Workspace {
-    /// Layer 1: Shared buffer storage for open documents
+    /// Thread-safe shared buffer storage for open documents
     buffers: Buffers,
-
     /// File system abstraction with buffer interception
     file_system: Arc<WorkspaceFileSystem>,
-
     /// Shared file tracking across all Database instances
     files: Arc<DashMap<PathBuf, SourceFile>>,
-
-    /// Layer 2: Thread-safe Salsa database handle with safe mutation management
+    /// Thread-safe Salsa database handle for incremental computation with safe mutation management
     db_handle: SafeStorageHandle,
 }
 
 impl Workspace {
-    /// Create a new Workspace with all components initialized.
-    ///
-    /// This follows the same initialization pattern as Session:
-    /// 1. Creates Buffers for in-memory document storage
-    /// 2. Creates shared file tracking DashMap
-    /// 3. Creates WorkspaceFileSystem with buffer interception
-    /// 4. Initializes Database and extracts StorageHandle
+    /// Create a new [`Workspace`] with all components initialized.
     #[must_use]
     pub fn new() -> Self {
         let buffers = Buffers::new();
@@ -277,8 +262,6 @@ impl Workspace {
         }
     }
 
-    // Database Access Methods (AC #1)
-
     /// Execute a read-only operation with access to the database.
     ///
     /// Creates a temporary Database instance from the handle for the closure.
@@ -295,7 +278,7 @@ impl Workspace {
 
     /// Execute a mutable operation with exclusive access to the database.
     ///
-    /// Uses the StorageHandleGuard pattern to ensure the handle is safely restored
+    /// Uses the `StorageHandleGuard` pattern to ensure the handle is safely restored
     /// even if the operation panics. This eliminates the need for placeholder handles.
     pub fn with_db_mut<F, R>(&mut self, f: F) -> R
     where
@@ -311,8 +294,6 @@ impl Workspace {
         result
     }
 
-    // Document Lifecycle Methods (AC #2)
-
     /// Open a document in the workspace.
     ///
     /// Updates both the buffer layer and database layer. Creates the file in
@@ -322,12 +303,11 @@ impl Workspace {
         self.buffers.open(url.clone(), document);
 
         // Layer 2: Create file and touch if it already exists
-        // This matches the original Session behavior for test compatibility
         if let Some(path) = url_to_path(url) {
             self.with_db_mut(|db| {
                 // Check if file already exists (was previously read from disk)
                 let already_exists = db.has_file(&path);
-                let _file = db.get_or_create_file(path.clone());
+                let _file = db.get_or_create_file(&path);
 
                 if already_exists {
                     // File was already read - touch to invalidate cache
@@ -384,8 +364,6 @@ impl Workspace {
         document
     }
 
-    // File Operations (AC #3)
-
     /// Try to read file content using read-only database access.
     ///
     /// Returns `Some(content)` if the file exists in the database, `None` otherwise.
@@ -422,32 +400,29 @@ impl Workspace {
             path.display()
         );
         self.with_db_mut(|db| {
-            let file = db.get_or_create_file(path);
+            let file = db.get_or_create_file(&path);
             source_text(db, file).to_string()
         })
     }
 
     /// Get the revision number of a file if it exists.
     ///
-    /// Returns None if the file is not being tracked by the database.
+    /// Returns `None` if the file is not being tracked by the database.
     /// Uses read-only database access since no mutation is needed.
+    #[must_use]
     pub fn file_revision(&self, path: &Path) -> Option<u64> {
         self.with_db(|db| db.get_file(path).map(|file| file.revision(db)))
     }
 
-    // Buffer Query Method (AC #4)
-
     /// Get a document from the buffer if it's open.
     ///
-    /// Returns a cloned TextDocument for the given URL if it exists in buffers.
+    /// Returns a cloned [`TextDocument`] for the given URL if it exists in buffers.
     #[must_use]
     pub fn get_document(&self, url: &Url) -> Option<TextDocument> {
         self.buffers.get(url)
     }
 
-    // File Invalidation Helper (AC #5)
-
-    /// Private helper: Invalidate a file if it exists in the database.
+    /// Invalidate a file if it exists in the database.
     ///
     /// Used by document lifecycle methods to trigger cache invalidation.
     fn invalidate_file_if_exists(&mut self, path: &Path) {
@@ -458,8 +433,6 @@ impl Workspace {
         });
     }
 
-    // Existing methods preserved below
-
     /// Get a reference to the buffers.
     #[must_use]
     pub fn buffers(&self) -> &Buffers {
@@ -468,7 +441,7 @@ impl Workspace {
 
     /// Get a clone of the file system.
     ///
-    /// Returns an Arc-wrapped WorkspaceFileSystem that can be shared
+    /// Returns an Arc-wrapped [`WorkspaceFileSystem`] that can be shared
     /// across threads and used for file operations.
     #[must_use]
     pub fn file_system(&self) -> Arc<WorkspaceFileSystem> {
@@ -477,7 +450,7 @@ impl Workspace {
 
     /// Get a clone of the files tracking map.
     ///
-    /// Returns an Arc-wrapped DashMap for O(1) file lookups that
+    /// Returns an Arc-wrapped [`DashMap`] for O(1) file lookups that
     /// can be shared across Database instances.
     #[must_use]
     pub fn files(&self) -> Arc<DashMap<PathBuf, SourceFile>> {
@@ -492,7 +465,7 @@ impl Workspace {
     ///
     /// For mutation operations, use [`with_db_mut`](Self::with_db_mut) instead.
     ///
-    /// # Panics
+    /// ## Panics
     ///
     /// Panics if the handle is currently taken for mutation.
     #[must_use]
@@ -511,6 +484,9 @@ impl Default for Workspace {
 mod tests {
     use super::*;
     use crate::db::source_text;
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
+    use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
     use tempfile::tempdir;
@@ -523,7 +499,7 @@ mod tests {
         let result = workspace.with_db_mut(|db| {
             // Simple operation - create a file
             let path = PathBuf::from("test.py");
-            let file = db.get_or_create_file(path);
+            let file = db.get_or_create_file(&path);
             file.revision(db) // Return the revision number
         });
 
@@ -646,7 +622,7 @@ mod tests {
 
         // Make some changes
         let path = PathBuf::from("manual_test.py");
-        let _file = db.get_or_create_file(path);
+        let _file = db.get_or_create_file(&path);
 
         // Extract new handle and restore manually
         let new_handle = db.storage().clone().into_zalsa_handle();
@@ -680,7 +656,7 @@ mod tests {
         // Add a file to create some state
         let initial_file_count = workspace.with_db_mut(|db| {
             let path = PathBuf::from("callback_test.py");
-            let _file = db.get_or_create_file(path);
+            let _file = db.get_or_create_file(&path);
             1 // Return count
         });
 
@@ -689,7 +665,7 @@ mod tests {
         // Perform another mutation to ensure callbacks are preserved
         let final_file_count = workspace.with_db_mut(|db| {
             let path = PathBuf::from("callback_test2.py");
-            let _file = db.get_or_create_file(path);
+            let _file = db.get_or_create_file(&path);
 
             // Count files - should include both
             let has_first = db.has_file(&PathBuf::from("callback_test.py"));
@@ -780,42 +756,38 @@ mod tests {
         // Guard drops here without handle() being called
     }
 
-    // Error Recovery Tests
-
     #[test]
     fn test_missing_file_returns_empty_content() {
         // Tests that source_text returns "" for non-existent files
         // instead of panicking or propagating errors
         let mut workspace = Workspace::new();
-        
+
         // Create a file reference for non-existent path
         let content = workspace.with_db_mut(|db| {
-            let file = db.get_or_create_file("/nonexistent/file.py".into());
+            let file = db.get_or_create_file(&PathBuf::from_str("/nonexistent/file.py").unwrap());
             source_text(db, file).to_string()
         });
-        
+
         assert_eq!(content, "");
     }
 
     #[test]
-    #[cfg(unix)] // Only on Unix systems
+    #[cfg(unix)]
     fn test_permission_denied_file_handling() {
         // Create a file with no read permissions
         let temp_dir = tempdir().unwrap();
         let file_path = temp_dir.path().join("no_read.py");
         std::fs::write(&file_path, "content").unwrap();
-        
+
         // Remove read permissions
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&file_path, 
-            std::fs::Permissions::from_mode(0o000)).unwrap();
-        
+        std::fs::set_permissions(&file_path, std::fs::Permissions::from_mode(0o000)).unwrap();
+
         let mut workspace = Workspace::new();
         let content = workspace.with_db_mut(|db| {
-            let file = db.get_or_create_file(file_path.clone());
+            let file = db.get_or_create_file(&file_path);
             source_text(db, file).to_string()
         });
-        
+
         // Should return empty string, not panic
         assert_eq!(content, "");
     }
@@ -825,44 +797,44 @@ mod tests {
         // Create a file with invalid UTF-8
         let temp_dir = tempdir().unwrap();
         let file_path = temp_dir.path().join("invalid.py");
-        std::fs::write(&file_path, &[0xFF, 0xFE, 0xFD]).unwrap();
-        
+        std::fs::write(&file_path, [0xFF, 0xFE, 0xFD]).unwrap();
+
         let mut workspace = Workspace::new();
         let content = workspace.with_db_mut(|db| {
-            let file = db.get_or_create_file(file_path.clone());
+            let file = db.get_or_create_file(&file_path);
             source_text(db, file).to_string()
         });
-        
+
         // Should handle gracefully (empty or replacement chars)
         assert!(content.is_empty() || content.contains('�'));
     }
 
-    #[test]  
+    #[test]
     fn test_file_deleted_after_tracking() {
         let temp_dir = tempdir().unwrap();
         let file_path = temp_dir.path().join("disappearing.py");
         std::fs::write(&file_path, "original").unwrap();
-        
+
         let mut workspace = Workspace::new();
-        
+
         // First read should succeed
         let content1 = workspace.with_db_mut(|db| {
-            let file = db.get_or_create_file(file_path.clone());
+            let file = db.get_or_create_file(&file_path);
             source_text(db, file).to_string()
         });
         assert_eq!(content1, "original");
-        
+
         // Delete the file
         std::fs::remove_file(&file_path).unwrap();
-        
+
         // Touch to invalidate cache
         workspace.with_db_mut(|db| {
             db.touch_file(&file_path);
         });
-        
+
         // Second read should return empty (not panic)
         let content2 = workspace.with_db_mut(|db| {
-            let file = db.get_or_create_file(file_path.clone());
+            let file = db.get_or_create_file(&file_path);
             source_text(db, file).to_string()
         });
         assert_eq!(content2, "");
@@ -873,16 +845,16 @@ mod tests {
     fn test_broken_symlink_handling() {
         let temp_dir = tempdir().unwrap();
         let symlink_path = temp_dir.path().join("broken_link.py");
-        
+
         // Create broken symlink
         std::os::unix::fs::symlink("/nonexistent/target", &symlink_path).unwrap();
-        
+
         let mut workspace = Workspace::new();
         let content = workspace.with_db_mut(|db| {
-            let file = db.get_or_create_file(symlink_path.clone());
+            let file = db.get_or_create_file(&symlink_path);
             source_text(db, file).to_string()
         });
-        
+
         // Should handle gracefully
         assert_eq!(content, "");
     }
@@ -892,31 +864,30 @@ mod tests {
         // Tests that concurrent file modifications don't crash
         let temp_dir = tempdir().unwrap();
         let file_path = temp_dir.path().join("racing.py");
-        
+
         let workspace = Arc::new(Mutex::new(Workspace::new()));
         let path_clone = file_path.clone();
         let workspace_clone = workspace.clone();
-        
+
         // Writer thread
         let writer = std::thread::spawn(move || {
             for i in 0..10 {
-                std::fs::write(&path_clone, format!("version {}", i)).ok();
+                std::fs::write(&path_clone, format!("version {i}")).ok();
                 std::thread::sleep(Duration::from_millis(10));
             }
         });
-        
+
         // Reader thread - should never panic
         for _ in 0..10 {
             let content = workspace_clone.lock().unwrap().with_db_mut(|db| {
-                let file = db.get_or_create_file(file_path.clone());
+                let file = db.get_or_create_file(&file_path);
                 source_text(db, file).to_string()
             });
             // Content may vary but shouldn't crash
             assert!(content.is_empty() || content.starts_with("version"));
             std::thread::sleep(Duration::from_millis(5));
         }
-        
+
         writer.join().unwrap();
     }
 }
-

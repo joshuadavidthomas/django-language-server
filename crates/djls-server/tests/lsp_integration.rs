@@ -11,6 +11,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use djls_server::DjangoLanguageServer;
+use djls_workspace::db::parse_template;
 use tempfile::TempDir;
 use tower_lsp_server::lsp_types::DidChangeTextDocumentParams;
 use tower_lsp_server::lsp_types::DidCloseTextDocumentParams;
@@ -263,7 +264,6 @@ async fn test_template_parsing_with_overlays() {
             1,
         )
         .await;
-    use djls_workspace::db::parse_template;
 
     // Parse template through the session
     let workspace_path = server.workspace_file(file_name);
@@ -271,7 +271,7 @@ async fn test_template_parsing_with_overlays() {
         .server
         .with_session_mut(|session| {
             session.with_db_mut(|db| {
-                let file = db.get_or_create_file(workspace_path);
+                let file = db.get_or_create_file(&workspace_path);
                 parse_template(db, file)
             })
         })
