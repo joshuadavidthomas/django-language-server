@@ -129,6 +129,14 @@ impl Database {
         self.fs.read_to_string(path)
     }
 
+    /// Get an existing [`SourceFile`] for the given path without creating it.
+    ///
+    /// Returns `Some(SourceFile)` if the file is already tracked, `None` otherwise.
+    /// This method uses an immutable reference and doesn't modify the database.
+    pub fn get_file(&self, path: &Path) -> Option<SourceFile> {
+        self.files.get(path).map(|file_ref| *file_ref)
+    }
+
     /// Get or create a [`SourceFile`] for the given path.
     ///
     /// Files are created with an initial revision of 0 and tracked in the [`Database`]'s
