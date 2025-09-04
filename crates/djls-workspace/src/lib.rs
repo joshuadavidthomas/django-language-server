@@ -19,6 +19,7 @@ pub mod encoding;
 mod fs;
 mod language;
 pub mod paths;
+mod workspace;
 
 
 use std::path::Path;
@@ -31,6 +32,7 @@ pub use fs::FileSystem;
 pub use fs::OsFileSystem;
 pub use fs::WorkspaceFileSystem;
 pub use language::LanguageId;
+pub use workspace::Workspace;
 
 
 
