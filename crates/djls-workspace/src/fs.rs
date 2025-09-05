@@ -159,11 +159,10 @@ mod tests {
     mod workspace {
         use url::Url;
 
+        use super::*;
         use crate::buffers::Buffers;
         use crate::document::TextDocument;
         use crate::language::LanguageId;
-
-        use super::*;
 
         #[test]
         fn test_reads_from_buffer_when_present() {

@@ -115,7 +115,8 @@ impl Session {
         changes: Vec<lsp_types::TextDocumentContentChangeEvent>,
         new_version: i32,
     ) {
-        self.workspace.update_document(url, changes, new_version, self.position_encoding);
+        self.workspace
+            .update_document(url, changes, new_version, self.position_encoding);
     }
 
     /// Handle closing a document - removes buffer and bumps revision.
