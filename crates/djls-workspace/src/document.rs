@@ -101,22 +101,16 @@ impl TextDocument {
         }
 
         // Incremental path: apply changes to rebuild the document
-        // Clone current content and apply each change
         let mut new_content = self.content.clone();
 
         for change in changes {
             if let Some(range) = change.range {
                 // Convert LSP range to byte offsets using the negotiated encoding
                 let start_offset =
-                    self.line_index
-                        .offset(range.start, &new_content, encoding)
-                        as usize;
-                let end_offset =
-                    self.line_index
-                        .offset(range.end, &new_content, encoding)
-                        as usize;
+                    self.line_index.offset(range.start, &new_content, encoding) as usize;
+                let end_offset = self.line_index.offset(range.end, &new_content, encoding) as usize;
 
-                // Apply the change by replacing the range
+                // Apply change
                 new_content.replace_range(start_offset..end_offset, &change.text);
 
                 // Rebuild line index after each change since positions shift
@@ -129,7 +123,6 @@ impl TextDocument {
             }
         }
 
-        // Store the rebuilt document
         self.content = new_content;
         self.version = version;
     }
@@ -164,15 +157,14 @@ pub struct LineIndex {
 impl LineIndex {
     #[must_use]
     pub fn new(text: &str) -> Self {
-        let mut line_starts = vec![0];
-        let mut pos_utf8 = 0;
-
-        // Check if text is pure ASCII for optimization
         let kind = if text.is_ascii() {
             IndexKind::Ascii
         } else {
             IndexKind::Utf8
         };
+
+        let mut line_starts = vec![0];
+        let mut pos_utf8 = 0;
 
         for c in text.chars() {
             pos_utf8 += u32::try_from(c.len_utf8()).unwrap_or(0);
@@ -198,12 +190,10 @@ impl LineIndex {
             None => return self.length, // Past end of document
         };
 
-        // If position is at start of line, return line start
         if position.character == 0 {
             return line_start_utf8;
         }
 
-        // Find the line text
         let next_line_start = self
             .line_starts
             .get(position.line as usize + 1)
@@ -214,16 +204,14 @@ impl LineIndex {
             return line_start_utf8;
         };
 
-        // ASCII fast path optimization
+        // Fast path optimization for ASCII text, all encodings are equivalent to byte offsets
         if matches!(self.kind, IndexKind::Ascii) {
-            // For ASCII text, all encodings are equivalent to byte offsets
             let char_offset = position
                 .character
                 .min(u32::try_from(line_text.len()).unwrap_or(u32::MAX));
             return line_start_utf8 + char_offset;
         }
 
-        // Handle different encodings for non-ASCII text
         match encoding {
             PositionEncoding::Utf8 => {
                 // UTF-8: character positions are already byte offsets
