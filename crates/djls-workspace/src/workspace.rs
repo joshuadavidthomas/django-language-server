@@ -13,12 +13,10 @@ use url::Url;
 
 use crate::buffers::Buffers;
 use crate::db::Database;
-
 use crate::document::TextDocument;
 use crate::fs::OsFileSystem;
 use crate::fs::WorkspaceFileSystem;
 use crate::paths::url_to_path;
-
 
 /// Workspace facade that encapsulates all workspace components.
 ///
@@ -43,10 +41,7 @@ impl Workspace {
         ));
         let db = Database::new(file_system, files);
 
-        Self {
-            buffers,
-            db,
-        }
+        Self { buffers, db }
     }
 
     /// Execute a read-only operation with access to the database.
@@ -154,8 +149,6 @@ impl Workspace {
             }
         });
     }
-
-
 }
 
 impl Default for Workspace {
@@ -167,7 +160,7 @@ impl Default for Workspace {
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
-    
+
     use tempfile::tempdir;
 
     use super::*;
@@ -209,7 +202,7 @@ mod tests {
         // Multiple with_db calls work correctly with Clone pattern
         let workspace = Workspace::new();
 
-        // Multiple reads work fine 
+        // Multiple reads work fine
         let result1 = workspace.with_db(|db| db.has_file(&PathBuf::from("file1.py")));
         let result2 = workspace.with_db(|db| db.has_file(&PathBuf::from("file2.py")));
 

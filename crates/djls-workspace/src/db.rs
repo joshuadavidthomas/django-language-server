@@ -111,8 +111,6 @@ impl Database {
         }
     }
 
-
-
     /// Read file content through the file system.
     pub fn read_file_content(&self, path: &Path) -> std::io::Result<String> {
         self.fs.read_to_string(path)
@@ -188,8 +186,6 @@ impl Database {
             new_rev
         );
     }
-
-
 }
 
 #[salsa::db]
