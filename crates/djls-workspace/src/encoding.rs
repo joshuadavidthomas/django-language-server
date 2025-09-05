@@ -92,21 +92,34 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_encoding_str_conversion() {
-        // Test FromStr trait
-        assert_eq!("utf-8".parse(), Ok(PositionEncoding::Utf8));
-        assert_eq!("utf-16".parse(), Ok(PositionEncoding::Utf16));
-        assert_eq!("utf-32".parse(), Ok(PositionEncoding::Utf32));
-        assert!("invalid".parse::<PositionEncoding>().is_err());
+    fn test_string_parsing_and_display() {
+        // Valid encodings parse correctly
+        assert_eq!(
+            "utf-8".parse::<PositionEncoding>(),
+            Ok(PositionEncoding::Utf8)
+        );
+        assert_eq!(
+            "utf-16".parse::<PositionEncoding>(),
+            Ok(PositionEncoding::Utf16)
+        );
+        assert_eq!(
+            "utf-32".parse::<PositionEncoding>(),
+            Ok(PositionEncoding::Utf32)
+        );
 
-        // Test ToString trait
+        // Invalid encoding returns error
+        assert!("invalid".parse::<PositionEncoding>().is_err());
+        assert!("UTF-8".parse::<PositionEncoding>().is_err()); // case sensitive
+
+        // Display produces correct strings
         assert_eq!(PositionEncoding::Utf8.to_string(), "utf-8");
         assert_eq!(PositionEncoding::Utf16.to_string(), "utf-16");
         assert_eq!(PositionEncoding::Utf32.to_string(), "utf-32");
     }
 
     #[test]
-    fn test_from_lsp_kind() {
+    fn test_lsp_type_conversions() {
+        // TryFrom<PositionEncodingKind> for valid encodings
         assert_eq!(
             PositionEncoding::try_from(PositionEncodingKind::new("utf-8")),
             Ok(PositionEncoding::Utf8)
@@ -119,27 +132,11 @@ mod tests {
             PositionEncoding::try_from(PositionEncodingKind::new("utf-32")),
             Ok(PositionEncoding::Utf32)
         );
-        assert!(PositionEncoding::try_from(PositionEncodingKind::new("unknown")).is_err());
-    }
 
-    #[test]
-    fn test_trait_conversions() {
-        // Test TryFrom<PositionEncodingKind> for PositionEncoding
-        assert_eq!(
-            PositionEncoding::try_from(PositionEncodingKind::new("utf-8")),
-            Ok(PositionEncoding::Utf8)
-        );
-        assert_eq!(
-            PositionEncoding::try_from(PositionEncodingKind::new("utf-16")),
-            Ok(PositionEncoding::Utf16)
-        );
-        assert_eq!(
-            PositionEncoding::try_from(PositionEncodingKind::new("utf-32")),
-            Ok(PositionEncoding::Utf32)
-        );
+        // Invalid encoding returns error
         assert!(PositionEncoding::try_from(PositionEncodingKind::new("unknown")).is_err());
 
-        // Test From<PositionEncoding> for PositionEncodingKind
+        // From<PositionEncoding> produces correct LSP types
         assert_eq!(
             PositionEncodingKind::from(PositionEncoding::Utf8).as_str(),
             "utf-8"
@@ -155,7 +152,7 @@ mod tests {
     }
 
     #[test]
-    fn test_negotiate_prefers_utf8() {
+    fn test_negotiate_prefers_utf8_when_all_available() {
         let params = InitializeParams {
             capabilities: ClientCapabilities {
                 general: Some(GeneralClientCapabilities {
@@ -172,15 +169,6 @@ mod tests {
         };
 
         assert_eq!(PositionEncoding::negotiate(&params), PositionEncoding::Utf8);
-    }
-
-    #[test]
-    fn test_negotiate_fallback_utf16() {
-        let params = InitializeParams::default();
-        assert_eq!(
-            PositionEncoding::negotiate(&params),
-            PositionEncoding::Utf16
-        );
     }
 
     #[test]
@@ -203,5 +191,79 @@ mod tests {
             PositionEncoding::negotiate(&params),
             PositionEncoding::Utf32
         );
+    }
+
+    #[test]
+    fn test_negotiate_accepts_utf16_when_only_option() {
+        let params = InitializeParams {
+            capabilities: ClientCapabilities {
+                general: Some(GeneralClientCapabilities {
+                    position_encodings: Some(vec![PositionEncodingKind::new("utf-16")]),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        assert_eq!(
+            PositionEncoding::negotiate(&params),
+            PositionEncoding::Utf16
+        );
+    }
+
+    #[test]
+    fn test_negotiate_fallback_with_empty_encodings() {
+        let params = InitializeParams {
+            capabilities: ClientCapabilities {
+                general: Some(GeneralClientCapabilities {
+                    position_encodings: Some(vec![]),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        assert_eq!(
+            PositionEncoding::negotiate(&params),
+            PositionEncoding::Utf16
+        );
+    }
+
+    #[test]
+    fn test_negotiate_fallback_with_no_capabilities() {
+        let params = InitializeParams::default();
+        assert_eq!(
+            PositionEncoding::negotiate(&params),
+            PositionEncoding::Utf16
+        );
+    }
+
+    #[test]
+    fn test_negotiate_fallback_with_unknown_encodings() {
+        let params = InitializeParams {
+            capabilities: ClientCapabilities {
+                general: Some(GeneralClientCapabilities {
+                    position_encodings: Some(vec![
+                        PositionEncodingKind::new("utf-7"),
+                        PositionEncodingKind::new("ascii"),
+                    ]),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        assert_eq!(
+            PositionEncoding::negotiate(&params),
+            PositionEncoding::Utf16
+        );
+    }
+
+    #[test]
+    fn test_default_is_utf16() {
+        assert_eq!(PositionEncoding::default(), PositionEncoding::Utf16);
     }
 }
