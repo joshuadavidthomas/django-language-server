@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use djls_workspace::paths;
 use djls_workspace::FileKind;
-use tokio::sync::RwLock;
+use tokio::sync::Mutex;
 use tower_lsp_server::jsonrpc::Result as LspResult;
 use tower_lsp_server::lsp_types;
 use tower_lsp_server::Client;
@@ -19,7 +19,7 @@ const SERVER_VERSION: &str = "0.1.0";
 pub struct DjangoLanguageServer {
     #[allow(dead_code)] // will be needed when diagnostics and other features are added
     client: Client,
-    session: Arc<RwLock<Option<Session>>>,
+    session: Arc<Mutex<Session>>,
     queue: Queue,
     _log_guard: WorkerGuard,
 }
@@ -29,7 +29,7 @@ impl DjangoLanguageServer {
     pub fn new(client: Client, log_guard: WorkerGuard) -> Self {
         Self {
             client,
-            session: Arc::new(RwLock::new(None)),
+            session: Arc::new(Mutex::new(Session::default())),
             queue: Queue::new(),
             _log_guard: log_guard,
         }
@@ -38,34 +38,22 @@ impl DjangoLanguageServer {
     pub async fn with_session<F, R>(&self, f: F) -> R
     where
         F: FnOnce(&Session) -> R,
-        R: Default,
     {
-        let session = self.session.read().await;
-        if let Some(s) = &*session {
-            f(s)
-        } else {
-            tracing::error!("Attempted to access session before initialization");
-            R::default()
-        }
+        let session = self.session.lock().await;
+        f(&session)
     }
 
     pub async fn with_session_mut<F, R>(&self, f: F) -> R
     where
         F: FnOnce(&mut Session) -> R,
-        R: Default,
     {
-        let mut session = self.session.write().await;
-        if let Some(s) = &mut *session {
-            f(s)
-        } else {
-            tracing::error!("Attempted to access session before initialization");
-            R::default()
-        }
+        let mut session = self.session.lock().await;
+        f(&mut session)
     }
 
     pub async fn with_session_task<F, Fut>(&self, f: F)
     where
-        F: FnOnce(Arc<RwLock<Option<Session>>>) -> Fut + Send + 'static,
+        F: FnOnce(Arc<Mutex<Session>>) -> Fut + Send + 'static,
         Fut: Future<Output = anyhow::Result<()>> + Send + 'static,
     {
         let session_arc = Arc::clone(&self.session);
@@ -89,8 +77,8 @@ impl LanguageServer for DjangoLanguageServer {
         let encoding = session.position_encoding();
 
         {
-            let mut session_lock = self.session.write().await;
-            *session_lock = Some(session);
+            let mut session_lock = self.session.lock().await;
+            *session_lock = session;
         }
 
         Ok(lsp_types::InitializeResult {
@@ -137,19 +125,16 @@ impl LanguageServer for DjangoLanguageServer {
 
         self.with_session_task(move |session_arc| async move {
             let project_path_and_venv = {
-                let session_lock = session_arc.read().await;
-                match &*session_lock {
-                    Some(session) => session.project().map(|p| {
-                        (
-                            p.path().display().to_string(),
-                            session
-                                .settings()
-                                .venv_path()
-                                .map(std::string::ToString::to_string),
-                        )
-                    }),
-                    None => None,
-                }
+                let session_lock = session_arc.lock().await;
+                session_lock.project().map(|p| {
+                    (
+                        p.path().display().to_string(),
+                        session_lock
+                            .settings()
+                            .venv_path()
+                            .map(std::string::ToString::to_string),
+                    )
+                })
             };
 
             if let Some((path_display, venv_path)) = project_path_and_venv {
@@ -163,17 +148,12 @@ impl LanguageServer for DjangoLanguageServer {
                 }
 
                 let init_result = {
-                    let mut session_lock = session_arc.write().await;
-                    match &mut *session_lock {
-                        Some(session) => {
-                            if let Some(project) = session.project_mut().as_mut() {
-                                project.initialize(venv_path.as_deref())
-                            } else {
-                                // Project was removed between read and write locks
-                                Ok(())
-                            }
-                        }
-                        None => Ok(()),
+                    let mut session_lock = session_arc.lock().await;
+                    if let Some(project) = session_lock.project_mut().as_mut() {
+                        project.initialize(venv_path.as_deref())
+                    } else {
+                        // Project was removed between read and write locks
+                        Ok(())
                     }
                 };
 
@@ -189,10 +169,8 @@ impl LanguageServer for DjangoLanguageServer {
                         );
 
                         // Clear project on error
-                        let mut session_lock = session_arc.write().await;
-                        if let Some(session) = &mut *session_lock {
-                            *session.project_mut() = None;
-                        }
+                        let mut session_lock = session_arc.lock().await;
+                        *session_lock.project_mut() = None;
                     }
                 }
             } else {

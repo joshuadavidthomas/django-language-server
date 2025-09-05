@@ -19,7 +19,6 @@ pub mod encoding;
 mod fs;
 mod language;
 pub mod paths;
-mod storage;
 mod workspace;
 
 use std::path::Path;
