@@ -6,7 +6,7 @@ use djls_workspace::FileKind;
 use tokio::sync::RwLock;
 use tower_lsp_server::jsonrpc::Result as LspResult;
 use tower_lsp_server::lsp_types;
-use tower_lsp_server::LanguageServer;
+use tower_lsp_server::{Client, LanguageServer};
 use tracing_appender::non_blocking::WorkerGuard;
 
 use crate::queue::Queue;
@@ -16,6 +16,8 @@ const SERVER_NAME: &str = "Django Language Server";
 const SERVER_VERSION: &str = "0.1.0";
 
 pub struct DjangoLanguageServer {
+    #[allow(dead_code)] // will be needed when diagnostics and other features are added
+    client: Client,
     session: Arc<RwLock<Option<Session>>>,
     queue: Queue,
     _log_guard: WorkerGuard,
@@ -23,8 +25,9 @@ pub struct DjangoLanguageServer {
 
 impl DjangoLanguageServer {
     #[must_use]
-    pub fn new(log_guard: WorkerGuard) -> Self {
+    pub fn new(client: Client, log_guard: WorkerGuard) -> Self {
         Self {
+            client,
             session: Arc::new(RwLock::new(None)),
             queue: Queue::new(),
             _log_guard: log_guard,
@@ -131,7 +134,7 @@ impl LanguageServer for DjangoLanguageServer {
     async fn initialized(&self, _params: lsp_types::InitializedParams) {
         tracing::info!("Server received initialized notification.");
 
-        self.with_session_task(|session_arc| async move {
+        self.with_session_task(move |session_arc| async move {
             let project_path_and_venv = {
                 let session_lock = session_arc.read().await;
                 match &*session_lock {

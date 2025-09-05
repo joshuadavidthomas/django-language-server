@@ -1,4 +1,3 @@
-mod client;
 mod completions;
 mod logging;
 mod queue;
@@ -46,13 +45,17 @@ pub fn run() -> Result<()> {
         let stdout = tokio::io::stdout();
 
         let (service, socket) = LspService::build(|client| {
-            client::init_client(client);
-
-            let log_guard = logging::init_tracing(|message_type, message| {
-                client::log_message(message_type, message);
+            let log_guard = logging::init_tracing({
+                let client = client.clone();
+                move |message_type, message| {
+                    let client = client.clone();
+                    tokio::spawn(async move {
+                        client.log_message(message_type, message).await;
+                    });
+                }
             });
 
-            DjangoLanguageServer::new(log_guard)
+            DjangoLanguageServer::new(client, log_guard)
         })
         .finish();
 
