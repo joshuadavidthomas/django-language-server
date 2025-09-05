@@ -3,8 +3,6 @@
 //! This module implements the LSP session abstraction that manages project-specific
 //! state and delegates workspace operations to the Workspace facade.
 
-use std::path::PathBuf;
-
 use djls_conf::Settings;
 use djls_project::DjangoProject;
 use djls_workspace::paths;
@@ -47,7 +45,15 @@ pub struct Session {
 
 impl Session {
     pub fn new(params: &lsp_types::InitializeParams) -> Self {
-        let project_path = Self::get_project_path(params);
+        let project_path = params
+            .workspace_folders
+            .as_ref()
+            .and_then(|folders| folders.first())
+            .and_then(|folder| paths::lsp_uri_to_path(&folder.uri))
+            .or_else(|| {
+                // Fall back to current directory
+                std::env::current_dir().ok()
+            });
 
         let (project, settings) = if let Some(path) = &project_path {
             let settings =
@@ -72,22 +78,6 @@ impl Session {
             client_capabilities: params.capabilities.clone(),
             position_encoding,
         }
-    }
-
-    /// Determines the project root path from initialization parameters.
-    ///
-    /// Tries workspace folders first (using the first one), then falls back to current directory.
-    fn get_project_path(params: &lsp_types::InitializeParams) -> Option<PathBuf> {
-        // Try workspace folders first
-        params
-            .workspace_folders
-            .as_ref()
-            .and_then(|folders| folders.first())
-            .and_then(|folder| paths::lsp_uri_to_path(&folder.uri))
-            .or_else(|| {
-                // Fall back to current directory
-                std::env::current_dir().ok()
-            })
     }
 
     #[must_use]

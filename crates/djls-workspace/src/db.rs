@@ -142,12 +142,17 @@ impl Database {
     ///
     /// Files are created with an initial revision of 0 and tracked in the [`Database`]'s
     /// `DashMap`. The `Arc` ensures cheap cloning while maintaining thread safety.
+    ///
+    /// ## Thread Safety
+    ///
+    /// This method is inherently thread-safe despite the check-then-create pattern because
+    /// it requires `&mut self`, ensuring exclusive access to the Database. Only one thread
+    /// can call this method at a time due to Rust's ownership rules.
     pub fn get_or_create_file(&mut self, path: &PathBuf) -> SourceFile {
         if let Some(file_ref) = self.files.get(path) {
-            // Copy the value (SourceFile is Copy) and drop the guard immediately
-            let file = *file_ref;
-            drop(file_ref); // Explicitly drop the guard to release the lock
-            return file;
+            // Copy the value (SourceFile is Copy)
+            // The guard drops automatically, no need for explicit drop
+            return *file_ref;
         }
 
         // File doesn't exist, so we need to create it

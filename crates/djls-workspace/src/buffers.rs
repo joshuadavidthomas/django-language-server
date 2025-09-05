@@ -23,6 +23,14 @@ use crate::document::TextDocument;
 /// The [`WorkspaceFileSystem`] holds a clone of this structure and checks
 /// it before falling back to disk reads.
 ///
+/// ## Memory Management
+///
+/// This structure does not implement eviction or memory limits because the
+/// LSP protocol explicitly manages document lifecycle through `didOpen` and
+/// `didClose` notifications. Documents are only stored while the editor has
+/// them open, and are properly removed when the editor closes them. This
+/// follows the battle-tested pattern used by production LSP servers like Ruff.
+///
 /// [`FileSystem`]: crate::fs::FileSystem
 /// [`WorkspaceFileSystem`]: crate::fs::WorkspaceFileSystem
 #[derive(Clone, Debug)]

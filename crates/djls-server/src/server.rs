@@ -8,7 +8,6 @@ use tower_lsp_server::jsonrpc::Result as LspResult;
 use tower_lsp_server::lsp_types;
 use tower_lsp_server::LanguageServer;
 use tracing_appender::non_blocking::WorkerGuard;
-use url::Url;
 
 use crate::queue::Queue;
 use crate::session::Session;
@@ -208,9 +207,12 @@ impl LanguageServer for DjangoLanguageServer {
         tracing::info!("Opened document: {:?}", params.text_document.uri);
 
         self.with_session_mut(|session| {
-            // Convert LSP types to our types
-            let url =
-                Url::parse(&params.text_document.uri.to_string()).expect("Valid URI from LSP");
+            let Some(url) =
+                paths::parse_lsp_uri(&params.text_document.uri, paths::LspContext::DidOpen)
+            else {
+                return; // Skip processing this document
+            };
+
             let language_id =
                 djls_workspace::LanguageId::from(params.text_document.language_id.as_str());
             let document = djls_workspace::TextDocument::new(
@@ -228,8 +230,11 @@ impl LanguageServer for DjangoLanguageServer {
         tracing::info!("Changed document: {:?}", params.text_document.uri);
 
         self.with_session_mut(|session| {
-            let url =
-                Url::parse(&params.text_document.uri.to_string()).expect("Valid URI from LSP");
+            let Some(url) =
+                paths::parse_lsp_uri(&params.text_document.uri, paths::LspContext::DidChange)
+            else {
+                return; // Skip processing this change
+            };
 
             session.update_document(&url, params.content_changes, params.text_document.version);
         })
@@ -240,8 +245,11 @@ impl LanguageServer for DjangoLanguageServer {
         tracing::info!("Closed document: {:?}", params.text_document.uri);
 
         self.with_session_mut(|session| {
-            let url =
-                Url::parse(&params.text_document.uri.to_string()).expect("Valid URI from LSP");
+            let Some(url) =
+                paths::parse_lsp_uri(&params.text_document.uri, paths::LspContext::DidClose)
+            else {
+                return; // Skip processing this close
+            };
 
             if session.close_document(&url).is_none() {
                 tracing::warn!("Attempted to close document without overlay: {}", url);
@@ -256,8 +264,12 @@ impl LanguageServer for DjangoLanguageServer {
     ) -> LspResult<Option<lsp_types::CompletionResponse>> {
         let response = self
             .with_session_mut(|session| {
-                let lsp_uri = params.text_document_position.text_document.uri;
-                let url = Url::parse(&lsp_uri.to_string()).expect("Valid URI from LSP");
+                let Some(url) = paths::parse_lsp_uri(
+                    &params.text_document_position.text_document.uri,
+                    paths::LspContext::Completion,
+                ) else {
+                    return None; // Return no completions for invalid URI
+                };
 
                 tracing::debug!(
                     "Completion requested for {} at {:?}",

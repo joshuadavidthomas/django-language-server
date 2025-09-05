@@ -83,7 +83,6 @@ fn get_line_info(
     position: Position,
     encoding: PositionEncoding,
 ) -> Option<LineInfo> {
-    // Get the line content and calculate cursor position within line
     let content = document.content();
     let lines: Vec<&str> = content.lines().collect();
 
@@ -94,12 +93,17 @@ fn get_line_info(
 
     let line_text = lines[line_index].to_string();
 
-    // For UTF-16 encoding, we need to convert the character position
+    // Convert LSP position to character index for Vec<char> operations.
+    //
+    // LSP default encoding is UTF-16 (emoji = 2 units), but we need
+    // character counts (emoji = 1 char) to index into chars[..offset].
+    //
+    // Example:
+    //   "h€llo" cursor after € → UTF-16: 2, chars: 2 ✓, bytes: 4 ✗
     let cursor_offset_in_line = match encoding {
         PositionEncoding::Utf16 => {
-            // Convert UTF-16 position to UTF-8 character offset
             let utf16_pos = position.character as usize;
-            let mut utf8_offset = 0;
+            let mut char_offset = 0; // Count chars, not bytes
             let mut utf16_offset = 0;
 
             for ch in line_text.chars() {
@@ -107,9 +111,9 @@ fn get_line_info(
                     break;
                 }
                 utf16_offset += ch.len_utf16();
-                utf8_offset += 1;
+                char_offset += 1;
             }
-            utf8_offset
+            char_offset
         }
         _ => position.character as usize,
     };

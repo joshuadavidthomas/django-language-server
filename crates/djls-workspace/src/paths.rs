@@ -33,6 +33,49 @@ pub fn url_to_path(url: &Url) -> Option<PathBuf> {
     Some(PathBuf::from(path.as_ref()))
 }
 
+/// Context for LSP operations, used for error reporting
+#[derive(Debug, Clone, Copy)]
+pub enum LspContext {
+    /// textDocument/didOpen notification
+    DidOpen,
+    /// textDocument/didChange notification
+    DidChange,
+    /// textDocument/didClose notification
+    DidClose,
+    /// textDocument/completion request
+    Completion,
+}
+
+impl std::fmt::Display for LspContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::DidOpen => write!(f, "didOpen"),
+            Self::DidChange => write!(f, "didChange"),
+            Self::DidClose => write!(f, "didClose"),
+            Self::Completion => write!(f, "completion"),
+        }
+    }
+}
+
+/// Parse an LSP URI to a [`Url`], logging errors if parsing fails.
+///
+/// This function is designed for use in LSP notification handlers where
+/// invalid URIs should be logged but not crash the server.
+pub fn parse_lsp_uri(lsp_uri: &lsp_types::Uri, context: LspContext) -> Option<Url> {
+    match Url::parse(lsp_uri.as_str()) {
+        Ok(url) => Some(url),
+        Err(e) => {
+            tracing::error!(
+                "Invalid URI from LSP client in {}: {} - Error: {}",
+                context,
+                lsp_uri.as_str(),
+                e
+            );
+            None
+        }
+    }
+}
+
 /// Convert an LSP URI to a [`PathBuf`].
 ///
 /// This is a convenience wrapper that parses the LSP URI string and converts it.
