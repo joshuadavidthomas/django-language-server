@@ -14,7 +14,6 @@ use tower_lsp_server::lsp_types::TextDocumentContentChangeEvent;
 use url::Url;
 
 use crate::buffers::Buffers;
-use crate::db::source_text;
 use crate::db::Database;
 use crate::db::SourceFile;
 use crate::document::TextDocument;
@@ -368,56 +367,6 @@ impl Workspace {
         document
     }
 
-    /// Try to read file content using read-only database access.
-    ///
-    /// Returns `Some(content)` if the file exists in the database, `None` otherwise.
-    /// This avoids write locks for files that are already being tracked.
-    fn try_read_file(&self, path: &Path) -> Option<String> {
-        self.with_db(|db| {
-            if let Some(file) = db.get_file(path) {
-                tracing::debug!("Using optimized read path for {}", path.display());
-                Some(source_text(db, file).to_string())
-            } else {
-                tracing::debug!(
-                    "File {} not in database, requiring creation",
-                    path.display()
-                );
-                None
-            }
-        })
-    }
-
-    /// Get file content through the database.
-    ///
-    /// First attempts read-only access for existing files, then escalates to write
-    /// access only if the file needs to be created. This improves concurrency by
-    /// avoiding unnecessary write locks.
-    pub fn file_content(&mut self, path: &PathBuf) -> String {
-        // Try read-only access first for existing files
-        if let Some(content) = self.try_read_file(path) {
-            return content;
-        }
-
-        // File doesn't exist, escalate to write access to create it
-        tracing::debug!(
-            "Escalating to write access to create file {}",
-            path.display()
-        );
-        self.with_db_mut(|db| {
-            let file = db.get_or_create_file(path);
-            source_text(db, file).to_string()
-        })
-    }
-
-    /// Get the revision number of a file if it exists.
-    ///
-    /// Returns `None` if the file is not being tracked by the database.
-    /// Uses read-only database access since no mutation is needed.
-    #[must_use]
-    pub fn file_revision(&self, path: &Path) -> Option<u64> {
-        self.with_db(|db| db.get_file(path).map(|file| file.revision(db)))
-    }
-
     /// Get a document from the buffer if it's open.
     ///
     /// Returns a cloned [`TextDocument`] for the given URL if it exists in buffers.
@@ -435,46 +384,6 @@ impl Workspace {
                 db.touch_file(path);
             }
         });
-    }
-
-    /// Get a reference to the buffers.
-    #[must_use]
-    pub fn buffers(&self) -> &Buffers {
-        &self.buffers
-    }
-
-    /// Get a clone of the file system.
-    ///
-    /// Returns an Arc-wrapped [`WorkspaceFileSystem`] that can be shared
-    /// across threads and used for file operations.
-    #[must_use]
-    pub fn file_system(&self) -> Arc<WorkspaceFileSystem> {
-        self.file_system.clone()
-    }
-
-    /// Get a clone of the files tracking map.
-    ///
-    /// Returns an Arc-wrapped [`DashMap`] for O(1) file lookups that
-    /// can be shared across Database instances.
-    #[must_use]
-    pub fn files(&self) -> Arc<DashMap<PathBuf, SourceFile>> {
-        self.files.clone()
-    }
-
-    /// Get a cloned database handle for read operations.
-    ///
-    /// This provides access to a [`StorageHandle`](salsa::StorageHandle) for cases where
-    /// [`with_db`](Self::with_db) isn't sufficient. The handle is cloned to allow
-    /// concurrent read operations.
-    ///
-    /// For mutation operations, use [`with_db_mut`](Self::with_db_mut) instead.
-    ///
-    /// ## Panics
-    ///
-    /// Panics if the handle is currently taken for mutation.
-    #[must_use]
-    pub fn db_handle(&self) -> StorageHandle<Database> {
-        self.db_handle.clone_for_read()
     }
 }
 
@@ -517,35 +426,6 @@ mod tests {
         let file_exists = workspace.with_db(|db| db.has_file(&PathBuf::from("test.py")));
 
         assert!(file_exists);
-    }
-
-    #[test]
-    fn test_read_access_during_no_mutation() {
-        let workspace = Workspace::new();
-
-        // Multiple concurrent reads should work
-        let handle1 = workspace.db_handle();
-        let handle2 = workspace.db_handle();
-
-        // Both handles should be valid
-        let storage1 = handle1.into_storage();
-        let storage2 = handle2.into_storage();
-
-        // Should be able to create databases from both
-        let db1 = Database::from_storage(
-            storage1,
-            workspace.file_system.clone(),
-            workspace.files.clone(),
-        );
-        let db2 = Database::from_storage(
-            storage2,
-            workspace.file_system.clone(),
-            workspace.files.clone(),
-        );
-
-        // Both should work
-        assert!(!db1.has_file(&PathBuf::from("nonexistent.py")));
-        assert!(!db2.has_file(&PathBuf::from("nonexistent.py")));
     }
 
     #[test]
@@ -700,34 +580,6 @@ mod tests {
         // Both should complete successfully
         assert!(!result1);
         assert!(!result2);
-    }
-
-    #[test]
-    fn test_safe_storage_handle_state_transitions() {
-        let mut workspace = Workspace::new();
-
-        // Start in Available state - should be able to clone for read
-        let _handle = workspace.db_handle();
-
-        // Take for mutation
-        let mut guard = StorageHandleGuard::new(&mut workspace.db_handle);
-        let handle = guard.handle();
-
-        // Now should be in TakenForMutation state
-        // Convert to storage for testing
-        let storage = handle.into_storage();
-        let db = Database::from_storage(
-            storage,
-            workspace.file_system.clone(),
-            workspace.files.clone(),
-        );
-        let new_handle = db.storage().clone().into_zalsa_handle();
-
-        // Restore - should return to Available state
-        guard.restore(new_handle);
-
-        // Should be able to read again
-        let _handle = workspace.db_handle();
     }
 
     #[test]

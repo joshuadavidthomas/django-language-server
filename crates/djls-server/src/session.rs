@@ -3,13 +3,10 @@
 //! This module implements the LSP session abstraction that manages project-specific
 //! state and delegates workspace operations to the Workspace facade.
 
-use std::path::Path;
 use std::path::PathBuf;
 
 use djls_conf::Settings;
 use djls_project::DjangoProject;
-use djls_workspace::db::source_text;
-use djls_workspace::db::Database;
 use djls_workspace::paths;
 use djls_workspace::PositionEncoding;
 use djls_workspace::TextDocument;
@@ -76,6 +73,7 @@ impl Session {
             position_encoding,
         }
     }
+
     /// Determines the project root path from initialization parameters.
     ///
     /// Tries workspace folders first (using the first one), then falls back to current directory.
@@ -115,26 +113,6 @@ impl Session {
         self.position_encoding
     }
 
-    /// Execute a closure with mutable access to the database.
-    ///
-    /// Delegates to the workspace's safe database mutation mechanism.
-    pub fn with_db_mut<F, R>(&mut self, f: F) -> R
-    where
-        F: FnOnce(&mut Database) -> R,
-    {
-        self.workspace.with_db_mut(f)
-    }
-
-    /// Execute a closure with read-only access to the database.
-    ///
-    /// Delegates to the workspace's safe database read mechanism.
-    pub fn with_db<F, R>(&self, f: F) -> R
-    where
-        F: FnOnce(&Database) -> R,
-    {
-        self.workspace.with_db(f)
-    }
-
     /// Handle opening a document - sets buffer and creates file.
     ///
     /// Delegates to the workspace's document management.
@@ -170,35 +148,6 @@ impl Session {
     pub fn get_document(&self, url: &Url) -> Option<TextDocument> {
         self.workspace.get_document(url)
     }
-
-    /// Get the current content of a file (from overlay or disk).
-    ///
-    /// This is the safe way to read file content through the system.
-    /// The file is created if it doesn't exist, and content is read
-    /// through the `FileSystem` abstraction (overlay first, then disk).
-    pub fn file_content(&mut self, path: &PathBuf) -> String {
-        self.with_db_mut(|db| {
-            let file = db.get_or_create_file(path);
-            source_text(db, file).to_string()
-        })
-    }
-
-    /// Get the current revision of a file, if it's being tracked.
-    ///
-    /// Returns None if the file hasn't been created yet.
-    #[must_use]
-    pub fn file_revision(&self, path: &Path) -> Option<u64> {
-        {
-            let this = &self.workspace;
-            this.with_db(|db| db.get_file(path).map(|file| file.revision(db)))
-        }
-    }
-
-    /// Check if a file is currently being tracked in Salsa.
-    #[must_use]
-    pub fn has_file(&self, path: &Path) -> bool {
-        self.with_db(|db| db.has_file(path))
-    }
 }
 
 impl Default for Session {
@@ -210,77 +159,5 @@ impl Default for Session {
             client_capabilities: lsp_types::ClientCapabilities::default(),
             position_encoding: PositionEncoding::default(),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use djls_workspace::LanguageId;
-
-    use super::*;
-
-    #[test]
-    fn test_revision_invalidation_chain() {
-        let mut session = Session::default();
-
-        let path = PathBuf::from("/test/template.html");
-        let url = Url::parse("file:///test/template.html").unwrap();
-
-        // Open document with initial content
-        let document = TextDocument::new(
-            "<h1>Original Content</h1>".to_string(),
-            1,
-            LanguageId::Other,
-        );
-        session.open_document(&url, document);
-
-        let content1 = session.file_content(&path);
-        assert_eq!(content1, "<h1>Original Content</h1>");
-
-        // Update document with new content using a full replacement change
-        let changes = vec![lsp_types::TextDocumentContentChangeEvent {
-            range: None,
-            range_length: None,
-            text: "<h1>Updated Content</h1>".to_string(),
-        }];
-        session.update_document(&url, changes, 2);
-
-        // Read content again (should get new overlay content due to invalidation)
-        let content2 = session.file_content(&path);
-        assert_eq!(content2, "<h1>Updated Content</h1>");
-        assert_ne!(content1, content2);
-
-        // Close document (removes overlay, bumps revision)
-        session.close_document(&url);
-
-        // Read content again (should now read from disk, which returns empty for missing files)
-        let content3 = session.file_content(&path);
-        assert_eq!(content3, ""); // No file on disk, returns empty
-    }
-
-    #[test]
-    fn test_with_db_mut_preserves_files() {
-        let mut session = Session::default();
-
-        let path1 = PathBuf::from("/test/file1.py");
-        let path2 = PathBuf::from("/test/file2.py");
-
-        session.file_content(&path1);
-        session.file_content(&path2);
-
-        // Verify files are preserved across operations
-        assert!(session.has_file(&path1));
-        assert!(session.has_file(&path2));
-
-        // Files should persist even after multiple operations
-        let content1 = session.file_content(&path1);
-        let content2 = session.file_content(&path2);
-
-        // Both should return empty (no disk content)
-        assert_eq!(content1, "");
-        assert_eq!(content2, "");
-
-        assert!(session.has_file(&path1));
-        assert!(session.has_file(&path2));
     }
 }
