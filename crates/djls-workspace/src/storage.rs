@@ -229,7 +229,8 @@ mod tests {
 
     use super::*;
     use crate::buffers::Buffers;
-    use crate::fs::{OsFileSystem, WorkspaceFileSystem};
+    use crate::fs::OsFileSystem;
+    use crate::fs::WorkspaceFileSystem;
 
     fn create_test_handle() -> StorageHandle<Database> {
         Database::new(
