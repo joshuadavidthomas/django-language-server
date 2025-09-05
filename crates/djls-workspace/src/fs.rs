@@ -14,16 +14,11 @@ use std::sync::Arc;
 use crate::buffers::Buffers;
 use crate::paths;
 
-/// Trait for file system operations
 pub trait FileSystem: Send + Sync {
-    /// Read the entire contents of a file
     fn read_to_string(&self, path: &Path) -> io::Result<String>;
-
-    /// Check if a path exists
     fn exists(&self, path: &Path) -> bool;
 }
 
-/// In-memory file system for testing
 #[cfg(test)]
 pub struct InMemoryFileSystem {
     files: HashMap<PathBuf, String>,
@@ -120,125 +115,216 @@ impl FileSystem for WorkspaceFileSystem {
 
 #[cfg(test)]
 mod tests {
-    use url::Url;
-
     use super::*;
-    use crate::buffers::Buffers;
-    use crate::document::TextDocument;
-    use crate::language::LanguageId;
 
-    #[test]
-    fn test_lsp_filesystem_overlay_precedence() {
-        let mut memory_fs = InMemoryFileSystem::new();
-        memory_fs.add_file(
-            std::path::PathBuf::from("/test/file.py"),
-            "original content".to_string(),
-        );
+    mod in_memory {
+        use super::*;
 
-        let buffers = Buffers::new();
-        let lsp_fs = WorkspaceFileSystem::new(buffers.clone(), Arc::new(memory_fs));
+        #[test]
+        fn test_read_existing_file() {
+            let mut fs = InMemoryFileSystem::new();
+            fs.add_file("/test.py".into(), "file content".to_string());
 
-        // Before adding buffer, should read from fallback
-        let path = std::path::Path::new("/test/file.py");
-        assert_eq!(lsp_fs.read_to_string(path).unwrap(), "original content");
+            assert_eq!(
+                fs.read_to_string(Path::new("/test.py")).unwrap(),
+                "file content"
+            );
+        }
 
-        // Add buffer - this simulates having an open document with changes
-        let url = Url::from_file_path("/test/file.py").unwrap();
-        let document = TextDocument::new("overlay content".to_string(), 1, LanguageId::Python);
-        buffers.open(url, document);
+        #[test]
+        fn test_read_nonexistent_file() {
+            let fs = InMemoryFileSystem::new();
 
-        // Now should read from buffer
-        assert_eq!(lsp_fs.read_to_string(path).unwrap(), "overlay content");
+            let result = fs.read_to_string(Path::new("/missing.py"));
+            assert!(result.is_err());
+            assert_eq!(result.unwrap_err().kind(), io::ErrorKind::NotFound);
+        }
+
+        #[test]
+        fn test_exists_returns_true_for_existing() {
+            let mut fs = InMemoryFileSystem::new();
+            fs.add_file("/exists.py".into(), "content".to_string());
+
+            assert!(fs.exists(Path::new("/exists.py")));
+        }
+
+        #[test]
+        fn test_exists_returns_false_for_nonexistent() {
+            let fs = InMemoryFileSystem::new();
+
+            assert!(!fs.exists(Path::new("/missing.py")));
+        }
     }
 
-    #[test]
-    fn test_lsp_filesystem_fallback_when_no_overlay() {
-        let mut memory_fs = InMemoryFileSystem::new();
-        memory_fs.add_file(
-            std::path::PathBuf::from("/test/file.py"),
-            "disk content".to_string(),
-        );
+    mod workspace {
+        use url::Url;
 
-        let buffers = Buffers::new();
-        let lsp_fs = WorkspaceFileSystem::new(buffers, Arc::new(memory_fs));
+        use crate::buffers::Buffers;
+        use crate::document::TextDocument;
+        use crate::language::LanguageId;
 
-        // Should fall back to disk when no buffer exists
-        let path = std::path::Path::new("/test/file.py");
-        assert_eq!(lsp_fs.read_to_string(path).unwrap(), "disk content");
-    }
+        use super::*;
 
-    #[test]
-    fn test_lsp_filesystem_other_operations_delegate() {
-        let mut memory_fs = InMemoryFileSystem::new();
-        memory_fs.add_file(
-            std::path::PathBuf::from("/test/file.py"),
-            "content".to_string(),
-        );
+        #[test]
+        fn test_reads_from_buffer_when_present() {
+            let disk = Arc::new(InMemoryFileSystem::new());
+            let buffers = Buffers::new();
+            let fs = WorkspaceFileSystem::new(buffers.clone(), disk);
 
-        let buffers = Buffers::new();
-        let lsp_fs = WorkspaceFileSystem::new(buffers, Arc::new(memory_fs));
+            // Add file to buffer
+            let url = Url::from_file_path("/test.py").unwrap();
+            let doc = TextDocument::new("buffer content".to_string(), 1, LanguageId::Python);
+            buffers.open(url, doc);
 
-        let path = std::path::Path::new("/test/file.py");
+            assert_eq!(
+                fs.read_to_string(Path::new("/test.py")).unwrap(),
+                "buffer content"
+            );
+        }
 
-        // This should delegate to the fallback filesystem
-        assert!(lsp_fs.exists(path));
-    }
+        #[test]
+        fn test_reads_from_disk_when_no_buffer() {
+            let mut disk_fs = InMemoryFileSystem::new();
+            disk_fs.add_file("/test.py".into(), "disk content".to_string());
 
-    #[test]
-    fn test_overlay_consistency() {
-        // Create an empty filesystem (no files on disk)
-        let memory_fs = InMemoryFileSystem::new();
-        let buffers = Buffers::new();
-        let lsp_fs = WorkspaceFileSystem::new(buffers.clone(), Arc::new(memory_fs));
+            let buffers = Buffers::new();
+            let fs = WorkspaceFileSystem::new(buffers, Arc::new(disk_fs));
 
-        let path = std::path::Path::new("/test/overlay_only.py");
+            assert_eq!(
+                fs.read_to_string(Path::new("/test.py")).unwrap(),
+                "disk content"
+            );
+        }
 
-        // Before adding to overlay, file doesn't exist
-        assert!(!lsp_fs.exists(path));
+        #[test]
+        fn test_buffer_overrides_disk() {
+            let mut disk_fs = InMemoryFileSystem::new();
+            disk_fs.add_file("/test.py".into(), "disk content".to_string());
 
-        // Add file to overlay only (not on disk)
-        let url = Url::from_file_path("/test/overlay_only.py").unwrap();
-        let document = TextDocument::new("overlay content".to_string(), 1, LanguageId::Python);
-        buffers.open(url, document);
+            let buffers = Buffers::new();
+            let fs = WorkspaceFileSystem::new(buffers.clone(), Arc::new(disk_fs));
 
-        // Now file should exist
-        assert!(lsp_fs.exists(path), "Overlay file should exist");
+            // Add buffer with different content
+            let url = Url::from_file_path("/test.py").unwrap();
+            let doc = TextDocument::new("buffer content".to_string(), 1, LanguageId::Python);
+            buffers.open(url, doc);
 
-        // And we should be able to read its content
-        assert_eq!(
-            lsp_fs.read_to_string(path).unwrap(),
-            "overlay content",
-            "Should read overlay content"
-        );
-    }
+            assert_eq!(
+                fs.read_to_string(Path::new("/test.py")).unwrap(),
+                "buffer content"
+            );
+        }
 
-    #[test]
-    fn test_overlay_with_relative_path() {
-        // Create an empty filesystem (no files on disk)
-        let memory_fs = InMemoryFileSystem::new();
-        let buffers = Buffers::new();
-        let lsp_fs = WorkspaceFileSystem::new(buffers.clone(), Arc::new(memory_fs));
+        #[test]
+        fn test_exists_for_buffer_only_file() {
+            let disk = Arc::new(InMemoryFileSystem::new());
+            let buffers = Buffers::new();
+            let fs = WorkspaceFileSystem::new(buffers.clone(), disk);
 
-        // Use a relative path that doesn't exist on disk
-        let relative_path = std::path::Path::new("nonexistent/overlay.py");
+            // Add file only to buffer
+            let url = Url::from_file_path("/buffer_only.py").unwrap();
+            let doc = TextDocument::new("content".to_string(), 1, LanguageId::Python);
+            buffers.open(url, doc);
 
-        // Convert to absolute URL for the buffer (simulating how LSP would provide it)
-        let absolute_path = std::env::current_dir().unwrap().join(relative_path);
-        let url = Url::from_file_path(&absolute_path).unwrap();
+            assert!(fs.exists(Path::new("/buffer_only.py")));
+        }
 
-        // Add to overlay
-        let document = TextDocument::new("relative overlay".to_string(), 1, LanguageId::Python);
-        buffers.open(url, document);
+        #[test]
+        fn test_exists_for_disk_only_file() {
+            let mut disk_fs = InMemoryFileSystem::new();
+            disk_fs.add_file("/disk_only.py".into(), "content".to_string());
 
-        // The relative path should now work through the overlay
-        assert!(
-            lsp_fs.exists(relative_path),
-            "Relative overlay file should exist"
-        );
-        assert_eq!(
-            lsp_fs.read_to_string(relative_path).unwrap(),
-            "relative overlay",
-            "Should read relative overlay content"
-        );
+            let buffers = Buffers::new();
+            let fs = WorkspaceFileSystem::new(buffers, Arc::new(disk_fs));
+
+            assert!(fs.exists(Path::new("/disk_only.py")));
+        }
+
+        #[test]
+        fn test_exists_for_both_buffer_and_disk() {
+            let mut disk_fs = InMemoryFileSystem::new();
+            disk_fs.add_file("/both.py".into(), "disk".to_string());
+
+            let buffers = Buffers::new();
+            let fs = WorkspaceFileSystem::new(buffers.clone(), Arc::new(disk_fs));
+
+            // Also add to buffer
+            let url = Url::from_file_path("/both.py").unwrap();
+            let doc = TextDocument::new("buffer".to_string(), 1, LanguageId::Python);
+            buffers.open(url, doc);
+
+            assert!(fs.exists(Path::new("/both.py")));
+        }
+
+        #[test]
+        fn test_exists_returns_false_when_nowhere() {
+            let disk = Arc::new(InMemoryFileSystem::new());
+            let buffers = Buffers::new();
+            let fs = WorkspaceFileSystem::new(buffers, disk);
+
+            assert!(!fs.exists(Path::new("/nowhere.py")));
+        }
+
+        #[test]
+        fn test_read_error_when_file_nowhere() {
+            let disk = Arc::new(InMemoryFileSystem::new());
+            let buffers = Buffers::new();
+            let fs = WorkspaceFileSystem::new(buffers, disk);
+
+            let result = fs.read_to_string(Path::new("/missing.py"));
+            assert!(result.is_err());
+            assert_eq!(result.unwrap_err().kind(), io::ErrorKind::NotFound);
+        }
+
+        #[test]
+        fn test_reflects_buffer_updates() {
+            let disk = Arc::new(InMemoryFileSystem::new());
+            let buffers = Buffers::new();
+            let fs = WorkspaceFileSystem::new(buffers.clone(), disk);
+
+            let url = Url::from_file_path("/test.py").unwrap();
+
+            // Initial buffer content
+            let doc1 = TextDocument::new("version 1".to_string(), 1, LanguageId::Python);
+            buffers.open(url.clone(), doc1);
+            assert_eq!(
+                fs.read_to_string(Path::new("/test.py")).unwrap(),
+                "version 1"
+            );
+
+            // Update buffer content
+            let doc2 = TextDocument::new("version 2".to_string(), 2, LanguageId::Python);
+            buffers.update(url, doc2);
+            assert_eq!(
+                fs.read_to_string(Path::new("/test.py")).unwrap(),
+                "version 2"
+            );
+        }
+
+        #[test]
+        fn test_handles_buffer_removal() {
+            let mut disk_fs = InMemoryFileSystem::new();
+            disk_fs.add_file("/test.py".into(), "disk content".to_string());
+
+            let buffers = Buffers::new();
+            let fs = WorkspaceFileSystem::new(buffers.clone(), Arc::new(disk_fs));
+
+            let url = Url::from_file_path("/test.py").unwrap();
+
+            // Add buffer
+            let doc = TextDocument::new("buffer content".to_string(), 1, LanguageId::Python);
+            buffers.open(url.clone(), doc);
+            assert_eq!(
+                fs.read_to_string(Path::new("/test.py")).unwrap(),
+                "buffer content"
+            );
+
+            // Remove buffer
+            let _ = buffers.close(&url);
+            assert_eq!(
+                fs.read_to_string(Path::new("/test.py")).unwrap(),
+                "disk content"
+            );
+        }
     }
 }
