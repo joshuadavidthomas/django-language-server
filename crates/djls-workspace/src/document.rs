@@ -90,6 +90,7 @@ impl TextDocument {
         &mut self,
         changes: Vec<tower_lsp_server::lsp_types::TextDocumentContentChangeEvent>,
         version: i32,
+        encoding: PositionEncoding,
     ) {
         // Fast path: single change without range = full document replacement
         if changes.len() == 1 && changes[0].range.is_none() {
@@ -105,16 +106,14 @@ impl TextDocument {
 
         for change in changes {
             if let Some(range) = change.range {
-                // Convert LSP range to byte offsets
-                // Note: We use UTF-16 encoding by default for LSP compatibility
-                // This will need to use the negotiated encoding in the future
+                // Convert LSP range to byte offsets using the negotiated encoding
                 let start_offset =
                     self.line_index
-                        .offset(range.start, &new_content, PositionEncoding::Utf16)
+                        .offset(range.start, &new_content, encoding)
                         as usize;
                 let end_offset =
                     self.line_index
-                        .offset(range.end, &new_content, PositionEncoding::Utf16)
+                        .offset(range.end, &new_content, encoding)
                         as usize;
 
                 // Apply the change by replacing the range
@@ -308,7 +307,7 @@ mod tests {
             text: "Rust".to_string(),
         }];
 
-        doc.update(changes, 2);
+        doc.update(changes, 2, PositionEncoding::Utf16);
         assert_eq!(doc.content(), "Hello Rust");
         assert_eq!(doc.version(), 2);
     }
@@ -335,7 +334,7 @@ mod tests {
             },
         ];
 
-        doc.update(changes, 2);
+        doc.update(changes, 2, PositionEncoding::Utf16);
         assert_eq!(doc.content(), "1st line\nSecond line\n3rd line");
     }
 
@@ -350,7 +349,7 @@ mod tests {
             text: " beautiful".to_string(),
         }];
 
-        doc.update(changes, 2);
+        doc.update(changes, 2, PositionEncoding::Utf16);
         assert_eq!(doc.content(), "Hello beautiful world");
     }
 
@@ -365,7 +364,7 @@ mod tests {
             text: String::new(),
         }];
 
-        doc.update(changes, 2);
+        doc.update(changes, 2, PositionEncoding::Utf16);
         assert_eq!(doc.content(), "Hello world");
     }
 
@@ -380,7 +379,7 @@ mod tests {
             text: "Completely new content".to_string(),
         }];
 
-        doc.update(changes, 2);
+        doc.update(changes, 2, PositionEncoding::Utf16);
         assert_eq!(doc.content(), "Completely new content");
         assert_eq!(doc.version(), 2);
     }
@@ -396,7 +395,7 @@ mod tests {
             text: "A\nB\nC".to_string(),
         }];
 
-        doc.update(changes, 2);
+        doc.update(changes, 2, PositionEncoding::Utf16);
         assert_eq!(doc.content(), "Line A\nB\nC 3");
     }
 
@@ -412,7 +411,7 @@ mod tests {
             text: "Rust".to_string(),
         }];
 
-        doc.update(changes, 2);
+        doc.update(changes, 2, PositionEncoding::Utf16);
         assert_eq!(doc.content(), "Hello 🌍 Rust");
     }
 
@@ -427,7 +426,7 @@ mod tests {
             text: "\nWorld".to_string(),
         }];
 
-        doc.update(changes, 2);
+        doc.update(changes, 2, PositionEncoding::Utf16);
         assert_eq!(doc.content(), "Hello\nWorld");
     }
 

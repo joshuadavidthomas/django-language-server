@@ -125,10 +125,11 @@ impl Workspace {
         url: &Url,
         changes: Vec<TextDocumentContentChangeEvent>,
         version: i32,
+        encoding: crate::encoding::PositionEncoding,
     ) {
         if let Some(mut document) = self.buffers.get(url) {
             // Apply incremental changes to existing document
-            document.update(changes, version);
+            document.update(changes, version, encoding);
             self.buffers.update(url.clone(), document);
         } else if let Some(first_change) = changes.into_iter().next() {
             // Fallback: treat first change as full replacement
@@ -202,6 +203,7 @@ mod tests {
 
     use super::*;
     use crate::db::source_text;
+    use crate::encoding::PositionEncoding;
     use crate::LanguageId;
 
     #[test]
@@ -318,7 +320,7 @@ mod tests {
             range_length: None,
             text: "updated".to_string(),
         }];
-        workspace.update_document(&url, changes, 2);
+        workspace.update_document(&url, changes, 2, PositionEncoding::Utf16);
 
         // Verify buffer was updated
         let buffer = workspace.buffers.get(&url).unwrap();
