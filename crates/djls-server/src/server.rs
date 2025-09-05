@@ -210,7 +210,7 @@ impl LanguageServer for DjangoLanguageServer {
             let Some(url) =
                 paths::parse_lsp_uri(&params.text_document.uri, paths::LspContext::DidOpen)
             else {
-                return; // Skip processing this document
+                return; // Error parsing uri (unlikely), skip processing this document
             };
 
             let language_id =
@@ -233,7 +233,7 @@ impl LanguageServer for DjangoLanguageServer {
             let Some(url) =
                 paths::parse_lsp_uri(&params.text_document.uri, paths::LspContext::DidChange)
             else {
-                return; // Skip processing this change
+                return; // Error parsing uri (unlikely), skip processing this change
             };
 
             session.update_document(&url, params.content_changes, params.text_document.version);
@@ -248,7 +248,7 @@ impl LanguageServer for DjangoLanguageServer {
             let Some(url) =
                 paths::parse_lsp_uri(&params.text_document.uri, paths::LspContext::DidClose)
             else {
-                return; // Skip processing this close
+                return; // Error parsing uri (unlikely), skip processing this close
             };
 
             if session.close_document(&url).is_none() {
@@ -268,7 +268,7 @@ impl LanguageServer for DjangoLanguageServer {
                     &params.text_document_position.text_document.uri,
                     paths::LspContext::Completion,
                 ) else {
-                    return None; // Return no completions for invalid URI
+                    return None; // Error parsing uri (unlikely), return no completions
                 };
 
                 tracing::debug!(

@@ -192,3 +192,223 @@ impl Default for Workspace {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+    use std::sync::Arc;
+
+    use tempfile::tempdir;
+
+    use super::*;
+    use crate::db::source_text;
+    use crate::LanguageId;
+
+    #[test]
+    fn test_with_db_read() {
+        // Read-only access works
+        let workspace = Workspace::new();
+
+        let result = workspace.with_db(|db| {
+            // Can perform read operations
+            db.has_file(&PathBuf::from("test.py"))
+        });
+
+        assert!(!result); // File doesn't exist yet
+    }
+
+    #[test]
+    fn test_with_db_mut() {
+        // Mutation access works
+        let mut workspace = Workspace::new();
+
+        // Create a file through mutation
+        workspace.with_db_mut(|db| {
+            let path = PathBuf::from("test.py");
+            let _file = db.get_or_create_file(&path);
+        });
+
+        // Verify it exists
+        let exists = workspace.with_db(|db| db.has_file(&PathBuf::from("test.py")));
+        assert!(exists);
+    }
+
+    #[test]
+    fn test_concurrent_reads() {
+        // Multiple with_db calls can run simultaneously
+        let workspace = Arc::new(Workspace::new());
+
+        let w1 = workspace.clone();
+        let w2 = workspace.clone();
+
+        // Spawn concurrent reads
+        let handle1 =
+            std::thread::spawn(move || w1.with_db(|db| db.has_file(&PathBuf::from("file1.py"))));
+
+        let handle2 =
+            std::thread::spawn(move || w2.with_db(|db| db.has_file(&PathBuf::from("file2.py"))));
+
+        // Both should complete without issues
+        assert!(!handle1.join().unwrap());
+        assert!(!handle2.join().unwrap());
+    }
+
+    #[test]
+    fn test_sequential_mutations() {
+        // Multiple with_db_mut calls work in sequence
+        let mut workspace = Workspace::new();
+
+        // First mutation
+        workspace.with_db_mut(|db| {
+            let _file = db.get_or_create_file(&PathBuf::from("first.py"));
+        });
+
+        // Second mutation
+        workspace.with_db_mut(|db| {
+            let _file = db.get_or_create_file(&PathBuf::from("second.py"));
+        });
+
+        // Both files should exist
+        let (has_first, has_second) = workspace.with_db(|db| {
+            (
+                db.has_file(&PathBuf::from("first.py")),
+                db.has_file(&PathBuf::from("second.py")),
+            )
+        });
+
+        assert!(has_first);
+        assert!(has_second);
+    }
+
+    #[test]
+    fn test_open_document() {
+        // Open doc → appears in buffers → queryable via db
+        let mut workspace = Workspace::new();
+        let url = Url::parse("file:///test.py").unwrap();
+
+        // Open document
+        let document = TextDocument::new("print('hello')".to_string(), 1, LanguageId::Python);
+        workspace.open_document(&url, document);
+
+        // Should be in buffers
+        assert!(workspace.buffers.get(&url).is_some());
+
+        // Should be queryable through database
+        let content = workspace.with_db_mut(|db| {
+            let file = db.get_or_create_file(&PathBuf::from("/test.py"));
+            source_text(db, file).to_string()
+        });
+
+        assert_eq!(content, "print('hello')");
+    }
+
+    #[test]
+    fn test_update_document() {
+        // Update changes buffer content
+        let mut workspace = Workspace::new();
+        let url = Url::parse("file:///test.py").unwrap();
+
+        // Open with initial content
+        let document = TextDocument::new("initial".to_string(), 1, LanguageId::Python);
+        workspace.open_document(&url, document);
+
+        // Update content
+        let changes = vec![TextDocumentContentChangeEvent {
+            range: None,
+            range_length: None,
+            text: "updated".to_string(),
+        }];
+        workspace.update_document(&url, changes, 2);
+
+        // Verify buffer was updated
+        let buffer = workspace.buffers.get(&url).unwrap();
+        assert_eq!(buffer.content(), "updated");
+        assert_eq!(buffer.version(), 2);
+    }
+
+    #[test]
+    fn test_close_document() {
+        // Close removes from buffers
+        let mut workspace = Workspace::new();
+        let url = Url::parse("file:///test.py").unwrap();
+
+        // Open document
+        let document = TextDocument::new("content".to_string(), 1, LanguageId::Python);
+        workspace.open_document(&url, document.clone());
+
+        // Close it
+        let closed = workspace.close_document(&url);
+        assert!(closed.is_some());
+
+        // Should no longer be in buffers
+        assert!(workspace.buffers.get(&url).is_none());
+    }
+
+    #[test]
+    fn test_buffer_takes_precedence_over_disk() {
+        // Open doc content overrides file system
+        let temp_dir = tempdir().unwrap();
+        let file_path = temp_dir.path().join("test.py");
+        std::fs::write(&file_path, "disk content").unwrap();
+
+        let mut workspace = Workspace::new();
+        let url = Url::from_file_path(&file_path).unwrap();
+
+        // Open document with different content than disk
+        let document = TextDocument::new("buffer content".to_string(), 1, LanguageId::Python);
+        workspace.open_document(&url, document);
+
+        // Database should return buffer content, not disk content
+        let content = workspace.with_db_mut(|db| {
+            let file = db.get_or_create_file(&file_path);
+            source_text(db, file).to_string()
+        });
+
+        assert_eq!(content, "buffer content");
+    }
+
+    #[test]
+    fn test_missing_file_returns_empty() {
+        // Non-existent files return "" not error
+        let mut workspace = Workspace::new();
+
+        let content = workspace.with_db_mut(|db| {
+            let file = db.get_or_create_file(&PathBuf::from("/nonexistent.py"));
+            source_text(db, file).to_string()
+        });
+
+        assert_eq!(content, "");
+    }
+
+    #[test]
+    fn test_file_invalidation_on_touch() {
+        // touch_file triggers Salsa recomputation
+        let temp_dir = tempdir().unwrap();
+        let file_path = temp_dir.path().join("test.py");
+        std::fs::write(&file_path, "version 1").unwrap();
+
+        let mut workspace = Workspace::new();
+
+        // First read
+        let content1 = workspace.with_db_mut(|db| {
+            let file = db.get_or_create_file(&file_path);
+            source_text(db, file).to_string()
+        });
+        assert_eq!(content1, "version 1");
+
+        // Update file on disk
+        std::fs::write(&file_path, "version 2").unwrap();
+
+        // Touch to invalidate
+        workspace.with_db_mut(|db| {
+            db.touch_file(&file_path);
+        });
+
+        // Should read new content
+        let content2 = workspace.with_db_mut(|db| {
+            let file = db.get_or_create_file(&file_path);
+            source_text(db, file).to_string()
+        });
+        assert_eq!(content2, "version 2");
+    }
+}

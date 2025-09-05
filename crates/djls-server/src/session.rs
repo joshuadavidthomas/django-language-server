@@ -66,17 +66,12 @@ impl Session {
             (None, Settings::default())
         };
 
-        let workspace = Workspace::new();
-
-        // Negotiate position encoding with client
-        let position_encoding = PositionEncoding::negotiate(params);
-
         Self {
             project,
             settings,
-            workspace,
+            workspace: Workspace::new(),
             client_capabilities: params.capabilities.clone(),
-            position_encoding,
+            position_encoding: PositionEncoding::negotiate(params),
         }
     }
 

@@ -220,3 +220,123 @@ impl Drop for StorageHandleGuard<'_> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use dashmap::DashMap;
+
+    use super::*;
+    use crate::buffers::Buffers;
+    use crate::fs::{OsFileSystem, WorkspaceFileSystem};
+
+    fn create_test_handle() -> StorageHandle<Database> {
+        Database::new(
+            Arc::new(WorkspaceFileSystem::new(
+                Buffers::new(),
+                Arc::new(OsFileSystem),
+            )),
+            Arc::new(DashMap::new()),
+        )
+        .storage()
+        .clone()
+        .into_zalsa_handle()
+    }
+
+    #[test]
+    fn test_handle_lifecycle() {
+        // Test the happy path: take handle, use it, restore it
+        let mut safe_handle = SafeStorageHandle::new(create_test_handle());
+
+        let handle = safe_handle.take_for_mutation();
+
+        // Simulate using the handle to create a database
+        let storage = handle.into_storage();
+        let db = Database::from_storage(
+            storage,
+            Arc::new(WorkspaceFileSystem::new(
+                Buffers::new(),
+                Arc::new(OsFileSystem),
+            )),
+            Arc::new(DashMap::new()),
+        );
+
+        // Get new handle after simulated mutation
+        let new_handle = db.storage().clone().into_zalsa_handle();
+
+        safe_handle.restore_from_mutation(new_handle);
+
+        // Should be able to take it again
+        let _handle2 = safe_handle.take_for_mutation();
+    }
+
+    #[test]
+    fn test_guard_auto_restore_on_drop() {
+        let mut safe_handle = SafeStorageHandle::new(create_test_handle());
+
+        {
+            let mut guard = safe_handle.take_guarded();
+            let handle = guard.handle();
+
+            // Simulate mutation
+            let storage = handle.into_storage();
+            let db = Database::from_storage(
+                storage,
+                Arc::new(WorkspaceFileSystem::new(
+                    Buffers::new(),
+                    Arc::new(OsFileSystem),
+                )),
+                Arc::new(DashMap::new()),
+            );
+            let new_handle = db.storage().clone().into_zalsa_handle();
+
+            guard.restore(new_handle);
+        } // Guard drops here in Restored state - should be clean
+
+        // Should be able to use handle again after guard drops
+        let _handle = safe_handle.clone_for_read();
+    }
+
+    #[test]
+    #[should_panic(expected = "Database handle already taken for mutation")]
+    fn test_panic_on_double_mutation() {
+        let mut safe_handle = SafeStorageHandle::new(create_test_handle());
+
+        let _handle1 = safe_handle.take_for_mutation();
+        // Can't take handle twice, should panic
+        let _handle2 = safe_handle.take_for_mutation();
+    }
+
+    #[test]
+    #[should_panic(expected = "Cannot access database handle for read")]
+    fn test_panic_on_read_during_mutation() {
+        let mut safe_handle = SafeStorageHandle::new(create_test_handle());
+
+        let _handle = safe_handle.take_for_mutation();
+        // Can't read while mutating, should panic
+        let _read = safe_handle.clone_for_read();
+    }
+
+    #[test]
+    #[should_panic(expected = "Cannot restore handle - it hasn't been consumed yet")]
+    fn test_guard_enforces_consume_before_restore() {
+        let mut safe_handle = SafeStorageHandle::new(create_test_handle());
+        let guard = safe_handle.take_guarded();
+
+        let dummy_handle = create_test_handle();
+        // Try to restore without consuming, should panic
+        guard.restore(dummy_handle);
+    }
+
+    #[test]
+    #[should_panic(expected = "StorageHandleGuard dropped without restoring handle")]
+    fn test_guard_panics_if_dropped_without_restore() {
+        let mut safe_handle = SafeStorageHandle::new(create_test_handle());
+
+        {
+            let mut guard = safe_handle.take_guarded();
+            let _handle = guard.handle();
+        } // Explicitly drop guard without restore, should panic
+    }
+}
