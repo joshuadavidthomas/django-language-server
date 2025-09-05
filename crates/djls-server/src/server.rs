@@ -1,27 +1,11 @@
 use std::future::Future;
 use std::sync::Arc;
 
+use djls_workspace::paths;
+use djls_workspace::FileKind;
 use tokio::sync::RwLock;
 use tower_lsp_server::jsonrpc::Result as LspResult;
-use tower_lsp_server::lsp_types::CompletionOptions;
-use tower_lsp_server::lsp_types::CompletionParams;
-use tower_lsp_server::lsp_types::CompletionResponse;
-use tower_lsp_server::lsp_types::DidChangeConfigurationParams;
-use tower_lsp_server::lsp_types::DidChangeTextDocumentParams;
-use tower_lsp_server::lsp_types::DidCloseTextDocumentParams;
-use tower_lsp_server::lsp_types::DidOpenTextDocumentParams;
-use tower_lsp_server::lsp_types::InitializeParams;
-use tower_lsp_server::lsp_types::InitializeResult;
-use tower_lsp_server::lsp_types::InitializedParams;
-use tower_lsp_server::lsp_types::OneOf;
-use tower_lsp_server::lsp_types::SaveOptions;
-use tower_lsp_server::lsp_types::ServerCapabilities;
-use tower_lsp_server::lsp_types::ServerInfo;
-use tower_lsp_server::lsp_types::TextDocumentSyncCapability;
-use tower_lsp_server::lsp_types::TextDocumentSyncKind;
-use tower_lsp_server::lsp_types::TextDocumentSyncOptions;
-use tower_lsp_server::lsp_types::WorkspaceFoldersServerCapabilities;
-use tower_lsp_server::lsp_types::WorkspaceServerCapabilities;
+use tower_lsp_server::lsp_types;
 use tower_lsp_server::LanguageServer;
 use tracing_appender::non_blocking::WorkerGuard;
 
@@ -91,19 +75,23 @@ impl DjangoLanguageServer {
 }
 
 impl LanguageServer for DjangoLanguageServer {
-    async fn initialize(&self, params: InitializeParams) -> LspResult<InitializeResult> {
+    async fn initialize(
+        &self,
+        params: lsp_types::InitializeParams,
+    ) -> LspResult<lsp_types::InitializeResult> {
         tracing::info!("Initializing server...");
 
         let session = Session::new(&params);
+        let encoding = session.position_encoding();
 
         {
             let mut session_lock = self.session.write().await;
             *session_lock = Some(session);
         }
 
-        Ok(InitializeResult {
-            capabilities: ServerCapabilities {
-                completion_provider: Some(CompletionOptions {
+        Ok(lsp_types::InitializeResult {
+            capabilities: lsp_types::ServerCapabilities {
+                completion_provider: Some(lsp_types::CompletionOptions {
                     resolve_provider: Some(false),
                     trigger_characters: Some(vec![
                         "{".to_string(),
@@ -112,34 +100,35 @@ impl LanguageServer for DjangoLanguageServer {
                     ]),
                     ..Default::default()
                 }),
-                workspace: Some(WorkspaceServerCapabilities {
-                    workspace_folders: Some(WorkspaceFoldersServerCapabilities {
+                workspace: Some(lsp_types::WorkspaceServerCapabilities {
+                    workspace_folders: Some(lsp_types::WorkspaceFoldersServerCapabilities {
                         supported: Some(true),
-                        change_notifications: Some(OneOf::Left(true)),
+                        change_notifications: Some(lsp_types::OneOf::Left(true)),
                     }),
                     file_operations: None,
                 }),
-                text_document_sync: Some(TextDocumentSyncCapability::Options(
-                    TextDocumentSyncOptions {
+                text_document_sync: Some(lsp_types::TextDocumentSyncCapability::Options(
+                    lsp_types::TextDocumentSyncOptions {
                         open_close: Some(true),
-                        change: Some(TextDocumentSyncKind::INCREMENTAL),
+                        change: Some(lsp_types::TextDocumentSyncKind::INCREMENTAL),
                         will_save: Some(false),
                         will_save_wait_until: Some(false),
-                        save: Some(SaveOptions::default().into()),
+                        save: Some(lsp_types::SaveOptions::default().into()),
                     },
                 )),
+                position_encoding: Some(lsp_types::PositionEncodingKind::from(encoding)),
                 ..Default::default()
             },
-            server_info: Some(ServerInfo {
+            server_info: Some(lsp_types::ServerInfo {
                 name: SERVER_NAME.to_string(),
                 version: Some(SERVER_VERSION.to_string()),
             }),
-            offset_encoding: None,
+            offset_encoding: Some(encoding.to_string()),
         })
     }
 
     #[allow(clippy::too_many_lines)]
-    async fn initialized(&self, _params: InitializedParams) {
+    async fn initialized(&self, _params: lsp_types::InitializedParams) {
         tracing::info!("Server received initialized notification.");
 
         self.with_session_task(|session_arc| async move {
@@ -214,55 +203,110 @@ impl LanguageServer for DjangoLanguageServer {
         Ok(())
     }
 
-    async fn did_open(&self, params: DidOpenTextDocumentParams) {
+    async fn did_open(&self, params: lsp_types::DidOpenTextDocumentParams) {
         tracing::info!("Opened document: {:?}", params.text_document.uri);
 
         self.with_session_mut(|session| {
-            let db = session.db();
-            session.documents_mut().handle_did_open(&db, &params);
+            let Some(url) =
+                paths::parse_lsp_uri(&params.text_document.uri, paths::LspContext::DidOpen)
+            else {
+                return; // Error parsing uri (unlikely), skip processing this document
+            };
+
+            let language_id =
+                djls_workspace::LanguageId::from(params.text_document.language_id.as_str());
+            let document = djls_workspace::TextDocument::new(
+                params.text_document.text,
+                params.text_document.version,
+                language_id,
+            );
+
+            session.open_document(&url, document);
         })
         .await;
     }
 
-    async fn did_change(&self, params: DidChangeTextDocumentParams) {
+    async fn did_change(&self, params: lsp_types::DidChangeTextDocumentParams) {
         tracing::info!("Changed document: {:?}", params.text_document.uri);
 
         self.with_session_mut(|session| {
-            let db = session.db();
-            let _ = session.documents_mut().handle_did_change(&db, &params);
+            let Some(url) =
+                paths::parse_lsp_uri(&params.text_document.uri, paths::LspContext::DidChange)
+            else {
+                return; // Error parsing uri (unlikely), skip processing this change
+            };
+
+            session.update_document(&url, params.content_changes, params.text_document.version);
         })
         .await;
     }
 
-    async fn did_close(&self, params: DidCloseTextDocumentParams) {
+    async fn did_close(&self, params: lsp_types::DidCloseTextDocumentParams) {
         tracing::info!("Closed document: {:?}", params.text_document.uri);
 
         self.with_session_mut(|session| {
-            session.documents_mut().handle_did_close(&params);
+            let Some(url) =
+                paths::parse_lsp_uri(&params.text_document.uri, paths::LspContext::DidClose)
+            else {
+                return; // Error parsing uri (unlikely), skip processing this close
+            };
+
+            if session.close_document(&url).is_none() {
+                tracing::warn!("Attempted to close document without overlay: {}", url);
+            }
         })
         .await;
     }
 
-    async fn completion(&self, params: CompletionParams) -> LspResult<Option<CompletionResponse>> {
-        Ok(self
-            .with_session(|session| {
-                if let Some(project) = session.project() {
-                    if let Some(tags) = project.template_tags() {
-                        let db = session.db();
-                        return session.documents().get_completions(
-                            &db,
-                            params.text_document_position.text_document.uri.as_str(),
-                            params.text_document_position.position,
-                            tags,
-                        );
+    async fn completion(
+        &self,
+        params: lsp_types::CompletionParams,
+    ) -> LspResult<Option<lsp_types::CompletionResponse>> {
+        let response = self
+            .with_session_mut(|session| {
+                let Some(url) = paths::parse_lsp_uri(
+                    &params.text_document_position.text_document.uri,
+                    paths::LspContext::Completion,
+                ) else {
+                    return None; // Error parsing uri (unlikely), return no completions
+                };
+
+                tracing::debug!(
+                    "Completion requested for {} at {:?}",
+                    url,
+                    params.text_document_position.position
+                );
+
+                if let Some(path) = paths::url_to_path(&url) {
+                    let document = session.get_document(&url)?;
+                    let position = params.text_document_position.position;
+                    let encoding = session.position_encoding();
+                    let file_kind = FileKind::from_path(&path);
+                    let template_tags = session.project().and_then(|p| p.template_tags());
+
+                    let completions = crate::completions::handle_completion(
+                        &document,
+                        position,
+                        encoding,
+                        file_kind,
+                        template_tags,
+                    );
+
+                    if completions.is_empty() {
+                        None
+                    } else {
+                        Some(lsp_types::CompletionResponse::Array(completions))
                     }
+                } else {
+                    None
                 }
-                None
             })
-            .await)
+            .await;
+
+        Ok(response)
     }
 
-    async fn did_change_configuration(&self, _params: DidChangeConfigurationParams) {
+    async fn did_change_configuration(&self, _params: lsp_types::DidChangeConfigurationParams) {
         tracing::info!("Configuration change detected. Reloading settings...");
 
         let project_path = self

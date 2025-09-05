@@ -5,17 +5,19 @@ use crate::tokens::Token;
 use crate::tokens::TokenStream;
 use crate::tokens::TokenType;
 
-#[derive(Clone, Debug, Default, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 pub struct Ast {
     nodelist: Vec<Node>,
     line_offsets: LineOffsets,
 }
 
 impl Ast {
+    #[must_use]
     pub fn nodelist(&self) -> &Vec<Node> {
         &self.nodelist
     }
 
+    #[must_use]
     pub fn line_offsets(&self) -> &LineOffsets {
         &self.line_offsets
     }
@@ -36,7 +38,7 @@ impl Ast {
     }
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct LineOffsets(pub Vec<u32>);
 
 impl LineOffsets {
@@ -44,6 +46,7 @@ impl LineOffsets {
         self.0.push(offset);
     }
 
+    #[must_use]
     pub fn position_to_line_col(&self, position: usize) -> (usize, usize) {
         let position = u32::try_from(position).unwrap_or_default();
         let line = match self.0.binary_search(&position) {
@@ -63,6 +66,7 @@ impl LineOffsets {
         (line + 1, col)
     }
 
+    #[must_use]
     pub fn line_col_to_position(&self, line: u32, col: u32) -> u32 {
         // line is 1-based, so subtract 1 to get the index
         self.0[(line - 1) as usize] + col
@@ -75,7 +79,7 @@ impl Default for LineOffsets {
     }
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub enum Node {
     Tag {
         name: String,
@@ -104,16 +108,19 @@ pub struct Span {
 }
 
 impl Span {
+    #[must_use]
     pub fn new(start: u32, length: u32) -> Self {
         Self { start, length }
     }
 
     #[allow(clippy::trivially_copy_pass_by_ref)]
+    #[must_use]
     pub fn start(&self) -> u32 {
         self.start
     }
 
     #[allow(clippy::trivially_copy_pass_by_ref)]
+    #[must_use]
     pub fn length(&self) -> u32 {
         self.length
     }

@@ -15,7 +15,7 @@
 
 use std::sync::Arc;
 
-use tower_lsp_server::lsp_types::MessageType;
+use tower_lsp_server::lsp_types;
 use tracing::field::Visit;
 use tracing::Level;
 use tracing_appender::non_blocking::WorkerGuard;
@@ -32,13 +32,13 @@ use tracing_subscriber::Registry;
 /// that are sent to the client. It filters events by level to avoid overwhelming
 /// the client with verbose trace logs.
 pub struct LspLayer {
-    send_message: Arc<dyn Fn(MessageType, String) + Send + Sync>,
+    send_message: Arc<dyn Fn(lsp_types::MessageType, String) + Send + Sync>,
 }
 
 impl LspLayer {
     pub fn new<F>(send_message: F) -> Self
     where
-        F: Fn(MessageType, String) + Send + Sync + 'static,
+        F: Fn(lsp_types::MessageType, String) + Send + Sync + 'static,
     {
         Self {
             send_message: Arc::new(send_message),
@@ -82,10 +82,10 @@ where
         let metadata = event.metadata();
 
         let message_type = match *metadata.level() {
-            Level::ERROR => MessageType::ERROR,
-            Level::WARN => MessageType::WARNING,
-            Level::INFO => MessageType::INFO,
-            Level::DEBUG => MessageType::LOG,
+            Level::ERROR => lsp_types::MessageType::ERROR,
+            Level::WARN => lsp_types::MessageType::WARNING,
+            Level::INFO => lsp_types::MessageType::INFO,
+            Level::DEBUG => lsp_types::MessageType::LOG,
             Level::TRACE => {
                 // Skip TRACE level - too verbose for LSP client
                 // TODO: Add MessageType::Debug in LSP 3.18.0
@@ -112,7 +112,7 @@ where
 /// Returns a `WorkerGuard` that must be kept alive for the file logging to work.
 pub fn init_tracing<F>(send_message: F) -> WorkerGuard
 where
-    F: Fn(MessageType, String) + Send + Sync + 'static,
+    F: Fn(lsp_types::MessageType, String) + Send + Sync + 'static,
 {
     let file_appender = tracing_appender::rolling::daily("/tmp", "djls.log");
     let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);

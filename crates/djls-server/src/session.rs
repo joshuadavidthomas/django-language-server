@@ -1,55 +1,59 @@
+//! # LSP Session Management
+//!
+//! This module implements the LSP session abstraction that manages project-specific
+//! state and delegates workspace operations to the Workspace facade.
+
 use djls_conf::Settings;
 use djls_project::DjangoProject;
-use salsa::StorageHandle;
-use tower_lsp_server::lsp_types::ClientCapabilities;
-use tower_lsp_server::lsp_types::InitializeParams;
+use djls_workspace::paths;
+use djls_workspace::PositionEncoding;
+use djls_workspace::TextDocument;
+use djls_workspace::Workspace;
+use tower_lsp_server::lsp_types;
+use url::Url;
 
-use crate::db::ServerDatabase;
-use crate::workspace::Store;
-
-#[derive(Default)]
+/// LSP Session managing project-specific state and workspace operations.
+///
+/// The Session serves as the main entry point for LSP operations, managing:
+/// - Project configuration and settings
+/// - Client capabilities and position encoding
+/// - Workspace operations (delegated to the Workspace facade)
+///
+/// All document lifecycle and database operations are delegated to the
+/// encapsulated Workspace, which provides thread-safe Salsa database
+/// management with proper mutation safety through `StorageHandleGuard`.
 pub struct Session {
+    /// The Django project configuration
     project: Option<DjangoProject>,
-    documents: Store,
+
+    /// LSP server settings
     settings: Settings,
 
-    #[allow(dead_code)]
-    client_capabilities: ClientCapabilities,
+    /// Workspace facade that encapsulates all workspace-related functionality
+    ///
+    /// This includes document buffers, file system abstraction, and the Salsa database.
+    /// The workspace provides a clean interface for document lifecycle management
+    /// and database operations while maintaining proper isolation and thread safety.
+    workspace: Workspace,
 
-    /// A thread-safe Salsa database handle that can be shared between threads.
-    ///
-    /// This implements the insight from [this Salsa Zulip discussion](https://salsa.zulipchat.com/#narrow/channel/145099-Using-Salsa/topic/.E2.9C.94.20Advice.20on.20using.20salsa.20from.20Sync.20.2B.20Send.20context/with/495497515)
-    /// where we're using the `StorageHandle` to create a thread-safe handle that can be
-    /// shared between threads. When we need to use it, we clone the handle to get a new reference.
-    ///
-    /// This handle allows us to create database instances as needed.
-    /// Even though we're using a single-threaded runtime, we still need
-    /// this to be thread-safe because of LSP trait requirements.
-    ///
-    /// Usage:
-    /// ```rust,ignore
-    /// // Use the StorageHandle in Session
-    /// let db_handle = StorageHandle::new(None);
-    ///
-    /// // Clone it to pass to different threads
-    /// let db_handle_clone = db_handle.clone();
-    ///
-    /// // Use it in an async context
-    /// async_fn(move || {
-    ///     // Get a database from the handle
-    ///     let storage = db_handle_clone.into_storage();
-    ///     let db = ServerDatabase::new(storage);
-    ///
-    ///     // Use the database
-    ///     db.some_query(args)
-    /// });
-    /// ```
-    db_handle: StorageHandle<ServerDatabase>,
+    #[allow(dead_code)]
+    client_capabilities: lsp_types::ClientCapabilities,
+
+    /// Position encoding negotiated with client
+    position_encoding: PositionEncoding,
 }
 
 impl Session {
-    pub fn new(params: &InitializeParams) -> Self {
-        let project_path = crate::workspace::get_project_path(params);
+    pub fn new(params: &lsp_types::InitializeParams) -> Self {
+        let project_path = params
+            .workspace_folders
+            .as_ref()
+            .and_then(|folders| folders.first())
+            .and_then(|folder| paths::lsp_uri_to_path(&folder.uri))
+            .or_else(|| {
+                // Fall back to current directory
+                std::env::current_dir().ok()
+            });
 
         let (project, settings) = if let Some(path) = &project_path {
             let settings =
@@ -63,14 +67,15 @@ impl Session {
         };
 
         Self {
-            client_capabilities: params.capabilities.clone(),
             project,
-            documents: Store::default(),
             settings,
-            db_handle: StorageHandle::new(None),
+            workspace: Workspace::new(),
+            client_capabilities: params.capabilities.clone(),
+            position_encoding: PositionEncoding::negotiate(params),
         }
     }
 
+    #[must_use]
     pub fn project(&self) -> Option<&DjangoProject> {
         self.project.as_ref()
     }
@@ -79,14 +84,7 @@ impl Session {
         &mut self.project
     }
 
-    pub fn documents(&self) -> &Store {
-        &self.documents
-    }
-
-    pub fn documents_mut(&mut self) -> &mut Store {
-        &mut self.documents
-    }
-
+    #[must_use]
     pub fn settings(&self) -> &Settings {
         &self.settings
     }
@@ -95,12 +93,57 @@ impl Session {
         self.settings = settings;
     }
 
-    /// Get a database instance directly from the session
+    #[must_use]
+    pub fn position_encoding(&self) -> PositionEncoding {
+        self.position_encoding
+    }
+
+    /// Handle opening a document - sets buffer and creates file.
     ///
-    /// This creates a usable database from the handle, which can be used
-    /// to query and update data in the database.
-    pub fn db(&self) -> ServerDatabase {
-        let storage = self.db_handle.clone().into_storage();
-        ServerDatabase::new(storage)
+    /// Delegates to the workspace's document management.
+    pub fn open_document(&mut self, url: &Url, document: TextDocument) {
+        tracing::debug!("Opening document: {}", url);
+        self.workspace.open_document(url, document);
+    }
+
+    /// Update a document with the given changes.
+    ///
+    /// Delegates to the workspace's document management.
+    pub fn update_document(
+        &mut self,
+        url: &Url,
+        changes: Vec<lsp_types::TextDocumentContentChangeEvent>,
+        new_version: i32,
+    ) {
+        self.workspace
+            .update_document(url, changes, new_version, self.position_encoding);
+    }
+
+    /// Handle closing a document - removes buffer and bumps revision.
+    ///
+    /// Delegates to the workspace's document management.
+    pub fn close_document(&mut self, url: &Url) -> Option<TextDocument> {
+        tracing::debug!("Closing document: {}", url);
+        self.workspace.close_document(url)
+    }
+
+    /// Get an open document from the buffer layer, if it exists.
+    ///
+    /// Delegates to the workspace's document management.
+    #[must_use]
+    pub fn get_document(&self, url: &Url) -> Option<TextDocument> {
+        self.workspace.get_document(url)
+    }
+}
+
+impl Default for Session {
+    fn default() -> Self {
+        Self {
+            project: None,
+            settings: Settings::default(),
+            workspace: Workspace::new(),
+            client_capabilities: lsp_types::ClientCapabilities::default(),
+            position_encoding: PositionEncoding::default(),
+        }
     }
 }

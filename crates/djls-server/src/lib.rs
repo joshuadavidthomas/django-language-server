@@ -1,10 +1,9 @@
 mod client;
-mod db;
+mod completions;
 mod logging;
 mod queue;
-mod server;
-mod session;
-mod workspace;
+pub mod server;
+pub mod session;
 
 use std::io::IsTerminal;
 
@@ -12,7 +11,8 @@ use anyhow::Result;
 use tower_lsp_server::LspService;
 use tower_lsp_server::Server;
 
-use crate::server::DjangoLanguageServer;
+pub use crate::server::DjangoLanguageServer;
+pub use crate::session::Session;
 
 pub fn run() -> Result<()> {
     if std::io::stdin().is_terminal() {
