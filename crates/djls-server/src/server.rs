@@ -40,7 +40,7 @@ impl DjangoLanguageServer {
         F: FnOnce(&Session) -> R,
     {
         let session = self.session.lock().await;
-        f(&*session)
+        f(&session)
     }
 
     pub async fn with_session_mut<F, R>(&self, f: F) -> R
@@ -48,7 +48,7 @@ impl DjangoLanguageServer {
         F: FnOnce(&mut Session) -> R,
     {
         let mut session = self.session.lock().await;
-        f(&mut *session)
+        f(&mut session)
     }
 
     pub async fn with_session_task<F, Fut>(&self, f: F)
