@@ -111,19 +111,7 @@ impl Database {
         }
     }
 
-    pub fn from_storage(
-        storage: salsa::Storage<Self>,
-        file_system: Arc<dyn FileSystem>,
-        files: Arc<DashMap<PathBuf, SourceFile>>,
-    ) -> Self {
-        Self {
-            storage,
-            fs: file_system,
-            files,
-            #[cfg(test)]
-            logs: Arc::new(Mutex::new(None)),
-        }
-    }
+
 
     /// Read file content through the file system.
     pub fn read_file_content(&self, path: &Path) -> std::io::Result<String> {
@@ -201,12 +189,7 @@ impl Database {
         );
     }
 
-    /// Get a reference to the storage for handle extraction.
-    ///
-    /// This is used by `Session` to extract the [`StorageHandle`](salsa::StorageHandle) after mutations.
-    pub fn storage(&self) -> &salsa::Storage<Self> {
-        &self.storage
-    }
+
 }
 
 #[salsa::db]

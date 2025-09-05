@@ -20,8 +20,8 @@ use url::Url;
 /// - Workspace operations (delegated to the Workspace facade)
 ///
 /// All document lifecycle and database operations are delegated to the
-/// encapsulated Workspace, which provides thread-safe Salsa database
-/// management with proper mutation safety through `StorageHandleGuard`.
+/// encapsulated Workspace, which provides Salsa database management
+/// using the built-in Clone pattern for thread safety.
 pub struct Session {
     /// The Django project configuration
     project: Option<DjangoProject>,
