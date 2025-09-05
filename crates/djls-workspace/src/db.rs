@@ -202,13 +202,6 @@ impl Database {
     pub fn storage(&self) -> &salsa::Storage<Self> {
         &self.storage
     }
-
-    /// Consume the database and return its storage.
-    ///
-    /// This is used when you need to take ownership of the storage.
-    pub fn into_storage(self) -> salsa::Storage<Self> {
-        self.storage
-    }
 }
 
 #[salsa::db]
