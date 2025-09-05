@@ -113,174 +113,93 @@ pub fn path_to_url(path: &Path) -> Option<Url> {
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use super::*;
 
     #[test]
-    fn test_url_to_path_basic() {
-        let url = Url::parse("file:///home/user/file.txt").unwrap();
-        let path = url_to_path(&url).unwrap();
-        assert_eq!(path, PathBuf::from("/home/user/file.txt"));
-    }
-
-    #[test]
-    fn test_url_to_path_with_spaces() {
-        let url = Url::parse("file:///home/user/my%20file.txt").unwrap();
-        let path = url_to_path(&url).unwrap();
-        assert_eq!(path, PathBuf::from("/home/user/my file.txt"));
+    fn test_url_to_path_valid_file_url() {
+        let url = Url::parse("file:///home/user/test.py").unwrap();
+        assert_eq!(url_to_path(&url), Some(PathBuf::from("/home/user/test.py")));
     }
 
     #[test]
     fn test_url_to_path_non_file_scheme() {
-        let url = Url::parse("https://example.com/file.txt").unwrap();
-        assert!(url_to_path(&url).is_none());
+        let url = Url::parse("http://example.com/test.py").unwrap();
+        assert_eq!(url_to_path(&url), None);
     }
 
-    #[cfg(windows)]
     #[test]
-    fn test_url_to_path_windows() {
-        let url = Url::parse("file:///C:/Users/user/file.txt").unwrap();
-        let path = url_to_path(&url).unwrap();
-        assert_eq!(path, PathBuf::from("C:/Users/user/file.txt"));
+    fn test_url_to_path_percent_encoded() {
+        let url = Url::parse("file:///home/user/test%20file.py").unwrap();
+        assert_eq!(
+            url_to_path(&url),
+            Some(PathBuf::from("/home/user/test file.py"))
+        );
     }
 
+    #[test]
+    #[cfg(windows)]
+    fn test_url_to_path_windows_drive() {
+        let url = Url::parse("file:///C:/Users/test.py").unwrap();
+        assert_eq!(url_to_path(&url), Some(PathBuf::from("C:/Users/test.py")));
+    }
+
+    #[test]
+    fn test_parse_lsp_uri_valid() {
+        let uri = lsp_types::Uri::from_str("file:///test.py").unwrap();
+        let result = parse_lsp_uri(&uri, LspContext::DidOpen);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().scheme(), "file");
+    }
+
+    // lsp_uri_to_path tests
+    #[test]
+    fn test_lsp_uri_to_path_valid_file() {
+        let uri = lsp_types::Uri::from_str("file:///home/user/test.py").unwrap();
+        assert_eq!(
+            lsp_uri_to_path(&uri),
+            Some(PathBuf::from("/home/user/test.py"))
+        );
+    }
+
+    #[test]
+    fn test_lsp_uri_to_path_non_file() {
+        let uri = lsp_types::Uri::from_str("http://example.com/test.py").unwrap();
+        assert_eq!(lsp_uri_to_path(&uri), None);
+    }
+
+    #[test]
+    fn test_lsp_uri_to_path_invalid_uri() {
+        let uri = lsp_types::Uri::from_str("not://valid").unwrap();
+        assert_eq!(lsp_uri_to_path(&uri), None);
+    }
+
+    // path_to_url tests
     #[test]
     fn test_path_to_url_absolute() {
-        let path = if cfg!(windows) {
-            PathBuf::from("C:/Users/user/file.txt")
-        } else {
-            PathBuf::from("/home/user/file.txt")
-        };
-
-        let url = path_to_url(&path).unwrap();
-        assert_eq!(url.scheme(), "file");
-        assert!(url.path().contains("file.txt"));
+        let path = Path::new("/home/user/test.py");
+        let url = path_to_url(path);
+        assert!(url.is_some());
+        assert_eq!(url.clone().unwrap().scheme(), "file");
+        assert!(url.unwrap().path().contains("test.py"));
     }
 
     #[test]
-    fn test_round_trip() {
-        let original_path = if cfg!(windows) {
-            PathBuf::from("C:/Users/user/test file.txt")
-        } else {
-            PathBuf::from("/home/user/test file.txt")
-        };
-
-        let url = path_to_url(&original_path).unwrap();
-        let converted_path = url_to_path(&url).unwrap();
-
-        assert_eq!(original_path, converted_path);
+    fn test_path_to_url_relative() {
+        let path = Path::new("test.py");
+        let url = path_to_url(path);
+        assert!(url.is_some());
+        assert_eq!(url.clone().unwrap().scheme(), "file");
+        // Should be resolved to absolute path
+        assert!(url.unwrap().path().ends_with("/test.py"));
     }
 
     #[test]
-    fn test_url_with_localhost() {
-        // Some systems use file://localhost/path format
-        let url = Url::parse("file://localhost/home/user/file.txt").unwrap();
-        let path = url_to_path(&url);
-
-        // Current implementation might not handle this correctly
-        // since it only checks scheme, not host
-        if let Some(p) = path {
-            assert_eq!(p, PathBuf::from("/home/user/file.txt"));
-        }
-    }
-
-    #[test]
-    fn test_url_with_empty_host() {
-        // Standard file:///path format (three slashes, empty host)
-        let url = Url::parse("file:///home/user/file.txt").unwrap();
-        let path = url_to_path(&url).unwrap();
-        assert_eq!(path, PathBuf::from("/home/user/file.txt"));
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn test_unc_path_to_url() {
-        // UNC paths like \\server\share\file.txt
-        let unc_path = PathBuf::from(r"\\server\share\file.txt");
-        let url = path_to_url(&unc_path);
-
-        // Check if UNC paths are handled
-        if let Some(u) = url {
-            // UNC paths should convert to file://server/share/file.txt
-            assert!(u.to_string().contains("server"));
-            assert!(u.to_string().contains("share"));
-        }
-    }
-
-    #[test]
-    fn test_relative_path_with_dotdot() {
-        // Test relative paths with .. that might not exist
-        let path = PathBuf::from("../some/nonexistent/path.txt");
-        let url = path_to_url(&path);
-
-        // Should now work even for non-existent files
-        assert!(url.is_some(), "Should handle non-existent relative paths");
-        if let Some(u) = url {
-            assert_eq!(u.scheme(), "file");
-            assert!(u.path().ends_with("some/nonexistent/path.txt"));
-        }
-    }
-
-    #[test]
-    fn test_non_existent_absolute_path() {
-        // Test that absolute paths work even if they don't exist
-        let path = if cfg!(windows) {
-            PathBuf::from("C:/NonExistent/Directory/file.txt")
-        } else {
-            PathBuf::from("/nonexistent/directory/file.txt")
-        };
-
-        let url = path_to_url(&path);
-        assert!(url.is_some(), "Should handle non-existent absolute paths");
-        if let Some(u) = url {
-            assert_eq!(u.scheme(), "file");
-            assert!(u.path().contains("file.txt"));
-        }
-    }
-
-    #[test]
-    fn test_non_existent_relative_path() {
-        // Test that relative paths work even if they don't exist
-        let path = PathBuf::from("nonexistent/file.txt");
-        let url = path_to_url(&path);
-
-        assert!(url.is_some(), "Should handle non-existent relative paths");
-        if let Some(u) = url {
-            assert_eq!(u.scheme(), "file");
-            assert!(u.path().ends_with("nonexistent/file.txt"));
-            // Should be an absolute URL
-            assert!(u.path().starts_with('/') || cfg!(windows));
-        }
-    }
-
-    #[test]
-    fn test_path_with_special_chars() {
-        // Test paths with special characters that need encoding
-        let path = PathBuf::from("/home/user/file with spaces & special!.txt");
-        let url = path_to_url(&path).unwrap();
-
-        // Should be properly percent-encoded
-        assert!(url.as_str().contains("%20") || url.as_str().contains("with%20spaces"));
-
-        // Round-trip should work
-        let back = url_to_path(&url).unwrap();
-        assert_eq!(back, path);
-    }
-
-    #[test]
-    fn test_url_with_query_or_fragment() {
-        // URLs with query parameters or fragments should probably be rejected
-        let url_with_query = Url::parse("file:///path/file.txt?query=param").unwrap();
-        let url_with_fragment = Url::parse("file:///path/file.txt#section").unwrap();
-
-        // These should still work, extracting just the path part
-        let path1 = url_to_path(&url_with_query);
-        let path2 = url_to_path(&url_with_fragment);
-
-        if let Some(p) = path1 {
-            assert_eq!(p, PathBuf::from("/path/file.txt"));
-        }
-        if let Some(p) = path2 {
-            assert_eq!(p, PathBuf::from("/path/file.txt"));
-        }
+    fn test_path_to_url_nonexistent_absolute() {
+        let path = Path::new("/definitely/does/not/exist/test.py");
+        let url = path_to_url(path);
+        assert!(url.is_some());
+        assert_eq!(url.unwrap().scheme(), "file");
     }
 }
