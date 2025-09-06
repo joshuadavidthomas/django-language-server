@@ -118,15 +118,17 @@ fn template_error_to_diagnostic(
 /// Map a [`TemplateError`] to appropriate diagnostic severity.
 fn severity_from_error(error: &TemplateError) -> lsp_types::DiagnosticSeverity {
     match error {
-        TemplateError::Lexer(_) => lsp_types::DiagnosticSeverity::ERROR,
-        TemplateError::Parser(_) => lsp_types::DiagnosticSeverity::ERROR,
-        TemplateError::Validation(_) => lsp_types::DiagnosticSeverity::WARNING,
-        TemplateError::Io(_) => lsp_types::DiagnosticSeverity::ERROR,
-        TemplateError::Config(_) => lsp_types::DiagnosticSeverity::WARNING,
+        TemplateError::Lexer(_) | TemplateError::Parser(_) | TemplateError::Io(_) => {
+            lsp_types::DiagnosticSeverity::ERROR
+        }
+        TemplateError::Validation(_) | TemplateError::Config(_) => {
+            lsp_types::DiagnosticSeverity::WARNING
+        }
     }
 }
 
 /// Convert a template [`Span`] to an LSP [`Range`] using line offsets.
+#[allow(clippy::cast_possible_truncation)]
 fn span_to_range(span: Span, line_offsets: &LineOffsets) -> lsp_types::Range {
     let start_pos = span.start() as usize;
     let end_pos = (span.start() + span.length()) as usize;
@@ -134,6 +136,8 @@ fn span_to_range(span: Span, line_offsets: &LineOffsets) -> lsp_types::Range {
     let (start_line, start_char) = line_offsets.position_to_line_col(start_pos);
     let (end_line, end_char) = line_offsets.position_to_line_col(end_pos);
 
+    // Note: These casts are safe in practice as line numbers and character positions
+    // in source files won't exceed u32::MAX (4 billion lines/characters)
     lsp_types::Range {
         start: lsp_types::Position {
             line: (start_line - 1) as u32, // LSP is 0-based, LineOffsets is 1-based
