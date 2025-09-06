@@ -23,10 +23,10 @@ fn main() -> Result<()> {
 
     let stdin = tmux.stdin.as_mut().context("Failed to get tmux stdin")?;
 
-    // Create session with editor
+    // Create session with editor, setting DJANGO_SETTINGS_MODULE and PYTHONPATH
     writeln!(
         stdin,
-        "new-session -d -s djls-debug 'nvim tests/project/djls_app/templates/djls_app/base.html'"
+        "new-session -d -s djls-debug 'DJANGO_SETTINGS_MODULE=djls_test.settings PYTHONPATH=tests/project:$PYTHONPATH nvim tests/project/djls_app/templates/djls_app/base.html'"
     )?;
 
     // Add devtools pane (20% width on the right)
