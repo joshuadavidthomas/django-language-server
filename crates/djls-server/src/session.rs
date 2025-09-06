@@ -172,6 +172,17 @@ impl Session {
         }
     }
 
+    pub fn save_document(&mut self, url: &Url) {
+        // Touch file in database to trigger re-analysis
+        if let Some(path) = paths::url_to_path(url) {
+            self.with_db_mut(|db| {
+                if db.has_file(&path) {
+                    db.touch_file(&path);
+                }
+            });
+        }
+    }
+
     /// Close a document.
     ///
     /// Removes from workspace buffers and triggers database invalidation to fall back to disk.

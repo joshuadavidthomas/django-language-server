@@ -208,6 +208,21 @@ impl LanguageServer for DjangoLanguageServer {
         .await;
     }
 
+    async fn did_save(&self, params: lsp_types::DidSaveTextDocumentParams) {
+        tracing::info!("Saved document: {:?}", params.text_document.uri);
+
+        self.with_session_mut(|session| {
+            let Some(url) =
+                paths::parse_lsp_uri(&params.text_document.uri, paths::LspContext::DidSave)
+            else {
+                return;
+            };
+
+            session.save_document(&url);
+        })
+        .await;
+    }
+
     async fn did_change(&self, params: lsp_types::DidChangeTextDocumentParams) {
         tracing::info!("Changed document: {:?}", params.text_document.uri);
 

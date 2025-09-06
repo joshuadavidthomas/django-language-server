@@ -42,6 +42,8 @@ pub enum LspContext {
     DidChange,
     /// textDocument/didClose notification
     DidClose,
+    /// textDocument/didSave notification
+    DidSave,
     /// textDocument/completion request
     Completion,
 }
@@ -52,6 +54,7 @@ impl std::fmt::Display for LspContext {
             Self::DidOpen => write!(f, "didOpen"),
             Self::DidChange => write!(f, "didChange"),
             Self::DidClose => write!(f, "didClose"),
+            Self::DidSave => write!(f, "didSave"),
             Self::Completion => write!(f, "completion"),
         }
     }
