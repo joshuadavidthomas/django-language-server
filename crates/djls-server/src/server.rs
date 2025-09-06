@@ -275,6 +275,7 @@ impl LanguageServer for DjangoLanguageServer {
                     let encoding = session.position_encoding();
                     let file_kind = FileKind::from_path(&path);
                     let template_tags = session.project().and_then(|p| p.template_tags());
+                    let supports_snippets = session.supports_snippets();
 
                     let completions = crate::completions::handle_completion(
                         &document,
@@ -282,6 +283,7 @@ impl LanguageServer for DjangoLanguageServer {
                         encoding,
                         file_kind,
                         template_tags,
+                        supports_snippets,
                     );
 
                     if completions.is_empty() {

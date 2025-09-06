@@ -15,8 +15,15 @@ impl Deref for TemplateTags {
     }
 }
 
+impl From<Vec<TemplateTag>> for TemplateTags {
+    fn from(tags: Vec<TemplateTag>) -> Self {
+        Self(tags)
+    }
+}
+
 impl TemplateTags {
-    fn new() -> Self {
+    #[must_use]
+    pub fn new() -> Self {
         Self(Vec::new())
     }
 
@@ -78,18 +85,22 @@ pub struct TemplateTag {
 }
 
 impl TemplateTag {
-    fn new(name: String, library: String, doc: Option<String>) -> Self {
+    #[must_use]
+    pub fn new(name: String, library: String, doc: Option<String>) -> Self {
         Self { name, library, doc }
     }
 
+    #[must_use]
     pub fn name(&self) -> &String {
         &self.name
     }
 
+    #[must_use]
     pub fn library(&self) -> &String {
         &self.library
     }
 
+    #[must_use]
     pub fn doc(&self) -> Option<&String> {
         self.doc.as_ref()
     }
