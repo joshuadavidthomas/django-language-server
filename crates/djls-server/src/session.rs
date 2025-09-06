@@ -30,9 +30,6 @@ use crate::db::DjangoDatabase;
 /// Following Ruff's architecture, the concrete database lives at this level
 /// and is passed down to operations that need it.
 pub struct Session {
-    /// The concrete Salsa database for incremental computation
-    db: DjangoDatabase,
-
     /// The Django project configuration
     project: Option<DjangoProject>,
 
@@ -50,6 +47,8 @@ pub struct Session {
 
     /// Position encoding negotiated with client
     position_encoding: PositionEncoding,
+
+    db: DjangoDatabase,
 }
 
 impl Session {
