@@ -7,6 +7,8 @@
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
+#[cfg(test)]
+use std::sync::Mutex;
 
 use dashmap::DashMap;
 use djls_templates::db::Db as TemplateDb;
@@ -31,15 +33,49 @@ pub struct DjangoDatabase {
     files: Arc<DashMap<PathBuf, SourceFile>>,
 
     storage: salsa::Storage<Self>,
+
+    // The logs are only used for testing and demonstrating reuse:
+    #[cfg(test)]
+    #[allow(dead_code)]
+    logs: Arc<Mutex<Option<Vec<String>>>>,
+}
+
+#[cfg(test)]
+impl Default for DjangoDatabase {
+    fn default() -> Self {
+        use djls_workspace::InMemoryFileSystem;
+
+        let logs = <Arc<Mutex<Option<Vec<String>>>>>::default();
+        Self {
+            fs: Arc::new(InMemoryFileSystem::new()),
+            files: Arc::new(DashMap::new()),
+            storage: salsa::Storage::new(Some(Box::new({
+                let logs = logs.clone();
+                move |event| {
+                    eprintln!("Event: {event:?}");
+                    // Log interesting events, if logging is enabled
+                    if let Some(logs) = &mut *logs.lock().unwrap() {
+                        // only log interesting events
+                        if let salsa::EventKind::WillExecute { .. } = event.kind {
+                            logs.push(format!("Event: {event:?}"));
+                        }
+                    }
+                }
+            }))),
+            logs,
+        }
+    }
 }
 
 impl DjangoDatabase {
     /// Create a new [`DjangoDatabase`] with the given file system and file map.
     pub fn new(file_system: Arc<dyn FileSystem>, files: Arc<DashMap<PathBuf, SourceFile>>) -> Self {
         Self {
-            storage: salsa::Storage::new(None),
             fs: file_system,
             files,
+            storage: salsa::Storage::new(None),
+            #[cfg(test)]
+            logs: Arc::new(Mutex::new(None)),
         }
     }
 

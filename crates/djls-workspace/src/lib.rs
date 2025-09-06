@@ -29,6 +29,7 @@ pub use db::SourceFile;
 pub use document::TextDocument;
 pub use encoding::PositionEncoding;
 pub use fs::FileSystem;
+pub use fs::InMemoryFileSystem;
 pub use fs::OsFileSystem;
 pub use fs::WorkspaceFileSystem;
 pub use language::LanguageId;
