@@ -1,6 +1,8 @@
 use std::future::Future;
+use std::str::FromStr;
 use std::sync::Arc;
 
+use djls_templates::db::template_diagnostics;
 use djls_workspace::paths;
 use djls_workspace::FileKind;
 use tokio::sync::Mutex;
@@ -9,6 +11,7 @@ use tower_lsp_server::lsp_types;
 use tower_lsp_server::Client;
 use tower_lsp_server::LanguageServer;
 use tracing_appender::non_blocking::WorkerGuard;
+use url::Url;
 
 use crate::queue::Queue;
 use crate::session::Session;
@@ -17,7 +20,6 @@ const SERVER_NAME: &str = "Django Language Server";
 const SERVER_VERSION: &str = "0.1.0";
 
 pub struct DjangoLanguageServer {
-    #[allow(dead_code)] // will be needed when diagnostics and other features are added
     client: Client,
     session: Arc<Mutex<Session>>,
     queue: Queue,
@@ -63,6 +65,49 @@ impl DjangoLanguageServer {
         } else {
             tracing::info!("Task submitted successfully");
         }
+    }
+
+    /// Publish diagnostics for a template file.
+    ///
+    /// Retrieves diagnostics from the template parser and publishes them to the client.
+    /// Only publishes diagnostics for template files.
+    async fn publish_template_diagnostics(&self, url: &Url, version: Option<i32>) {
+        // Get the path from the URL
+        let Some(path) = paths::url_to_path(url) else {
+            tracing::debug!("Could not convert URL to path: {}", url);
+            return;
+        };
+
+        // Check if this is a template file
+        if FileKind::from_path(&path) != FileKind::Template {
+            return;
+        }
+
+        // Get diagnostics from the database
+        let diagnostics = self
+            .with_session_mut(|session| {
+                // Get or create the file in the database
+                let file = session.get_or_create_file(&path);
+                
+                // Get diagnostics from the template parser using with_db
+                session.with_db(|db| {
+                    let diagnostics = template_diagnostics(db, file);
+                    // Convert Arc<Vec<Diagnostic>> to Vec<Diagnostic>
+                    (*diagnostics).clone()
+                })
+            })
+            .await;
+
+        // Convert url::Url to lsp_types::Uri using from_str
+        let uri_string = url.to_string();
+        let lsp_uri = lsp_types::Uri::from_str(&uri_string).expect("Valid URI");
+        
+        // Publish diagnostics to the client (this method doesn't return a Result)
+        self.client
+            .publish_diagnostics(lsp_uri, diagnostics.clone(), version)
+            .await;
+        
+        tracing::debug!("Published {} diagnostics for {}", diagnostics.len(), url);
     }
 }
 
@@ -183,71 +228,109 @@ impl LanguageServer for DjangoLanguageServer {
     async fn did_open(&self, params: lsp_types::DidOpenTextDocumentParams) {
         tracing::info!("Opened document: {:?}", params.text_document.uri);
 
-        self.with_session_mut(|session| {
-            let Some(url) =
-                paths::parse_lsp_uri(&params.text_document.uri, paths::LspContext::DidOpen)
-            else {
-                return; // Error parsing uri (unlikely), skip processing this document
-            };
+        let url_version = self
+            .with_session_mut(|session| {
+                let Some(url) =
+                    paths::parse_lsp_uri(&params.text_document.uri, paths::LspContext::DidOpen)
+                else {
+                    return None; // Error parsing uri (unlikely), skip processing this document
+                };
 
-            let language_id =
-                djls_workspace::LanguageId::from(params.text_document.language_id.as_str());
-            let document = djls_workspace::TextDocument::new(
-                params.text_document.text,
-                params.text_document.version,
-                language_id,
-            );
+                let language_id =
+                    djls_workspace::LanguageId::from(params.text_document.language_id.as_str());
+                let document = djls_workspace::TextDocument::new(
+                    params.text_document.text.clone(),
+                    params.text_document.version,
+                    language_id,
+                );
 
-            session.open_document(&url, document);
-        })
-        .await;
+                session.open_document(&url, document);
+                Some((url, params.text_document.version))
+            })
+            .await;
+
+        // Publish diagnostics for template files
+        if let Some((url, version)) = url_version {
+            self.publish_template_diagnostics(&url, Some(version)).await;
+        }
     }
 
     async fn did_save(&self, params: lsp_types::DidSaveTextDocumentParams) {
         tracing::info!("Saved document: {:?}", params.text_document.uri);
 
-        self.with_session_mut(|session| {
-            let Some(url) =
-                paths::parse_lsp_uri(&params.text_document.uri, paths::LspContext::DidSave)
-            else {
-                return;
-            };
+        let url_version = self
+            .with_session_mut(|session| {
+                let url = paths::parse_lsp_uri(&params.text_document.uri, paths::LspContext::DidSave)?;
 
-            session.save_document(&url);
-        })
-        .await;
+                session.save_document(&url);
+                
+                // Get current version from document buffer
+                let version = session.get_document(&url).map(|doc| doc.version());
+                Some((url, version))
+            })
+            .await;
+
+        // Publish diagnostics for template files  
+        if let Some((url, version)) = url_version {
+            self.publish_template_diagnostics(&url, version).await;
+        }
     }
 
     async fn did_change(&self, params: lsp_types::DidChangeTextDocumentParams) {
         tracing::info!("Changed document: {:?}", params.text_document.uri);
 
-        self.with_session_mut(|session| {
-            let Some(url) =
-                paths::parse_lsp_uri(&params.text_document.uri, paths::LspContext::DidChange)
-            else {
-                return; // Error parsing uri (unlikely), skip processing this change
-            };
+        let url = self
+            .with_session_mut(|session| {
+                let Some(url) =
+                    paths::parse_lsp_uri(&params.text_document.uri, paths::LspContext::DidChange)
+                else {
+                    return None; // Error parsing uri (unlikely), skip processing this change
+                };
 
-            session.update_document(&url, params.content_changes, params.text_document.version);
-        })
-        .await;
+                session.update_document(&url, params.content_changes, params.text_document.version);
+                Some(url)
+            })
+            .await;
+
+        // Publish diagnostics for template files
+        if let Some(url) = url {
+            self.publish_template_diagnostics(&url, Some(params.text_document.version))
+                .await;
+        }
     }
 
     async fn did_close(&self, params: lsp_types::DidCloseTextDocumentParams) {
         tracing::info!("Closed document: {:?}", params.text_document.uri);
 
-        self.with_session_mut(|session| {
-            let Some(url) =
-                paths::parse_lsp_uri(&params.text_document.uri, paths::LspContext::DidClose)
-            else {
-                return; // Error parsing uri (unlikely), skip processing this close
-            };
+        let url = self
+            .with_session_mut(|session| {
+                let Some(url) =
+                    paths::parse_lsp_uri(&params.text_document.uri, paths::LspContext::DidClose)
+                else {
+                    return None; // Error parsing uri (unlikely), skip processing this close
+                };
 
-            if session.close_document(&url).is_none() {
-                tracing::warn!("Attempted to close document without overlay: {}", url);
+                if session.close_document(&url).is_none() {
+                    tracing::warn!("Attempted to close document without overlay: {}", url);
+                }
+                Some(url)
+            })
+            .await;
+
+        // Clear diagnostics when closing a template file
+        if let Some(url) = url {
+            if let Some(path) = paths::url_to_path(&url) {
+                if FileKind::from_path(&path) == FileKind::Template {
+                    // Convert url::Url to lsp_types::Uri using from_str
+                    let uri_string = url.to_string();
+                    let lsp_uri = lsp_types::Uri::from_str(&uri_string).expect("Valid URI");
+                    
+                    // Publish empty diagnostics to clear them (this method doesn't return a Result)
+                    self.client.publish_diagnostics(lsp_uri, vec![], None).await;
+                    tracing::debug!("Cleared diagnostics for {}", url);
+                }
             }
-        })
-        .await;
+        }
     }
 
     async fn completion(
