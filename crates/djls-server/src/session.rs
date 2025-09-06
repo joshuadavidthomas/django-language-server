@@ -9,11 +9,13 @@ use std::sync::Arc;
 use dashmap::DashMap;
 use djls_conf::Settings;
 use djls_project::DjangoProject;
+use djls_project::ProjectMetadata;
 use djls_workspace::db::SourceFile;
 use djls_workspace::paths;
 use djls_workspace::PositionEncoding;
 use djls_workspace::TextDocument;
 use djls_workspace::Workspace;
+use pyo3::PyResult;
 use tower_lsp_server::lsp_types;
 use url::Url;
 
@@ -63,23 +65,29 @@ impl Session {
                 std::env::current_dir().ok()
             });
 
-        let (project, settings) = if let Some(path) = &project_path {
+        let (project, settings, metadata) = if let Some(path) = &project_path {
             let settings =
                 djls_conf::Settings::new(path).unwrap_or_else(|_| djls_conf::Settings::default());
 
             let project = Some(djls_project::DjangoProject::new(path.clone()));
 
-            (project, settings)
+            // Create metadata for the project with venv path from settings
+            let venv_path = settings.venv_path().map(PathBuf::from);
+            let metadata = ProjectMetadata::new(path.clone(), venv_path);
+
+            (project, settings, metadata)
         } else {
-            (None, Settings::default())
+            // Default metadata for when there's no project path
+            let metadata = ProjectMetadata::new(PathBuf::from("."), None);
+            (None, Settings::default(), metadata)
         };
 
         // Create workspace for buffer management
         let workspace = Workspace::new();
 
-        // Create the concrete database with the workspace's file system
+        // Create the concrete database with the workspace's file system and metadata
         let files = Arc::new(DashMap::new());
-        let db = DjangoDatabase::new(workspace.file_system(), files);
+        let db = DjangoDatabase::new(workspace.file_system(), files, metadata);
 
         Self {
             db,
@@ -128,6 +136,20 @@ impl Session {
         F: FnOnce(&mut DjangoDatabase) -> R,
     {
         f(&mut self.db)
+    }
+
+    /// Get a reference to the database for project operations.
+    pub fn database(&self) -> &DjangoDatabase {
+        &self.db
+    }
+
+    /// Initialize the project with the database.
+    pub fn initialize_project(&mut self) -> PyResult<()> {
+        if let Some(project) = self.project.as_mut() {
+            project.initialize(&self.db)
+        } else {
+            Ok(())
+        }
     }
 
     /// Open a document in the session.

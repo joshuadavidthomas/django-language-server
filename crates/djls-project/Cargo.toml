@@ -8,6 +8,8 @@ extension-module = []
 default = []
 
 [dependencies]
+djls-workspace = { workspace = true }
+
 pyo3 = { workspace = true }
 salsa = { workspace = true }
 which = { workspace = true}

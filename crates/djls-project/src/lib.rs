@@ -8,11 +8,11 @@ use std::fmt;
 use std::path::Path;
 use std::path::PathBuf;
 
-use db::ProjectDatabase;
-use meta::ProjectMetadata;
+pub use db::find_python_environment;
+pub use db::Db;
+pub use meta::ProjectMetadata;
 use pyo3::prelude::*;
-use python::find_python_environment;
-use python::PythonEnvironment;
+pub use python::PythonEnvironment;
 pub use templatetags::TemplateTags;
 
 #[derive(Debug)]
@@ -32,11 +32,9 @@ impl DjangoProject {
         }
     }
 
-    pub fn initialize(&mut self, venv_path: Option<&str>) -> PyResult<()> {
-        let venv_pathbuf = venv_path.map(PathBuf::from);
-        let metadata = ProjectMetadata::new(self.path.clone(), venv_pathbuf);
-        let db = ProjectDatabase::new(metadata);
-        self.env = find_python_environment(&db);
+    pub fn initialize(&mut self, db: &dyn Db) -> PyResult<()> {
+        // Use the database to find the Python environment
+        self.env = find_python_environment(db);
         if self.env.is_none() {
             return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
                 "Could not find Python environment",

@@ -4,16 +4,7 @@ use std::path::PathBuf;
 
 use pyo3::prelude::*;
 
-use crate::db::Db;
 use crate::system;
-
-#[salsa::tracked]
-pub fn find_python_environment(db: &dyn Db) -> Option<PythonEnvironment> {
-    let project_path = db.metadata().root().as_path();
-    let venv_path = db.metadata().venv().and_then(|p| p.to_str());
-
-    PythonEnvironment::new(project_path, venv_path)
-}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PythonEnvironment {
@@ -23,7 +14,8 @@ pub struct PythonEnvironment {
 }
 
 impl PythonEnvironment {
-    fn new(project_path: &Path, venv_path: Option<&str>) -> Option<Self> {
+    #[must_use]
+    pub fn new(project_path: &Path, venv_path: Option<&str>) -> Option<Self> {
         if let Some(path) = venv_path {
             let prefix = PathBuf::from(path);
             if let Some(env) = Self::from_venv_prefix(&prefix) {
@@ -703,11 +695,56 @@ mod tests {
         }
     }
 
-    // Add tests for the salsa tracked function
     mod salsa_integration {
+        use std::sync::Arc;
+
+        use djls_workspace::FileSystem;
+        use djls_workspace::InMemoryFileSystem;
+
         use super::*;
-        use crate::db::ProjectDatabase;
+        use crate::db::find_python_environment;
+        use crate::db::Db as ProjectDb;
         use crate::meta::ProjectMetadata;
+
+        /// Test implementation of ProjectDb for unit tests
+        #[salsa::db]
+        #[derive(Clone)]
+        struct TestDatabase {
+            storage: salsa::Storage<TestDatabase>,
+            metadata: ProjectMetadata,
+            fs: Arc<dyn FileSystem>,
+        }
+
+        impl TestDatabase {
+            fn new(metadata: ProjectMetadata) -> Self {
+                Self {
+                    storage: salsa::Storage::new(None),
+                    metadata,
+                    fs: Arc::new(InMemoryFileSystem::new()),
+                }
+            }
+        }
+
+        #[salsa::db]
+        impl salsa::Database for TestDatabase {}
+
+        #[salsa::db]
+        impl djls_workspace::Db for TestDatabase {
+            fn fs(&self) -> Arc<dyn FileSystem> {
+                self.fs.clone()
+            }
+
+            fn read_file_content(&self, path: &std::path::Path) -> std::io::Result<String> {
+                self.fs.read_to_string(path)
+            }
+        }
+
+        #[salsa::db]
+        impl ProjectDb for TestDatabase {
+            fn metadata(&self) -> &ProjectMetadata {
+                &self.metadata
+            }
+        }
 
         #[test]
         fn test_find_python_environment_with_salsa_db() {
@@ -721,8 +758,8 @@ mod tests {
             let metadata =
                 ProjectMetadata::new(project_dir.path().to_path_buf(), Some(venv_prefix.clone()));
 
-            // Create a ProjectDatabase with the metadata
-            let db = ProjectDatabase::new(metadata);
+            // Create a TestDatabase with the metadata
+            let db = TestDatabase::new(metadata);
 
             // Call the tracked function
             let env = find_python_environment(&db);
@@ -756,8 +793,8 @@ mod tests {
             // Create a metadata instance with project path but no explicit venv path
             let metadata = ProjectMetadata::new(project_dir.path().to_path_buf(), None);
 
-            // Create a ProjectDatabase with the metadata
-            let db = ProjectDatabase::new(metadata);
+            // Create a TestDatabase with the metadata
+            let db = TestDatabase::new(metadata);
 
             // Mock to ensure VIRTUAL_ENV is not set
             let _guard = system::mock::MockGuard;

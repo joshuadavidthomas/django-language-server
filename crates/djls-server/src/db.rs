@@ -1,8 +1,8 @@
 //! Concrete Salsa database implementation for the Django Language Server.
 //!
 //! This module provides the concrete [`DjangoDatabase`] that implements all
-//! the database traits from workspace and template crates. This follows Ruff's
-//! architecture pattern where the concrete database lives at the top level.
+//! the database traits from workspace, template, and project crates. This follows
+//! Ruff's architecture pattern where the concrete database lives at the top level.
 
 use std::path::Path;
 use std::path::PathBuf;
@@ -11,6 +11,8 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 use dashmap::DashMap;
+use djls_project::Db as ProjectDb;
+use djls_project::ProjectMetadata;
 use djls_templates::db::Db as TemplateDb;
 use djls_workspace::db::Db as WorkspaceDb;
 use djls_workspace::db::SourceFile;
@@ -23,6 +25,7 @@ use salsa::Setter;
 /// This database implements all the traits from various crates:
 /// - [`WorkspaceDb`] for file system access and core operations
 /// - [`TemplateDb`] for template parsing and diagnostics
+/// - [`ProjectDb`] for project metadata and Python environment
 #[salsa::db]
 #[derive(Clone)]
 pub struct DjangoDatabase {
@@ -31,6 +34,9 @@ pub struct DjangoDatabase {
 
     /// Maps paths to [`SourceFile`] entities for O(1) lookup.
     files: Arc<DashMap<PathBuf, SourceFile>>,
+
+    /// Project metadata containing root path and venv configuration.
+    metadata: ProjectMetadata,
 
     storage: salsa::Storage<Self>,
 
@@ -49,6 +55,7 @@ impl Default for DjangoDatabase {
         Self {
             fs: Arc::new(InMemoryFileSystem::new()),
             files: Arc::new(DashMap::new()),
+            metadata: ProjectMetadata::new(PathBuf::from("/test"), None),
             storage: salsa::Storage::new(Some(Box::new({
                 let logs = logs.clone();
                 move |event| {
@@ -68,11 +75,16 @@ impl Default for DjangoDatabase {
 }
 
 impl DjangoDatabase {
-    /// Create a new [`DjangoDatabase`] with the given file system and file map.
-    pub fn new(file_system: Arc<dyn FileSystem>, files: Arc<DashMap<PathBuf, SourceFile>>) -> Self {
+    /// Create a new [`DjangoDatabase`] with the given file system, file map, and project metadata.
+    pub fn new(
+        file_system: Arc<dyn FileSystem>,
+        files: Arc<DashMap<PathBuf, SourceFile>>,
+        metadata: ProjectMetadata,
+    ) -> Self {
         Self {
             fs: file_system,
             files,
+            metadata,
             storage: salsa::Storage::new(None),
             #[cfg(test)]
             logs: Arc::new(Mutex::new(None)),
@@ -149,3 +161,10 @@ impl WorkspaceDb for DjangoDatabase {
 
 #[salsa::db]
 impl TemplateDb for DjangoDatabase {}
+
+#[salsa::db]
+impl ProjectDb for DjangoDatabase {
+    fn metadata(&self) -> &ProjectMetadata {
+        &self.metadata
+    }
+}
