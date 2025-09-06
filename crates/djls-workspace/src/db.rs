@@ -1,18 +1,15 @@
-//! Salsa database for incremental computation.
+//! Base database trait for workspace operations.
 //!
-//! This module provides the [`Database`] which integrates with Salsa for
-//! incremental computation of Django template parsing and analysis.
+//! This module provides the base [`Db`] trait that defines file system access
+//! and core file tracking functionality. The concrete database implementation
+//! lives in the server crate, following Ruff's architecture pattern.
 //!
 //! ## Architecture
 //!
-//! The system uses a two-layer approach:
-//! 1. **Buffer layer** ([`Buffers`]) - Stores open document content in memory
-//! 2. **Salsa layer** ([`Database`]) - Tracks files and computes derived queries
-//!
-//! When Salsa needs file content, it calls [`source_text`] which:
-//! 1. Creates a dependency on the file's revision (critical!)
-//! 2. Reads through [`WorkspaceFileSystem`] which checks buffers first
-//! 3. Falls back to disk if no buffer exists
+//! The system uses a layered trait approach:
+//! 1. **Base trait** ([`Db`]) - Defines file system access methods (this module)
+//! 2. **Extension traits** - Other crates (like djls-templates) extend this trait
+//! 3. **Concrete implementation** - Server crate implements all traits
 //!
 //! ## The Revision Dependency
 //!
@@ -22,9 +19,6 @@
 //! ```ignore
 //! let _ = file.revision(db);  // Creates the dependency chain!
 //! ```
-//!
-//! [`Buffers`]: crate::buffers::Buffers
-//! [`WorkspaceFileSystem`]: crate::fs::WorkspaceFileSystem
 
 use std::path::Path;
 use std::path::PathBuf;
@@ -38,7 +32,7 @@ use salsa::Setter;
 use crate::FileKind;
 use crate::FileSystem;
 
-/// Database trait that provides file system access for Salsa queries
+/// Base database trait that provides file system access for Salsa queries
 #[salsa::db]
 pub trait Db: salsa::Database {
     /// Get the file system for reading files.
@@ -51,11 +45,10 @@ pub trait Db: salsa::Database {
     fn read_file_content(&self, path: &Path) -> std::io::Result<String>;
 }
 
-/// Salsa database for incremental computation.
+/// Temporary concrete database for workspace.
 ///
-/// Tracks files and computes derived queries incrementally. Integrates with
-/// [`WorkspaceFileSystem`](crate::fs::WorkspaceFileSystem) to read file content,
-/// which checks buffers before falling back to disk.
+/// This will be moved to the server crate in the refactoring.
+/// For now, it's kept here to avoid breaking existing code.
 #[salsa::db]
 #[derive(Clone)]
 pub struct Database {
@@ -246,181 +239,5 @@ pub struct FilePath {
     pub path: Arc<str>,
 }
 
-/// Container for a parsed Django template AST.
-///
-/// [`TemplateAst`] wraps the parsed AST from djls-templates along with any parsing errors.
-/// This struct is designed to be cached by Salsa and shared across multiple consumers
-/// without re-parsing.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct TemplateAst {
-    /// The parsed AST from djls-templates
-    pub ast: djls_templates::Ast,
-    /// Any errors encountered during parsing (stored as strings for simplicity)
-    pub errors: Vec<String>,
-}
-
-/// Parse a Django template file into an AST.
-///
-/// This Salsa tracked function parses template files on-demand and caches the results.
-/// The parse is only re-executed when the file's content changes (detected via content changes).
-///
-/// Returns `None` for non-template files.
-#[salsa::tracked]
-pub fn parse_template(db: &dyn Db, file: SourceFile) -> Option<Arc<TemplateAst>> {
-    // Only parse template files
-    if file.kind(db) != FileKind::Template {
-        return None;
-    }
-
-    let text_arc = source_text(db, file);
-    let text = text_arc.as_ref();
-
-    // Call the pure parsing function from djls-templates
-    // TODO: Move this whole function into djls-templates
-    match djls_templates::parse_template(text) {
-        Ok((ast, errors)) => {
-            // Convert errors to strings
-            let error_strings = errors.into_iter().map(|e| e.to_string()).collect();
-            Some(Arc::new(TemplateAst {
-                ast,
-                errors: error_strings,
-            }))
-        }
-        Err(err) => {
-            // Even on fatal errors, return an empty AST with the error
-            Some(Arc::new(TemplateAst {
-                ast: djls_templates::Ast::default(),
-                errors: vec![err.to_string()],
-            }))
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use dashmap::DashMap;
-    use salsa::Setter;
-
-    use super::*;
-    use crate::buffers::Buffers;
-    use crate::document::TextDocument;
-    use crate::fs::InMemoryFileSystem;
-    use crate::fs::WorkspaceFileSystem;
-    use crate::language::LanguageId;
-
-    #[test]
-    fn test_parse_template_with_overlay() {
-        // Create a memory filesystem with initial template content
-        let mut memory_fs = InMemoryFileSystem::new();
-        let template_path = PathBuf::from("/test/template.html");
-        memory_fs.add_file(
-            template_path.clone(),
-            "{% block content %}Original{% endblock %}".to_string(),
-        );
-
-        // Create overlay storage
-        let buffers = Buffers::new();
-
-        // Create WorkspaceFileSystem that checks overlays first
-        let file_system = Arc::new(WorkspaceFileSystem::new(
-            buffers.clone(),
-            Arc::new(memory_fs),
-        ));
-
-        // Create database with the file system
-        let files = Arc::new(DashMap::new());
-        let mut db = Database::new(file_system, files);
-
-        // Create a SourceFile for the template
-        let file = db.get_or_create_file(&template_path);
-
-        // Parse template - should get original content from disk
-        let ast1 = parse_template(&db, file).expect("Should parse template");
-        assert!(ast1.errors.is_empty(), "Should have no errors");
-
-        // Add an overlay with updated content
-        let url = crate::paths::path_to_url(&template_path).unwrap();
-        let updated_document = TextDocument::new(
-            "{% block content %}Updated from overlay{% endblock %}".to_string(),
-            2,
-            LanguageId::Other,
-        );
-        buffers.open(url, updated_document);
-
-        // Bump the file revision to trigger re-parse
-        file.set_revision(&mut db).to(1);
-
-        // Parse again - should now get overlay content
-        let ast2 = parse_template(&db, file).expect("Should parse template");
-        assert!(ast2.errors.is_empty(), "Should have no errors");
-
-        // Verify the content changed (we can't directly check the text,
-        // but the AST should be different)
-        // The AST will have different content in the block
-        assert_ne!(
-            format!("{:?}", ast1.ast),
-            format!("{:?}", ast2.ast),
-            "AST should change when overlay is added"
-        );
-    }
-
-    #[test]
-    fn test_parse_template_invalidation_on_revision_change() {
-        // Create a memory filesystem
-        let mut memory_fs = InMemoryFileSystem::new();
-        let template_path = PathBuf::from("/test/template.html");
-        memory_fs.add_file(
-            template_path.clone(),
-            "{% if true %}Initial{% endif %}".to_string(),
-        );
-
-        // Create overlay storage
-        let buffers = Buffers::new();
-
-        // Create WorkspaceFileSystem
-        let file_system = Arc::new(WorkspaceFileSystem::new(
-            buffers.clone(),
-            Arc::new(memory_fs),
-        ));
-
-        // Create database
-        let files = Arc::new(DashMap::new());
-        let mut db = Database::new(file_system, files);
-
-        // Create a SourceFile for the template
-        let file = db.get_or_create_file(&template_path);
-
-        // Parse template first time
-        let ast1 = parse_template(&db, file).expect("Should parse");
-
-        // Parse again without changing revision - should return same Arc (cached)
-        let ast2 = parse_template(&db, file).expect("Should parse");
-        assert!(Arc::ptr_eq(&ast1, &ast2), "Should return cached result");
-
-        // Update overlay content
-        let url = crate::paths::path_to_url(&template_path).unwrap();
-        let updated_document = TextDocument::new(
-            "{% if false %}Changed{% endif %}".to_string(),
-            2,
-            LanguageId::Other,
-        );
-        buffers.open(url, updated_document);
-
-        // Bump revision to trigger invalidation
-        file.set_revision(&mut db).to(1);
-
-        // Parse again - should get different result due to invalidation
-        let ast3 = parse_template(&db, file).expect("Should parse");
-        assert!(
-            !Arc::ptr_eq(&ast1, &ast3),
-            "Should re-execute after revision change"
-        );
-
-        // Content should be different
-        assert_ne!(
-            format!("{:?}", ast1.ast),
-            format!("{:?}", ast3.ast),
-            "AST should be different after content change"
-        );
-    }
-}
+// Template-specific functionality has been moved to djls-templates crate
+// See djls_templates::db for template parsing and diagnostics

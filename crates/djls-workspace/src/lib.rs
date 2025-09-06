@@ -25,6 +25,8 @@ use std::path::Path;
 
 pub use buffers::Buffers;
 pub use db::Database;
+pub use db::Db;
+pub use db::SourceFile;
 pub use document::TextDocument;
 pub use encoding::PositionEncoding;
 pub use fs::FileSystem;

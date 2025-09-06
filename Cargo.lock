@@ -496,11 +496,14 @@ name = "djls-templates"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "djls-workspace",
  "insta",
+ "salsa",
  "serde",
  "tempfile",
  "thiserror 2.0.16",
  "toml",
+ "tower-lsp-server",
 ]
 
 [[package]]
@@ -511,7 +514,6 @@ dependencies = [
  "camino",
  "dashmap",
  "djls-project",
- "djls-templates",
  "notify",
  "percent-encoding",
  "salsa",
