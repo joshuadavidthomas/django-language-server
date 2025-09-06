@@ -4,7 +4,6 @@ version = "0.0.0"
 edition = "2021"
 
 [dependencies]
-djls-templates = { workspace = true }
 djls-project = { workspace = true }
 
 anyhow = { workspace = true }

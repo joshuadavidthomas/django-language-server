@@ -134,7 +134,7 @@ impl From<Token> for Span {
     }
 }
 
-#[derive(Clone, Debug, Error, Serialize)]
+#[derive(Clone, Debug, Error, PartialEq, Eq, Serialize)]
 pub enum AstError {
     #[error("Empty AST")]
     EmptyAst,

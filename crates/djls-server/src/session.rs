@@ -1,10 +1,15 @@
 //! # LSP Session Management
 //!
 //! This module implements the LSP session abstraction that manages project-specific
-//! state and delegates workspace operations to the Workspace facade.
+//! state and the Salsa database for incremental computation.
 
+use std::path::PathBuf;
+use std::sync::Arc;
+
+use dashmap::DashMap;
 use djls_conf::Settings;
 use djls_project::DjangoProject;
+use djls_workspace::db::SourceFile;
 use djls_workspace::paths;
 use djls_workspace::PositionEncoding;
 use djls_workspace::TextDocument;
@@ -12,16 +17,18 @@ use djls_workspace::Workspace;
 use tower_lsp_server::lsp_types;
 use url::Url;
 
-/// LSP Session managing project-specific state and workspace operations.
+use crate::db::DjangoDatabase;
+
+/// LSP Session managing project-specific state and database operations.
 ///
 /// The Session serves as the main entry point for LSP operations, managing:
+/// - The Salsa database for incremental computation
 /// - Project configuration and settings
 /// - Client capabilities and position encoding
-/// - Workspace operations (delegated to the Workspace facade)
+/// - Workspace operations (buffers and file system)
 ///
-/// All document lifecycle and database operations are delegated to the
-/// encapsulated Workspace, which provides Salsa database management
-/// using the built-in Clone pattern for thread safety.
+/// Following Ruff's architecture, the concrete database lives at this level
+/// and is passed down to operations that need it.
 pub struct Session {
     /// The Django project configuration
     project: Option<DjangoProject>,
@@ -29,11 +36,10 @@ pub struct Session {
     /// LSP server settings
     settings: Settings,
 
-    /// Workspace facade that encapsulates all workspace-related functionality
+    /// Workspace for buffer and file system management
     ///
-    /// This includes document buffers, file system abstraction, and the Salsa database.
-    /// The workspace provides a clean interface for document lifecycle management
-    /// and database operations while maintaining proper isolation and thread safety.
+    /// This manages document buffers and file system abstraction,
+    /// but not the database (which is owned directly by Session).
     workspace: Workspace,
 
     #[allow(dead_code)]
@@ -41,6 +47,8 @@ pub struct Session {
 
     /// Position encoding negotiated with client
     position_encoding: PositionEncoding,
+
+    db: DjangoDatabase,
 }
 
 impl Session {
@@ -66,10 +74,18 @@ impl Session {
             (None, Settings::default())
         };
 
+        // Create workspace for buffer management
+        let workspace = Workspace::new();
+
+        // Create the concrete database with the workspace's file system
+        let files = Arc::new(DashMap::new());
+        let db = DjangoDatabase::new(workspace.file_system(), files);
+
         Self {
+            db,
             project,
             settings,
-            workspace: Workspace::new(),
+            workspace,
             client_capabilities: params.capabilities.clone(),
             position_encoding: PositionEncoding::negotiate(params),
         }
@@ -98,52 +114,167 @@ impl Session {
         self.position_encoding
     }
 
-    /// Handle opening a document - sets buffer and creates file.
-    ///
-    /// Delegates to the workspace's document management.
-    pub fn open_document(&mut self, url: &Url, document: TextDocument) {
-        tracing::debug!("Opening document: {}", url);
-        self.workspace.open_document(url, document);
+    /// Execute a read-only operation with access to the database.
+    pub fn with_db<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&DjangoDatabase) -> R,
+    {
+        f(&self.db)
     }
 
-    /// Update a document with the given changes.
+    /// Execute a mutable operation with exclusive access to the database.
+    pub fn with_db_mut<F, R>(&mut self, f: F) -> R
+    where
+        F: FnOnce(&mut DjangoDatabase) -> R,
+    {
+        f(&mut self.db)
+    }
+
+    /// Open a document in the session.
     ///
-    /// Delegates to the workspace's document management.
+    /// Updates both the workspace buffers and database. Creates the file in
+    /// the database or invalidates it if it already exists.
+    pub fn open_document(&mut self, url: &Url, document: TextDocument) {
+        // Add to workspace buffers
+        self.workspace.open_document(url, document);
+
+        // Update database if it's a file URL
+        if let Some(path) = paths::url_to_path(url) {
+            // Check if file already exists (was previously read from disk)
+            let already_exists = self.db.has_file(&path);
+            let _file = self.db.get_or_create_file(&path);
+
+            if already_exists {
+                // File was already read - touch to invalidate cache
+                self.db.touch_file(&path);
+            }
+        }
+    }
+
+    /// Update a document with incremental changes.
+    ///
+    /// Applies changes to the document and triggers database invalidation.
     pub fn update_document(
         &mut self,
         url: &Url,
         changes: Vec<lsp_types::TextDocumentContentChangeEvent>,
-        new_version: i32,
+        version: i32,
     ) {
+        // Update in workspace
         self.workspace
-            .update_document(url, changes, new_version, self.position_encoding);
+            .update_document(url, changes, version, self.position_encoding);
+
+        // Touch file in database to trigger invalidation
+        if let Some(path) = paths::url_to_path(url) {
+            if self.db.has_file(&path) {
+                self.db.touch_file(&path);
+            }
+        }
     }
 
-    /// Handle closing a document - removes buffer and bumps revision.
+    /// Close a document.
     ///
-    /// Delegates to the workspace's document management.
+    /// Removes from workspace buffers and triggers database invalidation to fall back to disk.
     pub fn close_document(&mut self, url: &Url) -> Option<TextDocument> {
-        tracing::debug!("Closing document: {}", url);
-        self.workspace.close_document(url)
+        let document = self.workspace.close_document(url);
+
+        // Touch file in database to trigger re-read from disk
+        if let Some(path) = paths::url_to_path(url) {
+            if self.db.has_file(&path) {
+                self.db.touch_file(&path);
+            }
+        }
+
+        document
     }
 
-    /// Get an open document from the buffer layer, if it exists.
-    ///
-    /// Delegates to the workspace's document management.
+    /// Get a document from the buffer if it's open.
     #[must_use]
     pub fn get_document(&self, url: &Url) -> Option<TextDocument> {
         self.workspace.get_document(url)
+    }
+
+    /// Get or create a file in the database.
+    pub fn get_or_create_file(&mut self, path: &PathBuf) -> SourceFile {
+        self.db.get_or_create_file(path)
     }
 }
 
 impl Default for Session {
     fn default() -> Self {
-        Self {
-            project: None,
-            settings: Settings::default(),
-            workspace: Workspace::new(),
-            client_capabilities: lsp_types::ClientCapabilities::default(),
-            position_encoding: PositionEncoding::default(),
-        }
+        Self::new(&lsp_types::InitializeParams::default())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use djls_workspace::db::source_text;
+    use djls_workspace::LanguageId;
+
+    use super::*;
+
+    #[test]
+    fn test_session_database_operations() {
+        let mut session = Session::default();
+
+        // Can create files in the database
+        let path = PathBuf::from("/test.py");
+        let file = session.get_or_create_file(&path);
+
+        // Can read file content through database
+        let content = session.with_db(|db| source_text(db, file).to_string());
+        assert_eq!(content, ""); // Non-existent file returns empty
+    }
+
+    #[test]
+    fn test_session_document_lifecycle() {
+        let mut session = Session::default();
+        let url = Url::parse("file:///test.py").unwrap();
+
+        // Open document
+        let document = TextDocument::new("print('hello')".to_string(), 1, LanguageId::Python);
+        session.open_document(&url, document);
+
+        // Should be in workspace buffers
+        assert!(session.get_document(&url).is_some());
+
+        // Should be queryable through database
+        let path = PathBuf::from("/test.py");
+        let file = session.get_or_create_file(&path);
+        let content = session.with_db(|db| source_text(db, file).to_string());
+        assert_eq!(content, "print('hello')");
+
+        // Close document
+        session.close_document(&url);
+        assert!(session.get_document(&url).is_none());
+    }
+
+    #[test]
+    fn test_session_document_update() {
+        let mut session = Session::default();
+        let url = Url::parse("file:///test.py").unwrap();
+
+        // Open with initial content
+        let document = TextDocument::new("initial".to_string(), 1, LanguageId::Python);
+        session.open_document(&url, document);
+
+        // Update content
+        let changes = vec![lsp_types::TextDocumentContentChangeEvent {
+            range: None,
+            range_length: None,
+            text: "updated".to_string(),
+        }];
+        session.update_document(&url, changes, 2);
+
+        // Verify buffer was updated
+        let doc = session.get_document(&url).unwrap();
+        assert_eq!(doc.content(), "updated");
+        assert_eq!(doc.version(), 2);
+
+        // Database should also see updated content
+        let path = PathBuf::from("/test.py");
+        let file = session.get_or_create_file(&path);
+        let content = session.with_db(|db| source_text(db, file).to_string());
+        assert_eq!(content, "updated");
     }
 }

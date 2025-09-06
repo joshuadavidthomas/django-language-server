@@ -6,7 +6,7 @@ use crate::ast::Span;
 use crate::lexer::LexerError;
 use crate::parser::ParserError;
 
-#[derive(Debug, Error, Serialize)]
+#[derive(Clone, Debug, Error, PartialEq, Eq, Serialize)]
 pub enum TemplateError {
     #[error("Lexer error: {0}")]
     Lexer(String),
