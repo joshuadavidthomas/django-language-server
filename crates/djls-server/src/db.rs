@@ -10,8 +10,8 @@ use std::sync::Arc;
 
 use dashmap::DashMap;
 use djls_templates::db::Db as TemplateDb;
+use djls_workspace::db::Db as WorkspaceDb;
 use djls_workspace::db::SourceFile;
-use djls_workspace::Db as WorkspaceDb;
 use djls_workspace::FileKind;
 use djls_workspace::FileSystem;
 use salsa::Setter;
@@ -21,20 +21,16 @@ use salsa::Setter;
 /// This database implements all the traits from various crates:
 /// - [`WorkspaceDb`] for file system access and core operations
 /// - [`TemplateDb`] for template parsing and diagnostics
-///
-/// Following Ruff's pattern, this concrete database lives in the server
-/// crate and ties together all the domain-specific database traits.
 #[salsa::db]
 #[derive(Clone)]
 pub struct DjangoDatabase {
-    /// Salsa storage - must be last field for proper drop order
-    storage: salsa::Storage<Self>,
-
     /// File system for reading file content (checks buffers first, then disk).
     fs: Arc<dyn FileSystem>,
 
     /// Maps paths to [`SourceFile`] entities for O(1) lookup.
     files: Arc<DashMap<PathBuf, SourceFile>>,
+
+    storage: salsa::Storage<Self>,
 }
 
 impl DjangoDatabase {
@@ -101,11 +97,9 @@ impl DjangoDatabase {
     }
 }
 
-// Implement the base Salsa database trait
 #[salsa::db]
 impl salsa::Database for DjangoDatabase {}
 
-// Implement the workspace database trait
 #[salsa::db]
 impl WorkspaceDb for DjangoDatabase {
     fn fs(&self) -> Arc<dyn FileSystem> {
@@ -117,9 +111,5 @@ impl WorkspaceDb for DjangoDatabase {
     }
 }
 
-// Implement the template database trait
 #[salsa::db]
-impl TemplateDb for DjangoDatabase {
-    // Template-specific methods are inherited from the trait
-}
-
+impl TemplateDb for DjangoDatabase {}
