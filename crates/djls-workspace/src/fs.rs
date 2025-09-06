@@ -3,11 +3,9 @@
 //! This module provides the [`FileSystem`] trait that abstracts file I/O operations.
 //! This allows the LSP to work with both real files and in-memory overlays.
 
-#[cfg(test)]
 use std::collections::HashMap;
 use std::io;
 use std::path::Path;
-#[cfg(test)]
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -19,13 +17,12 @@ pub trait FileSystem: Send + Sync {
     fn exists(&self, path: &Path) -> bool;
 }
 
-#[cfg(test)]
 pub struct InMemoryFileSystem {
     files: HashMap<PathBuf, String>,
 }
 
-#[cfg(test)]
 impl InMemoryFileSystem {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             files: HashMap::new(),
@@ -37,7 +34,12 @@ impl InMemoryFileSystem {
     }
 }
 
-#[cfg(test)]
+impl Default for InMemoryFileSystem {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FileSystem for InMemoryFileSystem {
     fn read_to_string(&self, path: &Path) -> io::Result<String> {
         self.files
@@ -81,7 +83,7 @@ impl FileSystem for OsFileSystem {
 /// This ensures consistent behavior across all filesystem operations for
 /// buffered files that may not yet be saved to disk.
 ///
-/// This type is used by the [`Database`](crate::db::Database) to ensure all file reads go
+/// This type is used by the database implementations to ensure all file reads go
 /// through the buffer system first.
 pub struct WorkspaceFileSystem {
     /// In-memory buffers that take precedence over disk files
