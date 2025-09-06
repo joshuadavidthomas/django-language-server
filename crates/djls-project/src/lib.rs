@@ -12,7 +12,6 @@ pub use db::find_python_environment;
 pub use db::Db;
 pub use meta::ProjectMetadata;
 use pyo3::prelude::*;
-use python::find_python_environment;
 use python::PythonEnvironment;
 pub use templatetags::TemplateTags;
 
