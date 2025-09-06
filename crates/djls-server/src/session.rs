@@ -10,12 +10,12 @@ use dashmap::DashMap;
 use djls_conf::Settings;
 use djls_project::DjangoProject;
 use djls_project::ProjectMetadata;
-use pyo3::PyResult;
 use djls_workspace::db::SourceFile;
 use djls_workspace::paths;
 use djls_workspace::PositionEncoding;
 use djls_workspace::TextDocument;
 use djls_workspace::Workspace;
+use pyo3::PyResult;
 use tower_lsp_server::lsp_types;
 use url::Url;
 
@@ -70,7 +70,7 @@ impl Session {
                 djls_conf::Settings::new(path).unwrap_or_else(|_| djls_conf::Settings::default());
 
             let project = Some(djls_project::DjangoProject::new(path.clone()));
-            
+
             // Create metadata for the project with venv path from settings
             let venv_path = settings.venv_path().map(PathBuf::from);
             let metadata = ProjectMetadata::new(path.clone(), venv_path);

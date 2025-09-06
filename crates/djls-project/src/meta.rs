@@ -7,15 +7,18 @@ pub struct ProjectMetadata {
 }
 
 impl ProjectMetadata {
-    #[must_use] pub fn new(root: PathBuf, venv: Option<PathBuf>) -> Self {
+    #[must_use]
+    pub fn new(root: PathBuf, venv: Option<PathBuf>) -> Self {
         ProjectMetadata { root, venv }
     }
 
-    #[must_use] pub fn root(&self) -> &PathBuf {
+    #[must_use]
+    pub fn root(&self) -> &PathBuf {
         &self.root
     }
 
-    #[must_use] pub fn venv(&self) -> Option<&PathBuf> {
+    #[must_use]
+    pub fn venv(&self) -> Option<&PathBuf> {
         self.venv.as_ref()
     }
 }

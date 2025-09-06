@@ -14,7 +14,8 @@ pub struct PythonEnvironment {
 }
 
 impl PythonEnvironment {
-    #[must_use] pub fn new(project_path: &Path, venv_path: Option<&str>) -> Option<Self> {
+    #[must_use]
+    pub fn new(project_path: &Path, venv_path: Option<&str>) -> Option<Self> {
         if let Some(path) = venv_path {
             let prefix = PathBuf::from(path);
             if let Some(env) = Self::from_venv_prefix(&prefix) {
