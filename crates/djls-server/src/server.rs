@@ -149,12 +149,7 @@ impl LanguageServer for DjangoLanguageServer {
 
                 let init_result = {
                     let mut session_lock = session_arc.lock().await;
-                    if let Some(project) = session_lock.project_mut().as_mut() {
-                        project.initialize(venv_path.as_deref())
-                    } else {
-                        // Project was removed between read and write locks
-                        Ok(())
-                    }
+                    session_lock.initialize_project()
                 };
 
                 match init_result {

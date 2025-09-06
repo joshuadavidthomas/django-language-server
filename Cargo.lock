@@ -459,6 +459,7 @@ name = "djls-project"
 version = "0.0.0"
 dependencies = [
  "djls-dev",
+ "djls-workspace",
  "pyo3",
  "salsa",
  "tempfile",
@@ -513,7 +514,6 @@ dependencies = [
  "anyhow",
  "camino",
  "dashmap",
- "djls-project",
  "notify",
  "percent-encoding",
  "salsa",
