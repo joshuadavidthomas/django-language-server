@@ -37,18 +37,23 @@ impl Workspace {
             Arc::new(OsFileSystem),
         ));
 
-        Self { buffers, file_system }
+        Self {
+            buffers,
+            file_system,
+        }
     }
 
     /// Get the file system for this workspace.
     ///
     /// The file system checks buffers first, then falls back to disk.
-    #[must_use] pub fn file_system(&self) -> Arc<dyn FileSystem> {
+    #[must_use]
+    pub fn file_system(&self) -> Arc<dyn FileSystem> {
         self.file_system.clone()
     }
 
     /// Get the buffers for direct access.
-    #[must_use] pub fn buffers(&self) -> &Buffers {
+    #[must_use]
+    pub fn buffers(&self) -> &Buffers {
         &self.buffers
     }
 

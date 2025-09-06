@@ -162,7 +162,8 @@ impl Session {
         version: i32,
     ) {
         // Update in workspace
-        self.workspace.update_document(url, changes, version, self.position_encoding);
+        self.workspace
+            .update_document(url, changes, version, self.position_encoding);
 
         // Touch file in database to trigger invalidation
         if let Some(path) = paths::url_to_path(url) {
@@ -208,9 +209,10 @@ impl Default for Session {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use djls_workspace::db::source_text;
     use djls_workspace::LanguageId;
+
+    use super::*;
 
     #[test]
     fn test_session_database_operations() {

@@ -5,11 +5,10 @@
 
 use std::sync::Arc;
 
-use tower_lsp_server::lsp_types;
-
 use djls_workspace::db::SourceFile;
 use djls_workspace::Db as WorkspaceDb;
 use djls_workspace::FileKind;
+use tower_lsp_server::lsp_types;
 
 use crate::ast::LineOffsets;
 use crate::ast::Span;
@@ -52,12 +51,7 @@ pub fn parse_template(db: &dyn Db, file: SourceFile) -> Option<Arc<ParsedTemplat
 
     // Call the pure parsing function
     match crate::parse_template(text) {
-        Ok((ast, errors)) => {
-            Some(Arc::new(ParsedTemplate {
-                ast,
-                errors,
-            }))
-        }
+        Ok((ast, errors)) => Some(Arc::new(ParsedTemplate { ast, errors })),
         Err(err) => {
             // Even on fatal errors, return an empty AST with the error
             Some(Arc::new(ParsedTemplate {
@@ -85,7 +79,8 @@ pub fn template_diagnostics(db: &dyn Db, file: SourceFile) -> Arc<Vec<lsp_types:
 
     // Convert errors to diagnostics
     let line_offsets = parsed.ast.line_offsets();
-    let diagnostics = parsed.errors
+    let diagnostics = parsed
+        .errors
         .iter()
         .map(|error| template_error_to_diagnostic(error, line_offsets))
         .collect();
@@ -106,13 +101,11 @@ fn template_error_to_diagnostic(
         .span()
         .map(|span| span_to_range(span, line_offsets))
         .unwrap_or_default();
-    
+
     lsp_types::Diagnostic {
         range,
         severity: Some(severity),
-        code: Some(lsp_types::NumberOrString::String(
-            error.code().to_string(),
-        )),
+        code: Some(lsp_types::NumberOrString::String(error.code().to_string())),
         code_description: None,
         source: Some("Django Language Server".to_string()),
         message: error.to_string(),
@@ -137,10 +130,10 @@ fn severity_from_error(error: &TemplateError) -> lsp_types::DiagnosticSeverity {
 fn span_to_range(span: Span, line_offsets: &LineOffsets) -> lsp_types::Range {
     let start_pos = span.start() as usize;
     let end_pos = (span.start() + span.length()) as usize;
-    
+
     let (start_line, start_char) = line_offsets.position_to_line_col(start_pos);
     let (end_line, end_char) = line_offsets.position_to_line_col(end_pos);
-    
+
     lsp_types::Range {
         start: lsp_types::Position {
             line: (start_line - 1) as u32, // LSP is 0-based, LineOffsets is 1-based
