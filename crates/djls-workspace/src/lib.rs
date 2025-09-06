@@ -7,7 +7,7 @@
 //! # Key Components
 //!
 //! - [`Buffers`] - Thread-safe storage for open documents
-//! - [`Database`] - Salsa database for incremental computation
+//! - [`Db`] - Database trait for file system access (concrete impl in server crate)
 //! - [`TextDocument`] - LSP document representation with efficient indexing
 //! - [`FileSystem`] - Abstraction layer for file operations with overlay support
 //! - [`paths`] - Consistent URL/path conversion utilities
@@ -24,7 +24,6 @@ mod workspace;
 use std::path::Path;
 
 pub use buffers::Buffers;
-pub use db::Database;
 pub use db::Db;
 pub use db::SourceFile;
 pub use document::TextDocument;

@@ -81,7 +81,7 @@ impl FileSystem for OsFileSystem {
 /// This ensures consistent behavior across all filesystem operations for
 /// buffered files that may not yet be saved to disk.
 ///
-/// This type is used by the [`Database`](crate::db::Database) to ensure all file reads go
+/// This type is used by the database implementations to ensure all file reads go
 /// through the buffer system first.
 pub struct WorkspaceFileSystem {
     /// In-memory buffers that take precedence over disk files
