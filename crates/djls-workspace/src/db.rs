@@ -39,8 +39,6 @@ pub trait Db: salsa::Database {
     fn read_file_content(&self, path: &Path) -> std::io::Result<String>;
 }
 
-
-
 /// Represents a single file without storing its content.
 ///
 /// [`SourceFile`] is a Salsa input entity that tracks a file's path, revision, and
