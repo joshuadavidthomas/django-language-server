@@ -88,7 +88,7 @@ impl DjangoLanguageServer {
             .with_session_mut(|session| {
                 // Get or create the file in the database
                 let file = session.get_or_create_file(&path);
-                
+
                 // Get diagnostics from the template parser using with_db
                 session.with_db(|db| {
                     let diagnostics = template_diagnostics(db, file);
@@ -101,12 +101,12 @@ impl DjangoLanguageServer {
         // Convert url::Url to lsp_types::Uri using from_str
         let uri_string = url.to_string();
         let lsp_uri = lsp_types::Uri::from_str(&uri_string).expect("Valid URI");
-        
+
         // Publish diagnostics to the client (this method doesn't return a Result)
         self.client
             .publish_diagnostics(lsp_uri, diagnostics.clone(), version)
             .await;
-        
+
         tracing::debug!("Published {} diagnostics for {}", diagnostics.len(), url);
     }
 }
@@ -260,17 +260,18 @@ impl LanguageServer for DjangoLanguageServer {
 
         let url_version = self
             .with_session_mut(|session| {
-                let url = paths::parse_lsp_uri(&params.text_document.uri, paths::LspContext::DidSave)?;
+                let url =
+                    paths::parse_lsp_uri(&params.text_document.uri, paths::LspContext::DidSave)?;
 
                 session.save_document(&url);
-                
+
                 // Get current version from document buffer
                 let version = session.get_document(&url).map(|doc| doc.version());
                 Some((url, version))
             })
             .await;
 
-        // Publish diagnostics for template files  
+        // Publish diagnostics for template files
         if let Some((url, version)) = url_version {
             self.publish_template_diagnostics(&url, version).await;
         }
@@ -324,7 +325,7 @@ impl LanguageServer for DjangoLanguageServer {
                     // Convert url::Url to lsp_types::Uri using from_str
                     let uri_string = url.to_string();
                     let lsp_uri = lsp_types::Uri::from_str(&uri_string).expect("Valid URI");
-                    
+
                     // Publish empty diagnostics to clear them (this method doesn't return a Result)
                     self.client.publish_diagnostics(lsp_uri, vec![], None).await;
                     tracing::debug!("Cleared diagnostics for {}", url);
