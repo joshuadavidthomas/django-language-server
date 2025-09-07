@@ -410,9 +410,14 @@ impl LanguageServer for DjangoLanguageServer {
         &self,
         params: lsp_types::DocumentDiagnosticParams,
     ) -> LspResult<lsp_types::DocumentDiagnosticReportResult> {
-        tracing::debug!("Received diagnostic request for {:?}", params.text_document.uri);
-        
-        let Some(url) = paths::parse_lsp_uri(&params.text_document.uri, paths::LspContext::Diagnostic) else {
+        tracing::debug!(
+            "Received diagnostic request for {:?}",
+            params.text_document.uri
+        );
+
+        let Some(url) =
+            paths::parse_lsp_uri(&params.text_document.uri, paths::LspContext::Diagnostic)
+        else {
             return Ok(lsp_types::DocumentDiagnosticReportResult::Report(
                 lsp_types::DocumentDiagnosticReport::Full(
                     lsp_types::RelatedFullDocumentDiagnosticReport {

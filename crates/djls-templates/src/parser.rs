@@ -659,10 +659,11 @@ mod tests {
     }
 
     mod validation {
+        use std::sync::Arc;
+
         use super::*;
         use crate::tagspecs::TagSpecs;
         use crate::validation::TagMatcher;
-        use std::sync::Arc;
 
         fn load_test_tagspecs() -> Arc<TagSpecs> {
             let toml_str = include_str!("../tagspecs/django.toml");

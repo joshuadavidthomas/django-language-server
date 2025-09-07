@@ -75,7 +75,7 @@ pub fn template_tag_structure(db: &dyn Db, file: SourceFile) -> Arc<Vec<TagInfo>
     let Some(parsed) = parse_template(db, file) else {
         return Arc::new(Vec::new());
     };
-    
+
     let mut tags = Vec::new();
     for (idx, node) in parsed.ast.nodelist().iter().enumerate() {
         if let Node::Tag { name, bits, span } = node {
@@ -87,7 +87,7 @@ pub fn template_tag_structure(db: &dyn Db, file: SourceFile) -> Arc<Vec<TagInfo>
             });
         }
     }
-    
+
     Arc::new(tags)
 }
 
@@ -103,7 +103,7 @@ pub fn template_tag_pairs(db: &dyn Db, file: SourceFile) -> Arc<TagPairs> {
             orphaned_intermediates: Vec::new(),
         });
     };
-    
+
     let tag_specs = db.tag_specs();
     let (pairs, _) = TagMatcher::match_tags(parsed.ast.nodelist(), tag_specs);
     Arc::new(pairs)
@@ -115,7 +115,7 @@ pub fn template_validation_errors(db: &dyn Db, file: SourceFile) -> Arc<Vec<AstE
     let Some(parsed) = parse_template(db, file) else {
         return Arc::new(Vec::new());
     };
-    
+
     let tag_specs = db.tag_specs();
     let (_, errors) = TagMatcher::match_tags(parsed.ast.nodelist(), tag_specs);
     Arc::new(errors)
@@ -133,12 +133,12 @@ pub fn template_diagnostics(db: &dyn Db, file: SourceFile) -> Arc<Vec<lsp_types:
     };
 
     let mut all_errors = Vec::new();
-    
+
     // Add parse errors
     for error in &parsed.errors {
         all_errors.push(error.clone());
     }
-    
+
     // Add validation errors
     let validation_errors = template_validation_errors(db, file);
     for ast_error in validation_errors.iter() {
@@ -168,7 +168,7 @@ fn template_error_to_diagnostic(
     line_offsets: &LineOffsets,
 ) -> lsp_types::Diagnostic {
     let severity = severity_from_error(error);
-    
+
     // For validation errors (which are Django tags), adjust the span to include delimiters
     let range = error
         .span()
@@ -177,7 +177,7 @@ fn template_error_to_diagnostic(
                 // Django tags: the token start is already at the '{' character
                 // We need to add the delimiter lengths and spaces to the span length
                 // The stored span only includes content length, so add:
-                // - 2 for opening {% 
+                // - 2 for opening {%
                 // - 1 for space after {%
                 // - content (already in span.length())
                 // - 1 for space before %}
@@ -213,7 +213,7 @@ fn severity_from_error(error: &TemplateError) -> lsp_types::DiagnosticSeverity {
             lsp_types::DiagnosticSeverity::ERROR
         }
         TemplateError::Validation(_) => lsp_types::DiagnosticSeverity::ERROR,
-        TemplateError::Config(_) => lsp_types::DiagnosticSeverity::WARNING
+        TemplateError::Config(_) => lsp_types::DiagnosticSeverity::WARNING,
     }
 }
 
