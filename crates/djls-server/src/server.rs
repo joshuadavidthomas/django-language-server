@@ -8,9 +8,9 @@ use djls_workspace::FileKind;
 use tokio::sync::Mutex;
 use tower_lsp_server::jsonrpc::Result as LspResult;
 use tower_lsp_server::lsp_types;
-use tower_lsp_server::lsp_types::{
-    DiagnosticOptions, DiagnosticServerCapabilities, WorkDoneProgressOptions,
-};
+use tower_lsp_server::lsp_types::DiagnosticOptions;
+use tower_lsp_server::lsp_types::DiagnosticServerCapabilities;
+use tower_lsp_server::lsp_types::WorkDoneProgressOptions;
 use tower_lsp_server::Client;
 use tower_lsp_server::LanguageServer;
 use tracing_appender::non_blocking::WorkerGuard;
@@ -157,12 +157,14 @@ impl LanguageServer for DjangoLanguageServer {
                     },
                 )),
                 position_encoding: Some(lsp_types::PositionEncodingKind::from(encoding)),
-                diagnostic_provider: Some(DiagnosticServerCapabilities::Options(DiagnosticOptions {
-                    identifier: None,
-                    inter_file_dependencies: false,
-                    workspace_diagnostics: false,
-                    work_done_progress_options: WorkDoneProgressOptions::default(),
-                })),
+                diagnostic_provider: Some(DiagnosticServerCapabilities::Options(
+                    DiagnosticOptions {
+                        identifier: None,
+                        inter_file_dependencies: false,
+                        workspace_diagnostics: false,
+                        work_done_progress_options: WorkDoneProgressOptions::default(),
+                    },
+                )),
                 ..Default::default()
             },
             server_info: Some(lsp_types::ServerInfo {
@@ -414,8 +416,9 @@ impl LanguageServer for DjangoLanguageServer {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use tower_lsp_server::lsp_types::InitializeParams;
+
+    use super::*;
 
     #[tokio::test]
     async fn test_diagnostic_provider_capability_is_advertised() {
@@ -424,17 +427,17 @@ mod tests {
             let (_writer, guard) = tracing_appender::non_blocking(std::io::sink());
             DjangoLanguageServer::new(client, guard)
         });
-        
+
         let server = service.inner();
         let params = InitializeParams::default();
         let result = server.initialize(params).await.unwrap();
-        
+
         // Check that diagnostic_provider is present
         assert!(
             result.capabilities.diagnostic_provider.is_some(),
             "diagnostic_provider capability should be present"
         );
-        
+
         // Verify it's configured correctly
         if let Some(DiagnosticServerCapabilities::Options(ref options)) =
             result.capabilities.diagnostic_provider
