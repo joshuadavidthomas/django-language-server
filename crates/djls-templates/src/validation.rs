@@ -321,6 +321,10 @@ impl TagMatcher {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::parse_template;
+    use crate::tagspecs::TagSpecs;
+    use crate::validation::TagMatcher;
+    use std::sync::Arc;
 
     fn load_test_tagspecs() -> Arc<TagSpecs> {
         let toml_str = include_str!("../tagspecs/django.toml");
@@ -668,16 +672,19 @@ mod tests {
         let source = "{% block %}content{% endblock %}";
         let (ast, _) = crate::parse_template(source).unwrap();
         let tag_specs = load_test_tagspecs();
-        
+
         let (_, errors) = TagMatcher::match_tags(ast.nodelist(), tag_specs);
-        
+
         // Should have error for missing block name
         assert_eq!(errors.len(), 1, "Expected exactly one error");
-        assert!(matches!(
-            &errors[0], 
-            AstError::MissingRequiredArguments { tag, min, .. } 
-            if tag == "block" && *min == 1
-        ), "Error should be MissingRequiredArguments for block");
+        assert!(
+            matches!(
+                &errors[0],
+                AstError::MissingRequiredArguments { tag, min, .. }
+                if tag == "block" && *min == 1
+            ),
+            "Error should be MissingRequiredArguments for block"
+        );
     }
 
     #[test]
@@ -685,14 +692,14 @@ mod tests {
         let source = "{% extends %}";
         let (ast, _) = crate::parse_template(source).unwrap();
         let tag_specs = load_test_tagspecs();
-        
+
         let (_, errors) = TagMatcher::match_tags(ast.nodelist(), tag_specs);
-        
+
         // Should have error for missing template name
         assert_eq!(errors.len(), 1);
         assert!(matches!(
-            &errors[0], 
-            AstError::MissingRequiredArguments { tag, min, .. } 
+            &errors[0],
+            AstError::MissingRequiredArguments { tag, min, .. }
             if tag == "extends" && *min == 1
         ));
     }
@@ -702,15 +709,49 @@ mod tests {
         let source = "{% csrf_token some_arg %}";
         let (ast, _) = crate::parse_template(source).unwrap();
         let tag_specs = load_test_tagspecs();
-        
+
         let (_, errors) = TagMatcher::match_tags(ast.nodelist(), tag_specs);
-        
+
         // Should have error for too many arguments (csrf_token takes none)
         assert_eq!(errors.len(), 1);
         assert!(matches!(
-            &errors[0], 
-            AstError::TooManyArguments { tag, max, .. } 
+            &errors[0],
+            AstError::TooManyArguments { tag, max, .. }
             if tag == "csrf_token" && *max == 0
+        ));
+    }
+
+    #[test]
+    fn test_block_too_many_arguments() {
+        let source = "{% block content extra %}content{% endblock %}";
+        let (ast, _) = parse_template(source).unwrap();
+        let tag_specs = load_test_tagspecs();
+
+        let (_, errors) = TagMatcher::match_tags(ast.nodelist(), tag_specs);
+
+        // Should have error for too many arguments
+        assert_eq!(errors.len(), 1);
+        assert!(matches!(
+            &errors[0],
+            crate::ast::AstError::TooManyArguments { tag, max, .. }
+            if tag == "block" && *max == 1
+        ));
+    }
+
+    #[test]
+    fn test_load_missing_arguments() {
+        let source = "{% load %}";
+        let (ast, _) = parse_template(source).unwrap();
+        let tag_specs = load_test_tagspecs();
+
+        let (_, errors) = TagMatcher::match_tags(ast.nodelist(), tag_specs);
+
+        // Should have error for missing library name
+        assert_eq!(errors.len(), 1);
+        assert!(matches!(
+            &errors[0],
+            crate::ast::AstError::MissingRequiredArguments { tag, min, .. }
+            if tag == "load" && *min == 1
         ));
     }
 }
