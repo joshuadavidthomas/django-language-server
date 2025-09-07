@@ -426,14 +426,14 @@ mod tests {
     #[test]
     fn test_complex_validation_errors() {
         // Test the exact case from the user - multiple validation issues
-        let source = r#"
+        let source = r"
     {% block test %}
       {% if test %}{% endif %}
     {% else %}
     {% block foobar %}
     {% endblock fsdfsa %}
     {% endblock test %}
-    "#;
+    ";
         let (ast, _) = crate::parse_template(source).unwrap();
         let tag_specs = load_test_tagspecs();
         
