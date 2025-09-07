@@ -10,15 +10,22 @@ use djls_workspace::Db as WorkspaceDb;
 use djls_workspace::FileKind;
 use tower_lsp_server::lsp_types;
 
+use crate::ast::AstError;
 use crate::ast::LineOffsets;
+use crate::ast::Node;
 use crate::ast::Span;
+use crate::tagspecs::TagSpecs;
+use crate::validation::TagInfo;
+use crate::validation::TagMatcher;
+use crate::validation::TagPairs;
 use crate::Ast;
 use crate::TemplateError;
 
 /// Template-specific database trait extending the workspace database
 #[salsa::db]
 pub trait Db: WorkspaceDb {
-    // Template-specific methods can be added here if needed
+    /// Get the Django tag specifications for template parsing and validation
+    fn tag_specs(&self) -> Arc<TagSpecs>;
 }
 
 /// Container for a parsed Django template AST.
@@ -62,6 +69,58 @@ pub fn parse_template(db: &dyn Db, file: SourceFile) -> Option<Arc<ParsedTemplat
     }
 }
 
+/// Extract tag structure from AST for validation
+#[salsa::tracked]
+pub fn template_tag_structure(db: &dyn Db, file: SourceFile) -> Arc<Vec<TagInfo>> {
+    let Some(parsed) = parse_template(db, file) else {
+        return Arc::new(Vec::new());
+    };
+    
+    let mut tags = Vec::new();
+    for (idx, node) in parsed.ast.nodelist().iter().enumerate() {
+        if let Node::Tag { name, bits, span } = node {
+            tags.push(TagInfo {
+                name: name.clone(),
+                bits: bits.clone(),
+                span: *span,
+                node_index: idx,
+            });
+        }
+    }
+    
+    Arc::new(tags)
+}
+
+/// Match opening and closing tags using stack algorithm
+#[salsa::tracked]
+pub fn template_tag_pairs(db: &dyn Db, file: SourceFile) -> Arc<TagPairs> {
+    let Some(parsed) = parse_template(db, file) else {
+        return Arc::new(TagPairs {
+            matched_pairs: Vec::new(),
+            unclosed_tags: Vec::new(),
+            unexpected_closers: Vec::new(),
+            mismatched_pairs: Vec::new(),
+            orphaned_intermediates: Vec::new(),
+        });
+    };
+    
+    let tag_specs = db.tag_specs();
+    let (pairs, _) = TagMatcher::match_tags(parsed.ast.nodelist(), tag_specs);
+    Arc::new(pairs)
+}
+
+/// Generate validation errors from tag matching
+#[salsa::tracked]
+pub fn template_validation_errors(db: &dyn Db, file: SourceFile) -> Arc<Vec<AstError>> {
+    let Some(parsed) = parse_template(db, file) else {
+        return Arc::new(Vec::new());
+    };
+    
+    let tag_specs = db.tag_specs();
+    let (_, errors) = TagMatcher::match_tags(parsed.ast.nodelist(), tag_specs);
+    Arc::new(errors)
+}
+
 /// Generate LSP diagnostics for a template file.
 ///
 /// This Salsa tracked function computes diagnostics from template parsing errors
@@ -73,14 +132,26 @@ pub fn template_diagnostics(db: &dyn Db, file: SourceFile) -> Arc<Vec<lsp_types:
         return Arc::new(Vec::new());
     };
 
-    if parsed.errors.is_empty() {
+    let mut all_errors = Vec::new();
+    
+    // Add parse errors
+    for error in &parsed.errors {
+        all_errors.push(error.clone());
+    }
+    
+    // Add validation errors
+    let validation_errors = template_validation_errors(db, file);
+    for ast_error in validation_errors.iter() {
+        all_errors.push(TemplateError::Validation(ast_error.clone()));
+    }
+
+    if all_errors.is_empty() {
         return Arc::new(Vec::new());
     }
 
     // Convert errors to diagnostics
     let line_offsets = parsed.ast.line_offsets();
-    let diagnostics = parsed
-        .errors
+    let diagnostics = all_errors
         .iter()
         .map(|error| template_error_to_diagnostic(error, line_offsets))
         .collect();
@@ -97,9 +168,29 @@ fn template_error_to_diagnostic(
     line_offsets: &LineOffsets,
 ) -> lsp_types::Diagnostic {
     let severity = severity_from_error(error);
+    
+    // For validation errors (which are Django tags), adjust the span to include delimiters
     let range = error
         .span()
-        .map(|span| span_to_range(span, line_offsets))
+        .map(|span| {
+            let adjusted_span = if matches!(error, TemplateError::Validation(_)) {
+                // Django tags: the token start is already at the '{' character
+                // We need to add the delimiter lengths and spaces to the span length
+                // The stored span only includes content length, so add:
+                // - 2 for opening {% 
+                // - 1 for space after {%
+                // - content (already in span.length())
+                // - 1 for space before %}
+                // - 2 for closing %}
+                // Total: 6 extra characters
+                let start = span.start();
+                let length = span.length() + 6;
+                Span::new(start, length)
+            } else {
+                span
+            };
+            span_to_range(adjusted_span, line_offsets)
+        })
         .unwrap_or_default();
 
     lsp_types::Diagnostic {
@@ -121,9 +212,8 @@ fn severity_from_error(error: &TemplateError) -> lsp_types::DiagnosticSeverity {
         TemplateError::Lexer(_) | TemplateError::Parser(_) | TemplateError::Io(_) => {
             lsp_types::DiagnosticSeverity::ERROR
         }
-        TemplateError::Validation(_) | TemplateError::Config(_) => {
-            lsp_types::DiagnosticSeverity::WARNING
-        }
+        TemplateError::Validation(_) => lsp_types::DiagnosticSeverity::ERROR,
+        TemplateError::Config(_) => lsp_types::DiagnosticSeverity::WARNING
     }
 }
 

@@ -14,6 +14,7 @@ use dashmap::DashMap;
 use djls_project::Db as ProjectDb;
 use djls_project::ProjectMetadata;
 use djls_templates::db::Db as TemplateDb;
+use djls_templates::tagspecs::TagSpecs;
 use djls_workspace::db::Db as WorkspaceDb;
 use djls_workspace::db::SourceFile;
 use djls_workspace::FileKind;
@@ -160,7 +161,19 @@ impl WorkspaceDb for DjangoDatabase {
 }
 
 #[salsa::db]
-impl TemplateDb for DjangoDatabase {}
+impl TemplateDb for DjangoDatabase {
+    fn tag_specs(&self) -> Arc<TagSpecs> {
+        // Load built-in Django tag specifications
+        // In the future, this could also merge with user-defined specs
+        static SPECS: std::sync::OnceLock<Arc<TagSpecs>> = std::sync::OnceLock::new();
+        SPECS
+            .get_or_init(|| {
+                let toml_str = include_str!("../../djls-templates/tagspecs/django.toml");
+                Arc::new(TagSpecs::from_toml(toml_str).expect("Failed to load built-in tag specs"))
+            })
+            .clone()
+    }
+}
 
 #[salsa::db]
 impl ProjectDb for DjangoDatabase {

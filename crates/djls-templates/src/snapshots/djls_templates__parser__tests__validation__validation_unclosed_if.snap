@@ -1,0 +1,10 @@
+---
+source: crates/djls-templates/src/parser.rs
+assertion_line: 691
+expression: errors
+---
+- UnclosedTag:
+    tag: if
+    span:
+      start: 0
+      length: 12

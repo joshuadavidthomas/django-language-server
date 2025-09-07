@@ -3,8 +3,9 @@ pub mod db;
 mod error;
 mod lexer;
 mod parser;
-mod tagspecs;
+pub mod tagspecs;
 mod tokens;
+pub mod validation;
 
 pub use ast::Ast;
 pub use error::QuickFix;

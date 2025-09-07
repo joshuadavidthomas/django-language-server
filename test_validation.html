@@ -1,0 +1,26 @@
+<!-- Test case 1: else after endif -->
+{% if test %}
+    content
+{% endif %}
+{% else %}
+    This else is invalid - it appears after endif
+
+<!-- Test case 2: elif after endif -->
+{% if another %}
+    more content
+{% endif %}
+{% elif condition %}
+    This elif is invalid - it appears after endif
+
+<!-- Test case 3: else in wrong context (inside for) -->
+{% for item in items %}
+    {% else %}
+    This else is invalid - it should be 'empty' for a for loop
+{% endfor %}
+
+<!-- Test case 4: empty outside of for -->
+{% if something %}
+    content
+{% endif %}
+{% empty %}
+    This empty is invalid - it should only appear in for loops

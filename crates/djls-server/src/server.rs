@@ -75,6 +75,19 @@ impl DjangoLanguageServer {
     /// Retrieves diagnostics from the template parser and publishes them to the client.
     /// Only publishes diagnostics for template files.
     async fn publish_template_diagnostics(&self, url: &Url, version: Option<i32>) {
+        // Check if client supports pull diagnostics - if so, don't push
+        let supports_pull = self
+            .with_session(super::session::Session::supports_pull_diagnostics)
+            .await;
+
+        if supports_pull {
+            tracing::debug!(
+                "Client supports pull diagnostics, skipping push for {}",
+                url
+            );
+            return;
+        }
+
         // Get the path from the URL
         let Some(path) = paths::url_to_path(url) else {
             tracing::debug!("Could not convert URL to path: {}", url);
@@ -391,6 +404,70 @@ impl LanguageServer for DjangoLanguageServer {
             .await;
 
         Ok(response)
+    }
+
+    async fn diagnostic(
+        &self,
+        params: lsp_types::DocumentDiagnosticParams,
+    ) -> LspResult<lsp_types::DocumentDiagnosticReportResult> {
+        tracing::debug!("Received diagnostic request for {:?}", params.text_document.uri);
+        
+        let Some(url) = paths::parse_lsp_uri(&params.text_document.uri, paths::LspContext::Diagnostic) else {
+            return Ok(lsp_types::DocumentDiagnosticReportResult::Report(
+                lsp_types::DocumentDiagnosticReport::Full(
+                    lsp_types::RelatedFullDocumentDiagnosticReport {
+                        related_documents: None,
+                        full_document_diagnostic_report: lsp_types::FullDocumentDiagnosticReport {
+                            result_id: None,
+                            items: vec![],
+                        },
+                    },
+                ),
+            ));
+        };
+
+        // Only provide diagnostics for template files
+        let file_kind = FileKind::from_path(std::path::Path::new(url.path()));
+        if file_kind != FileKind::Template {
+            return Ok(lsp_types::DocumentDiagnosticReportResult::Report(
+                lsp_types::DocumentDiagnosticReport::Full(
+                    lsp_types::RelatedFullDocumentDiagnosticReport {
+                        related_documents: None,
+                        full_document_diagnostic_report: lsp_types::FullDocumentDiagnosticReport {
+                            result_id: None,
+                            items: vec![],
+                        },
+                    },
+                ),
+            ));
+        }
+
+        // Get diagnostics from the database
+        let diagnostics = self
+            .with_session(|session| {
+                session.with_db(|db| {
+                    let Some(file) = db.get_file(std::path::Path::new(url.path())) else {
+                        return vec![];
+                    };
+
+                    // Get diagnostics from the template parser
+                    let diagnostics = template_diagnostics(db, file);
+                    (*diagnostics).clone()
+                })
+            })
+            .await;
+
+        Ok(lsp_types::DocumentDiagnosticReportResult::Report(
+            lsp_types::DocumentDiagnosticReport::Full(
+                lsp_types::RelatedFullDocumentDiagnosticReport {
+                    related_documents: None,
+                    full_document_diagnostic_report: lsp_types::FullDocumentDiagnosticReport {
+                        result_id: None,
+                        items: diagnostics,
+                    },
+                },
+            ),
+        ))
     }
 
     async fn did_change_configuration(&self, _params: lsp_types::DidChangeConfigurationParams) {

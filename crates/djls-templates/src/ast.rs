@@ -157,8 +157,16 @@ pub enum AstError {
         reason: String,
         span: Span,
     },
-    #[error("Unclosed tag: {0}")]
-    UnclosedTag(String),
+    #[error("Unclosed tag: {tag}")]
+    UnclosedTag { tag: String, span: Span },
+    #[error("Orphaned tag '{tag}' - {context}")]
+    OrphanedTag {
+        tag: String,
+        context: String,
+        span: Span,
+    },
+    #[error("endblock '{name}' does not match any open block")]
+    UnmatchedBlockName { name: String, span: Span },
 }
 
 #[cfg(test)]

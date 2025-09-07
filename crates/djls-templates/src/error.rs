@@ -46,7 +46,15 @@ impl TemplateError {
     #[must_use]
     pub fn span(&self) -> Option<Span> {
         match self {
-            TemplateError::Validation(AstError::InvalidTagStructure { span, .. }) => Some(*span),
+            TemplateError::Validation(ast_error) => match ast_error {
+                AstError::InvalidTagStructure { span, .. }
+                | AstError::InvalidNode { span, .. }
+                | AstError::UnclosedTag { span, .. }
+                | AstError::OrphanedTag { span, .. }
+                | AstError::UnmatchedBlockName { span, .. } => Some(*span),
+                AstError::UnbalancedStructure { opening_span, .. } => Some(*opening_span),
+                AstError::EmptyAst => None,
+            },
             _ => None,
         }
     }

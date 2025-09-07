@@ -27,8 +27,44 @@ pub struct TagSpecs(HashMap<String, TagSpec>);
 
 impl TagSpecs {
     #[allow(dead_code)]
+    #[must_use]
     pub fn get(&self, key: &str) -> Option<&TagSpec> {
         self.0.get(key)
+    }
+    
+    /// Check if a tag name is a closing tag for any opener
+    #[must_use]
+    pub fn is_closer(&self, name: &str) -> bool {
+        self.0.values().any(|spec| {
+            spec.end
+                .as_ref()
+                .is_some_and(|end_tag| end_tag.tag == name)
+        })
+    }
+    
+    /// Check if a tag name is an intermediate tag for any block
+    #[must_use]
+    pub fn is_intermediate(&self, name: &str) -> bool {
+        self.0.values().any(|spec| {
+            spec.intermediates
+                .as_ref()
+                .is_some_and(|intermediates| intermediates.contains(&name.to_string()))
+        })
+    }
+
+    /// Load specs from a TOML string
+    #[allow(dead_code)]
+    pub fn from_toml(toml_str: &str) -> Result<Self, TagSpecError> {
+        let value: Value = toml::from_str(toml_str)?;
+        let mut specs = HashMap::new();
+        
+        // Look for tagspecs table
+        if let Some(tagspecs) = value.get("tagspecs") {
+            TagSpec::extract_specs(tagspecs, Some("tagspecs"), &mut specs)
+                .map_err(TagSpecError::Extract)?;
+        }
+        
+        Ok(TagSpecs(specs))
     }
 
     /// Load specs from a TOML file, looking under the specified table path

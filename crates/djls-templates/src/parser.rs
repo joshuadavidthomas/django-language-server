@@ -657,4 +657,93 @@ mod tests {
             assert!(errors.is_empty());
         }
     }
+
+    mod validation {
+        use super::*;
+        use crate::tagspecs::TagSpecs;
+        use crate::validation::TagMatcher;
+        use std::sync::Arc;
+
+        fn load_test_tagspecs() -> Arc<TagSpecs> {
+            let toml_str = include_str!("../tagspecs/django.toml");
+            Arc::new(TagSpecs::from_toml(toml_str).unwrap())
+        }
+
+        #[test]
+        fn test_validation_unclosed_for() {
+            let source = "{% for item in items %}{{ item }}";
+            let tokens = Lexer::new(source).tokenize().unwrap();
+            let mut parser = Parser::new(tokens);
+            let (nodelist, _) = parser.parse().unwrap();
+            let tag_specs = load_test_tagspecs();
+            let (_, errors) = TagMatcher::match_tags(nodelist.nodelist(), tag_specs);
+            insta::assert_yaml_snapshot!(errors);
+        }
+
+        #[test]
+        fn test_validation_unclosed_if() {
+            let source = "{% if condition %}content";
+            let tokens = Lexer::new(source).tokenize().unwrap();
+            let mut parser = Parser::new(tokens);
+            let (nodelist, _) = parser.parse().unwrap();
+            let tag_specs = load_test_tagspecs();
+            let (_, errors) = TagMatcher::match_tags(nodelist.nodelist(), tag_specs);
+            insta::assert_yaml_snapshot!(errors);
+        }
+
+        #[test]
+        fn test_validation_mismatched_blocks() {
+            let source = "{% if x %}{% endfor %}";
+            let tokens = Lexer::new(source).tokenize().unwrap();
+            let mut parser = Parser::new(tokens);
+            let (nodelist, _) = parser.parse().unwrap();
+            let tag_specs = load_test_tagspecs();
+            let (_, errors) = TagMatcher::match_tags(nodelist.nodelist(), tag_specs);
+            insta::assert_yaml_snapshot!(errors);
+        }
+
+        #[test]
+        fn test_validation_unexpected_closer() {
+            let source = "content{% endif %}";
+            let tokens = Lexer::new(source).tokenize().unwrap();
+            let mut parser = Parser::new(tokens);
+            let (nodelist, _) = parser.parse().unwrap();
+            let tag_specs = load_test_tagspecs();
+            let (_, errors) = TagMatcher::match_tags(nodelist.nodelist(), tag_specs);
+            insta::assert_yaml_snapshot!(errors);
+        }
+
+        #[test]
+        fn test_validation_nested_unclosed() {
+            let source = "{% if x %}{% for item in items %}{{ item }}{% endif %}";
+            let tokens = Lexer::new(source).tokenize().unwrap();
+            let mut parser = Parser::new(tokens);
+            let (nodelist, _) = parser.parse().unwrap();
+            let tag_specs = load_test_tagspecs();
+            let (_, errors) = TagMatcher::match_tags(nodelist.nodelist(), tag_specs);
+            insta::assert_yaml_snapshot!(errors);
+        }
+
+        #[test]
+        fn test_validation_complex_template() {
+            let source = r"
+{% block content %}
+    {% if user %}
+        {% for item in items %}
+            {{ item }}
+        {# Missing endfor #}
+    {% endif %}
+    {% if another %}
+        content
+    {# Missing endif #}
+{% endblock %}
+";
+            let tokens = Lexer::new(source).tokenize().unwrap();
+            let mut parser = Parser::new(tokens);
+            let (nodelist, _) = parser.parse().unwrap();
+            let tag_specs = load_test_tagspecs();
+            let (_, errors) = TagMatcher::match_tags(nodelist.nodelist(), tag_specs);
+            insta::assert_yaml_snapshot!(errors);
+        }
+    }
 }

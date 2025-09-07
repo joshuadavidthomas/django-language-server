@@ -46,6 +46,8 @@ pub enum LspContext {
     DidSave,
     /// textDocument/completion request
     Completion,
+    /// textDocument/diagnostic request
+    Diagnostic,
 }
 
 impl std::fmt::Display for LspContext {
@@ -56,6 +58,7 @@ impl std::fmt::Display for LspContext {
             Self::DidClose => write!(f, "didClose"),
             Self::DidSave => write!(f, "didSave"),
             Self::Completion => write!(f, "completion"),
+            Self::Diagnostic => write!(f, "diagnostic"),
         }
     }
 }
