@@ -30,6 +30,8 @@ pub struct TagMatcher {
     mismatched_pairs: Vec<(TagInfo, TagInfo)>,
     orphaned_intermediates: Vec<TagInfo>,
     unmatched_block_names: Vec<(String, Span)>,
+    missing_arguments: Vec<TagInfo>,
+    too_many_arguments: Vec<TagInfo>,
     tag_specs: Arc<TagSpecs>,
 }
 
@@ -44,6 +46,8 @@ impl TagMatcher {
             mismatched_pairs: Vec::new(),
             orphaned_intermediates: Vec::new(),
             unmatched_block_names: Vec::new(),
+            missing_arguments: Vec::new(),
+            too_many_arguments: Vec::new(),
             tag_specs,
         }
     }
@@ -62,6 +66,36 @@ impl TagMatcher {
     }
 
     fn process_tag(&mut self, idx: usize, name: &str, bits: &[String], span: Span) {
+        // Check argument requirements first
+        if let Some(spec) = self.tag_specs.get(name) {
+            if let Some(arg_spec) = &spec.args {
+                if let Some(min) = arg_spec.min {
+                    if bits.len() < min {
+                        self.missing_arguments.push(TagInfo {
+                            name: name.to_string(),
+                            bits: bits.to_vec(),
+                            span,
+                            node_index: idx,
+                        });
+                        // For openers with missing arguments, we still need to push them
+                        // to the stack so their closers can match properly.
+                        // We'll just record the error but continue processing.
+                    }
+                }
+                if let Some(max) = arg_spec.max {
+                    if bits.len() > max {
+                        self.too_many_arguments.push(TagInfo {
+                            name: name.to_string(),
+                            bits: bits.to_vec(),
+                            span,
+                            node_index: idx,
+                        });
+                        // Still process the tag, but record the error
+                    }
+                }
+            }
+        }
+
         if self.is_opener(name) {
             self.stack.push(TagInfo {
                 name: name.to_string(),
@@ -240,6 +274,36 @@ impl TagMatcher {
                 context,
                 span: tag.span,
             });
+        }
+
+        // Convert missing arguments to errors
+        for tag in &self.missing_arguments {
+            if let Some(spec) = self.tag_specs.get(&tag.name) {
+                if let Some(arg_spec) = &spec.args {
+                    if let Some(min) = arg_spec.min {
+                        errors.push(AstError::MissingRequiredArguments {
+                            tag: tag.name.clone(),
+                            min,
+                            span: tag.span,
+                        });
+                    }
+                }
+            }
+        }
+
+        // Convert too many arguments to errors
+        for tag in &self.too_many_arguments {
+            if let Some(spec) = self.tag_specs.get(&tag.name) {
+                if let Some(arg_spec) = &spec.args {
+                    if let Some(max) = arg_spec.max {
+                        errors.push(AstError::TooManyArguments {
+                            tag: tag.name.clone(),
+                            max,
+                            span: tag.span,
+                        });
+                    }
+                }
+            }
         }
 
         let pairs = TagPairs {
@@ -597,5 +661,56 @@ mod tests {
 
         assert!(errors.is_empty());
         assert_eq!(pairs.matched_pairs.len(), 1);
+    }
+
+    #[test]
+    fn test_block_missing_arguments() {
+        let source = "{% block %}content{% endblock %}";
+        let (ast, _) = crate::parse_template(source).unwrap();
+        let tag_specs = load_test_tagspecs();
+        
+        let (_, errors) = TagMatcher::match_tags(ast.nodelist(), tag_specs);
+        
+        // Should have error for missing block name
+        assert_eq!(errors.len(), 1, "Expected exactly one error");
+        assert!(matches!(
+            &errors[0], 
+            AstError::MissingRequiredArguments { tag, min, .. } 
+            if tag == "block" && *min == 1
+        ), "Error should be MissingRequiredArguments for block");
+    }
+
+    #[test]
+    fn test_extends_missing_arguments() {
+        let source = "{% extends %}";
+        let (ast, _) = crate::parse_template(source).unwrap();
+        let tag_specs = load_test_tagspecs();
+        
+        let (_, errors) = TagMatcher::match_tags(ast.nodelist(), tag_specs);
+        
+        // Should have error for missing template name
+        assert_eq!(errors.len(), 1);
+        assert!(matches!(
+            &errors[0], 
+            AstError::MissingRequiredArguments { tag, min, .. } 
+            if tag == "extends" && *min == 1
+        ));
+    }
+
+    #[test]
+    fn test_csrf_token_with_arguments() {
+        let source = "{% csrf_token some_arg %}";
+        let (ast, _) = crate::parse_template(source).unwrap();
+        let tag_specs = load_test_tagspecs();
+        
+        let (_, errors) = TagMatcher::match_tags(ast.nodelist(), tag_specs);
+        
+        // Should have error for too many arguments (csrf_token takes none)
+        assert_eq!(errors.len(), 1);
+        assert!(matches!(
+            &errors[0], 
+            AstError::TooManyArguments { tag, max, .. } 
+            if tag == "csrf_token" && *max == 0
+        ));
     }
 }

@@ -1,22 +1,27 @@
 [tagspecs.django.template.defaulttags.autoescape]
 end = { tag = "endautoescape" }
+args = { min = 1, max = 1 }  # on or off
 
 [tagspecs.django.template.defaulttags.block]
 end = { tag = "endblock" }
+args = { min = 1, max = 1 }  # block name
 
 [tagspecs.django.template.defaulttags.comment]
 end = { tag = "endcomment" }
 
 [tagspecs.django.template.defaulttags.filter]
 end = { tag = "endfilter" }
+args = { min = 1 }  # filter expression
 
 [tagspecs.django.template.defaulttags.for]
 end = { tag = "endfor" }
 intermediates = [ "empty" ]
+args = { min = 3 }  # item in items (at minimum)
 
 [tagspecs.django.template.defaulttags.if]
 end = { tag = "endif" }
 intermediates = [ "elif", "else" ]
+args = { min = 1 }  # condition
 
 [tagspecs.django.template.defaulttags.ifchanged]
 end = { tag = "endifchanged" }
@@ -30,6 +35,7 @@ end = { tag = "endverbatim" }
 
 [tagspecs.django.template.defaulttags.with]
 end = { tag = "endwith" }
+args = { min = 1 }  # variable assignment(s)
 
 [tagspecs.django.templatetags.cache.cache]
 end = { tag = "endcache" }
@@ -46,3 +52,28 @@ end = { tag = "endlocaltime" }
 
 [tagspecs.django.templatetags.tz.timezone]
 end = { tag = "endtimezone" }
+
+# Standalone tags (no end tag)
+[tagspecs.django.template.defaulttags.extends]
+args = { min = 1, max = 1 }  # template name
+
+[tagspecs.django.template.defaulttags.include]
+args = { min = 1 }  # template name [with context]
+
+[tagspecs.django.template.defaulttags.load]
+args = { min = 1 }  # library name(s)
+
+[tagspecs.django.template.defaulttags.url]
+args = { min = 1 }  # view name [args...]
+
+[tagspecs.django.template.defaulttags.cycle]
+args = { min = 1 }  # values to cycle through
+
+[tagspecs.django.template.defaulttags.csrf_token]
+args = { min = 0, max = 0 }  # no arguments
+
+[tagspecs.django.template.defaulttags.now]
+args = { min = 1, max = 1 }  # format string
+
+[tagspecs.django.template.defaulttags.templatetag]
+args = { min = 1, max = 1 }  # special character name

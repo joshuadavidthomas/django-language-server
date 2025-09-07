@@ -51,7 +51,9 @@ impl TemplateError {
                 | AstError::InvalidNode { span, .. }
                 | AstError::UnclosedTag { span, .. }
                 | AstError::OrphanedTag { span, .. }
-                | AstError::UnmatchedBlockName { span, .. } => Some(*span),
+                | AstError::UnmatchedBlockName { span, .. }
+                | AstError::MissingRequiredArguments { span, .. }
+                | AstError::TooManyArguments { span, .. } => Some(*span),
                 AstError::UnbalancedStructure { opening_span, .. } => Some(*opening_span),
                 AstError::EmptyAst => None,
             },

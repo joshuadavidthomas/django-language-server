@@ -147,6 +147,16 @@ pub struct TagSpec {
     pub end: Option<EndTag>,
     #[serde(default)]
     pub intermediates: Option<Vec<String>>,
+    #[serde(default)]
+    pub args: Option<ArgSpec>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ArgSpec {
+    #[serde(default)]
+    pub min: Option<usize>,
+    #[serde(default)]
+    pub max: Option<usize>,
 }
 
 impl TagSpec {
@@ -158,10 +168,10 @@ impl TagSpec {
         specs: &mut HashMap<String, TagSpec>,
     ) -> Result<(), String> {
         // Check if the current node *itself* represents a TagSpec definition
-        // We can be more specific: check if it's a table containing 'end' or 'intermediates'
+        // We can be more specific: check if it's a table containing 'end', 'intermediates', or 'args'
         let mut is_spec_node = false;
         if let Some(table) = value.as_table() {
-            if table.contains_key("end") || table.contains_key("intermediates") {
+            if table.contains_key("end") || table.contains_key("intermediates") || table.contains_key("args") {
                 // Looks like a spec, try to deserialize
                 match TagSpec::deserialize(value.clone()) {
                     Ok(tag_spec) => {

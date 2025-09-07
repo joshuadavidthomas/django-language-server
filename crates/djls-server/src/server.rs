@@ -2,7 +2,10 @@ use std::future::Future;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use djls_templates::db::template_diagnostics;
+use djls_templates::ast::LineOffsets;
+use djls_templates::db::diagnostic_to_lsp;
+use djls_templates::db::parse_and_validate_template;
+use djls_templates::db::Diagnostic;
 use djls_workspace::paths;
 use djls_workspace::FileKind;
 use tokio::sync::Mutex;
@@ -100,16 +103,35 @@ impl DjangoLanguageServer {
         }
 
         // Get diagnostics from the database
-        let diagnostics = self
+        let diagnostics: Vec<lsp_types::Diagnostic> = self
             .with_session_mut(|session| {
                 // Get or create the file in the database
                 let file = session.get_or_create_file(&path);
 
-                // Get diagnostics from the template parser using with_db
+                // Get diagnostics using the accumulator API
                 session.with_db(|db| {
-                    let diagnostics = template_diagnostics(db, file);
-                    // Convert Arc<Vec<Diagnostic>> to Vec<Diagnostic>
-                    (*diagnostics).clone()
+                    // Parse and validate the template (triggers accumulation)
+                    let ast = parse_and_validate_template(db, file);
+                    
+                    // Get accumulated diagnostics directly
+                    let diagnostics = 
+                        parse_and_validate_template::accumulated::<Diagnostic>(db, file);
+                    
+                    // Convert to LSP diagnostics
+                    if let Some(ast) = ast.as_ref() {
+                        let line_offsets = ast.line_offsets();
+                        diagnostics
+                            .iter()
+                            .map(|diag| diagnostic_to_lsp(diag, line_offsets))
+                            .collect()
+                    } else {
+                        // No AST means fatal parse error - still convert diagnostics
+                        let line_offsets = LineOffsets::new("");
+                        diagnostics
+                            .iter()
+                            .map(|diag| diagnostic_to_lsp(diag, &line_offsets))
+                            .collect()
+                    }
                 })
             })
             .await;
@@ -448,16 +470,35 @@ impl LanguageServer for DjangoLanguageServer {
         }
 
         // Get diagnostics from the database
-        let diagnostics = self
+        let diagnostics: Vec<lsp_types::Diagnostic> = self
             .with_session(|session| {
                 session.with_db(|db| {
                     let Some(file) = db.get_file(std::path::Path::new(url.path())) else {
                         return vec![];
                     };
 
-                    // Get diagnostics from the template parser
-                    let diagnostics = template_diagnostics(db, file);
-                    (*diagnostics).clone()
+                    // Parse and validate the template (triggers accumulation)
+                    let ast = parse_and_validate_template(db, file);
+                    
+                    // Get accumulated diagnostics directly
+                    let diagnostics = 
+                        parse_and_validate_template::accumulated::<Diagnostic>(db, file);
+                    
+                    // Convert to LSP diagnostics
+                    if let Some(ast) = ast.as_ref() {
+                        let line_offsets = ast.line_offsets();
+                        diagnostics
+                            .iter()
+                            .map(|diag| diagnostic_to_lsp(diag, line_offsets))
+                            .collect()
+                    } else {
+                        // No AST means fatal parse error - still convert diagnostics
+                        let line_offsets = LineOffsets::new("");
+                        diagnostics
+                            .iter()
+                            .map(|diag| diagnostic_to_lsp(diag, &line_offsets))
+                            .collect()
+                    }
                 })
             })
             .await;

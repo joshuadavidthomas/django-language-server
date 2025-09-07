@@ -1,25 +1,40 @@
 //! Template-specific database trait and queries.
 //!
 //! This module extends the workspace database trait with template-specific
-//! functionality including parsing and diagnostic generation.
+//! functionality including parsing and diagnostic generation using Salsa accumulators.
 
 use std::sync::Arc;
 
 use djls_workspace::db::SourceFile;
 use djls_workspace::Db as WorkspaceDb;
 use djls_workspace::FileKind;
+use salsa::Accumulator;
 use tower_lsp_server::lsp_types;
 
 use crate::ast::AstError;
 use crate::ast::LineOffsets;
-use crate::ast::Node;
 use crate::ast::Span;
 use crate::tagspecs::TagSpecs;
-use crate::validation::TagInfo;
 use crate::validation::TagMatcher;
-use crate::validation::TagPairs;
 use crate::Ast;
 use crate::TemplateError;
+
+/// Diagnostic severity levels
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DiagnosticSeverity {
+    Error,
+    Warning,
+}
+
+/// Accumulator for template diagnostics - can be a struct directly!
+#[salsa::accumulator]
+#[derive(Clone, Debug)]
+pub struct Diagnostic {
+    pub severity: DiagnosticSeverity,
+    pub code: String,
+    pub message: String,
+    pub span: Option<Span>,
+}
 
 /// Template-specific database trait extending the workspace database
 #[salsa::db]
@@ -28,26 +43,44 @@ pub trait Db: WorkspaceDb {
     fn tag_specs(&self) -> Arc<TagSpecs>;
 }
 
-/// Container for a parsed Django template AST.
-///
-/// Stores both the parsed AST and any errors encountered during parsing.
-/// This struct is designed to be cached by Salsa and shared across multiple consumers.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ParsedTemplate {
-    /// The parsed AST from djls-templates
-    pub ast: Ast,
-    /// Any errors encountered during parsing
-    pub errors: Vec<TemplateError>,
+/// Generate a specific error code for an AstError variant
+fn ast_error_to_code(error: &AstError) -> String {
+    match error {
+        AstError::EmptyAst => "DTL-001".to_string(),
+        AstError::InvalidTagStructure { .. } => "DTL-002".to_string(),
+        AstError::UnbalancedStructure { .. } => "DTL-003".to_string(),
+        AstError::InvalidNode { .. } => "DTL-004".to_string(),
+        AstError::UnclosedTag { .. } => "DTL-005".to_string(),
+        AstError::OrphanedTag { .. } => "DTL-006".to_string(),
+        AstError::UnmatchedBlockName { .. } => "DTL-007".to_string(),
+        AstError::MissingRequiredArguments { .. } => "DTL-008".to_string(),
+        AstError::TooManyArguments { .. } => "DTL-009".to_string(),
+    }
 }
 
-/// Parse a Django template file into an AST.
+/// Generate an error code for parser errors
+fn parser_error_to_code() -> String {
+    "DTL-100".to_string()
+}
+
+/// Generate an error code for lexer errors  
+fn lexer_error_to_code() -> String {
+    "DTL-200".to_string()
+}
+
+/// Parse and validate a Django template file.
 ///
 /// This Salsa tracked function parses template files on-demand and caches the results.
-/// The parse is only re-executed when the file's content changes (detected via revision changes).
+/// During parsing and validation, diagnostics are accumulated using the TemplateDiagnostic
+/// accumulator. The function returns the parsed AST (or None for non-template files).
 ///
-/// Returns `None` for non-template files.
+/// Diagnostics can be retrieved using:
+/// ```ignore
+/// let diagnostics = 
+///     parse_and_validate_template::accumulated::<Diagnostic>(db, file);
+/// ```
 #[salsa::tracked]
-pub fn parse_template(db: &dyn Db, file: SourceFile) -> Option<Arc<ParsedTemplate>> {
+pub fn parse_and_validate_template(db: &dyn Db, file: SourceFile) -> Option<Arc<Ast>> {
     // Only parse template files
     if file.kind(db) != FileKind::Template {
         return None;
@@ -56,126 +89,83 @@ pub fn parse_template(db: &dyn Db, file: SourceFile) -> Option<Arc<ParsedTemplat
     let text_arc = djls_workspace::db::source_text(db, file);
     let text = text_arc.as_ref();
 
-    // Call the pure parsing function
-    match crate::parse_template(text) {
-        Ok((ast, errors)) => Some(Arc::new(ParsedTemplate { ast, errors })),
+    // Parse the template
+    let (ast, parse_errors) = match crate::parse_template(text) {
+        Ok((ast, errors)) => (ast, errors),
         Err(err) => {
-            // Even on fatal errors, return an empty AST with the error
-            Some(Arc::new(ParsedTemplate {
-                ast: Ast::default(),
-                errors: vec![err],
-            }))
+            // Fatal parse error - accumulate it and return empty AST
+            let code = match &err {
+                TemplateError::Lexer(_) => lexer_error_to_code(),
+                TemplateError::Parser(_) => parser_error_to_code(),
+                _ => "DTL-999".to_string(),
+            };
+            // Extract just the error message without the prefix
+            let message = match &err {
+                TemplateError::Lexer(msg) => msg.clone(),
+                TemplateError::Parser(msg) => msg.clone(),
+                _ => err.to_string(),
+            };
+            Diagnostic {
+                severity: DiagnosticSeverity::Error,
+                code,
+                message,
+                span: err.span(),
+            }
+            .accumulate(db);
+            return Some(Arc::new(Ast::default()));
         }
-    }
-}
-
-/// Extract tag structure from AST for validation
-#[salsa::tracked]
-pub fn template_tag_structure(db: &dyn Db, file: SourceFile) -> Arc<Vec<TagInfo>> {
-    let Some(parsed) = parse_template(db, file) else {
-        return Arc::new(Vec::new());
     };
 
-    let mut tags = Vec::new();
-    for (idx, node) in parsed.ast.nodelist().iter().enumerate() {
-        if let Node::Tag { name, bits, span } = node {
-            tags.push(TagInfo {
-                name: name.clone(),
-                bits: bits.clone(),
-                span: *span,
-                node_index: idx,
-            });
+    // Accumulate parse errors
+    for error in parse_errors {
+        let code = match &error {
+            TemplateError::Lexer(_) => lexer_error_to_code(),
+            TemplateError::Parser(_) => parser_error_to_code(),
+            _ => "DJ999".to_string(),
+        };
+        // Extract just the error message without the prefix
+        let message = match &error {
+            TemplateError::Lexer(msg) => msg.clone(),
+            TemplateError::Parser(msg) => msg.clone(),
+            _ => error.to_string(),
+        };
+        Diagnostic {
+            severity: DiagnosticSeverity::Error,
+            code,
+            message,
+            span: error.span(),
         }
+        .accumulate(db);
     }
 
-    Arc::new(tags)
-}
-
-/// Match opening and closing tags using stack algorithm
-#[salsa::tracked]
-pub fn template_tag_pairs(db: &dyn Db, file: SourceFile) -> Arc<TagPairs> {
-    let Some(parsed) = parse_template(db, file) else {
-        return Arc::new(TagPairs {
-            matched_pairs: Vec::new(),
-            unclosed_tags: Vec::new(),
-            unexpected_closers: Vec::new(),
-            mismatched_pairs: Vec::new(),
-            orphaned_intermediates: Vec::new(),
-        });
-    };
-
+    // Perform validation and accumulate errors
     let tag_specs = db.tag_specs();
-    let (pairs, _) = TagMatcher::match_tags(parsed.ast.nodelist(), tag_specs);
-    Arc::new(pairs)
+    let (_, validation_errors) = TagMatcher::match_tags(ast.nodelist(), tag_specs);
+
+    for error in validation_errors {
+        Diagnostic {
+            severity: DiagnosticSeverity::Error,
+            code: ast_error_to_code(&error),
+            message: error.to_string(),
+            span: error.span(),
+        }
+        .accumulate(db);
+    }
+
+    Some(Arc::new(ast))
 }
 
-/// Generate validation errors from tag matching
-#[salsa::tracked]
-pub fn template_validation_errors(db: &dyn Db, file: SourceFile) -> Arc<Vec<AstError>> {
-    let Some(parsed) = parse_template(db, file) else {
-        return Arc::new(Vec::new());
-    };
-
-    let tag_specs = db.tag_specs();
-    let (_, errors) = TagMatcher::match_tags(parsed.ast.nodelist(), tag_specs);
-    Arc::new(errors)
-}
-
-/// Generate LSP diagnostics for a template file.
+/// Convert a [`Diagnostic`] to an LSP [`Diagnostic`].
 ///
-/// This Salsa tracked function computes diagnostics from template parsing errors
-/// and caches the results. Diagnostics are only recomputed when the file changes.
-#[salsa::tracked]
-pub fn template_diagnostics(db: &dyn Db, file: SourceFile) -> Arc<Vec<lsp_types::Diagnostic>> {
-    // Parse the template to get errors
-    let Some(parsed) = parse_template(db, file) else {
-        return Arc::new(Vec::new());
-    };
-
-    let mut all_errors = Vec::new();
-
-    // Add parse errors
-    for error in &parsed.errors {
-        all_errors.push(error.clone());
-    }
-
-    // Add validation errors
-    let validation_errors = template_validation_errors(db, file);
-    for ast_error in validation_errors.iter() {
-        all_errors.push(TemplateError::Validation(ast_error.clone()));
-    }
-
-    if all_errors.is_empty() {
-        return Arc::new(Vec::new());
-    }
-
-    // Convert errors to diagnostics
-    let line_offsets = parsed.ast.line_offsets();
-    let diagnostics = all_errors
-        .iter()
-        .map(|error| template_error_to_diagnostic(error, line_offsets))
-        .collect();
-
-    Arc::new(diagnostics)
-}
-
-/// Convert a [`TemplateError`] to an LSP [`Diagnostic`].
-///
-/// Maps template parsing and validation errors to LSP diagnostics with appropriate
+/// Maps template diagnostics to LSP diagnostics with appropriate
 /// severity levels, ranges, and metadata.
-fn template_error_to_diagnostic(
-    error: &TemplateError,
-    line_offsets: &LineOffsets,
-) -> lsp_types::Diagnostic {
-    let severity = severity_from_error(error);
-
-    // For validation errors (which are Django tags), adjust the span to include delimiters
-    let range = error
-        .span()
+pub fn diagnostic_to_lsp(diag: &Diagnostic, line_offsets: &LineOffsets) -> lsp_types::Diagnostic {
+    let range = diag
+        .span
         .map(|span| {
-            let adjusted_span = if matches!(error, TemplateError::Validation(_)) {
-                // Django tags: the token start is already at the '{' character
-                // We need to add the delimiter lengths and spaces to the span length
+            // For validation errors (which are Django tags), adjust the span to include delimiters
+            let adjusted_span = if diag.code.starts_with("DTL-") && diag.code != "DTL-100" && diag.code != "DTL-200" {
+                // Django tags: add delimiter lengths
                 // The stored span only includes content length, so add:
                 // - 2 for opening {%
                 // - 1 for space after {%
@@ -195,25 +185,17 @@ fn template_error_to_diagnostic(
 
     lsp_types::Diagnostic {
         range,
-        severity: Some(severity),
-        code: Some(lsp_types::NumberOrString::String(error.code().to_string())),
+        severity: Some(match diag.severity {
+            DiagnosticSeverity::Error => lsp_types::DiagnosticSeverity::ERROR,
+            DiagnosticSeverity::Warning => lsp_types::DiagnosticSeverity::WARNING,
+        }),
+        code: Some(lsp_types::NumberOrString::String(diag.code.clone())),
         code_description: None,
         source: Some("Django Language Server".to_string()),
-        message: error.to_string(),
+        message: diag.message.clone(),
         related_information: None,
         tags: None,
         data: None,
-    }
-}
-
-/// Map a [`TemplateError`] to appropriate diagnostic severity.
-fn severity_from_error(error: &TemplateError) -> lsp_types::DiagnosticSeverity {
-    match error {
-        TemplateError::Lexer(_) | TemplateError::Parser(_) | TemplateError::Io(_) => {
-            lsp_types::DiagnosticSeverity::ERROR
-        }
-        TemplateError::Validation(_) => lsp_types::DiagnosticSeverity::ERROR,
-        TemplateError::Config(_) => lsp_types::DiagnosticSeverity::WARNING,
     }
 }
 

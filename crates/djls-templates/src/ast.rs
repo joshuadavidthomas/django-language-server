@@ -42,6 +42,20 @@ impl Ast {
 pub struct LineOffsets(pub Vec<u32>);
 
 impl LineOffsets {
+    /// Create a new LineOffsets from source text
+    #[must_use]
+    pub fn new(text: &str) -> Self {
+        let mut offsets = Self::default();
+        let mut pos = 0;
+        for ch in text.chars() {
+            if ch == '\n' {
+                offsets.add_line((pos + 1) as u32);
+            }
+            pos += ch.len_utf8();
+        }
+        offsets
+    }
+
     pub fn add_line(&mut self, offset: u32) {
         self.0.push(offset);
     }
@@ -167,6 +181,52 @@ pub enum AstError {
     },
     #[error("endblock '{name}' does not match any open block")]
     UnmatchedBlockName { name: String, span: Span },
+    #[error("Tag '{tag}' requires at least {min} argument{}", if *.min == 1 { "" } else { "s" })]
+    MissingRequiredArguments { 
+        tag: String, 
+        min: usize,
+        span: Span 
+    },
+    #[error("Tag '{tag}' accepts at most {max} argument{}", if *.max == 1 { "" } else { "s" })]
+    TooManyArguments {
+        tag: String,
+        max: usize,
+        span: Span
+    },
+}
+
+impl AstError {
+    /// Get the span of this error, if available
+    #[must_use]
+    pub fn span(&self) -> Option<Span> {
+        match self {
+            AstError::EmptyAst => None,
+            AstError::InvalidTagStructure { span, .. } => Some(*span),
+            AstError::UnbalancedStructure { opening_span, .. } => Some(*opening_span),
+            AstError::InvalidNode { span, .. } => Some(*span),
+            AstError::UnclosedTag { span, .. } => Some(*span),
+            AstError::OrphanedTag { span, .. } => Some(*span),
+            AstError::UnmatchedBlockName { span, .. } => Some(*span),
+            AstError::MissingRequiredArguments { span, .. } => Some(*span),
+            AstError::TooManyArguments { span, .. } => Some(*span),
+        }
+    }
+
+    /// Get a numeric error code for this error type
+    #[must_use]
+    pub fn error_code(&self) -> u16 {
+        match self {
+            AstError::EmptyAst => 1,
+            AstError::InvalidTagStructure { .. } => 2,
+            AstError::UnbalancedStructure { .. } => 3,
+            AstError::InvalidNode { .. } => 4,
+            AstError::UnclosedTag { .. } => 5,
+            AstError::OrphanedTag { .. } => 6,
+            AstError::UnmatchedBlockName { .. } => 7,
+            AstError::MissingRequiredArguments { .. } => 8,
+            AstError::TooManyArguments { .. } => 9,
+        }
+    }
 }
 
 #[cfg(test)]
