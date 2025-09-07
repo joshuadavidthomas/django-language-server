@@ -439,12 +439,12 @@ mod tests {
         if let Some(DiagnosticServerCapabilities::Options(ref options)) =
             result.capabilities.diagnostic_provider
         {
-            assert_eq!(
-                options.inter_file_dependencies, false,
+            assert!(
+                !options.inter_file_dependencies,
                 "Templates don't have inter-file dependencies"
             );
-            assert_eq!(
-                options.workspace_diagnostics, false,
+            assert!(
+                !options.workspace_diagnostics,
                 "We don't provide workspace-wide diagnostics"
             );
             assert_eq!(options.identifier, None, "No special identifier needed");
