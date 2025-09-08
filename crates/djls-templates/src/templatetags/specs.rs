@@ -32,15 +32,32 @@ impl TagSpecs {
         self.0.get(key)
     }
 
-    /// Check if a tag name is a closing tag for any opener
-    #[must_use]
-    pub fn is_closer(&self, name: &str) -> bool {
-        self.0
-            .values()
-            .any(|spec| spec.end.as_ref().is_some_and(|end_tag| end_tag.tag == name))
+    /// Iterate over all tag specs
+    pub fn iter(&self) -> impl Iterator<Item = (&String, &TagSpec)> {
+        self.0.iter()
     }
 
-    /// Check if a tag name is an intermediate tag for any block
+    /// Find the opener tag for a given closer tag
+    #[must_use]
+    pub fn find_opener_for_closer(&self, closer: &str) -> Option<String> {
+        for (tag_name, spec) in &self.0 {
+            if let Some(end_spec) = &spec.end {
+                if end_spec.tag == closer {
+                    return Some(tag_name.clone());
+                }
+            }
+        }
+        None
+    }
+
+    #[must_use]
+    pub fn is_opener(&self, name: &str) -> bool {
+        self.0
+            .get(name)
+            .and_then(|spec| spec.end.as_ref())
+            .is_some()
+    }
+
     #[must_use]
     pub fn is_intermediate(&self, name: &str) -> bool {
         self.0.values().any(|spec| {
@@ -48,6 +65,13 @@ impl TagSpecs {
                 .as_ref()
                 .is_some_and(|intermediates| intermediates.contains(&name.to_string()))
         })
+    }
+
+    #[must_use]
+    pub fn is_closer(&self, name: &str) -> bool {
+        self.0
+            .values()
+            .any(|spec| spec.end.as_ref().is_some_and(|end_tag| end_tag.tag == name))
     }
 
     /// Get the parent tags that can contain this intermediate tag
@@ -166,6 +190,13 @@ pub struct TagSpec {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct EndTag {
+    pub tag: String,
+    #[serde(default)]
+    pub optional: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ArgSpec {
     #[serde(default)]
     pub min: Option<usize>,
@@ -235,13 +266,6 @@ impl TagSpec {
 
         Ok(())
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct EndTag {
-    pub tag: String,
-    #[serde(default)]
-    pub optional: bool,
 }
 
 #[cfg(test)]

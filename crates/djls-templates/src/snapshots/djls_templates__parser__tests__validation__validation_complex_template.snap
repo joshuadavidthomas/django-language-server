@@ -4,21 +4,12 @@ assertion_line: 747
 expression: errors
 ---
 - UnclosedTag:
+    tag: for
+    span:
+      start: 47
+      length: 17
+- UnclosedTag:
     tag: if
     span:
       start: 143
       length: 10
-- UnclosedTag:
-    tag: if
-    span:
-      start: 25
-      length: 7
-- UnbalancedStructure:
-    opening_tag: for
-    expected_closing: endfor
-    opening_span:
-      start: 47
-      length: 17
-    closing_span:
-      start: 127
-      length: 5

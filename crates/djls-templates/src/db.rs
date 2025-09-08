@@ -47,7 +47,7 @@ use std::sync::Arc;
 use djls_workspace::Db as WorkspaceDb;
 use tower_lsp_server::lsp_types;
 
-use crate::tagspecs::TagSpecs;
+use crate::templatetags::TagSpecs;
 
 /// Thin wrapper around LSP diagnostic for accumulator
 #[salsa::accumulator]

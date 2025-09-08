@@ -662,7 +662,7 @@ mod tests {
         use std::sync::Arc;
 
         use super::*;
-        use crate::tagspecs::TagSpecs;
+        use crate::templatetags::TagSpecs;
         use crate::validation::validate_template;
 
         fn load_test_tagspecs() -> Arc<TagSpecs> {
@@ -677,7 +677,7 @@ mod tests {
             let mut parser = Parser::new(tokens);
             let (nodelist, _) = parser.parse().unwrap();
             let tag_specs = load_test_tagspecs();
-            let (_, errors) = validate_template(nodelist.nodelist(), tag_specs);
+            let errors = validate_template(nodelist.clone(), tag_specs);
             insta::assert_yaml_snapshot!(errors);
         }
 
@@ -688,7 +688,7 @@ mod tests {
             let mut parser = Parser::new(tokens);
             let (nodelist, _) = parser.parse().unwrap();
             let tag_specs = load_test_tagspecs();
-            let (_, errors) = validate_template(nodelist.nodelist(), tag_specs);
+            let errors = validate_template(nodelist.clone(), tag_specs);
             insta::assert_yaml_snapshot!(errors);
         }
 
@@ -699,7 +699,7 @@ mod tests {
             let mut parser = Parser::new(tokens);
             let (nodelist, _) = parser.parse().unwrap();
             let tag_specs = load_test_tagspecs();
-            let (_, errors) = validate_template(nodelist.nodelist(), tag_specs);
+            let errors = validate_template(nodelist.clone(), tag_specs);
             insta::assert_yaml_snapshot!(errors);
         }
 
@@ -710,7 +710,7 @@ mod tests {
             let mut parser = Parser::new(tokens);
             let (nodelist, _) = parser.parse().unwrap();
             let tag_specs = load_test_tagspecs();
-            let (_, errors) = validate_template(nodelist.nodelist(), tag_specs);
+            let errors = validate_template(nodelist.clone(), tag_specs);
             insta::assert_yaml_snapshot!(errors);
         }
 
@@ -721,7 +721,7 @@ mod tests {
             let mut parser = Parser::new(tokens);
             let (nodelist, _) = parser.parse().unwrap();
             let tag_specs = load_test_tagspecs();
-            let (_, errors) = validate_template(nodelist.nodelist(), tag_specs);
+            let errors = validate_template(nodelist.clone(), tag_specs);
             insta::assert_yaml_snapshot!(errors);
         }
 
@@ -743,7 +743,7 @@ mod tests {
             let mut parser = Parser::new(tokens);
             let (nodelist, _) = parser.parse().unwrap();
             let tag_specs = load_test_tagspecs();
-            let (_, errors) = validate_template(nodelist.nodelist(), tag_specs);
+            let errors = validate_template(nodelist.clone(), tag_specs);
             insta::assert_yaml_snapshot!(errors);
         }
     }

@@ -101,26 +101,30 @@ pub enum Node {
     },
 }
 
+#[derive(Debug, Clone)]
 pub struct TagNode {
-    name: String,
-    bits: Vec<String>,
-    span: Span,
+    pub name: String,
+    pub bits: Vec<String>,
+    pub span: Span,
 }
 
+#[derive(Debug, Clone)]
 pub struct CommentNode {
-    content: String,
-    span: Span,
+    pub content: String,
+    pub span: Span,
 }
 
+#[derive(Debug, Clone)]
 pub struct TextNode {
-    content: String,
-    span: Span,
+    pub content: String,
+    pub span: Span,
 }
 
+#[derive(Debug, Clone)]
 pub struct VariableNode {
-    var: String,
-    filters: Vec<String>,
-    span: Span,
+    pub var: String,
+    pub filters: Vec<String>,
+    pub span: Span,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]

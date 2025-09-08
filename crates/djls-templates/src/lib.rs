@@ -50,7 +50,7 @@ pub mod db;
 mod error;
 mod lexer;
 mod parser;
-pub mod tagspecs;
+pub mod templatetags;
 mod tokens;
 pub mod validation;
 
@@ -68,7 +68,7 @@ pub use lexer::Lexer;
 pub use parser::Parser;
 pub use parser::ParserError;
 use salsa::Accumulator;
-use validation::validate_template;
+use validation::TagValidator;
 
 /// Helper function to convert errors to LSP diagnostics and accumulate
 fn accumulate_error(db: &dyn Db, error: &TemplateError, line_offsets: &LineOffsets) {
@@ -77,22 +77,23 @@ fn accumulate_error(db: &dyn Db, error: &TemplateError, line_offsets: &LineOffse
         .span()
         .map(|span| {
             // For validation errors (which are Django tags), adjust the span to include delimiters
-            let adjusted_span =
-                if code.starts_with("DTL-") && code != "DTL-100" && code != "DTL-200" {
-                    // Django tags: add delimiter lengths
-                    // The stored span only includes content length, so add:
-                    // - 2 for opening {%
-                    // - 1 for space after {%
-                    // - content (already in span.length())
-                    // - 1 for space before %}
-                    // - 2 for closing %}
-                    // Total: 6 extra characters
-                    let start = span.start();
-                    let length = span.length() + 6;
-                    Span::new(start, length)
-                } else {
-                    span
-                };
+            let adjusted_span = if code.starts_with('T') && code != "T100" && code != "T200" {
+                // Django tags: add delimiter lengths
+                // The stored span only includes content length, so add:
+                // - 2 for opening {%
+                // - 1 for space after {%
+                // - content (already in span.length())
+                // - 1 for space before %}
+                // - 2 for closing %}
+                // Total: 6 extra characters
+                // TODO: change the span to be the full length including delimiters
+                // so this hack isn't needed
+                let start = span.start();
+                let length = span.length() + 6;
+                Span::new(start, length)
+            } else {
+                span
+            };
             adjusted_span.to_lsp_range(line_offsets)
         })
         .unwrap_or_default();
@@ -140,11 +141,9 @@ pub fn analyze_template(db: &dyn Db, file: SourceFile) -> Option<Arc<Ast>> {
     let text_arc = djls_workspace::db::source_text(db, file);
     let text = text_arc.as_ref();
 
-    // Tokenize the template
     let tokens = match Lexer::new(text).tokenize() {
         Ok(tokens) => tokens,
         Err(err) => {
-            // Fatal lexer error - accumulate it and return empty AST
             let ast = Ast::default();
             let error = TemplateError::Lexer(err.to_string());
             accumulate_error(db, &error, ast.line_offsets());
@@ -152,9 +151,7 @@ pub fn analyze_template(db: &dyn Db, file: SourceFile) -> Option<Arc<Ast>> {
         }
     };
 
-    // Parse the tokens into AST
-    let mut parser = Parser::new(tokens);
-    let (ast, parser_errors) = match parser.parse() {
+    let (ast, parser_errors) = match Parser::new(tokens).parse() {
         Ok((ast, errors)) => {
             let template_errors: Vec<TemplateError> = errors
                 .into_iter()
@@ -163,7 +160,6 @@ pub fn analyze_template(db: &dyn Db, file: SourceFile) -> Option<Arc<Ast>> {
             (ast, template_errors)
         }
         Err(err) => {
-            // Fatal parse error - accumulate it and return empty AST
             let ast = Ast::default();
             let error = TemplateError::Parser(err.to_string());
             accumulate_error(db, &error, ast.line_offsets());
@@ -171,14 +167,11 @@ pub fn analyze_template(db: &dyn Db, file: SourceFile) -> Option<Arc<Ast>> {
         }
     };
 
-    // Accumulate parse errors
     for error in &parser_errors {
         accumulate_error(db, error, ast.line_offsets());
     }
 
-    // Perform validation and accumulate errors
-    let tag_specs = db.tag_specs();
-    let (_, validation_errors) = validate_template(ast.nodelist(), tag_specs);
+    let validation_errors = TagValidator::new(ast.clone(), db.tag_specs()).validate();
 
     for error in validation_errors {
         // Convert validation error to TemplateError for consistency

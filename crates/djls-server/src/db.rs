@@ -14,7 +14,7 @@ use dashmap::DashMap;
 use djls_project::Db as ProjectDb;
 use djls_project::ProjectMetadata;
 use djls_templates::db::Db as TemplateDb;
-use djls_templates::tagspecs::TagSpecs;
+use djls_templates::templatetags::TagSpecs;
 use djls_workspace::db::Db as WorkspaceDb;
 use djls_workspace::db::SourceFile;
 use djls_workspace::FileKind;

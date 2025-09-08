@@ -1,5 +1,4 @@
 use std::future::Future;
-use std::str::FromStr;
 use std::sync::Arc;
 
 use djls_templates::analyze_template;
