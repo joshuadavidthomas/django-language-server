@@ -49,7 +49,7 @@ impl TagSpecs {
                 .is_some_and(|intermediates| intermediates.contains(&name.to_string()))
         })
     }
-    
+
     /// Get the parent tags that can contain this intermediate tag
     #[must_use]
     pub fn get_parent_tags_for_intermediate(&self, intermediate: &str) -> Vec<String> {
@@ -185,7 +185,10 @@ impl TagSpec {
         // We can be more specific: check if it's a table containing 'end', 'intermediates', or 'args'
         let mut is_spec_node = false;
         if let Some(table) = value.as_table() {
-            if table.contains_key("end") || table.contains_key("intermediates") || table.contains_key("args") {
+            if table.contains_key("end")
+                || table.contains_key("intermediates")
+                || table.contains_key("args")
+            {
                 // Looks like a spec, try to deserialize
                 match TagSpec::deserialize(value.clone()) {
                     Ok(tag_spec) => {
@@ -301,7 +304,7 @@ mod tests {
         for tag in single_tags {
             assert!(specs.get(tag).is_some(), "{tag} tag should be present");
         }
-        
+
         // Check that some tags are still missing
         let missing_tags = [
             "debug",
@@ -312,7 +315,7 @@ mod tests {
             "resetcycle",
             "widthratio",
         ];
-        
+
         for tag in missing_tags {
             assert!(
                 specs.get(tag).is_none(),

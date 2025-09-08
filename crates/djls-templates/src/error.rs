@@ -72,7 +72,7 @@ impl TemplateError {
             TemplateError::Config(_) => "DTL-901",
         }
     }
-    
+
     #[must_use]
     pub fn code(&self) -> &'static str {
         match self {

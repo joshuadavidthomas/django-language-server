@@ -214,17 +214,9 @@ pub enum AstError {
     #[error("endblock '{name}' does not match any open block")]
     UnmatchedBlockName { name: String, span: Span },
     #[error("Tag '{tag}' requires at least {min} argument{}", if *.min == 1 { "" } else { "s" })]
-    MissingRequiredArguments { 
-        tag: String, 
-        min: usize,
-        span: Span 
-    },
+    MissingRequiredArguments { tag: String, min: usize, span: Span },
     #[error("Tag '{tag}' accepts at most {max} argument{}", if *.max == 1 { "" } else { "s" })]
-    TooManyArguments {
-        tag: String,
-        max: usize,
-        span: Span
-    },
+    TooManyArguments { tag: String, max: usize, span: Span },
 }
 
 impl AstError {
@@ -267,10 +259,10 @@ impl Span {
     pub fn to_lsp_range(&self, line_offsets: &LineOffsets) -> tower_lsp_server::lsp_types::Range {
         let start_pos = self.start() as usize;
         let end_pos = (self.start() + self.length()) as usize;
-        
+
         let (start_line, start_char) = line_offsets.position_to_line_col(start_pos);
         let (end_line, end_char) = line_offsets.position_to_line_col(end_pos);
-        
+
         #[allow(clippy::cast_possible_truncation)]
         tower_lsp_server::lsp_types::Range {
             start: tower_lsp_server::lsp_types::Position {

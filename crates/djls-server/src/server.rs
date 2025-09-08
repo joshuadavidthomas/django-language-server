@@ -110,16 +110,12 @@ impl DjangoLanguageServer {
                 session.with_db(|db| {
                     // Parse and validate the template (triggers accumulation)
                     let _ast = analyze_template(db, file);
-                    
+
                     // Get accumulated diagnostics directly - they're already LSP diagnostics!
-                    let diagnostics = 
-                        analyze_template::accumulated::<TemplateDiagnostic>(db, file);
-                    
+                    let diagnostics = analyze_template::accumulated::<TemplateDiagnostic>(db, file);
+
                     // Convert from TemplateDiagnostic wrapper to lsp_types::Diagnostic
-                    diagnostics
-                        .into_iter()
-                        .map(Into::into)
-                        .collect()
+                    diagnostics.into_iter().map(Into::into).collect()
                 })
             })
             .await;
@@ -462,16 +458,12 @@ impl LanguageServer for DjangoLanguageServer {
 
                     // Parse and validate the template (triggers accumulation)
                     let _ast = analyze_template(db, file);
-                    
+
                     // Get accumulated diagnostics directly - they're already LSP diagnostics!
-                    let diagnostics = 
-                        analyze_template::accumulated::<TemplateDiagnostic>(db, file);
-                    
+                    let diagnostics = analyze_template::accumulated::<TemplateDiagnostic>(db, file);
+
                     // Convert from TemplateDiagnostic wrapper to lsp_types::Diagnostic
-                    diagnostics
-                        .into_iter()
-                        .map(Into::into)
-                        .collect()
+                    diagnostics.into_iter().map(Into::into).collect()
                 })
             })
             .await;

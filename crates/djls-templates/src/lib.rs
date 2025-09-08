@@ -56,48 +56,44 @@ pub mod validation;
 
 use std::sync::Arc;
 
-use djls_workspace::db::SourceFile;
-use djls_workspace::FileKind;
-use salsa::Accumulator;
-
 pub use ast::Ast;
 use ast::LineOffsets;
 use ast::Span;
 pub use db::Db;
 pub use db::TemplateDiagnostic;
+use djls_workspace::db::SourceFile;
+use djls_workspace::FileKind;
 pub use error::QuickFix;
 pub use error::TemplateError;
 pub use lexer::Lexer;
 pub use parser::Parser;
 pub use parser::ParserError;
+use salsa::Accumulator;
 use validation::ValidationVisitor;
 
 /// Helper function to convert errors to LSP diagnostics and accumulate
-fn accumulate_error(
-    db: &dyn Db,
-    error: &TemplateError,
-    line_offsets: &LineOffsets,
-) {
+fn accumulate_error(db: &dyn Db, error: &TemplateError, line_offsets: &LineOffsets) {
     let code = error.diagnostic_code();
     let range = error
         .span()
         .map(|span| {
             // For validation errors (which are Django tags), adjust the span to include delimiters
-            let adjusted_span = if code.starts_with("DTL-") && code != "DTL-100" && code != "DTL-200" {
-                // Django tags: add delimiter lengths
-                // The stored span only includes content length, so add:
-                // - 2 for opening {%
-                // - 1 for space after {%
-                // - content (already in span.length())
-                // - 1 for space before %}
-                // - 2 for closing %}
-                // Total: 6 extra characters
-                let start = span.start();
-                let length = span.length() + 6;
-                Span::new(start, length)
-            } else {
-                span
-            };
+            let adjusted_span =
+                if code.starts_with("DTL-") && code != "DTL-100" && code != "DTL-200" {
+                    // Django tags: add delimiter lengths
+                    // The stored span only includes content length, so add:
+                    // - 2 for opening {%
+                    // - 1 for space after {%
+                    // - content (already in span.length())
+                    // - 1 for space before %}
+                    // - 2 for closing %}
+                    // Total: 6 extra characters
+                    let start = span.start();
+                    let length = span.length() + 6;
+                    Span::new(start, length)
+                } else {
+                    span
+                };
             adjusted_span.to_lsp_range(line_offsets)
         })
         .unwrap_or_default();
@@ -105,7 +101,9 @@ fn accumulate_error(
     let diagnostic = tower_lsp_server::lsp_types::Diagnostic {
         range,
         severity: Some(tower_lsp_server::lsp_types::DiagnosticSeverity::ERROR),
-        code: Some(tower_lsp_server::lsp_types::NumberOrString::String(code.to_string())),
+        code: Some(tower_lsp_server::lsp_types::NumberOrString::String(
+            code.to_string(),
+        )),
         code_description: None,
         source: Some("Django Language Server".to_string()),
         message: match error {
@@ -123,14 +121,14 @@ fn accumulate_error(
 /// Analyze a Django template file - parse, validate, and accumulate diagnostics.
 ///
 /// This is the PRIMARY function for template processing. It's a Salsa tracked function
-/// that parses template files on-demand and caches the results. During parsing and 
+/// that parses template files on-demand and caches the results. During parsing and
 /// validation, diagnostics are accumulated using the TemplateDiagnostic accumulator.
-/// 
+///
 /// The function returns the parsed AST (or None for non-template files).
 ///
 /// Diagnostics can be retrieved using:
 /// ```ignore
-/// let diagnostics = 
+/// let diagnostics =
 ///     analyze_template::accumulated::<TemplateDiagnostic>(db, file);
 /// ```
 #[salsa::tracked]

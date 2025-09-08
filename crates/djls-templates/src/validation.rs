@@ -200,7 +200,9 @@ impl ValidationVisitor {
                 // Find the matching block in the stack
                 let mut found_index = None;
                 for (i, tag) in self.stack.iter().enumerate().rev() {
-                    if tag.name == "block" && !tag.bits.is_empty() && tag.bits[0] == *target_block_name
+                    if tag.name == "block"
+                        && !tag.bits.is_empty()
+                        && tag.bits[0] == *target_block_name
                     {
                         found_index = Some(i);
                         break;
@@ -338,7 +340,7 @@ impl ValidationVisitor {
         for tag in &self.orphaned_intermediates {
             // Find which opener(s) this intermediate belongs to using TagSpecs
             let parent_tags = self.tag_specs.get_parent_tags_for_intermediate(&tag.name);
-            
+
             let context = if parent_tags.is_empty() {
                 "appears outside its required context".to_string()
             } else if parent_tags.len() == 1 {
@@ -357,7 +359,7 @@ impl ValidationVisitor {
                 let parents = parent_tags.join("' or '");
                 format!("must appear within '{parents}' block")
             };
-            
+
             errors.push(AstError::OrphanedTag {
                 tag: tag.name.clone(),
                 context,
@@ -435,11 +437,14 @@ impl AstVisitor for ValidationVisitor {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
-    use crate::{Ast, Lexer, Parser};
     use crate::tagspecs::TagSpecs;
     use crate::validation::ValidationVisitor;
-    use std::sync::Arc;
+    use crate::Ast;
+    use crate::Lexer;
+    use crate::Parser;
 
     fn parse_test_template(source: &str) -> Ast {
         let tokens = Lexer::new(source).tokenize().unwrap();
@@ -892,15 +897,23 @@ mod tests {
         let (pairs, errors) = ValidationVisitor::match_tags(ast.nodelist(), tag_specs);
 
         // Should have exactly one error: unclosed if
-        assert_eq!(errors.len(), 1, "Expected exactly one error for unclosed if");
+        assert_eq!(
+            errors.len(),
+            1,
+            "Expected exactly one error for unclosed if"
+        );
         assert!(
             matches!(&errors[0], AstError::UnclosedTag { ref tag, .. } if tag == "if"),
             "Error should be for unclosed 'if' tag"
         );
 
         // Both blocks should be matched correctly
-        assert_eq!(pairs.matched_pairs.len(), 2, "Both block tags should be matched");
-        
+        assert_eq!(
+            pairs.matched_pairs.len(),
+            2,
+            "Both block tags should be matched"
+        );
+
         // The if should be in unclosed_tags
         assert_eq!(pairs.unclosed_tags.len(), 1);
         assert_eq!(pairs.unclosed_tags[0].name, "if");
@@ -925,7 +938,11 @@ mod tests {
         assert!(errors.is_empty(), "Should have no validation errors");
 
         // All tags should be matched correctly
-        assert_eq!(pairs.matched_pairs.len(), 3, "All three pairs should be matched");
+        assert_eq!(
+            pairs.matched_pairs.len(),
+            3,
+            "All three pairs should be matched"
+        );
         assert!(pairs.unclosed_tags.is_empty());
         assert!(pairs.unexpected_closers.is_empty());
         assert!(pairs.mismatched_pairs.is_empty());

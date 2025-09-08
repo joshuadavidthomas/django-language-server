@@ -71,4 +71,3 @@ pub trait Db: WorkspaceDb {
     /// Get the Django tag specifications for template parsing and validation
     fn tag_specs(&self) -> Arc<TagSpecs>;
 }
-

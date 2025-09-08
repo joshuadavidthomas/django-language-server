@@ -165,10 +165,10 @@ impl TemplateDb for DjangoDatabase {
     fn tag_specs(&self) -> Arc<TagSpecs> {
         // PROPERLY use the existing TagSpecs loading infrastructure
         // Try loading in order: user specs → built-in specs
-        
+
         // Get project root from the database metadata
         let project_root = self.metadata.root();
-        
+
         // Try to load user specs using the EXISTING method
         if let Ok(user_specs) = TagSpecs::load_user_specs(project_root) {
             // If user specs exist and aren't empty, merge with built-in specs
@@ -180,13 +180,10 @@ impl TemplateDb for DjangoDatabase {
             }
             return Arc::new(user_specs);
         }
-        
+
         // Fall back to built-in specs using the EXISTING method
         // This should load from the tagspecs directory properly
-        Arc::new(
-            TagSpecs::load_builtin_specs()
-                .expect("Built-in specs must be valid")
-        )
+        Arc::new(TagSpecs::load_builtin_specs().expect("Built-in specs must be valid"))
     }
 }
 
