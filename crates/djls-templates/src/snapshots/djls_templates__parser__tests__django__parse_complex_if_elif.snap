@@ -1,52 +1,52 @@
 ---
 source: crates/djls-templates/src/parser.rs
-expression: nodelist
+expression: test_ast
 ---
 nodelist:
-  - Tag:
-      name: if
-      bits:
-        - x
-        - ">"
-        - "0"
-      span:
-        start: 0
-        length: 8
-  - Text:
-      content: Positive
-      span:
-        start: 14
-        length: 8
-  - Tag:
-      name: elif
-      bits:
-        - x
-        - "<"
-        - "0"
-      span:
-        start: 22
-        length: 10
-  - Text:
-      content: Negative
-      span:
-        start: 38
-        length: 8
-  - Tag:
-      name: else
-      bits: []
-      span:
-        start: 46
-        length: 4
-  - Text:
-      content: Zero
-      span:
-        start: 56
-        length: 4
-  - Tag:
-      name: endif
-      bits: []
-      span:
-        start: 60
-        length: 5
+  - type: Tag
+    name: if
+    bits:
+      - x
+      - ">"
+      - "0"
+    span:
+      - 0
+      - 8
+  - type: Text
+    content: Positive
+    span:
+      - 14
+      - 8
+  - type: Tag
+    name: elif
+    bits:
+      - x
+      - "<"
+      - "0"
+    span:
+      - 22
+      - 10
+  - type: Text
+    content: Negative
+    span:
+      - 38
+      - 8
+  - type: Tag
+    name: else
+    bits: []
+    span:
+      - 46
+      - 4
+  - type: Text
+    content: Zero
+    span:
+      - 56
+      - 4
+  - type: Tag
+    name: endif
+    bits: []
+    span:
+      - 60
+      - 5
 line_offsets:
   - 0

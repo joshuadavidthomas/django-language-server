@@ -2,7 +2,6 @@ use serde::Serialize;
 use thiserror::Error;
 
 use crate::ast::AstError;
-use crate::ast::Span;
 use crate::lexer::LexerError;
 use crate::parser::ParserError;
 
@@ -44,19 +43,9 @@ impl From<std::io::Error> for TemplateError {
 
 impl TemplateError {
     #[must_use]
-    pub fn span(&self) -> Option<Span> {
+    pub fn span(&self) -> Option<(u32, u32)> {
         match self {
-            TemplateError::Validation(ast_error) => match ast_error {
-                AstError::InvalidTagStructure { span, .. }
-                | AstError::InvalidNode { span, .. }
-                | AstError::UnclosedTag { span, .. }
-                | AstError::OrphanedTag { span, .. }
-                | AstError::UnmatchedBlockName { span, .. }
-                | AstError::MissingRequiredArguments { span, .. }
-                | AstError::TooManyArguments { span, .. } => Some(*span),
-                AstError::UnbalancedStructure { opening_span, .. } => Some(*opening_span),
-                AstError::EmptyAst => None,
-            },
+            TemplateError::Validation(ast_error) => ast_error.span(),
             _ => None,
         }
     }

@@ -54,11 +54,8 @@ pub mod templatetags;
 mod tokens;
 pub mod validation;
 
-use std::sync::Arc;
-
 pub use ast::Ast;
 use ast::LineOffsets;
-use ast::Span;
 pub use db::Db;
 pub use db::TemplateDiagnostic;
 use djls_workspace::db::SourceFile;
@@ -75,9 +72,9 @@ fn accumulate_error(db: &dyn Db, error: &TemplateError, line_offsets: &LineOffse
     let code = error.diagnostic_code();
     let range = error
         .span()
-        .map(|span| {
+        .map(|(start, length)| {
             // For validation errors (which are Django tags), adjust the span to include delimiters
-            let adjusted_span = if code.starts_with('T') && code != "T100" && code != "T200" {
+            let adjusted_length = if code.starts_with('T') && code != "T100" && code != "T200" {
                 // Django tags: add delimiter lengths
                 // The stored span only includes content length, so add:
                 // - 2 for opening {%
@@ -88,13 +85,11 @@ fn accumulate_error(db: &dyn Db, error: &TemplateError, line_offsets: &LineOffse
                 // Total: 6 extra characters
                 // TODO: change the span to be the full length including delimiters
                 // so this hack isn't needed
-                let start = span.start();
-                let length = span.length() + 6;
-                Span::new(start, length)
+                length + 6
             } else {
-                span
+                length
             };
-            adjusted_span.to_lsp_range(line_offsets)
+            crate::ast::span_to_lsp_range(start, adjusted_length, line_offsets)
         })
         .unwrap_or_default();
 
@@ -132,7 +127,7 @@ fn accumulate_error(db: &dyn Db, error: &TemplateError, line_offsets: &LineOffse
 ///     analyze_template::accumulated::<TemplateDiagnostic>(db, file);
 /// ```
 #[salsa::tracked]
-pub fn analyze_template(db: &dyn Db, file: SourceFile) -> Option<Arc<Ast>> {
+pub fn analyze_template(db: &dyn Db, file: SourceFile) -> Option<Ast<'_>> {
     // Only process template files
     if file.kind(db) != FileKind::Template {
         return None;
@@ -144,14 +139,16 @@ pub fn analyze_template(db: &dyn Db, file: SourceFile) -> Option<Arc<Ast>> {
     let tokens = match Lexer::new(text).tokenize() {
         Ok(tokens) => tokens,
         Err(err) => {
-            let ast = Ast::default();
+            let empty_nodelist = Vec::new();
+            let empty_offsets = LineOffsets::default();
+            let ast = Ast::new(db, empty_nodelist, empty_offsets);
             let error = TemplateError::Lexer(err.to_string());
-            accumulate_error(db, &error, ast.line_offsets());
-            return Some(Arc::new(ast));
+            accumulate_error(db, &error, ast.line_offsets(db));
+            return Some(ast);
         }
     };
 
-    let (ast, parser_errors) = match Parser::new(tokens).parse() {
+    let (ast, parser_errors) = match Parser::new(db, tokens).parse() {
         Ok((ast, errors)) => {
             let template_errors: Vec<TemplateError> = errors
                 .into_iter()
@@ -160,24 +157,27 @@ pub fn analyze_template(db: &dyn Db, file: SourceFile) -> Option<Arc<Ast>> {
             (ast, template_errors)
         }
         Err(err) => {
-            let ast = Ast::default();
+            // Create an empty AST for error case
+            let empty_nodelist = Vec::new();
+            let empty_offsets = LineOffsets::default();
+            let ast = Ast::new(db, empty_nodelist, empty_offsets);
             let error = TemplateError::Parser(err.to_string());
-            accumulate_error(db, &error, ast.line_offsets());
-            return Some(Arc::new(ast));
+            accumulate_error(db, &error, ast.line_offsets(db));
+            return Some(ast);
         }
     };
 
     for error in &parser_errors {
-        accumulate_error(db, error, ast.line_offsets());
+        accumulate_error(db, error, ast.line_offsets(db));
     }
 
-    let validation_errors = TagValidator::new(ast.clone(), db.tag_specs()).validate();
+    let validation_errors = TagValidator::new(db, ast).validate();
 
     for error in validation_errors {
         // Convert validation error to TemplateError for consistency
         let template_error = TemplateError::Validation(error);
-        accumulate_error(db, &template_error, ast.line_offsets());
+        accumulate_error(db, &template_error, ast.line_offsets(db));
     }
 
-    Some(Arc::new(ast))
+    Some(ast)
 }

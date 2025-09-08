@@ -1,38 +1,38 @@
 ---
 source: crates/djls-templates/src/parser.rs
-expression: nodelist
+expression: test_ast
 ---
 nodelist:
-  - Text:
-      content: "<script type=\"text/javascript\">"
-      span:
-        start: 0
-        length: 31
-  - Text:
-      content: // Single line comment
-      span:
-        start: 36
-        length: 22
-  - Text:
-      content: const x = 1;
-      span:
-        start: 63
-        length: 12
-  - Text:
-      content: "/* Multi-line\n        comment */"
-      span:
-        start: 80
-        length: 32
-  - Text:
-      content: console.log(x);
-      span:
-        start: 117
-        length: 15
-  - Text:
-      content: "</script>"
-      span:
-        start: 133
-        length: 9
+  - type: Text
+    content: "<script type=\"text/javascript\">"
+    span:
+      - 0
+      - 31
+  - type: Text
+    content: // Single line comment
+    span:
+      - 36
+      - 22
+  - type: Text
+    content: const x = 1;
+    span:
+      - 63
+      - 12
+  - type: Text
+    content: "/* Multi-line\n        comment */"
+    span:
+      - 80
+      - 32
+  - type: Text
+    content: console.log(x);
+    span:
+      - 117
+      - 15
+  - type: Text
+    content: "</script>"
+    span:
+      - 133
+      - 9
 line_offsets:
   - 0
   - 32

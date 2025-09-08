@@ -17,31 +17,30 @@
 //! The `TagValidator` follows the same pattern as the Parser and Lexer,
 //! maintaining minimal state and walking through the AST to accumulate errors.
 
-use std::sync::Arc;
-
 use crate::ast::AstError;
 use crate::ast::Node;
 use crate::ast::Span;
+use crate::ast::TagName;
 use crate::ast::TagNode;
-use crate::templatetags::TagSpecs;
+use crate::db::Db as TemplateDb;
 use crate::templatetags::TagType;
 use crate::Ast;
 
-pub struct TagValidator {
-    ast: Ast,
+pub struct TagValidator<'db> {
+    db: &'db dyn TemplateDb,
+    ast: Ast<'db>,
     current: usize,
-    tag_specs: Arc<TagSpecs>,
-    stack: Vec<TagNode>,
+    stack: Vec<TagNode<'db>>,
     errors: Vec<AstError>,
 }
 
-impl TagValidator {
+impl<'db> TagValidator<'db> {
     #[must_use]
-    pub fn new(ast: Ast, tag_specs: Arc<TagSpecs>) -> Self {
+    pub fn new(db: &'db dyn TemplateDb, ast: Ast<'db>) -> Self {
         Self {
+            db,
             ast,
             current: 0,
-            tag_specs,
             stack: Vec::new(),
             errors: Vec::new(),
         }
@@ -51,26 +50,22 @@ impl TagValidator {
     pub fn validate(mut self) -> Vec<AstError> {
         while !self.is_at_end() {
             if let Some(Node::Tag { name, bits, span }) = self.current_node() {
-                // Clone the data we need before mutating self
-                let name = name.clone();
-                let bits = bits.clone();
-                let span = *span;
+                let name_str = name.text(self.db);
+                self.check_arguments(&name_str, &bits, span);
 
-                self.check_arguments(&name, &bits, span);
-
-                match TagType::for_name(&name, &self.tag_specs) {
+                match TagType::for_name(&name_str, &self.db.tag_specs()) {
                     TagType::Opener => {
                         self.stack.push(TagNode {
-                            name: name.clone(),
+                            name,
                             bits: bits.clone(),
                             span,
                         });
                     }
                     TagType::Intermediate => {
-                        self.handle_intermediate(&name, span);
+                        self.handle_intermediate(&name_str, span);
                     }
                     TagType::Closer => {
-                        self.handle_closer(&name, &bits, span);
+                        self.handle_closer(name, &bits, span);
                     }
                     TagType::Standalone => {
                         // Standalone tags don't need special handling
@@ -83,23 +78,25 @@ impl TagValidator {
         // Any remaining stack items are unclosed
         while let Some(tag) = self.stack.pop() {
             self.errors.push(AstError::UnclosedTag {
-                tag: tag.name,
-                span: tag.span,
+                tag: tag.name.text(self.db),
+                span_start: tag.span.start(self.db),
+                span_length: tag.span.length(self.db),
             });
         }
 
         self.errors
     }
 
-    fn check_arguments(&mut self, name: &str, bits: &[String], span: Span) {
-        if let Some(spec) = self.tag_specs.get(name) {
+    fn check_arguments(&mut self, name: &str, bits: &[String], span: Span<'db>) {
+        if let Some(spec) = self.db.tag_specs().get(name) {
             if let Some(arg_spec) = &spec.args {
                 if let Some(min) = arg_spec.min {
                     if bits.len() < min {
                         self.errors.push(AstError::MissingRequiredArguments {
                             tag: name.to_string(),
                             min,
-                            span,
+                            span_start: span.start(self.db),
+                            span_length: span.length(self.db),
                         });
                     }
                 }
@@ -108,7 +105,8 @@ impl TagValidator {
                         self.errors.push(AstError::TooManyArguments {
                             tag: name.to_string(),
                             max,
-                            span,
+                            span_start: span.start(self.db),
+                            span_length: span.length(self.db),
                         });
                     }
                 }
@@ -116,9 +114,9 @@ impl TagValidator {
         }
     }
 
-    fn handle_intermediate(&mut self, name: &str, span: Span) {
+    fn handle_intermediate(&mut self, name: &str, span: Span<'db>) {
         // Check if this intermediate tag has the required parent
-        let parent_tags = self.tag_specs.get_parent_tags_for_intermediate(name);
+        let parent_tags = self.db.tag_specs().get_parent_tags_for_intermediate(name);
         if parent_tags.is_empty() {
             return; // Not an intermediate tag
         }
@@ -128,7 +126,7 @@ impl TagValidator {
             .stack
             .iter()
             .rev()
-            .any(|tag| parent_tags.contains(&tag.name));
+            .any(|tag| parent_tags.contains(&tag.name.text(self.db)));
 
         if !has_parent {
             let context = if parent_tags.len() == 1 {
@@ -150,20 +148,22 @@ impl TagValidator {
             self.errors.push(AstError::OrphanedTag {
                 tag: name.to_string(),
                 context,
-                span,
+                span_start: span.start(self.db),
+                span_length: span.length(self.db),
             });
         }
     }
 
-    fn handle_closer(&mut self, name: &str, bits: &[String], span: Span) {
+    fn handle_closer(&mut self, name: TagName<'db>, bits: &[String], span: Span<'db>) {
+        let name_str = name.text(self.db);
         // Special handling for endblock
-        if name == "endblock" {
+        if name_str == "endblock" {
             if bits.is_empty() {
                 // Unnamed endblock - find nearest block
                 let mut found_index = None;
 
                 for (i, tag) in self.stack.iter().enumerate().rev() {
-                    if tag.name == "block" {
+                    if tag.name.text(self.db) == "block" {
                         found_index = Some(i);
                         break;
                     }
@@ -174,8 +174,9 @@ impl TagValidator {
                     while self.stack.len() > index + 1 {
                         if let Some(unclosed) = self.stack.pop() {
                             self.errors.push(AstError::UnclosedTag {
-                                tag: unclosed.name,
-                                span: unclosed.span,
+                                tag: unclosed.name.text(self.db),
+                                span_start: unclosed.span.start(self.db),
+                                span_length: unclosed.span.length(self.db),
                             });
                         }
                     }
@@ -184,10 +185,13 @@ impl TagValidator {
                 } else {
                     // No block found for endblock
                     self.errors.push(AstError::UnbalancedStructure {
-                        opening_tag: name.to_string(),
+                        opening_tag: name.text(self.db),
                         expected_closing: "block".to_string(),
-                        opening_span: span,
-                        closing_span: None,
+                        opening_span_start: span.start(self.db),
+
+                        opening_span_length: span.length(self.db),
+                        closing_span_start: None,
+                        closing_span_length: None,
                     });
                 }
             } else {
@@ -196,7 +200,10 @@ impl TagValidator {
                 let mut found_index = None;
 
                 for (i, tag) in self.stack.iter().enumerate().rev() {
-                    if tag.name == "block" && !tag.bits.is_empty() && tag.bits[0] == *target_name {
+                    if tag.name.text(self.db) == "block"
+                        && !tag.bits.is_empty()
+                        && tag.bits[0] == *target_name
+                    {
                         found_index = Some(i);
                         break;
                     }
@@ -207,8 +214,9 @@ impl TagValidator {
                     while self.stack.len() > index + 1 {
                         if let Some(unclosed) = self.stack.pop() {
                             self.errors.push(AstError::UnclosedTag {
-                                tag: unclosed.name,
-                                span: unclosed.span,
+                                tag: unclosed.name.text(self.db),
+                                span_start: unclosed.span.start(self.db),
+                                span_length: unclosed.span.length(self.db),
                             });
                         }
                     }
@@ -218,26 +226,30 @@ impl TagValidator {
                     // No matching block found
                     self.errors.push(AstError::UnmatchedBlockName {
                         name: target_name.clone(),
-                        span,
+                        span_start: span.start(self.db),
+                        span_length: span.length(self.db),
                     });
                 }
             }
         } else if self.stack.is_empty() {
             // Stack is empty - unexpected closer
             self.errors.push(AstError::UnbalancedStructure {
-                opening_tag: name.to_string(),
+                opening_tag: name.text(self.db),
                 expected_closing: String::new(),
-                opening_span: span,
-                closing_span: None,
+                opening_span_start: span.start(self.db),
+
+                opening_span_length: span.length(self.db),
+                closing_span_start: None,
+                closing_span_length: None,
             });
         } else {
             // Find the matching opener
-            let expected_opener = self.tag_specs.find_opener_for_closer(name);
+            let expected_opener = self.db.tag_specs().find_opener_for_closer(&name_str);
             if let Some(opener_name) = expected_opener {
                 // Search for matching opener
                 let mut found_index = None;
                 for (i, tag) in self.stack.iter().enumerate().rev() {
-                    if tag.name == opener_name {
+                    if tag.name.text(self.db) == opener_name {
                         found_index = Some(i);
                         break;
                     }
@@ -248,8 +260,9 @@ impl TagValidator {
                     while self.stack.len() > index + 1 {
                         if let Some(unclosed) = self.stack.pop() {
                             self.errors.push(AstError::UnclosedTag {
-                                tag: unclosed.name,
-                                span: unclosed.span,
+                                tag: unclosed.name.text(self.db),
+                                span_start: unclosed.span.start(self.db),
+                                span_length: unclosed.span.length(self.db),
                             });
                         }
                     }
@@ -259,25 +272,31 @@ impl TagValidator {
                     // No matching opener found
                     self.errors.push(AstError::UnbalancedStructure {
                         opening_tag: opener_name,
-                        expected_closing: name.to_string(),
-                        opening_span: span,
-                        closing_span: None,
+                        expected_closing: name.text(self.db),
+                        opening_span_start: span.start(self.db),
+
+                        opening_span_length: span.length(self.db),
+                        closing_span_start: None,
+                        closing_span_length: None,
                     });
                 }
             } else {
                 // Unknown closer
                 self.errors.push(AstError::UnbalancedStructure {
-                    opening_tag: name.to_string(),
+                    opening_tag: name.text(self.db),
                     expected_closing: String::new(),
-                    opening_span: span,
-                    closing_span: None,
+                    opening_span_start: span.start(self.db),
+
+                    opening_span_length: span.length(self.db),
+                    closing_span_start: None,
+                    closing_span_length: None,
                 });
             }
         }
     }
 
-    fn current_node(&self) -> Option<&Node> {
-        self.ast.nodelist().get(self.current)
+    fn current_node(&self) -> Option<Node<'db>> {
+        self.ast.nodelist(self.db).get(self.current).cloned()
     }
 
     fn advance(&mut self) {
@@ -285,13 +304,8 @@ impl TagValidator {
     }
 
     fn is_at_end(&self) -> bool {
-        self.current >= self.ast.nodelist().len()
+        self.current >= self.ast.nodelist(self.db).len()
     }
-}
-
-#[must_use]
-pub fn validate_template(ast: Ast, tag_specs: Arc<TagSpecs>) -> Vec<AstError> {
-    TagValidator::new(ast, tag_specs).validate()
 }
 
 #[cfg(test)]
@@ -303,37 +317,77 @@ mod tests {
     use crate::Lexer;
     use crate::Parser;
 
-    fn parse_test_template(source: &str) -> Ast {
-        let tokens = Lexer::new(source).tokenize().unwrap();
-        let mut parser = Parser::new(tokens);
+    // Test database that implements the required traits
+    #[salsa::db]
+    #[derive(Clone)]
+    struct TestDatabase {
+        storage: salsa::Storage<Self>,
+    }
+
+    impl TestDatabase {
+        fn new() -> Self {
+            Self {
+                storage: salsa::Storage::default(),
+            }
+        }
+    }
+
+    #[salsa::db]
+    impl salsa::Database for TestDatabase {}
+
+    #[salsa::db]
+    impl djls_workspace::Db for TestDatabase {
+        fn fs(&self) -> std::sync::Arc<dyn djls_workspace::FileSystem> {
+            use djls_workspace::InMemoryFileSystem;
+            static FS: std::sync::OnceLock<std::sync::Arc<InMemoryFileSystem>> =
+                std::sync::OnceLock::new();
+            FS.get_or_init(|| std::sync::Arc::new(InMemoryFileSystem::default()))
+                .clone()
+        }
+
+        fn read_file_content(&self, path: &std::path::Path) -> Result<String, std::io::Error> {
+            std::fs::read_to_string(path)
+        }
+    }
+
+    #[salsa::db]
+    impl crate::db::Db for TestDatabase {
+        fn tag_specs(&self) -> std::sync::Arc<crate::templatetags::TagSpecs> {
+            let toml_str = include_str!("../tagspecs/django.toml");
+            Arc::new(TagSpecs::from_toml(toml_str).unwrap())
+        }
+    }
+
+    #[salsa::input]
+    struct TestSource {
+        #[returns(ref)]
+        text: String,
+    }
+
+    #[salsa::tracked]
+    fn parse_test_template(db: &dyn TemplateDb, source: TestSource) -> Ast<'_> {
+        let text = source.text(db);
+        let tokens = Lexer::new(text).tokenize().unwrap();
+        let mut parser = Parser::new(db, tokens);
         let (ast, _) = parser.parse().unwrap();
         ast
     }
 
-    fn load_test_tagspecs() -> Arc<TagSpecs> {
-        let toml_str = include_str!("../tagspecs/django.toml");
-        Arc::new(TagSpecs::from_toml(toml_str).unwrap())
-    }
-
     #[test]
     fn test_match_simple_if_endif() {
-        let source = "{% if x %}content{% endif %}";
-        let ast = parse_test_template(source);
-        let tag_specs = load_test_tagspecs();
-
-        let errors = validate_template(ast, tag_specs);
-
+        let db = TestDatabase::new();
+        let source = TestSource::new(&db, "{% if x %}content{% endif %}".to_string());
+        let ast = parse_test_template(&db, source);
+        let errors = TagValidator::new(&db, ast).validate();
         assert!(errors.is_empty());
     }
 
     #[test]
     fn test_unclosed_if() {
-        let source = "{% if x %}content";
-        let ast = parse_test_template(source);
-        let tag_specs = load_test_tagspecs();
-
-        let errors = validate_template(ast, tag_specs);
-
+        let db = TestDatabase::new();
+        let source = TestSource::new(&db, "{% if x %}content".to_string());
+        let ast = parse_test_template(&db, source);
+        let errors = TagValidator::new(&db, ast).validate();
         assert_eq!(errors.len(), 1);
         match &errors[0] {
             AstError::UnclosedTag { tag, .. } => assert_eq!(tag, "if"),
@@ -343,24 +397,20 @@ mod tests {
 
     #[test]
     fn test_mismatched_tags() {
-        let source = "{% if x %}content{% endfor %}";
-        let ast = parse_test_template(source);
-        let tag_specs = load_test_tagspecs();
-
-        let errors = validate_template(ast, tag_specs);
-
+        let db = TestDatabase::new();
+        let source = TestSource::new(&db, "{% if x %}content{% endfor %}".to_string());
+        let ast = parse_test_template(&db, source);
+        let errors = TagValidator::new(&db, ast).validate();
         assert!(!errors.is_empty());
         // Should have unexpected closer for endfor and unclosed for if
     }
 
     #[test]
     fn test_orphaned_else() {
-        let source = "{% else %}content";
-        let ast = parse_test_template(source);
-        let tag_specs = load_test_tagspecs();
-
-        let errors = validate_template(ast, tag_specs);
-
+        let db = TestDatabase::new();
+        let source = TestSource::new(&db, "{% else %}content".to_string());
+        let ast = parse_test_template(&db, source);
+        let errors = TagValidator::new(&db, ast).validate();
         assert_eq!(errors.len(), 1);
         match &errors[0] {
             AstError::OrphanedTag { tag, .. } => assert_eq!(tag, "else"),
@@ -370,34 +420,34 @@ mod tests {
 
     #[test]
     fn test_nested_blocks() {
-        let source = "{% if x %}{% for i in items %}{{ i }}{% endfor %}{% endif %}";
-        let ast = parse_test_template(source);
-        let tag_specs = load_test_tagspecs();
-
-        let errors = validate_template(ast, tag_specs);
-
+        let db = TestDatabase::new();
+        let source = TestSource::new(
+            &db,
+            "{% if x %}{% for i in items %}{{ i }}{% endfor %}{% endif %}".to_string(),
+        );
+        let ast = parse_test_template(&db, source);
+        let errors = TagValidator::new(&db, ast).validate();
         assert!(errors.is_empty());
     }
 
     #[test]
     fn test_complex_if_elif_else() {
-        let source = "{% if x %}a{% elif y %}b{% else %}c{% endif %}";
-        let ast = parse_test_template(source);
-        let tag_specs = load_test_tagspecs();
-
-        let errors = validate_template(ast, tag_specs);
-
+        let db = TestDatabase::new();
+        let source = TestSource::new(
+            &db,
+            "{% if x %}a{% elif y %}b{% else %}c{% endif %}".to_string(),
+        );
+        let ast = parse_test_template(&db, source);
+        let errors = TagValidator::new(&db, ast).validate();
         assert!(errors.is_empty());
     }
 
     #[test]
     fn test_missing_required_arguments() {
-        let source = "{% load %}"; // load requires at least one argument
-        let ast = parse_test_template(source);
-        let tag_specs = load_test_tagspecs();
-
-        let errors = validate_template(ast, tag_specs);
-
+        let db = TestDatabase::new();
+        let source = TestSource::new(&db, "{% load %}".to_string());
+        let ast = parse_test_template(&db, source);
+        let errors = TagValidator::new(&db, ast).validate();
         assert!(!errors.is_empty());
         assert!(errors
             .iter()
@@ -406,34 +456,34 @@ mod tests {
 
     #[test]
     fn test_unnamed_endblock_closes_nearest_block() {
-        let source = "{% block outer %}{% if x %}{% block inner %}test{% endblock %}{% endif %}{% endblock %}";
-        let ast = parse_test_template(source);
-        let tag_specs = load_test_tagspecs();
-
-        let errors = validate_template(ast, tag_specs);
-
+        let db = TestDatabase::new();
+        let source = TestSource::new(&db, "{% block outer %}{% if x %}{% block inner %}test{% endblock %}{% endif %}{% endblock %}".to_string());
+        let ast = parse_test_template(&db, source);
+        let errors = TagValidator::new(&db, ast).validate();
         assert!(errors.is_empty());
     }
 
     #[test]
     fn test_named_endblock_matches_named_block() {
-        let source = "{% block content %}{% if x %}test{% endif %}{% endblock content %}";
-        let ast = parse_test_template(source);
-        let tag_specs = load_test_tagspecs();
-
-        let errors = validate_template(ast, tag_specs);
-
+        let db = TestDatabase::new();
+        let source = TestSource::new(
+            &db,
+            "{% block content %}{% if x %}test{% endif %}{% endblock content %}".to_string(),
+        );
+        let ast = parse_test_template(&db, source);
+        let errors = TagValidator::new(&db, ast).validate();
         assert!(errors.is_empty());
     }
 
     #[test]
     fn test_mismatched_block_names() {
-        let source = "{% block content %}test{% endblock footer %}";
-        let ast = parse_test_template(source);
-        let tag_specs = load_test_tagspecs();
-
-        let errors = validate_template(ast, tag_specs);
-
+        let db = TestDatabase::new();
+        let source = TestSource::new(
+            &db,
+            "{% block content %}test{% endblock footer %}".to_string(),
+        );
+        let ast = parse_test_template(&db, source);
+        let errors = TagValidator::new(&db, ast).validate();
         assert!(!errors.is_empty());
         assert!(errors
             .iter()
@@ -442,13 +492,13 @@ mod tests {
 
     #[test]
     fn test_unclosed_tags_with_unnamed_endblock() {
-        let source = "{% block content %}{% if x %}test{% endblock %}";
-        let ast = parse_test_template(source);
-        let tag_specs = load_test_tagspecs();
-
-        let errors = validate_template(ast, tag_specs);
-
-        // Should report unclosed if
+        let db = TestDatabase::new();
+        let source = TestSource::new(
+            &db,
+            "{% block content %}{% if x %}test{% endblock %}".to_string(),
+        );
+        let ast = parse_test_template(&db, source);
+        let errors = TagValidator::new(&db, ast).validate();
         assert!(!errors.is_empty());
         assert!(errors
             .iter()

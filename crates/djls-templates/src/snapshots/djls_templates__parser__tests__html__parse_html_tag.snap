@@ -1,12 +1,12 @@
 ---
 source: crates/djls-templates/src/parser.rs
-expression: nodelist
+expression: test_ast
 ---
 nodelist:
-  - Text:
-      content: "<div class=\"container\">Hello</div>"
-      span:
-        start: 0
-        length: 34
+  - type: Text
+    content: "<div class=\"container\">Hello</div>"
+    span:
+      - 0
+      - 34
 line_offsets:
   - 0

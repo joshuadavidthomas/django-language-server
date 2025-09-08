@@ -1,137 +1,137 @@
 ---
 source: crates/djls-templates/src/parser.rs
-expression: nodelist
+expression: test_ast
 ---
 nodelist:
-  - Text:
-      content: "Welcome,"
-      span:
-        start: 0
-        length: 8
-  - Tag:
-      name: if
-      bits:
-        - user.is_authenticated
-      span:
-        start: 9
-        length: 24
-  - Variable:
-      var: user.name
-      filters:
-        - title
-        - "default:'Guest'"
-      span:
-        start: 44
-        length: 31
-  - Tag:
-      name: for
-      bits:
-        - group
-        - in
-        - user.groups
-      span:
-        start: 86
-        length: 24
-  - Tag:
-      name: if
-      bits:
-        - forloop.first
-      span:
-        start: 125
-        length: 16
-  - Text:
-      content: (
-      span:
-        start: 147
-        length: 1
-  - Tag:
-      name: endif
-      bits: []
-      span:
-        start: 148
-        length: 5
-  - Variable:
-      var: group.name
-      filters: []
-      span:
-        start: 168
-        length: 10
-  - Tag:
-      name: if
-      bits:
-        - not
-        - forloop.last
-      span:
-        start: 193
-        length: 19
-  - Text:
-      content: ","
-      span:
-        start: 218
-        length: 1
-  - Tag:
-      name: endif
-      bits: []
-      span:
-        start: 220
-        length: 5
-  - Tag:
-      name: if
-      bits:
-        - forloop.last
-      span:
-        start: 240
-        length: 15
-  - Text:
-      content: )
-      span:
-        start: 261
-        length: 1
-  - Tag:
-      name: endif
-      bits: []
-      span:
-        start: 262
-        length: 5
-  - Tag:
-      name: empty
-      bits: []
-      span:
-        start: 278
-        length: 5
-  - Text:
-      content: (no groups)
-      span:
-        start: 298
-        length: 11
-  - Tag:
-      name: endfor
-      bits: []
-      span:
-        start: 314
-        length: 6
-  - Tag:
-      name: else
-      bits: []
-      span:
-        start: 327
-        length: 4
-  - Text:
-      content: Guest
-      span:
-        start: 342
-        length: 5
-  - Tag:
-      name: endif
-      bits: []
-      span:
-        start: 348
-        length: 5
-  - Text:
-      content: "!"
-      span:
-        start: 359
-        length: 1
+  - type: Text
+    content: "Welcome,"
+    span:
+      - 0
+      - 8
+  - type: Tag
+    name: if
+    bits:
+      - user.is_authenticated
+    span:
+      - 9
+      - 24
+  - type: Variable
+    var: user.name
+    filters:
+      - title
+      - "default:'Guest'"
+    span:
+      - 44
+      - 31
+  - type: Tag
+    name: for
+    bits:
+      - group
+      - in
+      - user.groups
+    span:
+      - 86
+      - 24
+  - type: Tag
+    name: if
+    bits:
+      - forloop.first
+    span:
+      - 125
+      - 16
+  - type: Text
+    content: (
+    span:
+      - 147
+      - 1
+  - type: Tag
+    name: endif
+    bits: []
+    span:
+      - 148
+      - 5
+  - type: Variable
+    var: group.name
+    filters: []
+    span:
+      - 168
+      - 10
+  - type: Tag
+    name: if
+    bits:
+      - not
+      - forloop.last
+    span:
+      - 193
+      - 19
+  - type: Text
+    content: ","
+    span:
+      - 218
+      - 1
+  - type: Tag
+    name: endif
+    bits: []
+    span:
+      - 220
+      - 5
+  - type: Tag
+    name: if
+    bits:
+      - forloop.last
+    span:
+      - 240
+      - 15
+  - type: Text
+    content: )
+    span:
+      - 261
+      - 1
+  - type: Tag
+    name: endif
+    bits: []
+    span:
+      - 262
+      - 5
+  - type: Tag
+    name: empty
+    bits: []
+    span:
+      - 278
+      - 5
+  - type: Text
+    content: (no groups)
+    span:
+      - 298
+      - 11
+  - type: Tag
+    name: endfor
+    bits: []
+    span:
+      - 314
+      - 6
+  - type: Tag
+    name: else
+    bits: []
+    span:
+      - 327
+      - 4
+  - type: Text
+    content: Guest
+    span:
+      - 342
+      - 5
+  - type: Tag
+    name: endif
+    bits: []
+    span:
+      - 348
+      - 5
+  - type: Text
+    content: "!"
+    span:
+      - 359
+      - 1
 line_offsets:
   - 0
   - 40

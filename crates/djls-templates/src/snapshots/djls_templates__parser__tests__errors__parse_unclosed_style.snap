@@ -1,12 +1,12 @@
 ---
 source: crates/djls-templates/src/parser.rs
-expression: nodelist
+expression: test_ast
 ---
 nodelist:
-  - Text:
-      content: "<style>body { color: blue;"
-      span:
-        start: 0
-        length: 26
+  - type: Text
+    content: "<style>body { color: blue;"
+    span:
+      - 0
+      - 26
 line_offsets:
   - 0

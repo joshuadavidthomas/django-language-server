@@ -1,39 +1,39 @@
 ---
 source: crates/djls-templates/src/parser.rs
-expression: nodelist
+expression: test_ast
 ---
 nodelist:
-  - Tag:
-      name: for
-      bits:
-        - item
-        - in
-        - items
-      span:
-        start: 0
-        length: 17
-  - Variable:
-      var: item
-      filters: []
-      span:
-        start: 23
-        length: 4
-  - Tag:
-      name: empty
-      bits: []
-      span:
-        start: 33
-        length: 5
-  - Text:
-      content: No items
-      span:
-        start: 44
-        length: 8
-  - Tag:
-      name: endfor
-      bits: []
-      span:
-        start: 52
-        length: 6
+  - type: Tag
+    name: for
+    bits:
+      - item
+      - in
+      - items
+    span:
+      - 0
+      - 17
+  - type: Variable
+    var: item
+    filters: []
+    span:
+      - 23
+      - 4
+  - type: Tag
+    name: empty
+    bits: []
+    span:
+      - 33
+      - 5
+  - type: Text
+    content: No items
+    span:
+      - 44
+      - 8
+  - type: Tag
+    name: endfor
+    bits: []
+    span:
+      - 52
+      - 6
 line_offsets:
   - 0
