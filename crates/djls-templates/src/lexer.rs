@@ -13,7 +13,7 @@ pub struct Lexer {
 }
 
 impl Lexer {
-    pub fn new(source: &str) -> Self {
+    #[must_use] pub fn new(source: &str) -> Self {
         Lexer {
             source: String::from(source),
             chars: source.chars().collect(),

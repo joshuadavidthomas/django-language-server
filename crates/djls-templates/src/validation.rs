@@ -163,37 +163,7 @@ impl ValidationVisitor {
         let idx = self.current_index;
         // Special handling for endblock
         if name == "endblock" {
-            if !bits.is_empty() {
-                // endblock has a specific block name to close
-                let target_block_name = &bits[0];
-
-                // Find the matching block in the stack
-                let mut found_index = None;
-                for (i, tag) in self.stack.iter().enumerate().rev() {
-                    if tag.name == "block" && !tag.bits.is_empty() && tag.bits[0] == *target_block_name
-                    {
-                        found_index = Some(i);
-                        break;
-                    }
-                }
-
-                if let Some(stack_index) = found_index {
-                    // Mark any blocks after the target as unclosed
-                    while self.stack.len() > stack_index + 1 {
-                        if let Some(unclosed) = self.stack.pop() {
-                            self.unclosed_tags.push(unclosed);
-                        }
-                    }
-                    // Now pop and match the target block
-                    if let Some(opener) = self.stack.pop() {
-                        self.pairs.push((opener.node_index, idx));
-                    }
-                } else {
-                    // No matching block found - track this separately for a better error message
-                    self.unmatched_block_names
-                        .push((target_block_name.clone(), span));
-                }
-            } else {
+            if bits.is_empty() {
                 // Unnamed endblock - find the nearest block on the stack
                 let mut found_index = None;
                 for (i, tag) in self.stack.iter().enumerate().rev() {
@@ -222,6 +192,36 @@ impl ValidationVisitor {
                         span,
                         node_index: idx,
                     });
+                }
+            } else {
+                // endblock has a specific block name to close
+                let target_block_name = &bits[0];
+
+                // Find the matching block in the stack
+                let mut found_index = None;
+                for (i, tag) in self.stack.iter().enumerate().rev() {
+                    if tag.name == "block" && !tag.bits.is_empty() && tag.bits[0] == *target_block_name
+                    {
+                        found_index = Some(i);
+                        break;
+                    }
+                }
+
+                if let Some(stack_index) = found_index {
+                    // Mark any blocks after the target as unclosed
+                    while self.stack.len() > stack_index + 1 {
+                        if let Some(unclosed) = self.stack.pop() {
+                            self.unclosed_tags.push(unclosed);
+                        }
+                    }
+                    // Now pop and match the target block
+                    if let Some(opener) = self.stack.pop() {
+                        self.pairs.push((opener.node_index, idx));
+                    }
+                } else {
+                    // No matching block found - track this separately for a better error message
+                    self.unmatched_block_names
+                        .push((target_block_name.clone(), span));
                 }
             }
         } else {
@@ -881,11 +881,11 @@ mod tests {
     fn test_unnamed_endblock_with_nested_unclosed_if() {
         // Test case from issue: unnamed endblock should close the nearest block,
         // not whatever is on top of the stack
-        let source = r#"{% block content %}
+        let source = r"{% block content %}
   {% block foo %}
     {% if foo %}
   {% endblock %}
-{% endblock content %}"#;
+{% endblock content %}";
         let ast = parse_test_template(source);
         let tag_specs = load_test_tagspecs();
 
@@ -909,13 +909,13 @@ mod tests {
     #[test]
     fn test_unnamed_endblock_closes_correct_block() {
         // Test that unnamed endblock closes the right block even with nested structures
-        let source = r#"{% block outer %}
+        let source = r"{% block outer %}
   {% if condition %}
     {% block inner %}
       content
     {% endblock %}
   {% endif %}
-{% endblock %}"#;
+{% endblock %}";
         let ast = parse_test_template(source);
         let tag_specs = load_test_tagspecs();
 
