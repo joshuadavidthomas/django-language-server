@@ -61,6 +61,18 @@ impl TemplateError {
         }
     }
 
+    /// Get a diagnostic code string for this error type
+    #[must_use]
+    pub fn diagnostic_code(&self) -> &'static str {
+        match self {
+            TemplateError::Lexer(_) => "DTL-200",
+            TemplateError::Parser(_) => "DTL-100",
+            TemplateError::Validation(ast_error) => ast_error.diagnostic_code(),
+            TemplateError::Io(_) => "DTL-900",
+            TemplateError::Config(_) => "DTL-901",
+        }
+    }
+    
     #[must_use]
     pub fn code(&self) -> &'static str {
         match self {

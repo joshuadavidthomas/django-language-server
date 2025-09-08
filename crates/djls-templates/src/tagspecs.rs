@@ -49,6 +49,20 @@ impl TagSpecs {
                 .is_some_and(|intermediates| intermediates.contains(&name.to_string()))
         })
     }
+    
+    /// Get the parent tags that can contain this intermediate tag
+    #[must_use]
+    pub fn get_parent_tags_for_intermediate(&self, intermediate: &str) -> Vec<String> {
+        let mut parents = Vec::new();
+        for (opener_name, spec) in &self.0 {
+            if let Some(intermediates) = &spec.intermediates {
+                if intermediates.contains(&intermediate.to_string()) {
+                    parents.push(opener_name.clone());
+                }
+            }
+        }
+        parents
+    }
 
     /// Load specs from a TOML string
     #[allow(dead_code)]
@@ -268,28 +282,37 @@ mod tests {
             "localtime",
             "timezone",
         ];
-        let missing_tags = [
+        // These are single tags that should also be present
+        let single_tags = [
             "csrf_token",
             "cycle",
-            "debug",
             "extends",
-            "firstof",
             "include",
             "load",
-            "lorem",
             "now",
-            "querystring", // 5.1
-            "regroup",
-            "resetcycle",
             "templatetag",
             "url",
-            "widthratio",
         ];
 
         for tag in expected_tags {
             assert!(specs.get(tag).is_some(), "{tag} tag should be present");
         }
 
+        for tag in single_tags {
+            assert!(specs.get(tag).is_some(), "{tag} tag should be present");
+        }
+        
+        // Check that some tags are still missing
+        let missing_tags = [
+            "debug",
+            "firstof",
+            "lorem",
+            "querystring", // 5.1
+            "regroup",
+            "resetcycle",
+            "widthratio",
+        ];
+        
         for tag in missing_tags {
             assert!(
                 specs.get(tag).is_none(),

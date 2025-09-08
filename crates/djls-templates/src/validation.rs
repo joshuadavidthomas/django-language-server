@@ -1,6 +1,44 @@
+//! Django template validation using the visitor pattern.
+//!
+//! This module implements comprehensive validation for Django templates,
+//! checking for proper tag matching, argument counts, and structural correctness.
+//!
+//! ## Validation Rules
+//!
+//! The validator checks for:
+//! - Unclosed block tags (e.g., `{% if %}` without `{% endif %}`)
+//! - Mismatched tag pairs (e.g., `{% if %}...{% endfor %}`)
+//! - Orphaned intermediate tags (e.g., `{% else %}` without `{% if %}`)
+//! - Invalid argument counts based on tag specifications
+//! - Unmatched block names (e.g., `{% block content %}...{% endblock footer %}`)
+//!
+//! ## Architecture
+//!
+//! The [`ValidationVisitor`] implements the [`AstVisitor`] trait to traverse
+//! the AST and accumulate validation errors. It maintains a stack of open tags
+//! to track block nesting and validate proper closure.
+//!
+//! ## Adding New Validation Rules
+//!
+//! 1. Add the error variant to [`AstError`]
+//! 2. Add tracking state to [`ValidationVisitor`] if needed
+//! 3. Implement the check in the appropriate visitor method
+//! 4. Add test cases in the test module
+//!
+//! ## Example
+//!
+//! ```ignore
+//! use djls_templates::validation::ValidationVisitor;
+//! use djls_templates::tagspecs::TagSpecs;
+//!
+//! let tag_specs = Arc::new(TagSpecs::default());
+//! let (pairs, errors) = ValidationVisitor::match_tags(&ast, tag_specs);
+//! ```
+
 use std::sync::Arc;
 
 use crate::ast::AstError;
+use crate::ast::AstVisitor;
 use crate::ast::Node;
 use crate::ast::Span;
 use crate::tagspecs::TagSpecs;
@@ -22,7 +60,7 @@ pub struct TagPairs {
     pub orphaned_intermediates: Vec<TagInfo>,
 }
 
-pub struct TagMatcher {
+pub struct ValidationVisitor {
     stack: Vec<TagInfo>,
     pairs: Vec<(usize, usize)>,
     unclosed_tags: Vec<TagInfo>,
@@ -33,9 +71,10 @@ pub struct TagMatcher {
     missing_arguments: Vec<TagInfo>,
     too_many_arguments: Vec<TagInfo>,
     tag_specs: Arc<TagSpecs>,
+    current_index: usize,
 }
 
-impl TagMatcher {
+impl ValidationVisitor {
     #[must_use]
     pub fn new(tag_specs: Arc<TagSpecs>) -> Self {
         Self {
@@ -49,23 +88,18 @@ impl TagMatcher {
             missing_arguments: Vec::new(),
             too_many_arguments: Vec::new(),
             tag_specs,
+            current_index: 0,
         }
     }
 
     #[must_use]
     pub fn match_tags(nodes: &[Node], tag_specs: Arc<TagSpecs>) -> (TagPairs, Vec<AstError>) {
-        let mut matcher = Self::new(tag_specs);
-
-        for (idx, node) in nodes.iter().enumerate() {
-            if let Node::Tag { name, bits, span } = node {
-                matcher.process_tag(idx, name.as_str(), bits, *span);
-            }
-        }
-
-        matcher.finalize()
+        let visitor = Self::new(tag_specs);
+        visitor.visit_nodes(nodes)
     }
 
-    fn process_tag(&mut self, idx: usize, name: &str, bits: &[String], span: Span) {
+    fn process_tag(&mut self, name: &str, bits: &[String], span: Span) {
+        let idx = self.current_index;
         // Check argument requirements first
         if let Some(spec) = self.tag_specs.get(name) {
             if let Some(arg_spec) = &spec.args {
@@ -104,9 +138,9 @@ impl TagMatcher {
                 node_index: idx,
             });
         } else if self.is_closer(name) {
-            self.handle_closer(idx, name, bits, span);
+            self.handle_closer(name, bits, span);
         } else if self.is_intermediate(name) {
-            self.handle_intermediate(idx, name, span);
+            self.handle_intermediate(name, span);
         }
     }
 
@@ -125,40 +159,73 @@ impl TagMatcher {
         self.tag_specs.is_intermediate(name)
     }
 
-    fn handle_closer(&mut self, idx: usize, name: &str, bits: &[String], span: Span) {
-        // Special handling for endblock with optional block name
-        if name == "endblock" && !bits.is_empty() {
-            // endblock has a specific block name to close
-            let target_block_name = &bits[0];
+    fn handle_closer(&mut self, name: &str, bits: &[String], span: Span) {
+        let idx = self.current_index;
+        // Special handling for endblock
+        if name == "endblock" {
+            if !bits.is_empty() {
+                // endblock has a specific block name to close
+                let target_block_name = &bits[0];
 
-            // Find the matching block in the stack
-            let mut found_index = None;
-            for (i, tag) in self.stack.iter().enumerate().rev() {
-                if tag.name == "block" && !tag.bits.is_empty() && tag.bits[0] == *target_block_name
-                {
-                    found_index = Some(i);
-                    break;
-                }
-            }
-
-            if let Some(stack_index) = found_index {
-                // Mark any blocks after the target as unclosed
-                while self.stack.len() > stack_index + 1 {
-                    if let Some(unclosed) = self.stack.pop() {
-                        self.unclosed_tags.push(unclosed);
+                // Find the matching block in the stack
+                let mut found_index = None;
+                for (i, tag) in self.stack.iter().enumerate().rev() {
+                    if tag.name == "block" && !tag.bits.is_empty() && tag.bits[0] == *target_block_name
+                    {
+                        found_index = Some(i);
+                        break;
                     }
                 }
-                // Now pop and match the target block
-                if let Some(opener) = self.stack.pop() {
-                    self.pairs.push((opener.node_index, idx));
+
+                if let Some(stack_index) = found_index {
+                    // Mark any blocks after the target as unclosed
+                    while self.stack.len() > stack_index + 1 {
+                        if let Some(unclosed) = self.stack.pop() {
+                            self.unclosed_tags.push(unclosed);
+                        }
+                    }
+                    // Now pop and match the target block
+                    if let Some(opener) = self.stack.pop() {
+                        self.pairs.push((opener.node_index, idx));
+                    }
+                } else {
+                    // No matching block found - track this separately for a better error message
+                    self.unmatched_block_names
+                        .push((target_block_name.clone(), span));
                 }
             } else {
-                // No matching block found - track this separately for a better error message
-                self.unmatched_block_names
-                    .push((target_block_name.clone(), span));
+                // Unnamed endblock - find the nearest block on the stack
+                let mut found_index = None;
+                for (i, tag) in self.stack.iter().enumerate().rev() {
+                    if tag.name == "block" {
+                        found_index = Some(i);
+                        break;
+                    }
+                }
+
+                if let Some(stack_index) = found_index {
+                    // Mark any tags after the block as unclosed
+                    while self.stack.len() > stack_index + 1 {
+                        if let Some(unclosed) = self.stack.pop() {
+                            self.unclosed_tags.push(unclosed);
+                        }
+                    }
+                    // Now pop and match the block
+                    if let Some(opener) = self.stack.pop() {
+                        self.pairs.push((opener.node_index, idx));
+                    }
+                } else {
+                    // No block found on stack - treat as unexpected closer
+                    self.unexpected_closers.push(TagInfo {
+                        name: name.to_string(),
+                        bits: bits.to_vec(),
+                        span,
+                        node_index: idx,
+                    });
+                }
             }
         } else {
-            // Normal closer handling
+            // Normal closer handling for non-endblock tags
             if let Some(opener) = self.stack.pop() {
                 let expected_closer = self.expected_closer(&opener.name);
 
@@ -186,16 +253,21 @@ impl TagMatcher {
         }
     }
 
-    fn handle_intermediate(&mut self, idx: usize, name: &str, span: Span) {
-        // Check if this intermediate has a valid context on the stack
+    fn handle_intermediate(&mut self, name: &str, span: Span) {
+        let idx = self.current_index;
+        // Check if this intermediate has a valid context on the stack using TagSpecs
+        // NO HARDCODING - check which opener this intermediate belongs to
         let has_valid_context = if self.stack.is_empty() {
             false
         } else {
             let last = self.stack.last().unwrap();
-            match name {
-                "elif" | "elseif" | "else" if last.name == "if" => true,
-                "empty" if last.name == "for" => true,
-                _ => false,
+            // Check if the current tag on stack has this intermediate in its spec
+            if let Some(spec) = self.tag_specs.get(&last.name) {
+                spec.intermediates
+                    .as_ref()
+                    .is_some_and(|intermediates| intermediates.contains(&name.to_string()))
+            } else {
+                false
             }
         };
 
@@ -264,11 +336,28 @@ impl TagMatcher {
 
         // Convert orphaned intermediates to errors
         for tag in &self.orphaned_intermediates {
-            let context = match tag.name.as_str() {
-                "elif" | "elseif" | "else" => "must appear between 'if' and 'endif'".to_string(),
-                "empty" => "must appear between 'for' and 'endfor'".to_string(),
-                _ => "appears outside its required context".to_string(),
+            // Find which opener(s) this intermediate belongs to using TagSpecs
+            let parent_tags = self.tag_specs.get_parent_tags_for_intermediate(&tag.name);
+            
+            let context = if parent_tags.is_empty() {
+                "appears outside its required context".to_string()
+            } else if parent_tags.len() == 1 {
+                let parent = &parent_tags[0];
+                if let Some(spec) = self.tag_specs.get(parent) {
+                    if let Some(end_tag) = &spec.end {
+                        format!("must appear between '{}' and '{}'", parent, end_tag.tag)
+                    } else {
+                        format!("must appear within '{parent}' block")
+                    }
+                } else {
+                    "appears outside its required context".to_string()
+                }
+            } else {
+                // Multiple possible parent tags
+                let parents = parent_tags.join("' or '");
+                format!("must appear within '{parents}' block")
             };
+            
             errors.push(AstError::OrphanedTag {
                 tag: tag.name.clone(),
                 context,
@@ -318,13 +407,46 @@ impl TagMatcher {
     }
 }
 
+impl AstVisitor for ValidationVisitor {
+    type Output = (TagPairs, Vec<AstError>);
+
+    fn visit_node(&mut self, node: &Node) {
+        match node {
+            Node::Tag { name, bits, span } => {
+                self.visit_tag(name, bits, *span);
+                self.current_index += 1;
+            }
+            _ => {
+                // For non-tag nodes, we still need to increment the index
+                // to maintain proper node indexing
+                self.current_index += 1;
+            }
+        }
+    }
+
+    fn visit_tag(&mut self, name: &str, bits: &[String], span: Span) {
+        self.process_tag(name, bits, span);
+    }
+
+    fn finish(self) -> Self::Output {
+        self.finalize()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parse_template;
+    use crate::{Ast, Lexer, Parser};
     use crate::tagspecs::TagSpecs;
-    use crate::validation::TagMatcher;
+    use crate::validation::ValidationVisitor;
     use std::sync::Arc;
+
+    fn parse_test_template(source: &str) -> Ast {
+        let tokens = Lexer::new(source).tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+        let (ast, _) = parser.parse().unwrap();
+        ast
+    }
 
     fn load_test_tagspecs() -> Arc<TagSpecs> {
         let toml_str = include_str!("../tagspecs/django.toml");
@@ -334,10 +456,10 @@ mod tests {
     #[test]
     fn test_match_simple_if_endif() {
         let source = "{% if x %}content{% endif %}";
-        let (ast, _) = crate::parse_template(source).unwrap();
+        let ast = parse_test_template(source);
         let tag_specs = load_test_tagspecs();
 
-        let (pairs, errors) = TagMatcher::match_tags(ast.nodelist(), tag_specs);
+        let (pairs, errors) = ValidationVisitor::match_tags(ast.nodelist(), tag_specs);
 
         assert!(errors.is_empty());
         assert_eq!(pairs.matched_pairs.len(), 1);
@@ -348,10 +470,10 @@ mod tests {
     #[test]
     fn test_unclosed_if() {
         let source = "{% if x %}content";
-        let (ast, _) = crate::parse_template(source).unwrap();
+        let ast = parse_test_template(source);
         let tag_specs = load_test_tagspecs();
 
-        let (pairs, errors) = TagMatcher::match_tags(ast.nodelist(), tag_specs);
+        let (pairs, errors) = ValidationVisitor::match_tags(ast.nodelist(), tag_specs);
 
         assert_eq!(errors.len(), 1);
         assert!(matches!(errors[0], AstError::UnclosedTag { .. }));
@@ -361,10 +483,10 @@ mod tests {
     #[test]
     fn test_unexpected_endif() {
         let source = "content{% endif %}";
-        let (ast, _) = crate::parse_template(source).unwrap();
+        let ast = parse_test_template(source);
         let tag_specs = load_test_tagspecs();
 
-        let (pairs, errors) = TagMatcher::match_tags(ast.nodelist(), tag_specs);
+        let (pairs, errors) = ValidationVisitor::match_tags(ast.nodelist(), tag_specs);
 
         assert_eq!(errors.len(), 1);
         assert!(matches!(errors[0], AstError::UnbalancedStructure { .. }));
@@ -374,10 +496,10 @@ mod tests {
     #[test]
     fn test_mismatched_tags() {
         let source = "{% if x %}{% endfor %}";
-        let (ast, _) = crate::parse_template(source).unwrap();
+        let ast = parse_test_template(source);
         let tag_specs = load_test_tagspecs();
 
-        let (pairs, errors) = TagMatcher::match_tags(ast.nodelist(), tag_specs);
+        let (pairs, errors) = ValidationVisitor::match_tags(ast.nodelist(), tag_specs);
 
         assert_eq!(errors.len(), 1);
         assert!(matches!(errors[0], AstError::UnbalancedStructure { .. }));
@@ -387,10 +509,10 @@ mod tests {
     #[test]
     fn test_nested_blocks() {
         let source = "{% if x %}{% for item in items %}{{ item }}{% endfor %}{% endif %}";
-        let (ast, _) = crate::parse_template(source).unwrap();
+        let ast = parse_test_template(source);
         let tag_specs = load_test_tagspecs();
 
-        let (pairs, errors) = TagMatcher::match_tags(ast.nodelist(), tag_specs);
+        let (pairs, errors) = ValidationVisitor::match_tags(ast.nodelist(), tag_specs);
 
         assert!(errors.is_empty());
         assert_eq!(pairs.matched_pairs.len(), 2);
@@ -399,10 +521,10 @@ mod tests {
     #[test]
     fn test_if_elif_else_endif() {
         let source = "{% if x %}a{% elif y %}b{% else %}c{% endif %}";
-        let (ast, _) = crate::parse_template(source).unwrap();
+        let ast = parse_test_template(source);
         let tag_specs = load_test_tagspecs();
 
-        let (pairs, errors) = TagMatcher::match_tags(ast.nodelist(), tag_specs);
+        let (pairs, errors) = ValidationVisitor::match_tags(ast.nodelist(), tag_specs);
 
         assert!(errors.is_empty());
         assert_eq!(pairs.matched_pairs.len(), 1);
@@ -412,10 +534,10 @@ mod tests {
     fn test_nested_blocks_with_named_endblock() {
         // Test case: inner block is unclosed, outer block is closed with its name
         let source = "{% block content %}{% block test %}{% endblock content %}";
-        let (ast, _) = crate::parse_template(source).unwrap();
+        let ast = parse_test_template(source);
         let tag_specs = load_test_tagspecs();
 
-        let (pairs, errors) = TagMatcher::match_tags(ast.nodelist(), tag_specs);
+        let (pairs, errors) = ValidationVisitor::match_tags(ast.nodelist(), tag_specs);
 
         // Should have one error for the unclosed inner block
         assert_eq!(errors.len(), 1);
@@ -469,10 +591,10 @@ mod tests {
     fn test_unmatched_endblock_name() {
         // Test case: endblock with a name that doesn't match any open block
         let source = "{% block test %}content{% endblock wrong %}";
-        let (ast, _) = crate::parse_template(source).unwrap();
+        let ast = parse_test_template(source);
         let tag_specs = load_test_tagspecs();
 
-        let (pairs, errors) = TagMatcher::match_tags(ast.nodelist(), tag_specs);
+        let (pairs, errors) = ValidationVisitor::match_tags(ast.nodelist(), tag_specs);
 
         // Should have two errors: unmatched block name and unclosed block
         assert_eq!(errors.len(), 2);
@@ -506,10 +628,10 @@ mod tests {
     {% endblock fsdfsa %}
     {% endblock test %}
     ";
-        let (ast, _) = crate::parse_template(source).unwrap();
+        let ast = parse_test_template(source);
         let tag_specs = load_test_tagspecs();
 
-        let (_pairs, errors) = TagMatcher::match_tags(ast.nodelist(), tag_specs);
+        let (_pairs, errors) = ValidationVisitor::match_tags(ast.nodelist(), tag_specs);
 
         // Should have 3 errors:
         // 1. Orphaned else tag (outside if context)
@@ -543,10 +665,10 @@ mod tests {
     fn test_else_after_endif() {
         // Test case: else appears after endif (outside of if block)
         let source = "{% if test %}content{% endif %}{% else %}other";
-        let (ast, _) = crate::parse_template(source).unwrap();
+        let ast = parse_test_template(source);
         let tag_specs = load_test_tagspecs();
 
-        let (pairs, errors) = TagMatcher::match_tags(ast.nodelist(), tag_specs);
+        let (pairs, errors) = ValidationVisitor::match_tags(ast.nodelist(), tag_specs);
 
         // Should have one error for the misplaced else
         assert_eq!(errors.len(), 1);
@@ -563,10 +685,10 @@ mod tests {
     fn test_elif_after_endif() {
         // Test case: elif appears after endif (outside of if block)
         let source = "{% if test %}content{% endif %}{% elif other %}other";
-        let (ast, _) = crate::parse_template(source).unwrap();
+        let ast = parse_test_template(source);
         let tag_specs = load_test_tagspecs();
 
-        let (pairs, errors) = TagMatcher::match_tags(ast.nodelist(), tag_specs);
+        let (pairs, errors) = ValidationVisitor::match_tags(ast.nodelist(), tag_specs);
 
         // Should have one error for the misplaced elif
         assert_eq!(errors.len(), 1);
@@ -583,10 +705,10 @@ mod tests {
     fn test_else_in_wrong_context() {
         // Test case: else appears inside a for block (wrong context)
         let source = "{% for item in items %}{% else %}{% endfor %}";
-        let (ast, _) = crate::parse_template(source).unwrap();
+        let ast = parse_test_template(source);
         let tag_specs = load_test_tagspecs();
 
-        let (pairs, errors) = TagMatcher::match_tags(ast.nodelist(), tag_specs);
+        let (pairs, errors) = ValidationVisitor::match_tags(ast.nodelist(), tag_specs);
 
         // Should have one error for else in wrong context
         assert_eq!(errors.len(), 1);
@@ -603,10 +725,10 @@ mod tests {
     fn test_empty_outside_for() {
         // Test case: empty appears outside of for block
         let source = "{% if test %}content{% endif %}{% empty %}";
-        let (ast, _) = crate::parse_template(source).unwrap();
+        let ast = parse_test_template(source);
         let tag_specs = load_test_tagspecs();
 
-        let (pairs, errors) = TagMatcher::match_tags(ast.nodelist(), tag_specs);
+        let (pairs, errors) = ValidationVisitor::match_tags(ast.nodelist(), tag_specs);
 
         // Should have one error for the misplaced empty
         assert_eq!(errors.len(), 1);
@@ -624,10 +746,10 @@ mod tests {
         // Test case: else appears after endif but inside a block
         // This was the user's specific example that was showing wrong error location
         let source = "{% block test %}{% if test %}{% endif %}{% else %}{% endblock %}";
-        let (ast, _) = crate::parse_template(source).unwrap();
+        let ast = parse_test_template(source);
         let tag_specs = load_test_tagspecs();
 
-        let (pairs, errors) = TagMatcher::match_tags(ast.nodelist(), tag_specs);
+        let (pairs, errors) = ValidationVisitor::match_tags(ast.nodelist(), tag_specs);
 
         // Should have one error for the misplaced else
         assert_eq!(errors.len(), 1, "Expected exactly one error");
@@ -658,10 +780,10 @@ mod tests {
     #[test]
     fn test_for_empty_endfor() {
         let source = "{% for item in items %}{{ item }}{% empty %}none{% endfor %}";
-        let (ast, _) = crate::parse_template(source).unwrap();
+        let ast = parse_test_template(source);
         let tag_specs = load_test_tagspecs();
 
-        let (pairs, errors) = TagMatcher::match_tags(ast.nodelist(), tag_specs);
+        let (pairs, errors) = ValidationVisitor::match_tags(ast.nodelist(), tag_specs);
 
         assert!(errors.is_empty());
         assert_eq!(pairs.matched_pairs.len(), 1);
@@ -670,10 +792,10 @@ mod tests {
     #[test]
     fn test_block_missing_arguments() {
         let source = "{% block %}content{% endblock %}";
-        let (ast, _) = crate::parse_template(source).unwrap();
+        let ast = parse_test_template(source);
         let tag_specs = load_test_tagspecs();
 
-        let (_, errors) = TagMatcher::match_tags(ast.nodelist(), tag_specs);
+        let (_, errors) = ValidationVisitor::match_tags(ast.nodelist(), tag_specs);
 
         // Should have error for missing block name
         assert_eq!(errors.len(), 1, "Expected exactly one error");
@@ -690,10 +812,10 @@ mod tests {
     #[test]
     fn test_extends_missing_arguments() {
         let source = "{% extends %}";
-        let (ast, _) = crate::parse_template(source).unwrap();
+        let ast = parse_test_template(source);
         let tag_specs = load_test_tagspecs();
 
-        let (_, errors) = TagMatcher::match_tags(ast.nodelist(), tag_specs);
+        let (_, errors) = ValidationVisitor::match_tags(ast.nodelist(), tag_specs);
 
         // Should have error for missing template name
         assert_eq!(errors.len(), 1);
@@ -707,10 +829,10 @@ mod tests {
     #[test]
     fn test_csrf_token_with_arguments() {
         let source = "{% csrf_token some_arg %}";
-        let (ast, _) = crate::parse_template(source).unwrap();
+        let ast = parse_test_template(source);
         let tag_specs = load_test_tagspecs();
 
-        let (_, errors) = TagMatcher::match_tags(ast.nodelist(), tag_specs);
+        let (_, errors) = ValidationVisitor::match_tags(ast.nodelist(), tag_specs);
 
         // Should have error for too many arguments (csrf_token takes none)
         assert_eq!(errors.len(), 1);
@@ -724,10 +846,10 @@ mod tests {
     #[test]
     fn test_block_too_many_arguments() {
         let source = "{% block content extra %}content{% endblock %}";
-        let (ast, _) = parse_template(source).unwrap();
+        let ast = parse_test_template(source);
         let tag_specs = load_test_tagspecs();
 
-        let (_, errors) = TagMatcher::match_tags(ast.nodelist(), tag_specs);
+        let (_, errors) = ValidationVisitor::match_tags(ast.nodelist(), tag_specs);
 
         // Should have error for too many arguments
         assert_eq!(errors.len(), 1);
@@ -741,10 +863,10 @@ mod tests {
     #[test]
     fn test_load_missing_arguments() {
         let source = "{% load %}";
-        let (ast, _) = parse_template(source).unwrap();
+        let ast = parse_test_template(source);
         let tag_specs = load_test_tagspecs();
 
-        let (_, errors) = TagMatcher::match_tags(ast.nodelist(), tag_specs);
+        let (_, errors) = ValidationVisitor::match_tags(ast.nodelist(), tag_specs);
 
         // Should have error for missing library name
         assert_eq!(errors.len(), 1);
@@ -753,5 +875,59 @@ mod tests {
             crate::ast::AstError::MissingRequiredArguments { tag, min, .. }
             if tag == "load" && *min == 1
         ));
+    }
+
+    #[test]
+    fn test_unnamed_endblock_with_nested_unclosed_if() {
+        // Test case from issue: unnamed endblock should close the nearest block,
+        // not whatever is on top of the stack
+        let source = r#"{% block content %}
+  {% block foo %}
+    {% if foo %}
+  {% endblock %}
+{% endblock content %}"#;
+        let ast = parse_test_template(source);
+        let tag_specs = load_test_tagspecs();
+
+        let (pairs, errors) = ValidationVisitor::match_tags(ast.nodelist(), tag_specs);
+
+        // Should have exactly one error: unclosed if
+        assert_eq!(errors.len(), 1, "Expected exactly one error for unclosed if");
+        assert!(
+            matches!(&errors[0], AstError::UnclosedTag { ref tag, .. } if tag == "if"),
+            "Error should be for unclosed 'if' tag"
+        );
+
+        // Both blocks should be matched correctly
+        assert_eq!(pairs.matched_pairs.len(), 2, "Both block tags should be matched");
+        
+        // The if should be in unclosed_tags
+        assert_eq!(pairs.unclosed_tags.len(), 1);
+        assert_eq!(pairs.unclosed_tags[0].name, "if");
+    }
+
+    #[test]
+    fn test_unnamed_endblock_closes_correct_block() {
+        // Test that unnamed endblock closes the right block even with nested structures
+        let source = r#"{% block outer %}
+  {% if condition %}
+    {% block inner %}
+      content
+    {% endblock %}
+  {% endif %}
+{% endblock %}"#;
+        let ast = parse_test_template(source);
+        let tag_specs = load_test_tagspecs();
+
+        let (pairs, errors) = ValidationVisitor::match_tags(ast.nodelist(), tag_specs);
+
+        // Should have no errors
+        assert!(errors.is_empty(), "Should have no validation errors");
+
+        // All tags should be matched correctly
+        assert_eq!(pairs.matched_pairs.len(), 3, "All three pairs should be matched");
+        assert!(pairs.unclosed_tags.is_empty());
+        assert!(pairs.unexpected_closers.is_empty());
+        assert!(pairs.mismatched_pairs.is_empty());
     }
 }

@@ -2,10 +2,8 @@ use std::future::Future;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use djls_templates::ast::LineOffsets;
-use djls_templates::db::diagnostic_to_lsp;
-use djls_templates::db::parse_and_validate_template;
-use djls_templates::db::Diagnostic;
+use djls_templates::analyze_template;
+use djls_templates::TemplateDiagnostic;
 use djls_workspace::paths;
 use djls_workspace::FileKind;
 use tokio::sync::Mutex;
@@ -111,27 +109,17 @@ impl DjangoLanguageServer {
                 // Get diagnostics using the accumulator API
                 session.with_db(|db| {
                     // Parse and validate the template (triggers accumulation)
-                    let ast = parse_and_validate_template(db, file);
+                    let _ast = analyze_template(db, file);
                     
-                    // Get accumulated diagnostics directly
+                    // Get accumulated diagnostics directly - they're already LSP diagnostics!
                     let diagnostics = 
-                        parse_and_validate_template::accumulated::<Diagnostic>(db, file);
+                        analyze_template::accumulated::<TemplateDiagnostic>(db, file);
                     
-                    // Convert to LSP diagnostics
-                    if let Some(ast) = ast.as_ref() {
-                        let line_offsets = ast.line_offsets();
-                        diagnostics
-                            .iter()
-                            .map(|diag| diagnostic_to_lsp(diag, line_offsets))
-                            .collect()
-                    } else {
-                        // No AST means fatal parse error - still convert diagnostics
-                        let line_offsets = LineOffsets::new("");
-                        diagnostics
-                            .iter()
-                            .map(|diag| diagnostic_to_lsp(diag, &line_offsets))
-                            .collect()
-                    }
+                    // Convert from TemplateDiagnostic wrapper to lsp_types::Diagnostic
+                    diagnostics
+                        .into_iter()
+                        .map(Into::into)
+                        .collect()
                 })
             })
             .await;
@@ -326,24 +314,19 @@ impl LanguageServer for DjangoLanguageServer {
     async fn did_change(&self, params: lsp_types::DidChangeTextDocumentParams) {
         tracing::info!("Changed document: {:?}", params.text_document.uri);
 
-        let url = self
-            .with_session_mut(|session| {
-                let Some(url) =
-                    paths::parse_lsp_uri(&params.text_document.uri, paths::LspContext::DidChange)
-                else {
-                    return None; // Error parsing uri (unlikely), skip processing this change
-                };
+        self.with_session_mut(|session| {
+            let Some(url) =
+                paths::parse_lsp_uri(&params.text_document.uri, paths::LspContext::DidChange)
+            else {
+                return None; // Error parsing uri (unlikely), skip processing this change
+            };
 
-                session.update_document(&url, params.content_changes, params.text_document.version);
-                Some(url)
-            })
-            .await;
+            session.update_document(&url, params.content_changes, params.text_document.version);
+            Some(url)
+        })
+        .await;
 
-        // Publish diagnostics for template files
-        if let Some(url) = url {
-            self.publish_template_diagnostics(&url, Some(params.text_document.version))
-                .await;
-        }
+        // Don't publish diagnostics on change - wait for save to reduce noise
     }
 
     async fn did_close(&self, params: lsp_types::DidCloseTextDocumentParams) {
@@ -478,27 +461,17 @@ impl LanguageServer for DjangoLanguageServer {
                     };
 
                     // Parse and validate the template (triggers accumulation)
-                    let ast = parse_and_validate_template(db, file);
+                    let _ast = analyze_template(db, file);
                     
-                    // Get accumulated diagnostics directly
+                    // Get accumulated diagnostics directly - they're already LSP diagnostics!
                     let diagnostics = 
-                        parse_and_validate_template::accumulated::<Diagnostic>(db, file);
+                        analyze_template::accumulated::<TemplateDiagnostic>(db, file);
                     
-                    // Convert to LSP diagnostics
-                    if let Some(ast) = ast.as_ref() {
-                        let line_offsets = ast.line_offsets();
-                        diagnostics
-                            .iter()
-                            .map(|diag| diagnostic_to_lsp(diag, line_offsets))
-                            .collect()
-                    } else {
-                        // No AST means fatal parse error - still convert diagnostics
-                        let line_offsets = LineOffsets::new("");
-                        diagnostics
-                            .iter()
-                            .map(|diag| diagnostic_to_lsp(diag, &line_offsets))
-                            .collect()
-                    }
+                    // Convert from TemplateDiagnostic wrapper to lsp_types::Diagnostic
+                    diagnostics
+                        .into_iter()
+                        .map(Into::into)
+                        .collect()
                 })
             })
             .await;

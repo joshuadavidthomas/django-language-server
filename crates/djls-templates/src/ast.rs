@@ -1,3 +1,34 @@
+//! Abstract Syntax Tree (AST) definitions and visitor pattern for Django templates.
+//!
+//! This module provides the core AST representation for parsed Django templates,
+//! along with a visitor pattern implementation for traversing and analyzing the tree.
+//!
+//! ## Key Types
+//!
+//! - [`Ast`]: The root AST structure containing the node list and line offsets
+//! - [`Node`]: Individual AST nodes (tags, variables, text, comments)
+//! - [`AstVisitor`]: Trait for implementing custom AST traversal logic
+//! - [`Span`]: Source position information for error reporting
+//!
+//! ## Visitor Pattern
+//!
+//! The visitor pattern allows for flexible AST traversal without modifying the AST structure.
+//! To implement a custom visitor:
+//!
+//! ```ignore
+//! struct MyVisitor;
+//!
+//! impl AstVisitor for MyVisitor {
+//!     fn visit_tag(&mut self, name: &str, bits: &[String], span: Option<Span>) {
+//!         // Process Django tags
+//!     }
+//!     
+//!     fn visit_variable(&mut self, name: &str, filters: &[String], span: Option<Span>) {
+//!         // Process Django variables
+//!     }
+//! }
+//! ```
+
 use serde::Serialize;
 use thiserror::Error;
 
@@ -42,13 +73,14 @@ impl Ast {
 pub struct LineOffsets(pub Vec<u32>);
 
 impl LineOffsets {
-    /// Create a new LineOffsets from source text
+    /// Create a new `LineOffsets` from source text
     #[must_use]
     pub fn new(text: &str) -> Self {
         let mut offsets = Self::default();
         let mut pos = 0;
         for ch in text.chars() {
             if ch == '\n' {
+                #[allow(clippy::cast_possible_truncation)]
                 offsets.add_line((pos + 1) as u32);
             }
             pos += ch.len_utf8();
@@ -201,32 +233,89 @@ impl AstError {
     pub fn span(&self) -> Option<Span> {
         match self {
             AstError::EmptyAst => None,
-            AstError::InvalidTagStructure { span, .. } => Some(*span),
             AstError::UnbalancedStructure { opening_span, .. } => Some(*opening_span),
-            AstError::InvalidNode { span, .. } => Some(*span),
-            AstError::UnclosedTag { span, .. } => Some(*span),
-            AstError::OrphanedTag { span, .. } => Some(*span),
-            AstError::UnmatchedBlockName { span, .. } => Some(*span),
-            AstError::MissingRequiredArguments { span, .. } => Some(*span),
-            AstError::TooManyArguments { span, .. } => Some(*span),
+            AstError::InvalidTagStructure { span, .. }
+            | AstError::InvalidNode { span, .. }
+            | AstError::UnclosedTag { span, .. }
+            | AstError::OrphanedTag { span, .. }
+            | AstError::UnmatchedBlockName { span, .. }
+            | AstError::MissingRequiredArguments { span, .. }
+            | AstError::TooManyArguments { span, .. } => Some(*span),
         }
     }
 
-    /// Get a numeric error code for this error type
+    /// Get a diagnostic code string for this error type
     #[must_use]
-    pub fn error_code(&self) -> u16 {
+    pub fn diagnostic_code(&self) -> &'static str {
         match self {
-            AstError::EmptyAst => 1,
-            AstError::InvalidTagStructure { .. } => 2,
-            AstError::UnbalancedStructure { .. } => 3,
-            AstError::InvalidNode { .. } => 4,
-            AstError::UnclosedTag { .. } => 5,
-            AstError::OrphanedTag { .. } => 6,
-            AstError::UnmatchedBlockName { .. } => 7,
-            AstError::MissingRequiredArguments { .. } => 8,
-            AstError::TooManyArguments { .. } => 9,
+            AstError::EmptyAst => "DTL-001",
+            AstError::InvalidTagStructure { .. } => "DTL-002",
+            AstError::UnbalancedStructure { .. } => "DTL-003",
+            AstError::InvalidNode { .. } => "DTL-004",
+            AstError::UnclosedTag { .. } => "DTL-005",
+            AstError::OrphanedTag { .. } => "DTL-006",
+            AstError::UnmatchedBlockName { .. } => "DTL-007",
+            AstError::MissingRequiredArguments { .. } => "DTL-008",
+            AstError::TooManyArguments { .. } => "DTL-009",
         }
     }
+}
+
+impl Span {
+    /// Convert this span to an LSP Range using the provided line offsets
+    #[must_use]
+    pub fn to_lsp_range(&self, line_offsets: &LineOffsets) -> tower_lsp_server::lsp_types::Range {
+        let start_pos = self.start() as usize;
+        let end_pos = (self.start() + self.length()) as usize;
+        
+        let (start_line, start_char) = line_offsets.position_to_line_col(start_pos);
+        let (end_line, end_char) = line_offsets.position_to_line_col(end_pos);
+        
+        #[allow(clippy::cast_possible_truncation)]
+        tower_lsp_server::lsp_types::Range {
+            start: tower_lsp_server::lsp_types::Position {
+                line: (start_line - 1) as u32, // LSP is 0-based, LineOffsets is 1-based
+                character: start_char as u32,
+            },
+            end: tower_lsp_server::lsp_types::Position {
+                line: (end_line - 1) as u32,
+                character: end_char as u32,
+            },
+        }
+    }
+}
+
+/// Visitor pattern for AST traversal
+pub trait AstVisitor {
+    type Output;
+
+    fn visit_nodes(mut self, nodes: &[Node]) -> Self::Output
+    where
+        Self: Sized,
+    {
+        for node in nodes {
+            self.visit_node(node);
+        }
+        self.finish()
+    }
+
+    fn visit_node(&mut self, node: &Node) {
+        match node {
+            Node::Tag { name, bits, span } => self.visit_tag(name, bits, *span),
+            Node::Variable { var, filters, span } => self.visit_variable(var, filters, *span),
+            Node::Text { content, span } => self.visit_text(content, *span),
+            Node::Comment { content, span } => self.visit_comment(content, *span),
+        }
+    }
+
+    fn visit_tag(&mut self, _name: &str, _bits: &[String], _span: Span) {}
+    fn visit_variable(&mut self, _var: &str, _filters: &[String], _span: Span) {}
+    fn visit_text(&mut self, _content: &str, _span: Span) {}
+    fn visit_comment(&mut self, _content: &str, _span: Span) {}
+
+    fn finish(self) -> Self::Output
+    where
+        Self: Sized;
 }
 
 #[cfg(test)]

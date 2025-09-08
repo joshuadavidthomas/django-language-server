@@ -163,15 +163,30 @@ impl WorkspaceDb for DjangoDatabase {
 #[salsa::db]
 impl TemplateDb for DjangoDatabase {
     fn tag_specs(&self) -> Arc<TagSpecs> {
-        // Load built-in Django tag specifications
-        // In the future, this could also merge with user-defined specs
-        static SPECS: std::sync::OnceLock<Arc<TagSpecs>> = std::sync::OnceLock::new();
-        SPECS
-            .get_or_init(|| {
-                let toml_str = include_str!("../../djls-templates/tagspecs/django.toml");
-                Arc::new(TagSpecs::from_toml(toml_str).expect("Failed to load built-in tag specs"))
-            })
-            .clone()
+        // PROPERLY use the existing TagSpecs loading infrastructure
+        // Try loading in order: user specs → built-in specs
+        
+        // Get project root from the database metadata
+        let project_root = self.metadata.root();
+        
+        // Try to load user specs using the EXISTING method
+        if let Ok(user_specs) = TagSpecs::load_user_specs(project_root) {
+            // If user specs exist and aren't empty, merge with built-in specs
+            // to allow user overrides while keeping built-in specs as fallback
+            if let Ok(mut builtin_specs) = TagSpecs::load_builtin_specs() {
+                // User specs take precedence over built-in specs
+                builtin_specs.merge(user_specs);
+                return Arc::new(builtin_specs);
+            }
+            return Arc::new(user_specs);
+        }
+        
+        // Fall back to built-in specs using the EXISTING method
+        // This should load from the tagspecs directory properly
+        Arc::new(
+            TagSpecs::load_builtin_specs()
+                .expect("Built-in specs must be valid")
+        )
     }
 }
 
