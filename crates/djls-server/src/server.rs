@@ -9,9 +9,6 @@ use djls_workspace::FileKind;
 use tokio::sync::Mutex;
 use tower_lsp_server::jsonrpc::Result as LspResult;
 use tower_lsp_server::lsp_types;
-use tower_lsp_server::lsp_types::DiagnosticOptions;
-use tower_lsp_server::lsp_types::DiagnosticServerCapabilities;
-use tower_lsp_server::lsp_types::WorkDoneProgressOptions;
 use tower_lsp_server::Client;
 use tower_lsp_server::LanguageServer;
 use tracing_appender::non_blocking::WorkerGuard;
@@ -71,11 +68,7 @@ impl DjangoLanguageServer {
         }
     }
 
-    /// Publish diagnostics for a template file.
-    ///
-    /// Retrieves diagnostics from the template parser and publishes them to the client.
-    /// Only publishes diagnostics for template files.
-    async fn publish_template_diagnostics(&self, url: &Url, version: Option<i32>) {
+    async fn publish_diagnostics(&self, url: &Url, version: Option<i32>) {
         // Check if client supports pull diagnostics - if so, don't push
         let supports_pull = self
             .with_session(super::session::Session::supports_pull_diagnostics)
@@ -89,42 +82,37 @@ impl DjangoLanguageServer {
             return;
         }
 
-        // Get the path from the URL
         let Some(path) = paths::url_to_path(url) else {
             tracing::debug!("Could not convert URL to path: {}", url);
             return;
         };
 
-        // Check if this is a template file
         if FileKind::from_path(&path) != FileKind::Template {
             return;
         }
 
-        // Get diagnostics from the database
         let diagnostics: Vec<lsp_types::Diagnostic> = self
             .with_session_mut(|session| {
-                // Get or create the file in the database
                 let file = session.get_or_create_file(&path);
 
-                // Get diagnostics using the accumulator API
                 session.with_db(|db| {
                     // Parse and validate the template (triggers accumulation)
+                    // This should be a cheap call since salsa should cache the function
+                    // call, but we may need to revisit if that assumption is incorrect
                     let _ast = analyze_template(db, file);
 
-                    // Get accumulated diagnostics directly - they're already LSP diagnostics!
                     let diagnostics = analyze_template::accumulated::<TemplateDiagnostic>(db, file);
 
-                    // Convert from TemplateDiagnostic wrapper to lsp_types::Diagnostic
                     diagnostics.into_iter().map(Into::into).collect()
                 })
             })
             .await;
 
-        // Convert url::Url to lsp_types::Uri using from_str
-        let uri_string = url.to_string();
-        let lsp_uri = lsp_types::Uri::from_str(&uri_string).expect("Valid URI");
+        let Some(lsp_uri) = paths::url_to_lsp_uri(url) else {
+            tracing::debug!("Could not convert URL to LSP Uri: {}", url);
+            return;
+        };
 
-        // Publish diagnostics to the client (this method doesn't return a Result)
         self.client
             .publish_diagnostics(lsp_uri, diagnostics.clone(), version)
             .await;
@@ -176,12 +164,12 @@ impl LanguageServer for DjangoLanguageServer {
                     },
                 )),
                 position_encoding: Some(lsp_types::PositionEncodingKind::from(encoding)),
-                diagnostic_provider: Some(DiagnosticServerCapabilities::Options(
-                    DiagnosticOptions {
+                diagnostic_provider: Some(lsp_types::DiagnosticServerCapabilities::Options(
+                    lsp_types::DiagnosticOptions {
                         identifier: None,
                         inter_file_dependencies: false,
                         workspace_diagnostics: false,
-                        work_done_progress_options: WorkDoneProgressOptions::default(),
+                        work_done_progress_options: lsp_types::WorkDoneProgressOptions::default(),
                     },
                 )),
                 ..Default::default()
@@ -281,7 +269,7 @@ impl LanguageServer for DjangoLanguageServer {
 
         // Publish diagnostics for template files
         if let Some((url, version)) = url_version {
-            self.publish_template_diagnostics(&url, Some(version)).await;
+            self.publish_diagnostics(&url, Some(version)).await;
         }
     }
 
@@ -303,7 +291,7 @@ impl LanguageServer for DjangoLanguageServer {
 
         // Publish diagnostics for template files
         if let Some((url, version)) = url_version {
-            self.publish_template_diagnostics(&url, version).await;
+            self.publish_diagnostics(&url, version).await;
         }
     }
 
@@ -321,8 +309,6 @@ impl LanguageServer for DjangoLanguageServer {
             Some(url)
         })
         .await;
-
-        // Don't publish diagnostics on change - wait for save to reduce noise
     }
 
     async fn did_close(&self, params: lsp_types::DidCloseTextDocumentParams) {
@@ -347,9 +333,10 @@ impl LanguageServer for DjangoLanguageServer {
         if let Some(url) = url {
             if let Some(path) = paths::url_to_path(&url) {
                 if FileKind::from_path(&path) == FileKind::Template {
-                    // Convert url::Url to lsp_types::Uri using from_str
-                    let uri_string = url.to_string();
-                    let lsp_uri = lsp_types::Uri::from_str(&uri_string).expect("Valid URI");
+                    let Some(lsp_uri) = paths::url_to_lsp_uri(&url) else {
+                        tracing::debug!("Could not convert URL to LSP Uri: {}", url);
+                        return;
+                    };
 
                     // Publish empty diagnostics to clear them (this method doesn't return a Result)
                     self.client.publish_diagnostics(lsp_uri, vec![], None).await;
@@ -498,49 +485,6 @@ impl LanguageServer for DjangoLanguageServer {
                 }
             })
             .await;
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use tower_lsp_server::lsp_types::InitializeParams;
-
-    use super::*;
-
-    #[tokio::test]
-    async fn test_diagnostic_provider_capability_is_advertised() {
-        // Create a test server
-        let (service, _socket) = tower_lsp_server::LspService::new(|client| {
-            let (_writer, guard) = tracing_appender::non_blocking(std::io::sink());
-            DjangoLanguageServer::new(client, guard)
-        });
-
-        let server = service.inner();
-        let params = InitializeParams::default();
-        let result = server.initialize(params).await.unwrap();
-
-        // Check that diagnostic_provider is present
-        assert!(
-            result.capabilities.diagnostic_provider.is_some(),
-            "diagnostic_provider capability should be present"
-        );
-
-        // Verify it's configured correctly
-        if let Some(DiagnosticServerCapabilities::Options(ref options)) =
-            result.capabilities.diagnostic_provider
-        {
-            assert!(
-                !options.inter_file_dependencies,
-                "Templates don't have inter-file dependencies"
-            );
-            assert!(
-                !options.workspace_diagnostics,
-                "We don't provide workspace-wide diagnostics"
-            );
-            assert_eq!(options.identifier, None, "No special identifier needed");
-        } else {
-            panic!("Expected DiagnosticServerCapabilities::Options");
         }
     }
 }

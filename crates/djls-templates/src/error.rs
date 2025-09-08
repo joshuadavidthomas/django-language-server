@@ -61,31 +61,14 @@ impl TemplateError {
         }
     }
 
-    /// Get a diagnostic code string for this error type
     #[must_use]
     pub fn diagnostic_code(&self) -> &'static str {
         match self {
-            TemplateError::Lexer(_) => "DTL-200",
-            TemplateError::Parser(_) => "DTL-100",
+            TemplateError::Lexer(_) => "T200",
+            TemplateError::Parser(_) => "T100",
             TemplateError::Validation(ast_error) => ast_error.diagnostic_code(),
-            TemplateError::Io(_) => "DTL-900",
-            TemplateError::Config(_) => "DTL-901",
+            TemplateError::Io(_) => "T900",
+            TemplateError::Config(_) => "T901",
         }
     }
-
-    #[must_use]
-    pub fn code(&self) -> &'static str {
-        match self {
-            TemplateError::Lexer(_) => "LEX",
-            TemplateError::Parser(_) => "PAR",
-            TemplateError::Validation(_) => "VAL",
-            TemplateError::Io(_) => "IO",
-            TemplateError::Config(_) => "CFG",
-        }
-    }
-}
-
-pub struct QuickFix {
-    pub title: String,
-    pub edit: String,
 }

@@ -63,7 +63,6 @@ pub use db::Db;
 pub use db::TemplateDiagnostic;
 use djls_workspace::db::SourceFile;
 use djls_workspace::FileKind;
-pub use error::QuickFix;
 pub use error::TemplateError;
 pub use lexer::Lexer;
 pub use parser::Parser;

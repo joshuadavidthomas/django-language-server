@@ -1,16 +1,3 @@
-//! Abstract Syntax Tree (AST) definitions and visitor pattern for Django templates.
-//!
-//! This module provides the core AST representation for parsed Django templates,
-//! along with a visitor pattern implementation for traversing and analyzing the tree.
-//!
-//! ## Key Types
-//!
-//! - [`Ast`]: The root AST structure containing the node list and line offsets
-//! - [`Node`]: Individual AST nodes (tags, variables, text, comments)
-
-//! - [`Span`]: Source position information for error reporting
-
-
 use serde::Serialize;
 use thiserror::Error;
 
@@ -55,21 +42,6 @@ impl Ast {
 pub struct LineOffsets(pub Vec<u32>);
 
 impl LineOffsets {
-    /// Create a new `LineOffsets` from source text
-    #[must_use]
-    pub fn new(text: &str) -> Self {
-        let mut offsets = Self::default();
-        let mut pos = 0;
-        for ch in text.chars() {
-            if ch == '\n' {
-                #[allow(clippy::cast_possible_truncation)]
-                offsets.add_line((pos + 1) as u32);
-            }
-            pos += ch.len_utf8();
-        }
-        offsets
-    }
-
     pub fn add_line(&mut self, offset: u32) {
         self.0.push(offset);
     }
@@ -127,6 +99,28 @@ pub enum Node {
         filters: Vec<String>,
         span: Span,
     },
+}
+
+pub struct TagNode {
+    name: String,
+    bits: Vec<String>,
+    span: Span,
+}
+
+pub struct CommentNode {
+    content: String,
+    span: Span,
+}
+
+pub struct TextNode {
+    content: String,
+    span: Span,
+}
+
+pub struct VariableNode {
+    var: String,
+    filters: Vec<String>,
+    span: Span,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -206,7 +200,6 @@ impl AstError {
     #[must_use]
     pub fn span(&self) -> Option<Span> {
         match self {
-            AstError::EmptyAst => None,
             AstError::UnbalancedStructure { opening_span, .. } => Some(*opening_span),
             AstError::InvalidTagStructure { span, .. }
             | AstError::InvalidNode { span, .. }
@@ -215,6 +208,7 @@ impl AstError {
             | AstError::UnmatchedBlockName { span, .. }
             | AstError::MissingRequiredArguments { span, .. }
             | AstError::TooManyArguments { span, .. } => Some(*span),
+            AstError::EmptyAst => None,
         }
     }
 
@@ -258,9 +252,6 @@ impl Span {
         }
     }
 }
-
-/// Visitor pattern for AST traversal
-
 
 #[cfg(test)]
 mod tests {
