@@ -25,7 +25,7 @@
 //! ## Adding New Validation Rules
 //!
 //! 1. Add the error variant to [`TemplateError`]
-//! 2. Implement the check in [`validation::ValidationVisitor`]
+//! 2. Implement the check in the validation module
 //! 3. Add corresponding tests
 //!
 //! ## Example
@@ -69,7 +69,7 @@ pub use lexer::Lexer;
 pub use parser::Parser;
 pub use parser::ParserError;
 use salsa::Accumulator;
-use validation::ValidationVisitor;
+use validation::validate_template;
 
 /// Helper function to convert errors to LSP diagnostics and accumulate
 fn accumulate_error(db: &dyn Db, error: &TemplateError, line_offsets: &LineOffsets) {
@@ -179,7 +179,7 @@ pub fn analyze_template(db: &dyn Db, file: SourceFile) -> Option<Arc<Ast>> {
 
     // Perform validation and accumulate errors
     let tag_specs = db.tag_specs();
-    let (_, validation_errors) = ValidationVisitor::match_tags(ast.nodelist(), tag_specs);
+    let (_, validation_errors) = validate_template(ast.nodelist(), tag_specs);
 
     for error in validation_errors {
         // Convert validation error to TemplateError for consistency

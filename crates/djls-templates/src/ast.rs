@@ -7,27 +7,9 @@
 //!
 //! - [`Ast`]: The root AST structure containing the node list and line offsets
 //! - [`Node`]: Individual AST nodes (tags, variables, text, comments)
-//! - [`AstVisitor`]: Trait for implementing custom AST traversal logic
+
 //! - [`Span`]: Source position information for error reporting
-//!
-//! ## Visitor Pattern
-//!
-//! The visitor pattern allows for flexible AST traversal without modifying the AST structure.
-//! To implement a custom visitor:
-//!
-//! ```ignore
-//! struct MyVisitor;
-//!
-//! impl AstVisitor for MyVisitor {
-//!     fn visit_tag(&mut self, name: &str, bits: &[String], span: Option<Span>) {
-//!         // Process Django tags
-//!     }
-//!     
-//!     fn visit_variable(&mut self, name: &str, filters: &[String], span: Option<Span>) {
-//!         // Process Django variables
-//!     }
-//! }
-//! ```
+
 
 use serde::Serialize;
 use thiserror::Error;
@@ -278,37 +260,7 @@ impl Span {
 }
 
 /// Visitor pattern for AST traversal
-pub trait AstVisitor {
-    type Output;
 
-    fn visit_nodes(mut self, nodes: &[Node]) -> Self::Output
-    where
-        Self: Sized,
-    {
-        for node in nodes {
-            self.visit_node(node);
-        }
-        self.finish()
-    }
-
-    fn visit_node(&mut self, node: &Node) {
-        match node {
-            Node::Tag { name, bits, span } => self.visit_tag(name, bits, *span),
-            Node::Variable { var, filters, span } => self.visit_variable(var, filters, *span),
-            Node::Text { content, span } => self.visit_text(content, *span),
-            Node::Comment { content, span } => self.visit_comment(content, *span),
-        }
-    }
-
-    fn visit_tag(&mut self, _name: &str, _bits: &[String], _span: Span) {}
-    fn visit_variable(&mut self, _var: &str, _filters: &[String], _span: Span) {}
-    fn visit_text(&mut self, _content: &str, _span: Span) {}
-    fn visit_comment(&mut self, _content: &str, _span: Span) {}
-
-    fn finish(self) -> Self::Output
-    where
-        Self: Sized;
-}
 
 #[cfg(test)]
 mod tests {
