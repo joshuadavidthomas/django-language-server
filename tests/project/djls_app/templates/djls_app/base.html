@@ -19,9 +19,10 @@
     {# This is a comment #}
 
     {% block content %}
-      {% block foo %}
-      {% endblock bar %}
-    {% endblock content %}
+      {% block foo %}{% endblock %}
+
+      {% if test %}{% endif %}
+    {% endblock %}
 
   </body>
 </html>

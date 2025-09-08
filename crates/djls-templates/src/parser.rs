@@ -15,14 +15,14 @@ use crate::tokens::TokenType;
 
 pub struct Parser<'db> {
     db: &'db dyn TemplateDb,
-    tokens: TokenStream,
+    tokens: TokenStream<'db>,
     current: usize,
     errors: Vec<ParserError>,
 }
 
 impl<'db> Parser<'db> {
     #[must_use]
-    pub fn new(db: &'db dyn TemplateDb, tokens: TokenStream) -> Self {
+    pub fn new(db: &'db dyn TemplateDb, tokens: TokenStream<'db>) -> Self {
         Self {
             db,
             tokens,
@@ -36,7 +36,8 @@ impl<'db> Parser<'db> {
         let mut line_offsets = crate::ast::LineOffsets::default();
 
         // Build line offsets from tokens
-        for token in self.tokens.tokens() {
+        let tokens = self.tokens.stream(self.db);
+        for token in tokens {
             if let TokenType::Newline = token.token_type() {
                 if let Some(start) = token.start() {
                     // Add offset for next line
@@ -206,14 +207,15 @@ impl<'db> Parser<'db> {
     }
 
     fn item_at(&self, index: usize) -> Result<Token, ParserError> {
-        if let Some(token) = self.tokens.get(index) {
+        let tokens = self.tokens.stream(self.db);
+        if let Some(token) = tokens.get(index) {
             Ok(token.clone())
         } else {
-            let error = if self.tokens.is_empty() {
+            let error = if tokens.is_empty() {
                 ParserError::stream_error(StreamError::Empty)
             } else if index < self.current {
                 ParserError::stream_error(StreamError::AtBeginning)
-            } else if index >= self.tokens.len() {
+            } else if index >= tokens.len() {
                 ParserError::stream_error(StreamError::AtEnd)
             } else {
                 ParserError::stream_error(StreamError::InvalidAccess)
@@ -223,7 +225,8 @@ impl<'db> Parser<'db> {
     }
 
     fn is_at_end(&self) -> bool {
-        self.current + 1 >= self.tokens.len()
+        let tokens = self.tokens.stream(self.db);
+        self.current + 1 >= tokens.len()
     }
 
     fn consume(&mut self) -> Result<Token, ParserError> {
@@ -355,14 +358,16 @@ mod tests {
     fn parse_test_template(db: &dyn TemplateDb, template: TestTemplate) -> Ast<'_> {
         let source = template.source(db);
         let tokens = Lexer::new(source).tokenize().unwrap();
-        let mut parser = Parser::new(db, tokens);
+        let token_stream = TokenStream::new(db, tokens);
+        let mut parser = Parser::new(db, token_stream);
         let (ast, _) = parser.parse().unwrap();
         ast
     }
     // Helper function for tests to create a database and parser
-    fn create_test_parser(tokens: TokenStream) -> Parser<'static> {
+    fn create_test_parser(tokens: Vec<Token>) -> Parser<'static> {
         let db = Box::leak(Box::new(TestDatabase::new()));
-        Parser::new(db, tokens)
+        let token_stream = TokenStream::new(db, tokens);
+        Parser::new(db, token_stream)
     }
 
     #[derive(Debug, Clone, PartialEq, Serialize)]

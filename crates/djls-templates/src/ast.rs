@@ -128,7 +128,7 @@ pub struct Span<'db> {
 impl<'db> Span<'db> {
     pub fn from_token(db: &'db dyn crate::db::Db, token: &Token) -> Self {
         let start = token.start().unwrap_or(0);
-        let length = u32::try_from(token.content().len()).unwrap_or(0);
+        let length = u32::try_from(token.lexeme().len()).unwrap_or(0);
         Span::new(db, start, length)
     }
 }

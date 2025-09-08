@@ -65,32 +65,104 @@ pub use lexer::Lexer;
 pub use parser::Parser;
 pub use parser::ParserError;
 use salsa::Accumulator;
+use tokens::TokenStream;
 use validation::TagValidator;
+
+/// Lex a template file into tokens.
+///
+/// This is the first phase of template processing. It tokenizes the source text
+/// into Django-specific tokens (tags, variables, text, etc.).
+#[salsa::tracked]
+fn lex_template(db: &dyn Db, file: SourceFile) -> TokenStream<'_> {
+    if file.kind(db) != FileKind::Template {
+        return TokenStream::new(db, vec![]);
+    }
+
+    let text_arc = djls_workspace::db::source_text(db, file);
+    let text = text_arc.as_ref();
+
+    match Lexer::new(text).tokenize() {
+        Ok(tokens) => TokenStream::new(db, tokens),
+        Err(err) => {
+            // Create error diagnostic
+            let error = TemplateError::Lexer(err.to_string());
+            let empty_offsets = LineOffsets::default();
+            accumulate_error(db, &error, &empty_offsets);
+
+            // Return empty token stream
+            TokenStream::new(db, vec![])
+        }
+    }
+}
+
+/// Parse tokens into an AST.
+///
+/// This is the second phase of template processing. It takes the token stream
+/// from lexing and builds an Abstract Syntax Tree.
+#[salsa::tracked]
+fn parse_template(db: &dyn Db, file: SourceFile) -> Ast<'_> {
+    let token_stream = lex_template(db, file);
+
+    // Check if lexing produced no tokens (likely due to an error)
+    if token_stream.stream(db).is_empty() {
+        // Return empty AST for error recovery
+        let empty_nodelist = Vec::new();
+        let empty_offsets = LineOffsets::default();
+        return Ast::new(db, empty_nodelist, empty_offsets);
+    }
+
+    // Parser needs the TokenStream<'db>
+    match Parser::new(db, token_stream).parse() {
+        Ok((ast, errors)) => {
+            // Accumulate parser errors
+            for error in errors {
+                let template_error = TemplateError::Parser(error.to_string());
+                accumulate_error(db, &template_error, ast.line_offsets(db));
+            }
+            ast
+        }
+        Err(err) => {
+            // Critical parser error
+            let template_error = TemplateError::Parser(err.to_string());
+            let empty_offsets = LineOffsets::default();
+            accumulate_error(db, &template_error, &empty_offsets);
+
+            // Return empty AST
+            let empty_nodelist = Vec::new();
+            let empty_offsets = LineOffsets::default();
+            Ast::new(db, empty_nodelist, empty_offsets)
+        }
+    }
+}
+
+/// Validate the AST.
+///
+/// This is the third phase of template processing. It validates the AST
+/// according to Django tag specifications and accumulates any validation errors.
+#[salsa::tracked]
+fn validate_template(db: &dyn Db, file: SourceFile) {
+    let ast = parse_template(db, file);
+
+    // Skip validation if AST is empty (likely due to parse errors)
+    if ast.nodelist(db).is_empty() && lex_template(db, file).stream(db).is_empty() {
+        return;
+    }
+
+    let validation_errors = TagValidator::new(db, ast).validate();
+
+    for error in validation_errors {
+        // Convert validation error to TemplateError for consistency
+        let template_error = TemplateError::Validation(error);
+        accumulate_error(db, &template_error, ast.line_offsets(db));
+    }
+}
 
 /// Helper function to convert errors to LSP diagnostics and accumulate
 fn accumulate_error(db: &dyn Db, error: &TemplateError, line_offsets: &LineOffsets) {
     let code = error.diagnostic_code();
     let range = error
         .span()
-        .map(|(start, length)| {
-            // For validation errors (which are Django tags), adjust the span to include delimiters
-            let adjusted_length = if code.starts_with('T') && code != "T100" && code != "T200" {
-                // Django tags: add delimiter lengths
-                // The stored span only includes content length, so add:
-                // - 2 for opening {%
-                // - 1 for space after {%
-                // - content (already in span.length())
-                // - 1 for space before %}
-                // - 2 for closing %}
-                // Total: 6 extra characters
-                // TODO: change the span to be the full length including delimiters
-                // so this hack isn't needed
-                length + 6
-            } else {
-                length
-            };
-            crate::ast::span_to_lsp_range(start, adjusted_length, line_offsets)
-        })
+        .map(|(start, length)| crate::ast::span_to_lsp_range(start, length, line_offsets))
         .unwrap_or_default();
 
     let diagnostic = tower_lsp_server::lsp_types::Diagnostic {
@@ -116,8 +188,13 @@ fn accumulate_error(db: &dyn Db, error: &TemplateError, line_offsets: &LineOffse
 /// Analyze a Django template file - parse, validate, and accumulate diagnostics.
 ///
 /// This is the PRIMARY function for template processing. It's a Salsa tracked function
-/// that parses template files on-demand and caches the results. During parsing and
-/// validation, diagnostics are accumulated using the TemplateDiagnostic accumulator.
+/// that orchestrates the three phases of template processing:
+/// 1. Lexing (tokenization)
+/// 2. Parsing (AST construction)
+/// 3. Validation (semantic checks)
+///
+/// Each phase is independently cached by Salsa, allowing for fine-grained
+/// incremental computation.
 ///
 /// The function returns the parsed AST (or None for non-template files).
 ///
@@ -128,56 +205,9 @@ fn accumulate_error(db: &dyn Db, error: &TemplateError, line_offsets: &LineOffse
 /// ```
 #[salsa::tracked]
 pub fn analyze_template(db: &dyn Db, file: SourceFile) -> Option<Ast<'_>> {
-    // Only process template files
     if file.kind(db) != FileKind::Template {
         return None;
     }
-
-    let text_arc = djls_workspace::db::source_text(db, file);
-    let text = text_arc.as_ref();
-
-    let tokens = match Lexer::new(text).tokenize() {
-        Ok(tokens) => tokens,
-        Err(err) => {
-            let empty_nodelist = Vec::new();
-            let empty_offsets = LineOffsets::default();
-            let ast = Ast::new(db, empty_nodelist, empty_offsets);
-            let error = TemplateError::Lexer(err.to_string());
-            accumulate_error(db, &error, ast.line_offsets(db));
-            return Some(ast);
-        }
-    };
-
-    let (ast, parser_errors) = match Parser::new(db, tokens).parse() {
-        Ok((ast, errors)) => {
-            let template_errors: Vec<TemplateError> = errors
-                .into_iter()
-                .map(|e| TemplateError::Parser(e.to_string()))
-                .collect();
-            (ast, template_errors)
-        }
-        Err(err) => {
-            // Create an empty AST for error case
-            let empty_nodelist = Vec::new();
-            let empty_offsets = LineOffsets::default();
-            let ast = Ast::new(db, empty_nodelist, empty_offsets);
-            let error = TemplateError::Parser(err.to_string());
-            accumulate_error(db, &error, ast.line_offsets(db));
-            return Some(ast);
-        }
-    };
-
-    for error in &parser_errors {
-        accumulate_error(db, error, ast.line_offsets(db));
-    }
-
-    let validation_errors = TagValidator::new(db, ast).validate();
-
-    for error in validation_errors {
-        // Convert validation error to TemplateError for consistency
-        let template_error = TemplateError::Validation(error);
-        accumulate_error(db, &template_error, ast.line_offsets(db));
-    }
-
-    Some(ast)
+    validate_template(db, file);
+    Some(parse_template(db, file))
 }

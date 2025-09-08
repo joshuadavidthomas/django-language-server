@@ -1,6 +1,3 @@
-use std::ops::Deref;
-use std::ops::DerefMut;
-
 use serde::Serialize;
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
@@ -120,63 +117,21 @@ impl Token {
     }
 }
 
-#[derive(Clone, Debug, Default, Serialize)]
-pub struct TokenStream(Vec<Token>);
-
-impl TokenStream {
-    pub fn tokens(&self) -> &Vec<Token> {
-        &self.0
-    }
-
-    pub fn add_token(&mut self, token: Token) {
-        self.0.push(token);
-    }
-
-    pub fn finalize(&mut self, line: usize) -> TokenStream {
-        let eof_token = Token {
-            token_type: TokenType::Eof,
-            line,
-            start: None,
-        };
-        self.add_token(eof_token);
-        self.clone()
-    }
+#[salsa::tracked]
+pub struct TokenStream<'db> {
+    #[tracked]
+    #[returns(ref)]
+    pub stream: Vec<Token>,
 }
 
-impl AsRef<[Token]> for TokenStream {
-    fn as_ref(&self) -> &[Token] {
-        &self.0
+impl<'db> TokenStream<'db> {
+    /// Check if the token stream is empty
+    pub fn is_empty(self, db: &'db dyn crate::db::Db) -> bool {
+        self.stream(db).is_empty()
     }
-}
 
-impl Deref for TokenStream {
-    type Target = Vec<Token>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for TokenStream {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-impl IntoIterator for TokenStream {
-    type Item = Token;
-    type IntoIter = std::vec::IntoIter<Self::Item>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.into_iter()
-    }
-}
-
-impl<'a> IntoIterator for &'a TokenStream {
-    type Item = &'a Token;
-    type IntoIter = std::slice::Iter<'a, Token>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.iter()
+    /// Get the number of tokens
+    pub fn len(self, db: &'db dyn crate::db::Db) -> usize {
+        self.stream(db).len()
     }
 }

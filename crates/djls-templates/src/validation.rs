@@ -368,7 +368,8 @@ mod tests {
     fn parse_test_template(db: &dyn TemplateDb, source: TestSource) -> Ast<'_> {
         let text = source.text(db);
         let tokens = Lexer::new(text).tokenize().unwrap();
-        let mut parser = Parser::new(db, tokens);
+        let token_stream = crate::tokens::TokenStream::new(db, tokens);
+        let mut parser = Parser::new(db, token_stream);
         let (ast, _) = parser.parse().unwrap();
         ast
     }
