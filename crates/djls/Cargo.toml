@@ -3,29 +3,13 @@ name = "djls"
 version = "5.2.0"
 edition = "2021"
 
-[lib]
-name = "djls"
-crate-type = ["cdylib"]
-
-[features]
-extension-module = [
-  "djls-server/extension-module",
-  "djls-project/extension-module",
-  "pyo3/extension-module"
-]
-default = []
-
 [dependencies]
 djls-project = { workspace = true }
 djls-server = { workspace = true }
 
 anyhow = { workspace = true }
 clap = { workspace = true }
-pyo3 = { workspace = true }
 serde_json = { workspace = true }
-
-[build-dependencies]
-djls-dev = { workspace = true }
 
 [lints]
 workspace = true

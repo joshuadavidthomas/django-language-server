@@ -5,15 +5,12 @@ resolver = "2"
 [workspace.dependencies]
 djls = { path = "crates/djls" }
 djls-conf = { path = "crates/djls-conf" }
-djls-dev = { path = "crates/djls-dev" }
 djls-project = { path = "crates/djls-project" }
 djls-server = { path = "crates/djls-server" }
 djls-templates = { path = "crates/djls-templates" }
 djls-workspace = { path = "crates/djls-workspace" }
 
 # core deps, pin exact versions
-pyo3 = "0.25.0"
-pyo3-build-config = { version = "0.25.0", features = ["resolve-config"] }
 salsa = "0.23.0"
 tower-lsp-server = { version = "0.22.0", features = ["proposed"] }
 

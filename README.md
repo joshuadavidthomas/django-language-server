@@ -156,11 +156,10 @@ All feature requests should ideally start out as a discussion topic, to gather f
 
 ### Development
 
-The project is written in Rust using PyO3 for Python integration. Here is a high-level overview of the project and the various crates:
+The project is written in Rust with IPC for Python communication. Here is a high-level overview of the project and the various crates:
 
 - Main CLI interface ([`crates/djls/`](./crates/djls/))
 - Configuration management ([`crates/djls-conf/`](./crates/djls-conf/))
-- Development tools ([`crates/djls-dev/`](./crates/djls-dev/))
 - Django and Python project introspection ([`crates/djls-project/`](./crates/djls-project/))
 - LSP server implementation ([`crates/djls-server/`](./crates/djls-server/))
 - Template parsing ([`crates/djls-templates/`](./crates/djls-templates/))

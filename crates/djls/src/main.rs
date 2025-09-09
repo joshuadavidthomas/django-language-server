@@ -1,7 +1,4 @@
-/// Binary interface for local development only.
-///
-/// This binary exists for development and testing with `cargo run`.
-/// The production CLI is distributed through the `PyO3` interface in lib.rs.
+/// Binary interface for the Django Language Server CLI.
 mod args;
 mod cli;
 mod commands;

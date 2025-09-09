@@ -1,9 +1,3 @@
-/// Build script that automatically compiles the Python inspector zipapp.
-/// 
-/// This ensures the Python inspector is always up-to-date when building
-/// the Rust project. The inspector is a Python zipapp that runs in a 
-/// subprocess to handle Django-specific operations via IPC.
-
 use std::env;
 use std::path::PathBuf;
 use std::process::Command;
@@ -43,18 +37,16 @@ fn main() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let stdout = String::from_utf8_lossy(&output.stdout);
         panic!(
-            "Failed to build Python inspector:\nSTDOUT:\n{}\nSTDERR:\n{}", 
-            stdout, stderr
+            "Failed to build Python inspector:\nSTDOUT:\n{stdout}\nSTDERR:\n{stderr}"
         );
     }
     
     // Verify the pyz file was created
-    if !pyz_path.exists() {
-        panic!(
-            "Python inspector zipapp was not created at expected location: {:?}", 
-            pyz_path
-        );
-    }
+    assert!(
+        pyz_path.exists(),
+        "Python inspector zipapp was not created at expected location: {}", 
+        pyz_path.display()
+    );
     
     // Get file size for informational purposes
     let metadata = std::fs::metadata(&pyz_path)

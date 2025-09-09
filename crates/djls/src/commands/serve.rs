@@ -22,10 +22,7 @@ impl Command for Serve {
     fn execute(&self, _args: &Args) -> Result<Exit> {
         djls_server::run()?;
 
-        // Exit here instead of returning control to the `Cli`, for ... reasons?
-        // If we don't exit here, ~~~ something ~~~ goes on with PyO3 (I assume)
-        // or the Python entrypoint wrapper to indefinitely hang the CLI and keep
-        // the process running
+
         Exit::success()
             .with_message("Server completed successfully")
             .process_exit()

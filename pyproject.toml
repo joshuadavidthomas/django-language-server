@@ -69,9 +69,6 @@ classifiers = [
   "Topic :: Text Editors :: Integrated Development Environments (IDE)"
 ]
 
-[project.scripts]
-djls = "djls:entrypoint"
-
 [project.urls]
 Documentation = "https://django-language-server.readthedocs.io/"
 Issues = "https://github.com/joshuadavidthomas/django-language-server/issues"

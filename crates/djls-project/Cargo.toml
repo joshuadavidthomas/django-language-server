@@ -3,10 +3,6 @@ name = "djls-project"
 version = "0.0.0"
 edition = "2021"
 
-[features]
-extension-module = []
-default = []
-
 [dependencies]
 djls-workspace = { workspace = true }
 
