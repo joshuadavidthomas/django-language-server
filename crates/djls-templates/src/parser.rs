@@ -728,28 +728,27 @@ mod tests {
 
         // TODO: fix this so we can test against errors returned by parsing
         // #[test]
-        #[allow(dead_code)]
-        fn test_parse_error_recovery() {
-            let source = r#"<div class="container">
-    <h1>Header</h1>
-    {% %}
-        {# This if is unclosed which does matter #}
-        <p>Welcome {{ user.name }}</p>
-        <div>
-            {# This div is unclosed which doesn't matter #}
-        {% for item in items %}
-            <span>{{ item }}</span>
-        {% endfor %}
-    <footer>Page Footer</footer>
-</div>"#;
-            let tokens = Lexer::new(source).tokenize().unwrap();
-            let mut parser = create_test_parser(tokens);
-            let (ast, errors) = parser.parse().unwrap();
-            let nodelist = convert_nodelist_for_testing(ast.nodelist(parser.db), parser.db);
-            insta::assert_yaml_snapshot!(nodelist);
-            assert_eq!(errors.len(), 1);
-            assert!(matches!(&errors[0], ParserError::EmptyTag));
-        }
+        // fn test_parse_error_recovery() {
+        //     let source = r#"<div class="container">
+        //     <h1>Header</h1>
+        //     {% %}
+        //         {# This if is unclosed which does matter #}
+        //         <p>Welcome {{ user.name }}</p>
+        //         <div>
+        //             {# This div is unclosed which doesn't matter #}
+        //         {% for item in items %}
+        //             <span>{{ item }}</span>
+        //         {% endfor %}
+        //     <footer>Page Footer</footer>
+        // </div>"#;
+        //     let tokens = Lexer::new(source).tokenize().unwrap();
+        //     let mut parser = create_test_parser(tokens);
+        //     let (ast, errors) = parser.parse().unwrap();
+        //     let nodelist = convert_nodelist_for_testing(ast.nodelist(parser.db), parser.db);
+        //     insta::assert_yaml_snapshot!(nodelist);
+        //     assert_eq!(errors.len(), 1);
+        //     assert!(matches!(&errors[0], ParserError::EmptyTag));
+        // }
     }
 
     mod full_templates {
