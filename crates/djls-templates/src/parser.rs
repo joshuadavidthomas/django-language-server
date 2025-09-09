@@ -2,11 +2,15 @@ use thiserror::Error;
 
 use crate::ast::Ast;
 use crate::ast::AstError;
+use crate::ast::CommentNode;
 use crate::ast::FilterName;
 use crate::ast::Node;
 use crate::ast::Span;
 use crate::ast::TagName;
+use crate::ast::TagNode;
+use crate::ast::TextNode;
 use crate::ast::VariableName;
+use crate::ast::VariableNode;
 use crate::db::Db as TemplateDb;
 use crate::lexer::LexerError;
 use crate::tokens::Token;
@@ -95,10 +99,10 @@ impl<'db> Parser<'db> {
 
         let token = self.peek_previous()?;
 
-        Ok(Node::Comment {
+        Ok(Node::Comment(CommentNode {
             content: token.content(),
             span: Span::from_token(self.db, &token),
-        })
+        }))
     }
 
     pub fn parse_django_block(&mut self) -> Result<Node<'db>, ParserError> {
@@ -114,7 +118,7 @@ impl<'db> Parser<'db> {
         let bits = args.into_iter().skip(1).collect();
         let span = Span::from_token(self.db, &token);
 
-        Ok(Node::Tag { name, bits, span })
+        Ok(Node::Tag(TagNode { name, bits, span }))
     }
 
     fn parse_django_variable(&mut self) -> Result<Node<'db>, ParserError> {
@@ -135,7 +139,7 @@ impl<'db> Parser<'db> {
             .collect();
         let span = Span::from_token(self.db, &token);
 
-        Ok(Node::Variable { var, filters, span })
+        Ok(Node::Variable(VariableNode { var, filters, span }))
     }
 
     fn parse_text(&mut self) -> Result<Node<'db>, ParserError> {
@@ -173,7 +177,7 @@ impl<'db> Parser<'db> {
         let length = u32::try_from(content.len()).expect("Content length should fit in u32");
         let span = Span::new(self.db, start + offset, length);
 
-        Ok(Node::Text { content, span })
+        Ok(Node::Text(TextNode { content, span }))
     }
 
     fn peek(&self) -> Result<Token, ParserError> {
@@ -397,20 +401,20 @@ mod tests {
     impl TestNode {
         fn from_node(node: &Node<'_>, db: &dyn crate::db::Db) -> Self {
             match node {
-                Node::Tag { name, bits, span } => TestNode::Tag {
+                Node::Tag(TagNode { name, bits, span }) => TestNode::Tag {
                     name: name.text(db).to_string(),
                     bits: bits.clone(),
                     span: (span.start(db), span.length(db)),
                 },
-                Node::Comment { content, span } => TestNode::Comment {
+                Node::Comment(CommentNode { content, span }) => TestNode::Comment {
                     content: content.clone(),
                     span: (span.start(db), span.length(db)),
                 },
-                Node::Text { content, span } => TestNode::Text {
+                Node::Text(TextNode { content, span }) => TestNode::Text {
                     content: content.clone(),
                     span: (span.start(db), span.length(db)),
                 },
-                Node::Variable { var, filters, span } => TestNode::Variable {
+                Node::Variable(VariableNode { var, filters, span }) => TestNode::Variable {
                     var: var.text(db).to_string(),
                     filters: filters.iter().map(|f| f.text(db).to_string()).collect(),
                     span: (span.start(db), span.length(db)),

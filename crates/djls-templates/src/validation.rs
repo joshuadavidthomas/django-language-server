@@ -50,7 +50,8 @@ impl<'db> TagValidator<'db> {
     #[must_use]
     pub fn validate(mut self) -> Vec<AstError> {
         while !self.is_at_end() {
-            if let Some(Node::Tag { name, bits, span }) = self.current_node() {
+            if let Some(Node::Tag(tag_node)) = self.current_node() {
+                let TagNode { name, bits, span } = tag_node;
                 let name_str = name.text(self.db);
 
                 let tag_specs = self.db.tag_specs();

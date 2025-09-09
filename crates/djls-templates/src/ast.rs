@@ -3,21 +3,6 @@ use thiserror::Error;
 
 use crate::tokens::Token;
 
-#[salsa::interned(debug)]
-pub struct TagName<'db> {
-    pub text: String,
-}
-
-#[salsa::interned(debug)]
-pub struct VariableName<'db> {
-    pub text: String,
-}
-
-#[salsa::interned(debug)]
-pub struct FilterName<'db> {
-    pub text: String,
-}
-
 #[salsa::tracked(debug)]
 pub struct Ast<'db> {
     #[tracked]
@@ -71,50 +56,51 @@ impl Default for LineOffsets {
 
 #[derive(Clone, Debug, PartialEq, Eq, salsa::Update)]
 pub enum Node<'db> {
-    Tag {
-        name: TagName<'db>,
-        bits: Vec<String>, // Keep as strings for now, could intern later
-        span: Span<'db>,
-    },
-    Comment {
-        content: String, // Keep as string - not repeated
-        span: Span<'db>,
-    },
-    Text {
-        content: String, // Keep as string - not repeated
-        span: Span<'db>,
-    },
-    Variable {
-        var: VariableName<'db>,
-        filters: Vec<FilterName<'db>>,
-        span: Span<'db>,
-    },
+    Tag(TagNode<'db>),
+    Comment(CommentNode<'db>),
+    Text(TextNode<'db>),
+    Variable(VariableNode<'db>),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, salsa::Update)]
 pub struct TagNode<'db> {
     pub name: TagName<'db>,
     pub bits: Vec<String>,
     pub span: Span<'db>,
 }
 
-#[derive(Debug, Clone)]
+#[salsa::interned(debug)]
+pub struct TagName<'db> {
+    pub text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, salsa::Update)]
 pub struct CommentNode<'db> {
     pub content: String,
     pub span: Span<'db>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, salsa::Update)]
 pub struct TextNode<'db> {
     pub content: String,
     pub span: Span<'db>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, salsa::Update)]
 pub struct VariableNode<'db> {
     pub var: VariableName<'db>,
     pub filters: Vec<FilterName<'db>>,
     pub span: Span<'db>,
+}
+
+#[salsa::interned(debug)]
+pub struct VariableName<'db> {
+    pub text: String,
+}
+
+#[salsa::interned(debug)]
+pub struct FilterName<'db> {
+    pub text: String,
 }
 
 #[salsa::tracked(debug)]
