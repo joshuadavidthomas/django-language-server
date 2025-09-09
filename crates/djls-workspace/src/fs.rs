@@ -166,6 +166,14 @@ mod tests {
         use crate::document::TextDocument;
         use crate::language::LanguageId;
 
+        // Helper to create platform-appropriate test paths
+        fn test_file_path(name: &str) -> PathBuf {
+            #[cfg(windows)]
+            return PathBuf::from(format!("C:\\temp\\{name}"));
+            #[cfg(not(windows))]
+            return PathBuf::from(format!("/tmp/{name}"));
+        }
+
         #[test]
         fn test_reads_from_buffer_when_present() {
             let disk = Arc::new(InMemoryFileSystem::new());
@@ -173,47 +181,41 @@ mod tests {
             let fs = WorkspaceFileSystem::new(buffers.clone(), disk);
 
             // Add file to buffer
-            let url = Url::from_file_path("/test.py").unwrap();
+            let path = test_file_path("test.py");
+            let url = Url::from_file_path(&path).unwrap();
             let doc = TextDocument::new("buffer content".to_string(), 1, LanguageId::Python);
             buffers.open(url, doc);
 
-            assert_eq!(
-                fs.read_to_string(Path::new("/test.py")).unwrap(),
-                "buffer content"
-            );
+            assert_eq!(fs.read_to_string(&path).unwrap(), "buffer content");
         }
 
         #[test]
         fn test_reads_from_disk_when_no_buffer() {
             let mut disk_fs = InMemoryFileSystem::new();
-            disk_fs.add_file("/test.py".into(), "disk content".to_string());
+            let path = test_file_path("test.py");
+            disk_fs.add_file(path.clone(), "disk content".to_string());
 
             let buffers = Buffers::new();
             let fs = WorkspaceFileSystem::new(buffers, Arc::new(disk_fs));
 
-            assert_eq!(
-                fs.read_to_string(Path::new("/test.py")).unwrap(),
-                "disk content"
-            );
+            assert_eq!(fs.read_to_string(&path).unwrap(), "disk content");
         }
 
         #[test]
         fn test_buffer_overrides_disk() {
             let mut disk_fs = InMemoryFileSystem::new();
-            disk_fs.add_file("/test.py".into(), "disk content".to_string());
+            let path = test_file_path("test.py");
+            disk_fs.add_file(path.clone(), "disk content".to_string());
 
             let buffers = Buffers::new();
             let fs = WorkspaceFileSystem::new(buffers.clone(), Arc::new(disk_fs));
 
             // Add buffer with different content
-            let url = Url::from_file_path("/test.py").unwrap();
+            let url = Url::from_file_path(&path).unwrap();
             let doc = TextDocument::new("buffer content".to_string(), 1, LanguageId::Python);
             buffers.open(url, doc);
 
-            assert_eq!(
-                fs.read_to_string(Path::new("/test.py")).unwrap(),
-                "buffer content"
-            );
+            assert_eq!(fs.read_to_string(&path).unwrap(), "buffer content");
         }
 
         #[test]
@@ -222,39 +224,42 @@ mod tests {
             let buffers = Buffers::new();
             let fs = WorkspaceFileSystem::new(buffers.clone(), disk);
 
-            // Add file only to buffer
-            let url = Url::from_file_path("/buffer_only.py").unwrap();
+            // Add file to buffer only
+            let path = test_file_path("buffer_only.py");
+            let url = Url::from_file_path(&path).unwrap();
             let doc = TextDocument::new("content".to_string(), 1, LanguageId::Python);
             buffers.open(url, doc);
 
-            assert!(fs.exists(Path::new("/buffer_only.py")));
+            assert!(fs.exists(&path));
         }
 
         #[test]
         fn test_exists_for_disk_only_file() {
             let mut disk_fs = InMemoryFileSystem::new();
-            disk_fs.add_file("/disk_only.py".into(), "content".to_string());
+            let path = test_file_path("disk_only.py");
+            disk_fs.add_file(path.clone(), "content".to_string());
 
             let buffers = Buffers::new();
             let fs = WorkspaceFileSystem::new(buffers, Arc::new(disk_fs));
 
-            assert!(fs.exists(Path::new("/disk_only.py")));
+            assert!(fs.exists(&path));
         }
 
         #[test]
         fn test_exists_for_both_buffer_and_disk() {
             let mut disk_fs = InMemoryFileSystem::new();
-            disk_fs.add_file("/both.py".into(), "disk".to_string());
+            let path = test_file_path("both.py");
+            disk_fs.add_file(path.clone(), "disk".to_string());
 
             let buffers = Buffers::new();
             let fs = WorkspaceFileSystem::new(buffers.clone(), Arc::new(disk_fs));
 
             // Also add to buffer
-            let url = Url::from_file_path("/both.py").unwrap();
+            let url = Url::from_file_path(&path).unwrap();
             let doc = TextDocument::new("buffer".to_string(), 1, LanguageId::Python);
             buffers.open(url, doc);
 
-            assert!(fs.exists(Path::new("/both.py")));
+            assert!(fs.exists(&path));
         }
 
         #[test]
@@ -263,7 +268,8 @@ mod tests {
             let buffers = Buffers::new();
             let fs = WorkspaceFileSystem::new(buffers, disk);
 
-            assert!(!fs.exists(Path::new("/nowhere.py")));
+            let path = test_file_path("nowhere.py");
+            assert!(!fs.exists(&path));
         }
 
         #[test]
@@ -272,7 +278,8 @@ mod tests {
             let buffers = Buffers::new();
             let fs = WorkspaceFileSystem::new(buffers, disk);
 
-            let result = fs.read_to_string(Path::new("/missing.py"));
+            let path = test_file_path("missing.py");
+            let result = fs.read_to_string(&path);
             assert!(result.is_err());
             assert_eq!(result.unwrap_err().kind(), io::ErrorKind::NotFound);
         }
@@ -283,49 +290,39 @@ mod tests {
             let buffers = Buffers::new();
             let fs = WorkspaceFileSystem::new(buffers.clone(), disk);
 
-            let url = Url::from_file_path("/test.py").unwrap();
+            let path = test_file_path("test.py");
+            let url = Url::from_file_path(&path).unwrap();
 
             // Initial buffer content
             let doc1 = TextDocument::new("version 1".to_string(), 1, LanguageId::Python);
             buffers.open(url.clone(), doc1);
-            assert_eq!(
-                fs.read_to_string(Path::new("/test.py")).unwrap(),
-                "version 1"
-            );
+            assert_eq!(fs.read_to_string(&path).unwrap(), "version 1");
 
             // Update buffer content
             let doc2 = TextDocument::new("version 2".to_string(), 2, LanguageId::Python);
             buffers.update(url, doc2);
-            assert_eq!(
-                fs.read_to_string(Path::new("/test.py")).unwrap(),
-                "version 2"
-            );
+            assert_eq!(fs.read_to_string(&path).unwrap(), "version 2");
         }
 
         #[test]
         fn test_handles_buffer_removal() {
             let mut disk_fs = InMemoryFileSystem::new();
-            disk_fs.add_file("/test.py".into(), "disk content".to_string());
+            let path = test_file_path("test.py");
+            disk_fs.add_file(path.clone(), "disk content".to_string());
 
             let buffers = Buffers::new();
             let fs = WorkspaceFileSystem::new(buffers.clone(), Arc::new(disk_fs));
 
-            let url = Url::from_file_path("/test.py").unwrap();
+            let url = Url::from_file_path(&path).unwrap();
 
             // Add buffer
             let doc = TextDocument::new("buffer content".to_string(), 1, LanguageId::Python);
             buffers.open(url.clone(), doc);
-            assert_eq!(
-                fs.read_to_string(Path::new("/test.py")).unwrap(),
-                "buffer content"
-            );
+            assert_eq!(fs.read_to_string(&path).unwrap(), "buffer content");
 
             // Remove buffer
             let _ = buffers.close(&url);
-            assert_eq!(
-                fs.read_to_string(Path::new("/test.py")).unwrap(),
-                "disk content"
-            );
+            assert_eq!(fs.read_to_string(&path).unwrap(), "disk content");
         }
     }
 }

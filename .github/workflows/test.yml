@@ -71,8 +71,10 @@ jobs:
         with:
           activate-environment: true
           enable-cache: true
+          python-version: ${{ matrix.python-version }}
 
       - name: Run tests
+        shell: bash
         env:
           DJANGO_VERSION: ${{ matrix.django-version }}
           PYTHON_VERSION: ${{ matrix.python-version }}

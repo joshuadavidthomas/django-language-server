@@ -497,6 +497,7 @@ mod tests {
         use super::*;
 
         #[test]
+        #[ignore = "Requires Python runtime - run with --ignored flag"]
         fn test_activate_appends_paths() -> PyResult<()> {
             let temp_dir = tempdir().unwrap();
             let path1 = temp_dir.path().join("scripts");
@@ -534,6 +535,7 @@ mod tests {
         }
 
         #[test]
+        #[ignore = "Requires Python runtime - run with --ignored flag"]
         fn test_activate_empty_sys_path() -> PyResult<()> {
             let test_env = create_test_env(vec![]);
 
@@ -555,6 +557,7 @@ mod tests {
         }
 
         #[test]
+        #[ignore = "Requires Python runtime - run with --ignored flag"]
         fn test_activate_with_non_existent_paths() -> PyResult<()> {
             let temp_dir = tempdir().unwrap();
             let path1 = temp_dir.path().join("non_existent_dir");
@@ -591,6 +594,7 @@ mod tests {
 
         #[test]
         #[cfg(unix)]
+        #[ignore = "Requires Python runtime - run with --ignored flag"]
         fn test_activate_skips_non_utf8_paths_unix() -> PyResult<()> {
             use std::ffi::OsStr;
             use std::os::unix::ffi::OsStrExt;
@@ -642,6 +646,7 @@ mod tests {
 
         #[test]
         #[cfg(windows)]
+        #[ignore = "Requires Python runtime - run with --ignored flag"]
         fn test_activate_skips_non_utf8_paths_windows() -> PyResult<()> {
             use std::ffi::OsString;
             use std::os::windows::ffi::OsStringExt;
