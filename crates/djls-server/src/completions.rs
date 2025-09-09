@@ -347,7 +347,7 @@ fn calculate_replacement_range(
     closing: &ClosingBrace,
 ) -> Range {
     // Start position: move back by the length of the partial text
-    let start_col = position.character.saturating_sub(partial_len as u32);
+    let start_col = position.character.saturating_sub(u32::try_from(partial_len).unwrap_or(0));
     let start = Position::new(position.line, start_col);
     
     // End position: include auto-paired } if present
@@ -355,7 +355,7 @@ fn calculate_replacement_range(
     if matches!(closing, ClosingBrace::PartialClose) {
         // Include the auto-paired } in the replacement range
         // Check if there's a } immediately after cursor
-        if line_text.len() > cursor_offset && &line_text[cursor_offset..cursor_offset + 1] == "}" {
+        if line_text.len() > cursor_offset && &line_text[cursor_offset..=cursor_offset] == "}" {
             end_col += 1;
         }
     }
@@ -365,6 +365,7 @@ fn calculate_replacement_range(
 }
 
 /// Generate completions for tag names
+#[allow(clippy::too_many_arguments)]
 fn generate_tag_name_completions(
     partial: &str,
     needs_space: bool,
