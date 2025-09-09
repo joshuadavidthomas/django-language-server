@@ -251,7 +251,10 @@ mod tests {
         };
 
         let snippet = generate_snippet_for_tag_with_end("autoescape", &spec);
-        assert_eq!(snippet, "autoescape ${1|on,off|} %}\n$0\n{% endautoescape");
+        assert_eq!(
+            snippet,
+            "autoescape ${1|on,off|} %}\n$0\n{% endautoescape %}"
+        );
     }
 
     #[test]
