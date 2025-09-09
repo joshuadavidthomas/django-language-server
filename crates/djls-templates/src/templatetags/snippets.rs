@@ -88,7 +88,7 @@ pub fn generate_snippet_for_tag_with_end(tag_name: &str, spec: &TagSpec) -> Stri
     if tag_name == "block" {
         // LSP snippets support placeholder mirroring using the same number
         // ${1:name} in opening tag will be mirrored to ${1} in closing tag
-        let snippet = String::from("block ${1:name} %}\n$0\n{% endblock ${1}");
+        let snippet = String::from("block ${1:name} %}\n$0\n{% endblock ${1} %}");
         return snippet;
     }
 
@@ -225,7 +225,7 @@ mod tests {
         };
 
         let snippet = generate_snippet_for_tag_with_end("block", &spec);
-        assert_eq!(snippet, "block ${1:name} %}\n$0\n{% endblock ${1}");
+        assert_eq!(snippet, "block ${1:name} %}\n$0\n{% endblock ${1} %}");
     }
 
     #[test]

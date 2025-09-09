@@ -17,6 +17,8 @@ use tower_lsp_server::lsp_types::CompletionItemKind;
 use tower_lsp_server::lsp_types::Documentation;
 use tower_lsp_server::lsp_types::InsertTextFormat;
 use tower_lsp_server::lsp_types::Position;
+use tower_lsp_server::lsp_types::Range;
+use tower_lsp_server::lsp_types::TextEdit;
 
 /// Tracks what closing characters are needed to complete a template tag.
 ///
@@ -119,7 +121,15 @@ pub fn handle_completion(
     };
 
     // Generate completions based on available template tags
-    generate_template_completions(&context, template_tags, tag_specs, supports_snippets)
+    generate_template_completions(
+        &context,
+        template_tags,
+        tag_specs,
+        supports_snippets,
+        position,
+        &line_info.text,
+        line_info.cursor_offset,
+    )
 }
 
 /// Extract line information from document at given position
@@ -280,6 +290,9 @@ fn generate_template_completions(
     template_tags: Option<&TemplateTags>,
     tag_specs: Option<&TagSpecs>,
     supports_snippets: bool,
+    position: Position,
+    line_text: &str,
+    cursor_offset: usize,
 ) -> Vec<CompletionItem> {
     match context {
         TemplateCompletionContext::TagName {
@@ -293,6 +306,9 @@ fn generate_template_completions(
             template_tags,
             tag_specs,
             supports_snippets,
+            position,
+            line_text,
+            cursor_offset,
         ),
         TemplateCompletionContext::TagArgument {
             tag,
@@ -322,7 +338,36 @@ fn generate_template_completions(
     }
 }
 
+/// Calculate the range to replace for a completion
+fn calculate_replacement_range(
+    position: Position,
+    line_text: &str,
+    cursor_offset: usize,
+    partial_len: usize,
+    closing: &ClosingBrace,
+) -> Range {
+    // Start position: move back by the length of the partial text
+    let start_col = position
+        .character
+        .saturating_sub(u32::try_from(partial_len).unwrap_or(0));
+    let start = Position::new(position.line, start_col);
+
+    // End position: include auto-paired } if present
+    let mut end_col = position.character;
+    if matches!(closing, ClosingBrace::PartialClose) {
+        // Include the auto-paired } in the replacement range
+        // Check if there's a } immediately after cursor
+        if line_text.len() > cursor_offset && &line_text[cursor_offset..=cursor_offset] == "}" {
+            end_col += 1;
+        }
+    }
+    let end = Position::new(position.line, end_col);
+
+    Range::new(start, end)
+}
+
 /// Generate completions for tag names
+#[allow(clippy::too_many_arguments)]
 fn generate_tag_name_completions(
     partial: &str,
     needs_space: bool,
@@ -330,12 +375,19 @@ fn generate_tag_name_completions(
     template_tags: Option<&TemplateTags>,
     tag_specs: Option<&TagSpecs>,
     supports_snippets: bool,
+    position: Position,
+    line_text: &str,
+    cursor_offset: usize,
 ) -> Vec<CompletionItem> {
     let Some(tags) = template_tags else {
         return Vec::new();
     };
 
     let mut completions = Vec::new();
+
+    // Calculate the replacement range for all completions
+    let replacement_range =
+        calculate_replacement_range(position, line_text, cursor_offset, partial.len(), closing);
 
     // First, check if we should suggest end tags
     // If partial starts with "end", prioritize end tags
@@ -364,7 +416,9 @@ fn generate_tag_name_completions(
                         label: end_tag.name.clone(),
                         kind: Some(CompletionItemKind::KEYWORD),
                         detail: Some(format!("End tag for {opener_name}")),
-                        insert_text: Some(insert_text),
+                        text_edit: Some(tower_lsp_server::lsp_types::CompletionTextEdit::Edit(
+                            TextEdit::new(replacement_range, insert_text.clone()),
+                        )),
                         insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
                         filter_text: Some(end_tag.name.clone()),
                         sort_text: Some(format!("0_{}", end_tag.name)), // Priority sort
@@ -393,14 +447,19 @@ fn generate_tag_name_completions(
                                 text.push(' ');
                             }
 
-                            // Add tag name and snippet arguments (including end tag if required)
-                            text.push_str(&generate_snippet_for_tag_with_end(tag.name(), spec));
+                            // Generate the snippet
+                            let snippet = generate_snippet_for_tag_with_end(tag.name(), spec);
+                            text.push_str(&snippet);
 
-                            // Add closing based on what's already present
-                            match closing {
-                                ClosingBrace::None => text.push_str(" %}"),
-                                ClosingBrace::PartialClose => text.push_str(" %"),
-                                ClosingBrace::FullClose => {} // No closing needed
+                            // Only add closing if the snippet doesn't already include it
+                            // (snippets for tags with end tags include their own %} closing)
+                            if !snippet.contains("%}") {
+                                // Add closing based on what's already present
+                                match closing {
+                                    ClosingBrace::None => text.push_str(" %}"),
+                                    ClosingBrace::PartialClose => text.push_str(" %"),
+                                    ClosingBrace::FullClose => {} // No closing needed
+                                }
                             }
 
                             (text, InsertTextFormat::SNIPPET)
@@ -419,11 +478,11 @@ fn generate_tag_name_completions(
             };
 
             // Create completion item
-            // Use SNIPPET kind when we're inserting a snippet, FUNCTION otherwise
+            // Use SNIPPET kind when we're inserting a snippet, KEYWORD otherwise
             let kind = if matches!(insert_format, InsertTextFormat::SNIPPET) {
                 CompletionItemKind::SNIPPET
             } else {
-                CompletionItemKind::FUNCTION
+                CompletionItemKind::KEYWORD
             };
 
             let completion_item = CompletionItem {
@@ -431,7 +490,9 @@ fn generate_tag_name_completions(
                 kind: Some(kind),
                 detail: Some(format!("from {}", tag.library())),
                 documentation: tag.doc().map(|doc| Documentation::String(doc.clone())),
-                insert_text: Some(insert_text),
+                text_edit: Some(tower_lsp_server::lsp_types::CompletionTextEdit::Edit(
+                    TextEdit::new(replacement_range, insert_text.clone()),
+                )),
                 insert_text_format: Some(insert_format),
                 filter_text: Some(tag.name().clone()),
                 sort_text: Some(format!("1_{}", tag.name())), // Regular tags sort after end tags
@@ -505,7 +566,7 @@ fn generate_argument_completions(
                     // Add closing if needed
                     match closing {
                         ClosingBrace::None => insert_text.push_str(" %}"),
-                        ClosingBrace::PartialClose => insert_text.push('%'),
+                        ClosingBrace::PartialClose => insert_text.push_str(" %"),
                         ClosingBrace::FullClose => {} // No closing needed
                     }
 
@@ -563,7 +624,7 @@ fn generate_argument_completions(
             // Add closing if needed
             match closing {
                 ClosingBrace::None => insert_text.push_str(" %}"),
-                ClosingBrace::PartialClose => insert_text.push('%'),
+                ClosingBrace::PartialClose => insert_text.push_str(" %"),
                 ClosingBrace::FullClose => {} // No closing needed
             }
 
@@ -614,7 +675,7 @@ fn generate_library_completions(
             // Add closing if needed
             match closing {
                 ClosingBrace::None => insert_text.push_str(" %}"),
-                ClosingBrace::PartialClose => insert_text.push('%'),
+                ClosingBrace::PartialClose => insert_text.push_str(" %"),
                 ClosingBrace::FullClose => {} // No closing needed
             }
 
@@ -786,7 +847,8 @@ mod tests {
             closing: ClosingBrace::None,
         };
 
-        let completions = generate_template_completions(&context, None, None, false);
+        let completions =
+            generate_template_completions(&context, None, None, false, Position::new(0, 0), "", 0);
 
         assert!(completions.is_empty());
     }
@@ -858,6 +920,42 @@ mod tests {
             TemplateCompletionContext::LibraryName {
                 partial: String::new(),
                 closing: ClosingBrace::None,
+            }
+        );
+    }
+
+    #[test]
+    fn test_analyze_template_context_with_auto_paired_brace() {
+        // Simulates when editor auto-pairs { with } and user types {% if
+        let line = "{% if}";
+        let cursor_offset = 5; // After "if", before the auto-paired }
+
+        let context = analyze_template_context(line, cursor_offset).expect("Should get context");
+
+        assert_eq!(
+            context,
+            TemplateCompletionContext::TagName {
+                partial: "if".to_string(),
+                needs_space: false,
+                closing: ClosingBrace::PartialClose, // Auto-paired } is detected as PartialClose
+            }
+        );
+    }
+
+    #[test]
+    fn test_analyze_template_context_with_proper_closing() {
+        // Proper closing should still be detected
+        let line = "{% if %}";
+        let cursor_offset = 5; // After "if"
+
+        let context = analyze_template_context(line, cursor_offset).expect("Should get context");
+
+        assert_eq!(
+            context,
+            TemplateCompletionContext::TagName {
+                partial: "if".to_string(),
+                needs_space: false,
+                closing: ClosingBrace::FullClose,
             }
         );
     }
