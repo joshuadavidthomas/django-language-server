@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import platform
 import re
 from pathlib import Path
 
@@ -92,6 +93,13 @@ def tests(session, django):
         session.install(f"django=={django}")
 
     command = ["cargo", "test"]
+
+    # TODO: Remove this exclusion once PyO3 is replaced with subprocess oracle pattern
+    # Temporarily exclude djls-project tests on Windows due to PyO3 DLL loading issues
+    # (STATUS_DLL_NOT_FOUND when the test executable tries to load Python)
+    if platform.system() == "Windows":
+        command.extend(["--workspace", "--exclude", "djls-project"])
+
     if session.posargs:
         args = []
         for arg in session.posargs:
