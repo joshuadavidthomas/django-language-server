@@ -49,7 +49,7 @@ impl TagSpecs {
         }
         None
     }
-    
+
     /// Get the end tag spec for a given closer tag
     #[must_use]
     pub fn get_end_spec_for_closer(&self, closer: &str) -> Option<&EndTag> {

@@ -304,9 +304,10 @@ impl ParserError {
 
 #[cfg(test)]
 mod tests {
+    use serde::Serialize;
+
     use super::*;
     use crate::lexer::Lexer;
-    use serde::Serialize;
 
     // Test database that implements the required traits
     #[salsa::db]
