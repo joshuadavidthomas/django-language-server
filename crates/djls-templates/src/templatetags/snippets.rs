@@ -225,7 +225,7 @@ mod tests {
         };
 
         let snippet = generate_snippet_for_tag_with_end("block", &spec);
-        assert_eq!(snippet, "block ${1:name} %}\n$0\n{% endblock ${1}");
+        assert_eq!(snippet, "block ${1:name} %}\n$0\n{% endblock ${1} %}");
     }
 
     #[test]
