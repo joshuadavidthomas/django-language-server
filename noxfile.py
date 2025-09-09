@@ -144,9 +144,16 @@ def gha_matrix(session):
         if session["name"] == "tests"
     ]
 
-    matrix = {
-        "include": [{**combo, "os": os} for os in os_list for combo in versions_list]
-    }
+    # Build the matrix, excluding Python 3.9 on macOS (PyO3 linking issues)
+    include_list = []
+    for os_name in os_list:
+        for combo in versions_list:
+            # Skip Python 3.9 on macOS due to PyO3/framework linking issues
+            if os_name.startswith("macos") and combo["python-version"] == "3.9":
+                continue
+            include_list.append({**combo, "os": os_name})
+
+    matrix = {"include": include_list}
 
     if os.environ.get("GITHUB_OUTPUT"):
         with Path(os.environ["GITHUB_OUTPUT"]).open("a") as fh:

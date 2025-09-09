@@ -73,12 +73,6 @@ jobs:
           enable-cache: true
           python-version: ${{ matrix.python-version }}
 
-      - name: Set Python environment for macOS
-        if: runner.os == 'macOS'
-        run: |
-          # Use the Python from the activated virtual environment
-          echo "PYO3_PYTHON=$(which python)" >> $GITHUB_ENV
-
       - name: Run tests
         shell: bash
         env:
