@@ -122,6 +122,18 @@ impl Session {
         self.position_encoding
     }
 
+    /// Check if the client supports snippet completions
+    #[must_use]
+    pub fn supports_snippets(&self) -> bool {
+        self.client_capabilities
+            .text_document
+            .as_ref()
+            .and_then(|td| td.completion.as_ref())
+            .and_then(|c| c.completion_item.as_ref())
+            .and_then(|ci| ci.snippet_support)
+            .unwrap_or(false)
+    }
+
     /// Execute a read-only operation with access to the database.
     pub fn with_db<F, R>(&self, f: F) -> R
     where
