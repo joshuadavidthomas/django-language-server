@@ -110,10 +110,12 @@ pub struct Span {
 }
 
 impl Span {
+    #[must_use]
     pub fn new(start: u32, length: u32) -> Self {
         Self { start, length }
     }
-    
+
+    #[must_use]
     pub fn from_token(token: &Token) -> Self {
         let start = token.start().unwrap_or(0);
         let length = u32::try_from(token.lexeme().len()).unwrap_or(0);
@@ -121,10 +123,7 @@ impl Span {
     }
 
     #[must_use]
-    pub fn to_lsp_range(
-        &self,
-        line_offsets: &LineOffsets,
-    ) -> tower_lsp_server::lsp_types::Range {
+    pub fn to_lsp_range(&self, line_offsets: &LineOffsets) -> tower_lsp_server::lsp_types::Range {
         let start_pos = self.start as usize;
         let end_pos = (self.start + self.length) as usize;
 
@@ -168,10 +167,7 @@ pub enum AstError {
         span: Span,
     },
     #[error("Unclosed tag: {tag}")]
-    UnclosedTag {
-        tag: String,
-        span: Span,
-    },
+    UnclosedTag { tag: String, span: Span },
     #[error("Orphaned tag '{tag}' - {context}")]
     OrphanedTag {
         tag: String,
@@ -179,22 +175,11 @@ pub enum AstError {
         span: Span,
     },
     #[error("endblock '{name}' does not match any open block")]
-    UnmatchedBlockName {
-        name: String,
-        span: Span,
-    },
+    UnmatchedBlockName { name: String, span: Span },
     #[error("Tag '{tag}' requires at least {min} argument{}", if *.min == 1 { "" } else { "s" })]
-    MissingRequiredArguments {
-        tag: String,
-        min: usize,
-        span: Span,
-    },
+    MissingRequiredArguments { tag: String, min: usize, span: Span },
     #[error("Tag '{tag}' accepts at most {max} argument{}", if *.max == 1 { "" } else { "s" })]
-    TooManyArguments {
-        tag: String,
-        max: usize,
-        span: Span,
-    },
+    TooManyArguments { tag: String, max: usize, span: Span },
 }
 
 impl AstError {
