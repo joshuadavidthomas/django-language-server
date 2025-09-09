@@ -363,7 +363,7 @@ fn generate_tag_name_completions(
                     completions.push(CompletionItem {
                         label: end_tag.name.clone(),
                         kind: Some(CompletionItemKind::KEYWORD),
-                        detail: Some(format!("End tag for {}", opener_name)),
+                        detail: Some(format!("End tag for {opener_name}")),
                         insert_text: Some(insert_text),
                         insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
                         filter_text: Some(end_tag.name.clone()),
