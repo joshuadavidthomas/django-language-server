@@ -23,7 +23,9 @@ use crate::ast::Span;
 use crate::ast::TagName;
 use crate::ast::TagNode;
 use crate::db::Db as TemplateDb;
-use crate::templatetags::ArgSpec;
+use crate::templatetags::Arg;
+use crate::templatetags::ArgType;
+use crate::templatetags::SimpleArgType;
 use crate::templatetags::TagType;
 use crate::Ast;
 
@@ -57,14 +59,14 @@ impl<'db> TagValidator<'db> {
                 let tag_specs = self.db.tag_specs();
                 let tag_type = TagType::for_name(&name_str, &tag_specs);
 
-                let arg_spec = match tag_type {
+                let args = match tag_type {
                     TagType::Closer => tag_specs
                         .get_end_spec_for_closer(&name_str)
-                        .and_then(|s| s.args.as_ref()),
-                    _ => tag_specs.get(&name_str).and_then(|s| s.args.as_ref()),
+                        .map(|s| &s.args),
+                    _ => tag_specs.get(&name_str).map(|s| &s.args),
                 };
 
-                self.check_arguments(&name_str, &bits, span, arg_spec);
+                self.check_arguments(&name_str, &bits, span, args);
 
                 match tag_type {
                     TagType::Opener => {
@@ -104,30 +106,34 @@ impl<'db> TagValidator<'db> {
         name: &str,
         bits: &[String],
         span: Span,
-        arg_spec: Option<&ArgSpec>,
+        args: Option<&Vec<Arg>>,
     ) {
-        let Some(arg_spec) = arg_spec else {
+        let Some(args) = args else {
             return;
         };
 
-        if let Some(min) = arg_spec.min {
-            if bits.len() < min {
-                self.errors.push(AstError::MissingRequiredArguments {
-                    tag: name.to_string(),
-                    min,
-                    span,
-                });
-            }
+        // Count required arguments
+        let required_count = args.iter().filter(|arg| arg.required).count();
+
+        if bits.len() < required_count {
+            self.errors.push(AstError::MissingRequiredArguments {
+                tag: name.to_string(),
+                min: required_count,
+                span,
+            });
         }
 
-        if let Some(max) = arg_spec.max {
-            if bits.len() > max {
-                self.errors.push(AstError::TooManyArguments {
-                    tag: name.to_string(),
-                    max,
-                    span,
-                });
-            }
+        // If there are more bits than defined args, that might be okay for varargs
+        let has_varargs = args
+            .iter()
+            .any(|arg| matches!(arg.arg_type, ArgType::Simple(SimpleArgType::VarArgs)));
+
+        if !has_varargs && bits.len() > args.len() {
+            self.errors.push(AstError::TooManyArguments {
+                tag: name.to_string(),
+                max: args.len(),
+                span,
+            });
         }
     }
 

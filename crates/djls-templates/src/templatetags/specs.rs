@@ -207,9 +207,41 @@ pub struct TagSpec {
     #[serde(default, alias = "intermediates")]
     pub intermediate_tags: Option<Vec<IntermediateTag>>,
     #[serde(default)]
-    pub args: Option<ArgSpec>,
+    pub args: Vec<Arg>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Arg {
+    pub name: String,
+    #[serde(default = "default_true")]
+    pub required: bool,
+    #[serde(rename = "type")]
+    pub arg_type: ArgType,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(untagged)]
+pub enum ArgType {
+    Simple(SimpleArgType),
+    Choice { choice: Vec<String> },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum SimpleArgType {
+    Literal,
+    Variable,
+    String,
+    Expression,
+    Assignment,
+    VarArgs,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+// Keep ArgSpec for backward compatibility in EndTag
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct EndTag {
     #[serde(alias = "tag")]
@@ -217,7 +249,7 @@ pub struct EndTag {
     #[serde(default)]
     pub optional: bool,
     #[serde(default)]
-    pub args: Option<ArgSpec>,
+    pub args: Vec<Arg>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -242,14 +274,6 @@ impl<'de> Deserialize<'de> for IntermediateTag {
             IntermediateTagHelper::Object { name } => Ok(IntermediateTag { name }),
         }
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ArgSpec {
-    #[serde(default)]
-    pub min: Option<usize>,
-    #[serde(default)]
-    pub max: Option<usize>,
 }
 
 impl TagSpec {
@@ -405,15 +429,17 @@ mod tests {
             assert!(specs.get(tag).is_some(), "{tag} tag should be present");
         }
 
+        // Check that newly added tags are present
+        let additional_tags = ["debug", "firstof", "lorem", "regroup", "widthratio"];
+
+        for tag in additional_tags {
+            assert!(specs.get(tag).is_some(), "{tag} tag should be present");
+        }
+
         // Check that some tags are still missing
         let missing_tags = [
-            "debug",
-            "firstof",
-            "lorem",
-            "querystring", // 5.1
-            "regroup",
+            "querystring", // Django 5.1+
             "resetcycle",
-            "widthratio",
         ];
 
         for tag in missing_tags {
@@ -452,7 +478,7 @@ end = { tag = "endanothertag", optional = true }
             Some(EndTag {
                 name: "endmytag".to_string(),
                 optional: false,
-                args: None,
+                args: vec![],
             })
         );
         assert_eq!(
@@ -470,7 +496,25 @@ end = { tag = "endanothertag", optional = true }
             Some(EndTag {
                 name: "endanothertag".to_string(),
                 optional: true,
-                args: None,
+                args: vec![],
+            })
+        );
+        assert_eq!(
+            my_tag.intermediate_tags,
+            Some(vec![IntermediateTag {
+                name: "mybranch".to_string()
+            }])
+        );
+
+        let another_tag = specs
+            .get("anothertag")
+            .expect("anothertag should be present");
+        assert_eq!(
+            another_tag.end_tag,
+            Some(EndTag {
+                name: "endanothertag".to_string(),
+                optional: true,
+                args: vec![],
             })
         );
         assert!(

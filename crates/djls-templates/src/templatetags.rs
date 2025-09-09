@@ -1,6 +1,11 @@
+mod snippets;
 mod specs;
 
-pub use specs::ArgSpec;
+pub use snippets::generate_snippet_for_tag;
+pub use snippets::generate_snippet_from_args;
+pub use specs::Arg;
+pub use specs::ArgType;
+pub use specs::SimpleArgType;
 pub use specs::TagSpecs;
 
 pub enum TagType {

@@ -4,6 +4,8 @@
 //! and generating appropriate completion items for Django templates.
 
 use djls_project::TemplateTags;
+use djls_templates::templatetags::generate_snippet_for_tag;
+use djls_templates::templatetags::TagSpecs;
 use djls_workspace::FileKind;
 use djls_workspace::PositionEncoding;
 use djls_workspace::TextDocument;
@@ -57,6 +59,8 @@ pub fn handle_completion(
     encoding: PositionEncoding,
     file_kind: FileKind,
     template_tags: Option<&TemplateTags>,
+    tag_specs: Option<&TagSpecs>,
+    supports_snippets: bool,
 ) -> Vec<CompletionItem> {
     // Only handle template files
     if file_kind != FileKind::Template {
@@ -74,7 +78,7 @@ pub fn handle_completion(
     };
 
     // Generate completions based on available template tags
-    generate_template_completions(&context, template_tags)
+    generate_template_completions(&context, template_tags, tag_specs, supports_snippets)
 }
 
 /// Extract line information from document at given position
@@ -126,49 +130,49 @@ fn get_line_info(
 
 /// Analyze a line of template text to determine completion context
 fn analyze_template_context(line: &str, cursor_offset: usize) -> Option<TemplateTagContext> {
-    if cursor_offset > line.chars().count() {
-        return None;
-    }
+    // Find the last {% before cursor position
+    let prefix = &line[..cursor_offset.min(line.len())];
+    let tag_start = prefix.rfind("{%")?;
 
-    let chars: Vec<char> = line.chars().collect();
-    let prefix = chars[..cursor_offset].iter().collect::<String>();
-    let rest_of_line = chars[cursor_offset..].iter().collect::<String>();
-    let rest_trimmed = rest_of_line.trim_start();
+    // Get the content between {% and cursor
+    let content_start = tag_start + 2;
+    let content = &prefix[content_start..];
 
-    prefix.rfind("{%").map(|tag_start| {
-        let closing_brace = if rest_trimmed.starts_with("%}") {
-            ClosingBrace::FullClose
-        } else if rest_trimmed.starts_with('}') {
-            ClosingBrace::PartialClose
-        } else {
-            ClosingBrace::None
-        };
+    // Check if we need a leading space (no space after {%)
+    let needs_leading_space = content.is_empty() || !content.starts_with(' ');
 
-        let partial_tag_start = tag_start + 2; // Skip "{%"
-        let content_after_tag = if partial_tag_start < prefix.len() {
-            &prefix[partial_tag_start..]
-        } else {
-            ""
-        };
+    // Extract the partial tag name
+    let partial_tag = content.trim_start().to_string();
 
-        // Check if we need a leading space - true if there's no space after {%
-        let needs_leading_space =
-            !content_after_tag.starts_with(' ') && !content_after_tag.is_empty();
+    // Check what's after the cursor for closing detection
+    let suffix = &line[cursor_offset.min(line.len())..];
+    let closing_brace = detect_closing_brace(suffix);
 
-        let partial_tag = content_after_tag.trim().to_string();
-
-        TemplateTagContext {
-            partial_tag,
-            closing_brace,
-            needs_leading_space,
-        }
+    Some(TemplateTagContext {
+        partial_tag,
+        closing_brace,
+        needs_leading_space,
     })
+}
+
+/// Detect what closing brace is present after the cursor
+fn detect_closing_brace(suffix: &str) -> ClosingBrace {
+    let trimmed = suffix.trim_start();
+    if trimmed.starts_with("%}") {
+        ClosingBrace::FullClose
+    } else if trimmed.starts_with('}') {
+        ClosingBrace::PartialClose
+    } else {
+        ClosingBrace::None
+    }
 }
 
 /// Generate Django template tag completion items based on context
 fn generate_template_completions(
     context: &TemplateTagContext,
     template_tags: Option<&TemplateTags>,
+    tag_specs: Option<&TagSpecs>,
+    supports_snippets: bool,
 ) -> Vec<CompletionItem> {
     let Some(tags) = template_tags else {
         return Vec::new();
@@ -177,25 +181,47 @@ fn generate_template_completions(
     let mut completions = Vec::new();
 
     for tag in tags.iter() {
-        // Filter tags based on partial match
         if tag.name().starts_with(&context.partial_tag) {
-            // Determine insertion text based on context
-            let mut insert_text = String::new();
+            // Try to get snippet from TagSpecs if available and client supports snippets
+            let (insert_text, insert_format) = if supports_snippets {
+                if let Some(specs) = tag_specs {
+                    if let Some(spec) = specs.get(tag.name()) {
+                        if spec.args.is_empty() {
+                            // No args, use plain text
+                            build_plain_insert(tag.name(), context)
+                        } else {
+                            // Generate snippet from tag spec
+                            let mut text = String::new();
 
-            // Add leading space if needed (cursor right after {%)
-            if context.needs_leading_space {
-                insert_text.push(' ');
-            }
+                            // Add leading space if needed
+                            if context.needs_leading_space {
+                                text.push(' ');
+                            }
 
-            // Add the tag name
-            insert_text.push_str(tag.name());
+                            // Add tag name and snippet arguments
+                            text.push_str(&generate_snippet_for_tag(tag.name(), spec));
 
-            // Add closing based on what's already present
-            match context.closing_brace {
-                ClosingBrace::None => insert_text.push_str(" %}"),
-                ClosingBrace::PartialClose => insert_text.push('%'),
-                ClosingBrace::FullClose => {} // No closing needed
-            }
+                            // Add closing based on what's already present
+                            match context.closing_brace {
+                                ClosingBrace::None => text.push_str(" %}"),
+                                ClosingBrace::PartialClose => text.push('%'),
+                                ClosingBrace::FullClose => {} // No closing needed
+                            }
+
+                            (text, InsertTextFormat::SNIPPET)
+                        }
+                    } else {
+                        // No spec found, use plain text
+                        build_plain_insert(tag.name(), context)
+                    }
+                } else {
+                    // No specs available, use plain text
+                    build_plain_insert(tag.name(), context)
+                }
+            } else {
+                // Client doesn't support snippets
+                build_plain_insert(tag.name(), context)
+            };
 
             // Create completion item
             let completion_item = CompletionItem {
@@ -204,7 +230,7 @@ fn generate_template_completions(
                 detail: Some(format!("from {}", tag.library())),
                 documentation: tag.doc().map(|doc| Documentation::String(doc.clone())),
                 insert_text: Some(insert_text),
-                insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
+                insert_text_format: Some(insert_format),
                 filter_text: Some(tag.name().clone()),
                 ..Default::default()
             };
@@ -214,6 +240,28 @@ fn generate_template_completions(
     }
 
     completions
+}
+
+/// Build plain insert text without snippets
+fn build_plain_insert(tag_name: &str, context: &TemplateTagContext) -> (String, InsertTextFormat) {
+    let mut insert_text = String::new();
+
+    // Add leading space if needed (cursor right after {%)
+    if context.needs_leading_space {
+        insert_text.push(' ');
+    }
+
+    // Add the tag name
+    insert_text.push_str(tag_name);
+
+    // Add closing based on what's already present
+    match context.closing_brace {
+        ClosingBrace::None => insert_text.push_str(" %}"),
+        ClosingBrace::PartialClose => insert_text.push('%'),
+        ClosingBrace::FullClose => {} // No closing needed
+    }
+
+    (insert_text, InsertTextFormat::PLAIN_TEXT)
 }
 
 #[cfg(test)]
@@ -286,7 +334,7 @@ mod tests {
             closing_brace: ClosingBrace::None,
         };
 
-        let completions = generate_template_completions(&context, None);
+        let completions = generate_template_completions(&context, None, None, false);
 
         assert!(completions.is_empty());
     }
