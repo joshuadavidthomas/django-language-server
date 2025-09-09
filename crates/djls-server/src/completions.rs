@@ -336,12 +336,12 @@ fn generate_tag_name_completions(
     };
 
     let mut completions = Vec::new();
-    
+
     // First, check if we should suggest end tags
     // If partial starts with "end", prioritize end tags
     if partial.starts_with("end") && tag_specs.is_some() {
         let specs = tag_specs.unwrap();
-        
+
         // Add all end tags that match the partial
         for (opener_name, spec) in specs.iter() {
             if let Some(end_tag) = &spec.end_tag {
@@ -352,14 +352,14 @@ fn generate_tag_name_completions(
                         insert_text.push(' ');
                     }
                     insert_text.push_str(&end_tag.name);
-                    
+
                     // Add closing based on what's already present
                     match closing {
                         ClosingBrace::None => insert_text.push_str(" %}"),
                         ClosingBrace::PartialClose => insert_text.push_str(" %"),
                         ClosingBrace::FullClose => {} // No closing needed
                     }
-                    
+
                     completions.push(CompletionItem {
                         label: end_tag.name.clone(),
                         kind: Some(CompletionItemKind::KEYWORD),
@@ -425,7 +425,7 @@ fn generate_tag_name_completions(
             } else {
                 CompletionItemKind::FUNCTION
             };
-            
+
             let completion_item = CompletionItem {
                 label: tag.name().clone(),
                 kind: Some(kind),
