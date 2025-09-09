@@ -31,7 +31,7 @@ pub fn url_to_path(url: &Url) -> Option<PathBuf> {
         path.strip_prefix('/').unwrap_or(&path)
     };
 
-    Some(PathBuf::from(path.as_ref()))
+    Some(PathBuf::from(&*path))
 }
 
 /// Context for LSP operations, used for error reporting
