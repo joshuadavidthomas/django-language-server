@@ -19,35 +19,21 @@ cog.outl(f"![Django Version](https://img.shields.io/badge/django-{'%20%7C%20'.jo
 A language server for the Django web framework.
 
 > [!CAUTION]
-> This project is in early stages. All features are incomplete and missing.
+> This project is in early stages. ~All~ Most features are incomplete and missing.
 
 ## Features
 
-**Almost none!**
-
-😅
-
-Well, we've achieved the bare minimum of "technically something":
-
-- [x] Template tag autocompletion
-    - It works! ...when you type `{%`
-    - That's it. That's the feature.
-
-The foundation is solid though:
-
-- [x] Working server architecture
-    - [x] Language Server Protocol implementation in Rust
-    - [x] Direct Django project interaction through PyO3
-    - [x] Single binary distribution with Python packaging
-- [x] Custom template parser to support LSP features
-    - [x] Basic HTML parsing, including style and script tags
-    - [x] Django variables and filters
-    - [ ] Django block template tags
-        - Early work has been done on an extensible template tag parsing specification (TagSpecs)
-- [ ] More actual LSP features (coming soon!... hopefully)
-    - We got one! Well, half of one. Only like... dozens more to go? 🎉
-
-Django wasn't built in a day, and neither was a decent Django language server. 😄
+- [x] **Completions** - Template tag autocompletion with snippets
+- [x] **Diagnostics** - Real-time error checking and validation
+- [ ] **Go to definition** - Jump to template, block, or variable definitions
+- [ ] **Find references** - See where templates and blocks are used
+- [ ] **Hover** - View documentation and type info on hover
+- [ ] **Rename** - Refactor names across files
+- [ ] **Formatting** - Auto-format templates
+- [ ] **Code actions** - Quick fixes and refactorings
+- [ ] **Document symbols** - Outline view of template structure
+- [ ] **Workspace symbols** - Search across all project templates
+- [ ] **Signature help** - Parameter hints while typing
 
 ## Requirements
 
