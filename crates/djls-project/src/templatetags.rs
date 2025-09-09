@@ -46,7 +46,7 @@ impl TemplateTags {
                 .split('.')
                 .filter(|part| part.contains("templatetags"))
                 .nth(1)
-                .or_else(|| module.split('.').last())
+                .or_else(|| module.split('.').next_back())
                 .unwrap_or("builtins")
                 .to_string();
             
