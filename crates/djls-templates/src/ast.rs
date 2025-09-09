@@ -57,8 +57,8 @@ impl Default for LineOffsets {
 #[derive(Clone, Debug, PartialEq, Eq, salsa::Update)]
 pub enum Node<'db> {
     Tag(TagNode<'db>),
-    Comment(CommentNode<'db>),
-    Text(TextNode<'db>),
+    Comment(CommentNode),
+    Text(TextNode),
     Variable(VariableNode<'db>),
 }
 
@@ -66,7 +66,7 @@ pub enum Node<'db> {
 pub struct TagNode<'db> {
     pub name: TagName<'db>,
     pub bits: Vec<String>,
-    pub span: Span<'db>,
+    pub span: Span,
 }
 
 #[salsa::interned(debug)]
@@ -75,22 +75,22 @@ pub struct TagName<'db> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, salsa::Update)]
-pub struct CommentNode<'db> {
+pub struct CommentNode {
     pub content: String,
-    pub span: Span<'db>,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, salsa::Update)]
-pub struct TextNode<'db> {
+pub struct TextNode {
     pub content: String,
-    pub span: Span<'db>,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, salsa::Update)]
 pub struct VariableNode<'db> {
     pub var: VariableName<'db>,
     pub filters: Vec<FilterName<'db>>,
-    pub span: Span<'db>,
+    pub span: Span,
 }
 
 #[salsa::interned(debug)]
@@ -103,29 +103,30 @@ pub struct FilterName<'db> {
     pub text: String,
 }
 
-#[salsa::tracked(debug)]
-pub struct Span<'db> {
-    #[tracked]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+pub struct Span {
     pub start: u32,
-    #[tracked]
     pub length: u32,
 }
 
-impl<'db> Span<'db> {
-    pub fn from_token(db: &'db dyn crate::db::Db, token: &Token) -> Self {
+impl Span {
+    pub fn new(start: u32, length: u32) -> Self {
+        Self { start, length }
+    }
+    
+    pub fn from_token(token: &Token) -> Self {
         let start = token.start().unwrap_or(0);
         let length = u32::try_from(token.lexeme().len()).unwrap_or(0);
-        Span::new(db, start, length)
+        Self { start, length }
     }
 
     #[must_use]
     pub fn to_lsp_range(
         &self,
-        db: &'db dyn crate::db::Db,
         line_offsets: &LineOffsets,
     ) -> tower_lsp_server::lsp_types::Range {
-        let start_pos = self.start(db) as usize;
-        let end_pos = (self.start(db) + self.length(db)) as usize;
+        let start_pos = self.start as usize;
+        let end_pos = (self.start + self.length) as usize;
 
         let (start_line, start_char) = line_offsets.position_to_line_col(start_pos);
         let (end_line, end_char) = line_offsets.position_to_line_col(end_pos);
@@ -151,57 +152,48 @@ pub enum AstError {
     InvalidTagStructure {
         tag: String,
         reason: String,
-        span_start: u32,
-        span_length: u32,
+        span: Span,
     },
     #[error("Unbalanced structure: '{opening_tag}' missing closing '{expected_closing}'")]
     UnbalancedStructure {
         opening_tag: String,
         expected_closing: String,
-        opening_span_start: u32,
-        opening_span_length: u32,
-        closing_span_start: Option<u32>,
-        closing_span_length: Option<u32>,
+        opening_span: Span,
+        closing_span: Option<Span>,
     },
     #[error("Invalid {node_type} node: {reason}")]
     InvalidNode {
         node_type: String,
         reason: String,
-        span_start: u32,
-        span_length: u32,
+        span: Span,
     },
     #[error("Unclosed tag: {tag}")]
     UnclosedTag {
         tag: String,
-        span_start: u32,
-        span_length: u32,
+        span: Span,
     },
     #[error("Orphaned tag '{tag}' - {context}")]
     OrphanedTag {
         tag: String,
         context: String,
-        span_start: u32,
-        span_length: u32,
+        span: Span,
     },
     #[error("endblock '{name}' does not match any open block")]
     UnmatchedBlockName {
         name: String,
-        span_start: u32,
-        span_length: u32,
+        span: Span,
     },
     #[error("Tag '{tag}' requires at least {min} argument{}", if *.min == 1 { "" } else { "s" })]
     MissingRequiredArguments {
         tag: String,
         min: usize,
-        span_start: u32,
-        span_length: u32,
+        span: Span,
     },
     #[error("Tag '{tag}' accepts at most {max} argument{}", if *.max == 1 { "" } else { "s" })]
     TooManyArguments {
         tag: String,
         max: usize,
-        span_start: u32,
-        span_length: u32,
+        span: Span,
     },
 }
 
@@ -210,46 +202,16 @@ impl AstError {
     #[must_use]
     pub fn span(&self) -> Option<(u32, u32)> {
         match self {
-            AstError::UnbalancedStructure {
-                opening_span_start,
-                opening_span_length,
-                ..
-            } => Some((*opening_span_start, *opening_span_length)),
-            AstError::InvalidTagStructure {
-                span_start,
-                span_length,
-                ..
+            AstError::UnbalancedStructure { opening_span, .. } => {
+                Some((opening_span.start, opening_span.length))
             }
-            | AstError::InvalidNode {
-                span_start,
-                span_length,
-                ..
-            }
-            | AstError::UnclosedTag {
-                span_start,
-                span_length,
-                ..
-            }
-            | AstError::OrphanedTag {
-                span_start,
-                span_length,
-                ..
-            }
-            | AstError::UnmatchedBlockName {
-                span_start,
-                span_length,
-                ..
-            }
-            | AstError::MissingRequiredArguments {
-                span_start,
-                span_length,
-                ..
-            }
-            | AstError::TooManyArguments {
-                span_start,
-                span_length,
-                ..
-            } => Some((*span_start, *span_length)),
+            AstError::InvalidTagStructure { span, .. }
+            | AstError::InvalidNode { span, .. }
+            | AstError::UnclosedTag { span, .. }
+            | AstError::OrphanedTag { span, .. }
+            | AstError::UnmatchedBlockName { span, .. }
+            | AstError::MissingRequiredArguments { span, .. }
+            | AstError::TooManyArguments { span, .. } => Some((span.start, span.length)),
             AstError::EmptyAst => None,
         }
     }

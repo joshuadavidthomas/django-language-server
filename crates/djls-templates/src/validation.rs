@@ -92,8 +92,7 @@ impl<'db> TagValidator<'db> {
         while let Some(tag) = self.stack.pop() {
             self.errors.push(AstError::UnclosedTag {
                 tag: tag.name.text(self.db),
-                span_start: tag.span.start(self.db),
-                span_length: tag.span.length(self.db),
+                span: tag.span,
             });
         }
 
@@ -104,7 +103,7 @@ impl<'db> TagValidator<'db> {
         &mut self,
         name: &str,
         bits: &[String],
-        span: Span<'db>,
+        span: Span,
         arg_spec: Option<&ArgSpec>,
     ) {
         let Some(arg_spec) = arg_spec else {
@@ -116,8 +115,7 @@ impl<'db> TagValidator<'db> {
                 self.errors.push(AstError::MissingRequiredArguments {
                     tag: name.to_string(),
                     min,
-                    span_start: span.start(self.db),
-                    span_length: span.length(self.db),
+                    span,
                 });
             }
         }
@@ -127,14 +125,13 @@ impl<'db> TagValidator<'db> {
                 self.errors.push(AstError::TooManyArguments {
                     tag: name.to_string(),
                     max,
-                    span_start: span.start(self.db),
-                    span_length: span.length(self.db),
+                    span,
                 });
             }
         }
     }
 
-    fn handle_intermediate(&mut self, name: &str, span: Span<'db>) {
+    fn handle_intermediate(&mut self, name: &str, span: Span) {
         // Check if this intermediate tag has the required parent
         let parent_tags = self.db.tag_specs().get_parent_tags_for_intermediate(name);
         if parent_tags.is_empty() {
@@ -159,13 +156,12 @@ impl<'db> TagValidator<'db> {
             self.errors.push(AstError::OrphanedTag {
                 tag: name.to_string(),
                 context,
-                span_start: span.start(self.db),
-                span_length: span.length(self.db),
+                span,
             });
         }
     }
 
-    fn handle_closer(&mut self, name: TagName<'db>, bits: &[String], span: Span<'db>) {
+    fn handle_closer(&mut self, name: TagName<'db>, bits: &[String], span: Span) {
         let name_str = name.text(self.db);
 
         if self.stack.is_empty() {
@@ -173,10 +169,8 @@ impl<'db> TagValidator<'db> {
             self.errors.push(AstError::UnbalancedStructure {
                 opening_tag: name_str.to_string(),
                 expected_closing: String::new(),
-                opening_span_start: span.start(self.db),
-                opening_span_length: span.length(self.db),
-                closing_span_start: None,
-                closing_span_length: None,
+                opening_span: span,
+                closing_span: None,
             });
             return;
         }
@@ -188,10 +182,8 @@ impl<'db> TagValidator<'db> {
             self.errors.push(AstError::UnbalancedStructure {
                 opening_tag: name_str.to_string(),
                 expected_closing: String::new(),
-                opening_span_start: span.start(self.db),
-                opening_span_length: span.length(self.db),
-                closing_span_start: None,
-                closing_span_length: None,
+                opening_span: span,
+                closing_span: None,
             });
             return;
         };
@@ -234,8 +226,7 @@ impl<'db> TagValidator<'db> {
             // Report the mismatch
             self.errors.push(AstError::UnmatchedBlockName {
                 name: bits[0].clone(),
-                span_start: span.start(self.db),
-                span_length: span.length(self.db),
+                span,
             });
 
             // Find the nearest block to close (and report it as unclosed)
@@ -249,8 +240,7 @@ impl<'db> TagValidator<'db> {
                 // Report that we're closing the wrong block
                 self.errors.push(AstError::UnclosedTag {
                     tag: nearest_block.name.text(self.db),
-                    span_start: nearest_block.span.start(self.db),
-                    span_length: nearest_block.span.length(self.db),
+                    span: nearest_block.span,
                 });
 
                 // Pop everything after as unclosed
@@ -264,10 +254,8 @@ impl<'db> TagValidator<'db> {
             self.errors.push(AstError::UnbalancedStructure {
                 opening_tag: opener_name,
                 expected_closing: name_str.to_string(),
-                opening_span_start: span.start(self.db),
-                opening_span_length: span.length(self.db),
-                closing_span_start: None,
-                closing_span_length: None,
+                opening_span: span,
+                closing_span: None,
             });
         }
     }
@@ -277,8 +265,7 @@ impl<'db> TagValidator<'db> {
             if let Some(unclosed) = self.stack.pop() {
                 self.errors.push(AstError::UnclosedTag {
                     tag: unclosed.name.text(self.db),
-                    span_start: unclosed.span.start(self.db),
-                    span_length: unclosed.span.length(self.db),
+                    span: unclosed.span,
                 });
             }
         }

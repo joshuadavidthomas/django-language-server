@@ -163,8 +163,8 @@ fn accumulate_error(db: &dyn Db, error: &TemplateError, line_offsets: &LineOffse
     let range = error
         .span()
         .map(|(start, length)| {
-            let span = crate::ast::Span::new(db, start, length);
-            span.to_lsp_range(db, line_offsets)
+            let span = crate::ast::Span::new(start, length);
+            span.to_lsp_range(line_offsets)
         })
         .unwrap_or_default();
 
