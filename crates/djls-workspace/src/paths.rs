@@ -27,8 +27,20 @@ pub fn url_to_path(url: &Url) -> Option<PathBuf> {
 
     #[cfg(windows)]
     let path = {
-        // Remove leading '/' for paths like /C:/...
-        path.strip_prefix('/').unwrap_or(&path)
+        // Remove leading '/' only for Windows drive paths like /C:/...
+        // Check if it matches the pattern /X:/ where X is a drive letter
+        if path.len() >= 3 {
+            let bytes = path.as_bytes();
+            if bytes[0] == b'/' && bytes[2] == b':' && bytes[1].is_ascii_alphabetic() {
+                // It's a drive path like /C:/, strip the leading /
+                &path[1..]
+            } else {
+                // Keep as-is for other paths
+                &path
+            }
+        } else {
+            &path
+        }
     };
 
     Some(PathBuf::from(&*path))
@@ -132,8 +144,16 @@ mod tests {
 
     #[test]
     fn test_url_to_path_valid_file_url() {
-        let url = Url::parse("file:///home/user/test.py").unwrap();
-        assert_eq!(url_to_path(&url), Some(PathBuf::from("/home/user/test.py")));
+        #[cfg(not(windows))]
+        {
+            let url = Url::parse("file:///home/user/test.py").unwrap();
+            assert_eq!(url_to_path(&url), Some(PathBuf::from("/home/user/test.py")));
+        }
+        #[cfg(windows)]
+        {
+            let url = Url::parse("file:///C:/Users/test.py").unwrap();
+            assert_eq!(url_to_path(&url), Some(PathBuf::from("C:/Users/test.py")));
+        }
     }
 
     #[test]
@@ -144,11 +164,22 @@ mod tests {
 
     #[test]
     fn test_url_to_path_percent_encoded() {
-        let url = Url::parse("file:///home/user/test%20file.py").unwrap();
-        assert_eq!(
-            url_to_path(&url),
-            Some(PathBuf::from("/home/user/test file.py"))
-        );
+        #[cfg(not(windows))]
+        {
+            let url = Url::parse("file:///home/user/test%20file.py").unwrap();
+            assert_eq!(
+                url_to_path(&url),
+                Some(PathBuf::from("/home/user/test file.py"))
+            );
+        }
+        #[cfg(windows)]
+        {
+            let url = Url::parse("file:///C:/Users/test%20file.py").unwrap();
+            assert_eq!(
+                url_to_path(&url),
+                Some(PathBuf::from("C:/Users/test file.py"))
+            );
+        }
     }
 
     #[test]
@@ -169,11 +200,22 @@ mod tests {
     // lsp_uri_to_path tests
     #[test]
     fn test_lsp_uri_to_path_valid_file() {
-        let uri = lsp_types::Uri::from_str("file:///home/user/test.py").unwrap();
-        assert_eq!(
-            lsp_uri_to_path(&uri),
-            Some(PathBuf::from("/home/user/test.py"))
-        );
+        #[cfg(not(windows))]
+        {
+            let uri = lsp_types::Uri::from_str("file:///home/user/test.py").unwrap();
+            assert_eq!(
+                lsp_uri_to_path(&uri),
+                Some(PathBuf::from("/home/user/test.py"))
+            );
+        }
+        #[cfg(windows)]
+        {
+            let uri = lsp_types::Uri::from_str("file:///C:/Users/test.py").unwrap();
+            assert_eq!(
+                lsp_uri_to_path(&uri),
+                Some(PathBuf::from("C:/Users/test.py"))
+            );
+        }
     }
 
     #[test]
