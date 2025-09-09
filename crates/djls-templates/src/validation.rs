@@ -51,10 +51,10 @@ impl<'db> TagValidator<'db> {
         while !self.is_at_end() {
             if let Some(Node::Tag { name, bits, span }) = self.current_node() {
                 let name_str = name.text(self.db);
-                self.check_arguments(&name_str, &bits, span);
 
                 match TagType::for_name(&name_str, &self.db.tag_specs()) {
                     TagType::Opener => {
+                        self.check_arguments(&name_str, &bits, span);
                         self.stack.push(TagNode {
                             name,
                             bits: bits.clone(),
@@ -62,13 +62,15 @@ impl<'db> TagValidator<'db> {
                         });
                     }
                     TagType::Intermediate => {
+                        self.check_arguments(&name_str, &bits, span);
                         self.handle_intermediate(&name_str, span);
                     }
                     TagType::Closer => {
+                        self.check_closer_arguments(&name_str, &bits, span);
                         self.handle_closer(name, &bits, span);
                     }
                     TagType::Standalone => {
-                        // Standalone tags don't need special handling
+                        self.check_arguments(&name_str, &bits, span);
                     }
                 }
             }
@@ -88,28 +90,67 @@ impl<'db> TagValidator<'db> {
     }
 
     fn check_arguments(&mut self, name: &str, bits: &[String], span: Span<'db>) {
-        if let Some(spec) = self.db.tag_specs().get(name) {
-            if let Some(arg_spec) = &spec.args {
-                if let Some(min) = arg_spec.min {
-                    if bits.len() < min {
-                        self.errors.push(AstError::MissingRequiredArguments {
-                            tag: name.to_string(),
-                            min,
-                            span_start: span.start(self.db),
-                            span_length: span.length(self.db),
-                        });
-                    }
-                }
-                if let Some(max) = arg_spec.max {
-                    if bits.len() > max {
-                        self.errors.push(AstError::TooManyArguments {
-                            tag: name.to_string(),
-                            max,
-                            span_start: span.start(self.db),
-                            span_length: span.length(self.db),
-                        });
-                    }
-                }
+        let tag_specs = self.db.tag_specs();
+        let Some(spec) = tag_specs.get(name) else {
+            return;
+        };
+
+        let Some(arg_spec) = &spec.args else {
+            return;
+        };
+
+        if let Some(min) = arg_spec.min {
+            if bits.len() < min {
+                self.errors.push(AstError::MissingRequiredArguments {
+                    tag: name.to_string(),
+                    min,
+                    span_start: span.start(self.db),
+                    span_length: span.length(self.db),
+                });
+            }
+        }
+
+        if let Some(max) = arg_spec.max {
+            if bits.len() > max {
+                self.errors.push(AstError::TooManyArguments {
+                    tag: name.to_string(),
+                    max,
+                    span_start: span.start(self.db),
+                    span_length: span.length(self.db),
+                });
+            }
+        }
+    }
+
+    fn check_closer_arguments(&mut self, name: &str, bits: &[String], span: Span<'db>) {
+        let tag_specs = self.db.tag_specs();
+        let Some(end_spec) = tag_specs.get_end_spec_for_closer(name) else {
+            return;
+        };
+
+        let Some(arg_spec) = &end_spec.args else {
+            return;
+        };
+
+        if let Some(min) = arg_spec.min {
+            if bits.len() < min {
+                self.errors.push(AstError::MissingRequiredArguments {
+                    tag: name.to_string(),
+                    min,
+                    span_start: span.start(self.db),
+                    span_length: span.length(self.db),
+                });
+            }
+        }
+
+        if let Some(max) = arg_spec.max {
+            if bits.len() > max {
+                self.errors.push(AstError::TooManyArguments {
+                    tag: name.to_string(),
+                    max,
+                    span_start: span.start(self.db),
+                    span_length: span.length(self.db),
+                });
             }
         }
     }
@@ -129,21 +170,12 @@ impl<'db> TagValidator<'db> {
             .any(|tag| parent_tags.contains(&tag.name.text(self.db)));
 
         if !has_parent {
-            let context = if parent_tags.len() == 1 {
-                let parent = &parent_tags[0];
-                if parent == "if" {
-                    if name == "elif" {
-                        "must appear after 'if' or another 'elif'".to_string()
-                    } else {
-                        format!("must appear within '{parent}' block")
-                    }
-                } else {
-                    format!("must appear within '{parent}' block")
-                }
+            let parents = if parent_tags.len() == 1 {
+                parent_tags[0].clone()
             } else {
-                let parents = parent_tags.join("' or '");
-                format!("must appear within '{parents}' block")
+                parent_tags.join("' or '")
             };
+            let context = format!("must appear within '{parents}' block");
 
             self.errors.push(AstError::OrphanedTag {
                 tag: name.to_string(),
@@ -156,140 +188,118 @@ impl<'db> TagValidator<'db> {
 
     fn handle_closer(&mut self, name: TagName<'db>, bits: &[String], span: Span<'db>) {
         let name_str = name.text(self.db);
-        // Special handling for endblock
-        if name_str == "endblock" {
-            if bits.is_empty() {
-                // Unnamed endblock - find nearest block
-                let mut found_index = None;
 
-                for (i, tag) in self.stack.iter().enumerate().rev() {
-                    if tag.name.text(self.db) == "block" {
-                        found_index = Some(i);
-                        break;
-                    }
-                }
-
-                if let Some(index) = found_index {
-                    // Mark everything between as unclosed
-                    while self.stack.len() > index + 1 {
-                        if let Some(unclosed) = self.stack.pop() {
-                            self.errors.push(AstError::UnclosedTag {
-                                tag: unclosed.name.text(self.db),
-                                span_start: unclosed.span.start(self.db),
-                                span_length: unclosed.span.length(self.db),
-                            });
-                        }
-                    }
-                    // Pop the block
-                    self.stack.pop();
-                } else {
-                    // No block found for endblock
-                    self.errors.push(AstError::UnbalancedStructure {
-                        opening_tag: name.text(self.db),
-                        expected_closing: "block".to_string(),
-                        opening_span_start: span.start(self.db),
-
-                        opening_span_length: span.length(self.db),
-                        closing_span_start: None,
-                        closing_span_length: None,
-                    });
-                }
-            } else {
-                // Named endblock - find matching block with same name
-                let target_name = &bits[0];
-                let mut found_index = None;
-
-                for (i, tag) in self.stack.iter().enumerate().rev() {
-                    if tag.name.text(self.db) == "block"
-                        && !tag.bits.is_empty()
-                        && tag.bits[0] == *target_name
-                    {
-                        found_index = Some(i);
-                        break;
-                    }
-                }
-
-                if let Some(index) = found_index {
-                    // Mark everything after the target as unclosed
-                    while self.stack.len() > index + 1 {
-                        if let Some(unclosed) = self.stack.pop() {
-                            self.errors.push(AstError::UnclosedTag {
-                                tag: unclosed.name.text(self.db),
-                                span_start: unclosed.span.start(self.db),
-                                span_length: unclosed.span.length(self.db),
-                            });
-                        }
-                    }
-                    // Pop the matching block
-                    self.stack.remove(index);
-                } else {
-                    // No matching block found
-                    self.errors.push(AstError::UnmatchedBlockName {
-                        name: target_name.clone(),
-                        span_start: span.start(self.db),
-                        span_length: span.length(self.db),
-                    });
-                }
-            }
-        } else if self.stack.is_empty() {
+        if self.stack.is_empty() {
             // Stack is empty - unexpected closer
             self.errors.push(AstError::UnbalancedStructure {
-                opening_tag: name.text(self.db),
+                opening_tag: name_str.to_string(),
                 expected_closing: String::new(),
                 opening_span_start: span.start(self.db),
-
                 opening_span_length: span.length(self.db),
                 closing_span_start: None,
                 closing_span_length: None,
             });
+            return;
+        }
+
+        // Find the matching opener
+        let expected_opener = self.db.tag_specs().find_opener_for_closer(&name_str);
+        let Some(opener_name) = expected_opener else {
+            // Unknown closer
+            self.errors.push(AstError::UnbalancedStructure {
+                opening_tag: name_str.to_string(),
+                expected_closing: String::new(),
+                opening_span_start: span.start(self.db),
+                opening_span_length: span.length(self.db),
+                closing_span_start: None,
+                closing_span_length: None,
+            });
+            return;
+        };
+
+        // Find matching opener in stack
+        let found_index = if !bits.is_empty() {
+            // Named closer - try to find exact match
+            self.stack
+                .iter()
+                .enumerate()
+                .rev()
+                .find(|(_, tag)| {
+                    tag.name.text(self.db) == opener_name
+                        && !tag.bits.is_empty()
+                        && tag.bits[0] == bits[0]
+                })
+                .map(|(i, _)| i)
         } else {
-            // Find the matching opener
-            let expected_opener = self.db.tag_specs().find_opener_for_closer(&name_str);
-            if let Some(opener_name) = expected_opener {
-                // Search for matching opener
-                let mut found_index = None;
-                for (i, tag) in self.stack.iter().enumerate().rev() {
-                    if tag.name.text(self.db) == opener_name {
-                        found_index = Some(i);
-                        break;
-                    }
-                }
+            // Unnamed closer - find nearest opener
+            self.stack
+                .iter()
+                .enumerate()
+                .rev()
+                .find(|(_, tag)| tag.name.text(self.db) == opener_name)
+                .map(|(i, _)| i)
+        };
 
-                if let Some(index) = found_index {
-                    // Mark everything after the opener as unclosed
-                    while self.stack.len() > index + 1 {
-                        if let Some(unclosed) = self.stack.pop() {
-                            self.errors.push(AstError::UnclosedTag {
-                                tag: unclosed.name.text(self.db),
-                                span_start: unclosed.span.start(self.db),
-                                span_length: unclosed.span.length(self.db),
-                            });
-                        }
-                    }
-                    // Pop the matching opener
-                    self.stack.pop();
-                } else {
-                    // No matching opener found
-                    self.errors.push(AstError::UnbalancedStructure {
-                        opening_tag: opener_name,
-                        expected_closing: name.text(self.db),
-                        opening_span_start: span.start(self.db),
+        if let Some(index) = found_index {
+            // Found a match - pop everything after as unclosed
+            self.pop_unclosed_after(index);
 
-                        opening_span_length: span.length(self.db),
-                        closing_span_start: None,
-                        closing_span_length: None,
-                    });
-                }
+            // Remove the matched tag
+            if !bits.is_empty() {
+                self.stack.remove(index);
             } else {
-                // Unknown closer
-                self.errors.push(AstError::UnbalancedStructure {
-                    opening_tag: name.text(self.db),
-                    expected_closing: String::new(),
-                    opening_span_start: span.start(self.db),
+                self.stack.pop();
+            }
+        } else if !bits.is_empty() {
+            // Named closer with no matching named block
+            // Report the mismatch
+            self.errors.push(AstError::UnmatchedBlockName {
+                name: bits[0].clone(),
+                span_start: span.start(self.db),
+                span_length: span.length(self.db),
+            });
 
-                    opening_span_length: span.length(self.db),
-                    closing_span_start: None,
-                    closing_span_length: None,
+            // Find the nearest block to close (and report it as unclosed)
+            if let Some((index, nearest_block)) = self
+                .stack
+                .iter()
+                .enumerate()
+                .rev()
+                .find(|(_, tag)| tag.name.text(self.db) == opener_name)
+            {
+                // Report that we're closing the wrong block
+                self.errors.push(AstError::UnclosedTag {
+                    tag: nearest_block.name.text(self.db),
+                    span_start: nearest_block.span.start(self.db),
+                    span_length: nearest_block.span.length(self.db),
+                });
+
+                // Pop everything after as unclosed
+                self.pop_unclosed_after(index);
+
+                // Remove the block we're erroneously closing
+                self.stack.pop();
+            }
+        } else {
+            // No opener found at all
+            self.errors.push(AstError::UnbalancedStructure {
+                opening_tag: opener_name,
+                expected_closing: name_str.to_string(),
+                opening_span_start: span.start(self.db),
+                opening_span_length: span.length(self.db),
+                closing_span_start: None,
+                closing_span_length: None,
+            });
+        }
+    }
+
+    fn pop_unclosed_after(&mut self, index: usize) {
+        while self.stack.len() > index + 1 {
+            if let Some(unclosed) = self.stack.pop() {
+                self.errors.push(AstError::UnclosedTag {
+                    tag: unclosed.name.text(self.db),
+                    span_start: unclosed.span.start(self.db),
+                    span_length: unclosed.span.length(self.db),
                 });
             }
         }

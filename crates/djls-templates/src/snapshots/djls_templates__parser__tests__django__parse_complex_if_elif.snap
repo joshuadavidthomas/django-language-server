@@ -11,7 +11,7 @@ nodelist:
       - "0"
     span:
       - 0
-      - 8
+      - 14
   - type: Text
     content: Positive
     span:
@@ -25,7 +25,7 @@ nodelist:
       - "0"
     span:
       - 22
-      - 10
+      - 16
   - type: Text
     content: Negative
     span:
@@ -36,7 +36,7 @@ nodelist:
     bits: []
     span:
       - 46
-      - 4
+      - 10
   - type: Text
     content: Zero
     span:
@@ -47,6 +47,6 @@ nodelist:
     bits: []
     span:
       - 60
-      - 5
+      - 11
 line_offsets:
   - 0

@@ -9,7 +9,7 @@ nodelist:
       - user.is_authenticated
     span:
       - 0
-      - 24
+      - 30
   - type: Text
     content: Welcome
     span:

@@ -9,7 +9,7 @@ nodelist:
       - user.is_authenticated
     span:
       - 0
-      - 24
+      - 30
   - type: Text
     content: Welcome
     span:
@@ -20,6 +20,6 @@ nodelist:
     bits: []
     span:
       - 37
-      - 5
+      - 11
 line_offsets:
   - 0

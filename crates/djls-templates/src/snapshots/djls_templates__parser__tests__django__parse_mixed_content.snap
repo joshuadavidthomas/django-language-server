@@ -14,7 +14,7 @@ nodelist:
       - user.is_authenticated
     span:
       - 9
-      - 24
+      - 30
   - type: Variable
     var: user.name
     filters:
@@ -22,7 +22,7 @@ nodelist:
       - "default:'Guest'"
     span:
       - 44
-      - 31
+      - 37
   - type: Tag
     name: for
     bits:
@@ -31,14 +31,14 @@ nodelist:
       - user.groups
     span:
       - 86
-      - 24
+      - 30
   - type: Tag
     name: if
     bits:
       - forloop.first
     span:
       - 125
-      - 16
+      - 22
   - type: Text
     content: (
     span:
@@ -49,13 +49,13 @@ nodelist:
     bits: []
     span:
       - 148
-      - 5
+      - 11
   - type: Variable
     var: group.name
     filters: []
     span:
       - 168
-      - 10
+      - 16
   - type: Tag
     name: if
     bits:
@@ -63,7 +63,7 @@ nodelist:
       - forloop.last
     span:
       - 193
-      - 19
+      - 25
   - type: Text
     content: ","
     span:
@@ -74,14 +74,14 @@ nodelist:
     bits: []
     span:
       - 220
-      - 5
+      - 11
   - type: Tag
     name: if
     bits:
       - forloop.last
     span:
       - 240
-      - 15
+      - 21
   - type: Text
     content: )
     span:
@@ -92,13 +92,13 @@ nodelist:
     bits: []
     span:
       - 262
-      - 5
+      - 11
   - type: Tag
     name: empty
     bits: []
     span:
       - 278
-      - 5
+      - 11
   - type: Text
     content: (no groups)
     span:
@@ -109,13 +109,13 @@ nodelist:
     bits: []
     span:
       - 314
-      - 6
+      - 12
   - type: Tag
     name: else
     bits: []
     span:
       - 327
-      - 4
+      - 10
   - type: Text
     content: Guest
     span:
@@ -126,7 +126,7 @@ nodelist:
     bits: []
     span:
       - 348
-      - 5
+      - 11
   - type: Text
     content: "!"
     span:

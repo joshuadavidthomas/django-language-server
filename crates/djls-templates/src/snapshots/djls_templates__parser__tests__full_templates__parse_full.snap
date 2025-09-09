@@ -99,12 +99,12 @@ nodelist:
       - user.is_authenticated
     span:
       - 463
-      - 24
+      - 30
   - type: Comment
     content: Welcome message
     span:
       - 510
-      - 15
+      - 21
   - type: Text
     content: "<h1>Welcome,"
     span:
@@ -117,7 +117,7 @@ nodelist:
       - "default:'Guest'"
     span:
       - 561
-      - 31
+      - 37
   - type: Text
     content: "!</h1>"
     span:
@@ -129,7 +129,7 @@ nodelist:
       - user.is_staff
     span:
       - 621
-      - 16
+      - 22
   - type: Text
     content: "<span>Admin</span>"
     span:
@@ -140,7 +140,7 @@ nodelist:
     bits: []
     span:
       - 699
-      - 4
+      - 10
   - type: Text
     content: "<span>User</span>"
     span:
@@ -151,13 +151,13 @@ nodelist:
     bits: []
     span:
       - 764
-      - 5
+      - 11
   - type: Tag
     name: endif
     bits: []
     span:
       - 788
-      - 5
+      - 11
   - type: Text
     content: "</div>"
     span:

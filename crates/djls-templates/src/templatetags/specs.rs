@@ -49,6 +49,19 @@ impl TagSpecs {
         }
         None
     }
+    
+    /// Get the end tag spec for a given closer tag
+    #[must_use]
+    pub fn get_end_spec_for_closer(&self, closer: &str) -> Option<&EndTag> {
+        for spec in self.0.values() {
+            if let Some(end_spec) = &spec.end {
+                if end_spec.tag == closer {
+                    return Some(end_spec);
+                }
+            }
+        }
+        None
+    }
 
     #[must_use]
     pub fn is_opener(&self, name: &str) -> bool {
@@ -194,6 +207,8 @@ pub struct EndTag {
     pub tag: String,
     #[serde(default)]
     pub optional: bool,
+    #[serde(default)]
+    pub args: Option<ArgSpec>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -375,7 +390,8 @@ end = { tag = "endanothertag", optional = true }
             my_tag.end,
             Some(EndTag {
                 tag: "endmytag".to_string(),
-                optional: false
+                optional: false,
+                args: None,
             })
         );
         assert_eq!(my_tag.intermediates, Some(vec!["mybranch".to_string()]));
@@ -387,7 +403,8 @@ end = { tag = "endanothertag", optional = true }
             another_tag.end,
             Some(EndTag {
                 tag: "endanothertag".to_string(),
-                optional: true
+                optional: true,
+                args: None,
             })
         );
         assert!(

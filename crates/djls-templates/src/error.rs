@@ -7,13 +7,13 @@ use crate::parser::ParserError;
 
 #[derive(Clone, Debug, Error, PartialEq, Eq, Serialize)]
 pub enum TemplateError {
-    #[error("Lexer error: {0}")]
+    #[error("{0}")]
     Lexer(String),
 
-    #[error("Parser error: {0}")]
+    #[error("{0}")]
     Parser(String),
 
-    #[error("Validation error: {0}")]
+    #[error("{0}")]
     Validation(#[from] AstError),
 
     #[error("IO error: {0}")]
