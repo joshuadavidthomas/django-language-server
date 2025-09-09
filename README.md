@@ -25,8 +25,10 @@ A language server for the Django web framework.
 
 - [x] **Completions** - Template tag autocompletion with snippets
   ![Completions](./docs/assets/autocomplete.png)
+
 - [x] **Diagnostics** - Real-time error checking and validation
-  ![Diagnostics](./docs/assets/diagnostics.png.png)
+  ![Diagnostics](./docs/assets/diagnostics.png)
+
 - [ ] **Go to definition** - Jump to template, block, or variable definitions
 - [ ] **Find references** - See where templates and blocks are used
 - [ ] **Hover** - View documentation and type info on hover
