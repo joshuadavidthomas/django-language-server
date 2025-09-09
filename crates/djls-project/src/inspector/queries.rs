@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "query", content = "args")]

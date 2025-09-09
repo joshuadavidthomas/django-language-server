@@ -22,7 +22,6 @@ impl Command for Serve {
     fn execute(&self, _args: &Args) -> Result<Exit> {
         djls_server::run()?;
 
-
         Exit::success()
             .with_message("Server completed successfully")
             .process_exit()

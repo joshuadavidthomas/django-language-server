@@ -1,11 +1,14 @@
 use std::path::Path;
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::sync::Arc;
+use std::sync::Mutex;
+use std::time::Duration;
+use std::time::Instant;
 
 use anyhow::Result;
 
 use super::ipc::InspectorProcess;
-use super::{DjlsRequest, DjlsResponse};
+use super::DjlsRequest;
+use super::DjlsResponse;
 use crate::python::PythonEnvironment;
 
 /// Global singleton pool for convenience
@@ -184,4 +187,3 @@ mod tests {
         assert!(!pool.has_active_process());
     }
 }
-

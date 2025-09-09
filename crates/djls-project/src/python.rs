@@ -72,8 +72,6 @@ impl PythonEnvironment {
         })
     }
 
-
-
     fn from_system_python() -> Option<Self> {
         let Ok(python_path) = system::find_executable("python") else {
             return None;
@@ -167,8 +165,6 @@ mod tests {
 
         prefix
     }
-
-
 
     mod env_discovery {
         use which::Error as WhichError;
@@ -467,8 +463,6 @@ mod tests {
             assert!(result.is_none());
         }
     }
-
-
 
     mod salsa_integration {
         use std::sync::Arc;

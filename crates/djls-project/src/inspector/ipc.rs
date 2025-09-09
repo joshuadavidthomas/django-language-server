@@ -1,12 +1,18 @@
-use std::io::{BufRead, BufReader, Write};
+use std::io::BufRead;
+use std::io::BufReader;
+use std::io::Write;
 use std::path::Path;
-use std::process::{Child, Command, Stdio};
+use std::process::Child;
+use std::process::Command;
+use std::process::Stdio;
 
-use anyhow::{Context, Result};
+use anyhow::Context;
+use anyhow::Result;
 use serde_json;
 use tempfile::NamedTempFile;
 
-use super::{DjlsRequest, DjlsResponse};
+use super::DjlsRequest;
+use super::DjlsResponse;
 use crate::python::PythonEnvironment;
 
 // Embed the inspector zipapp at compile time
@@ -32,14 +38,14 @@ impl InspectorProcess {
             .suffix(".pyz")
             .tempfile()
             .context("Failed to create temp file for inspector")?;
-        
+
         zipapp_file
             .write_all(INSPECTOR_PYZ)
             .context("Failed to write inspector zipapp to temp file")?;
         zipapp_file
             .flush()
             .context("Failed to flush inspector zipapp")?;
-        
+
         let zipapp_path = zipapp_file.path();
 
         let mut cmd = Command::new(&python_env.python_path);

@@ -10,12 +10,13 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
-
+use anyhow::Context;
+use anyhow::Result;
 pub use db::find_python_environment;
 pub use db::Db;
 use inspector::pool::InspectorPool;
-use inspector::{DjlsRequest, Query};
+use inspector::DjlsRequest;
+use inspector::Query;
 pub use meta::ProjectMetadata;
 pub use python::PythonEnvironment;
 pub use templatetags::TemplateTags;
@@ -42,21 +43,24 @@ impl DjangoProject {
     pub fn initialize(&mut self, db: &dyn Db) -> Result<()> {
         // Use the database to find the Python environment
         self.env = find_python_environment(db);
-        let env = self.env.as_ref().context("Could not find Python environment")?;
+        let env = self
+            .env
+            .as_ref()
+            .context("Could not find Python environment")?;
 
         // Initialize Django
-        let request = DjlsRequest { 
-            query: Query::DjangoInit 
+        let request = DjlsRequest {
+            query: Query::DjangoInit,
         };
         let response = self.inspector_pool.query(env, &self.path, &request)?;
-        
+
         if !response.ok {
             anyhow::bail!("Failed to initialize Django: {:?}", response.error);
         }
 
         // Get template tags
-        let request = DjlsRequest { 
-            query: Query::Templatetags 
+        let request = DjlsRequest {
+            query: Query::Templatetags,
         };
         let response = self.inspector_pool.query(env, &self.path, &request)?;
 

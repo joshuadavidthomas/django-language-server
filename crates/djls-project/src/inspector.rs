@@ -2,9 +2,9 @@ pub mod ipc;
 pub mod pool;
 pub mod queries;
 
-use serde::{Deserialize, Serialize};
-
 pub use queries::Query;
+use serde::Deserialize;
+use serde::Serialize;
 
 #[derive(Serialize)]
 pub struct DjlsRequest {

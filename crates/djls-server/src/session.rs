@@ -6,6 +6,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use anyhow::Result;
 use dashmap::DashMap;
 use djls_conf::Settings;
 use djls_project::DjangoProject;
@@ -15,7 +16,6 @@ use djls_workspace::paths;
 use djls_workspace::PositionEncoding;
 use djls_workspace::TextDocument;
 use djls_workspace::Workspace;
-use anyhow::Result;
 use tower_lsp_server::lsp_types;
 use url::Url;
 
