@@ -27,8 +27,93 @@ pub struct TagSpecs(HashMap<String, TagSpec>);
 
 impl TagSpecs {
     #[allow(dead_code)]
+    #[must_use]
     pub fn get(&self, key: &str) -> Option<&TagSpec> {
         self.0.get(key)
+    }
+
+    /// Iterate over all tag specs
+    pub fn iter(&self) -> impl Iterator<Item = (&String, &TagSpec)> {
+        self.0.iter()
+    }
+
+    /// Find the opener tag for a given closer tag
+    #[must_use]
+    pub fn find_opener_for_closer(&self, closer: &str) -> Option<String> {
+        for (tag_name, spec) in &self.0 {
+            if let Some(end_spec) = &spec.end {
+                if end_spec.tag == closer {
+                    return Some(tag_name.clone());
+                }
+            }
+        }
+        None
+    }
+
+    /// Get the end tag spec for a given closer tag
+    #[must_use]
+    pub fn get_end_spec_for_closer(&self, closer: &str) -> Option<&EndTag> {
+        for spec in self.0.values() {
+            if let Some(end_spec) = &spec.end {
+                if end_spec.tag == closer {
+                    return Some(end_spec);
+                }
+            }
+        }
+        None
+    }
+
+    #[must_use]
+    pub fn is_opener(&self, name: &str) -> bool {
+        self.0
+            .get(name)
+            .and_then(|spec| spec.end.as_ref())
+            .is_some()
+    }
+
+    #[must_use]
+    pub fn is_intermediate(&self, name: &str) -> bool {
+        self.0.values().any(|spec| {
+            spec.intermediates
+                .as_ref()
+                .is_some_and(|intermediates| intermediates.contains(&name.to_string()))
+        })
+    }
+
+    #[must_use]
+    pub fn is_closer(&self, name: &str) -> bool {
+        self.0
+            .values()
+            .any(|spec| spec.end.as_ref().is_some_and(|end_tag| end_tag.tag == name))
+    }
+
+    /// Get the parent tags that can contain this intermediate tag
+    #[must_use]
+    pub fn get_parent_tags_for_intermediate(&self, intermediate: &str) -> Vec<String> {
+        let mut parents = Vec::new();
+        for (opener_name, spec) in &self.0 {
+            if let Some(intermediates) = &spec.intermediates {
+                if intermediates.contains(&intermediate.to_string()) {
+                    parents.push(opener_name.clone());
+                }
+            }
+        }
+        parents
+    }
+
+    /// Load specs from a TOML string
+    #[allow(dead_code)]
+    pub fn from_toml(toml_str: &str) -> Result<Self, TagSpecError> {
+        let value: Value = toml::from_str(toml_str)?;
+        let mut specs = HashMap::new();
+
+        // Look for tagspecs table
+        if let Some(tagspecs) = value.get("tagspecs") {
+            TagSpec::extract_specs(tagspecs, Some("tagspecs"), &mut specs)
+                .map_err(TagSpecError::Extract)?;
+        }
+
+        Ok(TagSpecs(specs))
     }
 
     /// Load specs from a TOML file, looking under the specified table path
@@ -113,6 +198,25 @@ pub struct TagSpec {
     pub end: Option<EndTag>,
     #[serde(default)]
     pub intermediates: Option<Vec<String>>,
+    #[serde(default)]
+    pub args: Option<ArgSpec>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct EndTag {
+    pub tag: String,
+    #[serde(default)]
+    pub optional: bool,
+    #[serde(default)]
+    pub args: Option<ArgSpec>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ArgSpec {
+    #[serde(default)]
+    pub min: Option<usize>,
+    #[serde(default)]
+    pub max: Option<usize>,
 }
 
 impl TagSpec {
@@ -124,10 +228,13 @@ impl TagSpec {
         specs: &mut HashMap<String, TagSpec>,
     ) -> Result<(), String> {
         // Check if the current node *itself* represents a TagSpec definition
-        // We can be more specific: check if it's a table containing 'end' or 'intermediates'
+        // We can be more specific: check if it's a table containing 'end', 'intermediates', or 'args'
         let mut is_spec_node = false;
         if let Some(table) = value.as_table() {
-            if table.contains_key("end") || table.contains_key("intermediates") {
+            if table.contains_key("end")
+                || table.contains_key("intermediates")
+                || table.contains_key("args")
+            {
                 // Looks like a spec, try to deserialize
                 match TagSpec::deserialize(value.clone()) {
                     Ok(tag_spec) => {
@@ -176,13 +283,6 @@ impl TagSpec {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct EndTag {
-    pub tag: String,
-    #[serde(default)]
-    pub optional: bool,
-}
-
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -224,27 +324,36 @@ mod tests {
             "localtime",
             "timezone",
         ];
-        let missing_tags = [
+        // These are single tags that should also be present
+        let single_tags = [
             "csrf_token",
             "cycle",
-            "debug",
             "extends",
-            "firstof",
             "include",
             "load",
-            "lorem",
             "now",
-            "querystring", // 5.1
-            "regroup",
-            "resetcycle",
             "templatetag",
             "url",
-            "widthratio",
         ];
 
         for tag in expected_tags {
             assert!(specs.get(tag).is_some(), "{tag} tag should be present");
         }
+
+        for tag in single_tags {
+            assert!(specs.get(tag).is_some(), "{tag} tag should be present");
+        }
+
+        // Check that some tags are still missing
+        let missing_tags = [
+            "debug",
+            "firstof",
+            "lorem",
+            "querystring", // 5.1
+            "regroup",
+            "resetcycle",
+            "widthratio",
+        ];
 
         for tag in missing_tags {
             assert!(
@@ -281,7 +390,8 @@ end = { tag = "endanothertag", optional = true }
             my_tag.end,
             Some(EndTag {
                 tag: "endmytag".to_string(),
-                optional: false
+                optional: false,
+                args: None,
             })
         );
         assert_eq!(my_tag.intermediates, Some(vec!["mybranch".to_string()]));
@@ -293,7 +403,8 @@ end = { tag = "endanothertag", optional = true }
             another_tag.end,
             Some(EndTag {
                 tag: "endanothertag".to_string(),
-                optional: true
+                optional: true,
+                args: None,
             })
         );
         assert!(

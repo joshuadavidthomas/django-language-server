@@ -1,13 +1,13 @@
 ---
 source: crates/djls-templates/src/parser.rs
-expression: nodelist
+expression: test_ast
 ---
 nodelist:
-  - Text:
-      content: hello
-      span:
-        start: 6
-        length: 5
+  - type: Text
+    content: hello
+    span:
+      - 6
+      - 5
 line_offsets:
   - 0
   - 1

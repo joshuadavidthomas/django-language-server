@@ -2,19 +2,18 @@ use serde::Serialize;
 use thiserror::Error;
 
 use crate::ast::AstError;
-use crate::ast::Span;
 use crate::lexer::LexerError;
 use crate::parser::ParserError;
 
 #[derive(Clone, Debug, Error, PartialEq, Eq, Serialize)]
 pub enum TemplateError {
-    #[error("Lexer error: {0}")]
+    #[error("{0}")]
     Lexer(String),
 
-    #[error("Parser error: {0}")]
+    #[error("{0}")]
     Parser(String),
 
-    #[error("Validation error: {0}")]
+    #[error("{0}")]
     Validation(#[from] AstError),
 
     #[error("IO error: {0}")]
@@ -44,26 +43,21 @@ impl From<std::io::Error> for TemplateError {
 
 impl TemplateError {
     #[must_use]
-    pub fn span(&self) -> Option<Span> {
+    pub fn span(&self) -> Option<(u32, u32)> {
         match self {
-            TemplateError::Validation(AstError::InvalidTagStructure { span, .. }) => Some(*span),
+            TemplateError::Validation(ast_error) => ast_error.span(),
             _ => None,
         }
     }
 
     #[must_use]
-    pub fn code(&self) -> &'static str {
+    pub fn diagnostic_code(&self) -> &'static str {
         match self {
-            TemplateError::Lexer(_) => "LEX",
-            TemplateError::Parser(_) => "PAR",
-            TemplateError::Validation(_) => "VAL",
-            TemplateError::Io(_) => "IO",
-            TemplateError::Config(_) => "CFG",
+            TemplateError::Lexer(_) => "T200",
+            TemplateError::Parser(_) => "T100",
+            TemplateError::Validation(ast_error) => ast_error.diagnostic_code(),
+            TemplateError::Io(_) => "T900",
+            TemplateError::Config(_) => "T901",
         }
     }
-}
-
-pub struct QuickFix {
-    pub title: String,
-    pub edit: String,
 }

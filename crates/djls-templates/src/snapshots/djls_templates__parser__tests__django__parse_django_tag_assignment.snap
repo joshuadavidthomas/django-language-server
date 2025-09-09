@@ -1,16 +1,16 @@
 ---
 source: crates/djls-templates/src/parser.rs
-expression: nodelist
+expression: test_ast
 ---
 nodelist:
-  - Tag:
-      name: url
-      bits:
-        - "'view-name'"
-        - as
-        - view
-      span:
-        start: 0
-        length: 23
+  - type: Tag
+    name: url
+    bits:
+      - "'view-name'"
+      - as
+      - view
+    span:
+      - 0
+      - 29
 line_offsets:
   - 0

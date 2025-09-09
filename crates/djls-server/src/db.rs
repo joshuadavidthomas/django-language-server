@@ -14,6 +14,7 @@ use dashmap::DashMap;
 use djls_project::Db as ProjectDb;
 use djls_project::ProjectMetadata;
 use djls_templates::db::Db as TemplateDb;
+use djls_templates::templatetags::TagSpecs;
 use djls_workspace::db::Db as WorkspaceDb;
 use djls_workspace::db::SourceFile;
 use djls_workspace::FileKind;
@@ -160,7 +161,24 @@ impl WorkspaceDb for DjangoDatabase {
 }
 
 #[salsa::db]
-impl TemplateDb for DjangoDatabase {}
+impl TemplateDb for DjangoDatabase {
+    fn tag_specs(&self) -> Arc<TagSpecs> {
+        let project_root = self.metadata.root();
+
+        if let Ok(user_specs) = TagSpecs::load_user_specs(project_root) {
+            // If user specs exist and aren't empty, merge with built-in specs
+            // to allow user overrides while keeping built-in specs as fallback
+            if let Ok(mut builtin_specs) = TagSpecs::load_builtin_specs() {
+                builtin_specs.merge(user_specs);
+                return Arc::new(builtin_specs);
+            }
+            return Arc::new(user_specs);
+        }
+
+        // Fall back to built-in specs
+        Arc::new(TagSpecs::load_builtin_specs().expect("Built-in specs must be valid"))
+    }
+}
 
 #[salsa::db]
 impl ProjectDb for DjangoDatabase {

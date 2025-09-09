@@ -1,7 +1,6 @@
 use thiserror::Error;
 
 use crate::tokens::Token;
-use crate::tokens::TokenStream;
 use crate::tokens::TokenType;
 
 pub struct Lexer {
@@ -13,6 +12,7 @@ pub struct Lexer {
 }
 
 impl Lexer {
+    #[must_use]
     pub fn new(source: &str) -> Self {
         Lexer {
             source: String::from(source),
@@ -24,8 +24,8 @@ impl Lexer {
     }
 
     #[allow(clippy::too_many_lines)]
-    pub fn tokenize(&mut self) -> Result<TokenStream, LexerError> {
-        let mut tokens = TokenStream::default();
+    pub fn tokenize(&mut self) -> Result<Vec<Token>, LexerError> {
+        let mut tokens = Vec::new();
 
         while !self.is_at_end() {
             self.start = self.current;
@@ -150,9 +150,13 @@ impl Lexer {
                 _ => {}
             }
 
-            tokens.add_token(token);
+            tokens.push(token);
         }
-        tokens.finalize(self.line);
+
+        // Add EOF token
+        let eof_token = Token::new(TokenType::Eof, self.line, None);
+        tokens.push(eof_token);
+
         Ok(tokens)
     }
 

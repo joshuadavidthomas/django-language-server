@@ -1,178 +1,178 @@
 ---
 source: crates/djls-templates/src/parser.rs
-expression: nodelist
+expression: test_ast
 ---
 nodelist:
-  - Text:
-      content: "<!DOCTYPE html>"
-      span:
-        start: 0
-        length: 15
-  - Text:
-      content: "<html>"
-      span:
-        start: 16
-        length: 6
-  - Text:
-      content: "<head>"
-      span:
-        start: 27
-        length: 6
-  - Text:
-      content: "<style type=\"text/css\">"
-      span:
-        start: 42
-        length: 23
-  - Text:
-      content: /* Style header */
-      span:
-        start: 78
-        length: 18
-  - Text:
-      content: ".header { color: blue; }"
-      span:
-        start: 109
-        length: 24
-  - Text:
-      content: "</style>"
-      span:
-        start: 142
-        length: 8
-  - Text:
-      content: "<script type=\"text/javascript\">"
-      span:
-        start: 159
-        length: 31
-  - Text:
-      content: // Init app
-      span:
-        start: 203
-        length: 11
-  - Text:
-      content: "const app = {"
-      span:
-        start: 227
-        length: 13
-  - Text:
-      content: /* Config */
-      span:
-        start: 257
-        length: 12
-  - Text:
-      content: "debug: true"
-      span:
-        start: 286
-        length: 11
-  - Text:
-      content: "};"
-      span:
-        start: 310
-        length: 2
-  - Text:
-      content: "</script>"
-      span:
-        start: 321
-        length: 9
-  - Text:
-      content: "</head>"
-      span:
-        start: 335
-        length: 7
-  - Text:
-      content: "<body>"
-      span:
-        start: 347
-        length: 6
-  - Text:
-      content: "<!-- Header section -->"
-      span:
-        start: 362
-        length: 23
-  - Text:
-      content: "<div class=\"header\" id=\"main\" data-value=\"123\" disabled>"
-      span:
-        start: 394
-        length: 56
-  - Tag:
-      name: if
-      bits:
-        - user.is_authenticated
-      span:
-        start: 463
-        length: 24
-  - Comment:
-      content: Welcome message
-      span:
-        start: 510
-        length: 15
-  - Text:
-      content: "<h1>Welcome,"
-      span:
-        start: 548
-        length: 12
-  - Variable:
-      var: user.name
-      filters:
-        - title
-        - "default:'Guest'"
-      span:
-        start: 561
-        length: 31
-  - Text:
-      content: "!</h1>"
-      span:
-        start: 598
-        length: 6
-  - Tag:
-      name: if
-      bits:
-        - user.is_staff
-      span:
-        start: 621
-        length: 16
-  - Text:
-      content: "<span>Admin</span>"
-      span:
-        start: 664
-        length: 18
-  - Tag:
-      name: else
-      bits: []
-      span:
-        start: 699
-        length: 4
-  - Text:
-      content: "<span>User</span>"
-      span:
-        start: 730
-        length: 17
-  - Tag:
-      name: endif
-      bits: []
-      span:
-        start: 764
-        length: 5
-  - Tag:
-      name: endif
-      bits: []
-      span:
-        start: 788
-        length: 5
-  - Text:
-      content: "</div>"
-      span:
-        start: 808
-        length: 6
-  - Text:
-      content: "</body>"
-      span:
-        start: 819
-        length: 7
-  - Text:
-      content: "</html>"
-      span:
-        start: 827
-        length: 7
+  - type: Text
+    content: "<!DOCTYPE html>"
+    span:
+      - 0
+      - 15
+  - type: Text
+    content: "<html>"
+    span:
+      - 16
+      - 6
+  - type: Text
+    content: "<head>"
+    span:
+      - 27
+      - 6
+  - type: Text
+    content: "<style type=\"text/css\">"
+    span:
+      - 42
+      - 23
+  - type: Text
+    content: /* Style header */
+    span:
+      - 78
+      - 18
+  - type: Text
+    content: ".header { color: blue; }"
+    span:
+      - 109
+      - 24
+  - type: Text
+    content: "</style>"
+    span:
+      - 142
+      - 8
+  - type: Text
+    content: "<script type=\"text/javascript\">"
+    span:
+      - 159
+      - 31
+  - type: Text
+    content: // Init app
+    span:
+      - 203
+      - 11
+  - type: Text
+    content: "const app = {"
+    span:
+      - 227
+      - 13
+  - type: Text
+    content: /* Config */
+    span:
+      - 257
+      - 12
+  - type: Text
+    content: "debug: true"
+    span:
+      - 286
+      - 11
+  - type: Text
+    content: "};"
+    span:
+      - 310
+      - 2
+  - type: Text
+    content: "</script>"
+    span:
+      - 321
+      - 9
+  - type: Text
+    content: "</head>"
+    span:
+      - 335
+      - 7
+  - type: Text
+    content: "<body>"
+    span:
+      - 347
+      - 6
+  - type: Text
+    content: "<!-- Header section -->"
+    span:
+      - 362
+      - 23
+  - type: Text
+    content: "<div class=\"header\" id=\"main\" data-value=\"123\" disabled>"
+    span:
+      - 394
+      - 56
+  - type: Tag
+    name: if
+    bits:
+      - user.is_authenticated
+    span:
+      - 463
+      - 30
+  - type: Comment
+    content: Welcome message
+    span:
+      - 510
+      - 21
+  - type: Text
+    content: "<h1>Welcome,"
+    span:
+      - 548
+      - 12
+  - type: Variable
+    var: user.name
+    filters:
+      - title
+      - "default:'Guest'"
+    span:
+      - 561
+      - 37
+  - type: Text
+    content: "!</h1>"
+    span:
+      - 598
+      - 6
+  - type: Tag
+    name: if
+    bits:
+      - user.is_staff
+    span:
+      - 621
+      - 22
+  - type: Text
+    content: "<span>Admin</span>"
+    span:
+      - 664
+      - 18
+  - type: Tag
+    name: else
+    bits: []
+    span:
+      - 699
+      - 10
+  - type: Text
+    content: "<span>User</span>"
+    span:
+      - 730
+      - 17
+  - type: Tag
+    name: endif
+    bits: []
+    span:
+      - 764
+      - 11
+  - type: Tag
+    name: endif
+    bits: []
+    span:
+      - 788
+      - 11
+  - type: Text
+    content: "</div>"
+    span:
+      - 808
+      - 6
+  - type: Text
+    content: "</body>"
+    span:
+      - 819
+      - 7
+  - type: Text
+    content: "</html>"
+    span:
+      - 827
+      - 7
 line_offsets:
   - 0
   - 16

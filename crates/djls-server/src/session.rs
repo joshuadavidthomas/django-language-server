@@ -231,6 +231,19 @@ impl Session {
     pub fn get_or_create_file(&mut self, path: &PathBuf) -> SourceFile {
         self.db.get_or_create_file(path)
     }
+
+    /// Check if the client supports pull diagnostics.
+    ///
+    /// Returns true if the client has indicated support for textDocument/diagnostic requests.
+    /// When true, the server should not push diagnostics and instead wait for pull requests.
+    #[must_use]
+    pub fn supports_pull_diagnostics(&self) -> bool {
+        self.client_capabilities
+            .text_document
+            .as_ref()
+            .and_then(|td| td.diagnostic.as_ref())
+            .is_some()
+    }
 }
 
 impl Default for Session {

@@ -5,6 +5,7 @@
 
 use std::path::Path;
 use std::path::PathBuf;
+use std::str::FromStr;
 
 use tower_lsp_server::lsp_types;
 use url::Url;
@@ -46,6 +47,8 @@ pub enum LspContext {
     DidSave,
     /// textDocument/completion request
     Completion,
+    /// textDocument/diagnostic request
+    Diagnostic,
 }
 
 impl std::fmt::Display for LspContext {
@@ -56,6 +59,7 @@ impl std::fmt::Display for LspContext {
             Self::DidClose => write!(f, "didClose"),
             Self::DidSave => write!(f, "didSave"),
             Self::Completion => write!(f, "completion"),
+            Self::Diagnostic => write!(f, "diagnostic"),
         }
     }
 }
@@ -79,14 +83,20 @@ pub fn parse_lsp_uri(lsp_uri: &lsp_types::Uri, context: LspContext) -> Option<Ur
     }
 }
 
-/// Convert an LSP URI to a [`PathBuf`].
+/// Convert an LSP [`Uri`](lsp_types::Uri) to a [`PathBuf`].
 ///
 /// This is a convenience wrapper that parses the LSP URI string and converts it.
 #[must_use]
 pub fn lsp_uri_to_path(lsp_uri: &lsp_types::Uri) -> Option<PathBuf> {
-    // Parse the URI string as a URL
     let url = Url::parse(lsp_uri.as_str()).ok()?;
     url_to_path(&url)
+}
+
+/// Convert a [`Url`] to an LSP [`Uri`](lsp_types::Uri).
+#[must_use]
+pub fn url_to_lsp_uri(url: &Url) -> Option<lsp_types::Uri> {
+    let uri_string = url.to_string();
+    lsp_types::Uri::from_str(&uri_string).ok()
 }
 
 /// Convert a [`Path`] to a `file://` URL

@@ -19,7 +19,12 @@
     {# This is a comment #}
 
     {% block content %}
-    {% endblock content %}
+      {% block foo %}
+      {% endblock bar %}
+
+      {% if foo %}{% endif %}
+    {% else %}
+    {% endblock %}
 
   </body>
 </html>

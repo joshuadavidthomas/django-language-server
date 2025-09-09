@@ -1,0 +1,17 @@
+---
+source: crates/djls-templates/src/parser.rs
+assertion_line: 703
+expression: errors
+---
+- UnbalancedStructure:
+    opening_tag: for
+    expected_closing: endfor
+    opening_span:
+      start: 10
+      length: 6
+    closing_span: ~
+- UnclosedTag:
+    tag: if
+    span:
+      start: 0
+      length: 4

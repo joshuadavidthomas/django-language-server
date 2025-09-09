@@ -1,19 +1,19 @@
 ---
 source: crates/djls-templates/src/parser.rs
-expression: nodelist
+expression: test_ast
 ---
 nodelist:
-  - Tag:
-      name: if
-      bits:
-        - user.is_authenticated
-      span:
-        start: 0
-        length: 24
-  - Text:
-      content: Welcome
-      span:
-        start: 30
-        length: 7
+  - type: Tag
+    name: if
+    bits:
+      - user.is_authenticated
+    span:
+      - 0
+      - 30
+  - type: Text
+    content: Welcome
+    span:
+      - 30
+      - 7
 line_offsets:
   - 0
