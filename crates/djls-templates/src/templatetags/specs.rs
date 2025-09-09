@@ -278,8 +278,7 @@ impl TagSpec {
                             }
                             Err(e) => {
                                 return Err(format!(
-                                    "Failed to deserialize TagSpec in array: {}",
-                                    e
+                                    "Failed to deserialize TagSpec in array: {e}"
                                 ));
                             }
                         }
