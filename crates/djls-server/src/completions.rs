@@ -347,9 +347,11 @@ fn calculate_replacement_range(
     closing: &ClosingBrace,
 ) -> Range {
     // Start position: move back by the length of the partial text
-    let start_col = position.character.saturating_sub(u32::try_from(partial_len).unwrap_or(0));
+    let start_col = position
+        .character
+        .saturating_sub(u32::try_from(partial_len).unwrap_or(0));
     let start = Position::new(position.line, start_col);
-    
+
     // End position: include auto-paired } if present
     let mut end_col = position.character;
     if matches!(closing, ClosingBrace::PartialClose) {
@@ -360,7 +362,7 @@ fn calculate_replacement_range(
         }
     }
     let end = Position::new(position.line, end_col);
-    
+
     Range::new(start, end)
 }
 
@@ -382,15 +384,10 @@ fn generate_tag_name_completions(
     };
 
     let mut completions = Vec::new();
-    
+
     // Calculate the replacement range for all completions
-    let replacement_range = calculate_replacement_range(
-        position,
-        line_text,
-        cursor_offset,
-        partial.len(),
-        closing,
-    );
+    let replacement_range =
+        calculate_replacement_range(position, line_text, cursor_offset, partial.len(), closing);
 
     // First, check if we should suggest end tags
     // If partial starts with "end", prioritize end tags
@@ -420,7 +417,7 @@ fn generate_tag_name_completions(
                         kind: Some(CompletionItemKind::KEYWORD),
                         detail: Some(format!("End tag for {opener_name}")),
                         text_edit: Some(tower_lsp_server::lsp_types::CompletionTextEdit::Edit(
-                            TextEdit::new(replacement_range, insert_text.clone())
+                            TextEdit::new(replacement_range, insert_text.clone()),
                         )),
                         insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
                         filter_text: Some(end_tag.name.clone()),
@@ -494,7 +491,7 @@ fn generate_tag_name_completions(
                 detail: Some(format!("from {}", tag.library())),
                 documentation: tag.doc().map(|doc| Documentation::String(doc.clone())),
                 text_edit: Some(tower_lsp_server::lsp_types::CompletionTextEdit::Edit(
-                    TextEdit::new(replacement_range, insert_text.clone())
+                    TextEdit::new(replacement_range, insert_text.clone()),
                 )),
                 insert_text_format: Some(insert_format),
                 filter_text: Some(tag.name().clone()),
@@ -543,12 +540,12 @@ fn generate_argument_completions(
             if arg.name.starts_with(partial) {
                 let mut insert_text = arg.name.clone();
 
-            // Add closing if needed
-            match closing {
-                ClosingBrace::None => insert_text.push_str(" %}"),
-                ClosingBrace::PartialClose => insert_text.push_str(" %"),
-                ClosingBrace::FullClose => {} // No closing needed
-            }
+                // Add closing if needed
+                match closing {
+                    ClosingBrace::None => insert_text.push_str(" %}"),
+                    ClosingBrace::PartialClose => insert_text.push_str(" %"),
+                    ClosingBrace::FullClose => {} // No closing needed
+                }
 
                 completions.push(CompletionItem {
                     label: arg.name.clone(),
@@ -850,15 +847,8 @@ mod tests {
             closing: ClosingBrace::None,
         };
 
-        let completions = generate_template_completions(
-            &context,
-            None,
-            None,
-            false,
-            Position::new(0, 0),
-            "",
-            0,
-        );
+        let completions =
+            generate_template_completions(&context, None, None, false, Position::new(0, 0), "", 0);
 
         assert!(completions.is_empty());
     }
@@ -969,5 +959,4 @@ mod tests {
             }
         );
     }
-
 }
