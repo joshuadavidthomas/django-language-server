@@ -20,19 +20,36 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Added
 
-- Added support for loading server settings from user files (`~/.config/djls/djls.toml`) and project files (`djls.toml`, `.djls.toml`, and `pyproject.toml` via `[tool.djls]` table).
-- Implemented dynamic settings reloading via `workspace/didChangeConfiguration`.
-- Added `venv_path` setting to allow explicit configuration of Python virtual environment.
+- Added context-aware completions with snippets
+- Added support for loading server settings from user files (`~/.config/djls/djls.toml`) and project files (`djls.toml`, `.djls.toml`, and `pyproject.toml` via `[tool.djls]` table`)
+- Implemented dynamic settings reloading via `workspace/didChangeConfiguration`
+- Added `venv_path` setting to allow explicit configuration of Python virtual environment
+- Added unified file and LSP logging using tracing to server
+- Added virtual `FileSystem` for workspace file management
+- Implemented `textDocument/didSave` LSP method
+- Added typed argspecs for LSP snippets to tagspecs configuration
 
 ### Changed
 
-- **Internal (djls-project)**: Added `system` module to improve reliability of environment discovery tests.
-- **Internal**: Moved task queueing functionality to `djls-server` crate, renamed from `Worker` to `Queue`, and simplified API.
-- **Internal**: Improved Python environment handling, including refactored activation logic.
-- **Internal**: Centralized Python linking build logic into a shared `djls-dev` crate to reduce duplication.
-- **Internal (djls-project)**: Started Salsa integration for incremental computation with database structure and initial Python environment discovery functionality.
-- Bumped Rust toolchain from 1.86 to 1.87
-- Bumped PyO3 to 0.25.
+- Refactored tagspecs configuration to use array of tables and consistent fields
+- Bumped Rust toolchain from 1.87 to 1.88
+- Bumped PyO3/maturin-action to 1.49.3
+- Bumped Salsa crate from git hash to 0.23.0
+- **Internal**: Moved task queueing functionality to `djls-server` crate, renamed from `Worker` to `Queue`, and simplified API
+- **Internal**: Improved Python environment handling, including refactored activation logic
+- **Internal**: Centralized Python linking build logic into a shared `djls-dev` crate to reduce duplication
+- **Internal**: Started Salsa integration for incremental computation with database structure and initial Python environment discovery functionality
+- **Internal**: Reorganized server crate by moving workspace related code to submodule
+- **Internal**: Simplified Salsa database management with `Clone` + `Arc<Mutex<Session>>`
+- **Internal**: Moved Salsa database ownership from `Workspace` to `Session`
+- **Internal**: Removed vestigial concrete Project database, keeping trait
+- **Internal**: Removed global client state in favor of direct `Client` on server
+- **Internal**: Simplified span struct and removed Salsa tracking
+- **Internal**: Added logging macros for tracing migration
+- **Internal**: Swapped tmux shell script for Rust binary
+- **Internal**: Added `system` module to improve reliability of environment discovery tests
+- **Internal**: Fixed Django project detection to prioritize LSP workspace folder
+- **Internal**: Added `Cargo.lock` and relaxed some dependency version constraints
 
 ## [5.2.0a0]
 
