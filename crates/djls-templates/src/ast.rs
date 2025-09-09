@@ -341,11 +341,10 @@ mod tests {
     }
 
     mod spans_and_positions {
-        
 
         #[test]
         fn test_variable_spans() {
-            let template = "Hello\n{{ user.name }}\nWorld";
+            // let template = "Hello\n{{ user.name }}\nWorld";
             // Tests will need to be updated to work with the new db parameter
             // For now, comment out to allow compilation
             // let tokens = Lexer::new(template).tokenize().unwrap();
