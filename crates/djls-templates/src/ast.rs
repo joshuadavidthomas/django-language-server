@@ -341,7 +341,7 @@ mod tests {
     }
 
     mod spans_and_positions {
-        use super::*;
+        
 
         #[test]
         fn test_variable_spans() {

@@ -218,7 +218,15 @@ impl<'db> TagValidator<'db> {
         };
 
         // Find matching opener in stack
-        let found_index = if !bits.is_empty() {
+        let found_index = if bits.is_empty() {
+            // Unnamed closer - find nearest opener
+            self.stack
+                .iter()
+                .enumerate()
+                .rev()
+                .find(|(_, tag)| tag.name.text(self.db) == opener_name)
+                .map(|(i, _)| i)
+        } else {
             // Named closer - try to find exact match
             self.stack
                 .iter()
@@ -230,14 +238,6 @@ impl<'db> TagValidator<'db> {
                         && tag.bits[0] == bits[0]
                 })
                 .map(|(i, _)| i)
-        } else {
-            // Unnamed closer - find nearest opener
-            self.stack
-                .iter()
-                .enumerate()
-                .rev()
-                .find(|(_, tag)| tag.name.text(self.db) == opener_name)
-                .map(|(i, _)| i)
         };
 
         if let Some(index) = found_index {
@@ -245,10 +245,10 @@ impl<'db> TagValidator<'db> {
             self.pop_unclosed_after(index);
 
             // Remove the matched tag
-            if !bits.is_empty() {
-                self.stack.remove(index);
-            } else {
+            if bits.is_empty() {
                 self.stack.pop();
+            } else {
+                self.stack.remove(index);
             }
         } else if !bits.is_empty() {
             // Named closer with no matching named block
