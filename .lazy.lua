@@ -1,5 +1,5 @@
 vim.lsp.config["djls"] = {
-  cmd = { "uvx", "lsp-devtools", "agent", "--", "djls", "serve" },
+  cmd = { "uvx", "lsp-devtools", "agent", "--", "./target/debug/djls", "serve" },
   filetypes = { "htmldjango" },
   root_markers = { "manage.py", "pyproject.toml" },
 }

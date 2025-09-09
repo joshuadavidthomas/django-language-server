@@ -8,11 +8,15 @@ mod templatetags;
 use std::fmt;
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::Arc;
+
+use anyhow::{Context, Result};
 
 pub use db::find_python_environment;
 pub use db::Db;
+use inspector::pool::InspectorPool;
+use inspector::{DjlsRequest, Query};
 pub use meta::ProjectMetadata;
-use pyo3::prelude::*;
 pub use python::PythonEnvironment;
 pub use templatetags::TemplateTags;
 
@@ -21,6 +25,7 @@ pub struct DjangoProject {
     path: PathBuf,
     env: Option<PythonEnvironment>,
     template_tags: Option<TemplateTags>,
+    inspector_pool: Arc<InspectorPool>,
 }
 
 impl DjangoProject {
@@ -30,45 +35,36 @@ impl DjangoProject {
             path,
             env: None,
             template_tags: None,
+            inspector_pool: Arc::new(InspectorPool::new()),
         }
     }
 
-    pub fn initialize(&mut self, db: &dyn Db) -> PyResult<()> {
+    pub fn initialize(&mut self, db: &dyn Db) -> Result<()> {
         // Use the database to find the Python environment
         self.env = find_python_environment(db);
-        if self.env.is_none() {
-            return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
-                "Could not find Python environment",
-            ));
+        let env = self.env.as_ref().context("Could not find Python environment")?;
+
+        // Initialize Django
+        let request = DjlsRequest { 
+            query: Query::DjangoInit 
+        };
+        let response = self.inspector_pool.query(env, &self.path, &request)?;
+        
+        if !response.ok {
+            anyhow::bail!("Failed to initialize Django: {:?}", response.error);
         }
 
-        Python::with_gil(|py| {
-            let sys = py.import("sys")?;
-            let py_path = sys.getattr("path")?;
+        // Get template tags
+        let request = DjlsRequest { 
+            query: Query::Templatetags 
+        };
+        let response = self.inspector_pool.query(env, &self.path, &request)?;
 
-            if let Some(path_str) = self.path.to_str() {
-                py_path.call_method1("insert", (0, path_str))?;
-            }
+        if let Some(data) = response.data {
+            self.template_tags = Some(TemplateTags::from_json(data)?);
+        }
 
-            let env = self.env.as_ref().ok_or_else(|| {
-                PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
-                    "Internal error: Python environment missing after initialization",
-                )
-            })?;
-            env.activate(py)?;
-
-            match py.import("django") {
-                Ok(django) => {
-                    django.call_method0("setup")?;
-                    self.template_tags = Some(TemplateTags::from_python(py)?);
-                    Ok(())
-                }
-                Err(e) => {
-                    eprintln!("Failed to import Django: {e}");
-                    Err(e)
-                }
-            }
-        })
+        Ok(())
     }
 
     #[must_use]

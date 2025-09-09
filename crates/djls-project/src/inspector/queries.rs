@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 pub enum Query {
     PythonEnv,
     Templatetags,
+    DjangoInit,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -31,12 +32,18 @@ pub struct PythonEnvironmentQueryData {
 
 #[derive(Serialize, Deserialize)]
 pub struct TemplateTagQueryData {
-    templatetags: Vec<TemplateTag>,
+    pub templatetags: Vec<TemplateTag>,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct TemplateTag {
-    name: String,
-    module: String,
-    doc: Option<String>,
+    pub name: String,
+    pub module: String,
+    pub doc: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct DjangoInitQueryData {
+    pub success: bool,
+    pub message: Option<String>,
 }

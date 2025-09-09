@@ -15,7 +15,7 @@ use djls_workspace::paths;
 use djls_workspace::PositionEncoding;
 use djls_workspace::TextDocument;
 use djls_workspace::Workspace;
-use pyo3::PyResult;
+use anyhow::Result;
 use tower_lsp_server::lsp_types;
 use url::Url;
 
@@ -156,7 +156,7 @@ impl Session {
     }
 
     /// Initialize the project with the database.
-    pub fn initialize_project(&mut self) -> PyResult<()> {
+    pub fn initialize_project(&mut self) -> Result<()> {
         if let Some(project) = self.project.as_mut() {
             project.initialize(&self.db)
         } else {

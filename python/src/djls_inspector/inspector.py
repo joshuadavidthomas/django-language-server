@@ -10,12 +10,14 @@ try:
     from queries import QueryData
     from queries import get_installed_templatetags
     from queries import get_python_environment_info
+    from queries import initialize_django
 except ImportError:
     # Fall back to relative import (when running with python -m)
     from .queries import Query
     from .queries import QueryData
     from .queries import get_installed_templatetags
     from .queries import get_python_environment_info
+    from .queries import initialize_django
 
 
 @dataclass
@@ -65,6 +67,9 @@ def handle_request(request: dict[str, Any]) -> DjlsResponse:
 
         elif query == Query.TEMPLATETAGS:
             return DjlsResponse(ok=True, data=get_installed_templatetags())
+
+        elif query == Query.DJANGO_INIT:
+            return DjlsResponse(ok=True, data=initialize_django())
 
         return DjlsResponse(ok=False, error=f"Unhandled query type: {query}")
 

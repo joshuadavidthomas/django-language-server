@@ -1,7 +1,6 @@
 pub mod ipc;
 pub mod pool;
 pub mod queries;
-mod tempfile;
 
 use serde::{Deserialize, Serialize};
 

@@ -19,8 +19,17 @@ pub fn global_pool() -> &'static InspectorPool {
 const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Manages a pool of inspector processes with automatic cleanup
+#[derive(Clone)]
 pub struct InspectorPool {
     inner: Arc<Mutex<InspectorPoolInner>>,
+}
+
+impl std::fmt::Debug for InspectorPool {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("InspectorPool")
+            .field("has_active_process", &self.has_active_process())
+            .finish()
+    }
 }
 
 struct InspectorPoolInner {

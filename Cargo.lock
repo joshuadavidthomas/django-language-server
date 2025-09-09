@@ -459,9 +459,7 @@ name = "djls-project"
 version = "0.0.0"
 dependencies = [
  "anyhow",
- "djls-dev",
  "djls-workspace",
- "pyo3",
  "salsa",
  "serde",
  "serde_json",
@@ -477,12 +475,10 @@ dependencies = [
  "camino",
  "dashmap",
  "djls-conf",
- "djls-dev",
  "djls-project",
  "djls-templates",
  "djls-workspace",
  "percent-encoding",
- "pyo3",
  "salsa",
  "serde",
  "serde_json",

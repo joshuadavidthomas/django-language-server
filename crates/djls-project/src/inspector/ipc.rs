@@ -4,9 +4,9 @@ use std::process::{Child, Command, Stdio};
 
 use anyhow::{Context, Result};
 use serde_json;
+use tempfile::NamedTempFile;
 
 use super::{DjlsRequest, DjlsResponse};
-use crate::inspector::tempfile::TempFileGuard;
 use crate::python::PythonEnvironment;
 
 // Embed the inspector zipapp at compile time
@@ -20,15 +20,27 @@ pub struct InspectorProcess {
     child: Child,
     stdin: std::process::ChildStdin,
     stdout: BufReader<std::process::ChildStdout>,
-    _zipapp_guard: TempFileGuard, // Keep the temp file alive for the process lifetime
+    _zipapp_file: NamedTempFile, // Keep the temp file alive for the process lifetime
 }
 
 impl InspectorProcess {
     /// Start a new inspector process
     pub fn new(python_env: &PythonEnvironment, project_path: &Path) -> Result<Self> {
-        // Write the embedded zipapp to a temp file
-        let zipapp_guard = TempFileGuard::new(INSPECTOR_PYZ, "djls_inspector", ".pyz")?;
-        let zipapp_path = zipapp_guard.path();
+        // Write the embedded zipapp to a temp file with .pyz extension
+        let mut zipapp_file = tempfile::Builder::new()
+            .prefix("djls_inspector_")
+            .suffix(".pyz")
+            .tempfile()
+            .context("Failed to create temp file for inspector")?;
+        
+        zipapp_file
+            .write_all(INSPECTOR_PYZ)
+            .context("Failed to write inspector zipapp to temp file")?;
+        zipapp_file
+            .flush()
+            .context("Failed to flush inspector zipapp")?;
+        
+        let zipapp_path = zipapp_file.path();
 
         let mut cmd = Command::new(&python_env.python_path);
         cmd.arg(zipapp_path)
@@ -78,7 +90,7 @@ impl InspectorProcess {
             child,
             stdin,
             stdout,
-            _zipapp_guard: zipapp_guard,
+            _zipapp_file: zipapp_file,
         })
     }
 
