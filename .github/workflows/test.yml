@@ -73,8 +73,12 @@ jobs:
           enable-cache: true
 
       - name: Run tests
+        shell: bash
+        env:
+          DJANGO_VERSION: ${{ matrix.django-version }}
+          PYTHON_VERSION: ${{ matrix.python-version }}
         run: |
-          uv run nox --session "tests(python='${{ matrix.python-version }}', django='${{ matrix.django-version }}')"
+          uv run nox --session "tests(python='${PYTHON_VERSION}', django='${DJANGO_VERSION}')"
 
   tests:
     runs-on: ubuntu-latest
