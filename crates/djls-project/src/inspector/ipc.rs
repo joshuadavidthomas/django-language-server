@@ -77,7 +77,9 @@ impl InspectorProcess {
                     for part in &parts[..parts.len() - 1] {
                         path = path.join(part);
                     }
-                    path = path.join(format!("{}.py", parts.last().unwrap()));
+                    if let Some(last) = parts.last() {
+                        path = path.join(format!("{last}.py"));
+                    }
 
                     if path.exists() {
                         cmd.env("DJANGO_SETTINGS_MODULE", candidate);

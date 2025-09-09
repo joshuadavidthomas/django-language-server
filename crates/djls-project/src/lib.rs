@@ -65,7 +65,7 @@ impl DjangoProject {
         let response = self.inspector_pool.query(env, &self.path, &request)?;
 
         if let Some(data) = response.data {
-            self.template_tags = Some(TemplateTags::from_json(data)?);
+            self.template_tags = Some(TemplateTags::from_json(&data)?);
         }
 
         Ok(())

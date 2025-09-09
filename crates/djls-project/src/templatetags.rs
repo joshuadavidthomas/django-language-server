@@ -16,11 +16,7 @@ impl Deref for TemplateTags {
 }
 
 impl TemplateTags {
-    fn new() -> Self {
-        Self(Vec::new())
-    }
-
-    pub fn from_json(data: Value) -> Result<TemplateTags> {
+    pub fn from_json(data: &Value) -> Result<TemplateTags> {
         let mut tags = Vec::new();
 
         // Parse the JSON response from the inspector

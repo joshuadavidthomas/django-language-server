@@ -66,13 +66,17 @@ impl InspectorPool {
     }
 
     /// Execute a query, reusing existing process if available and not idle
+    ///
+    /// # Panics
+    ///
+    /// Panics if the inspector pool mutex is poisoned (another thread panicked while holding the lock)
     pub fn query(
         &self,
         python_env: &PythonEnvironment,
         project_path: &Path,
         request: &DjlsRequest,
     ) -> Result<DjlsResponse> {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock().expect("Inspector pool mutex poisoned");
         let idle_timeout = inner.idle_timeout;
 
         // Check if we need to drop the existing process
@@ -105,7 +109,10 @@ impl InspectorPool {
         }
 
         // Now we can safely get a mutable reference
-        let handle = inner.process.as_mut().unwrap();
+        let handle = inner
+            .process
+            .as_mut()
+            .expect("Process should exist after creation");
 
         // Execute query
         let response = handle.process.query(request)?;
@@ -115,15 +122,23 @@ impl InspectorPool {
     }
 
     /// Manually close the inspector process
+    ///
+    /// # Panics
+    ///
+    /// Panics if the inspector pool mutex is poisoned
     pub fn close(&self) {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock().expect("Inspector pool mutex poisoned");
         inner.process = None;
     }
 
     /// Check if there's an active process
+    ///
+    /// # Panics
+    ///
+    /// Panics if the inspector pool mutex is poisoned
     #[must_use]
     pub fn has_active_process(&self) -> bool {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock().expect("Inspector pool mutex poisoned");
         if let Some(handle) = &mut inner.process {
             handle.process.is_running() && handle.last_used.elapsed() <= inner.idle_timeout
         } else {
@@ -132,19 +147,27 @@ impl InspectorPool {
     }
 
     /// Get the configured idle timeout
+    ///
+    /// # Panics
+    ///
+    /// Panics if the inspector pool mutex is poisoned
     #[must_use]
     pub fn idle_timeout(&self) -> Duration {
-        let inner = self.inner.lock().unwrap();
+        let inner = self.inner.lock().expect("Inspector pool mutex poisoned");
         inner.idle_timeout
     }
 
     /// Start a background cleanup task that periodically checks for idle processes
+    ///
+    /// # Panics
+    ///
+    /// The spawned thread will panic if the inspector pool mutex is poisoned
     pub fn start_cleanup_task(self: Arc<Self>) {
         std::thread::spawn(move || {
             loop {
                 std::thread::sleep(Duration::from_secs(30)); // Check every 30 seconds
 
-                let mut inner = self.inner.lock().unwrap();
+                let mut inner = self.inner.lock().expect("Inspector pool mutex poisoned");
                 if let Some(handle) = &inner.process {
                     if handle.last_used.elapsed() > inner.idle_timeout {
                         // Process is idle, drop it
