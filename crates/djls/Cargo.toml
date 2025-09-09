@@ -1,6 +1,6 @@
 [package]
 name = "djls"
-version = "5.2.0-alpha"
+version = "5.2.0"
 edition = "2021"
 
 [lib]
