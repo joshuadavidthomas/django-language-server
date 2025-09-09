@@ -114,7 +114,7 @@ impl<'db> TagValidator<'db> {
 
         // Count required arguments
         let required_count = args.iter().filter(|arg| arg.required).count();
-        
+
         if bits.len() < required_count {
             self.errors.push(AstError::MissingRequiredArguments {
                 tag: name.to_string(),
@@ -122,10 +122,12 @@ impl<'db> TagValidator<'db> {
                 span,
             });
         }
-        
+
         // If there are more bits than defined args, that might be okay for varargs
-        let has_varargs = args.iter().any(|arg| matches!(arg.arg_type, ArgType::Simple(SimpleArgType::VarArgs)));
-        
+        let has_varargs = args
+            .iter()
+            .any(|arg| matches!(arg.arg_type, ArgType::Simple(SimpleArgType::VarArgs)));
+
         if !has_varargs && bits.len() > args.len() {
             self.errors.push(AstError::TooManyArguments {
                 tag: name.to_string(),

@@ -430,21 +430,12 @@ mod tests {
         }
 
         // Check that newly added tags are present
-        let additional_tags = [
-            "debug",
-            "firstof",
-            "lorem",
-            "regroup",
-            "widthratio",
-        ];
+        let additional_tags = ["debug", "firstof", "lorem", "regroup", "widthratio"];
 
         for tag in additional_tags {
-            assert!(
-                specs.get(tag).is_some(),
-                "{tag} tag should be present"
-            );
+            assert!(specs.get(tag).is_some(), "{tag} tag should be present");
         }
-        
+
         // Check that some tags are still missing
         let missing_tags = [
             "querystring", // Django 5.1+

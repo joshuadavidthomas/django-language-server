@@ -186,29 +186,29 @@ fn generate_template_completions(
             let (insert_text, insert_format) = if supports_snippets {
                 if let Some(specs) = tag_specs {
                     if let Some(spec) = specs.get(tag.name()) {
-                        if !spec.args.is_empty() {
+                        if spec.args.is_empty() {
+                            // No args, use plain text
+                            build_plain_insert(tag.name(), context)
+                        } else {
                             // Generate snippet from tag spec
                             let mut text = String::new();
-                            
+
                             // Add leading space if needed
                             if context.needs_leading_space {
                                 text.push(' ');
                             }
-                            
+
                             // Add tag name and snippet arguments
                             text.push_str(&generate_snippet_for_tag(tag.name(), spec));
-                            
+
                             // Add closing based on what's already present
                             match context.closing_brace {
                                 ClosingBrace::None => text.push_str(" %}"),
                                 ClosingBrace::PartialClose => text.push('%'),
                                 ClosingBrace::FullClose => {} // No closing needed
                             }
-                            
+
                             (text, InsertTextFormat::SNIPPET)
-                        } else {
-                            // No args, use plain text
-                            build_plain_insert(tag.name(), context)
                         }
                     } else {
                         // No spec found, use plain text

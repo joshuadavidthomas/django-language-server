@@ -4,17 +4,18 @@ use super::specs::SimpleArgType;
 use super::specs::TagSpec;
 
 /// Generate an LSP snippet pattern from an array of arguments
+#[must_use]
 pub fn generate_snippet_from_args(args: &[Arg]) -> String {
     let mut parts = Vec::new();
     let mut placeholder_index = 1;
-    
+
     for arg in args {
         // Skip optional args if we haven't seen any required args after them
         // This prevents generating snippets like: "{% for %}" when everything is optional
         if !arg.required && parts.is_empty() {
             continue;
         }
-        
+
         let snippet_part = match &arg.arg_type {
             ArgType::Simple(simple_type) => match simple_type {
                 SimpleArgType::Literal => {
@@ -60,23 +61,24 @@ pub fn generate_snippet_from_args(args: &[Arg]) -> String {
                 result
             }
         };
-        
+
         parts.push(snippet_part);
     }
-    
+
     parts.join(" ")
 }
 
 /// Generate a complete LSP snippet for a tag including the tag name
+#[must_use]
 pub fn generate_snippet_for_tag(tag_name: &str, spec: &TagSpec) -> String {
     let args_snippet = generate_snippet_from_args(&spec.args);
-    
+
     if args_snippet.is_empty() {
         // Tag with no arguments
         tag_name.to_string()
     } else {
         // Tag with arguments
-        format!("{} {}", tag_name, args_snippet)
+        format!("{tag_name} {args_snippet}")
     }
 }
 
@@ -110,61 +112,57 @@ mod tests {
                 arg_type: ArgType::Simple(SimpleArgType::Literal),
             },
         ];
-        
+
         let snippet = generate_snippet_from_args(&args);
         assert_eq!(snippet, "${1:item} in ${2:items} ${3:reversed}");
     }
-    
+
     #[test]
     fn test_snippet_for_if_tag() {
-        let args = vec![
-            Arg {
-                name: "condition".to_string(),
-                required: true,
-                arg_type: ArgType::Simple(SimpleArgType::Expression),
-            },
-        ];
-        
+        let args = vec![Arg {
+            name: "condition".to_string(),
+            required: true,
+            arg_type: ArgType::Simple(SimpleArgType::Expression),
+        }];
+
         let snippet = generate_snippet_from_args(&args);
         assert_eq!(snippet, "${1:condition}");
     }
-    
+
     #[test]
     fn test_snippet_for_autoescape_tag() {
-        let args = vec![
-            Arg {
-                name: "mode".to_string(),
-                required: true,
-                arg_type: ArgType::Choice { choice: vec!["on".to_string(), "off".to_string()] },
+        let args = vec![Arg {
+            name: "mode".to_string(),
+            required: true,
+            arg_type: ArgType::Choice {
+                choice: vec!["on".to_string(), "off".to_string()],
             },
-        ];
-        
+        }];
+
         let snippet = generate_snippet_from_args(&args);
         assert_eq!(snippet, "${1|on,off|}");
     }
-    
+
     #[test]
     fn test_snippet_for_extends_tag() {
-        let args = vec![
-            Arg {
-                name: "template".to_string(),
-                required: true,
-                arg_type: ArgType::Simple(SimpleArgType::String),
-            },
-        ];
-        
+        let args = vec![Arg {
+            name: "template".to_string(),
+            required: true,
+            arg_type: ArgType::Simple(SimpleArgType::String),
+        }];
+
         let snippet = generate_snippet_from_args(&args);
         assert_eq!(snippet, "\"${1:template}\"");
     }
-    
+
     #[test]
     fn test_snippet_for_csrf_token_tag() {
         let args = vec![];
-        
+
         let snippet = generate_snippet_from_args(&args);
         assert_eq!(snippet, "");
     }
-    
+
     #[test]
     fn test_snippet_for_url_tag() {
         let args = vec![
@@ -189,7 +187,7 @@ mod tests {
                 arg_type: ArgType::Simple(SimpleArgType::Variable),
             },
         ];
-        
+
         let snippet = generate_snippet_from_args(&args);
         assert_eq!(snippet, "\"${1:view_name}\" ${2:args} ${3:as} ${4:varname}");
     }
