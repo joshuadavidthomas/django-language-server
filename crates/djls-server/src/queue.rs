@@ -297,7 +297,7 @@ mod tests {
         }
 
         #[cfg(windows)]
-        sleep(Duration::from_millis(500)).await;
+        sleep(Duration::from_millis(1000)).await;
         #[cfg(not(windows))]
         sleep(Duration::from_millis(200)).await;
 
