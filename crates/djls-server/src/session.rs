@@ -271,6 +271,18 @@ mod tests {
 
     use super::*;
 
+    // Helper function to create a test file path and URL that works on all platforms
+    fn test_file_url(filename: &str) -> (PathBuf, Url) {
+        // Use an absolute path that's valid on the platform
+        #[cfg(windows)]
+        let path = PathBuf::from(format!("C:\\temp\\{filename}"));
+        #[cfg(not(windows))]
+        let path = PathBuf::from(format!("/tmp/{filename}"));
+
+        let url = Url::from_file_path(&path).expect("Failed to create file URL");
+        (path, url)
+    }
+
     #[test]
     fn test_session_database_operations() {
         let mut session = Session::default();
@@ -287,7 +299,7 @@ mod tests {
     #[test]
     fn test_session_document_lifecycle() {
         let mut session = Session::default();
-        let url = Url::parse("file:///test.py").unwrap();
+        let (path, url) = test_file_url("test.py");
 
         // Open document
         let document = TextDocument::new("print('hello')".to_string(), 1, LanguageId::Python);
@@ -297,7 +309,6 @@ mod tests {
         assert!(session.get_document(&url).is_some());
 
         // Should be queryable through database
-        let path = paths::url_to_path(&url).unwrap_or_else(|| PathBuf::from("test.py"));
         let file = session.get_or_create_file(&path);
         let content = session.with_db(|db| source_text(db, file).to_string());
         assert_eq!(content, "print('hello')");
@@ -310,7 +321,7 @@ mod tests {
     #[test]
     fn test_session_document_update() {
         let mut session = Session::default();
-        let url = Url::parse("file:///test.py").unwrap();
+        let (path, url) = test_file_url("test.py");
 
         // Open with initial content
         let document = TextDocument::new("initial".to_string(), 1, LanguageId::Python);
@@ -330,7 +341,6 @@ mod tests {
         assert_eq!(doc.version(), 2);
 
         // Database should also see updated content
-        let path = paths::url_to_path(&url).unwrap_or_else(|| PathBuf::from("test.py"));
         let file = session.get_or_create_file(&path);
         let content = session.with_db(|db| source_text(db, file).to_string());
         assert_eq!(content, "updated");
