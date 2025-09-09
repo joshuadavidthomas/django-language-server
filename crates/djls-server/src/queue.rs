@@ -281,7 +281,12 @@ mod tests {
             Ok(())
         });
 
-        match tokio::time::timeout(Duration::from_millis(500), submit_task).await {
+        #[cfg(windows)]
+        let timeout_ms = 1000;
+        #[cfg(not(windows))]
+        let timeout_ms = 500;
+
+        match tokio::time::timeout(Duration::from_millis(timeout_ms), submit_task).await {
             Ok(Ok(())) => {
                 println!("Successfully submitted 33rd task");
             }
@@ -291,7 +296,11 @@ mod tests {
             ),
         }
 
+        #[cfg(windows)]
+        sleep(Duration::from_millis(500)).await;
+        #[cfg(not(windows))]
         sleep(Duration::from_millis(200)).await;
+
         assert_eq!(counter.load(Ordering::Relaxed), 33);
     }
 

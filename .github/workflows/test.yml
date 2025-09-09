@@ -72,6 +72,11 @@ jobs:
           activate-environment: true
           enable-cache: true
 
+      - name: Set Python path for Windows
+        if: runner.os == 'Windows'
+        run: |
+          echo "PYO3_PYTHON=${{ env.pythonLocation }}\python.exe" >> $GITHUB_ENV
+
       - name: Run tests
         shell: bash
         env:

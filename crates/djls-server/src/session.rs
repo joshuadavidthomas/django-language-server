@@ -297,7 +297,7 @@ mod tests {
         assert!(session.get_document(&url).is_some());
 
         // Should be queryable through database
-        let path = PathBuf::from("/test.py");
+        let path = paths::url_to_path(&url).unwrap_or_else(|| PathBuf::from("test.py"));
         let file = session.get_or_create_file(&path);
         let content = session.with_db(|db| source_text(db, file).to_string());
         assert_eq!(content, "print('hello')");
@@ -330,7 +330,7 @@ mod tests {
         assert_eq!(doc.version(), 2);
 
         // Database should also see updated content
-        let path = PathBuf::from("/test.py");
+        let path = paths::url_to_path(&url).unwrap_or_else(|| PathBuf::from("test.py"));
         let file = session.get_or_create_file(&path);
         let content = session.with_db(|db| source_text(db, file).to_string());
         assert_eq!(content, "updated");
