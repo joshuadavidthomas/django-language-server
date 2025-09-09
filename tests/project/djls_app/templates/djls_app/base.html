@@ -6,24 +6,19 @@
     <title>Test Page</title>
   </head>
   <body>
-    <h1>Hello, {{ user.username }}!</h1>
-    <p>This is a test template.</p>
-    {% if items %}
-      <ul>
-        {% for item in items %}<li>{{ item.name }}</li>{% endfor %}
-      </ul>
-    {% else %}
-      <p>No items found.</p>
-    {% endif %}
-    <img src="{% static 'images/logo.png' %}" alt="Logo">
-    {# This is a comment #}
 
     {% block content %}
-      {% block foo %}
-      {% endblock bar %}
-
-      {% if foo %}{% endif %}
-    {% else %}
+      <h1>Hello, {{ user.username }}!</h1>
+      <p>This is a test template.</p>
+      {% if items %}
+        <ul>
+          {% for item in items %}<li>{{ item.name }}</li>{% endfor %}
+        </ul>
+      {% else %}
+        <p>No items found.</p>
+      {% endif %}
+      <img src="{% static 'images/logo.png' %}" alt="Logo">
+      {# This is a comment #}
     {% endblock %}
 
   </body>
