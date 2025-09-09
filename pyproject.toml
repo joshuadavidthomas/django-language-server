@@ -25,7 +25,7 @@ authors = [
 ]
 requires-python = ">=3.9"
 classifiers = [
-  "Development Status :: 3 - Alpha",
+  "Development Status :: 4 - Beta",
   "Framework :: Django",
   # [[[cog
   # import subprocess
