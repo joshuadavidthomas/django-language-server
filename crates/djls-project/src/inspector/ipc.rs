@@ -15,24 +15,20 @@ use super::DjlsRequest;
 use super::DjlsResponse;
 use crate::python::PythonEnvironment;
 
-// Embed the inspector zipapp at compile time
 const INSPECTOR_PYZ: &[u8] = include_bytes!(concat!(
     env!("CARGO_WORKSPACE_DIR"),
     "/python/dist/djls_inspector.pyz"
 ));
 
-/// Inspector process that communicates with the Python zipapp
 pub struct InspectorProcess {
     child: Child,
     stdin: std::process::ChildStdin,
     stdout: BufReader<std::process::ChildStdout>,
-    _zipapp_file: NamedTempFile, // Keep the temp file alive for the process lifetime
+    _zipapp_file: NamedTempFile,
 }
 
 impl InspectorProcess {
-    /// Start a new inspector process
     pub fn new(python_env: &PythonEnvironment, project_path: &Path) -> Result<Self> {
-        // Write the embedded zipapp to a temp file with .pyz extension
         let mut zipapp_file = tempfile::Builder::new()
             .prefix("djls_inspector_")
             .suffix(".pyz")
@@ -55,7 +51,6 @@ impl InspectorProcess {
             .stderr(Stdio::inherit())
             .current_dir(project_path);
 
-        // Set up Python environment variables
         if let Ok(pythonpath) = std::env::var("PYTHONPATH") {
             let mut paths = vec![project_path.to_string_lossy().to_string()];
             paths.push(pythonpath);
@@ -64,7 +59,6 @@ impl InspectorProcess {
             cmd.env("PYTHONPATH", project_path);
         }
 
-        // Set Django settings module if available
         if let Ok(settings) = std::env::var("DJANGO_SETTINGS_MODULE") {
             cmd.env("DJANGO_SETTINGS_MODULE", settings);
         } else {
@@ -104,32 +98,24 @@ impl InspectorProcess {
 
     /// Send a request and receive a response
     pub fn query(&mut self, request: &DjlsRequest) -> Result<DjlsResponse> {
-        // Serialize request to JSON
         let request_json = serde_json::to_string(request)?;
 
-        // Send request (with newline)
         writeln!(self.stdin, "{request_json}")?;
         self.stdin.flush()?;
 
-        // Read response
         let mut response_line = String::new();
         self.stdout
             .read_line(&mut response_line)
             .context("Failed to read response from inspector")?;
 
-        // Parse response
         let response: DjlsResponse =
             serde_json::from_str(&response_line).context("Failed to parse inspector response")?;
 
         Ok(response)
     }
 
-    /// Check if the process is still running
     pub fn is_running(&mut self) -> bool {
-        match self.child.try_wait() {
-            Ok(None) => true, // Still running
-            _ => false,       // Exited or error
-        }
+        matches!(self.child.try_wait(), Ok(None))
     }
 }
 

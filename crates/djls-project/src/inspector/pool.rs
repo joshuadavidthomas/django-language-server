@@ -14,11 +14,9 @@ use crate::python::PythonEnvironment;
 /// Global singleton pool for convenience
 static GLOBAL_POOL: std::sync::OnceLock<InspectorPool> = std::sync::OnceLock::new();
 
-/// Get or create the global inspector pool
 pub fn global_pool() -> &'static InspectorPool {
     GLOBAL_POOL.get_or_init(InspectorPool::new)
 }
-/// Default idle timeout in seconds
 const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Manages a pool of inspector processes with automatic cleanup
@@ -48,13 +46,11 @@ struct InspectorProcessHandle {
 }
 
 impl InspectorPool {
-    /// Create a new inspector pool with default idle timeout (60 seconds)
     #[must_use]
     pub fn new() -> Self {
         Self::with_timeout(DEFAULT_IDLE_TIMEOUT)
     }
 
-    /// Create a new inspector pool with custom idle timeout
     #[must_use]
     pub fn with_timeout(idle_timeout: Duration) -> Self {
         Self {
@@ -81,7 +77,6 @@ impl InspectorPool {
 
         // Check if we need to drop the existing process
         let need_new_process = if let Some(handle) = &mut inner.process {
-            // Check various conditions
             let idle_too_long = handle.last_used.elapsed() > idle_timeout;
             let not_running = !handle.process.is_running();
             let different_env =
@@ -98,7 +93,6 @@ impl InspectorPool {
 
         // Get or create process
         if inner.process.is_none() {
-            // Create new process
             let process = InspectorProcess::new(python_env, project_path)?;
             inner.process = Some(InspectorProcessHandle {
                 process,
