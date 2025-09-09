@@ -7,18 +7,26 @@ Tag Specifications (TagSpecs) define how template tags are structured, helping t
 Tag Specifications (TagSpecs) define how tags are parsed and understood. They allow the parser to handle custom tags without hard-coding them.
 
 ```toml
-[path.to.tag_name]  # Path where tag is registered, e.g., django.template.defaulttags
-end = { tag = "end_tag_name", optional = false } # Optional: Defines the closing tag
-intermediates = ["intermediate_tag_name", ...]   # Optional: Defines intermediate tags (like else, elif)
+[[path.to.module]]  # Array of tables for the module, e.g., tagspecs.django.template.defaulttags
+name = "tag_name"   # The tag name (e.g., "if", "for", "my_custom_tag")
+end_tag = { name = "end_tag_name", optional = false }  # Optional: Defines the closing tag
+intermediate_tags = [{ name = "tag_name" }, ...]       # Optional: Defines intermediate tags
+args = { min = 1, max = 3 }                            # Optional: Argument constraints
 ```
 
-The `end` table defines the closing tag for a block tag.
-- `tag`: The name of the closing tag (e.g., "endif").
+The `name` field specifies the tag name (e.g., "if", "for", "my_custom_tag").
+
+The `end_tag` table defines the closing tag for a block tag.
+- `name`: The name of the closing tag (e.g., "endif").
 - `optional`: Whether the closing tag is optional (defaults to `false`).
+- `args`: Optional argument constraints for the end tag.
 
-The `intermediates` array lists tags that can appear between the opening and closing tags (e.g., "else", "elif" for an "if" tag).
+The `intermediate_tags` array lists tags that can appear between the opening and closing tags. Each intermediate tag is an object with:
+- `name`: The name of the intermediate tag (e.g., "else", "elif").
 
-The tag name itself (e.g., `if`, `for`, `my_custom_tag`) is derived from the last segment of the TOML table path defining the spec.
+The `args` table defines argument constraints:
+- `min`: Minimum number of arguments required.
+- `max`: Maximum number of arguments allowed.
 
 ## Configuration
 
@@ -30,30 +38,49 @@ The tag name itself (e.g., `if`, `for`, `my_custom_tag`) is derived from the las
 ### If Tag
 
 ```toml
-[tagspecs.django.template.defaulttags.if]
-end = { tag = "endif" }
-intermediates = ["elif", "else"]
+[[tagspecs.django.template.defaulttags]]
+name = "if"
+end_tag = { name = "endif" }
+intermediate_tags = [{ name = "elif" }, { name = "else" }]
+args = { min = 1 }  # condition
 ```
 
 ### For Tag
 
 ```toml
-[tagspecs.django.template.defaulttags.for]
-end = { tag = "endfor" }
-intermediates = ["empty"]
+[[tagspecs.django.template.defaulttags]]
+name = "for"
+end_tag = { name = "endfor" }
+intermediate_tags = [{ name = "empty" }]
+args = { min = 3 }  # item in items (at minimum)
 ```
 
 ### Autoescape Tag
 
 ```toml
-[tagspecs.django.template.defaulttags.autoescape]
-end = { tag = "endautoescape" }
+[[tagspecs.django.template.defaulttags]]
+name = "autoescape"
+end_tag = { name = "endautoescape" }
+args = { min = 1, max = 1 }  # on or off
 ```
 
 ### Custom Tag
 
 ```toml
-[tagspecs.my_module.templatetags.my_tags.my_custom_tag]
-end = { tag = "endmycustomtag", optional = true }
-intermediates = ["myintermediate"]
+[[tagspecs.my_module.templatetags.my_tags]]
+name = "my_custom_tag"
+end_tag = { name = "endmycustomtag", optional = true }
+intermediate_tags = [{ name = "myintermediate" }]
+```
+
+### Standalone Tags (no end tag)
+
+```toml
+[[tagspecs.django.template.defaulttags]]
+name = "csrf_token"
+args = { min = 0, max = 0 }  # no arguments
+
+[[tagspecs.django.template.defaulttags]]
+name = "load"
+args = { min = 1 }  # library name(s)
 ```
