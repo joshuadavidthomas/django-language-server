@@ -101,7 +101,7 @@ impl<'db> Parser<'db> {
 
         Ok(Node::Comment(CommentNode {
             content: token.content(),
-            span: Span::from_token(self.db, &token),
+            span: Span::from_token(&token),
         }))
     }
 
@@ -116,7 +116,7 @@ impl<'db> Parser<'db> {
         let name_str = args.first().ok_or(ParserError::EmptyTag)?.clone();
         let name = TagName::new(self.db, name_str); // Intern the tag name
         let bits = args.into_iter().skip(1).collect();
-        let span = Span::from_token(self.db, &token);
+        let span = Span::from_token(&token);
 
         Ok(Node::Tag(TagNode { name, bits, span }))
     }
@@ -137,7 +137,7 @@ impl<'db> Parser<'db> {
             .skip(1)
             .map(|s| FilterName::new(self.db, s.trim().to_string())) // Intern filter names
             .collect();
-        let span = Span::from_token(self.db, &token);
+        let span = Span::from_token(&token);
 
         Ok(Node::Variable(VariableNode { var, filters, span }))
     }
@@ -175,7 +175,7 @@ impl<'db> Parser<'db> {
         let offset = u32::try_from(text.find(content.as_str()).unwrap_or(0))
             .expect("Offset should fit in u32");
         let length = u32::try_from(content.len()).expect("Content length should fit in u32");
-        let span = Span::new(self.db, start + offset, length);
+        let span = Span::new(start + offset, length);
 
         Ok(Node::Text(TextNode { content, span }))
     }
@@ -404,20 +404,20 @@ mod tests {
                 Node::Tag(TagNode { name, bits, span }) => TestNode::Tag {
                     name: name.text(db).to_string(),
                     bits: bits.clone(),
-                    span: (span.start(db), span.length(db)),
+                    span: (span.start, span.length),
                 },
                 Node::Comment(CommentNode { content, span }) => TestNode::Comment {
                     content: content.clone(),
-                    span: (span.start(db), span.length(db)),
+                    span: (span.start, span.length),
                 },
                 Node::Text(TextNode { content, span }) => TestNode::Text {
                     content: content.clone(),
-                    span: (span.start(db), span.length(db)),
+                    span: (span.start, span.length),
                 },
                 Node::Variable(VariableNode { var, filters, span }) => TestNode::Variable {
                     var: var.text(db).to_string(),
                     filters: filters.iter().map(|f| f.text(db).to_string()).collect(),
-                    span: (span.start(db), span.length(db)),
+                    span: (span.start, span.length),
                 },
             }
         }
