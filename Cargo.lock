@@ -458,10 +458,13 @@ dependencies = [
 name = "djls-project"
 version = "0.0.0"
 dependencies = [
+ "anyhow",
  "djls-dev",
  "djls-workspace",
  "pyo3",
  "salsa",
+ "serde",
+ "serde_json",
  "tempfile",
  "which",
 ]

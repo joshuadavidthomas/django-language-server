@@ -10,8 +10,11 @@ default = []
 [dependencies]
 djls-workspace = { workspace = true }
 
+anyhow = { workspace = true }
 pyo3 = { workspace = true }
 salsa = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 which = { workspace = true}
 
 [build-dependencies]

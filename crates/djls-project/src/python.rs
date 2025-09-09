@@ -8,9 +8,9 @@ use crate::system;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PythonEnvironment {
-    python_path: PathBuf,
-    sys_path: Vec<PathBuf>,
-    sys_prefix: PathBuf,
+    pub python_path: PathBuf,
+    pub sys_path: Vec<PathBuf>,
+    pub sys_prefix: PathBuf,
 }
 
 impl PythonEnvironment {

@@ -1,6 +1,7 @@
 mod db;
+pub mod inspector;
 mod meta;
-mod python;
+pub mod python;
 mod system;
 mod templatetags;
 
