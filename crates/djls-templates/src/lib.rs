@@ -162,7 +162,10 @@ fn accumulate_error(db: &dyn Db, error: &TemplateError, line_offsets: &LineOffse
     let code = error.diagnostic_code();
     let range = error
         .span()
-        .map(|(start, length)| crate::ast::span_to_lsp_range(start, length, line_offsets))
+        .map(|(start, length)| {
+            let span = crate::ast::Span::new(db, start, length);
+            span.to_lsp_range(db, line_offsets)
+        })
         .unwrap_or_default();
 
     let diagnostic = tower_lsp_server::lsp_types::Diagnostic {

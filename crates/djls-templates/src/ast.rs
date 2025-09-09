@@ -131,6 +131,30 @@ impl<'db> Span<'db> {
         let length = u32::try_from(token.lexeme().len()).unwrap_or(0);
         Span::new(db, start, length)
     }
+
+    #[must_use]
+    pub fn to_lsp_range(
+        &self,
+        db: &'db dyn crate::db::Db,
+        line_offsets: &LineOffsets,
+    ) -> tower_lsp_server::lsp_types::Range {
+        let start_pos = self.start(db) as usize;
+        let end_pos = (self.start(db) + self.length(db)) as usize;
+
+        let (start_line, start_char) = line_offsets.position_to_line_col(start_pos);
+        let (end_line, end_char) = line_offsets.position_to_line_col(end_pos);
+
+        tower_lsp_server::lsp_types::Range {
+            start: tower_lsp_server::lsp_types::Position {
+                line: u32::try_from(start_line - 1).unwrap_or(u32::MAX), // LSP is 0-based, LineOffsets is 1-based
+                character: u32::try_from(start_char).unwrap_or(u32::MAX),
+            },
+            end: tower_lsp_server::lsp_types::Position {
+                line: u32::try_from(end_line - 1).unwrap_or(u32::MAX),
+                character: u32::try_from(end_char).unwrap_or(u32::MAX),
+            },
+        }
+    }
 }
 
 #[derive(Clone, Debug, Error, PartialEq, Eq, Serialize)]
@@ -248,70 +272,16 @@ impl AstError {
     #[must_use]
     pub fn diagnostic_code(&self) -> &'static str {
         match self {
-            AstError::EmptyAst => "DTL-001",
-            AstError::InvalidTagStructure { .. } => "DTL-002",
-            AstError::UnbalancedStructure { .. } => "DTL-003",
-            AstError::InvalidNode { .. } => "DTL-004",
-            AstError::UnclosedTag { .. } => "DTL-005",
-            AstError::OrphanedTag { .. } => "DTL-006",
-            AstError::UnmatchedBlockName { .. } => "DTL-007",
-            AstError::MissingRequiredArguments { .. } => "DTL-008",
-            AstError::TooManyArguments { .. } => "DTL-009",
+            AstError::EmptyAst => "T001",
+            AstError::InvalidTagStructure { .. } => "T002",
+            AstError::UnbalancedStructure { .. } => "T003",
+            AstError::InvalidNode { .. } => "T004",
+            AstError::UnclosedTag { .. } => "T005",
+            AstError::OrphanedTag { .. } => "T006",
+            AstError::UnmatchedBlockName { .. } => "T007",
+            AstError::MissingRequiredArguments { .. } => "T008",
+            AstError::TooManyArguments { .. } => "T009",
         }
-    }
-}
-
-impl<'db> Span<'db> {
-    /// Convert this span to an LSP Range using the provided line offsets
-    #[must_use]
-    pub fn to_lsp_range(
-        &self,
-        db: &'db dyn crate::db::Db,
-        line_offsets: &LineOffsets,
-    ) -> tower_lsp_server::lsp_types::Range {
-        let start_pos = self.start(db) as usize;
-        let end_pos = (self.start(db) + self.length(db)) as usize;
-
-        let (start_line, start_char) = line_offsets.position_to_line_col(start_pos);
-        let (end_line, end_char) = line_offsets.position_to_line_col(end_pos);
-
-        #[allow(clippy::cast_possible_truncation)]
-        tower_lsp_server::lsp_types::Range {
-            start: tower_lsp_server::lsp_types::Position {
-                line: (start_line - 1) as u32, // LSP is 0-based, LineOffsets is 1-based
-                character: start_char as u32,
-            },
-            end: tower_lsp_server::lsp_types::Position {
-                line: (end_line - 1) as u32,
-                character: end_char as u32,
-            },
-        }
-    }
-}
-
-/// Helper function to create an LSP Range from raw span data
-#[must_use]
-pub fn span_to_lsp_range(
-    start: u32,
-    length: u32,
-    line_offsets: &LineOffsets,
-) -> tower_lsp_server::lsp_types::Range {
-    let start_pos = start as usize;
-    let end_pos = (start + length) as usize;
-
-    let (start_line, start_char) = line_offsets.position_to_line_col(start_pos);
-    let (end_line, end_char) = line_offsets.position_to_line_col(end_pos);
-
-    #[allow(clippy::cast_possible_truncation)]
-    tower_lsp_server::lsp_types::Range {
-        start: tower_lsp_server::lsp_types::Position {
-            line: (start_line - 1) as u32, // LSP is 0-based, LineOffsets is 1-based
-            character: start_char as u32,
-        },
-        end: tower_lsp_server::lsp_types::Position {
-            line: (end_line - 1) as u32,
-            character: end_char as u32,
-        },
     }
 }
 
