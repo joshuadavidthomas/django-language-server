@@ -4,6 +4,7 @@ use std::path::Path;
 
 use anyhow::Result;
 use serde::Deserialize;
+use serde::Deserializer;
 use serde::Serialize;
 use thiserror::Error;
 use toml::Value;
@@ -41,8 +42,8 @@ impl TagSpecs {
     #[must_use]
     pub fn find_opener_for_closer(&self, closer: &str) -> Option<String> {
         for (tag_name, spec) in &self.0 {
-            if let Some(end_spec) = &spec.end {
-                if end_spec.tag == closer {
+            if let Some(end_spec) = &spec.end_tag {
+                if end_spec.name == closer {
                     return Some(tag_name.clone());
                 }
             }
@@ -54,8 +55,8 @@ impl TagSpecs {
     #[must_use]
     pub fn get_end_spec_for_closer(&self, closer: &str) -> Option<&EndTag> {
         for spec in self.0.values() {
-            if let Some(end_spec) = &spec.end {
-                if end_spec.tag == closer {
+            if let Some(end_spec) = &spec.end_tag {
+                if end_spec.name == closer {
                     return Some(end_spec);
                 }
             }
@@ -67,24 +68,28 @@ impl TagSpecs {
     pub fn is_opener(&self, name: &str) -> bool {
         self.0
             .get(name)
-            .and_then(|spec| spec.end.as_ref())
+            .and_then(|spec| spec.end_tag.as_ref())
             .is_some()
     }
 
     #[must_use]
     pub fn is_intermediate(&self, name: &str) -> bool {
         self.0.values().any(|spec| {
-            spec.intermediates
+            spec.intermediate_tags
                 .as_ref()
-                .is_some_and(|intermediates| intermediates.contains(&name.to_string()))
+                .is_some_and(|intermediate_tags| {
+                    intermediate_tags.iter().any(|tag| tag.name == name)
+                })
         })
     }
 
     #[must_use]
     pub fn is_closer(&self, name: &str) -> bool {
-        self.0
-            .values()
-            .any(|spec| spec.end.as_ref().is_some_and(|end_tag| end_tag.tag == name))
+        self.0.values().any(|spec| {
+            spec.end_tag
+                .as_ref()
+                .is_some_and(|end_tag| end_tag.name == name)
+        })
     }
 
     /// Get the parent tags that can contain this intermediate tag
@@ -92,8 +97,8 @@ impl TagSpecs {
     pub fn get_parent_tags_for_intermediate(&self, intermediate: &str) -> Vec<String> {
         let mut parents = Vec::new();
         for (opener_name, spec) in &self.0 {
-            if let Some(intermediates) = &spec.intermediates {
-                if intermediates.contains(&intermediate.to_string()) {
+            if let Some(intermediate_tags) = &spec.intermediate_tags {
+                if intermediate_tags.iter().any(|tag| tag.name == intermediate) {
                     parents.push(opener_name.clone());
                 }
             }
@@ -195,20 +200,48 @@ impl TagSpecs {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TagSpec {
-    pub end: Option<EndTag>,
-    #[serde(default)]
-    pub intermediates: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(alias = "end")]
+    pub end_tag: Option<EndTag>,
+    #[serde(default, alias = "intermediates")]
+    pub intermediate_tags: Option<Vec<IntermediateTag>>,
     #[serde(default)]
     pub args: Option<ArgSpec>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct EndTag {
-    pub tag: String,
+    #[serde(alias = "tag")]
+    pub name: String,
     #[serde(default)]
     pub optional: bool,
     #[serde(default)]
     pub args: Option<ArgSpec>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct IntermediateTag {
+    pub name: String,
+}
+
+impl<'de> Deserialize<'de> for IntermediateTag {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum IntermediateTagHelper {
+            String(String),
+            Object { name: String },
+        }
+
+        match IntermediateTagHelper::deserialize(deserializer)? {
+            IntermediateTagHelper::String(s) => Ok(IntermediateTag { name: s }),
+            IntermediateTagHelper::Object { name } => Ok(IntermediateTag { name }),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -227,12 +260,40 @@ impl TagSpec {
         prefix: Option<&str>, // Path *to* this value node
         specs: &mut HashMap<String, TagSpec>,
     ) -> Result<(), String> {
-        // Check if the current node *itself* represents a TagSpec definition
-        // We can be more specific: check if it's a table containing 'end', 'intermediates', or 'args'
+        // Check if this is an array of TagSpec entries (new format)
+        if let Some(array) = value.as_array() {
+            for item in array {
+                if let Some(table) = item.as_table() {
+                    // Check if it has a 'name' field (new format)
+                    if table.contains_key("name") {
+                        match TagSpec::deserialize(item.clone()) {
+                            Ok(mut tag_spec) => {
+                                if let Some(name) = tag_spec.name.take() {
+                                    specs.insert(name, tag_spec);
+                                } else {
+                                    return Err(
+                                        "TagSpec has 'name' field but it's None".to_string()
+                                    );
+                                }
+                            }
+                            Err(e) => {
+                                return Err(format!("Failed to deserialize TagSpec in array: {e}"));
+                            }
+                        }
+                    }
+                }
+            }
+            return Ok(());
+        }
+
+        // Check if the current node *itself* represents a TagSpec definition (old format)
+        // We can be more specific: check if it's a table containing 'end'/'end_tag', 'intermediates'/'intermediate_tags', or 'args'
         let mut is_spec_node = false;
         if let Some(table) = value.as_table() {
             if table.contains_key("end")
+                || table.contains_key("end_tag")
                 || table.contains_key("intermediates")
+                || table.contains_key("intermediate_tags")
                 || table.contains_key("args")
             {
                 // Looks like a spec, try to deserialize
@@ -387,29 +448,34 @@ end = { tag = "endanothertag", optional = true }
 
         let my_tag = specs.get("mytag").expect("mytag should be present");
         assert_eq!(
-            my_tag.end,
+            my_tag.end_tag,
             Some(EndTag {
-                tag: "endmytag".to_string(),
+                name: "endmytag".to_string(),
                 optional: false,
                 args: None,
             })
         );
-        assert_eq!(my_tag.intermediates, Some(vec!["mybranch".to_string()]));
+        assert_eq!(
+            my_tag.intermediate_tags,
+            Some(vec![IntermediateTag {
+                name: "mybranch".to_string()
+            }])
+        );
 
         let another_tag = specs
             .get("anothertag")
             .expect("anothertag should be present");
         assert_eq!(
-            another_tag.end,
+            another_tag.end_tag,
             Some(EndTag {
-                tag: "endanothertag".to_string(),
+                name: "endanothertag".to_string(),
                 optional: true,
                 args: None,
             })
         );
         assert!(
-            another_tag.intermediates.is_none(),
-            "anothertag should have no intermediates"
+            another_tag.intermediate_tags.is_none(),
+            "anothertag should have no intermediate_tags"
         );
 
         dir.close()?;
@@ -441,7 +507,7 @@ end = { tag = "endmytag2_from_pyproject" }
         let specs = TagSpecs::load_user_specs(root)?;
 
         let tag1 = specs.get("mytag1").expect("mytag1 should be present");
-        assert_eq!(tag1.end.as_ref().unwrap().tag, "endmytag1_from_djls");
+        assert_eq!(tag1.end_tag.as_ref().unwrap().name, "endmytag1_from_djls");
 
         // Should not find mytag2 because djls.toml was found first
         assert!(
@@ -454,7 +520,10 @@ end = { tag = "endmytag2_from_pyproject" }
         let specs = TagSpecs::load_user_specs(root)?;
 
         let tag1 = specs.get("mytag1").expect("mytag1 should be present now");
-        assert_eq!(tag1.end.as_ref().unwrap().tag, "endmytag1_from_pyproject");
+        assert_eq!(
+            tag1.end_tag.as_ref().unwrap().name,
+            "endmytag1_from_pyproject"
+        );
 
         assert!(
             specs.get("mytag2").is_some(),
