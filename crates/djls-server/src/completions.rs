@@ -408,7 +408,7 @@ fn generate_tag_name_completions(
                     // Add closing based on what's already present
                     match closing {
                         ClosingBrace::None => insert_text.push_str(" %}"),
-                        ClosingBrace::PartialClose => insert_text.push_str(" %"),
+                        ClosingBrace::PartialClose => insert_text.push_str(" %}"), // Include full closing since we're replacing the auto-paired }
                         ClosingBrace::FullClose => {} // No closing needed
                     }
 
@@ -454,12 +454,12 @@ fn generate_tag_name_completions(
                             // Only add closing if the snippet doesn't already include it
                             // (snippets for tags with end tags include their own %} closing)
                             if !snippet.contains("%}") {
-                                // Add closing based on what's already present
-                                match closing {
-                                    ClosingBrace::None => text.push_str(" %}"),
-                                    ClosingBrace::PartialClose => text.push_str(" %"),
-                                    ClosingBrace::FullClose => {} // No closing needed
-                                }
+                            // Add closing based on what's already present
+                            match closing {
+                                ClosingBrace::None => text.push_str(" %}"),
+                                ClosingBrace::PartialClose => text.push_str(" %}"), // Include full closing since we're replacing the auto-paired }
+                                ClosingBrace::FullClose => {} // No closing needed
+                            }
                             }
 
                             (text, InsertTextFormat::SNIPPET)
@@ -543,7 +543,7 @@ fn generate_argument_completions(
                 // Add closing if needed
                 match closing {
                     ClosingBrace::None => insert_text.push_str(" %}"),
-                    ClosingBrace::PartialClose => insert_text.push_str(" %"),
+                    ClosingBrace::PartialClose => insert_text.push_str(" %}"), // Include full closing since we're replacing the auto-paired }
                     ClosingBrace::FullClose => {} // No closing needed
                 }
 
@@ -713,7 +713,7 @@ fn build_plain_insert_for_tag(
     // Add closing based on what's already present
     match closing {
         ClosingBrace::None => insert_text.push_str(" %}"),
-        ClosingBrace::PartialClose => insert_text.push_str(" %"),
+        ClosingBrace::PartialClose => insert_text.push_str(" %}"), // Include full closing since we're replacing the auto-paired }
         ClosingBrace::FullClose => {} // No closing needed
     }
 
