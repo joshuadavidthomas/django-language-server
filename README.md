@@ -169,9 +169,12 @@ All feature requests should ideally start out as a discussion topic, to gather f
 The project is written in Rust using PyO3 for Python integration. Here is a high-level overview of the project and the various crates:
 
 - Main CLI interface ([`crates/djls/`](./crates/djls/))
+- Configuration management ([`crates/djls-conf/`](./crates/djls-conf/))
+- Development tools ([`crates/djls-dev/`](./crates/djls-dev/))
 - Django and Python project introspection ([`crates/djls-project/`](./crates/djls-project/))
 - LSP server implementation ([`crates/djls-server/`](./crates/djls-server/))
 - Template parsing ([`crates/djls-templates/`](./crates/djls-templates/))
+- Workspace and document management ([`crates/djls-workspace/`](./crates/djls-workspace/))
 
 Code contributions are welcome from developers of all backgrounds. Rust expertise is valuable for the LSP server and core components, but Python and Django developers should not be deterred by the Rust codebase - Django expertise is just as valuable. Understanding Django's internals and common development patterns helps inform what features would be most valuable.
 
