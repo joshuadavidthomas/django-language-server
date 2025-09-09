@@ -1,5 +1,6 @@
 mod specs;
 
+pub use specs::ArgSpec;
 pub use specs::TagSpecs;
 
 pub enum TagType {

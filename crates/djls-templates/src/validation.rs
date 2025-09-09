@@ -23,6 +23,7 @@ use crate::ast::Span;
 use crate::ast::TagName;
 use crate::ast::TagNode;
 use crate::db::Db as TemplateDb;
+use crate::templatetags::ArgSpec;
 use crate::templatetags::TagType;
 use crate::Ast;
 
@@ -52,9 +53,20 @@ impl<'db> TagValidator<'db> {
             if let Some(Node::Tag { name, bits, span }) = self.current_node() {
                 let name_str = name.text(self.db);
 
-                match TagType::for_name(&name_str, &self.db.tag_specs()) {
+                let tag_specs = self.db.tag_specs();
+                let tag_type = TagType::for_name(&name_str, &tag_specs);
+
+                let arg_spec = match tag_type {
+                    TagType::Closer => tag_specs
+                        .get_end_spec_for_closer(&name_str)
+                        .and_then(|s| s.args.as_ref()),
+                    _ => tag_specs.get(&name_str).and_then(|s| s.args.as_ref()),
+                };
+
+                self.check_arguments(&name_str, &bits, span, arg_spec);
+
+                match tag_type {
                     TagType::Opener => {
-                        self.check_arguments(&name_str, &bits, span);
                         self.stack.push(TagNode {
                             name,
                             bits: bits.clone(),
@@ -62,15 +74,13 @@ impl<'db> TagValidator<'db> {
                         });
                     }
                     TagType::Intermediate => {
-                        self.check_arguments(&name_str, &bits, span);
                         self.handle_intermediate(&name_str, span);
                     }
                     TagType::Closer => {
-                        self.check_closer_arguments(&name_str, &bits, span);
                         self.handle_closer(name, &bits, span);
                     }
                     TagType::Standalone => {
-                        self.check_arguments(&name_str, &bits, span);
+                        // No additional action needed for standalone tags
                     }
                 }
             }
@@ -89,46 +99,14 @@ impl<'db> TagValidator<'db> {
         self.errors
     }
 
-    fn check_arguments(&mut self, name: &str, bits: &[String], span: Span<'db>) {
-        let tag_specs = self.db.tag_specs();
-        let Some(spec) = tag_specs.get(name) else {
-            return;
-        };
-
-        let Some(arg_spec) = &spec.args else {
-            return;
-        };
-
-        if let Some(min) = arg_spec.min {
-            if bits.len() < min {
-                self.errors.push(AstError::MissingRequiredArguments {
-                    tag: name.to_string(),
-                    min,
-                    span_start: span.start(self.db),
-                    span_length: span.length(self.db),
-                });
-            }
-        }
-
-        if let Some(max) = arg_spec.max {
-            if bits.len() > max {
-                self.errors.push(AstError::TooManyArguments {
-                    tag: name.to_string(),
-                    max,
-                    span_start: span.start(self.db),
-                    span_length: span.length(self.db),
-                });
-            }
-        }
-    }
-
-    fn check_closer_arguments(&mut self, name: &str, bits: &[String], span: Span<'db>) {
-        let tag_specs = self.db.tag_specs();
-        let Some(end_spec) = tag_specs.get_end_spec_for_closer(name) else {
-            return;
-        };
-
-        let Some(arg_spec) = &end_spec.args else {
+    fn check_arguments(
+        &mut self,
+        name: &str,
+        bits: &[String],
+        span: Span<'db>,
+        arg_spec: Option<&ArgSpec>,
+    ) {
+        let Some(arg_spec) = arg_spec else {
             return;
         };
 
