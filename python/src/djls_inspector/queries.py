@@ -90,13 +90,8 @@ def get_installed_templatetags() -> TemplateTagQueryData:
     return TemplateTagQueryData(templatetags=templatetags)
 
 
-@dataclass
-class DjangoInitQueryData:
-    success: bool
-    message: str | None = None
-
-
-def initialize_django() -> DjangoInitQueryData:
+def initialize_django() -> tuple[bool, str | None]:
+    """Initialize Django and return (success, error_message)."""
     import os
     import django
     from django.apps import apps
@@ -122,9 +117,9 @@ def initialize_django() -> DjangoInitQueryData:
                 current_path = current_path.parent
 
             if not manage_py:
-                return DjangoInitQueryData(
-                    success=False,
-                    message="Could not find manage.py or DJANGO_SETTINGS_MODULE not set",
+                return (
+                    False,
+                    "Could not find manage.py or DJANGO_SETTINGS_MODULE not set",
                 )
 
             # Add project directory to sys.path
@@ -163,12 +158,10 @@ def initialize_django() -> DjangoInitQueryData:
         if not apps.ready:
             django.setup()
 
-        return DjangoInitQueryData(
-            success=True, message="Django initialized successfully"
-        )
+        return True, None
 
     except Exception as e:
-        return DjangoInitQueryData(success=False, message=str(e))
+        return False, str(e)
 
 
-QueryData = PythonEnvironmentQueryData | TemplateTagQueryData | DjangoInitQueryData
+QueryData = PythonEnvironmentQueryData | TemplateTagQueryData

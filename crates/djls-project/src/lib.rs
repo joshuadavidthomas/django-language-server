@@ -26,7 +26,7 @@ pub struct DjangoProject {
     path: PathBuf,
     env: Option<PythonEnvironment>,
     template_tags: Option<TemplateTags>,
-    inspector_pool: Arc<InspectorPool>,
+    inspector: Arc<InspectorPool>,
 }
 
 impl DjangoProject {
@@ -36,7 +36,7 @@ impl DjangoProject {
             path,
             env: None,
             template_tags: None,
-            inspector_pool: Arc::new(InspectorPool::new()),
+            inspector: Arc::new(InspectorPool::new()),
         }
     }
 
@@ -52,7 +52,7 @@ impl DjangoProject {
         let request = DjlsRequest {
             query: Query::DjangoInit,
         };
-        let response = self.inspector_pool.query(env, &self.path, &request)?;
+        let response = self.inspector.query(env, &self.path, &request)?;
 
         if !response.ok {
             anyhow::bail!("Failed to initialize Django: {:?}", response.error);
@@ -62,7 +62,7 @@ impl DjangoProject {
         let request = DjlsRequest {
             query: Query::Templatetags,
         };
-        let response = self.inspector_pool.query(env, &self.path, &request)?;
+        let response = self.inspector.query(env, &self.path, &request)?;
 
         if let Some(data) = response.data {
             self.template_tags = Some(TemplateTags::from_json(&data)?);

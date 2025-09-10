@@ -69,7 +69,8 @@ def handle_request(request: dict[str, Any]) -> DjlsResponse:
             return DjlsResponse(ok=True, data=get_installed_templatetags())
 
         elif query == Query.DJANGO_INIT:
-            return DjlsResponse(ok=True, data=initialize_django())
+            success, error = initialize_django()
+            return DjlsResponse(ok=success, data=None, error=error)
 
         return DjlsResponse(ok=False, error=f"Unhandled query type: {query}")
 

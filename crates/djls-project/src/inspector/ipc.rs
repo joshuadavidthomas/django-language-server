@@ -9,43 +9,25 @@ use std::process::Stdio;
 use anyhow::Context;
 use anyhow::Result;
 use serde_json;
-use tempfile::NamedTempFile;
 
+use super::zipapp::InspectorFile;
 use super::DjlsRequest;
 use super::DjlsResponse;
 use crate::python::PythonEnvironment;
-
-const INSPECTOR_PYZ: &[u8] = include_bytes!(concat!(
-    env!("CARGO_WORKSPACE_DIR"),
-    "/python/dist/djls_inspector.pyz"
-));
 
 pub struct InspectorProcess {
     child: Child,
     stdin: std::process::ChildStdin,
     stdout: BufReader<std::process::ChildStdout>,
-    _zipapp_file: NamedTempFile,
+    _zipapp_file: InspectorFile,
 }
 
 impl InspectorProcess {
     pub fn new(python_env: &PythonEnvironment, project_path: &Path) -> Result<Self> {
-        let mut zipapp_file = tempfile::Builder::new()
-            .prefix("djls_inspector_")
-            .suffix(".pyz")
-            .tempfile()
-            .context("Failed to create temp file for inspector")?;
-
-        zipapp_file
-            .write_all(INSPECTOR_PYZ)
-            .context("Failed to write inspector zipapp to temp file")?;
-        zipapp_file
-            .flush()
-            .context("Failed to flush inspector zipapp")?;
-
-        let zipapp_path = zipapp_file.path();
+        let zipapp_file = InspectorFile::create()?;
 
         let mut cmd = Command::new(&python_env.python_path);
-        cmd.arg(zipapp_path)
+        cmd.arg(zipapp_file.path())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
