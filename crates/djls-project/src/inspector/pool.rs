@@ -11,12 +11,6 @@ use super::DjlsRequest;
 use super::DjlsResponse;
 use crate::python::PythonEnvironment;
 
-/// Global singleton pool for convenience
-static GLOBAL_POOL: std::sync::OnceLock<InspectorPool> = std::sync::OnceLock::new();
-
-pub fn global_pool() -> &'static InspectorPool {
-    GLOBAL_POOL.get_or_init(InspectorPool::new)
-}
 const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Manages a pool of inspector processes with automatic cleanup

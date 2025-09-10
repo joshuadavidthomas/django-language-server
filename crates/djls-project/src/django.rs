@@ -1,0 +1,74 @@
+mod templatetags;
+
+use std::path::Path;
+
+use crate::db::Db as ProjectDb;
+use crate::inspector::inspector_run;
+use crate::inspector::queries::InspectorQueryKind;
+use crate::meta::Project;
+use crate::python::python_environment;
+
+pub use templatetags::template_tags;
+pub use templatetags::TemplateTags;
+
+/// Check if Django is available for a project.
+///
+/// This determines if Django is installed and configured in the Python environment.
+/// First consults the inspector, then falls back to environment detection.
+#[salsa::tracked]
+pub fn django_available(db: &dyn ProjectDb, project: Project) -> bool {
+    // First try to get Django availability from inspector
+    if let Some(json_data) = inspector_run(db, project, InspectorQueryKind::DjangoAvailable) {
+        // Parse the JSON response - expect a boolean
+        if let Ok(available) = serde_json::from_str::<bool>(&json_data) {
+            return available;
+        }
+    }
+
+    // Fallback to environment detection
+    python_environment(db, project).is_some()
+}
+
+/// Get the Django settings module name for a project.
+///
+/// Returns the settings_module_override from project, or inspector result,
+/// or DJANGO_SETTINGS_MODULE env var, or attempts to detect it.
+#[salsa::tracked]
+pub fn django_settings_module(db: &dyn ProjectDb, project: Project) -> Option<String> {
+    let _ = project.revision(db);
+    let project_path = Path::new(project.root(db));
+
+    // Check project override first
+    if let Some(settings) = project.settings_module(db) {
+        return Some(settings.clone());
+    }
+
+    // Try to get settings module from inspector
+    if let Some(json_data) = inspector_run(db, project, InspectorQueryKind::SettingsModule) {
+        // Parse the JSON response - expect a string
+        if let Ok(settings) = serde_json::from_str::<String>(&json_data) {
+            return Some(settings);
+        }
+    }
+
+    // Try to detect settings module
+    if project_path.join("manage.py").exists() {
+        // Look for common settings modules
+        for candidate in &["settings", "config.settings", "project.settings"] {
+            let parts: Vec<&str> = candidate.split('.').collect();
+            let mut path = project_path.to_path_buf();
+            for part in &parts[..parts.len() - 1] {
+                path = path.join(part);
+            }
+            if let Some(last) = parts.last() {
+                path = path.join(format!("{last}.py"));
+            }
+
+            if path.exists() {
+                return Some((*candidate).to_string());
+            }
+        }
+    }
+
+    None
+}

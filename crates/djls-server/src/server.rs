@@ -1,6 +1,8 @@
 use std::future::Future;
+use std::path::PathBuf;
 use std::sync::Arc;
 
+use djls_project::Db as ProjectDb;
 use djls_templates::analyze_template;
 use djls_templates::TemplateDiagnostic;
 use djls_workspace::paths;
@@ -188,15 +190,14 @@ impl LanguageServer for DjangoLanguageServer {
         self.with_session_task(move |session_arc| async move {
             let project_path_and_venv = {
                 let session_lock = session_arc.lock().await;
-                session_lock.project().map(|p| {
-                    (
-                        p.path().display().to_string(),
-                        session_lock
-                            .settings()
-                            .venv_path()
-                            .map(std::string::ToString::to_string),
-                    )
-                })
+                let metadata = session_lock.db().metadata();
+                Some((
+                    metadata.root().display().to_string(),
+                    session_lock
+                        .settings()
+                        .venv_path()
+                        .map(std::string::ToString::to_string),
+                ))
             };
 
             if let Some((path_display, venv_path)) = project_path_and_venv {
@@ -225,9 +226,7 @@ impl LanguageServer for DjangoLanguageServer {
                             e
                         );
 
-                        // Clear project on error
-                        let mut session_lock = session_arc.lock().await;
-                        *session_lock.project_mut() = None;
+                        // Django initialization is now handled lazily through Salsa
                     }
                 }
             } else {
@@ -369,7 +368,8 @@ impl LanguageServer for DjangoLanguageServer {
                     let position = params.text_document_position.position;
                     let encoding = session.position_encoding();
                     let file_kind = FileKind::from_path(&path);
-                    let template_tags = session.project().and_then(|p| p.template_tags());
+                    let template_tags_arc = session.with_db(djls_project::Db::template_tags);
+                    let template_tags = template_tags_arc.as_ref().map(std::convert::AsRef::as_ref);
                     let tag_specs = session.with_db(djls_templates::Db::tag_specs);
                     let supports_snippets = session.supports_snippets();
 
@@ -475,13 +475,16 @@ impl LanguageServer for DjangoLanguageServer {
         tracing::info!("Configuration change detected. Reloading settings...");
 
         let project_path = self
-            .with_session(|session| session.project().map(|p| p.path().to_path_buf()))
+            .with_session_mut(|session| {
+                let project = session.project();
+                Some(PathBuf::from(project.root(session.database()).as_str()))
+            })
             .await;
 
         if let Some(path) = project_path {
             self.with_session_mut(|session| match djls_conf::Settings::new(path.as_path()) {
                 Ok(new_settings) => {
-                    session.set_settings(new_settings);
+                    session.update_session_state(new_settings);
                 }
                 Err(e) => {
                     tracing::error!("Error loading settings: {}", e);

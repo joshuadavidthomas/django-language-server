@@ -2,30 +2,33 @@
 //!
 //! This module extends the workspace database trait with project-specific
 //! functionality including metadata access and Python environment discovery.
+//!
+//! ## Architecture
+//!
+//! Following the Salsa pattern established in workspace and templates crates:
+//! - `DjangoProject` is a Salsa input representing external project state
+//! - Tracked functions compute derived values (Python env, Django config)
+//! - Database trait provides stable configuration (metadata, template tags)
+
+use std::path::Path;
+use std::sync::Arc;
 
 use djls_workspace::Db as WorkspaceDb;
 
+use crate::django::TemplateTags;
+use crate::meta::Project;
 use crate::meta::ProjectMetadata;
-use crate::python::PythonEnvironment;
 
 /// Project-specific database trait extending the workspace database
 #[salsa::db]
 pub trait Db: WorkspaceDb {
     /// Get the project metadata containing root path and venv configuration
     fn metadata(&self) -> &ProjectMetadata;
-}
 
-/// Find the Python environment for the project.
-///
-/// This Salsa tracked function discovers the Python environment based on:
-/// 1. Explicit venv path from metadata
-/// 2. VIRTUAL_ENV environment variable
-/// 3. Common venv directories in project root (.venv, venv, env, .env)
-/// 4. System Python as fallback
-#[salsa::tracked]
-pub fn find_python_environment(db: &dyn Db) -> Option<PythonEnvironment> {
-    let project_path = db.metadata().root().as_path();
-    let venv_path = db.metadata().venv().and_then(|p| p.to_str());
+    /// Get discovered template tags for the project (if available).
+    /// This is populated by the LSP server after querying Django.
+    fn template_tags(&self) -> Option<Arc<TemplateTags>>;
 
-    PythonEnvironment::new(project_path, venv_path)
+    /// Get or create a Project input for a given path
+    fn project(&self, root: &Path) -> Project;
 }

@@ -1,8 +1,82 @@
 use std::fmt;
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::Arc;
 
+use crate::db::Db as ProjectDb;
+use crate::meta::Project;
 use crate::system;
+
+/// Interpreter specification for Python environment discovery.
+///
+/// This enum represents the different ways to specify which Python interpreter
+/// to use for a project.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Interpreter {
+    /// Automatically discover interpreter (`VIRTUAL_ENV`, project venv dirs, system)
+    Auto,
+    /// Use specific virtual environment path
+    VenvPath(String),
+    /// Use specific interpreter executable path
+    InterpreterPath(String),
+}
+
+/// Resolve the Python interpreter path for a project.
+///
+/// This tracked function determines the interpreter path based on the project's
+/// interpreter specification.
+#[salsa::tracked]
+pub fn resolve_interpreter(db: &dyn ProjectDb, project: Project) -> Option<PathBuf> {
+    // Create dependency on project revision
+    let _ = project.revision(db);
+
+    let project_path = Path::new(project.root(db));
+
+    match &project.interpreter(db) {
+        Interpreter::InterpreterPath(path) => {
+            let path_buf = PathBuf::from(path.as_str());
+            if path_buf.exists() {
+                Some(path_buf)
+            } else {
+                None
+            }
+        }
+        Interpreter::VenvPath(venv_path) => {
+            // Derive interpreter path from venv
+            #[cfg(unix)]
+            let interpreter_path = PathBuf::from(venv_path.as_str()).join("bin").join("python");
+            #[cfg(windows)]
+            let interpreter_path = PathBuf::from(venv_path.as_str())
+                .join("Scripts")
+                .join("python.exe");
+
+            if interpreter_path.exists() {
+                Some(interpreter_path)
+            } else {
+                None
+            }
+        }
+        Interpreter::Auto => {
+            // Try common venv directories
+            for venv_dir in &[".venv", "venv", "env", ".env"] {
+                let potential_venv = project_path.join(venv_dir);
+                if potential_venv.is_dir() {
+                    #[cfg(unix)]
+                    let interpreter_path = potential_venv.join("bin").join("python");
+                    #[cfg(windows)]
+                    let interpreter_path = potential_venv.join("Scripts").join("python.exe");
+
+                    if interpreter_path.exists() {
+                        return Some(interpreter_path);
+                    }
+                }
+            }
+
+            // Fall back to system python
+            crate::system::find_executable("python").ok()
+        }
+    }
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PythonEnvironment {
@@ -128,6 +202,38 @@ impl fmt::Display for PythonEnvironment {
         Ok(())
     }
 }
+///
+/// Find the Python environment for a Django project.
+///
+/// This Salsa tracked function discovers the Python environment based on:
+/// 1. Explicit venv path from project config
+/// 2. VIRTUAL_ENV environment variable
+/// 3. Common venv directories in project root (.venv, venv, env, .env)
+/// 4. System Python as fallback
+#[salsa::tracked]
+pub fn python_environment(db: &dyn ProjectDb, project: Project) -> Option<Arc<PythonEnvironment>> {
+    let interpreter_path = resolve_interpreter(db, project)?;
+    let project_path = Path::new(project.root(db));
+
+    // For venv paths, we need to determine the venv root
+    let interpreter_spec = project.interpreter(db);
+    let venv_path = match &interpreter_spec {
+        Interpreter::InterpreterPath(_) => {
+            // Try to determine venv from interpreter path
+            interpreter_path
+                .parent()
+                .and_then(|bin_dir| bin_dir.parent())
+                .and_then(|venv_root| venv_root.to_str())
+        }
+        Interpreter::VenvPath(path) => Some(path.as_str()),
+        Interpreter::Auto => {
+            // For auto-discovery, let PythonEnvironment::new handle it
+            None
+        }
+    };
+
+    PythonEnvironment::new(project_path, venv_path).map(Arc::new)
+}
 
 #[cfg(test)]
 mod tests {
@@ -171,9 +277,7 @@ mod tests {
 
         use super::*;
         use crate::system::mock::MockGuard;
-        use crate::system::mock::{
-            self as sys_mock,
-        };
+        use crate::system::mock::{self as sys_mock};
 
         #[test]
         fn test_explicit_venv_path_found() {
@@ -471,7 +575,6 @@ mod tests {
         use djls_workspace::InMemoryFileSystem;
 
         use super::*;
-        use crate::db::find_python_environment;
         use crate::db::Db as ProjectDb;
         use crate::meta::ProjectMetadata;
 
@@ -513,10 +616,31 @@ mod tests {
             fn metadata(&self) -> &ProjectMetadata {
                 &self.metadata
             }
+
+            fn template_tags(&self) -> Option<Arc<crate::TemplateTags>> {
+                None
+            }
+
+            fn project(&self, root: &Path) -> crate::meta::Project {
+                let interpreter_spec = if let Some(venv_path) = self.metadata.venv() {
+                    crate::python::Interpreter::VenvPath(venv_path.to_string_lossy().to_string())
+                } else {
+                    crate::python::Interpreter::Auto
+                };
+                let django_settings = std::env::var("DJANGO_SETTINGS_MODULE").ok();
+
+                crate::meta::Project::new(
+                    self,
+                    root.to_string_lossy().to_string(),
+                    interpreter_spec,
+                    django_settings,
+                    0,
+                )
+            }
         }
 
         #[test]
-        fn test_find_python_environment_with_salsa_db() {
+        fn test_python_environment_with_salsa_db() {
             let project_dir = tempdir().unwrap();
             let venv_dir = tempdir().unwrap();
 
@@ -530,8 +654,9 @@ mod tests {
             // Create a TestDatabase with the metadata
             let db = TestDatabase::new(metadata);
 
-            // Call the tracked function
-            let env = find_python_environment(&db);
+            // Call the new tracked function
+            let project = db.project(project_dir.path());
+            let env = crate::python_environment(&db, project);
 
             // Verify we found the environment
             assert!(env.is_some(), "Should find environment via salsa db");
@@ -553,7 +678,7 @@ mod tests {
         }
 
         #[test]
-        fn test_find_python_environment_with_project_venv() {
+        fn test_python_environment_with_project_venv() {
             let project_dir = tempdir().unwrap();
 
             // Create a .venv in the project directory
@@ -569,8 +694,9 @@ mod tests {
             let _guard = system::mock::MockGuard;
             system::mock::remove_env_var("VIRTUAL_ENV");
 
-            // Call the tracked function
-            let env = find_python_environment(&db);
+            // Call the new tracked function
+            let project = db.project(project_dir.path());
+            let env = crate::python_environment(&db, project);
 
             // Verify we found the environment
             assert!(

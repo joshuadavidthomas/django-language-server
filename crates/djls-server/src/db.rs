@@ -12,7 +12,9 @@ use std::sync::Mutex;
 
 use dashmap::DashMap;
 use djls_project::Db as ProjectDb;
+use djls_project::Project;
 use djls_project::ProjectMetadata;
+use djls_project::TemplateTags;
 use djls_templates::db::Db as TemplateDb;
 use djls_templates::templatetags::TagSpecs;
 use djls_workspace::db::Db as WorkspaceDb;
@@ -39,6 +41,9 @@ pub struct DjangoDatabase {
     /// Project metadata containing root path and venv configuration.
     metadata: ProjectMetadata,
 
+    /// Unified project inputs cache - maps root path to Project input
+    projects: Arc<DashMap<PathBuf, Project>>,
+
     storage: salsa::Storage<Self>,
 
     // The logs are only used for testing and demonstrating reuse:
@@ -57,6 +62,7 @@ impl Default for DjangoDatabase {
             fs: Arc::new(InMemoryFileSystem::new()),
             files: Arc::new(DashMap::new()),
             metadata: ProjectMetadata::new(PathBuf::from("/test"), None),
+            projects: Arc::new(DashMap::new()),
             storage: salsa::Storage::new(Some(Box::new({
                 let logs = logs.clone();
                 move |event| {
@@ -86,6 +92,7 @@ impl DjangoDatabase {
             fs: file_system,
             files,
             metadata,
+            projects: Arc::new(DashMap::new()),
             storage: salsa::Storage::new(None),
             #[cfg(test)]
             logs: Arc::new(Mutex::new(None)),
@@ -184,5 +191,37 @@ impl TemplateDb for DjangoDatabase {
 impl ProjectDb for DjangoDatabase {
     fn metadata(&self) -> &ProjectMetadata {
         &self.metadata
+    }
+
+    fn template_tags(&self) -> Option<Arc<TemplateTags>> {
+        let project = self.project(self.metadata().root().as_path());
+        djls_project::template_tags(self, project).map(Arc::new)
+    }
+
+    fn project(&self, root: &Path) -> Project {
+        let root_buf = root.to_path_buf();
+
+        // Check if we already have this project
+        if let Some(project) = self.projects.get(&root_buf) {
+            return *project;
+        }
+
+        // Create a new Project input with complete configuration
+        let interpreter_spec = if let Some(venv_path) = self.metadata.venv() {
+            djls_project::Interpreter::VenvPath(venv_path.to_string_lossy().to_string())
+        } else {
+            djls_project::Interpreter::Auto
+        };
+        let django_settings = std::env::var("DJANGO_SETTINGS_MODULE").ok();
+
+        let project = Project::new(
+            self,
+            root.to_string_lossy().to_string(),
+            interpreter_spec,
+            django_settings,
+            0,
+        );
+        self.projects.insert(root_buf, project);
+        project
     }
 }

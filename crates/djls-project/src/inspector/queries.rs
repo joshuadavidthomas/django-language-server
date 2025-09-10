@@ -12,6 +12,14 @@ pub enum Query {
     DjangoInit,
 }
 
+/// Enum representing different kinds of inspector queries for Salsa tracking
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Copy)]
+pub enum InspectorQueryKind {
+    TemplateTags,
+    DjangoAvailable,
+    SettingsModule,
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct PythonEnvironmentQueryData {
     pub sys_base_prefix: PathBuf,
@@ -41,4 +49,22 @@ pub struct TemplateTag {
     pub name: String,
     pub module: String,
     pub doc: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_inspector_query_kind_enum() {
+        // Test that InspectorQueryKind variants exist and are copyable
+        let template_tags = InspectorQueryKind::TemplateTags;
+        let django_available = InspectorQueryKind::DjangoAvailable;
+        let settings_module = InspectorQueryKind::SettingsModule;
+
+        // Test that they can be copied
+        assert_eq!(template_tags, InspectorQueryKind::TemplateTags);
+        assert_eq!(django_available, InspectorQueryKind::DjangoAvailable);
+        assert_eq!(settings_module, InspectorQueryKind::SettingsModule);
+    }
 }

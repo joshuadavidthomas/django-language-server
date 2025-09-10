@@ -21,7 +21,7 @@ pub enum ConfigError {
     PyprojectSerialize(#[from] toml::ser::Error),
 }
 
-#[derive(Debug, Deserialize, Default, PartialEq)]
+#[derive(Debug, Deserialize, Default, PartialEq, Clone)]
 pub struct Settings {
     #[serde(default)]
     debug: bool,
