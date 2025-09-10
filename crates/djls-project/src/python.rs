@@ -566,15 +566,15 @@ mod tests {
     }
 
     mod salsa_integration {
+        use super::*;
+
         use std::sync::Arc;
+        use std::sync::Mutex;
 
         use djls_workspace::FileSystem;
         use djls_workspace::InMemoryFileSystem;
 
-        use super::*;
         use crate::db::Db as ProjectDb;
-        use salsa::Setter;
-        use std::sync::Mutex;
 
         /// Test implementation of ProjectDb for unit tests
         #[salsa::db]
@@ -617,10 +617,6 @@ mod tests {
 
         #[salsa::db]
         impl ProjectDb for TestDatabase {
-            fn template_tags(&self) -> Option<Arc<crate::TemplateTags>> {
-                None
-            }
-
             fn project(&self) -> Option<crate::meta::Project> {
                 // Return existing project or create a new one
                 let mut project_lock = self.project.lock().unwrap();
@@ -634,7 +630,6 @@ mod tests {
                         root.to_string_lossy().to_string(),
                         interpreter_spec,
                         django_settings,
-                        0,
                     ));
                 }
                 project_lock.clone()
@@ -654,7 +649,7 @@ mod tests {
             let venv_prefix = create_mock_venv(venv_dir.path(), None);
 
             // Create a TestDatabase with the project root
-            let mut db = TestDatabase::new(project_dir.path().to_path_buf());
+            let db = TestDatabase::new(project_dir.path().to_path_buf());
 
             // Create and configure the project with the venv path
             let project = crate::meta::Project::new(
@@ -662,7 +657,6 @@ mod tests {
                 project_dir.path().to_string_lossy().to_string(),
                 crate::python::Interpreter::VenvPath(venv_prefix.to_string_lossy().to_string()),
                 None,
-                0,
             );
             db.set_project(project);
 
