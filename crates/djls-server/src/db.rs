@@ -81,6 +81,10 @@ impl Default for DjangoDatabase {
 
 impl DjangoDatabase {
     /// Set the project for this database instance
+    ///
+    /// # Panics
+    ///
+    /// Panics if the project mutex is poisoned.
     pub fn set_project(&self, root: &Path) {
         let interpreter = djls_project::Interpreter::Auto;
         let django_settings = std::env::var("DJANGO_SETTINGS_MODULE").ok();
