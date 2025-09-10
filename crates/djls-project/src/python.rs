@@ -632,7 +632,7 @@ mod tests {
                         django_settings,
                     ));
                 }
-                project_lock.clone()
+                *project_lock
             }
 
             fn inspector_pool(&self) -> Arc<crate::inspector::pool::InspectorPool> {
