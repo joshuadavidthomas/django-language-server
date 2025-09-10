@@ -94,10 +94,6 @@ impl Session {
                         .set_settings_module(&mut db)
                         .to(Some(settings_module));
                 }
-
-                // Bump revision to invalidate dependent queries
-                let current_rev = project.revision(&db);
-                project.set_revision(&mut db).to(current_rev + 1);
             }
         }
 

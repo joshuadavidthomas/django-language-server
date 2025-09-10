@@ -3,15 +3,11 @@ pub mod pool;
 pub mod queries;
 mod zipapp;
 
-use std::path::Path;
-
 use serde::Deserialize;
 use serde::Serialize;
 
 use crate::db::Db as ProjectDb;
-use crate::meta::Project;
 use crate::python::python_environment;
-use crate::python::resolve_interpreter;
 use queries::InspectorQueryKind;
 pub use queries::Query;
 
@@ -32,37 +28,22 @@ pub struct DjlsResponse {
 ///
 /// This tracked function executes inspector queries through the shared pool
 /// and caches the results based on project state and query kind.
-#[allow(clippy::drop_non_drop)]
-#[salsa::tracked]
-pub fn inspector_run(
-    db: &dyn ProjectDb,
-    project: Project,
-    kind: InspectorQueryKind,
-) -> Option<String> {
-    // Create dependency on project revision
-    let _ = project.revision(db);
-
-    // Get interpreter path - required for inspector
-    let _interpreter_path = resolve_interpreter(db)?;
-    let project_path = Path::new(project.root(db));
-
-    // Get Python environment for inspector
+pub fn inspector_run(db: &dyn ProjectDb, kind: InspectorQueryKind) -> Option<String> {
     let python_env = python_environment(db)?;
+    let project_path = db.project_path()?;
 
-    // Create the appropriate query based on kind
     let query = match kind {
         InspectorQueryKind::TemplateTags => crate::inspector::Query::Templatetags,
         InspectorQueryKind::DjangoAvailable | InspectorQueryKind::SettingsModule => {
             crate::inspector::Query::DjangoInit
         }
     };
-
     let request = crate::inspector::DjlsRequest { query };
 
-    // Use the shared inspector pool from the database
-    let pool = db.inspector_pool();
-
-    match pool.query(&python_env, project_path, &request) {
+    match db
+        .inspector_pool()
+        .query(&python_env, project_path, &request)
+    {
         Ok(response) => {
             if response.ok {
                 if let Some(data) = response.data {

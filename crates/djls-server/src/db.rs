@@ -90,7 +90,6 @@ impl DjangoDatabase {
             root.to_string_lossy().to_string(),
             interpreter,
             django_settings,
-            0,
         );
 
         *self.project.lock().unwrap() = Some(project);
@@ -201,7 +200,7 @@ impl TemplateDb for DjangoDatabase {
 #[salsa::db]
 impl ProjectDb for DjangoDatabase {
     fn project(&self) -> Option<Project> {
-        self.project.lock().unwrap().clone()
+        *self.project.lock().unwrap()
     }
 
     fn inspector_pool(&self) -> Arc<InspectorPool> {

@@ -14,8 +14,7 @@ use crate::inspector::queries::InspectorQueryKind;
 /// and parses the JSON response into a TemplateTags struct.
 #[salsa::tracked]
 pub fn get_templatetags(db: &dyn ProjectDb) -> Option<TemplateTags> {
-    let project = db.project()?;
-    let json_str = inspector_run(db, project, InspectorQueryKind::TemplateTags)?;
+    let json_str = inspector_run(db, InspectorQueryKind::TemplateTags)?;
 
     // Parse the JSON string into a Value first
     let json_value: serde_json::Value = match serde_json::from_str(&json_str) {

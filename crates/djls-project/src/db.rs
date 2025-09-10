@@ -10,6 +10,7 @@
 //! - Tracked functions compute derived values (Python env, Django config)
 //! - Database trait provides stable configuration (metadata, template tags)
 
+use std::path::Path;
 use std::sync::Arc;
 
 use djls_workspace::Db as WorkspaceDb;
@@ -25,4 +26,9 @@ pub trait Db: WorkspaceDb {
 
     /// Get the shared inspector pool for executing Python queries
     fn inspector_pool(&self) -> Arc<InspectorPool>;
+
+    /// Get the project root path if a project is set
+    fn project_path(&self) -> Option<&Path> {
+        self.project().map(|p| Path::new(p.root(self)))
+    }
 }

@@ -1,7 +1,5 @@
 mod templatetags;
 
-use std::path::Path;
-
 use crate::db::Db as ProjectDb;
 use crate::inspector::inspector_run;
 use crate::inspector::queries::InspectorQueryKind;
@@ -16,12 +14,8 @@ pub use templatetags::TemplateTags;
 /// First consults the inspector, then falls back to environment detection.
 #[salsa::tracked]
 pub fn django_available(db: &dyn ProjectDb) -> bool {
-    let Some(project) = db.project() else {
-        return false;
-    };
-
     // First try to get Django availability from inspector
-    if let Some(json_data) = inspector_run(db, project, InspectorQueryKind::DjangoAvailable) {
+    if let Some(json_data) = inspector_run(db, InspectorQueryKind::DjangoAvailable) {
         // Parse the JSON response - expect a boolean
         if let Ok(available) = serde_json::from_str::<bool>(&json_data) {
             return available;
@@ -39,8 +33,6 @@ pub fn django_available(db: &dyn ProjectDb) -> bool {
 #[salsa::tracked]
 pub fn django_settings_module(db: &dyn ProjectDb) -> Option<String> {
     let project = db.project()?;
-    let _ = project.revision(db);
-    let project_path = Path::new(project.root(db));
 
     // Check project override first
     if let Some(settings) = project.settings_module(db) {
@@ -48,12 +40,14 @@ pub fn django_settings_module(db: &dyn ProjectDb) -> Option<String> {
     }
 
     // Try to get settings module from inspector
-    if let Some(json_data) = inspector_run(db, project, InspectorQueryKind::SettingsModule) {
+    if let Some(json_data) = inspector_run(db, InspectorQueryKind::SettingsModule) {
         // Parse the JSON response - expect a string
         if let Ok(settings) = serde_json::from_str::<String>(&json_data) {
             return Some(settings);
         }
     }
+
+    let project_path = db.project_path()?;
 
     // Try to detect settings module
     if project_path.join("manage.py").exists() {

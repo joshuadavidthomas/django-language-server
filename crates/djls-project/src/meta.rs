@@ -16,6 +16,4 @@ pub struct Project {
     /// Optional Django settings module override from configuration
     #[returns(ref)]
     pub settings_module: Option<String>,
-    /// Revision number for invalidation tracking
-    pub revision: u64,
 }

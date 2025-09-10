@@ -27,10 +27,6 @@ pub enum Interpreter {
 #[salsa::tracked]
 pub fn resolve_interpreter(db: &dyn ProjectDb) -> Option<PathBuf> {
     let project = db.project()?;
-    // Create dependency on project revision
-    let _ = project.revision(db);
-
-    let project_path = Path::new(project.root(db));
 
     match &project.interpreter(db) {
         Interpreter::InterpreterPath(path) => {
@@ -59,7 +55,7 @@ pub fn resolve_interpreter(db: &dyn ProjectDb) -> Option<PathBuf> {
         Interpreter::Auto => {
             // Try common venv directories
             for venv_dir in &[".venv", "venv", "env", ".env"] {
-                let potential_venv = project_path.join(venv_dir);
+                let potential_venv = db.project_path()?.join(venv_dir);
                 if potential_venv.is_dir() {
                     #[cfg(unix)]
                     let interpreter_path = potential_venv.join("bin").join("python");
@@ -599,7 +595,7 @@ mod tests {
                     fs: Arc::new(InMemoryFileSystem::new()),
                 }
             }
-            
+
             fn set_project(&self, project: crate::meta::Project) {
                 *self.project.lock().unwrap() = Some(project);
             }

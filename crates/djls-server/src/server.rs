@@ -2,12 +2,10 @@ use std::future::Future;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use djls_project::Db as ProjectDb;
 use djls_templates::analyze_template;
 use djls_templates::TemplateDiagnostic;
 use djls_workspace::paths;
 use djls_workspace::FileKind;
-use salsa::Setter;
 use tokio::sync::Mutex;
 use tower_lsp_server::jsonrpc::Result as LspResult;
 use tower_lsp_server::lsp_types;
@@ -482,13 +480,6 @@ impl LanguageServer for DjangoLanguageServer {
                 match djls_conf::Settings::new(project_root.as_path()) {
                     Ok(new_settings) => {
                         session.set_settings(new_settings);
-                        // Invalidate Salsa cache after settings change
-                        session.with_db_mut(|db| {
-                            if let Some(project) = db.project() {
-                                let current_rev = project.revision(db);
-                                project.set_revision(db).to(current_rev + 1);
-                            }
-                        });
                     }
                     Err(e) => {
                         tracing::error!("Error loading settings: {}", e);
