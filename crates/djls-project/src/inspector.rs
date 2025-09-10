@@ -3,13 +3,13 @@ pub mod pool;
 pub mod queries;
 mod zipapp;
 
+use queries::InspectorQueryKind;
+pub use queries::Query;
 use serde::Deserialize;
 use serde::Serialize;
 
 use crate::db::Db as ProjectDb;
 use crate::python::python_environment;
-use queries::InspectorQueryKind;
-pub use queries::Query;
 
 #[derive(Serialize)]
 pub struct DjlsRequest {

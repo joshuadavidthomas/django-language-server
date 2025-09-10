@@ -1,12 +1,12 @@
 mod templatetags;
 
+pub use templatetags::get_templatetags;
+pub use templatetags::TemplateTags;
+
 use crate::db::Db as ProjectDb;
 use crate::inspector::inspector_run;
 use crate::inspector::queries::InspectorQueryKind;
 use crate::python::python_environment;
-
-pub use templatetags::get_templatetags;
-pub use templatetags::TemplateTags;
 
 /// Check if Django is available for the current project.
 ///

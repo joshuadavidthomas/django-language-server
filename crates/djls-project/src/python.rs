@@ -274,7 +274,9 @@ mod tests {
 
         use super::*;
         use crate::system::mock::MockGuard;
-        use crate::system::mock::{self as sys_mock};
+        use crate::system::mock::{
+            self as sys_mock,
+        };
 
         #[test]
         fn test_explicit_venv_path_found() {
@@ -566,14 +568,13 @@ mod tests {
     }
 
     mod salsa_integration {
-        use super::*;
-
         use std::sync::Arc;
         use std::sync::Mutex;
 
         use djls_workspace::FileSystem;
         use djls_workspace::InMemoryFileSystem;
 
+        use super::*;
         use crate::db::Db as ProjectDb;
 
         /// Test implementation of ProjectDb for unit tests
