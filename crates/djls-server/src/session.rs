@@ -3,7 +3,6 @@
 //! This module implements the LSP session abstraction that manages project-specific
 //! state and the Salsa database for incremental computation.
 
-use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -11,7 +10,6 @@ use anyhow::Result;
 use dashmap::DashMap;
 use djls_conf::Settings;
 use djls_project::Db as ProjectDb;
-use djls_project::ProjectMetadata;
 use djls_project::TemplateTags;
 use djls_workspace::db::SourceFile;
 use djls_workspace::paths;
@@ -92,27 +90,18 @@ impl Session {
                 std::env::current_dir().ok()
             });
 
-        let (settings, metadata) = if let Some(path) = &project_path {
-            let settings =
-                djls_conf::Settings::new(path).unwrap_or_else(|_| djls_conf::Settings::default());
-
-            // Create metadata for the project with venv path from settings
-            let venv_path = settings.venv_path().map(PathBuf::from);
-            let metadata = ProjectMetadata::new(path.clone(), venv_path);
-
-            (settings, metadata)
+        let settings = if let Some(path) = &project_path {
+            djls_conf::Settings::new(path).unwrap_or_else(|_| djls_conf::Settings::default())
         } else {
-            // Default metadata for when there's no project path
-            let metadata = ProjectMetadata::new(PathBuf::from("."), None);
-            (Settings::default(), metadata)
+            Settings::default()
         };
 
         // Create workspace for buffer management
         let workspace = Workspace::new();
 
-        // Create the concrete database with the workspace's file system and metadata
+        // Create the concrete database with the workspace's file system
         let files = Arc::new(DashMap::new());
-        let mut db = DjangoDatabase::new(workspace.file_system(), files, metadata);
+        let mut db = DjangoDatabase::new(workspace.file_system(), files);
 
         // Create the session state input
         let project_root = project_path
@@ -170,11 +159,11 @@ impl Session {
         let project = self.project();
 
         // Cache template tags in Session (Arc boundary)
-        self.template_tags = djls_project::template_tags(&self.db, project).map(Arc::new);
+        self.template_tags = djls_project::template_tags(&self.db).map(Arc::new);
 
         // Warm up other tracked functions
-        let _ = djls_project::django_available(&self.db, project);
-        let _ = djls_project::django_settings_module(&self.db, project);
+        let _ = djls_project::django_available(&self.db);
+        let _ = djls_project::django_settings_module(&self.db);
 
         Ok(())
     }
@@ -339,15 +328,18 @@ impl Session {
 
     /// Get or create unified project input for the current project
     pub fn project(&mut self) -> djls_project::Project {
-        let project_root = if let Some(state) = self.state {
+        let project_root_buf = if let Some(state) = &self.state {
             if let Some(root) = state.project_root(&self.db) {
-                Path::new(root.as_ref())
+                PathBuf::from(root.as_ref())
             } else {
-                self.db.metadata().root().as_path()
+                // Fall back to current directory
+                std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
             }
         } else {
-            self.db.metadata().root().as_path()
+            // Fall back to current directory
+            std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
         };
+        let project_root = project_root_buf.as_path();
         self.db.project(project_root)
     }
 

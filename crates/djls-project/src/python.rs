@@ -613,10 +613,6 @@ mod tests {
 
         #[salsa::db]
         impl ProjectDb for TestDatabase {
-            fn metadata(&self) -> &ProjectMetadata {
-                &self.metadata
-            }
-
             fn template_tags(&self) -> Option<Arc<crate::TemplateTags>> {
                 None
             }
@@ -632,10 +628,21 @@ mod tests {
                 crate::meta::Project::new(
                     self,
                     root.to_string_lossy().to_string(),
+                    self.metadata.venv().map(|p| p.to_string_lossy().to_string()),
                     interpreter_spec,
                     django_settings,
                     0,
                 )
+            }
+
+            fn current_project(&self) -> crate::meta::Project {
+                // For tests, return a project for the current directory
+                let current_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+                self.project(current_dir.as_path())
+            }
+
+            fn inspector_pool(&self) -> Arc<crate::inspector::pool::InspectorPool> {
+                Arc::new(crate::inspector::pool::InspectorPool::new())
             }
         }
 

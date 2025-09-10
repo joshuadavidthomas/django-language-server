@@ -7,14 +7,14 @@ use serde_json::Value;
 use crate::db::Db as ProjectDb;
 use crate::inspector::inspector_run;
 use crate::inspector::queries::InspectorQueryKind;
-use crate::meta::Project;
 
-/// Get template tags for a project by querying the inspector.
+/// Get template tags for the current project by querying the inspector.
 ///
 /// This tracked function calls the inspector to retrieve Django template tags
 /// and parses the JSON response into a TemplateTags struct.
 #[salsa::tracked]
-pub fn template_tags(db: &dyn ProjectDb, project: Project) -> Option<TemplateTags> {
+pub fn template_tags(db: &dyn ProjectDb) -> Option<TemplateTags> {
+    let project = db.current_project();
     let json_str = inspector_run(db, project, InspectorQueryKind::TemplateTags)?;
 
     // Parse the JSON string into a Value first

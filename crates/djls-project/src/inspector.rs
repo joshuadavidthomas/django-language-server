@@ -30,7 +30,7 @@ pub struct DjlsResponse {
 
 /// Run an inspector query and return the JSON result as a string.
 ///
-/// This tracked function executes inspector queries through a temporary pool
+/// This tracked function executes inspector queries through the shared pool
 /// and caches the results based on project state and query kind.
 #[allow(clippy::drop_non_drop)]
 #[salsa::tracked]
@@ -59,9 +59,8 @@ pub fn inspector_run(
 
     let request = crate::inspector::DjlsRequest { query };
 
-    // Create a temporary inspector pool for this query
-    // Note: In production, this could be optimized with a shared pool
-    let pool = crate::inspector::pool::InspectorPool::new();
+    // Use the shared inspector pool from the database
+    let pool = db.inspector_pool();
 
     match pool.query(&python_env, project_path, &request) {
         Ok(response) => {

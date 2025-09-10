@@ -2,7 +2,6 @@ use std::future::Future;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use djls_project::Db as ProjectDb;
 use djls_templates::analyze_template;
 use djls_templates::TemplateDiagnostic;
 use djls_workspace::paths;
@@ -190,14 +189,15 @@ impl LanguageServer for DjangoLanguageServer {
         self.with_session_task(move |session_arc| async move {
             let project_path_and_venv = {
                 let session_lock = session_arc.lock().await;
-                let metadata = session_lock.db().metadata();
-                Some((
-                    metadata.root().display().to_string(),
-                    session_lock
-                        .settings()
-                        .venv_path()
-                        .map(std::string::ToString::to_string),
-                ))
+                std::env::current_dir().ok().map(|current_dir| {
+                    (
+                        current_dir.display().to_string(),
+                        session_lock
+                            .settings()
+                            .venv_path()
+                            .map(std::string::ToString::to_string),
+                    )
+                })
             };
 
             if let Some((path_display, venv_path)) = project_path_and_venv {

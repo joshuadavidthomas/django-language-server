@@ -16,19 +16,22 @@ use std::sync::Arc;
 use djls_workspace::Db as WorkspaceDb;
 
 use crate::django::TemplateTags;
+use crate::inspector::pool::InspectorPool;
 use crate::meta::Project;
-use crate::meta::ProjectMetadata;
 
 /// Project-specific database trait extending the workspace database
 #[salsa::db]
 pub trait Db: WorkspaceDb {
-    /// Get the project metadata containing root path and venv configuration
-    fn metadata(&self) -> &ProjectMetadata;
-
     /// Get discovered template tags for the project (if available).
     /// This is populated by the LSP server after querying Django.
     fn template_tags(&self) -> Option<Arc<TemplateTags>>;
 
     /// Get or create a Project input for a given path
     fn project(&self, root: &Path) -> Project;
+
+    /// Get the current project (typically the main project being worked on)
+    fn current_project(&self) -> Project;
+
+    /// Get the shared inspector pool for executing Python queries
+    fn inspector_pool(&self) -> Arc<InspectorPool>;
 }
