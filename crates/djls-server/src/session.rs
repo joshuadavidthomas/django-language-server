@@ -62,7 +62,6 @@ pub struct Session {
     /// but not the database (which is owned directly by Session).
     workspace: Workspace,
 
-    #[allow(dead_code)]
     client_capabilities: lsp_types::ClientCapabilities,
 
     /// Position encoding negotiated with client

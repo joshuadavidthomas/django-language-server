@@ -32,7 +32,6 @@ pub struct DjlsResponse {
 ///
 /// This tracked function executes inspector queries through the shared pool
 /// and caches the results based on project state and query kind.
-#[allow(clippy::drop_non_drop)]
 #[salsa::tracked]
 pub fn inspector_run(
     db: &dyn ProjectDb,
