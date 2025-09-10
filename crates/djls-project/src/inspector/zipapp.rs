@@ -13,7 +13,6 @@ const INSPECTOR_PYZ: &[u8] = include_bytes!(concat!(
 pub struct InspectorFile(NamedTempFile);
 
 impl InspectorFile {
-
     pub fn create() -> Result<Self> {
         let mut zipapp_file = tempfile::Builder::new()
             .prefix("djls_inspector_")
