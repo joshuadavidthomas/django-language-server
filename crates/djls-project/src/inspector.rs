@@ -1,6 +1,7 @@
 pub mod ipc;
 pub mod pool;
 pub mod queries;
+mod zipapp;
 
 pub use queries::Query;
 use serde::Deserialize;
