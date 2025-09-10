@@ -2,15 +2,13 @@ use std::fmt;
 use std::path::Path;
 use std::path::PathBuf;
 
-use pyo3::prelude::*;
-
 use crate::system;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PythonEnvironment {
-    python_path: PathBuf,
-    sys_path: Vec<PathBuf>,
-    sys_prefix: PathBuf,
+    pub python_path: PathBuf,
+    pub sys_path: Vec<PathBuf>,
+    pub sys_prefix: PathBuf,
 }
 
 impl PythonEnvironment {
@@ -72,19 +70,6 @@ impl PythonEnvironment {
             sys_path,
             sys_prefix: prefix.to_path_buf(),
         })
-    }
-
-    pub fn activate(&self, py: Python) -> PyResult<()> {
-        let sys = py.import("sys")?;
-        let py_path = sys.getattr("path")?;
-
-        for path in &self.sys_path {
-            if let Some(path_str) = path.to_str() {
-                py_path.call_method1("append", (path_str,))?;
-            }
-        }
-
-        Ok(())
     }
 
     fn from_system_python() -> Option<Self> {
@@ -179,20 +164,6 @@ mod tests {
         }
 
         prefix
-    }
-
-    fn get_sys_path(py: Python) -> PyResult<Vec<String>> {
-        let sys = py.import("sys")?;
-        let py_path = sys.getattr("path")?;
-        py_path.extract::<Vec<String>>()
-    }
-
-    fn create_test_env(sys_paths: Vec<PathBuf>) -> PythonEnvironment {
-        PythonEnvironment {
-            python_path: PathBuf::from("dummy/bin/python"),
-            sys_prefix: PathBuf::from("dummy"),
-            sys_path: sys_paths,
-        }
     }
 
     mod env_discovery {
@@ -490,213 +461,6 @@ mod tests {
 
             let result = PythonEnvironment::from_venv_prefix(prefix);
             assert!(result.is_none());
-        }
-    }
-
-    mod env_activation {
-        use super::*;
-
-        #[test]
-        #[ignore = "Requires Python runtime - run with --ignored flag"]
-        fn test_activate_appends_paths() -> PyResult<()> {
-            let temp_dir = tempdir().unwrap();
-            let path1 = temp_dir.path().join("scripts");
-            let path2 = temp_dir.path().join("libs");
-            fs::create_dir_all(&path1).unwrap();
-            fs::create_dir_all(&path2).unwrap();
-
-            let test_env = create_test_env(vec![path1.clone(), path2.clone()]);
-
-            pyo3::prepare_freethreaded_python();
-
-            Python::with_gil(|py| {
-                let initial_sys_path = get_sys_path(py)?;
-                let initial_len = initial_sys_path.len();
-
-                test_env.activate(py)?;
-
-                let final_sys_path = get_sys_path(py)?;
-                assert_eq!(
-                    final_sys_path.len(),
-                    initial_len + 2,
-                    "Should have added 2 paths"
-                );
-                assert_eq!(
-                    final_sys_path.get(initial_len).unwrap(),
-                    path1.to_str().expect("Path 1 should be valid UTF-8")
-                );
-                assert_eq!(
-                    final_sys_path.get(initial_len + 1).unwrap(),
-                    path2.to_str().expect("Path 2 should be valid UTF-8")
-                );
-
-                Ok(())
-            })
-        }
-
-        #[test]
-        #[ignore = "Requires Python runtime - run with --ignored flag"]
-        fn test_activate_empty_sys_path() -> PyResult<()> {
-            let test_env = create_test_env(vec![]);
-
-            pyo3::prepare_freethreaded_python();
-
-            Python::with_gil(|py| {
-                let initial_sys_path = get_sys_path(py)?;
-
-                test_env.activate(py)?;
-
-                let final_sys_path = get_sys_path(py)?;
-                assert_eq!(
-                    final_sys_path, initial_sys_path,
-                    "sys.path should remain unchanged for empty env.sys_path"
-                );
-
-                Ok(())
-            })
-        }
-
-        #[test]
-        #[ignore = "Requires Python runtime - run with --ignored flag"]
-        fn test_activate_with_non_existent_paths() -> PyResult<()> {
-            let temp_dir = tempdir().unwrap();
-            let path1 = temp_dir.path().join("non_existent_dir");
-            let path2 = temp_dir.path().join("another_missing/path");
-
-            let test_env = create_test_env(vec![path1.clone(), path2.clone()]);
-
-            pyo3::prepare_freethreaded_python();
-
-            Python::with_gil(|py| {
-                let initial_sys_path = get_sys_path(py)?;
-                let initial_len = initial_sys_path.len();
-
-                test_env.activate(py)?;
-
-                let final_sys_path = get_sys_path(py)?;
-                assert_eq!(
-                    final_sys_path.len(),
-                    initial_len + 2,
-                    "Should still add 2 paths even if they don't exist"
-                );
-                assert_eq!(
-                    final_sys_path.get(initial_len).unwrap(),
-                    path1.to_str().unwrap()
-                );
-                assert_eq!(
-                    final_sys_path.get(initial_len + 1).unwrap(),
-                    path2.to_str().unwrap()
-                );
-
-                Ok(())
-            })
-        }
-
-        #[test]
-        #[cfg(unix)]
-        #[ignore = "Requires Python runtime - run with --ignored flag"]
-        fn test_activate_skips_non_utf8_paths_unix() -> PyResult<()> {
-            use std::ffi::OsStr;
-            use std::os::unix::ffi::OsStrExt;
-
-            let temp_dir = tempdir().unwrap();
-            let valid_path = temp_dir.path().join("valid_dir");
-            fs::create_dir(&valid_path).unwrap();
-
-            let invalid_bytes = b"invalid_\xff_utf8";
-            let os_str = OsStr::from_bytes(invalid_bytes);
-            let non_utf8_path = PathBuf::from(os_str);
-            assert!(
-                non_utf8_path.to_str().is_none(),
-                "Path should not be convertible to UTF-8 str"
-            );
-
-            let test_env = create_test_env(vec![valid_path.clone(), non_utf8_path.clone()]);
-
-            pyo3::prepare_freethreaded_python();
-
-            Python::with_gil(|py| {
-                let initial_sys_path = get_sys_path(py)?;
-                let initial_len = initial_sys_path.len();
-
-                test_env.activate(py)?;
-
-                let final_sys_path = get_sys_path(py)?;
-                assert_eq!(
-                    final_sys_path.len(),
-                    initial_len + 1,
-                    "Should only add valid UTF-8 paths"
-                );
-                assert_eq!(
-                    final_sys_path.get(initial_len).unwrap(),
-                    valid_path.to_str().unwrap()
-                );
-
-                let invalid_path_lossy = non_utf8_path.to_string_lossy();
-                assert!(
-                    !final_sys_path
-                        .iter()
-                        .any(|p| p.contains(&*invalid_path_lossy)),
-                    "Non-UTF8 path should not be present in sys.path"
-                );
-
-                Ok(())
-            })
-        }
-
-        #[test]
-        #[cfg(windows)]
-        #[ignore = "Requires Python runtime - run with --ignored flag"]
-        fn test_activate_skips_non_utf8_paths_windows() -> PyResult<()> {
-            use std::ffi::OsString;
-            use std::os::windows::ffi::OsStringExt;
-
-            let temp_dir = tempdir().unwrap();
-            let valid_path = temp_dir.path().join("valid_dir");
-
-            let invalid_wide: Vec<u16> = vec![
-                'i' as u16, 'n' as u16, 'v' as u16, 'a' as u16, 'l' as u16, 'i' as u16, 'd' as u16,
-                '_' as u16, 0xD800, '_' as u16, 'w' as u16, 'i' as u16, 'd' as u16, 'e' as u16,
-            ];
-            let os_string = OsString::from_wide(&invalid_wide);
-            let non_utf8_path = PathBuf::from(os_string);
-
-            assert!(
-                non_utf8_path.to_str().is_none(),
-                "Path with lone surrogate should not be convertible to UTF-8 str"
-            );
-
-            let test_env = create_test_env(vec![valid_path.clone(), non_utf8_path.clone()]);
-
-            pyo3::prepare_freethreaded_python();
-
-            Python::with_gil(|py| {
-                let initial_sys_path = get_sys_path(py)?;
-                let initial_len = initial_sys_path.len();
-
-                test_env.activate(py)?;
-
-                let final_sys_path = get_sys_path(py)?;
-                assert_eq!(
-                    final_sys_path.len(),
-                    initial_len + 1,
-                    "Should only add paths convertible to valid UTF-8"
-                );
-                assert_eq!(
-                    final_sys_path.get(initial_len).unwrap(),
-                    valid_path.to_str().unwrap()
-                );
-
-                let invalid_path_lossy = non_utf8_path.to_string_lossy();
-                assert!(
-                    !final_sys_path
-                        .iter()
-                        .any(|p| p.contains(&*invalid_path_lossy)),
-                    "Non-UTF8 path (from invalid wide chars) should not be present in sys.path"
-                );
-
-                Ok(())
-            })
         }
     }
 

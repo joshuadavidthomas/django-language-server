@@ -94,12 +94,6 @@ def tests(session, django):
 
     command = ["cargo", "test"]
 
-    # TODO: Remove this exclusion once PyO3 is replaced with subprocess oracle pattern
-    # Temporarily exclude djls-project tests on Windows due to PyO3 DLL loading issues
-    # (STATUS_DLL_NOT_FOUND when the test executable tries to load Python)
-    if platform.system() == "Windows":
-        command.extend(["--workspace", "--exclude", "djls-project"])
-
     if session.posargs:
         args = []
         for arg in session.posargs:
@@ -148,9 +142,6 @@ def gha_matrix(session):
     include_list = []
     for os_name in os_list:
         for combo in versions_list:
-            # Skip Python 3.9 on macOS due to PyO3/framework linking issues
-            if os_name.startswith("macos") and combo["python-version"] == "3.9":
-                continue
             include_list.append({**combo, "os": os_name})
 
     matrix = {"include": include_list}

@@ -1,8 +1,8 @@
 use std::ops::Deref;
 
-use pyo3::prelude::*;
-use pyo3::types::PyDict;
-use pyo3::types::PyList;
+use anyhow::Context;
+use anyhow::Result;
+use serde_json::Value;
 
 #[derive(Debug, Default, Clone)]
 pub struct TemplateTags(Vec<TemplateTag>);
@@ -16,57 +16,46 @@ impl Deref for TemplateTags {
 }
 
 impl TemplateTags {
-    fn new() -> Self {
-        Self(Vec::new())
-    }
+    pub fn from_json(data: &Value) -> Result<TemplateTags> {
+        let mut tags = Vec::new();
 
-    fn process_library(
-        module_name: &str,
-        library: &Bound<'_, PyAny>,
-        tags: &mut Vec<TemplateTag>,
-    ) -> PyResult<()> {
-        let tags_dict = library.getattr("tags")?;
-        let dict = tags_dict.downcast::<PyDict>()?;
+        // Parse the JSON response from the inspector
+        let templatetags = data
+            .get("templatetags")
+            .context("Missing 'templatetags' field in response")?
+            .as_array()
+            .context("'templatetags' field is not an array")?;
 
-        for (key, value) in dict.iter() {
-            let tag_name = key.extract::<String>()?;
-            let doc = value.getattr("__doc__")?.extract().ok();
+        for tag_data in templatetags {
+            let name = tag_data
+                .get("name")
+                .and_then(|v| v.as_str())
+                .context("Missing or invalid 'name' field")?
+                .to_string();
 
-            let library_name = if module_name.is_empty() {
-                "builtins".to_string()
-            } else {
-                module_name.split('.').next_back().unwrap_or("").to_string()
-            };
+            let module = tag_data
+                .get("module")
+                .and_then(|v| v.as_str())
+                .context("Missing or invalid 'module' field")?;
 
-            tags.push(TemplateTag::new(tag_name, library_name, doc));
-        }
-        Ok(())
-    }
+            // Extract library name from module (e.g., "django.templatetags.static" -> "static")
+            let library = module
+                .split('.')
+                .filter(|part| part.contains("templatetags"))
+                .nth(1)
+                .or_else(|| module.split('.').next_back())
+                .unwrap_or("builtins")
+                .to_string();
 
-    pub fn from_python(py: Python) -> PyResult<TemplateTags> {
-        let mut template_tags = TemplateTags::new();
+            let doc = tag_data
+                .get("doc")
+                .and_then(|v| v.as_str())
+                .map(String::from);
 
-        let engine = py
-            .import("django.template.engine")?
-            .getattr("Engine")?
-            .call_method0("get_default")?;
-
-        // Built-in template tags
-        let builtins_attr = engine.getattr("template_builtins")?;
-        let builtins = builtins_attr.downcast::<PyList>()?;
-        for builtin in builtins {
-            Self::process_library("", &builtin, &mut template_tags.0)?;
+            tags.push(TemplateTag::new(name, library, doc));
         }
 
-        // Custom template libraries
-        let libraries_attr = engine.getattr("template_libraries")?;
-        let libraries = libraries_attr.downcast::<PyDict>()?;
-        for (module_name, library) in libraries.iter() {
-            let module_name = module_name.extract::<String>()?;
-            Self::process_library(&module_name, &library, &mut template_tags.0)?;
-        }
-
-        Ok(template_tags)
+        Ok(TemplateTags(tags))
     }
 }
 

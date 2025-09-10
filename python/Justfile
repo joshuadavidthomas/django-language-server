@@ -1,0 +1,12 @@
+set unstable := true
+
+[private]
+default:
+    @just --list
+
+[private]
+fmt:
+    @just --fmt
+
+build:
+    uv run build.py
