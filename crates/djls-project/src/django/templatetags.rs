@@ -13,8 +13,8 @@ use crate::inspector::queries::InspectorQueryKind;
 /// This tracked function calls the inspector to retrieve Django template tags
 /// and parses the JSON response into a TemplateTags struct.
 #[salsa::tracked]
-pub fn template_tags(db: &dyn ProjectDb) -> Option<TemplateTags> {
-    let project = db.current_project();
+pub fn get_templatetags(db: &dyn ProjectDb) -> Option<TemplateTags> {
+    let project = db.project()?;
     let json_str = inspector_run(db, project, InspectorQueryKind::TemplateTags)?;
 
     // Parse the JSON string into a Value first

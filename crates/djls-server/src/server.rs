@@ -2,10 +2,12 @@ use std::future::Future;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use djls_project::Db as ProjectDb;
 use djls_templates::analyze_template;
 use djls_templates::TemplateDiagnostic;
 use djls_workspace::paths;
 use djls_workspace::FileKind;
+use salsa::Setter;
 use tokio::sync::Mutex;
 use tower_lsp_server::jsonrpc::Result as LspResult;
 use tower_lsp_server::lsp_types;
@@ -368,8 +370,7 @@ impl LanguageServer for DjangoLanguageServer {
                     let position = params.text_document_position.position;
                     let encoding = session.position_encoding();
                     let file_kind = FileKind::from_path(&path);
-                    let template_tags_arc = session.with_db(djls_project::Db::template_tags);
-                    let template_tags = template_tags_arc.as_ref().map(std::convert::AsRef::as_ref);
+                    let template_tags = session.with_db(|db| djls_project::get_templatetags(db));
                     let tag_specs = session.with_db(djls_templates::Db::tag_specs);
                     let supports_snippets = session.supports_snippets();
 
@@ -378,7 +379,7 @@ impl LanguageServer for DjangoLanguageServer {
                         position,
                         encoding,
                         file_kind,
-                        template_tags,
+                        template_tags.as_ref(),
                         Some(&tag_specs),
                         supports_snippets,
                     );
@@ -474,23 +475,27 @@ impl LanguageServer for DjangoLanguageServer {
     async fn did_change_configuration(&self, _params: lsp_types::DidChangeConfigurationParams) {
         tracing::info!("Configuration change detected. Reloading settings...");
 
-        let project_path = self
-            .with_session_mut(|session| {
-                let project = session.project();
-                Some(PathBuf::from(project.root(session.database()).as_str()))
-            })
-            .await;
+        self.with_session_mut(|session| {
+            if let Some(project) = session.project() {
+                let project_root = PathBuf::from(project.root(session.database()).as_str());
 
-        if let Some(path) = project_path {
-            self.with_session_mut(|session| match djls_conf::Settings::new(path.as_path()) {
-                Ok(new_settings) => {
-                    session.update_session_state(new_settings);
+                match djls_conf::Settings::new(project_root.as_path()) {
+                    Ok(new_settings) => {
+                        session.set_settings(new_settings);
+                        // Invalidate Salsa cache after settings change
+                        session.with_db_mut(|db| {
+                            if let Some(project) = db.project() {
+                                let current_rev = project.revision(db);
+                                project.set_revision(db).to(current_rev + 1);
+                            }
+                        });
+                    }
+                    Err(e) => {
+                        tracing::error!("Error loading settings: {}", e);
+                    }
                 }
-                Err(e) => {
-                    tracing::error!("Error loading settings: {}", e);
-                }
-            })
-            .await;
-        }
+            }
+        })
+        .await;
     }
 }

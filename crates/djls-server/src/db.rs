@@ -7,14 +7,12 @@
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
-#[cfg(test)]
 use std::sync::Mutex;
 
 use dashmap::DashMap;
+use djls_project::inspector::pool::InspectorPool;
 use djls_project::Db as ProjectDb;
 use djls_project::Project;
-use djls_project::TemplateTags;
-use djls_project::inspector::pool::InspectorPool;
 use djls_templates::db::Db as TemplateDb;
 use djls_templates::templatetags::TagSpecs;
 use djls_workspace::db::Db as WorkspaceDb;
@@ -38,8 +36,8 @@ pub struct DjangoDatabase {
     /// Maps paths to [`SourceFile`] entities for O(1) lookup.
     files: Arc<DashMap<PathBuf, SourceFile>>,
 
-    /// Unified project inputs cache - maps root path to Project input
-    projects: Arc<DashMap<PathBuf, Project>>,
+    /// The single project for this database instance
+    project: Arc<Mutex<Option<Project>>>,
 
     /// Shared inspector pool for executing Python queries
     inspector_pool: Arc<InspectorPool>,
@@ -61,7 +59,7 @@ impl Default for DjangoDatabase {
         Self {
             fs: Arc::new(InMemoryFileSystem::new()),
             files: Arc::new(DashMap::new()),
-            projects: Arc::new(DashMap::new()),
+            project: Arc::new(Mutex::new(None)),
             inspector_pool: Arc::new(InspectorPool::new()),
             storage: salsa::Storage::new(Some(Box::new({
                 let logs = logs.clone();
@@ -82,15 +80,27 @@ impl Default for DjangoDatabase {
 }
 
 impl DjangoDatabase {
+    /// Set the project for this database instance
+    pub fn set_project(&self, root: &Path) {
+        let interpreter = djls_project::Interpreter::Auto;
+        let django_settings = std::env::var("DJANGO_SETTINGS_MODULE").ok();
+
+        let project = Project::new(
+            self,
+            root.to_string_lossy().to_string(),
+            interpreter,
+            django_settings,
+            0,
+        );
+
+        *self.project.lock().unwrap() = Some(project);
+    }
     /// Create a new [`DjangoDatabase`] with the given file system and file map.
-    pub fn new(
-        file_system: Arc<dyn FileSystem>,
-        files: Arc<DashMap<PathBuf, SourceFile>>,
-    ) -> Self {
+    pub fn new(file_system: Arc<dyn FileSystem>, files: Arc<DashMap<PathBuf, SourceFile>>) -> Self {
         Self {
             fs: file_system,
             files,
-            projects: Arc::new(DashMap::new()),
+            project: Arc::new(Mutex::new(None)),
             inspector_pool: Arc::new(InspectorPool::new()),
             storage: salsa::Storage::new(None),
             #[cfg(test)]
@@ -169,7 +179,8 @@ impl WorkspaceDb for DjangoDatabase {
 #[salsa::db]
 impl TemplateDb for DjangoDatabase {
     fn tag_specs(&self) -> Arc<TagSpecs> {
-        let project_root_buf = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        let project_root_buf =
+            std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
         let project_root = project_root_buf.as_path();
 
         if let Ok(user_specs) = TagSpecs::load_user_specs(project_root) {
@@ -189,35 +200,8 @@ impl TemplateDb for DjangoDatabase {
 
 #[salsa::db]
 impl ProjectDb for DjangoDatabase {
-    fn template_tags(&self) -> Option<Arc<TemplateTags>> {
-        djls_project::template_tags(self).map(Arc::new)
-    }
-
-    fn project(&self, root: &Path) -> Project {
-        let root_buf = root.to_path_buf();
-
-        // Use entry API for atomic check-and-insert to avoid race conditions
-        *self.projects.entry(root_buf.clone()).or_insert_with(|| {
-            // Create a new Project input with complete configuration
-            let interpreter_spec = djls_project::Interpreter::Auto;
-            let django_settings = std::env::var("DJANGO_SETTINGS_MODULE").ok();
-
-            Project::new(
-                self,
-                root.to_string_lossy().to_string(),
-                None, // No venv by default
-                interpreter_spec,
-                django_settings,
-                0,
-            )
-        })
-    }
-
-    fn current_project(&self) -> Project {
-        // For now, return a project for the current directory
-        // In a real implementation, this might be configurable
-        let current_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-        self.project(current_dir.as_path())
+    fn project(&self) -> Option<Project> {
+        self.project.lock().unwrap().clone()
     }
 
     fn inspector_pool(&self) -> Arc<InspectorPool> {

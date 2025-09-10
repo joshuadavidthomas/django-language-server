@@ -7,7 +7,7 @@ use crate::inspector::inspector_run;
 use crate::inspector::queries::InspectorQueryKind;
 use crate::python::python_environment;
 
-pub use templatetags::template_tags;
+pub use templatetags::get_templatetags;
 pub use templatetags::TemplateTags;
 
 /// Check if Django is available for the current project.
@@ -16,7 +16,9 @@ pub use templatetags::TemplateTags;
 /// First consults the inspector, then falls back to environment detection.
 #[salsa::tracked]
 pub fn django_available(db: &dyn ProjectDb) -> bool {
-    let project = db.current_project();
+    let Some(project) = db.project() else {
+        return false;
+    };
 
     // First try to get Django availability from inspector
     if let Some(json_data) = inspector_run(db, project, InspectorQueryKind::DjangoAvailable) {
@@ -27,7 +29,7 @@ pub fn django_available(db: &dyn ProjectDb) -> bool {
     }
 
     // Fallback to environment detection
-    python_environment(db, project).is_some()
+    python_environment(db).is_some()
 }
 
 /// Get the Django settings module name for the current project.
@@ -36,7 +38,7 @@ pub fn django_available(db: &dyn ProjectDb) -> bool {
 /// or DJANGO_SETTINGS_MODULE env var, or attempts to detect it.
 #[salsa::tracked]
 pub fn django_settings_module(db: &dyn ProjectDb) -> Option<String> {
-    let project = db.current_project();
+    let project = db.project()?;
     let _ = project.revision(db);
     let project_path = Path::new(project.root(db));
 

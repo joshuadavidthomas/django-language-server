@@ -32,6 +32,7 @@ pub struct DjlsResponse {
 ///
 /// This tracked function executes inspector queries through the shared pool
 /// and caches the results based on project state and query kind.
+#[allow(clippy::drop_non_drop)]
 #[salsa::tracked]
 pub fn inspector_run(
     db: &dyn ProjectDb,
@@ -42,11 +43,11 @@ pub fn inspector_run(
     let _ = project.revision(db);
 
     // Get interpreter path - required for inspector
-    let _interpreter_path = resolve_interpreter(db, project)?;
+    let _interpreter_path = resolve_interpreter(db)?;
     let project_path = Path::new(project.root(db));
 
     // Get Python environment for inspector
-    let python_env = python_environment(db, project)?;
+    let python_env = python_environment(db)?;
 
     // Create the appropriate query based on kind
     let query = match kind {

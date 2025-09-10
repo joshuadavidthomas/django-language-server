@@ -8,7 +8,7 @@ mod system;
 pub use db::Db;
 pub use django::django_available;
 pub use django::django_settings_module;
-pub use django::template_tags;
+pub use django::get_templatetags;
 pub use django::TemplateTags;
 pub use inspector::inspector_run;
 pub use inspector::queries::InspectorQueryKind;
