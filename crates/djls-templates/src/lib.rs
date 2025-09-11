@@ -50,6 +50,7 @@ pub mod db;
 mod error;
 mod lexer;
 mod parser;
+pub mod syntax_tree;
 pub mod templatetags;
 mod tokens;
 pub mod validation;
