@@ -1,3 +1,4 @@
+use serde::Serialize;
 use thiserror::Error;
 
 use crate::ast::CommentNode;
@@ -76,8 +77,8 @@ impl<'db> Parser<'db> {
         match token.token_type() {
             TokenType::Comment(_, open, _) => self.parse_comment(open),
             TokenType::Eof => Err(ParserError::stream_error(StreamError::AtEnd)),
-            TokenType::DjangoBlock(_) => self.parse_django_block(),
-            TokenType::DjangoVariable(_) => self.parse_django_variable(),
+            TokenType::Block(_) => self.parse_django_block(),
+            TokenType::Variable(_) => self.parse_django_variable(),
             TokenType::HtmlTagClose(_)
             | TokenType::HtmlTagOpen(_)
             | TokenType::HtmlTagVoid(_)
@@ -153,8 +154,8 @@ impl<'db> Parser<'db> {
 
         while let Ok(token) = self.peek() {
             match token.token_type() {
-                TokenType::DjangoBlock(_)
-                | TokenType::DjangoVariable(_)
+                TokenType::Block(_)
+                | TokenType::Variable(_)
                 | TokenType::Comment(_, _, _)
                 | TokenType::Newline
                 | TokenType::Eof => break,
@@ -252,8 +253,8 @@ impl<'db> Parser<'db> {
 
     fn synchronize(&mut self) -> Result<(), ParserError> {
         let sync_types = &[
-            TokenType::DjangoBlock(String::new()),
-            TokenType::DjangoVariable(String::new()),
+            TokenType::Block(String::new()),
+            TokenType::Variable(String::new()),
             TokenType::Comment(String::new(), String::from("{#"), Some(String::from("#}"))),
             TokenType::Eof,
         ];
@@ -271,7 +272,7 @@ impl<'db> Parser<'db> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub enum StreamError {
     AtBeginning,
     BeforeStart,
@@ -280,27 +281,53 @@ pub enum StreamError {
     InvalidAccess,
 }
 
-#[derive(Debug, Error)]
-pub enum ParserError {
+#[derive(Clone, Debug, Error, PartialEq, Eq, Serialize)]
+pub enum ParseError {
     #[error("Unexpected token: expected {expected:?}, found {found} at position {position}")]
     UnexpectedToken {
         expected: Vec<String>,
         found: String,
         position: usize,
     },
+
+    #[error("Missing condition in '{tag}' tag at position {position}")]
+    MissingCondition { tag: String, position: usize },
+
+    #[error("Missing iterator in 'for' tag at position {position}")]
+    MissingIterator { position: usize },
+
+    #[error("Malformed variable at position {position}: {content}")]
+    MalformedVariable { position: usize, content: String },
+
+    #[error("Invalid filter syntax at position {position}: {reason}")]
+    InvalidFilterSyntax { position: usize, reason: String },
+
+    #[error("Unclosed tag at position {opener}: expected '{expected_closer}'")]
+    UnclosedTag {
+        opener: usize,
+        expected_closer: String,
+    },
+
     #[error("Invalid syntax: {context}")]
     InvalidSyntax { context: String },
+
     #[error("Empty tag")]
     EmptyTag,
+
     #[error("Lexer error: {0}")]
     Lexer(#[from] LexerError),
+
     #[error("Stream error: {kind:?}")]
     StreamError { kind: StreamError },
+
     #[error("AST error: {0}")]
     NodeList(#[from] NodeListError),
 }
 
-impl ParserError {
+// Keep ParserError as alias for compatibility
+pub type ParserError = ParseError;
+
+impl ParseError {
     pub fn stream_error(kind: impl Into<StreamError>) -> Self {
         Self::StreamError { kind: kind.into() }
     }
@@ -349,7 +376,10 @@ mod tests {
     #[salsa::db]
     impl crate::db::Db for TestDatabase {
         fn tag_specs(&self) -> std::sync::Arc<crate::templatetags::TagSpecs> {
-            std::sync::Arc::new(crate::templatetags::TagSpecs::default())
+            std::sync::Arc::new(
+                crate::templatetags::TagSpecs::load_builtin_specs()
+                    .unwrap_or_else(|_| crate::templatetags::TagSpecs::default()),
+            )
         }
     }
 

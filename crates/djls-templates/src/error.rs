@@ -2,14 +2,10 @@ use serde::Serialize;
 use thiserror::Error;
 
 use crate::ast::NodeListError;
-use crate::lexer::LexerError;
 use crate::parser::ParserError;
 
 #[derive(Clone, Debug, Error, PartialEq, Eq, Serialize)]
 pub enum TemplateError {
-    #[error("{0}")]
-    Lexer(String),
-
     #[error("{0}")]
     Parser(String),
 
@@ -21,12 +17,6 @@ pub enum TemplateError {
 
     #[error("Configuration error: {0}")]
     Config(String),
-}
-
-impl From<LexerError> for TemplateError {
-    fn from(err: LexerError) -> Self {
-        Self::Lexer(err.to_string())
-    }
 }
 
 impl From<ParserError> for TemplateError {
@@ -53,7 +43,6 @@ impl TemplateError {
     #[must_use]
     pub fn diagnostic_code(&self) -> &'static str {
         match self {
-            TemplateError::Lexer(_) => "T200",
             TemplateError::Parser(_) => "T100",
             TemplateError::Validation(nodelist_error) => nodelist_error.diagnostic_code(),
             TemplateError::Io(_) => "T900",
