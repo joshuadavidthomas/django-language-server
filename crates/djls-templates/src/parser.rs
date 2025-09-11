@@ -12,7 +12,17 @@ use crate::ast::TextNode;
 use crate::ast::VariableName;
 use crate::ast::VariableNode;
 use crate::db::Db as TemplateDb;
+
 use crate::lexer::LexerError;
+use crate::syntax_tree::ParsedArg;
+use crate::syntax_tree::ParsedArgs;
+use crate::syntax_tree::SyntaxNode;
+use crate::syntax_tree::SyntaxNodeId;
+use crate::syntax_tree::SyntaxTree;
+use crate::syntax_tree::TagMeta;
+use crate::syntax_tree::TagShape;
+use crate::templatetags::TagSpecs;
+use crate::templatetags::TagType;
 use crate::tokens::Token;
 use crate::tokens::TokenStream;
 use crate::tokens::TokenType;
@@ -69,6 +79,8 @@ impl<'db> Parser<'db> {
 
         Ok((ast, std::mem::take(&mut self.errors)))
     }
+
+
 
     fn next_node(&mut self) -> Result<Node<'db>, ParserError> {
         let token = self.consume()?;
@@ -271,6 +283,12 @@ impl<'db> Parser<'db> {
     }
 }
 
+/// Build a `SyntaxTree` from an existing `NodeList`
+pub fn build_syntax_tree<'db>(db: &'db dyn TemplateDb, nodelist: &'db NodeList<'db>) -> Result<SyntaxTree<'db>, ParserError> {
+    let mut tree_builder = TreeBuilder::new(db, nodelist);
+    tree_builder.build_tree()
+}
+
 #[derive(Debug)]
 pub enum StreamError {
     AtBeginning,
@@ -303,6 +321,303 @@ pub enum ParserError {
 impl ParserError {
     pub fn stream_error(kind: impl Into<StreamError>) -> Self {
         Self::StreamError { kind: kind.into() }
+    }
+}
+
+/// Two-stage parser: `TreeBuilder` converts flat `NodeList` to hierarchical `SyntaxTree`
+pub struct TreeBuilder<'db> {
+    db: &'db dyn TemplateDb,
+    nodelist: &'db NodeList<'db>,
+    stack: Vec<StackFrame<'db>>,
+}
+
+struct StackFrame<'db> {
+    opener_tag: crate::ast::TagNode<'db>,
+    children: Vec<SyntaxNodeId<'db>>,
+}
+
+impl<'db> TreeBuilder<'db> {
+    pub fn new(db: &'db dyn TemplateDb, nodelist: &'db NodeList<'db>) -> Self {
+        Self {
+            db,
+            nodelist,
+            stack: Vec::new(),
+        }
+    }
+
+    pub fn build_tree(&mut self) -> Result<SyntaxTree<'db>, ParserError> {
+        let mut root_children = Vec::new();
+        let tag_specs = self.db.tag_specs();
+        
+        for node in self.nodelist.nodelist(self.db) {
+            match node {
+                Node::Tag(tag_node) => {
+                    self.handle_tag_node(tag_node, &tag_specs, &mut root_children)?;
+                }
+                
+                Node::Text(_) | Node::Variable(_) | Node::Comment(_) => {
+                    let syntax_node = self.convert_node(node);
+                    let node_id = SyntaxNodeId::new(self.db, syntax_node);
+                    self.add_to_current_container(node_id, &mut root_children);
+                }
+            }
+        }
+
+        // Check for unclosed blocks
+        if !self.stack.is_empty() {
+            return Err(ParserError::InvalidSyntax { 
+                context: "Unclosed blocks remaining".to_string() 
+            });
+        }
+        
+        let root = SyntaxNode::Root { children: root_children };
+        let root_id = SyntaxNodeId::new(self.db, root);
+        
+        Ok(SyntaxTree::new(
+            self.db, 
+            root_id, 
+            self.nodelist.line_offsets(self.db).clone()
+        ))
+    }
+
+    fn handle_tag_node(
+        &mut self,
+        tag_node: &TagNode<'db>,
+        tag_specs: &TagSpecs,
+        root_children: &mut Vec<SyntaxNodeId<'db>>,
+    ) -> Result<(), ParserError> {
+        let name = tag_node.name.text(self.db);
+        let tag_type = TagType::for_name(&name, tag_specs);
+        
+
+        
+        match tag_type {
+            TagType::Opener => self.handle_opener(tag_node, tag_specs, root_children),
+            TagType::Intermediate => { self.handle_intermediate(tag_node); Ok(()) },
+            TagType::Closer => self.handle_closer(tag_node, root_children),
+            TagType::Standalone => self.handle_standalone(tag_node, tag_specs, root_children),
+        }
+    }
+
+    fn handle_opener(
+        &mut self,
+        tag_node: &TagNode<'db>,
+        tag_specs: &TagSpecs,
+        root_children: &mut Vec<SyntaxNodeId<'db>>,
+    ) -> Result<(), ParserError> {
+        let name = tag_node.name.text(self.db);
+        let spec = tag_specs.get(&name).cloned();
+        let shape = spec.as_ref()
+            .map_or(TagShape::Singleton, TagShape::from_spec);
+        
+        // If it's a block, push to stack and collect children
+        if let TagShape::Block { .. } | TagShape::RawBlock { .. } = shape {
+            self.stack.push(StackFrame {
+                opener_tag: tag_node.clone(),
+                children: Vec::new(),
+            });
+        } else {
+            // Standalone tag that happens to be classified as opener (shouldn't happen normally)
+            self.handle_standalone(tag_node, tag_specs, root_children)?;
+        }
+        
+        Ok(())
+    }
+
+    fn handle_intermediate(
+        &mut self,
+        _tag_node: &TagNode<'db>,
+    ) {
+        // For now, just ignore intermediate tags like elif/else
+        // In a full implementation, these would create new fragments/branches
+    }
+
+    fn handle_closer(
+        &mut self,
+        _tag_node: &TagNode<'db>,
+        root_children: &mut Vec<SyntaxNodeId<'db>>,
+    ) -> Result<(), ParserError> {
+        if let Some(frame) = self.stack.pop() {
+            // Create the complete block tag with its children
+            let tag_specs = self.db.tag_specs();
+            let name = frame.opener_tag.name.text(self.db);
+            let spec = tag_specs.get(&name);
+            let shape = spec.map_or(TagShape::Singleton, TagShape::from_spec);
+            
+            let meta = self.build_tag_meta(&frame.opener_tag, TagType::Opener, shape, spec);
+            
+            let syntax_node = SyntaxNode::Tag(crate::syntax_tree::TagNode {
+                name: crate::syntax_tree::TagName::new(self.db, name.to_string()),
+                bits: frame.opener_tag.bits.clone(),
+                span: frame.opener_tag.span,
+                meta,
+                children: frame.children,
+            });
+            let node_id = SyntaxNodeId::new(self.db, syntax_node);
+            
+            self.add_to_current_container(node_id, root_children);
+            Ok(())
+        } else {
+            Err(ParserError::InvalidSyntax {
+                context: "Orphaned closing tag".to_string(),
+            })
+        }
+    }
+
+    fn handle_standalone(
+        &mut self,
+        tag_node: &TagNode<'db>,
+        tag_specs: &TagSpecs,
+        root_children: &mut Vec<SyntaxNodeId<'db>>,
+    ) -> Result<(), ParserError> {
+        let name = tag_node.name.text(self.db);
+        let spec = tag_specs.get(&name);
+        let meta = self.build_tag_meta(tag_node, TagType::Standalone, TagShape::Singleton, spec);
+        
+        let syntax_node = SyntaxNode::Tag(crate::syntax_tree::TagNode {
+            name: crate::syntax_tree::TagName::new(self.db, name.to_string()),
+            bits: tag_node.bits.clone(),
+            span: tag_node.span,
+            meta,
+            children: Vec::new(),
+        });
+        let node_id = SyntaxNodeId::new(self.db, syntax_node);
+        self.add_to_current_container(node_id, root_children);
+        
+        Ok(())
+    }
+
+    fn build_tag_meta(
+        &self,
+        tag_node: &TagNode<'db>,
+        tag_type: TagType,
+        shape: TagShape,
+        spec: Option<&crate::templatetags::TagSpec>,
+    ) -> TagMeta<'db> {
+        let parsed_args = self.parse_arguments(&tag_node.bits, spec);
+        
+        TagMeta {
+            tag_type,
+            shape,
+            spec_id: spec.and_then(|s| s.name.clone()),
+            branch_kind: None,
+            parsed_args,
+        }
+    }
+
+    fn parse_arguments(
+        &self,
+        bits: &[String],
+        spec: Option<&crate::templatetags::TagSpec>,
+    ) -> ParsedArgs<'db> {
+        let mut parsed_args = ParsedArgs::new();
+        
+        // If no spec is available, treat all bits as expressions
+        let Some(spec) = spec else {
+            for bit in bits {
+                parsed_args.add_positional(ParsedArg::Expression(bit.clone()));
+            }
+            return parsed_args;
+        };
+        
+        // Parse according to spec arguments
+        let mut bit_index = 0;
+        let mut positional_index = 0;
+        
+        while bit_index < bits.len() {
+            let bit = &bits[bit_index];
+            
+            // Check for assignment (key=value)
+            if let Some((key, value)) = bit.split_once('=') {
+                parsed_args.add_named(
+                    key.to_string(),
+                    ParsedArg::Assignment {
+                        name: key.to_string(),
+                        value: value.to_string(),
+                    },
+                );
+            } else {
+                // Determine argument type based on spec
+                let arg_type = spec.args.get(positional_index).map(|arg| &arg.arg_type);
+                
+                let parsed_arg = match arg_type {
+                    Some(crate::templatetags::ArgType::Simple(simple_type)) => match simple_type {
+                        crate::templatetags::SimpleArgType::Literal => {
+                            ParsedArg::Literal(bit.clone())
+                        }
+                        crate::templatetags::SimpleArgType::Variable => {
+                            ParsedArg::Variable(crate::syntax_tree::VariableName::new(self.db, bit.clone()))
+                        }
+                        crate::templatetags::SimpleArgType::String => {
+                            ParsedArg::String(bit.clone())
+                        }
+                        crate::templatetags::SimpleArgType::Expression
+                        | crate::templatetags::SimpleArgType::VarArgs => {
+                            ParsedArg::Expression(bit.clone())
+                        }
+                        crate::templatetags::SimpleArgType::Assignment => ParsedArg::Assignment {
+                            name: bit.clone(),
+                            value: String::new(),
+                        },
+                    },
+                    Some(crate::templatetags::ArgType::Choice { choice }) => {
+                        // Validate against choices and treat as literal
+                        if choice.contains(bit) {
+                            ParsedArg::Literal(bit.clone())
+                        } else {
+                            // Invalid choice, treat as expression for error handling
+                            ParsedArg::Expression(bit.clone())
+                        }
+                    }
+                    None => {
+                        // No more spec args, treat as expression
+                        ParsedArg::Expression(bit.clone())
+                    }
+                };
+                
+                parsed_args.add_positional(parsed_arg);
+                positional_index += 1;
+            }
+            
+            bit_index += 1;
+        }
+        
+        parsed_args
+    }
+
+    fn convert_node(&self, node: &Node<'db>) -> SyntaxNode<'db> {
+        match node {
+            Node::Text(text_node) => SyntaxNode::Text(crate::syntax_tree::TextNode {
+                content: text_node.content.clone(),
+                span: text_node.span,
+            }),
+            Node::Variable(var_node) => SyntaxNode::Variable(crate::syntax_tree::VariableNode {
+                var: crate::syntax_tree::VariableName::new(self.db, var_node.var.text(self.db).to_string()),
+                filters: var_node.filters.iter()
+                    .map(|f| crate::syntax_tree::FilterName::new(self.db, f.text(self.db).to_string()))
+                    .collect(),
+                span: var_node.span,
+            }),
+            Node::Comment(comment_node) => SyntaxNode::Comment(crate::syntax_tree::CommentNode {
+                content: comment_node.content.clone(),
+                span: comment_node.span,
+            }),
+            Node::Tag(_) => unreachable!("Tag nodes should be handled separately"),
+        }
+    }
+
+    fn add_to_current_container(
+        &mut self,
+        node_id: SyntaxNodeId<'db>,
+        root_children: &mut Vec<SyntaxNodeId<'db>>,
+    ) {
+        if let Some(frame) = self.stack.last_mut() {
+            // Add to current block's children
+            frame.children.push(node_id);
+        } else {
+            // Add to root
+            root_children.push(node_id);
+        }
     }
 }
 
@@ -349,7 +664,10 @@ mod tests {
     #[salsa::db]
     impl crate::db::Db for TestDatabase {
         fn tag_specs(&self) -> std::sync::Arc<crate::templatetags::TagSpecs> {
-            std::sync::Arc::new(crate::templatetags::TagSpecs::default())
+            std::sync::Arc::new(
+                crate::templatetags::TagSpecs::load_builtin_specs()
+                    .unwrap_or_else(|_| crate::templatetags::TagSpecs::default())
+            )
         }
     }
 
@@ -813,6 +1131,134 @@ mod tests {
             let offsets = ast.line_offsets(&db);
             assert_eq!(offsets.position_to_line_col(0), (1, 0)); // Start of line 1
             assert_eq!(offsets.position_to_line_col(6), (2, 0)); // Start of line 2
+        }
+    }
+
+    mod tree_builder {
+        use super::*;
+
+        #[salsa::tracked]
+        fn test_simple_tree_building_impl(db: &dyn TemplateDb) -> (usize, String, String, usize) {
+            let source = "Hello {{ user.name }}".to_string();
+            let template = TestTemplate::new(db, source);
+            let nodelist = parse_test_template(db, template);
+            
+            // Build syntax tree using the TreeBuilder
+            let syntax_tree = crate::parser::build_syntax_tree(db, &nodelist).unwrap();
+            
+            // Verify the tree structure
+            let root_children = syntax_tree.children(db);
+            let children_count = root_children.len();
+            
+            // Check first child (Text)
+            let first_content = match &root_children[0].resolve(db) {
+                SyntaxNode::Text(text_node) => text_node.content.clone(),
+                _ => panic!("Expected Text node"),
+            };
+            
+            // Check second child (Variable)
+            let (second_var, second_filters) = match &root_children[1].resolve(db) {
+                SyntaxNode::Variable(var_node) => (
+                    var_node.var.text(db).to_string(), 
+                    var_node.filters.len()
+                ),
+                _ => panic!("Expected Variable node"),
+            };
+            
+            (children_count, first_content, second_var, second_filters)
+        }
+
+        #[test]
+        fn test_simple_tree_building() {
+            let db = TestDatabase::new();
+            let (children_count, first_content, second_var, second_filters) = test_simple_tree_building_impl(&db);
+            
+            assert_eq!(children_count, 2); // Text and Variable nodes
+            assert_eq!(first_content, "Hello");
+            assert_eq!(second_var, "user.name");
+            assert_eq!(second_filters, 0);
+        }
+
+        #[salsa::tracked]
+        fn test_if_block_tree_building_impl(db: &dyn TemplateDb) -> (usize, String, Vec<String>, bool, bool) {
+            let source = "{% if user %}Hello {{ user.name }}{% endif %}".to_string();
+            let template = TestTemplate::new(db, source);
+            let nodelist = parse_test_template(db, template);
+            
+
+            
+            // Build syntax tree using the TreeBuilder
+            let syntax_tree = crate::parser::build_syntax_tree(db, &nodelist).unwrap();
+            
+            // Verify the tree structure
+            let root_children = syntax_tree.children(db);
+            let children_count = root_children.len();
+            
+
+            
+            // Check the if tag
+            match &root_children[0].resolve(db) {
+                SyntaxNode::Tag(tag_node) => {
+                    let name = tag_node.name.text(db).to_string();
+                    let bits = tag_node.bits.clone();
+                    let is_opener = matches!(tag_node.meta.tag_type, crate::templatetags::TagType::Opener);
+                    let is_block = matches!(tag_node.meta.shape, crate::syntax_tree::TagShape::Block { .. });
+                    (children_count, name, bits, is_opener, is_block)
+                }
+                _ => panic!("Expected Tag node"),
+            }
+        }
+
+        #[test]
+        fn test_if_block_tree_building() {
+            let db = TestDatabase::new();
+            let (children_count, name, bits, is_opener, is_block) = test_if_block_tree_building_impl(&db);
+            
+            assert_eq!(children_count, 1); // Only the if tag
+            assert_eq!(name, "if");
+            assert_eq!(bits, vec!["user"]);
+            assert!(is_opener);
+            assert!(is_block);
+        }
+
+        #[salsa::tracked]
+        fn test_standalone_tag_tree_building_impl(db: &dyn TemplateDb) -> (usize, String, Vec<String>, bool, bool, usize) {
+            let source = "{% load widget_tweaks %}".to_string();
+            let template = TestTemplate::new(db, source);
+            let nodelist = parse_test_template(db, template);
+            
+            // Build syntax tree using the TreeBuilder
+            let syntax_tree = crate::parser::build_syntax_tree(db, &nodelist).unwrap();
+            
+            // Verify the tree structure
+            let root_children = syntax_tree.children(db);
+            let children_count = root_children.len();
+            
+            // Check the load tag
+            match &root_children[0].resolve(db) {
+                SyntaxNode::Tag(tag_node) => {
+                    let name = tag_node.name.text(db).to_string();
+                    let bits = tag_node.bits.clone();
+                    let is_standalone = matches!(tag_node.meta.tag_type, crate::templatetags::TagType::Standalone);
+                    let is_singleton = matches!(tag_node.meta.shape, crate::syntax_tree::TagShape::Singleton);
+                    let child_count = tag_node.children.len();
+                    (children_count, name, bits, is_standalone, is_singleton, child_count)
+                }
+                _ => panic!("Expected Tag node"),
+            }
+        }
+
+        #[test]
+        fn test_standalone_tag_tree_building() {
+            let db = TestDatabase::new();
+            let (children_count, name, bits, is_standalone, is_singleton, child_count) = test_standalone_tag_tree_building_impl(&db);
+            
+            assert_eq!(children_count, 1);
+            assert_eq!(name, "load");
+            assert_eq!(bits, vec!["widget_tweaks"]);
+            assert!(is_standalone);
+            assert!(is_singleton);
+            assert_eq!(child_count, 0); // Standalone tags have no children
         }
     }
 }
