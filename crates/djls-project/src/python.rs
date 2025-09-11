@@ -623,7 +623,7 @@ mod tests {
 
                     *project_lock = Some(crate::project::Project::new(
                         self,
-                        root.to_string_lossy().to_string(),
+                        root.clone(),
                         interpreter_spec,
                         django_settings,
                     ));
@@ -650,7 +650,7 @@ mod tests {
             // Create and configure the project with the venv path
             let project = crate::project::Project::new(
                 &db,
-                project_dir.path().to_string_lossy().to_string(),
+                project_dir.path().to_path_buf(),
                 crate::python::Interpreter::VenvPath(venv_prefix.to_string_lossy().to_string()),
                 None,
             );
