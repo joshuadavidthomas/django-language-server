@@ -6,16 +6,16 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use anyhow::Result;
 use dashmap::DashMap;
 use djls_conf::Settings;
-use djls_project::DjangoProject;
-use djls_project::ProjectMetadata;
+use djls_project::Db as ProjectDb;
+use djls_project::Interpreter;
 use djls_workspace::db::SourceFile;
 use djls_workspace::paths;
 use djls_workspace::PositionEncoding;
 use djls_workspace::TextDocument;
 use djls_workspace::Workspace;
+use salsa::Setter;
 use tower_lsp_server::lsp_types;
 use url::Url;
 
@@ -28,14 +28,13 @@ use crate::db::DjangoDatabase;
 /// - Project configuration and settings
 /// - Client capabilities and position encoding
 /// - Workspace operations (buffers and file system)
+/// - All Salsa inputs (`SessionState`, Project)
 ///
 /// Following Ruff's architecture, the concrete database lives at this level
 /// and is passed down to operations that need it.
 pub struct Session {
-    /// The Django project configuration
-    project: Option<DjangoProject>,
-
     /// LSP server settings
+    // TODO: this should really be in the database
     settings: Settings,
 
     /// Workspace for buffer and file system management
@@ -44,12 +43,12 @@ pub struct Session {
     /// but not the database (which is owned directly by Session).
     workspace: Workspace,
 
-    #[allow(dead_code)]
     client_capabilities: lsp_types::ClientCapabilities,
 
     /// Position encoding negotiated with client
     position_encoding: PositionEncoding,
 
+    /// The Salsa database for incremental computation
     db: DjangoDatabase,
 }
 
@@ -65,47 +64,51 @@ impl Session {
                 std::env::current_dir().ok()
             });
 
-        let (project, settings, metadata) = if let Some(path) = &project_path {
-            let settings =
-                djls_conf::Settings::new(path).unwrap_or_else(|_| djls_conf::Settings::default());
-
-            let project = Some(djls_project::DjangoProject::new(path.clone()));
-
-            // Create metadata for the project with venv path from settings
-            let venv_path = settings.venv_path().map(PathBuf::from);
-            let metadata = ProjectMetadata::new(path.clone(), venv_path);
-
-            (project, settings, metadata)
+        let settings = if let Some(path) = &project_path {
+            djls_conf::Settings::new(path).unwrap_or_else(|_| djls_conf::Settings::default())
         } else {
-            // Default metadata for when there's no project path
-            let metadata = ProjectMetadata::new(PathBuf::from("."), None);
-            (None, Settings::default(), metadata)
+            Settings::default()
         };
 
-        // Create workspace for buffer management
         let workspace = Workspace::new();
 
-        // Create the concrete database with the workspace's file system and metadata
         let files = Arc::new(DashMap::new());
-        let db = DjangoDatabase::new(workspace.file_system(), files, metadata);
+        let mut db = DjangoDatabase::new(workspace.file_system(), files);
+
+        if let Some(root_path) = &project_path {
+            db.set_project(root_path);
+
+            if let Some(project) = db.project() {
+                // TODO: should this logic live in the project?
+                if let Some(venv_path) = settings.venv_path() {
+                    let interpreter = Interpreter::VenvPath(venv_path.to_string());
+                    project.set_interpreter(&mut db).to(interpreter);
+                } else if let Ok(virtual_env) = std::env::var("VIRTUAL_ENV") {
+                    let interpreter = Interpreter::VenvPath(virtual_env);
+                    project.set_interpreter(&mut db).to(interpreter);
+                }
+
+                // TODO: allow for configuring via settings
+                if let Ok(settings_module) = std::env::var("DJANGO_SETTINGS_MODULE") {
+                    project
+                        .set_settings_module(&mut db)
+                        .to(Some(settings_module));
+                }
+            }
+        }
 
         Self {
-            db,
-            project,
             settings,
             workspace,
             client_capabilities: params.capabilities.clone(),
             position_encoding: PositionEncoding::negotiate(params),
+            db,
         }
     }
 
     #[must_use]
-    pub fn project(&self) -> Option<&DjangoProject> {
-        self.project.as_ref()
-    }
-
-    pub fn project_mut(&mut self) -> &mut Option<DjangoProject> {
-        &mut self.project
+    pub fn db(&self) -> &DjangoDatabase {
+        &self.db
     }
 
     #[must_use]
@@ -120,18 +123,6 @@ impl Session {
     #[must_use]
     pub fn position_encoding(&self) -> PositionEncoding {
         self.position_encoding
-    }
-
-    /// Check if the client supports snippet completions
-    #[must_use]
-    pub fn supports_snippets(&self) -> bool {
-        self.client_capabilities
-            .text_document
-            .as_ref()
-            .and_then(|td| td.completion.as_ref())
-            .and_then(|c| c.completion_item.as_ref())
-            .and_then(|ci| ci.snippet_support)
-            .unwrap_or(false)
     }
 
     /// Execute a read-only operation with access to the database.
@@ -155,13 +146,9 @@ impl Session {
         &self.db
     }
 
-    /// Initialize the project with the database.
-    pub fn initialize_project(&mut self) -> Result<()> {
-        if let Some(project) = self.project.as_mut() {
-            project.initialize(&self.db)
-        } else {
-            Ok(())
-        }
+    /// Get the current project for this session
+    pub fn project(&self) -> Option<djls_project::Project> {
+        self.db.project()
     }
 
     /// Open a document in the session.
@@ -255,6 +242,18 @@ impl Session {
             .as_ref()
             .and_then(|td| td.diagnostic.as_ref())
             .is_some()
+    }
+
+    /// Check if the client supports snippet completions
+    #[must_use]
+    pub fn supports_snippets(&self) -> bool {
+        self.client_capabilities
+            .text_document
+            .as_ref()
+            .and_then(|td| td.completion.as_ref())
+            .and_then(|c| c.completion_item.as_ref())
+            .and_then(|ci| ci.snippet_support)
+            .unwrap_or(false)
     }
 }
 

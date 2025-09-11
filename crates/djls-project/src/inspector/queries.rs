@@ -3,16 +3,17 @@ use std::path::PathBuf;
 use serde::Deserialize;
 use serde::Serialize;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Hash, Copy)]
 #[serde(tag = "query", content = "args")]
 #[serde(rename_all = "snake_case")]
 pub enum Query {
+    DjangoInit,
     PythonEnv,
     Templatetags,
-    DjangoInit,
 }
 
 #[derive(Serialize, Deserialize)]
+#[allow(clippy::struct_field_names)]
 pub struct PythonEnvironmentQueryData {
     pub sys_base_prefix: PathBuf,
     pub sys_executable: PathBuf,
@@ -41,4 +42,22 @@ pub struct TemplateTag {
     pub name: String,
     pub module: String,
     pub doc: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_query_enum() {
+        // Test that Query variants exist and are copyable
+        let python_env = Query::PythonEnv;
+        let templatetags = Query::Templatetags;
+        let django_init = Query::DjangoInit;
+
+        // Test that they can be copied
+        assert_eq!(python_env, Query::PythonEnv);
+        assert_eq!(templatetags, Query::Templatetags);
+        assert_eq!(django_init, Query::DjangoInit);
+    }
 }

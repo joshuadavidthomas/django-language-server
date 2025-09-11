@@ -1,6 +1,7 @@
 use std::future::Future;
 use std::sync::Arc;
 
+use djls_project::Db as ProjectDb;
 use djls_templates::analyze_template;
 use djls_templates::TemplateDiagnostic;
 use djls_workspace::paths;
@@ -181,58 +182,31 @@ impl LanguageServer for DjangoLanguageServer {
         })
     }
 
-    #[allow(clippy::too_many_lines)]
     async fn initialized(&self, _params: lsp_types::InitializedParams) {
         tracing::info!("Server received initialized notification.");
 
         self.with_session_task(move |session_arc| async move {
-            let project_path_and_venv = {
-                let session_lock = session_arc.lock().await;
-                session_lock.project().map(|p| {
-                    (
-                        p.path().display().to_string(),
-                        session_lock
-                            .settings()
-                            .venv_path()
-                            .map(std::string::ToString::to_string),
-                    )
-                })
-            };
+            let session_lock = session_arc.lock().await;
 
-            if let Some((path_display, venv_path)) = project_path_and_venv {
+            let project_path = session_lock
+                .project()
+                .map(|p| p.root(session_lock.database()).clone());
+
+            if let Some(path) = project_path {
                 tracing::info!(
                     "Task: Starting initialization for project at: {}",
-                    path_display
+                    path.display()
                 );
 
-                if let Some(ref path) = venv_path {
-                    tracing::info!("Using virtual environment from config: {}", path);
+                if let Some(project) = session_lock.project() {
+                    project.initialize(session_lock.database());
                 }
 
-                let init_result = {
-                    let mut session_lock = session_arc.lock().await;
-                    session_lock.initialize_project()
-                };
-
-                match init_result {
-                    Ok(()) => {
-                        tracing::info!("Task: Successfully initialized project: {}", path_display);
-                    }
-                    Err(e) => {
-                        tracing::error!(
-                            "Task: Failed to initialize Django project at {}: {}",
-                            path_display,
-                            e
-                        );
-
-                        // Clear project on error
-                        let mut session_lock = session_arc.lock().await;
-                        *session_lock.project_mut() = None;
-                    }
-                }
+                tracing::info!("Task: Successfully initialized project: {}", path.display());
             } else {
-                tracing::info!("Task: No project instance found to initialize.");
+                tracing::info!("Task: No project configured, skipping initialization.");
             }
+
             Ok(())
         })
         .await;
@@ -369,7 +343,13 @@ impl LanguageServer for DjangoLanguageServer {
                     let position = params.text_document_position.position;
                     let encoding = session.position_encoding();
                     let file_kind = FileKind::from_path(&path);
-                    let template_tags = session.project().and_then(|p| p.template_tags());
+                    let template_tags = session.with_db(|db| {
+                        if let Some(project) = db.project() {
+                            djls_project::get_templatetags(db, project)
+                        } else {
+                            None
+                        }
+                    });
                     let tag_specs = session.with_db(djls_templates::Db::tag_specs);
                     let supports_snippets = session.supports_snippets();
 
@@ -378,7 +358,7 @@ impl LanguageServer for DjangoLanguageServer {
                         position,
                         encoding,
                         file_kind,
-                        template_tags,
+                        template_tags.as_ref(),
                         Some(&tag_specs),
                         supports_snippets,
                     );
@@ -474,20 +454,20 @@ impl LanguageServer for DjangoLanguageServer {
     async fn did_change_configuration(&self, _params: lsp_types::DidChangeConfigurationParams) {
         tracing::info!("Configuration change detected. Reloading settings...");
 
-        let project_path = self
-            .with_session(|session| session.project().map(|p| p.path().to_path_buf()))
-            .await;
+        self.with_session_mut(|session| {
+            if let Some(project) = session.project() {
+                let project_root = project.root(session.database());
 
-        if let Some(path) = project_path {
-            self.with_session_mut(|session| match djls_conf::Settings::new(path.as_path()) {
-                Ok(new_settings) => {
-                    session.set_settings(new_settings);
+                match djls_conf::Settings::new(project_root.as_path()) {
+                    Ok(new_settings) => {
+                        session.set_settings(new_settings);
+                    }
+                    Err(e) => {
+                        tracing::error!("Error loading settings: {}", e);
+                    }
                 }
-                Err(e) => {
-                    tracing::error!("Error loading settings: {}", e);
-                }
-            })
-            .await;
-        }
+            }
+        })
+        .await;
     }
 }

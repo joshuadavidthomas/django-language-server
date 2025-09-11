@@ -7,12 +7,13 @@
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
-#[cfg(test)]
 use std::sync::Mutex;
 
 use dashmap::DashMap;
 use djls_project::Db as ProjectDb;
-use djls_project::ProjectMetadata;
+use djls_project::InspectorPool;
+use djls_project::Interpreter;
+use djls_project::Project;
 use djls_templates::db::Db as TemplateDb;
 use djls_templates::templatetags::TagSpecs;
 use djls_workspace::db::Db as WorkspaceDb;
@@ -36,8 +37,11 @@ pub struct DjangoDatabase {
     /// Maps paths to [`SourceFile`] entities for O(1) lookup.
     files: Arc<DashMap<PathBuf, SourceFile>>,
 
-    /// Project metadata containing root path and venv configuration.
-    metadata: ProjectMetadata,
+    /// The single project for this database instance
+    project: Arc<Mutex<Option<Project>>>,
+
+    /// Shared inspector pool for executing Python queries
+    inspector_pool: Arc<InspectorPool>,
 
     storage: salsa::Storage<Self>,
 
@@ -56,7 +60,8 @@ impl Default for DjangoDatabase {
         Self {
             fs: Arc::new(InMemoryFileSystem::new()),
             files: Arc::new(DashMap::new()),
-            metadata: ProjectMetadata::new(PathBuf::from("/test"), None),
+            project: Arc::new(Mutex::new(None)),
+            inspector_pool: Arc::new(InspectorPool::new()),
             storage: salsa::Storage::new(Some(Box::new({
                 let logs = logs.clone();
                 move |event| {
@@ -76,16 +81,26 @@ impl Default for DjangoDatabase {
 }
 
 impl DjangoDatabase {
-    /// Create a new [`DjangoDatabase`] with the given file system, file map, and project metadata.
-    pub fn new(
-        file_system: Arc<dyn FileSystem>,
-        files: Arc<DashMap<PathBuf, SourceFile>>,
-        metadata: ProjectMetadata,
-    ) -> Self {
+    /// Set the project for this database instance
+    ///
+    /// # Panics
+    ///
+    /// Panics if the project mutex is poisoned.
+    pub fn set_project(&self, root: &Path) {
+        let interpreter = Interpreter::Auto;
+        let django_settings = std::env::var("DJANGO_SETTINGS_MODULE").ok();
+
+        let project = Project::new(self, root.to_path_buf(), interpreter, django_settings);
+
+        *self.project.lock().unwrap() = Some(project);
+    }
+    /// Create a new [`DjangoDatabase`] with the given file system and file map.
+    pub fn new(file_system: Arc<dyn FileSystem>, files: Arc<DashMap<PathBuf, SourceFile>>) -> Self {
         Self {
             fs: file_system,
             files,
-            metadata,
+            project: Arc::new(Mutex::new(None)),
+            inspector_pool: Arc::new(InspectorPool::new()),
             storage: salsa::Storage::new(None),
             #[cfg(test)]
             logs: Arc::new(Mutex::new(None)),
@@ -163,7 +178,9 @@ impl WorkspaceDb for DjangoDatabase {
 #[salsa::db]
 impl TemplateDb for DjangoDatabase {
     fn tag_specs(&self) -> Arc<TagSpecs> {
-        let project_root = self.metadata.root();
+        let project_root_buf =
+            std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        let project_root = project_root_buf.as_path();
 
         if let Ok(user_specs) = TagSpecs::load_user_specs(project_root) {
             // If user specs exist and aren't empty, merge with built-in specs
@@ -182,7 +199,11 @@ impl TemplateDb for DjangoDatabase {
 
 #[salsa::db]
 impl ProjectDb for DjangoDatabase {
-    fn metadata(&self) -> &ProjectMetadata {
-        &self.metadata
+    fn project(&self) -> Option<Project> {
+        *self.project.lock().unwrap()
+    }
+
+    fn inspector_pool(&self) -> Arc<InspectorPool> {
+        self.inspector_pool.clone()
     }
 }
