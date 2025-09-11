@@ -1,10 +1,10 @@
 use thiserror::Error;
 
-use crate::ast::Ast;
-use crate::ast::AstError;
 use crate::ast::CommentNode;
 use crate::ast::FilterName;
 use crate::ast::Node;
+use crate::ast::NodeList;
+use crate::ast::NodeListError;
 use crate::ast::Span;
 use crate::ast::TagName;
 use crate::ast::TagNode;
@@ -35,7 +35,7 @@ impl<'db> Parser<'db> {
         }
     }
 
-    pub fn parse(&mut self) -> Result<(Ast<'db>, Vec<ParserError>), ParserError> {
+    pub fn parse(&mut self) -> Result<(NodeList<'db>, Vec<ParserError>), ParserError> {
         let mut nodelist = Vec::new();
         let mut line_offsets = crate::ast::LineOffsets::default();
 
@@ -64,8 +64,8 @@ impl<'db> Parser<'db> {
             }
         }
 
-        // Create the tracked Ast struct
-        let ast = Ast::new(self.db, nodelist, line_offsets);
+        // Create the tracked NodeList struct
+        let ast = NodeList::new(self.db, nodelist, line_offsets);
 
         Ok((ast, std::mem::take(&mut self.errors)))
     }
@@ -297,7 +297,7 @@ pub enum ParserError {
     #[error("Stream error: {kind:?}")]
     StreamError { kind: StreamError },
     #[error("AST error: {0}")]
-    Ast(#[from] AstError),
+    NodeList(#[from] NodeListError),
 }
 
 impl ParserError {
@@ -360,7 +360,7 @@ mod tests {
     }
 
     #[salsa::tracked]
-    fn parse_test_template(db: &dyn TemplateDb, template: TestTemplate) -> Ast<'_> {
+    fn parse_test_template(db: &dyn TemplateDb, template: TestTemplate) -> NodeList<'_> {
         let source = template.source(db);
         let tokens = Lexer::new(source).tokenize().unwrap();
         let token_stream = TokenStream::new(db, tokens);
@@ -423,7 +423,7 @@ mod tests {
         }
     }
 
-    fn convert_ast_for_testing(ast: Ast<'_>, db: &dyn crate::db::Db) -> TestAst {
+    fn convert_ast_for_testing(ast: NodeList<'_>, db: &dyn crate::db::Db) -> TestAst {
         TestAst {
             nodelist: convert_nodelist_for_testing(ast.nodelist(db), db),
             line_offsets: ast.line_offsets(db).0.clone(),

@@ -54,8 +54,8 @@ pub mod templatetags;
 mod tokens;
 pub mod validation;
 
-pub use ast::Ast;
 use ast::LineOffsets;
+pub use ast::NodeList;
 pub use db::Db;
 pub use db::TemplateDiagnostic;
 use djls_workspace::db::SourceFile;
@@ -100,7 +100,7 @@ fn lex_template(db: &dyn Db, file: SourceFile) -> TokenStream<'_> {
 /// This is the second phase of template processing. It takes the token stream
 /// from lexing and builds an Abstract Syntax Tree.
 #[salsa::tracked]
-fn parse_template(db: &dyn Db, file: SourceFile) -> Ast<'_> {
+fn parse_template(db: &dyn Db, file: SourceFile) -> NodeList<'_> {
     let token_stream = lex_template(db, file);
 
     // Check if lexing produced no tokens (likely due to an error)
@@ -108,7 +108,7 @@ fn parse_template(db: &dyn Db, file: SourceFile) -> Ast<'_> {
         // Return empty AST for error recovery
         let empty_nodelist = Vec::new();
         let empty_offsets = LineOffsets::default();
-        return Ast::new(db, empty_nodelist, empty_offsets);
+        return NodeList::new(db, empty_nodelist, empty_offsets);
     }
 
     // Parser needs the TokenStream<'db>
@@ -130,7 +130,7 @@ fn parse_template(db: &dyn Db, file: SourceFile) -> Ast<'_> {
             // Return empty AST
             let empty_nodelist = Vec::new();
             let empty_offsets = LineOffsets::default();
-            Ast::new(db, empty_nodelist, empty_offsets)
+            NodeList::new(db, empty_nodelist, empty_offsets)
         }
     }
 }
@@ -207,7 +207,7 @@ fn accumulate_error(db: &dyn Db, error: &TemplateError, line_offsets: &LineOffse
 ///     analyze_template::accumulated::<TemplateDiagnostic>(db, file);
 /// ```
 #[salsa::tracked]
-pub fn analyze_template(db: &dyn Db, file: SourceFile) -> Option<Ast<'_>> {
+pub fn analyze_template(db: &dyn Db, file: SourceFile) -> Option<NodeList<'_>> {
     if file.kind(db) != FileKind::Template {
         return None;
     }

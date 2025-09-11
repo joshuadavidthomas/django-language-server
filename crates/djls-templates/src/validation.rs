@@ -17,8 +17,8 @@
 //! The `TagValidator` follows the same pattern as the Parser and Lexer,
 //! maintaining minimal state and walking through the AST to accumulate errors.
 
-use crate::ast::AstError;
 use crate::ast::Node;
+use crate::ast::NodeListError;
 use crate::ast::Span;
 use crate::ast::TagName;
 use crate::ast::TagNode;
@@ -27,19 +27,19 @@ use crate::templatetags::Arg;
 use crate::templatetags::ArgType;
 use crate::templatetags::SimpleArgType;
 use crate::templatetags::TagType;
-use crate::Ast;
+use crate::NodeList;
 
 pub struct TagValidator<'db> {
     db: &'db dyn TemplateDb,
-    ast: Ast<'db>,
+    ast: NodeList<'db>,
     current: usize,
     stack: Vec<TagNode<'db>>,
-    errors: Vec<AstError>,
+    errors: Vec<NodeListError>,
 }
 
 impl<'db> TagValidator<'db> {
     #[must_use]
-    pub fn new(db: &'db dyn TemplateDb, ast: Ast<'db>) -> Self {
+    pub fn new(db: &'db dyn TemplateDb, ast: NodeList<'db>) -> Self {
         Self {
             db,
             ast,
@@ -50,7 +50,7 @@ impl<'db> TagValidator<'db> {
     }
 
     #[must_use]
-    pub fn validate(mut self) -> Vec<AstError> {
+    pub fn validate(mut self) -> Vec<NodeListError> {
         while !self.is_at_end() {
             if let Some(Node::Tag(tag_node)) = self.current_node() {
                 let TagNode { name, bits, span } = tag_node;
@@ -92,7 +92,7 @@ impl<'db> TagValidator<'db> {
 
         // Any remaining stack items are unclosed
         while let Some(tag) = self.stack.pop() {
-            self.errors.push(AstError::UnclosedTag {
+            self.errors.push(NodeListError::UnclosedTag {
                 tag: tag.name.text(self.db),
                 span: tag.span,
             });
@@ -116,7 +116,7 @@ impl<'db> TagValidator<'db> {
         let required_count = args.iter().filter(|arg| arg.required).count();
 
         if bits.len() < required_count {
-            self.errors.push(AstError::MissingRequiredArguments {
+            self.errors.push(NodeListError::MissingRequiredArguments {
                 tag: name.to_string(),
                 min: required_count,
                 span,
@@ -129,7 +129,7 @@ impl<'db> TagValidator<'db> {
             .any(|arg| matches!(arg.arg_type, ArgType::Simple(SimpleArgType::VarArgs)));
 
         if !has_varargs && bits.len() > args.len() {
-            self.errors.push(AstError::TooManyArguments {
+            self.errors.push(NodeListError::TooManyArguments {
                 tag: name.to_string(),
                 max: args.len(),
                 span,
@@ -159,7 +159,7 @@ impl<'db> TagValidator<'db> {
             };
             let context = format!("must appear within '{parents}' block");
 
-            self.errors.push(AstError::OrphanedTag {
+            self.errors.push(NodeListError::OrphanedTag {
                 tag: name.to_string(),
                 context,
                 span,
@@ -172,7 +172,7 @@ impl<'db> TagValidator<'db> {
 
         if self.stack.is_empty() {
             // Stack is empty - unexpected closer
-            self.errors.push(AstError::UnbalancedStructure {
+            self.errors.push(NodeListError::UnbalancedStructure {
                 opening_tag: name_str.to_string(),
                 expected_closing: String::new(),
                 opening_span: span,
@@ -185,7 +185,7 @@ impl<'db> TagValidator<'db> {
         let expected_opener = self.db.tag_specs().find_opener_for_closer(&name_str);
         let Some(opener_name) = expected_opener else {
             // Unknown closer
-            self.errors.push(AstError::UnbalancedStructure {
+            self.errors.push(NodeListError::UnbalancedStructure {
                 opening_tag: name_str.to_string(),
                 expected_closing: String::new(),
                 opening_span: span,
@@ -230,7 +230,7 @@ impl<'db> TagValidator<'db> {
         } else if !bits.is_empty() {
             // Named closer with no matching named block
             // Report the mismatch
-            self.errors.push(AstError::UnmatchedBlockName {
+            self.errors.push(NodeListError::UnmatchedBlockName {
                 name: bits[0].clone(),
                 span,
             });
@@ -244,7 +244,7 @@ impl<'db> TagValidator<'db> {
                 .find(|(_, tag)| tag.name.text(self.db) == opener_name)
             {
                 // Report that we're closing the wrong block
-                self.errors.push(AstError::UnclosedTag {
+                self.errors.push(NodeListError::UnclosedTag {
                     tag: nearest_block.name.text(self.db),
                     span: nearest_block.span,
                 });
@@ -257,7 +257,7 @@ impl<'db> TagValidator<'db> {
             }
         } else {
             // No opener found at all
-            self.errors.push(AstError::UnbalancedStructure {
+            self.errors.push(NodeListError::UnbalancedStructure {
                 opening_tag: opener_name,
                 expected_closing: name_str.to_string(),
                 opening_span: span,
@@ -269,7 +269,7 @@ impl<'db> TagValidator<'db> {
     fn pop_unclosed_after(&mut self, index: usize) {
         while self.stack.len() > index + 1 {
             if let Some(unclosed) = self.stack.pop() {
-                self.errors.push(AstError::UnclosedTag {
+                self.errors.push(NodeListError::UnclosedTag {
                     tag: unclosed.name.text(self.db),
                     span: unclosed.span,
                 });
@@ -347,7 +347,7 @@ mod tests {
     }
 
     #[salsa::tracked]
-    fn parse_test_template(db: &dyn TemplateDb, source: TestSource) -> Ast<'_> {
+    fn parse_test_template(db: &dyn TemplateDb, source: TestSource) -> NodeList<'_> {
         let text = source.text(db);
         let tokens = Lexer::new(text).tokenize().unwrap();
         let token_stream = crate::tokens::TokenStream::new(db, tokens);
@@ -373,7 +373,7 @@ mod tests {
         let errors = TagValidator::new(&db, ast).validate();
         assert_eq!(errors.len(), 1);
         match &errors[0] {
-            AstError::UnclosedTag { tag, .. } => assert_eq!(tag, "if"),
+            NodeListError::UnclosedTag { tag, .. } => assert_eq!(tag, "if"),
             _ => panic!("Expected UnclosedTag error"),
         }
     }
@@ -396,7 +396,7 @@ mod tests {
         let errors = TagValidator::new(&db, ast).validate();
         assert_eq!(errors.len(), 1);
         match &errors[0] {
-            AstError::OrphanedTag { tag, .. } => assert_eq!(tag, "else"),
+            NodeListError::OrphanedTag { tag, .. } => assert_eq!(tag, "else"),
             _ => panic!("Expected OrphanedTag error"),
         }
     }
@@ -434,7 +434,7 @@ mod tests {
         assert!(!errors.is_empty());
         assert!(errors
             .iter()
-            .any(|e| matches!(e, AstError::MissingRequiredArguments { .. })));
+            .any(|e| matches!(e, NodeListError::MissingRequiredArguments { .. })));
     }
 
     #[test]
@@ -470,7 +470,7 @@ mod tests {
         assert!(!errors.is_empty());
         assert!(errors
             .iter()
-            .any(|e| matches!(e, AstError::UnmatchedBlockName { .. })));
+            .any(|e| matches!(e, NodeListError::UnmatchedBlockName { .. })));
     }
 
     #[test]
@@ -485,6 +485,6 @@ mod tests {
         assert!(!errors.is_empty());
         assert!(errors
             .iter()
-            .any(|e| matches!(e, AstError::UnclosedTag { tag, .. } if tag == "if")));
+            .any(|e| matches!(e, NodeListError::UnclosedTag { tag, .. } if tag == "if")));
     }
 }
