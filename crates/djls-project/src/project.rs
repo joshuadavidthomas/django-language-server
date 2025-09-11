@@ -1,5 +1,6 @@
-use crate::python::Interpreter;
 use std::path::PathBuf;
+
+use crate::python::Interpreter;
 
 /// Complete project configuration as a Salsa input.
 ///
