@@ -492,6 +492,216 @@ impl<'db> SyntaxNodeId<'db> {
             _ => Vec::new(),
         }
     }
+
+    /// Check if this node has any children
+    pub fn has_children(&self, db: &'db dyn crate::db::Db) -> bool {
+        !self.children(db).is_empty()
+    }
+
+    /// Get the first child of this node
+    pub fn first_child(&self, db: &'db dyn crate::db::Db) -> Option<SyntaxNodeId<'db>> {
+        self.children(db).into_iter().next()
+    }
+
+    /// Get the last child of this node
+    pub fn last_child(&self, db: &'db dyn crate::db::Db) -> Option<SyntaxNodeId<'db>> {
+        self.children(db).into_iter().last()
+    }
+
+    /// Find all descendant nodes that match a predicate
+    pub fn find_descendants<F>(
+        &self,
+        db: &'db dyn crate::db::Db,
+        predicate: F,
+    ) -> Vec<SyntaxNodeId<'db>>
+    where
+        F: Fn(&SyntaxNodeId<'db>) -> bool + Copy,
+    {
+        let mut result = Vec::new();
+        self.collect_descendants_recursive(db, predicate, &mut result);
+        result
+    }
+
+    fn collect_descendants_recursive<F>(
+        self,
+        db: &'db dyn crate::db::Db,
+        predicate: F,
+        result: &mut Vec<SyntaxNodeId<'db>>,
+    ) where
+        F: Fn(&SyntaxNodeId<'db>) -> bool + Copy,
+    {
+        for child in self.children(db) {
+            if predicate(&child) {
+                result.push(child);
+            }
+            child.collect_descendants_recursive(db, predicate, result);
+        }
+    }
+
+    /// Find all descendant tag nodes with a specific name
+    pub fn find_tags_by_name(
+        &self,
+        db: &'db dyn crate::db::Db,
+        tag_name: &str,
+    ) -> Vec<SyntaxNodeId<'db>> {
+        self.find_descendants(db, |node| node.is_tag(db, tag_name))
+    }
+
+    /// Find the nearest ancestor that matches a predicate
+    pub fn find_ancestor<F>(
+        &self,
+        db: &'db dyn crate::db::Db,
+        tree: &SyntaxTree<'db>,
+        predicate: F,
+    ) -> Option<SyntaxNodeId<'db>>
+    where
+        F: Fn(&SyntaxNodeId<'db>) -> bool,
+    {
+        self.find_parent(db, tree).and_then(|parent| {
+            if predicate(&parent) {
+                Some(parent)
+            } else {
+                parent.find_ancestor(db, tree, predicate)
+            }
+        })
+    }
+
+    /// Find the parent of this node in the tree
+    pub fn find_parent(
+        &self,
+        db: &'db dyn crate::db::Db,
+        tree: &SyntaxTree<'db>,
+    ) -> Option<SyntaxNodeId<'db>> {
+        Self::find_parent_recursive(db, tree.root(db), *self)
+    }
+
+    fn find_parent_recursive(
+        db: &'db dyn crate::db::Db,
+        parent: SyntaxNodeId<'db>,
+        target: SyntaxNodeId<'db>,
+    ) -> Option<SyntaxNodeId<'db>> {
+        for child in parent.children(db) {
+            if child == target {
+                return Some(parent);
+            }
+            if let Some(found) = Self::find_parent_recursive(db, child, target) {
+                return Some(found);
+            }
+        }
+        None
+    }
+
+    /// Get all sibling nodes (nodes with the same parent)
+    pub fn siblings(
+        &self,
+        db: &'db dyn crate::db::Db,
+        tree: &SyntaxTree<'db>,
+    ) -> Vec<SyntaxNodeId<'db>> {
+        if let Some(parent) = self.find_parent(db, tree) {
+            parent.children(db)
+        } else {
+            // Root level siblings
+            tree.children(db)
+        }
+    }
+
+    /// Get the next sibling node
+    pub fn next_sibling(
+        &self,
+        db: &'db dyn crate::db::Db,
+        tree: &SyntaxTree<'db>,
+    ) -> Option<SyntaxNodeId<'db>> {
+        let siblings = self.siblings(db, tree);
+        let mut found_self = false;
+        for sibling in siblings {
+            if found_self {
+                return Some(sibling);
+            }
+            if sibling == *self {
+                found_self = true;
+            }
+        }
+        None
+    }
+
+    /// Get the previous sibling node
+    pub fn prev_sibling(
+        &self,
+        db: &'db dyn crate::db::Db,
+        tree: &SyntaxTree<'db>,
+    ) -> Option<SyntaxNodeId<'db>> {
+        let siblings = self.siblings(db, tree);
+        let mut prev = None;
+        for sibling in siblings {
+            if sibling == *self {
+                return prev;
+            }
+            prev = Some(sibling);
+        }
+        None
+    }
+
+    /// Get depth-first traversal of this node and all its descendants
+    pub fn depth_first_traversal(&self, db: &'db dyn crate::db::Db) -> Vec<SyntaxNodeId<'db>> {
+        let mut result = vec![*self];
+        for child in self.children(db) {
+            result.extend(child.depth_first_traversal(db));
+        }
+        result
+    }
+
+    /// Get breadth-first traversal of this node and all its descendants
+    pub fn breadth_first_traversal(&self, db: &'db dyn crate::db::Db) -> Vec<SyntaxNodeId<'db>> {
+        let mut result = Vec::new();
+        let mut queue = std::collections::VecDeque::new();
+        queue.push_back(*self);
+
+        while let Some(node) = queue.pop_front() {
+            result.push(node);
+            for child in node.children(db) {
+                queue.push_back(child);
+            }
+        }
+
+        result
+    }
+
+    /// Check if this node is an ancestor of another node
+    pub fn is_ancestor_of(&self, db: &'db dyn crate::db::Db, other: &SyntaxNodeId<'db>) -> bool {
+        for descendant in self.depth_first_traversal(db) {
+            if descendant == *other {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Get the depth of this node in the tree (root is depth 0)
+    pub fn depth(&self, db: &'db dyn crate::db::Db, tree: &SyntaxTree<'db>) -> usize {
+        let mut depth = 0;
+        let mut current = *self;
+
+        while let Some(parent) = current.find_parent(db, tree) {
+            depth += 1;
+            current = parent;
+        }
+
+        depth
+    }
+
+    /// Find all nodes within a specific scope (useful for variable analysis)
+    pub fn scope_nodes(&self, db: &'db dyn crate::db::Db) -> Vec<SyntaxNodeId<'db>> {
+        match &self.resolve(db) {
+            SyntaxNode::Tag(tag_node) if tag_node.meta.can_have_children() => {
+                // This is a block tag - return all its descendants
+                self.depth_first_traversal(db)
+            }
+            _ => {
+                // Non-block node - only itself
+                vec![*self]
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -499,7 +709,6 @@ mod tests {
     use super::*;
     use crate::templatetags::EndTag;
     use crate::templatetags::IntermediateTag;
-
 
     #[test]
     fn test_tag_shape_from_spec() {
@@ -726,5 +935,121 @@ mod tests {
                 has_branches: true,
             }
         );
+    }
+
+    #[test]
+    fn test_hierarchical_tag_meta() {
+        // Test that TagMeta correctly identifies block shapes that can have children
+        let block_meta = TagMeta {
+            tag_type: crate::templatetags::TagType::Opener,
+            shape: TagShape::Block {
+                ender: "endfor".to_string(),
+                has_branches: false,
+            },
+            spec_id: Some("for".to_string()),
+            branch_kind: None,
+            parsed_args: ParsedArgs::new(),
+        };
+
+        assert!(block_meta.can_have_children());
+        assert_eq!(block_meta.expected_closer(), Some("endfor"));
+
+        let singleton_meta = TagMeta {
+            tag_type: crate::templatetags::TagType::Standalone,
+            shape: TagShape::Singleton,
+            spec_id: Some("load".to_string()),
+            branch_kind: None,
+            parsed_args: ParsedArgs::new(),
+        };
+
+        assert!(!singleton_meta.can_have_children());
+        assert_eq!(singleton_meta.expected_closer(), None);
+    }
+
+    #[test]
+    fn test_tag_shape_variants() {
+        // Test all TagShape variants for child capability
+        let block_shape = TagShape::Block {
+            ender: "endif".to_string(),
+            has_branches: true,
+        };
+
+        let raw_shape = TagShape::RawBlock {
+            ender: "endcomment".to_string(),
+        };
+
+        let singleton_shape = TagShape::Singleton;
+
+        // Create TagMeta instances to test can_have_children
+        let block_meta = TagMeta {
+            tag_type: crate::templatetags::TagType::Opener,
+            shape: block_shape,
+            spec_id: Some("if".to_string()),
+            branch_kind: None,
+            parsed_args: ParsedArgs::new(),
+        };
+
+        let raw_meta = TagMeta {
+            tag_type: crate::templatetags::TagType::Opener,
+            shape: raw_shape,
+            spec_id: Some("comment".to_string()),
+            branch_kind: None,
+            parsed_args: ParsedArgs::new(),
+        };
+
+        let singleton_meta = TagMeta {
+            tag_type: crate::templatetags::TagType::Standalone,
+            shape: singleton_shape,
+            spec_id: Some("load".to_string()),
+            branch_kind: None,
+            parsed_args: ParsedArgs::new(),
+        };
+
+        assert!(block_meta.can_have_children());
+        assert!(raw_meta.can_have_children());
+        assert!(!singleton_meta.can_have_children());
+    }
+
+    #[test]
+    fn test_hierarchical_structure_concept() {
+        // Test the conceptual design of hierarchical structures
+        // This tests the data structures without database dependency
+
+        // Simulate an if/elif/else block structure
+        let if_meta = TagMeta {
+            tag_type: crate::templatetags::TagType::Opener,
+            shape: TagShape::Block {
+                ender: "endif".to_string(),
+                has_branches: true,
+            },
+            spec_id: Some("if".to_string()),
+            branch_kind: None,
+            parsed_args: ParsedArgs::new(),
+        };
+
+        let elif_meta = TagMeta {
+            tag_type: crate::templatetags::TagType::Intermediate,
+            shape: TagShape::Singleton, // Intermediate tags are themselves singleton
+            spec_id: Some("elif".to_string()),
+            branch_kind: Some("elif".to_string()),
+            parsed_args: ParsedArgs::new(),
+        };
+
+        let else_meta = TagMeta {
+            tag_type: crate::templatetags::TagType::Intermediate,
+            shape: TagShape::Singleton,
+            spec_id: Some("else".to_string()),
+            branch_kind: Some("else".to_string()),
+            parsed_args: ParsedArgs::new(),
+        };
+
+        // Verify the structure properties
+        assert!(if_meta.can_have_children());
+        assert!(!elif_meta.can_have_children()); // Intermediate tags don't have children themselves
+        assert!(!else_meta.can_have_children());
+
+        assert_eq!(if_meta.branch_kind, None);
+        assert_eq!(elif_meta.branch_kind, Some("elif".to_string()));
+        assert_eq!(else_meta.branch_kind, Some("else".to_string()));
     }
 }

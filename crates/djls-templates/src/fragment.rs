@@ -30,13 +30,13 @@ use crate::syntax_tree::SyntaxNodeId;
 #[salsa::tracked]
 pub struct Fragment<'db> {
     #[tracked]
-    pub owner: SyntaxNodeId<'db>,       // The TagNode that owns this fragment
+    pub owner: SyntaxNodeId<'db>, // The TagNode that owns this fragment
     #[tracked]
     #[returns(ref)]
     pub children: Vec<SyntaxNodeId<'db>>, // Body contents
     #[tracked]
     #[returns(ref)]
-    pub branch_kind: Option<String>,     // For if/elif/else branches
+    pub branch_kind: Option<String>, // For if/elif/else branches
 }
 
 impl<'db> Fragment<'db> {
@@ -55,7 +55,12 @@ impl<'db> Fragment<'db> {
     pub fn add_child(self, db: &'db dyn crate::db::Db, child: SyntaxNodeId<'db>) -> Self {
         let mut new_children = self.children(db).clone();
         new_children.push(child);
-        Fragment::new(db, self.owner(db), new_children, self.branch_kind(db).clone())
+        Fragment::new(
+            db,
+            self.owner(db),
+            new_children,
+            self.branch_kind(db).clone(),
+        )
     }
 
     /// Check if this fragment is for a specific branch kind
@@ -114,7 +119,11 @@ impl<'db> FragmentStore<'db> {
     }
 
     /// Get fragments owned by a specific node
-    pub fn fragments_for_owner(self, db: &'db dyn crate::db::Db, owner: SyntaxNodeId<'db>) -> Vec<Fragment<'db>> {
+    pub fn fragments_for_owner(
+        self,
+        db: &'db dyn crate::db::Db,
+        owner: SyntaxNodeId<'db>,
+    ) -> Vec<Fragment<'db>> {
         self.fragments(db)
             .iter()
             .filter(|fragment| fragment.owner(db) == owner)
@@ -131,9 +140,7 @@ impl<'db> FragmentStore<'db> {
     ) -> Vec<Fragment<'db>> {
         self.fragments(db)
             .iter()
-            .filter(|fragment| {
-                fragment.owner(db) == owner && fragment.is_branch(db, branch_kind)
-            })
+            .filter(|fragment| fragment.owner(db) == owner && fragment.is_branch(db, branch_kind))
             .copied()
             .collect()
     }
@@ -142,8 +149,9 @@ impl<'db> FragmentStore<'db> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::syntax_tree::{SyntaxNode, TextNode};
     use crate::ast::Span;
+    use crate::syntax_tree::SyntaxNode;
+    use crate::syntax_tree::TextNode;
 
     #[salsa::db]
     #[derive(Clone)]
@@ -202,7 +210,7 @@ mod tests {
     #[test]
     fn test_fragment_creation() {
         let db = TestDatabase::new();
-        
+
         let fragment = create_test_fragment(&db, "test", None);
         assert!(!fragment.has_children(&db));
         assert_eq!(fragment.child_count(&db), 0);
@@ -211,7 +219,7 @@ mod tests {
     #[test]
     fn test_fragment_with_branch() {
         let db = TestDatabase::new();
-        
+
         let fragment = create_test_fragment(&db, "if_tag", Some("if".to_string()));
         assert!(fragment.is_branch(&db, "if"));
         assert!(!fragment.is_branch(&db, "elif"));
@@ -222,11 +230,11 @@ mod tests {
     fn test_store_operations(db: &dyn crate::db::Db) -> (usize, usize) {
         let store = FragmentStore::empty(db);
         let initial_count = store.count(db);
-        
+
         let fragment = create_test_fragment(db, "test", None);
         let store = store.add_fragment(db, fragment);
         let final_count = store.count(db);
-        
+
         (initial_count, final_count)
     }
 
@@ -235,22 +243,22 @@ mod tests {
         let fragment1 = create_test_fragment(db, "if_tag", Some("if".to_string()));
         let fragment2 = create_test_fragment(db, "if_tag", Some("elif".to_string()));
         let fragment3 = create_test_fragment(db, "other_tag", None);
-        
+
         let store = FragmentStore::empty(db)
             .add_fragment(db, fragment1)
             .add_fragment(db, fragment2)
             .add_fragment(db, fragment3);
-        
+
         let total_count = store.count(db);
-        
+
         // Test filtering by owner
         let if_fragments = store.fragments_for_owner(db, fragment1.owner(db));
         let owner_count = if_fragments.len();
-        
+
         // Test filtering by branch
         let elif_fragments = store.fragments_by_branch(db, fragment1.owner(db), "elif");
         let branch_count = elif_fragments.len();
-        
+
         (total_count, owner_count, branch_count)
     }
 
@@ -258,16 +266,16 @@ mod tests {
     fn test_fragment_store() {
         let db = TestDatabase::new();
         let (initial_count, final_count) = test_store_operations(&db);
-        
+
         assert_eq!(initial_count, 0);
         assert_eq!(final_count, 1);
     }
 
-    #[test] 
+    #[test]
     fn test_fragment_store_filtering() {
         let db = TestDatabase::new();
         let (total_count, owner_count, branch_count) = test_store_filtering_operations(&db);
-        
+
         assert_eq!(total_count, 3);
         assert_eq!(owner_count, 2);
         assert_eq!(branch_count, 1);

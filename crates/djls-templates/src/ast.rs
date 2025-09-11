@@ -123,7 +123,7 @@ impl Span {
     }
 
     #[must_use]
-    pub fn to_lsp_range(&self, line_offsets: &LineOffsets) -> tower_lsp_server::lsp_types::Range {
+    pub fn to_lsp_range(self, line_offsets: &LineOffsets) -> tower_lsp_server::lsp_types::Range {
         let start_pos = self.start as usize;
         let end_pos = (self.start + self.length) as usize;
 
