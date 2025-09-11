@@ -1,0 +1,19 @@
+---
+source: crates/djls-templates/src/lexer.rs
+expression: tokens
+---
+- token_type:
+    DjangoVariable: "% invalid %"
+  line: 1
+  start: 0
+- token_type:
+    Whitespace: 1
+  line: 1
+  start: 15
+- token_type:
+    Error: "% also invalid #} {{# wrong closer %}"
+  line: 1
+  start: 16
+- token_type: Eof
+  line: 1
+  start: ~

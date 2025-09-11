@@ -222,6 +222,7 @@ mod tests {
                 required: true,
                 arg_type: ArgType::Simple(SimpleArgType::Variable),
             }],
+            raw_content: false,
         };
 
         let snippet = generate_snippet_for_tag_with_end("block", &spec);
@@ -248,6 +249,7 @@ mod tests {
                     choice: vec!["on".to_string(), "off".to_string()],
                 },
             }],
+            raw_content: false,
         };
 
         let snippet = generate_snippet_for_tag_with_end("autoescape", &spec);

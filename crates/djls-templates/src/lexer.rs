@@ -1,3 +1,4 @@
+use serde::Serialize;
 use thiserror::Error;
 
 use crate::tokens::Token;
@@ -23,133 +24,60 @@ impl Lexer {
         }
     }
 
-    #[allow(clippy::too_many_lines)]
-    pub fn tokenize(&mut self) -> Result<Vec<Token>, LexerError> {
+    pub fn tokenize(&mut self) -> (Vec<Token>, Vec<LexerError>) {
         let mut tokens = Vec::new();
+        let mut errors = Vec::new();
 
         while !self.is_at_end() {
             self.start = self.current;
 
-            let token_type = match self.peek()? {
-                '{' => match self.peek_next()? {
-                    '%' => {
-                        self.consume_n(2)?; // {%
-                        let content = self.consume_until("%}")?;
-                        self.consume_n(2)?; // %}
-                        TokenType::DjangoBlock(content)
-                    }
-                    '{' => {
-                        self.consume_n(2)?; // {{
-                        let content = self.consume_until("}}")?;
-                        self.consume_n(2)?; // }}
-                        TokenType::DjangoVariable(content)
-                    }
-                    '#' => {
-                        self.consume_n(2)?; // {#
-                        let content = self.consume_until("#}")?;
-                        self.consume_n(2)?; // #}
-                        TokenType::Comment(content, "{#".to_string(), Some("#}".to_string()))
-                    }
+            let token_type = match self.peek_char() {
+                '{' => match self.peek_next_char() {
+                    '%' => self.consume_django_block(&mut errors),
+                    '{' => self.consume_django_variable(&mut errors),
+                    '#' => self.consume_django_comment(&mut errors),
                     _ => {
-                        self.consume()?; // {
+                        self.advance(); // consume '{'
                         TokenType::Text(String::from("{"))
                     }
                 },
 
-                '<' => match self.peek_next()? {
-                    '/' => {
-                        self.consume_n(2)?; // </
-                        let tag = self.consume_until(">")?;
-                        self.consume()?; // >
-                        TokenType::HtmlTagClose(tag)
+                c if c == '\n' || c == '\r' => {
+                    self.advance(); // consume \r or \n
+                    if c == '\r' && self.peek_char() == '\n' {
+                        self.advance(); // consume \n of \r\n
                     }
-                    '!' if self.matches("<!--") => {
-                        self.consume_n(4)?; // <!--
-                        let content = self.consume_until("-->")?;
-                        self.consume_n(3)?; // -->
-                        TokenType::Comment(content, "<!--".to_string(), Some("-->".to_string()))
-                    }
-                    _ => {
-                        self.consume()?; // consume <
-                        let tag = self.consume_until(">")?;
-                        self.consume()?; // consume >
-                        if tag.starts_with("script") {
-                            TokenType::ScriptTagOpen(tag)
-                        } else if tag.starts_with("style") {
-                            TokenType::StyleTagOpen(tag)
-                        } else if tag.ends_with('/') {
-                            TokenType::HtmlTagVoid(tag.trim_end_matches('/').to_string())
-                        } else {
-                            TokenType::HtmlTagOpen(tag)
-                        }
-                    }
-                },
-
-                '/' => match self.peek_next()? {
-                    '/' => {
-                        self.consume_n(2)?; // //
-                        let content = self.consume_until("\n")?;
-                        TokenType::Comment(content, "//".to_string(), None)
-                    }
-                    '*' => {
-                        self.consume_n(2)?; // /*
-                        let content = self.consume_until("*/")?;
-                        self.consume_n(2)?; // */
-                        TokenType::Comment(content, "/*".to_string(), Some("*/".to_string()))
-                    }
-                    _ => {
-                        self.consume()?;
-                        TokenType::Text("/".to_string())
-                    }
-                },
+                    self.line += 1;
+                    TokenType::Newline
+                }
 
                 c if c.is_whitespace() => {
-                    if c == '\n' || c == '\r' {
-                        self.consume()?; // \r or \n
-                        if c == '\r' && self.peek()? == '\n' {
-                            self.consume()?; // \n of \r\n
+                    self.advance(); // consume first whitespace
+                    while !self.is_at_end() && self.peek_char().is_whitespace() {
+                        if self.peek_char() == '\n' || self.peek_char() == '\r' {
+                            break;
                         }
-                        TokenType::Newline
-                    } else {
-                        self.consume()?; // Consume the first whitespace
-                        while !self.is_at_end() && self.peek()?.is_whitespace() {
-                            if self.peek()? == '\n' || self.peek()? == '\r' {
-                                break;
-                            }
-                            self.consume()?;
-                        }
-                        let whitespace_count = self.current - self.start;
-                        TokenType::Whitespace(whitespace_count)
+                        self.advance();
                     }
+                    let whitespace_count = self.current - self.start;
+                    TokenType::Whitespace(whitespace_count)
                 }
 
                 _ => {
                     let mut text = String::new();
                     while !self.is_at_end() {
-                        let c = self.peek()?;
-                        if c == '{' || c == '<' || c == '\n' {
+                        let c = self.peek_char();
+                        if c == '{' || c == '\n' || c == '\r' {
                             break;
                         }
                         text.push(c);
-                        self.consume()?;
+                        self.advance();
                     }
                     TokenType::Text(text)
                 }
             };
 
             let token = Token::new(token_type, self.line, Some(self.start));
-
-            match self.peek_previous()? {
-                '\n' => self.line += 1,
-                '\r' => {
-                    self.line += 1;
-                    if self.peek()? == '\n' {
-                        self.current += 1;
-                    }
-                }
-                _ => {}
-            }
-
             tokens.push(token);
         }
 
@@ -157,33 +85,122 @@ impl Lexer {
         let eof_token = Token::new(TokenType::Eof, self.line, None);
         tokens.push(eof_token);
 
-        Ok(tokens)
+        (tokens, errors)
+    }
+
+    fn peek_char(&self) -> char {
+        if self.current >= self.chars.len() {
+            '\0'
+        } else {
+            self.chars[self.current]
+        }
+    }
+
+    fn peek_next_char(&self) -> char {
+        if self.current + 1 >= self.chars.len() {
+            '\0'
+        } else {
+            self.chars[self.current + 1]
+        }
+    }
+
+    fn advance(&mut self) -> char {
+        if self.is_at_end() {
+            '\0'
+        } else {
+            self.current += 1;
+            self.chars[self.current - 1]
+        }
+    }
+
+    fn consume_django_block(&mut self, errors: &mut Vec<LexerError>) -> TokenType {
+        self.advance(); // consume '{'
+        self.advance(); // consume '%'
+        
+        match self.consume_until_or_error("%}") {
+            Ok(content) => {
+                self.advance(); // consume '%'
+                self.advance(); // consume '}'
+                TokenType::DjangoBlock(content)
+            }
+            Err(malformed_content) => {
+                errors.push(LexerError::UnterminatedComment { start: self.start });
+                self.sync_to_next_django_delimiter();
+                TokenType::Error(malformed_content)
+            }
+        }
+    }
+
+    fn consume_django_variable(&mut self, errors: &mut Vec<LexerError>) -> TokenType {
+        self.advance(); // consume '{'
+        self.advance(); // consume '{'
+        
+        match self.consume_until_or_error("}}") {
+            Ok(content) => {
+                self.advance(); // consume '}'
+                self.advance(); // consume '}'
+                TokenType::DjangoVariable(content)
+            }
+            Err(malformed_content) => {
+                errors.push(LexerError::UnterminatedComment { start: self.start });
+                self.sync_to_next_django_delimiter();
+                TokenType::Error(malformed_content)
+            }
+        }
+    }
+
+    fn consume_django_comment(&mut self, errors: &mut Vec<LexerError>) -> TokenType {
+        self.advance(); // consume '{'
+        self.advance(); // consume '#'
+        
+        match self.consume_until_or_error("#}") {
+            Ok(content) => {
+                self.advance(); // consume '#'
+                self.advance(); // consume '}'
+                TokenType::Comment(content, "{#".to_string(), Some("#}".to_string()))
+            }
+            Err(malformed_content) => {
+                errors.push(LexerError::UnterminatedComment { start: self.start });
+                self.sync_to_next_django_delimiter();
+                TokenType::Error(malformed_content)
+            }
+        }
+    }
+
+    fn consume_until_or_error(&mut self, delimiter: &str) -> Result<String, String> {
+        let start = self.current;
+        let delimiter_chars: Vec<char> = delimiter.chars().collect();
+        
+        while !self.is_at_end() {
+            if self.current + delimiter_chars.len() <= self.chars.len() &&
+               self.chars[self.current..self.current + delimiter_chars.len()] == delimiter_chars {
+                let content = self.chars[start..self.current].iter().collect::<String>().trim().to_string();
+                return Ok(content);
+            }
+            self.advance();
+        }
+        
+        // Return the malformed content for error recovery
+        let malformed_content = self.chars[start..self.current].iter().collect();
+        Err(malformed_content)
+    }
+
+    fn sync_to_next_django_delimiter(&mut self) {
+        while !self.is_at_end() {
+            let c = self.peek_char();
+            if c == '{' || c == '\n' || c == '\r' {
+                break;
+            }
+            self.advance();
+        }
     }
 
     fn peek(&self) -> Result<char, LexerError> {
         self.peek_at(0)
     }
 
-    fn peek_next(&self) -> Result<char, LexerError> {
-        self.peek_at(1)
-    }
-
     fn peek_previous(&self) -> Result<char, LexerError> {
         self.peek_at(-1)
-    }
-
-    #[allow(dead_code)]
-    fn peek_until(&self, end: &str) -> bool {
-        let mut index = self.current;
-        let end_chars: Vec<char> = end.chars().collect();
-
-        while index < self.chars.len() {
-            if self.chars[index..].starts_with(&end_chars) {
-                return true;
-            }
-            index += 1;
-        }
-        false
     }
 
     #[allow(clippy::cast_sign_loss)]
@@ -217,16 +234,7 @@ impl Lexer {
         }
     }
 
-    fn matches(&mut self, pattern: &str) -> bool {
-        let mut i = self.current;
-        for c in pattern.chars() {
-            if i >= self.chars.len() || self.chars[i] != c {
-                return false;
-            }
-            i += 1;
-        }
-        true
-    }
+
 
     fn is_at_end(&self) -> bool {
         self.current >= self.source.len()
@@ -236,47 +244,34 @@ impl Lexer {
         if self.is_at_end() {
             return Err(LexerError::AtEndOfSource);
         }
+        let c = self.chars[self.current];
         self.current += 1;
-        self.peek_previous()
+        Ok(c)
     }
 
-    fn consume_n(&mut self, count: usize) -> Result<String, LexerError> {
-        let start = self.current;
-        for _ in 0..count {
-            self.consume()?;
-        }
-        Ok(self.source[start..self.current].trim().to_string())
-    }
 
-    #[allow(dead_code)]
-    fn consume_chars(&mut self, s: &str) -> Result<char, LexerError> {
-        for c in s.chars() {
-            if c != self.peek()? {
-                return Err(LexerError::UnexpectedCharacter(c, self.line));
-            }
-            self.consume()?;
-        }
-        self.peek_previous()
-    }
-
-    fn consume_until(&mut self, s: &str) -> Result<String, LexerError> {
-        let start = self.current;
-        while !self.is_at_end() {
-            if self.chars[self.current..self.chars.len()]
-                .starts_with(s.chars().collect::<Vec<_>>().as_slice())
-            {
-                return Ok(self.source[start..self.current].trim().to_string());
-            }
-            self.consume()?;
-        }
-        Err(LexerError::UnexpectedEndOfInput)
-    }
 }
 
-#[derive(Error, Debug)]
+#[derive(Clone, Debug, Error, PartialEq, Eq, Serialize)]
 pub enum LexerError {
-    #[error("empty token at line {0}")]
-    EmptyToken(usize),
+    #[error("unterminated string starting at position {start}: {partial_content:?}")]
+    UnterminatedString {
+        start: usize,
+        partial_content: String,
+    },
+
+    #[error("unterminated comment starting at position {start}")]
+    UnterminatedComment { start: usize },
+
+    #[error("malformed delimiter at position {position}: found '{found}', expected '{expected}'")]
+    MalformedDelimiter {
+        position: usize,
+        found: String,
+        expected: String,
+    },
+
+    #[error("invalid escape sequence at position {position}: '{sequence}'")]
+    InvalidEscape { position: usize, sequence: String },
 
     #[error("unexpected character '{0}' at line {1}")]
     UnexpectedCharacter(char, usize),
@@ -287,6 +282,13 @@ pub enum LexerError {
     #[error("source is empty")]
     EmptySource,
 
+    #[error("unexpected token type '{0:?}'")]
+    UnexpectedTokenType(TokenType),
+
+    // TODO: Remove these deprecated variants after updating all references
+    #[error("empty token at line {0}")]
+    EmptyToken(usize),
+
     #[error("at beginning of source")]
     AtBeginningOfSource,
 
@@ -295,9 +297,6 @@ pub enum LexerError {
 
     #[error("invalid character access")]
     InvalidCharacterAccess,
-
-    #[error("unexpected token type '{0:?}'")]
-    UnexpectedTokenType(TokenType),
 }
 
 #[cfg(test)]
@@ -308,7 +307,7 @@ mod tests {
     fn test_tokenize_html() {
         let source = r#"<div class="container" id="main" disabled></div>"#;
         let mut lexer = Lexer::new(source);
-        let tokens = lexer.tokenize().unwrap();
+        let (tokens, _errors) = lexer.tokenize();
         insta::assert_yaml_snapshot!(tokens);
     }
 
@@ -316,7 +315,7 @@ mod tests {
     fn test_tokenize_django_variable() {
         let source = "{{ user.name|default:\"Anonymous\"|title }}";
         let mut lexer = Lexer::new(source);
-        let tokens = lexer.tokenize().unwrap();
+        let (tokens, _errors) = lexer.tokenize();
         insta::assert_yaml_snapshot!(tokens);
     }
 
@@ -324,7 +323,7 @@ mod tests {
     fn test_tokenize_django_block() {
         let source = "{% if user.is_staff %}Admin{% else %}User{% endif %}";
         let mut lexer = Lexer::new(source);
-        let tokens = lexer.tokenize().unwrap();
+        let (tokens, _errors) = lexer.tokenize();
         insta::assert_yaml_snapshot!(tokens);
     }
 
@@ -341,7 +340,7 @@ mod tests {
     /* CSS comment */
 </style>";
         let mut lexer = Lexer::new(source);
-        let tokens = lexer.tokenize().unwrap();
+        let (tokens, _errors) = lexer.tokenize();
         insta::assert_yaml_snapshot!(tokens);
     }
 
@@ -355,7 +354,7 @@ mod tests {
     console.log(x);
 </script>"#;
         let mut lexer = Lexer::new(source);
-        let tokens = lexer.tokenize().unwrap();
+        let (tokens, _errors) = lexer.tokenize();
         insta::assert_yaml_snapshot!(tokens);
     }
 
@@ -368,22 +367,40 @@ mod tests {
     }
 </style>"#;
         let mut lexer = Lexer::new(source);
-        let tokens = lexer.tokenize().unwrap();
+        let (tokens, _errors) = lexer.tokenize();
         insta::assert_yaml_snapshot!(tokens);
     }
 
     #[test]
     fn test_tokenize_error_cases() {
-        // Unterminated tokens
-        assert!(Lexer::new("{{ user.name").tokenize().is_err()); // No closing }}
-        assert!(Lexer::new("{% if").tokenize().is_err()); // No closing %}
-        assert!(Lexer::new("{#").tokenize().is_err()); // No closing #}
-        assert!(Lexer::new("<div").tokenize().is_err()); // No closing >
+        // Unterminated tokens should create Error tokens, not fail
+        let (tokens, errors) = Lexer::new("{{ user.name").tokenize(); 
+        assert!(!errors.is_empty()); // Should have errors
+        assert!(tokens.iter().any(|t| matches!(t.token_type(), TokenType::Error(_))));
 
-        // Invalid characters or syntax within tokens
-        assert!(Lexer::new("{{}}").tokenize().is_ok()); // Empty but valid
-        assert!(Lexer::new("{%  %}").tokenize().is_ok()); // Empty but valid
-        assert!(Lexer::new("{##}").tokenize().is_ok()); // Empty but valid
+        let (tokens, errors) = Lexer::new("{% if").tokenize();
+        assert!(!errors.is_empty()); // Should have errors
+        assert!(tokens.iter().any(|t| matches!(t.token_type(), TokenType::Error(_))));
+
+        let (tokens, errors) = Lexer::new("{#").tokenize();
+        assert!(!errors.is_empty()); // Should have errors
+        assert!(tokens.iter().any(|t| matches!(t.token_type(), TokenType::Error(_))));
+
+        let (tokens, _errors) = Lexer::new("<div").tokenize(); // Now just Text
+        assert!(tokens.iter().any(|t| matches!(t.token_type(), TokenType::Text(_))));
+
+        // Valid empty tokens
+        let (tokens, errors) = Lexer::new("{{}}").tokenize();
+        assert!(errors.is_empty()); // Should be valid
+        assert!(tokens.iter().any(|t| matches!(t.token_type(), TokenType::DjangoVariable(_))));
+
+        let (tokens, errors) = Lexer::new("{%  %}").tokenize();
+        assert!(errors.is_empty()); // Should be valid
+        assert!(tokens.iter().any(|t| matches!(t.token_type(), TokenType::DjangoBlock(_))));
+
+        let (tokens, errors) = Lexer::new("{##}").tokenize();
+        assert!(errors.is_empty()); // Should be valid
+        assert!(tokens.iter().any(|t| matches!(t.token_type(), TokenType::Comment(_, _, _))));
     }
 
     #[test]
@@ -393,7 +410,55 @@ mod tests {
 {# comment #}
 <!-- html comment -->
 <div>text</div>";
-        assert!(Lexer::new(source).tokenize().is_ok());
+        let (tokens, errors) = Lexer::new(source).tokenize();
+        assert!(errors.is_empty()); // Should be valid
+        assert!(!tokens.is_empty());
+    }
+
+    #[test]
+    fn test_tokenize_django_error_recovery() {
+        // Test unterminated Django constructs
+        let source = "{{ user.name {% if condition %} {# comment";
+        let mut lexer = Lexer::new(source);
+        let (tokens, errors) = lexer.tokenize();
+        
+        // Should have Error tokens for malformed constructs
+        let error_tokens: Vec<_> = tokens.iter()
+            .filter(|t| matches!(t.token_type(), TokenType::Error(_)))
+            .collect();
+        assert!(!error_tokens.is_empty());
+        assert!(!errors.is_empty());
+        insta::assert_yaml_snapshot!(tokens);
+    }
+
+    #[test]
+    fn test_tokenize_mixed_delimiters() {
+        // Test mixed/invalid delimiter combinations
+        let source = "{{% invalid %}} {{% also invalid #} {{# wrong closer %}";
+        let mut lexer = Lexer::new(source);
+        let (tokens, errors) = lexer.tokenize();
+        
+        // First part should be parsed as DjangoVariable with unusual content
+        // Second part should be Error token due to unterminated construct
+        assert!(tokens.iter().any(|t| matches!(t.token_type(), TokenType::DjangoVariable(_))));
+        assert!(tokens.iter().any(|t| matches!(t.token_type(), TokenType::Error(_))));
+        assert!(!errors.is_empty());
+        insta::assert_yaml_snapshot!(tokens);
+    }
+
+    #[test]
+    fn test_tokenize_stray_closers() {
+        // Test standalone closing delimiters
+        let source = "}} %} #} normal text {{ valid }}";
+        let mut lexer = Lexer::new(source);
+        let (tokens, _errors) = lexer.tokenize();
+        
+        // Stray closers should be treated as Text
+        let text_tokens: Vec<_> = tokens.iter()
+            .filter(|t| matches!(t.token_type(), TokenType::Text(_)))
+            .collect();
+        assert!(!text_tokens.is_empty());
+        insta::assert_yaml_snapshot!(tokens);
     }
 
     #[test]
@@ -429,7 +494,7 @@ mod tests {
 </body>
 </html>"#;
         let mut lexer = Lexer::new(source);
-        let tokens = lexer.tokenize().unwrap();
+        let (tokens, _errors) = lexer.tokenize();
         insta::assert_yaml_snapshot!(tokens);
     }
 }

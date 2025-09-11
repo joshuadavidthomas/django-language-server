@@ -3,7 +3,7 @@ source: crates/djls-templates/src/lexer.rs
 expression: tokens
 ---
 - token_type:
-    Text: "<div class=\"container\" id=\"main\" disabled></div>"
+    Error: " user.name {% if condition %} {# comment"
   line: 1
   start: 0
 - token_type: Eof

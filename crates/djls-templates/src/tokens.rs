@@ -1,21 +1,22 @@
 use serde::Serialize;
 
-#[derive(Clone, Debug, Serialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 pub enum TokenType {
-    Comment(String, String, Option<String>),
-    DjangoBlock(String),
-    DjangoVariable(String),
+    // Django constructs
+    DjangoBlock(String),     // {% ... %} content
+    DjangoVariable(String),  // {{ ... }} content
+    Comment(String, String, Option<String>), // {# ... #} content
+
+    // Text and whitespace
+    Text(String),       // All non-Django content (HTML, JS, CSS, plain text)
+    Whitespace(usize),  // Non-newline whitespace (for formatting)
+    Newline,           // Essential for line tracking!
+
+    // Error recovery
+    Error(String),      // Malformed Django constructs only
+
+    // End
     Eof,
-    HtmlTagOpen(String),
-    HtmlTagClose(String),
-    HtmlTagVoid(String),
-    Newline,
-    ScriptTagOpen(String),
-    ScriptTagClose(String),
-    StyleTagOpen(String),
-    StyleTagClose(String),
-    Text(String),
-    Whitespace(usize),
 }
 
 impl TokenType {
@@ -23,13 +24,7 @@ impl TokenType {
         match self {
             TokenType::DjangoBlock(s)
             | TokenType::DjangoVariable(s)
-            | TokenType::HtmlTagOpen(s)
-            | TokenType::HtmlTagClose(s)
-            | TokenType::HtmlTagVoid(s)
-            | TokenType::ScriptTagOpen(s)
-            | TokenType::ScriptTagClose(s)
-            | TokenType::StyleTagOpen(s)
-            | TokenType::StyleTagClose(s)
+            | TokenType::Error(s)
             | TokenType::Text(s) => s.len(),
             TokenType::Comment(content, _, _) => content.len(),
             TokenType::Whitespace(n) => *n,
@@ -65,13 +60,7 @@ impl Token {
             TokenType::DjangoBlock(_) => format!("{{% {} %}}", self.content()),
             TokenType::DjangoVariable(_) => format!("{{{{ {} }}}}", self.content()),
             TokenType::Eof => String::new(),
-            TokenType::HtmlTagOpen(_)
-            | TokenType::ScriptTagOpen(_)
-            | TokenType::StyleTagOpen(_) => format!("<{}>", self.content()),
-            TokenType::HtmlTagClose(_)
-            | TokenType::StyleTagClose(_)
-            | TokenType::ScriptTagClose(_) => format!("</{}>", self.content()),
-            TokenType::HtmlTagVoid(_) => format!("<{}/>", self.content()),
+            TokenType::Error(_) => self.content(), // Return the raw malformed content
             TokenType::Newline | TokenType::Text(_) | TokenType::Whitespace(_) => self.content(),
         }
     }
@@ -81,14 +70,8 @@ impl Token {
             TokenType::Comment(s, _, _)
             | TokenType::DjangoBlock(s)
             | TokenType::DjangoVariable(s)
-            | TokenType::Text(s)
-            | TokenType::HtmlTagOpen(s)
-            | TokenType::HtmlTagClose(s)
-            | TokenType::HtmlTagVoid(s)
-            | TokenType::ScriptTagOpen(s)
-            | TokenType::ScriptTagClose(s)
-            | TokenType::StyleTagOpen(s)
-            | TokenType::StyleTagClose(s) => s.to_string(),
+            | TokenType::Error(s)
+            | TokenType::Text(s) => s.to_string(),
             TokenType::Whitespace(len) => " ".repeat(*len),
             TokenType::Newline => "\n".to_string(),
             TokenType::Eof => String::new(),

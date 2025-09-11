@@ -17,17 +17,76 @@
 //! The `TagValidator` follows the same pattern as the Parser and Lexer,
 //! maintaining minimal state and walking through the AST to accumulate errors.
 
+use serde::Serialize;
+use thiserror::Error;
+
 use crate::ast::Node;
 use crate::ast::NodeListError;
 use crate::ast::Span;
 use crate::ast::TagName;
 use crate::ast::TagNode;
 use crate::db::Db as TemplateDb;
+use crate::syntax::SyntaxNode;
+use crate::syntax::SyntaxNodeId;
+use crate::syntax::SyntaxTree;
+use crate::syntax::TagNode as SyntaxTagNode;
+use crate::syntax::VariableNode as SyntaxVariableNode;
 use crate::templatetags::Arg;
 use crate::templatetags::ArgType;
 use crate::templatetags::SimpleArgType;
 use crate::templatetags::TagType;
 use crate::NodeList;
+
+#[derive(Clone, Debug, Error, PartialEq, Eq, Serialize)]
+pub enum SemanticError {
+    #[error("Missing required argument '{arg_name}' for tag '{tag}' at position {span:?}")]
+    MissingRequiredArg {
+        tag: String,
+        arg_name: String,
+        span: Span,
+    },
+    
+    #[error("Invalid argument type for '{arg_name}' in tag '{tag}': expected {expected}, found {found} at position {span:?}")]
+    InvalidArgType {
+        tag: String,
+        arg_name: String,
+        expected: String,
+        found: String,
+        span: Span,
+    },
+    
+    #[error("Unknown argument '{arg_name}' for tag '{tag}' at position {span:?}")]
+    UnknownArgument {
+        tag: String,
+        arg_name: String,
+        span: Span,
+    },
+    
+    #[error("Invalid choice value '{value}' for argument '{arg_name}' in tag '{tag}' at position {span:?}. Valid choices: {valid_choices:?}")]
+    InvalidChoiceValue {
+        tag: String,
+        arg_name: String,
+        value: String,
+        valid_choices: Vec<String>,
+        span: Span,
+    },
+    
+    #[error("Too many positional arguments for tag '{tag}': maximum {max}, found {found} at position {span:?}")]
+    TooManyPositionalArgs {
+        tag: String,
+        max: usize,
+        found: usize,
+        span: Span,
+    },
+    
+    #[error("Conflicting arguments '{arg1}' and '{arg2}' for tag '{tag}' at position {span:?}")]
+    ConflictingArgs {
+        tag: String,
+        arg1: String,
+        arg2: String,
+        span: Span,
+    },
+}
 
 pub struct TagValidator<'db> {
     db: &'db dyn TemplateDb,
@@ -349,7 +408,7 @@ mod tests {
     #[salsa::tracked]
     fn parse_test_template(db: &dyn TemplateDb, source: TestSource) -> NodeList<'_> {
         let text = source.text(db);
-        let tokens = Lexer::new(text).tokenize().unwrap();
+        let (tokens, _) = Lexer::new(text).tokenize();
         let token_stream = crate::tokens::TokenStream::new(db, tokens);
         let mut parser = Parser::new(db, token_stream);
         let (ast, _) = parser.parse().unwrap();
@@ -486,5 +545,472 @@ mod tests {
         assert!(errors
             .iter()
             .any(|e| matches!(e, NodeListError::UnclosedTag { tag, .. } if tag == "if")));
+    }
+}
+
+/// New hierarchical validation using `SyntaxTree` structure.
+pub struct SyntaxTreeValidator<'db> {
+    db: &'db dyn TemplateDb,
+    tree: SyntaxTree<'db>,
+    errors: Vec<NodeListError>,
+}
+
+impl<'db> SyntaxTreeValidator<'db> {
+    #[must_use]
+    pub fn new(db: &'db dyn TemplateDb, tree: SyntaxTree<'db>) -> Self {
+        Self {
+            db,
+            tree,
+            errors: Vec::new(),
+        }
+    }
+
+    #[must_use]
+    pub fn validate(mut self) -> Vec<NodeListError> {
+        self.validate_node(self.tree.root(self.db));
+        self.errors
+    }
+
+    fn validate_node(&mut self, node_id: SyntaxNodeId<'db>) {
+        let node = node_id.resolve(self.db);
+
+        match &node {
+            SyntaxNode::Root { children } => {
+                for child_id in children {
+                    self.validate_node(*child_id);
+                }
+            }
+            SyntaxNode::Tag(tag_node) => {
+                self.validate_tag_node(node_id, tag_node);
+                for child_id in &tag_node.children {
+                    self.validate_node(*child_id);
+                }
+            }
+            SyntaxNode::Variable(var_node) => {
+                self.validate_variable_node(var_node);
+            }
+            SyntaxNode::Text(_) | SyntaxNode::Comment(_) => {}
+            SyntaxNode::Error { message, span } => {
+                self.errors.push(NodeListError::InvalidNode {
+                    node_type: "Error".to_string(),
+                    reason: message.clone(),
+                    span: *span,
+                });
+            }
+        }
+    }
+
+    fn validate_tag_node(&mut self, node_id: SyntaxNodeId<'db>, tag_node: &SyntaxTagNode<'db>) {
+        let name_str = tag_node.name.text(self.db);
+        self.validate_tag_arguments(&name_str, tag_node);
+
+        if tag_node.meta.tag_type == TagType::Intermediate {
+            self.validate_intermediate_tag(node_id, tag_node);
+        }
+
+        // Check for unclosed blocks
+        if tag_node.meta.unclosed {
+            self.errors.push(NodeListError::UnclosedTag {
+                tag: name_str.clone(),
+                span: tag_node.span,
+            });
+        }
+    }
+
+    fn validate_tag_arguments(&mut self, name: &str, tag_node: &SyntaxTagNode<'db>) {
+        let tag_specs = self.db.tag_specs();
+        let Some(args) = tag_specs.get(name).map(|s| &s.args) else {
+            return;
+        };
+        let parsed_args = &tag_node.meta.parsed_args;
+        let required_count = args.iter().filter(|arg| arg.required).count();
+
+        if parsed_args.positional_count() < required_count {
+            self.errors.push(NodeListError::MissingRequiredArguments {
+                tag: name.to_string(),
+                min: required_count,
+                span: tag_node.span,
+            });
+        }
+    }
+
+    fn validate_intermediate_tag(
+        &mut self,
+        node_id: SyntaxNodeId<'db>,
+        tag_node: &SyntaxTagNode<'db>,
+    ) {
+        let name_str = tag_node.name.text(self.db);
+        let parent_tags = self
+            .db
+            .tag_specs()
+            .get_parent_tags_for_intermediate(&name_str);
+        if parent_tags.is_empty() {
+            return;
+        }
+
+        if let Some(parent_block) = self.find_parent_block(node_id) {
+            if let SyntaxNode::Tag(parent_tag) = parent_block.resolve(self.db) {
+                let parent_name = parent_tag.name.text(self.db);
+                if !parent_tags.contains(&parent_name) {
+                    let parents = if parent_tags.len() == 1 {
+                        parent_tags[0].clone()
+                    } else {
+                        parent_tags.join("' or '")
+                    };
+                    let context = format!("must appear within '{parents}' block");
+
+                    self.errors.push(NodeListError::OrphanedTag {
+                        tag: name_str.clone(),
+                        context,
+                        span: tag_node.span,
+                    });
+                }
+            }
+        } else {
+            let parents = if parent_tags.len() == 1 {
+                parent_tags[0].clone()
+            } else {
+                parent_tags.join("' or '")
+            };
+            let context = format!("must appear within '{parents}' block");
+
+            self.errors.push(NodeListError::OrphanedTag {
+                tag: name_str.clone(),
+                context,
+                span: tag_node.span,
+            });
+        }
+    }
+
+    #[allow(clippy::unused_self)]
+    fn validate_variable_node(&mut self, _var_node: &SyntaxVariableNode<'db>) {
+        // Variable validation could be added here in the future
+        // For now, variables are always considered valid
+    }
+
+    fn find_parent_block(&self, node_id: SyntaxNodeId<'db>) -> Option<SyntaxNodeId<'db>> {
+        let mut current = node_id;
+        while let Some(parent) = current.find_parent(self.db, &self.tree) {
+            if let SyntaxNode::Tag(parent_tag) = parent.resolve(self.db) {
+                if parent_tag.meta.can_have_children() {
+                    return Some(parent);
+                }
+            }
+            current = parent;
+        }
+        None
+    }
+}
+
+#[cfg(test)]
+mod syntax_tree_tests {
+    use std::sync::Arc;
+
+    use super::*;
+    use crate::syntax::SyntaxTree;
+    use crate::Lexer;
+    use crate::Parser;
+
+    #[salsa::db]
+    #[derive(Clone)]
+    struct TestDatabase {
+        storage: salsa::Storage<Self>,
+    }
+
+    impl TestDatabase {
+        fn new() -> Self {
+            Self {
+                storage: salsa::Storage::default(),
+            }
+        }
+    }
+
+    #[salsa::db]
+    impl salsa::Database for TestDatabase {}
+
+    #[salsa::db]
+    impl djls_workspace::Db for TestDatabase {
+        fn fs(&self) -> std::sync::Arc<dyn djls_workspace::FileSystem> {
+            use djls_workspace::InMemoryFileSystem;
+            static FS: std::sync::OnceLock<std::sync::Arc<InMemoryFileSystem>> =
+                std::sync::OnceLock::new();
+            FS.get_or_init(|| std::sync::Arc::new(InMemoryFileSystem::default()))
+                .clone()
+        }
+
+        fn read_file_content(&self, path: &std::path::Path) -> Result<String, std::io::Error> {
+            std::fs::read_to_string(path)
+        }
+    }
+
+    #[salsa::db]
+    impl crate::db::Db for TestDatabase {
+        fn tag_specs(&self) -> std::sync::Arc<crate::templatetags::TagSpecs> {
+            let toml_str = include_str!("../tagspecs/django.toml");
+            Arc::new(crate::templatetags::TagSpecs::from_toml(toml_str).unwrap())
+        }
+    }
+
+    #[salsa::input]
+    struct TestSource {
+        #[returns(ref)]
+        text: String,
+    }
+
+    #[salsa::tracked]
+    fn parse_test_syntax_tree(db: &dyn TemplateDb, source: TestSource) -> SyntaxTree<'_> {
+        let text = source.text(db);
+        let (tokens, _) = Lexer::new(text).tokenize();
+        let token_stream = crate::tokens::TokenStream::new(db, tokens);
+        let mut parser = Parser::new(db, token_stream);
+        let (nodelist, _) = parser.parse().unwrap();
+        crate::build_syntax_tree_inline(db, nodelist)
+    }
+
+    #[test]
+    fn test_syntax_tree_validation_simple_if() {
+        let db = TestDatabase::new();
+        let source = TestSource::new(&db, "{% if x %}content{% endif %}".to_string());
+
+        let syntax_tree = parse_test_syntax_tree(&db, source);
+        let errors = SyntaxTreeValidator::new(&db, syntax_tree).validate();
+        assert!(
+            errors.is_empty(),
+            "Simple if should have no errors, got: {errors:#?}"
+        );
+    }
+
+    #[test]
+    fn test_syntax_tree_validation_orphaned_else() {
+        let db = TestDatabase::new();
+        let source = TestSource::new(&db, "{% else %}content".to_string());
+
+        let syntax_tree = parse_test_syntax_tree(&db, source);
+        let errors = SyntaxTreeValidator::new(&db, syntax_tree).validate();
+
+        assert!(!errors.is_empty(), "Orphaned else should produce errors");
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, NodeListError::OrphanedTag { tag, .. } if tag == "else")),
+            "Should have orphaned tag error for else: {errors:#?}"
+        );
+    }
+
+    #[test]
+    fn test_syntax_tree_validation_missing_required_args() {
+        let db = TestDatabase::new();
+        let source = TestSource::new(&db, "{% load %}".to_string());
+
+        let syntax_tree = parse_test_syntax_tree(&db, source);
+        let errors = SyntaxTreeValidator::new(&db, syntax_tree).validate();
+
+        assert!(
+            !errors.is_empty(),
+            "Load without args should produce errors"
+        );
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, NodeListError::MissingRequiredArguments { .. })),
+            "Should have missing required arguments error: {errors:#?}"
+        );
+    }
+
+    #[test]
+    fn test_syntax_tree_raw_blocks() {
+        let db = TestDatabase::new();
+
+        // Test comment block
+        let source = TestSource::new(
+            &db,
+            "{% comment %}This is a comment{% endcomment %}".to_string(),
+        );
+        let syntax_tree = parse_test_syntax_tree(&db, source);
+        let errors = SyntaxTreeValidator::new(&db, syntax_tree).validate();
+        assert!(
+            errors.is_empty(),
+            "Comment block should have no errors, got: {errors:#?}"
+        );
+
+        // Test verbatim block
+        let source = TestSource::new(
+            &db,
+            "{% verbatim %}{{ raw_content }}{% endverbatim %}".to_string(),
+        );
+        let syntax_tree = parse_test_syntax_tree(&db, source);
+        let errors = SyntaxTreeValidator::new(&db, syntax_tree).validate();
+        assert!(
+            errors.is_empty(),
+            "Verbatim block should have no errors, got: {errors:#?}"
+        );
+
+        // Test spaceless block
+        let source = TestSource::new(
+            &db,
+            "{% spaceless %}<p>  content  </p>{% endspaceless %}".to_string(),
+        );
+        let syntax_tree = parse_test_syntax_tree(&db, source);
+        let errors = SyntaxTreeValidator::new(&db, syntax_tree).validate();
+        assert!(
+            errors.is_empty(),
+            "Spaceless block should have no errors, got: {errors:#?}"
+        );
+    }
+
+    #[test]
+    fn test_syntax_tree_for_empty() {
+        let db = TestDatabase::new();
+        let source = TestSource::new(
+            &db,
+            "{% for item in items %}{{ item }}{% empty %}No items{% endfor %}".to_string(),
+        );
+
+        let syntax_tree = parse_test_syntax_tree(&db, source);
+        let errors = SyntaxTreeValidator::new(&db, syntax_tree).validate();
+        assert!(
+            errors.is_empty(),
+            "For/empty should have no errors, got: {errors:#?}"
+        );
+    }
+
+    #[test]
+    fn test_syntax_tree_complex_nested_structures() {
+        let db = TestDatabase::new();
+
+        // Test deeply nested if/for blocks
+        let source = TestSource::new(&db,
+            "{% if user %}{% for item in items %}{% if item.active %}{{ item.name }}{% endif %}{% endfor %}{% endif %}".to_string());
+        let syntax_tree = parse_test_syntax_tree(&db, source);
+        let errors = SyntaxTreeValidator::new(&db, syntax_tree).validate();
+        assert!(
+            errors.is_empty(),
+            "Nested structures should have no errors, got: {errors:#?}"
+        );
+
+        // Test multiple elif branches
+        let source = TestSource::new(&db,
+            "{% if x == 1 %}one{% elif x == 2 %}two{% elif x == 3 %}three{% else %}other{% endif %}".to_string());
+        let syntax_tree = parse_test_syntax_tree(&db, source);
+        let errors = SyntaxTreeValidator::new(&db, syntax_tree).validate();
+        assert!(
+            errors.is_empty(),
+            "Multiple elif branches should have no errors, got: {errors:#?}"
+        );
+
+        // Test mixed content in branches
+        let source = TestSource::new(&db,
+            "{% if x %}Text {{ var }}{% for i in list %}{{ i }}{% endfor %}{% else %}Nothing{% endif %}".to_string());
+        let syntax_tree = parse_test_syntax_tree(&db, source);
+        let errors = SyntaxTreeValidator::new(&db, syntax_tree).validate();
+        assert!(
+            errors.is_empty(),
+            "Mixed content in branches should have no errors, got: {errors:#?}"
+        );
+    }
+
+    #[test]
+    fn test_syntax_tree_orphaned_intermediate_tags() {
+        let db = TestDatabase::new();
+
+        // Test orphaned empty without for
+        let source = TestSource::new(&db, "{% empty %}No items".to_string());
+        let syntax_tree = parse_test_syntax_tree(&db, source);
+        let errors = SyntaxTreeValidator::new(&db, syntax_tree).validate();
+        assert!(!errors.is_empty(), "Orphaned empty should produce errors");
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, NodeListError::OrphanedTag { tag, .. } if tag == "empty")),
+            "Should have orphaned tag error for empty: {errors:#?}"
+        );
+
+        // Test elif without if
+        let source = TestSource::new(&db, "{% elif x %}content".to_string());
+        let syntax_tree = parse_test_syntax_tree(&db, source);
+        let errors = SyntaxTreeValidator::new(&db, syntax_tree).validate();
+        assert!(!errors.is_empty(), "Orphaned elif should produce errors");
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, NodeListError::OrphanedTag { tag, .. } if tag == "elif")),
+            "Should have orphaned tag error for elif: {errors:#?}"
+        );
+    }
+
+    #[test]
+    fn test_syntax_tree_unclosed_blocks_detection() {
+        let db = TestDatabase::new();
+
+        // Test unclosed if
+        let source = TestSource::new(&db, "{% if x %}content".to_string());
+        let syntax_tree = parse_test_syntax_tree(&db, source);
+        let errors = SyntaxTreeValidator::new(&db, syntax_tree).validate();
+        assert!(!errors.is_empty(), "Unclosed if should produce errors");
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, NodeListError::UnclosedTag { tag, .. } if tag == "if")),
+            "Should have unclosed tag error for if: {errors:#?}"
+        );
+
+        // Test unclosed for
+        let source = TestSource::new(&db, "{% for item in items %}{{ item }}".to_string());
+        let syntax_tree = parse_test_syntax_tree(&db, source);
+        let errors = SyntaxTreeValidator::new(&db, syntax_tree).validate();
+        assert!(!errors.is_empty(), "Unclosed for should produce errors");
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, NodeListError::UnclosedTag { tag, .. } if tag == "for")),
+            "Should have unclosed tag error for for: {errors:#?}"
+        );
+    }
+
+    #[test]
+    fn test_tree_vs_flat_validation_equivalence() {
+        let test_cases = vec![
+            "{% if x %}content{% endif %}",
+            "{% if x %}content", // unclosed
+            "{% else %}content", // orphaned
+            "{% load %}",        // missing args
+            "{% if x %}{% else %}{% endif %}",
+            "{% for i in items %}{{ i }}{% endfor %}",
+        ];
+
+        let db = TestDatabase::new();
+
+        for template in test_cases {
+            let source = TestSource::new(&db, template.to_string());
+
+            // Get errors from flat validator
+            let ast = parse_test_template(&db, source);
+            let flat_errors = super::TagValidator::new(&db, ast).validate();
+
+            // Get errors from tree validator
+            let syntax_tree = parse_test_syntax_tree(&db, source);
+            let tree_errors = SyntaxTreeValidator::new(&db, syntax_tree).validate();
+
+            // For now, we check that both produce errors or both don't
+            // Full equivalence would require mapping error details
+            assert_eq!(
+                flat_errors.is_empty(),
+                tree_errors.is_empty(),
+                "Validation mismatch for template: {}\nFlat errors: {:?}\nTree errors: {:?}",
+                template,
+                flat_errors.len(),
+                tree_errors.len()
+            );
+        }
+    }
+
+    #[salsa::tracked]
+    fn parse_test_template(db: &dyn TemplateDb, source: TestSource) -> crate::NodeList<'_> {
+        let text = source.text(db);
+        let (tokens, _) = Lexer::new(text).tokenize();
+        let token_stream = crate::tokens::TokenStream::new(db, tokens);
+        let mut parser = Parser::new(db, token_stream);
+        let (ast, _) = parser.parse().unwrap();
+        ast
     }
 }

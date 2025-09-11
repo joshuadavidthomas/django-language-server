@@ -208,6 +208,8 @@ pub struct TagSpec {
     pub intermediate_tags: Option<Vec<IntermediateTag>>,
     #[serde(default)]
     pub args: Vec<Arg>,
+    #[serde(default)]
+    pub raw_content: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -255,6 +257,8 @@ pub struct EndTag {
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct IntermediateTag {
     pub name: String,
+    #[serde(default)]
+    pub args: Vec<Arg>,
 }
 
 impl<'de> Deserialize<'de> for IntermediateTag {
@@ -266,12 +270,19 @@ impl<'de> Deserialize<'de> for IntermediateTag {
         #[serde(untagged)]
         enum IntermediateTagHelper {
             String(String),
-            Object { name: String },
+            Object {
+                name: String,
+                #[serde(default)]
+                args: Vec<Arg>,
+            },
         }
 
         match IntermediateTagHelper::deserialize(deserializer)? {
-            IntermediateTagHelper::String(s) => Ok(IntermediateTag { name: s }),
-            IntermediateTagHelper::Object { name } => Ok(IntermediateTag { name }),
+            IntermediateTagHelper::String(s) => Ok(IntermediateTag {
+                name: s,
+                args: Vec::new(),
+            }),
+            IntermediateTagHelper::Object { name, args } => Ok(IntermediateTag { name, args }),
         }
     }
 }
@@ -484,7 +495,8 @@ end = { tag = "endanothertag", optional = true }
         assert_eq!(
             my_tag.intermediate_tags,
             Some(vec![IntermediateTag {
-                name: "mybranch".to_string()
+                name: "mybranch".to_string(),
+                args: Vec::new(),
             }])
         );
 
@@ -502,7 +514,8 @@ end = { tag = "endanothertag", optional = true }
         assert_eq!(
             my_tag.intermediate_tags,
             Some(vec![IntermediateTag {
-                name: "mybranch".to_string()
+                name: "mybranch".to_string(),
+                args: Vec::new(),
             }])
         );
 

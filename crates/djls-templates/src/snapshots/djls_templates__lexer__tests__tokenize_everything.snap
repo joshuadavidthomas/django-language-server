@@ -3,50 +3,47 @@ source: crates/djls-templates/src/lexer.rs
 expression: tokens
 ---
 - token_type:
-    HtmlTagOpen: "!DOCTYPE html"
+    Text: "<!DOCTYPE html>"
   line: 1
   start: 0
 - token_type: Newline
-  line: 1
+  line: 2
   start: 15
 - token_type:
-    HtmlTagOpen: html
+    Text: "<html>"
   line: 2
   start: 16
 - token_type: Newline
-  line: 2
+  line: 3
   start: 22
 - token_type:
-    HtmlTagOpen: head
+    Text: "<head>"
   line: 3
   start: 23
 - token_type: Newline
-  line: 3
+  line: 4
   start: 29
 - token_type:
     Whitespace: 4
   line: 4
   start: 30
 - token_type:
-    StyleTagOpen: "style type=\"text/css\""
+    Text: "<style type=\"text/css\">"
   line: 4
   start: 34
 - token_type: Newline
-  line: 4
+  line: 5
   start: 57
 - token_type:
     Whitespace: 8
   line: 5
   start: 58
 - token_type:
-    Comment:
-      - Style header
-      - /*
-      - "*/"
+    Text: /* Style header */
   line: 5
   start: 66
 - token_type: Newline
-  line: 5
+  line: 6
   start: 84
 - token_type:
     Whitespace: 8
@@ -69,43 +66,40 @@ expression: tokens
   line: 6
   start: 103
 - token_type: Newline
-  line: 6
+  line: 7
   start: 117
 - token_type:
     Whitespace: 4
   line: 7
   start: 118
 - token_type:
-    HtmlTagClose: style
+    Text: "</style>"
   line: 7
   start: 122
 - token_type: Newline
-  line: 7
+  line: 8
   start: 130
 - token_type:
     Whitespace: 4
   line: 8
   start: 131
 - token_type:
-    ScriptTagOpen: "script type=\"text/javascript\""
+    Text: "<script type=\"text/javascript\">"
   line: 8
   start: 135
 - token_type: Newline
-  line: 8
+  line: 9
   start: 166
 - token_type:
     Whitespace: 8
   line: 9
   start: 167
 - token_type:
-    Comment:
-      - Init app
-      - //
-      - ~
+    Text: // Init app
   line: 9
   start: 175
 - token_type: Newline
-  line: 9
+  line: 10
   start: 186
 - token_type:
     Whitespace: 8
@@ -120,21 +114,18 @@ expression: tokens
   line: 10
   start: 207
 - token_type: Newline
-  line: 10
+  line: 11
   start: 208
 - token_type:
     Whitespace: 12
   line: 11
   start: 209
 - token_type:
-    Comment:
-      - Config
-      - /*
-      - "*/"
+    Text: /* Config */
   line: 11
   start: 221
 - token_type: Newline
-  line: 11
+  line: 12
   start: 233
 - token_type:
     Whitespace: 12
@@ -145,7 +136,7 @@ expression: tokens
   line: 12
   start: 246
 - token_type: Newline
-  line: 12
+  line: 13
   start: 257
 - token_type:
     Whitespace: 8
@@ -156,57 +147,54 @@ expression: tokens
   line: 13
   start: 266
 - token_type: Newline
-  line: 13
+  line: 14
   start: 268
 - token_type:
     Whitespace: 4
   line: 14
   start: 269
 - token_type:
-    HtmlTagClose: script
+    Text: "</script>"
   line: 14
   start: 273
 - token_type: Newline
-  line: 14
+  line: 15
   start: 282
 - token_type:
-    HtmlTagClose: head
+    Text: "</head>"
   line: 15
   start: 283
 - token_type: Newline
-  line: 15
+  line: 16
   start: 290
 - token_type:
-    HtmlTagOpen: body
+    Text: "<body>"
   line: 16
   start: 291
 - token_type: Newline
-  line: 16
+  line: 17
   start: 297
 - token_type:
     Whitespace: 4
   line: 17
   start: 298
 - token_type:
-    Comment:
-      - Header section
-      - "<!--"
-      - "-->"
+    Text: "<!-- Header section -->"
   line: 17
   start: 302
 - token_type: Newline
-  line: 17
+  line: 18
   start: 325
 - token_type:
     Whitespace: 4
   line: 18
   start: 326
 - token_type:
-    HtmlTagOpen: "div class=\"header\" id=\"main\" data-value=\"123\" disabled"
+    Text: "<div class=\"header\" id=\"main\" data-value=\"123\" disabled>"
   line: 18
   start: 330
 - token_type: Newline
-  line: 18
+  line: 19
   start: 386
 - token_type:
     Whitespace: 8
@@ -217,7 +205,7 @@ expression: tokens
   line: 19
   start: 395
 - token_type: Newline
-  line: 19
+  line: 20
   start: 425
 - token_type:
     Whitespace: 12
@@ -231,34 +219,26 @@ expression: tokens
   line: 20
   start: 438
 - token_type: Newline
-  line: 20
+  line: 21
   start: 459
 - token_type:
     Whitespace: 12
   line: 21
   start: 460
 - token_type:
-    HtmlTagOpen: h1
+    Text: "<h1>Welcome, "
   line: 21
   start: 472
-- token_type:
-    Text: "Welcome, "
-  line: 21
-  start: 476
 - token_type:
     DjangoVariable: "user.name|default:\"Guest\"|title"
   line: 21
   start: 485
 - token_type:
-    Text: "!"
+    Text: "!</h1>"
   line: 21
   start: 522
-- token_type:
-    HtmlTagClose: h1
-  line: 21
-  start: 523
 - token_type: Newline
-  line: 21
+  line: 22
   start: 528
 - token_type:
     Whitespace: 12
@@ -269,26 +249,18 @@ expression: tokens
   line: 22
   start: 541
 - token_type: Newline
-  line: 22
+  line: 23
   start: 563
 - token_type:
     Whitespace: 16
   line: 23
   start: 564
 - token_type:
-    HtmlTagOpen: span
+    Text: "<span>Admin</span>"
   line: 23
   start: 580
-- token_type:
-    Text: Admin
-  line: 23
-  start: 586
-- token_type:
-    HtmlTagClose: span
-  line: 23
-  start: 591
 - token_type: Newline
-  line: 23
+  line: 24
   start: 598
 - token_type:
     Whitespace: 12
@@ -299,26 +271,18 @@ expression: tokens
   line: 24
   start: 611
 - token_type: Newline
-  line: 24
+  line: 25
   start: 621
 - token_type:
     Whitespace: 16
   line: 25
   start: 622
 - token_type:
-    HtmlTagOpen: span
+    Text: "<span>User</span>"
   line: 25
   start: 638
-- token_type:
-    Text: User
-  line: 25
-  start: 644
-- token_type:
-    HtmlTagClose: span
-  line: 25
-  start: 648
 - token_type: Newline
-  line: 25
+  line: 26
   start: 655
 - token_type:
     Whitespace: 12
@@ -329,7 +293,7 @@ expression: tokens
   line: 26
   start: 668
 - token_type: Newline
-  line: 26
+  line: 27
   start: 679
 - token_type:
     Whitespace: 8
@@ -340,28 +304,28 @@ expression: tokens
   line: 27
   start: 688
 - token_type: Newline
-  line: 27
+  line: 28
   start: 699
 - token_type:
     Whitespace: 4
   line: 28
   start: 700
 - token_type:
-    HtmlTagClose: div
+    Text: "</div>"
   line: 28
   start: 704
 - token_type: Newline
-  line: 28
+  line: 29
   start: 710
 - token_type:
-    HtmlTagClose: body
+    Text: "</body>"
   line: 29
   start: 711
 - token_type: Newline
-  line: 29
+  line: 30
   start: 718
 - token_type:
-    HtmlTagClose: html
+    Text: "</html>"
   line: 30
   start: 719
 - token_type: Eof

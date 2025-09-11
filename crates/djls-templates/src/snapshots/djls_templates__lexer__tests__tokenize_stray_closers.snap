@@ -3,9 +3,13 @@ source: crates/djls-templates/src/lexer.rs
 expression: tokens
 ---
 - token_type:
-    Text: "<div class=\"container\" id=\"main\" disabled></div>"
+    Text: "}} %} #} normal text "
   line: 1
   start: 0
+- token_type:
+    DjangoVariable: valid
+  line: 1
+  start: 21
 - token_type: Eof
   line: 1
   start: ~

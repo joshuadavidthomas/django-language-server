@@ -1,3 +1,4 @@
+use serde::Serialize;
 use thiserror::Error;
 
 use crate::ast::CommentNode;
@@ -75,19 +76,10 @@ impl<'db> Parser<'db> {
 
         match token.token_type() {
             TokenType::Comment(_, open, _) => self.parse_comment(open),
-            TokenType::Eof => Err(ParserError::stream_error(StreamError::AtEnd)),
             TokenType::DjangoBlock(_) => self.parse_django_block(),
             TokenType::DjangoVariable(_) => self.parse_django_variable(),
-            TokenType::HtmlTagClose(_)
-            | TokenType::HtmlTagOpen(_)
-            | TokenType::HtmlTagVoid(_)
-            | TokenType::Newline
-            | TokenType::ScriptTagClose(_)
-            | TokenType::ScriptTagOpen(_)
-            | TokenType::StyleTagClose(_)
-            | TokenType::StyleTagOpen(_)
-            | TokenType::Text(_)
-            | TokenType::Whitespace(_) => self.parse_text(),
+            TokenType::Error(_) | TokenType::Text(_) | TokenType::Whitespace(_) | TokenType::Newline => self.parse_text(),
+            TokenType::Eof => Err(ParserError::stream_error(StreamError::AtEnd)),
         }
     }
 
@@ -271,7 +263,7 @@ impl<'db> Parser<'db> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub enum StreamError {
     AtBeginning,
     BeforeStart,
@@ -280,27 +272,53 @@ pub enum StreamError {
     InvalidAccess,
 }
 
-#[derive(Debug, Error)]
-pub enum ParserError {
+#[derive(Clone, Debug, Error, PartialEq, Eq, Serialize)]
+pub enum ParseError {
     #[error("Unexpected token: expected {expected:?}, found {found} at position {position}")]
     UnexpectedToken {
         expected: Vec<String>,
         found: String,
         position: usize,
     },
+    
+    #[error("Missing condition in '{tag}' tag at position {position}")]
+    MissingCondition { tag: String, position: usize },
+    
+    #[error("Missing iterator in 'for' tag at position {position}")]
+    MissingIterator { position: usize },
+    
+    #[error("Malformed variable at position {position}: {content}")]
+    MalformedVariable { position: usize, content: String },
+    
+    #[error("Invalid filter syntax at position {position}: {reason}")]
+    InvalidFilterSyntax { position: usize, reason: String },
+    
+    #[error("Unclosed tag at position {opener}: expected '{expected_closer}'")]
+    UnclosedTag {
+        opener: usize,
+        expected_closer: String,
+    },
+    
     #[error("Invalid syntax: {context}")]
     InvalidSyntax { context: String },
+    
     #[error("Empty tag")]
     EmptyTag,
+    
     #[error("Lexer error: {0}")]
     Lexer(#[from] LexerError),
+    
     #[error("Stream error: {kind:?}")]
     StreamError { kind: StreamError },
+    
     #[error("AST error: {0}")]
     NodeList(#[from] NodeListError),
 }
 
-impl ParserError {
+// Keep ParserError as alias for compatibility
+pub type ParserError = ParseError;
+
+impl ParseError {
     pub fn stream_error(kind: impl Into<StreamError>) -> Self {
         Self::StreamError { kind: kind.into() }
     }
@@ -365,7 +383,8 @@ mod tests {
     #[salsa::tracked]
     fn parse_test_template(db: &dyn TemplateDb, template: TestTemplate) -> NodeList<'_> {
         let source = template.source(db);
-        let tokens = Lexer::new(source).tokenize().unwrap();
+        let mut lexer = Lexer::new(source);
+        let (tokens, _) = lexer.tokenize();
         let token_stream = TokenStream::new(db, tokens);
         let mut parser = Parser::new(db, token_stream);
         let (ast, _) = parser.parse().unwrap();

@@ -16,6 +16,7 @@ args = [
 name = "comment"
 end_tag = { name = "endcomment" }
 args = []
+raw_content = true
 
 [[tagspecs.django.template.defaulttags]]
 name = "csrf_token"
@@ -134,6 +135,7 @@ end_tag = { name = "endverbatim" }
 args = [
     { name = "name", required = false, type = "string" }
 ]
+raw_content = true
 
 [[tagspecs.django.template.defaulttags]]
 name = "widthratio"
