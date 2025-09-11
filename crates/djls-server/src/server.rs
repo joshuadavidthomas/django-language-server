@@ -225,8 +225,6 @@ impl LanguageServer for DjangoLanguageServer {
                             path_display,
                             e
                         );
-
-                        // Django initialization is now handled lazily through Salsa
                     }
                 }
             } else {

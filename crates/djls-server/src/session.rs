@@ -9,6 +9,7 @@ use std::sync::Arc;
 use dashmap::DashMap;
 use djls_conf::Settings;
 use djls_project::Db as ProjectDb;
+use djls_project::Interpreter;
 use djls_workspace::db::SourceFile;
 use djls_workspace::paths;
 use djls_workspace::PositionEncoding;
@@ -68,27 +69,20 @@ impl Session {
             Settings::default()
         };
 
-        // Create workspace for buffer management
         let workspace = Workspace::new();
 
-        // Create the concrete database with the workspace's file system
         let files = Arc::new(DashMap::new());
         let mut db = DjangoDatabase::new(workspace.file_system(), files);
 
-        // Initialize the project input with correct interpreter spec from settings
         if let Some(root_path) = &project_path {
-            // Set the project in the database
             db.set_project(root_path);
 
-            // Get the project to configure it
             if let Some(project) = db.project() {
-                // Update interpreter spec based on VIRTUAL_ENV if available
                 if let Ok(virtual_env) = std::env::var("VIRTUAL_ENV") {
-                    let interpreter = djls_project::Interpreter::VenvPath(virtual_env);
+                    let interpreter = Interpreter::VenvPath(virtual_env);
                     project.set_interpreter(&mut db).to(interpreter);
                 }
 
-                // Update Django settings module override if available
                 if let Ok(settings_module) = std::env::var("DJANGO_SETTINGS_MODULE") {
                     project
                         .set_settings_module(&mut db)
