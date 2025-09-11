@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 
+use crate::db::Db as ProjectDb;
 use crate::python::Interpreter;
+use crate::{django_available, django_settings_module, get_templatetags};
 
 /// Complete project configuration as a Salsa input.
 ///
@@ -19,4 +21,12 @@ pub struct Project {
     /// Optional Django settings module override from configuration
     #[returns(ref)]
     pub settings_module: Option<String>,
+}
+
+impl Project {
+    pub fn initialize(self, db: &dyn ProjectDb) {
+        let _ = django_available(db, self);
+        let _ = django_settings_module(db, self);
+        let _ = get_templatetags(db, self);
+    }
 }

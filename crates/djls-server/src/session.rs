@@ -34,6 +34,7 @@ use crate::db::DjangoDatabase;
 /// and is passed down to operations that need it.
 pub struct Session {
     /// LSP server settings
+    // TODO: this should really be in the database
     settings: Settings,
 
     /// Workspace for buffer and file system management
@@ -78,11 +79,16 @@ impl Session {
             db.set_project(root_path);
 
             if let Some(project) = db.project() {
-                if let Ok(virtual_env) = std::env::var("VIRTUAL_ENV") {
+                // TODO: should this logic live in the project?
+                if let Some(venv_path) = settings.venv_path() {
+                    let interpreter = Interpreter::VenvPath(venv_path.to_string());
+                    project.set_interpreter(&mut db).to(interpreter);
+                } else if let Ok(virtual_env) = std::env::var("VIRTUAL_ENV") {
                     let interpreter = Interpreter::VenvPath(virtual_env);
                     project.set_interpreter(&mut db).to(interpreter);
                 }
 
+                // TODO: allow for configuring via settings
                 if let Ok(settings_module) = std::env::var("DJANGO_SETTINGS_MODULE") {
                     project
                         .set_settings_module(&mut db)
@@ -119,18 +125,6 @@ impl Session {
         self.position_encoding
     }
 
-    /// Check if the client supports snippet completions
-    #[must_use]
-    pub fn supports_snippets(&self) -> bool {
-        self.client_capabilities
-            .text_document
-            .as_ref()
-            .and_then(|td| td.completion.as_ref())
-            .and_then(|c| c.completion_item.as_ref())
-            .and_then(|ci| ci.snippet_support)
-            .unwrap_or(false)
-    }
-
     /// Execute a read-only operation with access to the database.
     pub fn with_db<F, R>(&self, f: F) -> R
     where
@@ -155,18 +149,6 @@ impl Session {
     /// Get the current project for this session
     pub fn project(&self) -> Option<djls_project::Project> {
         self.db.project()
-    }
-
-    /// Initialize the project and refresh Django data
-    pub fn initialize_project(&mut self) -> anyhow::Result<()> {
-        // Warm up Django-related tracked functions
-        if let Some(project) = self.db.project() {
-            let _ = djls_project::django_available(&self.db, project);
-            let _ = djls_project::django_settings_module(&self.db, project);
-            let _ = djls_project::get_templatetags(&self.db, project);
-        }
-
-        Ok(())
     }
 
     /// Open a document in the session.
@@ -260,6 +242,18 @@ impl Session {
             .as_ref()
             .and_then(|td| td.diagnostic.as_ref())
             .is_some()
+    }
+
+    /// Check if the client supports snippet completions
+    #[must_use]
+    pub fn supports_snippets(&self) -> bool {
+        self.client_capabilities
+            .text_document
+            .as_ref()
+            .and_then(|td| td.completion.as_ref())
+            .and_then(|c| c.completion_item.as_ref())
+            .and_then(|ci| ci.snippet_support)
+            .unwrap_or(false)
     }
 }
 

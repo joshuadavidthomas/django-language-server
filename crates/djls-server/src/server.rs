@@ -182,54 +182,31 @@ impl LanguageServer for DjangoLanguageServer {
         })
     }
 
-    #[allow(clippy::too_many_lines)]
     async fn initialized(&self, _params: lsp_types::InitializedParams) {
         tracing::info!("Server received initialized notification.");
 
         self.with_session_task(move |session_arc| async move {
-            let project_path_and_venv = {
-                let session_lock = session_arc.lock().await;
-                std::env::current_dir().ok().map(|current_dir| {
-                    (
-                        current_dir.display().to_string(),
-                        session_lock
-                            .settings()
-                            .venv_path()
-                            .map(std::string::ToString::to_string),
-                    )
-                })
-            };
+            let session_lock = session_arc.lock().await;
 
-            if let Some((path_display, venv_path)) = project_path_and_venv {
+            let project_path = session_lock
+                .project()
+                .map(|p| p.root(session_lock.database()).clone());
+
+            if let Some(path) = project_path {
                 tracing::info!(
                     "Task: Starting initialization for project at: {}",
-                    path_display
+                    path.display()
                 );
 
-                if let Some(ref path) = venv_path {
-                    tracing::info!("Using virtual environment from config: {}", path);
+                if let Some(project) = session_lock.project() {
+                    project.initialize(session_lock.database());
                 }
 
-                let init_result = {
-                    let mut session_lock = session_arc.lock().await;
-                    session_lock.initialize_project()
-                };
-
-                match init_result {
-                    Ok(()) => {
-                        tracing::info!("Task: Successfully initialized project: {}", path_display);
-                    }
-                    Err(e) => {
-                        tracing::error!(
-                            "Task: Failed to initialize Django project at {}: {}",
-                            path_display,
-                            e
-                        );
-                    }
-                }
+                tracing::info!("Task: Successfully initialized project: {}", path.display());
             } else {
-                tracing::info!("Task: No project instance found to initialize.");
+                tracing::info!("Task: No project configured, skipping initialization.");
             }
+
             Ok(())
         })
         .await;
