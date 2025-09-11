@@ -5,17 +5,18 @@ pub use templatetags::TemplateTags;
 
 use crate::db::Db as ProjectDb;
 use crate::inspector::inspector_run;
-use crate::inspector::queries::InspectorQueryKind;
+use crate::inspector::queries::Query;
 use crate::python::python_environment;
+use crate::Project;
 
 /// Check if Django is available for the current project.
 ///
 /// This determines if Django is installed and configured in the Python environment.
 /// First consults the inspector, then falls back to environment detection.
 #[salsa::tracked]
-pub fn django_available(db: &dyn ProjectDb) -> bool {
+pub fn django_available(db: &dyn ProjectDb, project: Project) -> bool {
     // First try to get Django availability from inspector
-    if let Some(json_data) = inspector_run(db, InspectorQueryKind::DjangoAvailable) {
+    if let Some(json_data) = inspector_run(db, Query::DjangoInit) {
         // Parse the JSON response - expect a boolean
         if let Ok(available) = serde_json::from_str::<bool>(&json_data) {
             return available;
@@ -23,7 +24,7 @@ pub fn django_available(db: &dyn ProjectDb) -> bool {
     }
 
     // Fallback to environment detection
-    python_environment(db).is_some()
+    python_environment(db, project).is_some()
 }
 
 /// Get the Django settings module name for the current project.
@@ -31,30 +32,28 @@ pub fn django_available(db: &dyn ProjectDb) -> bool {
 /// Returns the settings_module_override from project, or inspector result,
 /// or DJANGO_SETTINGS_MODULE env var, or attempts to detect it.
 #[salsa::tracked]
-pub fn django_settings_module(db: &dyn ProjectDb) -> Option<String> {
-    let project = db.project()?;
-
+pub fn django_settings_module(db: &dyn ProjectDb, project: Project) -> Option<String> {
     // Check project override first
     if let Some(settings) = project.settings_module(db) {
         return Some(settings.clone());
     }
 
     // Try to get settings module from inspector
-    if let Some(json_data) = inspector_run(db, InspectorQueryKind::SettingsModule) {
+    if let Some(json_data) = inspector_run(db, Query::DjangoInit) {
         // Parse the JSON response - expect a string
         if let Ok(settings) = serde_json::from_str::<String>(&json_data) {
             return Some(settings);
         }
     }
 
-    let project_path = db.project_path()?;
+    let project_path = project.root(db);
 
     // Try to detect settings module
     if project_path.join("manage.py").exists() {
         // Look for common settings modules
         for candidate in &["settings", "config.settings", "project.settings"] {
             let parts: Vec<&str> = candidate.split('.').collect();
-            let mut path = project_path.to_path_buf();
+            let mut path = project_path.clone();
             for part in &parts[..parts.len() - 1] {
                 path = path.join(part);
             }

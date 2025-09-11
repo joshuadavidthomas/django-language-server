@@ -3,7 +3,6 @@ pub mod pool;
 pub mod queries;
 mod zipapp;
 
-use queries::InspectorQueryKind;
 pub use queries::Query;
 use serde::Deserialize;
 use serde::Serialize;
@@ -28,21 +27,14 @@ pub struct DjlsResponse {
 ///
 /// This tracked function executes inspector queries through the shared pool
 /// and caches the results based on project state and query kind.
-pub fn inspector_run(db: &dyn ProjectDb, kind: InspectorQueryKind) -> Option<String> {
-    let python_env = python_environment(db)?;
-    let project_path = db.project_path()?;
-
-    let query = match kind {
-        InspectorQueryKind::TemplateTags => crate::inspector::Query::Templatetags,
-        InspectorQueryKind::DjangoAvailable | InspectorQueryKind::SettingsModule => {
-            crate::inspector::Query::DjangoInit
-        }
-    };
-    let request = crate::inspector::DjlsRequest { query };
+pub fn inspector_run(db: &dyn ProjectDb, query: Query) -> Option<String> {
+    let project = db.project()?;
+    let python_env = python_environment(db, project)?;
+    let project_path = project.root(db);
 
     match db
         .inspector_pool()
-        .query(&python_env, project_path, &request)
+        .query(&python_env, project_path, &DjlsRequest { query })
     {
         Ok(response) => {
             if response.ok {

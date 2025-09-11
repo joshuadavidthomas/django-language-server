@@ -1,7 +1,7 @@
 use std::future::Future;
-use std::path::PathBuf;
 use std::sync::Arc;
 
+use djls_project::Db as ProjectDb;
 use djls_templates::analyze_template;
 use djls_templates::TemplateDiagnostic;
 use djls_workspace::paths;
@@ -368,7 +368,13 @@ impl LanguageServer for DjangoLanguageServer {
                     let position = params.text_document_position.position;
                     let encoding = session.position_encoding();
                     let file_kind = FileKind::from_path(&path);
-                    let template_tags = session.with_db(|db| djls_project::get_templatetags(db));
+                    let template_tags = session.with_db(|db| {
+                        if let Some(project) = db.project() {
+                            djls_project::get_templatetags(db, project)
+                        } else {
+                            None
+                        }
+                    });
                     let tag_specs = session.with_db(djls_templates::Db::tag_specs);
                     let supports_snippets = session.supports_snippets();
 
@@ -475,7 +481,7 @@ impl LanguageServer for DjangoLanguageServer {
 
         self.with_session_mut(|session| {
             if let Some(project) = session.project() {
-                let project_root = PathBuf::from(project.root(session.database()).as_str());
+                let project_root = project.root(session.database());
 
                 match djls_conf::Settings::new(project_root.as_path()) {
                     Ok(new_settings) => {

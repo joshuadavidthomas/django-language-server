@@ -3,21 +3,13 @@ use std::path::PathBuf;
 use serde::Deserialize;
 use serde::Serialize;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Hash, Copy)]
 #[serde(tag = "query", content = "args")]
 #[serde(rename_all = "snake_case")]
 pub enum Query {
+    DjangoInit,
     PythonEnv,
     Templatetags,
-    DjangoInit,
-}
-
-/// Enum representing different kinds of inspector queries for Salsa tracking
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Copy)]
-pub enum InspectorQueryKind {
-    TemplateTags,
-    DjangoAvailable,
-    SettingsModule,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -56,15 +48,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_inspector_query_kind_enum() {
-        // Test that InspectorQueryKind variants exist and are copyable
-        let template_tags = InspectorQueryKind::TemplateTags;
-        let django_available = InspectorQueryKind::DjangoAvailable;
-        let settings_module = InspectorQueryKind::SettingsModule;
+    fn test_query_enum() {
+        // Test that Query variants exist and are copyable
+        let python_env = Query::PythonEnv;
+        let templatetags = Query::Templatetags;
+        let django_init = Query::DjangoInit;
 
         // Test that they can be copied
-        assert_eq!(template_tags, InspectorQueryKind::TemplateTags);
-        assert_eq!(django_available, InspectorQueryKind::DjangoAvailable);
-        assert_eq!(settings_module, InspectorQueryKind::SettingsModule);
+        assert_eq!(python_env, Query::PythonEnv);
+        assert_eq!(templatetags, Query::Templatetags);
+        assert_eq!(django_init, Query::DjangoInit);
     }
 }

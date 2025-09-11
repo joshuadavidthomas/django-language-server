@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use crate::db::Db as ProjectDb;
 use crate::system;
+use crate::Project;
 
 /// Interpreter specification for Python environment discovery.
 ///
@@ -25,9 +26,7 @@ pub enum Interpreter {
 /// This tracked function determines the interpreter path based on the project's
 /// interpreter specification.
 #[salsa::tracked]
-pub fn resolve_interpreter(db: &dyn ProjectDb) -> Option<PathBuf> {
-    let project = db.project()?;
-
+pub fn resolve_interpreter(db: &dyn ProjectDb, project: Project) -> Option<PathBuf> {
     match &project.interpreter(db) {
         Interpreter::InterpreterPath(path) => {
             let path_buf = PathBuf::from(path.as_str());
@@ -55,7 +54,7 @@ pub fn resolve_interpreter(db: &dyn ProjectDb) -> Option<PathBuf> {
         Interpreter::Auto => {
             // Try common venv directories
             for venv_dir in &[".venv", "venv", "env", ".env"] {
-                let potential_venv = db.project_path()?.join(venv_dir);
+                let potential_venv = project.root(db).join(venv_dir);
                 if potential_venv.is_dir() {
                     #[cfg(unix)]
                     let interpreter_path = potential_venv.join("bin").join("python");
@@ -207,10 +206,9 @@ impl fmt::Display for PythonEnvironment {
 /// 3. Common venv directories in project root (.venv, venv, env, .env)
 /// 4. System Python as fallback
 #[salsa::tracked]
-pub fn python_environment(db: &dyn ProjectDb) -> Option<Arc<PythonEnvironment>> {
-    let project = db.project()?;
-    let interpreter_path = resolve_interpreter(db)?;
-    let project_path = Path::new(project.root(db));
+pub fn python_environment(db: &dyn ProjectDb, project: Project) -> Option<Arc<PythonEnvironment>> {
+    let interpreter_path = resolve_interpreter(db, project)?;
+    let project_path = project.root(db);
 
     // For venv paths, we need to determine the venv root
     let interpreter_spec = project.interpreter(db);
@@ -274,9 +272,7 @@ mod tests {
 
         use super::*;
         use crate::system::mock::MockGuard;
-        use crate::system::mock::{
-            self as sys_mock,
-        };
+        use crate::system::mock::{self as sys_mock};
 
         #[test]
         fn test_explicit_venv_path_found() {
@@ -575,7 +571,6 @@ mod tests {
         use djls_workspace::InMemoryFileSystem;
 
         use super::*;
-        use crate::db::Db as ProjectDb;
 
         /// Test implementation of ProjectDb for unit tests
         #[salsa::db]
@@ -583,7 +578,7 @@ mod tests {
         struct TestDatabase {
             storage: salsa::Storage<TestDatabase>,
             project_root: PathBuf,
-            project: Arc<Mutex<Option<crate::meta::Project>>>,
+            project: Arc<Mutex<Option<crate::project::Project>>>,
             fs: Arc<dyn FileSystem>,
         }
 
@@ -597,7 +592,7 @@ mod tests {
                 }
             }
 
-            fn set_project(&self, project: crate::meta::Project) {
+            fn set_project(&self, project: crate::project::Project) {
                 *self.project.lock().unwrap() = Some(project);
             }
         }
@@ -618,7 +613,7 @@ mod tests {
 
         #[salsa::db]
         impl ProjectDb for TestDatabase {
-            fn project(&self) -> Option<crate::meta::Project> {
+            fn project(&self) -> Option<crate::project::Project> {
                 // Return existing project or create a new one
                 let mut project_lock = self.project.lock().unwrap();
                 if project_lock.is_none() {
@@ -626,7 +621,7 @@ mod tests {
                     let interpreter_spec = crate::python::Interpreter::Auto;
                     let django_settings = std::env::var("DJANGO_SETTINGS_MODULE").ok();
 
-                    *project_lock = Some(crate::meta::Project::new(
+                    *project_lock = Some(crate::project::Project::new(
                         self,
                         root.to_string_lossy().to_string(),
                         interpreter_spec,
@@ -653,7 +648,7 @@ mod tests {
             let db = TestDatabase::new(project_dir.path().to_path_buf());
 
             // Create and configure the project with the venv path
-            let project = crate::meta::Project::new(
+            let project = crate::project::Project::new(
                 &db,
                 project_dir.path().to_string_lossy().to_string(),
                 crate::python::Interpreter::VenvPath(venv_prefix.to_string_lossy().to_string()),
@@ -662,7 +657,7 @@ mod tests {
             db.set_project(project);
 
             // Call the tracked function
-            let env = crate::python_environment(&db);
+            let env = crate::python_environment(&db, project);
 
             // Verify we found the environment
             assert!(env.is_some(), "Should find environment via salsa db");
@@ -698,7 +693,8 @@ mod tests {
             system::mock::remove_env_var("VIRTUAL_ENV");
 
             // Call the tracked function (should find .venv)
-            let env = crate::python_environment(&db);
+            let project = db.project().unwrap();
+            let env = crate::python_environment(&db, project);
 
             // Verify we found the environment
             assert!(

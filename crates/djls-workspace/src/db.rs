@@ -48,6 +48,7 @@ pub trait Db: salsa::Database {
 pub struct SourceFile {
     /// The file's classification for analysis routing
     pub kind: FileKind,
+    // TODO: Change from Arc<str> to PathBuf for consistency with Project.root
     /// The file path
     #[returns(ref)]
     pub path: Arc<str>,
@@ -78,6 +79,7 @@ pub fn source_text(db: &dyn Db, file: SourceFile) -> Arc<str> {
 /// on files identified by path rather than by SourceFile input.
 #[salsa::input]
 pub struct FilePath {
+    // TODO: Change from Arc<str> to PathBuf for consistency with Project.root
     /// The file path as a string
     #[returns(ref)]
     pub path: Arc<str>,

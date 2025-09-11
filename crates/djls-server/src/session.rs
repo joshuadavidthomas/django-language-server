@@ -166,9 +166,11 @@ impl Session {
     /// Initialize the project and refresh Django data
     pub fn initialize_project(&mut self) -> anyhow::Result<()> {
         // Warm up Django-related tracked functions
-        let _ = djls_project::django_available(&self.db);
-        let _ = djls_project::django_settings_module(&self.db);
-        let _ = djls_project::get_templatetags(&self.db);
+        if let Some(project) = self.db.project() {
+            let _ = djls_project::django_available(&self.db, project);
+            let _ = djls_project::django_settings_module(&self.db, project);
+            let _ = djls_project::get_templatetags(&self.db, project);
+        }
 
         Ok(())
     }

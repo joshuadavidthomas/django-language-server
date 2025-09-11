@@ -89,12 +89,7 @@ impl DjangoDatabase {
         let interpreter = djls_project::Interpreter::Auto;
         let django_settings = std::env::var("DJANGO_SETTINGS_MODULE").ok();
 
-        let project = Project::new(
-            self,
-            root.to_string_lossy().to_string(),
-            interpreter,
-            django_settings,
-        );
+        let project = Project::new(self, root.to_path_buf(), interpreter, django_settings);
 
         *self.project.lock().unwrap() = Some(project);
     }

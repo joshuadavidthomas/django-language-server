@@ -16,7 +16,7 @@ use std::sync::Arc;
 use djls_workspace::Db as WorkspaceDb;
 
 use crate::inspector::pool::InspectorPool;
-use crate::meta::Project;
+use crate::project::Project;
 
 /// Project-specific database trait extending the workspace database
 #[salsa::db]
@@ -29,6 +29,6 @@ pub trait Db: WorkspaceDb {
 
     /// Get the project root path if a project is set
     fn project_path(&self) -> Option<&Path> {
-        self.project().map(|p| Path::new(p.root(self)))
+        self.project().map(|p| p.root(self).as_path())
     }
 }
