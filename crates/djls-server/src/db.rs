@@ -10,8 +10,9 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 use dashmap::DashMap;
-use djls_project::inspector::pool::InspectorPool;
 use djls_project::Db as ProjectDb;
+use djls_project::InspectorPool;
+use djls_project::Interpreter;
 use djls_project::Project;
 use djls_templates::db::Db as TemplateDb;
 use djls_templates::templatetags::TagSpecs;
@@ -86,7 +87,7 @@ impl DjangoDatabase {
     ///
     /// Panics if the project mutex is poisoned.
     pub fn set_project(&self, root: &Path) {
-        let interpreter = djls_project::Interpreter::Auto;
+        let interpreter = Interpreter::Auto;
         let django_settings = std::env::var("DJANGO_SETTINGS_MODULE").ok();
 
         let project = Project::new(self, root.to_path_buf(), interpreter, django_settings);
