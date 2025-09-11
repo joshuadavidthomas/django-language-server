@@ -13,6 +13,7 @@ pub enum Query {
 }
 
 #[derive(Serialize, Deserialize)]
+#[allow(clippy::struct_field_names)]
 pub struct PythonEnvironmentQueryData {
     pub sys_base_prefix: PathBuf,
     pub sys_executable: PathBuf,
