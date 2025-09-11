@@ -48,6 +48,7 @@
 pub mod ast;
 pub mod db;
 mod error;
+pub mod fragment;
 mod lexer;
 mod parser;
 pub mod syntax_tree;
