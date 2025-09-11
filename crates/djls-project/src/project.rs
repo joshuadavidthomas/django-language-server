@@ -1,8 +1,10 @@
 use std::path::PathBuf;
 
 use crate::db::Db as ProjectDb;
+use crate::django_available;
+use crate::django_settings_module;
+use crate::get_templatetags;
 use crate::python::Interpreter;
-use crate::{django_available, django_settings_module, get_templatetags};
 
 /// Complete project configuration as a Salsa input.
 ///

@@ -268,11 +268,13 @@ mod tests {
     }
 
     mod env_discovery {
+        use system::mock::MockGuard;
+        use system::mock::{
+            self as sys_mock,
+        };
         use which::Error as WhichError;
 
         use super::*;
-        use system::mock::MockGuard;
-        use system::mock::{self as sys_mock};
 
         #[test]
         fn test_explicit_venv_path_found() {
