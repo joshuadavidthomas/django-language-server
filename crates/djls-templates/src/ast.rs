@@ -4,7 +4,7 @@ use thiserror::Error;
 use crate::tokens::Token;
 
 #[salsa::tracked(debug)]
-pub struct Ast<'db> {
+pub struct NodeList<'db> {
     #[tracked]
     #[returns(ref)]
     pub nodelist: Vec<Node<'db>>,
@@ -144,9 +144,9 @@ impl Span {
 }
 
 #[derive(Clone, Debug, Error, PartialEq, Eq, Serialize)]
-pub enum AstError {
-    #[error("Empty AST")]
-    EmptyAst,
+pub enum NodeListError {
+    #[error("Empty NodeList")]
+    EmptyNodeList,
     #[error("Invalid tag '{tag}' structure: {reason}")]
     InvalidTagStructure {
         tag: String,
@@ -182,22 +182,22 @@ pub enum AstError {
     TooManyArguments { tag: String, max: usize, span: Span },
 }
 
-impl AstError {
+impl NodeListError {
     /// Get the span start and length of this error, if available
     #[must_use]
     pub fn span(&self) -> Option<(u32, u32)> {
         match self {
-            AstError::UnbalancedStructure { opening_span, .. } => {
+            NodeListError::UnbalancedStructure { opening_span, .. } => {
                 Some((opening_span.start, opening_span.length))
             }
-            AstError::InvalidTagStructure { span, .. }
-            | AstError::InvalidNode { span, .. }
-            | AstError::UnclosedTag { span, .. }
-            | AstError::OrphanedTag { span, .. }
-            | AstError::UnmatchedBlockName { span, .. }
-            | AstError::MissingRequiredArguments { span, .. }
-            | AstError::TooManyArguments { span, .. } => Some((span.start, span.length)),
-            AstError::EmptyAst => None,
+            NodeListError::InvalidTagStructure { span, .. }
+            | NodeListError::InvalidNode { span, .. }
+            | NodeListError::UnclosedTag { span, .. }
+            | NodeListError::OrphanedTag { span, .. }
+            | NodeListError::UnmatchedBlockName { span, .. }
+            | NodeListError::MissingRequiredArguments { span, .. }
+            | NodeListError::TooManyArguments { span, .. } => Some((span.start, span.length)),
+            NodeListError::EmptyNodeList => None,
         }
     }
 
@@ -205,15 +205,15 @@ impl AstError {
     #[must_use]
     pub fn diagnostic_code(&self) -> &'static str {
         match self {
-            AstError::EmptyAst => "T001",
-            AstError::InvalidTagStructure { .. } => "T002",
-            AstError::UnbalancedStructure { .. } => "T003",
-            AstError::InvalidNode { .. } => "T004",
-            AstError::UnclosedTag { .. } => "T005",
-            AstError::OrphanedTag { .. } => "T006",
-            AstError::UnmatchedBlockName { .. } => "T007",
-            AstError::MissingRequiredArguments { .. } => "T008",
-            AstError::TooManyArguments { .. } => "T009",
+            NodeListError::EmptyNodeList => "T001",
+            NodeListError::InvalidTagStructure { .. } => "T002",
+            NodeListError::UnbalancedStructure { .. } => "T003",
+            NodeListError::InvalidNode { .. } => "T004",
+            NodeListError::UnclosedTag { .. } => "T005",
+            NodeListError::OrphanedTag { .. } => "T006",
+            NodeListError::UnmatchedBlockName { .. } => "T007",
+            NodeListError::MissingRequiredArguments { .. } => "T008",
+            NodeListError::TooManyArguments { .. } => "T009",
         }
     }
 }

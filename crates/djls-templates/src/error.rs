@@ -1,7 +1,7 @@
 use serde::Serialize;
 use thiserror::Error;
 
-use crate::ast::AstError;
+use crate::ast::NodeListError;
 use crate::lexer::LexerError;
 use crate::parser::ParserError;
 
@@ -14,7 +14,7 @@ pub enum TemplateError {
     Parser(String),
 
     #[error("{0}")]
-    Validation(#[from] AstError),
+    Validation(#[from] NodeListError),
 
     #[error("IO error: {0}")]
     Io(String),
@@ -45,7 +45,7 @@ impl TemplateError {
     #[must_use]
     pub fn span(&self) -> Option<(u32, u32)> {
         match self {
-            TemplateError::Validation(ast_error) => ast_error.span(),
+            TemplateError::Validation(nodelist_error) => nodelist_error.span(),
             _ => None,
         }
     }
@@ -55,7 +55,7 @@ impl TemplateError {
         match self {
             TemplateError::Lexer(_) => "T200",
             TemplateError::Parser(_) => "T100",
-            TemplateError::Validation(ast_error) => ast_error.diagnostic_code(),
+            TemplateError::Validation(nodelist_error) => nodelist_error.diagnostic_code(),
             TemplateError::Io(_) => "T900",
             TemplateError::Config(_) => "T901",
         }
