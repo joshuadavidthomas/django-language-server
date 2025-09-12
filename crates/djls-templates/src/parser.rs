@@ -37,7 +37,7 @@ impl<'db> Parser<'db> {
         let tokens = self.tokens.stream(self.db);
         for token in tokens {
             if matches!(token, Token::Newline { .. }) {
-                let start = token.start();
+                let start = token.offset();
                 if let Some(start) = start {
                     line_offsets.add_line(start + 1);
                 }
@@ -92,8 +92,7 @@ impl<'db> Parser<'db> {
 
         if let Token::Error {
             content,
-            line: _,
-            start,
+            offset: start,
             ..
         } = token
         {
@@ -152,7 +151,7 @@ impl<'db> Parser<'db> {
             return self.next_node();
         }
 
-        let start = first_token.start().unwrap_or(0);
+        let start = first_token.offset().unwrap_or(0);
         let mut end_position = start + first_token.length(self.db);
 
         while let Ok(token) = self.peek() {
@@ -164,7 +163,7 @@ impl<'db> Parser<'db> {
                 | Token::Eof { .. } => break, // Stop at Django constructs
                 Token::Text { .. } | Token::Whitespace { .. } | Token::Newline { .. } => {
                     // Update end position
-                    let token_start = token.start().unwrap_or(end_position);
+                    let token_start = token.offset().unwrap_or(end_position);
                     let token_length = token.length(self.db);
                     end_position = token_start + token_length;
                     self.consume()?;

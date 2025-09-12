@@ -4,7 +4,5 @@ expression: snapshot
 ---
 - Variable:
     content: "user.name|default:\"Anonymous\"|title"
-    line: 1
-    start: 3
-- Eof:
-    line: 1
+    offset: 3
+- Eof
