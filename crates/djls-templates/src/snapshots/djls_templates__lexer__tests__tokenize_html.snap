@@ -4,7 +4,5 @@ expression: snapshot
 ---
 - Text:
     content: "<div class=\"container\" id=\"main\" disabled></div>"
-    line: 1
-    start: 0
-- Eof:
-    line: 1
+    offset: 0
+- Eof

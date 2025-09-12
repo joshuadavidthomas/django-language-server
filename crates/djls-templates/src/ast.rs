@@ -153,7 +153,7 @@ impl Span {
 
     #[must_use]
     pub fn from_token(token: &Token<'_>, db: &dyn TemplateDb) -> Self {
-        let start = token.start().unwrap_or(0);
+        let start = token.offset().unwrap_or(0);
         let length = token.length(db);
         Span::new(start, length)
     }

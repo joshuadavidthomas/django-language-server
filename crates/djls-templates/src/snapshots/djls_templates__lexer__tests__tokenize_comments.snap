@@ -4,86 +4,62 @@ expression: snapshot
 ---
 - Text:
     content: "<!-- HTML comment -->"
-    line: 1
-    start: 0
+    offset: 0
 - Newline:
-    line: 1
-    start: 21
+    offset: 21
 - Comment:
     content: Django comment
-    line: 2
-    start: 25
+    offset: 25
 - Newline:
-    line: 2
-    start: 42
+    offset: 42
 - Text:
     content: "<script>"
-    line: 3
-    start: 43
+    offset: 43
 - Newline:
-    line: 3
-    start: 51
+    offset: 51
 - Whitespace:
     count: 4
-    line: 4
-    start: 52
+    offset: 52
 - Text:
     content: // JS single line comment
-    line: 4
-    start: 56
+    offset: 56
 - Newline:
-    line: 4
-    start: 81
+    offset: 81
 - Whitespace:
     count: 4
-    line: 5
-    start: 82
+    offset: 82
 - Text:
     content: /* JS multi-line
-    line: 5
-    start: 86
+    offset: 86
 - Newline:
-    line: 5
-    start: 102
+    offset: 102
 - Whitespace:
     count: 7
-    line: 6
-    start: 103
+    offset: 103
 - Text:
     content: comment */
-    line: 6
-    start: 110
+    offset: 110
 - Newline:
-    line: 6
-    start: 120
+    offset: 120
 - Text:
     content: "</script>"
-    line: 7
-    start: 121
+    offset: 121
 - Newline:
-    line: 7
-    start: 130
+    offset: 130
 - Text:
     content: "<style>"
-    line: 8
-    start: 131
+    offset: 131
 - Newline:
-    line: 8
-    start: 138
+    offset: 138
 - Whitespace:
     count: 4
-    line: 9
-    start: 139
+    offset: 139
 - Text:
     content: /* CSS comment */
-    line: 9
-    start: 143
+    offset: 143
 - Newline:
-    line: 9
-    start: 160
+    offset: 160
 - Text:
     content: "</style>"
-    line: 10
-    start: 161
-- Eof:
-    line: 10
+    offset: 161
+- Eof

@@ -4,69 +4,50 @@ expression: snapshot
 ---
 - Text:
     content: "<script type=\"text/javascript\">"
-    line: 1
-    start: 0
+    offset: 0
 - Newline:
-    line: 1
-    start: 31
+    offset: 31
 - Whitespace:
     count: 4
-    line: 2
-    start: 32
+    offset: 32
 - Text:
     content: // Single line comment
-    line: 2
-    start: 36
+    offset: 36
 - Newline:
-    line: 2
-    start: 58
+    offset: 58
 - Whitespace:
     count: 4
-    line: 3
-    start: 59
+    offset: 59
 - Text:
     content: const x = 1;
-    line: 3
-    start: 63
+    offset: 63
 - Newline:
-    line: 3
-    start: 75
+    offset: 75
 - Whitespace:
     count: 4
-    line: 4
-    start: 76
+    offset: 76
 - Text:
     content: /* Multi-line
-    line: 4
-    start: 80
+    offset: 80
 - Newline:
-    line: 4
-    start: 93
+    offset: 93
 - Whitespace:
     count: 7
-    line: 5
-    start: 94
+    offset: 94
 - Text:
     content: comment */
-    line: 5
-    start: 101
+    offset: 101
 - Newline:
-    line: 5
-    start: 111
+    offset: 111
 - Whitespace:
     count: 4
-    line: 6
-    start: 112
+    offset: 112
 - Text:
     content: console.log(x);
-    line: 6
-    start: 116
+    offset: 116
 - Newline:
-    line: 6
-    start: 131
+    offset: 131
 - Text:
     content: "</script>"
-    line: 7
-    start: 132
-- Eof:
-    line: 7
+    offset: 132
+- Eof

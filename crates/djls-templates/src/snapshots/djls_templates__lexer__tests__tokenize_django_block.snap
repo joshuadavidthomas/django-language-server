@@ -4,23 +4,17 @@ expression: snapshot
 ---
 - Block:
     content: if user.is_staff
-    line: 1
-    start: 3
+    offset: 3
 - Text:
     content: Admin
-    line: 1
-    start: 22
+    offset: 22
 - Block:
     content: else
-    line: 1
-    start: 30
+    offset: 30
 - Text:
     content: User
-    line: 1
-    start: 37
+    offset: 37
 - Block:
     content: endif
-    line: 1
-    start: 44
-- Eof:
-    line: 1
+    offset: 44
+- Eof

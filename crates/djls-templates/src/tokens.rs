@@ -4,40 +4,31 @@ use crate::db::Db as TemplateDb;
 pub enum Token<'db> {
     Block {
         content: TokenContent<'db>,
-        line: usize,
-        start: usize,
+        offset: usize,
     },
     Comment {
         content: TokenContent<'db>,
-        line: usize,
-        start: usize,
+        offset: usize,
     },
     Error {
         content: TokenContent<'db>,
-        line: usize,
-        start: usize,
+        offset: usize,
     },
-    Eof {
-        line: usize,
-    },
+    Eof,
     Newline {
-        line: usize,
-        start: usize,
+        offset: usize,
     },
     Text {
         content: TokenContent<'db>,
-        line: usize,
-        start: usize,
+        offset: usize,
     },
     Variable {
         content: TokenContent<'db>,
-        line: usize,
-        start: usize,
+        offset: usize,
     },
     Whitespace {
         count: usize,
-        line: usize,
-        start: usize,
+        offset: usize,
     },
 }
 
@@ -75,16 +66,16 @@ impl<'db> Token<'db> {
         }
     }
 
-    pub fn start(&self) -> Option<u32> {
+    pub fn offset(&self) -> Option<u32> {
         match self {
-            Token::Block { start, .. }
-            | Token::Comment { start, .. }
-            | Token::Error { start, .. }
-            | Token::Newline { start, .. }
-            | Token::Text { start, .. }
-            | Token::Variable { start, .. }
-            | Token::Whitespace { start, .. } => {
-                Some(u32::try_from(*start).expect("Start position should fit in u32"))
+            Token::Block { offset, .. }
+            | Token::Comment { offset, .. }
+            | Token::Error { offset, .. }
+            | Token::Newline { offset, .. }
+            | Token::Text { offset, .. }
+            | Token::Variable { offset, .. }
+            | Token::Whitespace { offset, .. } => {
+                Some(u32::try_from(*offset).expect("Offset should fit in u32"))
             }
             Token::Eof { .. } => None,
         }
@@ -109,104 +100,46 @@ impl<'db> Token<'db> {
 #[cfg(test)]
 #[derive(Debug, serde::Serialize)]
 pub enum TokenSnapshot {
-    Block {
-        content: String,
-        line: usize,
-        start: usize,
-    },
-    Comment {
-        content: String,
-        line: usize,
-        start: usize,
-    },
-    Error {
-        content: String,
-        line: usize,
-        start: usize,
-    },
-    Text {
-        content: String,
-        line: usize,
-        start: usize,
-    },
-    Variable {
-        content: String,
-        line: usize,
-        start: usize,
-    },
-    Whitespace {
-        count: usize,
-        line: usize,
-        start: usize,
-    },
-    Newline {
-        line: usize,
-        start: usize,
-    },
-    Eof {
-        line: usize,
-    },
+    Block { content: String, offset: usize },
+    Comment { content: String, offset: usize },
+    Eof,
+    Error { content: String, offset: usize },
+    Newline { offset: usize },
+    Text { content: String, offset: usize },
+    Variable { content: String, offset: usize },
+    Whitespace { count: usize, offset: usize },
 }
 
 #[cfg(test)]
 impl<'db> Token<'db> {
     pub fn to_snapshot(&self, db: &'db dyn TemplateDb) -> TokenSnapshot {
         match self {
-            Token::Block {
-                content,
-                line,
-                start,
-            } => TokenSnapshot::Block {
+            Token::Block { content, offset } => TokenSnapshot::Block {
                 content: content.text(db).to_string(),
-                line: *line,
-                start: *start,
+                offset: *offset,
             },
-            Token::Comment {
-                content,
-                line,
-                start,
-            } => TokenSnapshot::Comment {
+            Token::Comment { content, offset } => TokenSnapshot::Comment {
                 content: content.text(db).to_string(),
-                line: *line,
-                start: *start,
+                offset: *offset,
             },
-            Token::Error {
-                content,
-                line,
-                start,
-            } => TokenSnapshot::Error {
+            Token::Eof => TokenSnapshot::Eof,
+            Token::Error { content, offset } => TokenSnapshot::Error {
                 content: content.text(db).to_string(),
-                line: *line,
-                start: *start,
+                offset: *offset,
             },
-            Token::Text {
-                content,
-                line,
-                start,
-            } => TokenSnapshot::Text {
+            Token::Newline { offset } => TokenSnapshot::Newline { offset: *offset },
+            Token::Text { content, offset } => TokenSnapshot::Text {
                 content: content.text(db).to_string(),
-                line: *line,
-                start: *start,
+                offset: *offset,
             },
-            Token::Variable {
-                content,
-                line,
-                start,
-            } => TokenSnapshot::Variable {
+            Token::Variable { content, offset } => TokenSnapshot::Variable {
                 content: content.text(db).to_string(),
-                line: *line,
-                start: *start,
+                offset: *offset,
             },
-            Token::Whitespace { count, line, start } => TokenSnapshot::Whitespace {
+            Token::Whitespace { count, offset } => TokenSnapshot::Whitespace {
                 count: *count,
-                line: *line,
-                start: *start,
+                offset: *offset,
             },
-            Token::Newline { line, start } => TokenSnapshot::Newline {
-                line: *line,
-                start: *start,
-            },
-            Token::Eof { line } => TokenSnapshot::Eof { line: *line },
         }
     }
 }

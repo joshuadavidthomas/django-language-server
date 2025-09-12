@@ -4,58 +4,42 @@ expression: snapshot
 ---
 - Text:
     content: "<style type=\"text/css\">"
-    line: 1
-    start: 0
+    offset: 0
 - Newline:
-    line: 1
-    start: 23
+    offset: 23
 - Whitespace:
     count: 4
-    line: 2
-    start: 24
+    offset: 24
 - Text:
     content: /* Header styles */
-    line: 2
-    start: 28
+    offset: 28
 - Newline:
-    line: 2
-    start: 47
+    offset: 47
 - Whitespace:
     count: 4
-    line: 3
-    start: 48
+    offset: 48
 - Text:
     content: ".header {"
-    line: 3
-    start: 52
+    offset: 52
 - Newline:
-    line: 3
-    start: 61
+    offset: 61
 - Whitespace:
     count: 8
-    line: 4
-    start: 62
+    offset: 62
 - Text:
     content: "color: blue;"
-    line: 4
-    start: 70
+    offset: 70
 - Newline:
-    line: 4
-    start: 82
+    offset: 82
 - Whitespace:
     count: 4
-    line: 5
-    start: 83
+    offset: 83
 - Text:
     content: "}"
-    line: 5
-    start: 87
+    offset: 87
 - Newline:
-    line: 5
-    start: 88
+    offset: 88
 - Text:
     content: "</style>"
-    line: 6
-    start: 89
-- Eof:
-    line: 6
+    offset: 89
+- Eof

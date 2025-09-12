@@ -4,35 +4,25 @@ expression: snapshot
 ---
 - Variable:
     content: user.name
-    line: 1
-    start: 3
+    offset: 3
 - Newline:
-    line: 1
-    start: 15
+    offset: 15
 - Block:
     content: if true
-    line: 2
-    start: 19
+    offset: 19
 - Newline:
-    line: 2
-    start: 29
+    offset: 29
 - Comment:
     content: comment
-    line: 3
-    start: 33
+    offset: 33
 - Newline:
-    line: 3
-    start: 43
+    offset: 43
 - Text:
     content: "<!-- html comment -->"
-    line: 4
-    start: 44
+    offset: 44
 - Newline:
-    line: 4
-    start: 65
+    offset: 65
 - Text:
     content: "<div>text</div>"
-    line: 5
-    start: 66
-- Eof:
-    line: 5
+    offset: 66
+- Eof
