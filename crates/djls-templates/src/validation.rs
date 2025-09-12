@@ -20,6 +20,7 @@
 use crate::ast::Node;
 use crate::ast::NodeListError;
 use crate::ast::Span;
+use crate::ast::TagBit;
 use crate::ast::TagName;
 use crate::db::Db as TemplateDb;
 use crate::templatetags::Arg;
@@ -104,7 +105,7 @@ impl<'db> TagValidator<'db> {
     fn check_arguments(
         &mut self,
         name: &str,
-        bits: &[String],
+        bits: &[TagBit<'db>],
         span: Span,
         args: Option<&Vec<Arg>>,
     ) {
@@ -169,7 +170,7 @@ impl<'db> TagValidator<'db> {
         }
     }
 
-    fn handle_closer(&mut self, name: TagName<'db>, bits: &[String], span: Span) {
+    fn handle_closer(&mut self, name: TagName<'db>, bits: &[TagBit<'db>], span: Span) {
         let name_str = name.text(self.db);
 
         if self.stack.is_empty() {
@@ -248,7 +249,7 @@ impl<'db> TagValidator<'db> {
             // Named closer with no matching named block
             // Report the mismatch
             self.errors.push(NodeListError::UnmatchedBlockName {
-                name: bits[0].clone(),
+                name: bits[0].text(self.db),
                 span,
             });
 
@@ -321,9 +322,10 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
+    use crate::lexer::Lexer;
+    use crate::parser::Parser;
     use crate::templatetags::TagSpecs;
-    use crate::Lexer;
-    use crate::Parser;
+    use crate::tokens::TokenStream;
 
     // Test database that implements the required traits
     #[salsa::db]
@@ -375,8 +377,8 @@ mod tests {
     #[salsa::tracked]
     fn parse_test_template(db: &dyn TemplateDb, source: TestSource) -> NodeList<'_> {
         let text = source.text(db);
-        let tokens = Lexer::new(db, text).tokenize();
-        let token_stream = crate::tokens::TokenStream::new(db, tokens);
+        let (tokens, line_offsets) = Lexer::new(db, text).tokenize();
+        let token_stream = TokenStream::new(db, tokens, line_offsets);
         let mut parser = Parser::new(db, token_stream);
         let (ast, _) = parser.parse().unwrap();
         ast

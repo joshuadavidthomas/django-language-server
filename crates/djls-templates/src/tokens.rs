@@ -1,4 +1,4 @@
-use crate::db::Db as TemplateDb;
+use crate::{ast::LineOffsets, db::Db as TemplateDb};
 
 #[derive(Clone, Debug, PartialEq, Hash, salsa::Update)]
 pub enum Token<'db> {
@@ -159,6 +159,9 @@ pub struct TokenStream<'db> {
     #[tracked]
     #[returns(ref)]
     pub stream: Vec<Token<'db>>,
+    #[tracked]
+    #[returns(ref)]
+    pub line_offsets: LineOffsets,
 }
 
 impl<'db> TokenStream<'db> {
