@@ -215,7 +215,7 @@ impl<'db> Token<'db> {
 pub struct TokenSnapshotVec<'db>(pub Vec<Token<'db>>);
 
 #[cfg(test)]
-impl<'db> TokenSnapshotVec<'db> {
+impl TokenSnapshotVec<'_> {
     pub fn to_snapshot(&self, db: &dyn TemplateDb) -> Vec<TokenSnapshot> {
         self.0.iter().map(|t| t.to_snapshot(db)).collect()
     }
