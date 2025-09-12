@@ -4,40 +4,9 @@ expression: test_ast
 ---
 nodelist:
   - type: Text
-    content: "<script type=\"text/javascript\">"
     span:
       - 0
-      - 31
-  - type: Text
-    content: // Single line comment
-    span:
-      - 36
-      - 22
-  - type: Text
-    content: const x = 1;
-    span:
-      - 63
-      - 12
-  - type: Text
-    content: /* Multi-line
-    span:
-      - 80
-      - 13
-  - type: Text
-    content: comment */
-    span:
-      - 102
-      - 10
-  - type: Text
-    content: console.log(x);
-    span:
-      - 117
-      - 15
-  - type: Text
-    content: "</script>"
-    span:
-      - 133
-      - 9
+      - 142
 line_offsets:
   - 0
   - 32

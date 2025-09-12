@@ -4,168 +4,82 @@ expression: test_ast
 ---
 nodelist:
   - type: Text
-    content: "<!DOCTYPE html>"
     span:
       - 0
-      - 15
-  - type: Text
-    content: "<html>"
+      - 463
+  - type: Tag
+    name: if
+    bits:
+      - user.is_authenticated
     span:
-      - 16
-      - 6
-  - type: Text
-    content: "<head>"
-    span:
-      - 27
-      - 6
-  - type: Text
-    content: "<style type=\"text/css\">"
-    span:
-      - 42
-      - 23
-  - type: Text
-    content: /* Style header */
-    span:
-      - 78
-      - 18
-  - type: Text
-    content: ".header { color: blue; }"
-    span:
-      - 109
+      - 466
       - 24
   - type: Text
-    content: "</style>"
     span:
-      - 142
-      - 8
-  - type: Text
-    content: "<script type=\"text/javascript\">"
-    span:
-      - 159
-      - 31
-  - type: Text
-    content: // Init app
-    span:
-      - 203
-      - 11
-  - type: Text
-    content: "const app = {"
-    span:
-      - 227
-      - 13
-  - type: Text
-    content: /* Config */
-    span:
-      - 257
-      - 12
-  - type: Text
-    content: "debug: true"
-    span:
-      - 286
-      - 11
-  - type: Text
-    content: "};"
-    span:
-      - 310
-      - 2
-  - type: Text
-    content: "</script>"
-    span:
-      - 321
-      - 9
-  - type: Text
-    content: "</head>"
-    span:
-      - 335
-      - 7
-  - type: Text
-    content: "<body>"
-    span:
-      - 347
-      - 6
-  - type: Text
-    content: "<!-- Header section -->"
-    span:
-      - 362
-      - 23
-  - type: Text
-    content: "<div class=\"header\" id=\"main\" data-value=\"123\" disabled>"
-    span:
-      - 394
-      - 56
-  - type: Text
-    content: "{% if user.is_authenticated %}"
-    span:
-      - 463
-      - 30
-  - type: Text
+      - 494
+      - 16
+  - type: Comment
     content: Welcome message
     span:
-      - 510
+      - 513
       - 15
   - type: Text
-    content: "<h1>Welcome,"
     span:
-      - 548
-      - 12
+      - 532
+      - 29
   - type: Variable
     var: user.name
     filters:
       - title
       - "default:'Guest'"
     span:
-      - 561
-      - 37
+      - 564
+      - 31
   - type: Text
-    content: "!</h1>"
     span:
       - 598
-      - 6
-  - type: Text
-    content: "{% if user.is_staff %}"
+      - 23
+  - type: Tag
+    name: if
+    bits:
+      - user.is_staff
     span:
-      - 621
-      - 22
+      - 624
+      - 16
   - type: Text
-    content: "<span>Admin</span>"
     span:
-      - 664
-      - 18
+      - 644
+      - 55
+  - type: Tag
+    name: else
+    bits: []
+    span:
+      - 702
+      - 4
   - type: Text
-    content: "{% else %}"
     span:
-      - 699
-      - 10
+      - 710
+      - 54
+  - type: Tag
+    name: endif
+    bits: []
+    span:
+      - 767
+      - 5
   - type: Text
-    content: "<span>User</span>"
     span:
-      - 730
-      - 17
+      - 776
+      - 12
+  - type: Tag
+    name: endif
+    bits: []
+    span:
+      - 791
+      - 5
   - type: Text
-    content: "{% endif %}"
     span:
-      - 764
-      - 11
-  - type: Text
-    content: "{% endif %}"
-    span:
-      - 788
-      - 11
-  - type: Text
-    content: "</div>"
-    span:
-      - 808
-      - 6
-  - type: Text
-    content: "</body>"
-    span:
-      - 819
-      - 7
-  - type: Text
-    content: "</html>"
-    span:
-      - 827
-      - 7
+      - 800
+      - 34
 line_offsets:
   - 0
   - 16

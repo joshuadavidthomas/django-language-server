@@ -1,11 +1,10 @@
 ---
 source: crates/djls-templates/src/lexer.rs
-expression: tokens
+expression: snapshot
 ---
-- token_type:
-    Variable: "user.name|default:\"Anonymous\"|title"
-  line: 1
-  start: 0
-- token_type: Eof
-  line: 1
-  start: ~
+- Variable:
+    content: "user.name|default:\"Anonymous\"|title"
+    line: 1
+    start: 3
+- Eof:
+    line: 1

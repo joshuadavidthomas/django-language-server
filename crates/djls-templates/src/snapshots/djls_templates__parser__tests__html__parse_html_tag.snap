@@ -4,7 +4,6 @@ expression: test_ast
 ---
 nodelist:
   - type: Text
-    content: "<div class=\"container\">Hello</div>"
     span:
       - 0
       - 34

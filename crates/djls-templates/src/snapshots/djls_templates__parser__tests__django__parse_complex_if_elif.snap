@@ -10,10 +10,9 @@ nodelist:
       - ">"
       - "0"
     span:
-      - 0
-      - 14
+      - 3
+      - 8
   - type: Text
-    content: Positive
     span:
       - 14
       - 8
@@ -24,10 +23,9 @@ nodelist:
       - "<"
       - "0"
     span:
-      - 22
-      - 16
+      - 25
+      - 10
   - type: Text
-    content: Negative
     span:
       - 38
       - 8
@@ -35,10 +33,9 @@ nodelist:
     name: else
     bits: []
     span:
-      - 46
-      - 10
+      - 49
+      - 4
   - type: Text
-    content: Zero
     span:
       - 56
       - 4
@@ -46,7 +43,7 @@ nodelist:
     name: endif
     bits: []
     span:
-      - 60
-      - 11
+      - 63
+      - 5
 line_offsets:
   - 0

@@ -4,9 +4,8 @@ expression: test_ast
 ---
 nodelist:
   - type: Text
-    content: "<style>body { color: blue;"
     span:
       - 0
-      - 26
+      - 27
 line_offsets:
   - 0

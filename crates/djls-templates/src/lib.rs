@@ -81,7 +81,7 @@ fn lex_template(db: &dyn Db, file: SourceFile) -> TokenStream<'_> {
     let text_arc = djls_workspace::db::source_text(db, file);
     let text = text_arc.as_ref();
 
-    let tokens = Lexer::new(text).tokenize();
+    let tokens = Lexer::new(db, text).tokenize();
     TokenStream::new(db, tokens)
 }
 

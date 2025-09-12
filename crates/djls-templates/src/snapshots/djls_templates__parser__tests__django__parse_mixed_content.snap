@@ -4,95 +4,155 @@ expression: test_ast
 ---
 nodelist:
   - type: Text
-    content: "Welcome,"
     span:
       - 0
-      - 8
+      - 9
   - type: Tag
     name: if
     bits:
       - user.is_authenticated
     span:
-      - 9
-      - 30
+      - 12
+      - 24
   - type: Text
-    content: "{{ user.name|title|default:'Guest' }}"
     span:
-      - 44
-      - 37
+      - 40
+      - 4
+  - type: Variable
+    var: user.name
+    filters:
+      - title
+      - "default:'Guest'"
+    span:
+      - 47
+      - 31
   - type: Text
-    content: "{% for group in user.groups %}"
     span:
-      - 86
-      - 30
-  - type: Text
-    content: "{% if forloop.first %}("
-    span:
-      - 125
-      - 23
+      - 82
+      - 4
   - type: Tag
-    name: endif
-    bits: []
+    name: for
+    bits:
+      - group
+      - in
+      - user.groups
     span:
-      - 148
-      - 11
+      - 89
+      - 24
   - type: Text
-    content: "{{ group.name }}"
     span:
-      - 168
+      - 117
+      - 8
+  - type: Tag
+    name: if
+    bits:
+      - forloop.first
+    span:
+      - 128
       - 16
   - type: Text
-    content: "{% if not forloop.last %},"
     span:
-      - 193
-      - 26
+      - 147
+      - 1
   - type: Tag
     name: endif
     bits: []
     span:
-      - 220
-      - 11
-  - type: Text
-    content: "{% if forloop.last %})"
-    span:
-      - 240
-      - 22
-  - type: Tag
-    name: endif
-    bits: []
-    span:
-      - 262
-      - 11
-  - type: Text
-    content: "{% empty %}"
-    span:
-      - 278
-      - 11
-  - type: Text
-    content: (no groups)
-    span:
-      - 298
-      - 11
-  - type: Text
-    content: "{% endfor %}"
-    span:
-      - 314
-      - 12
-  - type: Text
-    content: "{% else %}"
-    span:
-      - 327
-      - 10
-  - type: Text
-    content: Guest
-    span:
-      - 342
+      - 151
       - 5
   - type: Text
-    content: "{% endif %}!"
     span:
-      - 348
-      - 12
+      - 160
+      - 8
+  - type: Variable
+    var: group.name
+    filters: []
+    span:
+      - 171
+      - 10
+  - type: Text
+    span:
+      - 185
+      - 8
+  - type: Tag
+    name: if
+    bits:
+      - not
+      - forloop.last
+    span:
+      - 196
+      - 19
+  - type: Text
+    span:
+      - 218
+      - 2
+  - type: Tag
+    name: endif
+    bits: []
+    span:
+      - 223
+      - 5
+  - type: Text
+    span:
+      - 232
+      - 8
+  - type: Tag
+    name: if
+    bits:
+      - forloop.last
+    span:
+      - 243
+      - 15
+  - type: Text
+    span:
+      - 261
+      - 1
+  - type: Tag
+    name: endif
+    bits: []
+    span:
+      - 265
+      - 5
+  - type: Text
+    span:
+      - 274
+      - 4
+  - type: Tag
+    name: empty
+    bits: []
+    span:
+      - 281
+      - 5
+  - type: Text
+    span:
+      - 290
+      - 24
+  - type: Tag
+    name: endfor
+    bits: []
+    span:
+      - 317
+      - 6
+  - type: Tag
+    name: else
+    bits: []
+    span:
+      - 330
+      - 4
+  - type: Text
+    span:
+      - 338
+      - 10
+  - type: Tag
+    name: endif
+    bits: []
+    span:
+      - 351
+      - 5
+  - type: Text
+    span:
+      - 359
+      - 1
 line_offsets:
   - 0
   - 40

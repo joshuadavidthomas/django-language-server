@@ -4,35 +4,9 @@ expression: test_ast
 ---
 nodelist:
   - type: Text
-    content: "<style type=\"text/css\">"
     span:
       - 0
-      - 23
-  - type: Text
-    content: /* Header styles */
-    span:
-      - 28
-      - 19
-  - type: Text
-    content: ".header {"
-    span:
-      - 52
-      - 9
-  - type: Text
-    content: "color: blue;"
-    span:
-      - 70
-      - 12
-  - type: Text
-    content: "}"
-    span:
-      - 87
-      - 1
-  - type: Text
-    content: "</style>"
-    span:
-      - 89
-      - 8
+      - 97
 line_offsets:
   - 0
   - 24
