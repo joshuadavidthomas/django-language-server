@@ -75,14 +75,14 @@ use validation::TagValidator;
 #[salsa::tracked]
 fn lex_template(db: &dyn Db, file: SourceFile) -> TokenStream<'_> {
     if file.kind(db) != FileKind::Template {
-        return TokenStream::new(db, vec![]);
+        return TokenStream::new(db, vec![], LineOffsets::default());
     }
 
     let text_arc = djls_workspace::db::source_text(db, file);
     let text = text_arc.as_ref();
 
-    let tokens = Lexer::new(db, text).tokenize();
-    TokenStream::new(db, tokens)
+    let (tokens, line_offsets) = Lexer::new(db, text).tokenize();
+    TokenStream::new(db, tokens, line_offsets)
 }
 
 /// Parse tokens into an AST.

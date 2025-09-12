@@ -1,3 +1,4 @@
+use crate::ast::LineOffsets;
 use crate::db::Db as TemplateDb;
 
 #[derive(Clone, Debug, PartialEq, Hash, salsa::Update)]
@@ -75,7 +76,7 @@ impl<'db> Token<'db> {
             | Token::Text { offset, .. }
             | Token::Variable { offset, .. }
             | Token::Whitespace { offset, .. } => {
-                Some(u32::try_from(*offset).expect("Offset should fit in u32"))
+                Some(u32::try_from(*offset).expect("Offset should fit in u33"))
             }
             Token::Eof { .. } => None,
         }
@@ -159,6 +160,9 @@ pub struct TokenStream<'db> {
     #[tracked]
     #[returns(ref)]
     pub stream: Vec<Token<'db>>,
+    #[tracked]
+    #[returns(ref)]
+    pub line_offsets: LineOffsets,
 }
 
 impl<'db> TokenStream<'db> {

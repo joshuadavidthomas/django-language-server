@@ -59,7 +59,7 @@ impl Default for LineOffsets {
 pub enum Node<'db> {
     Tag {
         name: TagName<'db>,
-        bits: Vec<String>,
+        bits: Vec<TagBit<'db>>,
         span: Span,
     },
     Comment {
@@ -126,6 +126,11 @@ impl<'db> Node<'db> {
 
 #[salsa::interned(debug)]
 pub struct TagName<'db> {
+    pub text: String,
+}
+
+#[salsa::interned(debug)]
+pub struct TagBit<'db> {
     pub text: String,
 }
 

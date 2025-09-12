@@ -1,3 +1,4 @@
+use crate::ast::LineOffsets;
 use crate::db::Db as TemplateDb;
 use crate::tokens::Token;
 use crate::tokens::TokenContent;
@@ -14,7 +15,6 @@ pub struct Lexer<'db> {
     source: String,
     start: usize,
     current: usize,
-    line: usize,
 }
 
 impl<'db> Lexer<'db> {
@@ -25,12 +25,12 @@ impl<'db> Lexer<'db> {
             source: String::from(source),
             start: 0,
             current: 0,
-            line: 1,
         }
     }
 
-    pub fn tokenize(&mut self) -> Vec<Token<'db>> {
+    pub fn tokenize(&mut self) -> (Vec<Token<'db>>, LineOffsets) {
         let mut tokens = Vec::new();
+        let mut line_offsets = LineOffsets::default();
 
         while !self.is_at_end() {
             self.start = self.current;
@@ -53,9 +53,9 @@ impl<'db> Lexer<'db> {
             };
 
             match self.peek_previous() {
-                '\n' => self.line += 1,
+                '\n' => line_offsets.add_line(u32::try_from(self.current).unwrap_or(u32::MAX)),
                 '\r' => {
-                    self.line += 1;
+                    line_offsets.add_line(u32::try_from(self.current).unwrap_or(u32::MAX));
                     if self.peek() == '\n' {
                         self.current += 1;
                     }
@@ -68,7 +68,7 @@ impl<'db> Lexer<'db> {
 
         tokens.push(Token::Eof);
 
-        tokens
+        (tokens, line_offsets)
     }
 
     fn lex_django_construct(
@@ -255,7 +255,7 @@ mod tests {
         let db = TestDatabase::new();
         let source = r#"<div class="container" id="main" disabled></div>"#;
         let mut lexer = Lexer::new(&db, source);
-        let tokens = lexer.tokenize();
+        let (tokens, _) = lexer.tokenize();
         let snapshot = TokenSnapshotVec(tokens).to_snapshot(&db);
         insta::assert_yaml_snapshot!(snapshot);
     }
@@ -265,7 +265,7 @@ mod tests {
         let db = TestDatabase::new();
         let source = "{{ user.name|default:\"Anonymous\"|title }}";
         let mut lexer = Lexer::new(&db, source);
-        let tokens = lexer.tokenize();
+        let (tokens, _) = lexer.tokenize();
         let snapshot = TokenSnapshotVec(tokens).to_snapshot(&db);
         insta::assert_yaml_snapshot!(snapshot);
     }
@@ -275,7 +275,7 @@ mod tests {
         let db = TestDatabase::new();
         let source = "{% if user.is_staff %}Admin{% else %}User{% endif %}";
         let mut lexer = Lexer::new(&db, source);
-        let tokens = lexer.tokenize();
+        let (tokens, _) = lexer.tokenize();
         let snapshot = TokenSnapshotVec(tokens).to_snapshot(&db);
         insta::assert_yaml_snapshot!(snapshot);
     }
@@ -294,7 +294,7 @@ mod tests {
     /* CSS comment */
 </style>";
         let mut lexer = Lexer::new(&db, source);
-        let tokens = lexer.tokenize();
+        let (tokens, _) = lexer.tokenize();
         let snapshot = TokenSnapshotVec(tokens).to_snapshot(&db);
         insta::assert_yaml_snapshot!(snapshot);
     }
@@ -310,7 +310,7 @@ mod tests {
     console.log(x);
 </script>"#;
         let mut lexer = Lexer::new(&db, source);
-        let tokens = lexer.tokenize();
+        let (tokens, _) = lexer.tokenize();
         let snapshot = TokenSnapshotVec(tokens).to_snapshot(&db);
         insta::assert_yaml_snapshot!(snapshot);
     }
@@ -325,7 +325,7 @@ mod tests {
     }
 </style>"#;
         let mut lexer = Lexer::new(&db, source);
-        let tokens = lexer.tokenize();
+        let (tokens, _) = lexer.tokenize();
         let snapshot = TokenSnapshotVec(tokens).to_snapshot(&db);
         insta::assert_yaml_snapshot!(snapshot);
     }
@@ -339,7 +339,7 @@ mod tests {
 <!-- html comment -->
 <div>text</div>";
         let mut lexer = Lexer::new(&db, source);
-        let tokens = lexer.tokenize();
+        let (tokens, _) = lexer.tokenize();
         let snapshot = TokenSnapshotVec(tokens).to_snapshot(&db);
         insta::assert_yaml_snapshot!(snapshot);
     }
@@ -378,7 +378,7 @@ mod tests {
 </body>
 </html>"#;
         let mut lexer = Lexer::new(&db, source);
-        let tokens = lexer.tokenize();
+        let (tokens, _) = lexer.tokenize();
         let snapshot = TokenSnapshotVec(tokens).to_snapshot(&db);
         insta::assert_yaml_snapshot!(snapshot);
     }
@@ -388,7 +388,7 @@ mod tests {
         let db = TestDatabase::new();
         let source = "<style>body { color: blue; ";
         let mut lexer = Lexer::new(&db, source);
-        let tokens = lexer.tokenize();
+        let (tokens, _) = lexer.tokenize();
         let snapshot = TokenSnapshotVec(tokens).to_snapshot(&db);
         insta::assert_yaml_snapshot!(snapshot);
     }
