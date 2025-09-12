@@ -37,9 +37,9 @@ impl<'db> Parser<'db> {
         let tokens = self.tokens.stream(self.db);
         for token in tokens {
             if matches!(token, Token::Newline { .. }) {
-                let start = token.offset();
-                if let Some(start) = start {
-                    line_offsets.add_line(start + 1);
+                let offset = token.offset();
+                if let Some(offset) = offset {
+                    line_offsets.add_line(offset + 1);
                 }
             }
         }
@@ -91,15 +91,13 @@ impl<'db> Parser<'db> {
         let token = self.peek_previous()?;
 
         if let Token::Error {
-            content,
-            offset: start,
-            ..
+            content, offset, ..
         } = token
         {
             let error_text = content.text(self.db).clone();
 
             Err(ParserError::MalformedConstruct {
-                position: start,
+                position: offset,
                 content: error_text,
             })
         } else {
@@ -151,8 +149,8 @@ impl<'db> Parser<'db> {
             return self.next_node();
         }
 
-        let start = first_token.offset().unwrap_or(0);
-        let mut end_position = start + first_token.length(self.db);
+        let offset = first_token.offset().unwrap_or(0);
+        let mut end_position = offset + first_token.length(self.db);
 
         while let Ok(token) = self.peek() {
             match token {
@@ -163,16 +161,16 @@ impl<'db> Parser<'db> {
                 | Token::Eof { .. } => break, // Stop at Django constructs
                 Token::Text { .. } | Token::Whitespace { .. } | Token::Newline { .. } => {
                     // Update end position
-                    let token_start = token.offset().unwrap_or(end_position);
+                    let token_offset = token.offset().unwrap_or(end_position);
                     let token_length = token.length(self.db);
-                    end_position = token_start + token_length;
+                    end_position = token_offset + token_length;
                     self.consume()?;
                 }
             }
         }
 
-        let length = end_position - start;
-        let span = Span::new(start, length);
+        let length = end_position - offset;
+        let span = Span::new(offset, length);
 
         Ok(Node::Text { span })
     }
