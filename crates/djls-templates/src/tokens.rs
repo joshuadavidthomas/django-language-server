@@ -75,7 +75,7 @@ impl<'db> Token<'db> {
             | Token::Text { offset, .. }
             | Token::Variable { offset, .. }
             | Token::Whitespace { offset, .. } => {
-                Some(u32::try_from(*offset).expect("Offset should fit in u32"))
+                Some(u32::try_from(*offset).expect("Offset should fit in u33"))
             }
             Token::Eof { .. } => None,
         }

@@ -53,9 +53,9 @@ impl<'db> Lexer<'db> {
             };
 
             match self.peek_previous() {
-                '\n' => line_offsets.add_line(self.current as u32),
+                '\n' => line_offsets.add_line(u32::try_from(self.current).unwrap_or(u32::MAX)),
                 '\r' => {
-                    line_offsets.add_line(self.current as u32);
+                    line_offsets.add_line(u32::try_from(self.current).unwrap_or(u32::MAX));
                     if self.peek() == '\n' {
                         self.current += 1;
                     }

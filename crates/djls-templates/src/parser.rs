@@ -188,48 +188,23 @@ impl<'db> Parser<'db> {
 
     #[inline]
     fn peek(&self) -> Result<&Token<'db>, ParserError> {
-        self.peek_at(0)
+        self.tokens.get(self.current).ok_or_else(|| {
+            if self.tokens.is_empty() {
+                ParserError::stream_error(StreamError::Empty)
+            } else {
+                ParserError::stream_error(StreamError::AtEnd)
+            }
+        })
     }
 
     #[inline]
     fn peek_previous(&self) -> Result<&Token<'db>, ParserError> {
-        self.peek_at(-1)
-    }
-
-    #[inline]
-    #[allow(clippy::cast_sign_loss)]
-    fn peek_at(&self, offset: isize) -> Result<&Token<'db>, ParserError> {
-        // Safely handle negative offsets
-        let index = if offset < 0 {
-            // Check if we would underflow
-            if self.current < offset.unsigned_abs() {
-                return Err(ParserError::stream_error(StreamError::BeforeStart));
-            }
-            self.current - offset.unsigned_abs()
-        } else {
-            // Safe addition since offset is positive
-            self.current + (offset as usize)
-        };
-
-        self.item_at(index)
-    }
-
-    #[inline]
-    fn item_at(&self, index: usize) -> Result<&Token<'db>, ParserError> {
-        if let Some(token) = self.tokens.get(index) {
-            Ok(token)
-        } else {
-            let error = if self.tokens.is_empty() {
-                ParserError::stream_error(StreamError::Empty)
-            } else if index < self.current {
-                ParserError::stream_error(StreamError::AtBeginning)
-            } else if index >= self.tokens.len() {
-                ParserError::stream_error(StreamError::AtEnd)
-            } else {
-                ParserError::stream_error(StreamError::InvalidAccess)
-            };
-            Err(error)
+        if self.current == 0 {
+            return Err(ParserError::stream_error(StreamError::BeforeStart));
         }
+        self.tokens
+            .get(self.current - 1)
+            .ok_or_else(|| ParserError::stream_error(StreamError::InvalidAccess))
     }
 
     #[inline]
