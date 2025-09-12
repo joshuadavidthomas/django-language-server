@@ -8,10 +8,9 @@ nodelist:
     bits:
       - user.is_authenticated
     span:
-      - 0
-      - 30
+      - 3
+      - 24
   - type: Text
-    content: Welcome
     span:
       - 30
       - 7
@@ -19,7 +18,7 @@ nodelist:
     name: endif
     bits: []
     span:
-      - 37
-      - 11
+      - 40
+      - 5
 line_offsets:
   - 0

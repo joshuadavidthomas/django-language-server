@@ -4,7 +4,6 @@ expression: test_ast
 ---
 nodelist:
   - type: Text
-    content: "<input type=\"text\" />"
     span:
       - 0
       - 21

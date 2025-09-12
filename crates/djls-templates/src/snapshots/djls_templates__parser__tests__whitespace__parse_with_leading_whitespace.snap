@@ -4,9 +4,8 @@ expression: test_ast
 ---
 nodelist:
   - type: Text
-    content: hello
     span:
-      - 5
-      - 5
+      - 0
+      - 10
 line_offsets:
   - 0

@@ -1,21 +1,16 @@
+use serde::Serialize;
 use thiserror::Error;
 
-use crate::ast::CommentNode;
 use crate::ast::FilterName;
 use crate::ast::Node;
 use crate::ast::NodeList;
 use crate::ast::NodeListError;
 use crate::ast::Span;
 use crate::ast::TagName;
-use crate::ast::TagNode;
-use crate::ast::TextNode;
 use crate::ast::VariableName;
-use crate::ast::VariableNode;
 use crate::db::Db as TemplateDb;
-use crate::lexer::LexerError;
 use crate::tokens::Token;
 use crate::tokens::TokenStream;
-use crate::tokens::TokenType;
 
 pub struct Parser<'db> {
     db: &'db dyn TemplateDb,
@@ -39,12 +34,11 @@ impl<'db> Parser<'db> {
         let mut nodelist = Vec::new();
         let mut line_offsets = crate::ast::LineOffsets::default();
 
-        // Build line offsets from tokens
         let tokens = self.tokens.stream(self.db);
         for token in tokens {
-            if let TokenType::Newline = token.token_type() {
-                if let Some(start) = token.start() {
-                    // Add offset for next line
+            if matches!(token, Token::Newline { .. }) {
+                let start = token.start();
+                if let Some(start) = start {
                     line_offsets.add_line(start + 1);
                 }
             }
@@ -64,7 +58,6 @@ impl<'db> Parser<'db> {
             }
         }
 
-        // Create the tracked NodeList struct
         let ast = NodeList::new(self.db, nodelist, line_offsets);
 
         Ok((ast, std::mem::take(&mut self.errors)))
@@ -73,58 +66,67 @@ impl<'db> Parser<'db> {
     fn next_node(&mut self) -> Result<Node<'db>, ParserError> {
         let token = self.consume()?;
 
-        match token.token_type() {
-            TokenType::Comment(_, open, _) => self.parse_comment(open),
-            TokenType::Eof => Err(ParserError::stream_error(StreamError::AtEnd)),
-            TokenType::DjangoBlock(_) => self.parse_django_block(),
-            TokenType::DjangoVariable(_) => self.parse_django_variable(),
-            TokenType::HtmlTagClose(_)
-            | TokenType::HtmlTagOpen(_)
-            | TokenType::HtmlTagVoid(_)
-            | TokenType::Newline
-            | TokenType::ScriptTagClose(_)
-            | TokenType::ScriptTagOpen(_)
-            | TokenType::StyleTagClose(_)
-            | TokenType::StyleTagOpen(_)
-            | TokenType::Text(_)
-            | TokenType::Whitespace(_) => self.parse_text(),
+        match token {
+            Token::Comment { .. } => self.parse_comment(),
+            Token::Eof { .. } => Err(ParserError::stream_error(StreamError::AtEnd)),
+            Token::Block { .. } => self.parse_django_block(),
+            Token::Variable { .. } => self.parse_django_variable(),
+            Token::Error { .. } => self.parse_error(),
+            Token::Newline { .. } | Token::Text { .. } | Token::Whitespace { .. } => {
+                self.parse_text()
+            }
         }
     }
 
-    fn parse_comment(&mut self, open: &str) -> Result<Node<'db>, ParserError> {
-        // Only treat Django comments as Comment nodes
-        if open != "{#" {
-            return self.parse_text();
-        }
-
+    fn parse_comment(&mut self) -> Result<Node<'db>, ParserError> {
         let token = self.peek_previous()?;
 
-        Ok(Node::Comment(CommentNode {
-            content: token.content(),
-            span: Span::from_token(&token),
-        }))
+        Ok(Node::Comment {
+            content: token.content(self.db),
+            span: Span::from_token(&token, self.db),
+        })
+    }
+
+    fn parse_error(&mut self) -> Result<Node<'db>, ParserError> {
+        let token = self.peek_previous()?;
+
+        if let Token::Error {
+            content,
+            line: _,
+            start,
+            ..
+        } = token
+        {
+            let error_text = content.text(self.db).clone();
+
+            Err(ParserError::MalformedConstruct {
+                position: start,
+                content: error_text,
+            })
+        } else {
+            Err(ParserError::InvalidSyntax {
+                context: "Expected Error token".to_string(),
+            })
+        }
     }
 
     pub fn parse_django_block(&mut self) -> Result<Node<'db>, ParserError> {
         let token = self.peek_previous()?;
 
-        let args: Vec<String> = token
-            .content()
-            .split_whitespace()
-            .map(String::from)
-            .collect();
+        let content = token.content(self.db);
+        let args: Vec<String> = content.split_whitespace().map(String::from).collect();
         let name_str = args.first().ok_or(ParserError::EmptyTag)?.clone();
         let name = TagName::new(self.db, name_str); // Intern the tag name
         let bits = args.into_iter().skip(1).collect();
-        let span = Span::from_token(&token);
+        let span = Span::from_token(&token, self.db);
 
-        Ok(Node::Tag(TagNode { name, bits, span }))
+        Ok(Node::Tag { name, bits, span })
     }
 
     fn parse_django_variable(&mut self) -> Result<Node<'db>, ParserError> {
         let token = self.peek_previous()?;
 
-        let content = token.content();
+        let content = token.content(self.db);
         let bits: Vec<&str> = content.split('|').collect();
         let var_str = bits
             .first()
@@ -137,64 +139,60 @@ impl<'db> Parser<'db> {
             .skip(1)
             .map(|s| FilterName::new(self.db, s.trim().to_string())) // Intern filter names
             .collect();
-        let span = Span::from_token(&token);
+        let span = Span::from_token(&token, self.db);
 
-        Ok(Node::Variable(VariableNode { var, filters, span }))
+        Ok(Node::Variable { var, filters, span })
     }
 
     fn parse_text(&mut self) -> Result<Node<'db>, ParserError> {
-        let token = self.peek_previous()?;
+        let first_token = self.peek_previous()?;
 
-        if token.token_type() == &TokenType::Newline {
+        // Skip standalone newlines
+        if matches!(first_token, Token::Newline { .. }) {
             return self.next_node();
         }
 
-        let mut text = token.lexeme();
+        let start = first_token.start().unwrap_or(0);
+        let mut end_position = start + first_token.length(self.db);
 
         while let Ok(token) = self.peek() {
-            match token.token_type() {
-                TokenType::DjangoBlock(_)
-                | TokenType::DjangoVariable(_)
-                | TokenType::Comment(_, _, _)
-                | TokenType::Newline
-                | TokenType::Eof => break,
-                _ => {
-                    let token_text = token.lexeme();
-                    text.push_str(&token_text);
+            match token {
+                Token::Block { .. }
+                | Token::Variable { .. }
+                | Token::Comment { .. }
+                | Token::Error { .. }
+                | Token::Eof { .. } => break, // Stop at Django constructs
+                Token::Text { .. } | Token::Whitespace { .. } | Token::Newline { .. } => {
+                    // Update end position
+                    let token_start = token.start().unwrap_or(end_position);
+                    let token_length = token.length(self.db);
+                    end_position = token_start + token_length;
                     self.consume()?;
                 }
             }
         }
 
-        let content = match text.trim() {
-            "" => return self.next_node(),
-            trimmed => trimmed.to_string(),
-        };
+        let length = end_position - start;
+        let span = Span::new(start, length);
 
-        let start = token.start().unwrap_or(0);
-        let offset = u32::try_from(text.find(content.as_str()).unwrap_or(0))
-            .expect("Offset should fit in u32");
-        let length = u32::try_from(content.len()).expect("Content length should fit in u32");
-        let span = Span::new(start + offset, length);
-
-        Ok(Node::Text(TextNode { content, span }))
+        Ok(Node::Text { span })
     }
 
-    fn peek(&self) -> Result<Token, ParserError> {
+    fn peek(&self) -> Result<Token<'db>, ParserError> {
         self.peek_at(0)
     }
 
     #[allow(dead_code)]
-    fn peek_next(&self) -> Result<Token, ParserError> {
+    fn peek_next(&self) -> Result<Token<'db>, ParserError> {
         self.peek_at(1)
     }
 
-    fn peek_previous(&self) -> Result<Token, ParserError> {
+    fn peek_previous(&self) -> Result<Token<'db>, ParserError> {
         self.peek_at(-1)
     }
 
     #[allow(clippy::cast_sign_loss)]
-    fn peek_at(&self, offset: isize) -> Result<Token, ParserError> {
+    fn peek_at(&self, offset: isize) -> Result<Token<'db>, ParserError> {
         // Safely handle negative offsets
         let index = if offset < 0 {
             // Check if we would underflow
@@ -210,7 +208,7 @@ impl<'db> Parser<'db> {
         self.item_at(index)
     }
 
-    fn item_at(&self, index: usize) -> Result<Token, ParserError> {
+    fn item_at(&self, index: usize) -> Result<Token<'db>, ParserError> {
         let tokens = self.tokens.stream(self.db);
         if let Some(token) = tokens.get(index) {
             Ok(token.clone())
@@ -233,7 +231,7 @@ impl<'db> Parser<'db> {
         self.current + 1 >= tokens.len()
     }
 
-    fn consume(&mut self) -> Result<Token, ParserError> {
+    fn consume(&mut self) -> Result<Token<'db>, ParserError> {
         if self.is_at_end() {
             return Err(ParserError::stream_error(StreamError::AtEnd));
         }
@@ -242,7 +240,7 @@ impl<'db> Parser<'db> {
     }
 
     #[allow(dead_code)]
-    fn backtrack(&mut self, steps: usize) -> Result<Token, ParserError> {
+    fn backtrack(&mut self, steps: usize) -> Result<Token<'db>, ParserError> {
         if self.current < steps {
             return Err(ParserError::stream_error(StreamError::AtBeginning));
         }
@@ -251,19 +249,16 @@ impl<'db> Parser<'db> {
     }
 
     fn synchronize(&mut self) -> Result<(), ParserError> {
-        let sync_types = &[
-            TokenType::DjangoBlock(String::new()),
-            TokenType::DjangoVariable(String::new()),
-            TokenType::Comment(String::new(), String::from("{#"), Some(String::from("#}"))),
-            TokenType::Eof,
-        ];
-
         while !self.is_at_end() {
             let current = self.peek()?;
-            for sync_type in sync_types {
-                if *current.token_type() == *sync_type {
+            match current {
+                Token::Block { .. }
+                | Token::Variable { .. }
+                | Token::Comment { .. }
+                | Token::Eof { .. } => {
                     return Ok(());
                 }
+                _ => {}
             }
             self.consume()?;
         }
@@ -271,7 +266,7 @@ impl<'db> Parser<'db> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub enum StreamError {
     AtBeginning,
     BeforeStart,
@@ -280,27 +275,53 @@ pub enum StreamError {
     InvalidAccess,
 }
 
-#[derive(Debug, Error)]
-pub enum ParserError {
+#[derive(Clone, Debug, Error, PartialEq, Eq, Serialize)]
+pub enum ParseError {
     #[error("Unexpected token: expected {expected:?}, found {found} at position {position}")]
     UnexpectedToken {
         expected: Vec<String>,
         found: String,
         position: usize,
     },
+
+    #[error("Missing condition in '{tag}' tag at position {position}")]
+    MissingCondition { tag: String, position: usize },
+
+    #[error("Missing iterator in 'for' tag at position {position}")]
+    MissingIterator { position: usize },
+
+    #[error("Malformed variable at position {position}: {content}")]
+    MalformedVariable { position: usize, content: String },
+
+    #[error("Invalid filter syntax at position {position}: {reason}")]
+    InvalidFilterSyntax { position: usize, reason: String },
+
+    #[error("Unclosed tag at position {opener}: expected '{expected_closer}'")]
+    UnclosedTag {
+        opener: usize,
+        expected_closer: String,
+    },
+
     #[error("Invalid syntax: {context}")]
     InvalidSyntax { context: String },
+
     #[error("Empty tag")]
     EmptyTag,
-    #[error("Lexer error: {0}")]
-    Lexer(#[from] LexerError),
+
+    #[error("Malformed Django construct at position {position}: {content}")]
+    MalformedConstruct { position: usize, content: String },
+
     #[error("Stream error: {kind:?}")]
     StreamError { kind: StreamError },
+
     #[error("AST error: {0}")]
     NodeList(#[from] NodeListError),
 }
 
-impl ParserError {
+// Keep ParserError as alias for compatibility
+pub type ParserError = ParseError;
+
+impl ParseError {
     pub fn stream_error(kind: impl Into<StreamError>) -> Self {
         Self::StreamError { kind: kind.into() }
     }
@@ -349,7 +370,10 @@ mod tests {
     #[salsa::db]
     impl crate::db::Db for TestDatabase {
         fn tag_specs(&self) -> std::sync::Arc<crate::templatetags::TagSpecs> {
-            std::sync::Arc::new(crate::templatetags::TagSpecs::default())
+            std::sync::Arc::new(
+                crate::templatetags::TagSpecs::load_builtin_specs()
+                    .unwrap_or_else(|_| crate::templatetags::TagSpecs::default()),
+            )
         }
     }
 
@@ -362,7 +386,7 @@ mod tests {
     #[salsa::tracked]
     fn parse_test_template(db: &dyn TemplateDb, template: TestTemplate) -> NodeList<'_> {
         let source = template.source(db);
-        let tokens = Lexer::new(source).tokenize().unwrap();
+        let tokens = Lexer::new(db, source).tokenize();
         let token_stream = TokenStream::new(db, tokens);
         let mut parser = Parser::new(db, token_stream);
         let (ast, _) = parser.parse().unwrap();
@@ -388,7 +412,6 @@ mod tests {
             span: (u32, u32),
         },
         Text {
-            content: String,
             span: (u32, u32),
         },
         Variable {
@@ -401,20 +424,19 @@ mod tests {
     impl TestNode {
         fn from_node(node: &Node<'_>, db: &dyn crate::db::Db) -> Self {
             match node {
-                Node::Tag(TagNode { name, bits, span }) => TestNode::Tag {
+                Node::Tag { name, bits, span } => TestNode::Tag {
                     name: name.text(db).to_string(),
                     bits: bits.clone(),
                     span: (span.start, span.length),
                 },
-                Node::Comment(CommentNode { content, span }) => TestNode::Comment {
+                Node::Comment { content, span } => TestNode::Comment {
                     content: content.clone(),
                     span: (span.start, span.length),
                 },
-                Node::Text(TextNode { content, span }) => TestNode::Text {
-                    content: content.clone(),
+                Node::Text { span } => TestNode::Text {
                     span: (span.start, span.length),
                 },
-                Node::Variable(VariableNode { var, filters, span }) => TestNode::Variable {
+                Node::Variable { var, filters, span } => TestNode::Variable {
                     var: var.text(db).to_string(),
                     filters: filters.iter().map(|f| f.text(db).to_string()).collect(),
                     span: (span.start, span.length),

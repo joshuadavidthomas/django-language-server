@@ -1,6 +1,7 @@
 use serde::Serialize;
 use thiserror::Error;
 
+use crate::db::Db as TemplateDb;
 use crate::tokens::Token;
 
 #[salsa::tracked(debug)]
@@ -56,41 +57,76 @@ impl Default for LineOffsets {
 
 #[derive(Clone, Debug, PartialEq, Eq, salsa::Update)]
 pub enum Node<'db> {
-    Tag(TagNode<'db>),
-    Comment(CommentNode),
-    Text(TextNode),
-    Variable(VariableNode<'db>),
+    Tag {
+        name: TagName<'db>,
+        bits: Vec<String>,
+        span: Span,
+    },
+    Comment {
+        content: String,
+        span: Span,
+    },
+    Text {
+        span: Span,
+    },
+    Variable {
+        var: VariableName<'db>,
+        filters: Vec<FilterName<'db>>,
+        span: Span,
+    },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, salsa::Update)]
-pub struct TagNode<'db> {
-    pub name: TagName<'db>,
-    pub bits: Vec<String>,
-    pub span: Span,
+impl<'db> Node<'db> {
+    #[must_use]
+    pub fn span(&self) -> Span {
+        match self {
+            Node::Tag { span, .. }
+            | Node::Variable { span, .. }
+            | Node::Comment { span, .. }
+            | Node::Text { span } => *span,
+        }
+    }
+
+    #[must_use]
+    pub fn full_span(&self) -> Span {
+        match self {
+            // account for delimiters
+            Node::Variable { span, .. } | Node::Comment { span, .. } | Node::Tag { span, .. } => {
+                Span {
+                    start: span.start.saturating_sub(3),
+                    length: span.length + 6,
+                }
+            }
+            Node::Text { span } => *span,
+        }
+    }
+
+    pub fn identifier_span(&self, db: &'db dyn TemplateDb) -> Option<Span> {
+        match self {
+            Node::Tag { name, span, .. } => {
+                // Just the tag name (e.g., "if" in "{% if user.is_authenticated %}")
+                let name_len = name.text(db).len();
+                Some(Span {
+                    start: span.start,
+                    length: u32::try_from(name_len).unwrap_or(0),
+                })
+            }
+            Node::Variable { var, span, .. } => {
+                // Just the variable name (e.g., "user" in "{{ user.name|title }}")
+                let var_len = var.text(db).len();
+                Some(Span {
+                    start: span.start,
+                    length: u32::try_from(var_len).unwrap_or(0),
+                })
+            }
+            Node::Comment { .. } | Node::Text { .. } => None,
+        }
+    }
 }
 
 #[salsa::interned(debug)]
 pub struct TagName<'db> {
     pub text: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, salsa::Update)]
-pub struct CommentNode {
-    pub content: String,
-    pub span: Span,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, salsa::Update)]
-pub struct TextNode {
-    pub content: String,
-    pub span: Span,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, salsa::Update)]
-pub struct VariableNode<'db> {
-    pub var: VariableName<'db>,
-    pub filters: Vec<FilterName<'db>>,
-    pub span: Span,
 }
 
 #[salsa::interned(debug)]
@@ -116,10 +152,10 @@ impl Span {
     }
 
     #[must_use]
-    pub fn from_token(token: &Token) -> Self {
+    pub fn from_token(token: &Token<'_>, db: &dyn TemplateDb) -> Self {
         let start = token.start().unwrap_or(0);
-        let length = u32::try_from(token.lexeme().len()).unwrap_or(0);
-        Self { start, length }
+        let length = token.length(db);
+        Span::new(start, length)
     }
 
     #[must_use]

@@ -10,32 +10,32 @@ nodelist:
       - in
       - items
     span:
-      - 0
-      - 23
+      - 3
+      - 17
   - type: Tag
     name: if
     bits:
       - item.active
     span:
-      - 23
-      - 20
+      - 26
+      - 14
   - type: Variable
     var: item.name
     filters: []
     span:
-      - 43
-      - 15
+      - 46
+      - 9
   - type: Tag
     name: endif
     bits: []
     span:
-      - 58
-      - 11
+      - 61
+      - 5
   - type: Tag
     name: endfor
     bits: []
     span:
-      - 69
-      - 12
+      - 72
+      - 6
 line_offsets:
   - 0

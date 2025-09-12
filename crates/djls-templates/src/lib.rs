@@ -81,18 +81,8 @@ fn lex_template(db: &dyn Db, file: SourceFile) -> TokenStream<'_> {
     let text_arc = djls_workspace::db::source_text(db, file);
     let text = text_arc.as_ref();
 
-    match Lexer::new(text).tokenize() {
-        Ok(tokens) => TokenStream::new(db, tokens),
-        Err(err) => {
-            // Create error diagnostic
-            let error = TemplateError::Lexer(err.to_string());
-            let empty_offsets = LineOffsets::default();
-            accumulate_error(db, &error, &empty_offsets);
-
-            // Return empty token stream
-            TokenStream::new(db, vec![])
-        }
-    }
+    let tokens = Lexer::new(db, text).tokenize();
+    TokenStream::new(db, tokens)
 }
 
 /// Parse tokens into an AST.
@@ -177,7 +167,7 @@ fn accumulate_error(db: &dyn Db, error: &TemplateError, line_offsets: &LineOffse
         code_description: None,
         source: Some("Django Language Server".to_string()),
         message: match error {
-            TemplateError::Lexer(msg) | TemplateError::Parser(msg) => msg.clone(),
+            TemplateError::Parser(msg) => msg.clone(),
             _ => error.to_string(),
         },
         related_information: None,

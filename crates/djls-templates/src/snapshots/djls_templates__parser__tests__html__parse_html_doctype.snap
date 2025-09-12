@@ -4,7 +4,6 @@ expression: test_ast
 ---
 nodelist:
   - type: Text
-    content: "<!DOCTYPE html>"
     span:
       - 0
       - 15

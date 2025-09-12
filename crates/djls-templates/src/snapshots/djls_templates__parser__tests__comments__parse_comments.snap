@@ -4,14 +4,13 @@ expression: test_ast
 ---
 nodelist:
   - type: Text
-    content: "<!-- HTML comment -->"
     span:
       - 0
       - 21
   - type: Comment
     content: Django comment
     span:
-      - 21
-      - 20
+      - 24
+      - 14
 line_offsets:
   - 0

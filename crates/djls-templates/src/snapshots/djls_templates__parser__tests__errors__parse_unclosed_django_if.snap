@@ -8,10 +8,9 @@ nodelist:
     bits:
       - user.is_authenticated
     span:
-      - 0
-      - 30
+      - 3
+      - 24
   - type: Text
-    content: Welcome
     span:
       - 30
       - 7

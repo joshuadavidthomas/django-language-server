@@ -2,9 +2,9 @@
 source: crates/djls-templates/src/lexer.rs
 expression: snapshot
 ---
-- Variable:
-    content: "user.name|default:\"Anonymous\"|title"
+- Text:
+    content: "<style>body { color: blue; "
     line: 1
-    start: 3
+    start: 0
 - Eof:
     line: 1

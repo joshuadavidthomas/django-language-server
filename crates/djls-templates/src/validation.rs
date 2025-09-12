@@ -21,7 +21,6 @@ use crate::ast::Node;
 use crate::ast::NodeListError;
 use crate::ast::Span;
 use crate::ast::TagName;
-use crate::ast::TagNode;
 use crate::db::Db as TemplateDb;
 use crate::templatetags::Arg;
 use crate::templatetags::ArgType;
@@ -33,7 +32,7 @@ pub struct TagValidator<'db> {
     db: &'db dyn TemplateDb,
     ast: NodeList<'db>,
     current: usize,
-    stack: Vec<TagNode<'db>>,
+    stack: Vec<Node<'db>>,
     errors: Vec<NodeListError>,
 }
 
@@ -52,38 +51,36 @@ impl<'db> TagValidator<'db> {
     #[must_use]
     pub fn validate(mut self) -> Vec<NodeListError> {
         while !self.is_at_end() {
-            if let Some(Node::Tag(tag_node)) = self.current_node() {
-                let TagNode { name, bits, span } = tag_node;
-                let name_str = name.text(self.db);
+            if let Some(node) = self.current_node() {
+                if let Node::Tag { name, bits, .. } = &node {
+                    let name_str = name.text(self.db);
 
-                let tag_specs = self.db.tag_specs();
-                let tag_type = TagType::for_name(&name_str, &tag_specs);
+                    let tag_specs = self.db.tag_specs();
+                    let tag_type = TagType::for_name(&name_str, &tag_specs);
 
-                let args = match tag_type {
-                    TagType::Closer => tag_specs
-                        .get_end_spec_for_closer(&name_str)
-                        .map(|s| &s.args),
-                    _ => tag_specs.get(&name_str).map(|s| &s.args),
-                };
+                    let args = match tag_type {
+                        TagType::Closer => tag_specs
+                            .get_end_spec_for_closer(&name_str)
+                            .map(|s| &s.args),
+                        _ => tag_specs.get(&name_str).map(|s| &s.args),
+                    };
 
-                self.check_arguments(&name_str, &bits, span, args);
+                    // Pass full_span for error reporting
+                    self.check_arguments(&name_str, bits, node.full_span(), args);
 
-                match tag_type {
-                    TagType::Opener => {
-                        self.stack.push(TagNode {
-                            name,
-                            bits: bits.clone(),
-                            span,
-                        });
-                    }
-                    TagType::Intermediate => {
-                        self.handle_intermediate(&name_str, span);
-                    }
-                    TagType::Closer => {
-                        self.handle_closer(name, &bits, span);
-                    }
-                    TagType::Standalone => {
-                        // No additional action needed for standalone tags
+                    match tag_type {
+                        TagType::Opener => {
+                            self.stack.push(node.clone()); // Push the whole node
+                        }
+                        TagType::Intermediate => {
+                            self.handle_intermediate(&name_str, node.full_span());
+                        }
+                        TagType::Closer => {
+                            self.handle_closer(*name, bits, node.full_span());
+                        }
+                        TagType::Standalone => {
+                            // No additional action needed for standalone tags
+                        }
                     }
                 }
             }
@@ -91,11 +88,14 @@ impl<'db> TagValidator<'db> {
         }
 
         // Any remaining stack items are unclosed
-        while let Some(tag) = self.stack.pop() {
-            self.errors.push(NodeListError::UnclosedTag {
-                tag: tag.name.text(self.db),
-                span: tag.span,
-            });
+
+        while let Some(node) = self.stack.pop() {
+            if let Node::Tag { name, .. } = &node {
+                self.errors.push(NodeListError::UnclosedTag {
+                    tag: name.text(self.db),
+                    span: node.full_span(),
+                });
+            }
         }
 
         self.errors
@@ -145,11 +145,13 @@ impl<'db> TagValidator<'db> {
         }
 
         // Check if any parent is in the stack
-        let has_parent = self
-            .stack
-            .iter()
-            .rev()
-            .any(|tag| parent_tags.contains(&tag.name.text(self.db)));
+        let has_parent = self.stack.iter().rev().any(|node| {
+            if let Node::Tag { name: tag_name, .. } = node {
+                parent_tags.contains(&tag_name.text(self.db))
+            } else {
+                false
+            }
+        });
 
         if !has_parent {
             let parents = if parent_tags.len() == 1 {
@@ -201,7 +203,13 @@ impl<'db> TagValidator<'db> {
                 .iter()
                 .enumerate()
                 .rev()
-                .find(|(_, tag)| tag.name.text(self.db) == opener_name)
+                .find(|(_, node)| {
+                    if let Node::Tag { name: tag_name, .. } = node {
+                        tag_name.text(self.db) == opener_name
+                    } else {
+                        false
+                    }
+                })
                 .map(|(i, _)| i)
         } else {
             // Named closer - try to find exact match
@@ -209,10 +217,19 @@ impl<'db> TagValidator<'db> {
                 .iter()
                 .enumerate()
                 .rev()
-                .find(|(_, tag)| {
-                    tag.name.text(self.db) == opener_name
-                        && !tag.bits.is_empty()
-                        && tag.bits[0] == bits[0]
+                .find(|(_, node)| {
+                    if let Node::Tag {
+                        name: tag_name,
+                        bits: tag_bits,
+                        ..
+                    } = node
+                    {
+                        tag_name.text(self.db) == opener_name
+                            && !tag_bits.is_empty()
+                            && tag_bits[0] == bits[0]
+                    } else {
+                        false
+                    }
                 })
                 .map(|(i, _)| i)
         };
@@ -236,18 +253,25 @@ impl<'db> TagValidator<'db> {
             });
 
             // Find the nearest block to close (and report it as unclosed)
-            if let Some((index, nearest_block)) = self
-                .stack
-                .iter()
-                .enumerate()
-                .rev()
-                .find(|(_, tag)| tag.name.text(self.db) == opener_name)
-            {
-                // Report that we're closing the wrong block
-                self.errors.push(NodeListError::UnclosedTag {
-                    tag: nearest_block.name.text(self.db),
-                    span: nearest_block.span,
-                });
+            if let Some((index, _)) = self.stack.iter().enumerate().rev().find(|(_, node)| {
+                if let Node::Tag { name: tag_name, .. } = node {
+                    tag_name.text(self.db) == opener_name
+                } else {
+                    false
+                }
+            }) {
+                // Get the node to report as unclosed
+                if let Some(nearest_block) = self.stack.get(index) {
+                    if let Node::Tag {
+                        name: block_name, ..
+                    } = nearest_block
+                    {
+                        self.errors.push(NodeListError::UnclosedTag {
+                            tag: block_name.text(self.db),
+                            span: nearest_block.full_span(),
+                        });
+                    }
+                }
 
                 // Pop everything after as unclosed
                 self.pop_unclosed_after(index);
@@ -269,10 +293,12 @@ impl<'db> TagValidator<'db> {
     fn pop_unclosed_after(&mut self, index: usize) {
         while self.stack.len() > index + 1 {
             if let Some(unclosed) = self.stack.pop() {
-                self.errors.push(NodeListError::UnclosedTag {
-                    tag: unclosed.name.text(self.db),
-                    span: unclosed.span,
-                });
+                if let Node::Tag { name, .. } = &unclosed {
+                    self.errors.push(NodeListError::UnclosedTag {
+                        tag: name.text(self.db),
+                        span: unclosed.full_span(),
+                    });
+                }
             }
         }
     }
@@ -349,7 +375,7 @@ mod tests {
     #[salsa::tracked]
     fn parse_test_template(db: &dyn TemplateDb, source: TestSource) -> NodeList<'_> {
         let text = source.text(db);
-        let tokens = Lexer::new(text).tokenize().unwrap();
+        let tokens = Lexer::new(db, text).tokenize();
         let token_stream = crate::tokens::TokenStream::new(db, tokens);
         let mut parser = Parser::new(db, token_stream);
         let (ast, _) = parser.parse().unwrap();

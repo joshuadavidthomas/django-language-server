@@ -1,27 +1,26 @@
 ---
 source: crates/djls-templates/src/lexer.rs
-expression: tokens
+expression: snapshot
 ---
-- token_type:
-    DjangoBlock: if user.is_staff
-  line: 1
-  start: 0
-- token_type:
-    Text: Admin
-  line: 1
-  start: 22
-- token_type:
-    DjangoBlock: else
-  line: 1
-  start: 27
-- token_type:
-    Text: User
-  line: 1
-  start: 37
-- token_type:
-    DjangoBlock: endif
-  line: 1
-  start: 41
-- token_type: Eof
-  line: 1
-  start: ~
+- Block:
+    content: if user.is_staff
+    line: 1
+    start: 3
+- Text:
+    content: Admin
+    line: 1
+    start: 22
+- Block:
+    content: else
+    line: 1
+    start: 30
+- Text:
+    content: User
+    line: 1
+    start: 37
+- Block:
+    content: endif
+    line: 1
+    start: 44
+- Eof:
+    line: 1

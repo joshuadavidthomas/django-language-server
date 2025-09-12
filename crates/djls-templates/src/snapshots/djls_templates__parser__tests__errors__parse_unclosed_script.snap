@@ -4,7 +4,6 @@ expression: test_ast
 ---
 nodelist:
   - type: Text
-    content: "<script>console.log('test');"
     span:
       - 0
       - 28
