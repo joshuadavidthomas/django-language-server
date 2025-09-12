@@ -9,7 +9,6 @@ use crate::ast::Span;
 use crate::ast::TagName;
 use crate::ast::VariableName;
 use crate::db::Db as TemplateDb;
-
 use crate::tokens::Token;
 use crate::tokens::TokenStream;
 

@@ -219,7 +219,6 @@ impl<'db> Lexer<'db> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
     use crate::tokens::TokenSnapshotVec;
 
     #[salsa::db]
