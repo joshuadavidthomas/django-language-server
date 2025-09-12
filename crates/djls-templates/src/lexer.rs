@@ -103,9 +103,16 @@ impl Lexer {
         let mut text = String::new();
         while !self.is_at_end() {
             let c = self.peek();
-            if c == '{' || c == '\n' {
+
+            if c == '{' {
+                let next = self.peek_next();
+                if next == '%' || next == '{' || next == '#' {
+                    break;
+                }
+            } else if c == '\n' {
                 break;
             }
+
             text.push(c);
             self.consume();
         }
@@ -125,23 +132,10 @@ impl Lexer {
     }
 
     fn peek_at(&self, offset: isize) -> char {
-        let index = if offset < 0 {
-            match self.current.checked_sub(offset.unsigned_abs()) {
-                Some(idx) => idx,
-                None => return '\0',
-            }
-        } else {
-            match self.current.checked_add(offset as usize) {
-                Some(idx) => idx,
-                None => return '\0',
-            }
+        let Some(index) = self.current.checked_add_signed(offset) else {
+            return '\0';
         };
-
-        if index >= self.chars.len() {
-            '\0'
-        } else {
-            self.chars[index]
-        }
+        self.chars.get(index).copied().unwrap_or('\0')
     }
 
     fn is_at_end(&self) -> bool {
@@ -303,6 +297,14 @@ mod tests {
     </div>
 </body>
 </html>"#;
+        let mut lexer = Lexer::new(source);
+        let tokens = lexer.tokenize();
+        insta::assert_yaml_snapshot!(tokens);
+    }
+
+    #[test]
+    fn test_tokenize_unclosed_style() {
+        let source = "<style>body { color: blue; ";
         let mut lexer = Lexer::new(source);
         let tokens = lexer.tokenize();
         insta::assert_yaml_snapshot!(tokens);

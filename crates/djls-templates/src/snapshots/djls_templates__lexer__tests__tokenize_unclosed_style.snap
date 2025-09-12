@@ -3,7 +3,7 @@ source: crates/djls-templates/src/lexer.rs
 expression: tokens
 ---
 - token_type:
-    Variable: "user.name|default:\"Anonymous\"|title"
+    Text: "<style>body { color: blue; "
   line: 1
   start: 0
 - token_type: Eof

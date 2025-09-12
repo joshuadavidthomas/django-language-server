@@ -19,10 +19,15 @@ nodelist:
       - 63
       - 12
   - type: Text
-    content: "/* Multi-line\n        comment */"
+    content: /* Multi-line
     span:
       - 80
-      - 32
+      - 13
+  - type: Text
+    content: comment */
+    span:
+      - 102
+      - 10
   - type: Text
     content: console.log(x);
     span:
@@ -38,5 +43,6 @@ line_offsets:
   - 32
   - 59
   - 76
+  - 94
   - 113
   - 133

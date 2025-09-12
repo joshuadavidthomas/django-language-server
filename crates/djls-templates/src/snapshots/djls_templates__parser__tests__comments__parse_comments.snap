@@ -12,6 +12,6 @@ nodelist:
     content: Django comment
     span:
       - 21
-      - 20
+      - 14
 line_offsets:
   - 0

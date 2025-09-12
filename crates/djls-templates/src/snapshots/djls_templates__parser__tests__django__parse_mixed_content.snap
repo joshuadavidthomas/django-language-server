@@ -15,87 +15,56 @@ nodelist:
     span:
       - 9
       - 30
-  - type: Variable
-    var: user.name
-    filters:
-      - title
-      - "default:'Guest'"
+  - type: Text
+    content: "{{ user.name|title|default:'Guest' }}"
     span:
       - 44
       - 37
-  - type: Tag
-    name: for
-    bits:
-      - group
-      - in
-      - user.groups
+  - type: Text
+    content: "{% for group in user.groups %}"
     span:
       - 86
       - 30
-  - type: Tag
-    name: if
-    bits:
-      - forloop.first
+  - type: Text
+    content: "{% if forloop.first %}("
     span:
       - 125
-      - 22
-  - type: Text
-    content: (
-    span:
-      - 147
-      - 1
+      - 23
   - type: Tag
     name: endif
     bits: []
     span:
       - 148
       - 11
-  - type: Variable
-    var: group.name
-    filters: []
+  - type: Text
+    content: "{{ group.name }}"
     span:
       - 168
       - 16
-  - type: Tag
-    name: if
-    bits:
-      - not
-      - forloop.last
+  - type: Text
+    content: "{% if not forloop.last %},"
     span:
       - 193
-      - 25
-  - type: Text
-    content: ","
-    span:
-      - 218
-      - 1
+      - 26
   - type: Tag
     name: endif
     bits: []
     span:
       - 220
       - 11
-  - type: Tag
-    name: if
-    bits:
-      - forloop.last
+  - type: Text
+    content: "{% if forloop.last %})"
     span:
       - 240
-      - 21
-  - type: Text
-    content: )
-    span:
-      - 261
-      - 1
+      - 22
   - type: Tag
     name: endif
     bits: []
     span:
       - 262
       - 11
-  - type: Tag
-    name: empty
-    bits: []
+  - type: Text
+    content: "{% empty %}"
     span:
       - 278
       - 11
@@ -104,15 +73,13 @@ nodelist:
     span:
       - 298
       - 11
-  - type: Tag
-    name: endfor
-    bits: []
+  - type: Text
+    content: "{% endfor %}"
     span:
       - 314
       - 12
-  - type: Tag
-    name: else
-    bits: []
+  - type: Text
+    content: "{% else %}"
     span:
       - 327
       - 10
@@ -121,17 +88,11 @@ nodelist:
     span:
       - 342
       - 5
-  - type: Tag
-    name: endif
-    bits: []
+  - type: Text
+    content: "{% endif %}!"
     span:
       - 348
-      - 11
-  - type: Text
-    content: "!"
-    span:
-      - 359
-      - 1
+      - 12
 line_offsets:
   - 0
   - 40

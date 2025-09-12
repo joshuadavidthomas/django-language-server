@@ -50,11 +50,11 @@ impl Token {
         match &self.token_type {
             TokenType::Block(_) => format!("{{% {} %}}", self.content()),
             TokenType::Comment(_)
+            | TokenType::Error(_)
             | TokenType::Newline
             | TokenType::Text(_)
             | TokenType::Whitespace(_) => self.content(),
             TokenType::Eof => String::new(),
-            TokenType::Error(_) => self.content(),
             TokenType::Variable(_) => format!("{{{{ {} }}}}", self.content()),
         }
     }

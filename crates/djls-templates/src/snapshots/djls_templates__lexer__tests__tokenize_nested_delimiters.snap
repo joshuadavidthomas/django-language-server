@@ -1,0 +1,39 @@
+---
+source: crates/djls-templates/src/lexer.rs
+expression: tokens
+---
+- token_type:
+    Variable: user.name
+  line: 1
+  start: 0
+- token_type: Newline
+  line: 1
+  start: 15
+- token_type:
+    Block: if true
+  line: 2
+  start: 16
+- token_type: Newline
+  line: 2
+  start: 29
+- token_type:
+    Comment: comment
+  line: 3
+  start: 30
+- token_type: Newline
+  line: 3
+  start: 43
+- token_type:
+    Text: "<!-- html comment -->"
+  line: 4
+  start: 44
+- token_type: Newline
+  line: 4
+  start: 65
+- token_type:
+    Text: "<div>text</div>"
+  line: 5
+  start: 66
+- token_type: Eof
+  line: 5
+  start: ~

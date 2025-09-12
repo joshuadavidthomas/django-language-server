@@ -349,7 +349,7 @@ mod tests {
     #[salsa::tracked]
     fn parse_test_template(db: &dyn TemplateDb, source: TestSource) -> NodeList<'_> {
         let text = source.text(db);
-        let tokens = Lexer::new(text).tokenize().unwrap();
+        let tokens = Lexer::new(text).tokenize();
         let token_stream = crate::tokens::TokenStream::new(db, tokens);
         let mut parser = Parser::new(db, token_stream);
         let (ast, _) = parser.parse().unwrap();

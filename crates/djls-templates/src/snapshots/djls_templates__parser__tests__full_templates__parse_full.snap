@@ -93,18 +93,16 @@ nodelist:
     span:
       - 394
       - 56
-  - type: Tag
-    name: if
-    bits:
-      - user.is_authenticated
+  - type: Text
+    content: "{% if user.is_authenticated %}"
     span:
       - 463
       - 30
-  - type: Comment
+  - type: Text
     content: Welcome message
     span:
       - 510
-      - 21
+      - 15
   - type: Text
     content: "<h1>Welcome,"
     span:
@@ -123,10 +121,8 @@ nodelist:
     span:
       - 598
       - 6
-  - type: Tag
-    name: if
-    bits:
-      - user.is_staff
+  - type: Text
+    content: "{% if user.is_staff %}"
     span:
       - 621
       - 22
@@ -135,9 +131,8 @@ nodelist:
     span:
       - 664
       - 18
-  - type: Tag
-    name: else
-    bits: []
+  - type: Text
+    content: "{% else %}"
     span:
       - 699
       - 10
@@ -146,15 +141,13 @@ nodelist:
     span:
       - 730
       - 17
-  - type: Tag
-    name: endif
-    bits: []
+  - type: Text
+    content: "{% endif %}"
     span:
       - 764
       - 11
-  - type: Tag
-    name: endif
-    bits: []
+  - type: Text
+    content: "{% endif %}"
     span:
       - 788
       - 11

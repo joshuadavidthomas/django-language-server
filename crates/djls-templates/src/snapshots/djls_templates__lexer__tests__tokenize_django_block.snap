@@ -3,7 +3,7 @@ source: crates/djls-templates/src/lexer.rs
 expression: tokens
 ---
 - token_type:
-    DjangoBlock: if user.is_staff
+    Block: if user.is_staff
   line: 1
   start: 0
 - token_type:
@@ -11,7 +11,7 @@ expression: tokens
   line: 1
   start: 22
 - token_type:
-    DjangoBlock: else
+    Block: else
   line: 1
   start: 27
 - token_type:
@@ -19,7 +19,7 @@ expression: tokens
   line: 1
   start: 37
 - token_type:
-    DjangoBlock: endif
+    Block: endif
   line: 1
   start: 41
 - token_type: Eof

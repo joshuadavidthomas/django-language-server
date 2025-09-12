@@ -13,7 +13,7 @@ use crate::ast::TextNode;
 use crate::ast::VariableName;
 use crate::ast::VariableNode;
 use crate::db::Db as TemplateDb;
-use crate::lexer::LexerError;
+
 use crate::tokens::Token;
 use crate::tokens::TokenStream;
 use crate::tokens::TokenType;
@@ -75,35 +75,41 @@ impl<'db> Parser<'db> {
         let token = self.consume()?;
 
         match token.token_type() {
-            TokenType::Comment(_, open, _) => self.parse_comment(open),
+            TokenType::Comment(_) => self.parse_comment(),
             TokenType::Eof => Err(ParserError::stream_error(StreamError::AtEnd)),
             TokenType::Block(_) => self.parse_django_block(),
             TokenType::Variable(_) => self.parse_django_variable(),
-            TokenType::HtmlTagClose(_)
-            | TokenType::HtmlTagOpen(_)
-            | TokenType::HtmlTagVoid(_)
-            | TokenType::Newline
-            | TokenType::ScriptTagClose(_)
-            | TokenType::ScriptTagOpen(_)
-            | TokenType::StyleTagClose(_)
-            | TokenType::StyleTagOpen(_)
+            TokenType::Error(_) => self.parse_error(),
+            TokenType::Newline
             | TokenType::Text(_)
             | TokenType::Whitespace(_) => self.parse_text(),
         }
     }
 
-    fn parse_comment(&mut self, open: &str) -> Result<Node<'db>, ParserError> {
-        // Only treat Django comments as Comment nodes
-        if open != "{#" {
-            return self.parse_text();
-        }
-
+    fn parse_comment(&mut self) -> Result<Node<'db>, ParserError> {
         let token = self.peek_previous()?;
 
         Ok(Node::Comment(CommentNode {
             content: token.content(),
             span: Span::from_token(&token),
         }))
+    }
+
+    fn parse_error(&mut self) -> Result<Node<'db>, ParserError> {
+        let token = self.peek_previous()?;
+        
+        if let TokenType::Error(content) = token.token_type() {
+            let position = token.start().unwrap_or(0) as usize;
+            
+            Err(ParserError::MalformedConstruct {
+                position,
+                content: content.clone(),
+            })
+        } else {
+            Err(ParserError::InvalidSyntax {
+                context: "Expected Error token".to_string(),
+            })
+        }
     }
 
     pub fn parse_django_block(&mut self) -> Result<Node<'db>, ParserError> {
@@ -144,41 +150,60 @@ impl<'db> Parser<'db> {
     }
 
     fn parse_text(&mut self) -> Result<Node<'db>, ParserError> {
-        let token = self.peek_previous()?;
-
-        if token.token_type() == &TokenType::Newline {
-            return self.next_node();
-        }
-
-        let mut text = token.lexeme();
-
-        while let Ok(token) = self.peek() {
-            match token.token_type() {
-                TokenType::Block(_)
-                | TokenType::Variable(_)
-                | TokenType::Comment(_, _, _)
-                | TokenType::Newline
-                | TokenType::Eof => break,
-                _ => {
-                    let token_text = token.lexeme();
-                    text.push_str(&token_text);
+        // Keep looping until we find non-empty text or hit a significant token
+        loop {
+            let token = self.peek_previous()?;
+            
+            // Skip newlines directly without recursion
+            if token.token_type() == &TokenType::Newline {
+                if !self.is_at_end() {
                     self.consume()?;
+                    continue;
+                } else {
+                    return Err(ParserError::stream_error(StreamError::AtEnd));
                 }
             }
+
+            let mut text = token.lexeme();
+
+            while let Ok(token) = self.peek() {
+                match token.token_type() {
+                    TokenType::Block(_)
+                    | TokenType::Variable(_)
+                    | TokenType::Comment(_)
+                    | TokenType::Error(_)
+                    | TokenType::Newline
+                    | TokenType::Eof => break,
+                    _ => {
+                        let token_text = token.lexeme();
+                        text.push_str(&token_text);
+                        self.consume()?;
+                    }
+                }
+            }
+
+            let content = match text.trim() {
+                "" => {
+                    // Instead of recursing, continue the loop
+                    if !self.is_at_end() {
+                        self.consume()?;
+                        continue;
+                    } else {
+                        return Err(ParserError::stream_error(StreamError::AtEnd));
+                    }
+                }
+                trimmed => trimmed.to_string(),
+            };
+
+            // We have non-empty content, create the text node
+            let start = token.start().unwrap_or(0);
+            let offset = u32::try_from(text.find(content.as_str()).unwrap_or(0))
+                .expect("Offset should fit in u32");
+            let length = u32::try_from(content.len()).expect("Content length should fit in u32");
+            let span = Span::new(start + offset, length);
+
+            return Ok(Node::Text(TextNode { content, span }));
         }
-
-        let content = match text.trim() {
-            "" => return self.next_node(),
-            trimmed => trimmed.to_string(),
-        };
-
-        let start = token.start().unwrap_or(0);
-        let offset = u32::try_from(text.find(content.as_str()).unwrap_or(0))
-            .expect("Offset should fit in u32");
-        let length = u32::try_from(content.len()).expect("Content length should fit in u32");
-        let span = Span::new(start + offset, length);
-
-        Ok(Node::Text(TextNode { content, span }))
     }
 
     fn peek(&self) -> Result<Token, ParserError> {
@@ -255,7 +280,7 @@ impl<'db> Parser<'db> {
         let sync_types = &[
             TokenType::Block(String::new()),
             TokenType::Variable(String::new()),
-            TokenType::Comment(String::new(), String::from("{#"), Some(String::from("#}"))),
+            TokenType::Comment(String::new()),
             TokenType::Eof,
         ];
 
@@ -314,8 +339,8 @@ pub enum ParseError {
     #[error("Empty tag")]
     EmptyTag,
 
-    #[error("Lexer error: {0}")]
-    Lexer(#[from] LexerError),
+    #[error("Malformed Django construct at position {position}: {content}")]
+    MalformedConstruct { position: usize, content: String },
 
     #[error("Stream error: {kind:?}")]
     StreamError { kind: StreamError },
@@ -392,7 +417,7 @@ mod tests {
     #[salsa::tracked]
     fn parse_test_template(db: &dyn TemplateDb, template: TestTemplate) -> NodeList<'_> {
         let source = template.source(db);
-        let tokens = Lexer::new(source).tokenize().unwrap();
+        let tokens = Lexer::new(source).tokenize();
         let token_stream = TokenStream::new(db, tokens);
         let mut parser = Parser::new(db, token_stream);
         let (ast, _) = parser.parse().unwrap();

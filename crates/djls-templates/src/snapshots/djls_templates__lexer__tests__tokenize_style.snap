@@ -3,7 +3,7 @@ source: crates/djls-templates/src/lexer.rs
 expression: tokens
 ---
 - token_type:
-    StyleTagOpen: "style type=\"text/css\""
+    Text: "<style type=\"text/css\">"
   line: 1
   start: 0
 - token_type: Newline
@@ -14,10 +14,7 @@ expression: tokens
   line: 2
   start: 24
 - token_type:
-    Comment:
-      - Header styles
-      - /*
-      - "*/"
+    Text: /* Header styles */
   line: 2
   start: 28
 - token_type: Newline
@@ -28,13 +25,9 @@ expression: tokens
   line: 3
   start: 48
 - token_type:
-    Text: ".header "
+    Text: ".header {"
   line: 3
   start: 52
-- token_type:
-    Text: "{"
-  line: 3
-  start: 60
 - token_type: Newline
   line: 3
   start: 61
@@ -61,7 +54,7 @@ expression: tokens
   line: 5
   start: 88
 - token_type:
-    HtmlTagClose: style
+    Text: "</style>"
   line: 6
   start: 89
 - token_type: Eof
