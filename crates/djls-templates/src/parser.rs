@@ -14,7 +14,7 @@ use crate::tokens::TokenStream;
 
 pub struct Parser<'db> {
     db: &'db dyn TemplateDb,
-    tokens: TokenStream<'db>,
+    tokens: Vec<Token<'db>>,
     current: usize,
     errors: Vec<ParserError>,
 }
@@ -24,7 +24,7 @@ impl<'db> Parser<'db> {
     pub fn new(db: &'db dyn TemplateDb, tokens: TokenStream<'db>) -> Self {
         Self {
             db,
-            tokens,
+            tokens: tokens.stream(db).clone(),
             current: 0,
             errors: Vec::new(),
         }
@@ -34,7 +34,7 @@ impl<'db> Parser<'db> {
         let mut nodelist = Vec::new();
         let mut line_offsets = crate::ast::LineOffsets::default();
 
-        let tokens = self.tokens.stream(self.db);
+        let tokens = &self.tokens;
         for token in tokens {
             if matches!(token, Token::Newline { .. }) {
                 let offset = token.offset();
@@ -206,15 +206,14 @@ impl<'db> Parser<'db> {
     }
 
     fn item_at(&self, index: usize) -> Result<Token<'db>, ParserError> {
-        let tokens = self.tokens.stream(self.db);
-        if let Some(token) = tokens.get(index) {
+        if let Some(token) = self.tokens.get(index) {
             Ok(token.clone())
         } else {
-            let error = if tokens.is_empty() {
+            let error = if self.tokens.is_empty() {
                 ParserError::stream_error(StreamError::Empty)
             } else if index < self.current {
                 ParserError::stream_error(StreamError::AtBeginning)
-            } else if index >= tokens.len() {
+            } else if index >= self.tokens.len() {
                 ParserError::stream_error(StreamError::AtEnd)
             } else {
                 ParserError::stream_error(StreamError::InvalidAccess)
@@ -224,8 +223,7 @@ impl<'db> Parser<'db> {
     }
 
     fn is_at_end(&self) -> bool {
-        let tokens = self.tokens.stream(self.db);
-        self.current + 1 >= tokens.len()
+        self.current + 1 >= self.tokens.len()
     }
 
     fn consume(&mut self) -> Result<Token<'db>, ParserError> {
