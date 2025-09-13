@@ -342,7 +342,7 @@ mod tests {
 
     #[salsa::db]
     impl crate::db::Db for TestDatabase {
-        // Template parsing only - semantic analysis moved to djls-hir
+        // Template parsing only - semantic analysis moved to djls-semantic
     }
 
     #[salsa::input]

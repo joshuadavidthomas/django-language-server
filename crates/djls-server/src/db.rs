@@ -10,8 +10,8 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 use dashmap::DashMap;
-use djls_hir::db::SemanticDb;
-use djls_hir::TagSpecs;
+use djls_semantic::db::SemanticDb;
+use djls_semantic::TagSpecs;
 use djls_project::Db as ProjectDb;
 use djls_project::InspectorPool;
 use djls_project::Interpreter;
@@ -196,7 +196,7 @@ impl SemanticDb for DjangoDatabase {
             TagSpecs::from(&settings)
         } else {
             // If no settings, just use built-in specs
-            djls_hir::django_builtin_specs()
+            djls_semantic::django_builtin_specs()
         };
 
         Arc::new(tag_specs)

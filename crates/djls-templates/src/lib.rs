@@ -160,7 +160,7 @@ fn accumulate_error(db: &dyn Db, error: &TemplateError, line_offsets: &LineOffse
 /// 1. Lexing (tokenization)
 /// 2. Parsing (AST construction)
 ///
-/// Validation has been moved to the djls-hir crate for semantic analysis.
+/// Validation has been moved to the djls-semantic crate for semantic analysis.
 ///
 /// Each phase is independently cached by Salsa, allowing for fine-grained
 /// incremental computation.

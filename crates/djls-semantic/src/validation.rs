@@ -320,4 +320,4 @@ impl<'db> TagValidator<'db> {
 
 // TODO: Add validation tests after HIR migration is complete
 // These tests need to be refactored to work with the new architecture
-// where validation is in djls-hir but parsing is in djls-templates
+// where validation is in djls-semantic but parsing is in djls-templates

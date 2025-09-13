@@ -1,5 +1,5 @@
 [package]
-name = "djls-hir"
+name = "djls-semantic"
 version = "0.0.0"
 edition = "2021"
 
