@@ -702,10 +702,7 @@ mod tests {
             tagspec.intermediate_tags.as_ref().unwrap()[0].name,
             "branch"
         );
-        assert_eq!(
-            tagspec.intermediate_tags.as_ref().unwrap()[0].args.len(),
-            0
-        );
+        assert_eq!(tagspec.intermediate_tags.as_ref().unwrap()[0].args.len(), 0);
     }
 
     #[test]
