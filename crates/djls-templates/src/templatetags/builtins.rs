@@ -128,8 +128,12 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
                 args: vec![],
             }),
             intermediate_tags: Some(vec![
-                IntermediateTag { name: "elif".to_string() },
-                IntermediateTag { name: "else".to_string() },
+                IntermediateTag {
+                    name: "elif".to_string(),
+                },
+                IntermediateTag {
+                    name: "else".to_string(),
+                },
             ]),
             args: vec![expr("condition")],
         },
@@ -140,9 +144,9 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
                 optional: false,
                 args: vec![],
             }),
-            intermediate_tags: Some(vec![
-                IntermediateTag { name: "empty".to_string() },
-            ]),
+            intermediate_tags: Some(vec![IntermediateTag {
+                name: "empty".to_string(),
+            }]),
             args: vec![
                 var("item"),
                 literal("in"),
@@ -157,9 +161,9 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
                 optional: false,
                 args: vec![],
             }),
-            intermediate_tags: Some(vec![
-                IntermediateTag { name: "else".to_string() },
-            ]),
+            intermediate_tags: Some(vec![IntermediateTag {
+                name: "else".to_string(),
+            }]),
             args: vec![opt_varargs("variables")],
         },
         TagSpec {
@@ -172,7 +176,6 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
             intermediate_tags: None,
             args: vec![varargs("assignments")],
         },
-        
         // Block tags
         TagSpec {
             name: Some("block".to_string()),
@@ -207,7 +210,6 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
             intermediate_tags: None,
             args: vec![varargs("libraries")],
         },
-        
         // Content manipulation tags
         TagSpec {
             name: Some("comment".to_string()),
@@ -249,7 +251,6 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
             intermediate_tags: None,
             args: vec![opt_string("name")],
         },
-        
         // Variables and expressions
         TagSpec {
             name: Some("cycle".to_string()),
@@ -285,7 +286,6 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
                 var("grouped"),
             ],
         },
-        
         // Date and time
         TagSpec {
             name: Some("now".to_string()),
@@ -297,7 +297,6 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
                 opt_var("varname"),
             ],
         },
-        
         // URLs and static files
         TagSpec {
             name: Some("url".to_string()),
@@ -316,7 +315,6 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
             intermediate_tags: None,
             args: vec![string("path")],
         },
-        
         // Template tags
         TagSpec {
             name: Some("templatetag".to_string()),
@@ -336,7 +334,6 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
                 ],
             )],
         },
-        
         // Security
         TagSpec {
             name: Some("csrf_token".to_string()),
@@ -344,7 +341,6 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
             intermediate_tags: None,
             args: vec![],
         },
-        
         // Utilities
         TagSpec {
             name: Some("widthratio".to_string()),
@@ -364,7 +360,10 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
             intermediate_tags: None,
             args: vec![
                 opt_var("count"),
-                opt_choice("method", vec!["w".to_string(), "p".to_string(), "b".to_string()]),
+                opt_choice(
+                    "method",
+                    vec!["w".to_string(), "p".to_string(), "b".to_string()],
+                ),
                 opt_literal("random"),
             ],
         },
@@ -374,7 +373,6 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
             intermediate_tags: None,
             args: vec![],
         },
-        
         // Cache tags
         TagSpec {
             name: Some("cache".to_string()),
@@ -384,13 +382,8 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
                 args: vec![],
             }),
             intermediate_tags: None,
-            args: vec![
-                var("timeout"),
-                var("cache_key"),
-                opt_varargs("variables"),
-            ],
+            args: vec![var("timeout"), var("cache_key"), opt_varargs("variables")],
         },
-        
         // Internationalization
         TagSpec {
             name: Some("localize".to_string()),
@@ -400,7 +393,10 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
                 args: vec![],
             }),
             intermediate_tags: None,
-            args: vec![opt_choice("mode", vec!["on".to_string(), "off".to_string()])],
+            args: vec![opt_choice(
+                "mode",
+                vec!["on".to_string(), "off".to_string()],
+            )],
         },
         TagSpec {
             name: Some("blocktranslate".to_string()),
@@ -409,9 +405,9 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
                 optional: false,
                 args: vec![],
             }),
-            intermediate_tags: Some(vec![
-                IntermediateTag { name: "plural".to_string() },
-            ]),
+            intermediate_tags: Some(vec![IntermediateTag {
+                name: "plural".to_string(),
+            }]),
             args: vec![
                 opt_string("context"),
                 opt_literal("with"),
@@ -432,7 +428,6 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
                 opt_literal("noop"),
             ],
         },
-        
         // Timezone tags
         TagSpec {
             name: Some("localtime".to_string()),
@@ -442,7 +437,10 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
                 args: vec![],
             }),
             intermediate_tags: None,
-            args: vec![opt_choice("mode", vec!["on".to_string(), "off".to_string()])],
+            args: vec![opt_choice(
+                "mode",
+                vec!["on".to_string(), "off".to_string()],
+            )],
         },
         TagSpec {
             name: Some("timezone".to_string()),
@@ -541,7 +539,9 @@ mod tests {
         ];
 
         for tag in expected_block_tags {
-            let spec = specs.get(tag).unwrap_or_else(|| panic!("{tag} tag should be present"));
+            let spec = specs
+                .get(tag)
+                .unwrap_or_else(|| panic!("{tag} tag should be present"));
             assert!(spec.end_tag.is_some(), "{tag} should have an end tag");
         }
 
@@ -612,13 +612,18 @@ mod tests {
         let specs = django_builtin_specs();
 
         // Test a single tag has no end tag or intermediates
-        let csrf_tag = specs.get("csrf_token").expect("csrf_token tag should exist");
+        let csrf_tag = specs
+            .get("csrf_token")
+            .expect("csrf_token tag should exist");
         assert!(csrf_tag.end_tag.is_none());
         assert!(csrf_tag.intermediate_tags.is_none());
 
         // Test extends tag with args
         let extends_tag = specs.get("extends").expect("extends tag should exist");
         assert!(extends_tag.end_tag.is_none());
-        assert!(!extends_tag.args.is_empty(), "extends tag should have arguments");
+        assert!(
+            !extends_tag.args.is_empty(),
+            "extends tag should have arguments"
+        );
     }
 }
