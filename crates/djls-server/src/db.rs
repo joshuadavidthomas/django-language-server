@@ -177,25 +177,20 @@ impl WorkspaceDb for DjangoDatabase {
 }
 
 #[salsa::db]
-impl TemplateDb for DjangoDatabase {
-    // Template-specific functionality (syntax only)
-}
+impl TemplateDb for DjangoDatabase {}
 
 #[salsa::db]
 impl SemanticDb for DjangoDatabase {
     fn tag_specs(&self) -> Arc<TagSpecs> {
-        // Get project root for loading settings
         let project_root = if let Some(project) = self.project() {
             project.root(self).clone()
         } else {
             std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
         };
 
-        // Load settings and convert to TagSpecs (includes built-ins + user-defined)
         let tag_specs = if let Ok(settings) = djls_conf::Settings::new(&project_root) {
             TagSpecs::from(&settings)
         } else {
-            // If no settings, just use built-in specs
             djls_semantic::django_builtin_specs()
         };
 
