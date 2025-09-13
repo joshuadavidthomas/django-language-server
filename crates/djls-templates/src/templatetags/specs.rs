@@ -272,14 +272,14 @@ impl From<djls_conf::EndTagDef> for EndTag {
 #[derive(Debug, Clone, PartialEq)]
 pub struct IntermediateTag {
     pub name: String,
+    pub args: Vec<TagArg>,
 }
 
 impl From<djls_conf::IntermediateTagDef> for IntermediateTag {
     fn from(value: djls_conf::IntermediateTagDef) -> Self {
         IntermediateTag {
             name: value.name,
-            // Note: IntermediateTagDef has args field but IntermediateTag doesn't
-            // This is intentional - we don't support args on intermediate tags yet
+            args: value.args.into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -316,9 +316,11 @@ mod tests {
                 intermediate_tags: Some(vec![
                     IntermediateTag {
                         name: "elif".to_string(),
+                        args: vec![TagArg::expr("condition", true)],
                     },
                     IntermediateTag {
                         name: "else".to_string(),
+                        args: vec![],
                     },
                 ]),
                 args: vec![],
@@ -338,9 +340,11 @@ mod tests {
                 intermediate_tags: Some(vec![
                     IntermediateTag {
                         name: "empty".to_string(),
+                        args: vec![],
                     },
                     IntermediateTag {
                         name: "else".to_string(),
+                        args: vec![],
                     }, // Note: else is shared
                 ]),
                 args: vec![],
@@ -662,10 +666,16 @@ mod tests {
         // Test IntermediateTagDef -> IntermediateTag conversion
         let intermediate_def = djls_conf::IntermediateTagDef {
             name: "elif".to_string(),
-            args: vec![], // These are ignored in conversion
+            args: vec![djls_conf::TagArgDef {
+                name: "condition".to_string(),
+                required: true,
+                arg_type: djls_conf::ArgTypeDef::Simple(djls_conf::SimpleArgTypeDef::Expression),
+            }],
         };
         let intermediate = IntermediateTag::from(intermediate_def);
         assert_eq!(intermediate.name, "elif");
+        assert_eq!(intermediate.args.len(), 1);
+        assert_eq!(intermediate.args[0].name, "condition");
 
         // Test full TagSpecDef -> TagSpec conversion
         let tagspec_def = djls_conf::TagSpecDef {
@@ -691,6 +701,10 @@ mod tests {
         assert_eq!(
             tagspec.intermediate_tags.as_ref().unwrap()[0].name,
             "branch"
+        );
+        assert_eq!(
+            tagspec.intermediate_tags.as_ref().unwrap()[0].args.len(),
+            0
         );
     }
 

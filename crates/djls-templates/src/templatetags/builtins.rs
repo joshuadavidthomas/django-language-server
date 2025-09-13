@@ -43,9 +43,11 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
             intermediate_tags: Some(vec![
                 IntermediateTag {
                     name: "elif".to_string(),
+                    args: vec![TagArg::expr("condition", true)],
                 },
                 IntermediateTag {
                     name: "else".to_string(),
+                    args: vec![],
                 },
             ]),
             args: vec![TagArg::expr("condition", true)],
@@ -59,6 +61,7 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
             }),
             intermediate_tags: Some(vec![IntermediateTag {
                 name: "empty".to_string(),
+                args: vec![],
             }]),
             args: vec![
                 TagArg::var("item", true),
@@ -76,6 +79,7 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
             }),
             intermediate_tags: Some(vec![IntermediateTag {
                 name: "else".to_string(),
+                args: vec![],
             }]),
             args: vec![TagArg::varargs("variables", false)],
         },
@@ -327,6 +331,7 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
             }),
             intermediate_tags: Some(vec![IntermediateTag {
                 name: "plural".to_string(),
+                args: vec![TagArg::var("count", false)],
             }]),
             args: vec![
                 TagArg::string("context", false),
