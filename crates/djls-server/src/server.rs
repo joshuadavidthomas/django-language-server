@@ -350,7 +350,7 @@ impl LanguageServer for DjangoLanguageServer {
                             None
                         }
                     });
-                    let tag_specs = session.with_db(djls_templates::Db::tag_specs);
+                    let tag_specs = session.with_db(djls_semantic::db::SemanticDb::tag_specs);
                     let supports_snippets = session.supports_snippets();
 
                     let completions = crate::completions::handle_completion(

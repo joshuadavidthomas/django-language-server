@@ -1,3 +1,7 @@
+// TODO: Move snippets module to djls-ide crate
+// Snippet generation is an IDE/editor feature, not a semantic analysis concern.
+// It belongs with other editor features like completions, hover, and folding.
+
 use super::specs::ArgType;
 use super::specs::SimpleArgType;
 use super::specs::TagArg;
@@ -122,8 +126,8 @@ pub fn generate_partial_snippet(spec: &TagSpec, starting_from_position: usize) -
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::templatetags::specs::ArgType;
-    use crate::templatetags::specs::SimpleArgType;
+    use crate::specs::ArgType;
+    use crate::specs::SimpleArgType;
 
     #[test]
     fn test_snippet_for_for_tag() {
@@ -202,8 +206,8 @@ mod tests {
 
     #[test]
     fn test_snippet_for_block_tag() {
-        use crate::templatetags::specs::EndTag;
-        use crate::templatetags::specs::TagSpec;
+        use crate::specs::EndTag;
+        use crate::specs::TagSpec;
 
         let spec = TagSpec {
             name: None,
@@ -230,8 +234,8 @@ mod tests {
 
     #[test]
     fn test_snippet_with_end_tag() {
-        use crate::templatetags::specs::EndTag;
-        use crate::templatetags::specs::TagSpec;
+        use crate::specs::EndTag;
+        use crate::specs::TagSpec;
 
         let spec = TagSpec {
             name: None,

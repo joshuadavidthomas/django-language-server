@@ -14,8 +14,9 @@ use djls_project::Db as ProjectDb;
 use djls_project::InspectorPool;
 use djls_project::Interpreter;
 use djls_project::Project;
+use djls_semantic::db::SemanticDb;
+use djls_semantic::TagSpecs;
 use djls_templates::db::Db as TemplateDb;
-use djls_templates::templatetags::TagSpecs;
 use djls_workspace::db::Db as WorkspaceDb;
 use djls_workspace::db::SourceFile;
 use djls_workspace::FileKind;
@@ -176,21 +177,21 @@ impl WorkspaceDb for DjangoDatabase {
 }
 
 #[salsa::db]
-impl TemplateDb for DjangoDatabase {
+impl TemplateDb for DjangoDatabase {}
+
+#[salsa::db]
+impl SemanticDb for DjangoDatabase {
     fn tag_specs(&self) -> Arc<TagSpecs> {
-        // Get project root for loading settings
         let project_root = if let Some(project) = self.project() {
             project.root(self).clone()
         } else {
             std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
         };
 
-        // Load settings and convert to TagSpecs (includes built-ins + user-defined)
         let tag_specs = if let Ok(settings) = djls_conf::Settings::new(&project_root) {
             TagSpecs::from(&settings)
         } else {
-            // If no settings, just use built-in specs
-            djls_templates::templatetags::django_builtin_specs()
+            djls_semantic::django_builtin_specs()
         };
 
         Arc::new(tag_specs)

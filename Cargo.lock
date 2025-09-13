@@ -458,6 +458,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "djls-semantic"
+version = "0.0.0"
+dependencies = [
+ "djls-conf",
+ "djls-templates",
+ "djls-workspace",
+ "salsa",
+ "tempfile",
+ "tower-lsp-server",
+]
+
+[[package]]
 name = "djls-server"
 version = "0.0.0"
 dependencies = [
@@ -466,6 +478,7 @@ dependencies = [
  "dashmap",
  "djls-conf",
  "djls-project",
+ "djls-semantic",
  "djls-templates",
  "djls-workspace",
  "percent-encoding",

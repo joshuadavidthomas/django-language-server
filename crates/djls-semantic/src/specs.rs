@@ -97,7 +97,7 @@ impl TagSpecs {
 impl From<&djls_conf::Settings> for TagSpecs {
     fn from(settings: &djls_conf::Settings) -> Self {
         // Start with built-in specs
-        let mut specs = crate::templatetags::django_builtin_specs();
+        let mut specs = crate::builtins::django_builtin_specs();
 
         // Convert and merge user-defined tagspecs
         let mut user_specs = HashMap::new();
