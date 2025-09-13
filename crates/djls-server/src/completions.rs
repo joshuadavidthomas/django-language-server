@@ -3,12 +3,12 @@
 //! This module handles all LSP completion requests, analyzing cursor context
 //! and generating appropriate completion items for Django templates.
 
+use djls_project::TemplateTags;
 use djls_semantic::generate_partial_snippet;
 use djls_semantic::generate_snippet_for_tag_with_end;
 use djls_semantic::ArgType;
 use djls_semantic::SimpleArgType;
 use djls_semantic::TagSpecs;
-use djls_project::TemplateTags;
 use djls_workspace::FileKind;
 use djls_workspace::PositionEncoding;
 use djls_workspace::TextDocument;

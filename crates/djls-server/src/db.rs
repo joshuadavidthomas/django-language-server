@@ -10,12 +10,12 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 use dashmap::DashMap;
-use djls_semantic::db::SemanticDb;
-use djls_semantic::TagSpecs;
 use djls_project::Db as ProjectDb;
 use djls_project::InspectorPool;
 use djls_project::Interpreter;
 use djls_project::Project;
+use djls_semantic::db::SemanticDb;
+use djls_semantic::TagSpecs;
 use djls_templates::db::Db as TemplateDb;
 use djls_workspace::db::Db as WorkspaceDb;
 use djls_workspace::db::SourceFile;
