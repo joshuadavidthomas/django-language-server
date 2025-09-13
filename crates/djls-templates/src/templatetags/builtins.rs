@@ -27,7 +27,10 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
                 args: vec![],
             }),
             intermediate_tags: None,
-            args: vec![Arg::choice("mode", vec!["on".to_string(), "off".to_string()])],
+            args: vec![Arg::choice(
+                "mode",
+                vec!["on".to_string(), "off".to_string()],
+            )],
         },
         TagSpec {
             name: Some("if".to_string()),
@@ -291,7 +294,11 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
                 args: vec![],
             }),
             intermediate_tags: None,
-            args: vec![Arg::var("timeout"), Arg::var("cache_key"), Arg::opt_varargs("variables")],
+            args: vec![
+                Arg::var("timeout"),
+                Arg::var("cache_key"),
+                Arg::opt_varargs("variables"),
+            ],
         },
         // Internationalization
         TagSpec {

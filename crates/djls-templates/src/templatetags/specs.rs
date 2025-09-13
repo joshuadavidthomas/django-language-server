@@ -132,7 +132,7 @@ impl Arg {
             arg_type: ArgType::Simple(SimpleArgType::Variable),
         }
     }
-    
+
     pub fn opt_var(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),
@@ -140,7 +140,7 @@ impl Arg {
             arg_type: ArgType::Simple(SimpleArgType::Variable),
         }
     }
-    
+
     // Literal types
     pub fn literal(name: impl Into<String>) -> Self {
         Self {
@@ -149,7 +149,7 @@ impl Arg {
             arg_type: ArgType::Simple(SimpleArgType::Literal),
         }
     }
-    
+
     pub fn opt_literal(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),
@@ -157,7 +157,7 @@ impl Arg {
             arg_type: ArgType::Simple(SimpleArgType::Literal),
         }
     }
-    
+
     // String types
     pub fn string(name: impl Into<String>) -> Self {
         Self {
@@ -166,7 +166,7 @@ impl Arg {
             arg_type: ArgType::Simple(SimpleArgType::String),
         }
     }
-    
+
     pub fn opt_string(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),
@@ -174,7 +174,7 @@ impl Arg {
             arg_type: ArgType::Simple(SimpleArgType::String),
         }
     }
-    
+
     // Expression types
     pub fn expr(name: impl Into<String>) -> Self {
         Self {
@@ -183,7 +183,7 @@ impl Arg {
             arg_type: ArgType::Simple(SimpleArgType::Expression),
         }
     }
-    
+
     // VarArgs types
     pub fn varargs(name: impl Into<String>) -> Self {
         Self {
@@ -192,7 +192,7 @@ impl Arg {
             arg_type: ArgType::Simple(SimpleArgType::VarArgs),
         }
     }
-    
+
     pub fn opt_varargs(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),
@@ -200,7 +200,7 @@ impl Arg {
             arg_type: ArgType::Simple(SimpleArgType::VarArgs),
         }
     }
-    
+
     // Choice types
     pub fn choice(name: impl Into<String>, choices: Vec<String>) -> Self {
         Self {
@@ -209,7 +209,7 @@ impl Arg {
             arg_type: ArgType::Choice { choice: choices },
         }
     }
-    
+
     pub fn opt_choice(name: impl Into<String>, choices: Vec<String>) -> Self {
         Self {
             name: name.into(),
