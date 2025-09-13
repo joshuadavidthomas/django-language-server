@@ -122,8 +122,6 @@ fn parse_template(db: &dyn Db, file: SourceFile) -> NodeList<'_> {
     }
 }
 
-
-
 /// Helper function to convert errors to LSP diagnostics and accumulate
 fn accumulate_error(db: &dyn Db, error: &TemplateError, line_offsets: &LineOffsets) {
     let code = error.diagnostic_code();
