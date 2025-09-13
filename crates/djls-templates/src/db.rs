@@ -45,8 +45,6 @@
 use djls_workspace::Db as WorkspaceDb;
 use tower_lsp_server::lsp_types;
 
-
-
 /// Thin wrapper around LSP diagnostic for accumulator
 #[salsa::accumulator]
 pub struct TemplateDiagnostic(pub lsp_types::Diagnostic);
@@ -65,6 +63,4 @@ impl From<&TemplateDiagnostic> for lsp_types::Diagnostic {
 
 /// Template-specific database trait extending the workspace database
 #[salsa::db]
-pub trait Db: WorkspaceDb {
-    // Template parsing functionality only - semantic analysis moved to djls-hir
-}
+pub trait Db: WorkspaceDb {}
