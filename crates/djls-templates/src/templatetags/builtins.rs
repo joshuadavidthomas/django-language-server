@@ -40,7 +40,11 @@ impl TagBuilder {
         self
     }
 
-    fn with_end_args(mut self, end_name: &'static str, args: Vec<(&'static str, bool, ArgType)>) -> Self {
+    fn with_end_args(
+        mut self,
+        end_name: &'static str,
+        args: Vec<(&'static str, bool, ArgType)>,
+    ) -> Self {
         self.end_tag = Some((end_name, args));
         self
     }
@@ -149,15 +153,16 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
         // Control flow tags
         TagBuilder::new("autoescape")
             .with_end("endautoescape")
-            .with_args(vec![choice("mode", vec!["on".to_string(), "off".to_string()])])
+            .with_args(vec![choice(
+                "mode",
+                vec!["on".to_string(), "off".to_string()],
+            )])
             .build(),
-        
         TagBuilder::new("if")
             .with_end("endif")
             .with_intermediate(vec!["elif", "else"])
             .with_args(vec![expr("condition")])
             .build(),
-        
         TagBuilder::new("for")
             .with_end("endfor")
             .with_intermediate(vec!["empty"])
@@ -168,28 +173,23 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
                 opt_literal("reversed"),
             ])
             .build(),
-        
         TagBuilder::new("ifchanged")
             .with_end("endifchanged")
             .with_intermediate(vec!["else"])
             .with_args(vec![opt_varargs("variables")])
             .build(),
-        
         TagBuilder::new("with")
             .with_end("endwith")
             .with_args(vec![varargs("assignments")])
             .build(),
-        
         // Block tags
         TagBuilder::new("block")
             .with_end_args("endblock", vec![opt_var("name")])
             .with_args(vec![var("name")])
             .build(),
-        
         TagBuilder::new("extends")
             .with_args(vec![string("template")])
             .build(),
-        
         TagBuilder::new("include")
             .with_args(vec![
                 string("template"),
@@ -198,36 +198,26 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
                 opt_literal("only"),
             ])
             .build(),
-        
         // Comments and literals
-        TagBuilder::new("comment")
-            .with_end("endcomment")
-            .build(),
-        
+        TagBuilder::new("comment").with_end("endcomment").build(),
         TagBuilder::new("verbatim")
             .with_end("endverbatim")
             .with_args(vec![opt_string("name")])
             .build(),
-        
         TagBuilder::new("spaceless")
             .with_end("endspaceless")
             .build(),
-        
         // Template loading
         TagBuilder::new("load")
             .with_args(vec![varargs("libraries")])
             .build(),
-        
         // CSRF token
-        TagBuilder::new("csrf_token")
-            .build(),
-        
+        TagBuilder::new("csrf_token").build(),
         // Filters
         TagBuilder::new("filter")
             .with_end("endfilter")
             .with_args(vec![expr("filter_expr")])
             .build(),
-        
         // Variables and display
         TagBuilder::new("cycle")
             .with_args(vec![
@@ -236,11 +226,9 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
                 opt_var("varname"),
             ])
             .build(),
-        
         TagBuilder::new("firstof")
             .with_args(vec![varargs("variables")])
             .build(),
-        
         TagBuilder::new("regroup")
             .with_args(vec![
                 var("list"),
@@ -250,7 +238,6 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
                 var("grouped"),
             ])
             .build(),
-        
         // Date and time
         TagBuilder::new("now")
             .with_args(vec![
@@ -259,7 +246,6 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
                 opt_var("varname"),
             ])
             .build(),
-        
         // URLs and static files
         TagBuilder::new("url")
             .with_args(vec![
@@ -269,11 +255,9 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
                 opt_var("varname"),
             ])
             .build(),
-        
         TagBuilder::new("static")
             .with_args(vec![string("path")])
             .build(),
-        
         // Template tags
         TagBuilder::new("templatetag")
             .with_args(vec![choice(
@@ -290,7 +274,6 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
                 ],
             )])
             .build(),
-        
         // Utilities
         TagBuilder::new("widthratio")
             .with_args(vec![
@@ -301,18 +284,17 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
                 opt_var("varname"),
             ])
             .build(),
-        
         TagBuilder::new("lorem")
             .with_args(vec![
                 opt_var("count"),
-                opt_choice("method", vec!["w".to_string(), "p".to_string(), "b".to_string()]),
+                opt_choice(
+                    "method",
+                    vec!["w".to_string(), "p".to_string(), "b".to_string()],
+                ),
                 opt_literal("random"),
             ])
             .build(),
-        
-        TagBuilder::new("debug")
-            .build(),
-        
+        TagBuilder::new("debug").build(),
         // Cache tags
         TagBuilder::new("cache")
             .with_end("endcache")
@@ -322,13 +304,14 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
                 opt_varargs("variables"),
             ])
             .build(),
-        
         // Internationalization
         TagBuilder::new("localize")
             .with_end("endlocalize")
-            .with_args(vec![opt_choice("mode", vec!["on".to_string(), "off".to_string()])])
+            .with_args(vec![opt_choice(
+                "mode",
+                vec!["on".to_string(), "off".to_string()],
+            )])
             .build(),
-        
         TagBuilder::new("blocktranslate")
             .with_end("endblocktranslate")
             .with_intermediate(vec!["plural"])
@@ -340,7 +323,6 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
                 opt_var("varname"),
             ])
             .build(),
-        
         TagBuilder::new("trans")
             .with_args(vec![
                 string("message"),
@@ -350,13 +332,14 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
                 opt_literal("noop"),
             ])
             .build(),
-        
         // Timezone tags
         TagBuilder::new("localtime")
             .with_end("endlocaltime")
-            .with_args(vec![opt_choice("mode", vec!["on".to_string(), "off".to_string()])])
+            .with_args(vec![opt_choice(
+                "mode",
+                vec!["on".to_string(), "off".to_string()],
+            )])
             .build(),
-        
         TagBuilder::new("timezone")
             .with_end("endtimezone")
             .with_args(vec![var("timezone")])
@@ -374,7 +357,7 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
 });
 
 /// Returns all built-in Django template tag specifications
-/// 
+///
 /// This function returns a clone of the statically initialized built-in specs.
 /// The actual specs are only built once on first access and then cached.
 #[must_use]
@@ -389,13 +372,16 @@ mod tests {
     #[test]
     fn test_builtin_specs_non_empty() {
         let specs = django_builtin_specs();
-        
+
         // Verify we have specs loaded
-        assert!(specs.iter().count() > 0, "Should have loaded at least one spec");
-        
+        assert!(
+            specs.iter().count() > 0,
+            "Should have loaded at least one spec"
+        );
+
         // Check a key tag is present as a smoke test
         assert!(specs.get("if").is_some(), "'if' tag should be present");
-        
+
         // Verify all tag names are non-empty
         for (name, _) in specs.iter() {
             assert!(!name.is_empty(), "Tag name should not be empty");
@@ -424,7 +410,7 @@ mod tests {
             "localtime",
             "timezone",
         ];
-        
+
         // Single tags that should be present
         let expected_single_tags = [
             "csrf_token",
@@ -445,7 +431,9 @@ mod tests {
         ];
 
         for tag in expected_block_tags {
-            let spec = specs.get(tag).unwrap_or_else(|| panic!("{tag} tag should be present"));
+            let spec = specs
+                .get(tag)
+                .unwrap_or_else(|| panic!("{tag} tag should be present"));
             assert!(spec.end_tag.is_some(), "{tag} should have an end tag");
         }
 
@@ -471,11 +459,11 @@ mod tests {
     fn test_if_tag_structure() {
         let specs = django_builtin_specs();
         let if_tag = specs.get("if").expect("if tag should exist");
-        
+
         assert_eq!(if_tag.name, Some("if".to_string()));
         assert!(if_tag.end_tag.is_some());
         assert_eq!(if_tag.end_tag.as_ref().unwrap().name, "endif");
-        
+
         let intermediates = if_tag.intermediate_tags.as_ref().unwrap();
         assert_eq!(intermediates.len(), 2);
         assert_eq!(intermediates[0].name, "elif");
@@ -486,15 +474,15 @@ mod tests {
     fn test_for_tag_structure() {
         let specs = django_builtin_specs();
         let for_tag = specs.get("for").expect("for tag should exist");
-        
+
         assert_eq!(for_tag.name, Some("for".to_string()));
         assert!(for_tag.end_tag.is_some());
         assert_eq!(for_tag.end_tag.as_ref().unwrap().name, "endfor");
-        
+
         let intermediates = for_tag.intermediate_tags.as_ref().unwrap();
         assert_eq!(intermediates.len(), 1);
         assert_eq!(intermediates[0].name, "empty");
-        
+
         // Check args structure
         assert!(!for_tag.args.is_empty(), "for tag should have arguments");
     }
@@ -503,7 +491,7 @@ mod tests {
     fn test_block_tag_with_end_args() {
         let specs = django_builtin_specs();
         let block_tag = specs.get("block").expect("block tag should exist");
-        
+
         let end_tag = block_tag.end_tag.as_ref().unwrap();
         assert_eq!(end_tag.name, "endblock");
         assert_eq!(end_tag.args.len(), 1);
@@ -514,15 +502,20 @@ mod tests {
     #[test]
     fn test_single_tag_structure() {
         let specs = django_builtin_specs();
-        
+
         // Test a single tag has no end tag or intermediates
-        let csrf_tag = specs.get("csrf_token").expect("csrf_token tag should exist");
+        let csrf_tag = specs
+            .get("csrf_token")
+            .expect("csrf_token tag should exist");
         assert!(csrf_tag.end_tag.is_none());
         assert!(csrf_tag.intermediate_tags.is_none());
-        
+
         // Test extends tag with args
         let extends_tag = specs.get("extends").expect("extends tag should exist");
         assert!(extends_tag.end_tag.is_none());
-        assert!(!extends_tag.args.is_empty(), "extends tag should have arguments");
+        assert!(
+            !extends_tag.args.is_empty(),
+            "extends tag should have arguments"
+        );
     }
 }

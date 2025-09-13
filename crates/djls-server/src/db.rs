@@ -192,7 +192,7 @@ impl TemplateDb for DjangoDatabase {
             // If no settings, just use built-in specs
             djls_templates::templatetags::django_builtin_specs()
         };
-        
+
         Arc::new(tag_specs)
     }
 }
