@@ -57,7 +57,7 @@ impl<'db> TagValidator<'db> {
                 if let Node::Tag { name, bits, .. } = &node {
                     let name_str = name.text(self.db);
 
-                    let tag_specs = SemanticDb::tag_specs(self.db);
+                    let tag_specs = self.db.tag_specs();
                     let tag_type = TagType::for_name(&name_str, &tag_specs);
 
                     let args = match tag_type {
@@ -141,7 +141,7 @@ impl<'db> TagValidator<'db> {
 
     fn handle_intermediate(&mut self, name: &str, span: Span) {
         // Check if this intermediate tag has the required parent
-        let parent_tags = SemanticDb::tag_specs(self.db).get_parent_tags_for_intermediate(name);
+        let parent_tags = self.db.tag_specs().get_parent_tags_for_intermediate(name);
         if parent_tags.is_empty() {
             return; // Not an intermediate tag
         }
@@ -186,7 +186,7 @@ impl<'db> TagValidator<'db> {
         }
 
         // Find the matching opener
-        let expected_opener = SemanticDb::tag_specs(self.db).find_opener_for_closer(&name_str);
+        let expected_opener = self.db.tag_specs().find_opener_for_closer(&name_str);
         let Some(opener_name) = expected_opener else {
             // Unknown closer
             self.errors.push(NodeListError::UnbalancedStructure {
