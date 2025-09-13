@@ -6,9 +6,9 @@
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
-use super::specs::Arg;
 use super::specs::EndTag;
 use super::specs::IntermediateTag;
+use super::specs::TagArg;
 use super::specs::TagSpec;
 use super::TagSpecs;
 
@@ -27,8 +27,9 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
                 args: vec![],
             }),
             intermediate_tags: None,
-            args: vec![Arg::choice(
+            args: vec![TagArg::choice(
                 "mode",
+                true,
                 vec!["on".to_string(), "off".to_string()],
             )],
         },
@@ -47,7 +48,7 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
                     name: "else".to_string(),
                 },
             ]),
-            args: vec![Arg::expr("condition")],
+            args: vec![TagArg::expr("condition", true)],
         },
         TagSpec {
             name: Some("for".to_string()),
@@ -60,10 +61,10 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
                 name: "empty".to_string(),
             }]),
             args: vec![
-                Arg::var("item"),
-                Arg::literal("in"),
-                Arg::var("items"),
-                Arg::opt_literal("reversed"),
+                TagArg::var("item", true),
+                TagArg::literal("in", true),
+                TagArg::var("items", true),
+                TagArg::literal("reversed", false),
             ],
         },
         TagSpec {
@@ -76,7 +77,7 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
             intermediate_tags: Some(vec![IntermediateTag {
                 name: "else".to_string(),
             }]),
-            args: vec![Arg::opt_varargs("variables")],
+            args: vec![TagArg::varargs("variables", false)],
         },
         TagSpec {
             name: Some("with".to_string()),
@@ -86,7 +87,7 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
                 args: vec![],
             }),
             intermediate_tags: None,
-            args: vec![Arg::varargs("assignments")],
+            args: vec![TagArg::varargs("assignments", true)],
         },
         // Block tags
         TagSpec {
@@ -94,33 +95,33 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
             end_tag: Some(EndTag {
                 name: "endblock".to_string(),
                 optional: false,
-                args: vec![Arg::opt_var("name")],
+                args: vec![TagArg::var("name", false)],
             }),
             intermediate_tags: None,
-            args: vec![Arg::var("name")],
+            args: vec![TagArg::var("name", true)],
         },
         TagSpec {
             name: Some("extends".to_string()),
             end_tag: None,
             intermediate_tags: None,
-            args: vec![Arg::string("template")],
+            args: vec![TagArg::string("template", true)],
         },
         TagSpec {
             name: Some("include".to_string()),
             end_tag: None,
             intermediate_tags: None,
             args: vec![
-                Arg::string("template"),
-                Arg::opt_literal("with"),
-                Arg::opt_varargs("context"),
-                Arg::opt_literal("only"),
+                TagArg::string("template", true),
+                TagArg::literal("with", false),
+                TagArg::varargs("context", false),
+                TagArg::literal("only", false),
             ],
         },
         TagSpec {
             name: Some("load".to_string()),
             end_tag: None,
             intermediate_tags: None,
-            args: vec![Arg::varargs("libraries")],
+            args: vec![TagArg::varargs("libraries", true)],
         },
         // Content manipulation tags
         TagSpec {
@@ -131,7 +132,7 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
                 args: vec![],
             }),
             intermediate_tags: None,
-            args: vec![Arg::opt_string("note")],
+            args: vec![TagArg::string("note", false)],
         },
         TagSpec {
             name: Some("filter".to_string()),
@@ -141,7 +142,7 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
                 args: vec![],
             }),
             intermediate_tags: None,
-            args: vec![Arg::varargs("filters")],
+            args: vec![TagArg::varargs("filters", true)],
         },
         TagSpec {
             name: Some("spaceless".to_string()),
@@ -161,7 +162,7 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
                 args: vec![],
             }),
             intermediate_tags: None,
-            args: vec![Arg::opt_string("name")],
+            args: vec![TagArg::string("name", false)],
         },
         // Variables and expressions
         TagSpec {
@@ -169,10 +170,10 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
             end_tag: None,
             intermediate_tags: None,
             args: vec![
-                Arg::varargs("values"),
-                Arg::opt_literal("as"),
-                Arg::opt_var("varname"),
-                Arg::opt_literal("silent"),
+                TagArg::varargs("values", true),
+                TagArg::literal("as", false),
+                TagArg::var("varname", false),
+                TagArg::literal("silent", false),
             ],
         },
         TagSpec {
@@ -180,10 +181,10 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
             end_tag: None,
             intermediate_tags: None,
             args: vec![
-                Arg::varargs("variables"),
-                Arg::opt_string("fallback"),
-                Arg::opt_literal("as"),
-                Arg::opt_var("varname"),
+                TagArg::varargs("variables", true),
+                TagArg::string("fallback", false),
+                TagArg::literal("as", false),
+                TagArg::var("varname", false),
             ],
         },
         TagSpec {
@@ -191,11 +192,11 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
             end_tag: None,
             intermediate_tags: None,
             args: vec![
-                Arg::var("target"),
-                Arg::literal("by"),
-                Arg::var("attribute"),
-                Arg::literal("as"),
-                Arg::var("grouped"),
+                TagArg::var("target", true),
+                TagArg::literal("by", true),
+                TagArg::var("attribute", true),
+                TagArg::literal("as", true),
+                TagArg::var("grouped", true),
             ],
         },
         // Date and time
@@ -204,9 +205,9 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
             end_tag: None,
             intermediate_tags: None,
             args: vec![
-                Arg::string("format_string"),
-                Arg::opt_literal("as"),
-                Arg::opt_var("varname"),
+                TagArg::string("format_string", true),
+                TagArg::literal("as", false),
+                TagArg::var("varname", false),
             ],
         },
         // URLs and static files
@@ -215,25 +216,26 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
             end_tag: None,
             intermediate_tags: None,
             args: vec![
-                Arg::string("view_name"),
-                Arg::opt_varargs("args"),
-                Arg::opt_literal("as"),
-                Arg::opt_var("varname"),
+                TagArg::string("view_name", true),
+                TagArg::varargs("args", false),
+                TagArg::literal("as", false),
+                TagArg::var("varname", false),
             ],
         },
         TagSpec {
             name: Some("static".to_string()),
             end_tag: None,
             intermediate_tags: None,
-            args: vec![Arg::string("path")],
+            args: vec![TagArg::string("path", true)],
         },
         // Template tags
         TagSpec {
             name: Some("templatetag".to_string()),
             end_tag: None,
             intermediate_tags: None,
-            args: vec![Arg::choice(
+            args: vec![TagArg::choice(
                 "tagbit",
+                true,
                 vec![
                     "openblock".to_string(),
                     "closeblock".to_string(),
@@ -259,11 +261,11 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
             end_tag: None,
             intermediate_tags: None,
             args: vec![
-                Arg::var("this_value"),
-                Arg::var("max_value"),
-                Arg::var("max_width"),
-                Arg::opt_literal("as"),
-                Arg::opt_var("varname"),
+                TagArg::var("this_value", true),
+                TagArg::var("max_value", true),
+                TagArg::var("max_width", true),
+                TagArg::literal("as", false),
+                TagArg::var("varname", false),
             ],
         },
         TagSpec {
@@ -271,12 +273,13 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
             end_tag: None,
             intermediate_tags: None,
             args: vec![
-                Arg::opt_var("count"),
-                Arg::opt_choice(
+                TagArg::var("count", false),
+                TagArg::choice(
                     "method",
+                    false,
                     vec!["w".to_string(), "p".to_string(), "b".to_string()],
                 ),
-                Arg::opt_literal("random"),
+                TagArg::literal("random", false),
             ],
         },
         TagSpec {
@@ -295,9 +298,9 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
             }),
             intermediate_tags: None,
             args: vec![
-                Arg::var("timeout"),
-                Arg::var("cache_key"),
-                Arg::opt_varargs("variables"),
+                TagArg::var("timeout", true),
+                TagArg::var("cache_key", true),
+                TagArg::varargs("variables", false),
             ],
         },
         // Internationalization
@@ -309,8 +312,9 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
                 args: vec![],
             }),
             intermediate_tags: None,
-            args: vec![Arg::opt_choice(
+            args: vec![TagArg::choice(
                 "mode",
+                false,
                 vec!["on".to_string(), "off".to_string()],
             )],
         },
@@ -325,11 +329,11 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
                 name: "plural".to_string(),
             }]),
             args: vec![
-                Arg::opt_string("context"),
-                Arg::opt_literal("with"),
-                Arg::opt_varargs("assignments"),
-                Arg::opt_literal("asvar"),
-                Arg::opt_var("varname"),
+                TagArg::string("context", false),
+                TagArg::literal("with", false),
+                TagArg::varargs("assignments", false),
+                TagArg::literal("asvar", false),
+                TagArg::var("varname", false),
             ],
         },
         TagSpec {
@@ -337,11 +341,11 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
             end_tag: None,
             intermediate_tags: None,
             args: vec![
-                Arg::string("message"),
-                Arg::opt_string("context"),
-                Arg::opt_literal("as"),
-                Arg::opt_var("varname"),
-                Arg::opt_literal("noop"),
+                TagArg::string("message", true),
+                TagArg::string("context", false),
+                TagArg::literal("as", false),
+                TagArg::var("varname", false),
+                TagArg::literal("noop", false),
             ],
         },
         // Timezone tags
@@ -353,8 +357,9 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
                 args: vec![],
             }),
             intermediate_tags: None,
-            args: vec![Arg::opt_choice(
+            args: vec![TagArg::choice(
                 "mode",
+                false,
                 vec!["on".to_string(), "off".to_string()],
             )],
         },
@@ -366,7 +371,7 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
                 args: vec![],
             }),
             intermediate_tags: None,
-            args: vec![Arg::var("timezone")],
+            args: vec![TagArg::var("timezone", true)],
         },
     ];
 

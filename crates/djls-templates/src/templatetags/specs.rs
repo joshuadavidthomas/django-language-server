@@ -1,21 +1,14 @@
 use std::collections::HashMap;
 
-use serde::Deserialize;
-use serde::Deserializer;
-use serde::Serialize;
-
 #[derive(Clone, Debug, Default)]
-#[allow(dead_code)]
 pub struct TagSpecs(HashMap<String, TagSpec>);
 
 impl TagSpecs {
-    /// Create a new `TagSpecs` from a `HashMap`
     #[must_use]
     pub fn new(specs: HashMap<String, TagSpec>) -> Self {
         TagSpecs(specs)
     }
 
-    #[allow(dead_code)]
     #[must_use]
     pub fn get(&self, key: &str) -> Option<&TagSpec> {
         self.0.get(key)
@@ -95,259 +88,9 @@ impl TagSpecs {
     }
 
     /// Merge another `TagSpecs` into this one, with the other taking precedence
-    #[allow(dead_code)]
     pub fn merge(&mut self, other: TagSpecs) -> &mut Self {
         self.0.extend(other.0);
         self
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct TagSpec {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-    #[serde(alias = "end")]
-    pub end_tag: Option<EndTag>,
-    #[serde(default, alias = "intermediates")]
-    pub intermediate_tags: Option<Vec<IntermediateTag>>,
-    #[serde(default)]
-    pub args: Vec<Arg>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct Arg {
-    pub name: String,
-    #[serde(default = "default_true")]
-    pub required: bool,
-    #[serde(rename = "type")]
-    pub arg_type: ArgType,
-}
-
-impl Arg {
-    // Variable types
-    pub fn var(name: impl Into<String>) -> Self {
-        Self {
-            name: name.into(),
-            required: true,
-            arg_type: ArgType::Simple(SimpleArgType::Variable),
-        }
-    }
-
-    pub fn opt_var(name: impl Into<String>) -> Self {
-        Self {
-            name: name.into(),
-            required: false,
-            arg_type: ArgType::Simple(SimpleArgType::Variable),
-        }
-    }
-
-    // Literal types
-    pub fn literal(name: impl Into<String>) -> Self {
-        Self {
-            name: name.into(),
-            required: true,
-            arg_type: ArgType::Simple(SimpleArgType::Literal),
-        }
-    }
-
-    pub fn opt_literal(name: impl Into<String>) -> Self {
-        Self {
-            name: name.into(),
-            required: false,
-            arg_type: ArgType::Simple(SimpleArgType::Literal),
-        }
-    }
-
-    // String types
-    pub fn string(name: impl Into<String>) -> Self {
-        Self {
-            name: name.into(),
-            required: true,
-            arg_type: ArgType::Simple(SimpleArgType::String),
-        }
-    }
-
-    pub fn opt_string(name: impl Into<String>) -> Self {
-        Self {
-            name: name.into(),
-            required: false,
-            arg_type: ArgType::Simple(SimpleArgType::String),
-        }
-    }
-
-    // Expression types
-    pub fn expr(name: impl Into<String>) -> Self {
-        Self {
-            name: name.into(),
-            required: true,
-            arg_type: ArgType::Simple(SimpleArgType::Expression),
-        }
-    }
-
-    // VarArgs types
-    pub fn varargs(name: impl Into<String>) -> Self {
-        Self {
-            name: name.into(),
-            required: true,
-            arg_type: ArgType::Simple(SimpleArgType::VarArgs),
-        }
-    }
-
-    pub fn opt_varargs(name: impl Into<String>) -> Self {
-        Self {
-            name: name.into(),
-            required: false,
-            arg_type: ArgType::Simple(SimpleArgType::VarArgs),
-        }
-    }
-
-    // Choice types
-    pub fn choice(name: impl Into<String>, choices: Vec<String>) -> Self {
-        Self {
-            name: name.into(),
-            required: true,
-            arg_type: ArgType::Choice { choice: choices },
-        }
-    }
-
-    pub fn opt_choice(name: impl Into<String>, choices: Vec<String>) -> Self {
-        Self {
-            name: name.into(),
-            required: false,
-            arg_type: ArgType::Choice { choice: choices },
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(untagged)]
-pub enum ArgType {
-    Simple(SimpleArgType),
-    Choice { choice: Vec<String> },
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "lowercase")]
-pub enum SimpleArgType {
-    Literal,
-    Variable,
-    String,
-    Expression,
-    Assignment,
-    VarArgs,
-}
-
-fn default_true() -> bool {
-    true
-}
-
-// Keep ArgSpec for backward compatibility in EndTag
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct EndTag {
-    #[serde(alias = "tag")]
-    pub name: String,
-    #[serde(default)]
-    pub optional: bool,
-    #[serde(default)]
-    pub args: Vec<Arg>,
-}
-
-#[derive(Debug, Clone, Serialize, PartialEq)]
-pub struct IntermediateTag {
-    pub name: String,
-}
-
-impl<'de> Deserialize<'de> for IntermediateTag {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        #[derive(Deserialize)]
-        #[serde(untagged)]
-        enum IntermediateTagHelper {
-            String(String),
-            Object { name: String },
-        }
-
-        match IntermediateTagHelper::deserialize(deserializer)? {
-            IntermediateTagHelper::String(s) => Ok(IntermediateTag { name: s }),
-            IntermediateTagHelper::Object { name } => Ok(IntermediateTag { name }),
-        }
-    }
-}
-
-// Conversions from djls_conf types to canonical djls_templates types
-
-impl From<djls_conf::SimpleArgTypeDef> for SimpleArgType {
-    fn from(value: djls_conf::SimpleArgTypeDef) -> Self {
-        match value {
-            djls_conf::SimpleArgTypeDef::Literal => SimpleArgType::Literal,
-            djls_conf::SimpleArgTypeDef::Variable => SimpleArgType::Variable,
-            djls_conf::SimpleArgTypeDef::String => SimpleArgType::String,
-            djls_conf::SimpleArgTypeDef::Expression => SimpleArgType::Expression,
-            djls_conf::SimpleArgTypeDef::Assignment => SimpleArgType::Assignment,
-            djls_conf::SimpleArgTypeDef::VarArgs => SimpleArgType::VarArgs,
-        }
-    }
-}
-
-impl From<djls_conf::ArgTypeDef> for ArgType {
-    fn from(value: djls_conf::ArgTypeDef) -> Self {
-        match value {
-            djls_conf::ArgTypeDef::Simple(simple) => ArgType::Simple(simple.into()),
-            djls_conf::ArgTypeDef::Choice { choice } => ArgType::Choice { choice },
-        }
-    }
-}
-
-impl From<djls_conf::TagArgDef> for Arg {
-    fn from(value: djls_conf::TagArgDef) -> Self {
-        Arg {
-            name: value.name,
-            required: value.required,
-            arg_type: value.arg_type.into(),
-        }
-    }
-}
-
-impl From<djls_conf::IntermediateTagDef> for IntermediateTag {
-    fn from(value: djls_conf::IntermediateTagDef) -> Self {
-        IntermediateTag {
-            name: value.name,
-            // Note: IntermediateTagDef has args field but IntermediateTag doesn't
-            // This is intentional - we don't support args on intermediate tags yet
-        }
-    }
-}
-
-impl From<djls_conf::EndTagDef> for EndTag {
-    fn from(value: djls_conf::EndTagDef) -> Self {
-        EndTag {
-            name: value.name,
-            optional: value.optional,
-            args: value.args.into_iter().map(Into::into).collect(),
-        }
-    }
-}
-
-impl From<djls_conf::TagSpecDef> for TagSpec {
-    fn from(value: djls_conf::TagSpecDef) -> Self {
-        TagSpec {
-            name: Some(value.name),
-            end_tag: value.end_tag.map(Into::into),
-            intermediate_tags: if value.intermediate_tags.is_empty() {
-                None
-            } else {
-                Some(
-                    value
-                        .intermediate_tags
-                        .into_iter()
-                        .map(Into::into)
-                        .collect(),
-                )
-            },
-            args: value.args.into_iter().map(Into::into).collect(),
-        }
     }
 }
 
@@ -372,6 +115,172 @@ impl From<&djls_conf::Settings> for TagSpecs {
         }
 
         specs
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TagSpec {
+    pub name: Option<String>,
+    pub end_tag: Option<EndTag>,
+    pub intermediate_tags: Option<Vec<IntermediateTag>>,
+    pub args: Vec<TagArg>,
+}
+
+impl From<djls_conf::TagSpecDef> for TagSpec {
+    fn from(value: djls_conf::TagSpecDef) -> Self {
+        TagSpec {
+            name: Some(value.name),
+            end_tag: value.end_tag.map(Into::into),
+            intermediate_tags: if value.intermediate_tags.is_empty() {
+                None
+            } else {
+                Some(
+                    value
+                        .intermediate_tags
+                        .into_iter()
+                        .map(Into::into)
+                        .collect(),
+                )
+            },
+            args: value.args.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TagArg {
+    pub name: String,
+    pub required: bool,
+    pub arg_type: ArgType,
+}
+
+impl TagArg {
+    pub fn choice(name: impl Into<String>, required: bool, choices: Vec<String>) -> Self {
+        Self {
+            name: name.into(),
+            required,
+            arg_type: ArgType::Choice { choice: choices },
+        }
+    }
+
+    pub fn expr(name: impl Into<String>, required: bool) -> Self {
+        Self {
+            name: name.into(),
+            required,
+            arg_type: ArgType::Simple(SimpleArgType::Expression),
+        }
+    }
+
+    pub fn literal(name: impl Into<String>, required: bool) -> Self {
+        Self {
+            name: name.into(),
+            required,
+            arg_type: ArgType::Simple(SimpleArgType::Literal),
+        }
+    }
+
+    pub fn string(name: impl Into<String>, required: bool) -> Self {
+        Self {
+            name: name.into(),
+            required,
+            arg_type: ArgType::Simple(SimpleArgType::String),
+        }
+    }
+
+    pub fn var(name: impl Into<String>, required: bool) -> Self {
+        Self {
+            name: name.into(),
+            required,
+            arg_type: ArgType::Simple(SimpleArgType::Variable),
+        }
+    }
+
+    pub fn varargs(name: impl Into<String>, required: bool) -> Self {
+        Self {
+            name: name.into(),
+            required,
+            arg_type: ArgType::Simple(SimpleArgType::VarArgs),
+        }
+    }
+}
+
+impl From<djls_conf::TagArgDef> for TagArg {
+    fn from(value: djls_conf::TagArgDef) -> Self {
+        TagArg {
+            name: value.name,
+            required: value.required,
+            arg_type: value.arg_type.into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ArgType {
+    Simple(SimpleArgType),
+    Choice { choice: Vec<String> },
+}
+
+impl From<djls_conf::ArgTypeDef> for ArgType {
+    fn from(value: djls_conf::ArgTypeDef) -> Self {
+        match value {
+            djls_conf::ArgTypeDef::Simple(simple) => ArgType::Simple(simple.into()),
+            djls_conf::ArgTypeDef::Choice { choice } => ArgType::Choice { choice },
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum SimpleArgType {
+    Literal,
+    Variable,
+    String,
+    Expression,
+    Assignment,
+    VarArgs,
+}
+
+impl From<djls_conf::SimpleArgTypeDef> for SimpleArgType {
+    fn from(value: djls_conf::SimpleArgTypeDef) -> Self {
+        match value {
+            djls_conf::SimpleArgTypeDef::Literal => SimpleArgType::Literal,
+            djls_conf::SimpleArgTypeDef::Variable => SimpleArgType::Variable,
+            djls_conf::SimpleArgTypeDef::String => SimpleArgType::String,
+            djls_conf::SimpleArgTypeDef::Expression => SimpleArgType::Expression,
+            djls_conf::SimpleArgTypeDef::Assignment => SimpleArgType::Assignment,
+            djls_conf::SimpleArgTypeDef::VarArgs => SimpleArgType::VarArgs,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct EndTag {
+    pub name: String,
+    pub optional: bool,
+    pub args: Vec<TagArg>,
+}
+
+impl From<djls_conf::EndTagDef> for EndTag {
+    fn from(value: djls_conf::EndTagDef) -> Self {
+        EndTag {
+            name: value.name,
+            optional: value.optional,
+            args: value.args.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct IntermediateTag {
+    pub name: String,
+}
+
+impl From<djls_conf::IntermediateTagDef> for IntermediateTag {
+    fn from(value: djls_conf::IntermediateTagDef) -> Self {
+        IntermediateTag {
+            name: value.name,
+            // Note: IntermediateTagDef has args field but IntermediateTag doesn't
+            // This is intentional - we don't support args on intermediate tags yet
+        }
     }
 }
 
@@ -446,7 +355,7 @@ mod tests {
                 end_tag: Some(EndTag {
                     name: "endblock".to_string(),
                     optional: false,
-                    args: vec![Arg {
+                    args: vec![TagArg {
                         name: "name".to_string(),
                         required: false,
                         arg_type: ArgType::Simple(SimpleArgType::Variable),
@@ -731,7 +640,7 @@ mod tests {
             required: true,
             arg_type: djls_conf::ArgTypeDef::Simple(djls_conf::SimpleArgTypeDef::Variable),
         };
-        let arg = Arg::from(tag_arg_def);
+        let arg = TagArg::from(tag_arg_def);
         assert_eq!(arg.name, "test_arg");
         assert!(arg.required);
         assert!(matches!(

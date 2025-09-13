@@ -23,9 +23,9 @@ use crate::ast::Span;
 use crate::ast::TagBit;
 use crate::ast::TagName;
 use crate::db::Db as TemplateDb;
-use crate::templatetags::Arg;
 use crate::templatetags::ArgType;
 use crate::templatetags::SimpleArgType;
+use crate::templatetags::TagArg;
 use crate::templatetags::TagType;
 use crate::NodeList;
 
@@ -107,7 +107,7 @@ impl<'db> TagValidator<'db> {
         name: &str,
         bits: &[TagBit<'db>],
         span: Span,
-        args: Option<&Vec<Arg>>,
+        args: Option<&Vec<TagArg>>,
     ) {
         let Some(args) = args else {
             return;
