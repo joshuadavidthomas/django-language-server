@@ -14,253 +14,315 @@ use super::ArgType;
 use super::SimpleArgType;
 use super::TagSpecs;
 
-/// Type alias for argument specification
-type ArgSpec = (&'static str, bool, ArgType);
-
-/// Builder for creating tag specifications with a fluent API
-struct TagBuilder {
-    name: &'static str,
-    end_tag: Option<(&'static str, Vec<ArgSpec>)>,
-    intermediate_tags: Vec<&'static str>,
-    args: Vec<ArgSpec>,
-}
-
-impl TagBuilder {
-    fn new(name: &'static str) -> Self {
-        TagBuilder {
-            name,
-            end_tag: None,
-            intermediate_tags: Vec::new(),
-            args: Vec::new(),
-        }
-    }
-
-    fn with_end(mut self, end_name: &'static str) -> Self {
-        self.end_tag = Some((end_name, Vec::new()));
-        self
-    }
-
-    fn with_end_args(
-        mut self,
-        end_name: &'static str,
-        args: Vec<(&'static str, bool, ArgType)>,
-    ) -> Self {
-        self.end_tag = Some((end_name, args));
-        self
-    }
-
-    fn with_intermediate(mut self, tags: Vec<&'static str>) -> Self {
-        self.intermediate_tags = tags;
-        self
-    }
-
-    fn with_args(mut self, args: Vec<ArgSpec>) -> Self {
-        self.args = args;
-        self
-    }
-
-    fn build(self) -> TagSpec {
-        TagSpec {
-            name: Some(self.name.to_string()),
-            end_tag: self.end_tag.map(|(name, args)| EndTag {
-                name: name.to_string(),
-                optional: false,
-                args: args
-                    .into_iter()
-                    .map(|(name, required, arg_type)| Arg {
-                        name: name.to_string(),
-                        required,
-                        arg_type,
-                    })
-                    .collect(),
-            }),
-            intermediate_tags: if self.intermediate_tags.is_empty() {
-                None
-            } else {
-                Some(
-                    self.intermediate_tags
-                        .into_iter()
-                        .map(|name| IntermediateTag {
-                            name: name.to_string(),
-                        })
-                        .collect(),
-                )
-            },
-            args: self
-                .args
-                .into_iter()
-                .map(|(name, required, arg_type)| Arg {
-                    name: name.to_string(),
-                    required,
-                    arg_type,
-                })
-                .collect(),
-        }
+// Helper functions for creating Arg structs
+fn var(name: &'static str) -> Arg {
+    Arg {
+        name: name.to_string(),
+        required: true,
+        arg_type: ArgType::Simple(SimpleArgType::Variable),
     }
 }
 
-// Helper functions for common argument types
-fn var(name: &'static str) -> ArgSpec {
-    (name, true, ArgType::Simple(SimpleArgType::Variable))
+fn opt_var(name: &'static str) -> Arg {
+    Arg {
+        name: name.to_string(),
+        required: false,
+        arg_type: ArgType::Simple(SimpleArgType::Variable),
+    }
 }
 
-fn opt_var(name: &'static str) -> ArgSpec {
-    (name, false, ArgType::Simple(SimpleArgType::Variable))
+fn literal(name: &'static str) -> Arg {
+    Arg {
+        name: name.to_string(),
+        required: true,
+        arg_type: ArgType::Simple(SimpleArgType::Literal),
+    }
 }
 
-fn literal(name: &'static str) -> ArgSpec {
-    (name, true, ArgType::Simple(SimpleArgType::Literal))
+fn opt_literal(name: &'static str) -> Arg {
+    Arg {
+        name: name.to_string(),
+        required: false,
+        arg_type: ArgType::Simple(SimpleArgType::Literal),
+    }
 }
 
-fn opt_literal(name: &'static str) -> ArgSpec {
-    (name, false, ArgType::Simple(SimpleArgType::Literal))
+fn string(name: &'static str) -> Arg {
+    Arg {
+        name: name.to_string(),
+        required: true,
+        arg_type: ArgType::Simple(SimpleArgType::String),
+    }
 }
 
-fn string(name: &'static str) -> ArgSpec {
-    (name, true, ArgType::Simple(SimpleArgType::String))
+fn opt_string(name: &'static str) -> Arg {
+    Arg {
+        name: name.to_string(),
+        required: false,
+        arg_type: ArgType::Simple(SimpleArgType::String),
+    }
 }
 
-fn opt_string(name: &'static str) -> ArgSpec {
-    (name, false, ArgType::Simple(SimpleArgType::String))
+fn expr(name: &'static str) -> Arg {
+    Arg {
+        name: name.to_string(),
+        required: true,
+        arg_type: ArgType::Simple(SimpleArgType::Expression),
+    }
 }
 
-fn expr(name: &'static str) -> ArgSpec {
-    (name, true, ArgType::Simple(SimpleArgType::Expression))
+fn varargs(name: &'static str) -> Arg {
+    Arg {
+        name: name.to_string(),
+        required: true,
+        arg_type: ArgType::Simple(SimpleArgType::VarArgs),
+    }
 }
 
-fn varargs(name: &'static str) -> ArgSpec {
-    (name, true, ArgType::Simple(SimpleArgType::VarArgs))
+fn opt_varargs(name: &'static str) -> Arg {
+    Arg {
+        name: name.to_string(),
+        required: false,
+        arg_type: ArgType::Simple(SimpleArgType::VarArgs),
+    }
 }
 
-fn opt_varargs(name: &'static str) -> ArgSpec {
-    (name, false, ArgType::Simple(SimpleArgType::VarArgs))
+fn choice(name: &'static str, choices: Vec<String>) -> Arg {
+    Arg {
+        name: name.to_string(),
+        required: true,
+        arg_type: ArgType::Choice { choice: choices },
+    }
 }
 
-fn choice(name: &'static str, choices: Vec<String>) -> ArgSpec {
-    (name, true, ArgType::Choice { choice: choices })
-}
-
-fn opt_choice(name: &'static str, choices: Vec<String>) -> ArgSpec {
-    (name, false, ArgType::Choice { choice: choices })
+fn opt_choice(name: &'static str, choices: Vec<String>) -> Arg {
+    Arg {
+        name: name.to_string(),
+        required: false,
+        arg_type: ArgType::Choice { choice: choices },
+    }
 }
 
 // Static storage for built-in specs - built only once on first access
 static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
     let mut specs = HashMap::new();
 
-    // Define all Django built-in tags
+    // Define all Django built-in tags using direct struct construction
     let tags = vec![
         // Control flow tags
-        TagBuilder::new("autoescape")
-            .with_end("endautoescape")
-            .with_args(vec![choice(
-                "mode",
-                vec!["on".to_string(), "off".to_string()],
-            )])
-            .build(),
-        TagBuilder::new("if")
-            .with_end("endif")
-            .with_intermediate(vec!["elif", "else"])
-            .with_args(vec![expr("condition")])
-            .build(),
-        TagBuilder::new("for")
-            .with_end("endfor")
-            .with_intermediate(vec!["empty"])
-            .with_args(vec![
+        TagSpec {
+            name: Some("autoescape".to_string()),
+            end_tag: Some(EndTag {
+                name: "endautoescape".to_string(),
+                optional: false,
+                args: vec![],
+            }),
+            intermediate_tags: None,
+            args: vec![choice("mode", vec!["on".to_string(), "off".to_string()])],
+        },
+        TagSpec {
+            name: Some("if".to_string()),
+            end_tag: Some(EndTag {
+                name: "endif".to_string(),
+                optional: false,
+                args: vec![],
+            }),
+            intermediate_tags: Some(vec![
+                IntermediateTag { name: "elif".to_string() },
+                IntermediateTag { name: "else".to_string() },
+            ]),
+            args: vec![expr("condition")],
+        },
+        TagSpec {
+            name: Some("for".to_string()),
+            end_tag: Some(EndTag {
+                name: "endfor".to_string(),
+                optional: false,
+                args: vec![],
+            }),
+            intermediate_tags: Some(vec![
+                IntermediateTag { name: "empty".to_string() },
+            ]),
+            args: vec![
                 var("item"),
                 literal("in"),
                 var("items"),
                 opt_literal("reversed"),
-            ])
-            .build(),
-        TagBuilder::new("ifchanged")
-            .with_end("endifchanged")
-            .with_intermediate(vec!["else"])
-            .with_args(vec![opt_varargs("variables")])
-            .build(),
-        TagBuilder::new("with")
-            .with_end("endwith")
-            .with_args(vec![varargs("assignments")])
-            .build(),
+            ],
+        },
+        TagSpec {
+            name: Some("ifchanged".to_string()),
+            end_tag: Some(EndTag {
+                name: "endifchanged".to_string(),
+                optional: false,
+                args: vec![],
+            }),
+            intermediate_tags: Some(vec![
+                IntermediateTag { name: "else".to_string() },
+            ]),
+            args: vec![opt_varargs("variables")],
+        },
+        TagSpec {
+            name: Some("with".to_string()),
+            end_tag: Some(EndTag {
+                name: "endwith".to_string(),
+                optional: false,
+                args: vec![],
+            }),
+            intermediate_tags: None,
+            args: vec![varargs("assignments")],
+        },
+        
         // Block tags
-        TagBuilder::new("block")
-            .with_end_args("endblock", vec![opt_var("name")])
-            .with_args(vec![var("name")])
-            .build(),
-        TagBuilder::new("extends")
-            .with_args(vec![string("template")])
-            .build(),
-        TagBuilder::new("include")
-            .with_args(vec![
+        TagSpec {
+            name: Some("block".to_string()),
+            end_tag: Some(EndTag {
+                name: "endblock".to_string(),
+                optional: false,
+                args: vec![opt_var("name")],
+            }),
+            intermediate_tags: None,
+            args: vec![var("name")],
+        },
+        TagSpec {
+            name: Some("extends".to_string()),
+            end_tag: None,
+            intermediate_tags: None,
+            args: vec![string("template")],
+        },
+        TagSpec {
+            name: Some("include".to_string()),
+            end_tag: None,
+            intermediate_tags: None,
+            args: vec![
                 string("template"),
                 opt_literal("with"),
                 opt_varargs("context"),
                 opt_literal("only"),
-            ])
-            .build(),
-        // Comments and literals
-        TagBuilder::new("comment").with_end("endcomment").build(),
-        TagBuilder::new("verbatim")
-            .with_end("endverbatim")
-            .with_args(vec![opt_string("name")])
-            .build(),
-        TagBuilder::new("spaceless")
-            .with_end("endspaceless")
-            .build(),
-        // Template loading
-        TagBuilder::new("load")
-            .with_args(vec![varargs("libraries")])
-            .build(),
-        // CSRF token
-        TagBuilder::new("csrf_token").build(),
-        // Filters
-        TagBuilder::new("filter")
-            .with_end("endfilter")
-            .with_args(vec![expr("filter_expr")])
-            .build(),
-        // Variables and display
-        TagBuilder::new("cycle")
-            .with_args(vec![
+            ],
+        },
+        TagSpec {
+            name: Some("load".to_string()),
+            end_tag: None,
+            intermediate_tags: None,
+            args: vec![varargs("libraries")],
+        },
+        
+        // Content manipulation tags
+        TagSpec {
+            name: Some("comment".to_string()),
+            end_tag: Some(EndTag {
+                name: "endcomment".to_string(),
+                optional: false,
+                args: vec![],
+            }),
+            intermediate_tags: None,
+            args: vec![opt_string("note")],
+        },
+        TagSpec {
+            name: Some("filter".to_string()),
+            end_tag: Some(EndTag {
+                name: "endfilter".to_string(),
+                optional: false,
+                args: vec![],
+            }),
+            intermediate_tags: None,
+            args: vec![varargs("filters")],
+        },
+        TagSpec {
+            name: Some("spaceless".to_string()),
+            end_tag: Some(EndTag {
+                name: "endspaceless".to_string(),
+                optional: false,
+                args: vec![],
+            }),
+            intermediate_tags: None,
+            args: vec![],
+        },
+        TagSpec {
+            name: Some("verbatim".to_string()),
+            end_tag: Some(EndTag {
+                name: "endverbatim".to_string(),
+                optional: false,
+                args: vec![],
+            }),
+            intermediate_tags: None,
+            args: vec![opt_string("name")],
+        },
+        
+        // Variables and expressions
+        TagSpec {
+            name: Some("cycle".to_string()),
+            end_tag: None,
+            intermediate_tags: None,
+            args: vec![
                 varargs("values"),
                 opt_literal("as"),
                 opt_var("varname"),
-            ])
-            .build(),
-        TagBuilder::new("firstof")
-            .with_args(vec![varargs("variables")])
-            .build(),
-        TagBuilder::new("regroup")
-            .with_args(vec![
-                var("list"),
+                opt_literal("silent"),
+            ],
+        },
+        TagSpec {
+            name: Some("firstof".to_string()),
+            end_tag: None,
+            intermediate_tags: None,
+            args: vec![
+                varargs("variables"),
+                opt_string("fallback"),
+                opt_literal("as"),
+                opt_var("varname"),
+            ],
+        },
+        TagSpec {
+            name: Some("regroup".to_string()),
+            end_tag: None,
+            intermediate_tags: None,
+            args: vec![
+                var("target"),
                 literal("by"),
                 var("attribute"),
                 literal("as"),
                 var("grouped"),
-            ])
-            .build(),
+            ],
+        },
+        
         // Date and time
-        TagBuilder::new("now")
-            .with_args(vec![
+        TagSpec {
+            name: Some("now".to_string()),
+            end_tag: None,
+            intermediate_tags: None,
+            args: vec![
                 string("format_string"),
                 opt_literal("as"),
                 opt_var("varname"),
-            ])
-            .build(),
+            ],
+        },
+        
         // URLs and static files
-        TagBuilder::new("url")
-            .with_args(vec![
+        TagSpec {
+            name: Some("url".to_string()),
+            end_tag: None,
+            intermediate_tags: None,
+            args: vec![
                 string("view_name"),
                 opt_varargs("args"),
                 opt_literal("as"),
                 opt_var("varname"),
-            ])
-            .build(),
-        TagBuilder::new("static")
-            .with_args(vec![string("path")])
-            .build(),
+            ],
+        },
+        TagSpec {
+            name: Some("static".to_string()),
+            end_tag: None,
+            intermediate_tags: None,
+            args: vec![string("path")],
+        },
+        
         // Template tags
-        TagBuilder::new("templatetag")
-            .with_args(vec![choice(
+        TagSpec {
+            name: Some("templatetag".to_string()),
+            end_tag: None,
+            intermediate_tags: None,
+            args: vec![choice(
                 "tagbit",
                 vec![
                     "openblock".to_string(),
@@ -272,78 +334,126 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
                     "opencomment".to_string(),
                     "closecomment".to_string(),
                 ],
-            )])
-            .build(),
+            )],
+        },
+        
+        // Security
+        TagSpec {
+            name: Some("csrf_token".to_string()),
+            end_tag: None,
+            intermediate_tags: None,
+            args: vec![],
+        },
+        
         // Utilities
-        TagBuilder::new("widthratio")
-            .with_args(vec![
+        TagSpec {
+            name: Some("widthratio".to_string()),
+            end_tag: None,
+            intermediate_tags: None,
+            args: vec![
                 var("this_value"),
                 var("max_value"),
                 var("max_width"),
                 opt_literal("as"),
                 opt_var("varname"),
-            ])
-            .build(),
-        TagBuilder::new("lorem")
-            .with_args(vec![
+            ],
+        },
+        TagSpec {
+            name: Some("lorem".to_string()),
+            end_tag: None,
+            intermediate_tags: None,
+            args: vec![
                 opt_var("count"),
-                opt_choice(
-                    "method",
-                    vec!["w".to_string(), "p".to_string(), "b".to_string()],
-                ),
+                opt_choice("method", vec!["w".to_string(), "p".to_string(), "b".to_string()]),
                 opt_literal("random"),
-            ])
-            .build(),
-        TagBuilder::new("debug").build(),
+            ],
+        },
+        TagSpec {
+            name: Some("debug".to_string()),
+            end_tag: None,
+            intermediate_tags: None,
+            args: vec![],
+        },
+        
         // Cache tags
-        TagBuilder::new("cache")
-            .with_end("endcache")
-            .with_args(vec![
+        TagSpec {
+            name: Some("cache".to_string()),
+            end_tag: Some(EndTag {
+                name: "endcache".to_string(),
+                optional: false,
+                args: vec![],
+            }),
+            intermediate_tags: None,
+            args: vec![
                 var("timeout"),
                 var("cache_key"),
                 opt_varargs("variables"),
-            ])
-            .build(),
+            ],
+        },
+        
         // Internationalization
-        TagBuilder::new("localize")
-            .with_end("endlocalize")
-            .with_args(vec![opt_choice(
-                "mode",
-                vec!["on".to_string(), "off".to_string()],
-            )])
-            .build(),
-        TagBuilder::new("blocktranslate")
-            .with_end("endblocktranslate")
-            .with_intermediate(vec!["plural"])
-            .with_args(vec![
+        TagSpec {
+            name: Some("localize".to_string()),
+            end_tag: Some(EndTag {
+                name: "endlocalize".to_string(),
+                optional: false,
+                args: vec![],
+            }),
+            intermediate_tags: None,
+            args: vec![opt_choice("mode", vec!["on".to_string(), "off".to_string()])],
+        },
+        TagSpec {
+            name: Some("blocktranslate".to_string()),
+            end_tag: Some(EndTag {
+                name: "endblocktranslate".to_string(),
+                optional: false,
+                args: vec![],
+            }),
+            intermediate_tags: Some(vec![
+                IntermediateTag { name: "plural".to_string() },
+            ]),
+            args: vec![
                 opt_string("context"),
                 opt_literal("with"),
                 opt_varargs("assignments"),
                 opt_literal("asvar"),
                 opt_var("varname"),
-            ])
-            .build(),
-        TagBuilder::new("trans")
-            .with_args(vec![
+            ],
+        },
+        TagSpec {
+            name: Some("trans".to_string()),
+            end_tag: None,
+            intermediate_tags: None,
+            args: vec![
                 string("message"),
                 opt_string("context"),
                 opt_literal("as"),
                 opt_var("varname"),
                 opt_literal("noop"),
-            ])
-            .build(),
+            ],
+        },
+        
         // Timezone tags
-        TagBuilder::new("localtime")
-            .with_end("endlocaltime")
-            .with_args(vec![opt_choice(
-                "mode",
-                vec!["on".to_string(), "off".to_string()],
-            )])
-            .build(),
-        TagBuilder::new("timezone")
-            .with_end("endtimezone")
-            .with_args(vec![var("timezone")])
-            .build(),
+        TagSpec {
+            name: Some("localtime".to_string()),
+            end_tag: Some(EndTag {
+                name: "endlocaltime".to_string(),
+                optional: false,
+                args: vec![],
+            }),
+            intermediate_tags: None,
+            args: vec![opt_choice("mode", vec!["on".to_string(), "off".to_string()])],
+        },
+        TagSpec {
+            name: Some("timezone".to_string()),
+            end_tag: Some(EndTag {
+                name: "endtimezone".to_string(),
+                optional: false,
+                args: vec![],
+            }),
+            intermediate_tags: None,
+            args: vec![var("timezone")],
+        },
     ];
 
     // Insert all tags into the HashMap
@@ -431,9 +541,7 @@ mod tests {
         ];
 
         for tag in expected_block_tags {
-            let spec = specs
-                .get(tag)
-                .unwrap_or_else(|| panic!("{tag} tag should be present"));
+            let spec = specs.get(tag).unwrap_or_else(|| panic!("{tag} tag should be present"));
             assert!(spec.end_tag.is_some(), "{tag} should have an end tag");
         }
 
@@ -504,18 +612,13 @@ mod tests {
         let specs = django_builtin_specs();
 
         // Test a single tag has no end tag or intermediates
-        let csrf_tag = specs
-            .get("csrf_token")
-            .expect("csrf_token tag should exist");
+        let csrf_tag = specs.get("csrf_token").expect("csrf_token tag should exist");
         assert!(csrf_tag.end_tag.is_none());
         assert!(csrf_tag.intermediate_tags.is_none());
 
         // Test extends tag with args
         let extends_tag = specs.get("extends").expect("extends tag should exist");
         assert!(extends_tag.end_tag.is_none());
-        assert!(
-            !extends_tag.args.is_empty(),
-            "extends tag should have arguments"
-        );
+        assert!(!extends_tag.args.is_empty(), "extends tag should have arguments");
     }
 }
