@@ -1,13 +1,18 @@
+mod builtins;
 mod snippets;
 mod specs;
 
+pub use builtins::django_builtin_specs;
 pub use snippets::generate_partial_snippet;
 pub use snippets::generate_snippet_for_tag;
 pub use snippets::generate_snippet_for_tag_with_end;
 pub use snippets::generate_snippet_from_args;
 pub use specs::Arg;
 pub use specs::ArgType;
+pub use specs::EndTag;
+pub use specs::IntermediateTag;
 pub use specs::SimpleArgType;
+pub use specs::TagSpec;
 pub use specs::TagSpecs;
 
 pub enum TagType {

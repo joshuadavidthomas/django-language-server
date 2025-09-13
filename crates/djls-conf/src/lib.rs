@@ -1,3 +1,5 @@
+pub mod tagspecs;
+
 use std::fs;
 use std::path::Path;
 
@@ -8,6 +10,13 @@ use config::FileFormat;
 use directories::ProjectDirs;
 use serde::Deserialize;
 use thiserror::Error;
+
+pub use crate::tagspecs::ArgTypeDef;
+pub use crate::tagspecs::EndTagDef;
+pub use crate::tagspecs::IntermediateTagDef;
+pub use crate::tagspecs::SimpleArgTypeDef;
+pub use crate::tagspecs::TagArgDef;
+pub use crate::tagspecs::TagSpecDef;
 
 #[derive(Error, Debug)]
 pub enum ConfigError {
@@ -26,6 +35,8 @@ pub struct Settings {
     #[serde(default)]
     debug: bool,
     venv_path: Option<String>,
+    #[serde(default)]
+    tagspecs: Vec<TagSpecDef>,
 }
 
 impl Settings {
@@ -88,6 +99,11 @@ impl Settings {
     pub fn venv_path(&self) -> Option<&str> {
         self.venv_path.as_deref()
     }
+
+    #[must_use]
+    pub fn tagspecs(&self) -> &[TagSpecDef] {
+        &self.tagspecs
+    }
 }
 
 #[cfg(test)]
@@ -110,7 +126,8 @@ mod tests {
                 settings,
                 Settings {
                     debug: false,
-                    venv_path: None
+                    venv_path: None,
+                    tagspecs: vec![],
                 }
             );
         }
@@ -344,6 +361,231 @@ mod tests {
             let result = Settings::new(dir.path());
             assert!(result.is_err());
             assert!(matches!(result.unwrap_err(), ConfigError::Config(_)));
+        }
+    }
+
+    mod tagspecs {
+        use super::*;
+        use crate::tagspecs::ArgTypeDef;
+        use crate::tagspecs::SimpleArgTypeDef;
+
+        #[test]
+        fn test_load_tagspecs_from_djls_toml() {
+            let dir = tempdir().unwrap();
+            let content = r#"
+[[tagspecs]]
+name = "mytag"
+module = "myapp.templatetags.custom"
+end_tag = { name = "endmytag" }
+
+[[tagspecs]]
+name = "for"
+module = "django.template.defaulttags"
+end_tag = { name = "endfor" }
+intermediate_tags = [{ name = "empty" }]
+args = [
+    { name = "item", type = "variable" },
+    { name = "in", type = "literal" },
+    { name = "items", type = "variable" }
+]
+"#;
+            fs::write(dir.path().join("djls.toml"), content).unwrap();
+            let settings = Settings::new(dir.path()).unwrap();
+
+            assert_eq!(settings.tagspecs().len(), 2);
+
+            let mytag = &settings.tagspecs()[0];
+            assert_eq!(mytag.name, "mytag");
+            assert_eq!(mytag.module, "myapp.templatetags.custom");
+            assert_eq!(mytag.end_tag.as_ref().unwrap().name, "endmytag");
+
+            let for_tag = &settings.tagspecs()[1];
+            assert_eq!(for_tag.name, "for");
+            assert_eq!(for_tag.module, "django.template.defaulttags");
+            assert_eq!(for_tag.intermediate_tags.len(), 1);
+            assert_eq!(for_tag.args.len(), 3);
+        }
+
+        #[test]
+        fn test_load_tagspecs_from_pyproject() {
+            let dir = tempdir().unwrap();
+            let content = r#"
+[tool.djls]
+debug = true
+
+[[tool.djls.tagspecs]]
+name = "cache"
+module = "django.templatetags.cache"
+end_tag = { name = "endcache", optional = false }
+args = [
+    { name = "expire_time", type = "variable" },
+    { name = "fragment_name", type = "string" }
+]
+"#;
+            fs::write(dir.path().join("pyproject.toml"), content).unwrap();
+            let settings = Settings::new(dir.path()).unwrap();
+
+            assert_eq!(settings.tagspecs().len(), 1);
+            let cache = &settings.tagspecs()[0];
+            assert_eq!(cache.name, "cache");
+            assert_eq!(cache.module, "django.templatetags.cache");
+            assert_eq!(cache.args.len(), 2);
+        }
+
+        #[test]
+        fn test_arg_types() {
+            let dir = tempdir().unwrap();
+            let content = r#"
+[[tagspecs]]
+name = "test"
+module = "test.module"
+args = [
+    { name = "simple", type = "variable" },
+    { name = "choice", type = { choice = ["on", "off"] } },
+    { name = "optional", required = false, type = "string" }
+]
+"#;
+            fs::write(dir.path().join("djls.toml"), content).unwrap();
+            let settings = Settings::new(dir.path()).unwrap();
+
+            let test = &settings.tagspecs()[0];
+            assert_eq!(test.args.len(), 3);
+
+            // Check simple type
+            assert!(matches!(
+                test.args[0].arg_type,
+                ArgTypeDef::Simple(SimpleArgTypeDef::Variable)
+            ));
+
+            // Check choice type
+            if let ArgTypeDef::Choice { ref choice } = test.args[1].arg_type {
+                assert_eq!(choice, &vec!["on".to_string(), "off".to_string()]);
+            } else {
+                panic!("Expected choice type");
+            }
+
+            // Check optional arg
+            assert!(!test.args[2].required);
+        }
+
+        #[test]
+        fn test_intermediate_tags() {
+            let dir = tempdir().unwrap();
+            let content = r#"
+[[tagspecs]]
+name = "if"
+module = "django.template.defaulttags"
+end_tag = { name = "endif" }
+intermediate_tags = [
+    { name = "elif" },
+    { name = "else" }
+]
+args = [
+    { name = "condition", type = "expression" }
+]
+"#;
+            fs::write(dir.path().join("djls.toml"), content).unwrap();
+            let settings = Settings::new(dir.path()).unwrap();
+
+            let if_tag = &settings.tagspecs()[0];
+            assert_eq!(if_tag.name, "if");
+
+            assert_eq!(if_tag.intermediate_tags.len(), 2);
+            assert_eq!(if_tag.intermediate_tags[0].name, "elif");
+            assert_eq!(if_tag.intermediate_tags[1].name, "else");
+        }
+
+        #[test]
+        fn test_end_tag_with_args() {
+            let dir = tempdir().unwrap();
+            let content = r#"
+[[tagspecs]]
+name = "block"
+module = "django.template.defaulttags"
+end_tag = { name = "endblock", args = [{ name = "name", required = false, type = "variable" }] }
+args = [
+    { name = "name", type = "variable" }
+]
+"#;
+            fs::write(dir.path().join("djls.toml"), content).unwrap();
+            let settings = Settings::new(dir.path()).unwrap();
+
+            let block_tag = &settings.tagspecs()[0];
+            assert_eq!(block_tag.name, "block");
+
+            let end_tag = block_tag.end_tag.as_ref().unwrap();
+            assert_eq!(end_tag.name, "endblock");
+            assert_eq!(end_tag.args.len(), 1);
+            assert!(!end_tag.args[0].required);
+        }
+
+        #[test]
+        fn test_tagspecs_with_other_settings() {
+            let dir = tempdir().unwrap();
+            let content = r#"
+debug = true
+venv_path = "/path/to/venv"
+
+[[tagspecs]]
+name = "custom"
+module = "myapp.tags"
+args = []
+"#;
+            fs::write(dir.path().join("djls.toml"), content).unwrap();
+            let settings = Settings::new(dir.path()).unwrap();
+
+            assert!(settings.debug());
+            assert_eq!(settings.venv_path(), Some("/path/to/venv"));
+            assert_eq!(settings.tagspecs().len(), 1);
+            assert_eq!(settings.tagspecs()[0].name, "custom");
+        }
+
+        #[test]
+        fn test_all_arg_types() {
+            let dir = tempdir().unwrap();
+            let content = r#"
+[[tagspecs]]
+name = "test_all_types"
+module = "test.module"
+args = [
+    { name = "literal", type = "literal" },
+    { name = "variable", type = "variable" },
+    { name = "string", type = "string" },
+    { name = "expression", type = "expression" },
+    { name = "assignment", type = "assignment" },
+    { name = "varargs", type = "varargs" }
+]
+"#;
+            fs::write(dir.path().join("djls.toml"), content).unwrap();
+            let settings = Settings::new(dir.path()).unwrap();
+
+            let test = &settings.tagspecs()[0];
+            assert_eq!(test.args.len(), 6);
+
+            assert!(matches!(
+                test.args[0].arg_type,
+                ArgTypeDef::Simple(SimpleArgTypeDef::Literal)
+            ));
+            assert!(matches!(
+                test.args[1].arg_type,
+                ArgTypeDef::Simple(SimpleArgTypeDef::Variable)
+            ));
+            assert!(matches!(
+                test.args[2].arg_type,
+                ArgTypeDef::Simple(SimpleArgTypeDef::String)
+            ));
+            assert!(matches!(
+                test.args[3].arg_type,
+                ArgTypeDef::Simple(SimpleArgTypeDef::Expression)
+            ));
+            assert!(matches!(
+                test.args[4].arg_type,
+                ArgTypeDef::Simple(SimpleArgTypeDef::Assignment)
+            ));
+            assert!(matches!(
+                test.args[5].arg_type,
+                ArgTypeDef::Simple(SimpleArgTypeDef::VarArgs)
+            ));
         }
     }
 }

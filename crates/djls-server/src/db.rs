@@ -178,22 +178,22 @@ impl WorkspaceDb for DjangoDatabase {
 #[salsa::db]
 impl TemplateDb for DjangoDatabase {
     fn tag_specs(&self) -> Arc<TagSpecs> {
-        let project_root_buf =
-            std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-        let project_root = project_root_buf.as_path();
+        // Get project root for loading settings
+        let project_root = if let Some(project) = self.project() {
+            project.root(self).clone()
+        } else {
+            std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
+        };
 
-        if let Ok(user_specs) = TagSpecs::load_user_specs(project_root) {
-            // If user specs exist and aren't empty, merge with built-in specs
-            // to allow user overrides while keeping built-in specs as fallback
-            if let Ok(mut builtin_specs) = TagSpecs::load_builtin_specs() {
-                builtin_specs.merge(user_specs);
-                return Arc::new(builtin_specs);
-            }
-            return Arc::new(user_specs);
-        }
-
-        // Fall back to built-in specs
-        Arc::new(TagSpecs::load_builtin_specs().expect("Built-in specs must be valid"))
+        // Load settings and convert to TagSpecs (includes built-ins + user-defined)
+        let tag_specs = if let Ok(settings) = djls_conf::Settings::new(&project_root) {
+            TagSpecs::from(&settings)
+        } else {
+            // If no settings, just use built-in specs
+            djls_templates::templatetags::django_builtin_specs()
+        };
+        
+        Arc::new(tag_specs)
     }
 }
 

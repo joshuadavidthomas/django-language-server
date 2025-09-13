@@ -324,7 +324,6 @@ mod tests {
     use super::*;
     use crate::lexer::Lexer;
     use crate::parser::Parser;
-    use crate::templatetags::TagSpecs;
     use crate::tokens::TokenStream;
 
     // Test database that implements the required traits
@@ -363,8 +362,7 @@ mod tests {
     #[salsa::db]
     impl crate::db::Db for TestDatabase {
         fn tag_specs(&self) -> std::sync::Arc<crate::templatetags::TagSpecs> {
-            let toml_str = include_str!("../tagspecs/django.toml");
-            Arc::new(TagSpecs::from_toml(toml_str).unwrap())
+            Arc::new(crate::templatetags::django_builtin_specs())
         }
     }
 

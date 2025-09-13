@@ -1,32 +1,20 @@
 use std::collections::HashMap;
-use std::fs;
-use std::path::Path;
 
-use anyhow::Result;
 use serde::Deserialize;
 use serde::Deserializer;
 use serde::Serialize;
-use thiserror::Error;
-use toml::Value;
-
-#[derive(Debug, Error)]
-pub enum TagSpecError {
-    #[error("Failed to read file: {0}")]
-    Io(#[from] std::io::Error),
-    #[error("Failed to parse TOML: {0}")]
-    Toml(#[from] toml::de::Error),
-    #[error("Failed to extract specs: {0}")]
-    #[allow(dead_code)]
-    Extract(String),
-    #[error(transparent)]
-    Other(#[from] anyhow::Error),
-}
 
 #[derive(Clone, Debug, Default)]
 #[allow(dead_code)]
 pub struct TagSpecs(HashMap<String, TagSpec>);
 
 impl TagSpecs {
+    /// Create a new `TagSpecs` from a `HashMap`
+    #[must_use]
+    pub fn new(specs: HashMap<String, TagSpec>) -> Self {
+        TagSpecs(specs)
+    }
+
     #[allow(dead_code)]
     #[must_use]
     pub fn get(&self, key: &str) -> Option<&TagSpec> {
@@ -106,95 +94,11 @@ impl TagSpecs {
         parents
     }
 
-    /// Load specs from a TOML string
-    #[allow(dead_code)]
-    pub fn from_toml(toml_str: &str) -> Result<Self, TagSpecError> {
-        let value: Value = toml::from_str(toml_str)?;
-        let mut specs = HashMap::new();
-
-        // Look for tagspecs table
-        if let Some(tagspecs) = value.get("tagspecs") {
-            TagSpec::extract_specs(tagspecs, Some("tagspecs"), &mut specs)
-                .map_err(TagSpecError::Extract)?;
-        }
-
-        Ok(TagSpecs(specs))
-    }
-
-    /// Load specs from a TOML file, looking under the specified table path
-    #[allow(dead_code)]
-    fn load_from_toml(path: &Path, table_path: &[&str]) -> Result<Self, TagSpecError> {
-        let content = fs::read_to_string(path)?;
-        let value: Value = toml::from_str(&content)?;
-
-        let start_node = table_path
-            .iter()
-            .try_fold(&value, |current, &key| current.get(key));
-
-        let mut specs = HashMap::new();
-
-        if let Some(node) = start_node {
-            let initial_prefix = if table_path.is_empty() {
-                None
-            } else {
-                Some(table_path.join("."))
-            };
-            TagSpec::extract_specs(node, initial_prefix.as_deref(), &mut specs)
-                .map_err(TagSpecError::Extract)?;
-        }
-
-        Ok(TagSpecs(specs))
-    }
-
-    /// Load specs from a user's project directory
-    #[allow(dead_code)]
-    pub fn load_user_specs(project_root: &Path) -> Result<Self, anyhow::Error> {
-        let config_files = ["djls.toml", ".djls.toml", "pyproject.toml"];
-
-        for &file in &config_files {
-            let path = project_root.join(file);
-            if path.exists() {
-                let result = match file {
-                    "pyproject.toml" => Self::load_from_toml(&path, &["tool", "djls", "tagspecs"]),
-                    _ => Self::load_from_toml(&path, &["tagspecs"]),
-                };
-                return result.map_err(anyhow::Error::from);
-            }
-        }
-        Ok(Self::default())
-    }
-
-    /// Load builtin specs from the crate's tagspecs directory
-    #[allow(dead_code)]
-    pub fn load_builtin_specs() -> Result<Self, anyhow::Error> {
-        let specs_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tagspecs");
-        let mut specs = HashMap::new();
-
-        for entry in fs::read_dir(&specs_dir)? {
-            let entry = entry?;
-            let path = entry.path();
-            if path.is_file() && path.extension().and_then(|ext| ext.to_str()) == Some("toml") {
-                let file_specs = Self::load_from_toml(&path, &["tagspecs"])?;
-                specs.extend(file_specs.0);
-            }
-        }
-
-        Ok(TagSpecs(specs))
-    }
-
     /// Merge another `TagSpecs` into this one, with the other taking precedence
     #[allow(dead_code)]
     pub fn merge(&mut self, other: TagSpecs) -> &mut Self {
         self.0.extend(other.0);
         self
-    }
-
-    /// Load both builtin and user specs, with user specs taking precedence
-    #[allow(dead_code)]
-    pub fn load_all(project_root: &Path) -> Result<Self, anyhow::Error> {
-        let mut specs = Self::load_builtin_specs()?;
-        let user_specs = Self::load_user_specs(project_root)?;
-        Ok(specs.merge(user_specs).clone())
     }
 }
 
@@ -276,305 +180,580 @@ impl<'de> Deserialize<'de> for IntermediateTag {
     }
 }
 
-impl TagSpec {
-    /// Recursive extraction: Check if node is spec, otherwise recurse if table.
-    #[allow(dead_code)]
-    fn extract_specs(
-        value: &Value,
-        prefix: Option<&str>, // Path *to* this value node
-        specs: &mut HashMap<String, TagSpec>,
-    ) -> Result<(), String> {
-        // Check if this is an array of TagSpec entries (new format)
-        if let Some(array) = value.as_array() {
-            for item in array {
-                if let Some(table) = item.as_table() {
-                    // Check if it has a 'name' field (new format)
-                    if table.contains_key("name") {
-                        match TagSpec::deserialize(item.clone()) {
-                            Ok(mut tag_spec) => {
-                                if let Some(name) = tag_spec.name.take() {
-                                    specs.insert(name, tag_spec);
-                                } else {
-                                    return Err(
-                                        "TagSpec has 'name' field but it's None".to_string()
-                                    );
-                                }
-                            }
-                            Err(e) => {
-                                return Err(format!("Failed to deserialize TagSpec in array: {e}"));
-                            }
-                        }
-                    }
-                }
+// Conversions from djls_conf types to canonical djls_templates types
+
+impl From<djls_conf::SimpleArgTypeDef> for SimpleArgType {
+    fn from(value: djls_conf::SimpleArgTypeDef) -> Self {
+        match value {
+            djls_conf::SimpleArgTypeDef::Literal => SimpleArgType::Literal,
+            djls_conf::SimpleArgTypeDef::Variable => SimpleArgType::Variable,
+            djls_conf::SimpleArgTypeDef::String => SimpleArgType::String,
+            djls_conf::SimpleArgTypeDef::Expression => SimpleArgType::Expression,
+            djls_conf::SimpleArgTypeDef::Assignment => SimpleArgType::Assignment,
+            djls_conf::SimpleArgTypeDef::VarArgs => SimpleArgType::VarArgs,
+        }
+    }
+}
+
+impl From<djls_conf::ArgTypeDef> for ArgType {
+    fn from(value: djls_conf::ArgTypeDef) -> Self {
+        match value {
+            djls_conf::ArgTypeDef::Simple(simple) => ArgType::Simple(simple.into()),
+            djls_conf::ArgTypeDef::Choice { choice } => ArgType::Choice { choice },
+        }
+    }
+}
+
+impl From<djls_conf::TagArgDef> for Arg {
+    fn from(value: djls_conf::TagArgDef) -> Self {
+        Arg {
+            name: value.name,
+            required: value.required,
+            arg_type: value.arg_type.into(),
+        }
+    }
+}
+
+impl From<djls_conf::IntermediateTagDef> for IntermediateTag {
+    fn from(value: djls_conf::IntermediateTagDef) -> Self {
+        IntermediateTag {
+            name: value.name,
+            // Note: IntermediateTagDef has args field but IntermediateTag doesn't
+            // This is intentional - we don't support args on intermediate tags yet
+        }
+    }
+}
+
+impl From<djls_conf::EndTagDef> for EndTag {
+    fn from(value: djls_conf::EndTagDef) -> Self {
+        EndTag {
+            name: value.name,
+            optional: value.optional,
+            args: value.args.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl From<djls_conf::TagSpecDef> for TagSpec {
+    fn from(value: djls_conf::TagSpecDef) -> Self {
+        TagSpec {
+            name: Some(value.name),
+            end_tag: value.end_tag.map(Into::into),
+            intermediate_tags: if value.intermediate_tags.is_empty() {
+                None
+            } else {
+                Some(
+                    value
+                        .intermediate_tags
+                        .into_iter()
+                        .map(Into::into)
+                        .collect(),
+                )
+            },
+            args: value.args.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl From<&djls_conf::Settings> for TagSpecs {
+    fn from(settings: &djls_conf::Settings) -> Self {
+        // Start with built-in specs
+        let mut specs = crate::templatetags::django_builtin_specs();
+
+        // Convert and merge user-defined tagspecs
+        let mut user_specs = HashMap::new();
+        for tagspec_def in settings.tagspecs() {
+            // Clone because we're consuming the tagspec_def in the conversion
+            let tagspec: TagSpec = tagspec_def.clone().into();
+            if let Some(name) = &tagspec.name {
+                user_specs.insert(name.clone(), tagspec);
             }
-            return Ok(());
         }
 
-        // Check if the current node *itself* represents a TagSpec definition (old format)
-        // We can be more specific: check if it's a table containing 'end'/'end_tag', 'intermediates'/'intermediate_tags', or 'args'
-        let mut is_spec_node = false;
-        if let Some(table) = value.as_table() {
-            if table.contains_key("end")
-                || table.contains_key("end_tag")
-                || table.contains_key("intermediates")
-                || table.contains_key("intermediate_tags")
-                || table.contains_key("args")
-            {
-                // Looks like a spec, try to deserialize
-                match TagSpec::deserialize(value.clone()) {
-                    Ok(tag_spec) => {
-                        // It is a TagSpec. Get name from prefix.
-                        if let Some(p) = prefix {
-                            if let Some(name) = p.split('.').next_back().filter(|s| !s.is_empty()) {
-                                specs.insert(name.to_string(), tag_spec);
-                                is_spec_node = true;
-                            } else {
-                                return Err(format!(
-                                    "Invalid prefix '{p}' resulted in empty tag name component."
-                                ));
-                            }
-                        } else {
-                            return Err("Cannot determine tag name for TagSpec: prefix is None."
-                                .to_string());
-                        }
-                    }
-                    Err(e) => {
-                        // Looked like a spec but failed to deserialize. This is an error.
-                        return Err(format!(
-                            "Failed to deserialize potential TagSpec at prefix '{}': {}",
-                            prefix.unwrap_or("<root>"),
-                            e
-                        ));
-                    }
-                }
-            }
+        // Merge user specs into built-in specs (user specs override built-ins)
+        if !user_specs.is_empty() {
+            specs.merge(TagSpecs::new(user_specs));
         }
 
-        // If the node was successfully processed as a spec, DO NOT recurse into its fields.
-        // Otherwise, if it's a table, recurse into its children.
-        if !is_spec_node {
-            if let Some(table) = value.as_table() {
-                for (key, inner_value) in table {
-                    let new_prefix = match prefix {
-                        None => key.clone(),
-                        Some(p) => format!("{p}.{key}"),
-                    };
-                    Self::extract_specs(inner_value, Some(&new_prefix), specs)?;
-                }
-            }
-        }
-
-        Ok(())
+        specs
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
-
     use super::*;
 
-    #[test]
-    fn test_can_load_builtins() -> Result<(), anyhow::Error> {
-        let specs = TagSpecs::load_builtin_specs()?;
+    // Helper function to create a small test TagSpecs
+    fn create_test_specs() -> TagSpecs {
+        let mut specs = HashMap::new();
 
-        assert!(!specs.0.is_empty(), "Should have loaded at least one spec");
+        // Add a simple single tag
+        specs.insert(
+            "csrf_token".to_string(),
+            TagSpec {
+                name: Some("csrf_token".to_string()),
+                end_tag: None,
+                intermediate_tags: None,
+                args: vec![],
+            },
+        );
 
-        assert!(specs.get("if").is_some(), "'if' tag should be present");
+        // Add a block tag with intermediates
+        specs.insert(
+            "if".to_string(),
+            TagSpec {
+                name: Some("if".to_string()),
+                end_tag: Some(EndTag {
+                    name: "endif".to_string(),
+                    optional: false,
+                    args: vec![],
+                }),
+                intermediate_tags: Some(vec![
+                    IntermediateTag {
+                        name: "elif".to_string(),
+                    },
+                    IntermediateTag {
+                        name: "else".to_string(),
+                    },
+                ]),
+                args: vec![],
+            },
+        );
 
-        for name in specs.0.keys() {
-            assert!(!name.is_empty(), "Tag name should not be empty");
-        }
-        Ok(())
+        // Add another block tag with different intermediate
+        specs.insert(
+            "for".to_string(),
+            TagSpec {
+                name: Some("for".to_string()),
+                end_tag: Some(EndTag {
+                    name: "endfor".to_string(),
+                    optional: false,
+                    args: vec![],
+                }),
+                intermediate_tags: Some(vec![
+                    IntermediateTag {
+                        name: "empty".to_string(),
+                    },
+                    IntermediateTag {
+                        name: "else".to_string(),
+                    }, // Note: else is shared
+                ]),
+                args: vec![],
+            },
+        );
+
+        // Add a block tag without intermediates
+        specs.insert(
+            "block".to_string(),
+            TagSpec {
+                name: Some("block".to_string()),
+                end_tag: Some(EndTag {
+                    name: "endblock".to_string(),
+                    optional: false,
+                    args: vec![Arg {
+                        name: "name".to_string(),
+                        required: false,
+                        arg_type: ArgType::Simple(SimpleArgType::Variable),
+                    }],
+                }),
+                intermediate_tags: None,
+                args: vec![],
+            },
+        );
+
+        TagSpecs::new(specs)
     }
 
     #[test]
-    fn test_builtin_django_tags() -> Result<(), anyhow::Error> {
-        let specs = TagSpecs::load_builtin_specs()?;
+    fn test_get() {
+        let specs = create_test_specs();
 
-        let expected_tags = [
-            "autoescape",
-            "block",
-            "comment",
-            "filter",
-            "for",
-            "if",
-            "ifchanged",
-            "spaceless",
-            "verbatim",
-            "with",
-            "cache",
-            "localize",
-            "blocktranslate",
-            "localtime",
-            "timezone",
-        ];
-        // These are single tags that should also be present
-        let single_tags = [
-            "csrf_token",
-            "cycle",
-            "extends",
-            "include",
-            "load",
-            "now",
-            "templatetag",
-            "url",
-        ];
+        // Test get with existing keys
+        assert!(specs.get("if").is_some());
+        assert!(specs.get("for").is_some());
+        assert!(specs.get("csrf_token").is_some());
+        assert!(specs.get("block").is_some());
 
-        for tag in expected_tags {
-            assert!(specs.get(tag).is_some(), "{tag} tag should be present");
-        }
+        // Test get with non-existing key
+        assert!(specs.get("nonexistent").is_none());
 
-        for tag in single_tags {
-            assert!(specs.get(tag).is_some(), "{tag} tag should be present");
-        }
-
-        // Check that newly added tags are present
-        let additional_tags = ["debug", "firstof", "lorem", "regroup", "widthratio"];
-
-        for tag in additional_tags {
-            assert!(specs.get(tag).is_some(), "{tag} tag should be present");
-        }
-
-        // Check that some tags are still missing
-        let missing_tags = [
-            "querystring", // Django 5.1+
-            "resetcycle",
-        ];
-
-        for tag in missing_tags {
-            assert!(
-                specs.get(tag).is_none(),
-                "{tag} tag should not be present yet"
-            );
-        }
-
-        Ok(())
+        // Verify the content is correct
+        let if_spec = specs.get("if").unwrap();
+        assert_eq!(if_spec.name, Some("if".to_string()));
     }
 
     #[test]
-    fn test_user_defined_tags() -> Result<(), anyhow::Error> {
-        let dir = tempfile::tempdir()?;
-        let root = dir.path();
+    fn test_iter() {
+        let specs = create_test_specs();
 
-        let pyproject_content = r#"
-[tool.djls.tagspecs.mytag]
-end = { tag = "endmytag" }
-intermediates = ["mybranch"]
+        let count = specs.iter().count();
+        assert_eq!(count, 4);
 
-[tool.djls.tagspecs.anothertag]
-end = { tag = "endanothertag", optional = true }
-"#;
-        fs::write(root.join("pyproject.toml"), pyproject_content)?;
+        let mut found_keys: Vec<String> = specs.iter().map(|(k, _)| k.clone()).collect();
+        found_keys.sort();
 
-        // Load all (built-in + user)
-        let specs = TagSpecs::load_all(root)?;
+        let mut expected_keys = ["block", "csrf_token", "for", "if"];
+        expected_keys.sort_unstable();
 
-        assert!(specs.get("if").is_some(), "'if' tag should be present");
-
-        let my_tag = specs.get("mytag").expect("mytag should be present");
         assert_eq!(
-            my_tag.end_tag,
-            Some(EndTag {
-                name: "endmytag".to_string(),
+            found_keys,
+            expected_keys
+                .iter()
+                .map(std::string::ToString::to_string)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_find_opener_for_closer() {
+        let specs = create_test_specs();
+
+        assert_eq!(
+            specs.find_opener_for_closer("endif"),
+            Some("if".to_string())
+        );
+        assert_eq!(
+            specs.find_opener_for_closer("endfor"),
+            Some("for".to_string())
+        );
+        assert_eq!(
+            specs.find_opener_for_closer("endblock"),
+            Some("block".to_string())
+        );
+
+        assert_eq!(specs.find_opener_for_closer("endnonexistent"), None);
+
+        assert_eq!(specs.find_opener_for_closer("if"), None);
+    }
+
+    #[test]
+    fn test_get_end_spec_for_closer() {
+        let specs = create_test_specs();
+
+        let endif_spec = specs.get_end_spec_for_closer("endif").unwrap();
+        assert_eq!(endif_spec.name, "endif");
+        assert!(!endif_spec.optional);
+        assert_eq!(endif_spec.args.len(), 0);
+
+        let endblock_spec = specs.get_end_spec_for_closer("endblock").unwrap();
+        assert_eq!(endblock_spec.name, "endblock");
+        assert_eq!(endblock_spec.args.len(), 1);
+        assert_eq!(endblock_spec.args[0].name, "name");
+
+        assert!(specs.get_end_spec_for_closer("endnonexistent").is_none());
+    }
+
+    #[test]
+    fn test_is_opener() {
+        let specs = create_test_specs();
+
+        // Tags with end tags are openers
+        assert!(specs.is_opener("if"));
+        assert!(specs.is_opener("for"));
+        assert!(specs.is_opener("block"));
+
+        // Single tags are not openers
+        assert!(!specs.is_opener("csrf_token"));
+
+        // Non-existent tags are not openers
+        assert!(!specs.is_opener("nonexistent"));
+
+        // Closer tags themselves are not openers
+        assert!(!specs.is_opener("endif"));
+    }
+
+    #[test]
+    fn test_is_intermediate() {
+        let specs = create_test_specs();
+
+        // Test valid intermediate tags
+        assert!(specs.is_intermediate("elif"));
+        assert!(specs.is_intermediate("else")); // Shared by if and for
+        assert!(specs.is_intermediate("empty"));
+
+        // Test non-intermediate tags
+        assert!(!specs.is_intermediate("if"));
+        assert!(!specs.is_intermediate("for"));
+        assert!(!specs.is_intermediate("csrf_token"));
+        assert!(!specs.is_intermediate("endif"));
+
+        // Test non-existent tag
+        assert!(!specs.is_intermediate("nonexistent"));
+    }
+
+    #[test]
+    fn test_is_closer() {
+        let specs = create_test_specs();
+
+        // Test valid closer tags
+        assert!(specs.is_closer("endif"));
+        assert!(specs.is_closer("endfor"));
+        assert!(specs.is_closer("endblock"));
+
+        // Test non-closer tags
+        assert!(!specs.is_closer("if"));
+        assert!(!specs.is_closer("for"));
+        assert!(!specs.is_closer("csrf_token"));
+        assert!(!specs.is_closer("elif"));
+        assert!(!specs.is_closer("else"));
+
+        // Test non-existent tag
+        assert!(!specs.is_closer("nonexistent"));
+    }
+
+    #[test]
+    fn test_get_parent_tags_for_intermediate() {
+        let specs = create_test_specs();
+
+        // Test intermediate with single parent
+        let elif_parents = specs.get_parent_tags_for_intermediate("elif");
+        assert_eq!(elif_parents.len(), 1);
+        assert!(elif_parents.contains(&"if".to_string()));
+
+        // Test intermediate with multiple parents (else is shared)
+        let mut else_parents = specs.get_parent_tags_for_intermediate("else");
+        else_parents.sort();
+        assert_eq!(else_parents.len(), 2);
+        assert!(else_parents.contains(&"if".to_string()));
+        assert!(else_parents.contains(&"for".to_string()));
+
+        // Test intermediate with single parent
+        let empty_parents = specs.get_parent_tags_for_intermediate("empty");
+        assert_eq!(empty_parents.len(), 1);
+        assert!(empty_parents.contains(&"for".to_string()));
+
+        // Test non-intermediate tag
+        let if_parents = specs.get_parent_tags_for_intermediate("if");
+        assert_eq!(if_parents.len(), 0);
+
+        // Test non-existent tag
+        let nonexistent_parents = specs.get_parent_tags_for_intermediate("nonexistent");
+        assert_eq!(nonexistent_parents.len(), 0);
+    }
+
+    #[test]
+    fn test_merge() {
+        let mut specs1 = create_test_specs();
+
+        // Create another TagSpecs with some overlapping and some new tags
+        let mut specs2_map = HashMap::new();
+
+        // Add a new tag
+        specs2_map.insert(
+            "custom".to_string(),
+            TagSpec {
+                name: Some("custom".to_string()),
+                end_tag: None,
+                intermediate_tags: None,
+                args: vec![],
+            },
+        );
+
+        // Override an existing tag (if) with different structure
+        specs2_map.insert(
+            "if".to_string(),
+            TagSpec {
+                name: Some("if".to_string()),
+                end_tag: Some(EndTag {
+                    name: "endif".to_string(),
+                    optional: true, // Changed to optional
+                    args: vec![],
+                }),
+                intermediate_tags: None, // Removed intermediates
+                args: vec![],
+            },
+        );
+
+        let specs2 = TagSpecs::new(specs2_map);
+
+        // Merge specs2 into specs1
+        let result = specs1.merge(specs2);
+
+        // Check that merge returns self for chaining
+        assert!(std::ptr::eq(result, std::ptr::from_ref(&specs1)));
+
+        // Check that new tag was added
+        assert!(specs1.get("custom").is_some());
+
+        // Check that existing tag was overwritten
+        let if_spec = specs1.get("if").unwrap();
+        assert!(if_spec.end_tag.as_ref().unwrap().optional); // Should be optional now
+        assert!(if_spec.intermediate_tags.is_none()); // Should have no intermediates
+
+        // Check that unaffected tags remain
+        assert!(specs1.get("for").is_some());
+        assert!(specs1.get("csrf_token").is_some());
+        assert!(specs1.get("block").is_some());
+
+        // Total count should be 5 (original 4 + 1 new)
+        assert_eq!(specs1.iter().count(), 5);
+    }
+
+    #[test]
+    fn test_merge_empty() {
+        let mut specs = create_test_specs();
+        let original_count = specs.iter().count();
+
+        // Merge with empty TagSpecs
+        specs.merge(TagSpecs::new(HashMap::new()));
+
+        // Should remain unchanged
+        assert_eq!(specs.iter().count(), original_count);
+    }
+
+    #[test]
+    fn test_conversion_from_conf_types() {
+        // Test SimpleArgTypeDef -> SimpleArgType conversion
+        assert_eq!(
+            SimpleArgType::from(djls_conf::SimpleArgTypeDef::Variable),
+            SimpleArgType::Variable
+        );
+        assert_eq!(
+            SimpleArgType::from(djls_conf::SimpleArgTypeDef::Literal),
+            SimpleArgType::Literal
+        );
+
+        // Test ArgTypeDef -> ArgType conversion
+        let simple_arg = djls_conf::ArgTypeDef::Simple(djls_conf::SimpleArgTypeDef::String);
+        assert!(matches!(
+            ArgType::from(simple_arg),
+            ArgType::Simple(SimpleArgType::String)
+        ));
+
+        let choice_arg = djls_conf::ArgTypeDef::Choice {
+            choice: vec!["on".to_string(), "off".to_string()],
+        };
+        if let ArgType::Choice { choice } = ArgType::from(choice_arg) {
+            assert_eq!(choice, vec!["on".to_string(), "off".to_string()]);
+        } else {
+            panic!("Expected Choice variant");
+        }
+
+        // Test TagArgDef -> Arg conversion
+        let tag_arg_def = djls_conf::TagArgDef {
+            name: "test_arg".to_string(),
+            required: true,
+            arg_type: djls_conf::ArgTypeDef::Simple(djls_conf::SimpleArgTypeDef::Variable),
+        };
+        let arg = Arg::from(tag_arg_def);
+        assert_eq!(arg.name, "test_arg");
+        assert!(arg.required);
+        assert!(matches!(
+            arg.arg_type,
+            ArgType::Simple(SimpleArgType::Variable)
+        ));
+
+        // Test EndTagDef -> EndTag conversion
+        let end_tag_def = djls_conf::EndTagDef {
+            name: "endtest".to_string(),
+            optional: true,
+            args: vec![],
+        };
+        let end_tag = EndTag::from(end_tag_def);
+        assert_eq!(end_tag.name, "endtest");
+        assert!(end_tag.optional);
+        assert_eq!(end_tag.args.len(), 0);
+
+        // Test IntermediateTagDef -> IntermediateTag conversion
+        let intermediate_def = djls_conf::IntermediateTagDef {
+            name: "elif".to_string(),
+            args: vec![], // These are ignored in conversion
+        };
+        let intermediate = IntermediateTag::from(intermediate_def);
+        assert_eq!(intermediate.name, "elif");
+
+        // Test full TagSpecDef -> TagSpec conversion
+        let tagspec_def = djls_conf::TagSpecDef {
+            name: "custom".to_string(),
+            module: "myapp.templatetags".to_string(), // Note: module is ignored in conversion
+            end_tag: Some(djls_conf::EndTagDef {
+                name: "endcustom".to_string(),
                 optional: false,
                 args: vec![],
-            })
-        );
-        assert_eq!(
-            my_tag.intermediate_tags,
-            Some(vec![IntermediateTag {
-                name: "mybranch".to_string()
-            }])
-        );
-
-        let another_tag = specs
-            .get("anothertag")
-            .expect("anothertag should be present");
-        assert_eq!(
-            another_tag.end_tag,
-            Some(EndTag {
-                name: "endanothertag".to_string(),
-                optional: true,
+            }),
+            intermediate_tags: vec![djls_conf::IntermediateTagDef {
+                name: "branch".to_string(),
                 args: vec![],
-            })
-        );
+            }],
+            args: vec![],
+        };
+        let tagspec = TagSpec::from(tagspec_def);
+        assert_eq!(tagspec.name, Some("custom".to_string()));
+        assert!(tagspec.end_tag.is_some());
+        assert_eq!(tagspec.end_tag.as_ref().unwrap().name, "endcustom");
+        assert!(tagspec.intermediate_tags.is_some());
+        assert_eq!(tagspec.intermediate_tags.as_ref().unwrap().len(), 1);
         assert_eq!(
-            my_tag.intermediate_tags,
-            Some(vec![IntermediateTag {
-                name: "mybranch".to_string()
-            }])
+            tagspec.intermediate_tags.as_ref().unwrap()[0].name,
+            "branch"
         );
-
-        let another_tag = specs
-            .get("anothertag")
-            .expect("anothertag should be present");
-        assert_eq!(
-            another_tag.end_tag,
-            Some(EndTag {
-                name: "endanothertag".to_string(),
-                optional: true,
-                args: vec![],
-            })
-        );
-        assert!(
-            another_tag.intermediate_tags.is_none(),
-            "anothertag should have no intermediate_tags"
-        );
-
-        dir.close()?;
-        Ok(())
     }
 
     #[test]
-    fn test_config_file_priority() -> Result<(), anyhow::Error> {
-        let dir = tempfile::tempdir()?;
-        let root = dir.path();
+    fn test_conversion_from_settings() {
+        use std::fs;
 
-        // djls.toml has higher priority
-        let djls_content = r#"
-[tagspecs.mytag1]
-end = { tag = "endmytag1_from_djls" }
+        // Test case 1: Empty settings gives built-in specs
+        let dir = tempfile::TempDir::new().unwrap();
+        let settings = djls_conf::Settings::new(dir.path()).unwrap();
+        let specs = TagSpecs::from(&settings);
+
+        // Should have built-in specs
+        assert!(specs.get("if").is_some());
+        assert!(specs.get("for").is_some());
+        assert!(specs.get("block").is_some());
+
+        // Test case 2: Settings with user-defined tagspecs
+        let dir = tempfile::TempDir::new().unwrap();
+        let config_content = r#"
+[[tagspecs]]
+name = "mytag"
+module = "myapp.templatetags.custom"
+end_tag = { name = "endmytag", optional = false }
+intermediate_tags = [{ name = "mybranch" }]
+args = [
+    { name = "arg1", type = "variable", required = true },
+    { name = "arg2", type = { choice = ["on", "off"] }, required = false }
+]
+
+[[tagspecs]]
+name = "if"
+module = "myapp.overrides"
+end_tag = { name = "endif", optional = true }
 "#;
-        fs::write(root.join("djls.toml"), djls_content)?;
+        fs::write(dir.path().join("djls.toml"), config_content).unwrap();
 
-        // pyproject.toml has lower priority
-        let pyproject_content = r#"
-[tool.djls.tagspecs.mytag1]
-end = { tag = "endmytag1_from_pyproject" }
+        let settings = djls_conf::Settings::new(dir.path()).unwrap();
+        let specs = TagSpecs::from(&settings);
 
-[tool.djls.tagspecs.mytag2]
-end = { tag = "endmytag2_from_pyproject" }
-"#;
-        fs::write(root.join("pyproject.toml"), pyproject_content)?;
+        // Should have built-in specs
+        assert!(specs.get("for").is_some()); // Unaffected built-in
+        assert!(specs.get("block").is_some()); // Unaffected built-in
 
-        let specs = TagSpecs::load_user_specs(root)?;
-
-        let tag1 = specs.get("mytag1").expect("mytag1 should be present");
-        assert_eq!(tag1.end_tag.as_ref().unwrap().name, "endmytag1_from_djls");
-
-        // Should not find mytag2 because djls.toml was found first
-        assert!(
-            specs.get("mytag2").is_none(),
-            "mytag2 should not be present when djls.toml exists"
-        );
-
-        // Remove djls.toml, now pyproject.toml should be used
-        fs::remove_file(root.join("djls.toml"))?;
-        let specs = TagSpecs::load_user_specs(root)?;
-
-        let tag1 = specs.get("mytag1").expect("mytag1 should be present now");
+        // Should have user-defined custom tag
+        let mytag = specs.get("mytag").expect("mytag should be present");
+        assert_eq!(mytag.name, Some("mytag".to_string()));
+        assert_eq!(mytag.end_tag.as_ref().unwrap().name, "endmytag");
+        assert!(!mytag.end_tag.as_ref().unwrap().optional);
+        assert_eq!(mytag.intermediate_tags.as_ref().unwrap().len(), 1);
         assert_eq!(
-            tag1.end_tag.as_ref().unwrap().name,
-            "endmytag1_from_pyproject"
+            mytag.intermediate_tags.as_ref().unwrap()[0].name,
+            "mybranch"
         );
+        assert_eq!(mytag.args.len(), 2);
+        assert_eq!(mytag.args[0].name, "arg1");
+        assert!(mytag.args[0].required);
+        assert_eq!(mytag.args[1].name, "arg2");
+        assert!(!mytag.args[1].required);
 
+        // Should have overridden built-in "if" tag
+        let if_tag = specs.get("if").expect("if tag should be present");
+        assert!(if_tag.end_tag.as_ref().unwrap().optional); // Changed to optional
+                                                            // Note: The built-in if tag has intermediate tags, but the override doesn't specify them
+                                                            // The override completely replaces the built-in
         assert!(
-            specs.get("mytag2").is_some(),
-            "mytag2 should be present when only pyproject.toml exists"
+            if_tag.intermediate_tags.is_none()
+                || if_tag.intermediate_tags.as_ref().unwrap().is_empty()
         );
-
-        dir.close()?;
-        Ok(())
     }
 }
