@@ -343,10 +343,7 @@ mod tests {
     #[salsa::db]
     impl crate::db::Db for TestDatabase {
         fn tag_specs(&self) -> std::sync::Arc<crate::templatetags::TagSpecs> {
-            std::sync::Arc::new(
-                crate::templatetags::TagSpecs::load_builtin_specs()
-                    .unwrap_or_else(|_| crate::templatetags::TagSpecs::default()),
-            )
+            std::sync::Arc::new(crate::templatetags::django_builtin_specs())
         }
     }
 

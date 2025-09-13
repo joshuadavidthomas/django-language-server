@@ -486,6 +486,7 @@ name = "djls-templates"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "djls-conf",
  "djls-workspace",
  "insta",
  "salsa",

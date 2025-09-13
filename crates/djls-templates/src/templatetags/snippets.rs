@@ -1,11 +1,11 @@
-use super::specs::Arg;
 use super::specs::ArgType;
 use super::specs::SimpleArgType;
+use super::specs::TagArg;
 use super::specs::TagSpec;
 
 /// Generate an LSP snippet pattern from an array of arguments
 #[must_use]
-pub fn generate_snippet_from_args(args: &[Arg]) -> String {
+pub fn generate_snippet_from_args(args: &[TagArg]) -> String {
     let mut parts = Vec::new();
     let mut placeholder_index = 1;
 
@@ -128,22 +128,22 @@ mod tests {
     #[test]
     fn test_snippet_for_for_tag() {
         let args = vec![
-            Arg {
+            TagArg {
                 name: "item".to_string(),
                 required: true,
                 arg_type: ArgType::Simple(SimpleArgType::Variable),
             },
-            Arg {
+            TagArg {
                 name: "in".to_string(),
                 required: true,
                 arg_type: ArgType::Simple(SimpleArgType::Literal),
             },
-            Arg {
+            TagArg {
                 name: "items".to_string(),
                 required: true,
                 arg_type: ArgType::Simple(SimpleArgType::Variable),
             },
-            Arg {
+            TagArg {
                 name: "reversed".to_string(),
                 required: false,
                 arg_type: ArgType::Simple(SimpleArgType::Literal),
@@ -156,7 +156,7 @@ mod tests {
 
     #[test]
     fn test_snippet_for_if_tag() {
-        let args = vec![Arg {
+        let args = vec![TagArg {
             name: "condition".to_string(),
             required: true,
             arg_type: ArgType::Simple(SimpleArgType::Expression),
@@ -168,7 +168,7 @@ mod tests {
 
     #[test]
     fn test_snippet_for_autoescape_tag() {
-        let args = vec![Arg {
+        let args = vec![TagArg {
             name: "mode".to_string(),
             required: true,
             arg_type: ArgType::Choice {
@@ -182,7 +182,7 @@ mod tests {
 
     #[test]
     fn test_snippet_for_extends_tag() {
-        let args = vec![Arg {
+        let args = vec![TagArg {
             name: "template".to_string(),
             required: true,
             arg_type: ArgType::Simple(SimpleArgType::String),
@@ -210,14 +210,14 @@ mod tests {
             end_tag: Some(EndTag {
                 name: "endblock".to_string(),
                 optional: false,
-                args: vec![Arg {
+                args: vec![TagArg {
                     name: "name".to_string(),
                     required: false,
                     arg_type: ArgType::Simple(SimpleArgType::Variable),
                 }],
             }),
             intermediate_tags: None,
-            args: vec![Arg {
+            args: vec![TagArg {
                 name: "name".to_string(),
                 required: true,
                 arg_type: ArgType::Simple(SimpleArgType::Variable),
@@ -241,7 +241,7 @@ mod tests {
                 args: vec![],
             }),
             intermediate_tags: None,
-            args: vec![Arg {
+            args: vec![TagArg {
                 name: "mode".to_string(),
                 required: true,
                 arg_type: ArgType::Choice {
@@ -260,22 +260,22 @@ mod tests {
     #[test]
     fn test_snippet_for_url_tag() {
         let args = vec![
-            Arg {
+            TagArg {
                 name: "view_name".to_string(),
                 required: true,
                 arg_type: ArgType::Simple(SimpleArgType::String),
             },
-            Arg {
+            TagArg {
                 name: "args".to_string(),
                 required: false,
                 arg_type: ArgType::Simple(SimpleArgType::VarArgs),
             },
-            Arg {
+            TagArg {
                 name: "as".to_string(),
                 required: false,
                 arg_type: ArgType::Simple(SimpleArgType::Literal),
             },
-            Arg {
+            TagArg {
                 name: "varname".to_string(),
                 required: false,
                 arg_type: ArgType::Simple(SimpleArgType::Variable),

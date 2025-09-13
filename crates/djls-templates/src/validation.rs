@@ -23,9 +23,9 @@ use crate::ast::Span;
 use crate::ast::TagBit;
 use crate::ast::TagName;
 use crate::db::Db as TemplateDb;
-use crate::templatetags::Arg;
 use crate::templatetags::ArgType;
 use crate::templatetags::SimpleArgType;
+use crate::templatetags::TagArg;
 use crate::templatetags::TagType;
 use crate::NodeList;
 
@@ -107,7 +107,7 @@ impl<'db> TagValidator<'db> {
         name: &str,
         bits: &[TagBit<'db>],
         span: Span,
-        args: Option<&Vec<Arg>>,
+        args: Option<&Vec<TagArg>>,
     ) {
         let Some(args) = args else {
             return;
@@ -324,7 +324,6 @@ mod tests {
     use super::*;
     use crate::lexer::Lexer;
     use crate::parser::Parser;
-    use crate::templatetags::TagSpecs;
     use crate::tokens::TokenStream;
 
     // Test database that implements the required traits
@@ -363,8 +362,7 @@ mod tests {
     #[salsa::db]
     impl crate::db::Db for TestDatabase {
         fn tag_specs(&self) -> std::sync::Arc<crate::templatetags::TagSpecs> {
-            let toml_str = include_str!("../tagspecs/django.toml");
-            Arc::new(TagSpecs::from_toml(toml_str).unwrap())
+            Arc::new(crate::templatetags::django_builtin_specs())
         }
     }
 
