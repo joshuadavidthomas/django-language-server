@@ -1,4 +1,4 @@
-// TODO: Move snippets module to djls-ide crate in Phase 2
+// TODO: Move snippets module to djls-ide crate
 // Snippet generation is an IDE/editor feature, not a semantic analysis concern.
 // It belongs with other editor features like completions, hover, and folding.
 
