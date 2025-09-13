@@ -42,12 +42,10 @@
 //! }
 //! ```
 
-use std::sync::Arc;
-
 use djls_workspace::Db as WorkspaceDb;
 use tower_lsp_server::lsp_types;
 
-use crate::templatetags::TagSpecs;
+
 
 /// Thin wrapper around LSP diagnostic for accumulator
 #[salsa::accumulator]
@@ -68,6 +66,5 @@ impl From<&TemplateDiagnostic> for lsp_types::Diagnostic {
 /// Template-specific database trait extending the workspace database
 #[salsa::db]
 pub trait Db: WorkspaceDb {
-    /// Get the Django tag specifications for template parsing and validation
-    fn tag_specs(&self) -> Arc<TagSpecs>;
+    // Template parsing functionality only - semantic analysis moved to djls-hir
 }

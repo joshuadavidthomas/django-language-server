@@ -50,9 +50,7 @@ pub mod db;
 mod error;
 mod lexer;
 mod parser;
-pub mod templatetags;
 mod tokens;
-pub mod validation;
 
 use ast::LineOffsets;
 pub use ast::NodeList;
@@ -66,7 +64,6 @@ pub use parser::Parser;
 pub use parser::ParserError;
 use salsa::Accumulator;
 use tokens::TokenStream;
-use validation::TagValidator;
 
 /// Lex a template file into tokens.
 ///
@@ -125,27 +122,7 @@ fn parse_template(db: &dyn Db, file: SourceFile) -> NodeList<'_> {
     }
 }
 
-/// Validate the AST.
-///
-/// This is the third phase of template processing. It validates the AST
-/// according to Django tag specifications and accumulates any validation errors.
-#[salsa::tracked]
-fn validate_template(db: &dyn Db, file: SourceFile) {
-    let ast = parse_template(db, file);
 
-    // Skip validation if AST is empty (likely due to parse errors)
-    if ast.nodelist(db).is_empty() && lex_template(db, file).stream(db).is_empty() {
-        return;
-    }
-
-    let validation_errors = TagValidator::new(db, ast).validate();
-
-    for error in validation_errors {
-        // Convert validation error to TemplateError for consistency
-        let template_error = TemplateError::Validation(error);
-        accumulate_error(db, &template_error, ast.line_offsets(db));
-    }
-}
 
 /// Helper function to convert errors to LSP diagnostics and accumulate
 fn accumulate_error(db: &dyn Db, error: &TemplateError, line_offsets: &LineOffsets) {
@@ -178,13 +155,14 @@ fn accumulate_error(db: &dyn Db, error: &TemplateError, line_offsets: &LineOffse
     TemplateDiagnostic(diagnostic).accumulate(db);
 }
 
-/// Analyze a Django template file - parse, validate, and accumulate diagnostics.
+/// Analyze a Django template file - parse and accumulate diagnostics.
 ///
 /// This is the PRIMARY function for template processing. It's a Salsa tracked function
-/// that orchestrates the three phases of template processing:
+/// that orchestrates the parsing phases of template processing:
 /// 1. Lexing (tokenization)
 /// 2. Parsing (AST construction)
-/// 3. Validation (semantic checks)
+///
+/// Validation has been moved to the djls-hir crate for semantic analysis.
 ///
 /// Each phase is independently cached by Salsa, allowing for fine-grained
 /// incremental computation.
@@ -201,6 +179,5 @@ pub fn analyze_template(db: &dyn Db, file: SourceFile) -> Option<NodeList<'_>> {
     if file.kind(db) != FileKind::Template {
         return None;
     }
-    validate_template(db, file);
     Some(parse_template(db, file))
 }

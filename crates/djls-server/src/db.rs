@@ -14,8 +14,9 @@ use djls_project::Db as ProjectDb;
 use djls_project::InspectorPool;
 use djls_project::Interpreter;
 use djls_project::Project;
+use djls_hir::db::SemanticDb;
+use djls_hir::TagSpecs;
 use djls_templates::db::Db as TemplateDb;
-use djls_templates::templatetags::TagSpecs;
 use djls_workspace::db::Db as WorkspaceDb;
 use djls_workspace::db::SourceFile;
 use djls_workspace::FileKind;
@@ -177,6 +178,11 @@ impl WorkspaceDb for DjangoDatabase {
 
 #[salsa::db]
 impl TemplateDb for DjangoDatabase {
+    // Template-specific functionality (syntax only)
+}
+
+#[salsa::db]
+impl SemanticDb for DjangoDatabase {
     fn tag_specs(&self) -> Arc<TagSpecs> {
         // Get project root for loading settings
         let project_root = if let Some(project) = self.project() {
@@ -190,7 +196,7 @@ impl TemplateDb for DjangoDatabase {
             TagSpecs::from(&settings)
         } else {
             // If no settings, just use built-in specs
-            djls_templates::templatetags::django_builtin_specs()
+            djls_hir::django_builtin_specs()
         };
 
         Arc::new(tag_specs)

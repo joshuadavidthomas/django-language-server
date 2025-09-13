@@ -445,6 +445,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "djls-hir"
+version = "0.0.0"
+dependencies = [
+ "djls-conf",
+ "djls-templates",
+ "djls-workspace",
+ "salsa",
+ "tempfile",
+ "tower-lsp-server",
+]
+
+[[package]]
 name = "djls-project"
 version = "0.0.0"
 dependencies = [
@@ -465,6 +477,7 @@ dependencies = [
  "camino",
  "dashmap",
  "djls-conf",
+ "djls-hir",
  "djls-project",
  "djls-templates",
  "djls-workspace",

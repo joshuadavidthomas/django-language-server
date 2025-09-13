@@ -242,9 +242,7 @@ mod tests {
 
     #[salsa::db]
     impl crate::db::Db for TestDatabase {
-        fn tag_specs(&self) -> std::sync::Arc<crate::templatetags::TagSpecs> {
-            std::sync::Arc::new(crate::templatetags::django_builtin_specs())
-        }
+        // Template parsing only - semantic analysis moved to djls-hir
     }
 
     #[test]

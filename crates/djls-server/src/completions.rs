@@ -4,11 +4,11 @@
 //! and generating appropriate completion items for Django templates.
 
 use djls_project::TemplateTags;
-use djls_templates::templatetags::generate_partial_snippet;
-use djls_templates::templatetags::generate_snippet_for_tag_with_end;
-use djls_templates::templatetags::ArgType;
-use djls_templates::templatetags::SimpleArgType;
-use djls_templates::templatetags::TagSpecs;
+use djls_hir::generate_partial_snippet;
+use djls_hir::generate_snippet_for_tag_with_end;
+use djls_hir::ArgType;
+use djls_hir::SimpleArgType;
+use djls_hir::TagSpecs;
 use djls_workspace::FileKind;
 use djls_workspace::PositionEncoding;
 use djls_workspace::TextDocument;
