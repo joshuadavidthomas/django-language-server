@@ -96,7 +96,7 @@ pub struct LineInfo {
 }
 
 /// Main entry point for handling completion requests
-pub fn handle_completion(
+#[must_use] pub fn handle_completion(
     document: &TextDocument,
     position: Position,
     encoding: PositionEncoding,
