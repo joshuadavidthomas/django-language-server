@@ -4,8 +4,6 @@
 //! and generating appropriate completion items for Django templates.
 
 use djls_project::TemplateTags;
-use crate::snippets::generate_partial_snippet;
-use crate::snippets::generate_snippet_for_tag_with_end;
 use djls_semantic::ArgType;
 use djls_semantic::SimpleArgType;
 use djls_semantic::TagSpecs;
@@ -19,6 +17,9 @@ use tower_lsp_server::lsp_types::InsertTextFormat;
 use tower_lsp_server::lsp_types::Position;
 use tower_lsp_server::lsp_types::Range;
 use tower_lsp_server::lsp_types::TextEdit;
+
+use crate::snippets::generate_partial_snippet;
+use crate::snippets::generate_snippet_for_tag_with_end;
 
 /// Tracks what closing characters are needed to complete a template tag.
 ///
@@ -96,7 +97,8 @@ pub struct LineInfo {
 }
 
 /// Main entry point for handling completion requests
-#[must_use] pub fn handle_completion(
+#[must_use]
+pub fn handle_completion(
     document: &TextDocument,
     position: Position,
     encoding: PositionEncoding,

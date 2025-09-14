@@ -80,4 +80,3 @@ mod tests {
         assert_eq!(diagnostic.code, "TEST001");
     }
 }
-

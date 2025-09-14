@@ -54,9 +54,9 @@ mod tokens;
 
 pub use db::Db;
 pub use db::SyntaxDiagnosticAccumulator;
-pub use error::SyntaxDiagnostic;
 use djls_workspace::db::SourceFile;
 use djls_workspace::FileKind;
+pub use error::SyntaxDiagnostic;
 pub use error::TemplateError;
 pub use lexer::Lexer;
 use nodelist::LineOffsets;

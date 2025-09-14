@@ -1,12 +1,15 @@
 //! Convert internal IDE types to LSP types
 
-use djls_templates::ast::{Span, LineOffsets};
+use djls_templates::ast::LineOffsets;
+use djls_templates::ast::Span;
 use tower_lsp_server::lsp_types;
 
-use crate::diagnostics::{IdeDiagnostic, DiagnosticSeverity};
+use crate::diagnostics::DiagnosticSeverity;
+use crate::diagnostics::IdeDiagnostic;
 
 /// Create `LineOffsets` from source text
-#[must_use] pub fn line_offsets_from_text(text: &str) -> LineOffsets {
+#[must_use]
+pub fn line_offsets_from_text(text: &str) -> LineOffsets {
     let mut offsets = LineOffsets::default();
     for (i, c) in text.char_indices() {
         if c == '\n' {
@@ -23,7 +26,8 @@ use crate::diagnostics::{IdeDiagnostic, DiagnosticSeverity};
 }
 
 /// Convert internal diagnostic to LSP diagnostic
-#[must_use] pub fn ide_diagnostic_to_lsp(
+#[must_use]
+pub fn ide_diagnostic_to_lsp(
     diagnostic: &IdeDiagnostic,
     line_offsets: &LineOffsets,
 ) -> lsp_types::Diagnostic {
@@ -46,7 +50,8 @@ use crate::diagnostics::{IdeDiagnostic, DiagnosticSeverity};
 }
 
 /// Convert span to LSP range
-#[must_use] pub fn span_to_lsp_range(span: &Span, line_offsets: &LineOffsets) -> lsp_types::Range {
+#[must_use]
+pub fn span_to_lsp_range(span: &Span, line_offsets: &LineOffsets) -> lsp_types::Range {
     let start_pos = line_offsets.position_to_line_col(span.start as usize);
     let end_pos = line_offsets.position_to_line_col((span.start + span.length) as usize);
 

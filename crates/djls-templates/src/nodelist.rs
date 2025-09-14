@@ -162,8 +162,6 @@ impl Span {
         let length = token.length(db);
         Span::new(start, length)
     }
-
-
 }
 
 #[derive(Clone, Debug, Error, PartialEq, Eq, Serialize)]

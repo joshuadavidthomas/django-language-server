@@ -19,8 +19,6 @@ pub enum TemplateError {
     Config(String),
 }
 
-
-
 impl From<std::io::Error> for TemplateError {
     fn from(err: std::io::Error) -> Self {
         Self::Io(err.to_string())
