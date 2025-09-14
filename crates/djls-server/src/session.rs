@@ -12,6 +12,7 @@ use djls_project::Db as ProjectDb;
 use djls_project::Interpreter;
 use djls_workspace::db::SourceFile;
 use djls_workspace::paths;
+use djls_workspace::FileKind;
 use djls_workspace::PositionEncoding;
 use djls_workspace::TextDocument;
 use djls_workspace::Workspace;
@@ -163,11 +164,17 @@ impl Session {
         if let Some(path) = paths::url_to_path(url) {
             // Check if file already exists (was previously read from disk)
             let already_exists = self.db.has_file(&path);
-            let _file = self.db.get_or_create_file(&path);
+            let file = self.db.get_or_create_file(&path);
 
             if already_exists {
                 // File was already read - touch to invalidate cache
                 self.db.touch_file(&path);
+            }
+
+            // Trigger template analysis immediately for template files
+            // This accumulates diagnostics right away
+            if FileKind::from_path(&path) == FileKind::Template {
+                let _ = djls_templates::analyze_template(&self.db, file);
             }
         }
     }
@@ -189,6 +196,14 @@ impl Session {
         if let Some(path) = paths::url_to_path(url) {
             if self.db.has_file(&path) {
                 self.db.touch_file(&path);
+                
+                // Trigger template analysis immediately for template files
+                // This accumulates diagnostics right away
+                if FileKind::from_path(&path) == FileKind::Template {
+                    if let Some(file) = self.db.get_file(&path) {
+                        let _ = djls_templates::analyze_template(&self.db, file);
+                    }
+                }
             }
         }
     }
@@ -196,11 +211,17 @@ impl Session {
     pub fn save_document(&mut self, url: &Url) {
         // Touch file in database to trigger re-analysis
         if let Some(path) = paths::url_to_path(url) {
-            self.with_db_mut(|db| {
-                if db.has_file(&path) {
-                    db.touch_file(&path);
+            if self.db.has_file(&path) {
+                self.db.touch_file(&path);
+                
+                // Trigger template analysis immediately for template files
+                // This accumulates diagnostics right away
+                if FileKind::from_path(&path) == FileKind::Template {
+                    if let Some(file) = self.db.get_file(&path) {
+                        let _ = djls_templates::analyze_template(&self.db, file);
+                    }
                 }
-            });
+            }
         }
     }
 

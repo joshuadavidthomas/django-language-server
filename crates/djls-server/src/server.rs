@@ -287,7 +287,7 @@ impl LanguageServer for DjangoLanguageServer {
     async fn did_change(&self, params: lsp_types::DidChangeTextDocumentParams) {
         tracing::info!("Changed document: {:?}", params.text_document.uri);
 
-        self.with_session_mut(|session| {
+        let url_version = self.with_session_mut(|session| {
             let Some(url) =
                 paths::parse_lsp_uri(&params.text_document.uri, paths::LspContext::DidChange)
             else {
@@ -295,9 +295,15 @@ impl LanguageServer for DjangoLanguageServer {
             };
 
             session.update_document(&url, params.content_changes, params.text_document.version);
-            Some(url)
+            Some((url, params.text_document.version))
         })
         .await;
+
+        // Publish diagnostics after document change
+        // (analysis already happened in session.update_document)
+        if let Some((url, version)) = url_version {
+            self.publish_diagnostics(&url, Some(version)).await;
+        }
     }
 
     async fn did_close(&self, params: lsp_types::DidCloseTextDocumentParams) {
