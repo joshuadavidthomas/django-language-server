@@ -111,8 +111,7 @@ pub fn parse_template(db: &dyn Db, file: SourceFile) -> Option<NodeList<'_>> {
         }
         Err(err) => {
             let template_error = TemplateError::Parser(err.to_string());
-            let empty_offsets = LineOffsets::default();
-            accumulate_error(db, &template_error, &empty_offsets);
+            accumulate_error(db, &template_error);
 
             let empty_nodelist = Vec::new();
             let empty_offsets = LineOffsets::default();
