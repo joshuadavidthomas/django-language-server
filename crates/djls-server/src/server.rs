@@ -1,7 +1,11 @@
 use std::future::Future;
 use std::sync::Arc;
 
-use djls_ide::{handle_completion, collect_diagnostics, converters::{ide_diagnostic_to_lsp, line_offsets_from_text}};
+use djls_ide::{
+    collect_diagnostics,
+    converters::{ide_diagnostic_to_lsp, line_offsets_from_text},
+    handle_completion,
+};
 use djls_project::Db as ProjectDb;
 use djls_semantic::validate_nodelist;
 use djls_semantic::SemanticDiagnostic;
