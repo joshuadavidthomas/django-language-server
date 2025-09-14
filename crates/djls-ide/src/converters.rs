@@ -50,6 +50,9 @@ pub fn ide_diagnostic_to_lsp(
 }
 
 /// Convert span to LSP range
+///
+/// If the line or character position exceeds `u32::MAX` (extremely unlikely in practice),
+/// the position will be saturated to `u32::MAX`.
 #[must_use]
 pub fn span_to_lsp_range(span: &Span, line_offsets: &LineOffsets) -> lsp_types::Range {
     let start_pos = line_offsets.position_to_line_col(span.start as usize);
@@ -57,12 +60,12 @@ pub fn span_to_lsp_range(span: &Span, line_offsets: &LineOffsets) -> lsp_types::
 
     lsp_types::Range {
         start: lsp_types::Position {
-            line: (start_pos.0 - 1) as u32, // LSP is 0-based
-            character: (start_pos.1) as u32,
+            line: u32::try_from(start_pos.0 - 1).unwrap_or(u32::MAX),
+            character: u32::try_from(start_pos.1).unwrap_or(u32::MAX),
         },
         end: lsp_types::Position {
-            line: (end_pos.0 - 1) as u32,
-            character: (end_pos.1) as u32,
+            line: u32::try_from(end_pos.0 - 1).unwrap_or(u32::MAX),
+            character: u32::try_from(end_pos.1).unwrap_or(u32::MAX),
         },
     }
 }
