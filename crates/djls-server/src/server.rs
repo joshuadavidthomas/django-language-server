@@ -1,6 +1,7 @@
 use std::future::Future;
 use std::sync::Arc;
 
+use djls_ide::{handle_completion, collect_diagnostics, converters::{ide_diagnostic_to_lsp, line_offsets_from_text}};
 use djls_project::Db as ProjectDb;
 use djls_semantic::validate_nodelist;
 use djls_semantic::SemanticDiagnostic;
@@ -365,7 +366,7 @@ impl LanguageServer for DjangoLanguageServer {
                     let tag_specs = session.with_db(djls_semantic::db::SemanticDb::tag_specs);
                     let supports_snippets = session.supports_snippets();
 
-                    let completions = crate::completions::handle_completion(
+                    let completions = handle_completion(
                         &document,
                         position,
                         encoding,

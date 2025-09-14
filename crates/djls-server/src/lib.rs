@@ -1,4 +1,3 @@
-mod completions;
 pub mod db;
 mod logging;
 mod queue;

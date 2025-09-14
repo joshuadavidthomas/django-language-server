@@ -19,16 +19,20 @@ pub enum TemplateError {
     Config(String),
 }
 
-impl From<ParserError> for TemplateError {
-    fn from(err: ParserError) -> Self {
-        Self::Parser(err.to_string())
-    }
-}
+
 
 impl From<std::io::Error> for TemplateError {
     fn from(err: std::io::Error) -> Self {
         Self::Io(err.to_string())
     }
+}
+
+/// Internal diagnostic representation (no LSP types)
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SyntaxDiagnostic {
+    pub message: String,
+    pub span: Span,
+    pub code: &'static str,
 }
 
 impl TemplateError {

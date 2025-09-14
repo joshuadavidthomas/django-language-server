@@ -4,8 +4,8 @@
 //! and generating appropriate completion items for Django templates.
 
 use djls_project::TemplateTags;
-use djls_semantic::generate_partial_snippet;
-use djls_semantic::generate_snippet_for_tag_with_end;
+use crate::snippets::generate_partial_snippet;
+use crate::snippets::generate_snippet_for_tag_with_end;
 use djls_semantic::ArgType;
 use djls_semantic::SimpleArgType;
 use djls_semantic::TagSpecs;

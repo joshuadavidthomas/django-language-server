@@ -445,6 +445,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "djls-ide"
+version = "0.0.0"
+dependencies = [
+ "djls-conf",
+ "djls-project",
+ "djls-semantic",
+ "djls-templates",
+ "djls-workspace",
+ "salsa",
+ "tempfile",
+ "tower-lsp-server",
+]
+
+[[package]]
 name = "djls-project"
 version = "0.0.0"
 dependencies = [
@@ -477,6 +491,7 @@ dependencies = [
  "camino",
  "dashmap",
  "djls-conf",
+ "djls-ide",
  "djls-project",
  "djls-semantic",
  "djls-templates",
@@ -507,7 +522,6 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.16",
  "toml",
- "tower-lsp-server",
 ]
 
 [[package]]

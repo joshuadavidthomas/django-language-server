@@ -1,6 +1,5 @@
 pub mod builtins;
 pub mod db;
-pub mod snippets;
 pub mod specs;
 pub mod validation;
 

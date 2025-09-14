@@ -43,23 +43,10 @@
 //! ```
 
 use djls_workspace::Db as WorkspaceDb;
-use tower_lsp_server::lsp_types;
 
-/// Thin wrapper around LSP diagnostic for accumulator
+/// Accumulator for collecting syntax diagnostics
 #[salsa::accumulator]
-pub struct TemplateDiagnostic(pub lsp_types::Diagnostic);
-
-impl From<TemplateDiagnostic> for lsp_types::Diagnostic {
-    fn from(diagnostic: TemplateDiagnostic) -> Self {
-        diagnostic.0
-    }
-}
-
-impl From<&TemplateDiagnostic> for lsp_types::Diagnostic {
-    fn from(diagnostic: &TemplateDiagnostic) -> Self {
-        diagnostic.0.clone()
-    }
-}
+pub struct SyntaxDiagnosticAccumulator(pub crate::error::SyntaxDiagnostic);
 
 /// Template-specific database trait extending the workspace database
 #[salsa::db]

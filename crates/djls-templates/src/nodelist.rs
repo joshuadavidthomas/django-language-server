@@ -144,7 +144,7 @@ pub struct FilterName<'db> {
     pub text: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Default)]
 pub struct Span {
     pub start: u32,
     pub length: u32,
@@ -163,25 +163,7 @@ impl Span {
         Span::new(start, length)
     }
 
-    #[must_use]
-    pub fn to_lsp_range(&self, line_offsets: &LineOffsets) -> tower_lsp_server::lsp_types::Range {
-        let start_pos = self.start as usize;
-        let end_pos = (self.start + self.length) as usize;
 
-        let (start_line, start_char) = line_offsets.position_to_line_col(start_pos);
-        let (end_line, end_char) = line_offsets.position_to_line_col(end_pos);
-
-        tower_lsp_server::lsp_types::Range {
-            start: tower_lsp_server::lsp_types::Position {
-                line: u32::try_from(start_line - 1).unwrap_or(u32::MAX), // LSP is 0-based, LineOffsets is 1-based
-                character: u32::try_from(start_char).unwrap_or(u32::MAX),
-            },
-            end: tower_lsp_server::lsp_types::Position {
-                line: u32::try_from(end_line - 1).unwrap_or(u32::MAX),
-                character: u32::try_from(end_char).unwrap_or(u32::MAX),
-            },
-        }
-    }
 }
 
 #[derive(Clone, Debug, Error, PartialEq, Eq, Serialize)]

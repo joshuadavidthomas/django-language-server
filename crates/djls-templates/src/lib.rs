@@ -1,4 +1,4 @@
-//! Django template parsing, validation, and diagnostics.
+//! Django template parsing and syntax analysis.
 //!
 //! This crate provides comprehensive support for Django template files including:
 //! - Lexical analysis and tokenization
@@ -53,7 +53,8 @@ mod parser;
 mod tokens;
 
 pub use db::Db;
-pub use db::TemplateDiagnostic;
+pub use db::SyntaxDiagnosticAccumulator;
+pub use error::SyntaxDiagnostic;
 use djls_workspace::db::SourceFile;
 use djls_workspace::FileKind;
 pub use error::TemplateError;
@@ -124,7 +125,7 @@ pub fn parse_template(db: &dyn Db, file: SourceFile) -> Option<NodeList<'_>> {
 
 fn accumulate_error(db: &dyn Db, error: &TemplateError, line_offsets: &LineOffsets) {
     let code = error.diagnostic_code();
-    let range = error
+    let span = error
         .span()
         .map(|(start, length)| {
             let span = crate::nodelist::Span::new(start, length);
@@ -132,22 +133,16 @@ fn accumulate_error(db: &dyn Db, error: &TemplateError, line_offsets: &LineOffse
         })
         .unwrap_or_default();
 
-    let diagnostic = tower_lsp_server::lsp_types::Diagnostic {
-        range,
-        severity: Some(tower_lsp_server::lsp_types::DiagnosticSeverity::ERROR),
-        code: Some(tower_lsp_server::lsp_types::NumberOrString::String(
-            code.to_string(),
-        )),
-        code_description: None,
-        source: Some("Django Language Server".to_string()),
-        message: match error {
-            TemplateError::Parser(msg) => msg.clone(),
-            _ => error.to_string(),
-        },
-        related_information: None,
-        tags: None,
-        data: None,
+    let message = match error {
+        TemplateError::Parser(msg) => msg.clone(),
+        _ => error.to_string(),
     };
 
-    TemplateDiagnostic(diagnostic).accumulate(db);
+    let diagnostic = SyntaxDiagnostic {
+        message,
+        span,
+        code,
+    };
+
+    SyntaxDiagnosticAccumulator(diagnostic).accumulate(db);
 }
