@@ -82,46 +82,6 @@ fn lex_template(db: &dyn Db, file: SourceFile) -> TokenStream<'_> {
     TokenStream::new(db, tokens, line_offsets)
 }
 
-/// Parse tokens into a node list.
-///
-/// This is the second phase of template processing. It takes the token stream
-/// from lexing and builds an node list.
-#[salsa::tracked]
-fn parse_template_impl(db: &dyn Db, file: SourceFile) -> NodeList<'_> {
-    let token_stream = lex_template(db, file);
-
-    // Check if lexing produced no tokens (likely due to an error)
-    if token_stream.stream(db).is_empty() {
-        // Return empty node list for error recovery
-        let empty_nodelist = Vec::new();
-        let empty_offsets = LineOffsets::default();
-        return NodeList::new(db, empty_nodelist, empty_offsets);
-    }
-
-    // Parser needs the TokenStream<'db>
-    match Parser::new(db, token_stream).parse() {
-        Ok((nodelist, errors)) => {
-            // Accumulate parser errors
-            for error in errors {
-                let template_error = TemplateError::Parser(error.to_string());
-                accumulate_error(db, &template_error, nodelist.line_offsets(db));
-            }
-            nodelist
-        }
-        Err(err) => {
-            // Critical parser error
-            let template_error = TemplateError::Parser(err.to_string());
-            let empty_offsets = LineOffsets::default();
-            accumulate_error(db, &template_error, &empty_offsets);
-
-            // Return empty node list
-            let empty_nodelist = Vec::new();
-            let empty_offsets = LineOffsets::default();
-            NodeList::new(db, empty_nodelist, empty_offsets)
-        }
-    }
-}
-
 /// Helper function to convert errors to LSP diagnostics and accumulate
 fn accumulate_error(db: &dyn Db, error: &TemplateError, line_offsets: &LineOffsets) {
     let code = error.diagnostic_code();
@@ -177,7 +137,41 @@ pub fn parse_template(db: &dyn Db, file: SourceFile) -> Option<NodeList<'_>> {
     if file.kind(db) != FileKind::Template {
         return None;
     }
-    Some(parse_template_impl(db, file))
+
+    let token_stream = lex_template(db, file);
+
+    // Check if lexing produced no tokens (likely due to an error)
+    if token_stream.stream(db).is_empty() {
+        // Return empty node list for error recovery
+        let empty_nodelist = Vec::new();
+        let empty_offsets = LineOffsets::default();
+        return Some(NodeList::new(db, empty_nodelist, empty_offsets));
+    }
+
+    // Parser needs the TokenStream<'db>
+    let nodelist = match Parser::new(db, token_stream).parse() {
+        Ok((nodelist, errors)) => {
+            // Accumulate parser errors
+            for error in errors {
+                let template_error = TemplateError::Parser(error.to_string());
+                accumulate_error(db, &template_error, nodelist.line_offsets(db));
+            }
+            nodelist
+        }
+        Err(err) => {
+            // Critical parser error
+            let template_error = TemplateError::Parser(err.to_string());
+            let empty_offsets = LineOffsets::default();
+            accumulate_error(db, &template_error, &empty_offsets);
+
+            // Return empty node list
+            let empty_nodelist = Vec::new();
+            let empty_offsets = LineOffsets::default();
+            NodeList::new(db, empty_nodelist, empty_offsets)
+        }
+    };
+
+    Some(nodelist)
 }
 
 // Keep analyze_template as deprecated alias for backwards compatibility
