@@ -8,6 +8,7 @@ djls-conf = { workspace = true }
 djls-templates = { workspace = true }
 djls-workspace = { workspace = true }
 
+rustc-hash = { workspace = true }
 salsa = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
