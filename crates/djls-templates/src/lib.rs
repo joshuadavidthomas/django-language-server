@@ -105,14 +105,13 @@ pub fn parse_template(db: &dyn Db, file: SourceFile) -> Option<NodeList<'_>> {
         Ok((nodelist, errors)) => {
             for error in errors {
                 let template_error = TemplateError::Parser(error.to_string());
-                accumulate_error(db, &template_error, nodelist.line_offsets(db));
+                TemplateErrorAccumulator(template_error).accumulate(db);
             }
             nodelist
         }
         Err(err) => {
             let template_error = TemplateError::Parser(err.to_string());
-            let empty_offsets = LineOffsets::default();
-            accumulate_error(db, &template_error, &empty_offsets);
+            TemplateErrorAccumulator(template_error).accumulate(db);
 
             let empty_nodelist = Vec::new();
             let empty_offsets = LineOffsets::default();
@@ -121,10 +120,4 @@ pub fn parse_template(db: &dyn Db, file: SourceFile) -> Option<NodeList<'_>> {
     };
 
     Some(nodelist)
-}
-
-fn accumulate_error(db: &dyn Db, error: &TemplateError, _line_offsets: &LineOffsets) {
-    use crate::db::TemplateErrorAccumulator;
-
-    TemplateErrorAccumulator(error.clone()).accumulate(db);
 }

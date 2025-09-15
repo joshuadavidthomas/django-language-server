@@ -9,9 +9,8 @@ djls-semantic = { workspace = true }
 djls-templates = { workspace = true }
 djls-workspace = { workspace = true }
 
+salsa = { workspace = true }
 tower-lsp-server = { workspace = true }
-
-[dev-dependencies]
 
 [lints]
 workspace = true

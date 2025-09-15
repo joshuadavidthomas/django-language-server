@@ -452,6 +452,7 @@ dependencies = [
  "djls-semantic",
  "djls-templates",
  "djls-workspace",
+ "salsa",
  "tower-lsp-server",
 ]
 
