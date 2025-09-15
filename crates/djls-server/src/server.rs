@@ -2,7 +2,9 @@ use std::future::Future;
 use std::sync::Arc;
 
 use djls_project::Db as ProjectDb;
-use djls_templates::analyze_template;
+use djls_semantic::validate_nodelist;
+use djls_semantic::SemanticDiagnostic;
+use djls_templates::parse_template;
 use djls_templates::TemplateDiagnostic;
 use djls_workspace::paths;
 use djls_workspace::FileKind;
@@ -96,14 +98,26 @@ impl DjangoLanguageServer {
                 let file = session.get_or_create_file(&path);
 
                 session.with_db(|db| {
-                    // Parse and validate the template (triggers accumulation)
-                    // This should be a cheap call since salsa should cache the function
-                    // call, but we may need to revisit if that assumption is incorrect
-                    let _ast = analyze_template(db, file);
+                    let Some(nodelist) = parse_template(db, file) else {
+                        // If parsing failed completely, just return syntax errors
+                        return parse_template::accumulated::<TemplateDiagnostic>(db, file)
+                            .into_iter()
+                            .map(Into::into)
+                            .collect();
+                    };
 
-                    let diagnostics = analyze_template::accumulated::<TemplateDiagnostic>(db, file);
+                    validate_nodelist(db, nodelist);
 
-                    diagnostics.into_iter().map(Into::into).collect()
+                    let syntax_diagnostics =
+                        parse_template::accumulated::<TemplateDiagnostic>(db, file);
+                    let semantic_diagnostics =
+                        validate_nodelist::accumulated::<SemanticDiagnostic>(db, nodelist);
+
+                    syntax_diagnostics
+                        .into_iter()
+                        .map(Into::into)
+                        .chain(semantic_diagnostics.into_iter().map(Into::into))
+                        .collect()
                 })
             })
             .await;
@@ -240,7 +254,6 @@ impl LanguageServer for DjangoLanguageServer {
             })
             .await;
 
-        // Publish diagnostics for template files
         if let Some((url, version)) = url_version {
             self.publish_diagnostics(&url, Some(version)).await;
         }
@@ -262,7 +275,6 @@ impl LanguageServer for DjangoLanguageServer {
             })
             .await;
 
-        // Publish diagnostics for template files
         if let Some((url, version)) = url_version {
             self.publish_diagnostics(&url, version).await;
         }
@@ -426,14 +438,25 @@ impl LanguageServer for DjangoLanguageServer {
                         return vec![];
                     };
 
-                    // Parse and validate the template (triggers accumulation)
-                    let _ast = analyze_template(db, file);
+                    let Some(nodelist) = parse_template(db, file) else {
+                        return parse_template::accumulated::<TemplateDiagnostic>(db, file)
+                            .into_iter()
+                            .map(Into::into)
+                            .collect();
+                    };
 
-                    // Get accumulated diagnostics directly - they're already LSP diagnostics!
-                    let diagnostics = analyze_template::accumulated::<TemplateDiagnostic>(db, file);
+                    validate_nodelist(db, nodelist);
 
-                    // Convert from TemplateDiagnostic wrapper to lsp_types::Diagnostic
-                    diagnostics.into_iter().map(Into::into).collect()
+                    let syntax_diagnostics =
+                        parse_template::accumulated::<TemplateDiagnostic>(db, file);
+                    let semantic_diagnostics =
+                        validate_nodelist::accumulated::<SemanticDiagnostic>(db, nodelist);
+
+                    syntax_diagnostics
+                        .into_iter()
+                        .map(Into::into)
+                        .chain(semantic_diagnostics.into_iter().map(Into::into))
+                        .collect()
                 })
             })
             .await;

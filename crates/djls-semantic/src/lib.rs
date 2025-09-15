@@ -6,6 +6,8 @@ pub mod validation;
 
 pub use builtins::django_builtin_specs;
 pub use db::SemanticDb;
+pub use db::SemanticDiagnostic;
+use salsa::Accumulator;
 pub use snippets::generate_partial_snippet;
 pub use snippets::generate_snippet_for_tag;
 pub use snippets::generate_snippet_for_tag_with_end;
@@ -17,6 +19,7 @@ pub use specs::SimpleArgType;
 pub use specs::TagArg;
 pub use specs::TagSpec;
 pub use specs::TagSpecs;
+use tower_lsp_server::lsp_types;
 pub use validation::TagValidator;
 
 pub enum TagType {
@@ -38,5 +41,48 @@ impl TagType {
         } else {
             TagType::Standalone
         }
+    }
+}
+
+/// Validate a Django template node list and return validation errors.
+///
+/// This function runs the TagValidator on the parsed node list to check for:
+/// - Unclosed block tags
+/// - Mismatched tag pairs
+/// - Orphaned intermediate tags
+/// - Invalid argument counts
+/// - Unmatched block names
+#[salsa::tracked]
+pub fn validate_nodelist(db: &dyn SemanticDb, nodelist: djls_templates::NodeList<'_>) {
+    if nodelist.nodelist(db).is_empty() {
+        return;
+    }
+
+    let validation_errors = TagValidator::new(db, nodelist).validate();
+
+    let line_offsets = nodelist.line_offsets(db);
+    for error in validation_errors {
+        let code = error.diagnostic_code();
+        let range = error
+            .span()
+            .map(|(start, length)| {
+                let span = djls_templates::nodelist::Span::new(start, length);
+                span.to_lsp_range(line_offsets)
+            })
+            .unwrap_or_default();
+
+        let diagnostic = lsp_types::Diagnostic {
+            range,
+            severity: Some(lsp_types::DiagnosticSeverity::ERROR),
+            code: Some(lsp_types::NumberOrString::String(code.to_string())),
+            code_description: None,
+            source: Some("Django Language Server".to_string()),
+            message: error.to_string(),
+            related_information: None,
+            tags: None,
+            data: None,
+        };
+
+        SemanticDiagnostic(diagnostic).accumulate(db);
     }
 }

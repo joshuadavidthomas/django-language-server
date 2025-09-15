@@ -1,7 +1,7 @@
 use serde::Serialize;
 use thiserror::Error;
 
-use crate::ast::NodeListError;
+use crate::nodelist::NodeListError;
 use crate::parser::ParserError;
 
 #[derive(Clone, Debug, Error, PartialEq, Eq, Serialize)]

@@ -1,16 +1,16 @@
 use serde::Serialize;
 use thiserror::Error;
 
-use crate::ast::FilterName;
-use crate::ast::LineOffsets;
-use crate::ast::Node;
-use crate::ast::NodeList;
-use crate::ast::NodeListError;
-use crate::ast::Span;
-use crate::ast::TagBit;
-use crate::ast::TagName;
-use crate::ast::VariableName;
 use crate::db::Db as TemplateDb;
+use crate::nodelist::FilterName;
+use crate::nodelist::LineOffsets;
+use crate::nodelist::Node;
+use crate::nodelist::NodeList;
+use crate::nodelist::NodeListError;
+use crate::nodelist::Span;
+use crate::nodelist::TagBit;
+use crate::nodelist::TagName;
+use crate::nodelist::VariableName;
 use crate::tokens::Token;
 use crate::tokens::TokenStream;
 
@@ -51,9 +51,9 @@ impl<'db> Parser<'db> {
             }
         }
 
-        let ast = NodeList::new(self.db, nodelist, self.line_offsets.clone());
+        let nodelist = NodeList::new(self.db, nodelist, self.line_offsets.clone());
 
-        Ok((ast, std::mem::take(&mut self.errors)))
+        Ok((nodelist, std::mem::take(&mut self.errors)))
     }
 
     fn next_node(&mut self) -> Result<Node<'db>, ParserError> {
@@ -287,7 +287,7 @@ pub enum ParseError {
     #[error("Stream error: {kind:?}")]
     StreamError { kind: StreamError },
 
-    #[error("AST error: {0}")]
+    #[error("Node list error: {0}")]
     NodeList(#[from] NodeListError),
 }
 
@@ -357,12 +357,12 @@ mod tests {
         let (tokens, line_offsets) = Lexer::new(db, source).tokenize();
         let token_stream = TokenStream::new(db, tokens, line_offsets);
         let mut parser = Parser::new(db, token_stream);
-        let (ast, _) = parser.parse().unwrap();
-        ast
+        let (nodelist, _) = parser.parse().unwrap();
+        nodelist
     }
 
     #[derive(Debug, Clone, PartialEq, Serialize)]
-    struct TestAst {
+    struct TestNodeList {
         nodelist: Vec<TestNode>,
         line_offsets: Vec<u32>,
     }
@@ -413,10 +413,13 @@ mod tests {
         }
     }
 
-    fn convert_ast_for_testing(ast: NodeList<'_>, db: &dyn crate::db::Db) -> TestAst {
-        TestAst {
-            nodelist: convert_nodelist_for_testing(ast.nodelist(db), db),
-            line_offsets: ast.line_offsets(db).0.clone(),
+    fn convert_nodelist_for_testing_wrapper(
+        nodelist: NodeList<'_>,
+        db: &dyn crate::db::Db,
+    ) -> TestNodeList {
+        TestNodeList {
+            nodelist: convert_nodelist_for_testing(nodelist.nodelist(db), db),
+            line_offsets: nodelist.line_offsets(db).0.clone(),
         }
     }
 
@@ -432,9 +435,9 @@ mod tests {
             let db = TestDatabase::new();
             let source = "<!DOCTYPE html>".to_string();
             let template = TestTemplate::new(&db, source);
-            let ast = parse_test_template(&db, template);
-            let test_ast = convert_ast_for_testing(ast, &db);
-            insta::assert_yaml_snapshot!(test_ast);
+            let nodelist = parse_test_template(&db, template);
+            let test_nodelist = convert_nodelist_for_testing_wrapper(nodelist, &db);
+            insta::assert_yaml_snapshot!(test_nodelist);
         }
 
         #[test]
@@ -442,9 +445,9 @@ mod tests {
             let db = TestDatabase::new();
             let source = "<div class=\"container\">Hello</div>".to_string();
             let template = TestTemplate::new(&db, source);
-            let ast = parse_test_template(&db, template);
-            let test_ast = convert_ast_for_testing(ast, &db);
-            insta::assert_yaml_snapshot!(test_ast);
+            let nodelist = parse_test_template(&db, template);
+            let test_nodelist = convert_nodelist_for_testing_wrapper(nodelist, &db);
+            insta::assert_yaml_snapshot!(test_nodelist);
         }
 
         #[test]
@@ -452,9 +455,9 @@ mod tests {
             let db = TestDatabase::new();
             let source = "<input type=\"text\" />".to_string();
             let template = TestTemplate::new(&db, source);
-            let ast = parse_test_template(&db, template);
-            let test_ast = convert_ast_for_testing(ast, &db);
-            insta::assert_yaml_snapshot!(test_ast);
+            let nodelist = parse_test_template(&db, template);
+            let test_nodelist = convert_nodelist_for_testing_wrapper(nodelist, &db);
+            insta::assert_yaml_snapshot!(test_nodelist);
         }
     }
 
@@ -466,9 +469,9 @@ mod tests {
             let db = TestDatabase::new();
             let source = "{{ user.name }}".to_string();
             let template = TestTemplate::new(&db, source);
-            let ast = parse_test_template(&db, template);
-            let test_ast = convert_ast_for_testing(ast, &db);
-            insta::assert_yaml_snapshot!(test_ast);
+            let nodelist = parse_test_template(&db, template);
+            let test_nodelist = convert_nodelist_for_testing_wrapper(nodelist, &db);
+            insta::assert_yaml_snapshot!(test_nodelist);
         }
 
         #[test]
@@ -476,9 +479,9 @@ mod tests {
             let db = TestDatabase::new();
             let source = "{{ user.name|title }}".to_string();
             let template = TestTemplate::new(&db, source);
-            let ast = parse_test_template(&db, template);
-            let test_ast = convert_ast_for_testing(ast, &db);
-            insta::assert_yaml_snapshot!(test_ast);
+            let nodelist = parse_test_template(&db, template);
+            let test_nodelist = convert_nodelist_for_testing_wrapper(nodelist, &db);
+            insta::assert_yaml_snapshot!(test_nodelist);
         }
 
         #[test]
@@ -486,9 +489,9 @@ mod tests {
             let db = TestDatabase::new();
             let source = "{{ value|default:'nothing'|title|upper }}".to_string();
             let template = TestTemplate::new(&db, source);
-            let ast = parse_test_template(&db, template);
-            let test_ast = convert_ast_for_testing(ast, &db);
-            insta::assert_yaml_snapshot!(test_ast);
+            let nodelist = parse_test_template(&db, template);
+            let test_nodelist = convert_nodelist_for_testing_wrapper(nodelist, &db);
+            insta::assert_yaml_snapshot!(test_nodelist);
         }
 
         #[test]
@@ -496,9 +499,9 @@ mod tests {
             let db = TestDatabase::new();
             let source = "{% if user.is_authenticated %}Welcome{% endif %}".to_string();
             let template = TestTemplate::new(&db, source);
-            let ast = parse_test_template(&db, template);
-            let test_ast = convert_ast_for_testing(ast, &db);
-            insta::assert_yaml_snapshot!(test_ast);
+            let nodelist = parse_test_template(&db, template);
+            let test_nodelist = convert_nodelist_for_testing_wrapper(nodelist, &db);
+            insta::assert_yaml_snapshot!(test_nodelist);
         }
 
         #[test]
@@ -507,9 +510,9 @@ mod tests {
             let source =
                 "{% for item in items %}{{ item }}{% empty %}No items{% endfor %}".to_string();
             let template = TestTemplate::new(&db, source);
-            let ast = parse_test_template(&db, template);
-            let test_ast = convert_ast_for_testing(ast, &db);
-            insta::assert_yaml_snapshot!(test_ast);
+            let nodelist = parse_test_template(&db, template);
+            let test_nodelist = convert_nodelist_for_testing_wrapper(nodelist, &db);
+            insta::assert_yaml_snapshot!(test_nodelist);
         }
 
         #[test]
@@ -518,9 +521,9 @@ mod tests {
             let source = "{% if x > 0 %}Positive{% elif x < 0 %}Negative{% else %}Zero{% endif %}"
                 .to_string();
             let template = TestTemplate::new(&db, source);
-            let ast = parse_test_template(&db, template);
-            let test_ast = convert_ast_for_testing(ast, &db);
-            insta::assert_yaml_snapshot!(test_ast);
+            let nodelist = parse_test_template(&db, template);
+            let test_nodelist = convert_nodelist_for_testing_wrapper(nodelist, &db);
+            insta::assert_yaml_snapshot!(test_nodelist);
         }
 
         #[test]
@@ -528,9 +531,9 @@ mod tests {
             let db = TestDatabase::new();
             let source = "{% url 'view-name' as view %}".to_string();
             let template = TestTemplate::new(&db, source);
-            let ast = parse_test_template(&db, template);
-            let test_ast = convert_ast_for_testing(ast, &db);
-            insta::assert_yaml_snapshot!(test_ast);
+            let nodelist = parse_test_template(&db, template);
+            let test_nodelist = convert_nodelist_for_testing_wrapper(nodelist, &db);
+            insta::assert_yaml_snapshot!(test_nodelist);
         }
 
         #[test]
@@ -540,9 +543,9 @@ mod tests {
                 "{% for item in items %}{% if item.active %}{{ item.name }}{% endif %}{% endfor %}"
                     .to_string();
             let template = TestTemplate::new(&db, source);
-            let ast = parse_test_template(&db, template);
-            let test_ast = convert_ast_for_testing(ast, &db);
-            insta::assert_yaml_snapshot!(test_ast);
+            let nodelist = parse_test_template(&db, template);
+            let test_nodelist = convert_nodelist_for_testing_wrapper(nodelist, &db);
+            insta::assert_yaml_snapshot!(test_nodelist);
         }
 
         #[test]
@@ -563,9 +566,9 @@ mod tests {
 {% endif %}!"
                 .to_string();
             let template = TestTemplate::new(&db, source);
-            let ast = parse_test_template(&db, template);
-            let test_ast = convert_ast_for_testing(ast, &db);
-            insta::assert_yaml_snapshot!(test_ast);
+            let nodelist = parse_test_template(&db, template);
+            let test_nodelist = convert_nodelist_for_testing_wrapper(nodelist, &db);
+            insta::assert_yaml_snapshot!(test_nodelist);
         }
     }
 
@@ -584,9 +587,9 @@ mod tests {
 </script>"#
                 .to_string();
             let template = TestTemplate::new(&db, source);
-            let ast = parse_test_template(&db, template);
-            let test_ast = convert_ast_for_testing(ast, &db);
-            insta::assert_yaml_snapshot!(test_ast);
+            let nodelist = parse_test_template(&db, template);
+            let test_nodelist = convert_nodelist_for_testing_wrapper(nodelist, &db);
+            insta::assert_yaml_snapshot!(test_nodelist);
         }
     }
 
@@ -604,9 +607,9 @@ mod tests {
 </style>"#
                 .to_string();
             let template = TestTemplate::new(&db, source);
-            let ast = parse_test_template(&db, template);
-            let test_ast = convert_ast_for_testing(ast, &db);
-            insta::assert_yaml_snapshot!(test_ast);
+            let nodelist = parse_test_template(&db, template);
+            let test_nodelist = convert_nodelist_for_testing_wrapper(nodelist, &db);
+            insta::assert_yaml_snapshot!(test_nodelist);
         }
     }
 
@@ -618,9 +621,9 @@ mod tests {
             let db = TestDatabase::new();
             let source = "<!-- HTML comment -->{# Django comment #}".to_string();
             let template = TestTemplate::new(&db, source);
-            let ast = parse_test_template(&db, template);
-            let test_ast = convert_ast_for_testing(ast, &db);
-            insta::assert_yaml_snapshot!(test_ast);
+            let nodelist = parse_test_template(&db, template);
+            let test_nodelist = convert_nodelist_for_testing_wrapper(nodelist, &db);
+            insta::assert_yaml_snapshot!(test_nodelist);
         }
     }
 
@@ -632,9 +635,9 @@ mod tests {
             let db = TestDatabase::new();
             let source = "     hello".to_string();
             let template = TestTemplate::new(&db, source);
-            let ast = parse_test_template(&db, template);
-            let test_ast = convert_ast_for_testing(ast, &db);
-            insta::assert_yaml_snapshot!(test_ast);
+            let nodelist = parse_test_template(&db, template);
+            let test_nodelist = convert_nodelist_for_testing_wrapper(nodelist, &db);
+            insta::assert_yaml_snapshot!(test_nodelist);
         }
 
         #[test]
@@ -642,9 +645,9 @@ mod tests {
             let db = TestDatabase::new();
             let source = "\n     hello".to_string();
             let template = TestTemplate::new(&db, source);
-            let ast = parse_test_template(&db, template);
-            let test_ast = convert_ast_for_testing(ast, &db);
-            insta::assert_yaml_snapshot!(test_ast);
+            let nodelist = parse_test_template(&db, template);
+            let test_nodelist = convert_nodelist_for_testing_wrapper(nodelist, &db);
+            insta::assert_yaml_snapshot!(test_nodelist);
         }
 
         #[test]
@@ -652,9 +655,9 @@ mod tests {
             let db = TestDatabase::new();
             let source = "hello     ".to_string();
             let template = TestTemplate::new(&db, source);
-            let ast = parse_test_template(&db, template);
-            let test_ast = convert_ast_for_testing(ast, &db);
-            insta::assert_yaml_snapshot!(test_ast);
+            let nodelist = parse_test_template(&db, template);
+            let test_nodelist = convert_nodelist_for_testing_wrapper(nodelist, &db);
+            insta::assert_yaml_snapshot!(test_nodelist);
         }
 
         #[test]
@@ -662,9 +665,9 @@ mod tests {
             let db = TestDatabase::new();
             let source = "hello     \n".to_string();
             let template = TestTemplate::new(&db, source);
-            let ast = parse_test_template(&db, template);
-            let test_ast = convert_ast_for_testing(ast, &db);
-            insta::assert_yaml_snapshot!(test_ast);
+            let nodelist = parse_test_template(&db, template);
+            let test_nodelist = convert_nodelist_for_testing_wrapper(nodelist, &db);
+            insta::assert_yaml_snapshot!(test_nodelist);
         }
     }
 
@@ -676,9 +679,9 @@ mod tests {
             let db = TestDatabase::new();
             let source = "<div>".to_string();
             let template = TestTemplate::new(&db, source);
-            let ast = parse_test_template(&db, template);
-            let test_ast = convert_ast_for_testing(ast, &db);
-            insta::assert_yaml_snapshot!(test_ast);
+            let nodelist = parse_test_template(&db, template);
+            let test_nodelist = convert_nodelist_for_testing_wrapper(nodelist, &db);
+            insta::assert_yaml_snapshot!(test_nodelist);
         }
 
         #[test]
@@ -686,9 +689,9 @@ mod tests {
             let db = TestDatabase::new();
             let source = "{% if user.is_authenticated %}Welcome".to_string();
             let template = TestTemplate::new(&db, source);
-            let ast = parse_test_template(&db, template);
-            let test_ast = convert_ast_for_testing(ast, &db);
-            insta::assert_yaml_snapshot!(test_ast);
+            let nodelist = parse_test_template(&db, template);
+            let test_nodelist = convert_nodelist_for_testing_wrapper(nodelist, &db);
+            insta::assert_yaml_snapshot!(test_nodelist);
         }
 
         #[test]
@@ -696,9 +699,9 @@ mod tests {
             let db = TestDatabase::new();
             let source = "{% for item in items %}{{ item.name }}".to_string();
             let template = TestTemplate::new(&db, source);
-            let ast = parse_test_template(&db, template);
-            let test_ast = convert_ast_for_testing(ast, &db);
-            insta::assert_yaml_snapshot!(test_ast);
+            let nodelist = parse_test_template(&db, template);
+            let test_nodelist = convert_nodelist_for_testing_wrapper(nodelist, &db);
+            insta::assert_yaml_snapshot!(test_nodelist);
         }
 
         #[test]
@@ -706,9 +709,9 @@ mod tests {
             let db = TestDatabase::new();
             let source = "<script>console.log('test');".to_string();
             let template = TestTemplate::new(&db, source);
-            let ast = parse_test_template(&db, template);
-            let test_ast = convert_ast_for_testing(ast, &db);
-            insta::assert_yaml_snapshot!(test_ast);
+            let nodelist = parse_test_template(&db, template);
+            let test_nodelist = convert_nodelist_for_testing_wrapper(nodelist, &db);
+            insta::assert_yaml_snapshot!(test_nodelist);
         }
 
         #[test]
@@ -716,9 +719,9 @@ mod tests {
             let db = TestDatabase::new();
             let source = "<style>body { color: blue; ".to_string();
             let template = TestTemplate::new(&db, source);
-            let ast = parse_test_template(&db, template);
-            let test_ast = convert_ast_for_testing(ast, &db);
-            insta::assert_yaml_snapshot!(test_ast);
+            let nodelist = parse_test_template(&db, template);
+            let test_nodelist = convert_nodelist_for_testing_wrapper(nodelist, &db);
+            insta::assert_yaml_snapshot!(test_nodelist);
         }
 
         // TODO: fix this so we can test against errors returned by parsing
@@ -738,7 +741,7 @@ mod tests {
         // </div>"#;
         //     let tokens = Lexer::new(source).tokenize().unwrap();
         //     let mut parser = create_test_parser(tokens);
-        //     let (ast, errors) = parser.parse().unwrap();
+        //     let (nodelist, errors) = parser.parse().unwrap();
         //     let nodelist = convert_nodelist_for_testing(ast.nodelist(parser.db), parser.db);
         //     insta::assert_yaml_snapshot!(nodelist);
         //     assert_eq!(errors.len(), 1);
@@ -784,9 +787,9 @@ mod tests {
 </html>"#
                 .to_string();
             let template = TestTemplate::new(&db, source);
-            let ast = parse_test_template(&db, template);
-            let test_ast = convert_ast_for_testing(ast, &db);
-            insta::assert_yaml_snapshot!(test_ast);
+            let nodelist = parse_test_template(&db, template);
+            let test_nodelist = convert_nodelist_for_testing_wrapper(nodelist, &db);
+            insta::assert_yaml_snapshot!(test_nodelist);
         }
     }
 
@@ -798,9 +801,9 @@ mod tests {
             let db = TestDatabase::new();
             let source = "line1\nline2".to_string();
             let template = TestTemplate::new(&db, source);
-            let ast = parse_test_template(&db, template);
+            let nodelist = parse_test_template(&db, template);
 
-            let offsets = ast.line_offsets(&db);
+            let offsets = nodelist.line_offsets(&db);
             assert_eq!(offsets.position_to_line_col(0), (1, 0)); // Start of line 1
             assert_eq!(offsets.position_to_line_col(6), (2, 0)); // Start of line 2
         }
