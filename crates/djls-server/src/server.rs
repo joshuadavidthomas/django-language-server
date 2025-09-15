@@ -2,7 +2,8 @@ use std::future::Future;
 use std::sync::Arc;
 
 use djls_project::Db as ProjectDb;
-use djls_semantic::validate_template;
+use djls_semantic::validate_nodelist;
+use djls_semantic::SemanticDiagnostic;
 use djls_templates::parse_template;
 use djls_templates::TemplateDiagnostic;
 use djls_workspace::paths;
@@ -98,24 +99,29 @@ impl DjangoLanguageServer {
 
                 session.with_db(|db| {
                     // Parse and validate the template (triggers accumulation)
-                    // This should be a cheap call since salsa should cache the function
-                    // call, but we may need to revisit if that assumption is incorrect
-                    let _nodelist = parse_template(db, file);
+                    // Parse the template and get the nodelist
+                    let Some(nodelist) = parse_template(db, file) else {
+                        // If parsing failed completely, just return syntax errors
+                        return parse_template::accumulated::<TemplateDiagnostic>(db, file)
+                            .into_iter()
+                            .map(Into::into)
+                            .collect();
+                    };
 
-                    // Also run semantic validation
-                    validate_template(db, file);
+                    // Run semantic validation on the nodelist
+                    validate_nodelist(db, nodelist);
 
                     // Collect diagnostics from both syntax and semantic validation
                     let syntax_diagnostics =
                         parse_template::accumulated::<TemplateDiagnostic>(db, file);
                     let semantic_diagnostics =
-                        validate_template::accumulated::<TemplateDiagnostic>(db, file);
+                        validate_nodelist::accumulated::<SemanticDiagnostic>(db, nodelist);
 
                     // Combine all diagnostics
                     syntax_diagnostics
                         .into_iter()
-                        .chain(semantic_diagnostics)
                         .map(Into::into)
+                        .chain(semantic_diagnostics.into_iter().map(Into::into))
                         .collect()
                 })
             })
@@ -439,23 +445,29 @@ impl LanguageServer for DjangoLanguageServer {
                         return vec![];
                     };
 
-                    // Parse and validate the template (triggers accumulation)
-                    let _nodelist = parse_template(db, file);
+                    // Parse the template and get the nodelist
+                    let Some(nodelist) = parse_template(db, file) else {
+                        // If parsing failed completely, just return syntax errors
+                        return parse_template::accumulated::<TemplateDiagnostic>(db, file)
+                            .into_iter()
+                            .map(Into::into)
+                            .collect();
+                    };
 
-                    // Also run semantic validation
-                    validate_template(db, file);
+                    // Run semantic validation on the nodelist
+                    validate_nodelist(db, nodelist);
 
                     // Collect diagnostics from both syntax and semantic validation
                     let syntax_diagnostics =
                         parse_template::accumulated::<TemplateDiagnostic>(db, file);
                     let semantic_diagnostics =
-                        validate_template::accumulated::<TemplateDiagnostic>(db, file);
+                        validate_nodelist::accumulated::<SemanticDiagnostic>(db, nodelist);
 
                     // Combine all diagnostics
                     syntax_diagnostics
                         .into_iter()
-                        .chain(semantic_diagnostics)
                         .map(Into::into)
+                        .chain(semantic_diagnostics.into_iter().map(Into::into))
                         .collect()
                 })
             })

@@ -45,21 +45,21 @@
 //! let (nodelist, errors) = parser.parse()?;
 //! ```
 
-pub mod nodelist;
 pub mod db;
 mod error;
 mod lexer;
+pub mod nodelist;
 mod parser;
 mod tokens;
 
-use nodelist::LineOffsets;
-pub use nodelist::NodeList;
 pub use db::Db;
 pub use db::TemplateDiagnostic;
 use djls_workspace::db::SourceFile;
 use djls_workspace::FileKind;
 pub use error::TemplateError;
 pub use lexer::Lexer;
+use nodelist::LineOffsets;
+pub use nodelist::NodeList;
 pub use parser::Parser;
 pub use parser::ParserError;
 use salsa::Accumulator;

@@ -1,5 +1,5 @@
-use crate::nodelist::LineOffsets;
 use crate::db::Db as TemplateDb;
+use crate::nodelist::LineOffsets;
 
 #[derive(Clone, Debug, PartialEq, Hash, salsa::Update)]
 pub enum Token<'db> {

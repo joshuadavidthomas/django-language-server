@@ -1,6 +1,7 @@
 use serde::Serialize;
 use thiserror::Error;
 
+use crate::db::Db as TemplateDb;
 use crate::nodelist::FilterName;
 use crate::nodelist::LineOffsets;
 use crate::nodelist::Node;
@@ -10,7 +11,6 @@ use crate::nodelist::Span;
 use crate::nodelist::TagBit;
 use crate::nodelist::TagName;
 use crate::nodelist::VariableName;
-use crate::db::Db as TemplateDb;
 use crate::tokens::Token;
 use crate::tokens::TokenStream;
 
@@ -413,7 +413,10 @@ mod tests {
         }
     }
 
-    fn convert_nodelist_for_testing_wrapper(nodelist: NodeList<'_>, db: &dyn crate::db::Db) -> TestNodeList {
+    fn convert_nodelist_for_testing_wrapper(
+        nodelist: NodeList<'_>,
+        db: &dyn crate::db::Db,
+    ) -> TestNodeList {
         TestNodeList {
             nodelist: convert_nodelist_for_testing(nodelist.nodelist(db), db),
             line_offsets: nodelist.line_offsets(db).0.clone(),
