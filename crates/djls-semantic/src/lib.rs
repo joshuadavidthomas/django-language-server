@@ -8,7 +8,6 @@ pub use builtins::django_builtin_specs;
 pub use db::Db;
 pub use db::ValidationErrorAccumulator;
 pub use errors::ValidationError;
-use salsa::Accumulator;
 pub use specs::ArgType;
 pub use specs::EndTag;
 pub use specs::IntermediateTag;
@@ -32,9 +31,5 @@ pub fn validate_nodelist(db: &dyn Db, nodelist: djls_templates::NodeList<'_>) {
         return;
     }
 
-    let validation_errors = TagValidator::new(db, nodelist).validate();
-
-    for error in validation_errors {
-        ValidationErrorAccumulator(error).accumulate(db);
-    }
+    TagValidator::new(db, nodelist).validate();
 }

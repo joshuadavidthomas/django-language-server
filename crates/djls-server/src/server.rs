@@ -92,7 +92,10 @@ impl DjangoLanguageServer {
         let diagnostics: Vec<lsp_types::Diagnostic> = self
             .with_session_mut(|session| {
                 let file = session.get_or_create_file(&path);
-                session.with_db(|db| djls_ide::collect_diagnostics(db, file))
+                session.with_db(|db| {
+                    let nodelist = djls_templates::parse_template(db, file);
+                    djls_ide::collect_diagnostics(db, file, nodelist)
+                })
             })
             .await;
 
@@ -412,7 +415,8 @@ impl LanguageServer for DjangoLanguageServer {
                         return vec![];
                     };
 
-                    djls_ide::collect_diagnostics(db, file)
+                    let nodelist = djls_templates::parse_template(db, file);
+                    djls_ide::collect_diagnostics(db, file, nodelist)
                 })
             })
             .await;

@@ -1,7 +1,7 @@
 use serde::Serialize;
 use thiserror::Error;
 
-use crate::parser::ParserError;
+use crate::parser::ParseError;
 
 #[derive(Clone, Debug, Error, PartialEq, Eq, Serialize)]
 pub enum TemplateError {
@@ -15,8 +15,8 @@ pub enum TemplateError {
     Config(String),
 }
 
-impl From<ParserError> for TemplateError {
-    fn from(err: ParserError) -> Self {
+impl From<ParseError> for TemplateError {
+    fn from(err: ParseError) -> Self {
         Self::Parser(err.to_string())
     }
 }
