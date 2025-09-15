@@ -4,8 +4,7 @@
 //! and generating appropriate completion items for Django templates.
 
 use djls_project::TemplateTags;
-use djls_semantic::ArgType;
-use djls_semantic::SimpleArgType;
+use djls_semantic::TagArg;
 use djls_semantic::TagSpecs;
 use djls_workspace::FileKind;
 use djls_workspace::PositionEncoding;
@@ -410,15 +409,15 @@ fn generate_tag_name_completions(
                     }
 
                     completions.push(lsp_types::CompletionItem {
-                        label: end_tag.name.clone(),
+                        label: end_tag.name.to_string(),
                         kind: Some(lsp_types::CompletionItemKind::KEYWORD),
                         detail: Some(format!("End tag for {opener_name}")),
                         text_edit: Some(tower_lsp_server::lsp_types::CompletionTextEdit::Edit(
                             lsp_types::TextEdit::new(replacement_range, insert_text.clone()),
                         )),
                         insert_text_format: Some(lsp_types::InsertTextFormat::PLAIN_TEXT),
-                        filter_text: Some(end_tag.name.clone()),
-                        sort_text: Some(format!("0_{}", end_tag.name)), // Priority sort
+                        filter_text: Some(end_tag.name.to_string()),
+                        sort_text: Some(format!("0_{}", end_tag.name.as_ref())), // Priority sort
                         ..Default::default()
                     });
                 }
@@ -534,11 +533,11 @@ fn generate_argument_completions(
     let arg = &spec.args[position];
     let mut completions = Vec::new();
 
-    match &arg.arg_type {
-        ArgType::Simple(SimpleArgType::Literal) => {
+    match arg {
+        TagArg::Literal { lit, .. } => {
             // For literals, complete the exact text
-            if arg.name.starts_with(partial) {
-                let mut insert_text = arg.name.clone();
+            if lit.starts_with(partial) {
+                let mut insert_text = lit.to_string();
 
                 // Add closing if needed
                 match closing {
@@ -547,7 +546,7 @@ fn generate_argument_completions(
                 }
 
                 completions.push(lsp_types::CompletionItem {
-                    label: arg.name.clone(),
+                    label: lit.to_string(),
                     kind: Some(lsp_types::CompletionItemKind::KEYWORD),
                     detail: Some("literal argument".to_string()),
                     insert_text: Some(insert_text),
@@ -556,11 +555,11 @@ fn generate_argument_completions(
                 });
             }
         }
-        ArgType::Choice { choice } => {
+        TagArg::Choice { name, choices, .. } => {
             // For choices, offer each option
-            for option in choice {
+            for option in choices.iter() {
                 if option.starts_with(partial) {
-                    let mut insert_text = option.clone();
+                    let mut insert_text = option.to_string();
 
                     // Add closing if needed
                     match closing {
@@ -570,9 +569,9 @@ fn generate_argument_completions(
                     }
 
                     completions.push(lsp_types::CompletionItem {
-                        label: option.clone(),
+                        label: option.to_string(),
                         kind: Some(lsp_types::CompletionItemKind::ENUM_MEMBER),
-                        detail: Some(format!("choice for {}", arg.name)),
+                        detail: Some(format!("choice for {}", name.as_ref())),
                         insert_text: Some(insert_text),
                         insert_text_format: Some(lsp_types::InsertTextFormat::PLAIN_TEXT),
                         ..Default::default()
@@ -580,12 +579,12 @@ fn generate_argument_completions(
                 }
             }
         }
-        ArgType::Simple(SimpleArgType::Variable) => {
+        TagArg::Var { name, .. } => {
             // For variables, we could offer variable completions from context
             // For now, just provide a hint
             if partial.is_empty() {
                 completions.push(lsp_types::CompletionItem {
-                    label: format!("<{}>", arg.name),
+                    label: format!("<{}>", name.as_ref()),
                     kind: Some(lsp_types::CompletionItemKind::VARIABLE),
                     detail: Some("variable argument".to_string()),
                     insert_text: None, // Don't insert placeholder
@@ -594,12 +593,12 @@ fn generate_argument_completions(
                 });
             }
         }
-        ArgType::Simple(SimpleArgType::String) => {
+        TagArg::String { name, .. } => {
             // For strings, could offer template name completions
             // For now, just provide a hint
             if partial.is_empty() {
                 completions.push(lsp_types::CompletionItem {
-                    label: format!("\"{}\"", arg.name),
+                    label: format!("\"{}\"", name.as_ref()),
                     kind: Some(lsp_types::CompletionItemKind::TEXT),
                     detail: Some("string argument".to_string()),
                     insert_text: None, // Don't insert placeholder
@@ -608,8 +607,8 @@ fn generate_argument_completions(
                 });
             }
         }
-        ArgType::Simple(_) => {
-            // Other argument types not handled yet
+        _ => {
+            // Other argument types (Expr, Assignment, VarArgs) not handled yet
         }
     }
 

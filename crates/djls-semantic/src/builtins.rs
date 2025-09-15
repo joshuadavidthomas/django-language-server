@@ -3,6 +3,7 @@
 //! This module defines all the standard Django template tags as compile-time
 //! constants, avoiding the need for runtime TOML parsing.
 
+use std::borrow::Cow::Borrowed as B;
 use std::sync::LazyLock;
 
 use rustc_hash::FxHashMap;
@@ -13,381 +14,465 @@ use super::specs::TagArg;
 use super::specs::TagSpec;
 use super::specs::TagSpecs;
 
-// Static storage for built-in specs - built only once on first access
+// Helper macro to create const TagArg values
+macro_rules! arg {
+    (expr $name:expr, $required:expr) => {
+        TagArg::Expr {
+            name: B($name),
+            required: $required,
+        }
+    };
+    (literal $lit:expr, $required:expr) => {
+        TagArg::Literal {
+            lit: B($lit),
+            required: $required,
+        }
+    };
+    (string $name:expr, $required:expr) => {
+        TagArg::String {
+            name: B($name),
+            required: $required,
+        }
+    };
+    (var $name:expr, $required:expr) => {
+        TagArg::Var {
+            name: B($name),
+            required: $required,
+        }
+    };
+    (varargs $name:expr, $required:expr) => {
+        TagArg::VarArgs {
+            name: B($name),
+            required: $required,
+        }
+    };
+    (choice $name:expr, $required:expr, [$($choice:expr),+ $(,)?]) => {
+        TagArg::Choice {
+            name: B($name),
+            required: $required,
+            choices: B(&[$(B($choice)),+]),
+        }
+    };
+}
+
+// ============================================================================
+// Control Flow Tags
+// ============================================================================
+
+const AUTOESCAPE_SPEC: TagSpec = TagSpec {
+    end_tag: Some(EndTag {
+        name: B("endautoescape"),
+        optional: false,
+        args: B(&[]),
+    }),
+    intermediate_tags: B(&[]),
+    args: B(&[arg!(choice "mode", true, ["on", "off"])]),
+};
+
+const IF_SPEC: TagSpec = TagSpec {
+    end_tag: Some(EndTag {
+        name: B("endif"),
+        optional: false,
+        args: B(&[]),
+    }),
+    intermediate_tags: B(&[
+        IntermediateTag {
+            name: B("elif"),
+            args: B(&[arg!(expr "condition", true)]),
+        },
+        IntermediateTag {
+            name: B("else"),
+            args: B(&[]),
+        },
+    ]),
+    args: B(&[arg!(expr "condition", true)]),
+};
+
+const FOR_SPEC: TagSpec = TagSpec {
+    end_tag: Some(EndTag {
+        name: B("endfor"),
+        optional: false,
+        args: B(&[]),
+    }),
+    intermediate_tags: B(&[IntermediateTag {
+        name: B("empty"),
+        args: B(&[]),
+    }]),
+    args: B(&[
+        arg!(var "item", true),
+        arg!(literal "in", true),
+        arg!(var "items", true),
+        arg!(literal "reversed", false),
+    ]),
+};
+
+const IFCHANGED_SPEC: TagSpec = TagSpec {
+    end_tag: Some(EndTag {
+        name: B("endifchanged"),
+        optional: false,
+        args: B(&[]),
+    }),
+    intermediate_tags: B(&[IntermediateTag {
+        name: B("else"),
+        args: B(&[]),
+    }]),
+    args: B(&[arg!(varargs "variables", false)]),
+};
+
+const WITH_SPEC: TagSpec = TagSpec {
+    end_tag: Some(EndTag {
+        name: B("endwith"),
+        optional: false,
+        args: B(&[]),
+    }),
+    intermediate_tags: B(&[]),
+    args: B(&[arg!(varargs "assignments", true)]),
+};
+
+// ============================================================================
+// Block Tags
+// ============================================================================
+
+const BLOCK_SPEC: TagSpec = TagSpec {
+    end_tag: Some(EndTag {
+        name: B("endblock"),
+        optional: false,
+        args: B(&[arg!(var "name", false)]),
+    }),
+    intermediate_tags: B(&[]),
+    args: B(&[arg!(var "name", true)]),
+};
+
+const EXTENDS_SPEC: TagSpec = TagSpec {
+    end_tag: None,
+    intermediate_tags: B(&[]),
+    args: B(&[arg!(string "template", true)]),
+};
+
+const INCLUDE_SPEC: TagSpec = TagSpec {
+    end_tag: None,
+    intermediate_tags: B(&[]),
+    args: B(&[
+        arg!(string "template", true),
+        arg!(literal "with", false),
+        arg!(varargs "context", false),
+        arg!(literal "only", false),
+    ]),
+};
+
+const LOAD_SPEC: TagSpec = TagSpec {
+    end_tag: None,
+    intermediate_tags: B(&[]),
+    args: B(&[arg!(varargs "libraries", true)]),
+};
+
+// ============================================================================
+// Content Manipulation Tags
+// ============================================================================
+
+const COMMENT_SPEC: TagSpec = TagSpec {
+    end_tag: Some(EndTag {
+        name: B("endcomment"),
+        optional: false,
+        args: B(&[]),
+    }),
+    intermediate_tags: B(&[]),
+    args: B(&[arg!(string "note", false)]),
+};
+
+const FILTER_SPEC: TagSpec = TagSpec {
+    end_tag: Some(EndTag {
+        name: B("endfilter"),
+        optional: false,
+        args: B(&[]),
+    }),
+    intermediate_tags: B(&[]),
+    args: B(&[arg!(varargs "filters", true)]),
+};
+
+const SPACELESS_SPEC: TagSpec = TagSpec {
+    end_tag: Some(EndTag {
+        name: B("endspaceless"),
+        optional: false,
+        args: B(&[]),
+    }),
+    intermediate_tags: B(&[]),
+    args: B(&[]),
+};
+
+const VERBATIM_SPEC: TagSpec = TagSpec {
+    end_tag: Some(EndTag {
+        name: B("endverbatim"),
+        optional: false,
+        args: B(&[]),
+    }),
+    intermediate_tags: B(&[]),
+    args: B(&[arg!(string "name", false)]),
+};
+
+// ============================================================================
+// Variables and Expressions
+// ============================================================================
+
+const CYCLE_SPEC: TagSpec = TagSpec {
+    end_tag: None,
+    intermediate_tags: B(&[]),
+    args: B(&[
+        arg!(varargs "values", true),
+        arg!(literal "as", false),
+        arg!(var "varname", false),
+        arg!(literal "silent", false),
+    ]),
+};
+
+const FIRSTOF_SPEC: TagSpec = TagSpec {
+    end_tag: None,
+    intermediate_tags: B(&[]),
+    args: B(&[
+        arg!(varargs "variables", true),
+        arg!(string "fallback", false),
+        arg!(literal "as", false),
+        arg!(var "varname", false),
+    ]),
+};
+
+const REGROUP_SPEC: TagSpec = TagSpec {
+    end_tag: None,
+    intermediate_tags: B(&[]),
+    args: B(&[
+        arg!(var "target", true),
+        arg!(literal "by", true),
+        arg!(var "attribute", true),
+        arg!(literal "as", true),
+        arg!(var "grouped", true),
+    ]),
+};
+
+// ============================================================================
+// Date and Time
+// ============================================================================
+
+const NOW_SPEC: TagSpec = TagSpec {
+    end_tag: None,
+    intermediate_tags: B(&[]),
+    args: B(&[
+        arg!(string "format_string", true),
+        arg!(literal "as", false),
+        arg!(var "varname", false),
+    ]),
+};
+
+// ============================================================================
+// URLs and Static Files
+// ============================================================================
+
+const URL_SPEC: TagSpec = TagSpec {
+    end_tag: None,
+    intermediate_tags: B(&[]),
+    args: B(&[
+        arg!(string "view_name", true),
+        arg!(varargs "args", false),
+        arg!(literal "as", false),
+        arg!(var "varname", false),
+    ]),
+};
+
+const STATIC_SPEC: TagSpec = TagSpec {
+    end_tag: None,
+    intermediate_tags: B(&[]),
+    args: B(&[arg!(string "path", true)]),
+};
+
+// ============================================================================
+// Template Tags
+// ============================================================================
+
+const TEMPLATETAG_SPEC: TagSpec = TagSpec {
+    end_tag: None,
+    intermediate_tags: B(&[]),
+    args: B(&[arg!(choice "tagbit", true, [
+        "openblock",
+        "closeblock",
+        "openvariable",
+        "closevariable",
+        "openbrace",
+        "closebrace",
+        "opencomment",
+        "closecomment",
+    ])]),
+};
+
+// ============================================================================
+// Security
+// ============================================================================
+
+const CSRF_TOKEN_SPEC: TagSpec = TagSpec {
+    end_tag: None,
+    intermediate_tags: B(&[]),
+    args: B(&[]),
+};
+
+// ============================================================================
+// Utilities
+// ============================================================================
+
+const WIDTHRATIO_SPEC: TagSpec = TagSpec {
+    end_tag: None,
+    intermediate_tags: B(&[]),
+    args: B(&[
+        arg!(var "this_value", true),
+        arg!(var "max_value", true),
+        arg!(var "max_width", true),
+        arg!(literal "as", false),
+        arg!(var "varname", false),
+    ]),
+};
+
+const LOREM_SPEC: TagSpec = TagSpec {
+    end_tag: None,
+    intermediate_tags: B(&[]),
+    args: B(&[
+        arg!(var "count", false),
+        arg!(choice "method", false, ["w", "p", "b"]),
+        arg!(literal "random", false),
+    ]),
+};
+
+const DEBUG_SPEC: TagSpec = TagSpec {
+    end_tag: None,
+    intermediate_tags: B(&[]),
+    args: B(&[]),
+};
+
+// ============================================================================
+// Cache Tags
+// ============================================================================
+
+const CACHE_SPEC: TagSpec = TagSpec {
+    end_tag: Some(EndTag {
+        name: B("endcache"),
+        optional: false,
+        args: B(&[]),
+    }),
+    intermediate_tags: B(&[]),
+    args: B(&[
+        arg!(var "timeout", true),
+        arg!(var "cache_key", true),
+        arg!(varargs "variables", false),
+    ]),
+};
+
+// ============================================================================
+// Internationalization
+// ============================================================================
+
+const LOCALIZE_SPEC: TagSpec = TagSpec {
+    end_tag: Some(EndTag {
+        name: B("endlocalize"),
+        optional: false,
+        args: B(&[]),
+    }),
+    intermediate_tags: B(&[]),
+    args: B(&[arg!(choice "mode", false, ["on", "off"])]),
+};
+
+const BLOCKTRANSLATE_SPEC: TagSpec = TagSpec {
+    end_tag: Some(EndTag {
+        name: B("endblocktranslate"),
+        optional: false,
+        args: B(&[]),
+    }),
+    intermediate_tags: B(&[IntermediateTag {
+        name: B("plural"),
+        args: B(&[arg!(var "count", false)]),
+    }]),
+    args: B(&[
+        arg!(string "context", false),
+        arg!(literal "with", false),
+        arg!(varargs "assignments", false),
+        arg!(literal "asvar", false),
+        arg!(var "varname", false),
+    ]),
+};
+
+const TRANS_SPEC: TagSpec = TagSpec {
+    end_tag: None,
+    intermediate_tags: B(&[]),
+    args: B(&[
+        arg!(string "message", true),
+        arg!(string "context", false),
+        arg!(literal "as", false),
+        arg!(var "varname", false),
+        arg!(literal "noop", false),
+    ]),
+};
+
+// ============================================================================
+// Timezone Tags
+// ============================================================================
+
+const LOCALTIME_SPEC: TagSpec = TagSpec {
+    end_tag: Some(EndTag {
+        name: B("endlocaltime"),
+        optional: false,
+        args: B(&[]),
+    }),
+    intermediate_tags: B(&[]),
+    args: B(&[arg!(choice "mode", false, ["on", "off"])]),
+};
+
+const TIMEZONE_SPEC: TagSpec = TagSpec {
+    end_tag: Some(EndTag {
+        name: B("endtimezone"),
+        optional: false,
+        args: B(&[]),
+    }),
+    intermediate_tags: B(&[]),
+    args: B(&[arg!(var "timezone", true)]),
+};
+
+// ============================================================================
+// Static builtin map
+// ============================================================================
+
+static BUILTIN_PAIRS: &[(&str, &TagSpec)] = &[
+    ("autoescape", &AUTOESCAPE_SPEC),
+    ("if", &IF_SPEC),
+    ("for", &FOR_SPEC),
+    ("ifchanged", &IFCHANGED_SPEC),
+    ("with", &WITH_SPEC),
+    ("block", &BLOCK_SPEC),
+    ("extends", &EXTENDS_SPEC),
+    ("include", &INCLUDE_SPEC),
+    ("load", &LOAD_SPEC),
+    ("comment", &COMMENT_SPEC),
+    ("filter", &FILTER_SPEC),
+    ("spaceless", &SPACELESS_SPEC),
+    ("verbatim", &VERBATIM_SPEC),
+    ("cycle", &CYCLE_SPEC),
+    ("firstof", &FIRSTOF_SPEC),
+    ("regroup", &REGROUP_SPEC),
+    ("now", &NOW_SPEC),
+    ("url", &URL_SPEC),
+    ("static", &STATIC_SPEC),
+    ("templatetag", &TEMPLATETAG_SPEC),
+    ("csrf_token", &CSRF_TOKEN_SPEC),
+    ("widthratio", &WIDTHRATIO_SPEC),
+    ("lorem", &LOREM_SPEC),
+    ("debug", &DEBUG_SPEC),
+    ("cache", &CACHE_SPEC),
+    ("localize", &LOCALIZE_SPEC),
+    ("blocktranslate", &BLOCKTRANSLATE_SPEC),
+    ("trans", &TRANS_SPEC),
+    ("localtime", &LOCALTIME_SPEC),
+    ("timezone", &TIMEZONE_SPEC),
+];
+
 static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
     let mut specs = FxHashMap::default();
-
-    // Define all Django built-in tags using direct struct construction
-    let tags = vec![
-        // Control flow tags
-        TagSpec {
-            name: Some("autoescape".to_string()),
-            end_tag: Some(EndTag {
-                name: "endautoescape".to_string(),
-                optional: false,
-                args: vec![],
-            }),
-            intermediate_tags: None,
-            args: vec![TagArg::choice(
-                "mode",
-                true,
-                vec!["on".to_string(), "off".to_string()],
-            )],
-        },
-        TagSpec {
-            name: Some("if".to_string()),
-            end_tag: Some(EndTag {
-                name: "endif".to_string(),
-                optional: false,
-                args: vec![],
-            }),
-            intermediate_tags: Some(vec![
-                IntermediateTag {
-                    name: "elif".to_string(),
-                    args: vec![TagArg::expr("condition", true)],
-                },
-                IntermediateTag {
-                    name: "else".to_string(),
-                    args: vec![],
-                },
-            ]),
-            args: vec![TagArg::expr("condition", true)],
-        },
-        TagSpec {
-            name: Some("for".to_string()),
-            end_tag: Some(EndTag {
-                name: "endfor".to_string(),
-                optional: false,
-                args: vec![],
-            }),
-            intermediate_tags: Some(vec![IntermediateTag {
-                name: "empty".to_string(),
-                args: vec![],
-            }]),
-            args: vec![
-                TagArg::var("item", true),
-                TagArg::literal("in", true),
-                TagArg::var("items", true),
-                TagArg::literal("reversed", false),
-            ],
-        },
-        TagSpec {
-            name: Some("ifchanged".to_string()),
-            end_tag: Some(EndTag {
-                name: "endifchanged".to_string(),
-                optional: false,
-                args: vec![],
-            }),
-            intermediate_tags: Some(vec![IntermediateTag {
-                name: "else".to_string(),
-                args: vec![],
-            }]),
-            args: vec![TagArg::varargs("variables", false)],
-        },
-        TagSpec {
-            name: Some("with".to_string()),
-            end_tag: Some(EndTag {
-                name: "endwith".to_string(),
-                optional: false,
-                args: vec![],
-            }),
-            intermediate_tags: None,
-            args: vec![TagArg::varargs("assignments", true)],
-        },
-        // Block tags
-        TagSpec {
-            name: Some("block".to_string()),
-            end_tag: Some(EndTag {
-                name: "endblock".to_string(),
-                optional: false,
-                args: vec![TagArg::var("name", false)],
-            }),
-            intermediate_tags: None,
-            args: vec![TagArg::var("name", true)],
-        },
-        TagSpec {
-            name: Some("extends".to_string()),
-            end_tag: None,
-            intermediate_tags: None,
-            args: vec![TagArg::string("template", true)],
-        },
-        TagSpec {
-            name: Some("include".to_string()),
-            end_tag: None,
-            intermediate_tags: None,
-            args: vec![
-                TagArg::string("template", true),
-                TagArg::literal("with", false),
-                TagArg::varargs("context", false),
-                TagArg::literal("only", false),
-            ],
-        },
-        TagSpec {
-            name: Some("load".to_string()),
-            end_tag: None,
-            intermediate_tags: None,
-            args: vec![TagArg::varargs("libraries", true)],
-        },
-        // Content manipulation tags
-        TagSpec {
-            name: Some("comment".to_string()),
-            end_tag: Some(EndTag {
-                name: "endcomment".to_string(),
-                optional: false,
-                args: vec![],
-            }),
-            intermediate_tags: None,
-            args: vec![TagArg::string("note", false)],
-        },
-        TagSpec {
-            name: Some("filter".to_string()),
-            end_tag: Some(EndTag {
-                name: "endfilter".to_string(),
-                optional: false,
-                args: vec![],
-            }),
-            intermediate_tags: None,
-            args: vec![TagArg::varargs("filters", true)],
-        },
-        TagSpec {
-            name: Some("spaceless".to_string()),
-            end_tag: Some(EndTag {
-                name: "endspaceless".to_string(),
-                optional: false,
-                args: vec![],
-            }),
-            intermediate_tags: None,
-            args: vec![],
-        },
-        TagSpec {
-            name: Some("verbatim".to_string()),
-            end_tag: Some(EndTag {
-                name: "endverbatim".to_string(),
-                optional: false,
-                args: vec![],
-            }),
-            intermediate_tags: None,
-            args: vec![TagArg::string("name", false)],
-        },
-        // Variables and expressions
-        TagSpec {
-            name: Some("cycle".to_string()),
-            end_tag: None,
-            intermediate_tags: None,
-            args: vec![
-                TagArg::varargs("values", true),
-                TagArg::literal("as", false),
-                TagArg::var("varname", false),
-                TagArg::literal("silent", false),
-            ],
-        },
-        TagSpec {
-            name: Some("firstof".to_string()),
-            end_tag: None,
-            intermediate_tags: None,
-            args: vec![
-                TagArg::varargs("variables", true),
-                TagArg::string("fallback", false),
-                TagArg::literal("as", false),
-                TagArg::var("varname", false),
-            ],
-        },
-        TagSpec {
-            name: Some("regroup".to_string()),
-            end_tag: None,
-            intermediate_tags: None,
-            args: vec![
-                TagArg::var("target", true),
-                TagArg::literal("by", true),
-                TagArg::var("attribute", true),
-                TagArg::literal("as", true),
-                TagArg::var("grouped", true),
-            ],
-        },
-        // Date and time
-        TagSpec {
-            name: Some("now".to_string()),
-            end_tag: None,
-            intermediate_tags: None,
-            args: vec![
-                TagArg::string("format_string", true),
-                TagArg::literal("as", false),
-                TagArg::var("varname", false),
-            ],
-        },
-        // URLs and static files
-        TagSpec {
-            name: Some("url".to_string()),
-            end_tag: None,
-            intermediate_tags: None,
-            args: vec![
-                TagArg::string("view_name", true),
-                TagArg::varargs("args", false),
-                TagArg::literal("as", false),
-                TagArg::var("varname", false),
-            ],
-        },
-        TagSpec {
-            name: Some("static".to_string()),
-            end_tag: None,
-            intermediate_tags: None,
-            args: vec![TagArg::string("path", true)],
-        },
-        // Template tags
-        TagSpec {
-            name: Some("templatetag".to_string()),
-            end_tag: None,
-            intermediate_tags: None,
-            args: vec![TagArg::choice(
-                "tagbit",
-                true,
-                vec![
-                    "openblock".to_string(),
-                    "closeblock".to_string(),
-                    "openvariable".to_string(),
-                    "closevariable".to_string(),
-                    "openbrace".to_string(),
-                    "closebrace".to_string(),
-                    "opencomment".to_string(),
-                    "closecomment".to_string(),
-                ],
-            )],
-        },
-        // Security
-        TagSpec {
-            name: Some("csrf_token".to_string()),
-            end_tag: None,
-            intermediate_tags: None,
-            args: vec![],
-        },
-        // Utilities
-        TagSpec {
-            name: Some("widthratio".to_string()),
-            end_tag: None,
-            intermediate_tags: None,
-            args: vec![
-                TagArg::var("this_value", true),
-                TagArg::var("max_value", true),
-                TagArg::var("max_width", true),
-                TagArg::literal("as", false),
-                TagArg::var("varname", false),
-            ],
-        },
-        TagSpec {
-            name: Some("lorem".to_string()),
-            end_tag: None,
-            intermediate_tags: None,
-            args: vec![
-                TagArg::var("count", false),
-                TagArg::choice(
-                    "method",
-                    false,
-                    vec!["w".to_string(), "p".to_string(), "b".to_string()],
-                ),
-                TagArg::literal("random", false),
-            ],
-        },
-        TagSpec {
-            name: Some("debug".to_string()),
-            end_tag: None,
-            intermediate_tags: None,
-            args: vec![],
-        },
-        // Cache tags
-        TagSpec {
-            name: Some("cache".to_string()),
-            end_tag: Some(EndTag {
-                name: "endcache".to_string(),
-                optional: false,
-                args: vec![],
-            }),
-            intermediate_tags: None,
-            args: vec![
-                TagArg::var("timeout", true),
-                TagArg::var("cache_key", true),
-                TagArg::varargs("variables", false),
-            ],
-        },
-        // Internationalization
-        TagSpec {
-            name: Some("localize".to_string()),
-            end_tag: Some(EndTag {
-                name: "endlocalize".to_string(),
-                optional: false,
-                args: vec![],
-            }),
-            intermediate_tags: None,
-            args: vec![TagArg::choice(
-                "mode",
-                false,
-                vec!["on".to_string(), "off".to_string()],
-            )],
-        },
-        TagSpec {
-            name: Some("blocktranslate".to_string()),
-            end_tag: Some(EndTag {
-                name: "endblocktranslate".to_string(),
-                optional: false,
-                args: vec![],
-            }),
-            intermediate_tags: Some(vec![IntermediateTag {
-                name: "plural".to_string(),
-                args: vec![TagArg::var("count", false)],
-            }]),
-            args: vec![
-                TagArg::string("context", false),
-                TagArg::literal("with", false),
-                TagArg::varargs("assignments", false),
-                TagArg::literal("asvar", false),
-                TagArg::var("varname", false),
-            ],
-        },
-        TagSpec {
-            name: Some("trans".to_string()),
-            end_tag: None,
-            intermediate_tags: None,
-            args: vec![
-                TagArg::string("message", true),
-                TagArg::string("context", false),
-                TagArg::literal("as", false),
-                TagArg::var("varname", false),
-                TagArg::literal("noop", false),
-            ],
-        },
-        // Timezone tags
-        TagSpec {
-            name: Some("localtime".to_string()),
-            end_tag: Some(EndTag {
-                name: "endlocaltime".to_string(),
-                optional: false,
-                args: vec![],
-            }),
-            intermediate_tags: None,
-            args: vec![TagArg::choice(
-                "mode",
-                false,
-                vec!["on".to_string(), "off".to_string()],
-            )],
-        },
-        TagSpec {
-            name: Some("timezone".to_string()),
-            end_tag: Some(EndTag {
-                name: "endtimezone".to_string(),
-                optional: false,
-                args: vec![],
-            }),
-            intermediate_tags: None,
-            args: vec![TagArg::var("timezone", true)],
-        },
-    ];
-
-    // Insert all tags into the FxHashMap
-    for tag in tags {
-        if let Some(ref name) = tag.name {
-            specs.insert(name.clone(), tag);
-        }
+    for (name, spec) in BUILTIN_PAIRS {
+        specs.insert((*name).to_string(), (*spec).clone());
     }
-
     TagSpecs::new(specs)
 });
 
@@ -495,14 +580,13 @@ mod tests {
         let specs = django_builtin_specs();
         let if_tag = specs.get("if").expect("if tag should exist");
 
-        assert_eq!(if_tag.name, Some("if".to_string()));
         assert!(if_tag.end_tag.is_some());
-        assert_eq!(if_tag.end_tag.as_ref().unwrap().name, "endif");
+        assert_eq!(if_tag.end_tag.as_ref().unwrap().name.as_ref(), "endif");
 
-        let intermediates = if_tag.intermediate_tags.as_ref().unwrap();
+        let intermediates = &if_tag.intermediate_tags;
         assert_eq!(intermediates.len(), 2);
-        assert_eq!(intermediates[0].name, "elif");
-        assert_eq!(intermediates[1].name, "else");
+        assert_eq!(intermediates[0].name.as_ref(), "elif");
+        assert_eq!(intermediates[1].name.as_ref(), "else");
     }
 
     #[test]
@@ -510,13 +594,12 @@ mod tests {
         let specs = django_builtin_specs();
         let for_tag = specs.get("for").expect("for tag should exist");
 
-        assert_eq!(for_tag.name, Some("for".to_string()));
         assert!(for_tag.end_tag.is_some());
-        assert_eq!(for_tag.end_tag.as_ref().unwrap().name, "endfor");
+        assert_eq!(for_tag.end_tag.as_ref().unwrap().name.as_ref(), "endfor");
 
-        let intermediates = for_tag.intermediate_tags.as_ref().unwrap();
+        let intermediates = &for_tag.intermediate_tags;
         assert_eq!(intermediates.len(), 1);
-        assert_eq!(intermediates[0].name, "empty");
+        assert_eq!(intermediates[0].name.as_ref(), "empty");
 
         // Check args structure
         assert!(!for_tag.args.is_empty(), "for tag should have arguments");
@@ -528,10 +611,10 @@ mod tests {
         let block_tag = specs.get("block").expect("block tag should exist");
 
         let end_tag = block_tag.end_tag.as_ref().unwrap();
-        assert_eq!(end_tag.name, "endblock");
+        assert_eq!(end_tag.name.as_ref(), "endblock");
         assert_eq!(end_tag.args.len(), 1);
-        assert_eq!(end_tag.args[0].name, "name");
-        assert!(!end_tag.args[0].required);
+        assert_eq!(end_tag.args[0].name().as_ref(), "name");
+        assert!(!end_tag.args[0].is_required());
     }
 
     #[test]
@@ -543,7 +626,7 @@ mod tests {
             .get("csrf_token")
             .expect("csrf_token tag should exist");
         assert!(csrf_tag.end_tag.is_none());
-        assert!(csrf_tag.intermediate_tags.is_none());
+        assert!(csrf_tag.intermediate_tags.is_empty());
 
         // Test extends tag with args
         let extends_tag = specs.get("extends").expect("extends tag should exist");
@@ -554,3 +637,4 @@ mod tests {
         );
     }
 }
+

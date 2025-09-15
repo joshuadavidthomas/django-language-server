@@ -1,4 +1,8 @@
 use rustc_hash::FxHashMap;
+use std::borrow::Cow;
+
+pub type S<T = str> = Cow<'static, T>;
+pub type L<T> = Cow<'static, [T]>;
 
 pub enum TagType {
     Opener,
@@ -46,7 +50,7 @@ impl TagSpecs {
     pub fn find_opener_for_closer(&self, closer: &str) -> Option<String> {
         for (tag_name, spec) in &self.0 {
             if let Some(end_spec) = &spec.end_tag {
-                if end_spec.name == closer {
+                if end_spec.name.as_ref() == closer {
                     return Some(tag_name.clone());
                 }
             }
@@ -59,7 +63,7 @@ impl TagSpecs {
     pub fn get_end_spec_for_closer(&self, closer: &str) -> Option<&EndTag> {
         for spec in self.0.values() {
             if let Some(end_spec) = &spec.end_tag {
-                if end_spec.name == closer {
+                if end_spec.name.as_ref() == closer {
                     return Some(end_spec);
                 }
             }
@@ -79,10 +83,8 @@ impl TagSpecs {
     pub fn is_intermediate(&self, name: &str) -> bool {
         self.0.values().any(|spec| {
             spec.intermediate_tags
-                .as_ref()
-                .is_some_and(|intermediate_tags| {
-                    intermediate_tags.iter().any(|tag| tag.name == name)
-                })
+                .iter()
+                .any(|tag| tag.name.as_ref() == name)
         })
     }
 
@@ -91,7 +93,7 @@ impl TagSpecs {
         self.0.values().any(|spec| {
             spec.end_tag
                 .as_ref()
-                .is_some_and(|end_tag| end_tag.name == name)
+                .is_some_and(|end_tag| end_tag.name.as_ref() == name)
         })
     }
 
@@ -100,10 +102,12 @@ impl TagSpecs {
     pub fn get_parent_tags_for_intermediate(&self, intermediate: &str) -> Vec<String> {
         let mut parents = Vec::new();
         for (opener_name, spec) in &self.0 {
-            if let Some(intermediate_tags) = &spec.intermediate_tags {
-                if intermediate_tags.iter().any(|tag| tag.name == intermediate) {
-                    parents.push(opener_name.clone());
-                }
+            if spec
+                .intermediate_tags
+                .iter()
+                .any(|tag| tag.name.as_ref() == intermediate)
+            {
+                parents.push(opener_name.clone());
             }
         }
         parents
@@ -125,10 +129,9 @@ impl From<&djls_conf::Settings> for TagSpecs {
         let mut user_specs = FxHashMap::default();
         for tagspec_def in settings.tagspecs() {
             // Clone because we're consuming the tagspec_def in the conversion
+            let name = tagspec_def.name.clone();
             let tagspec: TagSpec = tagspec_def.clone().into();
-            if let Some(name) = &tagspec.name {
-                user_specs.insert(name.clone(), tagspec);
-            }
+            user_specs.insert(name, tagspec);
         }
 
         // Merge user specs into built-in specs (user specs override built-ins)
@@ -142,166 +145,222 @@ impl From<&djls_conf::Settings> for TagSpecs {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TagSpec {
-    pub name: Option<String>,
     pub end_tag: Option<EndTag>,
-    pub intermediate_tags: Option<Vec<IntermediateTag>>,
-    pub args: Vec<TagArg>,
+    pub intermediate_tags: L<IntermediateTag>,
+    pub args: L<TagArg>,
 }
 
 impl From<djls_conf::TagSpecDef> for TagSpec {
     fn from(value: djls_conf::TagSpecDef) -> Self {
         TagSpec {
-            name: Some(value.name),
             end_tag: value.end_tag.map(Into::into),
-            intermediate_tags: if value.intermediate_tags.is_empty() {
-                None
-            } else {
-                Some(
-                    value
-                        .intermediate_tags
-                        .into_iter()
-                        .map(Into::into)
-                        .collect(),
-                )
-            },
-            args: value.args.into_iter().map(Into::into).collect(),
+            intermediate_tags: value
+                .intermediate_tags
+                .into_iter()
+                .map(Into::into)
+                .collect::<Vec<_>>()
+                .into(),
+            args: value
+                .args
+                .into_iter()
+                .map(Into::into)
+                .collect::<Vec<_>>()
+                .into(),
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct TagArg {
-    pub name: String,
-    pub required: bool,
-    pub arg_type: ArgType,
+pub enum TagArg {
+    Var {
+        name: S,
+        required: bool,
+    },
+    String {
+        name: S,
+        required: bool,
+    },
+    Literal {
+        lit: S,
+        required: bool,
+    },
+    Expr {
+        name: S,
+        required: bool,
+    },
+    Assignment {
+        name: S,
+        required: bool,
+    },
+    VarArgs {
+        name: S,
+        required: bool,
+    },
+    Choice {
+        name: S,
+        required: bool,
+        choices: L<S>,
+    },
 }
 
 impl TagArg {
-    pub fn choice(name: impl Into<String>, required: bool, choices: Vec<String>) -> Self {
-        Self {
-            name: name.into(),
-            required,
-            arg_type: ArgType::Choice { choice: choices },
+    #[must_use]
+    pub fn name(&self) -> &S {
+        match self {
+            Self::Var { name, .. }
+            | Self::String { name, .. }
+            | Self::Expr { name, .. }
+            | Self::Assignment { name, .. }
+            | Self::VarArgs { name, .. }
+            | Self::Choice { name, .. } => name,
+            Self::Literal { lit, .. } => lit,
         }
     }
 
-    pub fn expr(name: impl Into<String>, required: bool) -> Self {
-        Self {
-            name: name.into(),
-            required,
-            arg_type: ArgType::Simple(SimpleArgType::Expression),
+    #[must_use]
+    pub fn is_required(&self) -> bool {
+        match self {
+            Self::Var { required, .. }
+            | Self::String { required, .. }
+            | Self::Literal { required, .. }
+            | Self::Expr { required, .. }
+            | Self::Assignment { required, .. }
+            | Self::VarArgs { required, .. }
+            | Self::Choice { required, .. } => *required,
         }
     }
 
-    pub fn literal(name: impl Into<String>, required: bool) -> Self {
-        Self {
+    pub fn choice(name: impl Into<S>, required: bool, choices: impl Into<L<S>>) -> Self {
+        Self::Choice {
             name: name.into(),
             required,
-            arg_type: ArgType::Simple(SimpleArgType::Literal),
+            choices: choices.into(),
         }
     }
 
-    pub fn string(name: impl Into<String>, required: bool) -> Self {
-        Self {
+    pub fn expr(name: impl Into<S>, required: bool) -> Self {
+        Self::Expr {
             name: name.into(),
             required,
-            arg_type: ArgType::Simple(SimpleArgType::String),
         }
     }
 
-    pub fn var(name: impl Into<String>, required: bool) -> Self {
-        Self {
-            name: name.into(),
+    pub fn literal(lit: impl Into<S>, required: bool) -> Self {
+        Self::Literal {
+            lit: lit.into(),
             required,
-            arg_type: ArgType::Simple(SimpleArgType::Variable),
         }
     }
 
-    pub fn varargs(name: impl Into<String>, required: bool) -> Self {
-        Self {
+    pub fn string(name: impl Into<S>, required: bool) -> Self {
+        Self::String {
             name: name.into(),
             required,
-            arg_type: ArgType::Simple(SimpleArgType::VarArgs),
+        }
+    }
+
+    pub fn var(name: impl Into<S>, required: bool) -> Self {
+        Self::Var {
+            name: name.into(),
+            required,
+        }
+    }
+
+    pub fn varargs(name: impl Into<S>, required: bool) -> Self {
+        Self::VarArgs {
+            name: name.into(),
+            required,
+        }
+    }
+
+    pub fn assignment(name: impl Into<S>, required: bool) -> Self {
+        Self::Assignment {
+            name: name.into(),
+            required,
         }
     }
 }
 
 impl From<djls_conf::TagArgDef> for TagArg {
     fn from(value: djls_conf::TagArgDef) -> Self {
-        TagArg {
-            name: value.name,
-            required: value.required,
-            arg_type: value.arg_type.into(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum ArgType {
-    Simple(SimpleArgType),
-    Choice { choice: Vec<String> },
-}
-
-impl From<djls_conf::ArgTypeDef> for ArgType {
-    fn from(value: djls_conf::ArgTypeDef) -> Self {
-        match value {
-            djls_conf::ArgTypeDef::Simple(simple) => ArgType::Simple(simple.into()),
-            djls_conf::ArgTypeDef::Choice { choice } => ArgType::Choice { choice },
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum SimpleArgType {
-    Literal,
-    Variable,
-    String,
-    Expression,
-    Assignment,
-    VarArgs,
-}
-
-impl From<djls_conf::SimpleArgTypeDef> for SimpleArgType {
-    fn from(value: djls_conf::SimpleArgTypeDef) -> Self {
-        match value {
-            djls_conf::SimpleArgTypeDef::Literal => SimpleArgType::Literal,
-            djls_conf::SimpleArgTypeDef::Variable => SimpleArgType::Variable,
-            djls_conf::SimpleArgTypeDef::String => SimpleArgType::String,
-            djls_conf::SimpleArgTypeDef::Expression => SimpleArgType::Expression,
-            djls_conf::SimpleArgTypeDef::Assignment => SimpleArgType::Assignment,
-            djls_conf::SimpleArgTypeDef::VarArgs => SimpleArgType::VarArgs,
+        match value.arg_type {
+            djls_conf::ArgTypeDef::Simple(simple) => match simple {
+                djls_conf::SimpleArgTypeDef::Literal => TagArg::Literal {
+                    lit: value.name.into(),
+                    required: value.required,
+                },
+                djls_conf::SimpleArgTypeDef::Variable => TagArg::Var {
+                    name: value.name.into(),
+                    required: value.required,
+                },
+                djls_conf::SimpleArgTypeDef::String => TagArg::String {
+                    name: value.name.into(),
+                    required: value.required,
+                },
+                djls_conf::SimpleArgTypeDef::Expression => TagArg::Expr {
+                    name: value.name.into(),
+                    required: value.required,
+                },
+                djls_conf::SimpleArgTypeDef::Assignment => TagArg::Assignment {
+                    name: value.name.into(),
+                    required: value.required,
+                },
+                djls_conf::SimpleArgTypeDef::VarArgs => TagArg::VarArgs {
+                    name: value.name.into(),
+                    required: value.required,
+                },
+            },
+            djls_conf::ArgTypeDef::Choice { choice } => TagArg::Choice {
+                name: value.name.into(),
+                required: value.required,
+                choices: choice
+                    .into_iter()
+                    .map(Into::into)
+                    .collect::<Vec<_>>()
+                    .into(),
+            },
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct EndTag {
-    pub name: String,
+    pub name: S,
     pub optional: bool,
-    pub args: Vec<TagArg>,
+    pub args: L<TagArg>,
 }
 
 impl From<djls_conf::EndTagDef> for EndTag {
     fn from(value: djls_conf::EndTagDef) -> Self {
         EndTag {
-            name: value.name,
+            name: value.name.into(),
             optional: value.optional,
-            args: value.args.into_iter().map(Into::into).collect(),
+            args: value
+                .args
+                .into_iter()
+                .map(Into::into)
+                .collect::<Vec<_>>()
+                .into(),
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct IntermediateTag {
-    pub name: String,
-    pub args: Vec<TagArg>,
+    pub name: S,
+    pub args: L<TagArg>,
 }
 
 impl From<djls_conf::IntermediateTagDef> for IntermediateTag {
     fn from(value: djls_conf::IntermediateTagDef) -> Self {
         IntermediateTag {
-            name: value.name,
-            args: value.args.into_iter().map(Into::into).collect(),
+            name: value.name.into(),
+            args: value
+                .args
+                .into_iter()
+                .map(Into::into)
+                .collect::<Vec<_>>()
+                .into(),
         }
     }
 }
@@ -318,10 +377,9 @@ mod tests {
         specs.insert(
             "csrf_token".to_string(),
             TagSpec {
-                name: Some("csrf_token".to_string()),
                 end_tag: None,
-                intermediate_tags: None,
-                args: vec![],
+                intermediate_tags: Cow::Borrowed(&[]),
+                args: Cow::Borrowed(&[]),
             },
         );
 
@@ -329,23 +387,22 @@ mod tests {
         specs.insert(
             "if".to_string(),
             TagSpec {
-                name: Some("if".to_string()),
                 end_tag: Some(EndTag {
-                    name: "endif".to_string(),
+                    name: "endif".into(),
                     optional: false,
-                    args: vec![],
+                    args: Cow::Borrowed(&[]),
                 }),
-                intermediate_tags: Some(vec![
+                intermediate_tags: Cow::Owned(vec![
                     IntermediateTag {
-                        name: "elif".to_string(),
-                        args: vec![TagArg::expr("condition", true)],
+                        name: "elif".into(),
+                        args: Cow::Owned(vec![TagArg::expr("condition", true)]),
                     },
                     IntermediateTag {
-                        name: "else".to_string(),
-                        args: vec![],
+                        name: "else".into(),
+                        args: Cow::Borrowed(&[]),
                     },
                 ]),
-                args: vec![],
+                args: Cow::Borrowed(&[]),
             },
         );
 
@@ -353,23 +410,22 @@ mod tests {
         specs.insert(
             "for".to_string(),
             TagSpec {
-                name: Some("for".to_string()),
                 end_tag: Some(EndTag {
-                    name: "endfor".to_string(),
+                    name: "endfor".into(),
                     optional: false,
-                    args: vec![],
+                    args: Cow::Borrowed(&[]),
                 }),
-                intermediate_tags: Some(vec![
+                intermediate_tags: Cow::Owned(vec![
                     IntermediateTag {
-                        name: "empty".to_string(),
-                        args: vec![],
+                        name: "empty".into(),
+                        args: Cow::Borrowed(&[]),
                     },
                     IntermediateTag {
-                        name: "else".to_string(),
-                        args: vec![],
+                        name: "else".into(),
+                        args: Cow::Borrowed(&[]),
                     }, // Note: else is shared
                 ]),
-                args: vec![],
+                args: Cow::Borrowed(&[]),
             },
         );
 
@@ -377,18 +433,16 @@ mod tests {
         specs.insert(
             "block".to_string(),
             TagSpec {
-                name: Some("block".to_string()),
                 end_tag: Some(EndTag {
-                    name: "endblock".to_string(),
+                    name: "endblock".into(),
                     optional: false,
-                    args: vec![TagArg {
-                        name: "name".to_string(),
+                    args: Cow::Owned(vec![TagArg::Var {
+                        name: "name".into(),
                         required: false,
-                        arg_type: ArgType::Simple(SimpleArgType::Variable),
-                    }],
+                    }]),
                 }),
-                intermediate_tags: None,
-                args: vec![],
+                intermediate_tags: Cow::Borrowed(&[]),
+                args: Cow::Borrowed(&[]),
             },
         );
 
@@ -408,9 +462,9 @@ mod tests {
         // Test get with non-existing key
         assert!(specs.get("nonexistent").is_none());
 
-        // Verify the content is correct
+        // Verify the content is correct - if tag should have an end tag
         let if_spec = specs.get("if").unwrap();
-        assert_eq!(if_spec.name, Some("if".to_string()));
+        assert!(if_spec.end_tag.is_some());
     }
 
     #[test]
@@ -462,14 +516,14 @@ mod tests {
         let specs = create_test_specs();
 
         let endif_spec = specs.get_end_spec_for_closer("endif").unwrap();
-        assert_eq!(endif_spec.name, "endif");
+        assert_eq!(endif_spec.name.as_ref(), "endif");
         assert!(!endif_spec.optional);
         assert_eq!(endif_spec.args.len(), 0);
 
         let endblock_spec = specs.get_end_spec_for_closer("endblock").unwrap();
-        assert_eq!(endblock_spec.name, "endblock");
+        assert_eq!(endblock_spec.name.as_ref(), "endblock");
         assert_eq!(endblock_spec.args.len(), 1);
-        assert_eq!(endblock_spec.args[0].name, "name");
+        assert_eq!(endblock_spec.args[0].name().as_ref(), "name");
 
         assert!(specs.get_end_spec_for_closer("endnonexistent").is_none());
     }
@@ -573,10 +627,9 @@ mod tests {
         specs2_map.insert(
             "custom".to_string(),
             TagSpec {
-                name: Some("custom".to_string()),
                 end_tag: None,
-                intermediate_tags: None,
-                args: vec![],
+                intermediate_tags: Cow::Borrowed(&[]),
+                args: Cow::Borrowed(&[]),
             },
         );
 
@@ -584,14 +637,13 @@ mod tests {
         specs2_map.insert(
             "if".to_string(),
             TagSpec {
-                name: Some("if".to_string()),
                 end_tag: Some(EndTag {
-                    name: "endif".to_string(),
+                    name: "endif".into(),
                     optional: true, // Changed to optional
-                    args: vec![],
+                    args: Cow::Borrowed(&[]),
                 }),
-                intermediate_tags: None, // Removed intermediates
-                args: vec![],
+                intermediate_tags: Cow::Borrowed(&[]), // Removed intermediates
+                args: Cow::Borrowed(&[]),
             },
         );
 
@@ -609,7 +661,7 @@ mod tests {
         // Check that existing tag was overwritten
         let if_spec = specs1.get("if").unwrap();
         assert!(if_spec.end_tag.as_ref().unwrap().optional); // Should be optional now
-        assert!(if_spec.intermediate_tags.is_none()); // Should have no intermediates
+        assert!(if_spec.intermediate_tags.is_empty()); // Should have no intermediates
 
         // Check that unaffected tags remain
         assert!(specs1.get("for").is_some());
@@ -634,45 +686,44 @@ mod tests {
 
     #[test]
     fn test_conversion_from_conf_types() {
-        // Test SimpleArgTypeDef -> SimpleArgType conversion
-        assert_eq!(
-            SimpleArgType::from(djls_conf::SimpleArgTypeDef::Variable),
-            SimpleArgType::Variable
-        );
-        assert_eq!(
-            SimpleArgType::from(djls_conf::SimpleArgTypeDef::Literal),
-            SimpleArgType::Literal
-        );
-
-        // Test ArgTypeDef -> ArgType conversion
-        let simple_arg = djls_conf::ArgTypeDef::Simple(djls_conf::SimpleArgTypeDef::String);
+        // Test TagArgDef -> TagArg conversion for different arg types
+        let string_arg_def = djls_conf::TagArgDef {
+            name: "test".to_string(),
+            required: true,
+            arg_type: djls_conf::ArgTypeDef::Simple(djls_conf::SimpleArgTypeDef::String),
+        };
         assert!(matches!(
-            ArgType::from(simple_arg),
-            ArgType::Simple(SimpleArgType::String)
+            TagArg::from(string_arg_def),
+            TagArg::String { .. }
         ));
 
-        let choice_arg = djls_conf::ArgTypeDef::Choice {
-            choice: vec!["on".to_string(), "off".to_string()],
+        let choice_arg_def = djls_conf::TagArgDef {
+            name: "mode".to_string(),
+            required: false,
+            arg_type: djls_conf::ArgTypeDef::Choice {
+                choice: vec!["on".to_string(), "off".to_string()],
+            },
         };
-        if let ArgType::Choice { choice } = ArgType::from(choice_arg) {
-            assert_eq!(choice, vec!["on".to_string(), "off".to_string()]);
+        if let TagArg::Choice { choices, .. } = TagArg::from(choice_arg_def) {
+            assert_eq!(choices.len(), 2);
+            assert_eq!(choices[0].as_ref(), "on");
+            assert_eq!(choices[1].as_ref(), "off");
         } else {
             panic!("Expected Choice variant");
         }
 
-        // Test TagArgDef -> Arg conversion
+        // Test TagArgDef -> TagArg conversion for Variable type
         let tag_arg_def = djls_conf::TagArgDef {
             name: "test_arg".to_string(),
             required: true,
             arg_type: djls_conf::ArgTypeDef::Simple(djls_conf::SimpleArgTypeDef::Variable),
         };
         let arg = TagArg::from(tag_arg_def);
-        assert_eq!(arg.name, "test_arg");
-        assert!(arg.required);
-        assert!(matches!(
-            arg.arg_type,
-            ArgType::Simple(SimpleArgType::Variable)
-        ));
+        assert!(matches!(arg, TagArg::Var { .. }));
+        if let TagArg::Var { name, required } = arg {
+            assert_eq!(name.as_ref(), "test_arg");
+            assert!(required);
+        }
 
         // Test EndTagDef -> EndTag conversion
         let end_tag_def = djls_conf::EndTagDef {
@@ -681,7 +732,7 @@ mod tests {
             args: vec![],
         };
         let end_tag = EndTag::from(end_tag_def);
-        assert_eq!(end_tag.name, "endtest");
+        assert_eq!(end_tag.name.as_ref(), "endtest");
         assert!(end_tag.optional);
         assert_eq!(end_tag.args.len(), 0);
 
@@ -695,9 +746,9 @@ mod tests {
             }],
         };
         let intermediate = IntermediateTag::from(intermediate_def);
-        assert_eq!(intermediate.name, "elif");
+        assert_eq!(intermediate.name.as_ref(), "elif");
         assert_eq!(intermediate.args.len(), 1);
-        assert_eq!(intermediate.args[0].name, "condition");
+        assert_eq!(intermediate.args[0].name().as_ref(), "condition");
 
         // Test full TagSpecDef -> TagSpec conversion
         let tagspec_def = djls_conf::TagSpecDef {
@@ -715,16 +766,12 @@ mod tests {
             args: vec![],
         };
         let tagspec = TagSpec::from(tagspec_def);
-        assert_eq!(tagspec.name, Some("custom".to_string()));
+        // Name field was removed from TagSpec
         assert!(tagspec.end_tag.is_some());
-        assert_eq!(tagspec.end_tag.as_ref().unwrap().name, "endcustom");
-        assert!(tagspec.intermediate_tags.is_some());
-        assert_eq!(tagspec.intermediate_tags.as_ref().unwrap().len(), 1);
-        assert_eq!(
-            tagspec.intermediate_tags.as_ref().unwrap()[0].name,
-            "branch"
-        );
-        assert_eq!(tagspec.intermediate_tags.as_ref().unwrap()[0].args.len(), 0);
+        assert_eq!(tagspec.end_tag.as_ref().unwrap().name.as_ref(), "endcustom");
+        assert_eq!(tagspec.intermediate_tags.len(), 1);
+        assert_eq!(tagspec.intermediate_tags[0].name.as_ref(), "branch");
+        assert_eq!(tagspec.intermediate_tags[0].args.len(), 0);
     }
 
     #[test]
@@ -770,28 +817,22 @@ end_tag = { name = "endif", optional = true }
 
         // Should have user-defined custom tag
         let mytag = specs.get("mytag").expect("mytag should be present");
-        assert_eq!(mytag.name, Some("mytag".to_string()));
-        assert_eq!(mytag.end_tag.as_ref().unwrap().name, "endmytag");
+        // Name field was removed from TagSpec
+        assert_eq!(mytag.end_tag.as_ref().unwrap().name.as_ref(), "endmytag");
         assert!(!mytag.end_tag.as_ref().unwrap().optional);
-        assert_eq!(mytag.intermediate_tags.as_ref().unwrap().len(), 1);
-        assert_eq!(
-            mytag.intermediate_tags.as_ref().unwrap()[0].name,
-            "mybranch"
-        );
+        assert_eq!(mytag.intermediate_tags.len(), 1);
+        assert_eq!(mytag.intermediate_tags[0].name.as_ref(), "mybranch");
         assert_eq!(mytag.args.len(), 2);
-        assert_eq!(mytag.args[0].name, "arg1");
-        assert!(mytag.args[0].required);
-        assert_eq!(mytag.args[1].name, "arg2");
-        assert!(!mytag.args[1].required);
+        assert_eq!(mytag.args[0].name().as_ref(), "arg1");
+        assert!(mytag.args[0].is_required());
+        assert_eq!(mytag.args[1].name().as_ref(), "arg2");
+        assert!(!mytag.args[1].is_required());
 
         // Should have overridden built-in "if" tag
         let if_tag = specs.get("if").expect("if tag should be present");
         assert!(if_tag.end_tag.as_ref().unwrap().optional); // Changed to optional
                                                             // Note: The built-in if tag has intermediate tags, but the override doesn't specify them
                                                             // The override completely replaces the built-in
-        assert!(
-            if_tag.intermediate_tags.is_none()
-                || if_tag.intermediate_tags.as_ref().unwrap().is_empty()
-        );
+        assert!(if_tag.intermediate_tags.is_empty());
     }
 }

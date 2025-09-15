@@ -1,5 +1,4 @@
-use djls_semantic::specs::ArgType;
-use djls_semantic::specs::SimpleArgType;
+
 use djls_semantic::specs::TagArg;
 use djls_semantic::specs::TagSpec;
 
@@ -12,50 +11,49 @@ pub fn generate_snippet_from_args(args: &[TagArg]) -> String {
     for arg in args {
         // Skip optional literals entirely - they're usually flags like "reversed" or "only"
         // that the user can add manually if needed
-        if !arg.required && matches!(&arg.arg_type, ArgType::Simple(SimpleArgType::Literal)) {
+        if !arg.is_required() && matches!(arg, TagArg::Literal { .. }) {
             continue;
         }
 
         // Skip other optional args if we haven't seen any required args yet
         // This prevents generating snippets like: "{% for %}" when everything is optional
-        if !arg.required && parts.is_empty() {
+        if !arg.is_required() && parts.is_empty() {
             continue;
         }
 
-        let snippet_part = match &arg.arg_type {
-            ArgType::Simple(simple_type) => match simple_type {
-                SimpleArgType::Literal => {
-                    // At this point, we know it's required (optional literals were skipped above)
-                    arg.name.clone()
-                }
-                SimpleArgType::Variable | SimpleArgType::Expression => {
-                    // Variables and expressions become placeholders
-                    let result = format!("${{{}:{}}}", placeholder_index, arg.name);
-                    placeholder_index += 1;
-                    result
-                }
-                SimpleArgType::String => {
-                    // Strings get quotes around them
-                    let result = format!("\"${{{}:{}}}\"", placeholder_index, arg.name);
-                    placeholder_index += 1;
-                    result
-                }
-                SimpleArgType::Assignment => {
-                    // Assignments use the name as-is (e.g., "var=value")
-                    let result = format!("${{{}:{}}}", placeholder_index, arg.name);
-                    placeholder_index += 1;
-                    result
-                }
-                SimpleArgType::VarArgs => {
-                    // Variable arguments, just use the name
-                    let result = format!("${{{}:{}}}", placeholder_index, arg.name);
-                    placeholder_index += 1;
-                    result
-                }
-            },
-            ArgType::Choice { choice } => {
+        let snippet_part = match arg {
+            TagArg::Literal { lit, .. } => {
+                // At this point, we know it's required (optional literals were skipped above)
+                lit.to_string()
+            }
+            TagArg::Var { name, .. } | TagArg::Expr { name, .. } => {
+                // Variables and expressions become placeholders
+                let result = format!("${{{}:{}}}", placeholder_index, name.as_ref());
+                placeholder_index += 1;
+                result
+            }
+            TagArg::String { name, .. } => {
+                // Strings get quotes around them
+                let result = format!("\"${{{}:{}}}\"", placeholder_index, name.as_ref());
+                placeholder_index += 1;
+                result
+            }
+            TagArg::Assignment { name, .. } => {
+                // Assignments use the name as-is (e.g., "var=value")
+                let result = format!("${{{}:{}}}", placeholder_index, name.as_ref());
+                placeholder_index += 1;
+                result
+            }
+            TagArg::VarArgs { name, .. } => {
+                // Variable arguments, just use the name
+                let result = format!("${{{}:{}}}", placeholder_index, name.as_ref());
+                placeholder_index += 1;
+                result
+            }
+            TagArg::Choice { choices, .. } => {
                 // Choice placeholders with options
-                let result = format!("${{{}|{}|}}", placeholder_index, choice.join(","));
+                let options: Vec<_> = choices.iter().map(|s| s.as_ref()).collect();
+                let result = format!("${{{}|{}|}}", placeholder_index, options.join(","));
                 placeholder_index += 1;
                 result
             }
@@ -128,25 +126,21 @@ mod tests {
     #[test]
     fn test_snippet_for_for_tag() {
         let args = vec![
-            TagArg {
-                name: "item".to_string(),
+            TagArg::Var {
+                name: "item".into(),
                 required: true,
-                arg_type: ArgType::Simple(SimpleArgType::Variable),
             },
-            TagArg {
-                name: "in".to_string(),
+            TagArg::Literal {
+                lit: "in".into(),
                 required: true,
-                arg_type: ArgType::Simple(SimpleArgType::Literal),
             },
-            TagArg {
-                name: "items".to_string(),
+            TagArg::Var {
+                name: "items".into(),
                 required: true,
-                arg_type: ArgType::Simple(SimpleArgType::Variable),
             },
-            TagArg {
-                name: "reversed".to_string(),
+            TagArg::Literal {
+                lit: "reversed".into(),
                 required: false,
-                arg_type: ArgType::Simple(SimpleArgType::Literal),
             },
         ];
 
@@ -156,10 +150,9 @@ mod tests {
 
     #[test]
     fn test_snippet_for_if_tag() {
-        let args = vec![TagArg {
-            name: "condition".to_string(),
+        let args = vec![TagArg::Expr {
+            name: "condition".into(),
             required: true,
-            arg_type: ArgType::Simple(SimpleArgType::Expression),
         }];
 
         let snippet = generate_snippet_from_args(&args);
@@ -168,12 +161,10 @@ mod tests {
 
     #[test]
     fn test_snippet_for_autoescape_tag() {
-        let args = vec![TagArg {
-            name: "mode".to_string(),
+        let args = vec![TagArg::Choice {
+            name: "mode".into(),
             required: true,
-            arg_type: ArgType::Choice {
-                choice: vec!["on".to_string(), "off".to_string()],
-            },
+            choices: vec!["on".into(), "off".into()].into(),
         }];
 
         let snippet = generate_snippet_from_args(&args);
@@ -182,10 +173,9 @@ mod tests {
 
     #[test]
     fn test_snippet_for_extends_tag() {
-        let args = vec![TagArg {
-            name: "template".to_string(),
+        let args = vec![TagArg::String {
+            name: "template".into(),
             required: true,
-            arg_type: ArgType::Simple(SimpleArgType::String),
         }];
 
         let snippet = generate_snippet_from_args(&args);
@@ -203,22 +193,19 @@ mod tests {
     #[test]
     fn test_snippet_for_block_tag() {
         let spec = TagSpec {
-            name: None,
             end_tag: Some(EndTag {
-                name: "endblock".to_string(),
+                name: "endblock".into(),
                 optional: false,
-                args: vec![TagArg {
-                    name: "name".to_string(),
+                args: vec![TagArg::Var {
+                    name: "name".into(),
                     required: false,
-                    arg_type: ArgType::Simple(SimpleArgType::Variable),
-                }],
+                }].into(),
             }),
-            intermediate_tags: None,
-            args: vec![TagArg {
-                name: "name".to_string(),
+            intermediate_tags: Cow::Borrowed(&[]),
+            args: vec![TagArg::Var {
+                name: "name".into(),
                 required: true,
-                arg_type: ArgType::Simple(SimpleArgType::Variable),
-            }],
+            }].into(),
         };
 
         let snippet = generate_snippet_for_tag_with_end("block", &spec);
@@ -228,20 +215,17 @@ mod tests {
     #[test]
     fn test_snippet_with_end_tag() {
         let spec = TagSpec {
-            name: None,
             end_tag: Some(EndTag {
-                name: "endautoescape".to_string(),
+                name: "endautoescape".into(),
                 optional: false,
-                args: vec![],
+                args: Cow::Borrowed(&[]),
             }),
-            intermediate_tags: None,
-            args: vec![TagArg {
-                name: "mode".to_string(),
+            intermediate_tags: Cow::Borrowed(&[]),
+            args: vec![TagArg::Choice {
+                name: "mode".into(),
                 required: true,
-                arg_type: ArgType::Choice {
-                    choice: vec!["on".to_string(), "off".to_string()],
-                },
-            }],
+                choices: vec!["on".into(), "off".into()].into(),
+            }].into(),
         };
 
         let snippet = generate_snippet_for_tag_with_end("autoescape", &spec);
@@ -254,25 +238,21 @@ mod tests {
     #[test]
     fn test_snippet_for_url_tag() {
         let args = vec![
-            TagArg {
-                name: "view_name".to_string(),
+            TagArg::String {
+                name: "view_name".into(),
                 required: true,
-                arg_type: ArgType::Simple(SimpleArgType::String),
             },
-            TagArg {
-                name: "args".to_string(),
+            TagArg::VarArgs {
+                name: "args".into(),
                 required: false,
-                arg_type: ArgType::Simple(SimpleArgType::VarArgs),
             },
-            TagArg {
-                name: "as".to_string(),
+            TagArg::Literal {
+                lit: "as".into(),
                 required: false,
-                arg_type: ArgType::Simple(SimpleArgType::Literal),
             },
-            TagArg {
-                name: "varname".to_string(),
+            TagArg::Var {
+                name: "varname".into(),
                 required: false,
-                arg_type: ArgType::Simple(SimpleArgType::Variable),
             },
         ];
 

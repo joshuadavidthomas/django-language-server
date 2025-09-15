@@ -27,8 +27,6 @@ use salsa::Accumulator;
 use crate::db::Db as SemanticDb;
 use crate::db::ValidationErrorAccumulator;
 use crate::errors::ValidationError;
-use crate::specs::ArgType;
-use crate::specs::SimpleArgType;
 use crate::specs::TagArg;
 use crate::specs::TagType;
 
@@ -67,7 +65,7 @@ impl<'db> TagValidator<'db> {
                     };
 
                     // Pass full_span for error reporting
-                    self.check_arguments(&name_str, bits, node.full_span(), args);
+                    self.check_arguments(&name_str, bits, node.full_span(), args.map(|a| a.as_ref()));
 
                     match tag_type {
                         TagType::Opener => {
@@ -104,14 +102,14 @@ impl<'db> TagValidator<'db> {
         name: &str,
         bits: &[TagBit<'db>],
         span: Span,
-        args: Option<&Vec<TagArg>>,
+        args: Option<&[TagArg]>,
     ) {
         let Some(args) = args else {
             return;
         };
 
         // Count required arguments
-        let required_count = args.iter().filter(|arg| arg.required).count();
+        let required_count = args.iter().filter(|arg| arg.is_required()).count();
 
         if bits.len() < required_count {
             self.report_error(ValidationError::MissingRequiredArguments {
@@ -124,7 +122,7 @@ impl<'db> TagValidator<'db> {
         // If there are more bits than defined args, that might be okay for varargs
         let has_varargs = args
             .iter()
-            .any(|arg| matches!(arg.arg_type, ArgType::Simple(SimpleArgType::VarArgs)));
+            .any(|arg| matches!(arg, TagArg::VarArgs { .. }));
 
         if !has_varargs && bits.len() > args.len() {
             self.report_error(ValidationError::TooManyArguments {
