@@ -14,30 +14,30 @@
 //! ## Key Components
 //!
 //! - [`Db`]: Database trait extending the workspace database
-//! - [`analyze_template`]: Main entry point for template analysis
+//! - [`parse_template`]: Main entry point for template parsing
 //! - [`TemplateDiagnostic`]: Accumulator for collecting LSP diagnostics
 //!
 //! ## Incremental Computation
 //!
 //! When a template file changes:
 //! 1. Salsa invalidates the cached AST for that file
-//! 2. Next access to `analyze_template` triggers reparse
+//! 2. Next access to `parse_template` triggers reparse
 //! 3. Diagnostics are accumulated during parse/validation
 //! 4. Other files remain cached unless they also changed
 //!
 //! ## Example
 //!
 //! ```ignore
-//! // Analyze a template and get its AST
-//! let ast = analyze_template(db, file);
+//! // Parse a template and get its AST
+//! let nodelist = parse_template(db, file);
 //!
 //! // Retrieve accumulated diagnostics
-//! let diagnostics = analyze_template::accumulated::<TemplateDiagnostic>(db, file);
+//! let diagnostics = parse_template::accumulated::<TemplateDiagnostic>(db, file);
 //!
 //! // Get diagnostics for all workspace files
 //! for file in workspace.files() {
-//!     let _ = analyze_template(db, file); // Trigger analysis
-//!     let diags = analyze_template::accumulated::<TemplateDiagnostic>(db, file);
+//!     let _ = parse_template(db, file); // Trigger parsing
+//!     let diags = parse_template::accumulated::<TemplateDiagnostic>(db, file);
 //!     // Process diagnostics...
 //! }
 //! ```

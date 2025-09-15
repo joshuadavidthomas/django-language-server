@@ -1,4 +1,4 @@
-use crate::ast::LineOffsets;
+use crate::nodelist::LineOffsets;
 use crate::db::Db as TemplateDb;
 use crate::tokens::Token;
 use crate::tokens::TokenContent;

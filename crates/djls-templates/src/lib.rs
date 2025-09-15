@@ -2,7 +2,7 @@
 //!
 //! This crate provides comprehensive support for Django template files including:
 //! - Lexical analysis and tokenization
-//! - Parsing into an Abstract Syntax Tree (AST)
+//! - Parsing into a flat node list
 //! - Validation using configurable tag specifications
 //! - LSP diagnostic generation with Salsa integration
 //!
@@ -11,13 +11,13 @@
 //! The system uses a multi-stage pipeline:
 //!
 //! 1. **Lexing**: Template text is tokenized into Django constructs (tags, variables, text)
-//! 2. **Parsing**: Tokens are parsed into a structured AST
-//! 3. **Validation**: The AST is validated using the visitor pattern
+//! 2. **Parsing**: Tokens are parsed into a flat node list
+//! 3. **Validation**: The node list is validated using the visitor pattern
 //! 4. **Diagnostics**: Errors are converted to LSP diagnostics via Salsa accumulators
 //!
 //! ## Key Components
 //!
-//! - [`ast`]: AST node definitions and visitor pattern implementation
+//! - [`nodelist`]: Node list definitions and structure
 //! - [`db`]: Salsa database integration for incremental computation
 //! - [`validation`]: Validation rules using the visitor pattern
 //! - [`tagspecs`]: Django tag specifications for validation
@@ -32,28 +32,28 @@
 //!
 //! ```ignore
 //! // For LSP integration with Salsa (primary usage):
-//! use djls_templates::db::{analyze_template, TemplateDiagnostic};
+//! use djls_templates::{parse_template, TemplateDiagnostic};
 //!
-//! let ast = analyze_template(db, file);
-//! let diagnostics = analyze_template::accumulated::<TemplateDiagnostic>(db, file);
+//! let nodelist = parse_template(db, file);
+//! let diagnostics = parse_template::accumulated::<TemplateDiagnostic>(db, file);
 //!
 //! // For direct parsing (testing/debugging):
 //! use djls_templates::{Lexer, Parser};
 //!
 //! let tokens = Lexer::new(source).tokenize()?;
 //! let mut parser = Parser::new(tokens);
-//! let (ast, errors) = parser.parse()?;
+//! let (nodelist, errors) = parser.parse()?;
 //! ```
 
-pub mod ast;
+pub mod nodelist;
 pub mod db;
 mod error;
 mod lexer;
 mod parser;
 mod tokens;
 
-use ast::LineOffsets;
-pub use ast::NodeList;
+use nodelist::LineOffsets;
+pub use nodelist::NodeList;
 pub use db::Db;
 pub use db::TemplateDiagnostic;
 use djls_workspace::db::SourceFile;
@@ -82,17 +82,17 @@ fn lex_template(db: &dyn Db, file: SourceFile) -> TokenStream<'_> {
     TokenStream::new(db, tokens, line_offsets)
 }
 
-/// Parse tokens into an AST.
+/// Parse tokens into a node list.
 ///
 /// This is the second phase of template processing. It takes the token stream
-/// from lexing and builds an Abstract Syntax Tree.
+/// from lexing and builds an node list.
 #[salsa::tracked]
-fn parse_template(db: &dyn Db, file: SourceFile) -> NodeList<'_> {
+fn parse_template_impl(db: &dyn Db, file: SourceFile) -> NodeList<'_> {
     let token_stream = lex_template(db, file);
 
     // Check if lexing produced no tokens (likely due to an error)
     if token_stream.stream(db).is_empty() {
-        // Return empty AST for error recovery
+        // Return empty node list for error recovery
         let empty_nodelist = Vec::new();
         let empty_offsets = LineOffsets::default();
         return NodeList::new(db, empty_nodelist, empty_offsets);
@@ -100,13 +100,13 @@ fn parse_template(db: &dyn Db, file: SourceFile) -> NodeList<'_> {
 
     // Parser needs the TokenStream<'db>
     match Parser::new(db, token_stream).parse() {
-        Ok((ast, errors)) => {
+        Ok((nodelist, errors)) => {
             // Accumulate parser errors
             for error in errors {
                 let template_error = TemplateError::Parser(error.to_string());
-                accumulate_error(db, &template_error, ast.line_offsets(db));
+                accumulate_error(db, &template_error, nodelist.line_offsets(db));
             }
-            ast
+            nodelist
         }
         Err(err) => {
             // Critical parser error
@@ -114,7 +114,7 @@ fn parse_template(db: &dyn Db, file: SourceFile) -> NodeList<'_> {
             let empty_offsets = LineOffsets::default();
             accumulate_error(db, &template_error, &empty_offsets);
 
-            // Return empty AST
+            // Return empty node list
             let empty_nodelist = Vec::new();
             let empty_offsets = LineOffsets::default();
             NodeList::new(db, empty_nodelist, empty_offsets)
@@ -128,7 +128,7 @@ fn accumulate_error(db: &dyn Db, error: &TemplateError, line_offsets: &LineOffse
     let range = error
         .span()
         .map(|(start, length)| {
-            let span = crate::ast::Span::new(start, length);
+            let span = crate::nodelist::Span::new(start, length);
             span.to_lsp_range(line_offsets)
         })
         .unwrap_or_default();
@@ -153,29 +153,33 @@ fn accumulate_error(db: &dyn Db, error: &TemplateError, line_offsets: &LineOffse
     TemplateDiagnostic(diagnostic).accumulate(db);
 }
 
-/// Analyze a Django template file - parse and accumulate diagnostics.
+/// Parse a Django template file and accumulate diagnostics.
 ///
 /// This is the PRIMARY function for template processing. It's a Salsa tracked function
 /// that orchestrates the parsing phases of template processing:
 /// 1. Lexing (tokenization)
-/// 2. Parsing (AST construction)
+/// 2. Parsing (node list construction)
 ///
 /// Validation has been moved to the djls-semantic crate for semantic analysis.
 ///
 /// Each phase is independently cached by Salsa, allowing for fine-grained
 /// incremental computation.
 ///
-/// The function returns the parsed AST (or None for non-template files).
+/// The function returns the parsed node list (or None for non-template files).
 ///
 /// Diagnostics can be retrieved using:
 /// ```ignore
 /// let diagnostics =
-///     analyze_template::accumulated::<TemplateDiagnostic>(db, file);
+///     parse_template::accumulated::<TemplateDiagnostic>(db, file);
 /// ```
 #[salsa::tracked]
-pub fn analyze_template(db: &dyn Db, file: SourceFile) -> Option<NodeList<'_>> {
+pub fn parse_template(db: &dyn Db, file: SourceFile) -> Option<NodeList<'_>> {
     if file.kind(db) != FileKind::Template {
         return None;
     }
-    Some(parse_template(db, file))
+    Some(parse_template_impl(db, file))
 }
+
+// Keep analyze_template as deprecated alias for backwards compatibility
+#[deprecated(since = "0.0.0", note = "Use parse_template instead")]
+pub use parse_template as analyze_template;

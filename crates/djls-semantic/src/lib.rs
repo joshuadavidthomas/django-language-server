@@ -5,6 +5,8 @@ pub mod specs;
 pub mod validation;
 
 pub use builtins::django_builtin_specs;
+pub use db::validate_nodelist;
+pub use db::validate_template;
 pub use db::SemanticDb;
 pub use snippets::generate_partial_snippet;
 pub use snippets::generate_snippet_for_tag;

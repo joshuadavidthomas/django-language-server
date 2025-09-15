@@ -2,7 +2,8 @@ use std::future::Future;
 use std::sync::Arc;
 
 use djls_project::Db as ProjectDb;
-use djls_templates::analyze_template;
+use djls_semantic::validate_template;
+use djls_templates::parse_template;
 use djls_templates::TemplateDiagnostic;
 use djls_workspace::paths;
 use djls_workspace::FileKind;
@@ -99,11 +100,23 @@ impl DjangoLanguageServer {
                     // Parse and validate the template (triggers accumulation)
                     // This should be a cheap call since salsa should cache the function
                     // call, but we may need to revisit if that assumption is incorrect
-                    let _ast = analyze_template(db, file);
+                    let _nodelist = parse_template(db, file);
 
-                    let diagnostics = analyze_template::accumulated::<TemplateDiagnostic>(db, file);
+                    // Also run semantic validation
+                    validate_template(db, file);
 
-                    diagnostics.into_iter().map(Into::into).collect()
+                    // Collect diagnostics from both syntax and semantic validation
+                    let syntax_diagnostics =
+                        parse_template::accumulated::<TemplateDiagnostic>(db, file);
+                    let semantic_diagnostics =
+                        validate_template::accumulated::<TemplateDiagnostic>(db, file);
+
+                    // Combine all diagnostics
+                    syntax_diagnostics
+                        .into_iter()
+                        .chain(semantic_diagnostics)
+                        .map(Into::into)
+                        .collect()
                 })
             })
             .await;
@@ -427,13 +440,23 @@ impl LanguageServer for DjangoLanguageServer {
                     };
 
                     // Parse and validate the template (triggers accumulation)
-                    let _ast = analyze_template(db, file);
+                    let _nodelist = parse_template(db, file);
 
-                    // Get accumulated diagnostics directly - they're already LSP diagnostics!
-                    let diagnostics = analyze_template::accumulated::<TemplateDiagnostic>(db, file);
+                    // Also run semantic validation
+                    validate_template(db, file);
 
-                    // Convert from TemplateDiagnostic wrapper to lsp_types::Diagnostic
-                    diagnostics.into_iter().map(Into::into).collect()
+                    // Collect diagnostics from both syntax and semantic validation
+                    let syntax_diagnostics =
+                        parse_template::accumulated::<TemplateDiagnostic>(db, file);
+                    let semantic_diagnostics =
+                        validate_template::accumulated::<TemplateDiagnostic>(db, file);
+
+                    // Combine all diagnostics
+                    syntax_diagnostics
+                        .into_iter()
+                        .chain(semantic_diagnostics)
+                        .map(Into::into)
+                        .collect()
                 })
             })
             .await;
