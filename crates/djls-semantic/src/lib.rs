@@ -7,6 +7,7 @@ pub mod validation;
 pub use builtins::django_builtin_specs;
 pub use db::SemanticDb;
 pub use db::SemanticDiagnostic;
+use salsa::Accumulator;
 pub use snippets::generate_partial_snippet;
 pub use snippets::generate_snippet_for_tag;
 pub use snippets::generate_snippet_for_tag_with_end;
@@ -18,10 +19,8 @@ pub use specs::SimpleArgType;
 pub use specs::TagArg;
 pub use specs::TagSpec;
 pub use specs::TagSpecs;
-pub use validation::TagValidator;
-
-use salsa::Accumulator;
 use tower_lsp_server::lsp_types;
+pub use validation::TagValidator;
 
 pub enum TagType {
     Opener,
