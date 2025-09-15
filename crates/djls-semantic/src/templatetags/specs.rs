@@ -123,7 +123,7 @@ impl TagSpecs {
 impl From<&djls_conf::Settings> for TagSpecs {
     fn from(settings: &djls_conf::Settings) -> Self {
         // Start with built-in specs
-        let mut specs = crate::builtins::django_builtin_specs();
+        let mut specs = crate::templatetags::django_builtin_specs();
 
         // Convert and merge user-defined tagspecs
         let mut user_specs = FxHashMap::default();
@@ -145,6 +145,7 @@ impl From<&djls_conf::Settings> for TagSpecs {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TagSpec {
+    pub module: S,
     pub end_tag: Option<EndTag>,
     pub intermediate_tags: L<IntermediateTag>,
     pub args: L<TagArg>,
@@ -153,6 +154,7 @@ pub struct TagSpec {
 impl From<djls_conf::TagSpecDef> for TagSpec {
     fn from(value: djls_conf::TagSpecDef) -> Self {
         TagSpec {
+            module: value.module.into(),
             end_tag: value.end_tag.map(Into::into),
             intermediate_tags: value
                 .intermediate_tags
@@ -377,6 +379,7 @@ mod tests {
         specs.insert(
             "csrf_token".to_string(),
             TagSpec {
+                module: "django.template.defaulttags".into(),
                 end_tag: None,
                 intermediate_tags: Cow::Borrowed(&[]),
                 args: Cow::Borrowed(&[]),
@@ -387,6 +390,7 @@ mod tests {
         specs.insert(
             "if".to_string(),
             TagSpec {
+                module: "django.template.defaulttags".into(),
                 end_tag: Some(EndTag {
                     name: "endif".into(),
                     optional: false,
@@ -410,6 +414,7 @@ mod tests {
         specs.insert(
             "for".to_string(),
             TagSpec {
+                module: "django.template.defaulttags".into(),
                 end_tag: Some(EndTag {
                     name: "endfor".into(),
                     optional: false,
@@ -433,6 +438,7 @@ mod tests {
         specs.insert(
             "block".to_string(),
             TagSpec {
+                module: "django.template.loader_tags".into(),
                 end_tag: Some(EndTag {
                     name: "endblock".into(),
                     optional: false,
@@ -627,6 +633,7 @@ mod tests {
         specs2_map.insert(
             "custom".to_string(),
             TagSpec {
+                module: "custom.module".into(),
                 end_tag: None,
                 intermediate_tags: Cow::Borrowed(&[]),
                 args: Cow::Borrowed(&[]),
@@ -637,6 +644,7 @@ mod tests {
         specs2_map.insert(
             "if".to_string(),
             TagSpec {
+                module: "django.template.defaulttags".into(),
                 end_tag: Some(EndTag {
                     name: "endif".into(),
                     optional: true, // Changed to optional

@@ -1,6 +1,5 @@
-
-use djls_semantic::specs::TagArg;
-use djls_semantic::specs::TagSpec;
+use djls_semantic::TagArg;
+use djls_semantic::TagSpec;
 
 /// Generate an LSP snippet pattern from an array of arguments
 #[must_use]
@@ -52,7 +51,7 @@ pub fn generate_snippet_from_args(args: &[TagArg]) -> String {
             }
             TagArg::Choice { choices, .. } => {
                 // Choice placeholders with options
-                let options: Vec<_> = choices.iter().map(|s| s.as_ref()).collect();
+                let options: Vec<_> = choices.iter().map(std::convert::AsRef::as_ref).collect();
                 let result = format!("${{{}|{}|}}", placeholder_index, options.join(","));
                 placeholder_index += 1;
                 result
@@ -119,9 +118,8 @@ pub fn generate_partial_snippet(spec: &TagSpec, starting_from_position: usize) -
 
 #[cfg(test)]
 mod tests {
-    use djls_semantic::specs::EndTag;
-
     use super::*;
+    use djls_semantic::EndTag;
 
     #[test]
     fn test_snippet_for_for_tag() {
@@ -192,20 +190,25 @@ mod tests {
 
     #[test]
     fn test_snippet_for_block_tag() {
+        use std::borrow::Cow;
+
         let spec = TagSpec {
+            module: "django.template.loader_tags".into(),
             end_tag: Some(EndTag {
                 name: "endblock".into(),
                 optional: false,
                 args: vec![TagArg::Var {
                     name: "name".into(),
                     required: false,
-                }].into(),
+                }]
+                .into(),
             }),
             intermediate_tags: Cow::Borrowed(&[]),
             args: vec![TagArg::Var {
                 name: "name".into(),
                 required: true,
-            }].into(),
+            }]
+            .into(),
         };
 
         let snippet = generate_snippet_for_tag_with_end("block", &spec);
@@ -214,7 +217,10 @@ mod tests {
 
     #[test]
     fn test_snippet_with_end_tag() {
+        use std::borrow::Cow;
+
         let spec = TagSpec {
+            module: "django.template.defaulttags".into(),
             end_tag: Some(EndTag {
                 name: "endautoescape".into(),
                 optional: false,
@@ -225,7 +231,8 @@ mod tests {
                 name: "mode".into(),
                 required: true,
                 choices: vec!["on".into(), "off".into()].into(),
-            }].into(),
+            }]
+            .into(),
         };
 
         let snippet = generate_snippet_for_tag_with_end("autoescape", &spec);

@@ -27,8 +27,8 @@ use salsa::Accumulator;
 use crate::db::Db as SemanticDb;
 use crate::db::ValidationErrorAccumulator;
 use crate::errors::ValidationError;
-use crate::specs::TagArg;
-use crate::specs::TagType;
+use crate::templatetags::TagArg;
+use crate::templatetags::TagType;
 
 pub struct TagValidator<'db> {
     db: &'db dyn SemanticDb,
@@ -65,7 +65,12 @@ impl<'db> TagValidator<'db> {
                     };
 
                     // Pass full_span for error reporting
-                    self.check_arguments(&name_str, bits, node.full_span(), args.map(|a| a.as_ref()));
+                    self.check_arguments(
+                        &name_str,
+                        bits,
+                        node.full_span(),
+                        args.map(std::convert::AsRef::as_ref),
+                    );
 
                     match tag_type {
                         TagType::Opener => {
@@ -120,9 +125,7 @@ impl<'db> TagValidator<'db> {
         }
 
         // If there are more bits than defined args, that might be okay for varargs
-        let has_varargs = args
-            .iter()
-            .any(|arg| matches!(arg, TagArg::VarArgs { .. }));
+        let has_varargs = args.iter().any(|arg| matches!(arg, TagArg::VarArgs { .. }));
 
         if !has_varargs && bits.len() > args.len() {
             self.report_error(ValidationError::TooManyArguments {
