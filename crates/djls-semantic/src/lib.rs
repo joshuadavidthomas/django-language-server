@@ -8,6 +8,7 @@ pub use builtins::django_builtin_specs;
 pub use db::Db;
 pub use db::ValidationErrorAccumulator;
 pub use errors::ValidationError;
+use salsa::Accumulator;
 pub use specs::ArgType;
 pub use specs::EndTag;
 pub use specs::IntermediateTag;
@@ -16,8 +17,6 @@ pub use specs::TagArg;
 pub use specs::TagSpec;
 pub use specs::TagSpecs;
 pub use validation::TagValidator;
-
-use salsa::Accumulator;
 
 /// Validate a Django template node list and return validation errors.
 ///
