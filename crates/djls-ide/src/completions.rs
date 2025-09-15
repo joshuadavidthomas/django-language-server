@@ -4,21 +4,16 @@
 //! and generating appropriate completion items for Django templates.
 
 use djls_project::TemplateTags;
-use djls_semantic::generate_partial_snippet;
-use djls_semantic::generate_snippet_for_tag_with_end;
 use djls_semantic::ArgType;
 use djls_semantic::SimpleArgType;
 use djls_semantic::TagSpecs;
 use djls_workspace::FileKind;
 use djls_workspace::PositionEncoding;
 use djls_workspace::TextDocument;
-use tower_lsp_server::lsp_types::CompletionItem;
-use tower_lsp_server::lsp_types::CompletionItemKind;
-use tower_lsp_server::lsp_types::Documentation;
-use tower_lsp_server::lsp_types::InsertTextFormat;
-use tower_lsp_server::lsp_types::Position;
-use tower_lsp_server::lsp_types::Range;
-use tower_lsp_server::lsp_types::TextEdit;
+use tower_lsp_server::lsp_types;
+
+use crate::snippets::generate_partial_snippet;
+use crate::snippets::generate_snippet_for_tag_with_end;
 
 /// Tracks what closing characters are needed to complete a template tag.
 ///
@@ -96,15 +91,16 @@ pub struct LineInfo {
 }
 
 /// Main entry point for handling completion requests
+#[must_use]
 pub fn handle_completion(
     document: &TextDocument,
-    position: Position,
+    position: lsp_types::Position,
     encoding: PositionEncoding,
     file_kind: FileKind,
     template_tags: Option<&TemplateTags>,
     tag_specs: Option<&TagSpecs>,
     supports_snippets: bool,
-) -> Vec<CompletionItem> {
+) -> Vec<lsp_types::CompletionItem> {
     // Only handle template files
     if file_kind != FileKind::Template {
         return Vec::new();
@@ -135,7 +131,7 @@ pub fn handle_completion(
 /// Extract line information from document at given position
 fn get_line_info(
     document: &TextDocument,
-    position: Position,
+    position: lsp_types::Position,
     encoding: PositionEncoding,
 ) -> Option<LineInfo> {
     let content = document.content();
@@ -290,10 +286,10 @@ fn generate_template_completions(
     template_tags: Option<&TemplateTags>,
     tag_specs: Option<&TagSpecs>,
     supports_snippets: bool,
-    position: Position,
+    position: lsp_types::Position,
     line_text: &str,
     cursor_offset: usize,
-) -> Vec<CompletionItem> {
+) -> Vec<lsp_types::CompletionItem> {
     match context {
         TemplateCompletionContext::TagName {
             partial,
@@ -340,17 +336,17 @@ fn generate_template_completions(
 
 /// Calculate the range to replace for a completion
 fn calculate_replacement_range(
-    position: Position,
+    position: lsp_types::Position,
     line_text: &str,
     cursor_offset: usize,
     partial_len: usize,
     closing: &ClosingBrace,
-) -> Range {
+) -> lsp_types::Range {
     // Start position: move back by the length of the partial text
     let start_col = position
         .character
         .saturating_sub(u32::try_from(partial_len).unwrap_or(0));
-    let start = Position::new(position.line, start_col);
+    let start = lsp_types::Position::new(position.line, start_col);
 
     // End position: include auto-paired } if present
     let mut end_col = position.character;
@@ -361,9 +357,9 @@ fn calculate_replacement_range(
             end_col += 1;
         }
     }
-    let end = Position::new(position.line, end_col);
+    let end = lsp_types::Position::new(position.line, end_col);
 
-    Range::new(start, end)
+    lsp_types::Range::new(start, end)
 }
 
 /// Generate completions for tag names
@@ -375,10 +371,10 @@ fn generate_tag_name_completions(
     template_tags: Option<&TemplateTags>,
     tag_specs: Option<&TagSpecs>,
     supports_snippets: bool,
-    position: Position,
+    position: lsp_types::Position,
     line_text: &str,
     cursor_offset: usize,
-) -> Vec<CompletionItem> {
+) -> Vec<lsp_types::CompletionItem> {
     let Some(tags) = template_tags else {
         return Vec::new();
     };
@@ -413,14 +409,14 @@ fn generate_tag_name_completions(
                         ClosingBrace::FullClose => {} // No closing needed
                     }
 
-                    completions.push(CompletionItem {
+                    completions.push(lsp_types::CompletionItem {
                         label: end_tag.name.clone(),
-                        kind: Some(CompletionItemKind::KEYWORD),
+                        kind: Some(lsp_types::CompletionItemKind::KEYWORD),
                         detail: Some(format!("End tag for {opener_name}")),
                         text_edit: Some(tower_lsp_server::lsp_types::CompletionTextEdit::Edit(
-                            TextEdit::new(replacement_range, insert_text.clone()),
+                            lsp_types::TextEdit::new(replacement_range, insert_text.clone()),
                         )),
-                        insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
+                        insert_text_format: Some(lsp_types::InsertTextFormat::PLAIN_TEXT),
                         filter_text: Some(end_tag.name.clone()),
                         sort_text: Some(format!("0_{}", end_tag.name)), // Priority sort
                         ..Default::default()
@@ -464,7 +460,7 @@ fn generate_tag_name_completions(
                                 }
                             }
 
-                            (text, InsertTextFormat::SNIPPET)
+                            (text, lsp_types::InsertTextFormat::SNIPPET)
                         }
                     } else {
                         // No spec found, use plain text
@@ -481,19 +477,21 @@ fn generate_tag_name_completions(
 
             // Create completion item
             // Use SNIPPET kind when we're inserting a snippet, KEYWORD otherwise
-            let kind = if matches!(insert_format, InsertTextFormat::SNIPPET) {
-                CompletionItemKind::SNIPPET
+            let kind = if matches!(insert_format, lsp_types::InsertTextFormat::SNIPPET) {
+                lsp_types::CompletionItemKind::SNIPPET
             } else {
-                CompletionItemKind::KEYWORD
+                lsp_types::CompletionItemKind::KEYWORD
             };
 
-            let completion_item = CompletionItem {
+            let completion_item = lsp_types::CompletionItem {
                 label: tag.name().clone(),
                 kind: Some(kind),
                 detail: Some(format!("from {}", tag.library())),
-                documentation: tag.doc().map(|doc| Documentation::String(doc.clone())),
+                documentation: tag
+                    .doc()
+                    .map(|doc| lsp_types::Documentation::String(doc.clone())),
                 text_edit: Some(tower_lsp_server::lsp_types::CompletionTextEdit::Edit(
-                    TextEdit::new(replacement_range, insert_text.clone()),
+                    lsp_types::TextEdit::new(replacement_range, insert_text.clone()),
                 )),
                 insert_text_format: Some(insert_format),
                 filter_text: Some(tag.name().clone()),
@@ -519,7 +517,7 @@ fn generate_argument_completions(
     _template_tags: Option<&TemplateTags>,
     tag_specs: Option<&TagSpecs>,
     supports_snippets: bool,
-) -> Vec<CompletionItem> {
+) -> Vec<lsp_types::CompletionItem> {
     let Some(specs) = tag_specs else {
         return Vec::new();
     };
@@ -548,12 +546,12 @@ fn generate_argument_completions(
                     ClosingBrace::FullClose => {} // No closing needed
                 }
 
-                completions.push(CompletionItem {
+                completions.push(lsp_types::CompletionItem {
                     label: arg.name.clone(),
-                    kind: Some(CompletionItemKind::KEYWORD),
+                    kind: Some(lsp_types::CompletionItemKind::KEYWORD),
                     detail: Some("literal argument".to_string()),
                     insert_text: Some(insert_text),
-                    insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
+                    insert_text_format: Some(lsp_types::InsertTextFormat::PLAIN_TEXT),
                     ..Default::default()
                 });
             }
@@ -571,12 +569,12 @@ fn generate_argument_completions(
                         ClosingBrace::FullClose => {} // No closing needed
                     }
 
-                    completions.push(CompletionItem {
+                    completions.push(lsp_types::CompletionItem {
                         label: option.clone(),
-                        kind: Some(CompletionItemKind::ENUM_MEMBER),
+                        kind: Some(lsp_types::CompletionItemKind::ENUM_MEMBER),
                         detail: Some(format!("choice for {}", arg.name)),
                         insert_text: Some(insert_text),
-                        insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
+                        insert_text_format: Some(lsp_types::InsertTextFormat::PLAIN_TEXT),
                         ..Default::default()
                     });
                 }
@@ -586,12 +584,12 @@ fn generate_argument_completions(
             // For variables, we could offer variable completions from context
             // For now, just provide a hint
             if partial.is_empty() {
-                completions.push(CompletionItem {
+                completions.push(lsp_types::CompletionItem {
                     label: format!("<{}>", arg.name),
-                    kind: Some(CompletionItemKind::VARIABLE),
+                    kind: Some(lsp_types::CompletionItemKind::VARIABLE),
                     detail: Some("variable argument".to_string()),
                     insert_text: None, // Don't insert placeholder
-                    insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
+                    insert_text_format: Some(lsp_types::InsertTextFormat::PLAIN_TEXT),
                     ..Default::default()
                 });
             }
@@ -600,12 +598,12 @@ fn generate_argument_completions(
             // For strings, could offer template name completions
             // For now, just provide a hint
             if partial.is_empty() {
-                completions.push(CompletionItem {
+                completions.push(lsp_types::CompletionItem {
                     label: format!("\"{}\"", arg.name),
-                    kind: Some(CompletionItemKind::TEXT),
+                    kind: Some(lsp_types::CompletionItemKind::TEXT),
                     detail: Some("string argument".to_string()),
                     insert_text: None, // Don't insert placeholder
-                    insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
+                    insert_text_format: Some(lsp_types::InsertTextFormat::PLAIN_TEXT),
                     ..Default::default()
                 });
             }
@@ -636,12 +634,12 @@ fn generate_argument_completions(
                 "remaining arguments".to_string()
             };
 
-            completions.push(CompletionItem {
+            completions.push(lsp_types::CompletionItem {
                 label,
-                kind: Some(CompletionItemKind::SNIPPET),
+                kind: Some(lsp_types::CompletionItemKind::SNIPPET),
                 detail: Some("Complete remaining arguments".to_string()),
                 insert_text: Some(insert_text),
-                insert_text_format: Some(InsertTextFormat::SNIPPET),
+                insert_text_format: Some(lsp_types::InsertTextFormat::SNIPPET),
                 sort_text: Some("zzz".to_string()), // Sort at the end
                 ..Default::default()
             });
@@ -656,7 +654,7 @@ fn generate_library_completions(
     partial: &str,
     closing: &ClosingBrace,
     template_tags: Option<&TemplateTags>,
-) -> Vec<CompletionItem> {
+) -> Vec<lsp_types::CompletionItem> {
     let Some(tags) = template_tags else {
         return Vec::new();
     };
@@ -680,12 +678,12 @@ fn generate_library_completions(
                 ClosingBrace::FullClose => {} // No closing needed
             }
 
-            completions.push(CompletionItem {
+            completions.push(lsp_types::CompletionItem {
                 label: library.clone(),
-                kind: Some(CompletionItemKind::MODULE),
+                kind: Some(lsp_types::CompletionItemKind::MODULE),
                 detail: Some("Django template library".to_string()),
                 insert_text: Some(insert_text),
-                insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
+                insert_text_format: Some(lsp_types::InsertTextFormat::PLAIN_TEXT),
                 filter_text: Some(library.clone()),
                 ..Default::default()
             });
@@ -700,7 +698,7 @@ fn build_plain_insert_for_tag(
     tag_name: &str,
     needs_space: bool,
     closing: &ClosingBrace,
-) -> (String, InsertTextFormat) {
+) -> (String, lsp_types::InsertTextFormat) {
     let mut insert_text = String::new();
 
     // Add leading space if needed (cursor right after {%)
@@ -717,7 +715,7 @@ fn build_plain_insert_for_tag(
         ClosingBrace::FullClose => {} // No closing needed
     }
 
-    (insert_text, InsertTextFormat::PLAIN_TEXT)
+    (insert_text, lsp_types::InsertTextFormat::PLAIN_TEXT)
 }
 
 #[cfg(test)]
@@ -847,8 +845,15 @@ mod tests {
             closing: ClosingBrace::None,
         };
 
-        let completions =
-            generate_template_completions(&context, None, None, false, Position::new(0, 0), "", 0);
+        let completions = generate_template_completions(
+            &context,
+            None,
+            None,
+            false,
+            lsp_types::Position::new(0, 0),
+            "",
+            0,
+        );
 
         assert!(completions.is_empty());
     }

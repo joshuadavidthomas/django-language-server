@@ -84,6 +84,3 @@ pub struct FilePath {
     #[returns(ref)]
     pub path: Arc<str>,
 }
-
-// Template-specific functionality has been moved to djls-templates crate
-// See djls_templates::db for template parsing and diagnostics

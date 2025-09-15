@@ -1,5 +1,4 @@
 use serde::Serialize;
-use thiserror::Error;
 
 use crate::db::Db as TemplateDb;
 use crate::tokens::Token;
@@ -161,101 +160,6 @@ impl Span {
         let start = token.offset().unwrap_or(0);
         let length = token.length(db);
         Span::new(start, length)
-    }
-
-    #[must_use]
-    pub fn to_lsp_range(&self, line_offsets: &LineOffsets) -> tower_lsp_server::lsp_types::Range {
-        let start_pos = self.start as usize;
-        let end_pos = (self.start + self.length) as usize;
-
-        let (start_line, start_char) = line_offsets.position_to_line_col(start_pos);
-        let (end_line, end_char) = line_offsets.position_to_line_col(end_pos);
-
-        tower_lsp_server::lsp_types::Range {
-            start: tower_lsp_server::lsp_types::Position {
-                line: u32::try_from(start_line - 1).unwrap_or(u32::MAX), // LSP is 0-based, LineOffsets is 1-based
-                character: u32::try_from(start_char).unwrap_or(u32::MAX),
-            },
-            end: tower_lsp_server::lsp_types::Position {
-                line: u32::try_from(end_line - 1).unwrap_or(u32::MAX),
-                character: u32::try_from(end_char).unwrap_or(u32::MAX),
-            },
-        }
-    }
-}
-
-#[derive(Clone, Debug, Error, PartialEq, Eq, Serialize)]
-pub enum NodeListError {
-    #[error("Empty NodeList")]
-    EmptyNodeList,
-    #[error("Invalid tag '{tag}' structure: {reason}")]
-    InvalidTagStructure {
-        tag: String,
-        reason: String,
-        span: Span,
-    },
-    #[error("Unbalanced structure: '{opening_tag}' missing closing '{expected_closing}'")]
-    UnbalancedStructure {
-        opening_tag: String,
-        expected_closing: String,
-        opening_span: Span,
-        closing_span: Option<Span>,
-    },
-    #[error("Invalid {node_type} node: {reason}")]
-    InvalidNode {
-        node_type: String,
-        reason: String,
-        span: Span,
-    },
-    #[error("Unclosed tag: {tag}")]
-    UnclosedTag { tag: String, span: Span },
-    #[error("Orphaned tag '{tag}' - {context}")]
-    OrphanedTag {
-        tag: String,
-        context: String,
-        span: Span,
-    },
-    #[error("endblock '{name}' does not match any open block")]
-    UnmatchedBlockName { name: String, span: Span },
-    #[error("Tag '{tag}' requires at least {min} argument{}", if *.min == 1 { "" } else { "s" })]
-    MissingRequiredArguments { tag: String, min: usize, span: Span },
-    #[error("Tag '{tag}' accepts at most {max} argument{}", if *.max == 1 { "" } else { "s" })]
-    TooManyArguments { tag: String, max: usize, span: Span },
-}
-
-impl NodeListError {
-    /// Get the span start and length of this error, if available
-    #[must_use]
-    pub fn span(&self) -> Option<(u32, u32)> {
-        match self {
-            NodeListError::UnbalancedStructure { opening_span, .. } => {
-                Some((opening_span.start, opening_span.length))
-            }
-            NodeListError::InvalidTagStructure { span, .. }
-            | NodeListError::InvalidNode { span, .. }
-            | NodeListError::UnclosedTag { span, .. }
-            | NodeListError::OrphanedTag { span, .. }
-            | NodeListError::UnmatchedBlockName { span, .. }
-            | NodeListError::MissingRequiredArguments { span, .. }
-            | NodeListError::TooManyArguments { span, .. } => Some((span.start, span.length)),
-            NodeListError::EmptyNodeList => None,
-        }
-    }
-
-    /// Get a diagnostic code string for this error type
-    #[must_use]
-    pub fn diagnostic_code(&self) -> &'static str {
-        match self {
-            NodeListError::EmptyNodeList => "T001",
-            NodeListError::InvalidTagStructure { .. } => "T002",
-            NodeListError::UnbalancedStructure { .. } => "T003",
-            NodeListError::InvalidNode { .. } => "T004",
-            NodeListError::UnclosedTag { .. } => "T005",
-            NodeListError::OrphanedTag { .. } => "T006",
-            NodeListError::UnmatchedBlockName { .. } => "T007",
-            NodeListError::MissingRequiredArguments { .. } => "T008",
-            NodeListError::TooManyArguments { .. } => "T009",
-        }
     }
 }
 
