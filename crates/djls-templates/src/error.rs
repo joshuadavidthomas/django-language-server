@@ -26,19 +26,3 @@ impl From<std::io::Error> for TemplateError {
         Self::Io(err.to_string())
     }
 }
-
-impl TemplateError {
-    #[must_use]
-    pub fn span(&self) -> Option<(u32, u32)> {
-        None
-    }
-
-    #[must_use]
-    pub fn diagnostic_code(&self) -> &'static str {
-        match self {
-            TemplateError::Parser(_) => "T100",
-            TemplateError::Io(_) => "T900",
-            TemplateError::Config(_) => "T901",
-        }
-    }
-}

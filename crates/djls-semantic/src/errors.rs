@@ -32,33 +32,3 @@ pub enum ValidationError {
     #[error("Tag '{tag}' accepts at most {max} argument{}", if *.max == 1 { "" } else { "s" })]
     TooManyArguments { tag: String, max: usize, span: Span },
 }
-
-impl ValidationError {
-    /// Get the span start and length of this error, if available
-    #[must_use]
-    pub fn span(&self) -> Option<(u32, u32)> {
-        match self {
-            ValidationError::UnbalancedStructure { opening_span, .. } => {
-                Some((opening_span.start, opening_span.length))
-            }
-            ValidationError::UnclosedTag { span, .. }
-            | ValidationError::OrphanedTag { span, .. }
-            | ValidationError::UnmatchedBlockName { span, .. }
-            | ValidationError::MissingRequiredArguments { span, .. }
-            | ValidationError::TooManyArguments { span, .. } => Some((span.start, span.length)),
-        }
-    }
-
-    /// Get a diagnostic code string for this error type
-    #[must_use]
-    pub fn diagnostic_code(&self) -> &'static str {
-        match self {
-            ValidationError::UnclosedTag { .. } => "S100",
-            ValidationError::UnbalancedStructure { .. } => "S101",
-            ValidationError::OrphanedTag { .. } => "S102",
-            ValidationError::UnmatchedBlockName { .. } => "S103",
-            ValidationError::MissingRequiredArguments { .. } => "S104",
-            ValidationError::TooManyArguments { .. } => "S105",
-        }
-    }
-}

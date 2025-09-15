@@ -6,6 +6,55 @@ use djls_templates::TemplateErrorAccumulator;
 use djls_workspace::SourceFile;
 use tower_lsp_server::lsp_types;
 
+trait DiagnosticError: std::fmt::Display {
+    fn span(&self) -> Option<(u32, u32)>;
+    fn diagnostic_code(&self) -> &'static str;
+
+    fn message(&self) -> String {
+        self.to_string()
+    }
+}
+
+impl DiagnosticError for TemplateError {
+    fn span(&self) -> Option<(u32, u32)> {
+        None
+    }
+
+    fn diagnostic_code(&self) -> &'static str {
+        match self {
+            TemplateError::Parser(_) => "T100",
+            TemplateError::Io(_) => "T900",
+            TemplateError::Config(_) => "T901",
+        }
+    }
+}
+
+impl DiagnosticError for ValidationError {
+    fn span(&self) -> Option<(u32, u32)> {
+        match self {
+            ValidationError::UnbalancedStructure { opening_span, .. } => {
+                Some((opening_span.start, opening_span.length))
+            }
+            ValidationError::UnclosedTag { span, .. }
+            | ValidationError::OrphanedTag { span, .. }
+            | ValidationError::UnmatchedBlockName { span, .. }
+            | ValidationError::MissingRequiredArguments { span, .. }
+            | ValidationError::TooManyArguments { span, .. } => Some((span.start, span.length)),
+        }
+    }
+
+    fn diagnostic_code(&self) -> &'static str {
+        match self {
+            ValidationError::UnclosedTag { .. } => "S100",
+            ValidationError::UnbalancedStructure { .. } => "S101",
+            ValidationError::OrphanedTag { .. } => "S102",
+            ValidationError::UnmatchedBlockName { .. } => "S103",
+            ValidationError::MissingRequiredArguments { .. } => "S104",
+            ValidationError::TooManyArguments { .. } => "S105",
+        }
+    }
+}
+
 /// Convert a Span to an LSP Range using line offsets.
 fn span_to_lsp_range(span: Span, line_offsets: &LineOffsets) -> lsp_types::Range {
     let start_pos = span.start as usize;
@@ -26,9 +75,9 @@ fn span_to_lsp_range(span: Span, line_offsets: &LineOffsets) -> lsp_types::Range
     }
 }
 
-/// Convert a template error to an LSP diagnostic.
-fn template_error_to_diagnostic(
-    error: &TemplateError,
+/// Convert any error implementing `DiagnosticError` to an LSP diagnostic.
+fn error_to_diagnostic(
+    error: &impl DiagnosticError,
     line_offsets: &LineOffsets,
 ) -> lsp_types::Diagnostic {
     let range = error
@@ -47,35 +96,7 @@ fn template_error_to_diagnostic(
         )),
         code_description: None,
         source: Some("Django Language Server".to_string()),
-        message: error.to_string(),
-        related_information: None,
-        tags: None,
-        data: None,
-    }
-}
-
-/// Convert a validation error (`ValidationError`) to an LSP diagnostic.
-fn validation_error_to_diagnostic(
-    error: &ValidationError,
-    line_offsets: &LineOffsets,
-) -> lsp_types::Diagnostic {
-    let range = error
-        .span()
-        .map(|(start, length)| {
-            let span = Span::new(start, length);
-            span_to_lsp_range(span, line_offsets)
-        })
-        .unwrap_or_default();
-
-    lsp_types::Diagnostic {
-        range,
-        severity: Some(lsp_types::DiagnosticSeverity::ERROR),
-        code: Some(lsp_types::NumberOrString::String(
-            error.diagnostic_code().to_string(),
-        )),
-        code_description: None,
-        source: Some("Django Language Server".to_string()),
-        message: error.to_string(),
+        message: error.message(),
         related_information: None,
         tags: None,
         data: None,
@@ -111,7 +132,7 @@ pub fn collect_diagnostics(
 
     // Convert template errors to diagnostics
     for error_acc in template_errors {
-        diagnostics.push(template_error_to_diagnostic(&error_acc.0, &line_offsets));
+        diagnostics.push(error_to_diagnostic(&error_acc.0, &line_offsets));
     }
 
     // If parsing succeeded, run validation
@@ -123,7 +144,7 @@ pub fn collect_diagnostics(
 
         // Convert validation errors to diagnostics
         for error_acc in validation_errors {
-            diagnostics.push(validation_error_to_diagnostic(&error_acc.0, &line_offsets));
+            diagnostics.push(error_to_diagnostic(&error_acc.0, &line_offsets));
         }
     }
 
