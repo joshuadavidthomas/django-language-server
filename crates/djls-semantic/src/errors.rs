@@ -1,4 +1,3 @@
-// Import Span from templates - we'll need to re-export it or create our own
 use djls_templates::Span;
 use serde::Serialize;
 use thiserror::Error;

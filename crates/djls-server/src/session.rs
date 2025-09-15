@@ -12,6 +12,7 @@ use djls_project::Db as ProjectDb;
 use djls_project::Interpreter;
 use djls_workspace::db::SourceFile;
 use djls_workspace::paths;
+use djls_workspace::FileKind;
 use djls_workspace::PositionEncoding;
 use djls_workspace::TextDocument;
 use djls_workspace::Workspace;
@@ -155,19 +156,25 @@ impl Session {
     ///
     /// Updates both the workspace buffers and database. Creates the file in
     /// the database or invalidates it if it already exists.
+    /// For template files, immediately triggers parsing and validation.
     pub fn open_document(&mut self, url: &Url, document: TextDocument) {
         // Add to workspace buffers
         self.workspace.open_document(url, document);
 
-        // Update database if it's a file URL
         if let Some(path) = paths::url_to_path(url) {
-            // Check if file already exists (was previously read from disk)
             let already_exists = self.db.has_file(&path);
-            let _file = self.db.get_or_create_file(&path);
+            let file = self.db.get_or_create_file(&path);
 
             if already_exists {
                 // File was already read - touch to invalidate cache
                 self.db.touch_file(&path);
+            }
+
+            if FileKind::from_path(&path) == FileKind::Template {
+                let nodelist = djls_templates::parse_template(&self.db, file);
+                if let Some(nodelist) = nodelist {
+                    djls_semantic::validate_nodelist(&self.db, nodelist);
+                }
             }
         }
     }
@@ -175,44 +182,59 @@ impl Session {
     /// Update a document with incremental changes.
     ///
     /// Applies changes to the document and triggers database invalidation.
+    /// For template files, immediately triggers parsing and validation.
     pub fn update_document(
         &mut self,
         url: &Url,
         changes: Vec<lsp_types::TextDocumentContentChangeEvent>,
         version: i32,
     ) {
-        // Update in workspace
         self.workspace
             .update_document(url, changes, version, self.position_encoding);
 
-        // Touch file in database to trigger invalidation
         if let Some(path) = paths::url_to_path(url) {
             if self.db.has_file(&path) {
+                // Touch file in database to trigger invalidation
                 self.db.touch_file(&path);
+
+                if FileKind::from_path(&path) == FileKind::Template {
+                    let file = self.db.get_or_create_file(&path);
+                    let nodelist = djls_templates::parse_template(&self.db, file);
+                    if let Some(nodelist) = nodelist {
+                        djls_semantic::validate_nodelist(&self.db, nodelist);
+                    }
+                }
             }
         }
     }
 
     pub fn save_document(&mut self, url: &Url) {
-        // Touch file in database to trigger re-analysis
         if let Some(path) = paths::url_to_path(url) {
-            self.with_db_mut(|db| {
-                if db.has_file(&path) {
-                    db.touch_file(&path);
+            if self.db.has_file(&path) {
+                // Touch file in database to trigger invalidation
+                self.db.touch_file(&path);
+
+                if FileKind::from_path(&path) == FileKind::Template {
+                    let file = self.db.get_or_create_file(&path);
+                    let nodelist = djls_templates::parse_template(&self.db, file);
+                    if let Some(nodelist) = nodelist {
+                        djls_semantic::validate_nodelist(&self.db, nodelist);
+                    }
                 }
-            });
+            }
         }
     }
 
     /// Close a document.
     ///
     /// Removes from workspace buffers and triggers database invalidation to fall back to disk.
+    /// For template files, immediately re-parses from disk.
     pub fn close_document(&mut self, url: &Url) -> Option<TextDocument> {
         let document = self.workspace.close_document(url);
 
-        // Touch file in database to trigger re-read from disk
         if let Some(path) = paths::url_to_path(url) {
             if self.db.has_file(&path) {
+                // Touch file in database to trigger re-read from disk
                 self.db.touch_file(&path);
             }
         }

@@ -103,46 +103,51 @@ fn error_to_diagnostic(
     }
 }
 
-/// Collect all diagnostics (syntax and semantic) for a template file.
+/// Collect all diagnostics for a template file.
 ///
-/// This function:
-/// 1. Parses the template file
-/// 2. If parsing succeeds, runs semantic validation
-/// 3. Collects syntax diagnostics from the parser
-/// 4. Collects semantic diagnostics from the validator
-/// 5. Converts errors to LSP diagnostic types
+/// This function collects and converts errors that were accumulated during
+/// parsing and validation. The caller must provide the parsed `NodeList` (or `None`
+/// if parsing failed), making it explicit that parsing should have already occurred.
+///
+/// # Parameters
+/// - `db`: The Salsa database
+/// - `file`: The source file (needed to retrieve accumulated template errors)
+/// - `nodelist`: The parsed AST, or None if parsing failed
+///
+/// # Returns
+/// A vector of LSP diagnostics combining both template syntax errors and
+/// semantic validation errors.
+///
+/// # Design
+/// This API design makes it clear that:
+/// - Parsing must happen before collecting diagnostics
+/// - This function only collects and converts existing errors
+/// - The `NodeList` provides both line offsets and access to validation errors
 #[must_use]
 pub fn collect_diagnostics(
     db: &dyn djls_semantic::Db,
     file: SourceFile,
+    nodelist: Option<djls_templates::NodeList<'_>>,
 ) -> Vec<lsp_types::Diagnostic> {
     let mut diagnostics = Vec::new();
 
-    // Parse and get template errors
-    let nodelist = djls_templates::parse_template(db, file);
     let template_errors =
         djls_templates::parse_template::accumulated::<TemplateErrorAccumulator>(db, file);
 
-    // Get line offsets for conversion
-    let line_offsets = if let Some(ref nl) = nodelist {
-        nl.line_offsets(db).clone()
-    } else {
-        LineOffsets::default()
-    };
+    let line_offsets = nodelist
+        .as_ref()
+        .map(|nl| nl.line_offsets(db).clone())
+        .unwrap_or_default();
 
-    // Convert template errors to diagnostics
     for error_acc in template_errors {
         diagnostics.push(error_to_diagnostic(&error_acc.0, &line_offsets));
     }
 
-    // If parsing succeeded, run validation
     if let Some(nodelist) = nodelist {
-        djls_semantic::validate_nodelist(db, nodelist);
         let validation_errors = djls_semantic::validate_nodelist::accumulated::<
             djls_semantic::ValidationErrorAccumulator,
         >(db, nodelist);
 
-        // Convert validation errors to diagnostics
         for error_acc in validation_errors {
             diagnostics.push(error_to_diagnostic(&error_acc.0, &line_offsets));
         }

@@ -61,8 +61,8 @@ pub use lexer::Lexer;
 pub use nodelist::LineOffsets;
 pub use nodelist::NodeList;
 pub use nodelist::Span;
+pub use parser::ParseError;
 pub use parser::Parser;
-pub use parser::ParserError;
 use salsa::Accumulator;
 use tokens::TokenStream;
 
@@ -102,14 +102,9 @@ pub fn parse_template(db: &dyn Db, file: SourceFile) -> Option<NodeList<'_>> {
     }
 
     let nodelist = match Parser::new(db, token_stream).parse() {
-        Ok((nodelist, errors)) => {
-            for error in errors {
-                let template_error = TemplateError::Parser(error.to_string());
-                TemplateErrorAccumulator(template_error).accumulate(db);
-            }
-            nodelist
-        }
+        Ok(nodelist) => nodelist,
         Err(err) => {
+            // Fatal error - accumulate and return empty
             let template_error = TemplateError::Parser(err.to_string());
             TemplateErrorAccumulator(template_error).accumulate(db);
 
