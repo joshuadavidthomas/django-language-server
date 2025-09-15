@@ -118,8 +118,9 @@ pub fn generate_partial_snippet(spec: &TagSpec, starting_from_position: usize) -
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use djls_semantic::EndTag;
+
+    use super::*;
 
     #[test]
     fn test_snippet_for_for_tag() {

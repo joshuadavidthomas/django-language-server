@@ -1,5 +1,6 @@
-use rustc_hash::FxHashMap;
 use std::borrow::Cow;
+
+use rustc_hash::FxHashMap;
 
 pub type S<T = str> = Cow<'static, T>;
 pub type L<T> = Cow<'static, [T]>;
