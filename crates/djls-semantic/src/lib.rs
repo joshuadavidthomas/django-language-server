@@ -1,21 +1,16 @@
-pub mod builtins;
-pub mod db;
-pub mod errors;
-pub mod specs;
-pub mod validation;
+mod db;
+mod errors;
+mod templatetags;
+mod validation;
 
-pub use builtins::django_builtin_specs;
 pub use db::Db;
 pub use db::ValidationErrorAccumulator;
 pub use errors::ValidationError;
-pub use specs::ArgType;
-pub use specs::EndTag;
-pub use specs::IntermediateTag;
-pub use specs::SimpleArgType;
-pub use specs::TagArg;
-pub use specs::TagSpec;
-pub use specs::TagSpecs;
-pub use validation::TagValidator;
+pub use templatetags::django_builtin_specs;
+pub use templatetags::EndTag;
+pub use templatetags::TagArg;
+pub use templatetags::TagSpec;
+pub use templatetags::TagSpecs;
 
 /// Validate a Django template node list and return validation errors.
 ///
@@ -31,5 +26,5 @@ pub fn validate_nodelist(db: &dyn Db, nodelist: djls_templates::NodeList<'_>) {
         return;
     }
 
-    TagValidator::new(db, nodelist).validate();
+    validation::TagValidator::new(db, nodelist).validate();
 }

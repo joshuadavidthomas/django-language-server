@@ -2,6 +2,7 @@ use std::future::Future;
 use std::sync::Arc;
 
 use djls_project::Db as ProjectDb;
+use djls_semantic::Db as SemanticDb;
 use djls_workspace::paths;
 use djls_workspace::FileKind;
 use tokio::sync::Mutex;
@@ -339,7 +340,7 @@ impl LanguageServer for DjangoLanguageServer {
                             None
                         }
                     });
-                    let tag_specs = session.with_db(djls_semantic::db::Db::tag_specs);
+                    let tag_specs = session.with_db(SemanticDb::tag_specs);
                     let supports_snippets = session.supports_snippets();
 
                     let completions = djls_ide::handle_completion(

@@ -4,7 +4,7 @@ use djls_templates::Db as TemplateDb;
 use djls_workspace::Db as WorkspaceDb;
 
 use crate::errors::ValidationError;
-use crate::specs::TagSpecs;
+use crate::templatetags::TagSpecs;
 
 #[salsa::db]
 pub trait Db: TemplateDb + WorkspaceDb {
