@@ -3,8 +3,9 @@
 //! This module defines all the standard Django template tags as compile-time
 //! constants, avoiding the need for runtime TOML parsing.
 
-use std::collections::HashMap;
 use std::sync::LazyLock;
+
+use rustc_hash::FxHashMap;
 
 use super::specs::EndTag;
 use super::specs::IntermediateTag;
@@ -14,7 +15,7 @@ use super::specs::TagSpecs;
 
 // Static storage for built-in specs - built only once on first access
 static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
-    let mut specs = HashMap::new();
+    let mut specs = FxHashMap::default();
 
     // Define all Django built-in tags using direct struct construction
     let tags = vec![
@@ -380,7 +381,7 @@ static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
         },
     ];
 
-    // Insert all tags into the HashMap
+    // Insert all tags into the FxHashMap
     for tag in tags {
         if let Some(ref name) = tag.name {
             specs.insert(name.clone(), tag);

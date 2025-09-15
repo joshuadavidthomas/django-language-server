@@ -3,11 +3,12 @@
 //! This module provides the [`FileSystem`] trait that abstracts file I/O operations.
 //! This allows the LSP to work with both real files and in-memory overlays.
 
-use std::collections::HashMap;
 use std::io;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
+
+use rustc_hash::FxHashMap;
 
 use crate::buffers::Buffers;
 use crate::paths;
@@ -18,14 +19,14 @@ pub trait FileSystem: Send + Sync {
 }
 
 pub struct InMemoryFileSystem {
-    files: HashMap<PathBuf, String>,
+    files: FxHashMap<PathBuf, String>,
 }
 
 impl InMemoryFileSystem {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            files: HashMap::new(),
+            files: FxHashMap::default(),
         }
     }
 

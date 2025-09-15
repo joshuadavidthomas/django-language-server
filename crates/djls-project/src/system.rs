@@ -28,14 +28,15 @@ pub fn env_var(key: &str) -> Result<String, VarError> {
 #[cfg(test)]
 pub mod mock {
     use std::cell::RefCell;
-    use std::collections::HashMap;
     use std::thread_local;
+
+    use rustc_hash::FxHashMap;
 
     use super::*;
 
     thread_local! {
-        static MOCK_EXEC_RESULTS: RefCell<HashMap<String, Result<PathBuf, WhichError>>> = RefCell::new(HashMap::new());
-        static MOCK_ENV_RESULTS: RefCell<HashMap<String, Result<String, VarError>>> = RefCell::new(HashMap::new());
+        static MOCK_EXEC_RESULTS: RefCell<FxHashMap<String, Result<PathBuf, WhichError>>> = RefCell::new(FxHashMap::default());
+        static MOCK_ENV_RESULTS: RefCell<FxHashMap<String, Result<String, VarError>>> = RefCell::new(FxHashMap::default());
     }
 
     pub(super) fn find_executable_mocked(name: &str) -> Result<PathBuf, WhichError> {

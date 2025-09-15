@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 
 pub enum TagType {
     Opener,
@@ -23,11 +23,11 @@ impl TagType {
 }
 
 #[derive(Clone, Debug, Default)]
-pub struct TagSpecs(HashMap<String, TagSpec>);
+pub struct TagSpecs(FxHashMap<String, TagSpec>);
 
 impl TagSpecs {
     #[must_use]
-    pub fn new(specs: HashMap<String, TagSpec>) -> Self {
+    pub fn new(specs: FxHashMap<String, TagSpec>) -> Self {
         TagSpecs(specs)
     }
 
@@ -122,7 +122,7 @@ impl From<&djls_conf::Settings> for TagSpecs {
         let mut specs = crate::builtins::django_builtin_specs();
 
         // Convert and merge user-defined tagspecs
-        let mut user_specs = HashMap::new();
+        let mut user_specs = FxHashMap::default();
         for tagspec_def in settings.tagspecs() {
             // Clone because we're consuming the tagspec_def in the conversion
             let tagspec: TagSpec = tagspec_def.clone().into();
@@ -312,7 +312,7 @@ mod tests {
 
     // Helper function to create a small test TagSpecs
     fn create_test_specs() -> TagSpecs {
-        let mut specs = HashMap::new();
+        let mut specs = FxHashMap::default();
 
         // Add a simple single tag
         specs.insert(
@@ -567,7 +567,7 @@ mod tests {
         let mut specs1 = create_test_specs();
 
         // Create another TagSpecs with some overlapping and some new tags
-        let mut specs2_map = HashMap::new();
+        let mut specs2_map = FxHashMap::default();
 
         // Add a new tag
         specs2_map.insert(
@@ -626,7 +626,7 @@ mod tests {
         let original_count = specs.iter().count();
 
         // Merge with empty TagSpecs
-        specs.merge(TagSpecs::new(HashMap::new()));
+        specs.merge(TagSpecs::new(FxHashMap::default()));
 
         // Should remain unchanged
         assert_eq!(specs.iter().count(), original_count);

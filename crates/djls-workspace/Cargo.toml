@@ -9,6 +9,7 @@ camino = { workspace = true }
 dashmap = { workspace = true }
 notify = { workspace = true }
 percent-encoding = { workspace = true }
+rustc-hash = { workspace = true }
 salsa = { workspace = true }
 tokio = { workspace = true }
 tower-lsp-server = { workspace = true }
