@@ -173,7 +173,3 @@ pub fn parse_template(db: &dyn Db, file: SourceFile) -> Option<NodeList<'_>> {
 
     Some(nodelist)
 }
-
-// Keep analyze_template as deprecated alias for backwards compatibility
-#[deprecated(since = "0.0.0", note = "Use parse_template instead")]
-pub use parse_template as analyze_template;
