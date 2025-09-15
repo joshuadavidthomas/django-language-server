@@ -54,15 +54,12 @@ impl TagType {
 /// - Unmatched block names
 #[salsa::tracked]
 pub fn validate_nodelist(db: &dyn SemanticDb, nodelist: djls_templates::NodeList<'_>) {
-    // Skip validation if node list is empty (likely due to parse errors)
     if nodelist.nodelist(db).is_empty() {
         return;
     }
 
-    // Run semantic validation
     let validation_errors = TagValidator::new(db, nodelist).validate();
 
-    // Accumulate errors as diagnostics
     let line_offsets = nodelist.line_offsets(db);
     for error in validation_errors {
         let code = error.diagnostic_code();
