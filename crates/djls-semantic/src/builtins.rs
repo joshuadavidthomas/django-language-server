@@ -10,7 +10,7 @@ use super::specs::EndTag;
 use super::specs::IntermediateTag;
 use super::specs::TagArg;
 use super::specs::TagSpec;
-use super::TagSpecs;
+use super::specs::TagSpecs;
 
 // Static storage for built-in specs - built only once on first access
 static BUILTIN_SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {

@@ -32,10 +32,10 @@
 //!
 //! ```ignore
 //! // For LSP integration with Salsa (primary usage):
-//! use djls_templates::{parse_template, TemplateDiagnostic};
+//! use djls_templates::{parse_template, TemplateErrorAccumulator};
 //!
 //! let nodelist = parse_template(db, file);
-//! let diagnostics = parse_template::accumulated::<TemplateDiagnostic>(db, file);
+//! let errors = parse_template::accumulated::<TemplateErrorAccumulator>(db, file);
 //!
 //! // For direct parsing (testing/debugging):
 //! use djls_templates::{Lexer, Parser};
@@ -53,13 +53,14 @@ mod parser;
 mod tokens;
 
 pub use db::Db;
-pub use db::TemplateDiagnostic;
+pub use db::TemplateErrorAccumulator;
 use djls_workspace::db::SourceFile;
 use djls_workspace::FileKind;
 pub use error::TemplateError;
 pub use lexer::Lexer;
-use nodelist::LineOffsets;
+pub use nodelist::LineOffsets;
 pub use nodelist::NodeList;
+pub use nodelist::Span;
 pub use parser::Parser;
 pub use parser::ParserError;
 use salsa::Accumulator;
@@ -122,32 +123,8 @@ pub fn parse_template(db: &dyn Db, file: SourceFile) -> Option<NodeList<'_>> {
     Some(nodelist)
 }
 
-fn accumulate_error(db: &dyn Db, error: &TemplateError, line_offsets: &LineOffsets) {
-    let code = error.diagnostic_code();
-    let range = error
-        .span()
-        .map(|(start, length)| {
-            let span = crate::nodelist::Span::new(start, length);
-            span.to_lsp_range(line_offsets)
-        })
-        .unwrap_or_default();
+fn accumulate_error(db: &dyn Db, error: &TemplateError, _line_offsets: &LineOffsets) {
+    use crate::db::TemplateErrorAccumulator;
 
-    let diagnostic = tower_lsp_server::lsp_types::Diagnostic {
-        range,
-        severity: Some(tower_lsp_server::lsp_types::DiagnosticSeverity::ERROR),
-        code: Some(tower_lsp_server::lsp_types::NumberOrString::String(
-            code.to_string(),
-        )),
-        code_description: None,
-        source: Some("Django Language Server".to_string()),
-        message: match error {
-            TemplateError::Parser(msg) => msg.clone(),
-            _ => error.to_string(),
-        },
-        related_information: None,
-        tags: None,
-        data: None,
-    };
-
-    TemplateDiagnostic(diagnostic).accumulate(db);
+    TemplateErrorAccumulator(error.clone()).accumulate(db);
 }

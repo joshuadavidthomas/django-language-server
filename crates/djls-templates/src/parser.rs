@@ -6,7 +6,6 @@ use crate::nodelist::FilterName;
 use crate::nodelist::LineOffsets;
 use crate::nodelist::Node;
 use crate::nodelist::NodeList;
-use crate::nodelist::NodeListError;
 use crate::nodelist::Span;
 use crate::nodelist::TagBit;
 use crate::nodelist::TagName;
@@ -286,9 +285,6 @@ pub enum ParseError {
 
     #[error("Stream error: {kind:?}")]
     StreamError { kind: StreamError },
-
-    #[error("Node list error: {0}")]
-    NodeList(#[from] NodeListError),
 }
 
 // Keep ParserError as alias for compatibility

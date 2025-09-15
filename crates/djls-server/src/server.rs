@@ -2,10 +2,6 @@ use std::future::Future;
 use std::sync::Arc;
 
 use djls_project::Db as ProjectDb;
-use djls_semantic::validate_nodelist;
-use djls_semantic::SemanticDiagnostic;
-use djls_templates::parse_template;
-use djls_templates::TemplateDiagnostic;
 use djls_workspace::paths;
 use djls_workspace::FileKind;
 use tokio::sync::Mutex;
@@ -96,29 +92,7 @@ impl DjangoLanguageServer {
         let diagnostics: Vec<lsp_types::Diagnostic> = self
             .with_session_mut(|session| {
                 let file = session.get_or_create_file(&path);
-
-                session.with_db(|db| {
-                    let Some(nodelist) = parse_template(db, file) else {
-                        // If parsing failed completely, just return syntax errors
-                        return parse_template::accumulated::<TemplateDiagnostic>(db, file)
-                            .into_iter()
-                            .map(Into::into)
-                            .collect();
-                    };
-
-                    validate_nodelist(db, nodelist);
-
-                    let syntax_diagnostics =
-                        parse_template::accumulated::<TemplateDiagnostic>(db, file);
-                    let semantic_diagnostics =
-                        validate_nodelist::accumulated::<SemanticDiagnostic>(db, nodelist);
-
-                    syntax_diagnostics
-                        .into_iter()
-                        .map(Into::into)
-                        .chain(semantic_diagnostics.into_iter().map(Into::into))
-                        .collect()
-                })
+                session.with_db(|db| djls_ide::collect_diagnostics(db, file))
             })
             .await;
 
@@ -362,10 +336,10 @@ impl LanguageServer for DjangoLanguageServer {
                             None
                         }
                     });
-                    let tag_specs = session.with_db(djls_semantic::db::SemanticDb::tag_specs);
+                    let tag_specs = session.with_db(djls_semantic::db::Db::tag_specs);
                     let supports_snippets = session.supports_snippets();
 
-                    let completions = crate::completions::handle_completion(
+                    let completions = djls_ide::handle_completion(
                         &document,
                         position,
                         encoding,
@@ -438,25 +412,7 @@ impl LanguageServer for DjangoLanguageServer {
                         return vec![];
                     };
 
-                    let Some(nodelist) = parse_template(db, file) else {
-                        return parse_template::accumulated::<TemplateDiagnostic>(db, file)
-                            .into_iter()
-                            .map(Into::into)
-                            .collect();
-                    };
-
-                    validate_nodelist(db, nodelist);
-
-                    let syntax_diagnostics =
-                        parse_template::accumulated::<TemplateDiagnostic>(db, file);
-                    let semantic_diagnostics =
-                        validate_nodelist::accumulated::<SemanticDiagnostic>(db, nodelist);
-
-                    syntax_diagnostics
-                        .into_iter()
-                        .map(Into::into)
-                        .chain(semantic_diagnostics.into_iter().map(Into::into))
-                        .collect()
+                    djls_ide::collect_diagnostics(db, file)
                 })
             })
             .await;

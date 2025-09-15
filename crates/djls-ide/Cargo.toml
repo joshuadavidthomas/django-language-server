@@ -1,19 +1,17 @@
 [package]
-name = "djls-semantic"
+name = "djls-ide"
 version = "0.0.0"
 edition = "2021"
 
 [dependencies]
-djls-conf = { workspace = true }
+djls-project = { workspace = true }
+djls-semantic = { workspace = true }
 djls-templates = { workspace = true }
 djls-workspace = { workspace = true }
 
-salsa = { workspace = true }
-serde = { workspace = true }
-thiserror = { workspace = true }
+tower-lsp-server = { workspace = true }
 
 [dev-dependencies]
-tempfile = { workspace = true }
 
 [lints]
 workspace = true
