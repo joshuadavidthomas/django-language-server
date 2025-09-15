@@ -98,8 +98,6 @@ impl DjangoLanguageServer {
                 let file = session.get_or_create_file(&path);
 
                 session.with_db(|db| {
-                    // Parse and validate the template (triggers accumulation)
-                    // Parse the template and get the nodelist
                     let Some(nodelist) = parse_template(db, file) else {
                         // If parsing failed completely, just return syntax errors
                         return parse_template::accumulated::<TemplateDiagnostic>(db, file)
@@ -108,16 +106,13 @@ impl DjangoLanguageServer {
                             .collect();
                     };
 
-                    // Run semantic validation on the nodelist
                     validate_nodelist(db, nodelist);
 
-                    // Collect diagnostics from both syntax and semantic validation
                     let syntax_diagnostics =
                         parse_template::accumulated::<TemplateDiagnostic>(db, file);
                     let semantic_diagnostics =
                         validate_nodelist::accumulated::<SemanticDiagnostic>(db, nodelist);
 
-                    // Combine all diagnostics
                     syntax_diagnostics
                         .into_iter()
                         .map(Into::into)
@@ -259,7 +254,6 @@ impl LanguageServer for DjangoLanguageServer {
             })
             .await;
 
-        // Publish diagnostics for template files
         if let Some((url, version)) = url_version {
             self.publish_diagnostics(&url, Some(version)).await;
         }
@@ -281,7 +275,6 @@ impl LanguageServer for DjangoLanguageServer {
             })
             .await;
 
-        // Publish diagnostics for template files
         if let Some((url, version)) = url_version {
             self.publish_diagnostics(&url, version).await;
         }
@@ -445,25 +438,20 @@ impl LanguageServer for DjangoLanguageServer {
                         return vec![];
                     };
 
-                    // Parse the template and get the nodelist
                     let Some(nodelist) = parse_template(db, file) else {
-                        // If parsing failed completely, just return syntax errors
                         return parse_template::accumulated::<TemplateDiagnostic>(db, file)
                             .into_iter()
                             .map(Into::into)
                             .collect();
                     };
 
-                    // Run semantic validation on the nodelist
                     validate_nodelist(db, nodelist);
 
-                    // Collect diagnostics from both syntax and semantic validation
                     let syntax_diagnostics =
                         parse_template::accumulated::<TemplateDiagnostic>(db, file);
                     let semantic_diagnostics =
                         validate_nodelist::accumulated::<SemanticDiagnostic>(db, nodelist);
 
-                    // Combine all diagnostics
                     syntax_diagnostics
                         .into_iter()
                         .map(Into::into)

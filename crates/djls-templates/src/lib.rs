@@ -66,9 +66,6 @@ use salsa::Accumulator;
 use tokens::TokenStream;
 
 /// Lex a template file into tokens.
-///
-/// This is the first phase of template processing. It tokenizes the source text
-/// into Django-specific tokens (tags, variables, text, etc.).
 #[salsa::tracked]
 fn lex_template(db: &dyn Db, file: SourceFile) -> TokenStream<'_> {
     if file.kind(db) != FileKind::Template {
@@ -82,7 +79,49 @@ fn lex_template(db: &dyn Db, file: SourceFile) -> TokenStream<'_> {
     TokenStream::new(db, tokens, line_offsets)
 }
 
-/// Helper function to convert errors to LSP diagnostics and accumulate
+/// Parse a Django template file and accumulate diagnostics.
+///
+/// Diagnostics can be retrieved using:
+/// ```ignore
+/// let diagnostics =
+///     parse_template::accumulated::<TemplateDiagnostic>(db, file);
+/// ```
+#[salsa::tracked]
+pub fn parse_template(db: &dyn Db, file: SourceFile) -> Option<NodeList<'_>> {
+    if file.kind(db) != FileKind::Template {
+        return None;
+    }
+
+    let token_stream = lex_template(db, file);
+
+    if token_stream.stream(db).is_empty() {
+        let empty_nodelist = Vec::new();
+        let empty_offsets = LineOffsets::default();
+        return Some(NodeList::new(db, empty_nodelist, empty_offsets));
+    }
+
+    let nodelist = match Parser::new(db, token_stream).parse() {
+        Ok((nodelist, errors)) => {
+            for error in errors {
+                let template_error = TemplateError::Parser(error.to_string());
+                accumulate_error(db, &template_error, nodelist.line_offsets(db));
+            }
+            nodelist
+        }
+        Err(err) => {
+            let template_error = TemplateError::Parser(err.to_string());
+            let empty_offsets = LineOffsets::default();
+            accumulate_error(db, &template_error, &empty_offsets);
+
+            let empty_nodelist = Vec::new();
+            let empty_offsets = LineOffsets::default();
+            NodeList::new(db, empty_nodelist, empty_offsets)
+        }
+    };
+
+    Some(nodelist)
+}
+
 fn accumulate_error(db: &dyn Db, error: &TemplateError, line_offsets: &LineOffsets) {
     let code = error.diagnostic_code();
     let range = error
@@ -111,65 +150,4 @@ fn accumulate_error(db: &dyn Db, error: &TemplateError, line_offsets: &LineOffse
     };
 
     TemplateDiagnostic(diagnostic).accumulate(db);
-}
-
-/// Parse a Django template file and accumulate diagnostics.
-///
-/// This is the PRIMARY function for template processing. It's a Salsa tracked function
-/// that orchestrates the parsing phases of template processing:
-/// 1. Lexing (tokenization)
-/// 2. Parsing (node list construction)
-///
-/// Validation has been moved to the djls-semantic crate for semantic analysis.
-///
-/// Each phase is independently cached by Salsa, allowing for fine-grained
-/// incremental computation.
-///
-/// The function returns the parsed node list (or None for non-template files).
-///
-/// Diagnostics can be retrieved using:
-/// ```ignore
-/// let diagnostics =
-///     parse_template::accumulated::<TemplateDiagnostic>(db, file);
-/// ```
-#[salsa::tracked]
-pub fn parse_template(db: &dyn Db, file: SourceFile) -> Option<NodeList<'_>> {
-    if file.kind(db) != FileKind::Template {
-        return None;
-    }
-
-    let token_stream = lex_template(db, file);
-
-    // Check if lexing produced no tokens (likely due to an error)
-    if token_stream.stream(db).is_empty() {
-        // Return empty node list for error recovery
-        let empty_nodelist = Vec::new();
-        let empty_offsets = LineOffsets::default();
-        return Some(NodeList::new(db, empty_nodelist, empty_offsets));
-    }
-
-    // Parser needs the TokenStream<'db>
-    let nodelist = match Parser::new(db, token_stream).parse() {
-        Ok((nodelist, errors)) => {
-            // Accumulate parser errors
-            for error in errors {
-                let template_error = TemplateError::Parser(error.to_string());
-                accumulate_error(db, &template_error, nodelist.line_offsets(db));
-            }
-            nodelist
-        }
-        Err(err) => {
-            // Critical parser error
-            let template_error = TemplateError::Parser(err.to_string());
-            let empty_offsets = LineOffsets::default();
-            accumulate_error(db, &template_error, &empty_offsets);
-
-            // Return empty node list
-            let empty_nodelist = Vec::new();
-            let empty_offsets = LineOffsets::default();
-            NodeList::new(db, empty_nodelist, empty_offsets)
-        }
-    };
-
-    Some(nodelist)
 }
