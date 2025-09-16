@@ -3,7 +3,7 @@
 //! Maps LSP language identifiers to internal [`FileKind`] for analyzer routing.
 //! Language IDs come from the LSP client and determine how files are processed.
 
-use crate::FileKind;
+use djls_source::FileKind;
 
 /// Language identifier as reported by the LSP client.
 ///

@@ -3,18 +3,18 @@
 //! This module provides consistent conversion between file paths and URLs,
 //! handling platform-specific differences and encoding issues.
 
-use std::path::Path;
-use std::path::PathBuf;
 use std::str::FromStr;
 
+use camino::Utf8Path;
+use camino::Utf8PathBuf;
 use tower_lsp_server::lsp_types;
 use url::Url;
 
-/// Convert a `file://` URL to a [`PathBuf`].
+/// Convert a `file://` URL to a [`Utf8PathBuf`].
 ///
 /// Handles percent-encoding and platform-specific path formats (e.g., Windows drives).
 #[must_use]
-pub fn url_to_path(url: &Url) -> Option<PathBuf> {
+pub fn url_to_path(url: &Url) -> Option<Utf8PathBuf> {
     // Only handle file:// URLs
     if url.scheme() != "file" {
         return None;
@@ -43,7 +43,7 @@ pub fn url_to_path(url: &Url) -> Option<PathBuf> {
         }
     };
 
-    Some(PathBuf::from(&*path))
+    Some(Utf8PathBuf::from(&*path))
 }
 
 /// Context for LSP operations, used for error reporting
@@ -95,11 +95,11 @@ pub fn parse_lsp_uri(lsp_uri: &lsp_types::Uri, context: LspContext) -> Option<Ur
     }
 }
 
-/// Convert an LSP [`Uri`](lsp_types::Uri) to a [`PathBuf`].
+/// Convert an LSP [`Uri`](lsp_types::Uri) to a [`Utf8PathBuf`].
 ///
 /// This is a convenience wrapper that parses the LSP URI string and converts it.
 #[must_use]
-pub fn lsp_uri_to_path(lsp_uri: &lsp_types::Uri) -> Option<PathBuf> {
+pub fn lsp_uri_to_path(lsp_uri: &lsp_types::Uri) -> Option<Utf8PathBuf> {
     let url = Url::parse(lsp_uri.as_str()).ok()?;
     url_to_path(&url)
 }
@@ -118,7 +118,7 @@ pub fn url_to_lsp_uri(url: &Url) -> Option<lsp_types::Uri> {
 /// the path to exist on the filesystem, making it suitable for overlay
 /// files and other virtual content.
 #[must_use]
-pub fn path_to_url(path: &Path) -> Option<Url> {
+pub fn path_to_url(path: &Utf8Path) -> Option<Url> {
     // For absolute paths, convert directly
     if path.is_absolute() {
         return Url::from_file_path(path).ok();
@@ -147,12 +147,18 @@ mod tests {
         #[cfg(not(windows))]
         {
             let url = Url::parse("file:///home/user/test.py").unwrap();
-            assert_eq!(url_to_path(&url), Some(PathBuf::from("/home/user/test.py")));
+            assert_eq!(
+                url_to_path(&url),
+                Some(Utf8PathBuf::from("/home/user/test.py"))
+            );
         }
         #[cfg(windows)]
         {
             let url = Url::parse("file:///C:/Users/test.py").unwrap();
-            assert_eq!(url_to_path(&url), Some(PathBuf::from("C:/Users/test.py")));
+            assert_eq!(
+                url_to_path(&url),
+                Some(Utf8PathBuf::from("C:/Users/test.py"))
+            );
         }
     }
 
@@ -169,7 +175,7 @@ mod tests {
             let url = Url::parse("file:///home/user/test%20file.py").unwrap();
             assert_eq!(
                 url_to_path(&url),
-                Some(PathBuf::from("/home/user/test file.py"))
+                Some(Utf8PathBuf::from("/home/user/test file.py"))
             );
         }
         #[cfg(windows)]
@@ -177,7 +183,7 @@ mod tests {
             let url = Url::parse("file:///C:/Users/test%20file.py").unwrap();
             assert_eq!(
                 url_to_path(&url),
-                Some(PathBuf::from("C:/Users/test file.py"))
+                Some(Utf8PathBuf::from("C:/Users/test file.py"))
             );
         }
     }
@@ -186,7 +192,10 @@ mod tests {
     #[cfg(windows)]
     fn test_url_to_path_windows_drive() {
         let url = Url::parse("file:///C:/Users/test.py").unwrap();
-        assert_eq!(url_to_path(&url), Some(PathBuf::from("C:/Users/test.py")));
+        assert_eq!(
+            url_to_path(&url),
+            Some(Utf8PathBuf::from("C:/Users/test.py"))
+        );
     }
 
     #[test]
@@ -205,7 +214,7 @@ mod tests {
             let uri = lsp_types::Uri::from_str("file:///home/user/test.py").unwrap();
             assert_eq!(
                 lsp_uri_to_path(&uri),
-                Some(PathBuf::from("/home/user/test.py"))
+                Some(Utf8PathBuf::from("/home/user/test.py"))
             );
         }
         #[cfg(windows)]
@@ -213,7 +222,7 @@ mod tests {
             let uri = lsp_types::Uri::from_str("file:///C:/Users/test.py").unwrap();
             assert_eq!(
                 lsp_uri_to_path(&uri),
-                Some(PathBuf::from("C:/Users/test.py"))
+                Some(Utf8PathBuf::from("C:/Users/test.py"))
             );
         }
     }
@@ -233,7 +242,7 @@ mod tests {
     // path_to_url tests
     #[test]
     fn test_path_to_url_absolute() {
-        let path = Path::new("/home/user/test.py");
+        let path = Utf8Path::new("/home/user/test.py");
         let url = path_to_url(path);
         assert!(url.is_some());
         assert_eq!(url.clone().unwrap().scheme(), "file");
@@ -242,7 +251,7 @@ mod tests {
 
     #[test]
     fn test_path_to_url_relative() {
-        let path = Path::new("test.py");
+        let path = Utf8Path::new("test.py");
         let url = path_to_url(path);
         assert!(url.is_some());
         assert_eq!(url.clone().unwrap().scheme(), "file");
@@ -252,7 +261,7 @@ mod tests {
 
     #[test]
     fn test_path_to_url_nonexistent_absolute() {
-        let path = Path::new("/definitely/does/not/exist/test.py");
+        let path = Utf8Path::new("/definitely/does/not/exist/test.py");
         let url = path_to_url(path);
         assert!(url.is_some());
         assert_eq!(url.unwrap().scheme(), "file");

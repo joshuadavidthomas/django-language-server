@@ -1,3 +1,4 @@
+use djls_source::Span;
 use salsa::Accumulator;
 use serde::Serialize;
 use thiserror::Error;
@@ -9,10 +10,10 @@ use crate::nodelist::FilterName;
 use crate::nodelist::LineOffsets;
 use crate::nodelist::Node;
 use crate::nodelist::NodeList;
-use crate::nodelist::Span;
 use crate::nodelist::TagBit;
 use crate::nodelist::TagName;
 use crate::nodelist::VariableName;
+use crate::tokens::span_from_token;
 use crate::tokens::Token;
 use crate::tokens::TokenStream;
 
@@ -76,7 +77,7 @@ impl<'db> Parser<'db> {
 
         Ok(Node::Comment {
             content: token.content(self.db),
-            span: Span::from_token(token, self.db),
+            span: span_from_token(token, self.db),
         })
     }
 
@@ -118,7 +119,7 @@ impl<'db> Parser<'db> {
         let name = TagName::new(self.db, name_str.to_string());
 
         let bits = parts.map(|s| TagBit::new(self.db, s.to_string())).collect();
-        let span = Span::from_token(token, self.db);
+        let span = span_from_token(token, self.db);
 
         Ok(Node::Tag { name, bits, span })
     }
@@ -147,7 +148,7 @@ impl<'db> Parser<'db> {
                 FilterName::new(self.db, trimmed.to_string())
             })
             .collect();
-        let span = Span::from_token(token, self.db);
+        let span = span_from_token(token, self.db);
 
         Ok(Node::Variable { var, filters, span })
     }
@@ -300,6 +301,7 @@ impl ParseError {
 
 #[cfg(test)]
 mod tests {
+    use camino::Utf8Path;
     use serde::Serialize;
 
     use super::*;
@@ -324,16 +326,8 @@ mod tests {
     impl salsa::Database for TestDatabase {}
 
     #[salsa::db]
-    impl djls_workspace::Db for TestDatabase {
-        fn fs(&self) -> std::sync::Arc<dyn djls_workspace::FileSystem> {
-            use djls_workspace::InMemoryFileSystem;
-            static FS: std::sync::OnceLock<std::sync::Arc<InMemoryFileSystem>> =
-                std::sync::OnceLock::new();
-            FS.get_or_init(|| std::sync::Arc::new(InMemoryFileSystem::default()))
-                .clone()
-        }
-
-        fn read_file_content(&self, path: &std::path::Path) -> Result<String, std::io::Error> {
+    impl djls_source::Db for TestDatabase {
+        fn read_file_source(&self, path: &Utf8Path) -> Result<String, std::io::Error> {
             std::fs::read_to_string(path)
         }
     }

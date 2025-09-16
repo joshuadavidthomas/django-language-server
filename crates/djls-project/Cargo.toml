@@ -7,6 +7,7 @@ edition = "2021"
 djls-workspace = { workspace = true }
 
 anyhow = { workspace = true }
+camino = { workspace = true, features = ["serde1"] }
 rustc-hash = { workspace = true }
 salsa = { workspace = true }
 serde = { workspace = true }
@@ -18,6 +19,7 @@ which = { workspace = true}
 which = { workspace = true }
 
 [dev-dependencies]
+djls-source = { workspace = true }
 
 [lints]
 workspace = true

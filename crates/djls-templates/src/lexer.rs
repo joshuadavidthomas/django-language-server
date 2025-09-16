@@ -207,6 +207,7 @@ impl<'db> Lexer<'db> {
 mod tests {
     use super::*;
     use crate::tokens::TokenSnapshotVec;
+    use camino::Utf8Path;
 
     #[salsa::db]
     #[derive(Clone)]
@@ -226,16 +227,8 @@ mod tests {
     impl salsa::Database for TestDatabase {}
 
     #[salsa::db]
-    impl djls_workspace::Db for TestDatabase {
-        fn fs(&self) -> std::sync::Arc<dyn djls_workspace::FileSystem> {
-            use djls_workspace::InMemoryFileSystem;
-            static FS: std::sync::OnceLock<std::sync::Arc<InMemoryFileSystem>> =
-                std::sync::OnceLock::new();
-            FS.get_or_init(|| std::sync::Arc::new(InMemoryFileSystem::default()))
-                .clone()
-        }
-
-        fn read_file_content(&self, path: &std::path::Path) -> Result<String, std::io::Error> {
+    impl djls_source::Db for TestDatabase {
+        fn read_file_source(&self, path: &Utf8Path) -> Result<String, std::io::Error> {
             std::fs::read_to_string(path)
         }
     }

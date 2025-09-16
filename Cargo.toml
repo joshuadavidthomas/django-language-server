@@ -9,6 +9,7 @@ djls-ide = { path = "crates/djls-ide" }
 djls-project = { path = "crates/djls-project" }
 djls-semantic = { path = "crates/djls-semantic" }
 djls-server = { path = "crates/djls-server" }
+djls-source = { path = "crates/djls-source" }
 djls-templates = { path = "crates/djls-templates" }
 djls-workspace = { path = "crates/djls-workspace" }
 

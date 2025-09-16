@@ -3,8 +3,8 @@ use std::sync::Arc;
 
 use djls_project::Db as ProjectDb;
 use djls_semantic::Db as SemanticDb;
+use djls_source::FileKind;
 use djls_workspace::paths;
-use djls_workspace::FileKind;
 use tokio::sync::Mutex;
 use tower_lsp_server::jsonrpc::Result as LspResult;
 use tower_lsp_server::lsp_types;
@@ -185,16 +185,13 @@ impl LanguageServer for DjangoLanguageServer {
                 .map(|p| p.root(session_lock.database()).clone());
 
             if let Some(path) = project_path {
-                tracing::info!(
-                    "Task: Starting initialization for project at: {}",
-                    path.display()
-                );
+                tracing::info!("Task: Starting initialization for project at: {}", path);
 
                 if let Some(project) = session_lock.project() {
                     project.initialize(session_lock.database());
                 }
 
-                tracing::info!("Task: Successfully initialized project: {}", path.display());
+                tracing::info!("Task: Successfully initialized project: {}", path);
             } else {
                 tracing::info!("Task: No project configured, skipping initialization.");
             }
@@ -393,7 +390,7 @@ impl LanguageServer for DjangoLanguageServer {
         };
 
         // Only provide diagnostics for template files
-        let file_kind = FileKind::from_path(std::path::Path::new(url.path()));
+        let file_kind = FileKind::from_path(url.path().into());
         if file_kind != FileKind::Template {
             return Ok(lsp_types::DocumentDiagnosticReportResult::Report(
                 lsp_types::DocumentDiagnosticReport::Full(
@@ -412,7 +409,7 @@ impl LanguageServer for DjangoLanguageServer {
         let diagnostics: Vec<lsp_types::Diagnostic> = self
             .with_session(|session| {
                 session.with_db(|db| {
-                    let Some(file) = db.get_file(std::path::Path::new(url.path())) else {
+                    let Some(file) = db.get_file(url.path().into()) else {
                         return vec![];
                     };
 
@@ -442,7 +439,7 @@ impl LanguageServer for DjangoLanguageServer {
             if let Some(project) = session.project() {
                 let project_root = project.root(session.database());
 
-                match djls_conf::Settings::new(project_root.as_path()) {
+                match djls_conf::Settings::new(project_root) {
                     Ok(new_settings) => {
                         session.set_settings(new_settings);
                     }

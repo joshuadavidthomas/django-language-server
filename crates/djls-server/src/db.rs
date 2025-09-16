@@ -4,11 +4,11 @@
 //! the database traits from workspace, template, and project crates. This follows
 //! Ruff's architecture pattern where the concrete database lives at the top level.
 
-use std::path::Path;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
 
+use camino::Utf8Path;
+use camino::Utf8PathBuf;
 use dashmap::DashMap;
 use djls_project::Db as ProjectDb;
 use djls_project::InspectorPool;
@@ -16,10 +16,10 @@ use djls_project::Interpreter;
 use djls_project::Project;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::TagSpecs;
+use djls_source::Db as SourceDb;
+use djls_source::File;
 use djls_templates::db::Db as TemplateDb;
 use djls_workspace::db::Db as WorkspaceDb;
-use djls_workspace::db::SourceFile;
-use djls_workspace::FileKind;
 use djls_workspace::FileSystem;
 use salsa::Setter;
 
@@ -36,7 +36,7 @@ pub struct DjangoDatabase {
     fs: Arc<dyn FileSystem>,
 
     /// Maps paths to [`SourceFile`] entities for O(1) lookup.
-    files: Arc<DashMap<PathBuf, SourceFile>>,
+    files: Arc<DashMap<Utf8PathBuf, File>>,
 
     /// The single project for this database instance
     project: Arc<Mutex<Option<Project>>>,
@@ -87,7 +87,7 @@ impl DjangoDatabase {
     /// # Panics
     ///
     /// Panics if the project mutex is poisoned.
-    pub fn set_project(&self, root: &Path) {
+    pub fn set_project(&self, root: &Utf8Path) {
         let interpreter = Interpreter::Auto;
         let django_settings = std::env::var("DJANGO_SETTINGS_MODULE").ok();
 
@@ -96,7 +96,7 @@ impl DjangoDatabase {
         *self.project.lock().unwrap() = Some(project);
     }
     /// Create a new [`DjangoDatabase`] with the given file system and file map.
-    pub fn new(file_system: Arc<dyn FileSystem>, files: Arc<DashMap<PathBuf, SourceFile>>) -> Self {
+    pub fn new(file_system: Arc<dyn FileSystem>, files: Arc<DashMap<Utf8PathBuf, File>>) -> Self {
         Self {
             fs: file_system,
             files,
@@ -111,7 +111,7 @@ impl DjangoDatabase {
     /// Get an existing [`SourceFile`] for the given path without creating it.
     ///
     /// Returns `Some(SourceFile)` if the file is already tracked, `None` otherwise.
-    pub fn get_file(&self, path: &Path) -> Option<SourceFile> {
+    pub fn get_file(&self, path: &Utf8Path) -> Option<File> {
         self.files.get(path).map(|file_ref| *file_ref)
     }
 
@@ -119,21 +119,19 @@ impl DjangoDatabase {
     ///
     /// Files are created with an initial revision of 0 and tracked in the database's
     /// `DashMap`. The `Arc` ensures cheap cloning while maintaining thread safety.
-    pub fn get_or_create_file(&mut self, path: &PathBuf) -> SourceFile {
+    pub fn get_or_create_file(&mut self, path: &Utf8PathBuf) -> File {
         if let Some(file_ref) = self.files.get(path) {
             return *file_ref;
         }
 
-        // File doesn't exist, so we need to create it
-        let kind = FileKind::from_path(path);
-        let file = SourceFile::new(self, kind, Arc::from(path.to_string_lossy().as_ref()), 0);
+        let file = File::new(self, path.clone(), 0);
 
         self.files.insert(path.clone(), file);
         file
     }
 
     /// Check if a file is being tracked without creating it.
-    pub fn has_file(&self, path: &Path) -> bool {
+    pub fn has_file(&self, path: &Utf8Path) -> bool {
         self.files.contains_key(path)
     }
 
@@ -141,9 +139,9 @@ impl DjangoDatabase {
     ///
     /// Updates the file's revision number to signal that cached query results
     /// depending on this file should be invalidated.
-    pub fn touch_file(&mut self, path: &Path) {
+    pub fn touch_file(&mut self, path: &Utf8Path) {
         let Some(file_ref) = self.files.get(path) else {
-            tracing::debug!("File {} not tracked, skipping touch", path.display());
+            tracing::debug!("File {} not tracked, skipping touch", path);
             return;
         };
         let file = *file_ref;
@@ -153,12 +151,7 @@ impl DjangoDatabase {
         let new_rev = current_rev + 1;
         file.set_revision(self).to(new_rev);
 
-        tracing::debug!(
-            "Touched {}: revision {} -> {}",
-            path.display(),
-            current_rev,
-            new_rev
-        );
+        tracing::debug!("Touched {}: revision {} -> {}", path, current_rev, new_rev);
     }
 }
 
@@ -166,13 +159,16 @@ impl DjangoDatabase {
 impl salsa::Database for DjangoDatabase {}
 
 #[salsa::db]
+impl SourceDb for DjangoDatabase {
+    fn read_file_source(&self, path: &Utf8Path) -> std::io::Result<String> {
+        self.fs.read_to_string(path)
+    }
+}
+
+#[salsa::db]
 impl WorkspaceDb for DjangoDatabase {
     fn fs(&self) -> Arc<dyn FileSystem> {
         self.fs.clone()
-    }
-
-    fn read_file_content(&self, path: &Path) -> std::io::Result<String> {
-        self.fs.read_to_string(path)
     }
 }
 
@@ -185,7 +181,10 @@ impl SemanticDb for DjangoDatabase {
         let project_root = if let Some(project) = self.project() {
             project.root(self).clone()
         } else {
-            std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
+            std::env::current_dir()
+                .ok()
+                .and_then(|p| Utf8PathBuf::from_path_buf(p).ok())
+                .unwrap_or_else(|| Utf8PathBuf::from("."))
         };
 
         let tag_specs = if let Ok(settings) = djls_conf::Settings::new(&project_root) {

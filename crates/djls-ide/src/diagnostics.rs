@@ -1,9 +1,9 @@
 use djls_semantic::ValidationError;
+use djls_source::File;
+use djls_source::Span;
 use djls_templates::LineOffsets;
-use djls_templates::Span;
 use djls_templates::TemplateError;
 use djls_templates::TemplateErrorAccumulator;
-use djls_workspace::SourceFile;
 use tower_lsp_server::lsp_types;
 
 trait DiagnosticError: std::fmt::Display {
@@ -126,7 +126,7 @@ fn error_to_diagnostic(
 #[must_use]
 pub fn collect_diagnostics(
     db: &dyn djls_semantic::Db,
-    file: SourceFile,
+    file: File,
     nodelist: Option<djls_templates::NodeList<'_>>,
 ) -> Vec<lsp_types::Diagnostic> {
     let mut diagnostics = Vec::new();

@@ -1,12 +1,14 @@
 use std::env::VarError;
-use std::path::PathBuf;
 
+use camino::Utf8PathBuf;
 use which::Error as WhichError;
 
-pub fn find_executable(name: &str) -> Result<PathBuf, WhichError> {
+pub fn find_executable(name: &str) -> Result<Utf8PathBuf, WhichError> {
     #[cfg(not(test))]
     {
-        which::which(name)
+        which::which(name).and_then(|path| {
+            Utf8PathBuf::from_path_buf(path).map_err(|_| WhichError::CannotFindBinaryPath)
+        })
     }
     #[cfg(test)]
     {
@@ -35,11 +37,11 @@ pub mod mock {
     use super::*;
 
     thread_local! {
-        static MOCK_EXEC_RESULTS: RefCell<FxHashMap<String, Result<PathBuf, WhichError>>> = RefCell::new(FxHashMap::default());
+        static MOCK_EXEC_RESULTS: RefCell<FxHashMap<String, Result<Utf8PathBuf, WhichError>>> = RefCell::new(FxHashMap::default());
         static MOCK_ENV_RESULTS: RefCell<FxHashMap<String, Result<String, VarError>>> = RefCell::new(FxHashMap::default());
     }
 
-    pub(super) fn find_executable_mocked(name: &str) -> Result<PathBuf, WhichError> {
+    pub(super) fn find_executable_mocked(name: &str) -> Result<Utf8PathBuf, WhichError> {
         MOCK_EXEC_RESULTS.with(|mocks| {
             mocks
                 .borrow()
@@ -68,7 +70,7 @@ pub mod mock {
         }
     }
 
-    pub fn set_exec_path(name: &str, path: PathBuf) {
+    pub fn set_exec_path(name: &str, path: Utf8PathBuf) {
         MOCK_EXEC_RESULTS.with(|mocks| {
             mocks.borrow_mut().insert(name.to_string(), Ok(path));
         });
@@ -99,20 +101,15 @@ pub mod mock {
 #[cfg(test)]
 mod tests {
     use std::env::VarError;
-    use std::path::PathBuf;
-
-    use which::Error as WhichError;
 
     use super::mock::MockGuard;
-    use super::mock::{
-        self as sys_mock,
-    };
+    use super::mock::{self as sys_mock};
     use super::*;
 
     #[test]
     fn test_exec_mock_path_retrieval() {
         let _guard = MockGuard;
-        let expected_path = PathBuf::from("/mock/path/to/python");
+        let expected_path = Utf8PathBuf::from("/mock/path/to/python");
         sys_mock::set_exec_path("python", expected_path.clone());
         let result = find_executable("python");
         assert_eq!(result.unwrap(), expected_path);
@@ -160,7 +157,7 @@ mod tests {
 
     #[test]
     fn test_mock_guard_clears_all_mocks() {
-        let expected_exec_path = PathBuf::from("/tmp/myprog");
+        let expected_exec_path = Utf8PathBuf::from("/tmp/myprog");
         let expected_env_val = "test_value".to_string();
 
         {
@@ -192,7 +189,7 @@ mod tests {
         assert!(matches!(result_myvar, Err(VarError::NotPresent)));
 
         // Set mocks specific to this test
-        let expected_path_node = PathBuf::from("/usr/bin/node");
+        let expected_path_node = Utf8PathBuf::from("/usr/bin/node");
         sys_mock::set_exec_path("node", expected_path_node.clone());
         sys_mock::set_env_var("NODE_ENV", "production".to_string());
 

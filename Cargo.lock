@@ -173,6 +173,9 @@ name = "camino"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e1de8bc0aa9e9385ceb3bf0c152e3a9b9544f6c4a912c8ae504e80c1f0368603"
+dependencies = [
+ "serde_core",
+]
 
 [[package]]
 name = "cfg-if"
@@ -436,6 +439,7 @@ name = "djls-conf"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "camino",
  "config",
  "directories",
  "serde",
@@ -450,6 +454,7 @@ version = "0.0.0"
 dependencies = [
  "djls-project",
  "djls-semantic",
+ "djls-source",
  "djls-templates",
  "djls-workspace",
  "salsa",
@@ -461,6 +466,8 @@ name = "djls-project"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "camino",
+ "djls-source",
  "djls-workspace",
  "rustc-hash",
  "salsa",
@@ -474,7 +481,9 @@ dependencies = [
 name = "djls-semantic"
 version = "0.0.0"
 dependencies = [
+ "camino",
  "djls-conf",
+ "djls-source",
  "djls-templates",
  "djls-workspace",
  "rustc-hash",
@@ -495,6 +504,7 @@ dependencies = [
  "djls-ide",
  "djls-project",
  "djls-semantic",
+ "djls-source",
  "djls-templates",
  "djls-workspace",
  "percent-encoding",
@@ -511,11 +521,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "djls-source"
+version = "0.0.0"
+dependencies = [
+ "camino",
+ "salsa",
+ "serde",
+]
+
+[[package]]
 name = "djls-templates"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "camino",
  "djls-conf",
+ "djls-source",
  "djls-workspace",
  "insta",
  "salsa",
@@ -532,6 +553,7 @@ dependencies = [
  "anyhow",
  "camino",
  "dashmap",
+ "djls-source",
  "notify",
  "percent-encoding",
  "rustc-hash",

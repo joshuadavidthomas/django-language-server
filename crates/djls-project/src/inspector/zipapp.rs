@@ -1,8 +1,8 @@
 use std::io::Write;
-use std::path::Path;
 
 use anyhow::Context;
 use anyhow::Result;
+use camino::Utf8Path;
 use tempfile::NamedTempFile;
 
 const INSPECTOR_PYZ: &[u8] = include_bytes!(concat!(
@@ -30,7 +30,7 @@ impl InspectorFile {
         Ok(Self(zipapp_file))
     }
 
-    pub fn path(&self) -> &Path {
-        self.0.path()
+    pub fn path(&self) -> &Utf8Path {
+        Utf8Path::from_path(self.0.path()).expect("Temp file path should always be valid UTF-8")
     }
 }

@@ -17,8 +17,8 @@
 //! The `TagValidator` follows the same pattern as the Parser and Lexer,
 //! maintaining minimal state and walking through the node list to accumulate errors.
 
+use djls_source::Span;
 use djls_templates::nodelist::Node;
-use djls_templates::nodelist::Span;
 use djls_templates::nodelist::TagBit;
 use djls_templates::nodelist::TagName;
 use djls_templates::NodeList;

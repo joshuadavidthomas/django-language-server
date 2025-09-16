@@ -1,5 +1,4 @@
-use std::path::PathBuf;
-
+use camino::Utf8PathBuf;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -15,11 +14,11 @@ pub enum Query {
 #[derive(Serialize, Deserialize)]
 #[allow(clippy::struct_field_names)]
 pub struct PythonEnvironmentQueryData {
-    pub sys_base_prefix: PathBuf,
-    pub sys_executable: PathBuf,
-    pub sys_path: Vec<PathBuf>,
+    pub sys_base_prefix: Utf8PathBuf,
+    pub sys_executable: Utf8PathBuf,
+    pub sys_path: Vec<Utf8PathBuf>,
     pub sys_platform: String,
-    pub sys_prefix: PathBuf,
+    pub sys_prefix: Utf8PathBuf,
     pub sys_version_info: (u32, u32, u32, VersionReleaseLevel, u32),
 }
 

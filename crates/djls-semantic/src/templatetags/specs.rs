@@ -370,6 +370,10 @@ impl From<djls_conf::IntermediateTagDef> for IntermediateTag {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
+    use camino::Utf8Path;
+
     use super::*;
 
     // Helper function to create a small test TagSpecs
@@ -785,11 +789,9 @@ mod tests {
 
     #[test]
     fn test_conversion_from_settings() {
-        use std::fs;
-
         // Test case 1: Empty settings gives built-in specs
         let dir = tempfile::TempDir::new().unwrap();
-        let settings = djls_conf::Settings::new(dir.path()).unwrap();
+        let settings = djls_conf::Settings::new(Utf8Path::from_path(dir.path()).unwrap()).unwrap();
         let specs = TagSpecs::from(&settings);
 
         // Should have built-in specs
@@ -817,7 +819,7 @@ end_tag = { name = "endif", optional = true }
 "#;
         fs::write(dir.path().join("djls.toml"), config_content).unwrap();
 
-        let settings = djls_conf::Settings::new(dir.path()).unwrap();
+        let settings = djls_conf::Settings::new(Utf8Path::from_path(dir.path()).unwrap()).unwrap();
         let specs = TagSpecs::from(&settings);
 
         // Should have built-in specs

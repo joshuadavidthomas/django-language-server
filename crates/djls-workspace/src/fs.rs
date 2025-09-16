@@ -4,22 +4,21 @@
 //! This allows the LSP to work with both real files and in-memory overlays.
 
 use std::io;
-use std::path::Path;
-use std::path::PathBuf;
 use std::sync::Arc;
 
+use camino::{Utf8Path, Utf8PathBuf};
 use rustc_hash::FxHashMap;
 
 use crate::buffers::Buffers;
 use crate::paths;
 
 pub trait FileSystem: Send + Sync {
-    fn read_to_string(&self, path: &Path) -> io::Result<String>;
-    fn exists(&self, path: &Path) -> bool;
+    fn read_to_string(&self, path: &Utf8Path) -> io::Result<String>;
+    fn exists(&self, path: &Utf8Path) -> bool;
 }
 
 pub struct InMemoryFileSystem {
-    files: FxHashMap<PathBuf, String>,
+    files: FxHashMap<Utf8PathBuf, String>,
 }
 
 impl InMemoryFileSystem {
@@ -30,7 +29,7 @@ impl InMemoryFileSystem {
         }
     }
 
-    pub fn add_file(&mut self, path: PathBuf, content: String) {
+    pub fn add_file(&mut self, path: Utf8PathBuf, content: String) {
         self.files.insert(path, content);
     }
 }
@@ -42,14 +41,14 @@ impl Default for InMemoryFileSystem {
 }
 
 impl FileSystem for InMemoryFileSystem {
-    fn read_to_string(&self, path: &Path) -> io::Result<String> {
+    fn read_to_string(&self, path: &Utf8Path) -> io::Result<String> {
         self.files
             .get(path)
             .cloned()
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "File not found"))
     }
 
-    fn exists(&self, path: &Path) -> bool {
+    fn exists(&self, path: &Utf8Path) -> bool {
         self.files.contains_key(path)
     }
 }
@@ -58,11 +57,11 @@ impl FileSystem for InMemoryFileSystem {
 pub struct OsFileSystem;
 
 impl FileSystem for OsFileSystem {
-    fn read_to_string(&self, path: &Path) -> io::Result<String> {
+    fn read_to_string(&self, path: &Utf8Path) -> io::Result<String> {
         std::fs::read_to_string(path)
     }
 
-    fn exists(&self, path: &Path) -> bool {
+    fn exists(&self, path: &Utf8Path) -> bool {
         path.exists()
     }
 }
@@ -101,7 +100,7 @@ impl WorkspaceFileSystem {
 }
 
 impl FileSystem for WorkspaceFileSystem {
-    fn read_to_string(&self, path: &Path) -> io::Result<String> {
+    fn read_to_string(&self, path: &Utf8Path) -> io::Result<String> {
         if let Some(url) = paths::path_to_url(path) {
             if let Some(document) = self.buffers.get(&url) {
                 return Ok(document.content().to_string());
@@ -110,7 +109,7 @@ impl FileSystem for WorkspaceFileSystem {
         self.disk.read_to_string(path)
     }
 
-    fn exists(&self, path: &Path) -> bool {
+    fn exists(&self, path: &Utf8Path) -> bool {
         paths::path_to_url(path).is_some_and(|url| self.buffers.contains(&url))
             || self.disk.exists(path)
     }
@@ -129,7 +128,7 @@ mod tests {
             fs.add_file("/test.py".into(), "file content".to_string());
 
             assert_eq!(
-                fs.read_to_string(Path::new("/test.py")).unwrap(),
+                fs.read_to_string(Utf8Path::new("/test.py")).unwrap(),
                 "file content"
             );
         }
@@ -138,7 +137,7 @@ mod tests {
         fn test_read_nonexistent_file() {
             let fs = InMemoryFileSystem::new();
 
-            let result = fs.read_to_string(Path::new("/missing.py"));
+            let result = fs.read_to_string(Utf8Path::new("/missing.py"));
             assert!(result.is_err());
             assert_eq!(result.unwrap_err().kind(), io::ErrorKind::NotFound);
         }
@@ -148,14 +147,14 @@ mod tests {
             let mut fs = InMemoryFileSystem::new();
             fs.add_file("/exists.py".into(), "content".to_string());
 
-            assert!(fs.exists(Path::new("/exists.py")));
+            assert!(fs.exists(Utf8Path::new("/exists.py")));
         }
 
         #[test]
         fn test_exists_returns_false_for_nonexistent() {
             let fs = InMemoryFileSystem::new();
 
-            assert!(!fs.exists(Path::new("/missing.py")));
+            assert!(!fs.exists(Utf8Path::new("/missing.py")));
         }
     }
 
@@ -168,11 +167,11 @@ mod tests {
         use crate::language::LanguageId;
 
         // Helper to create platform-appropriate test paths
-        fn test_file_path(name: &str) -> PathBuf {
+        fn test_file_path(name: &str) -> Utf8PathBuf {
             #[cfg(windows)]
-            return PathBuf::from(format!("C:\\temp\\{name}"));
+            return Utf8PathBuf::from(format!("C:\\temp\\{name}"));
             #[cfg(not(windows))]
-            return PathBuf::from(format!("/tmp/{name}"));
+            return Utf8PathBuf::from(format!("/tmp/{name}"));
         }
 
         #[test]

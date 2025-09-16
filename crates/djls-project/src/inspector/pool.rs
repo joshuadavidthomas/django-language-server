@@ -1,10 +1,11 @@
-use std::path::Path;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
 use std::time::Instant;
 
 use anyhow::Result;
+use camino::Utf8Path;
+use camino::Utf8PathBuf;
 
 use super::ipc::InspectorProcess;
 use super::DjlsRequest;
@@ -36,7 +37,7 @@ struct InspectorProcessHandle {
     process: InspectorProcess,
     last_used: Instant,
     python_env: PythonEnvironment,
-    project_path: std::path::PathBuf,
+    project_path: Utf8PathBuf,
 }
 
 impl InspectorPool {
@@ -63,7 +64,7 @@ impl InspectorPool {
     pub fn query(
         &self,
         python_env: &PythonEnvironment,
-        project_path: &Path,
+        project_path: &Utf8Path,
         request: &DjlsRequest,
     ) -> Result<DjlsResponse> {
         let mut inner = self.inner.lock().expect("Inspector pool mutex poisoned");
