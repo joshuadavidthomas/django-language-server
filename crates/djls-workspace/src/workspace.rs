@@ -98,9 +98,8 @@ impl Workspace {
         document: TextDocument,
     ) -> Option<WorkspaceFileEvent> {
         self.buffers.open(url.clone(), document);
-        self.ensure_file_for_url(db, url).map(|event| {
+        self.ensure_file_for_url(db, url).inspect(|event| {
             db.touch_file(event.file());
-            event
         })
     }
 
@@ -127,9 +126,8 @@ impl Workspace {
             }
         }
 
-        self.ensure_file_for_url(db, url).map(|event| {
+        self.ensure_file_for_url(db, url).inspect(|event| {
             db.touch_file(event.file());
-            event
         })
     }
 

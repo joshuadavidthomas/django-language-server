@@ -134,7 +134,7 @@ pub fn collect_diagnostics(
     let line_index = file.line_index(db);
 
     for error_acc in template_errors {
-        diagnostics.push(error_to_diagnostic(&error_acc.0, &line_index));
+        diagnostics.push(error_to_diagnostic(&error_acc.0, line_index));
     }
 
     if let Some(nodelist) = nodelist {
@@ -143,7 +143,7 @@ pub fn collect_diagnostics(
         >(db, nodelist);
 
         for error_acc in validation_errors {
-            diagnostics.push(error_to_diagnostic(&error_acc.0, &line_index));
+            diagnostics.push(error_to_diagnostic(&error_acc.0, line_index));
         }
     }
 
