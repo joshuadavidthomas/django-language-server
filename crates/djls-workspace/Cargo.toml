@@ -4,7 +4,7 @@ version = "0.0.0"
 edition = "2021"
 
 [dependencies]
-djls-source = { workspace = true}
+djls-source = { workspace = true }
 
 anyhow = { workspace = true }
 camino = { workspace = true }

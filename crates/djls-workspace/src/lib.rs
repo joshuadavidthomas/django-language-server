@@ -31,3 +31,4 @@ pub use fs::OsFileSystem;
 pub use fs::WorkspaceFileSystem;
 pub use language::LanguageId;
 pub use workspace::Workspace;
+pub use workspace::WorkspaceFileEvent;

@@ -1,6 +1,7 @@
 use std::future::Future;
 use std::sync::Arc;
 
+use camino::Utf8PathBuf;
 use djls_project::Db as ProjectDb;
 use djls_semantic::Db as SemanticDb;
 use djls_source::FileKind;
@@ -406,16 +407,17 @@ impl LanguageServer for DjangoLanguageServer {
         }
 
         // Get diagnostics from the database
+        let path: Utf8PathBuf = url.path().into();
         let diagnostics: Vec<lsp_types::Diagnostic> = self
             .with_session(|session| {
-                session.with_db(|db| {
-                    let Some(file) = db.get_file(url.path().into()) else {
-                        return vec![];
-                    };
-
-                    let nodelist = djls_templates::parse_template(db, file);
-                    djls_ide::collect_diagnostics(db, file, nodelist)
-                })
+                if let Some(file) = session.get_file(&path) {
+                    session.with_db(|db| {
+                        let nodelist = djls_templates::parse_template(db, file);
+                        djls_ide::collect_diagnostics(db, file, nodelist)
+                    })
+                } else {
+                    vec![]
+                }
             })
             .await;
 
