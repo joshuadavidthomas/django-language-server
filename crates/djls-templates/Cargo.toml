@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 djls-conf = { workspace = true }
+djls-source = { workspace = true }
 djls-workspace = { workspace = true }
 
 anyhow = { workspace = true }
@@ -14,6 +15,7 @@ thiserror = { workspace = true }
 toml = { workspace = true }
 
 [dev-dependencies]
+camino = { workspace = true }
 insta = { workspace = true }
 tempfile = { workspace = true }
 

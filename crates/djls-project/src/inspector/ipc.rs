@@ -1,13 +1,13 @@
 use std::io::BufRead;
 use std::io::BufReader;
 use std::io::Write;
-use std::path::Path;
 use std::process::Child;
 use std::process::Command;
 use std::process::Stdio;
 
 use anyhow::Context;
 use anyhow::Result;
+use camino::Utf8Path;
 use serde_json;
 
 use super::zipapp::InspectorFile;
@@ -23,7 +23,7 @@ pub struct InspectorProcess {
 }
 
 impl InspectorProcess {
-    pub fn new(python_env: &PythonEnvironment, project_path: &Path) -> Result<Self> {
+    pub fn new(python_env: &PythonEnvironment, project_path: &Utf8Path) -> Result<Self> {
         let zipapp_file = InspectorFile::create()?;
 
         let mut cmd = Command::new(&python_env.python_path);
@@ -34,7 +34,7 @@ impl InspectorProcess {
             .current_dir(project_path);
 
         if let Ok(pythonpath) = std::env::var("PYTHONPATH") {
-            let mut paths = vec![project_path.to_string_lossy().to_string()];
+            let mut paths = vec![project_path.to_string()];
             paths.push(pythonpath);
             cmd.env("PYTHONPATH", paths.join(":"));
         } else {

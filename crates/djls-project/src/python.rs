@@ -1,7 +1,8 @@
 use std::fmt;
-use std::path::Path;
-use std::path::PathBuf;
 use std::sync::Arc;
+
+use camino::Utf8Path;
+use camino::Utf8PathBuf;
 
 use crate::db::Db as ProjectDb;
 use crate::system;
@@ -26,10 +27,10 @@ pub enum Interpreter {
 /// This tracked function determines the interpreter path based on the project's
 /// interpreter specification.
 #[salsa::tracked]
-pub fn resolve_interpreter(db: &dyn ProjectDb, project: Project) -> Option<PathBuf> {
+pub fn resolve_interpreter(db: &dyn ProjectDb, project: Project) -> Option<Utf8PathBuf> {
     match &project.interpreter(db) {
         Interpreter::InterpreterPath(path) => {
-            let path_buf = PathBuf::from(path.as_str());
+            let path_buf = Utf8PathBuf::from(path.as_str());
             if path_buf.exists() {
                 Some(path_buf)
             } else {
@@ -39,9 +40,11 @@ pub fn resolve_interpreter(db: &dyn ProjectDb, project: Project) -> Option<PathB
         Interpreter::VenvPath(venv_path) => {
             // Derive interpreter path from venv
             #[cfg(unix)]
-            let interpreter_path = PathBuf::from(venv_path.as_str()).join("bin").join("python");
+            let interpreter_path = Utf8PathBuf::from(venv_path.as_str())
+                .join("bin")
+                .join("python");
             #[cfg(windows)]
-            let interpreter_path = PathBuf::from(venv_path.as_str())
+            let interpreter_path = Utf8PathBuf::from(venv_path.as_str())
                 .join("Scripts")
                 .join("python.exe");
 
@@ -75,16 +78,16 @@ pub fn resolve_interpreter(db: &dyn ProjectDb, project: Project) -> Option<PathB
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PythonEnvironment {
-    pub python_path: PathBuf,
-    pub sys_path: Vec<PathBuf>,
-    pub sys_prefix: PathBuf,
+    pub python_path: Utf8PathBuf,
+    pub sys_path: Vec<Utf8PathBuf>,
+    pub sys_prefix: Utf8PathBuf,
 }
 
 impl PythonEnvironment {
     #[must_use]
-    pub fn new(project_path: &Path, venv_path: Option<&str>) -> Option<Self> {
+    pub fn new(project_path: &Utf8Path, venv_path: Option<&str>) -> Option<Self> {
         if let Some(path) = venv_path {
-            let prefix = PathBuf::from(path);
+            let prefix = Utf8PathBuf::from(path);
             if let Some(env) = Self::from_venv_prefix(&prefix) {
                 return Some(env);
             }
@@ -92,7 +95,7 @@ impl PythonEnvironment {
         }
 
         if let Ok(virtual_env) = system::env_var("VIRTUAL_ENV") {
-            let prefix = PathBuf::from(virtual_env);
+            let prefix = Utf8PathBuf::from(virtual_env);
             if let Some(env) = Self::from_venv_prefix(&prefix) {
                 return Some(env);
             }
@@ -110,7 +113,7 @@ impl PythonEnvironment {
         Self::from_system_python()
     }
 
-    fn from_venv_prefix(prefix: &Path) -> Option<Self> {
+    fn from_venv_prefix(prefix: &Utf8Path) -> Option<Self> {
         #[cfg(unix)]
         let python_path = prefix.join("bin").join("python");
         #[cfg(windows)]
@@ -165,7 +168,7 @@ impl PythonEnvironment {
     }
 
     #[cfg(unix)]
-    fn find_site_packages(prefix: &Path) -> Option<PathBuf> {
+    fn find_site_packages(prefix: &Utf8Path) -> Option<Utf8PathBuf> {
         let lib_dir = prefix.join("lib");
         if !lib_dir.is_dir() {
             return None;
@@ -177,22 +180,26 @@ impl PythonEnvironment {
                 e.file_type().is_ok_and(|ft| ft.is_dir())
                     && e.file_name().to_string_lossy().starts_with("python")
             })
-            .map(|e| e.path().join("site-packages"))
+            .and_then(|e| {
+                Utf8PathBuf::from_path_buf(e.path())
+                    .ok()
+                    .map(|p| p.join("site-packages"))
+            })
     }
 
     #[cfg(windows)]
-    fn find_site_packages(prefix: &Path) -> Option<PathBuf> {
+    fn find_site_packages(prefix: &Utf8Path) -> Option<Utf8PathBuf> {
         Some(prefix.join("Lib").join("site-packages"))
     }
 }
 
 impl fmt::Display for PythonEnvironment {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "Python path: {}", self.python_path.display())?;
-        writeln!(f, "Sys prefix: {}", self.sys_prefix.display())?;
+        writeln!(f, "Python path: {}", self.python_path)?;
+        writeln!(f, "Sys prefix: {}", self.sys_prefix)?;
         writeln!(f, "Sys paths:")?;
         for path in &self.sys_path {
-            writeln!(f, "  {}", path.display())?;
+            writeln!(f, "  {path}")?;
         }
         Ok(())
     }
@@ -218,7 +225,7 @@ pub fn python_environment(db: &dyn ProjectDb, project: Project) -> Option<Arc<Py
             interpreter_path
                 .parent()
                 .and_then(|bin_dir| bin_dir.parent())
-                .and_then(|venv_root| venv_root.to_str())
+                .map(camino::Utf8Path::as_str)
         }
         Interpreter::VenvPath(path) => Some(path.as_str()),
         Interpreter::Auto => {
@@ -240,7 +247,7 @@ mod tests {
 
     use super::*;
 
-    fn create_mock_venv(dir: &Path, version: Option<&str>) -> PathBuf {
+    fn create_mock_venv(dir: &Utf8Path, version: Option<&str>) -> Utf8PathBuf {
         let prefix = dir.to_path_buf();
 
         #[cfg(unix)]
@@ -280,11 +287,13 @@ mod tests {
         fn test_explicit_venv_path_found() {
             let project_dir = tempdir().unwrap();
             let venv_dir = tempdir().unwrap();
-            let venv_prefix = create_mock_venv(venv_dir.path(), None);
+            let venv_prefix = create_mock_venv(Utf8Path::from_path(venv_dir.path()).unwrap(), None);
 
-            let env =
-                PythonEnvironment::new(project_dir.path(), Some(venv_prefix.to_str().unwrap()))
-                    .expect("Should find environment with explicit path");
+            let env = PythonEnvironment::new(
+                Utf8Path::from_path(project_dir.path()).unwrap(),
+                Some(venv_prefix.as_ref()),
+            )
+            .expect("Should find environment with explicit path");
 
             assert_eq!(env.sys_prefix, venv_prefix);
 
@@ -309,17 +318,24 @@ mod tests {
         #[test]
         fn test_explicit_venv_path_invalid_falls_through_to_project_venv() {
             let project_dir = tempdir().unwrap();
-            let project_venv_prefix = create_mock_venv(&project_dir.path().join(".venv"), None);
+            let project_venv_prefix = create_mock_venv(
+                Utf8Path::from_path(&project_dir.path().join(".venv")).unwrap(),
+                None,
+            );
 
             let _guard = MockGuard;
             // Ensure VIRTUAL_ENV is not set (returns VarError::NotPresent)
             sys_mock::remove_env_var("VIRTUAL_ENV");
 
             // Provide an invalid explicit path
-            let invalid_path = project_dir.path().join("non_existent_venv");
-            let env =
-                PythonEnvironment::new(project_dir.path(), Some(invalid_path.to_str().unwrap()))
-                    .expect("Should fall through to project .venv");
+            let invalid_path =
+                Utf8PathBuf::from_path_buf(project_dir.path().join("non_existent_venv"))
+                    .expect("Invalid UTF-8 path");
+            let env = PythonEnvironment::new(
+                Utf8Path::from_path(project_dir.path()).unwrap(),
+                Some(invalid_path.as_ref()),
+            )
+            .expect("Should fall through to project .venv");
 
             // Should have found the one in the project dir
             assert_eq!(env.sys_prefix, project_venv_prefix);
@@ -329,14 +345,15 @@ mod tests {
         fn test_virtual_env_variable_found() {
             let project_dir = tempdir().unwrap();
             let venv_dir = tempdir().unwrap();
-            let venv_prefix = create_mock_venv(venv_dir.path(), None);
+            let venv_prefix = create_mock_venv(Utf8Path::from_path(venv_dir.path()).unwrap(), None);
 
             let _guard = MockGuard;
             // Mock VIRTUAL_ENV to point to the mock venv
-            sys_mock::set_env_var("VIRTUAL_ENV", venv_prefix.to_str().unwrap().to_string());
+            sys_mock::set_env_var("VIRTUAL_ENV", venv_prefix.to_string());
 
-            let env = PythonEnvironment::new(project_dir.path(), None)
-                .expect("Should find environment via VIRTUAL_ENV");
+            let env =
+                PythonEnvironment::new(Utf8Path::from_path(project_dir.path()).unwrap(), None)
+                    .expect("Should find environment via VIRTUAL_ENV");
 
             assert_eq!(env.sys_prefix, venv_prefix);
 
@@ -350,18 +367,22 @@ mod tests {
         fn test_explicit_path_overrides_virtual_env() {
             let project_dir = tempdir().unwrap();
             let venv1_dir = tempdir().unwrap();
-            let venv1_prefix = create_mock_venv(venv1_dir.path(), None); // Mocked by VIRTUAL_ENV
+            let venv1_prefix =
+                create_mock_venv(Utf8Path::from_path(venv1_dir.path()).unwrap(), None); // Mocked by VIRTUAL_ENV
             let venv2_dir = tempdir().unwrap();
-            let venv2_prefix = create_mock_venv(venv2_dir.path(), None); // Provided explicitly
+            let venv2_prefix =
+                create_mock_venv(Utf8Path::from_path(venv2_dir.path()).unwrap(), None); // Provided explicitly
 
             let _guard = MockGuard;
             // Mock VIRTUAL_ENV to point to venv1
-            sys_mock::set_env_var("VIRTUAL_ENV", venv1_prefix.to_str().unwrap().to_string());
+            sys_mock::set_env_var("VIRTUAL_ENV", venv1_prefix.to_string());
 
             // Call with explicit path to venv2
-            let env =
-                PythonEnvironment::new(project_dir.path(), Some(venv2_prefix.to_str().unwrap()))
-                    .expect("Should find environment via explicit path");
+            let env = PythonEnvironment::new(
+                Utf8Path::from_path(project_dir.path()).unwrap(),
+                Some(venv2_prefix.as_ref()),
+            )
+            .expect("Should find environment via explicit path");
 
             // Explicit path (venv2) should take precedence
             assert_eq!(
@@ -373,13 +394,15 @@ mod tests {
         #[test]
         fn test_project_venv_found() {
             let project_dir = tempdir().unwrap();
-            let venv_prefix = create_mock_venv(&project_dir.path().join(".venv"), None);
+            let project_utf8 = Utf8Path::from_path(project_dir.path()).unwrap();
+            let venv_path = project_dir.path().join(".venv");
+            let venv_prefix = create_mock_venv(Utf8Path::from_path(&venv_path).unwrap(), None);
 
             let _guard = MockGuard;
             // Ensure VIRTUAL_ENV is not set
             sys_mock::remove_env_var("VIRTUAL_ENV");
 
-            let env = PythonEnvironment::new(project_dir.path(), None)
+            let env = PythonEnvironment::new(project_utf8, None)
                 .expect("Should find environment in project .venv");
 
             assert_eq!(env.sys_prefix, venv_prefix);
@@ -388,15 +411,21 @@ mod tests {
         #[test]
         fn test_project_venv_priority() {
             let project_dir = tempdir().unwrap();
-            let dot_venv_prefix = create_mock_venv(&project_dir.path().join(".venv"), None);
-            let _venv_prefix = create_mock_venv(&project_dir.path().join("venv"), None);
+            let project_utf8 = Utf8Path::from_path(project_dir.path()).unwrap();
+            let dot_venv_prefix = create_mock_venv(
+                Utf8Path::from_path(&project_dir.path().join(".venv")).unwrap(),
+                None,
+            );
+            let _venv_prefix = create_mock_venv(
+                Utf8Path::from_path(&project_dir.path().join("venv")).unwrap(),
+                None,
+            );
 
             let _guard = MockGuard;
             // Ensure VIRTUAL_ENV is not set
             sys_mock::remove_env_var("VIRTUAL_ENV");
 
-            let env =
-                PythonEnvironment::new(project_dir.path(), None).expect("Should find environment");
+            let env = PythonEnvironment::new(project_utf8, None).expect("Should find environment");
 
             // Should find .venv because it's checked first in the loop
             assert_eq!(env.sys_prefix, dot_venv_prefix);
@@ -405,25 +434,26 @@ mod tests {
         #[test]
         fn test_system_python_fallback() {
             let project_dir = tempdir().unwrap();
+            let project_utf8 = Utf8Path::from_path(project_dir.path()).unwrap();
 
             let _guard = MockGuard;
             // Ensure VIRTUAL_ENV is not set
             sys_mock::remove_env_var("VIRTUAL_ENV");
 
             let mock_sys_python_dir = tempdir().unwrap();
-            let mock_sys_python_prefix = mock_sys_python_dir.path();
+            let mock_sys_python_prefix = Utf8Path::from_path(mock_sys_python_dir.path()).unwrap();
 
             #[cfg(unix)]
             let (bin_subdir, python_exe, site_packages_rel_path) = (
                 "bin",
                 "python",
-                Path::new("lib").join("python3.9").join("site-packages"),
+                Utf8PathBuf::from("lib/python3.9/site-packages"),
             );
             #[cfg(windows)]
             let (bin_subdir, python_exe, site_packages_rel_path) = (
                 "Scripts",
                 "python.exe",
-                Path::new("Lib").join("site-packages"),
+                Utf8PathBuf::from("Lib/site-packages"),
             );
 
             let bin_dir = mock_sys_python_prefix.join(bin_subdir);
@@ -443,7 +473,7 @@ mod tests {
 
             sys_mock::set_exec_path("python", python_path.clone());
 
-            let system_env = PythonEnvironment::new(project_dir.path(), None);
+            let system_env = PythonEnvironment::new(project_utf8, None);
 
             // Assert it found the mock system python via the mocked finder
             assert!(
@@ -476,6 +506,7 @@ mod tests {
         #[test]
         fn test_no_python_found() {
             let project_dir = tempdir().unwrap();
+            let project_utf8 = Utf8Path::from_path(project_dir.path()).unwrap();
 
             let _guard = MockGuard; // Setup guard to clear mocks
 
@@ -485,7 +516,7 @@ mod tests {
             // Ensure find_executable returns an error
             sys_mock::set_exec_error("python", WhichError::CannotFindBinaryPath);
 
-            let env = PythonEnvironment::new(project_dir.path(), None);
+            let env = PythonEnvironment::new(project_utf8, None);
 
             assert!(
                 env.is_none(),
@@ -497,7 +528,7 @@ mod tests {
         #[cfg(unix)]
         fn test_unix_site_packages_discovery() {
             let venv_dir = tempdir().unwrap();
-            let prefix = venv_dir.path();
+            let prefix = Utf8Path::from_path(venv_dir.path()).unwrap();
             let bin_dir = prefix.join("bin");
             fs::create_dir_all(&bin_dir).unwrap();
             fs::write(bin_dir.join("python"), "").unwrap();
@@ -524,7 +555,7 @@ mod tests {
         #[cfg(windows)]
         fn test_windows_site_packages_discovery() {
             let venv_dir = tempdir().unwrap();
-            let prefix = venv_dir.path();
+            let prefix = Utf8Path::from_path(venv_dir.path()).unwrap();
             let bin_dir = prefix.join("Scripts");
             fs::create_dir_all(&bin_dir).unwrap();
             fs::write(bin_dir.join("python.exe"), "").unwrap();
@@ -545,14 +576,15 @@ mod tests {
         #[test]
         fn test_from_venv_prefix_returns_none_if_dir_missing() {
             let dir = tempdir().unwrap();
-            let result = PythonEnvironment::from_venv_prefix(dir.path());
+            let result =
+                PythonEnvironment::from_venv_prefix(Utf8Path::from_path(dir.path()).unwrap());
             assert!(result.is_none());
         }
 
         #[test]
         fn test_from_venv_prefix_returns_none_if_binary_missing() {
             let dir = tempdir().unwrap();
-            let prefix = dir.path();
+            let prefix = Utf8Path::from_path(dir.path()).unwrap();
             fs::create_dir_all(prefix).unwrap();
 
             #[cfg(unix)]
@@ -580,13 +612,13 @@ mod tests {
         #[derive(Clone)]
         struct TestDatabase {
             storage: salsa::Storage<TestDatabase>,
-            project_root: PathBuf,
+            project_root: Utf8PathBuf,
             project: Arc<Mutex<Option<Project>>>,
             fs: Arc<dyn FileSystem>,
         }
 
         impl TestDatabase {
-            fn new(project_root: PathBuf) -> Self {
+            fn new(project_root: Utf8PathBuf) -> Self {
                 Self {
                     storage: salsa::Storage::new(None),
                     project_root,
@@ -604,13 +636,16 @@ mod tests {
         impl salsa::Database for TestDatabase {}
 
         #[salsa::db]
+        impl djls_source::Db for TestDatabase {
+            fn read_file_source(&self, path: &Utf8Path) -> std::io::Result<String> {
+                self.fs.read_to_string(path)
+            }
+        }
+
+        #[salsa::db]
         impl djls_workspace::Db for TestDatabase {
             fn fs(&self) -> Arc<dyn FileSystem> {
                 self.fs.clone()
-            }
-
-            fn read_file_content(&self, path: &std::path::Path) -> std::io::Result<String> {
-                self.fs.read_to_string(path)
             }
         }
 
@@ -645,16 +680,20 @@ mod tests {
             let venv_dir = tempdir().unwrap();
 
             // Create a mock venv
-            let venv_prefix = create_mock_venv(venv_dir.path(), None);
+            let venv_prefix = create_mock_venv(Utf8Path::from_path(venv_dir.path()).unwrap(), None);
 
             // Create a TestDatabase with the project root
-            let db = TestDatabase::new(project_dir.path().to_path_buf());
+            let db = TestDatabase::new(
+                Utf8PathBuf::from_path_buf(project_dir.path().to_path_buf())
+                    .expect("Invalid UTF-8 path"),
+            );
 
             // Create and configure the project with the venv path
             let project = Project::new(
                 &db,
-                project_dir.path().to_path_buf(),
-                Interpreter::VenvPath(venv_prefix.to_string_lossy().to_string()),
+                Utf8PathBuf::from_path_buf(project_dir.path().to_path_buf())
+                    .expect("Invalid UTF-8 path"),
+                Interpreter::VenvPath(venv_prefix.to_string()),
                 None,
             );
             db.set_project(project);
@@ -686,10 +725,16 @@ mod tests {
             let project_dir = tempdir().unwrap();
 
             // Create a .venv in the project directory
-            let venv_prefix = create_mock_venv(&project_dir.path().join(".venv"), None);
+            let venv_prefix = create_mock_venv(
+                Utf8Path::from_path(&project_dir.path().join(".venv")).unwrap(),
+                None,
+            );
 
             // Create a TestDatabase with the project root
-            let db = TestDatabase::new(project_dir.path().to_path_buf());
+            let db = TestDatabase::new(
+                Utf8PathBuf::from_path_buf(project_dir.path().to_path_buf())
+                    .expect("Invalid UTF-8 path"),
+            );
 
             // Mock to ensure VIRTUAL_ENV is not set
             let _guard = system::mock::MockGuard;

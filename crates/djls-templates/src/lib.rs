@@ -54,13 +54,12 @@ mod tokens;
 
 pub use db::Db;
 pub use db::TemplateErrorAccumulator;
-use djls_workspace::db::SourceFile;
-use djls_workspace::FileKind;
+use djls_source::File;
+use djls_source::FileKind;
 pub use error::TemplateError;
 pub use lexer::Lexer;
 pub use nodelist::LineOffsets;
 pub use nodelist::NodeList;
-pub use nodelist::Span;
 pub use parser::ParseError;
 pub use parser::Parser;
 use salsa::Accumulator;
@@ -68,14 +67,12 @@ use tokens::TokenStream;
 
 /// Lex a template file into tokens.
 #[salsa::tracked]
-fn lex_template(db: &dyn Db, file: SourceFile) -> TokenStream<'_> {
-    if file.kind(db) != FileKind::Template {
+fn lex_template(db: &dyn Db, file: File) -> TokenStream<'_> {
+    let source = file.source(db);
+    if *source.kind() != FileKind::Template {
         return TokenStream::new(db, vec![], LineOffsets::default());
     }
-
-    let text_arc = djls_workspace::db::source_text(db, file);
-    let text = text_arc.as_ref();
-
+    let text = source.as_ref();
     let (tokens, line_offsets) = Lexer::new(db, text).tokenize();
     TokenStream::new(db, tokens, line_offsets)
 }
@@ -88,8 +85,9 @@ fn lex_template(db: &dyn Db, file: SourceFile) -> TokenStream<'_> {
 ///     parse_template::accumulated::<TemplateDiagnostic>(db, file);
 /// ```
 #[salsa::tracked]
-pub fn parse_template(db: &dyn Db, file: SourceFile) -> Option<NodeList<'_>> {
-    if file.kind(db) != FileKind::Template {
+pub fn parse_template(db: &dyn Db, file: File) -> Option<NodeList<'_>> {
+    let source = file.source(db);
+    if *source.kind() != FileKind::Template {
         return None;
     }
 

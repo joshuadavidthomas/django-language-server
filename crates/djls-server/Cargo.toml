@@ -8,6 +8,7 @@ djls-conf = { workspace = true }
 djls-ide = { workspace = true }
 djls-project = { workspace = true }
 djls-semantic = { workspace = true }
+djls-source = { workspace = true }
 djls-templates = { workspace = true }
 djls-workspace = { workspace = true }
 

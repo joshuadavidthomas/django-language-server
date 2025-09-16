@@ -1,3 +1,5 @@
+use djls_source::Span;
+
 use crate::db::Db as TemplateDb;
 use crate::nodelist::LineOffsets;
 
@@ -175,4 +177,10 @@ impl<'db> TokenStream<'db> {
     pub fn len(self, db: &'db dyn TemplateDb) -> usize {
         self.stream(db).len()
     }
+}
+
+pub fn span_from_token(token: &Token<'_>, db: &dyn TemplateDb) -> Span {
+    let start = token.offset().unwrap_or(0);
+    let length = token.length(db);
+    Span::new(start, length)
 }

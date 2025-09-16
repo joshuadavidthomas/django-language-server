@@ -42,7 +42,7 @@
 //! }
 //! ```
 
-use djls_workspace::Db as WorkspaceDb;
+use djls_source::Db as SourceDb;
 
 use crate::error::TemplateError;
 
@@ -52,4 +52,4 @@ pub struct TemplateErrorAccumulator(pub TemplateError);
 
 /// Template-specific database trait extending the workspace database
 #[salsa::db]
-pub trait Db: WorkspaceDb {}
+pub trait Db: SourceDb {}

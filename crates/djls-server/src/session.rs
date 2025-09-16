@@ -3,16 +3,16 @@
 //! This module implements the LSP session abstraction that manages project-specific
 //! state and the Salsa database for incremental computation.
 
-use std::path::PathBuf;
 use std::sync::Arc;
 
+use camino::Utf8PathBuf;
 use dashmap::DashMap;
 use djls_conf::Settings;
 use djls_project::Db as ProjectDb;
 use djls_project::Interpreter;
-use djls_workspace::db::SourceFile;
+use djls_source::File;
+use djls_source::FileKind;
 use djls_workspace::paths;
-use djls_workspace::FileKind;
 use djls_workspace::PositionEncoding;
 use djls_workspace::TextDocument;
 use djls_workspace::Workspace;
@@ -62,7 +62,9 @@ impl Session {
             .and_then(|folder| paths::lsp_uri_to_path(&folder.uri))
             .or_else(|| {
                 // Fall back to current directory
-                std::env::current_dir().ok()
+                std::env::current_dir()
+                    .ok()
+                    .and_then(|p| Utf8PathBuf::from_path_buf(p).ok())
             });
 
         let settings = if let Some(path) = &project_path {
@@ -249,7 +251,7 @@ impl Session {
     }
 
     /// Get or create a file in the database.
-    pub fn get_or_create_file(&mut self, path: &PathBuf) -> SourceFile {
+    pub fn get_or_create_file(&mut self, path: &Utf8PathBuf) -> File {
         self.db.get_or_create_file(path)
     }
 
@@ -287,18 +289,17 @@ impl Default for Session {
 
 #[cfg(test)]
 mod tests {
-    use djls_workspace::db::source_text;
     use djls_workspace::LanguageId;
 
     use super::*;
 
     // Helper function to create a test file path and URL that works on all platforms
-    fn test_file_url(filename: &str) -> (PathBuf, Url) {
+    fn test_file_url(filename: &str) -> (Utf8PathBuf, Url) {
         // Use an absolute path that's valid on the platform
         #[cfg(windows)]
-        let path = PathBuf::from(format!("C:\\temp\\{filename}"));
+        let path = Utf8PathBuf::from(format!("C:\\temp\\{filename}"));
         #[cfg(not(windows))]
-        let path = PathBuf::from(format!("/tmp/{filename}"));
+        let path = Utf8PathBuf::from(format!("/tmp/{filename}"));
 
         let url = Url::from_file_path(&path).expect("Failed to create file URL");
         (path, url)
@@ -309,11 +310,11 @@ mod tests {
         let mut session = Session::default();
 
         // Can create files in the database
-        let path = PathBuf::from("/test.py");
+        let path = Utf8PathBuf::from("/test.py");
         let file = session.get_or_create_file(&path);
 
         // Can read file content through database
-        let content = session.with_db(|db| source_text(db, file).to_string());
+        let content = session.with_db(|db| file.source(db).to_string());
         assert_eq!(content, ""); // Non-existent file returns empty
     }
 
@@ -331,7 +332,7 @@ mod tests {
 
         // Should be queryable through database
         let file = session.get_or_create_file(&path);
-        let content = session.with_db(|db| source_text(db, file).to_string());
+        let content = session.with_db(|db| file.source(db).to_string());
         assert_eq!(content, "print('hello')");
 
         // Close document
@@ -363,7 +364,7 @@ mod tests {
 
         // Database should also see updated content
         let file = session.get_or_create_file(&path);
-        let content = session.with_db(|db| source_text(db, file).to_string());
+        let content = session.with_db(|db| file.source(db).to_string());
         assert_eq!(content, "updated");
     }
 }

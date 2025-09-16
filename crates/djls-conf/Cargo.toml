@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = { workspace = true }
+camino = { workspace = true }
 config = { workspace = true }
 directories = { workspace = true }
 serde = { workspace = true }

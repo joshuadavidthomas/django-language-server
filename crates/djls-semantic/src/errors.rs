@@ -1,4 +1,4 @@
-use djls_templates::Span;
+use djls_source::Span;
 use serde::Serialize;
 use thiserror::Error;
 

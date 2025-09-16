@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use camino::Utf8PathBuf;
 
 use crate::db::Db as ProjectDb;
 use crate::django_available;
@@ -17,7 +17,7 @@ use crate::python::Interpreter;
 pub struct Project {
     /// The project root path
     #[returns(ref)]
-    pub root: PathBuf,
+    pub root: Utf8PathBuf,
     /// Interpreter specification for Python environment discovery
     pub interpreter: Interpreter,
     /// Optional Django settings module override from configuration

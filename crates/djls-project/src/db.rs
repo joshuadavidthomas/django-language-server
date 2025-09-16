@@ -10,17 +10,16 @@
 //! - Tracked functions compute derived values (Python env, Django config)
 //! - Database trait provides stable configuration (metadata, template tags)
 
-use std::path::Path;
 use std::sync::Arc;
 
-use djls_workspace::Db as WorkspaceDb;
+use camino::Utf8Path;
 
 use crate::inspector::pool::InspectorPool;
 use crate::project::Project;
 
 /// Project-specific database trait extending the workspace database
 #[salsa::db]
-pub trait Db: WorkspaceDb {
+pub trait Db: salsa::Database {
     /// Get the current project (if set)
     fn project(&self) -> Option<Project>;
 
@@ -28,7 +27,7 @@ pub trait Db: WorkspaceDb {
     fn inspector_pool(&self) -> Arc<InspectorPool>;
 
     /// Get the project root path if a project is set
-    fn project_path(&self) -> Option<&Path> {
+    fn project_path(&self) -> Option<&Utf8Path> {
         self.project().map(|p| p.root(self).as_path())
     }
 }

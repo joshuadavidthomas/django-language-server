@@ -118,6 +118,7 @@ impl Default for Workspace {
 
 #[cfg(test)]
 mod tests {
+    use camino::Utf8Path;
     use tempfile::tempdir;
 
     use super::*;
@@ -191,7 +192,10 @@ mod tests {
         workspace.open_document(&url, document);
 
         // File system should return buffer content, not disk content
-        let content = workspace.file_system().read_to_string(&file_path).unwrap();
+        let content = workspace
+            .file_system()
+            .read_to_string(Utf8Path::from_path(&file_path).unwrap())
+            .unwrap();
         assert_eq!(content, "buffer content");
     }
 }

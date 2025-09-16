@@ -1,7 +1,7 @@
+use djls_source::Span;
 use serde::Serialize;
 
 use crate::db::Db as TemplateDb;
-use crate::tokens::Token;
 
 #[salsa::tracked(debug)]
 pub struct NodeList<'db> {
@@ -141,26 +141,6 @@ pub struct VariableName<'db> {
 #[salsa::interned(debug)]
 pub struct FilterName<'db> {
     pub text: String,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
-pub struct Span {
-    pub start: u32,
-    pub length: u32,
-}
-
-impl Span {
-    #[must_use]
-    pub fn new(start: u32, length: u32) -> Self {
-        Self { start, length }
-    }
-
-    #[must_use]
-    pub fn from_token(token: &Token<'_>, db: &dyn TemplateDb) -> Self {
-        let start = token.offset().unwrap_or(0);
-        let length = token.length(db);
-        Span::new(start, length)
-    }
 }
 
 #[cfg(test)]
