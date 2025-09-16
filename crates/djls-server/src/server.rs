@@ -6,6 +6,7 @@ use djls_project::Db as ProjectDb;
 use djls_semantic::Db as SemanticDb;
 use djls_source::FileKind;
 use djls_workspace::paths;
+use djls_workspace::LanguageId;
 use tokio::sync::Mutex;
 use tower_lsp_server::jsonrpc::Result as LspResult;
 use tower_lsp_server::lsp_types;
@@ -179,19 +180,12 @@ impl LanguageServer for DjangoLanguageServer {
         tracing::info!("Server received initialized notification.");
 
         self.with_session_task(move |session_arc| async move {
-            let session_lock = session_arc.lock().await;
+            let session = session_arc.lock().await;
 
-            let project_path = session_lock
-                .project()
-                .map(|p| p.root(session_lock.database()).clone());
-
-            if let Some(path) = project_path {
+            if let Some(project) = session.project() {
+                let path = project.root(session.database()).clone();
                 tracing::info!("Task: Starting initialization for project at: {}", path);
-
-                if let Some(project) = session_lock.project() {
-                    project.initialize(session_lock.database());
-                }
-
+                project.initialize(session.database());
                 tracing::info!("Task: Successfully initialized project: {}", path);
             } else {
                 tracing::info!("Task: No project configured, skipping initialization.");
@@ -211,21 +205,16 @@ impl LanguageServer for DjangoLanguageServer {
 
         let url_version = self
             .with_session_mut(|session| {
-                let Some(url) =
-                    paths::parse_lsp_uri(&params.text_document.uri, paths::LspContext::DidOpen)
-                else {
-                    return None; // Error parsing uri (unlikely), skip processing this document
-                };
-
-                let language_id =
-                    djls_workspace::LanguageId::from(params.text_document.language_id.as_str());
+                let url =
+                    paths::parse_lsp_uri(&params.text_document.uri, paths::LspContext::DidOpen)?;
                 let document = djls_workspace::TextDocument::new(
                     params.text_document.text.clone(),
                     params.text_document.version,
-                    language_id,
+                    LanguageId::from(params.text_document.language_id.as_str()),
                 );
 
                 session.open_document(&url, document);
+
                 Some((url, params.text_document.version))
             })
             .await;
@@ -242,11 +231,7 @@ impl LanguageServer for DjangoLanguageServer {
             .with_session_mut(|session| {
                 let url =
                     paths::parse_lsp_uri(&params.text_document.uri, paths::LspContext::DidSave)?;
-
-                session.save_document(&url);
-
-                // Get current version from document buffer
-                let version = session.get_document(&url).map(|doc| doc.version());
+                let version = session.save_document(&url).map(|doc| doc.version());
                 Some((url, version))
             })
             .await;
@@ -260,12 +245,8 @@ impl LanguageServer for DjangoLanguageServer {
         tracing::info!("Changed document: {:?}", params.text_document.uri);
 
         self.with_session_mut(|session| {
-            let Some(url) =
-                paths::parse_lsp_uri(&params.text_document.uri, paths::LspContext::DidChange)
-            else {
-                return None; // Error parsing uri (unlikely), skip processing this change
-            };
-
+            let url =
+                paths::parse_lsp_uri(&params.text_document.uri, paths::LspContext::DidChange)?;
             session.update_document(&url, params.content_changes, params.text_document.version);
             Some(url)
         })
@@ -277,12 +258,8 @@ impl LanguageServer for DjangoLanguageServer {
 
         let url = self
             .with_session_mut(|session| {
-                let Some(url) =
-                    paths::parse_lsp_uri(&params.text_document.uri, paths::LspContext::DidClose)
-                else {
-                    return None; // Error parsing uri (unlikely), skip processing this close
-                };
-
+                let url =
+                    paths::parse_lsp_uri(&params.text_document.uri, paths::LspContext::DidClose)?;
                 if session.close_document(&url).is_none() {
                     tracing::warn!("Attempted to close document without overlay: {}", url);
                 }
@@ -435,10 +412,10 @@ impl LanguageServer for DjangoLanguageServer {
         tracing::info!("Configuration change detected. Reloading settings...");
 
         self.with_session_mut(|session| {
-            if let Some(project) = session.project() {
-                let project_root = project.root(session.database());
+            if session.project().is_some() {
+                let project_root = session.database().project_root_or_cwd();
 
-                match djls_conf::Settings::new(project_root) {
+                match djls_conf::Settings::new(&project_root) {
                     Ok(new_settings) => {
                         session.set_settings(new_settings);
                     }

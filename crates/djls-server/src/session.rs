@@ -6,7 +6,6 @@
 use camino::Utf8PathBuf;
 use djls_conf::Settings;
 use djls_project::Db as ProjectDb;
-use djls_project::Interpreter;
 use djls_source::File;
 use djls_source::FileKind;
 use djls_workspace::paths;
@@ -14,7 +13,6 @@ use djls_workspace::PositionEncoding;
 use djls_workspace::TextDocument;
 use djls_workspace::Workspace;
 use djls_workspace::WorkspaceFileEvent;
-use salsa::Setter;
 use tower_lsp_server::lsp_types;
 use url::Url;
 
@@ -65,36 +63,15 @@ impl Session {
                     .and_then(|p| Utf8PathBuf::from_path_buf(p).ok())
             });
 
-        let settings = if let Some(path) = &project_path {
-            djls_conf::Settings::new(path).unwrap_or_else(|_| djls_conf::Settings::default())
-        } else {
-            Settings::default()
-        };
+        let settings = project_path
+            .as_ref()
+            .and_then(|path| djls_conf::Settings::new(path).ok())
+            .unwrap_or_default();
 
         let workspace = Workspace::new();
+
         let mut db = DjangoDatabase::new(workspace.file_system());
-
-        if let Some(root_path) = &project_path {
-            db.set_project(root_path);
-
-            if let Some(project) = db.project() {
-                // TODO: should this logic live in the project?
-                if let Some(venv_path) = settings.venv_path() {
-                    let interpreter = Interpreter::VenvPath(venv_path.to_string());
-                    project.set_interpreter(&mut db).to(interpreter);
-                } else if let Ok(virtual_env) = std::env::var("VIRTUAL_ENV") {
-                    let interpreter = Interpreter::VenvPath(virtual_env);
-                    project.set_interpreter(&mut db).to(interpreter);
-                }
-
-                // TODO: allow for configuring via settings
-                if let Ok(settings_module) = std::env::var("DJANGO_SETTINGS_MODULE") {
-                    project
-                        .set_settings_module(&mut db)
-                        .to(Some(settings_module));
-                }
-            }
-        }
+        db.set_project(project_path.as_deref(), &settings);
 
         Self {
             settings,
@@ -182,10 +159,12 @@ impl Session {
         }
     }
 
-    pub fn save_document(&mut self, url: &Url) {
+    pub fn save_document(&mut self, url: &Url) -> Option<TextDocument> {
         if let Some(event) = self.workspace.save_document(&mut self.db, url) {
             self.handle_file_event(&event);
         }
+
+        self.workspace.get_document(url)
     }
 
     /// Close a document.

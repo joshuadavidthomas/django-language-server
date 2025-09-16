@@ -12,7 +12,7 @@
 
 use std::sync::Arc;
 
-use camino::Utf8Path;
+use camino::Utf8PathBuf;
 
 use crate::inspector::pool::InspectorPool;
 use crate::project::Project;
@@ -26,8 +26,14 @@ pub trait Db: salsa::Database {
     /// Get the shared inspector pool for executing Python queries
     fn inspector_pool(&self) -> Arc<InspectorPool>;
 
-    /// Get the project root path if a project is set
-    fn project_path(&self) -> Option<&Utf8Path> {
-        self.project().map(|p| p.root(self).as_path())
+    /// Return the current project root or fall back to the current working directory.
+    fn project_root_or_cwd(&self) -> Utf8PathBuf {
+        if let Some(project) = self.project() {
+            project.root(self).clone()
+        } else if let Ok(current_dir) = std::env::current_dir() {
+            Utf8PathBuf::from_path_buf(current_dir).unwrap_or_else(|_| Utf8PathBuf::from("."))
+        } else {
+            Utf8PathBuf::from(".")
+        }
     }
 }
