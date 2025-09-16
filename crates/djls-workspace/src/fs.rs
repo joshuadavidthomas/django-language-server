@@ -6,7 +6,8 @@
 use std::io;
 use std::sync::Arc;
 
-use camino::{Utf8Path, Utf8PathBuf};
+use camino::Utf8Path;
+use camino::Utf8PathBuf;
 use rustc_hash::FxHashMap;
 
 use crate::buffers::Buffers;

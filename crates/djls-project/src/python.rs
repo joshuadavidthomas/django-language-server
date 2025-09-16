@@ -276,7 +276,9 @@ mod tests {
 
     mod env_discovery {
         use system::mock::MockGuard;
-        use system::mock::{self as sys_mock};
+        use system::mock::{
+            self as sys_mock,
+        };
         use which::Error as WhichError;
 
         use super::*;
@@ -289,7 +291,7 @@ mod tests {
 
             let env = PythonEnvironment::new(
                 Utf8Path::from_path(project_dir.path()).unwrap(),
-                Some(&venv_prefix.to_string()),
+                Some(venv_prefix.as_ref()),
             )
             .expect("Should find environment with explicit path");
 
@@ -331,7 +333,7 @@ mod tests {
                     .expect("Invalid UTF-8 path");
             let env = PythonEnvironment::new(
                 Utf8Path::from_path(project_dir.path()).unwrap(),
-                Some(&invalid_path.to_string()),
+                Some(invalid_path.as_ref()),
             )
             .expect("Should fall through to project .venv");
 
@@ -378,7 +380,7 @@ mod tests {
             // Call with explicit path to venv2
             let env = PythonEnvironment::new(
                 Utf8Path::from_path(project_dir.path()).unwrap(),
-                Some(&venv2_prefix.to_string()),
+                Some(venv2_prefix.as_ref()),
             )
             .expect("Should find environment via explicit path");
 

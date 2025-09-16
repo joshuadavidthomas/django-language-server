@@ -205,9 +205,10 @@ impl<'db> Lexer<'db> {
 
 #[cfg(test)]
 mod tests {
+    use camino::Utf8Path;
+
     use super::*;
     use crate::tokens::TokenSnapshotVec;
-    use camino::Utf8Path;
 
     #[salsa::db]
     #[derive(Clone)]
