@@ -8,10 +8,9 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 use camino::Utf8Path;
-use camino::Utf8PathBuf;
+use djls_conf::Settings;
 use djls_project::Db as ProjectDb;
 use djls_project::InspectorPool;
-use djls_project::Interpreter;
 use djls_project::Project;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::TagSpecs;
@@ -75,19 +74,6 @@ impl Default for DjangoDatabase {
 }
 
 impl DjangoDatabase {
-    /// Set the project for this database instance
-    ///
-    /// # Panics
-    ///
-    /// Panics if the project mutex is poisoned.
-    pub fn set_project(&self, root: &Utf8Path) {
-        let interpreter = Interpreter::Auto;
-        let django_settings = std::env::var("DJANGO_SETTINGS_MODULE").ok();
-
-        let project = Project::new(self, root.to_path_buf(), interpreter, django_settings);
-
-        *self.project.lock().unwrap() = Some(project);
-    }
     /// Create a new [`DjangoDatabase`] with the given file system handle.
     pub fn new(file_system: Arc<dyn FileSystem>) -> Self {
         Self {
@@ -97,6 +83,18 @@ impl DjangoDatabase {
             storage: salsa::Storage::new(None),
             #[cfg(test)]
             logs: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    /// Set the project for this database instance
+    ///
+    /// # Panics
+    ///
+    /// Panics if the project mutex is poisoned.
+    pub fn set_project(&mut self, root: Option<&Utf8Path>, settings: &Settings) {
+        if let Some(path) = root {
+            let project = Project::bootstrap(self, path, settings.venv_path(), None);
+            *self.project.lock().unwrap() = Some(project);
         }
     }
 }
@@ -124,19 +122,11 @@ impl TemplateDb for DjangoDatabase {}
 #[salsa::db]
 impl SemanticDb for DjangoDatabase {
     fn tag_specs(&self) -> Arc<TagSpecs> {
-        let project_root = if let Some(project) = self.project() {
-            project.root(self).clone()
-        } else {
-            std::env::current_dir()
-                .ok()
-                .and_then(|p| Utf8PathBuf::from_path_buf(p).ok())
-                .unwrap_or_else(|| Utf8PathBuf::from("."))
-        };
+        let project_root = self.project_root_or_cwd();
 
-        let tag_specs = if let Ok(settings) = djls_conf::Settings::new(&project_root) {
-            TagSpecs::from(&settings)
-        } else {
-            djls_semantic::django_builtin_specs()
+        let tag_specs = match djls_conf::Settings::new(&project_root) {
+            Ok(settings) => TagSpecs::from(&settings),
+            Err(_) => djls_semantic::django_builtin_specs(),
         };
 
         Arc::new(tag_specs)
