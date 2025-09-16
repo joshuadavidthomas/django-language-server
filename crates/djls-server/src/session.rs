@@ -157,7 +157,7 @@ impl Session {
     /// For template files, immediately triggers parsing and validation.
     pub fn open_document(&mut self, url: &Url, document: TextDocument) {
         if let Some(event) = self.workspace.open_document(&mut self.db, url, document) {
-            self.handle_file_event(event);
+            self.handle_file_event(&event);
         }
     }
 
@@ -178,13 +178,13 @@ impl Session {
             version,
             self.position_encoding,
         ) {
-            self.handle_file_event(event);
+            self.handle_file_event(&event);
         }
     }
 
     pub fn save_document(&mut self, url: &Url) {
         if let Some(event) = self.workspace.save_document(&mut self.db, url) {
-            self.handle_file_event(event);
+            self.handle_file_event(&event);
         }
     }
 
@@ -204,12 +204,18 @@ impl Session {
 
     /// Get or create a file in the database.
     pub fn get_or_create_file(&mut self, path: &Utf8PathBuf) -> File {
-        self.track_file(path).file()
+        self.workspace
+            .track_file(&mut self.db, path.as_path())
+            .file()
     }
 
-    /// Ensure the path is tracked and retrieve its event.
-    pub fn track_file(&mut self, path: &Utf8PathBuf) -> WorkspaceFileEvent {
-        self.workspace.track_file(&mut self.db, path.as_path())
+    fn handle_file_event(&self, event: &WorkspaceFileEvent) {
+        if FileKind::from_path(event.path()) == FileKind::Template {
+            let nodelist = djls_templates::parse_template(&self.db, event.file());
+            if let Some(nodelist) = nodelist {
+                djls_semantic::validate_nodelist(&self.db, nodelist);
+            }
+        }
     }
 
     /// Check if the client supports pull diagnostics.
@@ -235,15 +241,6 @@ impl Session {
             .and_then(|c| c.completion_item.as_ref())
             .and_then(|ci| ci.snippet_support)
             .unwrap_or(false)
-    }
-
-    fn handle_file_event(&self, event: WorkspaceFileEvent) {
-        if FileKind::from_path(event.path()) == FileKind::Template {
-            let nodelist = djls_templates::parse_template(&self.db, event.file());
-            if let Some(nodelist) = nodelist {
-                djls_semantic::validate_nodelist(&self.db, nodelist);
-            }
-        }
     }
 }
 

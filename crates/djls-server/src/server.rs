@@ -410,9 +410,8 @@ impl LanguageServer for DjangoLanguageServer {
         let path: Utf8PathBuf = url.path().into();
         let diagnostics: Vec<lsp_types::Diagnostic> = self
             .with_session_mut(|session| {
-                let event = session.track_file(&path);
+                let file = session.get_or_create_file(&path);
                 session.with_db(|db| {
-                    let file = event.file();
                     let nodelist = djls_templates::parse_template(db, file);
                     djls_ide::collect_diagnostics(db, file, nodelist)
                 })
