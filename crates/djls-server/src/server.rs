@@ -409,15 +409,13 @@ impl LanguageServer for DjangoLanguageServer {
         // Get diagnostics from the database
         let path: Utf8PathBuf = url.path().into();
         let diagnostics: Vec<lsp_types::Diagnostic> = self
-            .with_session(|session| {
-                if let Some(file) = session.get_file(&path) {
-                    session.with_db(|db| {
-                        let nodelist = djls_templates::parse_template(db, file);
-                        djls_ide::collect_diagnostics(db, file, nodelist)
-                    })
-                } else {
-                    vec![]
-                }
+            .with_session_mut(|session| {
+                let event = session.track_file(&path);
+                session.with_db(|db| {
+                    let file = event.file();
+                    let nodelist = djls_templates::parse_template(db, file);
+                    djls_ide::collect_diagnostics(db, file, nodelist)
+                })
             })
             .await;
 

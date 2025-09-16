@@ -204,14 +204,12 @@ impl Session {
 
     /// Get or create a file in the database.
     pub fn get_or_create_file(&mut self, path: &Utf8PathBuf) -> File {
-        self.workspace
-            .ensure_file_by_path(&mut self.db, path)
-            .file()
+        self.track_file(path).file()
     }
 
-    /// Get a tracked file if it exists.
-    pub fn get_file(&self, path: &Utf8PathBuf) -> Option<File> {
-        self.workspace.get_file(path)
+    /// Ensure the path is tracked and retrieve its event.
+    pub fn track_file(&mut self, path: &Utf8PathBuf) -> WorkspaceFileEvent {
+        self.workspace.track_file(&mut self.db, path.as_path())
     }
 
     /// Check if the client supports pull diagnostics.
@@ -240,13 +238,8 @@ impl Session {
     }
 
     fn handle_file_event(&self, event: WorkspaceFileEvent) {
-        let (file, path) = match event {
-            WorkspaceFileEvent::Created { file, path }
-            | WorkspaceFileEvent::Updated { file, path } => (file, path),
-        };
-
-        if FileKind::from_path(path.as_path()) == FileKind::Template {
-            let nodelist = djls_templates::parse_template(&self.db, file);
+        if FileKind::from_path(event.path()) == FileKind::Template {
+            let nodelist = djls_templates::parse_template(&self.db, event.file());
             if let Some(nodelist) = nodelist {
                 djls_semantic::validate_nodelist(&self.db, nodelist);
             }

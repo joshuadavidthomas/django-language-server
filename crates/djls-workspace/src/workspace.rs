@@ -90,12 +90,6 @@ impl Workspace {
         &self.buffers
     }
 
-    /// Get the shared file registry (primarily for tests and database construction).
-    #[must_use]
-    pub fn files(&self) -> Arc<DashMap<Utf8PathBuf, File>> {
-        self.files.clone()
-    }
-
     /// Open a document in the workspace and ensure a corresponding Salsa file exists.
     pub fn open_document(
         &mut self,
@@ -139,23 +133,36 @@ impl Workspace {
         })
     }
 
+    /// Ensure a file is tracked in Salsa and report its state.
+    pub fn track_file(&self, db: &mut dyn Db, path: &Utf8Path) -> WorkspaceFileEvent {
+        let path_buf = path.to_owned();
+        let (file, existed) = self.ensure_file(db, &path_buf);
+        if existed {
+            WorkspaceFileEvent::Updated {
+                file,
+                path: path_buf,
+            }
+        } else {
+            WorkspaceFileEvent::Created {
+                file,
+                path: path_buf,
+            }
+        }
+    }
+
     /// Touch the tracked file when the client saves the document.
     pub fn save_document(&self, db: &mut dyn Db, url: &Url) -> Option<WorkspaceFileEvent> {
         let path = paths::url_to_path(url)?;
-        let (file, existed) = self.ensure_file(db, &path);
-        db.touch_file(file);
-        Some(if existed {
-            WorkspaceFileEvent::Updated { file, path }
-        } else {
-            WorkspaceFileEvent::Created { file, path }
-        })
+        let event = self.track_file(db, path.as_path());
+        db.touch_file(event.file());
+        Some(event)
     }
 
     /// Close a document, removing it from buffers and touching the tracked file.
     pub fn close_document(&mut self, db: &mut dyn Db, url: &Url) -> Option<TextDocument> {
         if let Some(path) = paths::url_to_path(url) {
-            if let Some(file) = self.get_file(&path) {
-                db.touch_file(file);
+            if let Some(file) = self.files.get(&path) {
+                db.touch_file(*file);
             }
         }
 
@@ -168,36 +175,9 @@ impl Workspace {
         self.buffers.get(url)
     }
 
-    /// Get a tracked file for the given path if one exists.
-    #[must_use]
-    pub fn get_file(&self, path: &Utf8Path) -> Option<File> {
-        self.files.get(path).map(|entry| *entry)
-    }
-
-    /// Ensure a file exists for the given path without manipulating buffers.
-    pub fn ensure_file_by_path(&self, db: &mut dyn Db, path: &Utf8PathBuf) -> WorkspaceFileEvent {
-        let (file, existed) = self.ensure_file(db, path);
-        if existed {
-            WorkspaceFileEvent::Updated {
-                file,
-                path: path.clone(),
-            }
-        } else {
-            WorkspaceFileEvent::Created {
-                file,
-                path: path.clone(),
-            }
-        }
-    }
-
     fn ensure_file_for_url(&self, db: &mut dyn Db, url: &Url) -> Option<WorkspaceFileEvent> {
         let path = paths::url_to_path(url)?;
-        let (file, existed) = self.ensure_file(db, &path);
-        Some(if existed {
-            WorkspaceFileEvent::Updated { file, path }
-        } else {
-            WorkspaceFileEvent::Created { file, path }
-        })
+        Some(self.track_file(db, path.as_path()))
     }
 
     fn ensure_file(&self, db: &mut dyn Db, path: &Utf8PathBuf) -> (File, bool) {
