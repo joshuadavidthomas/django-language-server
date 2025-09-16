@@ -5,6 +5,7 @@
 //! performance when handling frequent position-based operations like hover, completion,
 //! and diagnostics.
 
+use djls_source::LineIndex as SourceLineIndex;
 use tower_lsp_server::lsp_types::Position;
 use tower_lsp_server::lsp_types::Range;
 
@@ -62,10 +63,11 @@ impl TextDocument {
 
     #[must_use]
     pub fn get_line(&self, line: u32) -> Option<String> {
-        let line_start = *self.line_index.line_starts.get(line as usize)?;
+        let line_start = *self.line_index.index.lines().get(line as usize)?;
         let line_end = self
             .line_index
-            .line_starts
+            .index
+            .lines()
             .get(line as usize + 1)
             .copied()
             .unwrap_or(self.line_index.length);
@@ -149,7 +151,7 @@ impl TextDocument {
 /// and O(log n) for position-to-offset conversions via binary search.
 #[derive(Clone, Debug)]
 pub struct LineIndex {
-    pub line_starts: Vec<u32>,
+    pub index: SourceLineIndex,
     pub length: u32,
     pub kind: IndexKind,
 }
@@ -163,18 +165,12 @@ impl LineIndex {
             IndexKind::Utf8
         };
 
-        let mut line_starts = vec![0];
-        let mut pos_utf8 = 0;
+        let pos_utf8 = u32::try_from(text.len()).unwrap_or(0);
 
-        for c in text.chars() {
-            pos_utf8 += u32::try_from(c.len_utf8()).unwrap_or(0);
-            if c == '\n' {
-                line_starts.push(pos_utf8);
-            }
-        }
+        let index = SourceLineIndex::from_text(text);
 
         Self {
-            line_starts,
+            index,
             length: pos_utf8,
             kind,
         }
@@ -185,7 +181,7 @@ impl LineIndex {
     /// Returns a valid offset, clamping out-of-bounds positions to document/line boundaries
     pub fn offset(&self, position: Position, text: &str, encoding: PositionEncoding) -> u32 {
         // Handle line bounds - if line > line_count, return document length
-        let line_start_utf8 = match self.line_starts.get(position.line as usize) {
+        let line_start_utf8 = match self.index.lines().get(position.line as usize) {
             Some(start) => *start,
             None => return self.length, // Past end of document
         };
@@ -195,7 +191,8 @@ impl LineIndex {
         }
 
         let next_line_start = self
-            .line_starts
+            .index
+            .lines()
             .get(position.line as usize + 1)
             .copied()
             .unwrap_or(self.length);
@@ -256,15 +253,8 @@ impl LineIndex {
     #[allow(dead_code)]
     #[must_use]
     pub fn position(&self, offset: u32) -> Position {
-        let line = match self.line_starts.binary_search(&offset) {
-            Ok(line) => line,
-            Err(line) => line - 1,
-        };
-
-        let line_start = self.line_starts[line];
-        let character = offset - line_start;
-
-        Position::new(u32::try_from(line).unwrap_or(0), character)
+        let (line, character) = self.index.to_line_col(offset);
+        Position::new(line, character)
     }
 }
 

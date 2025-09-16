@@ -58,7 +58,6 @@ use djls_source::File;
 use djls_source::FileKind;
 pub use error::TemplateError;
 pub use lexer::Lexer;
-pub use nodelist::LineOffsets;
 pub use nodelist::NodeList;
 pub use parser::ParseError;
 pub use parser::Parser;
@@ -70,11 +69,11 @@ use tokens::TokenStream;
 fn lex_template(db: &dyn Db, file: File) -> TokenStream<'_> {
     let source = file.source(db);
     if *source.kind() != FileKind::Template {
-        return TokenStream::new(db, vec![], LineOffsets::default());
+        return TokenStream::new(db, vec![]);
     }
     let text = source.as_ref();
-    let (tokens, line_offsets) = Lexer::new(db, text).tokenize();
-    TokenStream::new(db, tokens, line_offsets)
+    let tokens = Lexer::new(db, text).tokenize();
+    TokenStream::new(db, tokens)
 }
 
 /// Parse a Django template file and accumulate diagnostics.
@@ -95,8 +94,7 @@ pub fn parse_template(db: &dyn Db, file: File) -> Option<NodeList<'_>> {
 
     if token_stream.stream(db).is_empty() {
         let empty_nodelist = Vec::new();
-        let empty_offsets = LineOffsets::default();
-        return Some(NodeList::new(db, empty_nodelist, empty_offsets));
+        return Some(NodeList::new(db, empty_nodelist));
     }
 
     let nodelist = match Parser::new(db, token_stream).parse() {
@@ -107,8 +105,7 @@ pub fn parse_template(db: &dyn Db, file: File) -> Option<NodeList<'_>> {
             TemplateErrorAccumulator(template_error).accumulate(db);
 
             let empty_nodelist = Vec::new();
-            let empty_offsets = LineOffsets::default();
-            NodeList::new(db, empty_nodelist, empty_offsets)
+            NodeList::new(db, empty_nodelist)
         }
     };
 

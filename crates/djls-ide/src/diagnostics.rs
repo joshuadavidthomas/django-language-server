@@ -1,7 +1,7 @@
 use djls_semantic::ValidationError;
 use djls_source::File;
+use djls_source::LineIndex;
 use djls_source::Span;
-use djls_templates::LineOffsets;
 use djls_templates::TemplateError;
 use djls_templates::TemplateErrorAccumulator;
 use tower_lsp_server::lsp_types;
@@ -56,21 +56,18 @@ impl DiagnosticError for ValidationError {
 }
 
 /// Convert a Span to an LSP Range using line offsets.
-fn span_to_lsp_range(span: Span, line_offsets: &LineOffsets) -> lsp_types::Range {
-    let start_pos = span.start as usize;
-    let end_pos = (span.start + span.length) as usize;
-
-    let (start_line, start_char) = line_offsets.position_to_line_col(start_pos);
-    let (end_line, end_char) = line_offsets.position_to_line_col(end_pos);
+fn span_to_lsp_range(span: Span, line_index: &LineIndex) -> lsp_types::Range {
+    let (start_line, start_char) = line_index.to_line_col(span.start);
+    let (end_line, end_char) = line_index.to_line_col(span.start.saturating_add(span.length));
 
     lsp_types::Range {
         start: lsp_types::Position {
-            line: u32::try_from(start_line - 1).unwrap_or(u32::MAX), // LSP is 0-based, LineOffsets is 1-based
-            character: u32::try_from(start_char).unwrap_or(u32::MAX),
+            line: start_line,
+            character: start_char,
         },
         end: lsp_types::Position {
-            line: u32::try_from(end_line - 1).unwrap_or(u32::MAX),
-            character: u32::try_from(end_char).unwrap_or(u32::MAX),
+            line: end_line,
+            character: end_char,
         },
     }
 }
@@ -78,13 +75,13 @@ fn span_to_lsp_range(span: Span, line_offsets: &LineOffsets) -> lsp_types::Range
 /// Convert any error implementing `DiagnosticError` to an LSP diagnostic.
 fn error_to_diagnostic(
     error: &impl DiagnosticError,
-    line_offsets: &LineOffsets,
+    line_index: &LineIndex,
 ) -> lsp_types::Diagnostic {
     let range = error
         .span()
         .map(|(start, length)| {
             let span = Span::new(start, length);
-            span_to_lsp_range(span, line_offsets)
+            span_to_lsp_range(span, line_index)
         })
         .unwrap_or_default();
 
@@ -134,13 +131,10 @@ pub fn collect_diagnostics(
     let template_errors =
         djls_templates::parse_template::accumulated::<TemplateErrorAccumulator>(db, file);
 
-    let line_offsets = nodelist
-        .as_ref()
-        .map(|nl| nl.line_offsets(db).clone())
-        .unwrap_or_default();
+    let line_index = file.line_index(db);
 
     for error_acc in template_errors {
-        diagnostics.push(error_to_diagnostic(&error_acc.0, &line_offsets));
+        diagnostics.push(error_to_diagnostic(&error_acc.0, &line_index));
     }
 
     if let Some(nodelist) = nodelist {
@@ -149,7 +143,7 @@ pub fn collect_diagnostics(
         >(db, nodelist);
 
         for error_acc in validation_errors {
-            diagnostics.push(error_to_diagnostic(&error_acc.0, &line_offsets));
+            diagnostics.push(error_to_diagnostic(&error_acc.0, &line_index));
         }
     }
 

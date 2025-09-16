@@ -7,7 +7,6 @@ use crate::db::Db as TemplateDb;
 use crate::db::TemplateErrorAccumulator;
 use crate::error::TemplateError;
 use crate::nodelist::FilterName;
-use crate::nodelist::LineOffsets;
 use crate::nodelist::Node;
 use crate::nodelist::NodeList;
 use crate::nodelist::TagBit;
@@ -20,7 +19,6 @@ use crate::tokens::TokenStream;
 pub struct Parser<'db> {
     db: &'db dyn TemplateDb,
     tokens: Vec<Token<'db>>,
-    line_offsets: LineOffsets,
     current: usize,
 }
 
@@ -30,7 +28,6 @@ impl<'db> Parser<'db> {
         Self {
             db,
             tokens: tokens.stream(db).clone(),
-            line_offsets: tokens.line_offsets(db).clone(),
             current: 0,
         }
     }
@@ -52,7 +49,7 @@ impl<'db> Parser<'db> {
             }
         }
 
-        let nodelist = NodeList::new(self.db, nodelist, self.line_offsets.clone());
+        let nodelist = NodeList::new(self.db, nodelist);
 
         Ok(nodelist)
     }
@@ -346,8 +343,8 @@ mod tests {
     #[salsa::tracked]
     fn parse_test_template(db: &dyn TemplateDb, template: TestTemplate) -> NodeList<'_> {
         let source = template.source(db);
-        let (tokens, line_offsets) = Lexer::new(db, source).tokenize();
-        let token_stream = TokenStream::new(db, tokens, line_offsets);
+        let tokens = Lexer::new(db, source).tokenize();
+        let token_stream = TokenStream::new(db, tokens);
         let mut parser = Parser::new(db, token_stream);
         let nodelist = parser.parse().unwrap();
         nodelist
@@ -356,7 +353,6 @@ mod tests {
     #[derive(Debug, Clone, PartialEq, Serialize)]
     struct TestNodeList {
         nodelist: Vec<TestNode>,
-        line_offsets: Vec<u32>,
     }
 
     #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -411,7 +407,6 @@ mod tests {
     ) -> TestNodeList {
         TestNodeList {
             nodelist: convert_nodelist_for_testing(nodelist.nodelist(db), db),
-            line_offsets: nodelist.line_offsets(db).0.clone(),
         }
     }
 
@@ -782,22 +777,6 @@ mod tests {
             let nodelist = parse_test_template(&db, template);
             let test_nodelist = convert_nodelist_for_testing_wrapper(nodelist, &db);
             insta::assert_yaml_snapshot!(test_nodelist);
-        }
-    }
-
-    mod line_tracking {
-        use super::*;
-
-        #[test]
-        fn test_parser_tracks_line_offsets() {
-            let db = TestDatabase::new();
-            let source = "line1\nline2".to_string();
-            let template = TestTemplate::new(&db, source);
-            let nodelist = parse_test_template(&db, template);
-
-            let offsets = nodelist.line_offsets(&db);
-            assert_eq!(offsets.position_to_line_col(0), (1, 0)); // Start of line 1
-            assert_eq!(offsets.position_to_line_col(6), (2, 0)); // Start of line 2
         }
     }
 }
