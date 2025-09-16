@@ -5,7 +5,7 @@
 //! performance when handling frequent position-based operations like hover, completion,
 //! and diagnostics.
 
-use djls_source::LineIndex as SourceLineIndex;
+use djls_source::LineIndex;
 use tower_lsp_server::lsp_types::Position;
 use tower_lsp_server::lsp_types::Range;
 
@@ -27,17 +27,21 @@ pub struct TextDocument {
     language_id: LanguageId,
     /// Line index for efficient position lookups
     line_index: LineIndex,
+    /// Cached document length in UTF-8 bytes
+    length: u32,
 }
 
 impl TextDocument {
     #[must_use]
     pub fn new(content: String, version: i32, language_id: LanguageId) -> Self {
-        let line_index = LineIndex::new(&content);
+        let line_index = LineIndex::from_text(&content);
+        let length = u32::try_from(content.len()).unwrap_or(0);
         Self {
             content,
             version,
             language_id,
             line_index,
+            length,
         }
     }
 
@@ -63,22 +67,23 @@ impl TextDocument {
 
     #[must_use]
     pub fn get_line(&self, line: u32) -> Option<String> {
-        let line_start = *self.line_index.index.lines().get(line as usize)?;
+        let line_start = *self.line_index.lines().get(line as usize)?;
         let line_end = self
             .line_index
-            .index
             .lines()
             .get(line as usize + 1)
             .copied()
-            .unwrap_or(self.line_index.length);
+            .unwrap_or(self.length);
 
         Some(self.content[line_start as usize..line_end as usize].to_string())
     }
 
     #[must_use]
     pub fn get_text_range(&self, range: Range, encoding: PositionEncoding) -> Option<String> {
-        let start_offset = self.line_index.offset(range.start, &self.content, encoding) as usize;
-        let end_offset = self.line_index.offset(range.end, &self.content, encoding) as usize;
+        let start_offset =
+            self.offset_for_position_with_text(range.start, &self.content, encoding)? as usize;
+        let end_offset =
+            self.offset_for_position_with_text(range.end, &self.content, encoding)? as usize;
 
         Some(self.content[start_offset..end_offset].to_string())
     }
@@ -97,7 +102,8 @@ impl TextDocument {
         // Fast path: single change without range = full document replacement
         if changes.len() == 1 && changes[0].range.is_none() {
             self.content.clone_from(&changes[0].text);
-            self.line_index = LineIndex::new(&self.content);
+            self.line_index = LineIndex::from_text(&self.content);
+            self.length = u32::try_from(self.content.len()).unwrap_or(0);
             self.version = version;
             return;
         }
@@ -108,20 +114,26 @@ impl TextDocument {
         for change in changes {
             if let Some(range) = change.range {
                 // Convert LSP range to byte offsets using the negotiated encoding
-                let start_offset =
-                    self.line_index.offset(range.start, &new_content, encoding) as usize;
-                let end_offset = self.line_index.offset(range.end, &new_content, encoding) as usize;
+                // We need to calculate offset using current state before applying change
+                let start_offset = self
+                    .offset_for_position_with_text(range.start, &new_content, encoding)
+                    .unwrap_or(0) as usize;
+                let end_offset = self
+                    .offset_for_position_with_text(range.end, &new_content, encoding)
+                    .unwrap_or(0) as usize;
 
                 // Apply change
                 new_content.replace_range(start_offset..end_offset, &change.text);
 
                 // Rebuild line index after each change since positions shift
                 // This is necessary for subsequent changes to have correct offsets
-                self.line_index = LineIndex::new(&new_content);
+                self.line_index = LineIndex::from_text(&new_content);
+                self.length = u32::try_from(new_content.len()).unwrap_or(0);
             } else {
                 // No range means full replacement
                 new_content = change.text;
-                self.line_index = LineIndex::new(&new_content);
+                self.line_index = LineIndex::from_text(&new_content);
+                self.length = u32::try_from(new_content.len()).unwrap_or(0);
             }
         }
 
@@ -135,78 +147,51 @@ impl TextDocument {
         position: Position,
         encoding: PositionEncoding,
     ) -> Option<u32> {
-        Some(self.line_index.offset(position, &self.content, encoding))
+        self.offset_for_position_with_text(position, &self.content, encoding)
     }
 
     #[must_use]
     pub fn offset_to_position(&self, offset: u32) -> Position {
-        self.line_index.position(offset)
-    }
-}
-
-/// Pre-computed line start positions for efficient position/offset conversion.
-///
-/// Computing line positions on every lookup would be O(n) where n is the document size.
-/// By pre-computing during document creation/updates, we get O(1) lookups for line starts
-/// and O(log n) for position-to-offset conversions via binary search.
-#[derive(Clone, Debug)]
-pub struct LineIndex {
-    pub index: SourceLineIndex,
-    pub length: u32,
-    pub kind: IndexKind,
-}
-
-impl LineIndex {
-    #[must_use]
-    pub fn new(text: &str) -> Self {
-        let kind = if text.is_ascii() {
-            IndexKind::Ascii
-        } else {
-            IndexKind::Utf8
-        };
-
-        let pos_utf8 = u32::try_from(text.len()).unwrap_or(0);
-
-        let index = SourceLineIndex::from_text(text);
-
-        Self {
-            index,
-            length: pos_utf8,
-            kind,
-        }
+        let (line, character) = self.line_index.to_line_col(offset);
+        Position::new(line, character)
     }
 
-    /// Convert position to text offset using the specified encoding
+    /// Convert position to text offset using the specified encoding.
     ///
-    /// Returns a valid offset, clamping out-of-bounds positions to document/line boundaries
-    pub fn offset(&self, position: Position, text: &str, encoding: PositionEncoding) -> u32 {
+    /// Returns a valid offset, clamping out-of-bounds positions to document/line boundaries.
+    /// This method accepts a text parameter to support incremental updates where the
+    /// line index might be temporarily out of sync with the content being modified.
+    fn offset_for_position_with_text(
+        &self,
+        position: Position,
+        text: &str,
+        encoding: PositionEncoding,
+    ) -> Option<u32> {
         // Handle line bounds - if line > line_count, return document length
-        let line_start_utf8 = match self.index.lines().get(position.line as usize) {
+        let line_start_utf8 = match self.line_index.lines().get(position.line as usize) {
             Some(start) => *start,
-            None => return self.length, // Past end of document
+            None => return Some(self.length), // Past end of document
         };
 
         if position.character == 0 {
-            return line_start_utf8;
+            return Some(line_start_utf8);
         }
 
         let next_line_start = self
-            .index
+            .line_index
             .lines()
             .get(position.line as usize + 1)
             .copied()
             .unwrap_or(self.length);
 
-        let Some(line_text) = text.get(line_start_utf8 as usize..next_line_start as usize) else {
-            return line_start_utf8;
-        };
+        let line_text = text.get(line_start_utf8 as usize..next_line_start as usize)?;
 
         // Fast path optimization for ASCII text, all encodings are equivalent to byte offsets
-        if matches!(self.kind, IndexKind::Ascii) {
+        if line_text.is_ascii() {
             let char_offset = position
                 .character
                 .min(u32::try_from(line_text.len()).unwrap_or(u32::MAX));
-            return line_start_utf8 + char_offset;
+            return Some(line_start_utf8 + char_offset);
         }
 
         match encoding {
@@ -215,7 +200,7 @@ impl LineIndex {
                 let char_offset = position
                     .character
                     .min(u32::try_from(line_text.len()).unwrap_or(u32::MAX));
-                line_start_utf8 + char_offset
+                Some(line_start_utf8 + char_offset)
             }
             PositionEncoding::Utf16 => {
                 // UTF-16: count UTF-16 code units
@@ -231,7 +216,7 @@ impl LineIndex {
                 }
 
                 // If character position exceeds line length, clamp to line end
-                line_start_utf8 + utf8_pos
+                Some(line_start_utf8 + utf8_pos)
             }
             PositionEncoding::Utf32 => {
                 // UTF-32: count Unicode code points (characters)
@@ -245,26 +230,10 @@ impl LineIndex {
                 }
 
                 // If character position exceeds line length, clamp to line end
-                line_start_utf8 + utf8_pos
+                Some(line_start_utf8 + utf8_pos)
             }
         }
     }
-
-    #[allow(dead_code)]
-    #[must_use]
-    pub fn position(&self, offset: u32) -> Position {
-        let (line, character) = self.index.to_line_col(offset);
-        Position::new(line, character)
-    }
-}
-
-/// Index kind for ASCII optimization
-#[derive(Clone, Debug)]
-pub enum IndexKind {
-    /// Document contains only ASCII characters - enables fast path optimization
-    Ascii,
-    /// Document contains multi-byte UTF-8 characters - requires full UTF-8 processing
-    Utf8,
 }
 
 #[cfg(test)]
@@ -462,24 +431,5 @@ mod tests {
             .get_text_range(range, PositionEncoding::Utf16)
             .expect("Should get text range");
         assert_eq!(text, " 🌍");
-    }
-
-    #[test]
-    fn test_line_index_utf16_conversion() {
-        let text = "Hello 🌍!\nWorld 行 test";
-        let line_index = LineIndex::new(text);
-
-        // Test position conversion with emoji on first line
-        let pos_emoji = Position::new(0, 7); // After emoji
-        let offset = line_index.offset(pos_emoji, text, PositionEncoding::Utf16);
-        assert_eq!(&text[(offset as usize)..=(offset as usize)], "!");
-
-        // Test position conversion with CJK on second line
-        // "World 行 test"
-        // W(1) o(1) r(1) l(1) d(1) space(1) 行(1) space(1) t(1)...
-        // Position after CJK character should be at UTF-16 position 7
-        let pos_cjk = Position::new(1, 7);
-        let offset_cjk = line_index.offset(pos_cjk, text, PositionEncoding::Utf16);
-        assert_eq!(&text[(offset_cjk as usize)..=(offset_cjk as usize)], " ");
     }
 }
