@@ -3,10 +3,7 @@
 //! This module implements the LSP session abstraction that manages project-specific
 //! state and the Salsa database for incremental computation.
 
-use std::sync::Arc;
-
 use camino::Utf8PathBuf;
-use dashmap::DashMap;
 use djls_conf::Settings;
 use djls_project::Db as ProjectDb;
 use djls_project::Interpreter;
@@ -16,6 +13,7 @@ use djls_workspace::paths;
 use djls_workspace::PositionEncoding;
 use djls_workspace::TextDocument;
 use djls_workspace::Workspace;
+use djls_workspace::WorkspaceFileEvent;
 use salsa::Setter;
 use tower_lsp_server::lsp_types;
 use url::Url;
@@ -74,9 +72,7 @@ impl Session {
         };
 
         let workspace = Workspace::new();
-
-        let files = Arc::new(DashMap::new());
-        let mut db = DjangoDatabase::new(workspace.file_system(), files);
+        let mut db = DjangoDatabase::new(workspace.file_system());
 
         if let Some(root_path) = &project_path {
             db.set_project(root_path);
@@ -160,24 +156,8 @@ impl Session {
     /// the database or invalidates it if it already exists.
     /// For template files, immediately triggers parsing and validation.
     pub fn open_document(&mut self, url: &Url, document: TextDocument) {
-        // Add to workspace buffers
-        self.workspace.open_document(url, document);
-
-        if let Some(path) = paths::url_to_path(url) {
-            let already_exists = self.db.has_file(&path);
-            let file = self.db.get_or_create_file(&path);
-
-            if already_exists {
-                // File was already read - touch to invalidate cache
-                self.db.touch_file(&path);
-            }
-
-            if FileKind::from_path(&path) == FileKind::Template {
-                let nodelist = djls_templates::parse_template(&self.db, file);
-                if let Some(nodelist) = nodelist {
-                    djls_semantic::validate_nodelist(&self.db, nodelist);
-                }
-            }
+        if let Some(event) = self.workspace.open_document(&mut self.db, url, document) {
+            self.handle_file_event(&event);
         }
     }
 
@@ -191,39 +171,20 @@ impl Session {
         changes: Vec<lsp_types::TextDocumentContentChangeEvent>,
         version: i32,
     ) {
-        self.workspace
-            .update_document(url, changes, version, self.position_encoding);
-
-        if let Some(path) = paths::url_to_path(url) {
-            if self.db.has_file(&path) {
-                // Touch file in database to trigger invalidation
-                self.db.touch_file(&path);
-
-                if FileKind::from_path(&path) == FileKind::Template {
-                    let file = self.db.get_or_create_file(&path);
-                    let nodelist = djls_templates::parse_template(&self.db, file);
-                    if let Some(nodelist) = nodelist {
-                        djls_semantic::validate_nodelist(&self.db, nodelist);
-                    }
-                }
-            }
+        if let Some(event) = self.workspace.update_document(
+            &mut self.db,
+            url,
+            changes,
+            version,
+            self.position_encoding,
+        ) {
+            self.handle_file_event(&event);
         }
     }
 
     pub fn save_document(&mut self, url: &Url) {
-        if let Some(path) = paths::url_to_path(url) {
-            if self.db.has_file(&path) {
-                // Touch file in database to trigger invalidation
-                self.db.touch_file(&path);
-
-                if FileKind::from_path(&path) == FileKind::Template {
-                    let file = self.db.get_or_create_file(&path);
-                    let nodelist = djls_templates::parse_template(&self.db, file);
-                    if let Some(nodelist) = nodelist {
-                        djls_semantic::validate_nodelist(&self.db, nodelist);
-                    }
-                }
-            }
+        if let Some(event) = self.workspace.save_document(&mut self.db, url) {
+            self.handle_file_event(&event);
         }
     }
 
@@ -232,16 +193,7 @@ impl Session {
     /// Removes from workspace buffers and triggers database invalidation to fall back to disk.
     /// For template files, immediately re-parses from disk.
     pub fn close_document(&mut self, url: &Url) -> Option<TextDocument> {
-        let document = self.workspace.close_document(url);
-
-        if let Some(path) = paths::url_to_path(url) {
-            if self.db.has_file(&path) {
-                // Touch file in database to trigger re-read from disk
-                self.db.touch_file(&path);
-            }
-        }
-
-        document
+        self.workspace.close_document(&mut self.db, url)
     }
 
     /// Get a document from the buffer if it's open.
@@ -252,7 +204,18 @@ impl Session {
 
     /// Get or create a file in the database.
     pub fn get_or_create_file(&mut self, path: &Utf8PathBuf) -> File {
-        self.db.get_or_create_file(path)
+        self.workspace
+            .track_file(&mut self.db, path.as_path())
+            .file()
+    }
+
+    fn handle_file_event(&self, event: &WorkspaceFileEvent) {
+        if FileKind::from_path(event.path()) == FileKind::Template {
+            let nodelist = djls_templates::parse_template(&self.db, event.file());
+            if let Some(nodelist) = nodelist {
+                djls_semantic::validate_nodelist(&self.db, nodelist);
+            }
+        }
     }
 
     /// Check if the client supports pull diagnostics.

@@ -9,7 +9,6 @@ use std::sync::Mutex;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
-use dashmap::DashMap;
 use djls_project::Db as ProjectDb;
 use djls_project::InspectorPool;
 use djls_project::Interpreter;
@@ -17,11 +16,9 @@ use djls_project::Project;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::TagSpecs;
 use djls_source::Db as SourceDb;
-use djls_source::File;
 use djls_templates::db::Db as TemplateDb;
 use djls_workspace::db::Db as WorkspaceDb;
 use djls_workspace::FileSystem;
-use salsa::Setter;
 
 /// Concrete Salsa database for the Django Language Server.
 ///
@@ -34,9 +31,6 @@ use salsa::Setter;
 pub struct DjangoDatabase {
     /// File system for reading file content (checks buffers first, then disk).
     fs: Arc<dyn FileSystem>,
-
-    /// Maps paths to [`SourceFile`] entities for O(1) lookup.
-    files: Arc<DashMap<Utf8PathBuf, File>>,
 
     /// The single project for this database instance
     project: Arc<Mutex<Option<Project>>>,
@@ -60,7 +54,6 @@ impl Default for DjangoDatabase {
         let logs = <Arc<Mutex<Option<Vec<String>>>>>::default();
         Self {
             fs: Arc::new(InMemoryFileSystem::new()),
-            files: Arc::new(DashMap::new()),
             project: Arc::new(Mutex::new(None)),
             inspector_pool: Arc::new(InspectorPool::new()),
             storage: salsa::Storage::new(Some(Box::new({
@@ -95,63 +88,16 @@ impl DjangoDatabase {
 
         *self.project.lock().unwrap() = Some(project);
     }
-    /// Create a new [`DjangoDatabase`] with the given file system and file map.
-    pub fn new(file_system: Arc<dyn FileSystem>, files: Arc<DashMap<Utf8PathBuf, File>>) -> Self {
+    /// Create a new [`DjangoDatabase`] with the given file system handle.
+    pub fn new(file_system: Arc<dyn FileSystem>) -> Self {
         Self {
             fs: file_system,
-            files,
             project: Arc::new(Mutex::new(None)),
             inspector_pool: Arc::new(InspectorPool::new()),
             storage: salsa::Storage::new(None),
             #[cfg(test)]
             logs: Arc::new(Mutex::new(None)),
         }
-    }
-
-    /// Get an existing [`SourceFile`] for the given path without creating it.
-    ///
-    /// Returns `Some(SourceFile)` if the file is already tracked, `None` otherwise.
-    pub fn get_file(&self, path: &Utf8Path) -> Option<File> {
-        self.files.get(path).map(|file_ref| *file_ref)
-    }
-
-    /// Get or create a [`SourceFile`] for the given path.
-    ///
-    /// Files are created with an initial revision of 0 and tracked in the database's
-    /// `DashMap`. The `Arc` ensures cheap cloning while maintaining thread safety.
-    pub fn get_or_create_file(&mut self, path: &Utf8PathBuf) -> File {
-        if let Some(file_ref) = self.files.get(path) {
-            return *file_ref;
-        }
-
-        let file = File::new(self, path.clone(), 0);
-
-        self.files.insert(path.clone(), file);
-        file
-    }
-
-    /// Check if a file is being tracked without creating it.
-    pub fn has_file(&self, path: &Utf8Path) -> bool {
-        self.files.contains_key(path)
-    }
-
-    /// Touch a file to mark it as modified, triggering re-evaluation of dependent queries.
-    ///
-    /// Updates the file's revision number to signal that cached query results
-    /// depending on this file should be invalidated.
-    pub fn touch_file(&mut self, path: &Utf8Path) {
-        let Some(file_ref) = self.files.get(path) else {
-            tracing::debug!("File {} not tracked, skipping touch", path);
-            return;
-        };
-        let file = *file_ref;
-        drop(file_ref); // Explicitly drop to release the lock
-
-        let current_rev = file.revision(self);
-        let new_rev = current_rev + 1;
-        file.set_revision(self).to(new_rev);
-
-        tracing::debug!("Touched {}: revision {} -> {}", path, current_rev, new_rev);
     }
 }
 

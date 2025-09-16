@@ -22,11 +22,29 @@
 
 use std::sync::Arc;
 
+use djls_source::Db as SourceDb;
+use djls_source::File;
+use salsa::Setter;
+
 use crate::FileSystem;
 
 /// Base database trait that provides file system access for Salsa queries
 #[salsa::db]
-pub trait Db: salsa::Database {
+pub trait Db: SourceDb {
     /// Get the file system for reading files.
     fn fs(&self) -> Arc<dyn FileSystem>;
+
+    /// Bump the revision for a tracked file to invalidate dependent queries.
+    fn touch_file(&mut self, file: File) {
+        let current_rev = file.revision(self);
+        let new_rev = current_rev + 1;
+        file.set_revision(self).to(new_rev);
+
+        tracing::debug!(
+            "Touched {}: revision {} -> {}",
+            file.path(self),
+            current_rev,
+            new_rev
+        );
+    }
 }

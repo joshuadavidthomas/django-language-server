@@ -6,14 +6,43 @@
 
 use std::sync::Arc;
 
+use camino::Utf8Path;
+use camino::Utf8PathBuf;
+use dashmap::DashMap;
+use djls_source::File;
 use tower_lsp_server::lsp_types::TextDocumentContentChangeEvent;
 use url::Url;
 
 use crate::buffers::Buffers;
+use crate::db::Db;
 use crate::document::TextDocument;
 use crate::fs::FileSystem;
 use crate::fs::OsFileSystem;
 use crate::fs::WorkspaceFileSystem;
+use crate::paths;
+
+/// Result of a workspace operation that affected a tracked file.
+#[derive(Clone)]
+pub enum WorkspaceFileEvent {
+    Created { file: File, path: Utf8PathBuf },
+    Updated { file: File, path: Utf8PathBuf },
+}
+
+impl WorkspaceFileEvent {
+    #[must_use]
+    pub fn file(&self) -> File {
+        match self {
+            Self::Created { file, .. } | Self::Updated { file, .. } => *file,
+        }
+    }
+
+    #[must_use]
+    pub fn path(&self) -> &Utf8Path {
+        match self {
+            Self::Created { path, .. } | Self::Updated { path, .. } => path.as_path(),
+        }
+    }
+}
 
 /// Workspace facade that manages buffers and file system.
 ///
@@ -23,6 +52,8 @@ use crate::fs::WorkspaceFileSystem;
 pub struct Workspace {
     /// Thread-safe shared buffer storage for open documents
     buffers: Buffers,
+    /// Registry mapping file paths to Salsa [`File`] handles
+    files: Arc<DashMap<Utf8PathBuf, File>>,
     /// File system abstraction that checks buffers first, then disk
     file_system: Arc<WorkspaceFileSystem>,
 }
@@ -32,6 +63,7 @@ impl Workspace {
     #[must_use]
     pub fn new() -> Self {
         let buffers = Buffers::new();
+        let files = Arc::new(DashMap::new());
         let file_system = Arc::new(WorkspaceFileSystem::new(
             buffers.clone(),
             Arc::new(OsFileSystem),
@@ -39,6 +71,7 @@ impl Workspace {
 
         Self {
             buffers,
+            files,
             file_system,
         }
     }
@@ -57,31 +90,34 @@ impl Workspace {
         &self.buffers
     }
 
-    /// Open a document in the workspace.
-    ///
-    /// Adds the document to the buffer layer. The database should be
-    /// notified separately by the caller if invalidation is needed.
-    pub fn open_document(&mut self, url: &Url, document: TextDocument) {
+    /// Open a document in the workspace and ensure a corresponding Salsa file exists.
+    pub fn open_document(
+        &mut self,
+        db: &mut dyn Db,
+        url: &Url,
+        document: TextDocument,
+    ) -> Option<WorkspaceFileEvent> {
         self.buffers.open(url.clone(), document);
+        self.ensure_file_for_url(db, url).inspect(|event| {
+            if let WorkspaceFileEvent::Updated { file, .. } = event {
+                db.touch_file(*file);
+            }
+        })
     }
 
-    /// Update a document with incremental changes.
-    ///
-    /// Applies changes to the existing document in buffers.
-    /// Falls back to full replacement if the document isn't currently open.
+    /// Update a document with incremental changes and touch the associated file.
     pub fn update_document(
         &mut self,
+        db: &mut dyn Db,
         url: &Url,
         changes: Vec<TextDocumentContentChangeEvent>,
         version: i32,
         encoding: crate::encoding::PositionEncoding,
-    ) {
+    ) -> Option<WorkspaceFileEvent> {
         if let Some(mut document) = self.buffers.get(url) {
-            // Apply incremental changes to existing document
             document.update(changes, version, encoding);
             self.buffers.update(url.clone(), document);
         } else if let Some(first_change) = changes.into_iter().next() {
-            // Fallback: treat first change as full replacement
             if first_change.range.is_none() {
                 let document = TextDocument::new(
                     first_change.text,
@@ -91,22 +127,67 @@ impl Workspace {
                 self.buffers.open(url.clone(), document);
             }
         }
+
+        self.ensure_file_for_url(db, url).inspect(|event| {
+            db.touch_file(event.file());
+        })
     }
 
-    /// Close a document and return it.
-    ///
-    /// Removes from buffers. The database should be notified
-    /// separately by the caller if invalidation is needed.
-    pub fn close_document(&mut self, url: &Url) -> Option<TextDocument> {
+    /// Ensure a file is tracked in Salsa and report its state.
+    pub fn track_file(&self, db: &mut dyn Db, path: &Utf8Path) -> WorkspaceFileEvent {
+        let path_buf = path.to_owned();
+        let (file, existed) = self.ensure_file(db, &path_buf);
+        if existed {
+            WorkspaceFileEvent::Updated {
+                file,
+                path: path_buf,
+            }
+        } else {
+            WorkspaceFileEvent::Created {
+                file,
+                path: path_buf,
+            }
+        }
+    }
+
+    /// Touch the tracked file when the client saves the document.
+    pub fn save_document(&self, db: &mut dyn Db, url: &Url) -> Option<WorkspaceFileEvent> {
+        let path = paths::url_to_path(url)?;
+        let event = self.track_file(db, path.as_path());
+        db.touch_file(event.file());
+        Some(event)
+    }
+
+    /// Close a document, removing it from buffers and touching the tracked file.
+    pub fn close_document(&mut self, db: &mut dyn Db, url: &Url) -> Option<TextDocument> {
+        if let Some(path) = paths::url_to_path(url) {
+            if let Some(file) = self.files.get(&path) {
+                db.touch_file(*file);
+            }
+        }
+
         self.buffers.close(url)
     }
 
     /// Get a document from the buffer if it's open.
-    ///
-    /// Returns a cloned [`TextDocument`] for the given URL if it exists in buffers.
     #[must_use]
     pub fn get_document(&self, url: &Url) -> Option<TextDocument> {
         self.buffers.get(url)
+    }
+
+    fn ensure_file_for_url(&self, db: &mut dyn Db, url: &Url) -> Option<WorkspaceFileEvent> {
+        let path = paths::url_to_path(url)?;
+        Some(self.track_file(db, path.as_path()))
+    }
+
+    fn ensure_file(&self, db: &mut dyn Db, path: &Utf8PathBuf) -> (File, bool) {
+        if let Some(entry) = self.files.get(path) {
+            return (*entry, true);
+        }
+
+        let file = File::new(db, path.clone(), 0);
+        self.files.insert(path.clone(), file);
+        (file, false)
     }
 }
 
@@ -118,44 +199,87 @@ impl Default for Workspace {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use camino::Utf8Path;
     use tempfile::tempdir;
+    use url::Url;
 
     use super::*;
     use crate::encoding::PositionEncoding;
+    use crate::InMemoryFileSystem;
     use crate::LanguageId;
+
+    #[salsa::db]
+    #[derive(Clone)]
+    struct TestDb {
+        storage: salsa::Storage<Self>,
+        fs: Arc<dyn FileSystem>,
+    }
+
+    impl TestDb {
+        fn new() -> Self {
+            Self {
+                storage: salsa::Storage::default(),
+                fs: Arc::new(InMemoryFileSystem::new()),
+            }
+        }
+    }
+
+    #[salsa::db]
+    impl salsa::Database for TestDb {}
+
+    #[salsa::db]
+    impl djls_source::Db for TestDb {
+        fn read_file_source(&self, _path: &Utf8Path) -> std::io::Result<String> {
+            Ok(String::new())
+        }
+    }
+
+    #[salsa::db]
+    impl crate::db::Db for TestDb {
+        fn fs(&self) -> Arc<dyn FileSystem> {
+            self.fs.clone()
+        }
+    }
 
     #[test]
     fn test_open_document() {
         let mut workspace = Workspace::new();
+        let mut db = TestDb::new();
         let url = Url::parse("file:///test.py").unwrap();
 
-        // Open document
         let document = TextDocument::new("print('hello')".to_string(), 1, LanguageId::Python);
-        workspace.open_document(&url, document);
+        let event = workspace.open_document(&mut db, &url, document).unwrap();
 
-        // Should be in buffers
+        match event {
+            WorkspaceFileEvent::Created { ref path, .. } => {
+                assert_eq!(path.file_name(), Some("test.py"));
+            }
+            WorkspaceFileEvent::Updated { .. } => panic!("expected created event"),
+        }
         assert!(workspace.buffers.get(&url).is_some());
     }
 
     #[test]
     fn test_update_document() {
         let mut workspace = Workspace::new();
+        let mut db = TestDb::new();
         let url = Url::parse("file:///test.py").unwrap();
 
-        // Open with initial content
         let document = TextDocument::new("initial".to_string(), 1, LanguageId::Python);
-        workspace.open_document(&url, document);
+        workspace.open_document(&mut db, &url, document);
 
-        // Update content
         let changes = vec![TextDocumentContentChangeEvent {
             range: None,
             range_length: None,
             text: "updated".to_string(),
         }];
-        workspace.update_document(&url, changes, 2, PositionEncoding::Utf16);
+        let event = workspace
+            .update_document(&mut db, &url, changes, 2, PositionEncoding::Utf16)
+            .unwrap();
 
-        // Verify buffer was updated
+        assert!(matches!(event, WorkspaceFileEvent::Updated { .. }));
         let buffer = workspace.buffers.get(&url).unwrap();
         assert_eq!(buffer.content(), "updated");
         assert_eq!(buffer.version(), 2);
@@ -164,17 +288,14 @@ mod tests {
     #[test]
     fn test_close_document() {
         let mut workspace = Workspace::new();
+        let mut db = TestDb::new();
         let url = Url::parse("file:///test.py").unwrap();
 
-        // Open document
         let document = TextDocument::new("content".to_string(), 1, LanguageId::Python);
-        workspace.open_document(&url, document.clone());
+        workspace.open_document(&mut db, &url, document.clone());
 
-        // Close it
-        let closed = workspace.close_document(&url);
+        let closed = workspace.close_document(&mut db, &url);
         assert!(closed.is_some());
-
-        // Should no longer be in buffers
         assert!(workspace.buffers.get(&url).is_none());
     }
 
@@ -185,13 +306,12 @@ mod tests {
         std::fs::write(&file_path, "disk content").unwrap();
 
         let mut workspace = Workspace::new();
+        let mut db = TestDb::new();
         let url = Url::from_file_path(&file_path).unwrap();
 
-        // Open document with different content than disk
         let document = TextDocument::new("buffer content".to_string(), 1, LanguageId::Python);
-        workspace.open_document(&url, document);
+        workspace.open_document(&mut db, &url, document);
 
-        // File system should return buffer content, not disk content
         let content = workspace
             .file_system()
             .read_to_string(Utf8Path::from_path(&file_path).unwrap())
