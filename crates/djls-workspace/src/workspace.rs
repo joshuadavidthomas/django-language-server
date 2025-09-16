@@ -98,10 +98,9 @@ impl Workspace {
         document: TextDocument,
     ) -> Option<WorkspaceFileEvent> {
         self.buffers.open(url.clone(), document);
-        self.ensure_file_for_url(db, url).inspect(|event| {
-            if let WorkspaceFileEvent::Updated { file, .. } = event {
-                db.touch_file(*file);
-            }
+        self.ensure_file_for_url(db, url).map(|event| {
+            db.touch_file(event.file());
+            event
         })
     }
 
@@ -128,8 +127,9 @@ impl Workspace {
             }
         }
 
-        self.ensure_file_for_url(db, url).inspect(|event| {
+        self.ensure_file_for_url(db, url).map(|event| {
             db.touch_file(event.file());
+            event
         })
     }
 
@@ -153,6 +153,7 @@ impl Workspace {
     /// Touch the tracked file when the client saves the document.
     pub fn save_document(&self, db: &mut dyn Db, url: &Url) -> Option<WorkspaceFileEvent> {
         let path = paths::url_to_path(url)?;
+
         let event = self.track_file(db, path.as_path());
         db.touch_file(event.file());
         Some(event)
@@ -160,13 +161,15 @@ impl Workspace {
 
     /// Close a document, removing it from buffers and touching the tracked file.
     pub fn close_document(&mut self, db: &mut dyn Db, url: &Url) -> Option<TextDocument> {
+        let closed = self.buffers.close(url);
+
         if let Some(path) = paths::url_to_path(url) {
             if let Some(file) = self.files.get(&path) {
                 db.touch_file(*file);
             }
         }
 
-        self.buffers.close(url)
+        closed
     }
 
     /// Get a document from the buffer if it's open.
@@ -202,12 +205,12 @@ mod tests {
     use std::sync::Arc;
 
     use camino::Utf8Path;
+    use camino::Utf8PathBuf;
     use tempfile::tempdir;
     use url::Url;
 
     use super::*;
     use crate::encoding::PositionEncoding;
-    use crate::InMemoryFileSystem;
     use crate::LanguageId;
 
     #[salsa::db]
@@ -218,10 +221,10 @@ mod tests {
     }
 
     impl TestDb {
-        fn new() -> Self {
+        fn new(fs: Arc<dyn FileSystem>) -> Self {
             Self {
                 storage: salsa::Storage::default(),
-                fs: Arc::new(InMemoryFileSystem::new()),
+                fs,
             }
         }
     }
@@ -231,8 +234,8 @@ mod tests {
 
     #[salsa::db]
     impl djls_source::Db for TestDb {
-        fn read_file_source(&self, _path: &Utf8Path) -> std::io::Result<String> {
-            Ok(String::new())
+        fn read_file_source(&self, path: &Utf8Path) -> std::io::Result<String> {
+            self.fs.read_to_string(path)
         }
     }
 
@@ -246,7 +249,7 @@ mod tests {
     #[test]
     fn test_open_document() {
         let mut workspace = Workspace::new();
-        let mut db = TestDb::new();
+        let mut db = TestDb::new(workspace.file_system());
         let url = Url::parse("file:///test.py").unwrap();
 
         let document = TextDocument::new("print('hello')".to_string(), 1, LanguageId::Python);
@@ -264,7 +267,7 @@ mod tests {
     #[test]
     fn test_update_document() {
         let mut workspace = Workspace::new();
-        let mut db = TestDb::new();
+        let mut db = TestDb::new(workspace.file_system());
         let url = Url::parse("file:///test.py").unwrap();
 
         let document = TextDocument::new("initial".to_string(), 1, LanguageId::Python);
@@ -288,7 +291,7 @@ mod tests {
     #[test]
     fn test_close_document() {
         let mut workspace = Workspace::new();
-        let mut db = TestDb::new();
+        let mut db = TestDb::new(workspace.file_system());
         let url = Url::parse("file:///test.py").unwrap();
 
         let document = TextDocument::new("content".to_string(), 1, LanguageId::Python);
@@ -306,7 +309,7 @@ mod tests {
         std::fs::write(&file_path, "disk content").unwrap();
 
         let mut workspace = Workspace::new();
-        let mut db = TestDb::new();
+        let mut db = TestDb::new(workspace.file_system());
         let url = Url::from_file_path(&file_path).unwrap();
 
         let document = TextDocument::new("buffer content".to_string(), 1, LanguageId::Python);
@@ -317,5 +320,78 @@ mod tests {
             .read_to_string(Utf8Path::from_path(&file_path).unwrap())
             .unwrap();
         assert_eq!(content, "buffer content");
+    }
+
+    #[test]
+    fn test_file_source_reads_from_buffer() {
+        let mut workspace = Workspace::new();
+        let mut db = TestDb::new(workspace.file_system());
+
+        let temp_dir = tempdir().unwrap();
+        let file_path = Utf8PathBuf::from_path_buf(temp_dir.path().join("template.html")).unwrap();
+        std::fs::write(file_path.as_std_path(), "disk template").unwrap();
+        let url = Url::from_file_path(file_path.as_std_path()).unwrap();
+
+        let document = TextDocument::new("line1\nline2".to_string(), 1, LanguageId::HtmlDjango);
+        let event = workspace
+            .open_document(&mut db, &url, document.clone())
+            .unwrap();
+        let file = event.file();
+
+        let source = file.source(&db);
+        assert_eq!(source.as_str(), document.content());
+
+        let line_index = file.line_index(&db);
+        assert_eq!(line_index.to_line_col(0), (0, 0));
+        assert_eq!(line_index.to_line_col(6), (1, 0));
+    }
+
+    #[test]
+    fn test_update_document_updates_source() {
+        let mut workspace = Workspace::new();
+        let mut db = TestDb::new(workspace.file_system());
+
+        let temp_dir = tempdir().unwrap();
+        let file_path = Utf8PathBuf::from_path_buf(temp_dir.path().join("buffer.py")).unwrap();
+        std::fs::write(file_path.as_std_path(), "disk").unwrap();
+        let url = Url::from_file_path(file_path.as_std_path()).unwrap();
+
+        let document = TextDocument::new("initial".to_string(), 1, LanguageId::Python);
+        let event = workspace.open_document(&mut db, &url, document).unwrap();
+        let file = event.file();
+
+        let changes = vec![TextDocumentContentChangeEvent {
+            range: None,
+            range_length: None,
+            text: "updated".to_string(),
+        }];
+        workspace
+            .update_document(&mut db, &url, changes, 2, PositionEncoding::Utf16)
+            .unwrap();
+
+        let source = file.source(&db);
+        assert_eq!(source.as_str(), "updated");
+    }
+
+    #[test]
+    fn test_close_document_reverts_to_disk() {
+        let mut workspace = Workspace::new();
+        let mut db = TestDb::new(workspace.file_system());
+
+        let temp_dir = tempdir().unwrap();
+        let file_path = Utf8PathBuf::from_path_buf(temp_dir.path().join("close.py")).unwrap();
+        std::fs::write(file_path.as_std_path(), "disk content").unwrap();
+        let url = Url::from_file_path(file_path.as_std_path()).unwrap();
+
+        let document = TextDocument::new("buffer content".to_string(), 1, LanguageId::Python);
+        let event = workspace.open_document(&mut db, &url, document).unwrap();
+        let file = event.file();
+
+        assert_eq!(file.source(&db).as_str(), "buffer content");
+
+        workspace.close_document(&mut db, &url);
+
+        let source_after = file.source(&db);
+        assert_eq!(source_after.as_str(), "disk content");
     }
 }
