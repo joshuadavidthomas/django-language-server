@@ -104,33 +104,43 @@ impl TextDocument {
         }
 
         // Incremental path: apply changes to rebuild the document
+        // We need to track both content and line index together as we apply changes
         let mut new_content = self.content.clone();
+        let mut new_line_index = self.line_index.clone();
 
         for change in changes {
             if let Some(range) = change.range {
-                // Convert LSP range to byte offsets using the negotiated encoding
-                // We need to calculate offset using current state before applying change
-                let start_offset = self
-                    .offset_for_position_with_text(range.start, &new_content, encoding)
-                    .unwrap_or(0) as usize;
-                let end_offset = self
-                    .offset_for_position_with_text(range.end, &new_content, encoding)
-                    .unwrap_or(0) as usize;
+                // Convert LSP range to byte offsets using the current line index
+                // that matches the current state of new_content
+                let start_offset = Self::position_to_offset_with(
+                    &new_line_index,
+                    range.start,
+                    &new_content,
+                    encoding,
+                )
+                .unwrap_or(0) as usize;
+                let end_offset = Self::position_to_offset_with(
+                    &new_line_index,
+                    range.end,
+                    &new_content,
+                    encoding,
+                )
+                .unwrap_or(0) as usize;
 
                 // Apply change
                 new_content.replace_range(start_offset..end_offset, &change.text);
-
-                // Rebuild line index after each change since positions shift
-                // This is necessary for subsequent changes to have correct offsets
-                self.line_index = LineIndex::from_text(&new_content);
             } else {
                 // No range means full replacement
                 new_content = change.text;
-                self.line_index = LineIndex::from_text(&new_content);
             }
+
+            // Rebuild line index to match the new content state
+            new_line_index = LineIndex::from_text(&new_content);
         }
 
+        // Update all document state at once
         self.content = new_content;
+        self.line_index = new_line_index;
         self.version = version;
     }
 
@@ -143,19 +153,18 @@ impl TextDocument {
         self.offset_for_position_with_text(position, &self.content, encoding)
     }
 
-    /// Convert position to text offset using the specified encoding.
+    /// Convert position to text offset using a specific line index.
     ///
-    /// Returns a valid offset, clamping out-of-bounds positions to document/line boundaries.
-    /// This method accepts a text parameter to support incremental updates where the
-    /// line index might be temporarily out of sync with the content being modified.
-    fn offset_for_position_with_text(
-        &self,
+    /// This is used during incremental updates where we have a temporary line index
+    /// that matches the temporary content state.
+    fn position_to_offset_with(
+        line_index: &LineIndex,
         position: Position,
         text: &str,
         encoding: PositionEncoding,
     ) -> Option<u32> {
         // Handle line bounds - if line > line_count, return document length
-        let line_start_utf8 = match self.line_index.lines().get(position.line as usize) {
+        let line_start_utf8 = match line_index.lines().get(position.line as usize) {
             Some(start) => *start,
             None => return Some(u32::try_from(text.len()).unwrap_or(u32::MAX)), // Past end of document
         };
@@ -164,8 +173,7 @@ impl TextDocument {
             return Some(line_start_utf8);
         }
 
-        let next_line_start = self
-            .line_index
+        let next_line_start = line_index
             .lines()
             .get(position.line as usize + 1)
             .copied()
@@ -220,6 +228,19 @@ impl TextDocument {
                 Some(line_start_utf8 + utf8_pos)
             }
         }
+    }
+
+    /// Convert position to text offset using the specified encoding.
+    ///
+    /// Returns a valid offset, clamping out-of-bounds positions to document/line boundaries.
+    /// This method uses the document's current line index and content.
+    fn offset_for_position_with_text(
+        &self,
+        position: Position,
+        text: &str,
+        encoding: PositionEncoding,
+    ) -> Option<u32> {
+        Self::position_to_offset_with(&self.line_index, position, text, encoding)
     }
 }
 
