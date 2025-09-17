@@ -5,6 +5,7 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 
 use crate::db::Db;
+use crate::position::LineIndex;
 
 #[salsa::input]
 pub struct File {
@@ -27,14 +28,7 @@ impl File {
     #[salsa::tracked(returns(ref))]
     pub fn line_index(self, db: &dyn Db) -> LineIndex {
         let text = self.source(db);
-        let mut starts = Vec::with_capacity(256);
-        starts.push(0);
-        for (i, b) in text.0.source.bytes().enumerate() {
-            if b == b'\n' {
-                starts.push(u32::try_from(i).unwrap_or_default() + 1);
-            }
-        }
-        LineIndex(starts)
+        LineIndex::from_text(text.0.source.as_str())
     }
 }
 
@@ -123,6 +117,3 @@ impl FileKind {
         }
     }
 }
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LineIndex(Vec<u32>);
