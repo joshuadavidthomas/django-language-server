@@ -13,7 +13,6 @@ use crate::nodelist::NodeList;
 use crate::nodelist::TagBit;
 use crate::nodelist::TagName;
 use crate::nodelist::VariableName;
-use crate::spans::SpanPair;
 use crate::tokens::span_from_token;
 use crate::tokens::Token;
 use crate::tokens::TokenStream;
@@ -77,10 +76,9 @@ impl<'db> Parser<'db> {
         let token = self.peek_previous()?;
 
         let span = span_from_token(token, self.db);
-        let full_span = token.full_span().unwrap_or(span);
         Ok(Node::Comment {
             content: token.content(self.db),
-            spans: SpanPair::new(span, full_span),
+            span,
         })
     }
 
@@ -88,10 +86,11 @@ impl<'db> Parser<'db> {
         let token = self.peek_previous()?;
 
         match token {
-            Token::Error { content, spans, .. } => {
+            Token::Error { content, span, .. } => {
                 let error_text = content.text(self.db).clone();
+                let full_span = token.full_span().unwrap_or(*span);
                 Err(ParseError::MalformedConstruct {
-                    position: spans.lexeme.start as usize,
+                    position: full_span.start as usize,
                     content: error_text,
                 })
             }
@@ -121,13 +120,8 @@ impl<'db> Parser<'db> {
 
         let bits = parts.map(|s| TagBit::new(self.db, s.to_string())).collect();
         let span = span_from_token(token, self.db);
-        let full_span = token.full_span().unwrap_or(span);
 
-        Ok(Node::Tag {
-            name,
-            bits,
-            spans: SpanPair::new(span, full_span),
-        })
+        Ok(Node::Tag { name, bits, span })
     }
 
     fn parse_variable(&mut self) -> Result<Node<'db>, ParseError> {
@@ -155,13 +149,8 @@ impl<'db> Parser<'db> {
             })
             .collect();
         let span = span_from_token(token, self.db);
-        let full_span = token.full_span().unwrap_or(span);
 
-        Ok(Node::Variable {
-            var,
-            filters,
-            spans: SpanPair::new(span, full_span),
-        })
+        Ok(Node::Variable { var, filters, span })
     }
 
     fn parse_text(&mut self) -> Result<Node<'db>, ParseError> {
@@ -194,9 +183,7 @@ impl<'db> Parser<'db> {
         let length = end.saturating_sub(start);
         let span = Span::new(start, length);
 
-        Ok(Node::Text {
-            spans: SpanPair::new(span, span),
-        })
+        Ok(Node::Text { span })
     }
 
     #[inline]
@@ -256,25 +243,28 @@ impl<'db> Parser<'db> {
     }
 
     fn build_error_node(&self, error: ParseError) -> Node<'db> {
-        let spans = self
+        let (span, full_span) = self
             .peek_previous()
             .ok()
             .or_else(|| self.peek().ok())
             .map(|token| {
-                let span = span_from_token(token, self.db);
-                let full_span = token.full_span().unwrap_or(span);
-                SpanPair::new(span, full_span)
+                let content_span = span_from_token(token, self.db);
+                let full_span = token.full_span().unwrap_or(content_span);
+                (content_span, full_span)
+            })
+            .unwrap_or_else(|| {
+                let empty = Span::new(0, 0);
+                (empty, empty)
             });
-
-        let spans = spans.unwrap_or_else(|| {
-            let empty = Span::new(0, 0);
-            SpanPair::new(empty, empty)
-        });
 
         self.report_error(&error);
 
         Node::Error {
-            node: ErrorNode { spans, error },
+            node: ErrorNode {
+                span,
+                full_span,
+                error,
+            },
         }
     }
 }
@@ -426,35 +416,32 @@ mod tests {
 
     impl TestNode {
         fn from_node(node: &Node<'_>, db: &dyn crate::db::Db) -> Self {
+            let span_tuple = |span: Span| (span.start, span.length);
             match node {
-                Node::Tag { name, bits, spans } => TestNode::Tag {
+                Node::Tag { name, bits, span } => TestNode::Tag {
                     name: name.text(db).to_string(),
                     bits: bits.iter().map(|b| b.text(db).to_string()).collect(),
-                    span: spans.content_tuple(),
-                    full_span: spans.lexeme_tuple(),
+                    span: span_tuple(*span),
+                    full_span: span_tuple(node.full_span()),
                 },
-                Node::Comment { content, spans } => TestNode::Comment {
+                Node::Comment { content, span } => TestNode::Comment {
                     content: content.clone(),
-                    span: spans.content_tuple(),
-                    full_span: spans.lexeme_tuple(),
+                    span: span_tuple(*span),
+                    full_span: span_tuple(node.full_span()),
                 },
-                Node::Text { spans } => TestNode::Text {
-                    span: spans.content_tuple(),
-                    full_span: spans.lexeme_tuple(),
+                Node::Text { span } => TestNode::Text {
+                    span: span_tuple(*span),
+                    full_span: span_tuple(node.full_span()),
                 },
-                Node::Variable {
-                    var,
-                    filters,
-                    spans,
-                } => TestNode::Variable {
+                Node::Variable { var, filters, span } => TestNode::Variable {
                     var: var.text(db).to_string(),
                     filters: filters.iter().map(|f| f.text(db).to_string()).collect(),
-                    span: spans.content_tuple(),
-                    full_span: spans.lexeme_tuple(),
+                    span: span_tuple(*span),
+                    full_span: span_tuple(node.full_span()),
                 },
                 Node::Error { node } => TestNode::Error {
-                    span: node.spans.content_tuple(),
-                    full_span: node.spans.lexeme_tuple(),
+                    span: span_tuple(node.span),
+                    full_span: span_tuple(node.full_span),
                     error: node.error.clone(),
                 },
             }

@@ -2,7 +2,8 @@ use djls_source::Span;
 
 use crate::db::Db as TemplateDb;
 use crate::parser::ParseError;
-use crate::spans::SpanPair;
+
+const DJANGO_DELIM_LEN: u32 = 2;
 
 #[salsa::tracked(debug)]
 pub struct NodeList<'db> {
@@ -16,19 +17,19 @@ pub enum Node<'db> {
     Tag {
         name: TagName<'db>,
         bits: Vec<TagBit<'db>>,
-        spans: SpanPair,
+        span: Span,
     },
     Comment {
         content: String,
-        spans: SpanPair,
+        span: Span,
     },
     Text {
-        spans: SpanPair,
+        span: Span,
     },
     Variable {
         var: VariableName<'db>,
         filters: Vec<FilterName<'db>>,
-        spans: SpanPair,
+        span: Span,
     },
     Error {
         node: ErrorNode,
@@ -39,40 +40,40 @@ impl<'db> Node<'db> {
     #[must_use]
     pub fn span(&self) -> Span {
         match self {
-            Node::Tag { spans, .. }
-            | Node::Variable { spans, .. }
-            | Node::Comment { spans, .. }
-            | Node::Text { spans, .. } => spans.content,
-            Node::Error { node, .. } => node.spans.content,
+            Node::Tag { span, .. }
+            | Node::Variable { span, .. }
+            | Node::Comment { span, .. }
+            | Node::Text { span, .. } => *span,
+            Node::Error { node, .. } => node.span,
         }
     }
 
     #[must_use]
     pub fn full_span(&self) -> Span {
         match self {
-            Node::Variable { spans, .. }
-            | Node::Comment { spans, .. }
-            | Node::Tag { spans, .. }
-            | Node::Text { spans, .. } => spans.lexeme,
-            Node::Error { node } => node.spans.lexeme,
+            Node::Variable { span, .. } | Node::Comment { span, .. } | Node::Tag { span, .. } => {
+                expand_with_delimiters(*span, DJANGO_DELIM_LEN, DJANGO_DELIM_LEN)
+            }
+            Node::Text { span, .. } => *span,
+            Node::Error { node } => node.full_span,
         }
     }
 
     pub fn identifier_span(&self, db: &'db dyn TemplateDb) -> Option<Span> {
         match self {
-            Node::Tag { name, spans, .. } => {
+            Node::Tag { name, span, .. } => {
                 // Just the tag name (e.g., "if" in "{% if user.is_authenticated %}")
                 let name_len = name.text(db).len();
                 Some(Span {
-                    start: spans.content.start,
+                    start: span.start,
                     length: u32::try_from(name_len).unwrap_or(0),
                 })
             }
-            Node::Variable { var, spans, .. } => {
+            Node::Variable { var, span, .. } => {
                 // Just the variable name (e.g., "user" in "{{ user.name|title }}")
                 let var_len = var.text(db).len();
                 Some(Span {
-                    start: spans.content.start,
+                    start: span.start,
                     length: u32::try_from(var_len).unwrap_or(0),
                 })
             }
@@ -81,9 +82,18 @@ impl<'db> Node<'db> {
     }
 }
 
+fn expand_with_delimiters(span: Span, opening: u32, closing: u32) -> Span {
+    let start = span.start.saturating_sub(opening);
+    Span {
+        start,
+        length: opening + span.length + closing,
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, salsa::Update)]
 pub struct ErrorNode {
-    pub spans: SpanPair,
+    pub span: Span,
+    pub full_span: Span,
     pub error: ParseError,
 }
 
