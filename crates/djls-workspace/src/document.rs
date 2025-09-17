@@ -138,8 +138,6 @@ impl TextDocument {
     }
 
     /// Calculate byte offset from an LSP position using the given line index and text.
-    ///
-    /// This delegates to the encoding-aware conversion in `djls_source`.
     fn calculate_offset(
         line_index: &LineIndex,
         position: Position,
