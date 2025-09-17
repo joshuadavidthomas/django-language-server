@@ -39,11 +39,6 @@ impl Span {
         Self::new(start_expand, length_expand)
     }
 
-    #[must_use]
-    pub fn as_tuple(self) -> (u32, u32) {
-        (self.start, self.length)
-    }
-
     /// Construct a span from integer bounds expressed as byte offsets.
     #[must_use]
     pub fn from_bounds(start: usize, end: usize) -> Self {
@@ -58,6 +53,11 @@ impl Span {
         let start_u32 = u32::try_from(start).unwrap_or(u32::MAX);
         let length_u32 = u32::try_from(len).unwrap_or(u32::MAX.saturating_sub(start_u32));
         Span::new(start_u32, length_u32)
+    }
+
+    #[must_use]
+    pub fn as_tuple(self) -> (u32, u32) {
+        (self.start, self.length)
     }
 
     #[must_use]
