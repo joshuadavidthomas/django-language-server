@@ -57,17 +57,16 @@ impl DiagnosticError for ValidationError {
 
 /// Convert a Span to an LSP Range using line offsets.
 fn span_to_lsp_range(span: Span, line_index: &LineIndex) -> lsp_types::Range {
-    let (start_line, start_char) = line_index.to_line_col(span.start);
-    let (end_line, end_char) = line_index.to_line_col(span.start.saturating_add(span.length));
+    let (start_pos, end_pos) = span.to_line_col(line_index);
 
     lsp_types::Range {
         start: lsp_types::Position {
-            line: start_line,
-            character: start_char,
+            line: start_pos.line(),
+            character: start_pos.column(),
         },
         end: lsp_types::Position {
-            line: end_line,
-            character: end_char,
+            line: end_pos.line(),
+            character: end_pos.column(),
         },
     }
 }

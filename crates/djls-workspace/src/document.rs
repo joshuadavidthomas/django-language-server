@@ -150,12 +150,6 @@ impl TextDocument {
         self.offset_for_position_with_text(position, &self.content, encoding)
     }
 
-    #[must_use]
-    pub fn offset_to_position(&self, offset: u32) -> Position {
-        let (line, character) = self.line_index.to_line_col(offset);
-        Position::new(line, character)
-    }
-
     /// Convert position to text offset using the specified encoding.
     ///
     /// Returns a valid offset, clamping out-of-bounds positions to document/line boundaries.

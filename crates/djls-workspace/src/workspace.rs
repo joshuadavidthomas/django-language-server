@@ -340,8 +340,14 @@ mod tests {
         assert_eq!(source.as_str(), document.content());
 
         let line_index = file.line_index(&db);
-        assert_eq!(line_index.to_line_col(0), (0, 0));
-        assert_eq!(line_index.to_line_col(6), (1, 0));
+        assert_eq!(
+            line_index.to_line_col(djls_source::ByteOffset(0)),
+            djls_source::LineCol((0, 0))
+        );
+        assert_eq!(
+            line_index.to_line_col(djls_source::ByteOffset(6)),
+            djls_source::LineCol((1, 0))
+        );
     }
 
     #[test]
