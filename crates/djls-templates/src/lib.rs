@@ -58,7 +58,6 @@ use djls_source::File;
 use djls_source::FileKind;
 pub use error::TemplateError;
 pub use lexer::Lexer;
-pub use nodelist::ErrorNode;
 use nodelist::Node;
 pub use nodelist::NodeList;
 pub use parser::ParseError;
@@ -109,11 +108,9 @@ pub fn parse_template(db: &dyn Db, file: File) -> Option<NodeList<'_>> {
             let text = source.as_ref();
             let span = djls_source::Span::from_bounds(0, text.len());
             let error_node = Node::Error {
-                node: ErrorNode {
-                    span,
-                    full_span: span,
-                    error: err,
-                },
+                span,
+                full_span: span,
+                error: err,
             };
 
             NodeList::new(db, vec![error_node])

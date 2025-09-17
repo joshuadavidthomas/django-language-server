@@ -77,11 +77,6 @@ pub struct TokenContent<'db> {
 }
 
 impl<'db> Token<'db> {
-    pub fn to_span(&self, db: &dyn TemplateDb) -> Span {
-        self.content_span()
-            .unwrap_or_else(|| Span::new(self.offset().unwrap_or(0), self.length(db)))
-    }
-
     /// Get the content text for content-bearing tokens
     pub fn content(&self, db: &'db dyn TemplateDb) -> String {
         match self {
@@ -176,6 +171,17 @@ impl<'db> Token<'db> {
             | Token::Newline { span, .. } => Some(*span),
             Token::Eof => None,
         }
+    }
+
+    pub fn content_span_or_fallback(&self, db: &dyn TemplateDb) -> Span {
+        self.content_span()
+            .unwrap_or_else(|| Span::new(self.offset().unwrap_or(0), self.length(db)))
+    }
+
+    pub fn spans(&self, db: &'db dyn TemplateDb) -> (Span, Span) {
+        let content = self.content_span_or_fallback(db);
+        let full = self.full_span().unwrap_or(content);
+        (content, full)
     }
 }
 

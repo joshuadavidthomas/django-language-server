@@ -31,7 +31,9 @@ pub enum Node<'db> {
         span: Span,
     },
     Error {
-        node: ErrorNode,
+        span: Span,
+        full_span: Span,
+        error: ParseError,
     },
 }
 
@@ -42,8 +44,8 @@ impl<'db> Node<'db> {
             Node::Tag { span, .. }
             | Node::Variable { span, .. }
             | Node::Comment { span, .. }
-            | Node::Text { span, .. } => *span,
-            Node::Error { node, .. } => node.span,
+            | Node::Text { span, .. }
+            | Node::Error { span, .. } => *span,
         }
     }
 
@@ -54,7 +56,7 @@ impl<'db> Node<'db> {
                 span.expand(TagDelimiter::LENGTH_U32, TagDelimiter::LENGTH_U32)
             }
             Node::Text { span, .. } => *span,
-            Node::Error { node } => node.full_span,
+            Node::Error { full_span, .. } => *full_span,
         }
     }
 
@@ -79,13 +81,6 @@ impl<'db> Node<'db> {
             Node::Comment { .. } | Node::Text { .. } | Node::Error { .. } => None,
         }
     }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, salsa::Update)]
-pub struct ErrorNode {
-    pub span: Span,
-    pub full_span: Span,
-    pub error: ParseError,
 }
 
 #[salsa::interned(debug)]
