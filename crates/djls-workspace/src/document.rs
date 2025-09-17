@@ -27,21 +27,17 @@ pub struct TextDocument {
     language_id: LanguageId,
     /// Line index for efficient position lookups
     line_index: LineIndex,
-    /// Cached document length in UTF-8 bytes
-    length: u32,
 }
 
 impl TextDocument {
     #[must_use]
     pub fn new(content: String, version: i32, language_id: LanguageId) -> Self {
         let line_index = LineIndex::from_text(&content);
-        let length = u32::try_from(content.len()).unwrap_or(0);
         Self {
             content,
             version,
             language_id,
             line_index,
-            length,
         }
     }
 
@@ -73,7 +69,7 @@ impl TextDocument {
             .lines()
             .get(line as usize + 1)
             .copied()
-            .unwrap_or(self.length);
+            .unwrap_or_else(|| u32::try_from(self.content.len()).unwrap_or(u32::MAX));
 
         Some(self.content[line_start as usize..line_end as usize].to_string())
     }
@@ -103,7 +99,6 @@ impl TextDocument {
         if changes.len() == 1 && changes[0].range.is_none() {
             self.content.clone_from(&changes[0].text);
             self.line_index = LineIndex::from_text(&self.content);
-            self.length = u32::try_from(self.content.len()).unwrap_or(0);
             self.version = version;
             return;
         }
@@ -128,12 +123,10 @@ impl TextDocument {
                 // Rebuild line index after each change since positions shift
                 // This is necessary for subsequent changes to have correct offsets
                 self.line_index = LineIndex::from_text(&new_content);
-                self.length = u32::try_from(new_content.len()).unwrap_or(0);
             } else {
                 // No range means full replacement
                 new_content = change.text;
                 self.line_index = LineIndex::from_text(&new_content);
-                self.length = u32::try_from(new_content.len()).unwrap_or(0);
             }
         }
 
@@ -164,7 +157,7 @@ impl TextDocument {
         // Handle line bounds - if line > line_count, return document length
         let line_start_utf8 = match self.line_index.lines().get(position.line as usize) {
             Some(start) => *start,
-            None => return Some(self.length), // Past end of document
+            None => return Some(u32::try_from(text.len()).unwrap_or(u32::MAX)), // Past end of document
         };
 
         if position.character == 0 {
@@ -176,7 +169,7 @@ impl TextDocument {
             .lines()
             .get(position.line as usize + 1)
             .copied()
-            .unwrap_or(self.length);
+            .unwrap_or_else(|| u32::try_from(text.len()).unwrap_or(u32::MAX));
 
         let line_text = text.get(line_start_utf8 as usize..next_line_start as usize)?;
 
