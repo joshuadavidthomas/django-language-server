@@ -141,12 +141,9 @@ impl<'db> Parser<'db> {
     }
 
     fn parse_text(&mut self) -> Result<Node<'db>, ParseError> {
-        let first_token = self.peek_previous()?;
-        let first_span = first_token
-            .full_span()
-            .unwrap_or_else(|| first_token.content_span_or_fallback(self.db));
-        let start = first_span.start;
-        let mut end = first_span.start + first_span.length;
+        let first_span = self.peek_previous()?.full_span_or_fallback(self.db);
+        let start = first_span.start();
+        let mut end = first_span.end();
 
         while let Ok(token) = self.peek() {
             match token {
@@ -154,13 +151,10 @@ impl<'db> Parser<'db> {
                 | Token::Variable { .. }
                 | Token::Comment { .. }
                 | Token::Error { .. }
-                | Token::Eof { .. } => break, // Stop at Django constructs
+                | Token::Eof { .. } => break, // Stop at Django constructs, errors, or EOF
                 Token::Text { .. } | Token::Whitespace { .. } | Token::Newline { .. } => {
                     // Update end position
-                    let token_span = token
-                        .full_span()
-                        .unwrap_or_else(|| token.content_span_or_fallback(self.db));
-                    let token_end = token_span.start + token_span.length;
+                    let token_end = token.full_span_or_fallback(self.db).end();
                     end = end.max(token_end);
                     self.consume()?;
                 }

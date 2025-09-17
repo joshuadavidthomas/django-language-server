@@ -2,13 +2,30 @@ use serde::Serialize;
 
 /// A byte offset within a text document.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
-pub struct ByteOffset(pub u32);
+pub struct ByteOffset(u32);
+
+impl ByteOffset {
+    #[must_use]
+    pub fn new(offset: u32) -> Self {
+        Self(offset)
+    }
+
+    #[must_use]
+    pub fn offset(&self) -> u32 {
+        self.0
+    }
+}
 
 /// A line and column position within a text document.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct LineCol(pub (u32, u32));
+pub struct LineCol((u32, u32));
 
 impl LineCol {
+    #[must_use]
+    pub fn new(line: u32, column: u32) -> Self {
+        Self((line, column))
+    }
+
     #[must_use]
     pub fn line(&self) -> u32 {
         self.0 .0
@@ -22,8 +39,8 @@ impl LineCol {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 pub struct Span {
-    pub start: u32,
-    pub length: u32,
+    start: u32,
+    length: u32,
 }
 
 impl Span {
@@ -63,8 +80,23 @@ impl Span {
     }
 
     #[must_use]
+    pub fn start(self) -> u32 {
+        self.start
+    }
+
+    #[must_use]
     pub fn start_usize(self) -> usize {
         self.start as usize
+    }
+
+    #[must_use]
+    pub fn end(self) -> u32 {
+        self.start + self.length
+    }
+
+    #[must_use]
+    pub fn length(self) -> u32 {
+        self.length
     }
 
     #[must_use]

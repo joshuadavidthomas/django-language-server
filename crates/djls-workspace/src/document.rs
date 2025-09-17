@@ -144,10 +144,10 @@ impl TextDocument {
         text: &str,
         encoding: PositionEncoding,
     ) -> Option<u32> {
-        let line_col = djls_source::LineCol((position.line, position.character));
+        let line_col = djls_source::LineCol::new(position.line, position.character);
         encoding
             .line_col_to_offset(line_index, line_col, text)
-            .map(|djls_source::ByteOffset(offset)| offset)
+            .map(|offset| offset.offset())
     }
 }
 

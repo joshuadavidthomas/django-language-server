@@ -33,13 +33,13 @@ impl DiagnosticError for ValidationError {
     fn span(&self) -> Option<(u32, u32)> {
         match self {
             ValidationError::UnbalancedStructure { opening_span, .. } => {
-                Some((opening_span.start, opening_span.length))
+                Some((opening_span.start(), opening_span.length()))
             }
             ValidationError::UnclosedTag { span, .. }
             | ValidationError::OrphanedTag { span, .. }
             | ValidationError::UnmatchedBlockName { span, .. }
             | ValidationError::MissingRequiredArguments { span, .. }
-            | ValidationError::TooManyArguments { span, .. } => Some((span.start, span.length)),
+            | ValidationError::TooManyArguments { span, .. } => Some((span.start(), span.length())),
         }
     }
 

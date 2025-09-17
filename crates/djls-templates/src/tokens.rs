@@ -88,7 +88,7 @@ impl<'db> Token<'db> {
             | Token::Variable { content, .. } => content.text(db).clone(),
             Token::Whitespace { span, .. } => " ".repeat(span.length_usize()),
             Token::Newline { span, .. } => {
-                if span.length == 2 {
+                if span.length() == 2 {
                     "\r\n".to_string()
                 } else {
                     "\n".to_string()
@@ -122,7 +122,7 @@ impl<'db> Token<'db> {
             Token::Text { content, .. } | Token::Error { content, .. } => content.text(db).clone(),
             Token::Whitespace { span, .. } => " ".repeat(span.length_usize()),
             Token::Newline { span, .. } => {
-                if span.length == 2 {
+                if span.length() == 2 {
                     "\r\n".to_string()
                 } else {
                     "\n".to_string()
@@ -138,11 +138,11 @@ impl<'db> Token<'db> {
             | Token::Comment { span, .. }
             | Token::Error { span, .. }
             | Token::Variable { span, .. } => {
-                Some(span.start.saturating_sub(TagDelimiter::LENGTH_U32))
+                Some(span.start().saturating_sub(TagDelimiter::LENGTH_U32))
             }
             Token::Text { span, .. }
             | Token::Whitespace { span, .. }
-            | Token::Newline { span, .. } => Some(span.start),
+            | Token::Newline { span, .. } => Some(span.start()),
             Token::Eof => None,
         }
     }
@@ -187,6 +187,11 @@ impl<'db> Token<'db> {
             | Token::Newline { span, .. } => Some(*span),
             Token::Eof => None,
         }
+    }
+
+    pub fn full_span_or_fallback(&self, db: &dyn TemplateDb) -> Span {
+        self.full_span()
+            .unwrap_or_else(|| self.content_span_or_fallback(db))
     }
 
     pub fn content_span_or_fallback(&self, db: &dyn TemplateDb) -> Span {
