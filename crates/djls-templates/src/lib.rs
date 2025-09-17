@@ -50,6 +50,7 @@ mod error;
 mod lexer;
 pub mod nodelist;
 mod parser;
+mod spans;
 mod tokens;
 
 pub use db::Db;
@@ -64,6 +65,7 @@ pub use nodelist::NodeList;
 pub use parser::ParseError;
 pub use parser::Parser;
 use salsa::Accumulator;
+use spans::SpanPair;
 use tokens::TokenStream;
 
 /// Lex a template file into tokens.
@@ -108,12 +110,9 @@ pub fn parse_template(db: &dyn Db, file: File) -> Option<NodeList<'_>> {
 
             let text = source.as_ref();
             let span = djls_source::Span::from_bounds(0, text.len());
+            let spans = SpanPair::new(span, span);
             let error_node = Node::Error {
-                node: ErrorNode {
-                    span,
-                    full_span: span,
-                    error: err,
-                },
+                node: ErrorNode { spans, error: err },
             };
 
             NodeList::new(db, vec![error_node])

@@ -1,9 +1,9 @@
 use djls_source::Span;
 
 use crate::db::Db as TemplateDb;
+use crate::spans::SpanPair;
 use crate::tokens::Token;
 use crate::tokens::TokenContent;
-use crate::tokens::TokenSpans;
 
 const BLOCK_TAG_START: &str = "{%";
 const BLOCK_TAG_END: &str = "%}";
@@ -64,7 +64,7 @@ impl<'db> Lexer<'db> {
     fn lex_django_construct(
         &mut self,
         end: &str,
-        token_fn: impl FnOnce(TokenContent<'db>, TokenSpans) -> Token<'db>,
+        token_fn: impl FnOnce(TokenContent<'db>, SpanPair) -> Token<'db>,
     ) -> Token<'db> {
         let opening_len = 2;
         let content_start = self.start + opening_len;
@@ -79,7 +79,7 @@ impl<'db> Lexer<'db> {
                 self.consume_n(end.len());
                 let full_end = self.current;
                 let full_span = Span::from_bounds(self.start, full_end);
-                token_fn(content, TokenSpans::new(span, full_span))
+                token_fn(content, SpanPair::new(span, full_span))
             }
             Err(err_text) => {
                 let content_end = self.current;
@@ -88,7 +88,7 @@ impl<'db> Lexer<'db> {
                 let content = TokenContent::new(self.db, err_text);
                 Token::Error {
                     content,
-                    spans: TokenSpans::new(span, full_span),
+                    spans: SpanPair::new(span, full_span),
                 }
             }
         }
@@ -101,7 +101,7 @@ impl<'db> Lexer<'db> {
                 self.consume(); // \n of \r\n
             }
             let span = Span::from_bounds(self.start, self.current);
-            let spans = TokenSpans::new(span, span);
+            let spans = SpanPair::new(span, span);
             Token::Newline { spans }
         } else {
             self.consume(); // Consume the first whitespace
@@ -112,7 +112,7 @@ impl<'db> Lexer<'db> {
                 self.consume();
             }
             let span = Span::from_bounds(self.start, self.current);
-            let spans = TokenSpans::new(span, span);
+            let spans = SpanPair::new(span, span);
             Token::Whitespace { spans }
         }
     }
@@ -134,7 +134,7 @@ impl<'db> Lexer<'db> {
         let text = &self.source[text_start..self.current];
         let content = TokenContent::new(self.db, text.to_string());
         let span = Span::from_bounds(self.start, self.current);
-        let spans = TokenSpans::new(span, span);
+        let spans = SpanPair::new(span, span);
         Token::Text { content, spans }
     }
 

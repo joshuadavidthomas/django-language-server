@@ -1,35 +1,36 @@
 use djls_source::Span;
 
 use crate::db::Db as TemplateDb;
+use crate::spans::SpanPair;
 
 #[derive(Clone, Debug, PartialEq, Hash, salsa::Update)]
 pub enum Token<'db> {
     Block {
         content: TokenContent<'db>,
-        spans: TokenSpans,
+        spans: SpanPair,
     },
     Comment {
         content: TokenContent<'db>,
-        spans: TokenSpans,
+        spans: SpanPair,
     },
     Error {
         content: TokenContent<'db>,
-        spans: TokenSpans,
+        spans: SpanPair,
     },
     Eof,
     Newline {
-        spans: TokenSpans,
+        spans: SpanPair,
     },
     Text {
         content: TokenContent<'db>,
-        spans: TokenSpans,
+        spans: SpanPair,
     },
     Variable {
         content: TokenContent<'db>,
-        spans: TokenSpans,
+        spans: SpanPair,
     },
     Whitespace {
-        spans: TokenSpans,
+        spans: SpanPair,
     },
 }
 
@@ -37,29 +38,6 @@ pub enum Token<'db> {
 pub struct TokenContent<'db> {
     #[returns(ref)]
     pub text: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash, salsa::Update)]
-pub struct TokenSpans {
-    pub content: Span,
-    pub lexeme: Span,
-}
-
-impl TokenSpans {
-    #[must_use]
-    pub fn new(content: Span, lexeme: Span) -> Self {
-        Self { content, lexeme }
-    }
-
-    #[must_use]
-    pub fn content_tuple(&self) -> (u32, u32) {
-        (self.content.start, self.content.length)
-    }
-
-    #[must_use]
-    pub fn lexeme_tuple(&self) -> (u32, u32) {
-        (self.lexeme.start, self.lexeme.length)
-    }
 }
 
 impl<'db> Token<'db> {

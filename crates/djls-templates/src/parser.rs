@@ -13,6 +13,7 @@ use crate::nodelist::NodeList;
 use crate::nodelist::TagBit;
 use crate::nodelist::TagName;
 use crate::nodelist::VariableName;
+use crate::spans::SpanPair;
 use crate::tokens::span_from_token;
 use crate::tokens::Token;
 use crate::tokens::TokenStream;
@@ -76,10 +77,10 @@ impl<'db> Parser<'db> {
         let token = self.peek_previous()?;
 
         let span = span_from_token(token, self.db);
+        let full_span = token.full_span().unwrap_or(span);
         Ok(Node::Comment {
             content: token.content(self.db),
-            span,
-            full_span: token.full_span().unwrap_or(span),
+            spans: SpanPair::new(span, full_span),
         })
     }
 
@@ -125,8 +126,7 @@ impl<'db> Parser<'db> {
         Ok(Node::Tag {
             name,
             bits,
-            span,
-            full_span,
+            spans: SpanPair::new(span, full_span),
         })
     }
 
@@ -160,8 +160,7 @@ impl<'db> Parser<'db> {
         Ok(Node::Variable {
             var,
             filters,
-            span,
-            full_span,
+            spans: SpanPair::new(span, full_span),
         })
     }
 
@@ -196,8 +195,7 @@ impl<'db> Parser<'db> {
         let span = Span::new(start, length);
 
         Ok(Node::Text {
-            span,
-            full_span: span,
+            spans: SpanPair::new(span, span),
         })
     }
 
@@ -265,22 +263,18 @@ impl<'db> Parser<'db> {
             .map(|token| {
                 let span = span_from_token(token, self.db);
                 let full_span = token.full_span().unwrap_or(span);
-                (span, full_span)
+                SpanPair::new(span, full_span)
             });
 
-        let (span, full_span) = spans.unwrap_or_else(|| {
+        let spans = spans.unwrap_or_else(|| {
             let empty = Span::new(0, 0);
-            (empty, empty)
+            SpanPair::new(empty, empty)
         });
 
         self.report_error(&error);
 
         Node::Error {
-            node: ErrorNode {
-                span,
-                full_span,
-                error,
-            },
+            node: ErrorNode { spans, error },
         }
     }
 }
@@ -433,44 +427,34 @@ mod tests {
     impl TestNode {
         fn from_node(node: &Node<'_>, db: &dyn crate::db::Db) -> Self {
             match node {
-                Node::Tag {
-                    name,
-                    bits,
-                    span,
-                    full_span,
-                } => TestNode::Tag {
+                Node::Tag { name, bits, spans } => TestNode::Tag {
                     name: name.text(db).to_string(),
                     bits: bits.iter().map(|b| b.text(db).to_string()).collect(),
-                    span: (span.start, span.length),
-                    full_span: (full_span.start, full_span.length),
+                    span: spans.content_tuple(),
+                    full_span: spans.lexeme_tuple(),
                 },
-                Node::Comment {
-                    content,
-                    span,
-                    full_span,
-                } => TestNode::Comment {
+                Node::Comment { content, spans } => TestNode::Comment {
                     content: content.clone(),
-                    span: (span.start, span.length),
-                    full_span: (full_span.start, full_span.length),
+                    span: spans.content_tuple(),
+                    full_span: spans.lexeme_tuple(),
                 },
-                Node::Text { span, full_span } => TestNode::Text {
-                    span: (span.start, span.length),
-                    full_span: (full_span.start, full_span.length),
+                Node::Text { spans } => TestNode::Text {
+                    span: spans.content_tuple(),
+                    full_span: spans.lexeme_tuple(),
                 },
                 Node::Variable {
                     var,
                     filters,
-                    span,
-                    full_span,
+                    spans,
                 } => TestNode::Variable {
                     var: var.text(db).to_string(),
                     filters: filters.iter().map(|f| f.text(db).to_string()).collect(),
-                    span: (span.start, span.length),
-                    full_span: (full_span.start, full_span.length),
+                    span: spans.content_tuple(),
+                    full_span: spans.lexeme_tuple(),
                 },
                 Node::Error { node } => TestNode::Error {
-                    span: (node.span.start, node.span.length),
-                    full_span: (node.full_span.start, node.full_span.length),
+                    span: node.spans.content_tuple(),
+                    full_span: node.spans.lexeme_tuple(),
                     error: node.error.clone(),
                 },
             }
