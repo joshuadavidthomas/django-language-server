@@ -86,7 +86,6 @@ impl<'db> Node<'db> {
 
 #[derive(Clone, Debug, PartialEq, Eq, salsa::Update)]
 pub struct ErrorNode {
-    pub content: String,
     pub span: Span,
     pub full_span: Span,
     pub error: ParseError,

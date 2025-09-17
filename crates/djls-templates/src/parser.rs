@@ -265,19 +265,18 @@ impl<'db> Parser<'db> {
             .map(|token| {
                 let span = span_from_token(token, self.db);
                 let full_span = token.full_span().unwrap_or(span);
-                (span, full_span, token.lexeme(self.db))
+                (span, full_span)
             });
 
-        let (span, full_span, content) = spans.unwrap_or_else(|| {
+        let (span, full_span) = spans.unwrap_or_else(|| {
             let empty = Span::new(0, 0);
-            (empty, empty, String::new())
+            (empty, empty)
         });
 
         self.report_error(&error);
 
         Node::Error {
             node: ErrorNode {
-                content,
                 span,
                 full_span,
                 error,
@@ -425,7 +424,6 @@ mod tests {
             full_span: (u32, u32),
         },
         Error {
-            content: String,
             span: (u32, u32),
             full_span: (u32, u32),
             error: ParseError,
@@ -471,7 +469,6 @@ mod tests {
                     full_span: (full_span.start, full_span.length),
                 },
                 Node::Error { node } => TestNode::Error {
-                    content: node.content.clone(),
                     span: (node.span.start, node.span.length),
                     full_span: (node.full_span.start, node.full_span.length),
                     error: node.error.clone(),

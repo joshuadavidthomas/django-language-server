@@ -4,7 +4,6 @@ expression: test_nodelist
 ---
 nodelist:
   - type: Error
-    content: " user"
     span:
       - 2
       - 5
