@@ -1,0 +1,14 @@
+---
+source: crates/djls-templates/src/parser.rs
+expression: test_nodelist
+---
+nodelist:
+  - type: Error
+    content: user
+    span:
+      - 3
+      - 4
+    error:
+      MalformedConstruct:
+        position: 3
+        content: user

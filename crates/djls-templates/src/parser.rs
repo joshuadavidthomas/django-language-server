@@ -6,6 +6,7 @@ use thiserror::Error;
 use crate::db::Db as TemplateDb;
 use crate::db::TemplateErrorAccumulator;
 use crate::error::TemplateError;
+use crate::nodelist::ErrorNode;
 use crate::nodelist::FilterName;
 use crate::nodelist::Node;
 use crate::nodelist::NodeList;
@@ -41,7 +42,9 @@ impl<'db> Parser<'db> {
                     nodelist.push(node);
                 }
                 Err(err) => {
-                    self.report_error(&err);
+                    let error_node = self.build_error_node(err);
+                    nodelist.push(error_node);
+
                     if !self.is_at_end() {
                         self.synchronize()?;
                     }
@@ -239,6 +242,26 @@ impl<'db> Parser<'db> {
     fn report_error(&self, error: &ParseError) {
         TemplateErrorAccumulator(TemplateError::Parser(error.to_string())).accumulate(self.db);
     }
+
+    fn build_error_node(&self, error: ParseError) -> Node<'db> {
+        let token = self
+            .peek_previous()
+            .ok()
+            .or_else(|| self.peek().ok())
+            .map(|token| (span_from_token(token, self.db), token.lexeme(self.db)));
+
+        let (span, content) = token.unwrap_or_else(|| (Span::new(0, 0), String::new()));
+
+        self.report_error(&error);
+
+        Node::Error {
+            node: ErrorNode {
+                content,
+                span,
+                error,
+            },
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -375,6 +398,11 @@ mod tests {
             filters: Vec<String>,
             span: (u32, u32),
         },
+        Error {
+            content: String,
+            span: (u32, u32),
+            error: ParseError,
+        },
     }
 
     impl TestNode {
@@ -396,6 +424,11 @@ mod tests {
                     var: var.text(db).to_string(),
                     filters: filters.iter().map(|f| f.text(db).to_string()).collect(),
                     span: (span.start, span.length),
+                },
+                Node::Error { node } => TestNode::Error {
+                    content: node.content.clone(),
+                    span: (node.span.start, node.span.length),
+                    error: node.error.clone(),
                 },
             }
         }
@@ -705,6 +738,16 @@ mod tests {
         fn test_parse_unclosed_style() {
             let db = TestDatabase::new();
             let source = "<style>body { color: blue; ".to_string();
+            let template = TestTemplate::new(&db, source);
+            let nodelist = parse_test_template(&db, template);
+            let test_nodelist = convert_nodelist_for_testing_wrapper(nodelist, &db);
+            insta::assert_yaml_snapshot!(test_nodelist);
+        }
+
+        #[test]
+        fn test_parse_unclosed_variable_token() {
+            let db = TestDatabase::new();
+            let source = "{{ user".to_string();
             let template = TestTemplate::new(&db, source);
             let nodelist = parse_test_template(&db, template);
             let test_nodelist = convert_nodelist_for_testing_wrapper(nodelist, &db);

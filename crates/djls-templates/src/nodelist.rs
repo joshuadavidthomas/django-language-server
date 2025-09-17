@@ -1,6 +1,7 @@
 use djls_source::Span;
 
 use crate::db::Db as TemplateDb;
+use crate::parser::ParseError;
 
 #[salsa::tracked(debug)]
 pub struct NodeList<'db> {
@@ -28,6 +29,9 @@ pub enum Node<'db> {
         filters: Vec<FilterName<'db>>,
         span: Span,
     },
+    Error {
+        node: ErrorNode,
+    },
 }
 
 impl<'db> Node<'db> {
@@ -38,6 +42,7 @@ impl<'db> Node<'db> {
             | Node::Variable { span, .. }
             | Node::Comment { span, .. }
             | Node::Text { span } => *span,
+            Node::Error { node, .. } => node.span,
         }
     }
 
@@ -45,12 +50,15 @@ impl<'db> Node<'db> {
     pub fn full_span(&self) -> Span {
         match self {
             // account for delimiters
-            Node::Variable { span, .. } | Node::Comment { span, .. } | Node::Tag { span, .. } => {
+            Node::Variable { span, .. }
+            | Node::Comment { span, .. }
+            | Node::Tag { span, .. } => {
                 Span {
                     start: span.start.saturating_sub(3),
                     length: span.length + 6,
                 }
             }
+            Node::Error { node } => node.span,
             Node::Text { span } => *span,
         }
     }
@@ -73,9 +81,16 @@ impl<'db> Node<'db> {
                     length: u32::try_from(var_len).unwrap_or(0),
                 })
             }
-            Node::Comment { .. } | Node::Text { .. } => None,
+            Node::Comment { .. } | Node::Text { .. } | Node::Error { .. } => None,
         }
     }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, salsa::Update)]
+pub struct ErrorNode {
+    pub content: String,
+    pub span: Span,
+    pub error: ParseError,
 }
 
 #[salsa::interned(debug)]
