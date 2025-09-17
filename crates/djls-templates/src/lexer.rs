@@ -1,15 +1,9 @@
 use djls_source::Span;
 
 use crate::db::Db as TemplateDb;
+use crate::tokens::TagDelimiter;
 use crate::tokens::Token;
 use crate::tokens::TokenContent;
-use crate::tokens::BLOCK_TAG_END;
-use crate::tokens::BLOCK_TAG_START;
-use crate::tokens::COMMENT_TAG_END;
-use crate::tokens::COMMENT_TAG_START;
-use crate::tokens::DJANGO_TAG_LEN;
-use crate::tokens::VARIABLE_TAG_END;
-use crate::tokens::VARIABLE_TAG_START;
 
 pub struct Lexer<'db> {
     db: &'db dyn TemplateDb,
@@ -37,19 +31,25 @@ impl<'db> Lexer<'db> {
 
             let token =
                 match self.peek() {
-                    '{' => match self.peek_next() {
-                        '%' => self.lex_django_tag(BLOCK_TAG_END, |content, span| Token::Block {
-                            content,
-                            span,
-                        }),
-                        '{' => self.lex_django_tag(VARIABLE_TAG_END, |content, span| {
-                            Token::Variable { content, span }
-                        }),
-                        '#' => self.lex_django_tag(COMMENT_TAG_END, |content, span| {
-                            Token::Comment { content, span }
-                        }),
-                        _ => self.lex_text(),
-                    },
+                    '{' => {
+                        let remaining = &self.source[self.current..];
+
+                        match TagDelimiter::from_input(remaining) {
+                            Some(TagDelimiter::Block) => self
+                                .lex_django_tag(TagDelimiter::Block, |content, span| {
+                                    Token::Block { content, span }
+                                }),
+                            Some(TagDelimiter::Variable) => self
+                                .lex_django_tag(TagDelimiter::Variable, |content, span| {
+                                    Token::Variable { content, span }
+                                }),
+                            Some(TagDelimiter::Comment) => self
+                                .lex_django_tag(TagDelimiter::Comment, |content, span| {
+                                    Token::Comment { content, span }
+                                }),
+                            None => self.lex_text(),
+                        }
+                    }
                     c if c.is_whitespace() => self.lex_whitespace(c),
                     _ => self.lex_text(),
                 };
@@ -64,18 +64,18 @@ impl<'db> Lexer<'db> {
 
     fn lex_django_tag(
         &mut self,
-        end: &str,
+        delimiter: TagDelimiter,
         token_fn: impl FnOnce(TokenContent<'db>, Span) -> Token<'db>,
     ) -> Token<'db> {
-        let content_start = self.start + DJANGO_TAG_LEN as usize;
-        self.consume_n(DJANGO_TAG_LEN as usize);
+        let content_start = self.start + TagDelimiter::LENGTH;
+        self.consume_n(TagDelimiter::LENGTH);
 
-        match self.consume_until(end) {
+        match self.consume_until(delimiter.closer()) {
             Ok(text) => {
                 let len = text.len();
                 let content = TokenContent::new(self.db, text);
                 let span = Span::from_parts(content_start, len);
-                self.consume_n(end.len());
+                self.consume_n(delimiter.closer().len());
                 token_fn(content, span)
             }
             Err(err_text) => {
@@ -116,10 +116,10 @@ impl<'db> Lexer<'db> {
         let text_start = self.current;
 
         while !self.is_at_end() {
-            if self.source[self.current..].starts_with(BLOCK_TAG_START)
-                || self.source[self.current..].starts_with(VARIABLE_TAG_START)
-                || self.source[self.current..].starts_with(COMMENT_TAG_START)
-                || self.source[self.current..].starts_with('\n')
+            let slice = &self.source[self.current..];
+            if (self.peek() == '{' && TagDelimiter::from_input(slice).is_some())
+                || slice.starts_with('\n')
+                || slice.starts_with('\r')
             {
                 break;
             }
@@ -135,13 +135,6 @@ impl<'db> Lexer<'db> {
     #[inline]
     fn peek(&self) -> char {
         self.source[self.current..].chars().next().unwrap_or('\0')
-    }
-
-    #[inline]
-    fn peek_next(&self) -> char {
-        let mut chars = self.source[self.current..].chars();
-        chars.next(); // Skip current
-        chars.next().unwrap_or('\0')
     }
 
     #[inline]
@@ -167,15 +160,12 @@ impl<'db> Lexer<'db> {
         let mut fallback: Option<usize> = None;
 
         while self.current < self.source.len() {
-            if self.source[self.current..].starts_with(delimiter) {
+            let slice = &self.source[self.current..];
+            if slice.starts_with(delimiter) {
                 return Ok(self.source[offset..self.current].to_string());
             }
 
-            if fallback.is_none()
-                && (self.source[self.current..].starts_with(BLOCK_TAG_START)
-                    || self.source[self.current..].starts_with(VARIABLE_TAG_START)
-                    || self.source[self.current..].starts_with(COMMENT_TAG_START))
-            {
+            if fallback.is_none() && TagDelimiter::from_input(slice).is_some() {
                 fallback = Some(self.current);
             }
 

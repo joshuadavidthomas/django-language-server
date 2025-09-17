@@ -2,7 +2,7 @@ use djls_source::Span;
 
 use crate::db::Db as TemplateDb;
 use crate::parser::ParseError;
-use crate::tokens::DJANGO_TAG_LEN;
+use crate::tokens::TagDelimiter;
 
 #[salsa::tracked(debug)]
 pub struct NodeList<'db> {
@@ -51,7 +51,7 @@ impl<'db> Node<'db> {
     pub fn full_span(&self) -> Span {
         match self {
             Node::Variable { span, .. } | Node::Comment { span, .. } | Node::Tag { span, .. } => {
-                span.expand(DJANGO_TAG_LEN, DJANGO_TAG_LEN)
+                span.expand(TagDelimiter::LENGTH_U32, TagDelimiter::LENGTH_U32)
             }
             Node::Text { span, .. } => *span,
             Node::Error { node } => node.full_span,

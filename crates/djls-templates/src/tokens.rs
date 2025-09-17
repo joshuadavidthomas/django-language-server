@@ -2,14 +2,42 @@ use djls_source::Span;
 
 use crate::db::Db as TemplateDb;
 
-pub const BLOCK_TAG_START: &str = "{%";
-pub const BLOCK_TAG_END: &str = "%}";
-pub const VARIABLE_TAG_START: &str = "{{";
-pub const VARIABLE_TAG_END: &str = "}}";
-pub const COMMENT_TAG_START: &str = "{#";
-pub const COMMENT_TAG_END: &str = "#}";
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TagDelimiter {
+    Block,
+    Variable,
+    Comment,
+}
 
-pub const DJANGO_TAG_LEN: u32 = 2;
+impl TagDelimiter {
+    pub const LENGTH: usize = 2;
+    pub const LENGTH_U32: u32 = 2;
+
+    #[must_use]
+    pub fn from_input(input: &str) -> Option<TagDelimiter> {
+        [Self::Block, Self::Variable, Self::Comment]
+            .into_iter()
+            .find(|kind| input.starts_with(kind.opener()))
+    }
+
+    #[must_use]
+    pub fn opener(self) -> &'static str {
+        match self {
+            TagDelimiter::Block => "{%",
+            TagDelimiter::Variable => "{{",
+            TagDelimiter::Comment => "{#",
+        }
+    }
+
+    #[must_use]
+    pub fn closer(self) -> &'static str {
+        match self {
+            TagDelimiter::Block => "%}",
+            TagDelimiter::Variable => "}}",
+            TagDelimiter::Comment => "#}",
+        }
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Hash, salsa::Update)]
 pub enum Token<'db> {
@@ -98,7 +126,9 @@ impl<'db> Token<'db> {
             Token::Block { span, .. }
             | Token::Comment { span, .. }
             | Token::Error { span, .. }
-            | Token::Variable { span, .. } => Some(span.start.saturating_sub(DJANGO_TAG_LEN)),
+            | Token::Variable { span, .. } => {
+                Some(span.start.saturating_sub(TagDelimiter::LENGTH_U32))
+            }
             Token::Text { span, .. }
             | Token::Whitespace { span, .. }
             | Token::Newline { span, .. } => Some(span.start),
@@ -124,8 +154,10 @@ impl<'db> Token<'db> {
         match self {
             Token::Block { span, .. }
             | Token::Comment { span, .. }
-            | Token::Variable { span, .. } => Some(span.expand(DJANGO_TAG_LEN, DJANGO_TAG_LEN)),
-            Token::Error { span, .. } => Some(span.expand(DJANGO_TAG_LEN, 0)),
+            | Token::Variable { span, .. } => {
+                Some(span.expand(TagDelimiter::LENGTH_U32, TagDelimiter::LENGTH_U32))
+            }
+            Token::Error { span, .. } => Some(span.expand(TagDelimiter::LENGTH_U32, 0)),
             Token::Newline { span, .. }
             | Token::Text { span, .. }
             | Token::Whitespace { span, .. } => Some(*span),
@@ -239,16 +271,4 @@ pub struct TokenStream<'db> {
     #[tracked]
     #[returns(ref)]
     pub stream: Vec<Token<'db>>,
-}
-
-impl<'db> TokenStream<'db> {
-    /// Check if the token stream is empty
-    pub fn is_empty(self, db: &'db dyn TemplateDb) -> bool {
-        self.stream(db).is_empty()
-    }
-
-    /// Get the number of tokens
-    pub fn len(self, db: &'db dyn TemplateDb) -> usize {
-        self.stream(db).len()
-    }
 }
