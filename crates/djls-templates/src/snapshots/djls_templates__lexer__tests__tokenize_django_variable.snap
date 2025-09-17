@@ -3,6 +3,11 @@ source: crates/djls-templates/src/lexer.rs
 expression: snapshot
 ---
 - Variable:
-    content: "user.name|default:\"Anonymous\"|title"
-    offset: 3
+    content: " user.name|default:\"Anonymous\"|title "
+    span:
+      - 2
+      - 37
+    full_span:
+      - 0
+      - 41
 - Eof

@@ -3,26 +3,59 @@ source: crates/djls-templates/src/lexer.rs
 expression: snapshot
 ---
 - Variable:
-    content: user.name
-    offset: 3
+    content: " user.name "
+    span:
+      - 2
+      - 11
+    full_span:
+      - 0
+      - 15
 - Newline:
-    offset: 15
+    span:
+      - 15
+      - 1
 - Block:
-    content: if true
-    offset: 19
+    content: " if true "
+    span:
+      - 18
+      - 9
+    full_span:
+      - 16
+      - 13
 - Newline:
-    offset: 29
+    span:
+      - 29
+      - 1
 - Comment:
-    content: comment
-    offset: 33
+    content: " comment "
+    span:
+      - 32
+      - 9
+    full_span:
+      - 30
+      - 13
 - Newline:
-    offset: 43
+    span:
+      - 43
+      - 1
 - Text:
     content: "<!-- html comment -->"
-    offset: 44
+    span:
+      - 44
+      - 21
+    full_span:
+      - 44
+      - 21
 - Newline:
-    offset: 65
+    span:
+      - 65
+      - 1
 - Text:
     content: "<div>text</div>"
-    offset: 66
+    span:
+      - 66
+      - 15
+    full_span:
+      - 66
+      - 15
 - Eof

@@ -4,5 +4,10 @@ expression: snapshot
 ---
 - Text:
     content: "<div class=\"container\" id=\"main\" disabled></div>"
-    offset: 0
+    span:
+      - 0
+      - 48
+    full_span:
+      - 0
+      - 48
 - Eof

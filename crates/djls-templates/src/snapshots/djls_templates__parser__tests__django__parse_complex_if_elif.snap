@@ -1,6 +1,6 @@
 ---
 source: crates/djls-templates/src/parser.rs
-expression: test_ast
+expression: test_nodelist
 ---
 nodelist:
   - type: Tag
@@ -10,10 +10,16 @@ nodelist:
       - ">"
       - "0"
     span:
-      - 3
-      - 8
+      - 2
+      - 10
+    full_span:
+      - 0
+      - 14
   - type: Text
     span:
+      - 14
+      - 8
+    full_span:
       - 14
       - 8
   - type: Tag
@@ -23,25 +29,40 @@ nodelist:
       - "<"
       - "0"
     span:
-      - 25
-      - 10
+      - 24
+      - 12
+    full_span:
+      - 22
+      - 16
   - type: Text
     span:
+      - 38
+      - 8
+    full_span:
       - 38
       - 8
   - type: Tag
     name: else
     bits: []
     span:
-      - 49
-      - 4
+      - 48
+      - 6
+    full_span:
+      - 46
+      - 10
   - type: Text
     span:
+      - 56
+      - 4
+    full_span:
       - 56
       - 4
   - type: Tag
     name: endif
     bits: []
     span:
-      - 63
-      - 5
+      - 62
+      - 7
+    full_span:
+      - 60
+      - 11

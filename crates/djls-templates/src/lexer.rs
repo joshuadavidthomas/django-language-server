@@ -1,13 +1,9 @@
+use djls_source::Span;
+
 use crate::db::Db as TemplateDb;
+use crate::tokens::TagDelimiter;
 use crate::tokens::Token;
 use crate::tokens::TokenContent;
-
-const BLOCK_TAG_START: &str = "{%";
-const BLOCK_TAG_END: &str = "%}";
-const VARIABLE_TAG_START: &str = "{{";
-const VARIABLE_TAG_END: &str = "}}";
-const COMMENT_TAG_START: &str = "{#";
-const COMMENT_TAG_END: &str = "#}";
 
 pub struct Lexer<'db> {
     db: &'db dyn TemplateDb,
@@ -33,22 +29,30 @@ impl<'db> Lexer<'db> {
         while !self.is_at_end() {
             self.start = self.current;
 
-            let token = match self.peek() {
-                '{' => match self.peek_next() {
-                    '%' => self.lex_django_construct(BLOCK_TAG_END, |content, offset| {
-                        Token::Block { content, offset }
-                    }),
-                    '{' => self.lex_django_construct(VARIABLE_TAG_END, |content, offset| {
-                        Token::Variable { content, offset }
-                    }),
-                    '#' => self.lex_django_construct(COMMENT_TAG_END, |content, offset| {
-                        Token::Comment { content, offset }
-                    }),
+            let token =
+                match self.peek() {
+                    TagDelimiter::CHAR_OPEN => {
+                        let remaining = self.remaining_source();
+
+                        match TagDelimiter::from_input(remaining) {
+                            Some(TagDelimiter::Block) => self
+                                .lex_django_tag(TagDelimiter::Block, |content, span| {
+                                    Token::Block { content, span }
+                                }),
+                            Some(TagDelimiter::Variable) => self
+                                .lex_django_tag(TagDelimiter::Variable, |content, span| {
+                                    Token::Variable { content, span }
+                                }),
+                            Some(TagDelimiter::Comment) => self
+                                .lex_django_tag(TagDelimiter::Comment, |content, span| {
+                                    Token::Comment { content, span }
+                                }),
+                            None => self.lex_text(),
+                        }
+                    }
+                    c if c.is_whitespace() => self.lex_whitespace(c),
                     _ => self.lex_text(),
-                },
-                c if c.is_whitespace() => self.lex_whitespace(c),
-                _ => self.lex_text(),
-            };
+                };
 
             tokens.push(token);
         }
@@ -58,38 +62,44 @@ impl<'db> Lexer<'db> {
         tokens
     }
 
-    fn lex_django_construct(
+    fn lex_django_tag(
         &mut self,
-        end: &str,
-        token_fn: impl FnOnce(TokenContent<'db>, usize) -> Token<'db>,
+        delimiter: TagDelimiter,
+        token_fn: impl FnOnce(TokenContent<'db>, Span) -> Token<'db>,
     ) -> Token<'db> {
-        let offset = self.start + 3;
+        let content_start = self.start + TagDelimiter::LENGTH;
 
-        self.consume_n(2);
+        self.consume_n(TagDelimiter::LENGTH);
 
-        match self.consume_until(end) {
+        match self.consume_until(delimiter.closer()) {
             Ok(text) => {
-                self.consume_n(2);
+                let len = text.len();
                 let content = TokenContent::new(self.db, text);
-                token_fn(content, offset)
+                let span = Span::from_parts(content_start, len);
+                self.consume_n(delimiter.closer().len());
+                token_fn(content, span)
             }
             Err(err_text) => {
-                self.synchronize();
+                let len = err_text.len();
                 let content = TokenContent::new(self.db, err_text);
-                Token::Error { content, offset }
+                let span = if len == 0 {
+                    Span::from_bounds(content_start, self.current)
+                } else {
+                    Span::from_parts(content_start, len)
+                };
+                Token::Error { content, span }
             }
         }
     }
 
     fn lex_whitespace(&mut self, c: char) -> Token<'db> {
-        let offset = self.start;
-
         if c == '\n' || c == '\r' {
             self.consume(); // \r or \n
             if c == '\r' && self.peek() == '\n' {
                 self.consume(); // \n of \r\n
             }
-            Token::Newline { offset }
+            let span = Span::from_bounds(self.start, self.current);
+            Token::Newline { span }
         } else {
             self.consume(); // Consume the first whitespace
             while !self.is_at_end() && self.peek().is_whitespace() {
@@ -98,8 +108,8 @@ impl<'db> Lexer<'db> {
                 }
                 self.consume();
             }
-            let count = self.current - self.start;
-            Token::Whitespace { count, offset }
+            let span = Span::from_bounds(self.start, self.current);
+            Token::Whitespace { span }
         }
     }
 
@@ -107,33 +117,36 @@ impl<'db> Lexer<'db> {
         let text_start = self.current;
 
         while !self.is_at_end() {
-            if self.source[self.current..].starts_with(BLOCK_TAG_START)
-                || self.source[self.current..].starts_with(VARIABLE_TAG_START)
-                || self.source[self.current..].starts_with(COMMENT_TAG_START)
-                || self.source[self.current..].starts_with('\n')
+            let remaining = self.remaining_source();
+            if (self.peek() == TagDelimiter::CHAR_OPEN
+                && TagDelimiter::from_input(remaining).is_some())
+                || remaining.starts_with('\n')
+                || remaining.starts_with('\r')
             {
                 break;
             }
             self.consume();
         }
 
-        let text = &self.source[text_start..self.current];
+        let text = self.consumed_source_from(text_start);
         let content = TokenContent::new(self.db, text.to_string());
-        Token::Text {
-            content,
-            offset: self.start,
-        }
+        let span = Span::from_bounds(self.start, self.current);
+        Token::Text { content, span }
     }
 
     #[inline]
     fn peek(&self) -> char {
-        self.source[self.current..].chars().next().unwrap_or('\0')
+        self.remaining_source().chars().next().unwrap_or('\0')
     }
 
-    fn peek_next(&self) -> char {
-        let mut chars = self.source[self.current..].chars();
-        chars.next(); // Skip current
-        chars.next().unwrap_or('\0')
+    #[inline]
+    fn remaining_source(&self) -> &str {
+        &self.source[self.current..]
+    }
+
+    #[inline]
+    fn consumed_source_from(&self, start: usize) -> &str {
+        &self.source[start..self.current]
     }
 
     #[inline]
@@ -143,7 +156,7 @@ impl<'db> Lexer<'db> {
 
     #[inline]
     fn consume(&mut self) {
-        if let Some(ch) = self.source[self.current..].chars().next() {
+        if let Some(ch) = self.remaining_source().chars().next() {
             self.current += ch.len_utf8();
         }
     }
@@ -156,26 +169,27 @@ impl<'db> Lexer<'db> {
 
     fn consume_until(&mut self, delimiter: &str) -> Result<String, String> {
         let offset = self.current;
+        let mut fallback: Option<usize> = None;
 
         while self.current < self.source.len() {
-            if self.source[self.current..].starts_with(delimiter) {
-                return Ok(self.source[offset..self.current].trim().to_string());
+            let remaining = self.remaining_source();
+
+            if remaining.starts_with(delimiter) {
+                return Ok(self.consumed_source_from(offset).to_string());
             }
+
+            if fallback.is_none() {
+                let ch = self.peek();
+                if TagDelimiter::from_input(remaining).is_some() || matches!(ch, '\n' | '\r') {
+                    fallback = Some(self.current);
+                }
+            }
+
             self.consume();
         }
 
-        Err(self.source[offset..self.current].trim().to_string())
-    }
-
-    fn synchronize(&mut self) {
-        const SYNC_POINTS: &[u8] = b"{\n\r";
-
-        while !self.is_at_end() {
-            if SYNC_POINTS.contains(&self.source.as_bytes()[self.current]) {
-                return;
-            }
-            self.consume();
-        }
+        self.current = fallback.unwrap_or(self.current);
+        Err(self.consumed_source_from(offset).to_string())
     }
 }
 

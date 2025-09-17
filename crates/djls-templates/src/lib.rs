@@ -58,6 +58,7 @@ use djls_source::File;
 use djls_source::FileKind;
 pub use error::TemplateError;
 pub use lexer::Lexer;
+use nodelist::Node;
 pub use nodelist::NodeList;
 pub use parser::ParseError;
 pub use parser::Parser;
@@ -100,12 +101,19 @@ pub fn parse_template(db: &dyn Db, file: File) -> Option<NodeList<'_>> {
     let nodelist = match Parser::new(db, token_stream).parse() {
         Ok(nodelist) => nodelist,
         Err(err) => {
-            // Fatal error - accumulate and return empty
+            // Fatal error - accumulate but still return an error node so spans remain intact
             let template_error = TemplateError::Parser(err.to_string());
             TemplateErrorAccumulator(template_error).accumulate(db);
 
-            let empty_nodelist = Vec::new();
-            NodeList::new(db, empty_nodelist)
+            let text = source.as_ref();
+            let span = djls_source::Span::from_bounds(0, text.len());
+            let error_node = Node::Error {
+                span,
+                full_span: span,
+                error: err,
+            };
+
+            NodeList::new(db, vec![error_node])
         }
     };
 

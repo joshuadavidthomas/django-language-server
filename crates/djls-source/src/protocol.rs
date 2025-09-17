@@ -60,10 +60,10 @@ impl PositionEncoding {
     /// // UTF-16: "Hello " (6) + "🌍" (2 UTF-16 units) = position 8
     /// let offset = PositionEncoding::Utf16.line_col_to_offset(
     ///     &index,
-    ///     LineCol((0, 8)),
+    ///     LineCol::new(0, 8),
     ///     text
     /// );
-    /// assert_eq!(offset, Some(ByteOffset(10))); // "Hello 🌍" is 10 bytes
+    /// assert_eq!(offset, Some(ByteOffset::new(10))); // "Hello 🌍" is 10 bytes
     /// ```
     #[must_use]
     pub fn line_col_to_offset(
@@ -78,11 +78,11 @@ impl PositionEncoding {
         // Handle line bounds - if line > line_count, return document length
         let line_start_utf8 = match index.lines().get(line as usize) {
             Some(start) => *start,
-            None => return Some(ByteOffset(u32::try_from(text.len()).unwrap_or(u32::MAX))),
+            None => return Some(ByteOffset::from_usize(text.len())),
         };
 
         if character == 0 {
-            return Some(ByteOffset(line_start_utf8));
+            return Some(ByteOffset::new(line_start_utf8));
         }
 
         let next_line_start = index
@@ -96,14 +96,14 @@ impl PositionEncoding {
         // Fast path optimization for ASCII text, all encodings are equivalent to byte offsets
         if line_text.is_ascii() {
             let char_offset = character.min(u32::try_from(line_text.len()).unwrap_or(u32::MAX));
-            return Some(ByteOffset(line_start_utf8 + char_offset));
+            return Some(ByteOffset::new(line_start_utf8 + char_offset));
         }
 
         match self {
             PositionEncoding::Utf8 => {
                 // UTF-8: character positions are already byte offsets
                 let char_offset = character.min(u32::try_from(line_text.len()).unwrap_or(u32::MAX));
-                Some(ByteOffset(line_start_utf8 + char_offset))
+                Some(ByteOffset::new(line_start_utf8 + char_offset))
             }
             PositionEncoding::Utf16 => {
                 // UTF-16: count UTF-16 code units
@@ -119,7 +119,7 @@ impl PositionEncoding {
                 }
 
                 // If character position exceeds line length, clamp to line end
-                Some(ByteOffset(line_start_utf8 + utf8_pos))
+                Some(ByteOffset::new(line_start_utf8 + utf8_pos))
             }
             PositionEncoding::Utf32 => {
                 // UTF-32: count Unicode code points (characters)
@@ -133,7 +133,7 @@ impl PositionEncoding {
                 }
 
                 // If character position exceeds line length, clamp to line end
-                Some(ByteOffset(line_start_utf8 + utf8_pos))
+                Some(ByteOffset::new(line_start_utf8 + utf8_pos))
             }
         }
     }
@@ -158,15 +158,15 @@ mod tests {
         // "Hello " = 6 UTF-16 units, "🌍" = 2 UTF-16 units
         // So position (0, 8) in UTF-16 should be after the emoji
         let offset = PositionEncoding::Utf16
-            .line_col_to_offset(&index, LineCol((0, 8)), text)
+            .line_col_to_offset(&index, LineCol::new(0, 8), text)
             .expect("Should get offset");
-        assert_eq!(offset, ByteOffset(10)); // "Hello 🌍" is 10 bytes
+        assert_eq!(offset, ByteOffset::new(10)); // "Hello 🌍" is 10 bytes
 
         // In UTF-8, character 10 would be at the 'r' in 'world'
         let offset_utf8 = PositionEncoding::Utf8
-            .line_col_to_offset(&index, LineCol((0, 10)), text)
+            .line_col_to_offset(&index, LineCol::new(0, 10), text)
             .expect("Should get offset");
-        assert_eq!(offset_utf8, ByteOffset(10));
+        assert_eq!(offset_utf8, ByteOffset::new(10));
     }
 
     #[test]
@@ -176,17 +176,17 @@ mod tests {
 
         // For ASCII text, all encodings should give the same result
         let offset_utf8 = PositionEncoding::Utf8
-            .line_col_to_offset(&index, LineCol((0, 5)), text)
+            .line_col_to_offset(&index, LineCol::new(0, 5), text)
             .expect("Should get offset");
         let offset_utf16 = PositionEncoding::Utf16
-            .line_col_to_offset(&index, LineCol((0, 5)), text)
+            .line_col_to_offset(&index, LineCol::new(0, 5), text)
             .expect("Should get offset");
         let offset_utf32 = PositionEncoding::Utf32
-            .line_col_to_offset(&index, LineCol((0, 5)), text)
+            .line_col_to_offset(&index, LineCol::new(0, 5), text)
             .expect("Should get offset");
 
-        assert_eq!(offset_utf8, ByteOffset(5));
-        assert_eq!(offset_utf16, ByteOffset(5));
-        assert_eq!(offset_utf32, ByteOffset(5));
+        assert_eq!(offset_utf8, ByteOffset::new(5));
+        assert_eq!(offset_utf16, ByteOffset::new(5));
+        assert_eq!(offset_utf32, ByteOffset::new(5));
     }
 }

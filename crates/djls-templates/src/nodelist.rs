@@ -1,6 +1,8 @@
 use djls_source::Span;
 
 use crate::db::Db as TemplateDb;
+use crate::parser::ParseError;
+use crate::tokens::TagDelimiter;
 
 #[salsa::tracked(debug)]
 pub struct NodeList<'db> {
@@ -28,6 +30,11 @@ pub enum Node<'db> {
         filters: Vec<FilterName<'db>>,
         span: Span,
     },
+    Error {
+        span: Span,
+        full_span: Span,
+        error: ParseError,
+    },
 }
 
 impl<'db> Node<'db> {
@@ -37,21 +44,19 @@ impl<'db> Node<'db> {
             Node::Tag { span, .. }
             | Node::Variable { span, .. }
             | Node::Comment { span, .. }
-            | Node::Text { span } => *span,
+            | Node::Text { span, .. }
+            | Node::Error { span, .. } => *span,
         }
     }
 
     #[must_use]
     pub fn full_span(&self) -> Span {
         match self {
-            // account for delimiters
             Node::Variable { span, .. } | Node::Comment { span, .. } | Node::Tag { span, .. } => {
-                Span {
-                    start: span.start.saturating_sub(3),
-                    length: span.length + 6,
-                }
+                span.expand(TagDelimiter::LENGTH_U32, TagDelimiter::LENGTH_U32)
             }
-            Node::Text { span } => *span,
+            Node::Text { span, .. } => *span,
+            Node::Error { full_span, .. } => *full_span,
         }
     }
 
@@ -59,21 +64,13 @@ impl<'db> Node<'db> {
         match self {
             Node::Tag { name, span, .. } => {
                 // Just the tag name (e.g., "if" in "{% if user.is_authenticated %}")
-                let name_len = name.text(db).len();
-                Some(Span {
-                    start: span.start,
-                    length: u32::try_from(name_len).unwrap_or(0),
-                })
+                Some(span.with_length_usize(name.text(db).len()))
             }
             Node::Variable { var, span, .. } => {
                 // Just the variable name (e.g., "user" in "{{ user.name|title }}")
-                let var_len = var.text(db).len();
-                Some(Span {
-                    start: span.start,
-                    length: u32::try_from(var_len).unwrap_or(0),
-                })
+                Some(span.with_length_usize(var.text(db).len()))
             }
-            Node::Comment { .. } | Node::Text { .. } => None,
+            Node::Comment { .. } | Node::Text { .. } | Node::Error { .. } => None,
         }
     }
 }

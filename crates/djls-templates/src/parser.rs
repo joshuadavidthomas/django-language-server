@@ -12,7 +12,6 @@ use crate::nodelist::NodeList;
 use crate::nodelist::TagBit;
 use crate::nodelist::TagName;
 use crate::nodelist::VariableName;
-use crate::tokens::span_from_token;
 use crate::tokens::Token;
 use crate::tokens::TokenStream;
 
@@ -40,8 +39,28 @@ impl<'db> Parser<'db> {
                 Ok(node) => {
                     nodelist.push(node);
                 }
-                Err(err) => {
-                    self.report_error(&err);
+                Err(error) => {
+                    let (span, full_span) = self
+                        .peek_previous()
+                        .ok()
+                        .or_else(|| self.peek().ok())
+                        .map_or(
+                            {
+                                let empty = Span::new(0, 0);
+                                (empty, empty)
+                            },
+                            |error_tok| error_tok.spans(self.db),
+                        );
+
+                    TemplateErrorAccumulator(TemplateError::Parser(error.to_string()))
+                        .accumulate(self.db);
+
+                    nodelist.push(Node::Error {
+                        span,
+                        full_span,
+                        error,
+                    });
+
                     if !self.is_at_end() {
                         self.synchronize()?;
                     }
@@ -58,42 +77,14 @@ impl<'db> Parser<'db> {
         let token = self.consume()?;
 
         match token {
+            Token::Block { .. } => self.parse_block(),
             Token::Comment { .. } => self.parse_comment(),
             Token::Eof { .. } => Err(ParseError::stream_error(StreamError::AtEnd)),
-            Token::Block { .. } => self.parse_block(),
-            Token::Variable { .. } => self.parse_variable(),
             Token::Error { .. } => self.parse_error(),
             Token::Newline { .. } | Token::Text { .. } | Token::Whitespace { .. } => {
                 self.parse_text()
             }
-        }
-    }
-
-    fn parse_comment(&mut self) -> Result<Node<'db>, ParseError> {
-        let token = self.peek_previous()?;
-
-        Ok(Node::Comment {
-            content: token.content(self.db),
-            span: span_from_token(token, self.db),
-        })
-    }
-
-    fn parse_error(&mut self) -> Result<Node<'db>, ParseError> {
-        let token = self.peek_previous()?;
-
-        match token {
-            Token::Error {
-                content, offset, ..
-            } => {
-                let error_text = content.text(self.db).clone();
-                Err(ParseError::MalformedConstruct {
-                    position: *offset,
-                    content: error_text,
-                })
-            }
-            _ => Err(ParseError::InvalidSyntax {
-                context: "Expected Error token".to_string(),
-            }),
+            Token::Variable { .. } => self.parse_variable(),
         }
     }
 
@@ -116,9 +107,64 @@ impl<'db> Parser<'db> {
         let name = TagName::new(self.db, name_str.to_string());
 
         let bits = parts.map(|s| TagBit::new(self.db, s.to_string())).collect();
-        let span = span_from_token(token, self.db);
+        let span = token.content_span_or_fallback(self.db);
 
         Ok(Node::Tag { name, bits, span })
+    }
+
+    fn parse_comment(&mut self) -> Result<Node<'db>, ParseError> {
+        let token = self.peek_previous()?;
+
+        let span = token.content_span_or_fallback(self.db);
+        Ok(Node::Comment {
+            content: token.content(self.db),
+            span,
+        })
+    }
+
+    fn parse_error(&mut self) -> Result<Node<'db>, ParseError> {
+        let token = self.peek_previous()?;
+
+        match token {
+            Token::Error { content, span, .. } => {
+                let error_text = content.text(self.db).clone();
+                let full_span = token.full_span().unwrap_or(*span);
+                Err(ParseError::MalformedConstruct {
+                    position: full_span.start_usize(),
+                    content: error_text,
+                })
+            }
+            _ => Err(ParseError::InvalidSyntax {
+                context: "Expected Error token".to_string(),
+            }),
+        }
+    }
+
+    fn parse_text(&mut self) -> Result<Node<'db>, ParseError> {
+        let first_span = self.peek_previous()?.full_span_or_fallback(self.db);
+        let start = first_span.start();
+        let mut end = first_span.end();
+
+        while let Ok(token) = self.peek() {
+            match token {
+                Token::Block { .. }
+                | Token::Variable { .. }
+                | Token::Comment { .. }
+                | Token::Error { .. }
+                | Token::Eof { .. } => break, // Stop at Django constructs, errors, or EOF
+                Token::Text { .. } | Token::Whitespace { .. } | Token::Newline { .. } => {
+                    // Update end position
+                    let token_end = token.full_span_or_fallback(self.db).end();
+                    end = end.max(token_end);
+                    self.consume()?;
+                }
+            }
+        }
+
+        let length = end.saturating_sub(start);
+        let span = Span::new(start, length);
+
+        Ok(Node::Text { span })
     }
 
     fn parse_variable(&mut self) -> Result<Node<'db>, ParseError> {
@@ -145,43 +191,9 @@ impl<'db> Parser<'db> {
                 FilterName::new(self.db, trimmed.to_string())
             })
             .collect();
-        let span = span_from_token(token, self.db);
+        let span = token.content_span_or_fallback(self.db);
 
         Ok(Node::Variable { var, filters, span })
-    }
-
-    fn parse_text(&mut self) -> Result<Node<'db>, ParseError> {
-        let first_token = self.peek_previous()?;
-
-        // Skip standalone newlines
-        if matches!(first_token, Token::Newline { .. }) {
-            return self.next_node();
-        }
-
-        let offset = first_token.offset().unwrap_or(0);
-        let mut end_position = offset + first_token.length(self.db);
-
-        while let Ok(token) = self.peek() {
-            match token {
-                Token::Block { .. }
-                | Token::Variable { .. }
-                | Token::Comment { .. }
-                | Token::Error { .. }
-                | Token::Eof { .. } => break, // Stop at Django constructs
-                Token::Text { .. } | Token::Whitespace { .. } | Token::Newline { .. } => {
-                    // Update end position
-                    let token_offset = token.offset().unwrap_or(end_position);
-                    let token_length = token.length(self.db);
-                    end_position = token_offset + token_length;
-                    self.consume()?;
-                }
-            }
-        }
-
-        let length = end_position - offset;
-        let span = Span::new(offset, length);
-
-        Ok(Node::Text { span })
     }
 
     #[inline]
@@ -234,10 +246,6 @@ impl<'db> Parser<'db> {
             self.consume()?;
         }
         Ok(())
-    }
-
-    fn report_error(&self, error: &ParseError) {
-        TemplateErrorAccumulator(TemplateError::Parser(error.to_string())).accumulate(self.db);
     }
 }
 
@@ -362,18 +370,27 @@ mod tests {
             name: String,
             bits: Vec<String>,
             span: (u32, u32),
+            full_span: (u32, u32),
         },
         Comment {
             content: String,
             span: (u32, u32),
+            full_span: (u32, u32),
         },
         Text {
             span: (u32, u32),
+            full_span: (u32, u32),
         },
         Variable {
             var: String,
             filters: Vec<String>,
             span: (u32, u32),
+            full_span: (u32, u32),
+        },
+        Error {
+            span: (u32, u32),
+            full_span: (u32, u32),
+            error: ParseError,
         },
     }
 
@@ -383,19 +400,32 @@ mod tests {
                 Node::Tag { name, bits, span } => TestNode::Tag {
                     name: name.text(db).to_string(),
                     bits: bits.iter().map(|b| b.text(db).to_string()).collect(),
-                    span: (span.start, span.length),
+                    span: span.as_tuple(),
+                    full_span: node.full_span().as_tuple(),
                 },
                 Node::Comment { content, span } => TestNode::Comment {
                     content: content.clone(),
-                    span: (span.start, span.length),
+                    span: span.as_tuple(),
+                    full_span: node.full_span().as_tuple(),
                 },
                 Node::Text { span } => TestNode::Text {
-                    span: (span.start, span.length),
+                    span: span.as_tuple(),
+                    full_span: node.full_span().as_tuple(),
                 },
                 Node::Variable { var, filters, span } => TestNode::Variable {
                     var: var.text(db).to_string(),
                     filters: filters.iter().map(|f| f.text(db).to_string()).collect(),
-                    span: (span.start, span.length),
+                    span: span.as_tuple(),
+                    full_span: node.full_span().as_tuple(),
+                },
+                Node::Error {
+                    span,
+                    full_span,
+                    error,
+                } => TestNode::Error {
+                    span: span.as_tuple(),
+                    full_span: full_span.as_tuple(),
+                    error: error.clone(),
                 },
             }
         }
@@ -705,6 +735,16 @@ mod tests {
         fn test_parse_unclosed_style() {
             let db = TestDatabase::new();
             let source = "<style>body { color: blue; ".to_string();
+            let template = TestTemplate::new(&db, source);
+            let nodelist = parse_test_template(&db, template);
+            let test_nodelist = convert_nodelist_for_testing_wrapper(nodelist, &db);
+            insta::assert_yaml_snapshot!(test_nodelist);
+        }
+
+        #[test]
+        fn test_parse_unclosed_variable_token() {
+            let db = TestDatabase::new();
+            let source = "{{ user".to_string();
             let template = TestTemplate::new(&db, source);
             let nodelist = parse_test_template(&db, template);
             let test_nodelist = convert_nodelist_for_testing_wrapper(nodelist, &db);

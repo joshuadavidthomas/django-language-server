@@ -3,18 +3,43 @@ source: crates/djls-templates/src/lexer.rs
 expression: snapshot
 ---
 - Block:
-    content: if user.is_staff
-    offset: 3
+    content: " if user.is_staff "
+    span:
+      - 2
+      - 18
+    full_span:
+      - 0
+      - 22
 - Text:
     content: Admin
-    offset: 22
+    span:
+      - 22
+      - 5
+    full_span:
+      - 22
+      - 5
 - Block:
-    content: else
-    offset: 30
+    content: " else "
+    span:
+      - 29
+      - 6
+    full_span:
+      - 27
+      - 10
 - Text:
     content: User
-    offset: 37
+    span:
+      - 37
+      - 4
+    full_span:
+      - 37
+      - 4
 - Block:
-    content: endif
-    offset: 44
+    content: " endif "
+    span:
+      - 43
+      - 7
+    full_span:
+      - 41
+      - 11
 - Eof

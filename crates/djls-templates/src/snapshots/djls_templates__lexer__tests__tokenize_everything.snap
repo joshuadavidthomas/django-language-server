@@ -4,225 +4,466 @@ expression: snapshot
 ---
 - Text:
     content: "<!DOCTYPE html>"
-    offset: 0
+    span:
+      - 0
+      - 15
+    full_span:
+      - 0
+      - 15
 - Newline:
-    offset: 15
+    span:
+      - 15
+      - 1
 - Text:
     content: "<html>"
-    offset: 16
+    span:
+      - 16
+      - 6
+    full_span:
+      - 16
+      - 6
 - Newline:
-    offset: 22
+    span:
+      - 22
+      - 1
 - Text:
     content: "<head>"
-    offset: 23
+    span:
+      - 23
+      - 6
+    full_span:
+      - 23
+      - 6
 - Newline:
-    offset: 29
+    span:
+      - 29
+      - 1
 - Whitespace:
-    count: 4
-    offset: 30
+    span:
+      - 30
+      - 4
 - Text:
     content: "<style type=\"text/css\">"
-    offset: 34
+    span:
+      - 34
+      - 23
+    full_span:
+      - 34
+      - 23
 - Newline:
-    offset: 57
+    span:
+      - 57
+      - 1
 - Whitespace:
-    count: 8
-    offset: 58
+    span:
+      - 58
+      - 8
 - Text:
     content: /* Style header */
-    offset: 66
+    span:
+      - 66
+      - 18
+    full_span:
+      - 66
+      - 18
 - Newline:
-    offset: 84
+    span:
+      - 84
+      - 1
 - Whitespace:
-    count: 8
-    offset: 85
+    span:
+      - 85
+      - 8
 - Text:
     content: ".header { color: blue; }"
-    offset: 93
+    span:
+      - 93
+      - 24
+    full_span:
+      - 93
+      - 24
 - Newline:
-    offset: 117
+    span:
+      - 117
+      - 1
 - Whitespace:
-    count: 4
-    offset: 118
+    span:
+      - 118
+      - 4
 - Text:
     content: "</style>"
-    offset: 122
+    span:
+      - 122
+      - 8
+    full_span:
+      - 122
+      - 8
 - Newline:
-    offset: 130
+    span:
+      - 130
+      - 1
 - Whitespace:
-    count: 4
-    offset: 131
+    span:
+      - 131
+      - 4
 - Text:
     content: "<script type=\"text/javascript\">"
-    offset: 135
+    span:
+      - 135
+      - 31
+    full_span:
+      - 135
+      - 31
 - Newline:
-    offset: 166
+    span:
+      - 166
+      - 1
 - Whitespace:
-    count: 8
-    offset: 167
+    span:
+      - 167
+      - 8
 - Text:
     content: // Init app
-    offset: 175
+    span:
+      - 175
+      - 11
+    full_span:
+      - 175
+      - 11
 - Newline:
-    offset: 186
+    span:
+      - 186
+      - 1
 - Whitespace:
-    count: 8
-    offset: 187
+    span:
+      - 187
+      - 8
 - Text:
     content: "const app = {"
-    offset: 195
+    span:
+      - 195
+      - 13
+    full_span:
+      - 195
+      - 13
 - Newline:
-    offset: 208
+    span:
+      - 208
+      - 1
 - Whitespace:
-    count: 12
-    offset: 209
+    span:
+      - 209
+      - 12
 - Text:
     content: /* Config */
-    offset: 221
+    span:
+      - 221
+      - 12
+    full_span:
+      - 221
+      - 12
 - Newline:
-    offset: 233
+    span:
+      - 233
+      - 1
 - Whitespace:
-    count: 12
-    offset: 234
+    span:
+      - 234
+      - 12
 - Text:
     content: "debug: true"
-    offset: 246
+    span:
+      - 246
+      - 11
+    full_span:
+      - 246
+      - 11
 - Newline:
-    offset: 257
+    span:
+      - 257
+      - 1
 - Whitespace:
-    count: 8
-    offset: 258
+    span:
+      - 258
+      - 8
 - Text:
     content: "};"
-    offset: 266
+    span:
+      - 266
+      - 2
+    full_span:
+      - 266
+      - 2
 - Newline:
-    offset: 268
+    span:
+      - 268
+      - 1
 - Whitespace:
-    count: 4
-    offset: 269
+    span:
+      - 269
+      - 4
 - Text:
     content: "</script>"
-    offset: 273
+    span:
+      - 273
+      - 9
+    full_span:
+      - 273
+      - 9
 - Newline:
-    offset: 282
+    span:
+      - 282
+      - 1
 - Text:
     content: "</head>"
-    offset: 283
+    span:
+      - 283
+      - 7
+    full_span:
+      - 283
+      - 7
 - Newline:
-    offset: 290
+    span:
+      - 290
+      - 1
 - Text:
     content: "<body>"
-    offset: 291
+    span:
+      - 291
+      - 6
+    full_span:
+      - 291
+      - 6
 - Newline:
-    offset: 297
+    span:
+      - 297
+      - 1
 - Whitespace:
-    count: 4
-    offset: 298
+    span:
+      - 298
+      - 4
 - Text:
     content: "<!-- Header section -->"
-    offset: 302
+    span:
+      - 302
+      - 23
+    full_span:
+      - 302
+      - 23
 - Newline:
-    offset: 325
+    span:
+      - 325
+      - 1
 - Whitespace:
-    count: 4
-    offset: 326
+    span:
+      - 326
+      - 4
 - Text:
     content: "<div class=\"header\" id=\"main\" data-value=\"123\" disabled>"
-    offset: 330
+    span:
+      - 330
+      - 56
+    full_span:
+      - 330
+      - 56
 - Newline:
-    offset: 386
+    span:
+      - 386
+      - 1
 - Whitespace:
-    count: 8
-    offset: 387
+    span:
+      - 387
+      - 8
 - Block:
-    content: if user.is_authenticated
-    offset: 398
+    content: " if user.is_authenticated "
+    span:
+      - 397
+      - 26
+    full_span:
+      - 395
+      - 30
 - Newline:
-    offset: 425
+    span:
+      - 425
+      - 1
 - Whitespace:
-    count: 12
-    offset: 426
+    span:
+      - 426
+      - 12
 - Comment:
-    content: Welcome message
-    offset: 441
+    content: " Welcome message "
+    span:
+      - 440
+      - 17
+    full_span:
+      - 438
+      - 21
 - Newline:
-    offset: 459
+    span:
+      - 459
+      - 1
 - Whitespace:
-    count: 12
-    offset: 460
+    span:
+      - 460
+      - 12
 - Text:
     content: "<h1>Welcome, "
-    offset: 472
+    span:
+      - 472
+      - 13
+    full_span:
+      - 472
+      - 13
 - Variable:
-    content: "user.name|default:\"Guest\"|title"
-    offset: 488
+    content: " user.name|default:\"Guest\"|title "
+    span:
+      - 487
+      - 33
+    full_span:
+      - 485
+      - 37
 - Text:
     content: "!</h1>"
-    offset: 522
+    span:
+      - 522
+      - 6
+    full_span:
+      - 522
+      - 6
 - Newline:
-    offset: 528
+    span:
+      - 528
+      - 1
 - Whitespace:
-    count: 12
-    offset: 529
+    span:
+      - 529
+      - 12
 - Block:
-    content: if user.is_staff
-    offset: 544
+    content: " if user.is_staff "
+    span:
+      - 543
+      - 18
+    full_span:
+      - 541
+      - 22
 - Newline:
-    offset: 563
+    span:
+      - 563
+      - 1
 - Whitespace:
-    count: 16
-    offset: 564
+    span:
+      - 564
+      - 16
 - Text:
     content: "<span>Admin</span>"
-    offset: 580
+    span:
+      - 580
+      - 18
+    full_span:
+      - 580
+      - 18
 - Newline:
-    offset: 598
+    span:
+      - 598
+      - 1
 - Whitespace:
-    count: 12
-    offset: 599
+    span:
+      - 599
+      - 12
 - Block:
-    content: else
-    offset: 614
+    content: " else "
+    span:
+      - 613
+      - 6
+    full_span:
+      - 611
+      - 10
 - Newline:
-    offset: 621
+    span:
+      - 621
+      - 1
 - Whitespace:
-    count: 16
-    offset: 622
+    span:
+      - 622
+      - 16
 - Text:
     content: "<span>User</span>"
-    offset: 638
+    span:
+      - 638
+      - 17
+    full_span:
+      - 638
+      - 17
 - Newline:
-    offset: 655
+    span:
+      - 655
+      - 1
 - Whitespace:
-    count: 12
-    offset: 656
+    span:
+      - 656
+      - 12
 - Block:
-    content: endif
-    offset: 671
+    content: " endif "
+    span:
+      - 670
+      - 7
+    full_span:
+      - 668
+      - 11
 - Newline:
-    offset: 679
+    span:
+      - 679
+      - 1
 - Whitespace:
-    count: 8
-    offset: 680
+    span:
+      - 680
+      - 8
 - Block:
-    content: endif
-    offset: 691
+    content: " endif "
+    span:
+      - 690
+      - 7
+    full_span:
+      - 688
+      - 11
 - Newline:
-    offset: 699
+    span:
+      - 699
+      - 1
 - Whitespace:
-    count: 4
-    offset: 700
+    span:
+      - 700
+      - 4
 - Text:
     content: "</div>"
-    offset: 704
+    span:
+      - 704
+      - 6
+    full_span:
+      - 704
+      - 6
 - Newline:
-    offset: 710
+    span:
+      - 710
+      - 1
 - Text:
     content: "</body>"
-    offset: 711
+    span:
+      - 711
+      - 7
+    full_span:
+      - 711
+      - 7
 - Newline:
-    offset: 718
+    span:
+      - 718
+      - 1
 - Text:
     content: "</html>"
-    offset: 719
+    span:
+      - 719
+      - 7
+    full_span:
+      - 719
+      - 7
 - Eof

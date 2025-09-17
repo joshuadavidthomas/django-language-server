@@ -3,12 +3,14 @@ source: crates/djls-templates/src/parser.rs
 expression: test_nodelist
 ---
 nodelist:
-  - type: Variable
-    var: user.name
-    filters: []
+  - type: Error
     span:
       - 2
-      - 11
+      - 5
     full_span:
       - 0
-      - 15
+      - 7
+    error:
+      MalformedConstruct:
+        position: 0
+        content: " user"
