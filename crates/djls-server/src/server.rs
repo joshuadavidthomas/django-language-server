@@ -157,7 +157,7 @@ impl LanguageServer for DjangoLanguageServer {
                         save: Some(lsp_types::SaveOptions::default().into()),
                     },
                 )),
-                position_encoding: Some(lsp_types::PositionEncodingKind::from(encoding)),
+                position_encoding: Some(djls_workspace::position_encoding_to_lsp(encoding)),
                 diagnostic_provider: Some(lsp_types::DiagnosticServerCapabilities::Options(
                     lsp_types::DiagnosticOptions {
                         identifier: None,

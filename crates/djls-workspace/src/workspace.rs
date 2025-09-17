@@ -10,6 +10,7 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use dashmap::DashMap;
 use djls_source::File;
+use djls_source::PositionEncoding;
 use tower_lsp_server::lsp_types::TextDocumentContentChangeEvent;
 use url::Url;
 
@@ -110,7 +111,7 @@ impl Workspace {
         url: &Url,
         changes: Vec<TextDocumentContentChangeEvent>,
         version: i32,
-        encoding: crate::encoding::PositionEncoding,
+        encoding: PositionEncoding,
     ) -> Option<WorkspaceFileEvent> {
         if let Some(mut document) = self.buffers.get(url) {
             document.update(changes, version, encoding);
@@ -208,7 +209,6 @@ mod tests {
     use url::Url;
 
     use super::*;
-    use crate::encoding::PositionEncoding;
     use crate::LanguageId;
 
     #[salsa::db]
