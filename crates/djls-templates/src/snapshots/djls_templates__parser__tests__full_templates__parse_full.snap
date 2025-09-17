@@ -1,10 +1,13 @@
 ---
 source: crates/djls-templates/src/parser.rs
-expression: test_ast
+expression: test_nodelist
 ---
 nodelist:
   - type: Text
     span:
+      - 0
+      - 463
+    full_span:
       - 0
       - 463
   - type: Tag
@@ -12,31 +15,49 @@ nodelist:
     bits:
       - user.is_authenticated
     span:
-      - 466
-      - 24
+      - 465
+      - 26
+    full_span:
+      - 463
+      - 30
   - type: Text
     span:
-      - 494
-      - 16
+      - 493
+      - 17
+    full_span:
+      - 493
+      - 17
   - type: Comment
-    content: Welcome message
+    content: " Welcome message "
     span:
-      - 513
-      - 15
+      - 512
+      - 17
+    full_span:
+      - 510
+      - 21
   - type: Text
     span:
-      - 532
-      - 29
+      - 531
+      - 30
+    full_span:
+      - 531
+      - 30
   - type: Variable
     var: user.name
     filters:
       - title
       - "default:'Guest'"
     span:
-      - 564
-      - 31
+      - 563
+      - 33
+    full_span:
+      - 561
+      - 37
   - type: Text
     span:
+      - 598
+      - 23
+    full_span:
       - 598
       - 23
   - type: Tag
@@ -44,39 +65,63 @@ nodelist:
     bits:
       - user.is_staff
     span:
-      - 624
-      - 16
+      - 623
+      - 18
+    full_span:
+      - 621
+      - 22
   - type: Text
     span:
-      - 644
-      - 55
+      - 643
+      - 56
+    full_span:
+      - 643
+      - 56
   - type: Tag
     name: else
     bits: []
     span:
-      - 702
-      - 4
+      - 701
+      - 6
+    full_span:
+      - 699
+      - 10
   - type: Text
     span:
-      - 710
-      - 54
+      - 709
+      - 55
+    full_span:
+      - 709
+      - 55
   - type: Tag
     name: endif
     bits: []
     span:
-      - 767
-      - 5
+      - 766
+      - 7
+    full_span:
+      - 764
+      - 11
   - type: Text
     span:
-      - 776
-      - 12
+      - 775
+      - 13
+    full_span:
+      - 775
+      - 13
   - type: Tag
     name: endif
     bits: []
     span:
-      - 791
-      - 5
+      - 790
+      - 7
+    full_span:
+      - 788
+      - 11
   - type: Text
     span:
-      - 800
-      - 34
+      - 799
+      - 35
+    full_span:
+      - 799
+      - 35

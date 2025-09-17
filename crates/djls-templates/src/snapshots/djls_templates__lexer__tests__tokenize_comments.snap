@@ -4,62 +4,134 @@ expression: snapshot
 ---
 - Text:
     content: "<!-- HTML comment -->"
-    offset: 0
+    span:
+      - 0
+      - 21
+    full_span:
+      - 0
+      - 21
 - Newline:
-    offset: 21
+    span:
+      - 21
+      - 1
 - Comment:
-    content: Django comment
-    offset: 25
+    content: " Django comment "
+    span:
+      - 24
+      - 16
+    full_span:
+      - 22
+      - 20
 - Newline:
-    offset: 42
+    span:
+      - 42
+      - 1
 - Text:
     content: "<script>"
-    offset: 43
+    span:
+      - 43
+      - 8
+    full_span:
+      - 43
+      - 8
 - Newline:
-    offset: 51
+    span:
+      - 51
+      - 1
 - Whitespace:
-    count: 4
-    offset: 52
+    span:
+      - 52
+      - 4
 - Text:
     content: // JS single line comment
-    offset: 56
+    span:
+      - 56
+      - 25
+    full_span:
+      - 56
+      - 25
 - Newline:
-    offset: 81
+    span:
+      - 81
+      - 1
 - Whitespace:
-    count: 4
-    offset: 82
+    span:
+      - 82
+      - 4
 - Text:
     content: /* JS multi-line
-    offset: 86
+    span:
+      - 86
+      - 16
+    full_span:
+      - 86
+      - 16
 - Newline:
-    offset: 102
+    span:
+      - 102
+      - 1
 - Whitespace:
-    count: 7
-    offset: 103
+    span:
+      - 103
+      - 7
 - Text:
     content: comment */
-    offset: 110
+    span:
+      - 110
+      - 10
+    full_span:
+      - 110
+      - 10
 - Newline:
-    offset: 120
+    span:
+      - 120
+      - 1
 - Text:
     content: "</script>"
-    offset: 121
+    span:
+      - 121
+      - 9
+    full_span:
+      - 121
+      - 9
 - Newline:
-    offset: 130
+    span:
+      - 130
+      - 1
 - Text:
     content: "<style>"
-    offset: 131
+    span:
+      - 131
+      - 7
+    full_span:
+      - 131
+      - 7
 - Newline:
-    offset: 138
+    span:
+      - 138
+      - 1
 - Whitespace:
-    count: 4
-    offset: 139
+    span:
+      - 139
+      - 4
 - Text:
     content: /* CSS comment */
-    offset: 143
+    span:
+      - 143
+      - 17
+    full_span:
+      - 143
+      - 17
 - Newline:
-    offset: 160
+    span:
+      - 160
+      - 1
 - Text:
     content: "</style>"
-    offset: 161
+    span:
+      - 161
+      - 8
+    full_span:
+      - 161
+      - 8
 - Eof

@@ -1,9 +1,12 @@
 ---
 source: crates/djls-templates/src/parser.rs
-expression: test_ast
+expression: test_nodelist
 ---
 nodelist:
   - type: Text
     span:
+      - 0
+      - 34
+    full_span:
       - 0
       - 34

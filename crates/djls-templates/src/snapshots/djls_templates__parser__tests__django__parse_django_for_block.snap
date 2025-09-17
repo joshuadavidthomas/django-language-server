@@ -1,6 +1,6 @@
 ---
 source: crates/djls-templates/src/parser.rs
-expression: test_ast
+expression: test_nodelist
 ---
 nodelist:
   - type: Tag
@@ -10,27 +10,42 @@ nodelist:
       - in
       - items
     span:
-      - 3
-      - 17
+      - 2
+      - 19
+    full_span:
+      - 0
+      - 23
   - type: Variable
     var: item
     filters: []
     span:
-      - 26
-      - 4
+      - 25
+      - 6
+    full_span:
+      - 23
+      - 10
   - type: Tag
     name: empty
     bits: []
     span:
-      - 36
-      - 5
+      - 35
+      - 7
+    full_span:
+      - 33
+      - 11
   - type: Text
     span:
+      - 44
+      - 8
+    full_span:
       - 44
       - 8
   - type: Tag
     name: endfor
     bits: []
     span:
-      - 55
-      - 6
+      - 54
+      - 8
+    full_span:
+      - 52
+      - 12

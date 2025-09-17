@@ -4,50 +4,102 @@ expression: snapshot
 ---
 - Text:
     content: "<script type=\"text/javascript\">"
-    offset: 0
+    span:
+      - 0
+      - 31
+    full_span:
+      - 0
+      - 31
 - Newline:
-    offset: 31
+    span:
+      - 31
+      - 1
 - Whitespace:
-    count: 4
-    offset: 32
+    span:
+      - 32
+      - 4
 - Text:
     content: // Single line comment
-    offset: 36
+    span:
+      - 36
+      - 22
+    full_span:
+      - 36
+      - 22
 - Newline:
-    offset: 58
+    span:
+      - 58
+      - 1
 - Whitespace:
-    count: 4
-    offset: 59
+    span:
+      - 59
+      - 4
 - Text:
     content: const x = 1;
-    offset: 63
+    span:
+      - 63
+      - 12
+    full_span:
+      - 63
+      - 12
 - Newline:
-    offset: 75
+    span:
+      - 75
+      - 1
 - Whitespace:
-    count: 4
-    offset: 76
+    span:
+      - 76
+      - 4
 - Text:
     content: /* Multi-line
-    offset: 80
+    span:
+      - 80
+      - 13
+    full_span:
+      - 80
+      - 13
 - Newline:
-    offset: 93
+    span:
+      - 93
+      - 1
 - Whitespace:
-    count: 7
-    offset: 94
+    span:
+      - 94
+      - 7
 - Text:
     content: comment */
-    offset: 101
+    span:
+      - 101
+      - 10
+    full_span:
+      - 101
+      - 10
 - Newline:
-    offset: 111
+    span:
+      - 111
+      - 1
 - Whitespace:
-    count: 4
-    offset: 112
+    span:
+      - 112
+      - 4
 - Text:
     content: console.log(x);
-    offset: 116
+    span:
+      - 116
+      - 15
+    full_span:
+      - 116
+      - 15
 - Newline:
-    offset: 131
+    span:
+      - 131
+      - 1
 - Text:
     content: "</script>"
-    offset: 132
+    span:
+      - 132
+      - 9
+    full_span:
+      - 132
+      - 9
 - Eof

@@ -1,14 +1,20 @@
 ---
 source: crates/djls-templates/src/parser.rs
-expression: test_ast
+expression: test_nodelist
 ---
 nodelist:
   - type: Text
     span:
       - 0
       - 21
+    full_span:
+      - 0
+      - 21
   - type: Comment
-    content: Django comment
+    content: " Django comment "
     span:
-      - 24
-      - 14
+      - 23
+      - 16
+    full_span:
+      - 21
+      - 20

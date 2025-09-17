@@ -4,11 +4,14 @@ expression: test_nodelist
 ---
 nodelist:
   - type: Error
-    content: user
+    content: " user"
     span:
-      - 3
-      - 4
+      - 2
+      - 5
+    full_span:
+      - 0
+      - 7
     error:
       MalformedConstruct:
-        position: 3
-        content: user
+        position: 0
+        content: " user"

@@ -75,9 +75,11 @@ impl<'db> Parser<'db> {
     fn parse_comment(&mut self) -> Result<Node<'db>, ParseError> {
         let token = self.peek_previous()?;
 
+        let span = span_from_token(token, self.db);
         Ok(Node::Comment {
             content: token.content(self.db),
-            span: span_from_token(token, self.db),
+            span,
+            full_span: token.full_span().unwrap_or(span),
         })
     }
 
@@ -85,12 +87,10 @@ impl<'db> Parser<'db> {
         let token = self.peek_previous()?;
 
         match token {
-            Token::Error {
-                content, offset, ..
-            } => {
+            Token::Error { content, spans, .. } => {
                 let error_text = content.text(self.db).clone();
                 Err(ParseError::MalformedConstruct {
-                    position: *offset,
+                    position: spans.lexeme.start as usize,
                     content: error_text,
                 })
             }
@@ -120,8 +120,14 @@ impl<'db> Parser<'db> {
 
         let bits = parts.map(|s| TagBit::new(self.db, s.to_string())).collect();
         let span = span_from_token(token, self.db);
+        let full_span = token.full_span().unwrap_or(span);
 
-        Ok(Node::Tag { name, bits, span })
+        Ok(Node::Tag {
+            name,
+            bits,
+            span,
+            full_span,
+        })
     }
 
     fn parse_variable(&mut self) -> Result<Node<'db>, ParseError> {
@@ -149,20 +155,23 @@ impl<'db> Parser<'db> {
             })
             .collect();
         let span = span_from_token(token, self.db);
+        let full_span = token.full_span().unwrap_or(span);
 
-        Ok(Node::Variable { var, filters, span })
+        Ok(Node::Variable {
+            var,
+            filters,
+            span,
+            full_span,
+        })
     }
 
     fn parse_text(&mut self) -> Result<Node<'db>, ParseError> {
         let first_token = self.peek_previous()?;
-
-        // Skip standalone newlines
-        if matches!(first_token, Token::Newline { .. }) {
-            return self.next_node();
-        }
-
-        let offset = first_token.offset().unwrap_or(0);
-        let mut end_position = offset + first_token.length(self.db);
+        let first_span = first_token
+            .full_span()
+            .unwrap_or_else(|| span_from_token(first_token, self.db));
+        let start = first_span.start;
+        let mut end = first_span.start + first_span.length;
 
         while let Ok(token) = self.peek() {
             match token {
@@ -173,18 +182,23 @@ impl<'db> Parser<'db> {
                 | Token::Eof { .. } => break, // Stop at Django constructs
                 Token::Text { .. } | Token::Whitespace { .. } | Token::Newline { .. } => {
                     // Update end position
-                    let token_offset = token.offset().unwrap_or(end_position);
-                    let token_length = token.length(self.db);
-                    end_position = token_offset + token_length;
+                    let token_span = token
+                        .full_span()
+                        .unwrap_or_else(|| span_from_token(token, self.db));
+                    let token_end = token_span.start + token_span.length;
+                    end = end.max(token_end);
                     self.consume()?;
                 }
             }
         }
 
-        let length = end_position - offset;
-        let span = Span::new(offset, length);
+        let length = end.saturating_sub(start);
+        let span = Span::new(start, length);
 
-        Ok(Node::Text { span })
+        Ok(Node::Text {
+            span,
+            full_span: span,
+        })
     }
 
     #[inline]
@@ -244,13 +258,20 @@ impl<'db> Parser<'db> {
     }
 
     fn build_error_node(&self, error: ParseError) -> Node<'db> {
-        let token = self
+        let spans = self
             .peek_previous()
             .ok()
             .or_else(|| self.peek().ok())
-            .map(|token| (span_from_token(token, self.db), token.lexeme(self.db)));
+            .map(|token| {
+                let span = span_from_token(token, self.db);
+                let full_span = token.full_span().unwrap_or(span);
+                (span, full_span, token.lexeme(self.db))
+            });
 
-        let (span, content) = token.unwrap_or_else(|| (Span::new(0, 0), String::new()));
+        let (span, full_span, content) = spans.unwrap_or_else(|| {
+            let empty = Span::new(0, 0);
+            (empty, empty, String::new())
+        });
 
         self.report_error(&error);
 
@@ -258,6 +279,7 @@ impl<'db> Parser<'db> {
             node: ErrorNode {
                 content,
                 span,
+                full_span,
                 error,
             },
         }
@@ -385,22 +407,27 @@ mod tests {
             name: String,
             bits: Vec<String>,
             span: (u32, u32),
+            full_span: (u32, u32),
         },
         Comment {
             content: String,
             span: (u32, u32),
+            full_span: (u32, u32),
         },
         Text {
             span: (u32, u32),
+            full_span: (u32, u32),
         },
         Variable {
             var: String,
             filters: Vec<String>,
             span: (u32, u32),
+            full_span: (u32, u32),
         },
         Error {
             content: String,
             span: (u32, u32),
+            full_span: (u32, u32),
             error: ParseError,
         },
     }
@@ -408,26 +435,45 @@ mod tests {
     impl TestNode {
         fn from_node(node: &Node<'_>, db: &dyn crate::db::Db) -> Self {
             match node {
-                Node::Tag { name, bits, span } => TestNode::Tag {
+                Node::Tag {
+                    name,
+                    bits,
+                    span,
+                    full_span,
+                } => TestNode::Tag {
                     name: name.text(db).to_string(),
                     bits: bits.iter().map(|b| b.text(db).to_string()).collect(),
                     span: (span.start, span.length),
+                    full_span: (full_span.start, full_span.length),
                 },
-                Node::Comment { content, span } => TestNode::Comment {
+                Node::Comment {
+                    content,
+                    span,
+                    full_span,
+                } => TestNode::Comment {
                     content: content.clone(),
                     span: (span.start, span.length),
+                    full_span: (full_span.start, full_span.length),
                 },
-                Node::Text { span } => TestNode::Text {
+                Node::Text { span, full_span } => TestNode::Text {
                     span: (span.start, span.length),
+                    full_span: (full_span.start, full_span.length),
                 },
-                Node::Variable { var, filters, span } => TestNode::Variable {
+                Node::Variable {
+                    var,
+                    filters,
+                    span,
+                    full_span,
+                } => TestNode::Variable {
                     var: var.text(db).to_string(),
                     filters: filters.iter().map(|f| f.text(db).to_string()).collect(),
                     span: (span.start, span.length),
+                    full_span: (full_span.start, full_span.length),
                 },
                 Node::Error { node } => TestNode::Error {
                     content: node.content.clone(),
                     span: (node.span.start, node.span.length),
+                    full_span: (node.full_span.start, node.full_span.length),
                     error: node.error.clone(),
                 },
             }

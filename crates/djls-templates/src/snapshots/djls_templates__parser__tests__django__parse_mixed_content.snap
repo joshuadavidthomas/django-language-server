@@ -1,10 +1,13 @@
 ---
 source: crates/djls-templates/src/parser.rs
-expression: test_ast
+expression: test_nodelist
 ---
 nodelist:
   - type: Text
     span:
+      - 0
+      - 9
+    full_span:
       - 0
       - 9
   - type: Tag
@@ -12,24 +15,36 @@ nodelist:
     bits:
       - user.is_authenticated
     span:
-      - 12
-      - 24
+      - 11
+      - 26
+    full_span:
+      - 9
+      - 30
   - type: Text
     span:
-      - 40
-      - 4
+      - 39
+      - 5
+    full_span:
+      - 39
+      - 5
   - type: Variable
     var: user.name
     filters:
       - title
       - "default:'Guest'"
     span:
-      - 47
-      - 31
+      - 46
+      - 33
+    full_span:
+      - 44
+      - 37
   - type: Text
     span:
-      - 82
-      - 4
+      - 81
+      - 5
+    full_span:
+      - 81
+      - 5
   - type: Tag
     name: for
     bits:
@@ -37,119 +52,195 @@ nodelist:
       - in
       - user.groups
     span:
-      - 89
-      - 24
+      - 88
+      - 26
+    full_span:
+      - 86
+      - 30
   - type: Text
     span:
-      - 117
-      - 8
+      - 116
+      - 9
+    full_span:
+      - 116
+      - 9
   - type: Tag
     name: if
     bits:
       - forloop.first
     span:
-      - 128
-      - 16
+      - 127
+      - 18
+    full_span:
+      - 125
+      - 22
   - type: Text
     span:
+      - 147
+      - 1
+    full_span:
       - 147
       - 1
   - type: Tag
     name: endif
     bits: []
     span:
-      - 151
-      - 5
+      - 150
+      - 7
+    full_span:
+      - 148
+      - 11
   - type: Text
     span:
-      - 160
-      - 8
+      - 159
+      - 9
+    full_span:
+      - 159
+      - 9
   - type: Variable
     var: group.name
     filters: []
     span:
-      - 171
-      - 10
+      - 170
+      - 12
+    full_span:
+      - 168
+      - 16
   - type: Text
     span:
-      - 185
-      - 8
+      - 184
+      - 9
+    full_span:
+      - 184
+      - 9
   - type: Tag
     name: if
     bits:
       - not
       - forloop.last
     span:
-      - 196
-      - 19
+      - 195
+      - 21
+    full_span:
+      - 193
+      - 25
   - type: Text
     span:
+      - 218
+      - 2
+    full_span:
       - 218
       - 2
   - type: Tag
     name: endif
     bits: []
     span:
-      - 223
-      - 5
+      - 222
+      - 7
+    full_span:
+      - 220
+      - 11
   - type: Text
     span:
-      - 232
-      - 8
+      - 231
+      - 9
+    full_span:
+      - 231
+      - 9
   - type: Tag
     name: if
     bits:
       - forloop.last
     span:
-      - 243
-      - 15
+      - 242
+      - 17
+    full_span:
+      - 240
+      - 21
   - type: Text
     span:
+      - 261
+      - 1
+    full_span:
       - 261
       - 1
   - type: Tag
     name: endif
     bits: []
     span:
-      - 265
-      - 5
+      - 264
+      - 7
+    full_span:
+      - 262
+      - 11
   - type: Text
     span:
-      - 274
-      - 4
+      - 273
+      - 5
+    full_span:
+      - 273
+      - 5
   - type: Tag
     name: empty
     bits: []
     span:
-      - 281
-      - 5
+      - 280
+      - 7
+    full_span:
+      - 278
+      - 11
   - type: Text
     span:
-      - 290
-      - 24
+      - 289
+      - 25
+    full_span:
+      - 289
+      - 25
   - type: Tag
     name: endfor
     bits: []
     span:
-      - 317
-      - 6
+      - 316
+      - 8
+    full_span:
+      - 314
+      - 12
+  - type: Text
+    span:
+      - 326
+      - 1
+    full_span:
+      - 326
+      - 1
   - type: Tag
     name: else
     bits: []
     span:
-      - 330
-      - 4
+      - 329
+      - 6
+    full_span:
+      - 327
+      - 10
   - type: Text
     span:
-      - 338
-      - 10
+      - 337
+      - 11
+    full_span:
+      - 337
+      - 11
   - type: Tag
     name: endif
     bits: []
     span:
-      - 351
-      - 5
+      - 350
+      - 7
+    full_span:
+      - 348
+      - 11
   - type: Text
     span:
+      - 359
+      - 1
+    full_span:
       - 359
       - 1

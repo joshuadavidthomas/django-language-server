@@ -16,18 +16,22 @@ pub enum Node<'db> {
         name: TagName<'db>,
         bits: Vec<TagBit<'db>>,
         span: Span,
+        full_span: Span,
     },
     Comment {
         content: String,
         span: Span,
+        full_span: Span,
     },
     Text {
         span: Span,
+        full_span: Span,
     },
     Variable {
         var: VariableName<'db>,
         filters: Vec<FilterName<'db>>,
         span: Span,
+        full_span: Span,
     },
     Error {
         node: ErrorNode,
@@ -41,7 +45,7 @@ impl<'db> Node<'db> {
             Node::Tag { span, .. }
             | Node::Variable { span, .. }
             | Node::Comment { span, .. }
-            | Node::Text { span } => *span,
+            | Node::Text { span, .. } => *span,
             Node::Error { node, .. } => node.span,
         }
     }
@@ -49,17 +53,11 @@ impl<'db> Node<'db> {
     #[must_use]
     pub fn full_span(&self) -> Span {
         match self {
-            // account for delimiters
-            Node::Variable { span, .. }
-            | Node::Comment { span, .. }
-            | Node::Tag { span, .. } => {
-                Span {
-                    start: span.start.saturating_sub(3),
-                    length: span.length + 6,
-                }
-            }
-            Node::Error { node } => node.span,
-            Node::Text { span } => *span,
+            Node::Variable { full_span, .. }
+            | Node::Comment { full_span, .. }
+            | Node::Tag { full_span, .. }
+            | Node::Text { full_span, .. } => *full_span,
+            Node::Error { node } => node.full_span,
         }
     }
 
@@ -90,6 +88,7 @@ impl<'db> Node<'db> {
 pub struct ErrorNode {
     pub content: String,
     pub span: Span,
+    pub full_span: Span,
     pub error: ParseError,
 }
 

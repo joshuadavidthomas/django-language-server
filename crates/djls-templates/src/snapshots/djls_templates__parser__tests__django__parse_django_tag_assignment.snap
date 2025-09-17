@@ -1,6 +1,6 @@
 ---
 source: crates/djls-templates/src/parser.rs
-expression: test_ast
+expression: test_nodelist
 ---
 nodelist:
   - type: Tag
@@ -10,5 +10,8 @@ nodelist:
       - as
       - view
     span:
-      - 3
-      - 23
+      - 2
+      - 25
+    full_span:
+      - 0
+      - 29

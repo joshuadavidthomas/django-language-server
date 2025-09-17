@@ -6,31 +6,30 @@ use crate::db::Db as TemplateDb;
 pub enum Token<'db> {
     Block {
         content: TokenContent<'db>,
-        offset: usize,
+        spans: TokenSpans,
     },
     Comment {
         content: TokenContent<'db>,
-        offset: usize,
+        spans: TokenSpans,
     },
     Error {
         content: TokenContent<'db>,
-        offset: usize,
+        spans: TokenSpans,
     },
     Eof,
     Newline {
-        offset: usize,
+        spans: TokenSpans,
     },
     Text {
         content: TokenContent<'db>,
-        offset: usize,
+        spans: TokenSpans,
     },
     Variable {
         content: TokenContent<'db>,
-        offset: usize,
+        spans: TokenSpans,
     },
     Whitespace {
-        count: usize,
-        offset: usize,
+        spans: TokenSpans,
     },
 }
 
@@ -38,6 +37,29 @@ pub enum Token<'db> {
 pub struct TokenContent<'db> {
     #[returns(ref)]
     pub text: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash, salsa::Update)]
+pub struct TokenSpans {
+    pub content: Span,
+    pub lexeme: Span,
+}
+
+impl TokenSpans {
+    #[must_use]
+    pub fn new(content: Span, lexeme: Span) -> Self {
+        Self { content, lexeme }
+    }
+
+    #[must_use]
+    pub fn content_tuple(&self) -> (u32, u32) {
+        (self.content.start, self.content.length)
+    }
+
+    #[must_use]
+    pub fn lexeme_tuple(&self) -> (u32, u32) {
+        (self.lexeme.start, self.lexeme.length)
+    }
 }
 
 impl<'db> Token<'db> {
@@ -49,8 +71,14 @@ impl<'db> Token<'db> {
             | Token::Error { content, .. }
             | Token::Text { content, .. }
             | Token::Variable { content, .. } => content.text(db).clone(),
-            Token::Whitespace { count, .. } => " ".repeat(*count),
-            Token::Newline { .. } => "\n".to_string(),
+            Token::Whitespace { spans, .. } => " ".repeat(spans.lexeme.length as usize),
+            Token::Newline { spans, .. } => {
+                if spans.lexeme.length == 2 {
+                    "\r\n".to_string()
+                } else {
+                    "\n".to_string()
+                }
+            }
             Token::Eof { .. } => String::new(),
         }
     }
@@ -62,23 +90,27 @@ impl<'db> Token<'db> {
             Token::Variable { content, .. } => format!("{{{{ {} }}}}", content.text(db)),
             Token::Comment { content, .. } => format!("{{# {} #}}", content.text(db)),
             Token::Text { content, .. } | Token::Error { content, .. } => content.text(db).clone(),
-            Token::Whitespace { count, .. } => " ".repeat(*count),
-            Token::Newline { .. } => "\n".to_string(),
+            Token::Whitespace { spans, .. } => " ".repeat(spans.lexeme.length as usize),
+            Token::Newline { spans, .. } => {
+                if spans.lexeme.length == 2 {
+                    "\r\n".to_string()
+                } else {
+                    "\n".to_string()
+                }
+            }
             Token::Eof { .. } => String::new(),
         }
     }
 
     pub fn offset(&self) -> Option<u32> {
         match self {
-            Token::Block { offset, .. }
-            | Token::Comment { offset, .. }
-            | Token::Error { offset, .. }
-            | Token::Newline { offset, .. }
-            | Token::Text { offset, .. }
-            | Token::Variable { offset, .. }
-            | Token::Whitespace { offset, .. } => {
-                Some(u32::try_from(*offset).expect("Offset should fit in u33"))
-            }
+            Token::Block { spans, .. }
+            | Token::Comment { spans, .. }
+            | Token::Error { spans, .. }
+            | Token::Newline { spans, .. }
+            | Token::Text { spans, .. }
+            | Token::Variable { spans, .. }
+            | Token::Whitespace { spans, .. } => Some(spans.lexeme.start),
             Token::Eof { .. } => None,
         }
     }
@@ -91,56 +123,112 @@ impl<'db> Token<'db> {
             | Token::Error { content, .. }
             | Token::Text { content, .. }
             | Token::Variable { content, .. } => content.text(db).len(),
-            Token::Whitespace { count, .. } => *count,
-            Token::Newline { .. } => 1,
+            Token::Whitespace { spans, .. } | Token::Newline { spans, .. } => {
+                spans.lexeme.length as usize
+            }
             Token::Eof { .. } => 0,
         };
         u32::try_from(len).expect("Token length should fit in u32")
+    }
+
+    pub fn full_span(&self) -> Option<Span> {
+        match self {
+            Token::Block { spans, .. }
+            | Token::Comment { spans, .. }
+            | Token::Error { spans, .. }
+            | Token::Newline { spans, .. }
+            | Token::Text { spans, .. }
+            | Token::Variable { spans, .. }
+            | Token::Whitespace { spans, .. } => Some(spans.lexeme),
+            Token::Eof { .. } => None,
+        }
+    }
+
+    pub fn content_span(&self) -> Option<Span> {
+        match self {
+            Token::Block { spans, .. }
+            | Token::Comment { spans, .. }
+            | Token::Error { spans, .. }
+            | Token::Text { spans, .. }
+            | Token::Variable { spans, .. } => Some(spans.content),
+            Token::Whitespace { spans, .. } | Token::Newline { spans, .. } => Some(spans.lexeme),
+            Token::Eof { .. } => None,
+        }
     }
 }
 
 #[cfg(test)]
 #[derive(Debug, serde::Serialize)]
 pub enum TokenSnapshot {
-    Block { content: String, offset: usize },
-    Comment { content: String, offset: usize },
+    Block {
+        content: String,
+        span: (u32, u32),
+        full_span: (u32, u32),
+    },
+    Comment {
+        content: String,
+        span: (u32, u32),
+        full_span: (u32, u32),
+    },
     Eof,
-    Error { content: String, offset: usize },
-    Newline { offset: usize },
-    Text { content: String, offset: usize },
-    Variable { content: String, offset: usize },
-    Whitespace { count: usize, offset: usize },
+    Error {
+        content: String,
+        span: (u32, u32),
+        full_span: (u32, u32),
+    },
+    Newline {
+        span: (u32, u32),
+    },
+    Text {
+        content: String,
+        span: (u32, u32),
+        full_span: (u32, u32),
+    },
+    Variable {
+        content: String,
+        span: (u32, u32),
+        full_span: (u32, u32),
+    },
+    Whitespace {
+        span: (u32, u32),
+    },
 }
 
 #[cfg(test)]
 impl<'db> Token<'db> {
     pub fn to_snapshot(&self, db: &'db dyn TemplateDb) -> TokenSnapshot {
         match self {
-            Token::Block { content, offset } => TokenSnapshot::Block {
-                content: content.text(db).to_string(),
-                offset: *offset,
+            Token::Block { spans, .. } => TokenSnapshot::Block {
+                content: self.content(db),
+                span: spans.content_tuple(),
+                full_span: spans.lexeme_tuple(),
             },
-            Token::Comment { content, offset } => TokenSnapshot::Comment {
-                content: content.text(db).to_string(),
-                offset: *offset,
+            Token::Comment { spans, .. } => TokenSnapshot::Comment {
+                content: self.content(db),
+                span: spans.content_tuple(),
+                full_span: spans.lexeme_tuple(),
             },
             Token::Eof => TokenSnapshot::Eof,
-            Token::Error { content, offset } => TokenSnapshot::Error {
-                content: content.text(db).to_string(),
-                offset: *offset,
+            Token::Error { spans, .. } => TokenSnapshot::Error {
+                content: self.content(db),
+                span: spans.content_tuple(),
+                full_span: spans.lexeme_tuple(),
             },
-            Token::Newline { offset } => TokenSnapshot::Newline { offset: *offset },
-            Token::Text { content, offset } => TokenSnapshot::Text {
-                content: content.text(db).to_string(),
-                offset: *offset,
+            Token::Newline { spans } => TokenSnapshot::Newline {
+                span: spans.lexeme_tuple(),
             },
-            Token::Variable { content, offset } => TokenSnapshot::Variable {
-                content: content.text(db).to_string(),
-                offset: *offset,
+            Token::Text { spans, .. } => TokenSnapshot::Text {
+                content: self.content(db),
+                span: spans.content_tuple(),
+                full_span: spans.lexeme_tuple(),
             },
-            Token::Whitespace { count, offset } => TokenSnapshot::Whitespace {
-                count: *count,
-                offset: *offset,
+            Token::Variable { spans, .. } => TokenSnapshot::Variable {
+                content: self.content(db),
+                span: spans.content_tuple(),
+                full_span: spans.lexeme_tuple(),
+            },
+            Token::Whitespace { spans } => TokenSnapshot::Whitespace {
+                span: spans.lexeme_tuple(),
             },
         }
     }
@@ -176,7 +264,7 @@ impl<'db> TokenStream<'db> {
 }
 
 pub fn span_from_token(token: &Token<'_>, db: &dyn TemplateDb) -> Span {
-    let start = token.offset().unwrap_or(0);
-    let length = token.length(db);
-    Span::new(start, length)
+    token
+        .content_span()
+        .unwrap_or_else(|| Span::new(token.offset().unwrap_or(0), token.length(db)))
 }

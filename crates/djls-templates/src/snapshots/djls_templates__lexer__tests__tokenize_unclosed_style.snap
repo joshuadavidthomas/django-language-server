@@ -4,5 +4,10 @@ expression: snapshot
 ---
 - Text:
     content: "<style>body { color: blue; "
-    offset: 0
+    span:
+      - 0
+      - 27
+    full_span:
+      - 0
+      - 27
 - Eof

@@ -1,6 +1,6 @@
 ---
 source: crates/djls-templates/src/parser.rs
-expression: test_ast
+expression: test_nodelist
 ---
 nodelist:
   - type: Variable
@@ -10,5 +10,8 @@ nodelist:
       - title
       - upper
     span:
-      - 3
-      - 35
+      - 2
+      - 37
+    full_span:
+      - 0
+      - 41
