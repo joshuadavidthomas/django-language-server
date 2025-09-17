@@ -39,14 +39,6 @@ pub enum Node<'db> {
 
 impl<'db> Node<'db> {
     #[must_use]
-    pub fn first_tag_bit(&self) -> Option<&TagBit<'_>> {
-        match self {
-            Self::Tag { bits, .. } => bits.first(),
-            _ => None,
-        }
-    }
-
-    #[must_use]
     pub fn span(&self) -> Span {
         match self {
             Node::Tag { span, .. }

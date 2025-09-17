@@ -1,9 +1,15 @@
-use std::collections::hash_map::{IntoIter, Iter};
-use std::ops::{Deref, DerefMut};
+use std::collections::hash_map::IntoIter;
+use std::collections::hash_map::Iter;
+use std::ops::Deref;
+use std::ops::DerefMut;
 
 use rustc_hash::FxHashMap;
 
-use crate::templatetags::{EndTag, IntermediateTag, TagArg, TagSpec, TagSpecs};
+use crate::templatetags::EndTag;
+use crate::templatetags::IntermediateTag;
+use crate::templatetags::TagArg;
+use crate::templatetags::TagSpec;
+use crate::templatetags::TagSpecs;
 
 #[derive(Clone, Debug, Default)]
 pub struct TagShapes(FxHashMap<String, TagShape>);

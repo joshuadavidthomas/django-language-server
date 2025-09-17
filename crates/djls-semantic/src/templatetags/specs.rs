@@ -1,6 +1,8 @@
 use std::borrow::Cow;
-use std::collections::hash_map::{IntoIter, Iter};
-use std::ops::{Deref, DerefMut};
+use std::collections::hash_map::IntoIter;
+use std::collections::hash_map::Iter;
+use std::ops::Deref;
+use std::ops::DerefMut;
 
 use rustc_hash::FxHashMap;
 

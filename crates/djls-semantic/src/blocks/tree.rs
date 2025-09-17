@@ -1,7 +1,13 @@
 use djls_source::Span;
-use djls_templates::{Node, NodeList};
+use djls_templates::Node;
+use djls_templates::NodeList;
 
-use super::shapes::{build_end_index, EndPolicy, IntermediateShape, TagForm, TagShape, TagShapes};
+use super::shapes::build_end_index;
+use super::shapes::EndPolicy;
+use super::shapes::IntermediateShape;
+use super::shapes::TagForm;
+use super::shapes::TagShape;
+use super::shapes::TagShapes;
 use crate::db::Db;
 
 #[derive(Default)]
@@ -20,29 +26,38 @@ impl BlockTree {
             match node {
                 Node::Tag { name, bits, span } => {
                     let tag_name = name.text(db);
+                    let name_arg = bits.first().map(|bit| bit.text(db));
 
                     if let Some(end) = end_index.get(&tag_name) {
-                        while let Some(top) = stack.pop() {
-                            if end.matches_opener(&top.opener_tag) {
-                                #[allow(clippy::single_match, clippy::match_same_arms)]
-                                match end.policy() {
-                                    EndPolicy::MustMatchOpenName => {}
-                                    _ => {}
+                        let opener = loop {
+                            match stack.pop() {
+                                Some(top) if end.matches_opener(&top.opener_tag) => {
+                                    break Some(top)
                                 }
-                                self.close_block(top.opener_tag.to_string(), *span);
-                                break;
+                                Some(top) => {
+                                    self.error_close(
+                                        top.opener_span,
+                                        format!("Unclosed block '{}'", top.opener_tag),
+                                    );
+                                }
+                                None => break None,
                             }
-                            self.error_close(
-                                top.opener_span,
-                                format!("Unclosed block '{}'", top.opener_tag),
-                            );
+                        };
+
+                        if let Some(top) = opener {
+                            match top.decide_close(name_arg.as_deref(), &tag_name) {
+                                CloseDecision::Close => {
+                                    self.close_block(top.opener_tag.clone(), *span);
+                                }
+                                CloseDecision::Restore { message } => {
+                                    self.error_end(*span, message);
+                                    stack.push(top);
+                                }
+                            }
+                        } else {
+                            self.error_end(*span, format!("Unexpected closing tag '{}'", tag_name));
                         }
-                        if stack.is_empty() && end.opener() != "" {
-                            // End with no matching opener at all
-                            // (This triggers if the while loop never matched and stack got empty)
-                            // Optionally: only emit if we didn't just close something
-                            // For simplicity, emit an error in the else branch above instead.
-                        }
+
                         continue;
                     }
 
@@ -53,6 +68,15 @@ impl BlockTree {
                             .any(|shape| shape.name() == tag_name)
                         {
                             self.split_segment(tag_name.to_string(), *span);
+                            continue;
+                        } else if !top.intermediates.is_empty() {
+                            self.error_segment(
+                                *span,
+                                format!(
+                                    "'{}' is not a valid intermediate for '{}'",
+                                    tag_name, top.opener_tag
+                                ),
+                            );
                         }
                     }
 
@@ -64,9 +88,7 @@ impl BlockTree {
                                 opener_span: *span,
                                 end_policy: end.policy(),
                                 intermediates: intermediates.clone(),
-                                open_name_arg: node
-                                    .first_tag_bit()
-                                    .map(|bit| bit.text(db).to_string()),
+                                open_name_arg: name_arg.clone(),
                             });
                         }
                         Some(TagForm::Leaf) | None => {
@@ -144,14 +166,14 @@ pub enum BlockNode {
         span: Span,
     },
     Block {
+        root: BlockId,
         name: String,
         span: Span,
-        body: BlockId,
     },
     Segment {
+        root: BlockId,
         label: String,
         span: Span,
-        body: BlockId,
     },
 }
 
@@ -163,4 +185,39 @@ struct TreeFrame {
     end_policy: EndPolicy,
     intermediates: Vec<IntermediateShape>,
     open_name_arg: Option<String>,
+}
+
+impl TreeFrame {
+    fn decide_close(&self, closer_arg: Option<&str>, closer_tag: &str) -> CloseDecision {
+        match self.end_policy {
+            EndPolicy::Required | EndPolicy::Optional => CloseDecision::Close,
+            EndPolicy::MustMatchOpenName => match (self.open_name_arg.as_deref(), closer_arg) {
+                (Some(open), Some(close)) if open == close => CloseDecision::Close,
+                (Some(open), Some(close)) => CloseDecision::Restore {
+                    message: format!(
+                        "Expected closing tag '{}' to reference '{}', got '{}'",
+                        closer_tag, open, close
+                    ),
+                },
+                (Some(open), None) => CloseDecision::Restore {
+                    message: format!(
+                        "Closing tag '{}' is missing the required name '{}'",
+                        closer_tag, open
+                    ),
+                },
+                (None, Some(close)) => CloseDecision::Restore {
+                    message: format!(
+                        "Closing tag '{}' should not include a name, found '{}'",
+                        closer_tag, close
+                    ),
+                },
+                (None, None) => CloseDecision::Close,
+            },
+        }
+    }
+}
+
+enum CloseDecision {
+    Close,
+    Restore { message: String },
 }
