@@ -57,6 +57,12 @@ pub struct TagShape {
     namespace: Option<String>,
 }
 
+impl TagShape {
+    pub fn form(&self) -> &TagForm {
+        &self.form
+    }
+}
+
 impl From<&TagSpec> for TagShape {
     fn from(spec: &TagSpec) -> Self {
         TagShape {
@@ -87,6 +93,16 @@ pub struct TagEndShape {
     policy: EndPolicy,
 }
 
+impl TagEndShape {
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn policy(&self) -> EndPolicy {
+        self.policy
+    }
+}
+
 impl From<&EndTag> for TagEndShape {
     fn from(end: &EndTag) -> Self {
         TagEndShape {
@@ -104,6 +120,12 @@ impl From<&EndTag> for TagEndShape {
 pub struct IntermediateShape {
     name: String,
     args: Vec<ArgShape>,
+}
+
+impl IntermediateShape {
+    pub fn name(&self) -> &str {
+        &self.name
+    }
 }
 
 impl From<&IntermediateTag> for IntermediateShape {
@@ -141,6 +163,20 @@ pub enum EndPolicy {
 pub struct EndEntry {
     opener: String,
     policy: EndPolicy,
+}
+
+impl EndEntry {
+    pub fn opener(&self) -> &str {
+        &self.opener
+    }
+
+    pub fn policy(&self) -> EndPolicy {
+        self.policy
+    }
+
+    pub fn matches_opener(&self, name: &str) -> bool {
+        name == self.opener
+    }
 }
 
 type EndIndex = FxHashMap<String, EndEntry>;
