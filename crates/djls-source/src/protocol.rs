@@ -78,11 +78,7 @@ impl PositionEncoding {
         // Handle line bounds - if line > line_count, return document length
         let line_start_utf8 = match index.lines().get(line as usize) {
             Some(start) => *start,
-            None => {
-                return Some(ByteOffset::new(
-                    u32::try_from(text.len()).unwrap_or(u32::MAX),
-                ))
-            }
+            None => return Some(ByteOffset::from_usize(text.len())),
         };
 
         if character == 0 {

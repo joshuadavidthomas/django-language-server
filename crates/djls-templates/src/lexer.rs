@@ -128,7 +128,7 @@ impl<'db> Lexer<'db> {
             self.consume();
         }
 
-        let text = &self.source[text_start..self.current];
+        let text = self.consumed_source_from(text_start);
         let content = TokenContent::new(self.db, text.to_string());
         let span = Span::from_bounds(self.start, self.current);
         Token::Text { content, span }
@@ -142,6 +142,11 @@ impl<'db> Lexer<'db> {
     #[inline]
     fn remaining_source(&self) -> &str {
         &self.source[self.current..]
+    }
+
+    #[inline]
+    fn consumed_source_from(&self, start: usize) -> &str {
+        &self.source[start..self.current]
     }
 
     #[inline]
@@ -170,7 +175,7 @@ impl<'db> Lexer<'db> {
             let remaining = self.remaining_source();
 
             if remaining.starts_with(delimiter) {
-                return Ok(self.source[offset..self.current].to_string());
+                return Ok(self.consumed_source_from(offset).to_string());
             }
 
             if fallback.is_none() {
@@ -184,7 +189,7 @@ impl<'db> Lexer<'db> {
         }
 
         self.current = fallback.unwrap_or(self.current);
-        Err(self.source[offset..self.current].to_string())
+        Err(self.consumed_source_from(offset).to_string())
     }
 }
 

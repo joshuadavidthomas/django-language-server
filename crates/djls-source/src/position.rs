@@ -11,6 +11,11 @@ impl ByteOffset {
     }
 
     #[must_use]
+    pub fn from_usize(offset: usize) -> Self {
+        Self(u32::try_from(offset).unwrap_or(u32::MAX))
+    }
+
+    #[must_use]
     pub fn offset(&self) -> u32 {
         self.0
     }
