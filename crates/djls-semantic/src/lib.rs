@@ -1,3 +1,4 @@
+mod blocks;
 mod db;
 mod errors;
 mod templatetags;

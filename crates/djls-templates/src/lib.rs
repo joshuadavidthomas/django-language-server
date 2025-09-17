@@ -58,7 +58,7 @@ use djls_source::File;
 use djls_source::FileKind;
 pub use error::TemplateError;
 pub use lexer::Lexer;
-use nodelist::Node;
+pub use nodelist::Node;
 pub use nodelist::NodeList;
 pub use parser::ParseError;
 pub use parser::Parser;

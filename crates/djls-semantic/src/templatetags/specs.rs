@@ -1,4 +1,6 @@
 use std::borrow::Cow;
+use std::collections::hash_map::{IntoIter, Iter};
+use std::ops::{Deref, DerefMut};
 
 use rustc_hash::FxHashMap;
 
@@ -34,16 +36,6 @@ impl TagSpecs {
     #[must_use]
     pub fn new(specs: FxHashMap<String, TagSpec>) -> Self {
         TagSpecs(specs)
-    }
-
-    #[must_use]
-    pub fn get(&self, key: &str) -> Option<&TagSpec> {
-        self.0.get(key)
-    }
-
-    /// Iterate over all tag specs
-    pub fn iter(&self) -> impl Iterator<Item = (&String, &TagSpec)> {
-        self.0.iter()
     }
 
     /// Find the opener tag for a given closer tag
@@ -118,6 +110,38 @@ impl TagSpecs {
     pub fn merge(&mut self, other: TagSpecs) -> &mut Self {
         self.0.extend(other.0);
         self
+    }
+}
+
+impl Deref for TagSpecs {
+    type Target = FxHashMap<String, TagSpec>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for TagSpecs {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl<'a> IntoIterator for &'a TagSpecs {
+    type Item = (&'a String, &'a TagSpec);
+    type IntoIter = Iter<'a, String, TagSpec>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter()
+    }
+}
+
+impl IntoIterator for TagSpecs {
+    type Item = (String, TagSpec);
+    type IntoIter = IntoIter<String, TagSpec>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
     }
 }
 
@@ -482,10 +506,10 @@ mod tests {
     fn test_iter() {
         let specs = create_test_specs();
 
-        let count = specs.iter().count();
+        let count = specs.len();
         assert_eq!(count, 4);
 
-        let mut found_keys: Vec<String> = specs.iter().map(|(k, _)| k.clone()).collect();
+        let mut found_keys: Vec<String> = specs.keys().cloned().collect();
         found_keys.sort();
 
         let mut expected_keys = ["block", "csrf_token", "for", "if"];
@@ -682,19 +706,19 @@ mod tests {
         assert!(specs1.get("block").is_some());
 
         // Total count should be 5 (original 4 + 1 new)
-        assert_eq!(specs1.iter().count(), 5);
+        assert_eq!(specs1.len(), 5);
     }
 
     #[test]
     fn test_merge_empty() {
         let mut specs = create_test_specs();
-        let original_count = specs.iter().count();
+        let original_count = specs.len();
 
         // Merge with empty TagSpecs
         specs.merge(TagSpecs::new(FxHashMap::default()));
 
         // Should remain unchanged
-        assert_eq!(specs.iter().count(), original_count);
+        assert_eq!(specs.len(), original_count);
     }
 
     #[test]
