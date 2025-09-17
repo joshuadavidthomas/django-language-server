@@ -10,6 +10,7 @@ pub enum TagDelimiter {
 }
 
 impl TagDelimiter {
+    pub const CHAR_OPEN: char = '{';
     pub const LENGTH: usize = 2;
     pub const LENGTH_U32: u32 = 2;
 
@@ -100,9 +101,24 @@ impl<'db> Token<'db> {
     /// Get the lexeme as it appears in source
     pub fn lexeme(&self, db: &'db dyn TemplateDb) -> String {
         match self {
-            Token::Block { content, .. } => format!("{{% {} %}}", content.text(db)),
-            Token::Variable { content, .. } => format!("{{{{ {} }}}}", content.text(db)),
-            Token::Comment { content, .. } => format!("{{# {} #}}", content.text(db)),
+            Token::Block { content, .. } => format!(
+                "{} {} {}",
+                TagDelimiter::Block.opener(),
+                content.text(db),
+                TagDelimiter::Block.closer()
+            ),
+            Token::Variable { content, .. } => format!(
+                "{} {} {}",
+                TagDelimiter::Variable.opener(),
+                content.text(db),
+                TagDelimiter::Variable.closer()
+            ),
+            Token::Comment { content, .. } => format!(
+                "{} {} {}",
+                TagDelimiter::Comment.opener(),
+                content.text(db),
+                TagDelimiter::Comment.closer()
+            ),
             Token::Text { content, .. } | Token::Error { content, .. } => content.text(db).clone(),
             Token::Whitespace { span, .. } => " ".repeat(span.length as usize),
             Token::Newline { span, .. } => {

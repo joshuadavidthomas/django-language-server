@@ -33,26 +33,28 @@ impl Span {
     }
 
     #[must_use]
-    pub fn expand(self, opening: u32, closing: u32) -> Self {
-        let start_expand = self.start.saturating_sub(opening);
-        let length_expand = opening + self.length + closing;
-        Self::new(start_expand, length_expand)
+    pub fn from_parts(start: usize, length: usize) -> Self {
+        let start_u32 = u32::try_from(start).unwrap_or(u32::MAX);
+        let length_u32 = u32::try_from(length).unwrap_or(u32::MAX.saturating_sub(start_u32));
+        Span::new(start_u32, length_u32)
+    }
+
+    #[must_use]
+    pub fn with_length_usize(self, length: usize) -> Self {
+        Self::from_parts(self.start as usize, length)
     }
 
     /// Construct a span from integer bounds expressed as byte offsets.
     #[must_use]
     pub fn from_bounds(start: usize, end: usize) -> Self {
-        let start_u32 = u32::try_from(start).unwrap_or(u32::MAX);
-        let end_u32 = u32::try_from(end).unwrap_or(u32::MAX);
-        let length_u32 = end_u32.saturating_sub(start_u32);
-        Self::new(start_u32, length_u32)
+        Self::from_parts(start, end.saturating_sub(start))
     }
 
     #[must_use]
-    pub fn from_parts(start: usize, len: usize) -> Self {
-        let start_u32 = u32::try_from(start).unwrap_or(u32::MAX);
-        let length_u32 = u32::try_from(len).unwrap_or(u32::MAX.saturating_sub(start_u32));
-        Span::new(start_u32, length_u32)
+    pub fn expand(self, opening: u32, closing: u32) -> Self {
+        let start_expand = self.start.saturating_sub(opening);
+        let length_expand = opening + self.length + closing;
+        Self::new(start_expand, length_expand)
     }
 
     #[must_use]

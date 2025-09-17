@@ -31,8 +31,8 @@ impl<'db> Lexer<'db> {
 
             let token =
                 match self.peek() {
-                    '{' => {
-                        let remaining = &self.source[self.current..];
+                    TagDelimiter::CHAR_OPEN => {
+                        let remaining = self.remaining_source();
 
                         match TagDelimiter::from_input(remaining) {
                             Some(TagDelimiter::Block) => self
@@ -68,6 +68,7 @@ impl<'db> Lexer<'db> {
         token_fn: impl FnOnce(TokenContent<'db>, Span) -> Token<'db>,
     ) -> Token<'db> {
         let content_start = self.start + TagDelimiter::LENGTH;
+
         self.consume_n(TagDelimiter::LENGTH);
 
         match self.consume_until(delimiter.closer()) {
@@ -116,10 +117,11 @@ impl<'db> Lexer<'db> {
         let text_start = self.current;
 
         while !self.is_at_end() {
-            let slice = &self.source[self.current..];
-            if (self.peek() == '{' && TagDelimiter::from_input(slice).is_some())
-                || slice.starts_with('\n')
-                || slice.starts_with('\r')
+            let remaining = self.remaining_source();
+            if (self.peek() == TagDelimiter::CHAR_OPEN
+                && TagDelimiter::from_input(remaining).is_some())
+                || remaining.starts_with('\n')
+                || remaining.starts_with('\r')
             {
                 break;
             }
@@ -134,7 +136,12 @@ impl<'db> Lexer<'db> {
 
     #[inline]
     fn peek(&self) -> char {
-        self.source[self.current..].chars().next().unwrap_or('\0')
+        self.remaining_source().chars().next().unwrap_or('\0')
+    }
+
+    #[inline]
+    fn remaining_source(&self) -> &str {
+        &self.source[self.current..]
     }
 
     #[inline]
@@ -144,7 +151,7 @@ impl<'db> Lexer<'db> {
 
     #[inline]
     fn consume(&mut self) {
-        if let Some(ch) = self.source[self.current..].chars().next() {
+        if let Some(ch) = self.remaining_source().chars().next() {
             self.current += ch.len_utf8();
         }
     }
@@ -160,18 +167,17 @@ impl<'db> Lexer<'db> {
         let mut fallback: Option<usize> = None;
 
         while self.current < self.source.len() {
-            let slice = &self.source[self.current..];
-            if slice.starts_with(delimiter) {
+            let remaining = self.remaining_source();
+
+            if remaining.starts_with(delimiter) {
                 return Ok(self.source[offset..self.current].to_string());
             }
 
-            if fallback.is_none() && TagDelimiter::from_input(slice).is_some() {
-                fallback = Some(self.current);
-            }
-
-            let ch = self.peek();
-            if fallback.is_none() && matches!(ch, '\n' | '\r') {
-                fallback = Some(self.current);
+            if fallback.is_none() {
+                let ch = self.peek();
+                if TagDelimiter::from_input(remaining).is_some() || matches!(ch, '\n' | '\r') {
+                    fallback = Some(self.current);
+                }
             }
 
             self.consume();

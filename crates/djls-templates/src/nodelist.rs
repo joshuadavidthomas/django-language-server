@@ -64,19 +64,11 @@ impl<'db> Node<'db> {
         match self {
             Node::Tag { name, span, .. } => {
                 // Just the tag name (e.g., "if" in "{% if user.is_authenticated %}")
-                let name_len = name.text(db).len();
-                Some(Span {
-                    start: span.start,
-                    length: u32::try_from(name_len).unwrap_or(0),
-                })
+                Some(span.with_length_usize(name.text(db).len()))
             }
             Node::Variable { var, span, .. } => {
                 // Just the variable name (e.g., "user" in "{{ user.name|title }}")
-                let var_len = var.text(db).len();
-                Some(Span {
-                    start: span.start,
-                    length: u32::try_from(var_len).unwrap_or(0),
-                })
+                Some(span.with_length_usize(var.text(db).len()))
             }
             Node::Comment { .. } | Node::Text { .. } | Node::Error { .. } => None,
         }
