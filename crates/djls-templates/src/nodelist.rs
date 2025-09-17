@@ -2,8 +2,7 @@ use djls_source::Span;
 
 use crate::db::Db as TemplateDb;
 use crate::parser::ParseError;
-
-const DJANGO_DELIM_LEN: u32 = 2;
+use crate::tokens::DJANGO_TAG_LEN;
 
 #[salsa::tracked(debug)]
 pub struct NodeList<'db> {
@@ -52,7 +51,7 @@ impl<'db> Node<'db> {
     pub fn full_span(&self) -> Span {
         match self {
             Node::Variable { span, .. } | Node::Comment { span, .. } | Node::Tag { span, .. } => {
-                expand_with_delimiters(*span, DJANGO_DELIM_LEN, DJANGO_DELIM_LEN)
+                span.expand(DJANGO_TAG_LEN, DJANGO_TAG_LEN)
             }
             Node::Text { span, .. } => *span,
             Node::Error { node } => node.full_span,
@@ -79,14 +78,6 @@ impl<'db> Node<'db> {
             }
             Node::Comment { .. } | Node::Text { .. } | Node::Error { .. } => None,
         }
-    }
-}
-
-fn expand_with_delimiters(span: Span, opening: u32, closing: u32) -> Span {
-    let start = span.start.saturating_sub(opening);
-    Span {
-        start,
-        length: opening + span.length + closing,
     }
 }
 

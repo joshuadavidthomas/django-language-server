@@ -3,13 +3,13 @@ use djls_source::Span;
 use crate::db::Db as TemplateDb;
 use crate::tokens::Token;
 use crate::tokens::TokenContent;
-
-const BLOCK_TAG_START: &str = "{%";
-const BLOCK_TAG_END: &str = "%}";
-const VARIABLE_TAG_START: &str = "{{";
-const VARIABLE_TAG_END: &str = "}}";
-const COMMENT_TAG_START: &str = "{#";
-const COMMENT_TAG_END: &str = "#}";
+use crate::tokens::BLOCK_TAG_END;
+use crate::tokens::BLOCK_TAG_START;
+use crate::tokens::COMMENT_TAG_END;
+use crate::tokens::COMMENT_TAG_START;
+use crate::tokens::DJANGO_TAG_LEN;
+use crate::tokens::VARIABLE_TAG_END;
+use crate::tokens::VARIABLE_TAG_START;
 
 pub struct Lexer<'db> {
     db: &'db dyn TemplateDb,
@@ -35,23 +35,24 @@ impl<'db> Lexer<'db> {
         while !self.is_at_end() {
             self.start = self.current;
 
-            let token = match self.peek() {
-                '{' => match self.peek_next() {
-                    '%' => self.lex_django_construct(BLOCK_TAG_END, |content, span| Token::Block {
-                        content,
-                        span,
-                    }),
-                    '{' => self.lex_django_construct(VARIABLE_TAG_END, |content, span| {
-                        Token::Variable { content, span }
-                    }),
-                    '#' => self.lex_django_construct(COMMENT_TAG_END, |content, span| {
-                        Token::Comment { content, span }
-                    }),
+            let token =
+                match self.peek() {
+                    '{' => match self.peek_next() {
+                        '%' => self.lex_django_tag(BLOCK_TAG_END, |content, span| Token::Block {
+                            content,
+                            span,
+                        }),
+                        '{' => self.lex_django_tag(VARIABLE_TAG_END, |content, span| {
+                            Token::Variable { content, span }
+                        }),
+                        '#' => self.lex_django_tag(COMMENT_TAG_END, |content, span| {
+                            Token::Comment { content, span }
+                        }),
+                        _ => self.lex_text(),
+                    },
+                    c if c.is_whitespace() => self.lex_whitespace(c),
                     _ => self.lex_text(),
-                },
-                c if c.is_whitespace() => self.lex_whitespace(c),
-                _ => self.lex_text(),
-            };
+                };
 
             tokens.push(token);
         }
@@ -61,28 +62,30 @@ impl<'db> Lexer<'db> {
         tokens
     }
 
-    fn lex_django_construct(
+    fn lex_django_tag(
         &mut self,
         end: &str,
         token_fn: impl FnOnce(TokenContent<'db>, Span) -> Token<'db>,
     ) -> Token<'db> {
-        let opening_len = 2;
-        let content_start = self.start + opening_len;
-
-        self.consume_n(opening_len);
+        let content_start = self.start + DJANGO_TAG_LEN as usize;
+        self.consume_n(DJANGO_TAG_LEN as usize);
 
         match self.consume_until(end) {
             Ok(text) => {
+                let len = text.len();
                 let content = TokenContent::new(self.db, text);
-                let content_end = self.current;
-                let span = Span::from_bounds(content_start, content_end);
+                let span = Span::from_parts(content_start, len);
                 self.consume_n(end.len());
                 token_fn(content, span)
             }
             Err(err_text) => {
-                let content_end = self.current;
-                let span = Span::from_bounds(content_start, content_end);
+                let len = err_text.len();
                 let content = TokenContent::new(self.db, err_text);
+                let span = if len == 0 {
+                    Span::from_bounds(content_start, self.current)
+                } else {
+                    Span::from_parts(content_start, len)
+                };
                 Token::Error { content, span }
             }
         }
@@ -134,6 +137,7 @@ impl<'db> Lexer<'db> {
         self.source[self.current..].chars().next().unwrap_or('\0')
     }
 
+    #[inline]
     fn peek_next(&self) -> char {
         let mut chars = self.source[self.current..].chars();
         chars.next(); // Skip current
@@ -183,9 +187,187 @@ impl<'db> Lexer<'db> {
             self.consume();
         }
 
-        let end = fallback.unwrap_or(self.current);
-        let text = self.source[offset..end].to_string();
-        self.current = end;
-        Err(text)
+        self.current = fallback.unwrap_or(self.current);
+        Err(self.source[offset..self.current].to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use camino::Utf8Path;
+
+    use super::*;
+    use crate::tokens::TokenSnapshotVec;
+
+    #[salsa::db]
+    #[derive(Clone)]
+    struct TestDatabase {
+        storage: salsa::Storage<Self>,
+    }
+
+    impl TestDatabase {
+        fn new() -> Self {
+            Self {
+                storage: salsa::Storage::default(),
+            }
+        }
+    }
+
+    #[salsa::db]
+    impl salsa::Database for TestDatabase {}
+
+    #[salsa::db]
+    impl djls_source::Db for TestDatabase {
+        fn read_file_source(&self, path: &Utf8Path) -> Result<String, std::io::Error> {
+            std::fs::read_to_string(path)
+        }
+    }
+
+    #[salsa::db]
+    impl crate::db::Db for TestDatabase {
+        // Template parsing only - semantic analysis moved to djls-semantic
+    }
+
+    #[test]
+    fn test_tokenize_html() {
+        let db = TestDatabase::new();
+        let source = r#"<div class="container" id="main" disabled></div>"#;
+        let mut lexer = Lexer::new(&db, source);
+        let tokens = lexer.tokenize();
+        let snapshot = TokenSnapshotVec(tokens).to_snapshot(&db);
+        insta::assert_yaml_snapshot!(snapshot);
+    }
+
+    #[test]
+    fn test_tokenize_django_variable() {
+        let db = TestDatabase::new();
+        let source = "{{ user.name|default:\"Anonymous\"|title }}";
+        let mut lexer = Lexer::new(&db, source);
+        let tokens = lexer.tokenize();
+        let snapshot = TokenSnapshotVec(tokens).to_snapshot(&db);
+        insta::assert_yaml_snapshot!(snapshot);
+    }
+
+    #[test]
+    fn test_tokenize_django_block() {
+        let db = TestDatabase::new();
+        let source = "{% if user.is_staff %}Admin{% else %}User{% endif %}";
+        let mut lexer = Lexer::new(&db, source);
+        let tokens = lexer.tokenize();
+        let snapshot = TokenSnapshotVec(tokens).to_snapshot(&db);
+        insta::assert_yaml_snapshot!(snapshot);
+    }
+
+    #[test]
+    fn test_tokenize_comments() {
+        let db = TestDatabase::new();
+        let source = r"<!-- HTML comment -->
+{# Django comment #}
+<script>
+    // JS single line comment
+    /* JS multi-line
+       comment */
+</script>
+<style>
+    /* CSS comment */
+</style>";
+        let mut lexer = Lexer::new(&db, source);
+        let tokens = lexer.tokenize();
+        let snapshot = TokenSnapshotVec(tokens).to_snapshot(&db);
+        insta::assert_yaml_snapshot!(snapshot);
+    }
+
+    #[test]
+    fn test_tokenize_script() {
+        let db = TestDatabase::new();
+        let source = r#"<script type="text/javascript">
+    // Single line comment
+    const x = 1;
+    /* Multi-line
+       comment */
+    console.log(x);
+</script>"#;
+        let mut lexer = Lexer::new(&db, source);
+        let tokens = lexer.tokenize();
+        let snapshot = TokenSnapshotVec(tokens).to_snapshot(&db);
+        insta::assert_yaml_snapshot!(snapshot);
+    }
+
+    #[test]
+    fn test_tokenize_style() {
+        let db = TestDatabase::new();
+        let source = r#"<style type="text/css">
+    /* Header styles */
+    .header {
+        color: blue;
+    }
+</style>"#;
+        let mut lexer = Lexer::new(&db, source);
+        let tokens = lexer.tokenize();
+        let snapshot = TokenSnapshotVec(tokens).to_snapshot(&db);
+        insta::assert_yaml_snapshot!(snapshot);
+    }
+
+    #[test]
+    fn test_tokenize_nested_delimiters() {
+        let db = TestDatabase::new();
+        let source = r"{{ user.name }}
+{% if true %}
+{# comment #}
+<!-- html comment -->
+<div>text</div>";
+        let mut lexer = Lexer::new(&db, source);
+        let tokens = lexer.tokenize();
+        let snapshot = TokenSnapshotVec(tokens).to_snapshot(&db);
+        insta::assert_yaml_snapshot!(snapshot);
+    }
+
+    #[test]
+    fn test_tokenize_everything() {
+        let db = TestDatabase::new();
+        let source = r#"<!DOCTYPE html>
+<html>
+<head>
+    <style type="text/css">
+        /* Style header */
+        .header { color: blue; }
+    </style>
+    <script type="text/javascript">
+        // Init app
+        const app = {
+            /* Config */
+            debug: true
+        };
+    </script>
+</head>
+<body>
+    <!-- Header section -->
+    <div class="header" id="main" data-value="123" disabled>
+        {% if user.is_authenticated %}
+            {# Welcome message #}
+            <h1>Welcome, {{ user.name|default:"Guest"|title }}!</h1>
+            {% if user.is_staff %}
+                <span>Admin</span>
+            {% else %}
+                <span>User</span>
+            {% endif %}
+        {% endif %}
+    </div>
+</body>
+</html>"#;
+        let mut lexer = Lexer::new(&db, source);
+        let tokens = lexer.tokenize();
+        let snapshot = TokenSnapshotVec(tokens).to_snapshot(&db);
+        insta::assert_yaml_snapshot!(snapshot);
+    }
+
+    #[test]
+    fn test_tokenize_unclosed_style() {
+        let db = TestDatabase::new();
+        let source = "<style>body { color: blue; ";
+        let mut lexer = Lexer::new(&db, source);
+        let tokens = lexer.tokenize();
+        let snapshot = TokenSnapshotVec(tokens).to_snapshot(&db);
+        insta::assert_yaml_snapshot!(snapshot);
     }
 }

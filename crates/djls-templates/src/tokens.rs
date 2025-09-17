@@ -2,7 +2,14 @@ use djls_source::Span;
 
 use crate::db::Db as TemplateDb;
 
-const DJANGO_DELIM_LEN: u32 = 2;
+pub const BLOCK_TAG_START: &str = "{%";
+pub const BLOCK_TAG_END: &str = "%}";
+pub const VARIABLE_TAG_START: &str = "{{";
+pub const VARIABLE_TAG_END: &str = "}}";
+pub const COMMENT_TAG_START: &str = "{#";
+pub const COMMENT_TAG_END: &str = "#}";
+
+pub const DJANGO_TAG_LEN: u32 = 2;
 
 #[derive(Clone, Debug, PartialEq, Hash, salsa::Update)]
 pub enum Token<'db> {
@@ -42,6 +49,11 @@ pub struct TokenContent<'db> {
 }
 
 impl<'db> Token<'db> {
+    pub fn to_span(&self, db: &dyn TemplateDb) -> Span {
+        self.content_span()
+            .unwrap_or_else(|| Span::new(self.offset().unwrap_or(0), self.length(db)))
+    }
+
     /// Get the content text for content-bearing tokens
     pub fn content(&self, db: &'db dyn TemplateDb) -> String {
         match self {
@@ -86,7 +98,7 @@ impl<'db> Token<'db> {
             Token::Block { span, .. }
             | Token::Comment { span, .. }
             | Token::Error { span, .. }
-            | Token::Variable { span, .. } => Some(span.start.saturating_sub(DJANGO_DELIM_LEN)),
+            | Token::Variable { span, .. } => Some(span.start.saturating_sub(DJANGO_TAG_LEN)),
             Token::Text { span, .. }
             | Token::Whitespace { span, .. }
             | Token::Newline { span, .. } => Some(span.start),
@@ -112,12 +124,8 @@ impl<'db> Token<'db> {
         match self {
             Token::Block { span, .. }
             | Token::Comment { span, .. }
-            | Token::Variable { span, .. } => Some(expand_with_delimiters(
-                *span,
-                DJANGO_DELIM_LEN,
-                DJANGO_DELIM_LEN,
-            )),
-            Token::Error { span, .. } => Some(expand_with_delimiters(*span, DJANGO_DELIM_LEN, 0)),
+            | Token::Variable { span, .. } => Some(span.expand(DJANGO_TAG_LEN, DJANGO_TAG_LEN)),
+            Token::Error { span, .. } => Some(span.expand(DJANGO_TAG_LEN, 0)),
             Token::Newline { span, .. }
             | Token::Text { span, .. }
             | Token::Whitespace { span, .. } => Some(*span),
@@ -136,14 +144,6 @@ impl<'db> Token<'db> {
             | Token::Newline { span, .. } => Some(*span),
             Token::Eof => None,
         }
-    }
-}
-
-fn expand_with_delimiters(span: Span, opening: u32, closing: u32) -> Span {
-    let start = span.start.saturating_sub(opening);
-    Span {
-        start,
-        length: opening + span.length + closing,
     }
 }
 
@@ -187,39 +187,38 @@ pub enum TokenSnapshot {
 #[cfg(test)]
 impl<'db> Token<'db> {
     pub fn to_snapshot(&self, db: &'db dyn TemplateDb) -> TokenSnapshot {
-        let span_tuple = |span: Span| (span.start, span.length);
         match self {
             Token::Block { span, .. } => TokenSnapshot::Block {
                 content: self.content(db),
-                span: span_tuple(*span),
-                full_span: span_tuple(self.full_span().unwrap()),
+                span: span.as_tuple(),
+                full_span: self.full_span().unwrap().as_tuple(),
             },
             Token::Comment { span, .. } => TokenSnapshot::Comment {
                 content: self.content(db),
-                span: span_tuple(*span),
-                full_span: span_tuple(self.full_span().unwrap()),
+                span: span.as_tuple(),
+                full_span: self.full_span().unwrap().as_tuple(),
             },
             Token::Eof => TokenSnapshot::Eof,
             Token::Error { span, .. } => TokenSnapshot::Error {
                 content: self.content(db),
-                span: span_tuple(*span),
-                full_span: span_tuple(self.full_span().unwrap()),
+                span: span.as_tuple(),
+                full_span: self.full_span().unwrap().as_tuple(),
             },
             Token::Newline { span } => TokenSnapshot::Newline {
-                span: span_tuple(*span),
+                span: span.as_tuple(),
             },
             Token::Text { span, .. } => TokenSnapshot::Text {
                 content: self.content(db),
-                span: span_tuple(*span),
-                full_span: span_tuple(*span),
+                span: span.as_tuple(),
+                full_span: span.as_tuple(),
             },
             Token::Variable { span, .. } => TokenSnapshot::Variable {
                 content: self.content(db),
-                span: span_tuple(*span),
-                full_span: span_tuple(self.full_span().unwrap()),
+                span: span.as_tuple(),
+                full_span: self.full_span().unwrap().as_tuple(),
             },
             Token::Whitespace { span } => TokenSnapshot::Whitespace {
-                span: span_tuple(*span),
+                span: span.as_tuple(),
             },
         }
     }
@@ -252,10 +251,4 @@ impl<'db> TokenStream<'db> {
     pub fn len(self, db: &'db dyn TemplateDb) -> usize {
         self.stream(db).len()
     }
-}
-
-pub fn span_from_token(token: &Token<'_>, db: &dyn TemplateDb) -> Span {
-    token
-        .content_span()
-        .unwrap_or_else(|| Span::new(token.offset().unwrap_or(0), token.length(db)))
 }
