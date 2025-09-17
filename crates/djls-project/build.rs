@@ -2,7 +2,20 @@ use std::env;
 use std::path::PathBuf;
 use std::process::Command;
 
-fn get_python_executable_path() -> PathBuf {
+fn main() {
+    println!("cargo:rerun-if-changed=build.rs");
+
+    let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
+    let manifest_path = PathBuf::from(manifest_dir);
+    let inspector_dir = manifest_path.join("inspector");
+    let dist_dir = manifest_path.join("dist");
+    let pyz_path = dist_dir.join("djls_inspector.pyz");
+
+    println!("cargo:rerun-if-changed={}", inspector_dir.display());
+
+    std::fs::create_dir_all(&dist_dir)
+        .expect("Failed to create inspector/dist directory for Python zipapp");
+
     let python = which::which("python3")
         .or_else(|_| which::which("python"))
         .expect("Python not found. Please install Python to build this project.");
@@ -10,28 +23,16 @@ fn get_python_executable_path() -> PathBuf {
         "cargo:warning=Building Python inspector with: {}",
         python.display()
     );
-    python
-}
-
-fn main() {
-    println!("cargo:rerun-if-changed=../../python/src/djls_inspector");
-    println!("cargo:rerun-if-changed=../../python/build.py");
-
-    let workspace_dir = env::var("CARGO_WORKSPACE_DIR").expect("CARGO_WORKSPACE_DIR not set");
-    let workspace_path = PathBuf::from(workspace_dir);
-    let python_dir = workspace_path.join("python");
-    let dist_dir = python_dir.join("dist");
-    let pyz_path = dist_dir.join("djls_inspector.pyz");
-
-    std::fs::create_dir_all(&dist_dir).expect("Failed to create python/dist directory");
-
-    let python = get_python_executable_path();
 
     let output = Command::new(&python)
-        .arg("build.py")
-        .current_dir(&python_dir)
+        .arg("-m")
+        .arg("zipapp")
+        .arg(&inspector_dir)
+        .arg("-o")
+        .arg(&pyz_path)
+        .arg("-c")
         .output()
-        .expect("Failed to run Python build script");
+        .expect("Failed to run Python zipapp builder");
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);

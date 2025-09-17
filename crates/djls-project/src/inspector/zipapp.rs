@@ -6,8 +6,8 @@ use camino::Utf8Path;
 use tempfile::NamedTempFile;
 
 const INSPECTOR_PYZ: &[u8] = include_bytes!(concat!(
-    env!("CARGO_WORKSPACE_DIR"),
-    "/python/dist/djls_inspector.pyz"
+    env!("CARGO_MANIFEST_DIR"),
+    "/dist/djls_inspector.pyz"
 ));
 
 pub struct InspectorFile(NamedTempFile);
