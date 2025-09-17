@@ -77,7 +77,7 @@ impl Session {
             settings,
             workspace,
             client_capabilities: params.capabilities.clone(),
-            position_encoding: PositionEncoding::negotiate(params),
+            position_encoding: djls_workspace::negotiate_position_encoding(params),
             db,
         }
     }

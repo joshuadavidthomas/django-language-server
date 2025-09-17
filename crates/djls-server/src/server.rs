@@ -157,7 +157,7 @@ impl LanguageServer for DjangoLanguageServer {
                         save: Some(lsp_types::SaveOptions::default().into()),
                     },
                 )),
-                position_encoding: Some(lsp_types::PositionEncodingKind::from(encoding)),
+                position_encoding: Some(djls_workspace::position_encoding_to_lsp(encoding)),
                 diagnostic_provider: Some(lsp_types::DiagnosticServerCapabilities::Options(
                     lsp_types::DiagnosticOptions {
                         identifier: None,
@@ -172,7 +172,11 @@ impl LanguageServer for DjangoLanguageServer {
                 name: SERVER_NAME.to_string(),
                 version: Some(SERVER_VERSION.to_string()),
             }),
-            offset_encoding: Some(encoding.to_string()),
+            offset_encoding: Some(match encoding {
+                djls_workspace::PositionEncoding::Utf8 => "utf-8".to_string(),
+                djls_workspace::PositionEncoding::Utf16 => "utf-16".to_string(),
+                djls_workspace::PositionEncoding::Utf32 => "utf-32".to_string(),
+            }),
         })
     }
 

@@ -23,8 +23,11 @@ mod workspace;
 
 pub use buffers::Buffers;
 pub use db::Db;
+pub use djls_source::PositionEncoding;
 pub use document::TextDocument;
-pub use encoding::PositionEncoding;
+pub use encoding::negotiate_position_encoding;
+pub use encoding::position_encoding_from_lsp;
+pub use encoding::position_encoding_to_lsp;
 pub use fs::FileSystem;
 pub use fs::InMemoryFileSystem;
 pub use fs::OsFileSystem;

@@ -6,10 +6,10 @@
 //! and diagnostics.
 
 use djls_source::LineIndex;
+use djls_source::PositionEncoding;
 use tower_lsp_server::lsp_types::Position;
 use tower_lsp_server::lsp_types::Range;
 
-use crate::encoding::PositionEncoding;
 use crate::language::LanguageId;
 
 /// In-memory representation of an open document in the LSP.
@@ -139,79 +139,17 @@ impl TextDocument {
 
     /// Calculate byte offset from an LSP position using the given line index and text.
     ///
-    /// This handles the encoding-aware conversion from LSP positions (line/character)
-    /// to byte offsets, supporting UTF-8, UTF-16, and UTF-32 encodings.
+    /// This delegates to the encoding-aware conversion in `djls_source`.
     fn calculate_offset(
         line_index: &LineIndex,
         position: Position,
         text: &str,
         encoding: PositionEncoding,
     ) -> Option<u32> {
-        // Handle line bounds - if line > line_count, return document length
-        let line_start_utf8 = match line_index.lines().get(position.line as usize) {
-            Some(start) => *start,
-            None => return Some(u32::try_from(text.len()).unwrap_or(u32::MAX)), // Past end of document
-        };
-
-        if position.character == 0 {
-            return Some(line_start_utf8);
-        }
-
-        let next_line_start = line_index
-            .lines()
-            .get(position.line as usize + 1)
-            .copied()
-            .unwrap_or_else(|| u32::try_from(text.len()).unwrap_or(u32::MAX));
-
-        let line_text = text.get(line_start_utf8 as usize..next_line_start as usize)?;
-
-        // Fast path optimization for ASCII text, all encodings are equivalent to byte offsets
-        if line_text.is_ascii() {
-            let char_offset = position
-                .character
-                .min(u32::try_from(line_text.len()).unwrap_or(u32::MAX));
-            return Some(line_start_utf8 + char_offset);
-        }
-
-        match encoding {
-            PositionEncoding::Utf8 => {
-                // UTF-8: character positions are already byte offsets
-                let char_offset = position
-                    .character
-                    .min(u32::try_from(line_text.len()).unwrap_or(u32::MAX));
-                Some(line_start_utf8 + char_offset)
-            }
-            PositionEncoding::Utf16 => {
-                // UTF-16: count UTF-16 code units
-                let mut utf16_pos = 0;
-                let mut utf8_pos = 0;
-
-                for c in line_text.chars() {
-                    if utf16_pos >= position.character {
-                        break;
-                    }
-                    utf16_pos += u32::try_from(c.len_utf16()).unwrap_or(0);
-                    utf8_pos += u32::try_from(c.len_utf8()).unwrap_or(0);
-                }
-
-                // If character position exceeds line length, clamp to line end
-                Some(line_start_utf8 + utf8_pos)
-            }
-            PositionEncoding::Utf32 => {
-                // UTF-32: count Unicode code points (characters)
-                let mut utf8_pos = 0;
-
-                for (char_count, c) in line_text.chars().enumerate() {
-                    if char_count >= position.character as usize {
-                        break;
-                    }
-                    utf8_pos += u32::try_from(c.len_utf8()).unwrap_or(0);
-                }
-
-                // If character position exceeds line length, clamp to line end
-                Some(line_start_utf8 + utf8_pos)
-            }
-        }
+        let line_col = djls_source::LineCol((position.line, position.character));
+        line_index
+            .line_col_to_offset(line_col, text, encoding)
+            .map(|djls_source::ByteOffset(offset)| offset)
     }
 }
 
