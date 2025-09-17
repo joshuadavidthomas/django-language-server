@@ -60,10 +60,10 @@ impl PositionEncoding {
     /// // UTF-16: "Hello " (6) + "🌍" (2 UTF-16 units) = position 8
     /// let offset = PositionEncoding::Utf16.line_col_to_offset(
     ///     &index,
-    ///     LineCol((0, 8)),
+    ///     LineCol::new(0, 8),
     ///     text
     /// );
-    /// assert_eq!(offset, Some(ByteOffset(10))); // "Hello 🌍" is 10 bytes
+    /// assert_eq!(offset, Some(ByteOffset::new(10))); // "Hello 🌍" is 10 bytes
     /// ```
     #[must_use]
     pub fn line_col_to_offset(

@@ -23,22 +23,25 @@ impl ByteOffset {
 
 /// A line and column position within a text document.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct LineCol((u32, u32));
+pub struct LineCol {
+    line: u32,
+    column: u32,
+}
 
 impl LineCol {
     #[must_use]
     pub fn new(line: u32, column: u32) -> Self {
-        Self((line, column))
+        Self { line, column }
     }
 
     #[must_use]
     pub fn line(&self) -> u32 {
-        self.0 .0
+        self.line
     }
 
     #[must_use]
     pub fn column(&self) -> u32 {
-        self.0 .1
+        self.column
     }
 }
 
@@ -168,7 +171,7 @@ impl LineIndex {
     #[must_use]
     pub fn to_line_col(&self, offset: ByteOffset) -> LineCol {
         if self.0.is_empty() {
-            return LineCol((0, 0));
+            return LineCol::new(0, 0);
         }
 
         let line = match self.0.binary_search(&offset.0) {
@@ -180,7 +183,7 @@ impl LineIndex {
         let line_start = self.0[line];
         let column = offset.0.saturating_sub(line_start);
 
-        LineCol((u32::try_from(line).unwrap_or_default(), column))
+        LineCol::new(u32::try_from(line).unwrap_or_default(), column)
     }
 
     #[must_use]
@@ -237,8 +240,8 @@ mod tests {
         let index = LineIndex::from_text(text);
 
         // "hello" is 5 bytes, then \r\n, so "world" starts at byte 7
-        assert_eq!(index.to_line_col(ByteOffset(0)), LineCol((0, 0)));
-        assert_eq!(index.to_line_col(ByteOffset(7)), LineCol((1, 0)));
-        assert_eq!(index.to_line_col(ByteOffset(8)), LineCol((1, 1)));
+        assert_eq!(index.to_line_col(ByteOffset(0)), LineCol::new(0, 0));
+        assert_eq!(index.to_line_col(ByteOffset(7)), LineCol::new(1, 0));
+        assert_eq!(index.to_line_col(ByteOffset(8)), LineCol::new(1, 1));
     }
 }
