@@ -120,7 +120,6 @@ impl LineIndex {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::PositionEncoding;
 
     #[test]
     fn test_line_index_unix_endings() {
@@ -164,45 +163,5 @@ mod tests {
         assert_eq!(index.to_line_col(ByteOffset(0)), LineCol((0, 0)));
         assert_eq!(index.to_line_col(ByteOffset(7)), LineCol((1, 0)));
         assert_eq!(index.to_line_col(ByteOffset(8)), LineCol((1, 1)));
-    }
-
-    #[test]
-    fn test_line_col_to_offset_utf16() {
-        let text = "Hello 🌍 world";
-        let index = LineIndex::from_text(text);
-
-        // "Hello " = 6 UTF-16 units, "🌍" = 2 UTF-16 units
-        // So position (0, 8) in UTF-16 should be after the emoji
-        let offset = index
-            .line_col_to_offset(LineCol((0, 8)), text, PositionEncoding::Utf16)
-            .expect("Should get offset");
-        assert_eq!(offset, ByteOffset(10)); // "Hello 🌍" is 10 bytes
-
-        // In UTF-8, character 10 would be at the 'r' in 'world'
-        let offset_utf8 = index
-            .line_col_to_offset(LineCol((0, 10)), text, PositionEncoding::Utf8)
-            .expect("Should get offset");
-        assert_eq!(offset_utf8, ByteOffset(10));
-    }
-
-    #[test]
-    fn test_line_col_to_offset_ascii_fast_path() {
-        let text = "Hello world";
-        let index = LineIndex::from_text(text);
-
-        // For ASCII text, all encodings should give the same result
-        let offset_utf8 = index
-            .line_col_to_offset(LineCol((0, 5)), text, PositionEncoding::Utf8)
-            .expect("Should get offset");
-        let offset_utf16 = index
-            .line_col_to_offset(LineCol((0, 5)), text, PositionEncoding::Utf16)
-            .expect("Should get offset");
-        let offset_utf32 = index
-            .line_col_to_offset(LineCol((0, 5)), text, PositionEncoding::Utf32)
-            .expect("Should get offset");
-
-        assert_eq!(offset_utf8, ByteOffset(5));
-        assert_eq!(offset_utf16, ByteOffset(5));
-        assert_eq!(offset_utf32, ByteOffset(5));
     }
 }

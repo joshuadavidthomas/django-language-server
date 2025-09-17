@@ -147,8 +147,8 @@ impl TextDocument {
         encoding: PositionEncoding,
     ) -> Option<u32> {
         let line_col = djls_source::LineCol((position.line, position.character));
-        line_index
-            .line_col_to_offset(line_col, text, encoding)
+        encoding
+            .line_col_to_offset(line_index, line_col, text)
             .map(|djls_source::ByteOffset(offset)| offset)
     }
 }

@@ -1,19 +1,7 @@
 use std::fmt;
 
-/// Protocol-specific text position handling.
-///
-/// This module provides types and functions for converting between different
-/// text position representations used by various protocols and editors.
 use crate::position::ByteOffset;
-/// Protocol-specific text position handling.
-///
-/// This module provides types and functions for converting between different
-/// text position representations used by various protocols and editors.
 use crate::position::LineCol;
-/// Protocol-specific text position handling.
-///
-/// This module provides types and functions for converting between different
-/// text position representations used by various protocols and editors.
 use crate::position::LineIndex;
 
 /// Specifies how column positions are counted in text.
@@ -50,10 +38,10 @@ impl fmt::Display for PositionEncoding {
     }
 }
 
-impl LineIndex {
+impl PositionEncoding {
     /// Convert a line/column position to a byte offset with encoding awareness.
     ///
-    /// The `encoding` parameter specifies how the column value should be interpreted:
+    /// The encoding specifies how the column value should be interpreted:
     /// - `PositionEncoding::Utf8`: column is a byte offset from line start
     /// - `PositionEncoding::Utf16`: column counts UTF-16 code units
     /// - `PositionEncoding::Utf32`: column counts Unicode codepoints
@@ -70,25 +58,25 @@ impl LineIndex {
     /// let index = LineIndex::from_text(text);
     ///
     /// // UTF-16: "Hello " (6) + "🌍" (2 UTF-16 units) = position 8
-    /// let offset = index.line_col_to_offset(
+    /// let offset = PositionEncoding::Utf16.line_col_to_offset(
+    ///     &index,
     ///     LineCol((0, 8)),
-    ///     text,
-    ///     PositionEncoding::Utf16
+    ///     text
     /// );
     /// assert_eq!(offset, Some(ByteOffset(10))); // "Hello 🌍" is 10 bytes
     /// ```
     #[must_use]
     pub fn line_col_to_offset(
         &self,
+        index: &LineIndex,
         line_col: LineCol,
         text: &str,
-        encoding: PositionEncoding,
     ) -> Option<ByteOffset> {
         let line = line_col.line();
         let character = line_col.column();
 
         // Handle line bounds - if line > line_count, return document length
-        let line_start_utf8 = match self.lines().get(line as usize) {
+        let line_start_utf8 = match index.lines().get(line as usize) {
             Some(start) => *start,
             None => return Some(ByteOffset(u32::try_from(text.len()).unwrap_or(u32::MAX))),
         };
@@ -97,7 +85,7 @@ impl LineIndex {
             return Some(ByteOffset(line_start_utf8));
         }
 
-        let next_line_start = self
+        let next_line_start = index
             .lines()
             .get(line as usize + 1)
             .copied()
@@ -111,7 +99,7 @@ impl LineIndex {
             return Some(ByteOffset(line_start_utf8 + char_offset));
         }
 
-        match encoding {
+        match self {
             PositionEncoding::Utf8 => {
                 // UTF-8: character positions are already byte offsets
                 let char_offset = character.min(u32::try_from(line_text.len()).unwrap_or(u32::MAX));
@@ -156,29 +144,29 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_position_encoding_display() {
+        assert_eq!(PositionEncoding::Utf8.to_string(), "utf-8");
+        assert_eq!(PositionEncoding::Utf16.to_string(), "utf-16");
+        assert_eq!(PositionEncoding::Utf32.to_string(), "utf-32");
+    }
+
+    #[test]
     fn test_line_col_to_offset_utf16() {
         let text = "Hello 🌍 world";
         let index = LineIndex::from_text(text);
 
         // "Hello " = 6 UTF-16 units, "🌍" = 2 UTF-16 units
         // So position (0, 8) in UTF-16 should be after the emoji
-        let offset = index
-            .line_col_to_offset(LineCol((0, 8)), text, PositionEncoding::Utf16)
+        let offset = PositionEncoding::Utf16
+            .line_col_to_offset(&index, LineCol((0, 8)), text)
             .expect("Should get offset");
         assert_eq!(offset, ByteOffset(10)); // "Hello 🌍" is 10 bytes
 
         // In UTF-8, character 10 would be at the 'r' in 'world'
-        let offset_utf8 = index
-            .line_col_to_offset(LineCol((0, 10)), text, PositionEncoding::Utf8)
+        let offset_utf8 = PositionEncoding::Utf8
+            .line_col_to_offset(&index, LineCol((0, 10)), text)
             .expect("Should get offset");
         assert_eq!(offset_utf8, ByteOffset(10));
-    }
-
-    #[test]
-    fn test_position_encoding_display() {
-        assert_eq!(PositionEncoding::Utf8.to_string(), "utf-8");
-        assert_eq!(PositionEncoding::Utf16.to_string(), "utf-16");
-        assert_eq!(PositionEncoding::Utf32.to_string(), "utf-32");
     }
 
     #[test]
@@ -187,14 +175,14 @@ mod tests {
         let index = LineIndex::from_text(text);
 
         // For ASCII text, all encodings should give the same result
-        let offset_utf8 = index
-            .line_col_to_offset(LineCol((0, 5)), text, PositionEncoding::Utf8)
+        let offset_utf8 = PositionEncoding::Utf8
+            .line_col_to_offset(&index, LineCol((0, 5)), text)
             .expect("Should get offset");
-        let offset_utf16 = index
-            .line_col_to_offset(LineCol((0, 5)), text, PositionEncoding::Utf16)
+        let offset_utf16 = PositionEncoding::Utf16
+            .line_col_to_offset(&index, LineCol((0, 5)), text)
             .expect("Should get offset");
-        let offset_utf32 = index
-            .line_col_to_offset(LineCol((0, 5)), text, PositionEncoding::Utf32)
+        let offset_utf32 = PositionEncoding::Utf32
+            .line_col_to_offset(&index, LineCol((0, 5)), text)
             .expect("Should get offset");
 
         assert_eq!(offset_utf8, ByteOffset(5));
