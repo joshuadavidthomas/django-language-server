@@ -130,7 +130,7 @@ impl<'db> Parser<'db> {
                 let error_text = content.text(self.db).clone();
                 let full_span = token.full_span().unwrap_or(*span);
                 Err(ParseError::MalformedConstruct {
-                    position: full_span.start as usize,
+                    position: full_span.start_usize(),
                     content: error_text,
                 })
             }

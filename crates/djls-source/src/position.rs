@@ -41,7 +41,7 @@ impl Span {
 
     #[must_use]
     pub fn with_length_usize(self, length: usize) -> Self {
-        Self::from_parts(self.start as usize, length)
+        Self::from_parts(self.start_usize(), length)
     }
 
     /// Construct a span from integer bounds expressed as byte offsets.
@@ -60,6 +60,16 @@ impl Span {
     #[must_use]
     pub fn as_tuple(self) -> (u32, u32) {
         (self.start, self.length)
+    }
+
+    #[must_use]
+    pub fn start_usize(self) -> usize {
+        self.start as usize
+    }
+
+    #[must_use]
+    pub fn length_usize(self) -> usize {
+        self.length as usize
     }
 
     #[must_use]

@@ -86,7 +86,7 @@ impl<'db> Token<'db> {
             | Token::Error { content, .. }
             | Token::Text { content, .. }
             | Token::Variable { content, .. } => content.text(db).clone(),
-            Token::Whitespace { span, .. } => " ".repeat(span.length as usize),
+            Token::Whitespace { span, .. } => " ".repeat(span.length_usize()),
             Token::Newline { span, .. } => {
                 if span.length == 2 {
                     "\r\n".to_string()
@@ -120,7 +120,7 @@ impl<'db> Token<'db> {
                 TagDelimiter::Comment.closer()
             ),
             Token::Text { content, .. } | Token::Error { content, .. } => content.text(db).clone(),
-            Token::Whitespace { span, .. } => " ".repeat(span.length as usize),
+            Token::Whitespace { span, .. } => " ".repeat(span.length_usize()),
             Token::Newline { span, .. } => {
                 if span.length == 2 {
                     "\r\n".to_string()
@@ -155,7 +155,7 @@ impl<'db> Token<'db> {
             | Token::Error { content, .. }
             | Token::Text { content, .. }
             | Token::Variable { content, .. } => content.text(db).len(),
-            Token::Whitespace { span, .. } | Token::Newline { span, .. } => span.length as usize,
+            Token::Whitespace { span, .. } | Token::Newline { span, .. } => span.length_usize(),
             Token::Eof => 0,
         };
         u32::try_from(len).expect("Token length should fit in u32")
