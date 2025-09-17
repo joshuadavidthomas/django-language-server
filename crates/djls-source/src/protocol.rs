@@ -1,3 +1,5 @@
+use std::fmt;
+
 /// Protocol-specific text position handling.
 ///
 /// This module provides types and functions for converting between different
@@ -36,6 +38,16 @@ pub enum PositionEncoding {
     Utf16,
     /// Column positions count Unicode scalar values (codepoints)
     Utf32,
+}
+
+impl fmt::Display for PositionEncoding {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Utf8 => write!(f, "utf-8"),
+            Self::Utf16 => write!(f, "utf-16"),
+            Self::Utf32 => write!(f, "utf-32"),
+        }
+    }
 }
 
 impl LineIndex {
@@ -160,6 +172,13 @@ mod tests {
             .line_col_to_offset(LineCol((0, 10)), text, PositionEncoding::Utf8)
             .expect("Should get offset");
         assert_eq!(offset_utf8, ByteOffset(10));
+    }
+
+    #[test]
+    fn test_position_encoding_display() {
+        assert_eq!(PositionEncoding::Utf8.to_string(), "utf-8");
+        assert_eq!(PositionEncoding::Utf16.to_string(), "utf-16");
+        assert_eq!(PositionEncoding::Utf32.to_string(), "utf-32");
     }
 
     #[test]

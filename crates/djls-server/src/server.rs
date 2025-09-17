@@ -172,11 +172,7 @@ impl LanguageServer for DjangoLanguageServer {
                 name: SERVER_NAME.to_string(),
                 version: Some(SERVER_VERSION.to_string()),
             }),
-            offset_encoding: Some(match encoding {
-                djls_workspace::PositionEncoding::Utf8 => "utf-8".to_string(),
-                djls_workspace::PositionEncoding::Utf16 => "utf-16".to_string(),
-                djls_workspace::PositionEncoding::Utf32 => "utf-32".to_string(),
-            }),
+            offset_encoding: Some(encoding.to_string()),
         })
     }
 
