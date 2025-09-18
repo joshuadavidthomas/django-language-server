@@ -40,7 +40,7 @@ impl BlockTree {
         nodelist: djls_templates::NodeList,
         shapes: &super::shapes::TagShapes,
     ) -> Self {
-        use crate::blocks::SemanticModel;
+        use crate::blocks::traits::SemanticModel;
 
         use super::builder::BlockModelBuilder;
 

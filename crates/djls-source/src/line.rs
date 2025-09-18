@@ -11,6 +11,7 @@ pub enum LineEnding {
 
 impl LineEnding {
     #[inline]
+    #[allow(dead_code)]
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Lf => "\n",
@@ -27,14 +28,17 @@ impl LineEnding {
         }
     }
 
+    #[allow(dead_code)]
     pub const fn is_line_feed(self) -> bool {
         matches!(self, Self::Lf)
     }
 
+    #[allow(dead_code)]
     pub const fn is_carriage_return_line_feed(self) -> bool {
         matches!(self, Self::Crlf)
     }
 
+    #[allow(dead_code)]
     pub const fn is_carriage_return(self) -> bool {
         matches!(self, Self::Cr)
     }

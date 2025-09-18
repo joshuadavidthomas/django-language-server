@@ -2,7 +2,7 @@ use djls_source::Span;
 use djls_templates::{
     nodelist::{TagBit, TagName},
     tokens::TagDelimiter,
-    Node, NodeList,
+    Node,
 };
 
 use crate::Db;
@@ -18,12 +18,9 @@ use super::{
 /// These are the semantic facts we discover while analyzing the template.
 #[derive(Debug, Clone)]
 enum BlockSemantics {
-    /// Allocate a new block/region with optional parent
-    AllocBlock {
-        id: BlockId,
-        span: Span,
-        parent: Option<BlockId>,
-    },
+    /// Add a root block
+    AddRoot { id: BlockId },
+    
     /// Add a branch node (opener or segment) to a block
     AddBranchNode {
         target: BlockId, // Block to add the node to
@@ -44,12 +41,10 @@ enum BlockSemantics {
         label: String,
         span: Span,
     },
-    /// Add a block as a root
-    AddRoot { id: BlockId },
     /// Extend a block's span to include additional content
     ExtendSpan { id: BlockId, span: Span },
-    /// Set a block's span to specific bounds
-    SetSpan { id: BlockId, start: u32, end: u32 },
+    /// Finalize a block's span to end at a specific position
+    FinalizeSpanTo { id: BlockId, end: u32 },
 }
 
 /// Semantic model builder for Django template block structure.
@@ -59,8 +54,12 @@ pub struct BlockModelBuilder<'db> {
     db: &'db dyn Db,
     shapes: &'db TagShapes,
     stack: Vec<TreeFrame<'db>>,
+    
+    // Allocation metadata - indexed by BlockId value
+    block_allocations: Vec<(Span, Option<BlockId>)>,
+    
+    // Semantic operations to build the tree
     semantic_ops: Vec<BlockSemantics>,
-    next_id: u32,
 }
 
 impl<'db> BlockModelBuilder<'db> {
@@ -69,15 +68,15 @@ impl<'db> BlockModelBuilder<'db> {
             db,
             shapes,
             stack: Vec::new(),
+            block_allocations: Vec::new(),
             semantic_ops: Vec::new(),
-            next_id: 0,
         }
     }
 
-    /// Allocate a new BlockId without creating the block yet
-    fn alloc_block_id(&mut self) -> BlockId {
-        let id = BlockId::new(self.next_id);
-        self.next_id += 1;
+    /// Allocate a new BlockId and track its metadata for later creation
+    fn alloc_block_id(&mut self, span: Span, parent: Option<BlockId>) -> BlockId {
+        let id = BlockId::new(self.block_allocations.len() as u32);
+        self.block_allocations.push((span, parent));
         id
     }
 
@@ -102,49 +101,19 @@ impl<'db> BlockModelBuilder<'db> {
     fn apply_operations(self) -> BlockTree {
         let mut tree = BlockTree::new();
 
-        // Optimize with pre-sizing
-
-        // Count operations by type for pre-allocation
-        let mut block_count = 0;
-        let mut root_count = 0;
-        for op in &self.semantic_ops {
-            match op {
-                BlockSemantics::AllocBlock { .. } => block_count += 1,
-                BlockSemantics::AddRoot { .. } => root_count += 1,
-                _ => {}
-            }
-        }
-
-        // Pre-allocate capacity (this would require adding methods to BlockTree)
-        // tree.blocks_mut().reserve(block_count);
-        // tree.roots_mut().reserve_exact(root_count);
-
-        // First pass: Collect and sort AllocBlock semantics
-        let mut alloc_ops = Vec::with_capacity(block_count);
-        for op in &self.semantic_ops {
-            if let BlockSemantics::AllocBlock { id, span, parent } = op {
-                alloc_ops.push((*id, *span, *parent));
-            }
-        }
-        alloc_ops.sort_unstable_by_key(|(id, _, _)| id.id());
-
-        // Allocate all blocks in order
-        for (expected_id, span, parent) in alloc_ops {
-            let actual_id = if let Some(p) = parent {
-                tree.blocks_mut().alloc_with_parent(span, Some(p))
+        // First phase: Allocate all blocks using our metadata
+        // The block_allocations vector is indexed by BlockId value
+        for (span, parent) in self.block_allocations {
+            if let Some(p) = parent {
+                tree.blocks_mut().alloc_with_parent(span, Some(p));
             } else {
-                tree.blocks_mut().alloc(span)
-            };
-            // In release mode, we can skip this check for performance
-            debug_assert_eq!(expected_id.id(), actual_id.id(), "BlockId mismatch");
+                tree.blocks_mut().alloc(span);
+            }
         }
 
-        // Second pass: Apply all other semantics
+        // Second phase: Apply all semantic operations
         for op in self.semantic_ops {
             match op {
-                BlockSemantics::AllocBlock { .. } => {
-                    // Already handled in first pass
-                }
                 BlockSemantics::AddRoot { id } => {
                     tree.roots_mut().push(id);
                 }
@@ -182,7 +151,7 @@ impl<'db> BlockModelBuilder<'db> {
                 BlockSemantics::ExtendSpan { id, span } => {
                     tree.blocks_mut().extend(id, span);
                 }
-                BlockSemantics::SetSpan { id, start: _, end } => {
+                BlockSemantics::FinalizeSpanTo { id, end } => {
                     tree.blocks_mut().finalize_body_to(id, end);
                 }
             }
@@ -197,28 +166,19 @@ impl<'db> BlockModelBuilder<'db> {
             TagClass::Opener { .. } => {
                 let parent = self.active_segment();
 
-                // Phase 3: Pre-allocate BlockIds
-                let container = self.alloc_block_id();
-                let segment = self.alloc_block_id();
+                // Allocate BlockIds with their metadata
+                let container = self.alloc_block_id(span, parent);
+                let segment_span = Span::new(span.end().saturating_add(TagDelimiter::LENGTH_U32), 0);
+                let segment = self.alloc_block_id(segment_span, Some(container));
 
                 if let Some(parent_id) = parent {
-                    // Nested block - decompose add_block into primitive operations
-                    self.record(BlockSemantics::AllocBlock {
-                        id: container,
-                        span,
-                        parent: Some(parent_id),
-                    });
+                    // Nested block - record operations
                     self.record(BlockSemantics::AddBranchNode {
                         target: parent_id,
                         tag: tag_name.clone(),
                         marker_span: span,
                         body: container,
                         kind: BranchKind::Opener,
-                    });
-                    self.record(BlockSemantics::AllocBlock {
-                        id: segment,
-                        span: Span::new(span.end().saturating_add(TagDelimiter::LENGTH_U32), 0),
-                        parent: Some(container),
                     });
                     self.record(BlockSemantics::AddBranchNode {
                         target: container,
@@ -229,17 +189,7 @@ impl<'db> BlockModelBuilder<'db> {
                     });
                 } else {
                     // Root block
-                    self.record(BlockSemantics::AllocBlock {
-                        id: container,
-                        span,
-                        parent: None,
-                    });
                     self.record(BlockSemantics::AddRoot { id: container });
-                    self.record(BlockSemantics::AllocBlock {
-                        id: segment,
-                        span: Span::new(span.end().saturating_add(TagDelimiter::LENGTH_U32), 0),
-                        parent: Some(container),
-                    });
                     self.record(BlockSemantics::AddBranchNode {
                         target: container,
                         tag: tag_name.clone(),
@@ -303,9 +253,8 @@ impl<'db> BlockModelBuilder<'db> {
                 CloseValidation::Valid => {
                     // Finalize the last segment body to end just before the closer marker
                     let content_end = span.start().saturating_sub(TagDelimiter::LENGTH_U32);
-                    self.record(BlockSemantics::SetSpan {
+                    self.record(BlockSemantics::FinalizeSpanTo {
                         id: frame.segment_body,
-                        start: 0, // This will be ignored, only end is used in finalize_body_to
                         end: content_end,
                     });
                     // Extend container to include the closer
@@ -373,22 +322,16 @@ impl<'db> BlockModelBuilder<'db> {
                 let segment_to_finalize = frame.segment_body;
                 let container = frame.container_body;
 
-                self.record(BlockSemantics::SetSpan {
+                self.record(BlockSemantics::FinalizeSpanTo {
                     id: segment_to_finalize,
-                    start: 0, // Ignored
                     end: content_end,
                 });
 
                 // Phase 3: Pre-allocate ID for new segment
-                let new_segment_id = self.alloc_block_id();
-
-                // Decompose add_segment into primitive operations
                 let body_start = span.end().saturating_add(TagDelimiter::LENGTH_U32);
-                self.record(BlockSemantics::AllocBlock {
-                    id: new_segment_id,
-                    span: Span::new(body_start, 0),
-                    parent: Some(container),
-                });
+                let new_segment_id = self.alloc_block_id(Span::new(body_start, 0), Some(container));
+
+                // Add the branch node for the new segment
                 self.record(BlockSemantics::AddBranchNode {
                     target: container,
                     tag: tag_name.to_string(),
