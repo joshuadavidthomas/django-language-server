@@ -1,10 +1,10 @@
 use rustc_hash::FxHashMap;
 
-use crate::templatetags::EndTag;
 use crate::templatetags::IntermediateTag;
 use crate::templatetags::TagArg;
 use crate::templatetags::TagSpec;
 use crate::templatetags::TagSpecs;
+use crate::EndTag;
 use djls_templates::nodelist::TagBit;
 
 /// Collection of tag shapes with pre-computed indices for O(1) lookups
@@ -19,42 +19,9 @@ pub struct TagShapes {
 }
 
 impl TagShapes {
-    /// Build from TagSpecs, pre-computing all indices
-    pub fn from_specs(specs: &TagSpecs) -> Self {
-        let mut shapes = FxHashMap::default();
-        let mut closer_to_opener = FxHashMap::default();
-        let mut intermediate_to_openers: FxHashMap<String, Vec<String>> = FxHashMap::default();
-
-        for (name, spec) in specs {
-            let shape = TagShape::from_spec(name, spec);
-
-            // Build reverse indices
-            match &shape {
-                TagShape::Block {
-                    end, intermediates, ..
-                } => {
-                    // Map closer -> opener
-                    closer_to_opener.insert(end.name.clone(), name.clone());
-
-                    // Map each intermediate -> [openers that allow it]
-                    for inter in intermediates {
-                        intermediate_to_openers
-                            .entry(inter.name.clone())
-                            .or_default()
-                            .push(name.clone());
-                    }
-                }
-                TagShape::Leaf { .. } => {}
-            }
-
-            shapes.insert(name.clone(), shape);
-        }
-
-        Self {
-            shapes,
-            closer_to_opener,
-            intermediate_to_openers,
-        }
+    /// Get a shape by opener name
+    pub fn get(&self, opener_name: &str) -> Option<&TagShape> {
+        self.shapes.get(opener_name)
     }
 
     /// What kind of tag is this? O(1) lookup
@@ -77,11 +44,6 @@ impl TagShapes {
         TagClass::Unknown
     }
 
-    /// Get a shape by opener name
-    pub fn get(&self, opener_name: &str) -> Option<&TagShape> {
-        self.shapes.get(opener_name)
-    }
-
     /// Validate a close tag against its opener
     pub fn validate_close<'db>(
         &self,
@@ -90,9 +52,8 @@ impl TagShapes {
         closer_bits: &[TagBit<'db>],
         db: &'db dyn crate::db::Db,
     ) -> CloseValidation {
-        let shape = match self.shapes.get(opener_name) {
-            Some(s) => s,
-            None => return CloseValidation::NotABlock,
+        let Some(shape) = self.shapes.get(opener_name) else {
+            return CloseValidation::NotABlock;
         };
 
         match shape {
@@ -140,14 +101,46 @@ impl TagShapes {
     pub fn is_valid_intermediate(&self, inter_name: &str, opener_name: &str) -> bool {
         self.intermediate_to_openers
             .get(inter_name)
-            .map(|openers| openers.contains(&opener_name.to_string()))
-            .unwrap_or(false)
+            .is_some_and(|openers| openers.contains(&opener_name.to_string()))
     }
 }
 
 impl From<&TagSpecs> for TagShapes {
     fn from(specs: &TagSpecs) -> Self {
-        Self::from_specs(specs)
+        let mut shapes = FxHashMap::default();
+        let mut closer_to_opener = FxHashMap::default();
+        let mut intermediate_to_openers: FxHashMap<String, Vec<String>> = FxHashMap::default();
+
+        for (name, spec) in specs {
+            let shape = TagShape::from((name.as_str(), spec));
+
+            // Build reverse indices
+            match &shape {
+                TagShape::Block {
+                    end, intermediates, ..
+                } => {
+                    // Map closer -> opener
+                    closer_to_opener.insert(end.name.to_string(), name.to_string());
+
+                    // Map each intermediate -> [openers that allow it]
+                    for inter in intermediates {
+                        intermediate_to_openers
+                            .entry(inter.name.clone())
+                            .or_default()
+                            .push(name.to_string());
+                    }
+                }
+                TagShape::Leaf { .. } => {}
+            }
+
+            shapes.insert(name.to_string(), shape);
+        }
+
+        TagShapes {
+            shapes,
+            closer_to_opener,
+            intermediate_to_openers,
+        }
     }
 }
 
@@ -164,41 +157,21 @@ pub enum TagShape {
     },
 }
 
-impl TagShape {
-    /// Create a TagShape from a TagSpec
-    pub fn from_spec(name: &str, spec: &TagSpec) -> Self {
+impl From<(&str, &TagSpec)> for TagShape {
+    fn from((name, spec): (&str, &TagSpec)) -> Self {
         match &spec.end_tag {
             None => TagShape::Leaf {
                 name: name.to_string(),
             },
-            Some(end) => {
-                // Build match args from the end tag's args
-                let match_args = end
-                    .args
+            Some(end) => TagShape::Block {
+                name: name.to_string(),
+                end: end.into(),
+                intermediates: spec
+                    .intermediate_tags
                     .iter()
-                    .enumerate()
-                    .map(|(i, arg)| MatchArg {
-                        name: arg.name().as_ref().to_owned(),
-                        arg_type: ArgType::from(arg),
-                        required: arg.is_required(),
-                        opener_position: Some(i),
-                    })
-                    .collect();
-
-                TagShape::Block {
-                    name: name.to_string(),
-                    end: EndShape {
-                        name: end.name.as_ref().to_owned(),
-                        optional: end.optional,
-                        match_args,
-                    },
-                    intermediates: spec
-                        .intermediate_tags
-                        .iter()
-                        .map(IntermediateShape::from)
-                        .collect(),
-                }
-            }
+                    .map(IntermediateShape::from)
+                    .collect(),
+            },
         }
     }
 }
@@ -209,6 +182,28 @@ pub struct EndShape {
     pub name: String,
     pub optional: bool,
     pub match_args: Vec<MatchArg>,
+}
+
+impl From<&EndTag> for EndShape {
+    fn from(end: &EndTag) -> Self {
+        let match_args = end
+            .args
+            .iter()
+            .enumerate()
+            .map(|(i, arg)| MatchArg {
+                name: arg.name().as_ref().to_owned(),
+                arg_type: ArgType::from(arg),
+                required: arg.is_required(),
+                opener_position: Some(i),
+            })
+            .collect();
+
+        EndShape {
+            name: end.name.as_ref().to_owned(),
+            optional: end.optional,
+            match_args,
+        }
+    }
 }
 
 /// An argument that needs to match between opener and closer

@@ -189,7 +189,7 @@ impl Session {
     }
 
     fn handle_file_event(&self, event: &WorkspaceFileEvent) {
-        if FileKind::from_path(event.path()) == FileKind::Template {
+        if FileKind::from(event.path()) == FileKind::Template {
             let nodelist = djls_templates::parse_template(&self.db, event.file());
             if let Some(nodelist) = nodelist {
                 djls_semantic::validate_nodelist(&self.db, nodelist);

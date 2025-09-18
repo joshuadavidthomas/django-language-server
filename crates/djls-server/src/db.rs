@@ -121,7 +121,7 @@ impl TemplateDb for DjangoDatabase {}
 
 #[salsa::db]
 impl SemanticDb for DjangoDatabase {
-    fn tag_specs(&self) -> Arc<TagSpecs> {
+    fn tag_specs(&self) -> TagSpecs {
         let project_root = self.project_root_or_cwd();
 
         let tag_specs = match djls_conf::Settings::new(&project_root) {
@@ -129,7 +129,7 @@ impl SemanticDb for DjangoDatabase {
             Err(_) => djls_semantic::django_builtin_specs(),
         };
 
-        Arc::new(tag_specs)
+        tag_specs
     }
 }
 

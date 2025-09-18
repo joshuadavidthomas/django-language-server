@@ -249,36 +249,32 @@ impl<'db> Token<'db> {
         match self {
             Token::Block { span, .. } => TokenSnapshot::Block {
                 content: self.content(db),
-                span: span.as_tuple(),
-                full_span: self.full_span().unwrap().as_tuple(),
+                span: span.into(),
+                full_span: self.full_span().unwrap().into(),
             },
             Token::Comment { span, .. } => TokenSnapshot::Comment {
                 content: self.content(db),
-                span: span.as_tuple(),
-                full_span: self.full_span().unwrap().as_tuple(),
+                span: span.into(),
+                full_span: self.full_span().unwrap().into(),
             },
             Token::Eof => TokenSnapshot::Eof,
             Token::Error { span, .. } => TokenSnapshot::Error {
                 content: self.content(db),
-                span: span.as_tuple(),
-                full_span: self.full_span().unwrap().as_tuple(),
+                span: span.into(),
+                full_span: self.full_span().unwrap().into(),
             },
-            Token::Newline { span } => TokenSnapshot::Newline {
-                span: span.as_tuple(),
-            },
+            Token::Newline { span } => TokenSnapshot::Newline { span: span.into() },
             Token::Text { span, .. } => TokenSnapshot::Text {
                 content: self.content(db),
-                span: span.as_tuple(),
-                full_span: span.as_tuple(),
+                span: span.into(),
+                full_span: span.into(),
             },
             Token::Variable { span, .. } => TokenSnapshot::Variable {
                 content: self.content(db),
-                span: span.as_tuple(),
-                full_span: self.full_span().unwrap().as_tuple(),
+                span: span.into(),
+                full_span: self.full_span().unwrap().into(),
             },
-            Token::Whitespace { span } => TokenSnapshot::Whitespace {
-                span: span.as_tuple(),
-            },
+            Token::Whitespace { span } => TokenSnapshot::Whitespace { span: span.into() },
         }
     }
 }

@@ -75,7 +75,7 @@ impl<'db> Lexer<'db> {
             Ok(text) => {
                 let len = text.len();
                 let content = TokenContent::new(self.db, text);
-                let span = Span::from_parts(content_start, len);
+                let span = Span::saturating_from_parts_usize(content_start, len);
                 self.consume_n(delimiter.closer().len());
                 token_fn(content, span)
             }
@@ -83,9 +83,9 @@ impl<'db> Lexer<'db> {
                 let len = err_text.len();
                 let content = TokenContent::new(self.db, err_text);
                 let span = if len == 0 {
-                    Span::from_bounds(content_start, self.current)
+                    Span::saturating_from_bounds_usize(content_start, self.current)
                 } else {
-                    Span::from_parts(content_start, len)
+                    Span::saturating_from_parts_usize(content_start, len)
                 };
                 Token::Error { content, span }
             }
@@ -98,7 +98,7 @@ impl<'db> Lexer<'db> {
             if c == '\r' && self.peek() == '\n' {
                 self.consume(); // \n of \r\n
             }
-            let span = Span::from_bounds(self.start, self.current);
+            let span = Span::saturating_from_bounds_usize(self.start, self.current);
             Token::Newline { span }
         } else {
             self.consume(); // Consume the first whitespace
@@ -108,7 +108,7 @@ impl<'db> Lexer<'db> {
                 }
                 self.consume();
             }
-            let span = Span::from_bounds(self.start, self.current);
+            let span = Span::saturating_from_bounds_usize(self.start, self.current);
             Token::Whitespace { span }
         }
     }
@@ -130,7 +130,7 @@ impl<'db> Lexer<'db> {
 
         let text = self.consumed_source_from(text_start);
         let content = TokenContent::new(self.db, text.to_string());
-        let span = Span::from_bounds(self.start, self.current);
+        let span = Span::saturating_from_bounds_usize(self.start, self.current);
         Token::Text { content, span }
     }
 

@@ -1,4 +1,5 @@
 use djls_source::Span;
+use serde::Serialize;
 
 use crate::db::Db as TemplateDb;
 use crate::parser::ParseError;
@@ -64,11 +65,11 @@ impl<'db> Node<'db> {
         match self {
             Node::Tag { name, span, .. } => {
                 // Just the tag name (e.g., "if" in "{% if user.is_authenticated %}")
-                Some(span.with_length_usize(name.text(db).len()))
+                Some(span.with_length_usize_saturating(name.text(db).len()))
             }
             Node::Variable { var, span, .. } => {
                 // Just the variable name (e.g., "user" in "{{ user.name|title }}")
-                Some(span.with_length_usize(var.text(db).len()))
+                Some(span.with_length_usize_saturating(var.text(db).len()))
             }
             Node::Comment { .. } | Node::Text { .. } | Node::Error { .. } => None,
         }

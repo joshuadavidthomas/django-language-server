@@ -400,31 +400,31 @@ mod tests {
                 Node::Tag { name, bits, span } => TestNode::Tag {
                     name: name.text(db).to_string(),
                     bits: bits.iter().map(|b| b.text(db).to_string()).collect(),
-                    span: span.as_tuple(),
-                    full_span: node.full_span().as_tuple(),
+                    span: span.into(),
+                    full_span: node.full_span().into(),
                 },
                 Node::Comment { content, span } => TestNode::Comment {
                     content: content.clone(),
-                    span: span.as_tuple(),
-                    full_span: node.full_span().as_tuple(),
+                    span: span.into(),
+                    full_span: node.full_span().into(),
                 },
                 Node::Text { span } => TestNode::Text {
-                    span: span.as_tuple(),
-                    full_span: node.full_span().as_tuple(),
+                    span: span.into(),
+                    full_span: node.full_span().into(),
                 },
                 Node::Variable { var, filters, span } => TestNode::Variable {
                     var: var.text(db).to_string(),
                     filters: filters.iter().map(|f| f.text(db).to_string()).collect(),
-                    span: span.as_tuple(),
-                    full_span: node.full_span().as_tuple(),
+                    span: span.into(),
+                    full_span: node.full_span().into(),
                 },
                 Node::Error {
                     span,
                     full_span,
                     error,
                 } => TestNode::Error {
-                    span: span.as_tuple(),
-                    full_span: full_span.as_tuple(),
+                    span: span.into(),
+                    full_span: full_span.into(),
                     error: error.clone(),
                 },
             }

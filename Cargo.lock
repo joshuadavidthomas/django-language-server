@@ -528,6 +528,7 @@ dependencies = [
  "camino",
  "salsa",
  "serde",
+ "thiserror 2.0.16",
 ]
 
 [[package]]

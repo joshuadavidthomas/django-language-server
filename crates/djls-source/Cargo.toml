@@ -7,6 +7,7 @@ edition = "2021"
 camino = { workspace = true }
 salsa = { workspace = true }
 serde = { workspace = true }
+thiserror = { workspace = true }
 
 [dev-dependencies]
 

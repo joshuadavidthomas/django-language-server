@@ -1,0 +1,159 @@
+---
+source: crates/djls-semantic/src/blocks/tree.rs
+assertion_line: 817
+expression: block_tree.to_snapshot()
+---
+roots:
+  - 0
+  - 2
+  - 9
+blocks:
+  - kind: Container
+    container_span:
+      start: 3
+      length: 55
+    nodes:
+      - node: Branch
+        tag: block
+        marker_span:
+          start: 3
+          length: 14
+        content_span:
+          start: 19
+          length: 20
+        block_id: 1
+  - kind: Body
+    content_span:
+      start: 19
+      length: 20
+    nodes: []
+  - kind: Container
+    container_span:
+      start: 64
+      length: 290
+    nodes:
+      - node: Branch
+        tag: if
+        marker_span:
+          start: 64
+          length: 26
+        content_span:
+          start: 92
+          length: 217
+        block_id: 3
+      - node: Branch
+        tag: else
+        marker_span:
+          start: 311
+          length: 6
+        content_span:
+          start: 319
+          length: 26
+        block_id: 8
+  - kind: Body
+    content_span:
+      start: 92
+      length: 217
+    nodes:
+      - node: Leaf
+        label: "<var>"
+        span:
+          start: 110
+          length: 11
+      - node: Branch
+        tag: if
+        marker_span:
+          start: 134
+          length: 22
+        content_span:
+          start: 134
+          length: 172
+        block_id: 4
+  - kind: Container
+    container_span:
+      start: 134
+      length: 172
+    nodes:
+      - node: Branch
+        tag: if
+        marker_span:
+          start: 134
+          length: 22
+        content_span:
+          start: 158
+          length: 32
+        block_id: 5
+      - node: Branch
+        tag: elif
+        marker_span:
+          start: 192
+          length: 20
+        content_span:
+          start: 214
+          length: 34
+        block_id: 6
+      - node: Branch
+        tag: else
+        marker_span:
+          start: 250
+          length: 6
+        content_span:
+          start: 258
+          length: 39
+        block_id: 7
+  - kind: Body
+    content_span:
+      start: 158
+      length: 32
+    nodes: []
+  - kind: Body
+    content_span:
+      start: 214
+      length: 34
+    nodes: []
+  - kind: Body
+    content_span:
+      start: 258
+      length: 39
+    nodes: []
+  - kind: Body
+    content_span:
+      start: 319
+      length: 26
+    nodes: []
+  - kind: Container
+    container_span:
+      start: 360
+      length: 56
+    nodes:
+      - node: Branch
+        tag: for
+        marker_span:
+          start: 360
+          length: 19
+        content_span:
+          start: 381
+          length: 25
+        block_id: 10
+  - kind: Body
+    content_span:
+      start: 381
+      length: 25
+    nodes:
+      - node: Leaf
+        label: "<var>"
+        span:
+          start: 392
+          length: 6
+root_ids:
+  - 0
+  - 0
+  - 2
+  - 2
+  - 2
+  - 2
+  - 2
+  - 2
+  - 2
+  - 9
+  - 9

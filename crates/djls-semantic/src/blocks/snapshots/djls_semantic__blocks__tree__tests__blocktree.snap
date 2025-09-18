@@ -1,33 +1,12 @@
 ---
 source: crates/djls-semantic/src/blocks/tree.rs
-assertion_line: 495
 expression: block_tree
 ---
 roots:
   - 0
+  - 2
+  - 9
 blocks:
-  - span:
-      start: 3
-      length: 314
-    nodes:
-      - Block:
-          name: block
-          span:
-            start: 3
-            length: 14
-          body: 1
-      - Block:
-          name: if
-          span:
-            start: 64
-            length: 26
-          body: 3
-      - Block:
-          name: for
-          span:
-            start: 298
-            length: 19
-          body: 9
   - span:
       start: 3
       length: 55
@@ -37,30 +16,30 @@ blocks:
           span:
             start: 3
             length: 14
-          body: 2
+          body: 1
   - span:
-      start: 3
-      length: 14
+      start: 19
+      length: 20
     nodes: []
   - span:
       start: 64
-      length: 228
+      length: 290
     nodes:
       - Segment:
           label: if
           span:
             start: 64
             length: 26
-          body: 4
+          body: 3
       - Segment:
           label: else
           span:
-            start: 249
+            start: 311
             length: 6
           body: 8
   - span:
-      start: 64
-      length: 88
+      start: 92
+      length: 217
     nodes:
       - Leaf:
           label: "<var>"
@@ -71,52 +50,62 @@ blocks:
           name: if
           span:
             start: 134
-            length: 18
-          body: 5
+            length: 22
+          body: 4
   - span:
       start: 134
-      length: 110
+      length: 172
     nodes:
       - Segment:
           label: if
           span:
             start: 134
-            length: 18
+            length: 22
+          body: 5
+      - Segment:
+          label: elif
+          span:
+            start: 192
+            length: 20
           body: 6
       - Segment:
           label: else
           span:
-            start: 188
+            start: 250
             length: 6
           body: 7
   - span:
-      start: 134
-      length: 18
+      start: 158
+      length: 32
     nodes: []
   - span:
-      start: 188
-      length: 6
+      start: 214
+      length: 34
     nodes: []
   - span:
-      start: 249
-      length: 6
+      start: 258
+      length: 39
     nodes: []
   - span:
-      start: 298
+      start: 319
+      length: 26
+    nodes: []
+  - span:
+      start: 360
       length: 56
     nodes:
       - Segment:
           label: for
           span:
-            start: 298
+            start: 360
             length: 19
           body: 10
   - span:
-      start: 298
-      length: 38
+      start: 381
+      length: 25
     nodes:
       - Leaf:
           label: "<var>"
           span:
-            start: 330
+            start: 392
             length: 6

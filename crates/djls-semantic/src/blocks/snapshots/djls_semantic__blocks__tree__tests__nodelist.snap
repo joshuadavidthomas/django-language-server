@@ -1,0 +1,147 @@
+---
+source: crates/djls-semantic/src/blocks/tree.rs
+expression: nodelist_view
+---
+nodes:
+  - kind: Text
+    span:
+      start: 0
+      length: 1
+  - kind: Tag
+    name: block
+    bits:
+      - header
+    span:
+      start: 3
+      length: 14
+  - kind: Text
+    span:
+      start: 19
+      length: 20
+  - kind: Tag
+    name: endblock
+    bits:
+      - header
+    span:
+      start: 41
+      length: 17
+  - kind: Text
+    span:
+      start: 60
+      length: 2
+  - kind: Tag
+    name: if
+    bits:
+      - user.is_authenticated
+    span:
+      start: 64
+      length: 26
+  - kind: Text
+    span:
+      start: 92
+      length: 16
+  - kind: Variable
+    var: user.name
+    filters: []
+    span:
+      start: 110
+      length: 11
+  - kind: Text
+    span:
+      start: 123
+      length: 9
+  - kind: Tag
+    name: if
+    bits:
+      - user.is_superuser
+    span:
+      start: 134
+      length: 22
+  - kind: Text
+    span:
+      start: 158
+      length: 32
+  - kind: Tag
+    name: elif
+    bits:
+      - user.is_staff
+    span:
+      start: 192
+      length: 20
+  - kind: Text
+    span:
+      start: 214
+      length: 34
+  - kind: Tag
+    name: else
+    bits: []
+    span:
+      start: 250
+      length: 6
+  - kind: Text
+    span:
+      start: 258
+      length: 39
+  - kind: Tag
+    name: endif
+    bits: []
+    span:
+      start: 299
+      length: 7
+  - kind: Text
+    span:
+      start: 308
+      length: 1
+  - kind: Tag
+    name: else
+    bits: []
+    span:
+      start: 311
+      length: 6
+  - kind: Text
+    span:
+      start: 319
+      length: 26
+  - kind: Tag
+    name: endif
+    bits: []
+    span:
+      start: 347
+      length: 7
+  - kind: Text
+    span:
+      start: 356
+      length: 2
+  - kind: Tag
+    name: for
+    bits:
+      - item
+      - in
+      - items
+    span:
+      start: 360
+      length: 19
+  - kind: Text
+    span:
+      start: 381
+      length: 9
+  - kind: Variable
+    var: item
+    filters: []
+    span:
+      start: 392
+      length: 6
+  - kind: Text
+    span:
+      start: 400
+      length: 6
+  - kind: Tag
+    name: endfor
+    bits: []
+    span:
+      start: 408
+      length: 8
+  - kind: Text
+    span:
+      start: 418
+      length: 1
