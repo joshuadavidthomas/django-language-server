@@ -1,0 +1,147 @@
+use crate::{ByteOffset, LineCol};
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LineEnding {
+    #[default]
+    Lf,
+    Crlf,
+    Cr,
+}
+
+impl LineEnding {
+    #[inline]
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::Lf => "\n",
+            Self::Crlf => "\r\n",
+            Self::Cr => "\r",
+        }
+    }
+
+    pub const fn is_line_feed(&self) -> bool {
+        matches!(self, Self::Lf)
+    }
+
+    pub const fn is_carriage_return_line_feed(&self) -> bool {
+        matches!(self, Self::Crlf)
+    }
+
+    pub const fn is_carriage_return(&self) -> bool {
+        matches!(self, Self::Cr)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LineIndex(Vec<u32>);
+
+impl LineIndex {
+    #[must_use]
+    pub fn from_text(text: &str) -> Self {
+        let mut starts = Vec::with_capacity(256);
+        starts.push(0);
+
+        let bytes = text.as_bytes();
+        let mut i = 0;
+        while i < bytes.len() {
+            match bytes[i] {
+                b'\n' => {
+                    // LF - Unix style line ending
+                    starts.push(u32::try_from(i + 1).unwrap_or_default());
+                    i += 1;
+                }
+                b'\r' => {
+                    // CR - check if followed by LF for Windows style
+                    if i + 1 < bytes.len() && bytes[i + 1] == b'\n' {
+                        // CRLF - Windows style line ending
+                        starts.push(u32::try_from(i + 2).unwrap_or_default());
+                        i += 2;
+                    } else {
+                        // Just CR - old Mac style line ending
+                        starts.push(u32::try_from(i + 1).unwrap_or_default());
+                        i += 1;
+                    }
+                }
+                _ => i += 1,
+            }
+        }
+
+        LineIndex(starts)
+    }
+
+    #[must_use]
+    pub fn to_line_col(&self, offset: ByteOffset) -> LineCol {
+        if self.0.is_empty() {
+            return LineCol::new(0, 0);
+        }
+
+        let line = match self.0.binary_search(&offset) {
+            Ok(exact) => exact,
+            Err(0) => 0,
+            Err(next) => next - 1,
+        };
+
+        let line_start = self.0[line];
+        let column = offset.saturating_sub(line_start);
+
+        LineCol::new(u32::try_from(line).unwrap_or_default(), column)
+    }
+
+    #[must_use]
+    pub fn line_start(&self, line: u32) -> Option<u32> {
+        self.0.get(line as usize).copied()
+    }
+
+    #[must_use]
+    pub fn lines(&self) -> &[u32] {
+        &self.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_line_index_unix_endings() {
+        let text = "line1\nline2\nline3";
+        let index = LineIndex::from_text(text);
+        assert_eq!(index.lines(), &[0, 6, 12]);
+    }
+
+    #[test]
+    fn test_line_index_windows_endings() {
+        let text = "line1\r\nline2\r\nline3";
+        let index = LineIndex::from_text(text);
+        // After "line1\r\n" (7 bytes), next line starts at byte 7
+        // After "line2\r\n" (7 bytes), next line starts at byte 14
+        assert_eq!(index.lines(), &[0, 7, 14]);
+    }
+
+    #[test]
+    fn test_line_index_mixed_endings() {
+        let text = "line1\nline2\r\nline3\rline4";
+        let index = LineIndex::from_text(text);
+        // "line1\n" -> next at 6
+        // "line2\r\n" -> next at 13
+        // "line3\r" -> next at 19
+        assert_eq!(index.lines(), &[0, 6, 13, 19]);
+    }
+
+    #[test]
+    fn test_line_index_empty() {
+        let text = "";
+        let index = LineIndex::from_text(text);
+        assert_eq!(index.lines(), &[0]);
+    }
+
+    #[test]
+    fn test_to_line_col_with_crlf() {
+        let text = "hello\r\nworld";
+        let index = LineIndex::from_text(text);
+
+        // "hello" is 5 bytes, then \r\n, so "world" starts at byte 7
+        assert_eq!(index.to_line_col(ByteOffset::new(0)), LineCol::new(0, 0));
+        assert_eq!(index.to_line_col(ByteOffset::new(7)), LineCol::new(1, 0));
+        assert_eq!(index.to_line_col(ByteOffset::new(8)), LineCol::new(1, 1));
+    }
+}

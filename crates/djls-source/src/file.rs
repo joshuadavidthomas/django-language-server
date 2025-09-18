@@ -5,7 +5,7 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 
 use crate::db::Db;
-use crate::position::LineIndex;
+use crate::line::LineIndex;
 
 #[salsa::input]
 pub struct File {

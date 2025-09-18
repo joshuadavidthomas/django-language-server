@@ -1,8 +1,8 @@
 use std::fmt;
 
+use crate::line::LineIndex;
 use crate::position::ByteOffset;
 use crate::position::LineCol;
-use crate::position::LineIndex;
 
 /// Specifies how column positions are counted in text.
 ///
