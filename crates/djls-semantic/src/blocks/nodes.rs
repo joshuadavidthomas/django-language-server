@@ -125,7 +125,7 @@ impl Blocks {
         block.span = Span::saturating_from_bounds_usize(start as usize, content_end as usize);
     }
 
-    fn push_node(&mut self, target: BlockId, node: BlockNode) {
+    pub fn push_node(&mut self, target: BlockId, node: BlockNode) {
         let span = node.span();
         self.extend(target, span);
         self.block_mut(target).nodes.push(node);

@@ -32,6 +32,20 @@ impl BlockTree {
     pub fn blocks_mut(&mut self) -> &mut Blocks {
         &mut self.blocks
     }
+
+    /// Build a BlockTree from a nodelist (delegates to BlockModelBuilder)
+    #[cfg(test)]
+    pub fn build(
+        db: &dyn crate::Db,
+        nodelist: djls_templates::NodeList,
+        shapes: &super::shapes::TagShapes,
+    ) -> Self {
+        use crate::blocks::SemanticModel;
+
+        use super::builder::BlockModelBuilder;
+
+        BlockModelBuilder::new(db, shapes).model(db, nodelist)
+    }
 }
 
 impl Default for BlockTree {
@@ -43,11 +57,12 @@ impl Default for BlockTree {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::blocks::shapes::TagShapes;
     use crate::blocks::snapshot::BlockTreeSnapshot;
     use crate::{templatetags::django_builtin_specs, TagSpecs};
     use camino::Utf8Path;
-    use djls_source::File;
-    use djls_templates::parse_template;
+    use djls_source::{File, Span};
+    use djls_templates::{parse_template, Node};
     use djls_workspace::FileSystem;
     use djls_workspace::InMemoryFileSystem;
     use std::sync::Arc;
@@ -96,7 +111,7 @@ mod tests {
     impl djls_templates::Db for TestDatabase {}
 
     #[salsa::db]
-    impl crate::db::Db for TestDatabase {
+    impl crate::Db for TestDatabase {
         fn tag_specs(&self) -> TagSpecs {
             django_builtin_specs()
         }
@@ -104,6 +119,8 @@ mod tests {
 
     #[test]
     fn test_block_tree_building() {
+        use crate::Db as SemanticDb;
+
         let db = TestDatabase::new();
 
         let source = r"
