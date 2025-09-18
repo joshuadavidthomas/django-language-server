@@ -1,8 +1,3 @@
-use std::collections::hash_map::IntoIter;
-use std::collections::hash_map::Iter;
-use std::ops::Deref;
-use std::ops::DerefMut;
-
 use rustc_hash::FxHashMap;
 
 use crate::templatetags::EndTag;
@@ -10,118 +5,250 @@ use crate::templatetags::IntermediateTag;
 use crate::templatetags::TagArg;
 use crate::templatetags::TagSpec;
 use crate::templatetags::TagSpecs;
+use djls_templates::nodelist::TagBit;
 
-#[derive(Clone, Debug, Default)]
-pub struct TagShapes(FxHashMap<String, TagShape>);
-
-impl Deref for TagShapes {
-    type Target = FxHashMap<String, TagShape>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
+/// Collection of tag shapes with pre-computed indices for O(1) lookups
+#[derive(Clone, Debug)]
+pub struct TagShapes {
+    /// Primary shape storage
+    shapes: FxHashMap<String, TagShape>,
+    /// Pre-computed closer -> opener mapping
+    closer_to_opener: FxHashMap<String, String>,
+    /// Pre-computed intermediate -> [openers] mapping
+    intermediate_to_openers: FxHashMap<String, Vec<String>>,
 }
 
-impl DerefMut for TagShapes {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
+impl TagShapes {
+    /// Build from TagSpecs, pre-computing all indices
+    pub fn from_specs(specs: &TagSpecs) -> Self {
+        let mut shapes = FxHashMap::default();
+        let mut closer_to_opener = FxHashMap::default();
+        let mut intermediate_to_openers: FxHashMap<String, Vec<String>> = FxHashMap::default();
+
+        for (name, spec) in specs {
+            let shape = TagShape::from_spec(name, spec);
+
+            // Build reverse indices
+            match &shape {
+                TagShape::Block {
+                    end, intermediates, ..
+                } => {
+                    // Map closer -> opener
+                    closer_to_opener.insert(end.name.clone(), name.clone());
+
+                    // Map each intermediate -> [openers that allow it]
+                    for inter in intermediates {
+                        intermediate_to_openers
+                            .entry(inter.name.clone())
+                            .or_default()
+                            .push(name.clone());
+                    }
+                }
+                TagShape::Leaf { .. } => {}
+            }
+
+            shapes.insert(name.clone(), shape);
+        }
+
+        Self {
+            shapes,
+            closer_to_opener,
+            intermediate_to_openers,
+        }
     }
-}
 
-impl<'a> IntoIterator for &'a TagShapes {
-    type Item = (&'a String, &'a TagShape);
-    type IntoIter = Iter<'a, String, TagShape>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.iter()
+    /// What kind of tag is this? O(1) lookup
+    pub fn classify(&self, tag_name: &str) -> TagClass {
+        if let Some(shape) = self.shapes.get(tag_name) {
+            return TagClass::Opener {
+                shape: shape.clone(),
+            };
+        }
+        if let Some(opener) = self.closer_to_opener.get(tag_name) {
+            return TagClass::Closer {
+                opener_name: opener.clone(),
+            };
+        }
+        if let Some(openers) = self.intermediate_to_openers.get(tag_name) {
+            return TagClass::Intermediate {
+                possible_openers: openers.clone(),
+            };
+        }
+        TagClass::Unknown
     }
-}
 
-impl IntoIterator for TagShapes {
-    type Item = (String, TagShape);
-    type IntoIter = IntoIter<String, TagShape>;
+    /// Get a shape by opener name
+    pub fn get(&self, opener_name: &str) -> Option<&TagShape> {
+        self.shapes.get(opener_name)
+    }
 
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.into_iter()
+    /// Validate a close tag against its opener
+    pub fn validate_close<'db>(
+        &self,
+        opener_name: &str,
+        opener_bits: &[TagBit<'db>],
+        closer_bits: &[TagBit<'db>],
+        db: &'db dyn crate::db::Db,
+    ) -> CloseValidation {
+        let shape = match self.shapes.get(opener_name) {
+            Some(s) => s,
+            None => return CloseValidation::NotABlock,
+        };
+
+        match shape {
+            TagShape::Block { end, .. } => {
+                // No args to match? Simple close
+                if end.match_args.is_empty() {
+                    return CloseValidation::Valid;
+                }
+
+                // Validate each arg that should match
+                for match_arg in &end.match_args {
+                    let opener_val = extract_arg_value(opener_bits, match_arg, db);
+                    let closer_val = extract_arg_value(closer_bits, match_arg, db);
+
+                    match (opener_val, closer_val, match_arg.required) {
+                        (Some(o), Some(c), _) if o != c => {
+                            return CloseValidation::ArgumentMismatch {
+                                arg: match_arg.name.clone(),
+                                expected: o,
+                                got: c,
+                            };
+                        }
+                        (Some(o), None, true) => {
+                            return CloseValidation::MissingRequiredArg {
+                                arg: match_arg.name.clone(),
+                                expected: o,
+                            };
+                        }
+                        (None, Some(c), _) if match_arg.required => {
+                            return CloseValidation::UnexpectedArg {
+                                arg: match_arg.name.clone(),
+                                got: c,
+                            };
+                        }
+                        _ => continue,
+                    }
+                }
+                CloseValidation::Valid
+            }
+            TagShape::Leaf { .. } => CloseValidation::NotABlock,
+        }
+    }
+
+    /// Can this intermediate appear in the current context?
+    pub fn is_valid_intermediate(&self, inter_name: &str, opener_name: &str) -> bool {
+        self.intermediate_to_openers
+            .get(inter_name)
+            .map(|openers| openers.contains(&opener_name.to_string()))
+            .unwrap_or(false)
     }
 }
 
 impl From<&TagSpecs> for TagShapes {
     fn from(specs: &TagSpecs) -> Self {
-        TagShapes(
-            specs
-                .into_iter()
-                .map(|(name, spec)| (name.clone(), TagShape::from(spec)))
-                .collect(),
-        )
+        Self::from_specs(specs)
     }
 }
 
+/// Shape of a template tag
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct TagShape {
-    form: TagForm,
-    namespace: Option<String>,
-}
-
-impl TagShape {
-    pub fn form(&self) -> &TagForm {
-        &self.form
-    }
-}
-
-impl From<&TagSpec> for TagShape {
-    fn from(spec: &TagSpec) -> Self {
-        TagShape {
-            namespace: None,
-            form: match &spec.end_tag {
-                None => TagForm::Leaf,
-                Some(end) => TagForm::Block {
-                    end: end.into(),
-                    intermediates: spec.intermediate_tags.iter().map(Into::into).collect(),
-                },
-            },
-        }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum TagForm {
-    Leaf,
+pub enum TagShape {
+    /// A standalone tag with no body
+    Leaf { name: String },
+    /// A block tag that contains a body
     Block {
-        end: TagEndShape,
+        name: String,
+        end: EndShape,
         intermediates: Vec<IntermediateShape>,
     },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct TagEndShape {
-    name: String,
-    policy: EndPolicy,
-}
-
-impl TagEndShape {
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
-    pub fn policy(&self) -> EndPolicy {
-        self.policy
-    }
-}
-
-impl From<&EndTag> for TagEndShape {
-    fn from(end: &EndTag) -> Self {
-        TagEndShape {
-            name: end.name.as_ref().to_owned(),
-            policy: if end.optional {
-                EndPolicy::Optional
-            } else {
-                EndPolicy::Required
+impl TagShape {
+    /// Create a TagShape from a TagSpec
+    pub fn from_spec(name: &str, spec: &TagSpec) -> Self {
+        match &spec.end_tag {
+            None => TagShape::Leaf {
+                name: name.to_string(),
             },
+            Some(end) => {
+                // Build match args from the end tag's args
+                let match_args = end
+                    .args
+                    .iter()
+                    .enumerate()
+                    .map(|(i, arg)| MatchArg {
+                        name: arg.name().as_ref().to_owned(),
+                        arg_type: ArgType::from(arg),
+                        required: arg.is_required(),
+                        opener_position: Some(i),
+                    })
+                    .collect();
+
+                TagShape::Block {
+                    name: name.to_string(),
+                    end: EndShape {
+                        name: end.name.as_ref().to_owned(),
+                        optional: end.optional,
+                        match_args,
+                    },
+                    intermediates: spec
+                        .intermediate_tags
+                        .iter()
+                        .map(IntermediateShape::from)
+                        .collect(),
+                }
+            }
         }
     }
 }
 
+/// Shape of an end tag
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EndShape {
+    pub name: String,
+    pub optional: bool,
+    pub match_args: Vec<MatchArg>,
+}
+
+/// An argument that needs to match between opener and closer
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MatchArg {
+    pub name: String,
+    pub arg_type: ArgType,
+    pub required: bool,
+    pub opener_position: Option<usize>,
+}
+
+/// Type of an argument
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ArgType {
+    Variable,
+    String,
+    Literal,
+    Expression,
+    Assignment,
+    VarArgs,
+    Choice(Vec<String>),
+}
+
+impl From<&TagArg> for ArgType {
+    fn from(arg: &TagArg) -> Self {
+        match arg {
+            TagArg::Var { .. } => ArgType::Variable,
+            TagArg::String { .. } => ArgType::String,
+            TagArg::Literal { .. } => ArgType::Literal,
+            TagArg::Expr { .. } => ArgType::Expression,
+            TagArg::Assignment { .. } => ArgType::Assignment,
+            TagArg::VarArgs { .. } => ArgType::VarArgs,
+            TagArg::Choice { choices, .. } => {
+                ArgType::Choice(choices.iter().map(|s| s.as_ref().to_owned()).collect())
+            }
+        }
+    }
+}
+
+/// Shape of an intermediate tag
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IntermediateShape {
     name: String,
@@ -138,11 +265,12 @@ impl From<&IntermediateTag> for IntermediateShape {
     fn from(tag: &IntermediateTag) -> Self {
         IntermediateShape {
             name: tag.name.as_ref().to_owned(),
-            args: tag.args.iter().map(Into::into).collect(),
+            args: tag.args.iter().map(ArgShape::from).collect(),
         }
     }
 }
 
+/// Shape of a tag argument
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ArgShape {
     name: String,
@@ -158,48 +286,49 @@ impl From<&TagArg> for ArgShape {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum EndPolicy {
-    Required,
-    MustMatchOpenName,
-    Optional,
-}
-
+/// Classification of a tag based on its role
 #[derive(Clone, Debug)]
-pub struct EndEntry {
-    opener: String,
-    policy: EndPolicy,
+pub enum TagClass {
+    /// This tag opens a block
+    Opener { shape: TagShape },
+    /// This tag closes a block
+    Closer { opener_name: String },
+    /// This tag is an intermediate (elif, else, etc.)
+    Intermediate { possible_openers: Vec<String> },
+    /// Unknown tag - treat as leaf
+    Unknown,
 }
 
-impl EndEntry {
-    pub fn opener(&self) -> &str {
-        &self.opener
-    }
-
-    pub fn policy(&self) -> EndPolicy {
-        self.policy
-    }
-
-    pub fn matches_opener(&self, name: &str) -> bool {
-        name == self.opener
-    }
+/// Result of validating a close tag
+#[derive(Clone, Debug)]
+pub enum CloseValidation {
+    /// Close is valid
+    Valid,
+    /// Not a block tag
+    NotABlock,
+    /// Argument value mismatch
+    ArgumentMismatch {
+        arg: String,
+        expected: String,
+        got: String,
+    },
+    /// Missing required argument
+    MissingRequiredArg { arg: String, expected: String },
+    /// Unexpected argument provided
+    UnexpectedArg { arg: String, got: String },
 }
 
-type EndIndex = FxHashMap<String, EndEntry>;
-
-pub fn build_end_index(shapes: &TagShapes) -> EndIndex {
-    let mut end_index = EndIndex::default();
-    for (open_name, shape) in shapes {
-        if let TagForm::Block { end, .. } = &shape.form {
-            // Illegal states are impossible here; each Block must have an end tag
-            end_index.insert(
-                end.name.clone(),
-                EndEntry {
-                    opener: open_name.clone(),
-                    policy: end.policy,
-                },
-            );
-        }
+/// Extract argument value from tag bits
+fn extract_arg_value<'db>(
+    bits: &[TagBit<'db>],
+    match_arg: &MatchArg,
+    db: &'db dyn crate::db::Db,
+) -> Option<String> {
+    // For now, use position-based matching if available
+    // In the future, we might want to parse the bits more intelligently
+    // to match by name rather than position
+    match match_arg.opener_position {
+        Some(pos) if pos < bits.len() => Some(bits[pos].text(db).to_string()),
+        _ => None,
     }
-    end_index
 }

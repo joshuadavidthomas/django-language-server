@@ -1,4 +1,5 @@
-use crate::{ByteOffset, LineCol};
+use crate::ByteOffset;
+use crate::LineCol;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum LineEnding {

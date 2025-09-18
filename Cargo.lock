@@ -486,6 +486,7 @@ dependencies = [
  "djls-source",
  "djls-templates",
  "djls-workspace",
+ "insta",
  "rustc-hash",
  "salsa",
  "serde",

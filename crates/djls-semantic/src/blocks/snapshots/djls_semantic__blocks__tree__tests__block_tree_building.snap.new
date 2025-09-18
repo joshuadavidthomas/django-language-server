@@ -1,0 +1,122 @@
+---
+source: crates/djls-semantic/src/blocks/tree.rs
+assertion_line: 495
+expression: block_tree
+---
+roots:
+  - 0
+blocks:
+  - span:
+      start: 3
+      length: 314
+    nodes:
+      - Block:
+          name: block
+          span:
+            start: 3
+            length: 14
+          body: 1
+      - Block:
+          name: if
+          span:
+            start: 64
+            length: 26
+          body: 3
+      - Block:
+          name: for
+          span:
+            start: 298
+            length: 19
+          body: 9
+  - span:
+      start: 3
+      length: 55
+    nodes:
+      - Segment:
+          label: block
+          span:
+            start: 3
+            length: 14
+          body: 2
+  - span:
+      start: 3
+      length: 14
+    nodes: []
+  - span:
+      start: 64
+      length: 228
+    nodes:
+      - Segment:
+          label: if
+          span:
+            start: 64
+            length: 26
+          body: 4
+      - Segment:
+          label: else
+          span:
+            start: 249
+            length: 6
+          body: 8
+  - span:
+      start: 64
+      length: 88
+    nodes:
+      - Leaf:
+          label: "<var>"
+          span:
+            start: 110
+            length: 11
+      - Block:
+          name: if
+          span:
+            start: 134
+            length: 18
+          body: 5
+  - span:
+      start: 134
+      length: 110
+    nodes:
+      - Segment:
+          label: if
+          span:
+            start: 134
+            length: 18
+          body: 6
+      - Segment:
+          label: else
+          span:
+            start: 188
+            length: 6
+          body: 7
+  - span:
+      start: 134
+      length: 18
+    nodes: []
+  - span:
+      start: 188
+      length: 6
+    nodes: []
+  - span:
+      start: 249
+      length: 6
+    nodes: []
+  - span:
+      start: 298
+      length: 56
+    nodes:
+      - Segment:
+          label: for
+          span:
+            start: 298
+            length: 19
+          body: 10
+  - span:
+      start: 298
+      length: 38
+    nodes:
+      - Leaf:
+          label: "<var>"
+          span:
+            start: 330
+            length: 6
