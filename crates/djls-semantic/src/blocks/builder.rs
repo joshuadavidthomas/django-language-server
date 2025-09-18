@@ -42,14 +42,16 @@ impl<'db> TreeBuilder<'db> {
             Node::Comment { span, .. } => {
                 if let Some(parent) = self.ctx.active_segment() {
                     self.tree
-                        .blocks()
+                        .blocks_mut()
                         .add_leaf(parent, "<comment>".into(), span);
                 }
                 // Skip comments at top level - we only care about block structure
             }
             Node::Variable { span, .. } => {
                 if let Some(parent) = self.ctx.active_segment() {
-                    self.tree.blocks().add_leaf(parent, "<var>".into(), span);
+                    self.tree
+                        .blocks_mut()
+                        .add_leaf(parent, "<var>".into(), span);
                 }
                 // Skip variables at top level - they'd be orphaned anyway
             }
@@ -61,7 +63,7 @@ impl<'db> TreeBuilder<'db> {
             } => {
                 if let Some(parent) = self.ctx.active_segment() {
                     self.tree
-                        .blocks()
+                        .blocks_mut()
                         .add_leaf(parent, error.to_string(), full_span);
                 } else {
                     // Top-level errors should still be tracked somehow

@@ -21,16 +21,16 @@ impl BlockTree {
         &self.roots
     }
 
-    pub fn roots_mut(self) -> Vec<BlockId> {
-        self.roots
+    pub fn roots_mut(&mut self) -> &mut Vec<BlockId> {
+        &mut self.roots
     }
 
     pub fn blocks(&self) -> &Blocks {
         &self.blocks
     }
 
-    pub fn blocks_mut(self) -> Blocks {
-        self.blocks
+    pub fn blocks_mut(&mut self) -> &mut Blocks {
+        &mut self.blocks
     }
 }
 
