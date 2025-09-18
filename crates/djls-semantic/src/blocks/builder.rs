@@ -5,44 +5,41 @@ use djls_templates::{
     Node,
 };
 
+use crate::traits::SemanticModel;
 use crate::Db;
 
 use super::{
     nodes::{BlockId, BlockNode, BranchKind},
     shapes::{CloseValidation, TagClass, TagShape, TagShapes},
-    traits::SemanticModel,
     tree::BlockTree,
 };
 
-/// Semantic operations that represent the block structure of a Django template.
-/// These are the semantic facts we discover while analyzing the template.
 #[derive(Debug, Clone)]
 enum BlockSemantics {
     /// Add a root block
     AddRoot { id: BlockId },
-    
     /// Add a branch node (opener or segment) to a block
     AddBranchNode {
-        target: BlockId, // Block to add the node to
+        target: BlockId,
         tag: String,
         marker_span: Span,
-        body: BlockId, // The block this branch points to
+        body: BlockId,
         kind: BranchKind,
     },
     /// Add an error node to a block
     AddErrorNode {
-        target: BlockId, // Block to add the node to
+        target: BlockId,
         message: String,
         span: Span,
     },
     /// Add a leaf node to a block
     AddLeafNode {
-        target: BlockId, // Block to add the node to
+        target: BlockId,
         label: String,
         span: Span,
     },
     /// Extend a block's span to include additional content
-    ExtendSpan { id: BlockId, span: Span },
+    ExtendBlockSpan { id: BlockId, span: Span },
     /// Finalize a block's span to end at a specific position
     FinalizeSpanTo { id: BlockId, end: u32 },
 }
@@ -50,33 +47,29 @@ enum BlockSemantics {
 /// Semantic model builder for Django template block structure.
 /// Builds a BlockTree that represents the hierarchical block structure
 /// and control flow of Django templates.
-pub struct BlockModelBuilder<'db> {
+pub struct BlockTreeBuilder<'db> {
     db: &'db dyn Db,
     shapes: &'db TagShapes,
     stack: Vec<TreeFrame<'db>>,
-    
-    // Allocation metadata - indexed by BlockId value
-    block_allocations: Vec<(Span, Option<BlockId>)>,
-    
-    // Semantic operations to build the tree
+    block_allocs: Vec<(Span, Option<BlockId>)>,
     semantic_ops: Vec<BlockSemantics>,
 }
 
-impl<'db> BlockModelBuilder<'db> {
+impl<'db> BlockTreeBuilder<'db> {
     pub fn new(db: &'db dyn Db, shapes: &'db TagShapes) -> Self {
         Self {
             db,
             shapes,
             stack: Vec::new(),
-            block_allocations: Vec::new(),
+            block_allocs: Vec::new(),
             semantic_ops: Vec::new(),
         }
     }
 
     /// Allocate a new BlockId and track its metadata for later creation
     fn alloc_block_id(&mut self, span: Span, parent: Option<BlockId>) -> BlockId {
-        let id = BlockId::new(self.block_allocations.len() as u32);
-        self.block_allocations.push((span, parent));
+        let id = BlockId::new(self.block_allocs.len() as u32);
+        self.block_allocs.push((span, parent));
         id
     }
 
@@ -85,33 +78,19 @@ impl<'db> BlockModelBuilder<'db> {
         self.semantic_ops.push(op);
     }
 
-    /// Get the currently active segment (the innermost block we're in)
-    fn active_segment(&self) -> Option<BlockId> {
-        self.stack.last().map(|frame| frame.segment_body)
-    }
-
-    /// Find a frame in the stack by opener name
-    fn find_frame(&self, opener_name: &str) -> Option<usize> {
-        self.stack
-            .iter()
-            .rposition(|f| f.opener_name == opener_name)
-    }
-
     /// Apply all semantic operations to build a BlockTree
     fn apply_operations(self) -> BlockTree {
         let mut tree = BlockTree::new();
 
-        // First phase: Allocate all blocks using our metadata
-        // The block_allocations vector is indexed by BlockId value
-        for (span, parent) in self.block_allocations {
+        // Allocate all blocks using metadata
+        for (span, parent) in self.block_allocs {
             if let Some(p) = parent {
-                tree.blocks_mut().alloc_with_parent(span, Some(p));
+                tree.blocks_mut().alloc(span, Some(p));
             } else {
-                tree.blocks_mut().alloc(span);
+                tree.blocks_mut().alloc(span, None);
             }
         }
 
-        // Second phase: Apply all semantic operations
         for op in self.semantic_ops {
             match op {
                 BlockSemantics::AddRoot { id } => {
@@ -139,20 +118,26 @@ impl<'db> BlockModelBuilder<'db> {
                     label,
                     span,
                 } => {
-                    tree.blocks_mut().add_leaf(target, label, span);
+                    tree.blocks_mut()
+                        .push_node(target, BlockNode::Leaf { label, span });
                 }
                 BlockSemantics::AddErrorNode {
                     target,
                     message,
                     span,
                 } => {
-                    tree.blocks_mut().add_error(target, message, span);
+                    tree.blocks_mut()
+                        .push_node(target, BlockNode::Error { message, span });
                 }
-                BlockSemantics::ExtendSpan { id, span } => {
-                    tree.blocks_mut().extend(id, span);
+                BlockSemantics::ExtendBlockSpan { id, span } => {
+                    tree.blocks_mut().extend_block(id, span);
                 }
                 BlockSemantics::FinalizeSpanTo { id, end } => {
-                    tree.blocks_mut().finalize_body_to(id, end);
+                    let block = tree.blocks_mut().block_mut(id);
+                    block.set_span(Span::saturating_from_bounds_usize(
+                        block.span().start() as usize,
+                        end as usize,
+                    ));
                 }
             }
         }
@@ -164,15 +149,16 @@ impl<'db> BlockModelBuilder<'db> {
         let tag_name = name.text(self.db);
         match self.shapes.classify(&tag_name) {
             TagClass::Opener { .. } => {
-                let parent = self.active_segment();
+                let parent = get_active_segment(&self.stack);
 
-                // Allocate BlockIds with their metadata
                 let container = self.alloc_block_id(span, parent);
-                let segment_span = Span::new(span.end().saturating_add(TagDelimiter::LENGTH_U32), 0);
-                let segment = self.alloc_block_id(segment_span, Some(container));
+                let segment = self.alloc_block_id(
+                    Span::new(span.end().saturating_add(TagDelimiter::LENGTH_U32), 0),
+                    Some(container),
+                );
 
                 if let Some(parent_id) = parent {
-                    // Nested block - record operations
+                    // Nested block
                     self.record(BlockSemantics::AddBranchNode {
                         target: parent_id,
                         tag: tag_name.clone(),
@@ -199,13 +185,12 @@ impl<'db> BlockModelBuilder<'db> {
                     });
                 }
 
-                // Phase 3: Use our pre-allocated IDs in the stack frame
                 self.stack.push(TreeFrame {
                     opener_name: tag_name,
                     opener_bits: bits,
                     opener_span: span,
-                    container_body: container, // Use our pre-allocated ID
-                    segment_body: segment,     // Use our pre-allocated ID
+                    container_body: container,
+                    segment_body: segment,
                     parent_body: parent,
                 });
             }
@@ -216,7 +201,7 @@ impl<'db> BlockModelBuilder<'db> {
                 self.add_intermediate(&tag_name, &possible_openers, span);
             }
             TagClass::Unknown => {
-                if let Some(segment) = self.active_segment() {
+                if let Some(segment) = get_active_segment(&self.stack) {
                     self.record(BlockSemantics::AddLeafNode {
                         target: segment,
                         label: tag_name,
@@ -229,7 +214,7 @@ impl<'db> BlockModelBuilder<'db> {
 
     fn close_block(&mut self, opener_name: &str, closer_bits: &[TagBit<'db>], span: Span) {
         // Find the matching frame
-        if let Some(frame_idx) = self.find_frame(opener_name) {
+        if let Some(frame_idx) = find_frame_from_opener(&self.stack, opener_name) {
             // Pop any unclosed blocks above this one
             while self.stack.len() > frame_idx + 1 {
                 if let Some(unclosed) = self.stack.pop() {
@@ -258,7 +243,7 @@ impl<'db> BlockModelBuilder<'db> {
                         end: content_end,
                     });
                     // Extend container to include the closer
-                    self.record(BlockSemantics::ExtendSpan {
+                    self.record(BlockSemantics::ExtendBlockSpan {
                         id: frame.container_body,
                         span,
                     });
@@ -293,7 +278,7 @@ impl<'db> BlockModelBuilder<'db> {
                 }
                 CloseValidation::NotABlock => {
                     // Should not happen as we already classified it
-                    if let Some(segment) = self.active_segment() {
+                    if let Some(segment) = get_active_segment(&self.stack) {
                         self.record(BlockSemantics::AddErrorNode {
                             target: segment,
                             message: format!("Internal error: {opener_name} is not a block"),
@@ -303,7 +288,7 @@ impl<'db> BlockModelBuilder<'db> {
                 }
             }
         } else {
-            if let Some(segment) = self.active_segment() {
+            if let Some(segment) = get_active_segment(&self.stack) {
                 self.record(BlockSemantics::AddErrorNode {
                     target: segment,
                     message: format!("Unexpected closing tag '{opener_name}'"),
@@ -366,7 +351,7 @@ impl<'db> BlockModelBuilder<'db> {
                 if end.optional {
                     // No explicit closer: finalize last segment to end of input (best-effort)
                     // We do not know the real end; leave as-is and extend container by opener span only.
-                    self.record(BlockSemantics::ExtendSpan {
+                    self.record(BlockSemantics::ExtendBlockSpan {
                         id: frame.container_body,
                         span: frame.opener_span,
                     });
@@ -385,6 +370,18 @@ impl<'db> BlockModelBuilder<'db> {
     }
 }
 
+type TreeStack<'db> = Vec<TreeFrame<'db>>;
+
+/// Get the currently active segment (the innermost block we're in)
+fn get_active_segment(stack: &TreeStack) -> Option<BlockId> {
+    stack.last().map(|frame| frame.segment_body)
+}
+
+/// Find a frame in the stack by name
+fn find_frame_from_opener(stack: &TreeStack, opener_name: &str) -> Option<usize> {
+    stack.iter().rposition(|f| f.opener_name == opener_name)
+}
+
 struct TreeFrame<'db> {
     opener_name: String,
     opener_bits: Vec<TagBit<'db>>,
@@ -395,7 +392,7 @@ struct TreeFrame<'db> {
 }
 
 // Implement the SemanticModel trait for BlockModelBuilder
-impl<'db> SemanticModel<'db> for BlockModelBuilder<'db> {
+impl<'db> SemanticModel<'db> for BlockTreeBuilder<'db> {
     type Model = BlockTree;
 
     fn observe(&mut self, node: Node<'db>) {
@@ -404,7 +401,7 @@ impl<'db> SemanticModel<'db> for BlockModelBuilder<'db> {
                 self.handle_tag(name, bits, span);
             }
             Node::Comment { span, .. } => {
-                if let Some(parent) = self.active_segment() {
+                if let Some(parent) = get_active_segment(&self.stack) {
                     self.record(BlockSemantics::AddLeafNode {
                         target: parent,
                         label: "<comment>".into(),
@@ -413,7 +410,7 @@ impl<'db> SemanticModel<'db> for BlockModelBuilder<'db> {
                 }
             }
             Node::Variable { span, .. } => {
-                if let Some(parent) = self.active_segment() {
+                if let Some(parent) = get_active_segment(&self.stack) {
                     self.record(BlockSemantics::AddLeafNode {
                         target: parent,
                         label: "<var>".into(),
@@ -427,7 +424,7 @@ impl<'db> SemanticModel<'db> for BlockModelBuilder<'db> {
             Node::Error {
                 full_span, error, ..
             } => {
-                if let Some(parent) = self.active_segment() {
+                if let Some(parent) = get_active_segment(&self.stack) {
                     self.record(BlockSemantics::AddLeafNode {
                         target: parent,
                         label: error.to_string(),

@@ -33,18 +33,17 @@ impl BlockTree {
         &mut self.blocks
     }
 
-    /// Build a BlockTree from a nodelist (delegates to BlockModelBuilder)
     #[cfg(test)]
     pub fn build(
         db: &dyn crate::Db,
         nodelist: djls_templates::NodeList,
         shapes: &super::shapes::TagShapes,
     ) -> Self {
-        use crate::blocks::traits::SemanticModel;
+        use crate::traits::SemanticModel;
 
-        use super::builder::BlockModelBuilder;
+        use super::builder::BlockTreeBuilder;
 
-        BlockModelBuilder::new(db, shapes).model(db, nodelist)
+        BlockTreeBuilder::new(db, shapes).model(db, nodelist)
     }
 }
 

@@ -123,4 +123,3 @@ impl<'db> TemplateTreeBuilder<'db> for VariableDependencyBuilder<'db> {
     }
 }
 */
-
