@@ -9,8 +9,8 @@ use crate::traits::SemanticModel;
 use crate::Db;
 
 use super::{
+    grammar::{CloseValidation, TagClass, TagIndex},
     nodes::{BlockId, BlockNode, BranchKind},
-    shapes::{CloseValidation, TagClass, TagShape, TagShapes},
     tree::BlockTree,
 };
 
@@ -49,17 +49,17 @@ enum BlockSemantics {
 /// and control flow of Django templates.
 pub struct BlockTreeBuilder<'db> {
     db: &'db dyn Db,
-    shapes: &'db TagShapes,
+    index: &'db TagIndex,
     stack: Vec<TreeFrame<'db>>,
     block_allocs: Vec<(Span, Option<BlockId>)>,
     semantic_ops: Vec<BlockSemantics>,
 }
 
 impl<'db> BlockTreeBuilder<'db> {
-    pub fn new(db: &'db dyn Db, shapes: &'db TagShapes) -> Self {
+    pub fn new(db: &'db dyn Db, index: &'db TagIndex) -> Self {
         Self {
             db,
-            shapes,
+            index,
             stack: Vec::new(),
             block_allocs: Vec::new(),
             semantic_ops: Vec::new(),
@@ -133,11 +133,7 @@ impl<'db> BlockTreeBuilder<'db> {
                     tree.blocks_mut().extend_block(id, span);
                 }
                 BlockSemantics::FinalizeSpanTo { id, end } => {
-                    let block = tree.blocks_mut().block_mut(id);
-                    block.set_span(Span::saturating_from_bounds_usize(
-                        block.span().start() as usize,
-                        end as usize,
-                    ));
+                    tree.blocks_mut().finalize_block_span(id, end);
                 }
             }
         }
@@ -147,8 +143,8 @@ impl<'db> BlockTreeBuilder<'db> {
 
     fn handle_tag(&mut self, name: TagName<'db>, bits: Vec<TagBit<'db>>, span: Span) {
         let tag_name = name.text(self.db);
-        match self.shapes.classify(&tag_name) {
-            TagClass::Opener { .. } => {
+        match self.index.classify(&tag_name) {
+            TagClass::Opener => {
                 let parent = get_active_segment(&self.stack);
 
                 let container = self.alloc_block_id(span, parent);
@@ -232,7 +228,7 @@ impl<'db> BlockTreeBuilder<'db> {
             // Now validate and close
             let frame = self.stack.pop().unwrap();
             match self
-                .shapes
+                .index
                 .validate_close(opener_name, &frame.opener_bits, closer_bits, self.db)
             {
                 CloseValidation::Valid => {
@@ -347,24 +343,22 @@ impl<'db> BlockTreeBuilder<'db> {
         // Close any remaining open blocks
         while let Some(frame) = self.stack.pop() {
             // Check if this block's end tag was optional
-            if let Some(TagShape::Block { end, .. }) = self.shapes.get(&frame.opener_name) {
-                if end.optional {
-                    // No explicit closer: finalize last segment to end of input (best-effort)
-                    // We do not know the real end; leave as-is and extend container by opener span only.
-                    self.record(BlockSemantics::ExtendBlockSpan {
-                        id: frame.container_body,
+            if self.index.is_end_optional(&frame.opener_name) {
+                // No explicit closer: finalize last segment to end of input (best-effort)
+                // We do not know the real end; leave as-is and extend container by opener span only.
+                self.record(BlockSemantics::ExtendBlockSpan {
+                    id: frame.container_body,
+                    span: frame.opener_span,
+                });
+            } else {
+                if let Some(parent) = frame.parent_body {
+                    self.record(BlockSemantics::AddErrorNode {
+                        target: parent,
+                        message: format!("Unclosed block '{}'", frame.opener_name),
                         span: frame.opener_span,
                     });
-                } else {
-                    if let Some(parent) = frame.parent_body {
-                        self.record(BlockSemantics::AddErrorNode {
-                            target: parent,
-                            message: format!("Unclosed block '{}'", frame.opener_name),
-                            span: frame.opener_span,
-                        });
-                    }
-                    // Unclosed root blocks could be tracked separately
                 }
+                // Unclosed root blocks could be tracked separately
             }
         }
     }

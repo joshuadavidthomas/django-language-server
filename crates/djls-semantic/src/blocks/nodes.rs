@@ -65,13 +65,23 @@ impl Blocks {
         self.block_mut(id).extend_span(span);
     }
 
+    pub fn set_block_span(&mut self, id: BlockId, span: Span) {
+        self.block_mut(id).set_span(span);
+    }
+
+    pub fn finalize_block_span(&mut self, id: BlockId, end: u32) {
+        let block = self.block_mut(id);
+        let start = block.span().start();
+        block.set_span(Span::saturating_from_bounds_usize(start as usize, end as usize));
+    }
+
     pub fn push_node(&mut self, target: BlockId, node: BlockNode) {
         let span = node.span();
         self.extend_block(target, span);
         self.block_mut(target).nodes.push(node);
     }
 
-    pub fn block_mut(&mut self, id: BlockId) -> &mut Region {
+    fn block_mut(&mut self, id: BlockId) -> &mut Region {
         let idx = id.index();
         &mut self.0[idx]
     }

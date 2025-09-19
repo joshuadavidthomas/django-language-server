@@ -37,13 +37,13 @@ impl BlockTree {
     pub fn build(
         db: &dyn crate::Db,
         nodelist: djls_templates::NodeList,
-        shapes: &super::shapes::TagShapes,
+        index: &super::grammar::TagIndex,
     ) -> Self {
         use crate::traits::SemanticModel;
 
         use super::builder::BlockTreeBuilder;
 
-        BlockTreeBuilder::new(db, shapes).model(db, nodelist)
+        BlockTreeBuilder::new(db, index).model(db, nodelist)
     }
 }
 
@@ -56,7 +56,7 @@ impl Default for BlockTree {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blocks::shapes::TagShapes;
+    use crate::blocks::grammar::TagIndex;
     use crate::blocks::snapshot::BlockTreeSnapshot;
     use crate::{templatetags::django_builtin_specs, TagSpecs};
     use camino::Utf8Path;
@@ -215,8 +215,8 @@ mod tests {
             NodeListView { nodes }
         };
         insta::assert_yaml_snapshot!("nodelist", nodelist_view);
-        let tag_shapes = TagShapes::from(&db.tag_specs());
-        let block_tree = BlockTree::build(&db, nodelist, &tag_shapes);
+        let tag_index = TagIndex::from(&db.tag_specs());
+        let block_tree = BlockTree::build(&db, nodelist, &tag_index);
         insta::assert_yaml_snapshot!("blocktree", block_tree.to_snapshot());
     }
 }
