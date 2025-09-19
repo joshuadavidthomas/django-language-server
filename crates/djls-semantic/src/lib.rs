@@ -1,6 +1,8 @@
+mod blocks;
 mod db;
 mod errors;
 mod templatetags;
+mod traits;
 mod validation;
 
 pub use db::Db;

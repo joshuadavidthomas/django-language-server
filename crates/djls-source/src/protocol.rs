@@ -1,8 +1,8 @@
 use std::fmt;
 
-use crate::position::ByteOffset;
+use crate::line::LineIndex;
 use crate::position::LineCol;
-use crate::position::LineIndex;
+use crate::position::Offset;
 
 /// Specifies how column positions are counted in text.
 ///
@@ -53,9 +53,9 @@ impl PositionEncoding {
     /// # Examples
     ///
     /// ```
-    /// # use djls_source::{LineIndex, LineCol, ByteOffset, PositionEncoding};
+    /// # use djls_source::{LineIndex, LineCol, Offset, PositionEncoding};
     /// let text = "Hello 🌍 world";
-    /// let index = LineIndex::from_text(text);
+    /// let index = LineIndex::from(text);
     ///
     /// // UTF-16: "Hello " (6) + "🌍" (2 UTF-16 units) = position 8
     /// let offset = PositionEncoding::Utf16.line_col_to_offset(
@@ -63,7 +63,7 @@ impl PositionEncoding {
     ///     LineCol::new(0, 8),
     ///     text
     /// );
-    /// assert_eq!(offset, Some(ByteOffset::new(10))); // "Hello 🌍" is 10 bytes
+    /// assert_eq!(offset, Some(Offset::new(10))); // "Hello 🌍" is 10 bytes
     /// ```
     #[must_use]
     pub fn line_col_to_offset(
@@ -71,18 +71,18 @@ impl PositionEncoding {
         index: &LineIndex,
         line_col: LineCol,
         text: &str,
-    ) -> Option<ByteOffset> {
+    ) -> Option<Offset> {
         let line = line_col.line();
         let character = line_col.column();
 
         // Handle line bounds - if line > line_count, return document length
         let line_start_utf8 = match index.lines().get(line as usize) {
             Some(start) => *start,
-            None => return Some(ByteOffset::from_usize(text.len())),
+            None => return Offset::try_from(text.len()).ok(),
         };
 
         if character == 0 {
-            return Some(ByteOffset::new(line_start_utf8));
+            return Some(Offset::new(line_start_utf8));
         }
 
         let next_line_start = index
@@ -96,14 +96,14 @@ impl PositionEncoding {
         // Fast path optimization for ASCII text, all encodings are equivalent to byte offsets
         if line_text.is_ascii() {
             let char_offset = character.min(u32::try_from(line_text.len()).unwrap_or(u32::MAX));
-            return Some(ByteOffset::new(line_start_utf8 + char_offset));
+            return Some(Offset::new(line_start_utf8 + char_offset));
         }
 
         match self {
             PositionEncoding::Utf8 => {
                 // UTF-8: character positions are already byte offsets
                 let char_offset = character.min(u32::try_from(line_text.len()).unwrap_or(u32::MAX));
-                Some(ByteOffset::new(line_start_utf8 + char_offset))
+                Some(Offset::new(line_start_utf8 + char_offset))
             }
             PositionEncoding::Utf16 => {
                 // UTF-16: count UTF-16 code units
@@ -119,7 +119,7 @@ impl PositionEncoding {
                 }
 
                 // If character position exceeds line length, clamp to line end
-                Some(ByteOffset::new(line_start_utf8 + utf8_pos))
+                Some(Offset::new(line_start_utf8 + utf8_pos))
             }
             PositionEncoding::Utf32 => {
                 // UTF-32: count Unicode code points (characters)
@@ -133,7 +133,7 @@ impl PositionEncoding {
                 }
 
                 // If character position exceeds line length, clamp to line end
-                Some(ByteOffset::new(line_start_utf8 + utf8_pos))
+                Some(Offset::new(line_start_utf8 + utf8_pos))
             }
         }
     }
@@ -153,26 +153,26 @@ mod tests {
     #[test]
     fn test_line_col_to_offset_utf16() {
         let text = "Hello 🌍 world";
-        let index = LineIndex::from_text(text);
+        let index = LineIndex::from(text);
 
         // "Hello " = 6 UTF-16 units, "🌍" = 2 UTF-16 units
         // So position (0, 8) in UTF-16 should be after the emoji
         let offset = PositionEncoding::Utf16
             .line_col_to_offset(&index, LineCol::new(0, 8), text)
             .expect("Should get offset");
-        assert_eq!(offset, ByteOffset::new(10)); // "Hello 🌍" is 10 bytes
+        assert_eq!(offset, Offset::new(10)); // "Hello 🌍" is 10 bytes
 
         // In UTF-8, character 10 would be at the 'r' in 'world'
         let offset_utf8 = PositionEncoding::Utf8
             .line_col_to_offset(&index, LineCol::new(0, 10), text)
             .expect("Should get offset");
-        assert_eq!(offset_utf8, ByteOffset::new(10));
+        assert_eq!(offset_utf8, Offset::new(10));
     }
 
     #[test]
     fn test_line_col_to_offset_ascii_fast_path() {
         let text = "Hello world";
-        let index = LineIndex::from_text(text);
+        let index = LineIndex::from(text);
 
         // For ASCII text, all encodings should give the same result
         let offset_utf8 = PositionEncoding::Utf8
@@ -185,8 +185,8 @@ mod tests {
             .line_col_to_offset(&index, LineCol::new(0, 5), text)
             .expect("Should get offset");
 
-        assert_eq!(offset_utf8, ByteOffset::new(5));
-        assert_eq!(offset_utf16, ByteOffset::new(5));
-        assert_eq!(offset_utf32, ByteOffset::new(5));
+        assert_eq!(offset_utf8, Offset::new(5));
+        assert_eq!(offset_utf16, Offset::new(5));
+        assert_eq!(offset_utf32, Offset::new(5));
     }
 }

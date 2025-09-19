@@ -1,23 +1,63 @@
 use serde::Serialize;
+use thiserror::Error;
 
 /// A byte offset within a text document.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
-pub struct ByteOffset(u32);
+pub struct Offset(u32);
 
-impl ByteOffset {
+impl Offset {
     #[must_use]
     pub fn new(offset: u32) -> Self {
         Self(offset)
     }
 
     #[must_use]
-    pub fn from_usize(offset: usize) -> Self {
-        Self(u32::try_from(offset).unwrap_or(u32::MAX))
-    }
-
-    #[must_use]
-    pub fn offset(&self) -> u32 {
+    pub fn get(&self) -> u32 {
         self.0
+    }
+}
+
+impl From<u32> for Offset {
+    #[inline]
+    fn from(offset: u32) -> Self {
+        Offset(offset)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum OffsetConversionError {
+    #[error("value does not fit into u32")]
+    Overflow,
+}
+
+impl TryFrom<usize> for Offset {
+    type Error = OffsetConversionError;
+
+    #[inline]
+    fn try_from(offset: usize) -> Result<Self, Self::Error> {
+        Ok(Self(
+            u32::try_from(offset).map_err(|_| OffsetConversionError::Overflow)?,
+        ))
+    }
+}
+
+impl AsRef<u32> for Offset {
+    #[inline]
+    fn as_ref(&self) -> &u32 {
+        &self.0
+    }
+}
+
+impl std::borrow::Borrow<u32> for Offset {
+    #[inline]
+    fn borrow(&self) -> &u32 {
+        &self.0
+    }
+}
+
+impl core::fmt::Display for Offset {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        self.0.fmt(f)
     }
 }
 
@@ -45,6 +85,27 @@ impl LineCol {
     }
 }
 
+impl From<(u32, u32)> for LineCol {
+    #[inline]
+    fn from((line, column): (u32, u32)) -> Self {
+        Self { line, column }
+    }
+}
+
+impl From<LineCol> for (u32, u32) {
+    #[inline]
+    fn from(value: LineCol) -> Self {
+        (value.line, value.column)
+    }
+}
+
+impl From<&LineCol> for (u32, u32) {
+    #[inline]
+    fn from(value: &LineCol) -> Self {
+        (value.line, value.column)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 pub struct Span {
     start: u32,
@@ -58,36 +119,6 @@ impl Span {
     }
 
     #[must_use]
-    pub fn from_parts(start: usize, length: usize) -> Self {
-        let start_u32 = u32::try_from(start).unwrap_or(u32::MAX);
-        let length_u32 = u32::try_from(length).unwrap_or(u32::MAX.saturating_sub(start_u32));
-        Span::new(start_u32, length_u32)
-    }
-
-    #[must_use]
-    pub fn with_length_usize(self, length: usize) -> Self {
-        Self::from_parts(self.start_usize(), length)
-    }
-
-    /// Construct a span from integer bounds expressed as byte offsets.
-    #[must_use]
-    pub fn from_bounds(start: usize, end: usize) -> Self {
-        Self::from_parts(start, end.saturating_sub(start))
-    }
-
-    #[must_use]
-    pub fn expand(self, opening: u32, closing: u32) -> Self {
-        let start_expand = self.start.saturating_sub(opening);
-        let length_expand = opening + self.length + closing;
-        Self::new(start_expand, length_expand)
-    }
-
-    #[must_use]
-    pub fn as_tuple(self) -> (u32, u32) {
-        (self.start, self.length)
-    }
-
-    #[must_use]
     pub fn start(self) -> u32 {
         self.start
     }
@@ -95,11 +126,6 @@ impl Span {
     #[must_use]
     pub fn start_usize(self) -> usize {
         self.start as usize
-    }
-
-    #[must_use]
-    pub fn end(self) -> u32 {
-        self.start + self.length
     }
 
     #[must_use]
@@ -113,135 +139,112 @@ impl Span {
     }
 
     #[must_use]
-    pub fn start_offset(&self) -> ByteOffset {
-        ByteOffset(self.start)
+    pub fn end(self) -> u32 {
+        self.start.saturating_add(self.length)
     }
 
     #[must_use]
-    pub fn end_offset(&self) -> ByteOffset {
-        ByteOffset(self.start.saturating_add(self.length))
+    pub fn start_offset(&self) -> Offset {
+        Offset(self.start)
     }
 
-    /// Convert this span to start and end line/column positions using the given line index.
     #[must_use]
-    pub fn to_line_col(&self, line_index: &LineIndex) -> (LineCol, LineCol) {
-        let start = line_index.to_line_col(self.start_offset());
-        let end = line_index.to_line_col(self.end_offset());
-        (start, end)
+    pub fn end_offset(&self) -> Offset {
+        Offset(self.end())
+    }
+
+    #[must_use]
+    pub fn with_length_usize_saturating(self, length: usize) -> Self {
+        let max_length = u32::MAX.saturating_sub(self.start);
+        let length_u32 = u32::try_from(length.min(max_length as usize)).unwrap_or(u32::MAX);
+        Self {
+            start: self.start,
+            length: length_u32,
+        }
+    }
+
+    #[must_use]
+    pub fn saturating_from_parts_usize(start: usize, length: usize) -> Self {
+        let start_u32 = u32::try_from(start.min(u32::MAX as usize)).unwrap_or(u32::MAX);
+        let max_length = u32::MAX.saturating_sub(start_u32);
+        let length_u32 = u32::try_from(length.min(max_length as usize)).unwrap_or(u32::MAX);
+        Self {
+            start: start_u32,
+            length: length_u32,
+        }
+    }
+
+    #[must_use]
+    pub fn saturating_from_bounds_usize(start: usize, end: usize) -> Self {
+        let s32 = u32::try_from(start.min(u32::MAX as usize)).unwrap_or(u32::MAX);
+        let e32 = u32::try_from(end.min(u32::MAX as usize)).unwrap_or(u32::MAX);
+        let (start_u32, end_u32) = if e32 >= s32 { (s32, e32) } else { (s32, s32) };
+        Self {
+            start: start_u32,
+            length: end_u32 - start_u32,
+        }
+    }
+
+    pub fn try_from_bounds_usize(start: usize, end: usize) -> Result<Self, SpanConversionError> {
+        if end < start {
+            return Err(SpanConversionError::EndBeforeStart);
+        }
+        let start_u32 = u32::try_from(start).map_err(|_| SpanConversionError::Overflow)?;
+        let end_u32 = u32::try_from(end).map_err(|_| SpanConversionError::Overflow)?;
+        Ok(Self {
+            start: start_u32,
+            length: end_u32 - start_u32,
+        })
+    }
+
+    #[must_use]
+    pub fn expand(self, opening: u32, closing: u32) -> Self {
+        let start_expand = self.start.saturating_sub(opening);
+        let length_expand = opening + self.length + closing;
+        Self {
+            start: start_expand,
+            length: length_expand,
+        }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LineIndex(Vec<u32>);
-
-impl LineIndex {
-    #[must_use]
-    pub fn from_text(text: &str) -> Self {
-        let mut starts = Vec::with_capacity(256);
-        starts.push(0);
-
-        let bytes = text.as_bytes();
-        let mut i = 0;
-        while i < bytes.len() {
-            match bytes[i] {
-                b'\n' => {
-                    // LF - Unix style line ending
-                    starts.push(u32::try_from(i + 1).unwrap_or_default());
-                    i += 1;
-                }
-                b'\r' => {
-                    // CR - check if followed by LF for Windows style
-                    if i + 1 < bytes.len() && bytes[i + 1] == b'\n' {
-                        // CRLF - Windows style line ending
-                        starts.push(u32::try_from(i + 2).unwrap_or_default());
-                        i += 2;
-                    } else {
-                        // Just CR - old Mac style line ending
-                        starts.push(u32::try_from(i + 1).unwrap_or_default());
-                        i += 1;
-                    }
-                }
-                _ => i += 1,
-            }
-        }
-
-        LineIndex(starts)
-    }
-
-    #[must_use]
-    pub fn to_line_col(&self, offset: ByteOffset) -> LineCol {
-        if self.0.is_empty() {
-            return LineCol::new(0, 0);
-        }
-
-        let line = match self.0.binary_search(&offset.0) {
-            Ok(exact) => exact,
-            Err(0) => 0,
-            Err(next) => next - 1,
-        };
-
-        let line_start = self.0[line];
-        let column = offset.0.saturating_sub(line_start);
-
-        LineCol::new(u32::try_from(line).unwrap_or_default(), column)
-    }
-
-    #[must_use]
-    pub fn line_start(&self, line: u32) -> Option<u32> {
-        self.0.get(line as usize).copied()
-    }
-
-    #[must_use]
-    pub fn lines(&self) -> &[u32] {
-        &self.0
+impl From<(u32, u32)> for Span {
+    #[inline]
+    fn from((start, length): (u32, u32)) -> Self {
+        Self { start, length }
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_line_index_unix_endings() {
-        let text = "line1\nline2\nline3";
-        let index = LineIndex::from_text(text);
-        assert_eq!(index.lines(), &[0, 6, 12]);
+impl From<Span> for (u32, u32) {
+    #[inline]
+    fn from(val: Span) -> Self {
+        (val.start, val.length)
     }
+}
 
-    #[test]
-    fn test_line_index_windows_endings() {
-        let text = "line1\r\nline2\r\nline3";
-        let index = LineIndex::from_text(text);
-        // After "line1\r\n" (7 bytes), next line starts at byte 7
-        // After "line2\r\n" (7 bytes), next line starts at byte 14
-        assert_eq!(index.lines(), &[0, 7, 14]);
+impl From<&Span> for (u32, u32) {
+    #[inline]
+    fn from(val: &Span) -> Self {
+        (val.start, val.length)
     }
+}
 
-    #[test]
-    fn test_line_index_mixed_endings() {
-        let text = "line1\nline2\r\nline3\rline4";
-        let index = LineIndex::from_text(text);
-        // "line1\n" -> next at 6
-        // "line2\r\n" -> next at 13
-        // "line3\r" -> next at 19
-        assert_eq!(index.lines(), &[0, 6, 13, 19]);
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum SpanConversionError {
+    #[error("value does not fit into u32")]
+    Overflow,
+    #[error("end is before start")]
+    EndBeforeStart,
+}
 
-    #[test]
-    fn test_line_index_empty() {
-        let text = "";
-        let index = LineIndex::from_text(text);
-        assert_eq!(index.lines(), &[0]);
-    }
+impl TryFrom<(usize, usize)> for Span {
+    type Error = SpanConversionError;
 
-    #[test]
-    fn test_to_line_col_with_crlf() {
-        let text = "hello\r\nworld";
-        let index = LineIndex::from_text(text);
-
-        // "hello" is 5 bytes, then \r\n, so "world" starts at byte 7
-        assert_eq!(index.to_line_col(ByteOffset(0)), LineCol::new(0, 0));
-        assert_eq!(index.to_line_col(ByteOffset(7)), LineCol::new(1, 0));
-        assert_eq!(index.to_line_col(ByteOffset(8)), LineCol::new(1, 1));
+    #[inline]
+    fn try_from((start, length): (usize, usize)) -> Result<Self, Self::Error> {
+        Ok(Self {
+            start: u32::try_from(start).map_err(|_| SpanConversionError::Overflow)?,
+            length: u32::try_from(length).map_err(|_| SpanConversionError::Overflow)?,
+        })
     }
 }

@@ -1,6 +1,7 @@
 use djls_semantic::ValidationError;
 use djls_source::File;
 use djls_source::LineIndex;
+use djls_source::Offset;
 use djls_source::Span;
 use djls_templates::TemplateError;
 use djls_templates::TemplateErrorAccumulator;
@@ -12,6 +13,30 @@ trait DiagnosticError: std::fmt::Display {
 
     fn message(&self) -> String {
         self.to_string()
+    }
+
+    fn as_diagnostic(&self, line_index: &LineIndex) -> lsp_types::Diagnostic {
+        let range = self
+            .span()
+            .map(|(start, length)| {
+                let span = Span::new(start, length);
+                LspRange::from((&span, line_index)).into()
+            })
+            .unwrap_or_default();
+
+        lsp_types::Diagnostic {
+            range,
+            severity: Some(lsp_types::DiagnosticSeverity::ERROR),
+            code: Some(lsp_types::NumberOrString::String(
+                self.diagnostic_code().to_string(),
+            )),
+            code_description: None,
+            source: Some("Django Language Server".to_string()),
+            message: self.message(),
+            related_information: None,
+            tags: None,
+            data: None,
+        }
     }
 }
 
@@ -32,14 +57,12 @@ impl DiagnosticError for TemplateError {
 impl DiagnosticError for ValidationError {
     fn span(&self) -> Option<(u32, u32)> {
         match self {
-            ValidationError::UnbalancedStructure { opening_span, .. } => {
-                Some(opening_span.as_tuple())
-            }
+            ValidationError::UnbalancedStructure { opening_span, .. } => Some(opening_span.into()),
             ValidationError::UnclosedTag { span, .. }
             | ValidationError::OrphanedTag { span, .. }
             | ValidationError::UnmatchedBlockName { span, .. }
             | ValidationError::MissingRequiredArguments { span, .. }
-            | ValidationError::TooManyArguments { span, .. } => Some(span.as_tuple()),
+            | ValidationError::TooManyArguments { span, .. } => Some(span.into()),
         }
     }
 
@@ -55,47 +78,43 @@ impl DiagnosticError for ValidationError {
     }
 }
 
-/// Convert a Span to an LSP Range using line offsets.
-fn span_to_lsp_range(span: Span, line_index: &LineIndex) -> lsp_types::Range {
-    let (start_pos, end_pos) = span.to_line_col(line_index);
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(transparent)]
+pub struct LspRange(pub lsp_types::Range);
 
-    lsp_types::Range {
-        start: lsp_types::Position {
-            line: start_pos.line(),
-            character: start_pos.column(),
-        },
-        end: lsp_types::Position {
-            line: end_pos.line(),
-            character: end_pos.column(),
-        },
+impl From<(&Span, &LineIndex)> for LspRange {
+    #[inline]
+    fn from((s, line_index): (&Span, &LineIndex)) -> Self {
+        let start = LspPosition::from((s.start_offset(), line_index)).into();
+        let end = LspPosition::from((s.end_offset(), line_index)).into();
+
+        LspRange(lsp_types::Range { start, end })
     }
 }
 
-/// Convert any error implementing `DiagnosticError` to an LSP diagnostic.
-fn error_to_diagnostic(
-    error: &impl DiagnosticError,
-    line_index: &LineIndex,
-) -> lsp_types::Diagnostic {
-    let range = error
-        .span()
-        .map(|(start, length)| {
-            let span = Span::new(start, length);
-            span_to_lsp_range(span, line_index)
-        })
-        .unwrap_or_default();
+impl From<LspRange> for lsp_types::Range {
+    #[inline]
+    fn from(value: LspRange) -> Self {
+        value.0
+    }
+}
 
-    lsp_types::Diagnostic {
-        range,
-        severity: Some(lsp_types::DiagnosticSeverity::ERROR),
-        code: Some(lsp_types::NumberOrString::String(
-            error.diagnostic_code().to_string(),
-        )),
-        code_description: None,
-        source: Some("Django Language Server".to_string()),
-        message: error.message(),
-        related_information: None,
-        tags: None,
-        data: None,
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(transparent)]
+pub struct LspPosition(pub lsp_types::Position);
+
+impl From<(Offset, &LineIndex)> for LspPosition {
+    #[inline]
+    fn from((offset, line_index): (Offset, &LineIndex)) -> Self {
+        let (line, character) = line_index.to_line_col(offset).into();
+        Self(lsp_types::Position { line, character })
+    }
+}
+
+impl From<LspPosition> for lsp_types::Position {
+    #[inline]
+    fn from(value: LspPosition) -> Self {
+        value.0
     }
 }
 
@@ -133,7 +152,7 @@ pub fn collect_diagnostics(
     let line_index = file.line_index(db);
 
     for error_acc in template_errors {
-        diagnostics.push(error_to_diagnostic(&error_acc.0, line_index));
+        diagnostics.push(error_acc.0.as_diagnostic(line_index));
     }
 
     if let Some(nodelist) = nodelist {
@@ -142,7 +161,7 @@ pub fn collect_diagnostics(
         >(db, nodelist);
 
         for error_acc in validation_errors {
-            diagnostics.push(error_to_diagnostic(&error_acc.0, line_index));
+            diagnostics.push(error_acc.0.as_diagnostic(line_index));
         }
     }
 

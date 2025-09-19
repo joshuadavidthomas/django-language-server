@@ -486,6 +486,7 @@ dependencies = [
  "djls-source",
  "djls-templates",
  "djls-workspace",
+ "insta",
  "rustc-hash",
  "salsa",
  "serde",
@@ -527,6 +528,7 @@ dependencies = [
  "camino",
  "salsa",
  "serde",
+ "thiserror 2.0.16",
 ]
 
 [[package]]

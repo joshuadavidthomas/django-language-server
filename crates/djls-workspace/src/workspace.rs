@@ -341,11 +341,11 @@ mod tests {
 
         let line_index = file.line_index(&db);
         assert_eq!(
-            line_index.to_line_col(djls_source::ByteOffset::new(0)),
+            line_index.to_line_col(djls_source::Offset::new(0)),
             djls_source::LineCol::new(0, 0)
         );
         assert_eq!(
-            line_index.to_line_col(djls_source::ByteOffset::new(6)),
+            line_index.to_line_col(djls_source::Offset::new(6)),
             djls_source::LineCol::new(1, 0)
         );
     }

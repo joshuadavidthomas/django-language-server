@@ -50,15 +50,16 @@ mod error;
 mod lexer;
 pub mod nodelist;
 mod parser;
-mod tokens;
+pub mod tokens;
 
 pub use db::Db;
 pub use db::TemplateErrorAccumulator;
 use djls_source::File;
 use djls_source::FileKind;
+use djls_source::Span;
 pub use error::TemplateError;
 pub use lexer::Lexer;
-use nodelist::Node;
+pub use nodelist::Node;
 pub use nodelist::NodeList;
 pub use parser::ParseError;
 pub use parser::Parser;
@@ -106,7 +107,7 @@ pub fn parse_template(db: &dyn Db, file: File) -> Option<NodeList<'_>> {
             TemplateErrorAccumulator(template_error).accumulate(db);
 
             let text = source.as_ref();
-            let span = djls_source::Span::from_bounds(0, text.len());
+            let span = Span::saturating_from_bounds_usize(0, text.len());
             let error_node = Node::Error {
                 span,
                 full_span: span,

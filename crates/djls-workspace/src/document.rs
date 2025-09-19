@@ -32,7 +32,7 @@ pub struct TextDocument {
 impl TextDocument {
     #[must_use]
     pub fn new(content: String, version: i32, language_id: LanguageId) -> Self {
-        let line_index = LineIndex::from_text(&content);
+        let line_index = LineIndex::from(content.as_str());
         Self {
             content,
             version,
@@ -99,7 +99,7 @@ impl TextDocument {
         // Fast path: single change without range = full document replacement
         if changes.len() == 1 && changes[0].range.is_none() {
             self.content.clone_from(&changes[0].text);
-            self.line_index = LineIndex::from_text(&self.content);
+            self.line_index = LineIndex::from(self.content.as_str());
             self.version = version;
             return;
         }
@@ -128,7 +128,7 @@ impl TextDocument {
             }
 
             // Rebuild line index to match the new content state
-            new_line_index = LineIndex::from_text(&new_content);
+            new_line_index = LineIndex::from(new_content.as_str());
         }
 
         // Update all document state at once
@@ -147,7 +147,7 @@ impl TextDocument {
         let line_col = djls_source::LineCol::new(position.line, position.character);
         encoding
             .line_col_to_offset(line_index, line_col, text)
-            .map(|offset| offset.offset())
+            .map(|offset| offset.get())
     }
 }
 

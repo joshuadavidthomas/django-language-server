@@ -88,7 +88,7 @@ impl DjangoLanguageServer {
             return;
         };
 
-        if FileKind::from_path(&path) != FileKind::Template {
+        if FileKind::from(&path) != FileKind::Template {
             return;
         }
 
@@ -270,7 +270,7 @@ impl LanguageServer for DjangoLanguageServer {
         // Clear diagnostics when closing a template file
         if let Some(url) = url {
             if let Some(path) = paths::url_to_path(&url) {
-                if FileKind::from_path(&path) == FileKind::Template {
+                if FileKind::from(&path) == FileKind::Template {
                     let Some(lsp_uri) = paths::url_to_lsp_uri(&url) else {
                         tracing::debug!("Could not convert URL to LSP Uri: {}", url);
                         return;
@@ -307,7 +307,7 @@ impl LanguageServer for DjangoLanguageServer {
                     let document = session.get_document(&url)?;
                     let position = params.text_document_position.position;
                     let encoding = session.position_encoding();
-                    let file_kind = FileKind::from_path(&path);
+                    let file_kind = FileKind::from(&path);
                     let template_tags = session.with_db(|db| {
                         if let Some(project) = db.project() {
                             djls_project::get_templatetags(db, project)
@@ -368,7 +368,7 @@ impl LanguageServer for DjangoLanguageServer {
         };
 
         // Only provide diagnostics for template files
-        let file_kind = FileKind::from_path(url.path().into());
+        let file_kind = FileKind::from(url.path());
         if file_kind != FileKind::Template {
             return Ok(lsp_types::DocumentDiagnosticReportResult::Report(
                 lsp_types::DocumentDiagnosticReport::Full(

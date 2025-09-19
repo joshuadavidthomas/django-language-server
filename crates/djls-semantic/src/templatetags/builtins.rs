@@ -726,16 +726,13 @@ mod tests {
         let specs = django_builtin_specs();
 
         // Verify we have specs loaded
-        assert!(
-            specs.iter().count() > 0,
-            "Should have loaded at least one spec"
-        );
+        assert!(!specs.is_empty(), "Should have loaded at least one spec");
 
         // Check a key tag is present as a smoke test
         assert!(specs.get("if").is_some(), "'if' tag should be present");
 
         // Verify all tag names are non-empty
-        for (name, _) in specs.iter() {
+        for (name, _) in specs {
             assert!(!name.is_empty(), "Tag name should not be empty");
         }
     }

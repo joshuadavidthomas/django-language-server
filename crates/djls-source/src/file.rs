@@ -5,7 +5,7 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 
 use crate::db::Db;
-use crate::position::LineIndex;
+use crate::line::LineIndex;
 
 #[salsa::input]
 pub struct File {
@@ -28,7 +28,7 @@ impl File {
     #[salsa::tracked(returns(ref))]
     pub fn line_index(self, db: &dyn Db) -> LineIndex {
         let text = self.source(db);
-        LineIndex::from_text(text.0.source.as_str())
+        LineIndex::from(text.0.source.as_str())
     }
 }
 
@@ -38,12 +38,8 @@ pub struct SourceText(Arc<SourceTextInner>);
 impl SourceText {
     #[must_use]
     pub fn new(path: &Utf8Path, source: String) -> Self {
-        let encoding = if source.is_ascii() {
-            FileEncoding::Ascii
-        } else {
-            FileEncoding::Utf8
-        };
-        let kind = FileKind::from_path(path);
+        let encoding = FileEncoding::from(source.as_str());
+        let kind = FileKind::from(path);
         Self(Arc::new(SourceTextInner {
             encoding,
             kind,
@@ -99,6 +95,16 @@ pub enum FileEncoding {
     Utf8,
 }
 
+impl From<&str> for FileEncoding {
+    fn from(value: &str) -> Self {
+        if value.is_ascii() {
+            Self::Ascii
+        } else {
+            Self::Utf8
+        }
+    }
+}
+
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 pub enum FileKind {
     Other,
@@ -106,13 +112,29 @@ pub enum FileKind {
     Template,
 }
 
-impl FileKind {
-    /// Determine [`FileKind`] from a file path extension.
-    #[must_use]
-    pub fn from_path(path: &Utf8Path) -> Self {
+impl From<&str> for FileKind {
+    fn from(value: &str) -> Self {
+        match value {
+            "py" => FileKind::Python,
+            "html" | "htm" => FileKind::Template,
+            _ => FileKind::Other,
+        }
+    }
+}
+
+impl From<&Utf8Path> for FileKind {
+    fn from(path: &Utf8Path) -> Self {
         match path.extension() {
-            Some("py") => FileKind::Python,
-            Some("html" | "htm") => FileKind::Template,
+            Some(ext) => Self::from(ext),
+            _ => FileKind::Other,
+        }
+    }
+}
+
+impl From<&Utf8PathBuf> for FileKind {
+    fn from(path: &Utf8PathBuf) -> Self {
+        match path.extension() {
+            Some(ext) => Self::from(ext),
             _ => FileKind::Other,
         }
     }

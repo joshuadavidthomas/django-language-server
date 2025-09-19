@@ -390,7 +390,7 @@ fn generate_tag_name_completions(
         let specs = tag_specs.unwrap();
 
         // Add all end tags that match the partial
-        for (opener_name, spec) in specs.iter() {
+        for (opener_name, spec) in specs {
             if let Some(end_tag) = &spec.end_tag {
                 if end_tag.name.starts_with(partial) {
                     // Create a completion for the end tag

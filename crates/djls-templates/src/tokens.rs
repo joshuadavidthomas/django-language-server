@@ -132,6 +132,7 @@ impl<'db> Token<'db> {
         }
     }
 
+    #[must_use]
     pub fn offset(&self) -> Option<u32> {
         match self {
             Token::Block { span, .. }
@@ -158,9 +159,10 @@ impl<'db> Token<'db> {
             Token::Whitespace { span, .. } | Token::Newline { span, .. } => span.length_usize(),
             Token::Eof => 0,
         };
-        u32::try_from(len).expect("Token length should fit in u32")
+        u32::try_from(len).unwrap_or(u32::MAX)
     }
 
+    #[must_use]
     pub fn full_span(&self) -> Option<Span> {
         match self {
             Token::Block { span, .. }
@@ -176,6 +178,7 @@ impl<'db> Token<'db> {
         }
     }
 
+    #[must_use]
     pub fn content_span(&self) -> Option<Span> {
         match self {
             Token::Block { span, .. }
@@ -245,40 +248,40 @@ pub enum TokenSnapshot {
 
 #[cfg(test)]
 impl<'db> Token<'db> {
+    /// ## Panics
+    ///
+    /// This may panic on the `full_span` calls, but it's only used in testing,
+    /// so it's all good.
     pub fn to_snapshot(&self, db: &'db dyn TemplateDb) -> TokenSnapshot {
         match self {
             Token::Block { span, .. } => TokenSnapshot::Block {
                 content: self.content(db),
-                span: span.as_tuple(),
-                full_span: self.full_span().unwrap().as_tuple(),
+                span: span.into(),
+                full_span: self.full_span().unwrap().into(),
             },
             Token::Comment { span, .. } => TokenSnapshot::Comment {
                 content: self.content(db),
-                span: span.as_tuple(),
-                full_span: self.full_span().unwrap().as_tuple(),
+                span: span.into(),
+                full_span: self.full_span().unwrap().into(),
             },
             Token::Eof => TokenSnapshot::Eof,
             Token::Error { span, .. } => TokenSnapshot::Error {
                 content: self.content(db),
-                span: span.as_tuple(),
-                full_span: self.full_span().unwrap().as_tuple(),
+                span: span.into(),
+                full_span: self.full_span().unwrap().into(),
             },
-            Token::Newline { span } => TokenSnapshot::Newline {
-                span: span.as_tuple(),
-            },
+            Token::Newline { span } => TokenSnapshot::Newline { span: span.into() },
             Token::Text { span, .. } => TokenSnapshot::Text {
                 content: self.content(db),
-                span: span.as_tuple(),
-                full_span: span.as_tuple(),
+                span: span.into(),
+                full_span: span.into(),
             },
             Token::Variable { span, .. } => TokenSnapshot::Variable {
                 content: self.content(db),
-                span: span.as_tuple(),
-                full_span: self.full_span().unwrap().as_tuple(),
+                span: span.into(),
+                full_span: self.full_span().unwrap().into(),
             },
-            Token::Whitespace { span } => TokenSnapshot::Whitespace {
-                span: span.as_tuple(),
-            },
+            Token::Whitespace { span } => TokenSnapshot::Whitespace { span: span.into() },
         }
     }
 }
