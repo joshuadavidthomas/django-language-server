@@ -1,5 +1,4 @@
 use djls_source::Span;
-use serde::Serialize;
 
 use crate::db::Db as TemplateDb;
 use crate::parser::ParseError;

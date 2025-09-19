@@ -132,6 +132,7 @@ impl<'db> Token<'db> {
         }
     }
 
+    #[must_use]
     pub fn offset(&self) -> Option<u32> {
         match self {
             Token::Block { span, .. }
@@ -158,9 +159,10 @@ impl<'db> Token<'db> {
             Token::Whitespace { span, .. } | Token::Newline { span, .. } => span.length_usize(),
             Token::Eof => 0,
         };
-        u32::try_from(len).expect("Token length should fit in u32")
+        u32::try_from(len).unwrap_or(u32::MAX)
     }
 
+    #[must_use]
     pub fn full_span(&self) -> Option<Span> {
         match self {
             Token::Block { span, .. }
@@ -176,6 +178,7 @@ impl<'db> Token<'db> {
         }
     }
 
+    #[must_use]
     pub fn content_span(&self) -> Option<Span> {
         match self {
             Token::Block { span, .. }
@@ -245,6 +248,10 @@ pub enum TokenSnapshot {
 
 #[cfg(test)]
 impl<'db> Token<'db> {
+    /// ## Panics
+    ///
+    /// This may panic on the `full_span` calls, but it's only used in testing,
+    /// so it's all good.
     pub fn to_snapshot(&self, db: &'db dyn TemplateDb) -> TokenSnapshot {
         match self {
             Token::Block { span, .. } => TokenSnapshot::Block {
