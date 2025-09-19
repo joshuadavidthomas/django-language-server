@@ -13,10 +13,14 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 ### Removed - for now removed features
 ### Fixed - for any bug fixes
 ### Security - in case of vulnerabilities
-[${version}]: https://github.com/joshuadavidthomas/django-bird/releases/tag/v${version}
+[${version}]: https://github.com/joshuadavidthomas/django-language-server/releases/tag/v${version}
 -->
 
 ## [Unreleased]
+
+### Changed
+
+- Bumped Rust toolchain from 1.88 to 1.90
 
 ## [5.2.0]
 

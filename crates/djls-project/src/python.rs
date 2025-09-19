@@ -209,7 +209,7 @@ impl fmt::Display for PythonEnvironment {
 ///
 /// This Salsa tracked function discovers the Python environment based on:
 /// 1. Explicit venv path from project config
-/// 2. VIRTUAL_ENV environment variable
+/// 2. `VIRTUAL_ENV` environment variable
 /// 3. Common venv directories in project root (.venv, venv, env, .env)
 /// 4. System Python as fallback
 #[salsa::tracked]
@@ -607,7 +607,7 @@ mod tests {
         use super::*;
         use crate::inspector::pool::InspectorPool;
 
-        /// Test implementation of ProjectDb for unit tests
+        /// Test implementation of `ProjectDb` for unit tests
         #[salsa::db]
         #[derive(Clone)]
         struct TestDatabase {

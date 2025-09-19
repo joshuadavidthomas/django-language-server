@@ -386,40 +386,40 @@ fn generate_tag_name_completions(
 
     // First, check if we should suggest end tags
     // If partial starts with "end", prioritize end tags
-    if partial.starts_with("end") && tag_specs.is_some() {
-        let specs = tag_specs.unwrap();
-
-        // Add all end tags that match the partial
-        for (opener_name, spec) in specs {
-            if let Some(end_tag) = &spec.end_tag {
-                if end_tag.name.starts_with(partial) {
-                    // Create a completion for the end tag
-                    let mut insert_text = String::new();
-                    if needs_space {
-                        insert_text.push(' ');
-                    }
-                    insert_text.push_str(&end_tag.name);
-
-                    // Add closing based on what's already present
-                    match closing {
-                        ClosingBrace::PartialClose | ClosingBrace::None => {
-                            insert_text.push_str(" %}");
+    if partial.starts_with("end") {
+        if let Some(specs) = tag_specs {
+            // Add all end tags that match the partial
+            for (opener_name, spec) in specs {
+                if let Some(end_tag) = &spec.end_tag {
+                    if end_tag.name.starts_with(partial) {
+                        // Create a completion for the end tag
+                        let mut insert_text = String::new();
+                        if needs_space {
+                            insert_text.push(' ');
                         }
-                        ClosingBrace::FullClose => {} // No closing needed
-                    }
+                        insert_text.push_str(&end_tag.name);
 
-                    completions.push(lsp_types::CompletionItem {
-                        label: end_tag.name.to_string(),
-                        kind: Some(lsp_types::CompletionItemKind::KEYWORD),
-                        detail: Some(format!("End tag for {opener_name}")),
-                        text_edit: Some(tower_lsp_server::lsp_types::CompletionTextEdit::Edit(
-                            lsp_types::TextEdit::new(replacement_range, insert_text.clone()),
-                        )),
-                        insert_text_format: Some(lsp_types::InsertTextFormat::PLAIN_TEXT),
-                        filter_text: Some(end_tag.name.to_string()),
-                        sort_text: Some(format!("0_{}", end_tag.name.as_ref())), // Priority sort
-                        ..Default::default()
-                    });
+                        // Add closing based on what's already present
+                        match closing {
+                            ClosingBrace::PartialClose | ClosingBrace::None => {
+                                insert_text.push_str(" %}");
+                            }
+                            ClosingBrace::FullClose => {} // No closing needed
+                        }
+
+                        completions.push(lsp_types::CompletionItem {
+                            label: end_tag.name.to_string(),
+                            kind: Some(lsp_types::CompletionItemKind::KEYWORD),
+                            detail: Some(format!("End tag for {opener_name}")),
+                            text_edit: Some(tower_lsp_server::lsp_types::CompletionTextEdit::Edit(
+                                lsp_types::TextEdit::new(replacement_range, insert_text.clone()),
+                            )),
+                            insert_text_format: Some(lsp_types::InsertTextFormat::PLAIN_TEXT),
+                            filter_text: Some(end_tag.name.to_string()),
+                            sort_text: Some(format!("0_{}", end_tag.name.as_ref())), // Priority sort
+                            ..Default::default()
+                        });
+                    }
                 }
             }
         }

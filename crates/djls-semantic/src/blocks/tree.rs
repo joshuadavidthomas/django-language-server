@@ -17,6 +17,7 @@ impl BlockTree {
         }
     }
 
+    #[allow(dead_code)]
     pub fn roots(&self) -> &Vec<BlockId> {
         &self.roots
     }
@@ -25,6 +26,7 @@ impl BlockTree {
         &mut self.roots
     }
 
+    #[allow(dead_code)]
     pub fn blocks(&self) -> &Blocks {
         &self.blocks
     }

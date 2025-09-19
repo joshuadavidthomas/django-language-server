@@ -12,7 +12,7 @@ use crate::Project;
 /// Get template tags for the current project by querying the inspector.
 ///
 /// This tracked function calls the inspector to retrieve Django template tags
-/// and parses the JSON response into a TemplateTags struct.
+/// and parses the JSON response into a `TemplateTags` struct.
 #[salsa::tracked]
 pub fn get_templatetags(db: &dyn ProjectDb, _project: Project) -> Option<TemplateTags> {
     let json_str = inspector_run(db, Query::Templatetags)?;

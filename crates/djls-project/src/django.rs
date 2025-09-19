@@ -29,8 +29,8 @@ pub fn django_available(db: &dyn ProjectDb, project: Project) -> bool {
 
 /// Get the Django settings module name for the current project.
 ///
-/// Returns the settings_module_override from project, or inspector result,
-/// or DJANGO_SETTINGS_MODULE env var, or attempts to detect it.
+/// Returns the `settings_module_override` from project, or inspector result,
+/// or `DJANGO_SETTINGS_MODULE` env var, or attempts to detect it.
 #[salsa::tracked]
 pub fn django_settings_module(db: &dyn ProjectDb, project: Project) -> Option<String> {
     // Check project override first

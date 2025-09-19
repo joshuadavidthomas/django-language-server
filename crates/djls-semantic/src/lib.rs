@@ -16,7 +16,7 @@ pub use templatetags::TagSpecs;
 
 /// Validate a Django template node list and return validation errors.
 ///
-/// This function runs the TagValidator on the parsed node list to check for:
+/// This function runs the `TagValidator` on the parsed node list to check for:
 /// - Unclosed block tags
 /// - Mismatched tag pairs
 /// - Orphaned intermediate tags
