@@ -1,6 +1,5 @@
-use thiserror::Error;
-
 use serde::Serialize;
+use thiserror::Error;
 
 /// A byte offset within a text document.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]

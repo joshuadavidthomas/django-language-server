@@ -124,8 +124,6 @@ impl SemanticDb for DjangoDatabase {
     fn tag_specs(&self) -> TagSpecs {
         let project_root = self.project_root_or_cwd();
 
-        
-
         match djls_conf::Settings::new(&project_root) {
             Ok(settings) => TagSpecs::from(&settings),
             Err(_) => djls_semantic::django_builtin_specs(),

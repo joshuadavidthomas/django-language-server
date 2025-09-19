@@ -15,7 +15,7 @@ The current Django BlockTree implementation suffers from several architectural i
 The redesign follows these principles:
 
 1. **Data-driven, not code-driven**: The behavior should emerge from the data structure, not from hardcoded logic
-2. **Boring is good**: Verbose but obvious is better than clever and confusing  
+2. **Boring is good**: Verbose but obvious is better than clever and confusing
 3. **Single source of truth**: Define behavior once in the spec, use it everywhere
 4. **Rich types**: Use Rust's type system to encode domain knowledge
 5. **Pre-compute everything**: Build indices once, query them efficiently
@@ -31,7 +31,7 @@ If the end tag has arguments defined, those arguments need to match between open
 ```
 TagSpecDef (djls-conf)           # User-facing YAML/JSON configuration
     ↓
-TagSpec (djls-semantic)          # Internal representation 
+TagSpec (djls-semantic)          # Internal representation
     ↓
 TagShapes (djls-semantic)        # Rich connective layer with pre-computed indices
     ↓
@@ -108,7 +108,7 @@ This is where the magic happens. TagShapes becomes the "brain" that understands 
 pub struct TagShapes {
     // Primary shape storage
     shapes: FxHashMap<String, TagShape>,
-    
+
     // Pre-computed reverse indices for O(1) lookups
     closer_to_opener: FxHashMap<String, String>,
     intermediate_to_openers: FxHashMap<String, Vec<String>>,
@@ -148,16 +148,16 @@ impl TagShapes {
         let mut shapes = FxHashMap::default();
         let mut closer_to_opener = FxHashMap::default();
         let mut intermediate_to_openers = FxHashMap::default();
-        
+
         for (name, spec) in specs {
             let shape = TagShape::from_spec(name, spec);
-            
+
             // Build reverse indices
             match &shape {
                 TagShape::Block { end, intermediates, .. } => {
                     // Map closer -> opener
                     closer_to_opener.insert(end.name.clone(), name.clone());
-                    
+
                     // Map each intermediate -> [openers that allow it]
                     for inter in intermediates {
                         intermediate_to_openers
@@ -168,31 +168,31 @@ impl TagShapes {
                 }
                 TagShape::Leaf { .. } => {}
             }
-            
+
             shapes.insert(name.clone(), shape);
         }
-        
+
         Self { shapes, closer_to_opener, intermediate_to_openers }
     }
-    
+
     /// What kind of tag is this? O(1) lookup
     pub fn classify(&self, tag_name: &str) -> TagClass {
         if let Some(shape) = self.shapes.get(tag_name) {
             return TagClass::Opener { shape: shape.clone() };
         }
         if let Some(opener) = self.closer_to_opener.get(tag_name) {
-            return TagClass::Closer { 
+            return TagClass::Closer {
                 opener_name: opener.clone(),
             };
         }
         if let Some(openers) = self.intermediate_to_openers.get(tag_name) {
-            return TagClass::Intermediate { 
+            return TagClass::Intermediate {
                 possible_openers: openers.clone(),
             };
         }
         TagClass::Unknown
     }
-    
+
     /// Validate a close tag against its opener
     pub fn validate_close(
         &self,
@@ -204,19 +204,19 @@ impl TagShapes {
             Some(s) => s,
             None => return CloseValidation::NotABlock,
         };
-        
+
         match shape {
             TagShape::Block { end, .. } => {
                 // No args to match? Simple close
                 if end.match_args.is_empty() {
                     return CloseValidation::Valid;
                 }
-                
+
                 // Validate each arg that should match
                 for match_arg in &end.match_args {
                     let opener_val = extract_arg_value(opener_bits, match_arg);
                     let closer_val = extract_arg_value(closer_bits, match_arg);
-                    
+
                     match (opener_val, closer_val, match_arg.required) {
                         (Some(o), Some(c), _) if o != c => {
                             return CloseValidation::ArgumentMismatch {
@@ -245,7 +245,7 @@ impl TagShapes {
             TagShape::Leaf { .. } => CloseValidation::NotABlock,
         }
     }
-    
+
     /// Can this intermediate appear in the current context?
     pub fn is_valid_intermediate(&self, inter_name: &str, opener_name: &str) -> bool {
         self.intermediate_to_openers
@@ -303,19 +303,19 @@ impl BlockTree {
             stack: Vec::new(),
         }
     }
-    
+
     /// Build the tree from a nodelist
     pub fn build(db: &dyn Db, nodelist: NodeList, shapes: &TagShapes) -> Self {
         let mut tree = BlockTree::new();
-        
+
         for node in nodelist.nodelist(db).iter().cloned() {
             tree.handle_node(db, node, shapes);
         }
-        
+
         tree.finish();
         tree
     }
-    
+
     fn handle_node(&mut self, db: &dyn Db, node: Node<'_>, shapes: &TagShapes) {
         match node {
             Node::Tag { name, bits, span } => {
@@ -335,15 +335,15 @@ impl BlockTree {
             }
         }
     }
-    
+
     fn handle_tag(&mut self, db: &dyn Db, name: TagName, bits: Vec<TagBit>, span: Span, shapes: &TagShapes) {
         let tag_name = name.text(db);
-        
+
         match self.shapes.classify(tag_name) {
             TagClass::Opener { shape } => {
                 let parent = self.active_segment();
                 let (container, segment) = self.blocks().add_block(parent, tag_name, span);
-                
+
                 self.stack.push(TreeFrame {
                     opener_name: tag_name.to_string(),
                     opener_bits: bits,
@@ -353,7 +353,7 @@ impl BlockTree {
                     parent_body: parent,
                 });
             }
-            
+
             TagClass::Closer { opener_name } => {
                 // Find the matching frame
                 if let Some(frame_idx) = self.find_frame(&opener_name) {
@@ -367,7 +367,7 @@ impl BlockTree {
                             );
                         }
                     }
-                    
+
                     // Now validate and close
                     let frame = self.stack.pop().unwrap();
                     match self.shapes.validate_close(&opener_name, &frame.opener_bits, &bits) {
@@ -392,18 +392,18 @@ impl BlockTree {
                     );
                 }
             }
-            
+
             TagClass::Intermediate { possible_openers } => {
                 self.add_intermediate(tag_name, &possible_openers, span);
             }
-            
+
             TagClass::Unknown => {
                 // Treat as leaf
                 self.blocks.add_leaf(self.active_segment(), tag_name.to_string(), span);
             }
         }
     }
-    
+
     fn close_block(&mut self, opener_name: &str, closer_bits: &[TagBit], span: Span, shapes: &TagShapes) {
         // Find the matching frame
         if let Some(frame_idx) = self.find_frame(opener_name) {
@@ -417,7 +417,7 @@ impl BlockTree {
                     );
                 }
             }
-            
+
             // Now validate and close
             let frame = self.stack.pop().unwrap();
             match shapes.validate_close(opener_name, &frame.opener_bits, closer_bits) {
@@ -465,7 +465,7 @@ impl BlockTree {
             );
         }
     }
-    
+
     fn add_intermediate(&mut self, tag_name: &str, possible_openers: &[String], span: Span) {
         if let Some(frame) = self.stack.last_mut() {
             if possible_openers.contains(&frame.opener_name) {
@@ -487,7 +487,7 @@ impl BlockTree {
             );
         }
     }
-    
+
     fn finish(&mut self) {
         // Close any remaining open blocks
         while let Some(frame) = self.stack.pop() {
@@ -509,12 +509,12 @@ impl BlockTree {
         // Clear the stack as we're done building
         self.stack.clear();
     }
-    
+
     fn find_frame(&self, opener_name: &str) -> Option<usize> {
         self.stack.iter()
             .rposition(|f| f.opener_name == opener_name)
     }
-    
+
     fn active_segment(&self) -> BlockId {
         self.stack
             .last()

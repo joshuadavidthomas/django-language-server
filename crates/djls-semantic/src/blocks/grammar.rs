@@ -1,7 +1,7 @@
+use djls_templates::nodelist::TagBit;
 use rustc_hash::FxHashMap;
 
 use crate::templatetags::TagSpecs;
-use djls_templates::nodelist::TagBit;
 
 /// Index for O(1) tag grammar lookups
 #[derive(Clone, Debug)]
@@ -205,4 +205,3 @@ fn extract_arg_value<'db>(
         None
     }
 }
-

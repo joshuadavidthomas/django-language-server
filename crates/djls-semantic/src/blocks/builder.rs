@@ -1,18 +1,18 @@
 use djls_source::Span;
-use djls_templates::{
-    nodelist::{TagBit, TagName},
-    tokens::TagDelimiter,
-    Node,
-};
+use djls_templates::nodelist::TagBit;
+use djls_templates::nodelist::TagName;
+use djls_templates::tokens::TagDelimiter;
+use djls_templates::Node;
 
+use super::grammar::CloseValidation;
+use super::grammar::TagClass;
+use super::grammar::TagIndex;
+use super::nodes::BlockId;
+use super::nodes::BlockNode;
+use super::nodes::BranchKind;
+use super::tree::BlockTree;
 use crate::traits::SemanticModel;
 use crate::Db;
-
-use super::{
-    grammar::{CloseValidation, TagClass, TagIndex},
-    nodes::{BlockId, BlockNode, BranchKind},
-    tree::BlockTree,
-};
 
 #[derive(Debug, Clone)]
 enum BlockSemantics {

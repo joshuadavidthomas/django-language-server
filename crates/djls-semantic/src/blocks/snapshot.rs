@@ -1,8 +1,11 @@
-use djls_source::Span;
-use serde::Serialize;
 use std::collections::HashSet;
 
-use super::nodes::{BlockId, BlockNode, BranchKind};
+use djls_source::Span;
+use serde::Serialize;
+
+use super::nodes::BlockId;
+use super::nodes::BlockNode;
+use super::nodes::BranchKind;
 use super::tree::BlockTree;
 
 #[derive(Serialize)]

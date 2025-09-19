@@ -39,9 +39,8 @@ impl BlockTree {
         nodelist: djls_templates::NodeList,
         index: &super::grammar::TagIndex,
     ) -> Self {
-        use crate::traits::SemanticModel;
-
         use super::builder::BlockTreeBuilder;
+        use crate::traits::SemanticModel;
 
         BlockTreeBuilder::new(db, index).model(db, nodelist)
     }
@@ -55,17 +54,22 @@ impl Default for BlockTree {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+    use std::sync::Mutex;
+
+    use camino::Utf8Path;
+    use djls_source::File;
+    use djls_source::Span;
+    use djls_templates::parse_template;
+    use djls_templates::Node;
+    use djls_workspace::FileSystem;
+    use djls_workspace::InMemoryFileSystem;
+
     use super::*;
     use crate::blocks::grammar::TagIndex;
     use crate::blocks::snapshot::BlockTreeSnapshot;
-    use crate::{templatetags::django_builtin_specs, TagSpecs};
-    use camino::Utf8Path;
-    use djls_source::{File, Span};
-    use djls_templates::{parse_template, Node};
-    use djls_workspace::FileSystem;
-    use djls_workspace::InMemoryFileSystem;
-    use std::sync::Arc;
-    use std::sync::Mutex;
+    use crate::templatetags::django_builtin_specs;
+    use crate::TagSpecs;
 
     impl BlockTree {
         pub fn to_snapshot(&self) -> BlockTreeSnapshot {
