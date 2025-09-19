@@ -3,7 +3,7 @@ use rustc_hash::FxHashMap;
 
 use crate::templatetags::TagSpecs;
 
-/// Index for O(1) tag grammar lookups
+/// Index for tag grammar lookups
 #[derive(Clone, Debug)]
 pub struct TagIndex {
     /// Opener tags and their end tag metadata
@@ -14,7 +14,6 @@ pub struct TagIndex {
     intermediate_to_openers: FxHashMap<String, Vec<String>>,
 }
 
-/// Metadata about an end tag
 #[derive(Clone, Debug)]
 struct EndMeta {
     optional: bool,
@@ -30,7 +29,6 @@ struct MatchArgSpec {
 }
 
 impl TagIndex {
-    /// Classify a tag by name
     pub fn classify(&self, tag_name: &str) -> TagClass {
         if self.openers.contains_key(tag_name) {
             return TagClass::Opener;
@@ -48,14 +46,12 @@ impl TagIndex {
         TagClass::Unknown
     }
 
-    /// Check if an opener's end tag is optional
     pub fn is_end_optional(&self, opener_name: &str) -> bool {
         self.openers
             .get(opener_name)
             .is_some_and(|meta| meta.optional)
     }
 
-    /// Validate a close tag against its opener
     pub fn validate_close<'db>(
         &self,
         opener_name: &str,
@@ -72,7 +68,6 @@ impl TagIndex {
             return CloseValidation::Valid;
         }
 
-        // Validate each arg that should match
         for match_arg in &meta.match_args {
             let opener_val = extract_arg_value(opener_bits, match_arg.position, db);
             let closer_val = extract_arg_value(closer_bits, match_arg.position, db);
@@ -100,10 +95,10 @@ impl TagIndex {
                 _ => {}
             }
         }
+
         CloseValidation::Valid
     }
 
-    /// Check if an intermediate tag is valid in the current context
     #[allow(dead_code)] // TODO: is this still needed?
     pub fn is_valid_intermediate(&self, inter_name: &str, opener_name: &str) -> bool {
         self.intermediate_to_openers
@@ -120,7 +115,6 @@ impl From<&TagSpecs> for TagIndex {
 
         for (name, spec) in specs {
             if let Some(end_tag) = &spec.end_tag {
-                // Build EndMeta for this opener
                 let match_args = end_tag
                     .args
                     .iter()
@@ -137,13 +131,11 @@ impl From<&TagSpecs> for TagIndex {
                     match_args,
                 };
 
-                // Map opener -> meta
+                // opener -> meta
                 openers.insert(name.clone(), meta);
-
-                // Map closer -> opener
+                // closer -> opener
                 closers.insert(end_tag.name.as_ref().to_owned(), name.clone());
-
-                // Map intermediates -> opener
+                // intermediates -> opener
                 for inter in spec.intermediate_tags.iter() {
                     intermediate_to_openers
                         .entry(inter.name.as_ref().to_owned())
@@ -174,26 +166,25 @@ pub enum TagClass {
     Unknown,
 }
 
-/// Result of validating a close tag
 #[derive(Clone, Debug)]
 pub enum CloseValidation {
-    /// Close is valid
     Valid,
-    /// Not a block tag
     NotABlock,
-    /// Argument value mismatch
     ArgumentMismatch {
         arg: String,
         expected: String,
         got: String,
     },
-    /// Missing required argument
-    MissingRequiredArg { arg: String, expected: String },
-    /// Unexpected argument provided
-    UnexpectedArg { arg: String, got: String },
+    MissingRequiredArg {
+        arg: String,
+        expected: String,
+    },
+    UnexpectedArg {
+        arg: String,
+        got: String,
+    },
 }
 
-/// Extract argument value from tag bits by position
 fn extract_arg_value<'db>(
     bits: &[TagBit<'db>],
     position: usize,

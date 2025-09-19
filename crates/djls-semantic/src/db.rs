@@ -9,6 +9,5 @@ pub trait Db: TemplateDb {
     fn tag_specs(&self) -> TagSpecs;
 }
 
-/// Accumulator for validation errors
 #[salsa::accumulator]
 pub struct ValidationErrorAccumulator(pub ValidationError);

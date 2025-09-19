@@ -8,6 +8,8 @@ use super::nodes::BlockNode;
 use super::nodes::BranchKind;
 use super::tree::BlockTree;
 
+// TODO: centralize salsa struct snapshots so this mess can be shared
+
 #[derive(Serialize)]
 pub struct BlockTreeSnapshot {
     roots: Vec<u32>,

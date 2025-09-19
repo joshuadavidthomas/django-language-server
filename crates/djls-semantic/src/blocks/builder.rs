@@ -16,9 +16,9 @@ use crate::Db;
 
 #[derive(Debug, Clone)]
 enum BlockSemantics {
-    /// Add a root block
-    AddRoot { id: BlockId },
-    /// Add a branch node (opener or segment) to a block
+    AddRoot {
+        id: BlockId,
+    },
     AddBranchNode {
         target: BlockId,
         tag: String,
@@ -26,27 +26,26 @@ enum BlockSemantics {
         body: BlockId,
         kind: BranchKind,
     },
-    /// Add an error node to a block
     AddErrorNode {
         target: BlockId,
         message: String,
         span: Span,
     },
-    /// Add a leaf node to a block
     AddLeafNode {
         target: BlockId,
         label: String,
         span: Span,
     },
-    /// Extend a block's span to include additional content
-    ExtendBlockSpan { id: BlockId, span: Span },
-    /// Finalize a block's span to end at a specific position
-    FinalizeSpanTo { id: BlockId, end: u32 },
+    ExtendBlockSpan {
+        id: BlockId,
+        span: Span,
+    },
+    FinalizeSpanTo {
+        id: BlockId,
+        end: u32,
+    },
 }
 
-/// Semantic model builder for Django template block structure.
-/// Builds a `BlockTree` that represents the hierarchical block structure
-/// and control flow of Django templates.
 pub struct BlockTreeBuilder<'db> {
     db: &'db dyn Db,
     index: &'db TagIndex,
@@ -72,11 +71,6 @@ impl<'db> BlockTreeBuilder<'db> {
         let id = BlockId::new(u32::try_from(self.block_allocs.len()).unwrap_or_default());
         self.block_allocs.push((span, parent));
         id
-    }
-
-    /// Record a semantic operation to be applied later
-    fn record(&mut self, op: BlockSemantics) {
-        self.semantic_ops.push(op);
     }
 
     /// Apply all semantic operations to build a `BlockTree`
@@ -156,14 +150,14 @@ impl<'db> BlockTreeBuilder<'db> {
 
                 if let Some(parent_id) = parent {
                     // Nested block
-                    self.record(BlockSemantics::AddBranchNode {
+                    self.semantic_ops.push(BlockSemantics::AddBranchNode {
                         target: parent_id,
                         tag: tag_name.clone(),
                         marker_span: span,
                         body: container,
                         kind: BranchKind::Opener,
                     });
-                    self.record(BlockSemantics::AddBranchNode {
+                    self.semantic_ops.push(BlockSemantics::AddBranchNode {
                         target: container,
                         tag: tag_name.clone(),
                         marker_span: span,
@@ -172,8 +166,9 @@ impl<'db> BlockTreeBuilder<'db> {
                     });
                 } else {
                     // Root block
-                    self.record(BlockSemantics::AddRoot { id: container });
-                    self.record(BlockSemantics::AddBranchNode {
+                    self.semantic_ops
+                        .push(BlockSemantics::AddRoot { id: container });
+                    self.semantic_ops.push(BlockSemantics::AddBranchNode {
                         target: container,
                         tag: tag_name.clone(),
                         marker_span: span,
@@ -199,7 +194,7 @@ impl<'db> BlockTreeBuilder<'db> {
             }
             TagClass::Unknown => {
                 if let Some(segment) = get_active_segment(&self.stack) {
-                    self.record(BlockSemantics::AddLeafNode {
+                    self.semantic_ops.push(BlockSemantics::AddLeafNode {
                         target: segment,
                         label: tag_name,
                         span,
@@ -210,13 +205,12 @@ impl<'db> BlockTreeBuilder<'db> {
     }
 
     fn close_block(&mut self, opener_name: &str, closer_bits: &[TagBit<'db>], span: Span) {
-        // Find the matching frame
         if let Some(frame_idx) = find_frame_from_opener(&self.stack, opener_name) {
             // Pop any unclosed blocks above this one
             while self.stack.len() > frame_idx + 1 {
                 if let Some(unclosed) = self.stack.pop() {
                     if let Some(parent) = unclosed.parent_body {
-                        self.record(BlockSemantics::AddErrorNode {
+                        self.semantic_ops.push(BlockSemantics::AddErrorNode {
                             target: parent,
                             message: format!("Unclosed block '{}'", unclosed.opener_name),
                             span: unclosed.opener_span,
@@ -226,7 +220,7 @@ impl<'db> BlockTreeBuilder<'db> {
                 }
             }
 
-            // Now validate and close
+            // validate and close
             let frame = self.stack.pop().unwrap();
             match self
                 .index
@@ -235,18 +229,18 @@ impl<'db> BlockTreeBuilder<'db> {
                 CloseValidation::Valid => {
                     // Finalize the last segment body to end just before the closer marker
                     let content_end = span.start().saturating_sub(TagDelimiter::LENGTH_U32);
-                    self.record(BlockSemantics::FinalizeSpanTo {
+                    self.semantic_ops.push(BlockSemantics::FinalizeSpanTo {
                         id: frame.segment_body,
                         end: content_end,
                     });
-                    // Extend container to include the closer
-                    self.record(BlockSemantics::ExtendBlockSpan {
+                    // Extend to include closer
+                    self.semantic_ops.push(BlockSemantics::ExtendBlockSpan {
                         id: frame.container_body,
                         span,
                     });
                 }
                 CloseValidation::ArgumentMismatch { arg, expected, got } => {
-                    self.record(BlockSemantics::AddErrorNode {
+                    self.semantic_ops.push(BlockSemantics::AddErrorNode {
                         target: frame.segment_body,
                         message: format!(
                             "Argument '{arg}' mismatch: expected '{expected}', got '{got}'"
@@ -256,7 +250,7 @@ impl<'db> BlockTreeBuilder<'db> {
                     self.stack.push(frame); // Restore frame
                 }
                 CloseValidation::MissingRequiredArg { arg, expected } => {
-                    self.record(BlockSemantics::AddErrorNode {
+                    self.semantic_ops.push(BlockSemantics::AddErrorNode {
                         target: frame.segment_body,
                         message: format!(
                             "Missing required argument '{arg}': expected '{expected}'"
@@ -266,7 +260,7 @@ impl<'db> BlockTreeBuilder<'db> {
                     self.stack.push(frame);
                 }
                 CloseValidation::UnexpectedArg { arg, got } => {
-                    self.record(BlockSemantics::AddErrorNode {
+                    self.semantic_ops.push(BlockSemantics::AddErrorNode {
                         target: frame.segment_body,
                         message: format!("Unexpected argument '{arg}' with value '{got}'"),
                         span,
@@ -276,7 +270,7 @@ impl<'db> BlockTreeBuilder<'db> {
                 CloseValidation::NotABlock => {
                     // Should not happen as we already classified it
                     if let Some(segment) = get_active_segment(&self.stack) {
-                        self.record(BlockSemantics::AddErrorNode {
+                        self.semantic_ops.push(BlockSemantics::AddErrorNode {
                             target: segment,
                             message: format!("Internal error: {opener_name} is not a block"),
                             span,
@@ -285,7 +279,7 @@ impl<'db> BlockTreeBuilder<'db> {
                 }
             }
         } else if let Some(segment) = get_active_segment(&self.stack) {
-            self.record(BlockSemantics::AddErrorNode {
+            self.semantic_ops.push(BlockSemantics::AddErrorNode {
                 target: segment,
                 message: format!("Unexpected closing tag '{opener_name}'"),
                 span,
@@ -301,17 +295,16 @@ impl<'db> BlockTreeBuilder<'db> {
                 let segment_to_finalize = frame.segment_body;
                 let container = frame.container_body;
 
-                self.record(BlockSemantics::FinalizeSpanTo {
+                self.semantic_ops.push(BlockSemantics::FinalizeSpanTo {
                     id: segment_to_finalize,
                     end: content_end,
                 });
 
-                // Phase 3: Pre-allocate ID for new segment
                 let body_start = span.end().saturating_add(TagDelimiter::LENGTH_U32);
                 let new_segment_id = self.alloc_block_id(Span::new(body_start, 0), Some(container));
 
                 // Add the branch node for the new segment
-                self.record(BlockSemantics::AddBranchNode {
+                self.semantic_ops.push(BlockSemantics::AddBranchNode {
                     target: container,
                     tag: tag_name.to_string(),
                     marker_span: span,
@@ -319,37 +312,34 @@ impl<'db> BlockTreeBuilder<'db> {
                     kind: BranchKind::Segment,
                 });
 
-                // Phase 3: Update the frame with our pre-allocated ID
                 self.stack.last_mut().unwrap().segment_body = new_segment_id;
             } else {
                 let segment = frame.segment_body;
                 let opener_name = frame.opener_name.clone();
 
-                self.record(BlockSemantics::AddErrorNode {
+                self.semantic_ops.push(BlockSemantics::AddErrorNode {
                     target: segment,
                     message: format!("'{tag_name}' is not valid in '{opener_name}'"),
                     span,
                 });
             }
         } else {
-            // Intermediate tag at top level - this is an error but we have nowhere to put it
+            // Intermediate tag at top level - this is an error
             // Could track this in a separate error list
         }
     }
 
     fn finish(&mut self) {
-        // Close any remaining open blocks
         while let Some(frame) = self.stack.pop() {
-            // Check if this block's end tag was optional
             if self.index.is_end_optional(&frame.opener_name) {
                 // No explicit closer: finalize last segment to end of input (best-effort)
                 // We do not know the real end; leave as-is and extend container by opener span only.
-                self.record(BlockSemantics::ExtendBlockSpan {
+                self.semantic_ops.push(BlockSemantics::ExtendBlockSpan {
                     id: frame.container_body,
                     span: frame.opener_span,
                 });
             } else if let Some(parent) = frame.parent_body {
-                self.record(BlockSemantics::AddErrorNode {
+                self.semantic_ops.push(BlockSemantics::AddErrorNode {
                     target: parent,
                     message: format!("Unclosed block '{}'", frame.opener_name),
                     span: frame.opener_span,
@@ -380,7 +370,6 @@ struct TreeFrame<'db> {
     parent_body: Option<BlockId>, // Can be None for root blocks
 }
 
-// Implement the SemanticModel trait for BlockModelBuilder
 impl<'db> SemanticModel<'db> for BlockTreeBuilder<'db> {
     type Model = BlockTree;
 
@@ -391,7 +380,7 @@ impl<'db> SemanticModel<'db> for BlockTreeBuilder<'db> {
             }
             Node::Comment { span, .. } => {
                 if let Some(parent) = get_active_segment(&self.stack) {
-                    self.record(BlockSemantics::AddLeafNode {
+                    self.semantic_ops.push(BlockSemantics::AddLeafNode {
                         target: parent,
                         label: "<comment>".into(),
                         span,
@@ -400,27 +389,25 @@ impl<'db> SemanticModel<'db> for BlockTreeBuilder<'db> {
             }
             Node::Variable { span, .. } => {
                 if let Some(parent) = get_active_segment(&self.stack) {
-                    self.record(BlockSemantics::AddLeafNode {
+                    self.semantic_ops.push(BlockSemantics::AddLeafNode {
                         target: parent,
                         label: "<var>".into(),
                         span,
                     });
                 }
             }
-            Node::Text { .. } => {
-                // Skip text nodes - we only care about Django constructs
-            }
             Node::Error {
                 full_span, error, ..
             } => {
                 if let Some(parent) = get_active_segment(&self.stack) {
-                    self.record(BlockSemantics::AddLeafNode {
+                    self.semantic_ops.push(BlockSemantics::AddLeafNode {
                         target: parent,
                         label: error.to_string(),
                         span: full_span,
                     });
                 }
             }
+            Node::Text { .. } => {} // Skip text nodes - we only care about Django constructs
         }
     }
 
