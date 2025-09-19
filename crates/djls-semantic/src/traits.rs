@@ -12,6 +12,7 @@ pub trait SemanticModel<'db> {
     type Model;
 
     /// Build the semantic model from a nodelist
+    #[allow(dead_code)] // use is gated behind cfg(test) for now
     fn model(mut self, db: &'db dyn Db, nodelist: NodeList<'db>) -> Self::Model
     where
         Self: Sized,
@@ -24,9 +25,11 @@ pub trait SemanticModel<'db> {
     }
 
     /// Observe a single node during traversal and extract semantic information
+    #[allow(dead_code)] // use is gated behind cfg(test) for now
     fn observe(&mut self, node: Node<'db>);
 
     /// Construct the final semantic model from observed semantics
+    #[allow(dead_code)] // use is gated behind cfg(test) for now
     fn construct(self) -> Self::Model;
 }
 

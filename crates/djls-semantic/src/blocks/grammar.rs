@@ -104,6 +104,7 @@ impl TagIndex {
     }
 
     /// Check if an intermediate tag is valid in the current context
+    #[allow(dead_code)] // TODO: is this still needed?
     pub fn is_valid_intermediate(&self, inter_name: &str, opener_name: &str) -> bool {
         self.intermediate_to_openers
             .get(inter_name)
@@ -204,3 +205,4 @@ fn extract_arg_value<'db>(
         None
     }
 }
+

@@ -13,6 +13,7 @@ pub struct BlockTreeSnapshot {
 }
 
 impl From<&BlockTree> for BlockTreeSnapshot {
+    #[allow(clippy::too_many_lines)]
     fn from(tree: &BlockTree) -> Self {
         let mut container_ids: HashSet<u32> = HashSet::new();
         let mut body_ids: HashSet<u32> = HashSet::new();
@@ -98,17 +99,18 @@ impl From<&BlockTree> for BlockTreeSnapshot {
             .into_iter()
             .enumerate()
             .map(|(i, _)| {
-                let mut cur = BlockId::new(i as u32);
+                let mut cur = BlockId::new(u32::try_from(i).unwrap_or(u32::MAX));
                 // climb via snapshot-internal parent pointers
                 loop {
                     // safety: we have no direct parent access in snapshot; infer by scanning containers
                     // If any Branch points to `cur` as body, that region's parent is its container id
                     let mut parent: Option<BlockId> = None;
                     for (j, b) in tree.blocks().into_iter().enumerate() {
-                        for n in b.nodes().iter() {
+                        for n in b.nodes() {
                             if let BlockNode::Branch { body, .. } = n {
                                 if body.index() == cur.index() {
-                                    parent = Some(BlockId::new(j as u32));
+                                    parent =
+                                        Some(BlockId::new(u32::try_from(j).unwrap_or(u32::MAX)));
                                     break;
                                 }
                             }

@@ -56,7 +56,7 @@ impl<'a> IntoIterator for &'a mut Blocks {
 
 impl Blocks {
     pub fn alloc(&mut self, span: Span, parent: Option<BlockId>) -> BlockId {
-        let id = BlockId(self.0.len() as u32);
+        let id = BlockId(u32::try_from(self.0.len()).unwrap_or_default());
         self.0.push(Region::new(span, parent));
         id
     }
@@ -72,7 +72,10 @@ impl Blocks {
     pub fn finalize_block_span(&mut self, id: BlockId, end: u32) {
         let block = self.block_mut(id);
         let start = block.span().start();
-        block.set_span(Span::saturating_from_bounds_usize(start as usize, end as usize));
+        block.set_span(Span::saturating_from_bounds_usize(
+            start as usize,
+            end as usize,
+        ));
     }
 
     pub fn push_node(&mut self, target: BlockId, node: BlockNode) {

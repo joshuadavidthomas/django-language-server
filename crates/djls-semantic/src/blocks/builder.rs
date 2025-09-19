@@ -45,7 +45,7 @@ enum BlockSemantics {
 }
 
 /// Semantic model builder for Django template block structure.
-/// Builds a BlockTree that represents the hierarchical block structure
+/// Builds a `BlockTree` that represents the hierarchical block structure
 /// and control flow of Django templates.
 pub struct BlockTreeBuilder<'db> {
     db: &'db dyn Db,
@@ -66,9 +66,9 @@ impl<'db> BlockTreeBuilder<'db> {
         }
     }
 
-    /// Allocate a new BlockId and track its metadata for later creation
+    /// Allocate a new `BlockId` and track its metadata for later creation
     fn alloc_block_id(&mut self, span: Span, parent: Option<BlockId>) -> BlockId {
-        let id = BlockId::new(self.block_allocs.len() as u32);
+        let id = BlockId::new(u32::try_from(self.block_allocs.len()).unwrap_or_default());
         self.block_allocs.push((span, parent));
         id
     }
@@ -78,7 +78,7 @@ impl<'db> BlockTreeBuilder<'db> {
         self.semantic_ops.push(op);
     }
 
-    /// Apply all semantic operations to build a BlockTree
+    /// Apply all semantic operations to build a `BlockTree`
     fn apply_operations(self) -> BlockTree {
         let mut tree = BlockTree::new();
 
@@ -283,15 +283,12 @@ impl<'db> BlockTreeBuilder<'db> {
                     }
                 }
             }
-        } else {
-            if let Some(segment) = get_active_segment(&self.stack) {
-                self.record(BlockSemantics::AddErrorNode {
-                    target: segment,
-                    message: format!("Unexpected closing tag '{opener_name}'"),
-                    span,
-                });
-            }
-            // Top-level closing tags without openers could be tracked separately
+        } else if let Some(segment) = get_active_segment(&self.stack) {
+            self.record(BlockSemantics::AddErrorNode {
+                target: segment,
+                message: format!("Unexpected closing tag '{opener_name}'"),
+                span,
+            });
         }
     }
 
@@ -329,7 +326,7 @@ impl<'db> BlockTreeBuilder<'db> {
 
                 self.record(BlockSemantics::AddErrorNode {
                     target: segment,
-                    message: format!("'{}' is not valid in '{}'", tag_name, opener_name),
+                    message: format!("'{tag_name}' is not valid in '{opener_name}'"),
                     span,
                 });
             }
@@ -350,15 +347,12 @@ impl<'db> BlockTreeBuilder<'db> {
                     id: frame.container_body,
                     span: frame.opener_span,
                 });
-            } else {
-                if let Some(parent) = frame.parent_body {
-                    self.record(BlockSemantics::AddErrorNode {
-                        target: parent,
-                        message: format!("Unclosed block '{}'", frame.opener_name),
-                        span: frame.opener_span,
-                    });
-                }
-                // Unclosed root blocks could be tracked separately
+            } else if let Some(parent) = frame.parent_body {
+                self.record(BlockSemantics::AddErrorNode {
+                    target: parent,
+                    message: format!("Unclosed block '{}'", frame.opener_name),
+                    span: frame.opener_span,
+                });
             }
         }
     }
