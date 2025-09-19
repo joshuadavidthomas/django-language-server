@@ -56,6 +56,7 @@ pub struct BlockTreeBuilder<'db> {
 }
 
 impl<'db> BlockTreeBuilder<'db> {
+    #[allow(dead_code)] // use is gated behind cfg(test) for now
     pub fn new(db: &'db dyn Db, index: &'db TagIndex) -> Self {
         Self {
             db,
