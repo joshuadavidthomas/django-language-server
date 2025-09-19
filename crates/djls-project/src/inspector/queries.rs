@@ -13,6 +13,7 @@ pub enum Query {
 
 #[derive(Serialize, Deserialize)]
 #[allow(clippy::struct_field_names)]
+#[allow(dead_code)]
 pub struct PythonEnvironmentQueryData {
     pub sys_base_prefix: Utf8PathBuf,
     pub sys_executable: Utf8PathBuf,
@@ -24,6 +25,7 @@ pub struct PythonEnvironmentQueryData {
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[allow(dead_code)]
 pub enum VersionReleaseLevel {
     Alpha,
     Beta,
@@ -32,11 +34,13 @@ pub enum VersionReleaseLevel {
 }
 
 #[derive(Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct TemplateTagQueryData {
     pub templatetags: Vec<TemplateTag>,
 }
 
 #[derive(Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct TemplateTag {
     pub name: String,
     pub module: String,

@@ -11,6 +11,7 @@ use super::tree::BlockTree;
 // TODO: centralize salsa struct snapshots so this mess can be shared
 
 #[derive(Serialize)]
+#[allow(dead_code)]
 pub struct BlockTreeSnapshot {
     roots: Vec<u32>,
     root_ids: Vec<u32>,
@@ -143,6 +144,7 @@ impl From<&BlockTree> for BlockTreeSnapshot {
 
 #[derive(Serialize)]
 #[serde(tag = "kind")]
+#[allow(dead_code)]
 pub enum BlockSnapshot {
     Container {
         container_span: Span,
@@ -156,6 +158,7 @@ pub enum BlockSnapshot {
 
 #[derive(Serialize)]
 #[serde(tag = "node")]
+#[allow(dead_code)]
 pub enum BlockNodeSnapshot {
     Branch {
         block_id: u32,
