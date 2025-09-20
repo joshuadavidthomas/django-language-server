@@ -1,6 +1,5 @@
-use serde::Serialize;
-
 use djls_source::Span;
+use serde::Serialize;
 
 #[derive(Clone, Debug, Serialize)]
 pub struct BlockTree {
