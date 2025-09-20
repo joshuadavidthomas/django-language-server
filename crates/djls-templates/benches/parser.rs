@@ -1,5 +1,7 @@
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
@@ -49,6 +51,15 @@ impl BenchDb {
             .expect("sources lock poisoned")
             .insert(path.clone(), contents.to_string());
         File::new(self, path, 0)
+    }
+
+    fn set_file_contents(&mut self, file: File, contents: &str, revision: u64) {
+        let path = file.path(self);
+        self.sources
+            .lock()
+            .expect("sources lock poisoned")
+            .insert(path.clone(), contents.to_string());
+        file.set_revision(self, revision);
     }
 }
 
@@ -123,5 +134,66 @@ fn bench_parse_template(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_lexing, bench_parse_template);
+fn bench_incremental_parse(c: &mut Criterion) {
+    let mut group = c.benchmark_group("parse_template_incremental");
+    group.sample_size(40);
+    group.measurement_time(Duration::from_secs(6));
+
+    for fixture in fixtures::lex_parse_fixtures().into_iter().take(3) {
+        let path = fixture.file_path();
+        let contents = fixture.contents.clone();
+        let alternate = format!(
+            "{}\n{{% comment %}}bench-toggle{{% endcomment %}}",
+            contents
+        );
+
+        // Cached retrieval benchmark
+        let mut warm_db = BenchDb::new();
+        let warm_file = warm_db.file_with_contents(path.clone(), contents.as_str());
+        let _ = djls_templates::parse_template(&warm_db, warm_file);
+        let cached_name = format!("{} (cached)", fixture.name);
+        group.bench_function(cached_name, {
+            let warm_db = warm_db;
+            move |b| {
+                b.iter(|| {
+                    black_box(djls_templates::parse_template(&warm_db, warm_file));
+                });
+            }
+        });
+
+        // Incremental edit benchmark
+        let db = Rc::new(RefCell::new(BenchDb::new()));
+        let file = {
+            let mut db_mut = db.borrow_mut();
+            db_mut.file_with_contents(path.clone(), contents.as_str())
+        };
+        let incremental_name = format!("{} (edit)", fixture.name);
+        group.bench_function(incremental_name, move |b| {
+            let db = Rc::clone(&db);
+            let base = contents.clone();
+            let alt = alternate.clone();
+            let mut revision = 1u64;
+            let mut toggle = false;
+
+            b.iter(|| {
+                let mut db_mut = db.borrow_mut();
+                let text = if toggle { base.as_str() } else { alt.as_str() };
+                toggle = !toggle;
+                db_mut.set_file_contents(file, text, revision);
+                revision = revision.wrapping_add(1);
+                let result = djls_templates::parse_template(&*db_mut, file);
+                black_box(result);
+            });
+        });
+    }
+
+    group.finish();
+}
+
+criterion_group!(
+    benches,
+    bench_lexing,
+    bench_parse_template,
+    bench_incremental_parse
+);
 criterion_main!(benches);

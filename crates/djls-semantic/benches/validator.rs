@@ -1,5 +1,7 @@
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
@@ -53,6 +55,15 @@ impl BenchDb {
             .insert(path.clone(), contents.to_string());
         File::new(self, path, 0)
     }
+
+    fn set_file_contents(&mut self, file: File, contents: &str, revision: u64) {
+        let path = file.path(self);
+        self.sources
+            .lock()
+            .expect("sources lock poisoned")
+            .insert(path.clone(), contents.to_string());
+        file.set_revision(self, revision);
+    }
 }
 
 #[salsa::db]
@@ -93,7 +104,7 @@ fn bench_validation(c: &mut Criterion) {
             b.iter_batched(
                 move || {
                     let mut db = BenchDb::new();
-                    let file = db.file_with_contents(path.clone(), &contents);
+                    let file = db.file_with_contents(path.clone(), contents.as_str());
                     (db, file)
                 },
                 |(db, file)| {
@@ -113,5 +124,76 @@ fn bench_validation(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_validation);
+fn bench_validation_incremental(c: &mut Criterion) {
+    let mut group = c.benchmark_group("validate_nodelist_incremental");
+    group.sample_size(40);
+    group.measurement_time(Duration::from_secs(6));
+
+    for fixture in fixtures::lex_parse_fixtures().into_iter().take(3) {
+        let path = fixture.file_path();
+        let contents = fixture.contents.clone();
+        let alternate = format!(
+            "{}\n{{% comment %}}bench-toggle{{% endcomment %}}",
+            contents
+        );
+
+        // Cached validation benchmark
+        let mut warm_db = BenchDb::new();
+        let warm_file = warm_db.file_with_contents(path.clone(), contents.as_str());
+        if let Some(nodelist) = djls_templates::parse_template(&warm_db, warm_file) {
+            djls_semantic::validate_nodelist(&warm_db, nodelist);
+            let cached_name = format!("{} (cached)", fixture.name);
+            group.bench_function(cached_name, {
+                let warm_db = warm_db;
+                move |b| {
+                    b.iter(|| {
+                        if let Some(nodelist) = djls_templates::parse_template(&warm_db, warm_file)
+                        {
+                            djls_semantic::validate_nodelist(&warm_db, nodelist);
+                            let errors = djls_semantic::validate_nodelist::accumulated::<
+                                ValidationErrorAccumulator,
+                            >(&warm_db, nodelist);
+                            black_box(errors);
+                        }
+                    });
+                }
+            });
+        }
+
+        // Incremental edit benchmark
+        let db = Rc::new(RefCell::new(BenchDb::new()));
+        let file = {
+            let mut db_mut = db.borrow_mut();
+            db_mut.file_with_contents(path.clone(), contents.as_str())
+        };
+        let incremental_name = format!("{} (edit)", fixture.name);
+        group.bench_function(incremental_name, move |b| {
+            let db = Rc::clone(&db);
+            let base = contents.clone();
+            let alt = alternate.clone();
+            let mut revision = 1u64;
+            let mut toggle = false;
+
+            b.iter(|| {
+                let mut db_mut = db.borrow_mut();
+                let text = if toggle { base.as_str() } else { alt.as_str() };
+                toggle = !toggle;
+                db_mut.set_file_contents(file, text, revision);
+                revision = revision.wrapping_add(1);
+
+                if let Some(nodelist) = djls_templates::parse_template(&*db_mut, file) {
+                    djls_semantic::validate_nodelist(&*db_mut, nodelist);
+                    let errors = djls_semantic::validate_nodelist::accumulated::<
+                        ValidationErrorAccumulator,
+                    >(&*db_mut, nodelist);
+                    black_box(errors);
+                }
+            });
+        });
+    }
+
+    group.finish();
+}
+
+criterion_group!(benches, bench_validation, bench_validation_incremental);
 criterion_main!(benches);
