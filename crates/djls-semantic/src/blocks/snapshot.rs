@@ -3,10 +3,10 @@ use std::collections::HashSet;
 use djls_source::Span;
 use serde::Serialize;
 
-use super::nodes::BlockId;
-use super::nodes::BlockNode;
-use super::nodes::BranchKind;
+use super::tree::BlockId;
+use super::tree::BlockNode;
 use super::tree::BlockTree;
+use super::tree::BranchKind;
 
 // TODO: centralize salsa struct snapshots so this mess can be shared
 
