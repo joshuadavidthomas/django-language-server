@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block content %}
+  <div class="board" data-view="{{ view_mode }}">
+    {% if show_header %}
+      <header>
+        <h1>{{ project.name }}</h1>
+        <p>{{ project.summary }}</p>
+        <button data-action="refresh">{% trans "Refresh" %}</button>
+      </header>
+    {% endif %}
+
+    <nav class="filters">
+      {% for state in states %}
+        <button data-state="{{ state.key }}" class="{% if state.active %}is-active{% endif %}">
+          {{ state.label }}
+        </button>
+      {% endfor %}
+    </nav>
+
+    <section class="swimlanes">
+      {% for lane in project.swimlanes %}
+        <article class="lane" data-lane="{{ lane.slug }}">
+          <header>
+            <h2>{{ lane.title }}</h2>
+            <span class="count">{{ lane.cards|length }}</span>
+            {% if lane.can_add %}
+              <button data-action="" aria-label="Add card"></button>
+            {% endif %}
+          </header>
+
+          <ul class="cards">
+            {% for card in lane.cards %}
+              <li data-card="{{ card.id }}" class="card {% if card.blocked %}is-blocked{% endif %}">
+                <div class="card__title">{{ card.title }}</div>
+                <div class="card__meta">
+                  <span>{{ card.owner|default:"Unassigned" }}</span>
+                  <span>{{ card.due_at|date:"M j" }}</span>
+                </div>
+                {% if card.description %}
+                  <p class="card__body">{{ card.description|truncatechars:160 }}</p>
+                {% endif %}
+                {% include "components/card-footer.html" with card=card %}
+              </li>
+            {% empty %}
+              <li class="card card--empty">{% trans "No work items" %}</li>
+            {% endfor %}
+          </ul>
+        </article>
+      {% empty %}
+        <p class="board__empty">{% trans "No swimlanes configured" %}</p>
+      {% endfor %}
+    </section>
+
+    <footer class="board__footer">
+      {% if project.has_more %}
+        <button data-action="paginate" data-next="{{ project.next_cursor }}">
+          {% trans "Load more" %}
+        </button>
+      {% else %}
+        <span>{% trans "End of results" %}</span>
+      {% endif %}
+    </footer>
+  </div>
+{% endblock %}

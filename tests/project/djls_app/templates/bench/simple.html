@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block content %}
+  <h1>{{ page_title|default:"Dashboard" }}</h1>
+  <p>Welcome, {{ user.first_name }}!</p>
+  {% if alerts %}
+    <ul class="alerts">
+      {% for alert in alerts %}
+        <li class="{{ alert.level }}">{{ alert.message }}</li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p>No alerts right now.</p>
+  {% endif %}
+{% endblock %}

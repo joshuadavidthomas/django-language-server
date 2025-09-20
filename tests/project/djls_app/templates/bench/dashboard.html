@@ -1,0 +1,66 @@
+{% extends "layout.html" %}
+{% load humanize %}
+
+{% block content %}
+  <header class="page-header">
+    <h1>{{ project.name }} Overview</h1>
+    <p class="muted">Last updated {{ project.updated_at|naturaltime }}</p>
+  </header>
+
+  <section class="stats">
+    <div class="stat">
+      <span class="value">{{ project.open_tasks }}</span>
+      <span class="label">Open Tasks</span>
+    </div>
+    <div class="stat">
+      <span class="value">{{ project.completed_tasks }}</span>
+      <span class="label">Completed</span>
+    </div>
+    <div class="stat">
+      <span class="value">{{ project.members|length }}</span>
+      <span class="label">Team Members</span>
+    </div>
+  </section>
+
+  {% include "components/progress.html" with progress=project.progress %}
+
+  <section class="board">
+    {% for column in project.columns %}
+      <article class="column">
+        <header>
+          <h2>{{ column.name }}</h2>
+          <span class="count">{{ column.cards|length }}</span>
+        </header>
+        <ul class="cards">
+          {% for card in column.cards %}
+            <li class="card{% if card.blocked %} is-blocked{% endif %}">
+              <h3>{{ card.title }}</h3>
+              <p>{{ card.summary }}</p>
+              <footer>
+                <span class="assignee">{{ card.assignee|default:"Unassigned" }}</span>
+                <span class="timestamp">{{ card.updated_at|naturaltime }}</span>
+              </footer>
+            </li>
+          {% empty %}
+            <li class="card empty">No work items in this column.</li>
+          {% endfor %}
+        </ul>
+      </article>
+    {% endfor %}
+  </section>
+
+  <section class="activity">
+    <h2>Recent Activity</h2>
+    <ul>
+      {% for event in project.activity|slice:":25" %}
+        <li>
+          <span class="who">{{ event.actor.get_full_name }}</span>
+          <span class="what">{{ event.description }}</span>
+          <time datetime="{{ event.timestamp|date:'c' }}">{{ event.timestamp|naturaltime }}</time>
+        </li>
+      {% empty %}
+        <li>No activity to show.</li>
+      {% endfor %}
+    </ul>
+  </section>
+{% endblock %}

@@ -1,0 +1,52 @@
+{% block content %}
+  {% if feature_flags.navigation %}
+    <nav class="crumbs">
+      {% for crumb in breadcrumbs %}
+        <a href="{{ crumb.url }}">{{ crumb.label }}</a>
+        {% if not forloop.last %}<span>/</span>{% endif %}
+      {% empty %}
+        <span>{% trans "Home" %}</span>
+      {% endfor %}
+    </nav>
+  {% endif %}
+
+  {% for widget in widgets %}
+    <section id="widget-{{ widget.slug }}">
+      {% if widget.title %}
+        <h2>{{ widget.title }}</h2>
+      {% endif %}
+      {% if widget.show_summary %}
+        <p>{{ widget.summary }}</p>
+      {% endif %}
+
+      {% if widget.items %}
+        <ul>
+          {% for item in widget.items %}
+            <li>
+              <span>{{ item.label }}</span>
+              {% if item.status == "ok" %}
+                <strong class="status is-ok">OK</strong>
+              {% elif item.status == "warn" %}
+                <strong class="status is-warn">WARN</strong>
+              {% else %}
+                <strong class="status is-error">ERR</strong>
+              {% endif %}
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="empty">{% trans "Nothing to display" %}</p>
+      {% endif %}
+    </section>
+  {% empty %}
+    <section class="placeholder">
+      {% if user.is_authenticated %}
+        <p>{% trans "No widgets configured yet." %}</p>
+      {% else %}
+        <p>{% trans "Sign in to configure widgets." %}</p>
+      {% endif %}
+    </section>
+  {% endfor %}
+
+  {% include "components/support-links.html" %}
+{% endblock %}

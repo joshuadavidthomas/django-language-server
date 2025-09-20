@@ -1,0 +1,14 @@
+version = 1
+
+[[workflows]]
+name = "benchmarks"
+command = [
+  "nox",
+  "-s",
+  "bench",
+  "--",
+  "--features",
+  "codspeed",
+  "--",
+  "--codspeed"
+]

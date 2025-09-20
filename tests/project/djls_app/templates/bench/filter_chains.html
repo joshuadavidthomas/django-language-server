@@ -1,0 +1,43 @@
+{% block content %}
+  <table class="metrics">
+    <thead>
+      <tr>
+        <th>{% trans "Metric" %}</th>
+        <th>{% trans "Value" %}</th>
+        <th>{% trans "Trend" %}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for metric in metrics %}
+        <tr>
+          <td>{{ metric.name|capfirst }}</td>
+          <td>
+            {{ metric.value|default_if_none:"0"|floatformat:2|intcomma }}
+          </td>
+          <td>
+            {{ metric.trend|default:"flat"|lower|slice:":12"|slugify }}
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <section class="notes">
+    {% for note in notes %}
+      <article>
+        <h2>{{ note.title|default:""|title }}</h2>
+        <div class="body">
+          {{ note.body|default:""|linebreaksbr|truncatewords_html:60|safe }}
+        </div>
+        <footer>
+          <span>{{ note.author|default:""|striptags|truncatechars:24 }}</span>
+          <time datetime="{{ note.created_at|date:'c' }}">
+            {{ note.created_at|naturaltime|default:"" }}
+          </time>
+        </footer>
+      </article>
+    {% empty %}
+      <p>{% trans "No notes available." %}</p>
+    {% endfor %}
+  </section>
+{% endblock %}

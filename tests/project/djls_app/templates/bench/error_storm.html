@@ -1,0 +1,45 @@
+{% block content %}
+  {% if project.is_active %}
+    <section>
+      <h1>{{ project.title }}</h1>
+      {% for task in project.tasks %}
+        <article>
+          <h2>{{ task.title }}</h2>
+          {% if task.assignee %}
+            <p>{{ task.assignee.full_name }}</p>
+          {% else %}
+            <p>{{ UNKNOWN_USER }}</p>
+          {% endif %}
+          {% if task.subtasks %}
+            <ul>
+              {% for subtask in task.subtasks %}
+                <li>{% if subtask.done %}✓{% endif %} {{ subtask.title }}</li>
+              {% empty %}
+                <li>{% trans "No subtasks" %}</li>
+            {% endfor %}
+          {% endif %}
+          {% if task.notes %}
+            <div class="notes">
+              {{ task.notes|safe }
+            </div>
+          {% endif %}
+        </article>
+      {% endfor %}
+    </section>
+  {% else %}
+    <p>{% trans "Project disabled" %}</p>
+  {% endif %}
+
+  {% if project.unbalanced %}
+    {% if project.needs_review %}
+      {% else %}
+    {% endif %}
+  {% endif %}
+
+  {% for orphan in project.orphans %}
+    {% if orphan %}
+      {% else %}
+  {% endfor %}
+
+  {% include "components/missing-end.html" with data=project %}
+{% endblock %}

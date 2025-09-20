@@ -3,6 +3,10 @@ name = "djls-templates"
 version = "0.0.0"
 edition = "2021"
 
+[features]
+default = []
+codspeed = ["codspeed-criterion-compat"]
+
 [dependencies]
 djls-conf = { workspace = true }
 djls-source = { workspace = true }
@@ -13,11 +17,17 @@ salsa = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 toml = { workspace = true }
+codspeed-criterion-compat = { workspace = true, optional = true }
 
 [dev-dependencies]
 camino = { workspace = true }
 insta = { workspace = true }
 tempfile = { workspace = true }
+criterion = { workspace = true }
+
+[[bench]]
+name = "parser"
+harness = false
 
 [lints]
 workspace = true

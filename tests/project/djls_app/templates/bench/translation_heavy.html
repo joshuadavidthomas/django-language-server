@@ -1,0 +1,33 @@
+{% load i18n %}
+<section class="hero">
+  {% blocktrans with name=user.get_short_name %}
+    Welcome back, {{ name }}.
+  {% endblocktrans %}
+
+  {% blocktrans trimmed with count=notifications|length %}
+    You have {{ count }} notification.
+  {% plural %}
+    You have {{ count }} notifications.
+  {% endblocktrans %}
+
+  <form method="post">
+    {% csrf_token %}
+    <label for="lang">{% trans "Language" %}</label>
+    <select id="lang" name="language">
+      {% for code, label in languages %}
+        <option value="{{ code }}" {% if code == active %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit">{% trans "Apply" %}</button>
+  </form>
+</section>
+
+<section class="faq">
+  {% for faq in faqs %}
+    {% blocktrans with question=faq.question answer=faq.answer %}
+      Question: {{ question }}. Answer: {{ answer }}.
+    {% endblocktrans %}
+  {% empty %}
+    <p>{% trans "No FAQs available." %}</p>
+  {% endfor %}
+</section>

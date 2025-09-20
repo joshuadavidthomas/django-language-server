@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import platform
 import re
 from pathlib import Path
 
@@ -186,6 +185,56 @@ def cog(session):
         external=True,
         silent=True,
     )
+
+
+@nox.session(python=PY_LATEST)
+def bench(session):
+    django_version = DJ_LATEST
+
+    session.run_install(
+        "uv",
+        "sync",
+        "--frozen",
+        "--inexact",
+        "--no-install-package",
+        "django",
+        "--python",
+        session.python,
+        env={"UV_PROJECT_ENVIRONMENT": session.virtualenv.location},
+    )
+
+    if django_version == DJMAIN:
+        session.install(
+            "django @ https://github.com/django/django/archive/refs/heads/main.zip"
+        )
+    else:
+        session.install(f"django=={django_version}")
+
+    python_executable = Path(session.bin) / (
+        "python.exe" if os.name == "nt" else "python"
+    )
+
+    posargs = list(session.posargs)
+
+    def run_bench(package: str) -> None:
+        command = ["cargo", "bench", "-p", package, *posargs]
+        session.run(
+            *command,
+            external=True,
+            env={**os.environ, "DJLS_BENCH_PYTHON": str(python_executable)},
+        )
+
+    if any(arg in {"-p", "--package", "--all", "--workspace"} for arg in posargs):
+        session.run(
+            "cargo",
+            "bench",
+            *posargs,
+            external=True,
+            env={**os.environ, "DJLS_BENCH_PYTHON": str(python_executable)},
+        )
+    else:
+        for package in ("djls-templates", "djls-semantic"):
+            run_bench(package)
 
 
 @nox.session

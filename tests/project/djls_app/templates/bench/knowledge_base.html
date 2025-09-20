@@ -1,0 +1,126 @@
+{% extends "knowledge/layout.html" %}
+{% block sidebar %}
+  <nav class="toc">
+    <ul>
+      {% for section in knowledge_base.sections %}
+        <li class="section">
+          <a href="#{{ section.slug }}">{{ section.title }}</a>
+          <ul>
+            {% for article in section.articles %}
+              <li>
+                <a href="#{{ article.slug }}">{{ article.title }}</a>
+              </li>
+            {% endfor %}
+          </ul>
+        </li>
+      {% endfor %}
+    </ul>
+  </nav>
+{% endblock %}
+
+{% block content %}
+  <section class="hero">
+    <h1>{{ knowledge_base.title }}</h1>
+    <p>{{ knowledge_base.summary }}</p>
+    <form method="get" action="{% url 'knowledge-search' %}">
+      <input type="search" name="q" value="{{ request.GET.q }}" placeholder="Search articles" />
+    </form>
+  </section>
+
+  {% for section in knowledge_base.sections %}
+    <section id="{{ section.slug }}" class="section">
+      <header>
+        <h2>{{ section.title }}</h2>
+        <p>{{ section.description }}</p>
+      </header>
+      {% for article in section.articles %}
+        <article id="{{ article.slug }}" class="article">
+          <header>
+            <h3>{{ article.title }}</h3>
+            <p class="meta">
+              {% if article.author %}
+                {{ article.author.get_full_name }} •
+              {% endif %}
+              {{ article.updated_at|date:"F j, Y" }} •
+              {{ article.read_time }} min read
+            </p>
+            <ul class="tags">
+              {% for tag in article.tags %}
+                <li><a href="{% url 'knowledge-tag' tag.slug %}">#{{ tag.name }}</a></li>
+              {% endfor %}
+            </ul>
+          </header>
+          <div class="content">
+            {% for block in article.body %}
+              {% if block.type == 'paragraph' %}
+                <p>{{ block.value }}</p>
+              {% elif block.type == 'code' %}
+                <pre><code class="language-{{ block.language }}">{{ block.value }}</code></pre>
+              {% elif block.type == 'note' %}
+                <aside class="note note-{{ block.style }}">{{ block.value }}</aside>
+              {% elif block.type == 'image' %}
+                <figure>
+                  <img src="{{ block.url }}" alt="{{ block.alt }}" />
+                  {% if block.caption %}
+                    <figcaption>{{ block.caption }}</figcaption>
+                  {% endif %}
+                </figure>
+              {% endif %}
+            {% endfor %}
+          </div>
+          <footer class="article-footer">
+            <div class="reactions">
+              {% for reaction in article.reactions %}
+                <button type="submit" name="reaction" value="{{ reaction.kind }}">
+                  {{ reaction.label }}
+                  <span class="count">{{ reaction.count }}</span>
+                </button>
+              {% endfor %}
+            </div>
+            <div class="links">
+              <a href="{% url 'knowledge-feedback' article.slug %}">Give feedback</a>
+              <a href="{{ article.source_url }}" target="_blank" rel="noopener">View source</a>
+            </div>
+          </footer>
+        </article>
+      {% empty %}
+        <p>No articles in this section yet.</p>
+      {% endfor %}
+    </section>
+  {% empty %}
+    <p>No sections found.</p>
+  {% endfor %}
+
+  <section class="faq">
+    <h2>Frequently Asked Questions</h2>
+    <dl>
+      {% for faq in knowledge_base.faqs %}
+        <dt id="faq-{{ forloop.counter }}">{{ faq.question }}</dt>
+        <dd aria-labelledby="faq-{{ forloop.counter }}">{{ faq.answer }}</dd>
+      {% empty %}
+        <dt>No FAQs yet.</dt>
+      {% endfor %}
+    </dl>
+  </section>
+
+  <section class="feedback">
+    <h2>Still looking for answers?</h2>
+    <form method="post" action="{% url 'knowledge-feedback-form' %}">
+      {% csrf_token %}
+      {{ feedback_form.non_field_errors }}
+      <div class="field">
+        {{ feedback_form.email.label_tag }}
+        {{ feedback_form.email }}
+      </div>
+      <div class="field">
+        {{ feedback_form.topic.label_tag }}
+        {{ feedback_form.topic }}
+      </div>
+      <div class="field">
+        {{ feedback_form.message.label_tag }}
+        {{ feedback_form.message }}
+      </div>
+      <button type="submit" class="button">Submit</button>
+    </form>
+  </section>
+{% endblock %}

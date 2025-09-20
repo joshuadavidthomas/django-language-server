@@ -1,0 +1,40 @@
+{% load cache highlight markdown extra_tags %}
+{% cache 300 project_cache_key project.id %}
+<article class="project-detail">
+  <header>
+    <h1>{{ project.title|titlecase }}</h1>
+    <p>{{ project.subtitle|default:"" }}</p>
+    {% breadcrumb project as crumb_list %}
+    <nav class="breadcrumb">
+      {% for crumb in crumb_list %}
+        <a href="{{ crumb.url }}">{{ crumb.label }}</a>
+        {% if not forloop.last %}<span>/</span>{% endif %}
+      {% endfor %}
+    </nav>
+  </header>
+
+  {% tabset project.tabs as tabs %}
+    {% for tab in tabs %}
+      {% tab tab.label %}
+        {% render_widget tab.component with project=project user=request.user %}
+      {% endtab %}
+    {% endfor %}
+  {% endtabset %}
+
+  <section class="summary">
+    {% markdown %}
+    {{ project.summary_markdown }}
+    {% endmarkdown %}
+  </section>
+
+  <section class="activity">
+    {% for entry in project.timeline|slice:":20" %}
+      <div class="activity-entry">
+        {% highlight entry.diff language "diff" %}
+      </div>
+    {% empty %}
+      <p>{% trans "No activity yet." %}</p>
+    {% endfor %}
+  </section>
+</article>
+{% endcache %}

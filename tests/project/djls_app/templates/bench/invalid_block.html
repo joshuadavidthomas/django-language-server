@@ -1,0 +1,16 @@
+{% block main %}
+  <h1>{{ title }}</h1>
+  {% if items %}
+    <ul>
+      {% for item in items %}
+        <li>{{ item.name }}</li>
+      {% if item.children %}
+        <ul>
+          {% for child in item.children %}
+            <li>{{ child }}</li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+    </ul>
+  {% endif %}
+  {% comment %} Missing {% endblock main %} on purpose {% endcomment %}

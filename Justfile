@@ -42,3 +42,12 @@ test *ARGS:
 
 testall *ARGS:
     @just nox tests {{ ARGS }}
+
+bench-templates *ARGS:
+    cargo bench -p djls-templates --features bench {{ ARGS }}
+
+bench-semantic *ARGS:
+    cargo bench -p djls-semantic --features bench {{ ARGS }}
+
+bench-codspeed:
+    nox -s bench -- --features codspeed -- --codspeed

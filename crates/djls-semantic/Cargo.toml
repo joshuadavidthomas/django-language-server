@@ -3,6 +3,10 @@ name = "djls-semantic"
 version = "0.0.0"
 edition = "2021"
 
+[features]
+default = []
+codspeed = ["codspeed-criterion-compat"]
+
 [dependencies]
 djls-conf = { workspace = true }
 djls-source = { workspace = true }
@@ -14,10 +18,16 @@ rustc-hash = { workspace = true }
 salsa = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
+codspeed-criterion-compat = { workspace = true, optional = true }
 
 [dev-dependencies]
 insta = { workspace = true }
 tempfile = { workspace = true }
+criterion = { workspace = true }
+
+[[bench]]
+name = "validator"
+harness = false
 
 [lints]
 workspace = true
