@@ -3,7 +3,8 @@ use std::fs;
 use std::io;
 use std::sync::OnceLock;
 
-use camino::{Utf8Path, Utf8PathBuf};
+use camino::Utf8Path;
+use camino::Utf8PathBuf;
 
 #[derive(Clone)]
 pub(crate) struct TemplateFixture {

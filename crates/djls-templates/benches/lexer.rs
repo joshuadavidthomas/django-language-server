@@ -2,7 +2,8 @@ mod db;
 mod fixtures;
 
 use divan::Bencher;
-use fixtures::{template_fixtures, TemplateFixture};
+use fixtures::template_fixtures;
+use fixtures::TemplateFixture;
 
 fn main() {
     divan::main();
