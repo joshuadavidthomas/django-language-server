@@ -2,7 +2,8 @@ mod support;
 
 use divan::Bencher;
 use support::db::Db;
-use support::fixtures::{template_fixtures, TemplateFixture};
+use support::fixtures::template_fixtures;
+use support::fixtures::TemplateFixture;
 
 fn main() {
     divan::main();
