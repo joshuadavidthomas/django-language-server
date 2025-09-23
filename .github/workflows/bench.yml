@@ -1,0 +1,32 @@
+name: bench
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  benchmarks:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - uses: actions-rust-lang/setup-rust-toolchain@2fcdc490d667999e01ddbbf0f2823181beef6b39
+        with:
+          toolchain: stable
+
+      - run: cargo install cargo-codspeed --locked
+
+      - name: Build the benchmark target(s)
+        run: cargo codspeed build
+
+      - name: Run the benchmarks
+        uses: CodSpeedHQ/action@653fdc30e6c40ffd9739e40c8a0576f4f4523ca1
+        with:
+          mode: instrumentation
+          run: cargo codspeed run

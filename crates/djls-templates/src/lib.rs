@@ -68,7 +68,7 @@ use tokens::TokenStream;
 
 /// Lex a template file into tokens.
 #[salsa::tracked]
-fn lex_template(db: &dyn Db, file: File) -> TokenStream<'_> {
+pub fn lex_template(db: &dyn Db, file: File) -> TokenStream<'_> {
     let source = file.source(db);
     if *source.kind() != FileKind::Template {
         return TokenStream::new(db, vec![]);

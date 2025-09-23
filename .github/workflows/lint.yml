@@ -76,7 +76,7 @@ jobs:
           components: clippy
 
       - name: Run clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy --all-targets --all-features --benches -- -D warnings
 
   cargo-check:
     runs-on: ubuntu-24.04

@@ -16,8 +16,13 @@ toml = { workspace = true }
 
 [dev-dependencies]
 camino = { workspace = true }
+divan = { workspace = true }
 insta = { workspace = true }
 tempfile = { workspace = true }
+
+[[bench]]
+name = "lexer"
+harness = false
 
 [lints]
 workspace = true
