@@ -1,9 +1,8 @@
-mod db;
-mod fixtures;
+mod support;
 
 use divan::Bencher;
-use fixtures::template_fixtures;
-use fixtures::TemplateFixture;
+use support::db::Db;
+use support::fixtures::{template_fixtures, TemplateFixture};
 
 fn main() {
     divan::main();
@@ -11,7 +10,7 @@ fn main() {
 
 #[divan::bench(args = template_fixtures())]
 fn lex_template_fixture(fixture: &TemplateFixture) {
-    let mut db = db::Db::new();
+    let mut db = Db::new();
     let file = db.file_with_contents(fixture.path.clone(), &fixture.source);
     let tokens = djls_templates::lex_template(&db, file);
     divan::black_box(tokens.stream(&db).len());
@@ -21,7 +20,7 @@ fn lex_template_fixture(fixture: &TemplateFixture) {
 fn lex_all_templates(bencher: Bencher) {
     let fixtures = template_fixtures();
     bencher.bench_local(|| {
-        let mut db = db::Db::new();
+        let mut db = Db::new();
         for fixture in fixtures {
             let file = db.file_with_contents(fixture.path.clone(), &fixture.source);
             let tokens = djls_templates::lex_template(&db, file);
@@ -32,7 +31,7 @@ fn lex_all_templates(bencher: Bencher) {
 
 #[divan::bench(args = template_fixtures())]
 fn lex_template_incremental(bencher: Bencher, fixture: &TemplateFixture) {
-    let mut db = db::Db::new();
+    let mut db = Db::new();
     let file = db.file_with_contents(fixture.path.clone(), &fixture.source);
 
     // Prime caches with the baseline source so the benchmark measures the incremental path.
