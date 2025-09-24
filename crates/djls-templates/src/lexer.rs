@@ -2,6 +2,7 @@ use djls_source::Span;
 
 use crate::tokens::TagDelimiter;
 use crate::tokens::Token;
+use crate::tokens::TokenStream;
 
 pub struct Lexer {
     source: String,
@@ -20,11 +21,7 @@ impl Lexer {
     }
 
     pub fn tokenize(&mut self) -> Vec<Token> {
-        // Conservative estimate: most templates have 1 token per 15-20 chars
-        // Min 32 to avoid reallocation for tiny templates
-        // Max 1024 to avoid over-allocation for huge templates
-        let estimated_tokens = (self.source.len() / 15).clamp(32, 1024);
-        let mut tokens = Vec::with_capacity(estimated_tokens);
+        let mut tokens = TokenStream::with_estimated_capacity(&self.source);
 
         while !self.is_at_end() {
             self.start = self.current;
@@ -59,7 +56,7 @@ impl Lexer {
 
         tokens.push(Token::Eof);
 
-        tokens
+        tokens.into()
     }
 
     fn lex_django_tag(

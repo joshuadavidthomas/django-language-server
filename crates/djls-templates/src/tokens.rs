@@ -289,3 +289,57 @@ impl TokenSnapshotVec {
         self.0.iter().map(Token::to_snapshot).collect()
     }
 }
+
+#[derive(Debug, Clone)]
+pub struct TokenStream(Vec<Token>);
+
+impl TokenStream {
+    const CHARS_PER_TOKEN: usize = 6;
+    const MIN_CAPACITY: usize = 32;
+    const MAX_CAPACITY: usize = 1024;
+
+    #[must_use]
+    pub fn with_estimated_capacity(source: &str) -> Self {
+        let capacity =
+            (source.len() / Self::CHARS_PER_TOKEN).clamp(Self::MIN_CAPACITY, Self::MAX_CAPACITY);
+        Self(Vec::with_capacity(capacity))
+    }
+
+    #[inline]
+    pub fn push(&mut self, token: Token) {
+        self.0.push(token);
+    }
+
+    /// Get the number of tokens in the stream.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Get the number of content tokens (excluding EOF).
+    #[must_use]
+    pub fn content_len(&self) -> usize {
+        self.0.len().saturating_sub(1)
+    }
+
+    /// Check if stream is empty.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+impl From<TokenStream> for Vec<Token> {
+    fn from(val: TokenStream) -> Self {
+        val.0
+    }
+}
+
+impl IntoIterator for TokenStream {
+    type Item = Token;
+    type IntoIter = std::vec::IntoIter<Token>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
