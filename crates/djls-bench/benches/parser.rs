@@ -9,39 +9,55 @@ fn main() {
 
 #[divan::bench(args = template_fixtures())]
 fn parse_template(bencher: Bencher, fixture: &TemplateFixture) {
-    let mut db = Db::new();
+    let db = std::cell::RefCell::new(Db::new());
 
-    let mut revision: u64 = 1;
-    bencher.bench_local(move || {
-        let path = format!("{}.bench{}", fixture.path.clone(), revision);
-        let file = db.file_with_contents(path.into(), &fixture.source);
+    let counter = std::cell::Cell::new(0_usize);
 
-        if let Some(nodelist) = djls_templates::parse_template(&db, file) {
-            divan::black_box(nodelist.nodelist(&db).len());
-        }
-
-        revision = revision.wrapping_add(1);
-    });
+    bencher
+        .with_inputs(|| {
+            let i = counter.get();
+            counter.set(i + 1);
+            let path = format!("{}.bench{}", fixture.path.clone(), i);
+            db.borrow_mut()
+                .file_with_contents(path.into(), &fixture.source.clone())
+        })
+        .bench_local_values(|file| {
+            let db = db.borrow();
+            if let Some(nodelist) = djls_templates::parse_template(&*db, file) {
+                divan::black_box(nodelist.nodelist(&*db).len());
+            }
+        });
 }
 
 #[divan::bench]
 fn parse_all_templates(bencher: Bencher) {
     let fixtures = template_fixtures();
-    let mut db = Db::new();
+    let db = std::cell::RefCell::new(Db::new());
 
-    let mut revision: u64 = 1;
-    bencher.bench_local(move || {
-        for fixture in fixtures {
-            let path = format!("{}.bench{}", fixture.path, revision);
-            let file = db.file_with_contents(path.into(), &fixture.source);
+    let counter = std::cell::Cell::new(0_usize);
 
-            if let Some(nodelist) = djls_templates::parse_template(&db, file) {
-                divan::black_box(nodelist.nodelist(&db).len());
+    bencher
+        .with_inputs(|| {
+            let i = counter.get();
+            counter.set(i + 1);
+
+            let mut db = db.borrow_mut();
+            fixtures
+                .iter()
+                .map(|fixture| {
+                    let path = format!("{}.bench{}", fixture.path, i);
+                    db.file_with_contents(path.into(), &fixture.source)
+                })
+                .collect::<Vec<_>>()
+        })
+        .bench_local_values(|files| {
+            let db = db.borrow();
+            for file in files {
+                if let Some(nodelist) = djls_templates::parse_template(&*db, file) {
+                    divan::black_box(nodelist.nodelist(&*db).len());
+                }
             }
-        }
-
-        revision = revision.wrapping_add(1);
-    });
+        });
 }
 
 #[divan::bench(args = template_fixtures())]
