@@ -66,18 +66,6 @@ pub use parser::Parser;
 use salsa::Accumulator;
 use tokens::TokenStream;
 
-/// Lex a template file into tokens.
-#[salsa::tracked]
-pub fn lex_template(db: &dyn Db, file: File) -> TokenStream<'_> {
-    let source = file.source(db);
-    if *source.kind() != FileKind::Template {
-        return TokenStream::new(db, vec![]);
-    }
-    let text = source.as_ref();
-    let tokens = Lexer::new(db, text).tokenize();
-    TokenStream::new(db, tokens)
-}
-
 /// Parse a Django template file and accumulate diagnostics.
 ///
 /// Diagnostics can be retrieved using:
@@ -92,7 +80,8 @@ pub fn parse_template(db: &dyn Db, file: File) -> Option<NodeList<'_>> {
         return None;
     }
 
-    let token_stream = lex_template(db, file);
+    let tokens = Lexer::new(db, source.as_ref()).tokenize();
+    let token_stream = TokenStream::new(db, tokens);
 
     if token_stream.stream(db).is_empty() {
         let empty_nodelist = Vec::new();
