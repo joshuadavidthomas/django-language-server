@@ -347,13 +347,13 @@ mod tests {
                 .iter()
                 .map(|n| match n {
                     Node::Tag { name, bits, span } => NodeView::Tag {
-                        name: name.text(&db).to_string(),
-                        bits: bits.iter().map(|b| b.text(&db).to_string()).collect(),
+                        name: name.clone(),
+                        bits: bits.clone(),
                         span: *span,
                     },
                     Node::Variable { var, filters, span } => NodeView::Variable {
-                        var: var.text(&db).to_string(),
-                        filters: filters.iter().map(|f| f.text(&db).to_string()).collect(),
+                        var: var.clone(),
+                        filters: filters.clone(),
                         span: *span,
                     },
                     Node::Comment { content, span } => NodeView::Comment {

@@ -1,21 +1,13 @@
 use djls_source::Span;
 
-use crate::db::Db as TemplateDb;
 use crate::parser::ParseError;
 use crate::tokens::TagDelimiter;
 
-#[salsa::tracked(debug)]
-pub struct NodeList<'db> {
-    #[tracked]
-    #[returns(ref)]
-    pub nodelist: Vec<Node<'db>>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, salsa::Update)]
-pub enum Node<'db> {
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Node {
     Tag {
-        name: TagName<'db>,
-        bits: Vec<TagBit<'db>>,
+        name: String,
+        bits: Vec<String>,
         span: Span,
     },
     Comment {
@@ -26,8 +18,8 @@ pub enum Node<'db> {
         span: Span,
     },
     Variable {
-        var: VariableName<'db>,
-        filters: Vec<FilterName<'db>>,
+        var: String,
+        filters: Vec<String>,
         span: Span,
     },
     Error {
@@ -37,7 +29,7 @@ pub enum Node<'db> {
     },
 }
 
-impl<'db> Node<'db> {
+impl Node {
     #[must_use]
     pub fn span(&self) -> Span {
         match self {
@@ -60,37 +52,26 @@ impl<'db> Node<'db> {
         }
     }
 
-    pub fn identifier_span(&self, db: &'db dyn TemplateDb) -> Option<Span> {
+    #[must_use]
+    pub fn identifier_span(&self) -> Option<Span> {
         match self {
             Node::Tag { name, span, .. } => {
                 // Just the tag name (e.g., "if" in "{% if user.is_authenticated %}")
-                Some(span.with_length_usize_saturating(name.text(db).len()))
+                Some(span.with_length_usize_saturating(name.len()))
             }
             Node::Variable { var, span, .. } => {
                 // Just the variable name (e.g., "user" in "{{ user.name|title }}")
-                Some(span.with_length_usize_saturating(var.text(db).len()))
+                Some(span.with_length_usize_saturating(var.len()))
             }
             Node::Comment { .. } | Node::Text { .. } | Node::Error { .. } => None,
         }
     }
 }
 
-#[salsa::interned(debug)]
-pub struct TagName<'db> {
-    pub text: String,
-}
-
-#[salsa::interned(debug)]
-pub struct TagBit<'db> {
-    pub text: String,
-}
-
-#[salsa::interned(debug)]
-pub struct VariableName<'db> {
-    pub text: String,
-}
-
-#[salsa::interned(debug)]
-pub struct FilterName<'db> {
-    pub text: String,
+// We'll keep NodeList as a Salsa tracked struct for the boundary
+#[salsa::tracked(debug)]
+pub struct NodeList<'db> {
+    #[tracked]
+    #[returns(ref)]
+    pub nodelist: Vec<Node>,
 }

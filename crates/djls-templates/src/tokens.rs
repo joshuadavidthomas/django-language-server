@@ -1,7 +1,5 @@
 use djls_source::Span;
 
-use crate::db::Db as TemplateDb;
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TagDelimiter {
     Block,
@@ -53,52 +51,28 @@ impl TagDelimiter {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Hash, salsa::Update)]
-pub enum Token<'db> {
-    Block {
-        content: TokenContent<'db>,
-        span: Span,
-    },
-    Comment {
-        content: TokenContent<'db>,
-        span: Span,
-    },
-    Error {
-        content: TokenContent<'db>,
-        span: Span,
-    },
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Token {
+    Block { content: String, span: Span },
+    Comment { content: String, span: Span },
+    Error { content: String, span: Span },
     Eof,
-    Newline {
-        span: Span,
-    },
-    Text {
-        content: TokenContent<'db>,
-        span: Span,
-    },
-    Variable {
-        content: TokenContent<'db>,
-        span: Span,
-    },
-    Whitespace {
-        span: Span,
-    },
+    Newline { span: Span },
+    Text { content: String, span: Span },
+    Variable { content: String, span: Span },
+    Whitespace { span: Span },
 }
 
-#[salsa::interned(debug)]
-pub struct TokenContent<'db> {
-    #[returns(ref)]
-    pub text: String,
-}
-
-impl<'db> Token<'db> {
+impl Token {
     /// Get the content text for content-bearing tokens
-    pub fn content(&self, db: &'db dyn TemplateDb) -> String {
+    #[must_use]
+    pub fn content(&self) -> String {
         match self {
             Token::Block { content, .. }
             | Token::Comment { content, .. }
             | Token::Error { content, .. }
             | Token::Text { content, .. }
-            | Token::Variable { content, .. } => content.text(db).clone(),
+            | Token::Variable { content, .. } => content.clone(),
             Token::Whitespace { span, .. } => " ".repeat(span.length_usize()),
             Token::Newline { span, .. } => {
                 if span.length() == 2 {
@@ -112,27 +86,28 @@ impl<'db> Token<'db> {
     }
 
     /// Get the lexeme as it appears in source
-    pub fn lexeme(&self, db: &'db dyn TemplateDb) -> String {
+    #[must_use]
+    pub fn lexeme(&self) -> String {
         match self {
             Token::Block { content, .. } => format!(
                 "{} {} {}",
                 TagDelimiter::Block.opener(),
-                content.text(db),
+                content,
                 TagDelimiter::Block.closer()
             ),
             Token::Variable { content, .. } => format!(
                 "{} {} {}",
                 TagDelimiter::Variable.opener(),
-                content.text(db),
+                content,
                 TagDelimiter::Variable.closer()
             ),
             Token::Comment { content, .. } => format!(
                 "{} {} {}",
                 TagDelimiter::Comment.opener(),
-                content.text(db),
+                content,
                 TagDelimiter::Comment.closer()
             ),
-            Token::Text { content, .. } | Token::Error { content, .. } => content.text(db).clone(),
+            Token::Text { content, .. } | Token::Error { content, .. } => content.clone(),
             Token::Whitespace { span, .. } => " ".repeat(span.length_usize()),
             Token::Newline { span, .. } => {
                 if span.length() == 2 {
@@ -162,13 +137,14 @@ impl<'db> Token<'db> {
     }
 
     /// Get the length of the token content
-    pub fn length(&self, db: &'db dyn TemplateDb) -> u32 {
+    #[must_use]
+    pub fn length(&self) -> u32 {
         let len = match self {
             Token::Block { content, .. }
             | Token::Comment { content, .. }
             | Token::Error { content, .. }
             | Token::Text { content, .. }
-            | Token::Variable { content, .. } => content.text(db).len(),
+            | Token::Variable { content, .. } => content.len(),
             Token::Whitespace { span, .. } | Token::Newline { span, .. } => span.length_usize(),
             Token::Eof => 0,
         };
@@ -205,18 +181,21 @@ impl<'db> Token<'db> {
         }
     }
 
-    pub fn full_span_or_fallback(&self, db: &dyn TemplateDb) -> Span {
+    #[must_use]
+    pub fn full_span_or_fallback(&self) -> Span {
         self.full_span()
-            .unwrap_or_else(|| self.content_span_or_fallback(db))
+            .unwrap_or_else(|| self.content_span_or_fallback())
     }
 
-    pub fn content_span_or_fallback(&self, db: &dyn TemplateDb) -> Span {
+    #[must_use]
+    pub fn content_span_or_fallback(&self) -> Span {
         self.content_span()
-            .unwrap_or_else(|| Span::new(self.offset().unwrap_or(0), self.length(db)))
+            .unwrap_or_else(|| Span::new(self.offset().unwrap_or(0), self.length()))
     }
 
-    pub fn spans(&self, db: &'db dyn TemplateDb) -> (Span, Span) {
-        let content = self.content_span_or_fallback(db);
+    #[must_use]
+    pub fn spans(&self) -> (Span, Span) {
+        let content = self.content_span_or_fallback();
         let full = self.full_span().unwrap_or(content);
         (content, full)
     }
@@ -260,37 +239,38 @@ pub enum TokenSnapshot {
 }
 
 #[cfg(test)]
-impl<'db> Token<'db> {
+impl Token {
     /// ## Panics
     ///
     /// This may panic on the `full_span` calls, but it's only used in testing,
     /// so it's all good.
-    pub fn to_snapshot(&self, db: &'db dyn TemplateDb) -> TokenSnapshot {
+    #[must_use]
+    pub fn to_snapshot(&self) -> TokenSnapshot {
         match self {
             Token::Block { span, .. } => TokenSnapshot::Block {
-                content: self.content(db),
+                content: self.content(),
                 span: span.into(),
                 full_span: self.full_span().unwrap().into(),
             },
             Token::Comment { span, .. } => TokenSnapshot::Comment {
-                content: self.content(db),
+                content: self.content(),
                 span: span.into(),
                 full_span: self.full_span().unwrap().into(),
             },
             Token::Eof => TokenSnapshot::Eof,
             Token::Error { span, .. } => TokenSnapshot::Error {
-                content: self.content(db),
+                content: self.content(),
                 span: span.into(),
                 full_span: self.full_span().unwrap().into(),
             },
             Token::Newline { span } => TokenSnapshot::Newline { span: span.into() },
             Token::Text { span, .. } => TokenSnapshot::Text {
-                content: self.content(db),
+                content: self.content(),
                 span: span.into(),
                 full_span: span.into(),
             },
             Token::Variable { span, .. } => TokenSnapshot::Variable {
-                content: self.content(db),
+                content: self.content(),
                 span: span.into(),
                 full_span: self.full_span().unwrap().into(),
             },
@@ -300,18 +280,12 @@ impl<'db> Token<'db> {
 }
 
 #[cfg(test)]
-pub struct TokenSnapshotVec<'db>(pub Vec<Token<'db>>);
+pub struct TokenSnapshotVec(pub Vec<Token>);
 
 #[cfg(test)]
-impl TokenSnapshotVec<'_> {
-    pub fn to_snapshot(&self, db: &dyn TemplateDb) -> Vec<TokenSnapshot> {
-        self.0.iter().map(|t| t.to_snapshot(db)).collect()
+impl TokenSnapshotVec {
+    #[must_use]
+    pub fn to_snapshot(&self) -> Vec<TokenSnapshot> {
+        self.0.iter().map(Token::to_snapshot).collect()
     }
-}
-
-#[salsa::tracked]
-pub struct TokenStream<'db> {
-    #[tracked]
-    #[returns(ref)]
-    pub stream: Vec<Token<'db>>,
 }

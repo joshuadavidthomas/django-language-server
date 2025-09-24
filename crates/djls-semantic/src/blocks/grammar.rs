@@ -1,4 +1,3 @@
-use djls_templates::nodelist::TagBit;
 use rustc_hash::FxHashMap;
 
 use crate::templatetags::TagSpecs;
@@ -52,12 +51,12 @@ impl TagIndex {
             .is_some_and(|meta| meta.optional)
     }
 
-    pub fn validate_close<'db>(
+    pub fn validate_close(
         &self,
         opener_name: &str,
-        opener_bits: &[TagBit<'db>],
-        closer_bits: &[TagBit<'db>],
-        db: &'db dyn crate::db::Db,
+        opener_bits: &[String],
+        closer_bits: &[String],
+        _db: &dyn crate::db::Db,
     ) -> CloseValidation {
         let Some(meta) = self.openers.get(opener_name) else {
             return CloseValidation::NotABlock;
@@ -69,8 +68,8 @@ impl TagIndex {
         }
 
         for match_arg in &meta.match_args {
-            let opener_val = extract_arg_value(opener_bits, match_arg.position, db);
-            let closer_val = extract_arg_value(closer_bits, match_arg.position, db);
+            let opener_val = extract_arg_value(opener_bits, match_arg.position);
+            let closer_val = extract_arg_value(closer_bits, match_arg.position);
 
             match (opener_val, closer_val, match_arg.required) {
                 (Some(o), Some(c), _) if o != c => {
@@ -185,13 +184,9 @@ pub enum CloseValidation {
     },
 }
 
-fn extract_arg_value<'db>(
-    bits: &[TagBit<'db>],
-    position: usize,
-    db: &'db dyn crate::db::Db,
-) -> Option<String> {
+fn extract_arg_value(bits: &[String], position: usize) -> Option<String> {
     if position < bits.len() {
-        Some(bits[position].text(db).to_string())
+        Some(bits[position].clone())
     } else {
         None
     }

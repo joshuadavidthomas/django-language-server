@@ -25,7 +25,7 @@ pub trait SemanticModel<'db> {
 
     /// Observe a single node during traversal and extract semantic information
     #[allow(dead_code)] // use is gated behind cfg(test) for now
-    fn observe(&mut self, node: Node<'db>);
+    fn observe(&mut self, node: Node);
 
     /// Construct the final semantic model from observed semantics
     #[allow(dead_code)] // use is gated behind cfg(test) for now

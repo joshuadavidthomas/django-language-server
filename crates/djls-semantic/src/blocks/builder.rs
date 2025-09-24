@@ -1,6 +1,4 @@
 use djls_source::Span;
-use djls_templates::nodelist::TagBit;
-use djls_templates::nodelist::TagName;
 use djls_templates::tokens::TagDelimiter;
 use djls_templates::Node;
 
@@ -49,7 +47,7 @@ enum BlockSemanticOp {
 pub struct BlockTreeBuilder<'db> {
     db: &'db dyn Db,
     index: &'db TagIndex,
-    stack: Vec<TreeFrame<'db>>,
+    stack: Vec<TreeFrame>,
     block_allocs: Vec<(Span, Option<BlockId>)>,
     semantic_ops: Vec<BlockSemanticOp>,
 }
@@ -136,9 +134,9 @@ impl<'db> BlockTreeBuilder<'db> {
         tree
     }
 
-    fn handle_tag(&mut self, name: TagName<'db>, bits: Vec<TagBit<'db>>, span: Span) {
-        let tag_name = name.text(self.db);
-        match self.index.classify(&tag_name) {
+    fn handle_tag(&mut self, name: &str, bits: &[String], span: Span) {
+        let tag_name = name;
+        match self.index.classify(tag_name) {
             TagClass::Opener => {
                 let parent = get_active_segment(&self.stack);
 
@@ -152,14 +150,14 @@ impl<'db> BlockTreeBuilder<'db> {
                     // Nested block
                     self.semantic_ops.push(BlockSemanticOp::AddBranchNode {
                         target: parent_id,
-                        tag: tag_name.clone(),
+                        tag: tag_name.to_string(),
                         marker_span: span,
                         body: container,
                         kind: BranchKind::Opener,
                     });
                     self.semantic_ops.push(BlockSemanticOp::AddBranchNode {
                         target: container,
-                        tag: tag_name.clone(),
+                        tag: tag_name.to_string(),
                         marker_span: span,
                         body: segment,
                         kind: BranchKind::Segment,
@@ -170,7 +168,7 @@ impl<'db> BlockTreeBuilder<'db> {
                         .push(BlockSemanticOp::AddRoot { id: container });
                     self.semantic_ops.push(BlockSemanticOp::AddBranchNode {
                         target: container,
-                        tag: tag_name.clone(),
+                        tag: tag_name.to_string(),
                         marker_span: span,
                         body: segment,
                         kind: BranchKind::Segment,
@@ -178,8 +176,8 @@ impl<'db> BlockTreeBuilder<'db> {
                 }
 
                 self.stack.push(TreeFrame {
-                    opener_name: tag_name,
-                    opener_bits: bits,
+                    opener_name: tag_name.to_string(),
+                    opener_bits: bits.to_vec(),
                     opener_span: span,
                     container_body: container,
                     segment_body: segment,
@@ -187,16 +185,16 @@ impl<'db> BlockTreeBuilder<'db> {
                 });
             }
             TagClass::Closer { opener_name } => {
-                self.close_block(&opener_name, &bits, span);
+                self.close_block(&opener_name, bits, span);
             }
             TagClass::Intermediate { possible_openers } => {
-                self.add_intermediate(&tag_name, &possible_openers, span);
+                self.add_intermediate(tag_name, &possible_openers, span);
             }
             TagClass::Unknown => {
                 if let Some(segment) = get_active_segment(&self.stack) {
                     self.semantic_ops.push(BlockSemanticOp::AddLeafNode {
                         target: segment,
-                        label: tag_name,
+                        label: tag_name.to_string(),
                         span,
                     });
                 }
@@ -204,7 +202,7 @@ impl<'db> BlockTreeBuilder<'db> {
         }
     }
 
-    fn close_block(&mut self, opener_name: &str, closer_bits: &[TagBit<'db>], span: Span) {
+    fn close_block(&mut self, opener_name: &str, closer_bits: &[String], span: Span) {
         if let Some(frame_idx) = find_frame_from_opener(&self.stack, opener_name) {
             // Pop any unclosed blocks above this one
             while self.stack.len() > frame_idx + 1 {
@@ -349,7 +347,7 @@ impl<'db> BlockTreeBuilder<'db> {
     }
 }
 
-type TreeStack<'db> = Vec<TreeFrame<'db>>;
+type TreeStack = Vec<TreeFrame>;
 
 /// Get the currently active segment (the innermost block we're in)
 fn get_active_segment(stack: &TreeStack) -> Option<BlockId> {
@@ -361,9 +359,9 @@ fn find_frame_from_opener(stack: &TreeStack, opener_name: &str) -> Option<usize>
     stack.iter().rposition(|f| f.opener_name == opener_name)
 }
 
-struct TreeFrame<'db> {
+struct TreeFrame {
     opener_name: String,
-    opener_bits: Vec<TagBit<'db>>,
+    opener_bits: Vec<String>,
     opener_span: Span,
     container_body: BlockId,
     segment_body: BlockId,
@@ -373,10 +371,10 @@ struct TreeFrame<'db> {
 impl<'db> SemanticModel<'db> for BlockTreeBuilder<'db> {
     type Model = BlockTree;
 
-    fn observe(&mut self, node: Node<'db>) {
+    fn observe(&mut self, node: Node) {
         match node {
             Node::Tag { name, bits, span } => {
-                self.handle_tag(name, bits, span);
+                self.handle_tag(&name, &bits, span);
             }
             Node::Comment { span, .. } => {
                 if let Some(parent) = get_active_segment(&self.stack) {
