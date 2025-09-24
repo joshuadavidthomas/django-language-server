@@ -106,6 +106,7 @@ def lint(session):
     session.run(
         "uv",
         "run",
+        "--no-project",
         "--with",
         "pre-commit-uv",
         "--python",
