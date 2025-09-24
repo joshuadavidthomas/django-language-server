@@ -2,12 +2,10 @@ from __future__ import annotations
 
 import json
 import os
-import platform
 import re
 from pathlib import Path
 
 import nox
-from bumpver.version import to_pep440
 
 nox.options.default_venv_backend = "uv|virtualenv"
 nox.options.reuse_existing_virtualenvs = True
@@ -108,6 +106,7 @@ def lint(session):
     session.run(
         "uv",
         "run",
+        "--no-project",
         "--with",
         "pre-commit-uv",
         "--python",
@@ -276,6 +275,8 @@ def release(session):
 
 
 def get_version(session):
+    from bumpver.version import to_pep440
+
     command = ["uv", "run", "bumpver", "update", "--dry", "--no-fetch"]
     if session.posargs:
         args = []

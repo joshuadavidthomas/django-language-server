@@ -47,7 +47,7 @@ jobs:
       - name: Run pre-commit
         run: |
           SKIP=no-commit-to-branch \
-          uv run --no-binary-package django-language-server nox --session lint
+          uv run --no-project --with "nox[uv]" nox --session lint
 
   rustfmt:
     runs-on: ubuntu-24.04
