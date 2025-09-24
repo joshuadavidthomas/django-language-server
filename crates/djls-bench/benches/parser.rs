@@ -9,44 +9,39 @@ fn main() {
 
 #[divan::bench(args = template_fixtures())]
 fn parse_template(bencher: Bencher, fixture: &TemplateFixture) {
-    bencher
-        .with_inputs(|| {
-            let mut db = Db::new();
-            let file = db.file_with_contents(fixture.path.clone(), &fixture.source);
-            (db, file)
-        })
-        .bench_local_values(|(db, file)| {
-            if let Some(nodelist) = djls_templates::parse_template(&db, file) {
-                divan::black_box(nodelist.nodelist(&db).len());
-            }
-            (db, file)
-        });
+    let mut db = Db::new();
+
+    let mut revision: u64 = 1;
+    bencher.bench_local(move || {
+        let path = format!("{}.bench{}", fixture.path.clone(), revision);
+        let file = db.file_with_contents(path.into(), &fixture.source);
+
+        if let Some(nodelist) = djls_templates::parse_template(&db, file) {
+            divan::black_box(nodelist.nodelist(&db).len());
+        }
+
+        revision = revision.wrapping_add(1);
+    });
 }
 
 #[divan::bench]
 fn parse_all_templates(bencher: Bencher) {
     let fixtures = template_fixtures();
+    let mut db = Db::new();
 
-    bencher
-        .with_inputs(|| {
-            let mut db = Db::new();
-            let mut files = Vec::with_capacity(fixtures.len());
+    let mut revision: u64 = 1;
+    bencher.bench_local(move || {
+        for fixture in fixtures {
+            let path = format!("{}.bench{}", fixture.path, revision);
+            let file = db.file_with_contents(path.into(), &fixture.source);
 
-            for fixture in fixtures {
-                let file = db.file_with_contents(fixture.path.clone(), &fixture.source);
-                files.push(file);
+            if let Some(nodelist) = djls_templates::parse_template(&db, file) {
+                divan::black_box(nodelist.nodelist(&db).len());
             }
+        }
 
-            (db, files)
-        })
-        .bench_local_values(|(db, files)| {
-            for file in &files {
-                if let Some(nodelist) = djls_templates::parse_template(&db, *file) {
-                    divan::black_box(nodelist.nodelist(&db).len());
-                }
-            }
-            (db, files)
-        });
+        revision = revision.wrapping_add(1);
+    });
 }
 
 #[divan::bench(args = template_fixtures())]
