@@ -20,7 +20,11 @@ impl Lexer {
     }
 
     pub fn tokenize(&mut self) -> Vec<Token> {
-        let mut tokens = Vec::new();
+        // Conservative estimate: most templates have 1 token per 15-20 chars
+        // Min 32 to avoid reallocation for tiny templates
+        // Max 1024 to avoid over-allocation for huge templates
+        let estimated_tokens = (self.source.len() / 15).clamp(32, 1024);
+        let mut tokens = Vec::with_capacity(estimated_tokens);
 
         while !self.is_at_end() {
             self.start = self.current;
