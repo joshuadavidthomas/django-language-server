@@ -551,6 +551,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "djls-bench"
+version = "0.0.0"
+dependencies = [
+ "camino",
+ "codspeed-divan-compat",
+ "djls-source",
+ "djls-templates",
+ "salsa",
+]
+
+[[package]]
 name = "djls-conf"
 version = "0.0.0"
 dependencies = [
@@ -653,7 +664,6 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "camino",
- "codspeed-divan-compat",
  "djls-conf",
  "djls-source",
  "djls-workspace",

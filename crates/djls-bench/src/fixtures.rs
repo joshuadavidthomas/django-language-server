@@ -7,7 +7,7 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 
 #[derive(Clone)]
-pub(crate) struct TemplateFixture {
+pub struct TemplateFixture {
     pub label: String,
     pub path: Utf8PathBuf,
     pub source: String,
@@ -19,7 +19,7 @@ impl fmt::Display for TemplateFixture {
     }
 }
 
-pub(crate) fn template_fixtures() -> &'static [TemplateFixture] {
+pub fn template_fixtures() -> &'static [TemplateFixture] {
     static FIXTURES: OnceLock<Vec<TemplateFixture>> = OnceLock::new();
     FIXTURES.get_or_init(load_template_fixtures).as_slice()
 }

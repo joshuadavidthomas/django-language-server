@@ -12,21 +12,24 @@ use salsa::Setter;
 
 #[salsa::db]
 #[derive(Clone)]
-pub(crate) struct Db {
+pub struct Db {
     sources: Arc<Mutex<HashMap<Utf8PathBuf, String>>>,
     storage: salsa::Storage<Self>,
 }
 
 impl Db {
     #[must_use]
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             sources: Arc::new(Mutex::new(HashMap::new())),
             storage: salsa::Storage::default(),
         }
     }
 
-    pub(crate) fn file_with_contents(&mut self, path: Utf8PathBuf, contents: &str) -> File {
+    /// ## Panics
+    ///
+    /// If sources mutex is poisoned.
+    pub fn file_with_contents(&mut self, path: Utf8PathBuf, contents: &str) -> File {
         self.sources
             .lock()
             .expect("sources lock poisoned")
@@ -34,7 +37,10 @@ impl Db {
         File::new(self, path, 0)
     }
 
-    pub(crate) fn set_file_contents(&mut self, file: File, contents: &str, revision: u64) {
+    /// ## Panics
+    ///
+    /// If sources mutex is poisoned.
+    pub fn set_file_contents(&mut self, file: File, contents: &str, revision: u64) {
         let path = file.path(self);
         self.sources
             .lock()

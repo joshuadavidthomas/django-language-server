@@ -4,6 +4,7 @@ resolver = "2"
 
 [workspace.dependencies]
 djls = { path = "crates/djls" }
+djls-bench = { path = "crates/djls-bench" }
 djls-conf = { path = "crates/djls-conf" }
 djls-ide = { path = "crates/djls-ide" }
 djls-project = { path = "crates/djls-project" }
