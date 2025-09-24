@@ -294,13 +294,14 @@ impl TokenSnapshotVec {
 pub struct TokenStream(Vec<Token>);
 
 impl TokenStream {
+    const CHARS_PER_TOKEN: usize = 6;
+    const MIN_CAPACITY: usize = 32;
+    const MAX_CAPACITY: usize = 1024;
+
     #[must_use]
     pub fn with_estimated_capacity(source: &str) -> Self {
-        const CHARS_PER_TOKEN: usize = 8;
-        const MIN_CAPACITY: usize = 32;
-        const MAX_CAPACITY: usize = 1024;
-
-        let capacity = (source.len() / CHARS_PER_TOKEN).clamp(MIN_CAPACITY, MAX_CAPACITY);
+        let capacity =
+            (source.len() / Self::CHARS_PER_TOKEN).clamp(Self::MIN_CAPACITY, Self::MAX_CAPACITY);
         Self(Vec::with_capacity(capacity))
     }
 
