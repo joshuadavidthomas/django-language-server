@@ -19,7 +19,7 @@ fn parse_template(bencher: Bencher, fixture: &TemplateFixture) {
             if let Some(nodelist) = djls_templates::parse_template(&db, file) {
                 divan::black_box(nodelist.nodelist(&db).len());
             }
-            db
+            (db, file)
         });
 }
 
@@ -40,12 +40,12 @@ fn parse_all_templates(bencher: Bencher) {
             (db, files)
         })
         .bench_local_values(|(db, files)| {
-            for file in files {
-                if let Some(nodelist) = djls_templates::parse_template(&db, file) {
+            for file in &files {
+                if let Some(nodelist) = djls_templates::parse_template(&db, *file) {
                     divan::black_box(nodelist.nodelist(&db).len());
                 }
             }
-            db
+            (db, files)
         });
 }
 
