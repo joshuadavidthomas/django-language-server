@@ -81,7 +81,10 @@ impl Lexer {
                 } else {
                     Span::saturating_from_parts_usize(content_start, len)
                 };
-                Token::Error { content: err_text, span }
+                Token::Error {
+                    content: err_text,
+                    span,
+                }
             }
         }
     }
@@ -124,7 +127,10 @@ impl Lexer {
 
         let text = self.consumed_source_from(text_start);
         let span = Span::saturating_from_bounds_usize(self.start, self.current);
-        Token::Text { content: text.to_string(), span }
+        Token::Text {
+            content: text.to_string(),
+            span,
+        }
     }
 
     #[inline]

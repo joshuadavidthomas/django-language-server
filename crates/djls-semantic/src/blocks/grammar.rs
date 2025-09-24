@@ -184,10 +184,7 @@ pub enum CloseValidation {
     },
 }
 
-fn extract_arg_value(
-    bits: &[String],
-    position: usize,
-) -> Option<String> {
+fn extract_arg_value(bits: &[String], position: usize) -> Option<String> {
     if position < bits.len() {
         Some(bits[position].clone())
     } else {

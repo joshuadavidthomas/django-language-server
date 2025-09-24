@@ -52,7 +52,7 @@ impl Node {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn identifier_span(&self) -> Option<Span> {
         match self {
             Node::Tag { name, span, .. } => {

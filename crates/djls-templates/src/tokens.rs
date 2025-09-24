@@ -53,38 +53,19 @@ impl TagDelimiter {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Token {
-    Block {
-        content: String,
-        span: Span,
-    },
-    Comment {
-        content: String,
-        span: Span,
-    },
-    Error {
-        content: String,
-        span: Span,
-    },
+    Block { content: String, span: Span },
+    Comment { content: String, span: Span },
+    Error { content: String, span: Span },
     Eof,
-    Newline {
-        span: Span,
-    },
-    Text {
-        content: String,
-        span: Span,
-    },
-    Variable {
-        content: String,
-        span: Span,
-    },
-    Whitespace {
-        span: Span,
-    },
+    Newline { span: Span },
+    Text { content: String, span: Span },
+    Variable { content: String, span: Span },
+    Whitespace { span: Span },
 }
 
 impl Token {
     /// Get the content text for content-bearing tokens
-    #[must_use] 
+    #[must_use]
     pub fn content(&self) -> String {
         match self {
             Token::Block { content, .. }
@@ -105,7 +86,7 @@ impl Token {
     }
 
     /// Get the lexeme as it appears in source
-    #[must_use] 
+    #[must_use]
     pub fn lexeme(&self) -> String {
         match self {
             Token::Block { content, .. } => format!(
@@ -156,7 +137,7 @@ impl Token {
     }
 
     /// Get the length of the token content
-    #[must_use] 
+    #[must_use]
     pub fn length(&self) -> u32 {
         let len = match self {
             Token::Block { content, .. }
@@ -200,19 +181,19 @@ impl Token {
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn full_span_or_fallback(&self) -> Span {
         self.full_span()
             .unwrap_or_else(|| self.content_span_or_fallback())
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn content_span_or_fallback(&self) -> Span {
         self.content_span()
             .unwrap_or_else(|| Span::new(self.offset().unwrap_or(0), self.length()))
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn spans(&self) -> (Span, Span) {
         let content = self.content_span_or_fallback();
         let full = self.full_span().unwrap_or(content);
@@ -263,7 +244,7 @@ impl Token {
     ///
     /// This may panic on the `full_span` calls, but it's only used in testing,
     /// so it's all good.
-    #[must_use] 
+    #[must_use]
     pub fn to_snapshot(&self) -> TokenSnapshot {
         match self {
             Token::Block { span, .. } => TokenSnapshot::Block {
@@ -303,10 +284,8 @@ pub struct TokenSnapshotVec(pub Vec<Token>);
 
 #[cfg(test)]
 impl TokenSnapshotVec {
-    #[must_use] 
+    #[must_use]
     pub fn to_snapshot(&self) -> Vec<TokenSnapshot> {
         self.0.iter().map(Token::to_snapshot).collect()
     }
 }
-
-

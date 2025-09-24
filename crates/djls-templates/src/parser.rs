@@ -13,10 +13,7 @@ pub struct Parser {
 impl Parser {
     #[must_use]
     pub fn new(tokens: Vec<Token>) -> Self {
-        Self {
-            tokens,
-            current: 0,
-        }
+        Self { tokens, current: 0 }
     }
 
     pub fn parse(&mut self) -> (Vec<Node>, Vec<ParseError>) {
@@ -170,9 +167,7 @@ impl Parser {
 
         let var = parts.next().ok_or(ParseError::EmptyTag)?.trim().to_string();
 
-        let filters: Vec<String> = parts
-            .map(|s| s.trim().to_string())
-            .collect();
+        let filters: Vec<String> = parts.map(|s| s.trim().to_string()).collect();
         let span = token.content_span_or_fallback();
 
         Ok(Node::Variable { var, filters, span })
@@ -444,15 +439,18 @@ mod tests {
         }
 
         #[test]
-        fn test_parse_django_for_block() {            let source =
-                "{% for item in items %}{{ item }}{% empty %}No items{% endfor %}".to_string();            let nodelist = parse_test_template(&source);
+        fn test_parse_django_for_block() {
+            let source =
+                "{% for item in items %}{{ item }}{% empty %}No items{% endfor %}".to_string();
+            let nodelist = parse_test_template(&source);
             let test_nodelist = convert_nodelist_for_testing(&nodelist);
             insta::assert_yaml_snapshot!(test_nodelist);
         }
 
         #[test]
-        fn test_parse_complex_if_elif() {            let source = "{% if x > 0 %}Positive{% elif x < 0 %}Negative{% else %}Zero{% endif %}"
-                ;            let nodelist = parse_test_template(source);
+        fn test_parse_complex_if_elif() {
+            let source = "{% if x > 0 %}Positive{% elif x < 0 %}Negative{% else %}Zero{% endif %}";
+            let nodelist = parse_test_template(source);
             let test_nodelist = convert_nodelist_for_testing(&nodelist);
             insta::assert_yaml_snapshot!(test_nodelist);
         }
@@ -466,15 +464,18 @@ mod tests {
         }
 
         #[test]
-        fn test_parse_nested_for_if() {            let source =
+        fn test_parse_nested_for_if() {
+            let source =
                 "{% for item in items %}{% if item.active %}{{ item.name }}{% endif %}{% endfor %}"
-                    .to_string();            let nodelist = parse_test_template(&source);
+                    .to_string();
+            let nodelist = parse_test_template(&source);
             let test_nodelist = convert_nodelist_for_testing(&nodelist);
             insta::assert_yaml_snapshot!(test_nodelist);
         }
 
         #[test]
-        fn test_parse_mixed_content() {            let source = "Welcome, {% if user.is_authenticated %}
+        fn test_parse_mixed_content() {
+            let source = "Welcome, {% if user.is_authenticated %}
     {{ user.name|title|default:'Guest' }}
     {% for group in user.groups %}
         {% if forloop.first %}({% endif %}
@@ -486,8 +487,8 @@ mod tests {
     {% endfor %}
 {% else %}
     Guest
-{% endif %}!"
-                ;            let nodelist = parse_test_template(source);
+{% endif %}!";
+            let nodelist = parse_test_template(source);
             let test_nodelist = convert_nodelist_for_testing(&nodelist);
             insta::assert_yaml_snapshot!(test_nodelist);
         }
@@ -497,14 +498,16 @@ mod tests {
         use super::*;
 
         #[test]
-        fn test_parse_script() {            let source = r#"<script type="text/javascript">
+        fn test_parse_script() {
+            let source = r#"<script type="text/javascript">
     // Single line comment
     const x = 1;
     /* Multi-line
         comment */
     console.log(x);
 </script>"#
-                .to_string();            let nodelist = parse_test_template(&source);
+                .to_string();
+            let nodelist = parse_test_template(&source);
             let test_nodelist = convert_nodelist_for_testing(&nodelist);
             insta::assert_yaml_snapshot!(test_nodelist);
         }
@@ -514,13 +517,15 @@ mod tests {
         use super::*;
 
         #[test]
-        fn test_parse_style() {            let source = r#"<style type="text/css">
+        fn test_parse_style() {
+            let source = r#"<style type="text/css">
     /* Header styles */
     .header {
         color: blue;
     }
 </style>"#
-                .to_string();            let nodelist = parse_test_template(&source);
+                .to_string();
+            let nodelist = parse_test_template(&source);
             let test_nodelist = convert_nodelist_for_testing(&nodelist);
             insta::assert_yaml_snapshot!(test_nodelist);
         }
@@ -654,7 +659,8 @@ mod tests {
         use super::*;
 
         #[test]
-        fn test_parse_full() {            let source = r#"<!DOCTYPE html>
+        fn test_parse_full() {
+            let source = r#"<!DOCTYPE html>
 <html>
     <head>
         <style type="text/css">
@@ -684,7 +690,8 @@ mod tests {
         </div>
     </body>
 </html>"#
-                .to_string();            let nodelist = parse_test_template(&source);
+                .to_string();
+            let nodelist = parse_test_template(&source);
             let test_nodelist = convert_nodelist_for_testing(&nodelist);
             insta::assert_yaml_snapshot!(test_nodelist);
         }

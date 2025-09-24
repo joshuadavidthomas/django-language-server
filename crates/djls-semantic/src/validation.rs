@@ -56,9 +56,9 @@ impl<'db> TagValidator<'db> {
                     let tag_type = TagType::for_name(name_str, &tag_specs);
 
                     let args = match tag_type {
-                        TagType::Closer => tag_specs
-                            .get_end_spec_for_closer(name_str)
-                            .map(|s| &s.args),
+                        TagType::Closer => {
+                            tag_specs.get_end_spec_for_closer(name_str).map(|s| &s.args)
+                        }
                         _ => tag_specs.get(name_str).map(|s| &s.args),
                     };
 
@@ -221,9 +221,7 @@ impl<'db> TagValidator<'db> {
                         ..
                     } = node
                     {
-                        tag_name == &opener_name
-                            && !tag_bits.is_empty()
-                            && tag_bits[0] == bits[0]
+                        tag_name == &opener_name && !tag_bits.is_empty() && tag_bits[0] == bits[0]
                     } else {
                         false
                     }
