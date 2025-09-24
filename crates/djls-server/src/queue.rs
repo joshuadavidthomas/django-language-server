@@ -166,7 +166,7 @@ impl Queue {
             .await
             .map_err(|e| {
                 // Error likely means the receiver (worker task) has panicked or shut down.
-                anyhow!("Failed to submit task: queue receiver closed ({})", e)
+                anyhow!("Failed to submit task: queue receiver closed ({e})")
             })
     }
 }
