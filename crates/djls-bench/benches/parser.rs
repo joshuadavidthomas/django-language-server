@@ -19,6 +19,7 @@ fn parse_template(bencher: Bencher, fixture: &TemplateFixture) {
             if let Some(nodelist) = djls_templates::parse_template(&db, file) {
                 divan::black_box(nodelist.nodelist(&db).len());
             }
+            db
         });
 }
 
@@ -44,6 +45,7 @@ fn parse_all_templates(bencher: Bencher) {
                     divan::black_box(nodelist.nodelist(&db).len());
                 }
             }
+            db
         });
 }
 
