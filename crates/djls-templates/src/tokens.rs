@@ -16,9 +16,22 @@ impl TagDelimiter {
 
     #[must_use]
     pub fn from_input(input: &str) -> Option<TagDelimiter> {
-        [Self::Block, Self::Variable, Self::Comment]
-            .into_iter()
-            .find(|kind| input.starts_with(kind.opener()))
+        let bytes = input.as_bytes();
+
+        if bytes.len() < Self::LENGTH {
+            return None;
+        }
+
+        if bytes[0] != Self::CHAR_OPEN as u8 {
+            return None;
+        }
+
+        match bytes[1] {
+            b'%' => Some(TagDelimiter::Block),
+            b'{' => Some(TagDelimiter::Variable),
+            b'#' => Some(TagDelimiter::Comment),
+            _ => None,
+        }
     }
 
     #[must_use]
