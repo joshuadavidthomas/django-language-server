@@ -1,0 +1,19 @@
+[package]
+name = "djls-bench"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+djls-source = { workspace = true }
+djls-templates = { workspace = true }
+
+camino = { workspace = true }
+divan = { workspace = true }
+salsa = { workspace = true }
+
+[[bench]]
+name = "parser"
+harness = false
+
+[lints]
+workspace = true
