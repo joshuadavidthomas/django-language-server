@@ -134,7 +134,7 @@ impl<'db> BlockTreeBuilder<'db> {
         tree
     }
 
-    fn handle_tag(&mut self, name: &String, bits: &Vec<String>, span: Span) {
+    fn handle_tag(&mut self, name: &str, bits: &[String], span: Span) {
         let tag_name = name;
         match self.index.classify(tag_name) {
             TagClass::Opener => {
@@ -150,14 +150,14 @@ impl<'db> BlockTreeBuilder<'db> {
                     // Nested block
                     self.semantic_ops.push(BlockSemanticOp::AddBranchNode {
                         target: parent_id,
-                        tag: tag_name.clone(),
+                        tag: tag_name.to_string(),
                         marker_span: span,
                         body: container,
                         kind: BranchKind::Opener,
                     });
                     self.semantic_ops.push(BlockSemanticOp::AddBranchNode {
                         target: container,
-                        tag: tag_name.clone(),
+                        tag: tag_name.to_string(),
                         marker_span: span,
                         body: segment,
                         kind: BranchKind::Segment,
@@ -168,7 +168,7 @@ impl<'db> BlockTreeBuilder<'db> {
                         .push(BlockSemanticOp::AddRoot { id: container });
                     self.semantic_ops.push(BlockSemanticOp::AddBranchNode {
                         target: container,
-                        tag: tag_name.clone(),
+                        tag: tag_name.to_string(),
                         marker_span: span,
                         body: segment,
                         kind: BranchKind::Segment,
@@ -176,8 +176,8 @@ impl<'db> BlockTreeBuilder<'db> {
                 }
 
                 self.stack.push(TreeFrame {
-                    opener_name: tag_name.clone(),
-                    opener_bits: bits.clone(),
+                    opener_name: tag_name.to_string(),
+                    opener_bits: bits.to_vec(),
                     opener_span: span,
                     container_body: container,
                     segment_body: segment,
@@ -194,7 +194,7 @@ impl<'db> BlockTreeBuilder<'db> {
                 if let Some(segment) = get_active_segment(&self.stack) {
                     self.semantic_ops.push(BlockSemanticOp::AddLeafNode {
                         target: segment,
-                        label: tag_name.clone(),
+                        label: tag_name.to_string(),
                         span,
                     });
                 }
