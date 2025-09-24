@@ -296,7 +296,7 @@ pub struct TokenStream(Vec<Token>);
 impl TokenStream {
     #[must_use]
     pub fn with_estimated_capacity(source: &str) -> Self {
-        const CHARS_PER_TOKEN: usize = 15;
+        const CHARS_PER_TOKEN: usize = 8;
         const MIN_CAPACITY: usize = 32;
         const MAX_CAPACITY: usize = 1024;
 
@@ -309,11 +309,19 @@ impl TokenStream {
         self.0.push(token);
     }
 
+    /// Get the number of tokens in the stream.
     #[must_use]
     pub fn len(&self) -> usize {
-        self.0.len().saturating_sub(1) // Don't count EOF
+        self.0.len()
     }
 
+    /// Get the number of content tokens (excluding EOF).
+    #[must_use]
+    pub fn content_len(&self) -> usize {
+        self.0.len().saturating_sub(1)
+    }
+
+    /// Check if stream is empty.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
