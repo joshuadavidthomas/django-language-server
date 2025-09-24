@@ -22,9 +22,10 @@ PY_LATEST = PY_VERSIONS[-1]
 DJ42 = "4.2"
 DJ51 = "5.1"
 DJ52 = "5.2"
+DJ60 = "6.0a0"
 DJMAIN = "main"
 DJMAIN_MIN_PY = PY312
-DJ_VERSIONS = [DJ42, DJ51, DJ52, DJMAIN]
+DJ_VERSIONS = [DJ42, DJ51, DJ52, DJ60, DJMAIN]
 DJ_LTS = [
     version for version in DJ_VERSIONS if version.endswith(".2") and version != DJMAIN
 ]
@@ -37,11 +38,20 @@ def version(ver: str) -> tuple[int, ...]:
     return tuple(map(int, ver.split(".")))
 
 
+def display_version(raw: str) -> str:
+    match = re.match(r"\d+(?:\.\d+)?", raw)
+    return match.group(0) if match else raw
+
+
 def should_skip(python: str, django: str) -> bool:
     """Return True if the test should be skipped"""
 
     if django == DJMAIN and version(python) < version(DJMAIN_MIN_PY):
         # Django main requires Python 3.10+
+        return True
+
+    if django == DJ60 and version(python) < version(PY312):
+        # Django main requires Python 3.12+
         return True
 
     if django == DJ52 and version(python) < version(PY310):

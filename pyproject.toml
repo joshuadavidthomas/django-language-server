@@ -32,15 +32,17 @@ classifiers = [
   # import cog
   #
   # from noxfile import DJ_VERSIONS
+  # from noxfile import display_version
   #
   # for version in DJ_VERSIONS:
   #     if version == "main":
   #         continue
-  #     cog.outl(f'  "Framework :: Django :: {version}",')
+  #     cog.outl(f'  "Framework :: Django :: {display_version(version)}",')
   # ]]] -->
   "Framework :: Django :: 4.2",
   "Framework :: Django :: 5.1",
   "Framework :: Django :: 5.2",
+  "Framework :: Django :: 6.0",
   # [[[end]]]
   "Intended Audience :: Developers",
   "License :: OSI Approved :: Apache Software License",
