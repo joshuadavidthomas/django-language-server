@@ -7,17 +7,14 @@ fn main() {
     divan::main();
 }
 
-// Pure parser benchmarks (no Salsa/database overhead)
 #[divan::bench(args = template_fixtures())]
 fn parse_template(fixture: &TemplateFixture) {
-    let source = fixture.source.clone();
-    let _ = djls_templates::parse_template_impl(&source);
+    let _ = djls_templates::parse_template_impl(&fixture.source);
 }
 
 #[divan::bench]
 fn parse_all_templates(bencher: Bencher) {
     let fixtures = template_fixtures();
-
     bencher.bench_local(move || {
         for fixture in fixtures {
             let _ = djls_templates::parse_template_impl(&fixture.source);
