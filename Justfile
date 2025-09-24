@@ -11,7 +11,7 @@ default:
 
 [private]
 cog:
-    uv run --no-project --with cogapp --with nox --no-project cog -r CONTRIBUTING.md README.md pyproject.toml
+    uv run --no-project --with cogapp --with nox cog -r CONTRIBUTING.md README.md pyproject.toml
 
 [private]
 nox SESSION *ARGS:

@@ -18,6 +18,10 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ## [Unreleased]
 
+### Added
+
+- Added support for Django 6.0.
+
 ### Changed
 
 - Bumped Rust toolchain from 1.88 to 1.90

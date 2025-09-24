@@ -40,10 +40,18 @@ $ # just --list --list-submodules
 
 Available recipes:
     bumpver *ARGS
+    check *ARGS
     clean
+    clippy *ARGS
+    fmt *ARGS
     lint          # run pre-commit on all files
     test *ARGS
     testall *ARGS
+    dev:
+        debug
+        explore FILENAME="djls.db"
+        inspect
+        record FILENAME="djls.db"
     docs:
         build LOCATION="site" # Build documentation
         serve PORT="8000"     # Serve documentation locally
