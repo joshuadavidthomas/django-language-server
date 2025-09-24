@@ -181,7 +181,7 @@ impl<'db> TagValidator<'db> {
         }
 
         // Find the matching opener
-        let expected_opener = self.db.tag_specs().find_opener_for_closer(&name_str);
+        let expected_opener = self.db.tag_specs().find_opener_for_closer(name_str);
         let Some(opener_name) = expected_opener else {
             // Unknown closer
             self.report_error(ValidationError::UnbalancedStructure {

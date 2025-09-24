@@ -136,7 +136,7 @@ impl<'db> BlockTreeBuilder<'db> {
 
     fn handle_tag(&mut self, name: &String, bits: &Vec<String>, span: Span) {
         let tag_name = name;
-        match self.index.classify(&tag_name) {
+        match self.index.classify(tag_name) {
             TagClass::Opener => {
                 let parent = get_active_segment(&self.stack);
 
@@ -185,10 +185,10 @@ impl<'db> BlockTreeBuilder<'db> {
                 });
             }
             TagClass::Closer { opener_name } => {
-                self.close_block(&opener_name, &bits, span);
+                self.close_block(&opener_name, bits, span);
             }
             TagClass::Intermediate { possible_openers } => {
-                self.add_intermediate(&tag_name, &possible_openers, span);
+                self.add_intermediate(tag_name, &possible_openers, span);
             }
             TagClass::Unknown => {
                 if let Some(segment) = get_active_segment(&self.stack) {

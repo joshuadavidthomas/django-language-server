@@ -38,7 +38,7 @@ impl Parser {
                                 let empty = Span::new(0, 0);
                                 (empty, empty)
                             },
-                            |error_tok| error_tok.spans(),
+                            super::tokens::Token::spans,
                         );
 
                     errors.push(error.clone());
@@ -66,7 +66,7 @@ impl Parser {
         match token {
             Token::Block { .. } => self.parse_block(),
             Token::Comment { .. } => self.parse_comment(),
-            Token::Eof { .. } => Err(ParseError::stream_error(StreamError::AtEnd)),
+            Token::Eof => Err(ParseError::stream_error(StreamError::AtEnd)),
             Token::Error { .. } => self.parse_error(),
             Token::Newline { .. } | Token::Text { .. } | Token::Whitespace { .. } => {
                 self.parse_text()
@@ -92,7 +92,7 @@ impl Parser {
 
         let name = parts.next().ok_or(ParseError::EmptyTag)?.to_string();
 
-        let bits = parts.map(|s| s.to_string()).collect();
+        let bits = parts.map(std::string::ToString::to_string).collect();
         let span = token.content_span_or_fallback();
 
         Ok(Node::Tag { name, bits, span })
@@ -137,7 +137,7 @@ impl Parser {
                 | Token::Variable { .. }
                 | Token::Comment { .. }
                 | Token::Error { .. }
-                | Token::Eof { .. } => break, // Stop at Django constructs, errors, or EOF
+                | Token::Eof => break, // Stop at Django constructs, errors, or EOF
                 Token::Text { .. } | Token::Whitespace { .. } | Token::Newline { .. } => {
                     // Update end position
                     let token_end = token.full_span_or_fallback().end();
@@ -220,7 +220,7 @@ impl Parser {
                 Token::Block { .. }
                 | Token::Variable { .. }
                 | Token::Comment { .. }
-                | Token::Eof { .. } => {
+                | Token::Eof => {
                     return Ok(());
                 }
                 _ => {}
@@ -376,7 +376,7 @@ mod tests {
 
     fn convert_nodelist_for_testing(nodes: &[Node]) -> TestNodeList {
         TestNodeList {
-            nodelist: nodes.iter().map(|n| TestNode::from_node(n)).collect(),
+            nodelist: nodes.iter().map(TestNode::from_node).collect(),
         }
     }
 
@@ -414,7 +414,7 @@ mod tests {
         #[test]
         fn test_parse_django_variable() {
             let source = "{{ user.name }}";
-            let nodelist = parse_test_template(&source);
+            let nodelist = parse_test_template(source);
             let test_nodelist = convert_nodelist_for_testing(&nodelist);
             insta::assert_yaml_snapshot!(test_nodelist);
         }
@@ -422,7 +422,7 @@ mod tests {
         #[test]
         fn test_parse_django_variable_with_filter() {
             let source = "{{ user.name|title }}";
-            let nodelist = parse_test_template(&source);
+            let nodelist = parse_test_template(source);
             let test_nodelist = convert_nodelist_for_testing(&nodelist);
             insta::assert_yaml_snapshot!(test_nodelist);
         }
@@ -430,7 +430,7 @@ mod tests {
         #[test]
         fn test_parse_filter_chains() {
             let source = "{{ value|default:'nothing'|title|upper }}";
-            let nodelist = parse_test_template(&source);
+            let nodelist = parse_test_template(source);
             let test_nodelist = convert_nodelist_for_testing(&nodelist);
             insta::assert_yaml_snapshot!(test_nodelist);
         }
@@ -438,7 +438,7 @@ mod tests {
         #[test]
         fn test_parse_django_if_block() {
             let source = "{% if user.is_authenticated %}Welcome{% endif %}";
-            let nodelist = parse_test_template(&source);
+            let nodelist = parse_test_template(source);
             let test_nodelist = convert_nodelist_for_testing(&nodelist);
             insta::assert_yaml_snapshot!(test_nodelist);
         }
@@ -452,7 +452,7 @@ mod tests {
 
         #[test]
         fn test_parse_complex_if_elif() {            let source = "{% if x > 0 %}Positive{% elif x < 0 %}Negative{% else %}Zero{% endif %}"
-                ;            let nodelist = parse_test_template(&source);
+                ;            let nodelist = parse_test_template(source);
             let test_nodelist = convert_nodelist_for_testing(&nodelist);
             insta::assert_yaml_snapshot!(test_nodelist);
         }
@@ -460,7 +460,7 @@ mod tests {
         #[test]
         fn test_parse_django_tag_assignment() {
             let source = "{% url 'view-name' as view %}";
-            let nodelist = parse_test_template(&source);
+            let nodelist = parse_test_template(source);
             let test_nodelist = convert_nodelist_for_testing(&nodelist);
             insta::assert_yaml_snapshot!(test_nodelist);
         }
@@ -487,7 +487,7 @@ mod tests {
 {% else %}
     Guest
 {% endif %}!"
-                ;            let nodelist = parse_test_template(&source);
+                ;            let nodelist = parse_test_template(source);
             let test_nodelist = convert_nodelist_for_testing(&nodelist);
             insta::assert_yaml_snapshot!(test_nodelist);
         }
@@ -532,7 +532,7 @@ mod tests {
         #[test]
         fn test_parse_comments() {
             let source = "<!-- HTML comment -->{# Django comment #}";
-            let nodelist = parse_test_template(&source);
+            let nodelist = parse_test_template(source);
             let test_nodelist = convert_nodelist_for_testing(&nodelist);
             insta::assert_yaml_snapshot!(test_nodelist);
         }
@@ -544,7 +544,7 @@ mod tests {
         #[test]
         fn test_parse_with_leading_whitespace() {
             let source = "     hello";
-            let nodelist = parse_test_template(&source);
+            let nodelist = parse_test_template(source);
             let test_nodelist = convert_nodelist_for_testing(&nodelist);
             insta::assert_yaml_snapshot!(test_nodelist);
         }
@@ -552,7 +552,7 @@ mod tests {
         #[test]
         fn test_parse_with_leading_whitespace_newline() {
             let source = "\n     hello";
-            let nodelist = parse_test_template(&source);
+            let nodelist = parse_test_template(source);
             let test_nodelist = convert_nodelist_for_testing(&nodelist);
             insta::assert_yaml_snapshot!(test_nodelist);
         }
@@ -560,7 +560,7 @@ mod tests {
         #[test]
         fn test_parse_with_trailing_whitespace() {
             let source = "hello     ";
-            let nodelist = parse_test_template(&source);
+            let nodelist = parse_test_template(source);
             let test_nodelist = convert_nodelist_for_testing(&nodelist);
             insta::assert_yaml_snapshot!(test_nodelist);
         }
@@ -568,7 +568,7 @@ mod tests {
         #[test]
         fn test_parse_with_trailing_whitespace_newline() {
             let source = "hello     \n";
-            let nodelist = parse_test_template(&source);
+            let nodelist = parse_test_template(source);
             let test_nodelist = convert_nodelist_for_testing(&nodelist);
             insta::assert_yaml_snapshot!(test_nodelist);
         }
@@ -580,7 +580,7 @@ mod tests {
         #[test]
         fn test_parse_unclosed_html_tag() {
             let source = "<div>";
-            let nodelist = parse_test_template(&source);
+            let nodelist = parse_test_template(source);
             let test_nodelist = convert_nodelist_for_testing(&nodelist);
             insta::assert_yaml_snapshot!(test_nodelist);
         }
@@ -588,7 +588,7 @@ mod tests {
         #[test]
         fn test_parse_unclosed_django_if() {
             let source = "{% if user.is_authenticated %}Welcome";
-            let nodelist = parse_test_template(&source);
+            let nodelist = parse_test_template(source);
             let test_nodelist = convert_nodelist_for_testing(&nodelist);
             insta::assert_yaml_snapshot!(test_nodelist);
         }
@@ -596,7 +596,7 @@ mod tests {
         #[test]
         fn test_parse_unclosed_django_for() {
             let source = "{% for item in items %}{{ item.name }}";
-            let nodelist = parse_test_template(&source);
+            let nodelist = parse_test_template(source);
             let test_nodelist = convert_nodelist_for_testing(&nodelist);
             insta::assert_yaml_snapshot!(test_nodelist);
         }
@@ -604,7 +604,7 @@ mod tests {
         #[test]
         fn test_parse_unclosed_script() {
             let source = "<script>console.log('test');";
-            let nodelist = parse_test_template(&source);
+            let nodelist = parse_test_template(source);
             let test_nodelist = convert_nodelist_for_testing(&nodelist);
             insta::assert_yaml_snapshot!(test_nodelist);
         }
@@ -612,7 +612,7 @@ mod tests {
         #[test]
         fn test_parse_unclosed_style() {
             let source = "<style>body { color: blue; ";
-            let nodelist = parse_test_template(&source);
+            let nodelist = parse_test_template(source);
             let test_nodelist = convert_nodelist_for_testing(&nodelist);
             insta::assert_yaml_snapshot!(test_nodelist);
         }
@@ -620,7 +620,7 @@ mod tests {
         #[test]
         fn test_parse_unclosed_variable_token() {
             let source = "{{ user";
-            let nodelist = parse_test_template(&source);
+            let nodelist = parse_test_template(source);
             let test_nodelist = convert_nodelist_for_testing(&nodelist);
             insta::assert_yaml_snapshot!(test_nodelist);
         }

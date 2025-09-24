@@ -51,12 +51,12 @@ impl TagIndex {
             .is_some_and(|meta| meta.optional)
     }
 
-    pub fn validate_close<'db>(
+    pub fn validate_close(
         &self,
         opener_name: &str,
         opener_bits: &[String],
         closer_bits: &[String],
-        _db: &'db dyn crate::db::Db,
+        _db: &dyn crate::db::Db,
     ) -> CloseValidation {
         let Some(meta) = self.openers.get(opener_name) else {
             return CloseValidation::NotABlock;
