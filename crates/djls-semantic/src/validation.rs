@@ -19,8 +19,6 @@
 
 use djls_source::Span;
 use djls_templates::nodelist::Node;
-use djls_templates::nodelist::TagBit;
-use djls_templates::nodelist::TagName;
 use djls_templates::NodeList;
 use salsa::Accumulator;
 
@@ -34,7 +32,7 @@ pub struct TagValidator<'db> {
     db: &'db dyn SemanticDb,
     ast: NodeList<'db>,
     current: usize,
-    stack: Vec<Node<'db>>,
+    stack: Vec<Node>,
 }
 
 impl<'db> TagValidator<'db> {
@@ -52,21 +50,21 @@ impl<'db> TagValidator<'db> {
         while !self.is_at_end() {
             if let Some(node) = self.current_node() {
                 if let Node::Tag { name, bits, .. } = &node {
-                    let name_str = name.text(self.db);
+                    let name_str = name; // name is already a String
 
                     let tag_specs = self.db.tag_specs();
-                    let tag_type = TagType::for_name(&name_str, &tag_specs);
+                    let tag_type = TagType::for_name(name_str, &tag_specs);
 
                     let args = match tag_type {
                         TagType::Closer => tag_specs
-                            .get_end_spec_for_closer(&name_str)
+                            .get_end_spec_for_closer(name_str)
                             .map(|s| &s.args),
-                        _ => tag_specs.get(&name_str).map(|s| &s.args),
+                        _ => tag_specs.get(name_str).map(|s| &s.args),
                     };
 
                     // Pass full_span for error reporting
                     self.check_arguments(
-                        &name_str,
+                        name_str,
                         bits,
                         node.full_span(),
                         args.map(std::convert::AsRef::as_ref),
@@ -77,10 +75,10 @@ impl<'db> TagValidator<'db> {
                             self.stack.push(node.clone()); // Push the whole node
                         }
                         TagType::Intermediate => {
-                            self.handle_intermediate(&name_str, node.full_span());
+                            self.handle_intermediate(name_str, node.full_span());
                         }
                         TagType::Closer => {
-                            self.handle_closer(*name, bits, node.full_span());
+                            self.handle_closer(name, bits, node.full_span());
                         }
                         TagType::Standalone => {
                             // No additional action needed for standalone tags
@@ -95,7 +93,7 @@ impl<'db> TagValidator<'db> {
         while let Some(node) = self.stack.pop() {
             if let Node::Tag { name, .. } = &node {
                 self.report_error(ValidationError::UnclosedTag {
-                    tag: name.text(self.db),
+                    tag: name.clone(),
                     span: node.full_span(),
                 });
             }
@@ -105,7 +103,7 @@ impl<'db> TagValidator<'db> {
     fn check_arguments(
         &mut self,
         name: &str,
-        bits: &[TagBit<'db>],
+        bits: &[String],
         span: Span,
         args: Option<&[TagArg]>,
     ) {
@@ -146,7 +144,7 @@ impl<'db> TagValidator<'db> {
         // Check if any parent is in the stack
         let has_parent = self.stack.iter().rev().any(|node| {
             if let Node::Tag { name: tag_name, .. } = node {
-                parent_tags.contains(&tag_name.text(self.db))
+                parent_tags.contains(tag_name)
             } else {
                 false
             }
@@ -168,8 +166,8 @@ impl<'db> TagValidator<'db> {
         }
     }
 
-    fn handle_closer(&mut self, name: TagName<'db>, bits: &[TagBit<'db>], span: Span) {
-        let name_str = name.text(self.db);
+    fn handle_closer(&mut self, name: &String, bits: &[String], span: Span) {
+        let name_str = name;
 
         if self.stack.is_empty() {
             // Stack is empty - unexpected closer
@@ -204,7 +202,7 @@ impl<'db> TagValidator<'db> {
                 .rev()
                 .find(|(_, node)| {
                     if let Node::Tag { name: tag_name, .. } = node {
-                        tag_name.text(self.db) == opener_name
+                        tag_name == &opener_name
                     } else {
                         false
                     }
@@ -223,7 +221,7 @@ impl<'db> TagValidator<'db> {
                         ..
                     } = node
                     {
-                        tag_name.text(self.db) == opener_name
+                        tag_name == &opener_name
                             && !tag_bits.is_empty()
                             && tag_bits[0] == bits[0]
                     } else {
@@ -247,14 +245,14 @@ impl<'db> TagValidator<'db> {
             // Named closer with no matching named block
             // Report the mismatch
             self.report_error(ValidationError::UnmatchedBlockName {
-                name: bits[0].text(self.db),
+                name: bits[0].clone(),
                 span,
             });
 
             // Find the nearest block to close (and report it as unclosed)
             if let Some((index, _)) = self.stack.iter().enumerate().rev().find(|(_, node)| {
                 if let Node::Tag { name: tag_name, .. } = node {
-                    tag_name.text(self.db) == opener_name
+                    tag_name == &opener_name
                 } else {
                     false
                 }
@@ -266,7 +264,7 @@ impl<'db> TagValidator<'db> {
                     } = nearest_block
                     {
                         self.report_error(ValidationError::UnclosedTag {
-                            tag: block_name.text(self.db),
+                            tag: block_name.clone(),
                             span: nearest_block.full_span(),
                         });
                     }
@@ -294,7 +292,7 @@ impl<'db> TagValidator<'db> {
             if let Some(unclosed) = self.stack.pop() {
                 if let Node::Tag { name, .. } = &unclosed {
                     self.report_error(ValidationError::UnclosedTag {
-                        tag: name.text(self.db),
+                        tag: name.clone(),
                         span: unclosed.full_span(),
                     });
                 }
@@ -302,7 +300,7 @@ impl<'db> TagValidator<'db> {
         }
     }
 
-    fn current_node(&self) -> Option<Node<'db>> {
+    fn current_node(&self) -> Option<Node> {
         self.ast.nodelist(self.db).get(self.current).cloned()
     }
 

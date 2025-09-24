@@ -1,38 +1,27 @@
 use djls_source::Span;
-use salsa::Accumulator;
 use serde::Serialize;
 use thiserror::Error;
 
-use crate::db::Db as TemplateDb;
-use crate::db::TemplateErrorAccumulator;
-use crate::error::TemplateError;
-use crate::nodelist::FilterName;
 use crate::nodelist::Node;
-use crate::nodelist::NodeList;
-use crate::nodelist::TagBit;
-use crate::nodelist::TagName;
-use crate::nodelist::VariableName;
 use crate::tokens::Token;
-use crate::tokens::TokenStream;
 
-pub struct Parser<'db> {
-    db: &'db dyn TemplateDb,
-    tokens: Vec<Token<'db>>,
+pub struct Parser {
+    tokens: Vec<Token>,
     current: usize,
 }
 
-impl<'db> Parser<'db> {
+impl Parser {
     #[must_use]
-    pub fn new(db: &'db dyn TemplateDb, tokens: TokenStream<'db>) -> Self {
+    pub fn new(tokens: Vec<Token>) -> Self {
         Self {
-            db,
-            tokens: tokens.stream(db).clone(),
+            tokens,
             current: 0,
         }
     }
 
-    pub fn parse(&mut self) -> Result<NodeList<'db>, ParseError> {
+    pub fn parse(&mut self) -> (Vec<Node>, Vec<ParseError>) {
         let mut nodelist = Vec::new();
+        let mut errors = Vec::new();
 
         while !self.is_at_end() {
             match self.next_node() {
@@ -49,11 +38,10 @@ impl<'db> Parser<'db> {
                                 let empty = Span::new(0, 0);
                                 (empty, empty)
                             },
-                            |error_tok| error_tok.spans(self.db),
+                            |error_tok| error_tok.spans(),
                         );
 
-                    TemplateErrorAccumulator(TemplateError::Parser(error.to_string()))
-                        .accumulate(self.db);
+                    errors.push(error.clone());
 
                     nodelist.push(Node::Error {
                         span,
@@ -62,18 +50,17 @@ impl<'db> Parser<'db> {
                     });
 
                     if !self.is_at_end() {
-                        self.synchronize()?;
+                        // Continue parsing even if synchronization fails
+                        let _ = self.synchronize();
                     }
                 }
             }
         }
 
-        let nodelist = NodeList::new(self.db, nodelist);
-
-        Ok(nodelist)
+        (nodelist, errors)
     }
 
-    fn next_node(&mut self) -> Result<Node<'db>, ParseError> {
+    fn next_node(&mut self) -> Result<Node, ParseError> {
         let token = self.consume()?;
 
         match token {
@@ -88,7 +75,7 @@ impl<'db> Parser<'db> {
         }
     }
 
-    pub fn parse_block(&mut self) -> Result<Node<'db>, ParseError> {
+    pub fn parse_block(&mut self) -> Result<Node, ParseError> {
         let token = self.peek_previous()?;
 
         let Token::Block {
@@ -101,33 +88,32 @@ impl<'db> Parser<'db> {
             });
         };
 
-        let mut parts = content_ref.text(self.db).split_whitespace();
+        let mut parts = content_ref.split_whitespace();
 
-        let name_str = parts.next().ok_or(ParseError::EmptyTag)?;
-        let name = TagName::new(self.db, name_str.to_string());
+        let name = parts.next().ok_or(ParseError::EmptyTag)?.to_string();
 
-        let bits = parts.map(|s| TagBit::new(self.db, s.to_string())).collect();
-        let span = token.content_span_or_fallback(self.db);
+        let bits = parts.map(|s| s.to_string()).collect();
+        let span = token.content_span_or_fallback();
 
         Ok(Node::Tag { name, bits, span })
     }
 
-    fn parse_comment(&mut self) -> Result<Node<'db>, ParseError> {
+    fn parse_comment(&mut self) -> Result<Node, ParseError> {
         let token = self.peek_previous()?;
 
-        let span = token.content_span_or_fallback(self.db);
+        let span = token.content_span_or_fallback();
         Ok(Node::Comment {
-            content: token.content(self.db),
+            content: token.content(),
             span,
         })
     }
 
-    fn parse_error(&mut self) -> Result<Node<'db>, ParseError> {
+    fn parse_error(&mut self) -> Result<Node, ParseError> {
         let token = self.peek_previous()?;
 
         match token {
             Token::Error { content, span, .. } => {
-                let error_text = content.text(self.db).clone();
+                let error_text = content.clone();
                 let full_span = token.full_span().unwrap_or(*span);
                 Err(ParseError::MalformedConstruct {
                     position: full_span.start_usize(),
@@ -140,8 +126,8 @@ impl<'db> Parser<'db> {
         }
     }
 
-    fn parse_text(&mut self) -> Result<Node<'db>, ParseError> {
-        let first_span = self.peek_previous()?.full_span_or_fallback(self.db);
+    fn parse_text(&mut self) -> Result<Node, ParseError> {
+        let first_span = self.peek_previous()?.full_span_or_fallback();
         let start = first_span.start();
         let mut end = first_span.end();
 
@@ -154,7 +140,7 @@ impl<'db> Parser<'db> {
                 | Token::Eof { .. } => break, // Stop at Django constructs, errors, or EOF
                 Token::Text { .. } | Token::Whitespace { .. } | Token::Newline { .. } => {
                     // Update end position
-                    let token_end = token.full_span_or_fallback(self.db).end();
+                    let token_end = token.full_span_or_fallback().end();
                     end = end.max(token_end);
                     self.consume()?;
                 }
@@ -167,7 +153,7 @@ impl<'db> Parser<'db> {
         Ok(Node::Text { span })
     }
 
-    fn parse_variable(&mut self) -> Result<Node<'db>, ParseError> {
+    fn parse_variable(&mut self) -> Result<Node, ParseError> {
         let token = self.peek_previous()?;
 
         let Token::Variable {
@@ -180,24 +166,20 @@ impl<'db> Parser<'db> {
             });
         };
 
-        let mut parts = content_ref.text(self.db).split('|');
+        let mut parts = content_ref.split('|');
 
-        let var_str = parts.next().ok_or(ParseError::EmptyTag)?.trim();
-        let var = VariableName::new(self.db, var_str.to_string());
+        let var = parts.next().ok_or(ParseError::EmptyTag)?.trim().to_string();
 
-        let filters: Vec<FilterName<'db>> = parts
-            .map(|s| {
-                let trimmed = s.trim();
-                FilterName::new(self.db, trimmed.to_string())
-            })
+        let filters: Vec<String> = parts
+            .map(|s| s.trim().to_string())
             .collect();
-        let span = token.content_span_or_fallback(self.db);
+        let span = token.content_span_or_fallback();
 
         Ok(Node::Variable { var, filters, span })
     }
 
     #[inline]
-    fn peek(&self) -> Result<&Token<'db>, ParseError> {
+    fn peek(&self) -> Result<&Token, ParseError> {
         self.tokens.get(self.current).ok_or_else(|| {
             if self.tokens.is_empty() {
                 ParseError::stream_error(StreamError::Empty)
@@ -208,7 +190,7 @@ impl<'db> Parser<'db> {
     }
 
     #[inline]
-    fn peek_previous(&self) -> Result<&Token<'db>, ParseError> {
+    fn peek_previous(&self) -> Result<&Token, ParseError> {
         if self.current == 0 {
             return Err(ParseError::stream_error(StreamError::BeforeStart));
         }
@@ -223,7 +205,7 @@ impl<'db> Parser<'db> {
     }
 
     #[inline]
-    fn consume(&mut self) -> Result<&Token<'db>, ParseError> {
+    fn consume(&mut self) -> Result<&Token, ParseError> {
         if self.is_at_end() {
             return Err(ParseError::stream_error(StreamError::AtEnd));
         }
@@ -306,56 +288,17 @@ impl ParseError {
 
 #[cfg(test)]
 mod tests {
-    use camino::Utf8Path;
     use serde::Serialize;
 
     use super::*;
     use crate::lexer::Lexer;
 
-    // Test database that implements the required traits
-    #[salsa::db]
-    #[derive(Clone)]
-    struct TestDatabase {
-        storage: salsa::Storage<Self>,
-    }
-
-    impl TestDatabase {
-        fn new() -> Self {
-            Self {
-                storage: salsa::Storage::default(),
-            }
-        }
-    }
-
-    #[salsa::db]
-    impl salsa::Database for TestDatabase {}
-
-    #[salsa::db]
-    impl djls_source::Db for TestDatabase {
-        fn read_file_source(&self, path: &Utf8Path) -> Result<String, std::io::Error> {
-            std::fs::read_to_string(path)
-        }
-    }
-
-    #[salsa::db]
-    impl crate::db::Db for TestDatabase {
-        // Template parsing only - semantic analysis moved to djls-semantic
-    }
-
-    #[salsa::input]
-    struct TestTemplate {
-        #[returns(ref)]
-        source: String,
-    }
-
-    #[salsa::tracked]
-    fn parse_test_template(db: &dyn TemplateDb, template: TestTemplate) -> NodeList<'_> {
-        let source = template.source(db);
-        let tokens = Lexer::new(db, source).tokenize();
-        let token_stream = TokenStream::new(db, tokens);
-        let mut parser = Parser::new(db, token_stream);
-        let nodelist = parser.parse().unwrap();
-        nodelist
+    fn parse_test_template(source: &str) -> Vec<Node> {
+        let mut lexer = Lexer::new(source);
+        let tokens = lexer.tokenize();
+        let mut parser = Parser::new(tokens);
+        let (nodes, _errors) = parser.parse();
+        nodes
     }
 
     #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -395,11 +338,11 @@ mod tests {
     }
 
     impl TestNode {
-        fn from_node(node: &Node<'_>, db: &dyn crate::db::Db) -> Self {
+        fn from_node(node: &Node) -> Self {
             match node {
                 Node::Tag { name, bits, span } => TestNode::Tag {
-                    name: name.text(db).to_string(),
-                    bits: bits.iter().map(|b| b.text(db).to_string()).collect(),
+                    name: name.clone(),
+                    bits: bits.clone(),
                     span: span.into(),
                     full_span: node.full_span().into(),
                 },
@@ -413,8 +356,8 @@ mod tests {
                     full_span: node.full_span().into(),
                 },
                 Node::Variable { var, filters, span } => TestNode::Variable {
-                    var: var.text(db).to_string(),
-                    filters: filters.iter().map(|f| f.text(db).to_string()).collect(),
+                    var: var.clone(),
+                    filters: filters.clone(),
                     span: span.into(),
                     full_span: node.full_span().into(),
                 },
@@ -431,17 +374,10 @@ mod tests {
         }
     }
 
-    fn convert_nodelist_for_testing_wrapper(
-        nodelist: NodeList<'_>,
-        db: &dyn crate::db::Db,
-    ) -> TestNodeList {
+    fn convert_nodelist_for_testing(nodes: &[Node]) -> TestNodeList {
         TestNodeList {
-            nodelist: convert_nodelist_for_testing(nodelist.nodelist(db), db),
+            nodelist: nodes.iter().map(|n| TestNode::from_node(n)).collect(),
         }
-    }
-
-    fn convert_nodelist_for_testing(nodes: &[Node<'_>], db: &dyn crate::db::Db) -> Vec<TestNode> {
-        nodes.iter().map(|n| TestNode::from_node(n, db)).collect()
     }
 
     mod html {
@@ -449,31 +385,25 @@ mod tests {
 
         #[test]
         fn test_parse_html_doctype() {
-            let db = TestDatabase::new();
-            let source = "<!DOCTYPE html>".to_string();
-            let template = TestTemplate::new(&db, source);
-            let nodelist = parse_test_template(&db, template);
-            let test_nodelist = convert_nodelist_for_testing_wrapper(nodelist, &db);
+            let source = "<!DOCTYPE html>";
+            let nodelist = parse_test_template(source);
+            let test_nodelist = convert_nodelist_for_testing(&nodelist);
             insta::assert_yaml_snapshot!(test_nodelist);
         }
 
         #[test]
         fn test_parse_html_tag() {
-            let db = TestDatabase::new();
-            let source = "<div class=\"container\">Hello</div>".to_string();
-            let template = TestTemplate::new(&db, source);
-            let nodelist = parse_test_template(&db, template);
-            let test_nodelist = convert_nodelist_for_testing_wrapper(nodelist, &db);
+            let source = "<div class=\"container\">Hello</div>";
+            let nodelist = parse_test_template(source);
+            let test_nodelist = convert_nodelist_for_testing(&nodelist);
             insta::assert_yaml_snapshot!(test_nodelist);
         }
 
         #[test]
         fn test_parse_html_void() {
-            let db = TestDatabase::new();
-            let source = "<input type=\"text\" />".to_string();
-            let template = TestTemplate::new(&db, source);
-            let nodelist = parse_test_template(&db, template);
-            let test_nodelist = convert_nodelist_for_testing_wrapper(nodelist, &db);
+            let source = "<input type=\"text\" />";
+            let nodelist = parse_test_template(source);
+            let test_nodelist = convert_nodelist_for_testing(&nodelist);
             insta::assert_yaml_snapshot!(test_nodelist);
         }
     }
@@ -483,92 +413,68 @@ mod tests {
 
         #[test]
         fn test_parse_django_variable() {
-            let db = TestDatabase::new();
-            let source = "{{ user.name }}".to_string();
-            let template = TestTemplate::new(&db, source);
-            let nodelist = parse_test_template(&db, template);
-            let test_nodelist = convert_nodelist_for_testing_wrapper(nodelist, &db);
+            let source = "{{ user.name }}";
+            let nodelist = parse_test_template(&source);
+            let test_nodelist = convert_nodelist_for_testing(&nodelist);
             insta::assert_yaml_snapshot!(test_nodelist);
         }
 
         #[test]
         fn test_parse_django_variable_with_filter() {
-            let db = TestDatabase::new();
-            let source = "{{ user.name|title }}".to_string();
-            let template = TestTemplate::new(&db, source);
-            let nodelist = parse_test_template(&db, template);
-            let test_nodelist = convert_nodelist_for_testing_wrapper(nodelist, &db);
+            let source = "{{ user.name|title }}";
+            let nodelist = parse_test_template(&source);
+            let test_nodelist = convert_nodelist_for_testing(&nodelist);
             insta::assert_yaml_snapshot!(test_nodelist);
         }
 
         #[test]
         fn test_parse_filter_chains() {
-            let db = TestDatabase::new();
-            let source = "{{ value|default:'nothing'|title|upper }}".to_string();
-            let template = TestTemplate::new(&db, source);
-            let nodelist = parse_test_template(&db, template);
-            let test_nodelist = convert_nodelist_for_testing_wrapper(nodelist, &db);
+            let source = "{{ value|default:'nothing'|title|upper }}";
+            let nodelist = parse_test_template(&source);
+            let test_nodelist = convert_nodelist_for_testing(&nodelist);
             insta::assert_yaml_snapshot!(test_nodelist);
         }
 
         #[test]
         fn test_parse_django_if_block() {
-            let db = TestDatabase::new();
-            let source = "{% if user.is_authenticated %}Welcome{% endif %}".to_string();
-            let template = TestTemplate::new(&db, source);
-            let nodelist = parse_test_template(&db, template);
-            let test_nodelist = convert_nodelist_for_testing_wrapper(nodelist, &db);
+            let source = "{% if user.is_authenticated %}Welcome{% endif %}";
+            let nodelist = parse_test_template(&source);
+            let test_nodelist = convert_nodelist_for_testing(&nodelist);
             insta::assert_yaml_snapshot!(test_nodelist);
         }
 
         #[test]
-        fn test_parse_django_for_block() {
-            let db = TestDatabase::new();
-            let source =
-                "{% for item in items %}{{ item }}{% empty %}No items{% endfor %}".to_string();
-            let template = TestTemplate::new(&db, source);
-            let nodelist = parse_test_template(&db, template);
-            let test_nodelist = convert_nodelist_for_testing_wrapper(nodelist, &db);
+        fn test_parse_django_for_block() {            let source =
+                "{% for item in items %}{{ item }}{% empty %}No items{% endfor %}".to_string();            let nodelist = parse_test_template(&source);
+            let test_nodelist = convert_nodelist_for_testing(&nodelist);
             insta::assert_yaml_snapshot!(test_nodelist);
         }
 
         #[test]
-        fn test_parse_complex_if_elif() {
-            let db = TestDatabase::new();
-            let source = "{% if x > 0 %}Positive{% elif x < 0 %}Negative{% else %}Zero{% endif %}"
-                .to_string();
-            let template = TestTemplate::new(&db, source);
-            let nodelist = parse_test_template(&db, template);
-            let test_nodelist = convert_nodelist_for_testing_wrapper(nodelist, &db);
+        fn test_parse_complex_if_elif() {            let source = "{% if x > 0 %}Positive{% elif x < 0 %}Negative{% else %}Zero{% endif %}"
+                ;            let nodelist = parse_test_template(&source);
+            let test_nodelist = convert_nodelist_for_testing(&nodelist);
             insta::assert_yaml_snapshot!(test_nodelist);
         }
 
         #[test]
         fn test_parse_django_tag_assignment() {
-            let db = TestDatabase::new();
-            let source = "{% url 'view-name' as view %}".to_string();
-            let template = TestTemplate::new(&db, source);
-            let nodelist = parse_test_template(&db, template);
-            let test_nodelist = convert_nodelist_for_testing_wrapper(nodelist, &db);
+            let source = "{% url 'view-name' as view %}";
+            let nodelist = parse_test_template(&source);
+            let test_nodelist = convert_nodelist_for_testing(&nodelist);
             insta::assert_yaml_snapshot!(test_nodelist);
         }
 
         #[test]
-        fn test_parse_nested_for_if() {
-            let db = TestDatabase::new();
-            let source =
+        fn test_parse_nested_for_if() {            let source =
                 "{% for item in items %}{% if item.active %}{{ item.name }}{% endif %}{% endfor %}"
-                    .to_string();
-            let template = TestTemplate::new(&db, source);
-            let nodelist = parse_test_template(&db, template);
-            let test_nodelist = convert_nodelist_for_testing_wrapper(nodelist, &db);
+                    .to_string();            let nodelist = parse_test_template(&source);
+            let test_nodelist = convert_nodelist_for_testing(&nodelist);
             insta::assert_yaml_snapshot!(test_nodelist);
         }
 
         #[test]
-        fn test_parse_mixed_content() {
-            let db = TestDatabase::new();
-            let source = "Welcome, {% if user.is_authenticated %}
+        fn test_parse_mixed_content() {            let source = "Welcome, {% if user.is_authenticated %}
     {{ user.name|title|default:'Guest' }}
     {% for group in user.groups %}
         {% if forloop.first %}({% endif %}
@@ -581,10 +487,8 @@ mod tests {
 {% else %}
     Guest
 {% endif %}!"
-                .to_string();
-            let template = TestTemplate::new(&db, source);
-            let nodelist = parse_test_template(&db, template);
-            let test_nodelist = convert_nodelist_for_testing_wrapper(nodelist, &db);
+                ;            let nodelist = parse_test_template(&source);
+            let test_nodelist = convert_nodelist_for_testing(&nodelist);
             insta::assert_yaml_snapshot!(test_nodelist);
         }
     }
@@ -593,19 +497,15 @@ mod tests {
         use super::*;
 
         #[test]
-        fn test_parse_script() {
-            let db = TestDatabase::new();
-            let source = r#"<script type="text/javascript">
+        fn test_parse_script() {            let source = r#"<script type="text/javascript">
     // Single line comment
     const x = 1;
     /* Multi-line
         comment */
     console.log(x);
 </script>"#
-                .to_string();
-            let template = TestTemplate::new(&db, source);
-            let nodelist = parse_test_template(&db, template);
-            let test_nodelist = convert_nodelist_for_testing_wrapper(nodelist, &db);
+                .to_string();            let nodelist = parse_test_template(&source);
+            let test_nodelist = convert_nodelist_for_testing(&nodelist);
             insta::assert_yaml_snapshot!(test_nodelist);
         }
     }
@@ -614,18 +514,14 @@ mod tests {
         use super::*;
 
         #[test]
-        fn test_parse_style() {
-            let db = TestDatabase::new();
-            let source = r#"<style type="text/css">
+        fn test_parse_style() {            let source = r#"<style type="text/css">
     /* Header styles */
     .header {
         color: blue;
     }
 </style>"#
-                .to_string();
-            let template = TestTemplate::new(&db, source);
-            let nodelist = parse_test_template(&db, template);
-            let test_nodelist = convert_nodelist_for_testing_wrapper(nodelist, &db);
+                .to_string();            let nodelist = parse_test_template(&source);
+            let test_nodelist = convert_nodelist_for_testing(&nodelist);
             insta::assert_yaml_snapshot!(test_nodelist);
         }
     }
@@ -635,11 +531,9 @@ mod tests {
 
         #[test]
         fn test_parse_comments() {
-            let db = TestDatabase::new();
-            let source = "<!-- HTML comment -->{# Django comment #}".to_string();
-            let template = TestTemplate::new(&db, source);
-            let nodelist = parse_test_template(&db, template);
-            let test_nodelist = convert_nodelist_for_testing_wrapper(nodelist, &db);
+            let source = "<!-- HTML comment -->{# Django comment #}";
+            let nodelist = parse_test_template(&source);
+            let test_nodelist = convert_nodelist_for_testing(&nodelist);
             insta::assert_yaml_snapshot!(test_nodelist);
         }
     }
@@ -649,41 +543,33 @@ mod tests {
 
         #[test]
         fn test_parse_with_leading_whitespace() {
-            let db = TestDatabase::new();
-            let source = "     hello".to_string();
-            let template = TestTemplate::new(&db, source);
-            let nodelist = parse_test_template(&db, template);
-            let test_nodelist = convert_nodelist_for_testing_wrapper(nodelist, &db);
+            let source = "     hello";
+            let nodelist = parse_test_template(&source);
+            let test_nodelist = convert_nodelist_for_testing(&nodelist);
             insta::assert_yaml_snapshot!(test_nodelist);
         }
 
         #[test]
         fn test_parse_with_leading_whitespace_newline() {
-            let db = TestDatabase::new();
-            let source = "\n     hello".to_string();
-            let template = TestTemplate::new(&db, source);
-            let nodelist = parse_test_template(&db, template);
-            let test_nodelist = convert_nodelist_for_testing_wrapper(nodelist, &db);
+            let source = "\n     hello";
+            let nodelist = parse_test_template(&source);
+            let test_nodelist = convert_nodelist_for_testing(&nodelist);
             insta::assert_yaml_snapshot!(test_nodelist);
         }
 
         #[test]
         fn test_parse_with_trailing_whitespace() {
-            let db = TestDatabase::new();
-            let source = "hello     ".to_string();
-            let template = TestTemplate::new(&db, source);
-            let nodelist = parse_test_template(&db, template);
-            let test_nodelist = convert_nodelist_for_testing_wrapper(nodelist, &db);
+            let source = "hello     ";
+            let nodelist = parse_test_template(&source);
+            let test_nodelist = convert_nodelist_for_testing(&nodelist);
             insta::assert_yaml_snapshot!(test_nodelist);
         }
 
         #[test]
         fn test_parse_with_trailing_whitespace_newline() {
-            let db = TestDatabase::new();
-            let source = "hello     \n".to_string();
-            let template = TestTemplate::new(&db, source);
-            let nodelist = parse_test_template(&db, template);
-            let test_nodelist = convert_nodelist_for_testing_wrapper(nodelist, &db);
+            let source = "hello     \n";
+            let nodelist = parse_test_template(&source);
+            let test_nodelist = convert_nodelist_for_testing(&nodelist);
             insta::assert_yaml_snapshot!(test_nodelist);
         }
     }
@@ -693,61 +579,49 @@ mod tests {
 
         #[test]
         fn test_parse_unclosed_html_tag() {
-            let db = TestDatabase::new();
-            let source = "<div>".to_string();
-            let template = TestTemplate::new(&db, source);
-            let nodelist = parse_test_template(&db, template);
-            let test_nodelist = convert_nodelist_for_testing_wrapper(nodelist, &db);
+            let source = "<div>";
+            let nodelist = parse_test_template(&source);
+            let test_nodelist = convert_nodelist_for_testing(&nodelist);
             insta::assert_yaml_snapshot!(test_nodelist);
         }
 
         #[test]
         fn test_parse_unclosed_django_if() {
-            let db = TestDatabase::new();
-            let source = "{% if user.is_authenticated %}Welcome".to_string();
-            let template = TestTemplate::new(&db, source);
-            let nodelist = parse_test_template(&db, template);
-            let test_nodelist = convert_nodelist_for_testing_wrapper(nodelist, &db);
+            let source = "{% if user.is_authenticated %}Welcome";
+            let nodelist = parse_test_template(&source);
+            let test_nodelist = convert_nodelist_for_testing(&nodelist);
             insta::assert_yaml_snapshot!(test_nodelist);
         }
 
         #[test]
         fn test_parse_unclosed_django_for() {
-            let db = TestDatabase::new();
-            let source = "{% for item in items %}{{ item.name }}".to_string();
-            let template = TestTemplate::new(&db, source);
-            let nodelist = parse_test_template(&db, template);
-            let test_nodelist = convert_nodelist_for_testing_wrapper(nodelist, &db);
+            let source = "{% for item in items %}{{ item.name }}";
+            let nodelist = parse_test_template(&source);
+            let test_nodelist = convert_nodelist_for_testing(&nodelist);
             insta::assert_yaml_snapshot!(test_nodelist);
         }
 
         #[test]
         fn test_parse_unclosed_script() {
-            let db = TestDatabase::new();
-            let source = "<script>console.log('test');".to_string();
-            let template = TestTemplate::new(&db, source);
-            let nodelist = parse_test_template(&db, template);
-            let test_nodelist = convert_nodelist_for_testing_wrapper(nodelist, &db);
+            let source = "<script>console.log('test');";
+            let nodelist = parse_test_template(&source);
+            let test_nodelist = convert_nodelist_for_testing(&nodelist);
             insta::assert_yaml_snapshot!(test_nodelist);
         }
 
         #[test]
         fn test_parse_unclosed_style() {
-            let db = TestDatabase::new();
-            let source = "<style>body { color: blue; ".to_string();
-            let template = TestTemplate::new(&db, source);
-            let nodelist = parse_test_template(&db, template);
-            let test_nodelist = convert_nodelist_for_testing_wrapper(nodelist, &db);
+            let source = "<style>body { color: blue; ";
+            let nodelist = parse_test_template(&source);
+            let test_nodelist = convert_nodelist_for_testing(&nodelist);
             insta::assert_yaml_snapshot!(test_nodelist);
         }
 
         #[test]
         fn test_parse_unclosed_variable_token() {
-            let db = TestDatabase::new();
-            let source = "{{ user".to_string();
-            let template = TestTemplate::new(&db, source);
-            let nodelist = parse_test_template(&db, template);
-            let test_nodelist = convert_nodelist_for_testing_wrapper(nodelist, &db);
+            let source = "{{ user";
+            let nodelist = parse_test_template(&source);
+            let test_nodelist = convert_nodelist_for_testing(&nodelist);
             insta::assert_yaml_snapshot!(test_nodelist);
         }
 
@@ -780,9 +654,7 @@ mod tests {
         use super::*;
 
         #[test]
-        fn test_parse_full() {
-            let db = TestDatabase::new();
-            let source = r#"<!DOCTYPE html>
+        fn test_parse_full() {            let source = r#"<!DOCTYPE html>
 <html>
     <head>
         <style type="text/css">
@@ -812,10 +684,8 @@ mod tests {
         </div>
     </body>
 </html>"#
-                .to_string();
-            let template = TestTemplate::new(&db, source);
-            let nodelist = parse_test_template(&db, template);
-            let test_nodelist = convert_nodelist_for_testing_wrapper(nodelist, &db);
+                .to_string();            let nodelist = parse_test_template(&source);
+            let test_nodelist = convert_nodelist_for_testing(&nodelist);
             insta::assert_yaml_snapshot!(test_nodelist);
         }
     }

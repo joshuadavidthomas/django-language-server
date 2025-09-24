@@ -56,7 +56,6 @@ pub use db::Db;
 pub use db::TemplateErrorAccumulator;
 use djls_source::File;
 use djls_source::FileKind;
-use djls_source::Span;
 pub use error::TemplateError;
 pub use lexer::Lexer;
 pub use nodelist::Node;
@@ -64,7 +63,6 @@ pub use nodelist::NodeList;
 pub use parser::ParseError;
 pub use parser::Parser;
 use salsa::Accumulator;
-use tokens::TokenStream;
 
 /// Parse a Django template file and accumulate diagnostics.
 ///
@@ -80,32 +78,24 @@ pub fn parse_template(db: &dyn Db, file: File) -> Option<NodeList<'_>> {
         return None;
     }
 
-    let tokens = Lexer::new(db, source.as_ref()).tokenize();
-    let token_stream = TokenStream::new(db, tokens);
+    let (nodes, errors) = parse_template_impl(source.as_ref());
 
-    if token_stream.stream(db).is_empty() {
-        let empty_nodelist = Vec::new();
-        return Some(NodeList::new(db, empty_nodelist));
+    // Accumulate any errors via Salsa
+    for error in errors {
+        let template_error = TemplateError::Parser(error.to_string());
+        TemplateErrorAccumulator(template_error).accumulate(db);
     }
 
-    let nodelist = match Parser::new(db, token_stream).parse() {
-        Ok(nodelist) => nodelist,
-        Err(err) => {
-            // Fatal error - accumulate but still return an error node so spans remain intact
-            let template_error = TemplateError::Parser(err.to_string());
-            TemplateErrorAccumulator(template_error).accumulate(db);
+    // Always return a NodeList (may contain Error nodes if there were parse errors)
+    Some(NodeList::new(db, nodes))
+}
 
-            let text = source.as_ref();
-            let span = Span::saturating_from_bounds_usize(0, text.len());
-            let error_node = Node::Error {
-                span,
-                full_span: span,
-                error: err,
-            };
-
-            NodeList::new(db, vec![error_node])
-        }
-    };
-
-    Some(nodelist)
+/// Parse a template using the pure parser (no database needed)
+/// Returns a tuple of (nodes, errors) where nodes include Error nodes for parse errors
+#[must_use]
+pub fn parse_template_impl(source: &str) -> (Vec<Node>, Vec<ParseError>) {
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize();
+    let mut parser = Parser::new(tokens);
+    parser.parse()
 }
