@@ -15,27 +15,40 @@ impl TagDelimiter {
     pub const LENGTH_U32: u32 = 2;
 
     #[must_use]
-    pub fn from_input(input: &str) -> Option<TagDelimiter> {
-        [Self::Block, Self::Variable, Self::Comment]
-            .into_iter()
-            .find(|kind| input.starts_with(kind.opener()))
+    pub fn from_input(input: &str) -> Option<Self> {
+        let bytes = input.as_bytes();
+
+        if bytes.len() < Self::LENGTH {
+            return None;
+        }
+
+        if bytes[0] != Self::CHAR_OPEN as u8 {
+            return None;
+        }
+
+        match bytes[1] {
+            b'%' => Some(Self::Block),
+            b'{' => Some(Self::Variable),
+            b'#' => Some(Self::Comment),
+            _ => None,
+        }
     }
 
     #[must_use]
     pub fn opener(self) -> &'static str {
         match self {
-            TagDelimiter::Block => "{%",
-            TagDelimiter::Variable => "{{",
-            TagDelimiter::Comment => "{#",
+            Self::Block => "{%",
+            Self::Variable => "{{",
+            Self::Comment => "{#",
         }
     }
 
     #[must_use]
     pub fn closer(self) -> &'static str {
         match self {
-            TagDelimiter::Block => "%}",
-            TagDelimiter::Variable => "}}",
-            TagDelimiter::Comment => "#}",
+            Self::Block => "%}",
+            Self::Variable => "}}",
+            Self::Comment => "#}",
         }
     }
 }
