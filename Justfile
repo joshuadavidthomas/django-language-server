@@ -11,11 +11,11 @@ default:
 
 [private]
 cog:
-    uv run --no-project --with cogapp --with nox --no-project cog -r CONTRIBUTING.md README.md pyproject.toml
+    uv run --no-binary-package django-language-server --with cogapp --with nox --no-project cog -r CONTRIBUTING.md README.md pyproject.toml
 
 [private]
 nox SESSION *ARGS:
-    uv run --no-project nox --session "{{ SESSION }}" -- "{{ ARGS }}"
+    uv run --no-binary-package django-language-server nox --session "{{ SESSION }}" -- "{{ ARGS }}"
 
 bumpver *ARGS:
     uv run --with bumpver bumpver {{ ARGS }}
