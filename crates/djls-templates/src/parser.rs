@@ -101,12 +101,16 @@ impl<'db> Parser<'db> {
             });
         };
 
-        let mut parts = content_ref.text(self.db).split_whitespace();
+        let content = content_ref.text(self.db);
+        let mut parts = content.split_ascii_whitespace();
 
         let name_str = parts.next().ok_or(ParseError::EmptyTag)?;
-        let name = TagName::new(self.db, name_str.to_string());
+        let name = TagName::new(self.db, name_str.to_owned());
 
-        let bits = parts.map(|s| TagBit::new(self.db, s.to_string())).collect();
+        let mut bits = Vec::with_capacity(parts.clone().count());
+        for part in parts {
+            bits.push(TagBit::new(self.db, part.to_owned()));
+        }
         let span = token.content_span_or_fallback(self.db);
 
         Ok(Node::Tag { name, bits, span })
