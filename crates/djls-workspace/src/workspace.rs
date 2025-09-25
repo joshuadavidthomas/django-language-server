@@ -8,8 +8,8 @@ use std::sync::Arc;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
-use dashmap::DashMap;
 use djls_source::File;
+use djls_source::FxDashMap;
 use djls_source::PositionEncoding;
 use tower_lsp_server::lsp_types::TextDocumentContentChangeEvent;
 use url::Url;
@@ -54,7 +54,7 @@ pub struct Workspace {
     /// Thread-safe shared buffer storage for open documents
     buffers: Buffers,
     /// Registry mapping file paths to Salsa [`File`] handles
-    files: Arc<DashMap<Utf8PathBuf, File>>,
+    files: Arc<FxDashMap<Utf8PathBuf, File>>,
     /// File system abstraction that checks buffers first, then disk
     file_system: Arc<WorkspaceFileSystem>,
 }
@@ -64,7 +64,7 @@ impl Workspace {
     #[must_use]
     pub fn new() -> Self {
         let buffers = Buffers::new();
-        let files = Arc::new(DashMap::new());
+        let files = Arc::new(FxDashMap::default());
         let file_system = Arc::new(WorkspaceFileSystem::new(
             buffers.clone(),
             Arc::new(OsFileSystem),
