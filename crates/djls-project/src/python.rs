@@ -601,8 +601,8 @@ mod tests {
         use std::sync::Arc;
         use std::sync::Mutex;
 
-        use djls_workspace::FileSystem;
-        use djls_workspace::InMemoryFileSystem;
+        use djls_source::FileSystem;
+        use djls_source::InMemoryFileSystem;
 
         use super::*;
         use crate::inspector::pool::InspectorPool;
