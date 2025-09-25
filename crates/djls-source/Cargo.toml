@@ -5,6 +5,8 @@ edition = "2021"
 
 [dependencies]
 camino = { workspace = true }
+dashmap = { workspace = true }
+rustc-hash = { workspace = true }
 salsa = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }

@@ -8,7 +8,7 @@
 /// [`WorkspaceFileSystem`]: crate::fs::WorkspaceFileSystem
 use std::sync::Arc;
 
-use dashmap::DashMap;
+use djls_source::FxDashMap;
 use url::Url;
 
 use crate::document::TextDocument;
@@ -35,14 +35,14 @@ use crate::document::TextDocument;
 /// [`WorkspaceFileSystem`]: crate::fs::WorkspaceFileSystem
 #[derive(Clone, Debug)]
 pub struct Buffers {
-    inner: Arc<DashMap<Url, TextDocument>>,
+    inner: Arc<FxDashMap<Url, TextDocument>>,
 }
 
 impl Buffers {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            inner: Arc::new(DashMap::new()),
+            inner: Arc::new(FxDashMap::default()),
         }
     }
 
