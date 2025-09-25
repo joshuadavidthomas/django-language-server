@@ -17,8 +17,8 @@ impl Parser {
     }
 
     pub fn parse(&mut self) -> (Vec<Node>, Vec<ParseError>) {
-        let mut nodelist = Vec::new();
-        let mut errors = Vec::new();
+        let mut nodelist = Vec::with_capacity(self.tokens.len() / 2);
+        let mut errors = Vec::with_capacity(4);
 
         while !self.is_at_end() {
             match self.next_node() {
@@ -93,6 +93,7 @@ impl Parser {
         for part in parts {
             bits.push(part.to_owned());
         }
+
         let span = token.content_span_or_fallback();
 
         Ok(Node::Tag { name, bits, span })
