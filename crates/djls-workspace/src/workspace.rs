@@ -52,7 +52,7 @@ pub struct Workspace {
     /// Thread-safe shared buffer storage for open documents
     buffers: Buffers,
     /// File system abstraction that checks buffers first, then disk
-    overlay_fs: Arc<OverlayFileSystem>,
+    overlay: Arc<OverlayFileSystem>,
 }
 
 impl Workspace {
@@ -60,15 +60,12 @@ impl Workspace {
     #[must_use]
     pub fn new() -> Self {
         let buffers = Buffers::new();
-        let overlay_fs = Arc::new(OverlayFileSystem::new(
+        let overlay = Arc::new(OverlayFileSystem::new(
             buffers.clone(),
             Arc::new(OsFileSystem),
         ));
 
-        Self {
-            buffers,
-            overlay_fs,
-        }
+        Self { buffers, overlay }
     }
 
     /// Get the overlay file system for this workspace.
@@ -76,8 +73,8 @@ impl Workspace {
     /// The overlay returns buffer contents when present and falls back to disk
     /// otherwise.
     #[must_use]
-    pub fn overlay_file_system(&self) -> Arc<dyn FileSystem> {
-        self.overlay_fs.clone()
+    pub fn overlay(&self) -> Arc<dyn FileSystem> {
+        self.overlay.clone()
     }
 
     /// Get the buffers for direct access.
@@ -420,7 +417,7 @@ mod tests {
         #[test]
         fn test_open_document() {
             let mut workspace = Workspace::new();
-            let mut db = TestDb::new(workspace.overlay_file_system());
+            let mut db = TestDb::new(workspace.overlay());
             let url = Url::parse("file:///test.py").unwrap();
 
             let document = TextDocument::new("print('hello')".to_string(), 1, LanguageId::Python);
@@ -438,7 +435,7 @@ mod tests {
         #[test]
         fn test_update_document() {
             let mut workspace = Workspace::new();
-            let mut db = TestDb::new(workspace.overlay_file_system());
+            let mut db = TestDb::new(workspace.overlay());
             let url = Url::parse("file:///test.py").unwrap();
 
             let document = TextDocument::new("initial".to_string(), 1, LanguageId::Python);
@@ -462,7 +459,7 @@ mod tests {
         #[test]
         fn test_close_document() {
             let mut workspace = Workspace::new();
-            let mut db = TestDb::new(workspace.overlay_file_system());
+            let mut db = TestDb::new(workspace.overlay());
             let url = Url::parse("file:///test.py").unwrap();
 
             let document = TextDocument::new("content".to_string(), 1, LanguageId::Python);
@@ -480,14 +477,14 @@ mod tests {
             std::fs::write(&file_path, "disk content").unwrap();
 
             let mut workspace = Workspace::new();
-            let mut db = TestDb::new(workspace.overlay_file_system());
+            let mut db = TestDb::new(workspace.overlay());
             let url = Url::from_file_path(&file_path).unwrap();
 
             let document = TextDocument::new("buffer content".to_string(), 1, LanguageId::Python);
             workspace.open_document(&mut db, &url, document);
 
             let content = workspace
-                .overlay_file_system()
+                .overlay()
                 .read_to_string(Utf8Path::from_path(&file_path).unwrap())
                 .unwrap();
             assert_eq!(content, "buffer content");
@@ -496,7 +493,7 @@ mod tests {
         #[test]
         fn test_file_source_reads_from_buffer() {
             let mut workspace = Workspace::new();
-            let mut db = TestDb::new(workspace.overlay_file_system());
+            let mut db = TestDb::new(workspace.overlay());
 
             let temp_dir = tempdir().unwrap();
             let file_path =
@@ -527,7 +524,7 @@ mod tests {
         #[test]
         fn test_update_document_updates_source() {
             let mut workspace = Workspace::new();
-            let mut db = TestDb::new(workspace.overlay_file_system());
+            let mut db = TestDb::new(workspace.overlay());
 
             let temp_dir = tempdir().unwrap();
             let file_path = Utf8PathBuf::from_path_buf(temp_dir.path().join("buffer.py")).unwrap();
@@ -554,7 +551,7 @@ mod tests {
         #[test]
         fn test_close_document_reverts_to_disk() {
             let mut workspace = Workspace::new();
-            let mut db = TestDb::new(workspace.overlay_file_system());
+            let mut db = TestDb::new(workspace.overlay());
 
             let temp_dir = tempdir().unwrap();
             let file_path = Utf8PathBuf::from_path_buf(temp_dir.path().join("close.py")).unwrap();

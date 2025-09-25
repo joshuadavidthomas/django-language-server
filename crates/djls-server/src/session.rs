@@ -66,7 +66,7 @@ impl Session {
 
         let workspace = Workspace::new();
 
-        let mut db = DjangoDatabase::new(workspace.overlay_file_system());
+        let mut db = DjangoDatabase::new(workspace.overlay());
         db.set_project(project_path.as_deref(), &settings);
 
         let position_encoding = LspPositionEncoding::from(params)
