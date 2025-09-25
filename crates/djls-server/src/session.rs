@@ -8,8 +8,8 @@ use djls_conf::Settings;
 use djls_project::Db as ProjectDb;
 use djls_source::File;
 use djls_source::FileKind;
+use djls_source::PositionEncoding;
 use djls_workspace::paths;
-use djls_workspace::PositionEncoding;
 use djls_workspace::TextDocument;
 use djls_workspace::Workspace;
 use djls_workspace::WorkspaceFileEvent;
@@ -17,12 +17,12 @@ use tower_lsp_server::lsp_types;
 use url::Url;
 
 use crate::db::DjangoDatabase;
+use crate::encoding::LspPositionEncoding;
 
 /// LSP Session managing project-specific state and database operations.
 ///
 /// The Session serves as the main entry point for LSP operations, managing:
 /// - The Salsa database for incremental computation
-/// - Project configuration and settings
 /// - Client capabilities and position encoding
 /// - Workspace operations (buffers and file system)
 /// - All Salsa inputs (`SessionState`, Project)
@@ -30,10 +30,6 @@ use crate::db::DjangoDatabase;
 /// Following Ruff's architecture, the concrete database lives at this level
 /// and is passed down to operations that need it.
 pub struct Session {
-    /// LSP server settings
-    // TODO: this should really be in the database
-    settings: Settings,
-
     /// Workspace for buffer and file system management
     ///
     /// This manages document buffers and file system abstraction,
@@ -70,14 +66,17 @@ impl Session {
 
         let workspace = Workspace::new();
 
-        let mut db = DjangoDatabase::new(workspace.file_system());
+        let mut db = DjangoDatabase::new(workspace.overlay_file_system());
         db.set_project(project_path.as_deref(), &settings);
 
+        let position_encoding = LspPositionEncoding::from(params)
+            .to_position_encoding()
+            .unwrap_or_default();
+
         Self {
-            settings,
             workspace,
             client_capabilities: params.capabilities.clone(),
-            position_encoding: djls_workspace::negotiate_position_encoding(params),
+            position_encoding,
             db,
         }
     }
@@ -88,12 +87,17 @@ impl Session {
     }
 
     #[must_use]
-    pub fn settings(&self) -> &Settings {
-        &self.settings
+    pub fn settings(&self) -> Option<&Settings> {
+        self.db.project().map(|project| project.settings(&self.db))
     }
 
-    pub fn set_settings(&mut self, settings: Settings) {
-        self.settings = settings;
+    pub fn update_settings(&mut self, settings: &Settings) {
+        let project_root = self
+            .db
+            .project()
+            .map(|project| project.root(&self.db).to_owned());
+
+        self.db.set_project(project_root.as_deref(), settings);
     }
 
     #[must_use]
@@ -188,6 +192,11 @@ impl Session {
             .file()
     }
 
+    /// Warm template caches and semantic diagnostics for the file event.
+    ///
+    /// By invoking the tracked `parse_template`/`validate_nodelist` queries here
+    /// we ensure Salsa records the dependency on the newly updated [`File`]
+    /// while the accumulators gather diagnostics for later consumption.
     fn handle_file_event(&self, event: &WorkspaceFileEvent) {
         if FileKind::from(event.path()) == FileKind::Template {
             let nodelist = djls_templates::parse_template(&self.db, event.file());

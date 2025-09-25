@@ -4,7 +4,6 @@ mod file;
 mod line;
 mod position;
 mod protocol;
-mod system;
 
 pub use collections::FxDashMap;
 pub use collections::FxDashSet;
@@ -16,6 +15,3 @@ pub use position::LineCol;
 pub use position::Offset;
 pub use position::Span;
 pub use protocol::PositionEncoding;
-pub use system::FileSystem;
-pub use system::InMemoryFileSystem;
-pub use system::OsFileSystem;

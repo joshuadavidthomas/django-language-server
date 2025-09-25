@@ -276,9 +276,7 @@ mod tests {
 
     mod env_discovery {
         use system::mock::MockGuard;
-        use system::mock::{
-            self as sys_mock,
-        };
+        use system::mock::{self as sys_mock};
         use which::Error as WhichError;
 
         use super::*;
@@ -601,8 +599,10 @@ mod tests {
         use std::sync::Arc;
         use std::sync::Mutex;
 
-        use djls_source::FileSystem;
-        use djls_source::InMemoryFileSystem;
+        use djls_source::File;
+        use djls_source::FxDashMap;
+        use djls_workspace::FileSystem;
+        use djls_workspace::InMemoryFileSystem;
 
         use super::*;
         use crate::inspector::pool::InspectorPool;
@@ -615,6 +615,7 @@ mod tests {
             project_root: Utf8PathBuf,
             project: Arc<Mutex<Option<Project>>>,
             fs: Arc<dyn FileSystem>,
+            files: Arc<FxDashMap<Utf8PathBuf, File>>,
         }
 
         impl TestDatabase {
@@ -624,6 +625,7 @@ mod tests {
                     project_root,
                     project: Arc::new(Mutex::new(None)),
                     fs: Arc::new(InMemoryFileSystem::new()),
+                    files: Arc::new(FxDashMap::default()),
                 }
             }
 
@@ -647,6 +649,20 @@ mod tests {
             fn fs(&self) -> Arc<dyn FileSystem> {
                 self.fs.clone()
             }
+
+            fn intern_file(&mut self, path: &Utf8Path) -> (File, bool) {
+                if let Some(entry) = self.files.get(path) {
+                    return (*entry, true);
+                }
+
+                let file = File::new(self, path.to_owned(), 0);
+                self.files.insert(path.to_owned(), file);
+                (file, false)
+            }
+
+            fn get_file(&self, path: &Utf8Path) -> Option<File> {
+                self.files.get(path).map(|entry| *entry)
+            }
         }
 
         #[salsa::db]
@@ -657,13 +673,12 @@ mod tests {
                 if project_lock.is_none() {
                     let root = &self.project_root;
                     let interpreter_spec = Interpreter::Auto;
-                    let django_settings = std::env::var("DJANGO_SETTINGS_MODULE").ok();
 
                     *project_lock = Some(Project::new(
                         self,
                         root.clone(),
                         interpreter_spec,
-                        django_settings,
+                        djls_conf::Settings::default(),
                     ));
                 }
                 *project_lock
@@ -694,7 +709,7 @@ mod tests {
                 Utf8PathBuf::from_path_buf(project_dir.path().to_path_buf())
                     .expect("Invalid UTF-8 path"),
                 Interpreter::VenvPath(venv_prefix.to_string()),
-                None,
+                djls_conf::Settings::default(),
             );
             db.set_project(project);
 

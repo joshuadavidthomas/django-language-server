@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 use camino::Utf8Path;
+use camino::Utf8PathBuf;
 use djls_conf::Settings;
 use djls_project::Db as ProjectDb;
 use djls_project::InspectorPool;
@@ -15,9 +16,11 @@ use djls_project::Project;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::TagSpecs;
 use djls_source::Db as SourceDb;
-use djls_source::FileSystem;
-use djls_templates::db::Db as TemplateDb;
-use djls_workspace::db::Db as WorkspaceDb;
+use djls_source::File;
+use djls_source::FxDashMap;
+use djls_templates::Db as TemplateDb;
+use djls_workspace::Db as WorkspaceDb;
+use djls_workspace::FileSystem;
 
 /// Concrete Salsa database for the Django Language Server.
 ///
@@ -30,6 +33,9 @@ use djls_workspace::db::Db as WorkspaceDb;
 pub struct DjangoDatabase {
     /// File system for reading file content (checks buffers first, then disk).
     fs: Arc<dyn FileSystem>,
+
+    /// Registry of tracked files used by the workspace layer.
+    files: Arc<FxDashMap<Utf8PathBuf, File>>,
 
     /// The single project for this database instance
     project: Arc<Mutex<Option<Project>>>,
@@ -48,11 +54,12 @@ pub struct DjangoDatabase {
 #[cfg(test)]
 impl Default for DjangoDatabase {
     fn default() -> Self {
-        use djls_source::InMemoryFileSystem;
+        use djls_workspace::InMemoryFileSystem;
 
         let logs = <Arc<Mutex<Option<Vec<String>>>>>::default();
         Self {
             fs: Arc::new(InMemoryFileSystem::new()),
+            files: Arc::new(FxDashMap::default()),
             project: Arc::new(Mutex::new(None)),
             inspector_pool: Arc::new(InspectorPool::new()),
             storage: salsa::Storage::new(Some(Box::new({
@@ -78,6 +85,7 @@ impl DjangoDatabase {
     pub fn new(file_system: Arc<dyn FileSystem>) -> Self {
         Self {
             fs: file_system,
+            files: Arc::new(FxDashMap::default()),
             project: Arc::new(Mutex::new(None)),
             inspector_pool: Arc::new(InspectorPool::new()),
             storage: salsa::Storage::new(None),
@@ -93,7 +101,7 @@ impl DjangoDatabase {
     /// Panics if the project mutex is poisoned.
     pub fn set_project(&mut self, root: Option<&Utf8Path>, settings: &Settings) {
         if let Some(path) = root {
-            let project = Project::bootstrap(self, path, settings.venv_path(), None);
+            let project = Project::bootstrap(self, path, settings.venv_path(), settings.clone());
             *self.project.lock().unwrap() = Some(project);
         }
     }
@@ -114,6 +122,20 @@ impl WorkspaceDb for DjangoDatabase {
     fn fs(&self) -> Arc<dyn FileSystem> {
         self.fs.clone()
     }
+
+    fn intern_file(&mut self, path: &Utf8Path) -> (File, bool) {
+        if let Some(entry) = self.files.get(path) {
+            return (*entry, true);
+        }
+
+        let file = File::new(self, path.to_owned(), 0);
+        self.files.insert(path.to_owned(), file);
+        (file, false)
+    }
+
+    fn get_file(&self, path: &Utf8Path) -> Option<File> {
+        self.files.get(path).map(|entry| *entry)
+    }
 }
 
 #[salsa::db]
@@ -122,11 +144,10 @@ impl TemplateDb for DjangoDatabase {}
 #[salsa::db]
 impl SemanticDb for DjangoDatabase {
     fn tag_specs(&self) -> TagSpecs {
-        let project_root = self.project_root_or_cwd();
-
-        match djls_conf::Settings::new(&project_root) {
-            Ok(settings) => TagSpecs::from(&settings),
-            Err(_) => djls_semantic::django_builtin_specs(),
+        if let Some(project) = self.project() {
+            TagSpecs::from(project.settings(self))
+        } else {
+            TagSpecs::from(&Settings::default())
         }
     }
 }

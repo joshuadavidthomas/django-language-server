@@ -22,16 +22,24 @@
 
 use std::sync::Arc;
 
+use camino::Utf8Path;
 use djls_source::Db as SourceDb;
 use djls_source::File;
-use djls_source::FileSystem;
 use salsa::Setter;
+
+use crate::FileSystem;
 
 /// Base database trait that provides file system access for Salsa queries
 #[salsa::db]
 pub trait Db: SourceDb {
     /// Get the file system for reading files.
     fn fs(&self) -> Arc<dyn FileSystem>;
+
+    /// Get or create a tracked file for the given path.
+    fn intern_file(&mut self, path: &Utf8Path) -> (File, bool);
+
+    /// Look up a tracked file if it exists.
+    fn get_file(&self, path: &Utf8Path) -> Option<File>;
 
     /// Bump the revision for a tracked file to invalidate dependent queries.
     fn touch_file(&mut self, file: File) {

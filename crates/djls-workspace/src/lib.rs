@@ -12,21 +12,17 @@
 //! - [`FileSystem`] - Abstraction layer for file operations with overlay support
 //! - [`paths`] - Consistent URL/path conversion utilities
 
-mod buffers;
-pub mod db;
+mod db;
 mod document;
-pub mod encoding;
+mod files;
 mod language;
 pub mod paths;
 mod workspace;
 
-pub use buffers::Buffers;
 pub use db::Db;
-pub use djls_source::PositionEncoding;
 pub use document::TextDocument;
-pub use encoding::negotiate_position_encoding;
-pub use encoding::position_encoding_from_lsp;
-pub use encoding::position_encoding_to_lsp;
+pub use files::FileSystem;
+pub use files::InMemoryFileSystem;
 pub use language::LanguageId;
 pub use workspace::Workspace;
 pub use workspace::WorkspaceFileEvent;

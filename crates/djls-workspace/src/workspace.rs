@@ -1,25 +1,24 @@
 //! Workspace facade for managing buffer and file system components
 //!
 //! This module provides the [`Workspace`] struct that encapsulates buffer
-//! management and file system abstraction. The Salsa database is managed
-//! at the Session level, following Ruff's architecture pattern.
-
-use std::io;
+//! management and the virtual file system overlay shared with the Salsa
+//! database. The database itself stays pure—[`Workspace`] surfaces the mutable
+//! state (open documents) while the database observes it through the overlay.
 use std::sync::Arc;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_source::File;
-use djls_source::FileSystem;
-use djls_source::FxDashMap;
-use djls_source::OsFileSystem;
 use djls_source::PositionEncoding;
 use tower_lsp_server::lsp_types::TextDocumentContentChangeEvent;
 use url::Url;
 
-use crate::buffers::Buffers;
 use crate::db::Db;
 use crate::document::TextDocument;
+use crate::files::Buffers;
+use crate::files::FileSystem;
+use crate::files::OsFileSystem;
+use crate::files::OverlayFileSystem;
 use crate::paths;
 
 /// Result of a workspace operation that affected a tracked file.
@@ -44,56 +43,6 @@ impl WorkspaceFileEvent {
         }
     }
 }
-///
-/// LSP file system that intercepts reads for buffered files.
-///
-/// This implements a two-layer architecture where Layer 1 (open [`Buffers`])
-/// takes precedence over Layer 2 (Salsa database). When a file is read,
-/// this system first checks for a buffer (in-memory content from
-/// [`TextDocument`](crate::document::TextDocument)) and returns that content.
-/// If no buffer exists, it falls back to reading from disk.
-///
-/// ## Overlay Semantics
-///
-/// Files in the overlay (buffered files) are treated as first-class files:
-/// - `exists()` returns true for overlay files even if they don't exist on disk
-/// - `read_to_string()` returns the overlay content
-///
-/// This ensures consistent behavior across all filesystem operations for
-/// buffered files that may not yet be saved to disk.
-///
-/// This type is used by the database implementations to ensure all file reads go
-/// through the buffer system first.
-pub struct WorkspaceFileSystem {
-    /// In-memory buffers that take precedence over disk files
-    buffers: Buffers,
-    /// Fallback file system for disk operations
-    disk: Arc<dyn FileSystem>,
-}
-
-impl WorkspaceFileSystem {
-    #[must_use]
-    pub fn new(buffers: Buffers, disk: Arc<dyn FileSystem>) -> Self {
-        Self { buffers, disk }
-    }
-}
-
-impl FileSystem for WorkspaceFileSystem {
-    fn read_to_string(&self, path: &Utf8Path) -> io::Result<String> {
-        if let Some(url) = paths::path_to_url(path) {
-            if let Some(document) = self.buffers.get(&url) {
-                return Ok(document.content().to_string());
-            }
-        }
-        self.disk.read_to_string(path)
-    }
-
-    fn exists(&self, path: &Utf8Path) -> bool {
-        paths::path_to_url(path).is_some_and(|url| self.buffers.contains(&url))
-            || self.disk.exists(path)
-    }
-}
-
 /// Workspace facade that manages buffers and file system.
 ///
 /// This struct provides a unified interface for managing document buffers
@@ -102,10 +51,8 @@ impl FileSystem for WorkspaceFileSystem {
 pub struct Workspace {
     /// Thread-safe shared buffer storage for open documents
     buffers: Buffers,
-    /// Registry mapping file paths to Salsa [`File`] handles
-    files: Arc<FxDashMap<Utf8PathBuf, File>>,
     /// File system abstraction that checks buffers first, then disk
-    file_system: Arc<WorkspaceFileSystem>,
+    overlay_fs: Arc<OverlayFileSystem>,
 }
 
 impl Workspace {
@@ -113,25 +60,24 @@ impl Workspace {
     #[must_use]
     pub fn new() -> Self {
         let buffers = Buffers::new();
-        let files = Arc::new(FxDashMap::default());
-        let file_system = Arc::new(WorkspaceFileSystem::new(
+        let overlay_fs = Arc::new(OverlayFileSystem::new(
             buffers.clone(),
             Arc::new(OsFileSystem),
         ));
 
         Self {
             buffers,
-            files,
-            file_system,
+            overlay_fs,
         }
     }
 
-    /// Get the file system for this workspace.
+    /// Get the overlay file system for this workspace.
     ///
-    /// The file system checks buffers first, then falls back to disk.
+    /// The overlay returns buffer contents when present and falls back to disk
+    /// otherwise.
     #[must_use]
-    pub fn file_system(&self) -> Arc<dyn FileSystem> {
-        self.file_system.clone()
+    pub fn overlay_file_system(&self) -> Arc<dyn FileSystem> {
+        self.overlay_fs.clone()
     }
 
     /// Get the buffers for direct access.
@@ -148,9 +94,7 @@ impl Workspace {
         document: TextDocument,
     ) -> Option<WorkspaceFileEvent> {
         self.buffers.open(url.clone(), document);
-        self.ensure_file_for_url(db, url).inspect(|event| {
-            db.touch_file(event.file());
-        })
+        self.ensure_and_touch(db, url)
     }
 
     /// Update a document with incremental changes and touch the associated file.
@@ -176,15 +120,13 @@ impl Workspace {
             }
         }
 
-        self.ensure_file_for_url(db, url).inspect(|event| {
-            db.touch_file(event.file());
-        })
+        self.ensure_and_touch(db, url)
     }
 
     /// Ensure a file is tracked in Salsa and report its state.
     pub fn track_file(&self, db: &mut dyn Db, path: &Utf8Path) -> WorkspaceFileEvent {
         let path_buf = path.to_owned();
-        let (file, existed) = self.ensure_file(db, &path_buf);
+        let (file, existed) = db.intern_file(path);
         if existed {
             WorkspaceFileEvent::Updated {
                 file,
@@ -199,12 +141,8 @@ impl Workspace {
     }
 
     /// Touch the tracked file when the client saves the document.
-    pub fn save_document(&self, db: &mut dyn Db, url: &Url) -> Option<WorkspaceFileEvent> {
-        let path = paths::url_to_path(url)?;
-
-        let event = self.track_file(db, path.as_path());
-        db.touch_file(event.file());
-        Some(event)
+    pub fn save_document(&mut self, db: &mut dyn Db, url: &Url) -> Option<WorkspaceFileEvent> {
+        self.ensure_and_touch(db, url)
     }
 
     /// Close a document, removing it from buffers and touching the tracked file.
@@ -212,8 +150,8 @@ impl Workspace {
         let closed = self.buffers.close(url);
 
         if let Some(path) = paths::url_to_path(url) {
-            if let Some(file) = self.files.get(&path) {
-                db.touch_file(*file);
+            if let Some(file) = db.get_file(path.as_path()) {
+                db.touch_file(file);
             }
         }
 
@@ -226,19 +164,15 @@ impl Workspace {
         self.buffers.get(url)
     }
 
+    pub fn ensure_and_touch(&self, db: &mut dyn Db, url: &Url) -> Option<WorkspaceFileEvent> {
+        self.ensure_file_for_url(db, url).inspect(|event| {
+            db.touch_file(event.file());
+        })
+    }
+
     fn ensure_file_for_url(&self, db: &mut dyn Db, url: &Url) -> Option<WorkspaceFileEvent> {
         let path = paths::url_to_path(url)?;
         Some(self.track_file(db, path.as_path()))
-    }
-
-    fn ensure_file(&self, db: &mut dyn Db, path: &Utf8PathBuf) -> (File, bool) {
-        if let Some(entry) = self.files.get(path) {
-            return (*entry, true);
-        }
-
-        let file = File::new(db, path.clone(), 0);
-        self.files.insert(path.clone(), file);
-        (file, false)
     }
 }
 
@@ -253,13 +187,13 @@ mod tests {
     use super::*;
 
     mod file_system {
+        use std::io;
+
         use camino::Utf8PathBuf;
-        use djls_source::InMemoryFileSystem;
         use url::Url;
 
         use super::*;
-        use crate::buffers::Buffers;
-        use crate::document::TextDocument;
+        use crate::files::InMemoryFileSystem;
         use crate::language::LanguageId;
 
         // Helper to create platform-appropriate test paths
@@ -274,7 +208,7 @@ mod tests {
         fn test_reads_from_buffer_when_present() {
             let disk = Arc::new(InMemoryFileSystem::new());
             let buffers = Buffers::new();
-            let fs = WorkspaceFileSystem::new(buffers.clone(), disk);
+            let fs = OverlayFileSystem::new(buffers.clone(), disk);
 
             // Add file to buffer
             let path = test_file_path("test.py");
@@ -292,7 +226,7 @@ mod tests {
             disk_fs.add_file(path.clone(), "disk content".to_string());
 
             let buffers = Buffers::new();
-            let fs = WorkspaceFileSystem::new(buffers, Arc::new(disk_fs));
+            let fs = OverlayFileSystem::new(buffers, Arc::new(disk_fs));
 
             assert_eq!(fs.read_to_string(&path).unwrap(), "disk content");
         }
@@ -304,7 +238,7 @@ mod tests {
             disk_fs.add_file(path.clone(), "disk content".to_string());
 
             let buffers = Buffers::new();
-            let fs = WorkspaceFileSystem::new(buffers.clone(), Arc::new(disk_fs));
+            let fs = OverlayFileSystem::new(buffers.clone(), Arc::new(disk_fs));
 
             // Add buffer with different content
             let url = Url::from_file_path(&path).unwrap();
@@ -318,7 +252,7 @@ mod tests {
         fn test_exists_for_buffer_only_file() {
             let disk = Arc::new(InMemoryFileSystem::new());
             let buffers = Buffers::new();
-            let fs = WorkspaceFileSystem::new(buffers.clone(), disk);
+            let fs = OverlayFileSystem::new(buffers.clone(), disk);
 
             // Add file to buffer only
             let path = test_file_path("buffer_only.py");
@@ -336,7 +270,7 @@ mod tests {
             disk_fs.add_file(path.clone(), "content".to_string());
 
             let buffers = Buffers::new();
-            let fs = WorkspaceFileSystem::new(buffers, Arc::new(disk_fs));
+            let fs = OverlayFileSystem::new(buffers, Arc::new(disk_fs));
 
             assert!(fs.exists(&path));
         }
@@ -348,7 +282,7 @@ mod tests {
             disk_fs.add_file(path.clone(), "disk".to_string());
 
             let buffers = Buffers::new();
-            let fs = WorkspaceFileSystem::new(buffers.clone(), Arc::new(disk_fs));
+            let fs = OverlayFileSystem::new(buffers.clone(), Arc::new(disk_fs));
 
             // Also add to buffer
             let url = Url::from_file_path(&path).unwrap();
@@ -362,7 +296,7 @@ mod tests {
         fn test_exists_returns_false_when_nowhere() {
             let disk = Arc::new(InMemoryFileSystem::new());
             let buffers = Buffers::new();
-            let fs = WorkspaceFileSystem::new(buffers, disk);
+            let fs = OverlayFileSystem::new(buffers, disk);
 
             let path = test_file_path("nowhere.py");
             assert!(!fs.exists(&path));
@@ -372,7 +306,7 @@ mod tests {
         fn test_read_error_when_file_nowhere() {
             let disk = Arc::new(InMemoryFileSystem::new());
             let buffers = Buffers::new();
-            let fs = WorkspaceFileSystem::new(buffers, disk);
+            let fs = OverlayFileSystem::new(buffers, disk);
 
             let path = test_file_path("missing.py");
             let result = fs.read_to_string(&path);
@@ -384,7 +318,7 @@ mod tests {
         fn test_reflects_buffer_updates() {
             let disk = Arc::new(InMemoryFileSystem::new());
             let buffers = Buffers::new();
-            let fs = WorkspaceFileSystem::new(buffers.clone(), disk);
+            let fs = OverlayFileSystem::new(buffers.clone(), disk);
 
             let path = test_file_path("test.py");
             let url = Url::from_file_path(&path).unwrap();
@@ -407,7 +341,7 @@ mod tests {
             disk_fs.add_file(path.clone(), "disk content".to_string());
 
             let buffers = Buffers::new();
-            let fs = WorkspaceFileSystem::new(buffers.clone(), Arc::new(disk_fs));
+            let fs = OverlayFileSystem::new(buffers.clone(), Arc::new(disk_fs));
 
             let url = Url::from_file_path(&path).unwrap();
 
@@ -427,6 +361,7 @@ mod tests {
 
         use camino::Utf8Path;
         use camino::Utf8PathBuf;
+        use djls_source::FxDashMap;
         use tempfile::tempdir;
         use url::Url;
 
@@ -438,6 +373,7 @@ mod tests {
         struct TestDb {
             storage: salsa::Storage<Self>,
             fs: Arc<dyn FileSystem>,
+            files: Arc<FxDashMap<Utf8PathBuf, File>>,
         }
 
         impl TestDb {
@@ -445,6 +381,7 @@ mod tests {
                 Self {
                     storage: salsa::Storage::default(),
                     fs,
+                    files: Arc::new(FxDashMap::default()),
                 }
             }
         }
@@ -464,12 +401,26 @@ mod tests {
             fn fs(&self) -> Arc<dyn FileSystem> {
                 self.fs.clone()
             }
+
+            fn intern_file(&mut self, path: &Utf8Path) -> (File, bool) {
+                if let Some(entry) = self.files.get(path) {
+                    return (*entry, true);
+                }
+
+                let file = File::new(self, path.to_owned(), 0);
+                self.files.insert(path.to_owned(), file);
+                (file, false)
+            }
+
+            fn get_file(&self, path: &Utf8Path) -> Option<File> {
+                self.files.get(path).map(|entry| *entry)
+            }
         }
 
         #[test]
         fn test_open_document() {
             let mut workspace = Workspace::new();
-            let mut db = TestDb::new(workspace.file_system());
+            let mut db = TestDb::new(workspace.overlay_file_system());
             let url = Url::parse("file:///test.py").unwrap();
 
             let document = TextDocument::new("print('hello')".to_string(), 1, LanguageId::Python);
@@ -487,7 +438,7 @@ mod tests {
         #[test]
         fn test_update_document() {
             let mut workspace = Workspace::new();
-            let mut db = TestDb::new(workspace.file_system());
+            let mut db = TestDb::new(workspace.overlay_file_system());
             let url = Url::parse("file:///test.py").unwrap();
 
             let document = TextDocument::new("initial".to_string(), 1, LanguageId::Python);
@@ -511,7 +462,7 @@ mod tests {
         #[test]
         fn test_close_document() {
             let mut workspace = Workspace::new();
-            let mut db = TestDb::new(workspace.file_system());
+            let mut db = TestDb::new(workspace.overlay_file_system());
             let url = Url::parse("file:///test.py").unwrap();
 
             let document = TextDocument::new("content".to_string(), 1, LanguageId::Python);
@@ -529,14 +480,14 @@ mod tests {
             std::fs::write(&file_path, "disk content").unwrap();
 
             let mut workspace = Workspace::new();
-            let mut db = TestDb::new(workspace.file_system());
+            let mut db = TestDb::new(workspace.overlay_file_system());
             let url = Url::from_file_path(&file_path).unwrap();
 
             let document = TextDocument::new("buffer content".to_string(), 1, LanguageId::Python);
             workspace.open_document(&mut db, &url, document);
 
             let content = workspace
-                .file_system()
+                .overlay_file_system()
                 .read_to_string(Utf8Path::from_path(&file_path).unwrap())
                 .unwrap();
             assert_eq!(content, "buffer content");
@@ -545,7 +496,7 @@ mod tests {
         #[test]
         fn test_file_source_reads_from_buffer() {
             let mut workspace = Workspace::new();
-            let mut db = TestDb::new(workspace.file_system());
+            let mut db = TestDb::new(workspace.overlay_file_system());
 
             let temp_dir = tempdir().unwrap();
             let file_path =
@@ -576,7 +527,7 @@ mod tests {
         #[test]
         fn test_update_document_updates_source() {
             let mut workspace = Workspace::new();
-            let mut db = TestDb::new(workspace.file_system());
+            let mut db = TestDb::new(workspace.overlay_file_system());
 
             let temp_dir = tempdir().unwrap();
             let file_path = Utf8PathBuf::from_path_buf(temp_dir.path().join("buffer.py")).unwrap();
@@ -603,7 +554,7 @@ mod tests {
         #[test]
         fn test_close_document_reverts_to_disk() {
             let mut workspace = Workspace::new();
-            let mut db = TestDb::new(workspace.file_system());
+            let mut db = TestDb::new(workspace.overlay_file_system());
 
             let temp_dir = tempdir().unwrap();
             let file_path = Utf8PathBuf::from_path_buf(temp_dir.path().join("close.py")).unwrap();
