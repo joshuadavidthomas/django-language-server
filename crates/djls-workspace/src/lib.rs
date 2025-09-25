@@ -25,4 +25,3 @@ pub use files::FileSystem;
 pub use files::InMemoryFileSystem;
 pub use language::LanguageId;
 pub use workspace::Workspace;
-pub use workspace::WorkspaceFileEvent;

@@ -10,9 +10,9 @@ use djls_source::File;
 use djls_source::FileKind;
 use djls_source::PositionEncoding;
 use djls_workspace::paths;
+use djls_workspace::Db as WorkspaceDb;
 use djls_workspace::TextDocument;
 use djls_workspace::Workspace;
-use djls_workspace::WorkspaceFileEvent;
 use tower_lsp_server::lsp_types;
 use url::Url;
 
@@ -137,8 +137,8 @@ impl Session {
     /// the database or invalidates it if it already exists.
     /// For template files, immediately triggers parsing and validation.
     pub fn open_document(&mut self, url: &Url, document: TextDocument) {
-        if let Some(event) = self.workspace.open_document(&mut self.db, url, document) {
-            self.handle_file_event(&event);
+        if let Some(file) = self.workspace.open_document(&mut self.db, url, document) {
+            self.handle_file(file);
         }
     }
 
@@ -152,20 +152,20 @@ impl Session {
         changes: Vec<lsp_types::TextDocumentContentChangeEvent>,
         version: i32,
     ) {
-        if let Some(event) = self.workspace.update_document(
+        if let Some(file) = self.workspace.update_document(
             &mut self.db,
             url,
             changes,
             version,
             self.position_encoding,
         ) {
-            self.handle_file_event(&event);
+            self.handle_file(file);
         }
     }
 
     pub fn save_document(&mut self, url: &Url) -> Option<TextDocument> {
-        if let Some(event) = self.workspace.save_document(&mut self.db, url) {
-            self.handle_file_event(&event);
+        if let Some(file) = self.workspace.save_document(&mut self.db, url) {
+            self.handle_file(file);
         }
 
         self.workspace.get_document(url)
@@ -187,20 +187,13 @@ impl Session {
 
     /// Get or create a file in the database.
     pub fn get_or_create_file(&mut self, path: &Utf8PathBuf) -> File {
-        self.workspace
-            .track_file(&mut self.db, path.as_path())
-            .file()
+        self.db.track_file(path.as_path())
     }
 
-    /// Warm template caches and semantic diagnostics for the file event.
-    ///
-    /// By invoking the tracked `parse_template`/`validate_nodelist` queries here
-    /// we ensure Salsa records the dependency on the newly updated [`File`]
-    /// while the accumulators gather diagnostics for later consumption.
-    fn handle_file_event(&self, event: &WorkspaceFileEvent) {
-        if FileKind::from(event.path()) == FileKind::Template {
-            let nodelist = djls_templates::parse_template(&self.db, event.file());
-            if let Some(nodelist) = nodelist {
+    /// Warm template caches and semantic diagnostics for the updated file.
+    fn handle_file(&self, file: File) {
+        if FileKind::from(file.path(&self.db)) == FileKind::Template {
+            if let Some(nodelist) = djls_templates::parse_template(&self.db, file) {
                 djls_semantic::validate_nodelist(&self.db, nodelist);
             }
         }

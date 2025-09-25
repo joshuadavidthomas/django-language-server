@@ -123,14 +123,14 @@ impl WorkspaceDb for DjangoDatabase {
         self.fs.clone()
     }
 
-    fn intern_file(&mut self, path: &Utf8Path) -> (File, bool) {
+    fn track_file(&mut self, path: &Utf8Path) -> File {
         if let Some(entry) = self.files.get(path) {
-            return (*entry, true);
+            return *entry;
         }
 
         let file = File::new(self, path.to_owned(), 0);
         self.files.insert(path.to_owned(), file);
-        (file, false)
+        file
     }
 
     fn get_file(&self, path: &Utf8Path) -> Option<File> {
