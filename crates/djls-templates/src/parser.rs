@@ -85,11 +85,14 @@ impl Parser {
             });
         };
 
-        let mut parts = content_ref.split_whitespace();
+        let mut parts = content_ref.split_ascii_whitespace();
 
         let name = parts.next().ok_or(ParseError::EmptyTag)?.to_string();
 
-        let bits = parts.map(std::string::ToString::to_string).collect();
+        let mut bits = Vec::with_capacity(parts.clone().count());
+        for part in parts {
+            bits.push(part.to_owned());
+        }
         let span = token.content_span_or_fallback();
 
         Ok(Node::Tag { name, bits, span })
