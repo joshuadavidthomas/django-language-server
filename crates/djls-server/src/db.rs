@@ -15,9 +15,9 @@ use djls_project::Project;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::TagSpecs;
 use djls_source::Db as SourceDb;
+use djls_source::FileSystem;
 use djls_templates::db::Db as TemplateDb;
 use djls_workspace::db::Db as WorkspaceDb;
-use djls_workspace::FileSystem;
 
 /// Concrete Salsa database for the Django Language Server.
 ///
@@ -48,7 +48,7 @@ pub struct DjangoDatabase {
 #[cfg(test)]
 impl Default for DjangoDatabase {
     fn default() -> Self {
-        use djls_workspace::InMemoryFileSystem;
+        use djls_source::InMemoryFileSystem;
 
         let logs = <Arc<Mutex<Option<Vec<String>>>>>::default();
         Self {

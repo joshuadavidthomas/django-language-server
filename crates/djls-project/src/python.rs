@@ -276,9 +276,7 @@ mod tests {
 
     mod env_discovery {
         use system::mock::MockGuard;
-        use system::mock::{
-            self as sys_mock,
-        };
+        use system::mock::{self as sys_mock};
         use which::Error as WhichError;
 
         use super::*;
@@ -601,8 +599,8 @@ mod tests {
         use std::sync::Arc;
         use std::sync::Mutex;
 
-        use djls_workspace::FileSystem;
-        use djls_workspace::InMemoryFileSystem;
+        use djls_source::FileSystem;
+        use djls_source::InMemoryFileSystem;
 
         use super::*;
         use crate::inspector::pool::InspectorPool;

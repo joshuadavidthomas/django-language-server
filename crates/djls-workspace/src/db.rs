@@ -24,9 +24,8 @@ use std::sync::Arc;
 
 use djls_source::Db as SourceDb;
 use djls_source::File;
+use djls_source::FileSystem;
 use salsa::Setter;
-
-use crate::FileSystem;
 
 /// Base database trait that provides file system access for Salsa queries
 #[salsa::db]
