@@ -1,7 +1,8 @@
+use std::io;
+
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use rustc_hash::FxHashMap;
-use std::io;
 
 pub trait FileSystem: Send + Sync {
     fn read_to_string(&self, path: &Utf8Path) -> io::Result<String>;

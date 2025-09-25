@@ -253,12 +253,11 @@ mod tests {
     use super::*;
 
     mod file_system {
-        use super::*;
-
         use camino::Utf8PathBuf;
         use djls_source::InMemoryFileSystem;
         use url::Url;
 
+        use super::*;
         use crate::buffers::Buffers;
         use crate::document::TextDocument;
         use crate::language::LanguageId;
