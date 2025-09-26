@@ -12,6 +12,7 @@ use super::tree::BlockTree;
 use super::tree::BranchKind;
 use crate::errors::ValidationError;
 use crate::traits::SemanticModel;
+use crate::validation::semantic;
 use crate::Db;
 use crate::ValidationErrorAccumulator;
 
@@ -154,6 +155,7 @@ impl<'db> BlockTreeBuilder<'db> {
 
     fn handle_tag(&mut self, name: &str, bits: &[String], span: Span) {
         let tag_name = name;
+        semantic::validate_tag(self.db, tag_name, bits, Self::marker_span(span));
         match self.index.classify(tag_name) {
             TagClass::Opener => {
                 let parent = get_active_segment(&self.stack);

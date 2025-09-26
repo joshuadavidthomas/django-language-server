@@ -31,7 +31,7 @@ impl From<&BlockTree> for BlockTreeSnapshot {
             let i_u = u32::try_from(i).unwrap_or(u32::MAX);
             for n in b.nodes() {
                 match n {
-                    BlockNode::Leaf { .. } | BlockNode::Error { .. } => {}
+                    BlockNode::Leaf { .. } => {}
                     BlockNode::Branch {
                         body,
                         kind: BranchKind::Opener,
@@ -65,10 +65,6 @@ impl From<&BlockTree> for BlockTreeSnapshot {
                     .map(|n| match n {
                         BlockNode::Leaf { label, span } => BlockNodeSnapshot::Leaf {
                             label: label.clone(),
-                            span: *span,
-                        },
-                        BlockNode::Error { message, span } => BlockNodeSnapshot::Error {
-                            message: message.clone(),
                             span: *span,
                         },
                         BlockNode::Branch {
@@ -168,10 +164,6 @@ pub enum BlockNodeSnapshot {
     },
     Leaf {
         label: String,
-        span: Span,
-    },
-    Error {
-        message: String,
         span: Span,
     },
 }

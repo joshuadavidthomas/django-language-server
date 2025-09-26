@@ -30,4 +30,27 @@ pub enum ValidationError {
 
     #[error("Tag '{tag}' accepts at most {max} argument{}", if *.max == 1 { "" } else { "s" })]
     TooManyArguments { tag: String, max: usize, span: Span },
+
+    #[error("Tag '{tag}' is missing required argument '{argument}'")]
+    MissingArgument {
+        tag: String,
+        argument: String,
+        span: Span,
+    },
+
+    #[error("Tag '{tag}' expects literal '{expected}'")]
+    InvalidLiteralArgument {
+        tag: String,
+        expected: String,
+        span: Span,
+    },
+
+    #[error("Tag '{tag}' argument '{argument}' must be one of {choices:?}")]
+    InvalidArgumentChoice {
+        tag: String,
+        argument: String,
+        choices: Vec<String>,
+        value: String,
+        span: Span,
+    },
 }

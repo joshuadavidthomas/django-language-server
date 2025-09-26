@@ -193,16 +193,12 @@ pub enum BlockNode {
         body: BlockId,
         kind: BranchKind,
     },
-    Error {
-        message: String,
-        span: Span,
-    },
 }
 
 impl BlockNode {
     fn span(&self) -> Span {
         match self {
-            BlockNode::Leaf { span, .. } | BlockNode::Error { span, .. } => *span,
+            BlockNode::Leaf { span, .. } => *span,
             BlockNode::Branch { marker_span, .. } => *marker_span,
         }
     }
