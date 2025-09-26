@@ -6,4 +6,3 @@ pub use specs::EndTag;
 pub use specs::TagArg;
 pub use specs::TagSpec;
 pub use specs::TagSpecs;
-pub use specs::TagType;

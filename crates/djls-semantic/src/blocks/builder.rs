@@ -1,6 +1,7 @@
 use djls_source::Span;
 use djls_templates::tokens::TagDelimiter;
 use djls_templates::Node;
+use salsa::Accumulator;
 
 use super::grammar::CloseValidation;
 use super::grammar::TagClass;
@@ -9,8 +10,10 @@ use super::tree::BlockId;
 use super::tree::BlockNode;
 use super::tree::BlockTree;
 use super::tree::BranchKind;
+use crate::errors::ValidationError;
 use crate::traits::SemanticModel;
 use crate::Db;
+use crate::ValidationErrorAccumulator;
 
 #[derive(Debug, Clone)]
 enum BlockSemanticOp {
@@ -23,11 +26,6 @@ enum BlockSemanticOp {
         marker_span: Span,
         body: BlockId,
         kind: BranchKind,
-    },
-    AddErrorNode {
-        target: BlockId,
-        message: String,
-        span: Span,
     },
     AddLeafNode {
         target: BlockId,
@@ -114,14 +112,6 @@ impl<'db> BlockTreeBuilder<'db> {
                     tree.blocks_mut()
                         .push_node(target, BlockNode::Leaf { label, span });
                 }
-                BlockSemanticOp::AddErrorNode {
-                    target,
-                    message,
-                    span,
-                } => {
-                    tree.blocks_mut()
-                        .push_node(target, BlockNode::Error { message, span });
-                }
                 BlockSemanticOp::ExtendBlockSpan { id, span } => {
                     tree.blocks_mut().extend_block(id, span);
                 }
@@ -132,6 +122,34 @@ impl<'db> BlockTreeBuilder<'db> {
         }
 
         tree
+    }
+
+    fn accumulate_error(&self, error: ValidationError) {
+        ValidationErrorAccumulator(error).accumulate(self.db);
+    }
+
+    fn marker_span(span: Span) -> Span {
+        span.expand(TagDelimiter::LENGTH_U32, TagDelimiter::LENGTH_U32)
+    }
+
+    fn describe_expected_blocks(possible_openers: &[String]) -> String {
+        match possible_openers.len() {
+            0 => "a valid parent block".to_string(),
+            1 => format!("'{}' block", possible_openers[0]),
+            2 => format!(
+                "'{}' or '{}' block",
+                possible_openers[0], possible_openers[1]
+            ),
+            _ => {
+                let mut parts = possible_openers
+                    .iter()
+                    .map(|name| format!("'{}'", name))
+                    .collect::<Vec<_>>();
+                let last = parts.pop().unwrap_or_default();
+                let prefix = parts.join(", ");
+                format!("one of {}, or {} blocks", prefix, last)
+            }
+        }
     }
 
     fn handle_tag(&mut self, name: &str, bits: &[String], span: Span) {
@@ -181,7 +199,6 @@ impl<'db> BlockTreeBuilder<'db> {
                     opener_span: span,
                     container_body: container,
                     segment_body: segment,
-                    parent_body: parent,
                 });
             }
             TagClass::Closer { opener_name } => {
@@ -207,14 +224,10 @@ impl<'db> BlockTreeBuilder<'db> {
             // Pop any unclosed blocks above this one
             while self.stack.len() > frame_idx + 1 {
                 if let Some(unclosed) = self.stack.pop() {
-                    if let Some(parent) = unclosed.parent_body {
-                        self.semantic_ops.push(BlockSemanticOp::AddErrorNode {
-                            target: parent,
-                            message: format!("Unclosed block '{}'", unclosed.opener_name),
-                            span: unclosed.opener_span,
-                        });
-                    }
-                    // If no parent, this was a root block that wasn't closed - we could track this separately
+                    self.accumulate_error(ValidationError::UnclosedTag {
+                        tag: unclosed.opener_name.clone(),
+                        span: Self::marker_span(unclosed.opener_span),
+                    });
                 }
             }
 
@@ -237,50 +250,64 @@ impl<'db> BlockTreeBuilder<'db> {
                         span,
                     });
                 }
-                CloseValidation::ArgumentMismatch { arg, expected, got } => {
-                    self.semantic_ops.push(BlockSemanticOp::AddErrorNode {
-                        target: frame.segment_body,
-                        message: format!(
-                            "Argument '{arg}' mismatch: expected '{expected}', got '{got}'"
-                        ),
-                        span,
+                CloseValidation::ArgumentMismatch {
+                    arg: _arg,
+                    expected,
+                    got,
+                } => {
+                    let name = if got.is_empty() { expected } else { got };
+                    self.accumulate_error(ValidationError::UnmatchedBlockName {
+                        name,
+                        span: Self::marker_span(span),
+                    });
+                    self.accumulate_error(ValidationError::UnclosedTag {
+                        tag: frame.opener_name.clone(),
+                        span: Self::marker_span(frame.opener_span),
                     });
                     self.stack.push(frame); // Restore frame
                 }
-                CloseValidation::MissingRequiredArg { arg, expected } => {
-                    self.semantic_ops.push(BlockSemanticOp::AddErrorNode {
-                        target: frame.segment_body,
-                        message: format!(
-                            "Missing required argument '{arg}': expected '{expected}'"
-                        ),
-                        span,
+                CloseValidation::MissingRequiredArg {
+                    arg: _arg,
+                    expected,
+                } => {
+                    let expected_closing = format!("{} {}", frame.opener_name, expected);
+                    self.accumulate_error(ValidationError::UnbalancedStructure {
+                        opening_tag: frame.opener_name.clone(),
+                        expected_closing,
+                        opening_span: Self::marker_span(frame.opener_span),
+                        closing_span: Some(Self::marker_span(span)),
                     });
                     self.stack.push(frame);
                 }
                 CloseValidation::UnexpectedArg { arg, got } => {
-                    self.semantic_ops.push(BlockSemanticOp::AddErrorNode {
-                        target: frame.segment_body,
-                        message: format!("Unexpected argument '{arg}' with value '{got}'"),
-                        span,
+                    let name = if got.is_empty() { arg } else { got };
+                    self.accumulate_error(ValidationError::UnmatchedBlockName {
+                        name,
+                        span: Self::marker_span(span),
+                    });
+                    self.accumulate_error(ValidationError::UnclosedTag {
+                        tag: frame.opener_name.clone(),
+                        span: Self::marker_span(frame.opener_span),
                     });
                     self.stack.push(frame);
                 }
                 CloseValidation::NotABlock => {
                     // Should not happen as we already classified it
-                    if let Some(segment) = get_active_segment(&self.stack) {
-                        self.semantic_ops.push(BlockSemanticOp::AddErrorNode {
-                            target: segment,
-                            message: format!("Internal error: {opener_name} is not a block"),
-                            span,
-                        });
-                    }
+                    self.accumulate_error(ValidationError::UnbalancedStructure {
+                        opening_tag: opener_name.to_string(),
+                        expected_closing: opener_name.to_string(),
+                        opening_span: Self::marker_span(frame.opener_span),
+                        closing_span: Some(Self::marker_span(span)),
+                    });
+                    self.stack.push(frame);
                 }
             }
-        } else if let Some(segment) = get_active_segment(&self.stack) {
-            self.semantic_ops.push(BlockSemanticOp::AddErrorNode {
-                target: segment,
-                message: format!("Unexpected closing tag '{opener_name}'"),
-                span,
+        } else {
+            self.accumulate_error(ValidationError::UnbalancedStructure {
+                opening_tag: opener_name.to_string(),
+                expected_closing: String::new(),
+                opening_span: Self::marker_span(span),
+                closing_span: None,
             });
         }
     }
@@ -312,18 +339,20 @@ impl<'db> BlockTreeBuilder<'db> {
 
                 self.stack.last_mut().unwrap().segment_body = new_segment_id;
             } else {
-                let segment = frame.segment_body;
-                let opener_name = frame.opener_name.clone();
-
-                self.semantic_ops.push(BlockSemanticOp::AddErrorNode {
-                    target: segment,
-                    message: format!("'{tag_name}' is not valid in '{opener_name}'"),
-                    span,
+                let context = Self::describe_expected_blocks(possible_openers);
+                self.accumulate_error(ValidationError::OrphanedTag {
+                    tag: tag_name.to_string(),
+                    context: format!("must appear within {context}"),
+                    span: Self::marker_span(span),
                 });
             }
         } else {
-            // Intermediate tag at top level - this is an error
-            // Could track this in a separate error list
+            let context = Self::describe_expected_blocks(possible_openers);
+            self.accumulate_error(ValidationError::OrphanedTag {
+                tag: tag_name.to_string(),
+                context: format!("must appear within {context}"),
+                span: Self::marker_span(span),
+            });
         }
     }
 
@@ -336,11 +365,10 @@ impl<'db> BlockTreeBuilder<'db> {
                     id: frame.container_body,
                     span: frame.opener_span,
                 });
-            } else if let Some(parent) = frame.parent_body {
-                self.semantic_ops.push(BlockSemanticOp::AddErrorNode {
-                    target: parent,
-                    message: format!("Unclosed block '{}'", frame.opener_name),
-                    span: frame.opener_span,
+            } else {
+                self.accumulate_error(ValidationError::UnclosedTag {
+                    tag: frame.opener_name.clone(),
+                    span: Self::marker_span(frame.opener_span),
                 });
             }
         }
@@ -365,7 +393,6 @@ struct TreeFrame {
     opener_span: Span,
     container_body: BlockId,
     segment_body: BlockId,
-    parent_body: Option<BlockId>, // Can be None for root blocks
 }
 
 impl<'db> SemanticModel<'db> for BlockTreeBuilder<'db> {

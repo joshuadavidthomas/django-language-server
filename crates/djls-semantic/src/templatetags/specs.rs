@@ -9,6 +9,7 @@ use rustc_hash::FxHashMap;
 pub type S<T = str> = Cow<'static, T>;
 pub type L<T> = Cow<'static, [T]>;
 
+#[allow(dead_code)]
 pub enum TagType {
     Opener,
     Intermediate,
@@ -16,6 +17,7 @@ pub enum TagType {
     Standalone,
 }
 
+#[allow(dead_code)]
 impl TagType {
     #[must_use]
     pub fn for_name(name: &str, tag_specs: &TagSpecs) -> TagType {

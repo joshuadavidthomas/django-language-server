@@ -33,7 +33,6 @@ impl BlockTree {
         &mut self.blocks
     }
 
-    #[cfg(test)]
     pub fn build(
         db: &dyn crate::Db,
         nodelist: djls_templates::NodeList,

@@ -3,7 +3,6 @@ mod db;
 mod errors;
 mod templatetags;
 mod traits;
-mod validation;
 
 pub use db::Db;
 pub use db::ValidationErrorAccumulator;
@@ -16,7 +15,8 @@ pub use templatetags::TagSpecs;
 
 /// Validate a Django template node list and return validation errors.
 ///
-/// This function runs the `TagValidator` on the parsed node list to check for:
+/// This function builds a `BlockTree` from the parsed node list and, during
+/// construction, accumulates semantic validation errors for issues such as:
 /// - Unclosed block tags
 /// - Mismatched tag pairs
 /// - Orphaned intermediate tags
@@ -28,5 +28,6 @@ pub fn validate_nodelist(db: &dyn Db, nodelist: djls_templates::NodeList<'_>) {
         return;
     }
 
-    validation::TagValidator::new(db, nodelist).validate();
+    let tag_index = blocks::TagIndex::from(&db.tag_specs());
+    let _ = blocks::BlockTree::build(db, nodelist, &tag_index);
 }
