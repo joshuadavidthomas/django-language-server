@@ -276,9 +276,7 @@ mod tests {
 
     mod env_discovery {
         use system::mock::MockGuard;
-        use system::mock::{
-            self as sys_mock,
-        };
+        use system::mock::{self as sys_mock};
         use which::Error as WhichError;
 
         use super::*;
@@ -605,6 +603,7 @@ mod tests {
         use djls_source::FxDashMap;
         use djls_workspace::FileSystem;
         use djls_workspace::InMemoryFileSystem;
+        use salsa::Setter;
 
         use super::*;
         use crate::inspector::pool::InspectorPool;
