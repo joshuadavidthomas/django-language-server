@@ -39,14 +39,12 @@ fn validate_args(db: &dyn Db, tag_name: &str, bits: &[String], span: Span, args:
     if args.is_empty() {
         // If the spec expects no arguments but bits exist, report once.
         if !bits.is_empty() {
-            report_error(
-                db,
-                ValidationError::TooManyArguments {
-                    tag: tag_name.to_string(),
-                    max: 0,
-                    span,
-                },
-            );
+            ValidationErrorAccumulator(ValidationError::TooManyArguments {
+                tag: tag_name.to_string(),
+                max: 0,
+                span,
+            })
+            .accumulate(db);
         }
         return;
     }
@@ -55,25 +53,21 @@ fn validate_args(db: &dyn Db, tag_name: &str, bits: &[String], span: Span, args:
     let required_count = args.iter().filter(|arg| arg.is_required()).count();
 
     if bits.len() < required_count {
-        report_error(
-            db,
-            ValidationError::MissingRequiredArguments {
-                tag: tag_name.to_string(),
-                min: required_count,
-                span,
-            },
-        );
+        ValidationErrorAccumulator(ValidationError::MissingRequiredArguments {
+            tag: tag_name.to_string(),
+            min: required_count,
+            span,
+        })
+        .accumulate(db);
     }
 
     if !has_varargs && bits.len() > args.len() {
-        report_error(
-            db,
-            ValidationError::TooManyArguments {
-                tag: tag_name.to_string(),
-                max: args.len(),
-                span,
-            },
-        );
+        ValidationErrorAccumulator(ValidationError::TooManyArguments {
+            tag: tag_name.to_string(),
+            max: args.len(),
+            span,
+        })
+        .accumulate(db);
     }
 
     validate_literals(db, tag_name, bits, span, args);
@@ -87,14 +81,12 @@ fn validate_literals(db: &dyn Db, tag_name: &str, bits: &[String], span: Span, a
     for arg in args {
         if let TagArg::Literal { lit, required } = arg {
             if *required && !bits.iter().any(|bit| bit == lit.as_ref()) {
-                report_error(
-                    db,
-                    ValidationError::InvalidLiteralArgument {
-                        tag: tag_name.to_string(),
-                        expected: lit.to_string(),
-                        span,
-                    },
-                );
+                ValidationErrorAccumulator(ValidationError::InvalidLiteralArgument {
+                    tag: tag_name.to_string(),
+                    expected: lit.to_string(),
+                    span,
+                })
+                .accumulate(db);
             }
         }
     }
@@ -121,14 +113,12 @@ fn validate_choices_and_order(
                     if matches_literal {
                         bit_index += 1;
                     } else {
-                        report_error(
-                            db,
-                            ValidationError::InvalidLiteralArgument {
-                                tag: tag_name.to_string(),
-                                expected: lit.to_string(),
-                                span,
-                            },
-                        );
+                        ValidationErrorAccumulator(ValidationError::InvalidLiteralArgument {
+                            tag: tag_name.to_string(),
+                            expected: lit.to_string(),
+                            span,
+                        })
+                        .accumulate(db);
                         break;
                     }
                 } else if matches_literal {
@@ -144,19 +134,17 @@ fn validate_choices_and_order(
                 if choices.iter().any(|choice| choice.as_ref() == value) {
                     bit_index += 1;
                 } else if *required {
-                    report_error(
-                        db,
-                        ValidationError::InvalidArgumentChoice {
-                            tag: tag_name.to_string(),
-                            argument: name.to_string(),
-                            choices: choices
-                                .iter()
-                                .map(std::string::ToString::to_string)
-                                .collect(),
-                            value: value.clone(),
-                            span,
-                        },
-                    );
+                    ValidationErrorAccumulator(ValidationError::InvalidArgumentChoice {
+                        tag: tag_name.to_string(),
+                        argument: name.to_string(),
+                        choices: choices
+                            .iter()
+                            .map(std::string::ToString::to_string)
+                            .collect(),
+                        value: value.clone(),
+                        span,
+                    })
+                    .accumulate(db);
                     break;
                 }
             }
@@ -178,14 +166,12 @@ fn validate_choices_and_order(
 
     for arg in args.iter().skip(bit_index) {
         if arg.is_required() {
-            report_error(
-                db,
-                ValidationError::MissingArgument {
-                    tag: tag_name.to_string(),
-                    argument: argument_name(arg),
-                    span,
-                },
-            );
+            ValidationErrorAccumulator(ValidationError::MissingArgument {
+                tag: tag_name.to_string(),
+                argument: argument_name(arg),
+                span,
+            })
+            .accumulate(db);
         }
     }
 }
@@ -200,8 +186,4 @@ fn argument_name(arg: &TagArg) -> String {
         | TagArg::Assignment { name, .. }
         | TagArg::VarArgs { name, .. } => name.to_string(),
     }
-}
-
-fn report_error(db: &dyn Db, error: ValidationError) {
-    ValidationErrorAccumulator(error).accumulate(db);
 }

@@ -1,7 +1,7 @@
 use djls_source::Span;
 use serde::Serialize;
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, salsa::Update)]
 pub struct BlockTree {
     roots: Vec<BlockId>,
     blocks: Blocks,
@@ -32,17 +32,6 @@ impl BlockTree {
     pub fn blocks_mut(&mut self) -> &mut Blocks {
         &mut self.blocks
     }
-
-    pub fn build(
-        db: &dyn crate::Db,
-        nodelist: djls_templates::NodeList,
-        index: &super::grammar::TagIndex,
-    ) -> Self {
-        use super::builder::BlockTreeBuilder;
-        use crate::traits::SemanticModel;
-
-        BlockTreeBuilder::new(db, index).model(db, nodelist)
-    }
 }
 
 impl Default for BlockTree {
@@ -68,7 +57,7 @@ impl BlockId {
     }
 }
 
-#[derive(Clone, Debug, Default, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 pub struct Blocks(Vec<Region>);
 
 impl Blocks {
@@ -140,7 +129,7 @@ impl Blocks {
     }
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Region {
     span: Span,
     nodes: Vec<BlockNode>,
@@ -175,13 +164,13 @@ impl Region {
     }
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub enum BranchKind {
     Opener,
     Segment,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub enum BlockNode {
     Leaf {
         label: String,
@@ -220,7 +209,9 @@ mod tests {
     use super::*;
     use crate::blocks::grammar::TagIndex;
     use crate::blocks::snapshot::BlockTreeSnapshot;
+    use crate::build_block_tree;
     use crate::templatetags::django_builtin_specs;
+    use crate::Db;
     use crate::TagSpecs;
 
     impl BlockTree {
@@ -270,12 +261,14 @@ mod tests {
         fn tag_specs(&self) -> TagSpecs {
             django_builtin_specs()
         }
+
+        fn tag_index(&self) -> TagIndex<'_> {
+            TagIndex::from_specs(self)
+        }
     }
 
     #[test]
     fn test_block_tree_building() {
-        use crate::Db as SemanticDb;
-
         let db = TestDatabase::new();
 
         let source = r"
@@ -371,8 +364,7 @@ mod tests {
             NodeListView { nodes }
         };
         insta::assert_yaml_snapshot!("nodelist", nodelist_view);
-        let tag_index = TagIndex::from(&db.tag_specs());
-        let block_tree = BlockTree::build(&db, nodelist, &tag_index);
+        let block_tree = build_block_tree(&db, nodelist);
         insta::assert_yaml_snapshot!("blocktree", block_tree.to_snapshot());
     }
 }

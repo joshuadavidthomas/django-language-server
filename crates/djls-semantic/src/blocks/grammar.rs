@@ -1,43 +1,47 @@
 use rustc_hash::FxHashMap;
 
-use crate::templatetags::TagSpecs;
-
 /// Index for tag grammar lookups
-#[derive(Clone, Debug)]
-pub struct TagIndex {
+#[salsa::tracked(debug)]
+pub struct TagIndex<'db> {
     /// Opener tags and their end tag metadata
+    #[tracked]
+    #[returns(ref)]
     openers: FxHashMap<String, EndMeta>,
     /// Map from closer tag name to opener tag name
+    #[tracked]
+    #[returns(ref)]
     closers: FxHashMap<String, String>,
     /// Map from intermediate tag name to list of possible opener tags
+    #[tracked]
+    #[returns(ref)]
     intermediate_to_openers: FxHashMap<String, Vec<String>>,
 }
 
-#[derive(Clone, Debug)]
-struct EndMeta {
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EndMeta {
     optional: bool,
     match_args: Vec<MatchArgSpec>,
 }
 
 /// Specification for matching arguments between opener and closer
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct MatchArgSpec {
     name: String,
     required: bool,
     position: usize,
 }
 
-impl TagIndex {
-    pub fn classify(&self, tag_name: &str) -> TagClass {
-        if self.openers.contains_key(tag_name) {
+impl<'db> TagIndex<'db> {
+    pub fn classify(self, db: &'db dyn crate::Db, tag_name: &str) -> TagClass {
+        if self.openers(db).contains_key(tag_name) {
             return TagClass::Opener;
         }
-        if let Some(opener) = self.closers.get(tag_name) {
+        if let Some(opener) = self.closers(db).get(tag_name) {
             return TagClass::Closer {
                 opener_name: opener.clone(),
             };
         }
-        if let Some(openers) = self.intermediate_to_openers.get(tag_name) {
+        if let Some(openers) = self.intermediate_to_openers(db).get(tag_name) {
             return TagClass::Intermediate {
                 possible_openers: openers.clone(),
             };
@@ -45,20 +49,20 @@ impl TagIndex {
         TagClass::Unknown
     }
 
-    pub fn is_end_optional(&self, opener_name: &str) -> bool {
-        self.openers
+    pub fn is_end_optional(self, db: &'db dyn crate::Db, opener_name: &str) -> bool {
+        self.openers(db)
             .get(opener_name)
             .is_some_and(|meta| meta.optional)
     }
 
     pub fn validate_close(
-        &self,
+        self,
+        db: &'db dyn crate::Db,
         opener_name: &str,
         opener_bits: &[String],
         closer_bits: &[String],
-        _db: &dyn crate::db::Db,
     ) -> CloseValidation {
-        let Some(meta) = self.openers.get(opener_name) else {
+        let Some(meta) = self.openers(db).get(opener_name) else {
             return CloseValidation::NotABlock;
         };
 
@@ -99,20 +103,23 @@ impl TagIndex {
     }
 
     #[allow(dead_code)] // TODO: is this still needed?
-    pub fn is_valid_intermediate(&self, inter_name: &str, opener_name: &str) -> bool {
-        self.intermediate_to_openers
+    pub fn is_valid_intermediate(
+        self,
+        db: &'db dyn crate::Db,
+        inter_name: &str,
+        opener_name: &str,
+    ) -> bool {
+        self.intermediate_to_openers(db)
             .get(inter_name)
             .is_some_and(|openers| openers.iter().any(|o| o == opener_name))
     }
-}
-
-impl From<&TagSpecs> for TagIndex {
-    fn from(specs: &TagSpecs) -> Self {
+    #[must_use]
+    pub fn from_specs(db: &'db dyn crate::Db) -> Self {
         let mut openers = FxHashMap::default();
         let mut closers = FxHashMap::default();
         let mut intermediate_to_openers: FxHashMap<String, Vec<String>> = FxHashMap::default();
 
-        for (name, spec) in specs {
+        for (name, spec) in db.tag_specs() {
             if let Some(end_tag) = &spec.end_tag {
                 let match_args = end_tag
                     .args
@@ -144,11 +151,7 @@ impl From<&TagSpecs> for TagIndex {
             }
         }
 
-        TagIndex {
-            openers,
-            closers,
-            intermediate_to_openers,
-        }
+        TagIndex::new(db, openers, closers, intermediate_to_openers)
     }
 }
 

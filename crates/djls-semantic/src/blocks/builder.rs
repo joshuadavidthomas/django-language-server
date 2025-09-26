@@ -45,7 +45,7 @@ enum BlockSemanticOp {
 
 pub struct BlockTreeBuilder<'db> {
     db: &'db dyn Db,
-    index: &'db TagIndex,
+    index: TagIndex<'db>,
     stack: Vec<TreeFrame>,
     block_allocs: Vec<(Span, Option<BlockId>)>,
     semantic_ops: Vec<BlockSemanticOp>,
@@ -53,7 +53,7 @@ pub struct BlockTreeBuilder<'db> {
 
 impl<'db> BlockTreeBuilder<'db> {
     #[allow(dead_code)] // use is gated behind cfg(test) for now
-    pub fn new(db: &'db dyn Db, index: &'db TagIndex) -> Self {
+    pub fn new(db: &'db dyn Db, index: TagIndex<'db>) -> Self {
         Self {
             db,
             index,
@@ -156,7 +156,7 @@ impl<'db> BlockTreeBuilder<'db> {
     fn handle_tag(&mut self, name: &str, bits: &[String], span: Span) {
         let tag_name = name;
         semantic::validate_tag(self.db, tag_name, bits, Self::marker_span(span));
-        match self.index.classify(tag_name) {
+        match self.index.classify(self.db, tag_name) {
             TagClass::Opener => {
                 let parent = get_active_segment(&self.stack);
 
@@ -237,7 +237,7 @@ impl<'db> BlockTreeBuilder<'db> {
             let frame = self.stack.pop().unwrap();
             match self
                 .index
-                .validate_close(opener_name, &frame.opener_bits, closer_bits, self.db)
+                .validate_close(self.db, opener_name, &frame.opener_bits, closer_bits)
             {
                 CloseValidation::Valid => {
                     // Finalize the last segment body to end just before the closer marker
@@ -360,7 +360,7 @@ impl<'db> BlockTreeBuilder<'db> {
 
     fn finish(&mut self) {
         while let Some(frame) = self.stack.pop() {
-            if self.index.is_end_optional(&frame.opener_name) {
+            if self.index.is_end_optional(self.db, &frame.opener_name) {
                 // No explicit closer: finalize last segment to end of input (best-effort)
                 // We do not know the real end; leave as-is and extend container by opener span only.
                 self.semantic_ops.push(BlockSemanticOp::ExtendBlockSpan {
