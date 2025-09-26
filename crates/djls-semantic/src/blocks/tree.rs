@@ -211,7 +211,6 @@ mod tests {
     use crate::blocks::snapshot::BlockTreeSnapshot;
     use crate::build_block_tree;
     use crate::templatetags::django_builtin_specs;
-    use crate::Db;
     use crate::TagSpecs;
 
     impl BlockTree {
