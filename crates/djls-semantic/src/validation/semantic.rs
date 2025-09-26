@@ -178,16 +178,14 @@ fn validate_choices_and_order(
 
     for arg in args.iter().skip(bit_index) {
         if arg.is_required() {
-            if let Some(name) = argument_name(arg) {
-                report_error(
-                    db,
-                    ValidationError::MissingArgument {
-                        tag: tag_name.to_string(),
-                        argument: name,
-                        span,
-                    },
-                );
-            }
+            report_error(
+                db,
+                ValidationError::MissingArgument {
+                    tag: tag_name.to_string(),
+                    argument: argument_name(arg),
+                    span,
+                },
+            );
         }
     }
 }
