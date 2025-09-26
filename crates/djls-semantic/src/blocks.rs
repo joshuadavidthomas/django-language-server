@@ -5,4 +5,7 @@ mod tree;
 
 pub use builder::BlockTreeBuilder;
 pub use grammar::TagIndex;
+pub use tree::BlockId;
+pub use tree::BlockNode;
 pub use tree::BlockTree;
+pub use tree::BranchKind;

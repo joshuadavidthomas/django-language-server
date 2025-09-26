@@ -1,6 +1,12 @@
+use std::collections::HashSet;
+
 use djls_source::Span;
+use djls_templates::tokens::TagDelimiter;
+use djls_templates::Node;
 use salsa::Accumulator;
 
+use crate::semantic::mini_tree::SegmentKind;
+use crate::semantic::mini_tree::SemanticNode;
 use crate::templatetags::IntermediateTag;
 use crate::templatetags::TagArg;
 use crate::templatetags::TagSpecs;
@@ -8,8 +14,63 @@ use crate::Db;
 use crate::ValidationError;
 use crate::ValidationErrorAccumulator;
 
+pub fn validate_block_tags(db: &dyn Db, roots: &[SemanticNode]) {
+    for node in roots {
+        validate_node(db, node);
+    }
+}
+
+pub fn validate_non_block_tags(
+    db: &dyn Db,
+    nodelist: djls_templates::NodeList<'_>,
+    skip_spans: &HashSet<(u32, u32)>,
+) {
+    for node in nodelist.nodelist(db).iter() {
+        if let Node::Tag { name, bits, span } = node {
+            let marker_span = span.expand(TagDelimiter::LENGTH_U32, TagDelimiter::LENGTH_U32);
+            let key = (marker_span.start(), marker_span.end());
+            if skip_spans.contains(&key) {
+                continue;
+            }
+            validate_tag_arguments(db, name, bits, marker_span);
+        }
+    }
+}
+
+fn validate_node(db: &dyn Db, node: &SemanticNode) {
+    match node {
+        SemanticNode::Tag {
+            name,
+            marker_span,
+            arguments,
+            segments,
+        } => {
+            validate_tag_arguments(db, name, arguments, *marker_span);
+
+            for segment in segments {
+                match &segment.kind {
+                    SegmentKind::Main => {
+                        validate_children(db, &segment.children);
+                    }
+                    SegmentKind::Intermediate { tag } => {
+                        validate_tag_arguments(db, tag, &segment.arguments, segment.marker_span);
+                        validate_children(db, &segment.children);
+                    }
+                }
+            }
+        }
+        SemanticNode::Leaf { .. } => {}
+    }
+}
+
+fn validate_children(db: &dyn Db, children: &[SemanticNode]) {
+    for child in children {
+        validate_node(db, child);
+    }
+}
+
 /// Validate a single tag invocation against its `TagSpec` definition.
-pub fn validate_tag(db: &dyn Db, tag_name: &str, bits: &[String], span: Span) {
+pub fn validate_tag_arguments(db: &dyn Db, tag_name: &str, bits: &[String], span: Span) {
     let tag_specs = db.tag_specs();
 
     if let Some(spec) = tag_specs.get(tag_name) {
