@@ -6,8 +6,6 @@ mod tree;
 use crate::db::Db;
 use crate::traits::SemanticModel;
 pub use builder::BlockTreeBuilder;
-pub use grammar::CloseValidation;
-pub use grammar::TagClass;
 pub use grammar::TagIndex;
 pub use tree::BlockId;
 pub use tree::BlockNode;

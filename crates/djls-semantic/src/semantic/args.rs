@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::hash::BuildHasher;
 
 use djls_source::Span;
 use djls_templates::tokens::TagDelimiter;
@@ -20,16 +21,15 @@ pub fn validate_block_tags(db: &dyn Db, roots: &[SemanticNode]) {
     }
 }
 
-pub fn validate_non_block_tags(
+pub fn validate_non_block_tags<S: BuildHasher>(
     db: &dyn Db,
     nodelist: djls_templates::NodeList<'_>,
-    skip_spans: &HashSet<(u32, u32)>,
+    skip_spans: &HashSet<Span, S>,
 ) {
-    for node in nodelist.nodelist(db).iter() {
+    for node in nodelist.nodelist(db) {
         if let Node::Tag { name, bits, span } = node {
             let marker_span = span.expand(TagDelimiter::LENGTH_U32, TagDelimiter::LENGTH_U32);
-            let key = (marker_span.start(), marker_span.end());
-            if skip_spans.contains(&key) {
+            if skip_spans.contains(&marker_span) {
                 continue;
             }
             validate_tag_arguments(db, name, bits, marker_span);

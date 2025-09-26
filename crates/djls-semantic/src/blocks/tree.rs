@@ -1,6 +1,8 @@
 use djls_source::Span;
 use serde::Serialize;
 
+use crate::ValidationError;
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, salsa::Update)]
 pub struct BlockTree {
     roots: Vec<BlockId>,
@@ -259,6 +261,10 @@ mod tests {
     impl crate::Db for TestDatabase {
         fn tag_specs(&self) -> TagSpecs {
             django_builtin_specs()
+        }
+
+        fn tag_index(&self) -> TagIndex<'_> {
+            TagIndex::from_specs(self)
         }
     }
 

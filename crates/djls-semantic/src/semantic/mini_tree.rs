@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use djls_source::Span;
 use djls_templates::tokens::TagDelimiter;
 use djls_templates::Node;
+use serde::Serialize;
 
 use crate::blocks::BlockId;
 use crate::blocks::BlockNode;
@@ -10,13 +11,13 @@ use crate::blocks::BlockTree;
 use crate::blocks::BranchKind;
 use crate::Db;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct SemanticForest {
     pub roots: Vec<SemanticNode>,
-    pub tag_spans: HashSet<(u32, u32)>,
+    pub tag_spans: HashSet<Span>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub enum SemanticNode {
     Tag {
         name: String,
@@ -30,7 +31,7 @@ pub enum SemanticNode {
     },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct SemanticSegment {
     pub kind: SegmentKind,
     pub marker_span: Span,
@@ -39,7 +40,7 @@ pub struct SemanticSegment {
     pub children: Vec<SemanticNode>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub enum SegmentKind {
     Main,
     Intermediate { tag: String },
@@ -68,7 +69,7 @@ fn build_root_tag(
     tree: &BlockTree,
     nodelist: djls_templates::NodeList<'_>,
     container_id: BlockId,
-    spans: &mut HashSet<(u32, u32)>,
+    spans: &mut HashSet<Span>,
 ) -> Option<SemanticNode> {
     let container = tree.blocks().get(container_id.index());
     for node in container.nodes() {
@@ -79,7 +80,7 @@ fn build_root_tag(
             ..
         } = node
         {
-            spans.insert(span_key(expand_marker(*marker_span)));
+            spans.insert(expand_marker(*marker_span));
             return Some(build_tag_from_container(
                 db,
                 tree,
@@ -101,7 +102,7 @@ fn build_tag_from_container(
     container_id: BlockId,
     tag_name: String,
     opener_marker_span: Span,
-    spans: &mut HashSet<(u32, u32)>,
+    spans: &mut HashSet<Span>,
 ) -> SemanticNode {
     let segments = build_segments(db, tree, nodelist, container_id, opener_marker_span, spans);
     let arguments = segments
@@ -123,7 +124,7 @@ fn build_segments(
     nodelist: djls_templates::NodeList<'_>,
     container_id: BlockId,
     opener_marker_span: Span,
-    spans: &mut HashSet<(u32, u32)>,
+    spans: &mut HashSet<Span>,
 ) -> Vec<SemanticSegment> {
     let mut segments = Vec::new();
     let container = tree.blocks().get(container_id.index());
@@ -148,7 +149,7 @@ fn build_segments(
                 *marker_span
             };
 
-            spans.insert(span_key(expand_marker(marker)));
+            spans.insert(expand_marker(marker));
 
             let content_block = tree.blocks().get(body.index());
             let arguments = lookup_arguments(db, nodelist, marker);
@@ -172,7 +173,7 @@ fn build_children(
     tree: &BlockTree,
     nodelist: djls_templates::NodeList<'_>,
     block_id: BlockId,
-    spans: &mut HashSet<(u32, u32)>,
+    spans: &mut HashSet<Span>,
 ) -> Vec<SemanticNode> {
     let mut children = Vec::new();
     let block = tree.blocks().get(block_id.index());
@@ -191,7 +192,7 @@ fn build_children(
                 body,
                 kind: BranchKind::Opener | BranchKind::Segment,
             } => {
-                spans.insert(span_key(expand_marker(*marker_span)));
+                spans.insert(expand_marker(*marker_span));
                 children.push(build_tag_from_container(
                     db,
                     tree,
@@ -223,10 +224,6 @@ fn lookup_arguments(
         .unwrap_or_default()
 }
 
-fn span_key(span: Span) -> (u32, u32) {
-    (span.start(), span.end())
-}
-
 fn expand_marker(span: Span) -> Span {
     span.expand(TagDelimiter::LENGTH_U32, TagDelimiter::LENGTH_U32)
 }
@@ -241,12 +238,11 @@ mod tests {
     use djls_templates::parse_template;
     use djls_workspace::FileSystem;
     use djls_workspace::InMemoryFileSystem;
-    use insta::assert_debug_snapshot;
+    use insta::assert_yaml_snapshot;
 
     use super::*;
-    use crate::blocks::BlockTreeBuilder;
+    use crate::blocks::build_block_tree;
     use crate::templatetags::django_builtin_specs;
-    use crate::traits::SemanticModel;
     use crate::TagIndex;
 
     #[salsa::db]
@@ -319,39 +315,32 @@ mod tests {
         let file = File::new(&db, "template.html".into(), 0);
         let nodelist = parse_template(&db, file).expect("should parse");
 
-        let builder = BlockTreeBuilder::new(&db, db.tag_index());
-        let block_tree = builder.model(&db, nodelist);
+        let block_tree = build_block_tree(&db, nodelist);
         let forest = SemanticForest::from_block_tree(&db, &block_tree, nodelist);
 
-        assert_debug_snapshot!(normalize_forest(&forest));
+        assert_yaml_snapshot!(&forest);
     }
 
-    fn normalize_forest(forest: &SemanticForest) -> (Vec<String>, Vec<(u32, u32)>) {
-        let mut spans: Vec<_> = forest.tag_spans.iter().copied().collect();
-        spans.sort_unstable();
+    #[test]
+    fn semantic_forest_intermediate_snapshot() {
+        let db = TestDatabase::new();
+        let source = r"
+{% if user.is_staff %}
+    <span>Staff</span>
+{% elif user.is_manager %}
+    <span>Manager</span>
+{% else %}
+    <span>Regular</span>
+{% endif %}
+";
 
-        let mut nodes = Vec::new();
-        for node in &forest.roots {
-            nodes.push(format_node(node));
-        }
+        db.add_file("intermediate.html", source);
+        let file = File::new(&db, "intermediate.html".into(), 0);
+        let nodelist = parse_template(&db, file).expect("should parse");
 
-        (nodes, spans)
-    }
+        let block_tree = build_block_tree(&db, nodelist);
+        let forest = SemanticForest::from_block_tree(&db, &block_tree, nodelist);
 
-    fn format_node(node: &SemanticNode) -> String {
-        match node {
-            SemanticNode::Tag {
-                name,
-                marker_span,
-                arguments,
-                segments,
-            } => format!(
-                "Tag(name={name}, span={:?}, args={arguments:?}, segments={:?})",
-                marker_span, segments
-            ),
-            SemanticNode::Leaf { label, span } => {
-                format!("Leaf(label={label}, span={:?})", span)
-            }
-        }
+        assert_yaml_snapshot!("intermediate", &forest);
     }
 }

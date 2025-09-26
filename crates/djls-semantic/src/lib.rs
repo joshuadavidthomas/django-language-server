@@ -33,7 +33,6 @@ pub fn validate_nodelist(db: &dyn Db, nodelist: djls_templates::NodeList<'_>) {
         return;
     }
 
-    semantic::structure::validate_structure(db, nodelist);
     let block_tree = build_block_tree(db, nodelist);
     let forest = semantic::mini_tree::SemanticForest::from_block_tree(db, &block_tree, nodelist);
     semantic::args::validate_block_tags(db, &forest.roots);
