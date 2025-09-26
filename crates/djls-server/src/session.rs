@@ -187,7 +187,7 @@ impl Session {
 
     /// Get or create a file in the database.
     pub fn get_or_create_file(&mut self, path: &Utf8PathBuf) -> File {
-        self.db.track_file(path.as_path())
+        self.db.ensure_file_tracked(path.as_path())
     }
 
     /// Warm template caches and semantic diagnostics for the updated file.

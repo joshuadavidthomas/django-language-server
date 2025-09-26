@@ -21,6 +21,7 @@ use djls_source::FxDashMap;
 use djls_templates::Db as TemplateDb;
 use djls_workspace::Db as WorkspaceDb;
 use djls_workspace::FileSystem;
+use salsa::Setter;
 
 /// Concrete Salsa database for the Django Language Server.
 ///
@@ -123,7 +124,7 @@ impl WorkspaceDb for DjangoDatabase {
         self.fs.clone()
     }
 
-    fn track_file(&mut self, path: &Utf8Path) -> File {
+    fn ensure_file_tracked(&mut self, path: &Utf8Path) -> File {
         if let Some(entry) = self.files.get(path) {
             return *entry;
         }
@@ -135,6 +136,19 @@ impl WorkspaceDb for DjangoDatabase {
 
     fn get_file(&self, path: &Utf8Path) -> Option<File> {
         self.files.get(path).map(|entry| *entry)
+    }
+
+    fn mark_file_dirty(&mut self, file: File) {
+        let current_rev = file.revision(self);
+        let new_rev = current_rev + 1;
+        file.set_revision(self).to(new_rev);
+
+        tracing::debug!(
+            "Touched {}: revision {} -> {}",
+            file.path(self),
+            current_rev,
+            new_rev
+        );
     }
 }
 

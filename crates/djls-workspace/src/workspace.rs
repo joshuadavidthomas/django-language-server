@@ -73,7 +73,8 @@ impl Workspace {
         document: TextDocument,
     ) -> Option<File> {
         self.buffers.open(url.clone(), document);
-        self.ensure_and_touch(db, url)
+        let path = paths::url_to_path(url)?;
+        Some(db.ensure_file_dirty(path.as_path()))
     }
 
     /// Update a document with incremental changes and touch the associated file.
@@ -99,12 +100,14 @@ impl Workspace {
             }
         }
 
-        self.ensure_and_touch(db, url)
+        let path = paths::url_to_path(url)?;
+        Some(db.ensure_file_dirty(path.as_path()))
     }
 
     /// Touch the tracked file when the client saves the document.
     pub fn save_document(&mut self, db: &mut dyn Db, url: &Url) -> Option<File> {
-        self.ensure_and_touch(db, url)
+        let path = paths::url_to_path(url)?;
+        Some(db.ensure_file_dirty(path.as_path()))
     }
 
     /// Close a document, removing it from buffers and touching the tracked file.
@@ -113,18 +116,11 @@ impl Workspace {
 
         if let Some(path) = paths::url_to_path(url) {
             if let Some(file) = db.get_file(path.as_path()) {
-                db.touch_file(file);
+                db.mark_file_dirty(file);
             }
         }
 
         closed
-    }
-
-    fn ensure_and_touch(&self, db: &mut dyn Db, url: &Url) -> Option<File> {
-        let path = paths::url_to_path(url)?;
-        let file = db.track_file(path.as_path());
-        db.touch_file(file);
-        Some(file)
     }
 }
 
@@ -354,7 +350,7 @@ mod tests {
                 self.fs.clone()
             }
 
-            fn track_file(&mut self, path: &Utf8Path) -> File {
+            fn ensure_file_tracked(&mut self, path: &Utf8Path) -> File {
                 if let Some(entry) = self.files.get(path) {
                     return *entry;
                 }
@@ -366,6 +362,11 @@ mod tests {
 
             fn get_file(&self, path: &Utf8Path) -> Option<File> {
                 self.files.get(path).map(|entry| *entry)
+            }
+
+            fn mark_file_dirty(&mut self, file: File) {
+                let current_rev = file.revision(self);
+                file.set_revision(self).to(current_rev + 1);
             }
         }
 

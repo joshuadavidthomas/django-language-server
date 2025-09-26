@@ -25,7 +25,6 @@ use std::sync::Arc;
 use camino::Utf8Path;
 use djls_source::Db as SourceDb;
 use djls_source::File;
-use salsa::Setter;
 
 use crate::FileSystem;
 
@@ -39,19 +38,15 @@ pub trait Db: SourceDb {
     fn get_file(&self, path: &Utf8Path) -> Option<File>;
 
     /// Get or create a tracked file for the given path.
-    fn track_file(&mut self, path: &Utf8Path) -> File;
+    fn ensure_file_tracked(&mut self, path: &Utf8Path) -> File;
 
     /// Bump the revision for a tracked file to invalidate dependent queries.
-    fn touch_file(&mut self, file: File) {
-        let current_rev = file.revision(self);
-        let new_rev = current_rev + 1;
-        file.set_revision(self).to(new_rev);
+    fn mark_file_dirty(&mut self, file: File);
 
-        tracing::debug!(
-            "Touched {}: revision {} -> {}",
-            file.path(self),
-            current_rev,
-            new_rev
-        );
+    /// Get or create a tracked file for the given path and bump its revision.
+    fn ensure_file_dirty(&mut self, path: &Utf8Path) -> File {
+        let file = self.ensure_file_tracked(path);
+        self.mark_file_dirty(file);
+        file
     }
 }

@@ -652,7 +652,7 @@ mod tests {
                 self.fs.clone()
             }
 
-            fn track_file(&mut self, path: &Utf8Path) -> File {
+            fn ensure_file_tracked(&mut self, path: &Utf8Path) -> File {
                 if let Some(entry) = self.files.get(path) {
                     return *entry;
                 }
@@ -660,6 +660,11 @@ mod tests {
                 let file = File::new(self, path.to_owned(), 0);
                 self.files.insert(path.to_owned(), file);
                 file
+            }
+
+            fn mark_file_dirty(&mut self, file: File) {
+                let current = file.revision(self);
+                file.set_revision(self).to(current + 1);
             }
 
             fn get_file(&self, path: &Utf8Path) -> Option<File> {
