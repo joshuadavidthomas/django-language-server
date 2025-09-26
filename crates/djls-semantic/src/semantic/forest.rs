@@ -2,7 +2,6 @@ use djls_source::Span;
 use djls_templates::tokens::TagDelimiter;
 use djls_templates::Node;
 use rustc_hash::FxHashSet;
-use serde::ser::Serializer;
 use serde::Serialize;
 
 use crate::blocks::BlockId;
@@ -11,14 +10,15 @@ use crate::blocks::BlockTree;
 use crate::blocks::BranchKind;
 use crate::Db;
 
-#[derive(Debug, Clone, Serialize)]
-pub struct SemanticForest {
+#[salsa::tracked]
+pub struct SemanticForest<'db> {
+    #[returns(ref)]
     pub roots: Vec<SemanticNode>,
-    #[serde(serialize_with = "serialize_spans")]
-    pub tag_spans: FxHashSet<Span>,
+    #[returns(ref)]
+    pub tag_spans: Vec<Span>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
 pub enum SemanticNode {
     Tag {
         name: String,
@@ -32,7 +32,7 @@ pub enum SemanticNode {
     },
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
 pub struct SemanticSegment {
     pub kind: SegmentKind,
     pub marker_span: Span,
@@ -41,38 +41,20 @@ pub struct SemanticSegment {
     pub children: Vec<SemanticNode>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
 pub enum SegmentKind {
     Main,
     Intermediate { tag: String },
 }
 
-impl SemanticForest {
-    #[must_use]
-    pub fn from_block_tree(
-        db: &dyn Db,
-        tree: &BlockTree,
-        nodelist: djls_templates::NodeList<'_>,
-    ) -> Self {
-        let mut tag_spans = FxHashSet::default();
-        let roots = tree
-            .roots()
-            .iter()
-            .filter_map(|root| build_root_tag(db, tree, nodelist, *root, &mut tag_spans))
-            .collect();
-
-        SemanticForest { roots, tag_spans }
-    }
-}
-
 pub fn build_root_tag(
     db: &dyn Db,
-    tree: &BlockTree,
+    tree: BlockTree,
     nodelist: djls_templates::NodeList<'_>,
     container_id: BlockId,
     spans: &mut FxHashSet<Span>,
 ) -> Option<SemanticNode> {
-    let container = tree.blocks().get(container_id.index());
+    let container = tree.blocks(db).get(container_id.index());
     for node in container.nodes() {
         if let BlockNode::Branch {
             tag,
@@ -98,7 +80,7 @@ pub fn build_root_tag(
 
 fn build_tag_from_container(
     db: &dyn Db,
-    tree: &BlockTree,
+    tree: BlockTree,
     nodelist: djls_templates::NodeList<'_>,
     container_id: BlockId,
     tag_name: String,
@@ -121,14 +103,14 @@ fn build_tag_from_container(
 
 fn build_segments(
     db: &dyn Db,
-    tree: &BlockTree,
+    tree: BlockTree,
     nodelist: djls_templates::NodeList<'_>,
     container_id: BlockId,
     opener_marker_span: Span,
     spans: &mut FxHashSet<Span>,
 ) -> Vec<SemanticSegment> {
     let mut segments = Vec::new();
-    let container = tree.blocks().get(container_id.index());
+    let container = tree.blocks(db).get(container_id.index());
 
     for (idx, node) in container.nodes().iter().enumerate() {
         if let BlockNode::Branch {
@@ -152,7 +134,7 @@ fn build_segments(
 
             spans.insert(expand_marker(marker));
 
-            let content_block = tree.blocks().get(body.index());
+            let content_block = tree.blocks(db).get(body.index());
             let arguments = lookup_arguments(db, nodelist, marker);
             let children = build_children(db, tree, nodelist, *body, spans);
 
@@ -171,13 +153,13 @@ fn build_segments(
 
 fn build_children(
     db: &dyn Db,
-    tree: &BlockTree,
+    tree: BlockTree,
     nodelist: djls_templates::NodeList<'_>,
     block_id: BlockId,
     spans: &mut FxHashSet<Span>,
 ) -> Vec<SemanticNode> {
     let mut children = Vec::new();
-    let block = tree.blocks().get(block_id.index());
+    let block = tree.blocks(db).get(block_id.index());
 
     for node in block.nodes() {
         match node {
@@ -229,15 +211,6 @@ fn expand_marker(span: Span) -> Span {
     span.expand(TagDelimiter::LENGTH_U32, TagDelimiter::LENGTH_U32)
 }
 
-fn serialize_spans<S>(spans: &FxHashSet<Span>, serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    let mut ordered: Vec<_> = spans.iter().copied().collect();
-    ordered.sort_by_key(|span| (span.start(), span.end()));
-    ordered.serialize(serializer)
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -252,6 +225,7 @@ mod tests {
 
     use super::*;
     use crate::blocks::build_block_tree;
+    use crate::build_semantic_forest;
     use crate::templatetags::django_builtin_specs;
     use crate::TagIndex;
 
@@ -326,9 +300,9 @@ mod tests {
         let nodelist = parse_template(&db, file).expect("should parse");
 
         let block_tree = build_block_tree(&db, nodelist);
-        let forest = SemanticForest::from_block_tree(&db, &block_tree, nodelist);
+        let forest = build_semantic_forest(&db, block_tree, nodelist);
 
-        assert_yaml_snapshot!(&forest);
+        assert_yaml_snapshot!(ForestSnapshot::capture(forest, &db));
     }
 
     #[test]
@@ -349,8 +323,26 @@ mod tests {
         let nodelist = parse_template(&db, file).expect("should parse");
 
         let block_tree = build_block_tree(&db, nodelist);
-        let forest = SemanticForest::from_block_tree(&db, &block_tree, nodelist);
+        let forest = build_semantic_forest(&db, block_tree, nodelist);
 
-        assert_yaml_snapshot!("intermediate", &forest);
+        assert_yaml_snapshot!("intermediate", ForestSnapshot::capture(forest, &db));
+    }
+
+    #[derive(Serialize)]
+    struct ForestSnapshot {
+        roots: Vec<SemanticNode>,
+        tag_spans: Vec<Span>,
+    }
+
+    impl ForestSnapshot {
+        fn capture(forest: SemanticForest, db: &dyn crate::Db) -> Self {
+            let mut tag_spans = forest.tag_spans(db).clone();
+            tag_spans.sort_by_key(|span| (span.start(), span.end()));
+
+            Self {
+                roots: forest.roots(db).clone(),
+                tag_spans,
+            }
+        }
     }
 }

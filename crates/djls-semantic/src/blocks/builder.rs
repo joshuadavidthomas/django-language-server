@@ -9,6 +9,7 @@ use super::grammar::TagIndex;
 use super::tree::BlockId;
 use super::tree::BlockNode;
 use super::tree::BlockTree;
+use super::tree::Blocks;
 use super::tree::BranchKind;
 use crate::traits::SemanticModel;
 use crate::Db;
@@ -70,23 +71,30 @@ impl<'db> BlockTreeBuilder<'db> {
         id
     }
 
-    /// Apply all semantic operations to build a `BlockTree`
-    fn apply_operations(self) -> BlockTree {
-        let mut tree = BlockTree::new();
+    /// Apply all semantic operations to build a tracked `BlockTree`
+    fn apply_operations(self) -> BlockTree<'db> {
+        let BlockTreeBuilder {
+            db,
+            block_allocs,
+            ops,
+            ..
+        } = self;
 
-        // Allocate all blocks using metadata
-        for (span, parent) in self.block_allocs {
+        let mut roots = Vec::new();
+        let mut blocks = Blocks::default();
+
+        for (span, parent) in block_allocs {
             if let Some(p) = parent {
-                tree.blocks_mut().alloc(span, Some(p));
+                blocks.alloc(span, Some(p));
             } else {
-                tree.blocks_mut().alloc(span, None);
+                blocks.alloc(span, None);
             }
         }
 
-        for op in self.ops {
+        for op in ops {
             match op {
                 TreeOp::AddRoot { id } => {
-                    tree.roots_mut().push(id);
+                    roots.push(id);
                 }
                 TreeOp::AddBranchNode {
                     target,
@@ -95,7 +103,7 @@ impl<'db> BlockTreeBuilder<'db> {
                     body,
                     kind,
                 } => {
-                    tree.blocks_mut().push_node(
+                    blocks.push_node(
                         target,
                         BlockNode::Branch {
                             tag,
@@ -110,22 +118,21 @@ impl<'db> BlockTreeBuilder<'db> {
                     label,
                     span,
                 } => {
-                    tree.blocks_mut()
-                        .push_node(target, BlockNode::Leaf { label, span });
+                    blocks.push_node(target, BlockNode::Leaf { label, span });
                 }
                 TreeOp::ExtendBlockSpan { id, span } => {
-                    tree.blocks_mut().extend_block(id, span);
+                    blocks.extend_block(id, span);
                 }
                 TreeOp::FinalizeSpanTo { id, end } => {
-                    tree.blocks_mut().finalize_block_span(id, end);
+                    blocks.finalize_block_span(id, end);
                 }
                 TreeOp::AccumulateDiagnostic(error) => {
-                    ValidationErrorAccumulator(error).accumulate(self.db);
+                    ValidationErrorAccumulator(error).accumulate(db);
                 }
             }
         }
 
-        tree
+        BlockTree::new(db, roots, blocks)
     }
 
     fn handle_tag(&mut self, name: &str, bits: &[String], span: Span) {
@@ -408,7 +415,7 @@ struct TreeFrame {
 }
 
 impl<'db> SemanticModel<'db> for BlockTreeBuilder<'db> {
-    type Model = BlockTree;
+    type Model = BlockTree<'db>;
 
     fn observe(&mut self, node: Node) {
         match node {

@@ -13,7 +13,10 @@ pub(crate) use tree::BlockTree;
 pub(crate) use tree::BranchKind;
 
 #[salsa::tracked]
-pub fn build_block_tree(db: &dyn Db, nodelist: djls_templates::NodeList<'_>) -> BlockTree {
+pub fn build_block_tree<'db>(
+    db: &'db dyn Db,
+    nodelist: djls_templates::NodeList<'db>,
+) -> BlockTree<'db> {
     let builder = BlockTreeBuilder::new(db, db.tag_index());
     builder.model(db, nodelist)
 }

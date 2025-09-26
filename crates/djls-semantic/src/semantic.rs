@@ -9,17 +9,21 @@ use forest::build_root_tag;
 pub(crate) use forest::SemanticForest;
 use rustc_hash::FxHashSet;
 
-pub fn build_semantic_forest(
-    db: &dyn Db,
-    tree: &BlockTree,
-    nodelist: djls_templates::NodeList<'_>,
-) -> SemanticForest {
-    let mut tag_spans = FxHashSet::default();
+#[salsa::tracked]
+pub fn build_semantic_forest<'db>(
+    db: &'db dyn Db,
+    tree: BlockTree<'db>,
+    nodelist: djls_templates::NodeList<'db>,
+) -> SemanticForest<'db> {
+    let mut tag_spans_set = FxHashSet::default();
     let roots = tree
-        .roots()
+        .roots(db)
         .iter()
-        .filter_map(|root| build_root_tag(db, tree, nodelist, *root, &mut tag_spans))
+        .filter_map(|root| build_root_tag(db, tree, nodelist, *root, &mut tag_spans_set))
         .collect();
 
-    SemanticForest { roots, tag_spans }
+    let mut tag_spans: Vec<_> = tag_spans_set.into_iter().collect();
+    tag_spans.sort_by_key(|span| (span.start(), span.end()));
+
+    SemanticForest::new(db, roots, tag_spans)
 }

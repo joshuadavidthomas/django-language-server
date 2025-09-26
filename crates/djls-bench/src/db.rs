@@ -3,6 +3,10 @@ use std::sync::Arc;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
+use djls_semantic::django_builtin_specs;
+use djls_semantic::Db as SemanticDb;
+use djls_semantic::TagIndex;
+use djls_semantic::TagSpecs;
 use djls_source::Db as SourceDb;
 use djls_source::File;
 use djls_source::FxDashMap;
@@ -59,3 +63,14 @@ impl SourceDb for Db {
 
 #[salsa::db]
 impl TemplateDb for Db {}
+
+#[salsa::db]
+impl SemanticDb for Db {
+    fn tag_specs(&self) -> TagSpecs {
+        django_builtin_specs()
+    }
+
+    fn tag_index(&self) -> TagIndex<'_> {
+        TagIndex::from_specs(self)
+    }
+}

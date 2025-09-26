@@ -1,9 +1,7 @@
-use std::collections::HashSet;
-use std::hash::BuildHasher;
-
 use djls_source::Span;
 use djls_templates::tokens::TagDelimiter;
 use djls_templates::Node;
+use rustc_hash::FxHashSet;
 use salsa::Accumulator;
 
 use crate::semantic::forest::SegmentKind;
@@ -21,15 +19,17 @@ pub fn validate_block_tags(db: &dyn Db, roots: &[SemanticNode]) {
     }
 }
 
-pub fn validate_non_block_tags<S: BuildHasher>(
+pub fn validate_non_block_tags(
     db: &dyn Db,
     nodelist: djls_templates::NodeList<'_>,
-    skip_spans: &HashSet<Span, S>,
+    skip_spans: &[Span],
 ) {
+    let skip: FxHashSet<_> = skip_spans.iter().copied().collect();
+
     for node in nodelist.nodelist(db) {
         if let Node::Tag { name, bits, span } = node {
             let marker_span = span.expand(TagDelimiter::LENGTH_U32, TagDelimiter::LENGTH_U32);
-            if skip_spans.contains(&marker_span) {
+            if skip.contains(&marker_span) {
                 continue;
             }
             validate_tag_arguments(db, name, bits, marker_span);
