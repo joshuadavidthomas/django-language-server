@@ -5,8 +5,6 @@ pub mod semantic;
 mod templatetags;
 mod traits;
 
-use blocks::BlockTree;
-use blocks::BlockTreeBuilder;
 pub use blocks::TagIndex;
 pub use db::Db;
 pub use db::ValidationErrorAccumulator;
@@ -17,7 +15,8 @@ pub use templatetags::EndTag;
 pub use templatetags::TagArg;
 pub use templatetags::TagSpec;
 pub use templatetags::TagSpecs;
-use traits::SemanticModel;
+
+use crate::blocks::build_block_tree;
 
 /// Validate a Django template node list and return validation errors.
 ///
@@ -34,14 +33,9 @@ pub fn validate_nodelist(db: &dyn Db, nodelist: djls_templates::NodeList<'_>) {
         return;
     }
 
+    semantic::structure::validate_structure(db, nodelist);
     let block_tree = build_block_tree(db, nodelist);
     let forest = semantic::mini_tree::SemanticForest::from_block_tree(db, &block_tree, nodelist);
     semantic::args::validate_block_tags(db, &forest.roots);
     semantic::args::validate_non_block_tags(db, nodelist, &forest.tag_spans);
-}
-
-#[salsa::tracked]
-fn build_block_tree(db: &dyn Db, nodelist: djls_templates::NodeList<'_>) -> BlockTree {
-    let builder = BlockTreeBuilder::new(db, db.tag_index());
-    builder.model(db, nodelist)
 }

@@ -1,7 +1,6 @@
 use djls_source::Span;
 use djls_templates::tokens::TagDelimiter;
 use djls_templates::Node;
-use salsa::Accumulator;
 
 use super::grammar::CloseValidation;
 use super::grammar::TagClass;
@@ -10,10 +9,8 @@ use super::tree::BlockId;
 use super::tree::BlockNode;
 use super::tree::BlockTree;
 use super::tree::BranchKind;
-use crate::errors::ValidationError;
 use crate::traits::SemanticModel;
 use crate::Db;
-use crate::ValidationErrorAccumulator;
 
 #[derive(Debug, Clone)]
 enum BlockSemanticOp {
@@ -124,34 +121,6 @@ impl<'db> BlockTreeBuilder<'db> {
         tree
     }
 
-    fn accumulate_error(&self, error: ValidationError) {
-        ValidationErrorAccumulator(error).accumulate(self.db);
-    }
-
-    fn marker_span(span: Span) -> Span {
-        span.expand(TagDelimiter::LENGTH_U32, TagDelimiter::LENGTH_U32)
-    }
-
-    fn describe_expected_blocks(possible_openers: &[String]) -> String {
-        match possible_openers.len() {
-            0 => "a valid parent block".to_string(),
-            1 => format!("'{}' block", possible_openers[0]),
-            2 => format!(
-                "'{}' or '{}' block",
-                possible_openers[0], possible_openers[1]
-            ),
-            _ => {
-                let mut parts = possible_openers
-                    .iter()
-                    .map(|name| format!("'{name}'"))
-                    .collect::<Vec<_>>();
-                let last = parts.pop().unwrap_or_default();
-                let prefix = parts.join(", ");
-                format!("one of {prefix}, or {last} blocks")
-            }
-        }
-    }
-
     fn handle_tag(&mut self, name: &str, bits: &[String], span: Span) {
         let tag_name = name;
         match self.index.classify(self.db, tag_name) {
@@ -223,12 +192,7 @@ impl<'db> BlockTreeBuilder<'db> {
         if let Some(frame_idx) = find_frame_from_opener(&self.stack, opener_name) {
             // Pop any unclosed blocks above this one
             while self.stack.len() > frame_idx + 1 {
-                if let Some(unclosed) = self.stack.pop() {
-                    self.accumulate_error(ValidationError::UnclosedTag {
-                        tag: unclosed.opener_name.clone(),
-                        span: Self::marker_span(unclosed.opener_span),
-                    });
-                }
+                self.stack.pop();
             }
 
             // validate and close
@@ -250,65 +214,17 @@ impl<'db> BlockTreeBuilder<'db> {
                         span,
                     });
                 }
-                CloseValidation::ArgumentMismatch {
-                    arg: _arg,
-                    expected,
-                    got,
-                } => {
-                    let name = if got.is_empty() { expected } else { got };
-                    self.accumulate_error(ValidationError::UnmatchedBlockName {
-                        name,
-                        span: Self::marker_span(span),
-                    });
-                    self.accumulate_error(ValidationError::UnclosedTag {
-                        tag: frame.opener_name.clone(),
-                        span: Self::marker_span(frame.opener_span),
-                    });
+                CloseValidation::ArgumentMismatch { .. } => {
                     self.stack.push(frame); // Restore frame
                 }
-                CloseValidation::MissingRequiredArg {
-                    arg: _arg,
-                    expected,
-                } => {
-                    let expected_closing = format!("{} {}", frame.opener_name, expected);
-                    self.accumulate_error(ValidationError::UnbalancedStructure {
-                        opening_tag: frame.opener_name.clone(),
-                        expected_closing,
-                        opening_span: Self::marker_span(frame.opener_span),
-                        closing_span: Some(Self::marker_span(span)),
-                    });
-                    self.stack.push(frame);
-                }
-                CloseValidation::UnexpectedArg { arg, got } => {
-                    let name = if got.is_empty() { arg } else { got };
-                    self.accumulate_error(ValidationError::UnmatchedBlockName {
-                        name,
-                        span: Self::marker_span(span),
-                    });
-                    self.accumulate_error(ValidationError::UnclosedTag {
-                        tag: frame.opener_name.clone(),
-                        span: Self::marker_span(frame.opener_span),
-                    });
-                    self.stack.push(frame);
-                }
-                CloseValidation::NotABlock => {
-                    // Should not happen as we already classified it
-                    self.accumulate_error(ValidationError::UnbalancedStructure {
-                        opening_tag: opener_name.to_string(),
-                        expected_closing: opener_name.to_string(),
-                        opening_span: Self::marker_span(frame.opener_span),
-                        closing_span: Some(Self::marker_span(span)),
-                    });
+                CloseValidation::MissingRequiredArg { .. }
+                | CloseValidation::UnexpectedArg { .. }
+                | CloseValidation::NotABlock => {
                     self.stack.push(frame);
                 }
             }
         } else {
-            self.accumulate_error(ValidationError::UnbalancedStructure {
-                opening_tag: opener_name.to_string(),
-                expected_closing: String::new(),
-                opening_span: Self::marker_span(span),
-                closing_span: None,
-            });
+            // leave stack unchanged; semantic validator will report this
         }
     }
 
@@ -339,20 +255,10 @@ impl<'db> BlockTreeBuilder<'db> {
 
                 self.stack.last_mut().unwrap().segment_body = new_segment_id;
             } else {
-                let context = Self::describe_expected_blocks(possible_openers);
-                self.accumulate_error(ValidationError::OrphanedTag {
-                    tag: tag_name.to_string(),
-                    context: format!("must appear within {context}"),
-                    span: Self::marker_span(span),
-                });
+                // Ignore invalid intermediate; semantic pass will emit diagnostic
             }
         } else {
-            let context = Self::describe_expected_blocks(possible_openers);
-            self.accumulate_error(ValidationError::OrphanedTag {
-                tag: tag_name.to_string(),
-                context: format!("must appear within {context}"),
-                span: Self::marker_span(span),
-            });
+            // Top-level intermediate ignored; semantic pass will emit diagnostic
         }
     }
 
@@ -364,11 +270,6 @@ impl<'db> BlockTreeBuilder<'db> {
                 self.semantic_ops.push(BlockSemanticOp::ExtendBlockSpan {
                     id: frame.container_body,
                     span: frame.opener_span,
-                });
-            } else {
-                self.accumulate_error(ValidationError::UnclosedTag {
-                    tag: frame.opener_name.clone(),
-                    span: Self::marker_span(frame.opener_span),
                 });
             }
         }

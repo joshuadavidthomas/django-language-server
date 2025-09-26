@@ -260,10 +260,6 @@ mod tests {
         fn tag_specs(&self) -> TagSpecs {
             django_builtin_specs()
         }
-
-        fn tag_index(&self) -> TagIndex<'_> {
-            TagIndex::from_specs(self)
-        }
     }
 
     #[test]

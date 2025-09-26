@@ -8,6 +8,7 @@ use crate::templatetags::TagSpecs;
 pub trait Db: TemplateDb {
     /// Get the Django tag specifications for semantic analysis
     fn tag_specs(&self) -> TagSpecs;
+
     fn tag_index(&self) -> TagIndex<'_>;
 }
 
