@@ -368,9 +368,10 @@ impl LanguageServer for DjangoLanguageServer {
             ));
         };
 
+        let path: Utf8PathBuf = url.path().into();
+
         // Only provide diagnostics for template files
-        let file_kind = FileKind::from(url.path());
-        if file_kind != FileKind::Template {
+        if FileKind::from(&path) != FileKind::Template {
             return Ok(lsp_types::DocumentDiagnosticReportResult::Report(
                 lsp_types::DocumentDiagnosticReport::Full(
                     lsp_types::RelatedFullDocumentDiagnosticReport {
@@ -385,7 +386,6 @@ impl LanguageServer for DjangoLanguageServer {
         }
 
         // Get diagnostics from the database
-        let path: Utf8PathBuf = url.path().into();
         let diagnostics: Vec<lsp_types::Diagnostic> = self
             .with_session_mut(|session| {
                 let file = session.get_or_create_file(&path);
