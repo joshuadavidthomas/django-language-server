@@ -192,15 +192,15 @@ fn validate_choices_and_order(
     }
 }
 
-fn argument_name(arg: &TagArg) -> Option<String> {
+fn argument_name(arg: &TagArg) -> String {
     match arg {
-        TagArg::Literal { lit, .. } => Some(lit.to_string()),
+        TagArg::Literal { lit, .. } => lit.to_string(),
         TagArg::Choice { name, .. }
         | TagArg::Var { name, .. }
         | TagArg::String { name, .. }
         | TagArg::Expr { name, .. }
         | TagArg::Assignment { name, .. }
-        | TagArg::VarArgs { name, .. } => Some(name.to_string()),
+        | TagArg::VarArgs { name, .. } => name.to_string(),
     }
 }
 
