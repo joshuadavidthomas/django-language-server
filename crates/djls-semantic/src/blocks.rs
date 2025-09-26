@@ -3,14 +3,15 @@ mod grammar;
 mod snapshot;
 mod tree;
 
-use crate::db::Db;
-use crate::traits::SemanticModel;
 use builder::BlockTreeBuilder;
 pub use grammar::TagIndex;
 pub(crate) use tree::BlockId;
 pub(crate) use tree::BlockNode;
 pub(crate) use tree::BlockTree;
 pub(crate) use tree::BranchKind;
+
+use crate::db::Db;
+use crate::traits::SemanticModel;
 
 #[salsa::tracked]
 pub fn build_block_tree<'db>(

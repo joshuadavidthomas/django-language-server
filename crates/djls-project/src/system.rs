@@ -103,7 +103,9 @@ mod tests {
     use std::env::VarError;
 
     use super::mock::MockGuard;
-    use super::mock::{self as sys_mock};
+    use super::mock::{
+        self as sys_mock,
+    };
     use super::*;
 
     #[test]
