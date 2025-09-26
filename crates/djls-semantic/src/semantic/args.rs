@@ -6,8 +6,8 @@ use djls_templates::tokens::TagDelimiter;
 use djls_templates::Node;
 use salsa::Accumulator;
 
-use crate::semantic::mini_tree::SegmentKind;
-use crate::semantic::mini_tree::SemanticNode;
+use crate::semantic::forest::SegmentKind;
+use crate::semantic::forest::SemanticNode;
 use crate::templatetags::IntermediateTag;
 use crate::templatetags::TagArg;
 use crate::templatetags::TagSpecs;

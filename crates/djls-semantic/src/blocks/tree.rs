@@ -1,8 +1,6 @@
 use djls_source::Span;
 use serde::Serialize;
 
-use crate::ValidationError;
-
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, salsa::Update)]
 pub struct BlockTree {
     roots: Vec<BlockId>,
@@ -366,6 +364,6 @@ mod tests {
         };
         insta::assert_yaml_snapshot!("nodelist", nodelist_view);
         let block_tree = build_block_tree(&db, nodelist);
-        insta::assert_yaml_snapshot!("blocktree", block_tree.to_snapshot());
+        insta::assert_yaml_snapshot!("blocktree", block_tree);
     }
 }

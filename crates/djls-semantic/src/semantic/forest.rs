@@ -1,8 +1,8 @@
-use std::collections::HashSet;
-
 use djls_source::Span;
 use djls_templates::tokens::TagDelimiter;
 use djls_templates::Node;
+use rustc_hash::FxHashSet;
+use serde::ser::Serializer;
 use serde::Serialize;
 
 use crate::blocks::BlockId;
@@ -14,7 +14,8 @@ use crate::Db;
 #[derive(Debug, Clone, Serialize)]
 pub struct SemanticForest {
     pub roots: Vec<SemanticNode>,
-    pub tag_spans: HashSet<Span>,
+    #[serde(serialize_with = "serialize_spans")]
+    pub tag_spans: FxHashSet<Span>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -53,7 +54,7 @@ impl SemanticForest {
         tree: &BlockTree,
         nodelist: djls_templates::NodeList<'_>,
     ) -> Self {
-        let mut tag_spans = HashSet::new();
+        let mut tag_spans = FxHashSet::default();
         let roots = tree
             .roots()
             .iter()
@@ -64,12 +65,12 @@ impl SemanticForest {
     }
 }
 
-fn build_root_tag(
+pub fn build_root_tag(
     db: &dyn Db,
     tree: &BlockTree,
     nodelist: djls_templates::NodeList<'_>,
     container_id: BlockId,
-    spans: &mut HashSet<Span>,
+    spans: &mut FxHashSet<Span>,
 ) -> Option<SemanticNode> {
     let container = tree.blocks().get(container_id.index());
     for node in container.nodes() {
@@ -102,7 +103,7 @@ fn build_tag_from_container(
     container_id: BlockId,
     tag_name: String,
     opener_marker_span: Span,
-    spans: &mut HashSet<Span>,
+    spans: &mut FxHashSet<Span>,
 ) -> SemanticNode {
     let segments = build_segments(db, tree, nodelist, container_id, opener_marker_span, spans);
     let arguments = segments
@@ -124,7 +125,7 @@ fn build_segments(
     nodelist: djls_templates::NodeList<'_>,
     container_id: BlockId,
     opener_marker_span: Span,
-    spans: &mut HashSet<Span>,
+    spans: &mut FxHashSet<Span>,
 ) -> Vec<SemanticSegment> {
     let mut segments = Vec::new();
     let container = tree.blocks().get(container_id.index());
@@ -173,7 +174,7 @@ fn build_children(
     tree: &BlockTree,
     nodelist: djls_templates::NodeList<'_>,
     block_id: BlockId,
-    spans: &mut HashSet<Span>,
+    spans: &mut FxHashSet<Span>,
 ) -> Vec<SemanticNode> {
     let mut children = Vec::new();
     let block = tree.blocks().get(block_id.index());
@@ -226,6 +227,15 @@ fn lookup_arguments(
 
 fn expand_marker(span: Span) -> Span {
     span.expand(TagDelimiter::LENGTH_U32, TagDelimiter::LENGTH_U32)
+}
+
+fn serialize_spans<S>(spans: &FxHashSet<Span>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let mut ordered: Vec<_> = spans.iter().copied().collect();
+    ordered.sort_by_key(|span| (span.start(), span.end()));
+    ordered.serialize(serializer)
 }
 
 #[cfg(test)]

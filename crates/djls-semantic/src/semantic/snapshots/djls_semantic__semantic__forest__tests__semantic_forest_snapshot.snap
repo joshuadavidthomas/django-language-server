@@ -1,6 +1,5 @@
 ---
-source: crates/djls-semantic/src/semantic/mini_tree.rs
-assertion_line: 321
+source: crates/djls-semantic/src/semantic/forest.rs
 expression: "&forest"
 ---
 roots:
@@ -90,13 +89,13 @@ roots:
           arguments: []
           children: []
 tag_spans:
-  - start: 62
-    length: 30
-  - start: 208
-    length: 10
   - start: 1
     length: 18
-  - start: 153
-    length: 11
+  - start: 62
+    length: 30
   - start: 97
     length: 23
+  - start: 153
+    length: 11
+  - start: 208
+    length: 10

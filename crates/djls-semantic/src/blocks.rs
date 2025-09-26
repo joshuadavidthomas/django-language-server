@@ -5,12 +5,12 @@ mod tree;
 
 use crate::db::Db;
 use crate::traits::SemanticModel;
-pub use builder::BlockTreeBuilder;
+use builder::BlockTreeBuilder;
 pub use grammar::TagIndex;
-pub use tree::BlockId;
-pub use tree::BlockNode;
-pub use tree::BlockTree;
-pub use tree::BranchKind;
+pub(crate) use tree::BlockId;
+pub(crate) use tree::BlockNode;
+pub(crate) use tree::BlockTree;
+pub(crate) use tree::BranchKind;
 
 #[salsa::tracked]
 pub fn build_block_tree(db: &dyn Db, nodelist: djls_templates::NodeList<'_>) -> BlockTree {

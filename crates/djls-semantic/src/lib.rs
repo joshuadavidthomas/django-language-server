@@ -1,22 +1,23 @@
 mod blocks;
 mod db;
 mod errors;
-pub mod semantic;
+mod semantic;
 mod templatetags;
 mod traits;
 
+use blocks::build_block_tree;
 pub use blocks::TagIndex;
 pub use db::Db;
 pub use db::ValidationErrorAccumulator;
 pub use errors::ValidationError;
-pub use semantic::mini_tree::SemanticNode;
-pub use templatetags::django_builtin_specs;
+use semantic::validate_block_tags;
+use semantic::validate_non_block_tags;
 pub use templatetags::EndTag;
 pub use templatetags::TagArg;
 pub use templatetags::TagSpec;
 pub use templatetags::TagSpecs;
 
-use crate::blocks::build_block_tree;
+use crate::semantic::build_semantic_forest;
 
 /// Validate a Django template node list and return validation errors.
 ///
@@ -34,7 +35,7 @@ pub fn validate_nodelist(db: &dyn Db, nodelist: djls_templates::NodeList<'_>) {
     }
 
     let block_tree = build_block_tree(db, nodelist);
-    let forest = semantic::mini_tree::SemanticForest::from_block_tree(db, &block_tree, nodelist);
-    semantic::args::validate_block_tags(db, &forest.roots);
-    semantic::args::validate_non_block_tags(db, nodelist, &forest.tag_spans);
+    let forest = build_semantic_forest(db, &block_tree, nodelist);
+    validate_block_tags(db, &forest.roots);
+    validate_non_block_tags(db, nodelist, &forest.tag_spans);
 }
