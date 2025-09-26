@@ -1,51 +1,71 @@
 use djls_source::PositionEncoding;
 use tower_lsp_server::lsp_types;
 
-/// Negotiate the best encoding with the client based on their capabilities.
-/// Prefers UTF-8 > UTF-32 > UTF-16 for performance reasons.
-pub fn negotiate_position_encoding(params: &lsp_types::InitializeParams) -> PositionEncoding {
-    let client_encodings: &[lsp_types::PositionEncodingKind] = params
-        .capabilities
-        .general
-        .as_ref()
-        .and_then(|general| general.position_encodings.as_ref())
-        .map_or(&[], |encodings| encodings.as_slice());
+#[derive(Clone, Debug)]
+pub struct LspPositionEncoding(lsp_types::PositionEncodingKind);
 
-    for preferred in [
-        PositionEncoding::Utf8,
-        PositionEncoding::Utf32,
-        PositionEncoding::Utf16,
-    ] {
-        if client_encodings
-            .iter()
-            .any(|kind| position_encoding_from_lsp(kind) == Some(preferred))
-        {
-            return preferred;
+impl From<LspPositionEncoding> for lsp_types::PositionEncodingKind {
+    fn from(value: LspPositionEncoding) -> Self {
+        value.0
+    }
+}
+
+impl From<&lsp_types::PositionEncodingKind> for LspPositionEncoding {
+    fn from(value: &lsp_types::PositionEncodingKind) -> Self {
+        Self(value.clone())
+    }
+}
+
+impl From<lsp_types::PositionEncodingKind> for LspPositionEncoding {
+    fn from(value: lsp_types::PositionEncodingKind) -> Self {
+        Self(value)
+    }
+}
+
+impl From<PositionEncoding> for LspPositionEncoding {
+    fn from(value: PositionEncoding) -> Self {
+        Self(match value {
+            PositionEncoding::Utf8 => lsp_types::PositionEncodingKind::new("utf-8"),
+            PositionEncoding::Utf16 => lsp_types::PositionEncodingKind::new("utf-16"),
+            PositionEncoding::Utf32 => lsp_types::PositionEncodingKind::new("utf-32"),
+        })
+    }
+}
+
+impl LspPositionEncoding {
+    #[must_use]
+    pub fn to_position_encoding(&self) -> Option<PositionEncoding> {
+        match self.0.as_str() {
+            "utf-8" => Some(PositionEncoding::Utf8),
+            "utf-16" => Some(PositionEncoding::Utf16),
+            "utf-32" => Some(PositionEncoding::Utf32),
+            _ => None,
         }
     }
-
-    // Fallback to UTF-16 if client doesn't specify encodings
-    PositionEncoding::Utf16
 }
 
-#[must_use]
-pub fn position_encoding_to_lsp(encoding: PositionEncoding) -> lsp_types::PositionEncodingKind {
-    match encoding {
-        PositionEncoding::Utf8 => lsp_types::PositionEncodingKind::new("utf-8"),
-        PositionEncoding::Utf16 => lsp_types::PositionEncodingKind::new("utf-16"),
-        PositionEncoding::Utf32 => lsp_types::PositionEncodingKind::new("utf-32"),
-    }
-}
+impl From<&lsp_types::InitializeParams> for LspPositionEncoding {
+    fn from(params: &lsp_types::InitializeParams) -> Self {
+        let client_encodings: &[lsp_types::PositionEncodingKind] = params
+            .capabilities
+            .general
+            .as_ref()
+            .and_then(|general| general.position_encodings.as_ref())
+            .map_or(&[], |encodings| encodings.as_slice());
 
-#[must_use]
-pub fn position_encoding_from_lsp(
-    kind: &lsp_types::PositionEncodingKind,
-) -> Option<PositionEncoding> {
-    match kind.as_str() {
-        "utf-8" => Some(PositionEncoding::Utf8),
-        "utf-16" => Some(PositionEncoding::Utf16),
-        "utf-32" => Some(PositionEncoding::Utf32),
-        _ => None,
+        for preferred in [
+            PositionEncoding::Utf8,
+            PositionEncoding::Utf32,
+            PositionEncoding::Utf16,
+        ] {
+            if client_encodings.iter().any(|kind| {
+                LspPositionEncoding::from(kind).to_position_encoding() == Some(preferred)
+            }) {
+                return LspPositionEncoding::from(preferred);
+            }
+        }
+
+        LspPositionEncoding::from(PositionEncoding::Utf16)
     }
 }
 
@@ -60,36 +80,26 @@ mod tests {
     fn test_lsp_type_conversions() {
         // position_encoding_from_lsp for valid encodings
         assert_eq!(
-            position_encoding_from_lsp(&lsp_types::PositionEncodingKind::new("utf-8")),
+            LspPositionEncoding::from(&lsp_types::PositionEncodingKind::new("utf-8"))
+                .to_position_encoding(),
             Some(PositionEncoding::Utf8)
         );
         assert_eq!(
-            position_encoding_from_lsp(&lsp_types::PositionEncodingKind::new("utf-16")),
+            LspPositionEncoding::from(&lsp_types::PositionEncodingKind::new("utf-16"))
+                .to_position_encoding(),
             Some(PositionEncoding::Utf16)
         );
         assert_eq!(
-            position_encoding_from_lsp(&lsp_types::PositionEncodingKind::new("utf-32")),
+            LspPositionEncoding::from(&lsp_types::PositionEncodingKind::new("utf-32"))
+                .to_position_encoding(),
             Some(PositionEncoding::Utf32)
         );
 
         // Invalid encoding returns None
         assert_eq!(
-            position_encoding_from_lsp(&lsp_types::PositionEncodingKind::new("unknown")),
+            LspPositionEncoding::from(&lsp_types::PositionEncodingKind::new("unknown"))
+                .to_position_encoding(),
             None
-        );
-
-        // position_encoding_to_lsp produces correct LSP types
-        assert_eq!(
-            position_encoding_to_lsp(PositionEncoding::Utf8).as_str(),
-            "utf-8"
-        );
-        assert_eq!(
-            position_encoding_to_lsp(PositionEncoding::Utf16).as_str(),
-            "utf-16"
-        );
-        assert_eq!(
-            position_encoding_to_lsp(PositionEncoding::Utf32).as_str(),
-            "utf-32"
         );
     }
 
@@ -110,7 +120,10 @@ mod tests {
             ..Default::default()
         };
 
-        assert_eq!(negotiate_position_encoding(&params), PositionEncoding::Utf8);
+        assert_eq!(
+            LspPositionEncoding::from(&params).to_position_encoding(),
+            Some(PositionEncoding::Utf8)
+        );
     }
 
     #[test]
@@ -130,8 +143,8 @@ mod tests {
         };
 
         assert_eq!(
-            negotiate_position_encoding(&params),
-            PositionEncoding::Utf32
+            LspPositionEncoding::from(&params).to_position_encoding(),
+            Some(PositionEncoding::Utf32)
         );
     }
 
@@ -149,8 +162,8 @@ mod tests {
         };
 
         assert_eq!(
-            negotiate_position_encoding(&params),
-            PositionEncoding::Utf16
+            LspPositionEncoding::from(&params).to_position_encoding(),
+            Some(PositionEncoding::Utf16)
         );
     }
 
@@ -168,8 +181,8 @@ mod tests {
         };
 
         assert_eq!(
-            negotiate_position_encoding(&params),
-            PositionEncoding::Utf16
+            LspPositionEncoding::from(&params).to_position_encoding(),
+            Some(PositionEncoding::Utf16)
         );
     }
 
@@ -177,8 +190,8 @@ mod tests {
     fn test_negotiate_fallback_with_no_capabilities() {
         let params = lsp_types::InitializeParams::default();
         assert_eq!(
-            negotiate_position_encoding(&params),
-            PositionEncoding::Utf16
+            LspPositionEncoding::from(&params).to_position_encoding(),
+            Some(PositionEncoding::Utf16)
         );
     }
 
@@ -199,13 +212,8 @@ mod tests {
         };
 
         assert_eq!(
-            negotiate_position_encoding(&params),
-            PositionEncoding::Utf16
+            LspPositionEncoding::from(&params).to_position_encoding(),
+            Some(PositionEncoding::Utf16)
         );
-    }
-
-    #[test]
-    fn test_default_is_utf16() {
-        assert_eq!(PositionEncoding::default(), PositionEncoding::Utf16);
     }
 }

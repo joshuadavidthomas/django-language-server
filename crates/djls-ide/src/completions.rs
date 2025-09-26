@@ -7,7 +7,7 @@ use djls_project::TemplateTags;
 use djls_semantic::TagArg;
 use djls_semantic::TagSpecs;
 use djls_source::FileKind;
-use djls_workspace::PositionEncoding;
+use djls_source::PositionEncoding;
 use djls_workspace::TextDocument;
 use tower_lsp_server::lsp_types;
 

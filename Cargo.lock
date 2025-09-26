@@ -594,6 +594,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "camino",
+ "djls-conf",
  "djls-source",
  "djls-workspace",
  "rustc-hash",

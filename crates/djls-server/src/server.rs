@@ -15,6 +15,7 @@ use tower_lsp_server::LanguageServer;
 use tracing_appender::non_blocking::WorkerGuard;
 use url::Url;
 
+use crate::encoding::LspPositionEncoding;
 use crate::queue::Queue;
 use crate::session::Session;
 
@@ -157,7 +158,7 @@ impl LanguageServer for DjangoLanguageServer {
                         save: Some(lsp_types::SaveOptions::default().into()),
                     },
                 )),
-                position_encoding: Some(djls_workspace::position_encoding_to_lsp(encoding)),
+                position_encoding: Some(LspPositionEncoding::from(encoding).into()),
                 diagnostic_provider: Some(lsp_types::DiagnosticServerCapabilities::Options(
                     lsp_types::DiagnosticOptions {
                         identifier: None,
@@ -417,7 +418,7 @@ impl LanguageServer for DjangoLanguageServer {
 
                 match djls_conf::Settings::new(&project_root) {
                     Ok(new_settings) => {
-                        session.set_settings(new_settings);
+                        session.update_settings(&new_settings);
                     }
                     Err(e) => {
                         tracing::error!("Error loading settings: {}", e);

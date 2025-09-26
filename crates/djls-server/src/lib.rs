@@ -1,4 +1,5 @@
 pub mod db;
+mod encoding;
 mod logging;
 mod queue;
 pub mod server;

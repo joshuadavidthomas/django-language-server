@@ -144,6 +144,11 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_default_is_utf16() {
+        assert_eq!(PositionEncoding::default(), PositionEncoding::Utf16);
+    }
+
+    #[test]
     fn test_position_encoding_display() {
         assert_eq!(PositionEncoding::Utf8.to_string(), "utf-8");
         assert_eq!(PositionEncoding::Utf16.to_string(), "utf-16");

@@ -29,20 +29,22 @@ pub fn django_available(db: &dyn ProjectDb, project: Project) -> bool {
 
 /// Get the Django settings module name for the current project.
 ///
-/// Returns the `settings_module_override` from project, or inspector result,
-/// or `DJANGO_SETTINGS_MODULE` env var, or attempts to detect it.
+/// Returns the inspector result, `DJANGO_SETTINGS_MODULE` env var, or attempts to detect it
+/// via common patterns.
 #[salsa::tracked]
 pub fn django_settings_module(db: &dyn ProjectDb, project: Project) -> Option<String> {
-    // Check project override first
-    if let Some(settings) = project.settings_module(db) {
-        return Some(settings.clone());
-    }
-
     // Try to get settings module from inspector
     if let Some(json_data) = inspector_run(db, Query::DjangoInit) {
         // Parse the JSON response - expect a string
         if let Ok(settings) = serde_json::from_str::<String>(&json_data) {
             return Some(settings);
+        }
+    }
+
+    // Fall back to environment override if present
+    if let Ok(env_value) = std::env::var("DJANGO_SETTINGS_MODULE") {
+        if !env_value.is_empty() {
+            return Some(env_value);
         }
     }
 

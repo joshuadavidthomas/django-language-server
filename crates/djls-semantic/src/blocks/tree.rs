@@ -216,11 +216,11 @@ mod tests {
 
     use camino::Utf8Path;
     use djls_source::File;
-    use djls_source::FileSystem;
-    use djls_source::InMemoryFileSystem;
     use djls_source::Span;
     use djls_templates::parse_template;
     use djls_templates::Node;
+    use djls_workspace::FileSystem;
+    use djls_workspace::InMemoryFileSystem;
 
     use super::*;
     use crate::blocks::grammar::TagIndex;
