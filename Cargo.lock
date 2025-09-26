@@ -556,6 +556,7 @@ version = "0.0.0"
 dependencies = [
  "camino",
  "codspeed-divan-compat",
+ "djls-semantic",
  "djls-source",
  "djls-templates",
  "salsa",

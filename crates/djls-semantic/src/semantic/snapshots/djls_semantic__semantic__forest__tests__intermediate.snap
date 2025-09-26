@@ -1,0 +1,53 @@
+---
+source: crates/djls-semantic/src/semantic/forest.rs
+expression: "&forest"
+---
+roots:
+  - Tag:
+      name: if
+      marker_span:
+        start: 3
+        length: 18
+      arguments:
+        - user.is_staff
+      segments:
+        - kind: Main
+          marker_span:
+            start: 3
+            length: 18
+          content_span:
+            start: 23
+            length: 24
+          arguments:
+            - user.is_staff
+          children: []
+        - kind:
+            Intermediate:
+              tag: elif
+          marker_span:
+            start: 49
+            length: 22
+          content_span:
+            start: 73
+            length: 26
+          arguments:
+            - user.is_manager
+          children: []
+        - kind:
+            Intermediate:
+              tag: else
+          marker_span:
+            start: 101
+            length: 6
+          content_span:
+            start: 109
+            length: 26
+          arguments: []
+          children: []
+tag_spans:
+  - start: 1
+    length: 22
+  - start: 47
+    length: 26
+  - start: 99
+    length: 10

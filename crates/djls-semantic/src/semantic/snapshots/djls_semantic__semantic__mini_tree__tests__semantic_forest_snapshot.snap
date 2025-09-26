@@ -1,0 +1,101 @@
+---
+source: crates/djls-semantic/src/semantic/mini_tree.rs
+expression: "&forest"
+---
+roots:
+  - Tag:
+      name: block
+      marker_span:
+        start: 3
+        length: 14
+      arguments:
+        - header
+      segments:
+        - kind: Main
+          marker_span:
+            start: 3
+            length: 14
+          content_span:
+            start: 19
+            length: 20
+          arguments:
+            - header
+          children: []
+  - Tag:
+      name: if
+      marker_span:
+        start: 64
+        length: 26
+      arguments:
+        - user.is_authenticated
+      segments:
+        - kind: Main
+          marker_span:
+            start: 64
+            length: 26
+          content_span:
+            start: 92
+            length: 116
+          arguments:
+            - user.is_authenticated
+          children:
+            - Tag:
+                name: for
+                marker_span:
+                  start: 99
+                  length: 19
+                arguments:
+                  - item
+                  - in
+                  - items
+                segments:
+                  - kind: Main
+                    marker_span:
+                      start: 99
+                      length: 19
+                    content_span:
+                      start: 120
+                      length: 33
+                    arguments:
+                      - item
+                      - in
+                      - items
+                    children:
+                      - Leaf:
+                          label: "<var>"
+                          span:
+                            start: 135
+                            length: 6
+                  - kind:
+                      Intermediate:
+                        tag: empty
+                    marker_span:
+                      start: 155
+                      length: 7
+                    content_span:
+                      start: 164
+                      length: 31
+                    arguments: []
+                    children: []
+        - kind:
+            Intermediate:
+              tag: else
+          marker_span:
+            start: 210
+            length: 6
+          content_span:
+            start: 218
+            length: 26
+          arguments: []
+          children: []
+tag_spans:
+  - start: 1
+    length: 18
+  - start: 62
+    length: 30
+  - start: 97
+    length: 23
+  - start: 153
+    length: 11
+  - start: 208
+    length: 10

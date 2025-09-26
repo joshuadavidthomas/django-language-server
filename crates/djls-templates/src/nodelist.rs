@@ -3,6 +3,13 @@ use djls_source::Span;
 use crate::parser::ParseError;
 use crate::tokens::TagDelimiter;
 
+#[salsa::tracked(debug)]
+pub struct NodeList<'db> {
+    #[tracked]
+    #[returns(ref)]
+    pub nodelist: Vec<Node>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Node {
     Tag {
@@ -66,12 +73,4 @@ impl Node {
             Node::Comment { .. } | Node::Text { .. } | Node::Error { .. } => None,
         }
     }
-}
-
-// We'll keep NodeList as a Salsa tracked struct for the boundary
-#[salsa::tracked(debug)]
-pub struct NodeList<'db> {
-    #[tracked]
-    #[returns(ref)]
-    pub nodelist: Vec<Node>,
 }

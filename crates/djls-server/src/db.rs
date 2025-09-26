@@ -14,6 +14,7 @@ use djls_project::Db as ProjectDb;
 use djls_project::InspectorPool;
 use djls_project::Project;
 use djls_semantic::Db as SemanticDb;
+use djls_semantic::TagIndex;
 use djls_semantic::TagSpecs;
 use djls_source::Db as SourceDb;
 use djls_source::File;
@@ -163,6 +164,10 @@ impl SemanticDb for DjangoDatabase {
         } else {
             TagSpecs::from(&Settings::default())
         }
+    }
+
+    fn tag_index(&self) -> TagIndex<'_> {
+        TagIndex::from_specs(self)
     }
 }
 

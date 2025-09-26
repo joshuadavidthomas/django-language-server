@@ -1,55 +1,12 @@
 use djls_source::Span;
 use serde::Serialize;
 
-#[derive(Clone, Debug, Serialize)]
-pub struct BlockTree {
-    roots: Vec<BlockId>,
-    blocks: Blocks,
-}
-
-impl BlockTree {
-    pub fn new() -> Self {
-        Self {
-            roots: Vec::new(),
-            blocks: Blocks::default(),
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn roots(&self) -> &Vec<BlockId> {
-        &self.roots
-    }
-
-    pub fn roots_mut(&mut self) -> &mut Vec<BlockId> {
-        &mut self.roots
-    }
-
-    #[allow(dead_code)]
-    pub fn blocks(&self) -> &Blocks {
-        &self.blocks
-    }
-
-    pub fn blocks_mut(&mut self) -> &mut Blocks {
-        &mut self.blocks
-    }
-
-    #[cfg(test)]
-    pub fn build(
-        db: &dyn crate::Db,
-        nodelist: djls_templates::NodeList,
-        index: &super::grammar::TagIndex,
-    ) -> Self {
-        use super::builder::BlockTreeBuilder;
-        use crate::traits::SemanticModel;
-
-        BlockTreeBuilder::new(db, index).model(db, nodelist)
-    }
-}
-
-impl Default for BlockTree {
-    fn default() -> Self {
-        Self::new()
-    }
+#[salsa::tracked]
+pub struct BlockTree<'db> {
+    #[returns(ref)]
+    pub roots: Vec<BlockId>,
+    #[returns(ref)]
+    pub blocks: Blocks,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize)]
@@ -69,7 +26,7 @@ impl BlockId {
     }
 }
 
-#[derive(Clone, Debug, Default, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, Serialize)]
 pub struct Blocks(Vec<Region>);
 
 impl Blocks {
@@ -141,7 +98,7 @@ impl Blocks {
     }
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 pub struct Region {
     span: Span,
     nodes: Vec<BlockNode>,
@@ -176,13 +133,13 @@ impl Region {
     }
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 pub enum BranchKind {
     Opener,
     Segment,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 pub enum BlockNode {
     Leaf {
         label: String,
@@ -194,16 +151,12 @@ pub enum BlockNode {
         body: BlockId,
         kind: BranchKind,
     },
-    Error {
-        message: String,
-        span: Span,
-    },
 }
 
 impl BlockNode {
     fn span(&self) -> Span {
         match self {
-            BlockNode::Leaf { span, .. } | BlockNode::Error { span, .. } => *span,
+            BlockNode::Leaf { span, .. } => *span,
             BlockNode::Branch { marker_span, .. } => *marker_span,
         }
     }
@@ -222,17 +175,11 @@ mod tests {
     use djls_workspace::FileSystem;
     use djls_workspace::InMemoryFileSystem;
 
-    use super::*;
     use crate::blocks::grammar::TagIndex;
     use crate::blocks::snapshot::BlockTreeSnapshot;
+    use crate::build_block_tree;
     use crate::templatetags::django_builtin_specs;
     use crate::TagSpecs;
-
-    impl BlockTree {
-        pub fn to_snapshot(&self) -> BlockTreeSnapshot {
-            BlockTreeSnapshot::from(self)
-        }
-    }
 
     #[salsa::db]
     #[derive(Clone)]
@@ -275,12 +222,14 @@ mod tests {
         fn tag_specs(&self) -> TagSpecs {
             django_builtin_specs()
         }
+
+        fn tag_index(&self) -> TagIndex<'_> {
+            TagIndex::from_specs(self)
+        }
     }
 
     #[test]
     fn test_block_tree_building() {
-        use crate::Db as SemanticDb;
-
         let db = TestDatabase::new();
 
         let source = r"
@@ -376,8 +325,7 @@ mod tests {
             NodeListView { nodes }
         };
         insta::assert_yaml_snapshot!("nodelist", nodelist_view);
-        let tag_index = TagIndex::from(&db.tag_specs());
-        let block_tree = BlockTree::build(&db, nodelist, &tag_index);
-        insta::assert_yaml_snapshot!("blocktree", block_tree.to_snapshot());
+        let block_tree = build_block_tree(&db, nodelist);
+        insta::assert_yaml_snapshot!("blocktree", BlockTreeSnapshot::from_tree(block_tree, &db));
     }
 }

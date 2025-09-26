@@ -1,6 +1,7 @@
 ---
 source: crates/djls-semantic/src/blocks/tree.rs
-expression: block_tree.to_snapshot()
+assertion_line: 330
+expression: "BlockTreeSnapshot::from_tree(block_tree, &db)"
 ---
 roots:
   - 0
