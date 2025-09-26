@@ -310,6 +310,7 @@ mod tests {
         use camino::Utf8Path;
         use camino::Utf8PathBuf;
         use djls_source::FxDashMap;
+        use salsa::Setter;
         use tempfile::tempdir;
         use url::Url;
 
