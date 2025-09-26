@@ -144,11 +144,11 @@ impl<'db> BlockTreeBuilder<'db> {
             _ => {
                 let mut parts = possible_openers
                     .iter()
-                    .map(|name| format!("'{}'", name))
+                    .map(|name| format!("'{name}'"))
                     .collect::<Vec<_>>();
                 let last = parts.pop().unwrap_or_default();
                 let prefix = parts.join(", ");
-                format!("one of {}, or {} blocks", prefix, last)
+                format!("one of {prefix}, or {last} blocks")
             }
         }
     }

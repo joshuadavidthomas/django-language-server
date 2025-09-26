@@ -149,7 +149,10 @@ fn validate_choices_and_order(
                         ValidationError::InvalidArgumentChoice {
                             tag: tag_name.to_string(),
                             argument: name.to_string(),
-                            choices: choices.iter().map(|c| c.to_string()).collect(),
+                            choices: choices
+                                .iter()
+                                .map(std::string::ToString::to_string)
+                                .collect(),
                             value: value.clone(),
                             span,
                         },
