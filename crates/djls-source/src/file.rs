@@ -7,7 +7,7 @@ use camino::Utf8PathBuf;
 use crate::db::Db;
 use crate::line::LineIndex;
 
-#[salsa::input]
+#[salsa::input(debug)]
 pub struct File {
     #[returns(ref)]
     pub path: Utf8PathBuf,

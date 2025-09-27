@@ -2,7 +2,7 @@ use djls_source::Span;
 use serde::Serialize;
 use thiserror::Error;
 
-#[derive(Clone, Debug, Error, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Error, PartialEq, Eq, Hash, Serialize)]
 pub enum ValidationError {
     #[error("Unclosed tag: {tag}")]
     UnclosedTag { tag: String, span: Span },

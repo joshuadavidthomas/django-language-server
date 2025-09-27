@@ -53,8 +53,9 @@ fn build_block_tree_with_db(bencher: Bencher, fixture: &TemplateFixture) {
 
     bencher.bench_local(move || {
         if let Some(nodelist) = djls_templates::parse_template(&db, file) {
-            let tree = djls_semantic::build_block_tree(&db, nodelist);
-            divan::black_box(tree.roots(&db).len());
+            // Use SemanticIndex instead of direct queries
+            let index = djls_semantic::SemanticIndex::new(&db, nodelist);
+            divan::black_box(index);
         }
     });
 }
@@ -64,15 +65,15 @@ fn build_semantic_forest_with_db(bencher: Bencher, fixture: &TemplateFixture) {
     let mut db = Db::new();
     let file = db.file_with_contents(fixture.path.clone(), &fixture.source);
 
+    // Warm up the cache
     if let Some(nodelist) = djls_templates::parse_template(&db, file) {
-        let _ = djls_semantic::build_block_tree(&db, nodelist);
+        let _ = djls_semantic::SemanticIndex::new(&db, nodelist);
     }
 
     bencher.bench_local(move || {
         if let Some(nodelist) = djls_templates::parse_template(&db, file) {
-            let tree = djls_semantic::build_block_tree(&db, nodelist);
-            let forest = djls_semantic::build_semantic_forest(&db, tree, nodelist);
-            divan::black_box(forest.roots(&db).len());
+            let index = djls_semantic::SemanticIndex::new(&db, nodelist);
+            divan::black_box(index);
         }
     });
 }

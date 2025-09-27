@@ -8,7 +8,7 @@ pub struct BlockTreeInner {
     pub blocks: Blocks,
 }
 
-#[salsa::tracked]
+#[salsa::tracked(debug)]
 pub struct BlockTree<'db> {
     #[returns(ref)]
     inner: BlockTreeInner,

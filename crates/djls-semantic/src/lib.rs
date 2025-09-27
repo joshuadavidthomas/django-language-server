@@ -4,13 +4,20 @@ mod db;
 mod errors;
 mod ids;
 mod index;
+mod inheritance;
+mod interned;
 mod queries;
 mod semantic;
+mod semantic_types;
 mod templatetags;
 mod traits;
+mod types;
 
 // Re-export the main facade
 pub use index::SemanticIndex;
+
+// Re-export interned types for optimization
+pub use interned::{TagName, VariablePath, TemplatePath, ArgumentList, FilterChain, FilterCall};
 
 // Re-export stable IDs for consumers
 pub use ids::BlockDefinition;

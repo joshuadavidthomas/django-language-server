@@ -2,6 +2,7 @@ use salsa::Accumulator;
 
 use crate::analysis::AnalysisBuilder;
 use crate::analysis::AnalysisBundle;
+use crate::analysis::InternedAnalysisBundle;
 use crate::blocks::BlockTree;
 use crate::db::Db;
 use crate::db::ValidationErrorAccumulator;
@@ -24,6 +25,15 @@ pub(crate) fn analyze_template(db: &dyn Db, nodelist: djls_templates::NodeList<'
     let nodes = nodelist.nodelist(db);
     let specs = db.tag_specs();
     AnalysisBuilder::analyze(nodes, &specs)
+}
+
+/// Optimized analysis query with interned strings
+pub(crate) fn analyze_template_interned<'db>(
+    db: &'db dyn Db,
+    nodelist: djls_templates::NodeList<'db>,
+) -> InternedAnalysisBundle<'db> {
+    let bundle = analyze_template(db, nodelist);
+    bundle.with_interning(db)
 }
 
 /// Build block tree (extracts from bundle)
@@ -206,4 +216,24 @@ pub fn collect_template_dependencies(db: &dyn Db, nodelist: djls_templates::Node
     }
     
     deps
+}
+
+/// Get all variables in scope at a given offset
+#[salsa::tracked]
+pub fn variables_in_scope_at_offset<'db>(
+    db: &'db dyn Db,
+    nodelist: djls_templates::NodeList<'db>,
+    offset: u32,
+) -> Vec<VariableInfo> {
+    let bundle = analyze_template(db, nodelist);
+    
+    // TODO: Implement proper scope analysis
+    // For now, return all variables in template
+    bundle.variables.iter().map(|var| {
+        VariableInfo {
+            name: var.name.clone(),
+            span: var.span,
+            definition_span: None,
+        }
+    }).collect()
 }

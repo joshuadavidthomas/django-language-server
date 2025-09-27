@@ -95,7 +95,7 @@ pub enum TemplateDependency {
 }
 
 /// Internal element ID for offset index
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum ElementId {
     Tag(SemanticId),
     Segment(SegmentId),
