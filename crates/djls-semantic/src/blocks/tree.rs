@@ -22,7 +22,13 @@ impl<'db> BlockTree<'db> {
     pub fn blocks(self, db: &'db dyn crate::Db) -> &'db Blocks {
         &self.inner(db).blocks
     }
-
+    
+    /// Find the block containing the given offset
+    pub fn find_enclosing_block(self, db: &'db dyn crate::Db, offset: u32) -> Option<BlockId> {
+        // TODO: Implement proper offset-based lookup
+        // For now, return None - this will be implemented when we add offset indexing
+        None
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize)]
@@ -190,7 +196,7 @@ mod tests {
     use insta::assert_yaml_snapshot;
 
     use super::*;
-    use crate::build_block_tree;
+    use crate::queries::build_block_tree;
     use crate::templatetags::django_builtin_specs;
     use crate::TagIndex;
 

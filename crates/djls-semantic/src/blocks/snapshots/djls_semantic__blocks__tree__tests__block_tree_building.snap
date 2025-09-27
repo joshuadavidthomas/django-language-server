@@ -1,0 +1,70 @@
+---
+source: crates/djls-semantic/src/blocks/tree.rs
+expression: "TreeSnapshot::capture(&db, block_tree)"
+---
+roots:
+  - root_idx: 0
+    blocks:
+      - Branch:
+          tag: block
+          marker_span:
+            - 3
+            - 17
+          kind: Segment
+          nested_blocks:
+            - Leaf:
+                label: "<var>"
+                span:
+                  - 30
+                  - 37
+  - root_idx: 2
+    blocks:
+      - Branch:
+          tag: if
+          marker_span:
+            - 74
+            - 100
+          kind: Segment
+          nested_blocks:
+            - Leaf:
+                label: "<var>"
+                span:
+                  - 124
+                  - 135
+      - Branch:
+          tag: else
+          marker_span:
+            - 147
+            - 157
+          kind: Segment
+          nested_blocks: []
+  - root_idx: 5
+    blocks:
+      - Branch:
+          tag: for
+          marker_span:
+            - 210
+            - 229
+          kind: Segment
+          nested_blocks:
+            - Leaf:
+                label: "<var>"
+                span:
+                  - 247
+                  - 253
+      - Branch:
+          tag: empty
+          marker_span:
+            - 266
+            - 277
+          kind: Segment
+          nested_blocks: []
+  - root_idx: 8
+    blocks:
+      - Branch:
+          tag: comment
+          marker_span:
+            - 334
+            - 343
+          kind: Segment
+          nested_blocks: []

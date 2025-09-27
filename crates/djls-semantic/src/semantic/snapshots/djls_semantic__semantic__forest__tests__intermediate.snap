@@ -1,6 +1,6 @@
 ---
 source: crates/djls-semantic/src/semantic/forest.rs
-expression: "&forest"
+expression: "ForestSnapshot::capture(forest, &db)"
 ---
 roots:
   - Tag:
@@ -16,8 +16,8 @@ roots:
             start: 3
             length: 18
           content_span:
-            start: 23
-            length: 24
+            start: 3
+            length: 46
           arguments:
             - user.is_staff
           children: []
@@ -25,29 +25,28 @@ roots:
             Intermediate:
               tag: elif
           marker_span:
-            start: 49
-            length: 22
-          content_span:
-            start: 73
+            start: 47
             length: 26
-          arguments:
-            - user.is_manager
+          content_span:
+            start: 49
+            length: 52
+          arguments: []
           children: []
         - kind:
             Intermediate:
               tag: else
           marker_span:
-            start: 101
-            length: 6
+            start: 99
+            length: 10
           content_span:
-            start: 109
-            length: 26
+            start: 101
+            length: 34
           arguments: []
           children: []
 tag_spans:
   - start: 1
     length: 22
-  - start: 47
-    length: 26
-  - start: 99
-    length: 10
+  - start: 45
+    length: 30
+  - start: 97
+    length: 14

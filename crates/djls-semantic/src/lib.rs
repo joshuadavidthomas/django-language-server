@@ -1,19 +1,32 @@
+mod analysis;
 mod blocks;
 mod db;
 mod errors;
+mod ids;
+mod index;
+mod queries;
 mod semantic;
 mod templatetags;
 mod traits;
 
-pub use blocks::build_block_tree;
+// Re-export the main facade
+pub use index::SemanticIndex;
+
+// Re-export stable IDs for consumers
+pub use ids::BlockDefinition;
+pub use ids::SemanticElement;
+pub use ids::SemanticId;
+pub use ids::SegmentId;
+pub use ids::TagReference;
+pub use ids::TemplateDependency;
+pub use ids::VariableInfo;
+pub use ids::VariableReference;
+
+// Keep existing exports for compatibility (can deprecate later)
 pub use blocks::TagIndex;
 pub use db::Db;
 pub use db::ValidationErrorAccumulator;
 pub use errors::ValidationError;
-pub use semantic::build_semantic_forest;
-pub use semantic::compute_tag_spans;
-use semantic::validate_block_tags;
-use semantic::validate_non_block_tags;
 pub use templatetags::django_builtin_specs;
 pub use templatetags::EndTag;
 pub use templatetags::TagArg;
@@ -35,11 +48,8 @@ pub fn validate_nodelist(db: &dyn Db, nodelist: djls_templates::NodeList<'_>) {
         return;
     }
 
-    let block_tree = build_block_tree(db, nodelist);
-    let forest = build_semantic_forest(db, block_tree, nodelist);
-    let tag_spans = compute_tag_spans(db, forest);
-    validate_block_tags(db, forest.roots(db));
-    validate_non_block_tags(db, nodelist, &tag_spans);
+    // Use the new queries that handle everything internally
+    let _ = queries::validate_template(db, nodelist);
 }
 
 // Minimal API for benchmarking without database

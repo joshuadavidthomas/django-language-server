@@ -2,30 +2,26 @@ pub(crate) mod args;
 pub(crate) mod forest;
 
 use crate::blocks::BlockTree;
-use crate::blocks::BlockTreeInner;
-use crate::traits::SemanticModel;
 use crate::Db;
-pub(crate) use args::validate_block_tags;
-pub(crate) use args::validate_non_block_tags;
 pub(crate) use forest::ForestBuilder;
 pub(crate) use forest::SemanticForest;
 pub use forest::SemanticForestInner;
 
+// These functions are now replaced by the ones in queries.rs
+// Keep them for backward compatibility but mark as deprecated
+
+#[deprecated(note = "Use queries::build_semantic_forest instead")]
 #[salsa::tracked]
 pub fn build_semantic_forest<'db>(
     db: &'db dyn Db,
     tree: BlockTree<'db>,
     nodelist: djls_templates::NodeList<'db>,
 ) -> SemanticForest<'db> {
-    let tree_inner = BlockTreeInner {
-        roots: tree.roots(db).to_vec(),
-        blocks: tree.blocks(db).clone(),
-    };
-    let builder = ForestBuilder::new(tree_inner);
-    let inner = builder.model(db, nodelist);
-    SemanticForest::new(db, inner)
+    // Just forward to the new query
+    crate::queries::build_semantic_forest(db, nodelist)
 }
 
+#[deprecated(note = "Use queries::compute_tag_spans instead")]
 #[salsa::tracked]
 pub fn compute_tag_spans<'db>(
     db: &'db dyn Db,

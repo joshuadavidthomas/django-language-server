@@ -3,9 +3,8 @@ mod grammar;
 mod snapshot;
 mod tree;
 
-use builder::BlockTreeBuilder;
+pub(crate) use builder::BlockTreeBuilder;
 pub use grammar::TagIndex;
-use salsa::Accumulator;
 pub(crate) use tree::BlockId;
 pub(crate) use tree::BlockNode;
 pub(crate) use tree::BlockTree;
@@ -13,7 +12,6 @@ pub use tree::BlockTreeInner;
 pub(crate) use tree::BranchKind;
 
 use crate::db::Db;
-use crate::db::ValidationErrorAccumulator;
 use crate::traits::SemanticModel;
 
 /// Build a block tree from pure data without database
@@ -30,22 +28,15 @@ pub fn build_block_tree_from_parts(
     builder.construct()
 }
 
+// This function is now replaced by the one in queries.rs
+// Keep it for backward compatibility but mark as deprecated
+
+#[deprecated(note = "Use queries::build_block_tree instead")]
 #[salsa::tracked]
 pub fn build_block_tree<'db>(
     db: &'db dyn Db,
     nodelist: djls_templates::NodeList<'db>,
 ) -> BlockTree<'db> {
-    // Extract pure data
-    let nodes = nodelist.nodelist(db).to_vec();
-    let specs = db.tag_specs();
-    
-    // Build using pure function
-    let (inner, errors) = build_block_tree_from_parts(&specs, &nodes);
-    
-    // Accumulate errors at the edge
-    for error in errors {
-        ValidationErrorAccumulator(error).accumulate(db);
-    }
-    
-    BlockTree::new(db, inner)
+    // Forward to the new query
+    crate::queries::build_block_tree(db, nodelist)
 }

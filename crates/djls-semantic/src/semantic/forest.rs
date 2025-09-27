@@ -31,6 +31,27 @@ impl<'db> SemanticForest<'db> {
     pub fn compute_tag_spans(self, db: &'db dyn Db) -> Vec<Span> {
         compute_tag_spans(&self.inner(db).roots)
     }
+    
+    /// Find a tag by its semantic ID
+    pub fn find_tag_by_id(self, db: &'db dyn Db, id: crate::ids::SemanticId) -> Option<TagInfo<'db>> {
+        // TODO: Implement proper ID-based lookup
+        // For now, return None - this will be implemented when we add ID tracking
+        None
+    }
+    
+    /// Find the tag containing the given offset
+    pub fn find_containing_tag(self, db: &'db dyn Db, offset: u32) -> Option<crate::ids::TagReference> {
+        // TODO: Implement proper offset-based lookup
+        // For now, return None - this will be implemented when we add offset indexing
+        None
+    }
+}
+
+/// Information about a tag
+pub struct TagInfo<'db> {
+    pub name: &'db str,
+    pub span: Span,
+    pub arguments: &'db [String],
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
@@ -90,6 +111,11 @@ impl ForestBuilder {
             tree_inner,
             arg_index: ArgumentIndex::default(),
         }
+    }
+    
+    /// Set the pre-computed argument index to avoid re-traversal
+    pub fn set_arg_index(&mut self, arg_index: ArgumentIndex) {
+        self.arg_index = arg_index;
     }
 
     fn build_roots(&self) -> Vec<SemanticNode> {
@@ -273,8 +299,8 @@ mod tests {
     use insta::assert_yaml_snapshot;
 
     use super::*;
-    use crate::blocks::build_block_tree;
-    use crate::build_semantic_forest;
+    use crate::queries::build_block_tree;
+    use crate::queries::build_semantic_forest;
     use crate::templatetags::django_builtin_specs;
     use crate::TagIndex;
 
@@ -348,8 +374,8 @@ mod tests {
         let file = File::new(&db, "template.html".into(), 0);
         let nodelist = parse_template(&db, file).expect("should parse");
 
-        let block_tree = build_block_tree(&db, nodelist);
-        let forest = build_semantic_forest(&db, block_tree, nodelist);
+        let _block_tree = build_block_tree(&db, nodelist);
+        let forest = build_semantic_forest(&db, nodelist);
 
         assert_yaml_snapshot!(ForestSnapshot::capture(forest, &db));
     }
@@ -371,8 +397,8 @@ mod tests {
         let file = File::new(&db, "intermediate.html".into(), 0);
         let nodelist = parse_template(&db, file).expect("should parse");
 
-        let block_tree = build_block_tree(&db, nodelist);
-        let forest = build_semantic_forest(&db, block_tree, nodelist);
+        let _block_tree = build_block_tree(&db, nodelist);
+        let forest = build_semantic_forest(&db, nodelist);
 
         assert_yaml_snapshot!("intermediate", ForestSnapshot::capture(forest, &db));
     }
