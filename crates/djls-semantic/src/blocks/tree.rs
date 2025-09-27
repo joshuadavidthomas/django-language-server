@@ -1,12 +1,28 @@
 use djls_source::Span;
 use serde::Serialize;
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
+#[doc(hidden)]
+pub struct BlockTreeInner {
+    pub roots: Vec<BlockId>,
+    pub blocks: Blocks,
+}
+
 #[salsa::tracked]
 pub struct BlockTree<'db> {
     #[returns(ref)]
-    pub roots: Vec<BlockId>,
-    #[returns(ref)]
-    pub blocks: Blocks,
+    inner: BlockTreeInner,
+}
+
+impl<'db> BlockTree<'db> {
+    pub fn roots(self, db: &'db dyn crate::Db) -> &'db [BlockId] {
+        &self.inner(db).roots
+    }
+    
+    pub fn blocks(self, db: &'db dyn crate::Db) -> &'db Blocks {
+        &self.inner(db).blocks
+    }
+
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize)]
@@ -154,10 +170,9 @@ pub enum BlockNode {
 }
 
 impl BlockNode {
-    fn span(&self) -> Span {
+    pub fn span(&self) -> Span {
         match self {
-            BlockNode::Leaf { span, .. } => *span,
-            BlockNode::Branch { marker_span, .. } => *marker_span,
+            Self::Leaf { span, .. } | Self::Branch { marker_span: span, .. } => *span,
         }
     }
 }
@@ -169,17 +184,15 @@ mod tests {
 
     use camino::Utf8Path;
     use djls_source::File;
-    use djls_source::Span;
     use djls_templates::parse_template;
-    use djls_templates::Node;
     use djls_workspace::FileSystem;
     use djls_workspace::InMemoryFileSystem;
+    use insta::assert_yaml_snapshot;
 
-    use crate::blocks::grammar::TagIndex;
-    use crate::blocks::snapshot::BlockTreeSnapshot;
+    use super::*;
     use crate::build_block_tree;
     use crate::templatetags::django_builtin_specs;
-    use crate::TagSpecs;
+    use crate::TagIndex;
 
     #[salsa::db]
     #[derive(Clone)]
@@ -219,113 +232,121 @@ mod tests {
 
     #[salsa::db]
     impl crate::Db for TestDatabase {
-        fn tag_specs(&self) -> TagSpecs {
+        fn tag_specs(&self) -> crate::templatetags::TagSpecs {
             django_builtin_specs()
         }
 
-        fn tag_index(&self) -> TagIndex<'_> {
-            TagIndex::from_specs(self)
+        fn tag_index(&self) -> TagIndex {
+            TagIndex::from_specs(&self.tag_specs())
+        }
+    }
+
+    #[derive(Clone, Debug, Serialize)]
+    struct RootSnapshot {
+        root_idx: usize,
+        blocks: Vec<BlockSnapshot>,
+    }
+
+    #[derive(Clone, Debug, Serialize)]
+    enum BlockSnapshot {
+        Leaf {
+            label: String,
+            span: [u32; 2],
+        },
+        Branch {
+            tag: String,
+            marker_span: [u32; 2],
+            kind: &'static str,
+            nested_blocks: Vec<BlockSnapshot>,
+        },
+    }
+
+    #[derive(Clone, Debug, Serialize)]
+    struct TreeSnapshot {
+        roots: Vec<RootSnapshot>,
+    }
+
+    impl TreeSnapshot {
+        fn extract_region(blocks: &Blocks, id: usize) -> Vec<BlockSnapshot> {
+            let block = blocks.get(id);
+            let mut snapshots = Vec::new();
+
+            for node in block.nodes() {
+                let snapshot = match node {
+                    BlockNode::Leaf { label, span } => BlockSnapshot::Leaf {
+                        label: label.clone(),
+                        span: [span.start(), span.end()],
+                    },
+                    BlockNode::Branch {
+                        tag,
+                        marker_span,
+                        body,
+                        kind,
+                    } => BlockSnapshot::Branch {
+                        tag: tag.clone(),
+                        marker_span: [marker_span.start(), marker_span.end()],
+                        kind: match kind {
+                            BranchKind::Opener => "Opener",
+                            BranchKind::Segment => "Segment",
+                        },
+                        nested_blocks: Self::extract_region(blocks, body.index()),
+                    },
+                };
+                snapshots.push(snapshot);
+            }
+
+            snapshots
+        }
+
+        fn capture(db: &dyn crate::Db, tree: BlockTree) -> Self {
+            let roots = tree
+                .roots(db)
+                .iter()
+                .map(|root| {
+                    let blocks = Self::extract_region(tree.blocks(db), root.index());
+                    RootSnapshot {
+                        root_idx: root.index(),
+                        blocks,
+                    }
+                })
+                .collect();
+
+            Self { roots }
         }
     }
 
     #[test]
     fn test_block_tree_building() {
         let db = TestDatabase::new();
-
-        let source = r"
+        let content = r"
 {% block header %}
-    <h1>Title</h1>
-{% endblock header %}
+    <h1>{{ title }}</h1>
+{% endblock %}
 
-{% if user.is_authenticated %}
-    <p>Welcome {{ user.name }}</p>
-    {% if user.is_superuser %}
-        <span>Admin</span>
-    {% elif user.is_staff %}
-        <span>Manager</span>
+<main>
+    {% if user.is_authenticated %}
+        <p>Welcome {{ user.name }}!</p>
     {% else %}
-        <span>Regular user</span>
+        <p>Please log in</p>
     {% endif %}
-{% else %}
-    <p>Please log in</p>
-{% endif %}
 
-{% for item in items %}
-    <li>{{ item }}</li>
-{% endfor %}
+    {% for item in items %}
+        <div>{{ item }}</div>
+    {% empty %}
+        <div>No items</div>
+    {% endfor %}
+</main>
+
+{% comment %}
+    This is a comment block that should be captured
+{% endcomment %}
 ";
 
-        db.add_file("test.html", source);
+        db.add_file("test.html", content);
         let file = File::new(&db, "test.html".into(), 0);
         let nodelist = parse_template(&db, file).expect("should parse");
 
-        let nodelist_view = {
-            #[derive(serde::Serialize)]
-            struct NodeListView {
-                nodes: Vec<NodeView>,
-            }
-            #[derive(serde::Serialize)]
-            #[serde(tag = "kind")]
-            enum NodeView {
-                Tag {
-                    name: String,
-                    bits: Vec<String>,
-                    span: Span,
-                },
-                Variable {
-                    var: String,
-                    filters: Vec<String>,
-                    span: Span,
-                },
-                Comment {
-                    content: String,
-                    span: Span,
-                },
-                Text {
-                    span: Span,
-                },
-                Error {
-                    span: Span,
-                    full_span: Span,
-                    error: String,
-                },
-            }
-
-            let nodes = nodelist
-                .nodelist(&db)
-                .iter()
-                .map(|n| match n {
-                    Node::Tag { name, bits, span } => NodeView::Tag {
-                        name: name.clone(),
-                        bits: bits.clone(),
-                        span: *span,
-                    },
-                    Node::Variable { var, filters, span } => NodeView::Variable {
-                        var: var.clone(),
-                        filters: filters.clone(),
-                        span: *span,
-                    },
-                    Node::Comment { content, span } => NodeView::Comment {
-                        content: content.clone(),
-                        span: *span,
-                    },
-                    Node::Text { span } => NodeView::Text { span: *span },
-                    Node::Error {
-                        span,
-                        full_span,
-                        error,
-                    } => NodeView::Error {
-                        span: *span,
-                        full_span: *full_span,
-                        error: error.to_string(),
-                    },
-                })
-                .collect();
-
-            NodeListView { nodes }
-        };
-        insta::assert_yaml_snapshot!("nodelist", nodelist_view);
         let block_tree = build_block_tree(&db, nodelist);
-        insta::assert_yaml_snapshot!("blocktree", BlockTreeSnapshot::from_tree(block_tree, &db));
+        assert_yaml_snapshot!(TreeSnapshot::capture(&db, block_tree));
     }
 }

@@ -7,8 +7,45 @@ fn main() {
     divan::main();
 }
 
+// Pure benchmarks without database overhead
 #[divan::bench(args = template_fixtures())]
-fn build_block_tree(bencher: Bencher, fixture: &TemplateFixture) {
+fn build_block_tree_pure(bencher: Bencher, fixture: &TemplateFixture) {
+    // Parse once to get nodes
+    let mut db = Db::new();
+    let file = db.file_with_contents(fixture.path.clone(), &fixture.source);
+    let nodelist = djls_templates::parse_template(&db, file).unwrap();
+    let nodes = nodelist.nodelist(&db).to_vec();
+    
+    // Get specs (no db needed)
+    let specs = djls_semantic::django_builtin_specs();
+    
+    bencher.bench_local(move || {
+        let (tree_inner, _errors) = djls_semantic::build_block_tree_from_parts(&specs, &nodes);
+        divan::black_box(tree_inner.roots.len());
+    });
+}
+
+#[divan::bench(args = template_fixtures())]
+fn build_semantic_forest_pure(bencher: Bencher, fixture: &TemplateFixture) {
+    // Parse once to get nodes
+    let mut db = Db::new();
+    let file = db.file_with_contents(fixture.path.clone(), &fixture.source);
+    let nodelist = djls_templates::parse_template(&db, file).unwrap();
+    let nodes = nodelist.nodelist(&db).to_vec();
+    
+    // Build block tree once
+    let specs = djls_semantic::django_builtin_specs();
+    let (tree_inner, _) = djls_semantic::build_block_tree_from_parts(&specs, &nodes);
+    
+    bencher.bench_local(move || {
+        let forest_inner = djls_semantic::build_forest_from_parts(tree_inner.clone(), &nodes);
+        divan::black_box(forest_inner.roots.len());
+    });
+}
+
+// Original benchmarks with database for comparison
+#[divan::bench(args = template_fixtures())]
+fn build_block_tree_with_db(bencher: Bencher, fixture: &TemplateFixture) {
     let mut db = Db::new();
     let file = db.file_with_contents(fixture.path.clone(), &fixture.source);
 
@@ -23,7 +60,7 @@ fn build_block_tree(bencher: Bencher, fixture: &TemplateFixture) {
 }
 
 #[divan::bench(args = template_fixtures())]
-fn build_semantic_forest(bencher: Bencher, fixture: &TemplateFixture) {
+fn build_semantic_forest_with_db(bencher: Bencher, fixture: &TemplateFixture) {
     let mut db = Db::new();
     let file = db.file_with_contents(fixture.path.clone(), &fixture.source);
 

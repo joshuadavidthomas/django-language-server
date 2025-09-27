@@ -24,6 +24,17 @@ pub enum ValidationError {
 
     #[error("endblock '{name}' does not match any open block")]
     UnmatchedBlockName { name: String, span: Span },
+    
+    #[error("Unmatched closing tag: {tag}")]
+    UnmatchedClosingTag { tag: String, span: Span },
+    
+    #[error("Expected {expected}, found {found}. Unclosed tags: {}", unclosed.join(", "))]
+    MismatchedClosingTag {
+        expected: String,
+        found: String,
+        unclosed: Vec<String>,
+        span: Span,
+    },
 
     #[error("Tag '{tag}' requires at least {min} argument{}", if *.min == 1 { "" } else { "s" })]
     MissingRequiredArguments { tag: String, min: usize, span: Span },

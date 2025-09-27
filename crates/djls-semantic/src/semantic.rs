@@ -1,14 +1,15 @@
-mod args;
-mod forest;
-
-pub(crate) use args::validate_block_tags;
-pub(crate) use args::validate_non_block_tags;
-use forest::build_root_tag;
-pub(crate) use forest::SemanticForest;
-use rustc_hash::FxHashSet;
+pub(crate) mod args;
+pub(crate) mod forest;
 
 use crate::blocks::BlockTree;
+use crate::blocks::BlockTreeInner;
+use crate::traits::SemanticModel;
 use crate::Db;
+pub(crate) use args::validate_block_tags;
+pub(crate) use args::validate_non_block_tags;
+pub(crate) use forest::ForestBuilder;
+pub(crate) use forest::SemanticForest;
+pub use forest::SemanticForestInner;
 
 #[salsa::tracked]
 pub fn build_semantic_forest<'db>(
@@ -16,15 +17,20 @@ pub fn build_semantic_forest<'db>(
     tree: BlockTree<'db>,
     nodelist: djls_templates::NodeList<'db>,
 ) -> SemanticForest<'db> {
-    let mut tag_spans_set = FxHashSet::default();
-    let roots = tree
-        .roots(db)
-        .iter()
-        .filter_map(|root| build_root_tag(db, tree, nodelist, *root, &mut tag_spans_set))
-        .collect();
-
-    let mut tag_spans: Vec<_> = tag_spans_set.into_iter().collect();
-    tag_spans.sort_by_key(|span| (span.start(), span.end()));
-
-    SemanticForest::new(db, roots, tag_spans)
+    let tree_inner = BlockTreeInner {
+        roots: tree.roots(db).to_vec(),
+        blocks: tree.blocks(db).clone(),
+    };
+    let builder = ForestBuilder::new(tree_inner);
+    let inner = builder.model(db, nodelist);
+    SemanticForest::new(db, inner)
 }
+
+#[salsa::tracked]
+pub fn compute_tag_spans<'db>(
+    db: &'db dyn Db,
+    forest: SemanticForest<'db>,
+) -> Vec<djls_source::Span> {
+    forest.compute_tag_spans(db)
+}
+

@@ -1,20 +1,17 @@
 use djls_source::Span;
 use djls_templates::tokens::TagDelimiter;
 use djls_templates::Node;
-use salsa::Accumulator;
 
 use super::grammar::CloseValidation;
 use super::grammar::TagClass;
 use super::grammar::TagIndex;
 use super::tree::BlockId;
 use super::tree::BlockNode;
-use super::tree::BlockTree;
+use super::tree::BlockTreeInner;
 use super::tree::Blocks;
 use super::tree::BranchKind;
 use crate::traits::SemanticModel;
-use crate::Db;
 use crate::ValidationError;
-use crate::ValidationErrorAccumulator;
 
 #[derive(Debug, Clone)]
 enum TreeOp {
@@ -41,26 +38,24 @@ enum TreeOp {
         id: BlockId,
         end: u32,
     },
-    AccumulateDiagnostic(ValidationError),
 }
 
-pub struct BlockTreeBuilder<'db> {
-    db: &'db dyn Db,
-    index: TagIndex<'db>,
+pub struct BlockTreeBuilder {
+    index: TagIndex,
     stack: Vec<TreeFrame>,
     block_allocs: Vec<(Span, Option<BlockId>)>,
     ops: Vec<TreeOp>,
+    errors: Vec<ValidationError>,
 }
 
-impl<'db> BlockTreeBuilder<'db> {
-    #[allow(dead_code)] // use is gated behind cfg(test) for now
-    pub fn new(db: &'db dyn Db, index: TagIndex<'db>) -> Self {
+impl BlockTreeBuilder {
+    pub fn new(index: TagIndex) -> Self {
         Self {
-            db,
             index,
             stack: Vec::new(),
             block_allocs: Vec::new(),
             ops: Vec::new(),
+            errors: Vec::new(),
         }
     }
 
@@ -71,12 +66,12 @@ impl<'db> BlockTreeBuilder<'db> {
         id
     }
 
-    /// Apply all semantic operations to build a tracked `BlockTree`
-    fn apply_operations(self) -> BlockTree<'db> {
+    /// Apply all semantic operations to build a BlockTreeInner
+    fn apply_operations(self) -> (BlockTreeInner, Vec<ValidationError>) {
         let BlockTreeBuilder {
-            db,
             block_allocs,
             ops,
+            errors,
             ..
         } = self;
 
@@ -126,18 +121,15 @@ impl<'db> BlockTreeBuilder<'db> {
                 TreeOp::FinalizeSpanTo { id, end } => {
                     blocks.finalize_block_span(id, end);
                 }
-                TreeOp::AccumulateDiagnostic(error) => {
-                    ValidationErrorAccumulator(error).accumulate(db);
-                }
             }
         }
 
-        BlockTree::new(db, roots, blocks)
+        (BlockTreeInner { roots, blocks }, errors)
     }
 
     fn handle_tag(&mut self, name: &str, bits: &[String], span: Span) {
         let full_span = expand_marker(span);
-        match self.index.classify(self.db, name) {
+        match self.index.classify(name) {
             TagClass::Opener => {
                 let parent = get_active_segment(&self.stack);
 
@@ -165,7 +157,6 @@ impl<'db> BlockTreeBuilder<'db> {
                     });
                 } else {
                     // Root block
-                    self.ops.push(TreeOp::AddRoot { id: container });
                     self.ops.push(TreeOp::AddBranchNode {
                         target: container,
                         tag: name.to_string(),
@@ -173,65 +164,119 @@ impl<'db> BlockTreeBuilder<'db> {
                         body: segment,
                         kind: BranchKind::Segment,
                     });
+                    self.ops.push(TreeOp::AddRoot { id: container });
                 }
+
+                // Initialize the segment
+                // By allocating the container, we've essentially placed our tag for the node container.
+                // Placing the marker span at the true tag's span instead of the full span
+                // allows us to perform incremental edits without re-traversing the entire tag's contents.
+                self.ops.push(TreeOp::ExtendBlockSpan { id: segment, span });
 
                 self.stack.push(TreeFrame {
                     opener_name: name.to_string(),
                     opener_bits: bits.to_vec(),
-                    opener_span: full_span,
+                    opener_span: span,
                     container_body: container,
                     segment_body: segment,
                 });
             }
-            TagClass::Closer { opener_name } => {
-                self.close_block(&opener_name, bits, span);
-            }
             TagClass::Intermediate { possible_openers } => {
-                self.add_intermediate(name, &possible_openers, span);
+                // Find the outermost matching opener
+                let maybe_frame_idx = possible_openers
+                    .iter()
+                    .find_map(|opener| find_frame_from_opener(&self.stack, opener));
+
+                if let Some(frame_idx) = maybe_frame_idx {
+                    // Pop intermediates off the stack
+                    let intermediates: Vec<_> = self.stack.drain((frame_idx + 1)..).collect();
+                    
+                    // Finalize any currently active segments
+                    for frame in intermediates {
+                        self.finalize_segments(&frame);
+                    }
+                    
+                    // Get parent container and segment bodies before mutable borrow
+                    let parent_container_body = self.stack.last().expect("parent frame exists").container_body;
+                    let parent_segment_body = self.stack.last().expect("parent frame exists").segment_body;
+
+                    // Create new segment
+                    let new_segment_start =
+                        Span::new(span.end().saturating_add(TagDelimiter::LENGTH_U32), 0);
+                    let new_segment =
+                        self.alloc_block_id(new_segment_start, Some(parent_container_body));
+
+                    // Finalize the parent's current segment
+                    self.ops.push(TreeOp::FinalizeSpanTo {
+                        id: parent_segment_body,
+                        end: span.start(),
+                    });
+
+                    // Add the new segment to parent's container
+                    self.ops.push(TreeOp::AddBranchNode {
+                        target: parent_container_body,
+                        tag: name.to_string(),
+                        marker_span: full_span,
+                        body: new_segment,
+                        kind: BranchKind::Segment,
+                    });
+
+                    // Update parent with new segment
+                    self.stack.last_mut().expect("parent frame exists").segment_body = new_segment;
+
+                    // Initialize the new segment with its full span
+                    self.ops.push(TreeOp::ExtendBlockSpan {
+                        id: new_segment,
+                        span,
+                    });
+
+                    // Resize the stack back to the parent
+                    self.stack.truncate(frame_idx + 1);
+                } else {
+                    // Orphaned intermediate - no matching opener found
+                    self.errors.push(ValidationError::OrphanedTag {
+                        tag: name.to_string(),
+                        context: "intermediate tag without matching opener".to_string(),
+                        span: full_span,
+                    });
+                }
+            }
+            TagClass::Closer { opener_name } => {
+                self.handle_closer(&opener_name, name, bits, span);
             }
             TagClass::Unknown => {
-                if let Some(segment) = get_active_segment(&self.stack) {
+                // Unknown tag - treat as a leaf node
+                if let Some(parent) = get_active_segment(&self.stack) {
                     self.ops.push(TreeOp::AddLeafNode {
-                        target: segment,
+                        target: parent,
                         label: name.to_string(),
-                        span,
+                        span: full_span,
                     });
                 }
             }
         }
     }
 
-    fn close_block(&mut self, opener_name: &str, closer_bits: &[String], span: Span) {
-        let marker_span = expand_marker(span);
-
-        let Some(frame_idx) = find_frame_from_opener(&self.stack, opener_name) else {
-            self.ops.push(TreeOp::AccumulateDiagnostic(
-                ValidationError::UnbalancedStructure {
-                    opening_tag: opener_name.to_string(),
-                    expected_closing: String::new(),
-                    opening_span: marker_span,
-                    closing_span: None,
-                },
-            ));
-            return;
+    fn handle_closer(&mut self, opener_name: &str, closer_name: &str, closer_bits: &[String], span: Span) {
+        let frame_idx = match find_frame_from_opener(&self.stack, opener_name) {
+            Some(idx) => idx,
+            None => {
+                self.errors.push(ValidationError::UnmatchedClosingTag {
+                    tag: closer_name.to_string(),
+                    span,
+                });
+                return;
+            }
         };
 
-        // Pop any unclosed blocks above this one
-        while self.stack.len() > frame_idx + 1 {
-            if let Some(unclosed) = self.stack.pop() {
-                self.ops
-                    .push(TreeOp::AccumulateDiagnostic(ValidationError::UnclosedTag {
-                        tag: unclosed.opener_name,
-                        span: unclosed.opener_span,
-                    }));
-            }
-        }
+        // Pop all frames from the found index onwards
+        let frames_to_close: Vec<_> = self.stack.drain(frame_idx..).collect();
+        let frame = frames_to_close.first().unwrap();
 
-        // validate and close
-        let frame = self.stack.pop().unwrap();
+        // Validate the close
         match self
             .index
-            .validate_close(self.db, opener_name, &frame.opener_bits, closer_bits)
+            .validate_close(opener_name, &frame.opener_bits, closer_bits)
         {
             CloseValidation::Valid => {
                 // Finalize the last segment body to end just before the closer marker
@@ -240,163 +285,130 @@ impl<'db> BlockTreeBuilder<'db> {
                     id: frame.segment_body,
                     end: content_end,
                 });
-                // Extend to include closer
-                self.ops.push(TreeOp::ExtendBlockSpan {
-                    id: frame.container_body,
-                    span,
-                });
             }
             CloseValidation::ArgumentMismatch { expected, got, .. } => {
                 let name = if got.is_empty() { expected } else { got };
-                self.ops.push(TreeOp::AccumulateDiagnostic(
-                    ValidationError::UnmatchedBlockName {
-                        name,
-                        span: marker_span,
-                    },
-                ));
-                self.ops
-                    .push(TreeOp::AccumulateDiagnostic(ValidationError::UnclosedTag {
-                        tag: frame.opener_name.clone(),
-                        span: frame.opener_span,
-                    }));
-                self.stack.push(frame); // Restore frame
+                self.errors.push(ValidationError::UnmatchedBlockName {
+                    name,
+                    span: expand_marker(span),
+                });
+                self.errors.push(ValidationError::UnclosedTag {
+                    tag: frame.opener_name.clone(),
+                    span: frame.opener_span,
+                });
+                self.stack.push(frame.clone());
             }
             CloseValidation::MissingRequiredArg { expected, .. } => {
                 let expected_closing = format!("{} {}", frame.opener_name, expected);
-                self.ops.push(TreeOp::AccumulateDiagnostic(
-                    ValidationError::UnbalancedStructure {
-                        opening_tag: frame.opener_name.clone(),
-                        expected_closing,
-                        opening_span: frame.opener_span,
-                        closing_span: Some(marker_span),
-                    },
-                ));
-                self.stack.push(frame);
+                self.errors.push(ValidationError::UnbalancedStructure {
+                    opening_tag: frame.opener_name.clone(),
+                    expected_closing,
+                    opening_span: frame.opener_span,
+                    closing_span: Some(expand_marker(span)),
+                });
+                self.errors.push(ValidationError::UnclosedTag {
+                    tag: frame.opener_name.clone(),
+                    span: frame.opener_span,
+                });
+                self.stack.push(frame.clone());
             }
             CloseValidation::UnexpectedArg { arg, got } => {
                 let name = if got.is_empty() { arg } else { got };
-                self.ops.push(TreeOp::AccumulateDiagnostic(
-                    ValidationError::UnmatchedBlockName {
-                        name,
-                        span: marker_span,
-                    },
-                ));
-                self.ops
-                    .push(TreeOp::AccumulateDiagnostic(ValidationError::UnclosedTag {
-                        tag: frame.opener_name.clone(),
-                        span: frame.opener_span,
-                    }));
-                self.stack.push(frame);
-            }
-            CloseValidation::NotABlock => {
-                self.ops.push(TreeOp::AccumulateDiagnostic(
-                    ValidationError::UnbalancedStructure {
-                        opening_tag: opener_name.to_string(),
-                        expected_closing: opener_name.to_string(),
-                        opening_span: frame.opener_span,
-                        closing_span: Some(marker_span),
-                    },
-                ));
-                self.stack.push(frame);
-            }
-        }
-    }
-
-    fn add_intermediate(&mut self, tag_name: &str, possible_openers: &[String], span: Span) {
-        let marker_span = expand_marker(span);
-
-        if let Some(frame) = self.stack.last() {
-            if possible_openers.contains(&frame.opener_name) {
-                // Finalize previous segment body to just before this marker (full start)
-                let content_end = span.start().saturating_sub(TagDelimiter::LENGTH_U32);
-                let segment_to_finalize = frame.segment_body;
-                let container = frame.container_body;
-
-                self.ops.push(TreeOp::FinalizeSpanTo {
-                    id: segment_to_finalize,
-                    end: content_end,
+                self.errors.push(ValidationError::UnmatchedBlockName {
+                    name,
+                    span: expand_marker(span),
                 });
-
-                let body_start = span.end().saturating_add(TagDelimiter::LENGTH_U32);
-                let new_segment_id = self.alloc_block_id(Span::new(body_start, 0), Some(container));
-
-                // Add the branch node for the new segment
-                self.ops.push(TreeOp::AddBranchNode {
-                    target: container,
-                    tag: tag_name.to_string(),
-                    marker_span: span,
-                    body: new_segment_id,
-                    kind: BranchKind::Segment,
-                });
-
-                self.stack.last_mut().unwrap().segment_body = new_segment_id;
-            } else {
-                let context = format_intermediate_context(possible_openers);
-                self.ops
-                    .push(TreeOp::AccumulateDiagnostic(ValidationError::OrphanedTag {
-                        tag: tag_name.to_string(),
-                        context,
-                        span: marker_span,
-                    }));
-            }
-        } else {
-            let context = format_intermediate_context(possible_openers);
-            self.ops
-                .push(TreeOp::AccumulateDiagnostic(ValidationError::OrphanedTag {
-                    tag: tag_name.to_string(),
-                    context,
-                    span: marker_span,
-                }));
-        }
-    }
-
-    fn finish(&mut self) {
-        while let Some(frame) = self.stack.pop() {
-            if self.index.is_end_optional(self.db, &frame.opener_name) {
-                // No explicit closer: finalize last segment to end of input (best-effort)
-                // We do not know the real end; leave as-is and extend container by opener span only.
-                self.ops.push(TreeOp::ExtendBlockSpan {
-                    id: frame.container_body,
+                self.errors.push(ValidationError::UnclosedTag {
+                    tag: frame.opener_name.clone(),
                     span: frame.opener_span,
                 });
-            } else {
-                self.ops
-                    .push(TreeOp::AccumulateDiagnostic(ValidationError::UnclosedTag {
-                        tag: frame.opener_name,
-                        span: frame.opener_span,
-                    }));
+                self.stack.push(frame.clone());
+            }
+            CloseValidation::NotABlock => {
+                self.errors.push(ValidationError::UnbalancedStructure {
+                    opening_tag: opener_name.to_string(),
+                    expected_closing: closer_name.to_string(),
+                    opening_span: frame.opener_span,
+                    closing_span: Some(expand_marker(span)),
+                });
+                self.errors.push(ValidationError::UnclosedTag {
+                    tag: frame.opener_name.clone(),
+                    span: frame.opener_span,
+                });
+                self.stack.push(frame.clone());
             }
         }
+
+        // Check for unclosed inner frames
+        if frames_to_close.len() > 1 {
+            let unclosed: Vec<String> = frames_to_close[1..]
+                .iter()
+                .map(|f| format!("{{%% {} %%}}", f.opener_name))
+                .collect();
+
+            self.errors.push(ValidationError::MismatchedClosingTag {
+                expected: format!("{{%% {} %%}}", frame.opener_name),
+                found: format!("{{%% {} %%}}", closer_name),
+                unclosed,
+                span: expand_marker(span),
+            });
+
+            // Finalize segments for unclosed frames
+            for inner_frame in &frames_to_close[1..] {
+                self.finalize_segments(inner_frame);
+            }
+        }
+    }
+
+    /// Close out the remaining frames
+    fn finish(&mut self) {
+        let stack = std::mem::take(&mut self.stack);
+        for frame in &stack {
+            // Check if the tag's end is optional
+            if self.index.is_end_optional(&frame.opener_name) {
+                // Optional end tag - finalize normally
+                self.finalize_segments(frame);
+            } else {
+                // Required end tag - report error
+                self.errors.push(ValidationError::UnclosedTag {
+                    tag: frame.opener_name.clone(),
+                    span: frame.opener_span,
+                });
+                self.finalize_segments(frame);
+            }
+        }
+    }
+
+    /// Finalize segments for a frame
+    fn finalize_segments(&mut self, frame: &TreeFrame) {
+        // Get the last offset we have
+        let end = self
+            .ops
+            .iter()
+            .rev()
+            .find_map(|op| match op {
+                TreeOp::FinalizeSpanTo { end, .. } => Some(*end),
+                TreeOp::ExtendBlockSpan { span, .. } => Some(span.end()),
+                TreeOp::AddLeafNode { span, .. } => Some(span.end()),
+                _ => None,
+            })
+            .unwrap_or(frame.opener_span.end());
+
+        self.ops.push(TreeOp::FinalizeSpanTo {
+            id: frame.segment_body,
+            end,
+        });
     }
 }
 
+/// Expand a marker span to include its delimiters
 fn expand_marker(span: Span) -> Span {
     span.expand(TagDelimiter::LENGTH_U32, TagDelimiter::LENGTH_U32)
 }
 
-fn format_intermediate_context(possible_openers: &[String]) -> String {
-    match possible_openers.len() {
-        0 => "a valid parent block".to_string(),
-        1 => format!("'{}' block", possible_openers[0]),
-        2 => format!(
-            "'{}' or '{}' block",
-            possible_openers[0], possible_openers[1]
-        ),
-        _ => {
-            let mut parts = possible_openers
-                .iter()
-                .map(|name| format!("'{name}'"))
-                .collect::<Vec<_>>();
-            let last = parts.pop().unwrap_or_default();
-            let prefix = parts.join(", ");
-            format!("one of {prefix}, or {last} blocks")
-        }
-    }
-}
-
 type TreeStack = Vec<TreeFrame>;
 
-/// Get the currently active segment (the innermost block we're in)
+/// Get the currently active segment body from the stack
 fn get_active_segment(stack: &TreeStack) -> Option<BlockId> {
     stack.last().map(|frame| frame.segment_body)
 }
@@ -406,6 +418,7 @@ fn find_frame_from_opener(stack: &TreeStack, opener_name: &str) -> Option<usize>
     stack.iter().rposition(|f| f.opener_name == opener_name)
 }
 
+#[derive(Clone)]
 struct TreeFrame {
     opener_name: String,
     opener_bits: Vec<String>,
@@ -414,8 +427,8 @@ struct TreeFrame {
     segment_body: BlockId,
 }
 
-impl<'db> SemanticModel<'db> for BlockTreeBuilder<'db> {
-    type Model = BlockTree<'db>;
+impl SemanticModel<'_> for BlockTreeBuilder {
+    type Model = (BlockTreeInner, Vec<ValidationError>);
 
     fn observe(&mut self, node: Node) {
         match node {

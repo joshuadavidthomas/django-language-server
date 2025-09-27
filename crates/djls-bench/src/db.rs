@@ -70,7 +70,7 @@ impl SemanticDb for Db {
         django_builtin_specs()
     }
 
-    fn tag_index(&self) -> TagIndex<'_> {
-        TagIndex::from_specs(self)
+    fn tag_index(&self) -> TagIndex {
+        TagIndex::from_specs(&self.tag_specs())
     }
 }

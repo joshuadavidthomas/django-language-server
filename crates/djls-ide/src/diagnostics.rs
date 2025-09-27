@@ -61,6 +61,8 @@ impl DiagnosticError for ValidationError {
             ValidationError::UnclosedTag { span, .. }
             | ValidationError::OrphanedTag { span, .. }
             | ValidationError::UnmatchedBlockName { span, .. }
+            | ValidationError::UnmatchedClosingTag { span, .. }
+            | ValidationError::MismatchedClosingTag { span, .. }
             | ValidationError::MissingRequiredArguments { span, .. }
             | ValidationError::TooManyArguments { span, .. }
             | ValidationError::MissingArgument { span, .. }
@@ -75,6 +77,8 @@ impl DiagnosticError for ValidationError {
             ValidationError::UnbalancedStructure { .. } => "S101",
             ValidationError::OrphanedTag { .. } => "S102",
             ValidationError::UnmatchedBlockName { .. } => "S103",
+            ValidationError::UnmatchedClosingTag { .. } => "S108",
+            ValidationError::MismatchedClosingTag { .. } => "S109",
             ValidationError::MissingRequiredArguments { .. }
             | ValidationError::MissingArgument { .. } => "S104",
             ValidationError::TooManyArguments { .. } => "S105",
