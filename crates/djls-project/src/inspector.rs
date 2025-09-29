@@ -19,8 +19,7 @@ use serde::Serialize;
 use tempfile::NamedTempFile;
 
 use crate::db::Db as ProjectDb;
-use crate::python::python_environment;
-use crate::python::PythonEnvironment;
+use crate::python::Interpreter;
 
 pub trait InspectorRequest: Serialize {
     /// The query name sent to Python (e.g., "templatetags", "`python_env`")
@@ -38,13 +37,41 @@ pub struct InspectorResponse<T = serde_json::Value> {
 
 pub fn query<Q: InspectorRequest>(db: &dyn ProjectDb, request: &Q) -> Option<Q::Response> {
     let project = db.project()?;
-    let python_env = python_environment(db, project)?;
+    let interpreter = project.interpreter(db);
     let project_path = project.root(db);
+    let django_settings_module = project.django_settings_module(db);
+
+    tracing::debug!(
+        "Inspector query '{}': interpreter={:?}, project_path={}, django_settings_module={:?}",
+        Q::NAME,
+        interpreter,
+        project_path,
+        django_settings_module
+    );
 
     let inspector = db.inspector();
-    match inspector.query::<Q, Q::Response>(&python_env, project_path, request) {
-        Ok(response) if response.ok => response.data,
-        _ => None,
+    match inspector.query::<Q, Q::Response>(
+        interpreter,
+        project_path,
+        django_settings_module.as_deref(),
+        request,
+    ) {
+        Ok(response) if response.ok => {
+            tracing::debug!("Inspector query '{}' succeeded with data", Q::NAME);
+            response.data
+        }
+        Ok(response) => {
+            tracing::warn!(
+                "Inspector query '{}' returned ok=false, error={:?}",
+                Q::NAME,
+                response.error
+            );
+            None
+        }
+        Err(e) => {
+            tracing::error!("Inspector query '{}' failed: {}", Q::NAME, e);
+            None
+        }
     }
 }
 
@@ -98,12 +125,13 @@ impl Inspector {
     /// Execute a typed query, reusing existing process if available
     pub fn query<Q: InspectorRequest, R: DeserializeOwned>(
         &self,
-        python_env: &PythonEnvironment,
+        interpreter: &Interpreter,
         project_path: &Utf8Path,
+        django_settings_module: Option<&str>,
         request: &Q,
     ) -> Result<InspectorResponse<R>> {
         self.inner()
-            .query::<Q, R>(python_env, project_path, request)
+            .query::<Q, R>(interpreter, project_path, django_settings_module, request)
     }
 
     /// Manually close the inspector process
@@ -141,11 +169,12 @@ impl InspectorInner {
     /// Execute a typed query, ensuring a valid process exists
     fn query<Q: InspectorRequest, R: DeserializeOwned>(
         &mut self,
-        python_env: &PythonEnvironment,
+        interpreter: &Interpreter,
         project_path: &Utf8Path,
+        django_settings_module: Option<&str>,
         request: &Q,
     ) -> Result<InspectorResponse<R>> {
-        self.ensure_process(python_env, project_path)?;
+        self.ensure_process(interpreter, project_path, django_settings_module)?;
 
         let process = self.process_mut();
         let response = process.query::<Q, R>(request)?;
@@ -164,21 +193,45 @@ impl InspectorInner {
     /// Ensure a process exists for the given environment
     fn ensure_process(
         &mut self,
-        python_env: &PythonEnvironment,
+        interpreter: &Interpreter,
         project_path: &Utf8Path,
+        django_settings_module: Option<&str>,
     ) -> Result<()> {
         let needs_new_process = match &mut self.process {
-            None => true,
+            None => {
+                tracing::debug!("No existing inspector process, spawning new one");
+                true
+            }
             Some(state) => {
-                !state.is_running()
-                    || state.python_env != *python_env
-                    || state.project_path != project_path
+                let not_running = !state.is_running();
+                let interpreter_changed = state.interpreter != *interpreter;
+                let path_changed = state.project_path != project_path;
+                let settings_changed =
+                    state.django_settings_module.as_deref() != django_settings_module;
+
+                if not_running || interpreter_changed || path_changed || settings_changed {
+                    tracing::debug!(
+                        "Inspector process needs restart: not_running={}, interpreter_changed={}, path_changed={}, settings_changed={}",
+                        not_running, interpreter_changed, path_changed, settings_changed
+                    );
+                    true
+                } else {
+                    false
+                }
             }
         };
 
         if needs_new_process {
             self.shutdown_process();
-            self.process = Some(InspectorProcess::spawn(python_env, project_path)?);
+            tracing::info!(
+                "Spawning new inspector process with django_settings_module={:?}",
+                django_settings_module
+            );
+            self.process = Some(InspectorProcess::spawn(
+                interpreter.to_owned(),
+                project_path.to_path_buf(),
+                django_settings_module.map(String::from),
+            )?);
         }
         Ok(())
     }
@@ -231,69 +284,80 @@ struct InspectorProcess {
     child: Child,
     stdin: std::process::ChildStdin,
     stdout: BufReader<std::process::ChildStdout>,
-    _zipapp_file: InspectorFile,
     last_used: Instant,
-    python_env: PythonEnvironment,
+    interpreter: Interpreter,
     project_path: Utf8PathBuf,
+    django_settings_module: Option<String>,
+    // keep a handle on the tempfile so it doesn't get cleaned up
+    _zipapp_file_handle: InspectorFile,
 }
 
 impl InspectorProcess {
     /// Spawn a new inspector process
-    pub fn spawn(python_env: &PythonEnvironment, project_path: &Utf8Path) -> Result<Self> {
+    pub fn spawn(
+        interpreter: Interpreter,
+        project_path: Utf8PathBuf,
+        django_settings_module: Option<String>,
+    ) -> Result<Self> {
         let zipapp_file = InspectorFile::create()?;
 
-        let mut cmd = Command::new(&python_env.python_path);
+        let python_path = interpreter
+            .python_path(&project_path)
+            .context("Failed to resolve Python interpreter")?;
+
+        let mut cmd = Command::new(&python_path);
         cmd.arg(zipapp_file.path())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())
-            .current_dir(project_path);
+            .stderr(Stdio::piped()) // Capture stderr instead of inheriting
+            .current_dir(&project_path);
 
         if let Ok(pythonpath) = std::env::var("PYTHONPATH") {
             let mut paths = vec![project_path.to_string()];
             paths.push(pythonpath);
             cmd.env("PYTHONPATH", paths.join(":"));
         } else {
-            cmd.env("PYTHONPATH", project_path);
+            cmd.env("PYTHONPATH", project_path.clone());
         }
 
-        if let Ok(settings) = std::env::var("DJANGO_SETTINGS_MODULE") {
-            cmd.env("DJANGO_SETTINGS_MODULE", settings);
+        // Set Django settings module if we have one
+        if let Some(ref module) = django_settings_module {
+            tracing::debug!("Setting DJANGO_SETTINGS_MODULE={}", module);
+            cmd.env("DJANGO_SETTINGS_MODULE", module);
         } else {
-            // Try to detect settings module
-            if project_path.join("manage.py").exists() {
-                // Look for common settings modules
-                for candidate in &["settings", "config.settings", "project.settings"] {
-                    let parts: Vec<&str> = candidate.split('.').collect();
-                    let mut path = project_path.to_path_buf();
-                    for part in &parts[..parts.len() - 1] {
-                        path = path.join(part);
-                    }
-                    if let Some(last) = parts.last() {
-                        path = path.join(format!("{last}.py"));
-                    }
-
-                    if path.exists() {
-                        cmd.env("DJANGO_SETTINGS_MODULE", candidate);
-                        break;
-                    }
-                }
-            }
+            tracing::warn!("No DJANGO_SETTINGS_MODULE provided to inspector process");
         }
 
         let mut child = cmd.spawn().context("Failed to spawn inspector process")?;
 
         let stdin = child.stdin.take().context("Failed to get stdin handle")?;
         let stdout = BufReader::new(child.stdout.take().context("Failed to get stdout handle")?);
+        let stderr = BufReader::new(child.stderr.take().context("Failed to get stderr handle")?);
+
+        // Spawn a thread to capture stderr for debugging
+        std::thread::spawn(move || {
+            let mut stderr = stderr;
+            let mut line = String::new();
+            while stderr.read_line(&mut line).is_ok() && !line.is_empty() {
+                tracing::error!("Inspector stderr: {}", line.trim());
+                line.clear();
+            }
+        });
+
+        tracing::debug!(
+            "Inspector process started successfully with zipapp at {:?}",
+            zipapp_file.path()
+        );
 
         Ok(Self {
             child,
             stdin,
             stdout,
-            _zipapp_file: zipapp_file,
             last_used: Instant::now(),
-            python_env: python_env.clone(),
-            project_path: project_path.to_path_buf(),
+            interpreter,
+            project_path,
+            django_settings_module,
+            _zipapp_file_handle: zipapp_file,
         })
     }
 
@@ -318,8 +382,17 @@ impl InspectorProcess {
             .read_line(&mut response_line)
             .context("Failed to read response from inspector")?;
 
-        let response: InspectorResponse<R> =
-            serde_json::from_str(&response_line).context("Failed to parse inspector response")?;
+        let response: InspectorResponse<R> = match serde_json::from_str(&response_line) {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::error!(
+                    "Failed to parse inspector response: {}. Raw response: '{}'",
+                    e,
+                    response_line
+                );
+                return Err(anyhow::anyhow!("Failed to parse inspector response"));
+            }
+        };
 
         Ok(response)
     }

@@ -42,6 +42,9 @@ pub struct DjangoDatabase {
     /// The single project for this database instance
     project: Arc<Mutex<Option<Project>>>,
 
+    /// Configuration settings for the language server
+    settings: Arc<Mutex<Settings>>,
+
     /// Shared inspector for executing Python queries
     inspector: Arc<Inspector>,
 
@@ -64,6 +67,7 @@ impl Default for DjangoDatabase {
             fs: Arc::new(InMemoryFileSystem::new()),
             files: Arc::new(FxDashMap::default()),
             project: Arc::new(Mutex::new(None)),
+            settings: Arc::new(Mutex::new(Settings::default())),
             inspector: Arc::new(Inspector::new()),
             storage: salsa::Storage::new(Some(Box::new({
                 let logs = logs.clone();
@@ -85,28 +89,64 @@ impl Default for DjangoDatabase {
 
 impl DjangoDatabase {
     /// Create a new [`DjangoDatabase`] with the given file system handle.
-    pub fn new(file_system: Arc<dyn FileSystem>) -> Self {
-        Self {
+    pub fn new(
+        file_system: Arc<dyn FileSystem>,
+        settings: &Settings,
+        project_path: Option<&Utf8Path>,
+    ) -> Self {
+        let mut db = Self {
             fs: file_system,
             files: Arc::new(FxDashMap::default()),
             project: Arc::new(Mutex::new(None)),
+            settings: Arc::new(Mutex::new(settings.clone())),
             inspector: Arc::new(Inspector::new()),
             storage: salsa::Storage::new(None),
             #[cfg(test)]
             logs: Arc::new(Mutex::new(None)),
+        };
+
+        if let Some(path) = project_path {
+            db.set_project(path, settings);
         }
+
+        db
     }
 
-    /// Set the project for this database instance
+    fn settings(&self) -> Settings {
+        self.settings.lock().unwrap().clone()
+    }
+
+    /// Update the settings, potentially updating the project if `venv_path` or `django_settings_module` changed
     ///
     /// # Panics
     ///
-    /// Panics if the project mutex is poisoned.
-    pub fn set_project(&mut self, root: Option<&Utf8Path>, settings: &Settings) {
-        if let Some(path) = root {
-            let project = Project::bootstrap(self, path, settings.venv_path(), settings.clone());
-            *self.project.lock().unwrap() = Some(project);
+    /// Panics if the settings mutex is poisoned (another thread panicked while holding the lock)
+    pub fn set_settings(&mut self, settings: Settings) {
+        let project_needs_update = {
+            let old = self.settings();
+            old.venv_path() != settings.venv_path()
+                || old.django_settings_module() != settings.django_settings_module()
+        };
+
+        *self.settings.lock().unwrap() = settings;
+
+        if project_needs_update {
+            if let Some(project) = self.project() {
+                let root = project.root(self).clone();
+                let settings = self.settings();
+                self.set_project(&root, &settings);
+            }
         }
+    }
+
+    fn set_project(&mut self, root: &Utf8Path, settings: &Settings) {
+        let project = Project::bootstrap(
+            self,
+            root,
+            settings.venv_path(),
+            settings.django_settings_module(),
+        );
+        *self.project.lock().unwrap() = Some(project);
     }
 }
 
@@ -160,11 +200,7 @@ impl TemplateDb for DjangoDatabase {}
 #[salsa::db]
 impl SemanticDb for DjangoDatabase {
     fn tag_specs(&self) -> TagSpecs {
-        if let Some(project) = self.project() {
-            TagSpecs::from(project.settings(self))
-        } else {
-            TagSpecs::from(&Settings::default())
-        }
+        TagSpecs::from(&self.settings())
     }
 
     fn tag_index(&self) -> TagIndex<'_> {

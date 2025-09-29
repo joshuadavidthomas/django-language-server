@@ -1,12 +1,7 @@
-use std::fmt;
-use std::sync::Arc;
+mod system;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
-
-use crate::db::Db as ProjectDb;
-use crate::system;
-use crate::Project;
 
 /// Interpreter specification for Python environment discovery.
 ///
@@ -22,219 +17,71 @@ pub enum Interpreter {
     InterpreterPath(String),
 }
 
-/// Resolve the Python interpreter path for the current project.
-///
-/// This tracked function determines the interpreter path based on the project's
-/// interpreter specification.
-#[salsa::tracked]
-pub fn resolve_interpreter(db: &dyn ProjectDb, project: Project) -> Option<Utf8PathBuf> {
-    match &project.interpreter(db) {
-        Interpreter::InterpreterPath(path) => {
-            let path_buf = Utf8PathBuf::from(path.as_str());
-            if path_buf.exists() {
-                Some(path_buf)
-            } else {
-                None
-            }
-        }
-        Interpreter::VenvPath(venv_path) => {
-            // Derive interpreter path from venv
-            #[cfg(unix)]
-            let interpreter_path = Utf8PathBuf::from(venv_path.as_str())
-                .join("bin")
-                .join("python");
-            #[cfg(windows)]
-            let interpreter_path = Utf8PathBuf::from(venv_path.as_str())
-                .join("Scripts")
-                .join("python.exe");
+impl Interpreter {
+    /// Discover interpreter based on explicit path, `VIRTUAL_ENV`, or auto
+    #[must_use]
+    pub fn discover(venv_path: Option<&str>) -> Self {
+        venv_path
+            .map(|path| Self::VenvPath(path.to_string()))
+            .or_else(|| {
+                #[cfg(not(test))]
+                {
+                    std::env::var("VIRTUAL_ENV").ok().map(Self::VenvPath)
+                }
+                #[cfg(test)]
+                {
+                    system::env_var("VIRTUAL_ENV").ok().map(Self::VenvPath)
+                }
+            })
+            .unwrap_or(Self::Auto)
+    }
 
-            if interpreter_path.exists() {
-                Some(interpreter_path)
-            } else {
-                None
+    /// Resolve to the actual Python executable path
+    #[must_use]
+    pub fn python_path(&self, project_root: &Utf8Path) -> Option<Utf8PathBuf> {
+        match self {
+            Self::InterpreterPath(path) => {
+                let path_buf = Utf8PathBuf::from(path);
+                if path_buf.exists() {
+                    Some(path_buf)
+                } else {
+                    None
+                }
             }
-        }
-        Interpreter::Auto => {
-            // Try common venv directories
-            for venv_dir in &[".venv", "venv", "env", ".env"] {
-                let potential_venv = project.root(db).join(venv_dir);
-                if potential_venv.is_dir() {
-                    #[cfg(unix)]
-                    let interpreter_path = potential_venv.join("bin").join("python");
-                    #[cfg(windows)]
-                    let interpreter_path = potential_venv.join("Scripts").join("python.exe");
+            Self::VenvPath(venv_path) => {
+                let venv = Utf8PathBuf::from(venv_path);
+                #[cfg(unix)]
+                let python = venv.join("bin").join("python");
+                #[cfg(windows)]
+                let python = venv.join("Scripts").join("python.exe");
 
-                    if interpreter_path.exists() {
-                        return Some(interpreter_path);
+                if python.exists() {
+                    Some(python)
+                } else {
+                    None
+                }
+            }
+            Self::Auto => {
+                // Try common venv directories in project
+                for venv_dir in &[".venv", "venv", "env", ".env"] {
+                    let potential_venv = project_root.join(venv_dir);
+                    if potential_venv.is_dir() {
+                        #[cfg(unix)]
+                        let python = potential_venv.join("bin").join("python");
+                        #[cfg(windows)]
+                        let python = potential_venv.join("Scripts").join("python.exe");
+
+                        if python.exists() {
+                            return Some(python);
+                        }
                     }
                 }
-            }
 
-            // Fall back to system python
-            system::find_executable("python").ok()
-        }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct PythonEnvironment {
-    pub python_path: Utf8PathBuf,
-    pub sys_path: Vec<Utf8PathBuf>,
-    pub sys_prefix: Utf8PathBuf,
-}
-
-impl PythonEnvironment {
-    #[must_use]
-    pub fn new(project_path: &Utf8Path, venv_path: Option<&str>) -> Option<Self> {
-        if let Some(path) = venv_path {
-            let prefix = Utf8PathBuf::from(path);
-            if let Some(env) = Self::from_venv_prefix(&prefix) {
-                return Some(env);
-            }
-            // Invalid explicit path, continue searching...
-        }
-
-        if let Ok(virtual_env) = system::env_var("VIRTUAL_ENV") {
-            let prefix = Utf8PathBuf::from(virtual_env);
-            if let Some(env) = Self::from_venv_prefix(&prefix) {
-                return Some(env);
+                // Fall back to system python
+                system::find_executable("python").ok()
             }
         }
-
-        for venv_dir in &[".venv", "venv", "env", ".env"] {
-            let potential_venv = project_path.join(venv_dir);
-            if potential_venv.is_dir() {
-                if let Some(env) = Self::from_venv_prefix(&potential_venv) {
-                    return Some(env);
-                }
-            }
-        }
-
-        Self::from_system_python()
     }
-
-    fn from_venv_prefix(prefix: &Utf8Path) -> Option<Self> {
-        #[cfg(unix)]
-        let python_path = prefix.join("bin").join("python");
-        #[cfg(windows)]
-        let python_path = prefix.join("Scripts").join("python.exe");
-
-        if !prefix.is_dir() || !python_path.exists() {
-            return None;
-        }
-
-        #[cfg(unix)]
-        let bin_dir = prefix.join("bin");
-        #[cfg(windows)]
-        let bin_dir = prefix.join("Scripts");
-
-        let mut sys_path = Vec::new();
-        sys_path.push(bin_dir);
-
-        if let Some(site_packages) = Self::find_site_packages(prefix) {
-            if site_packages.is_dir() {
-                sys_path.push(site_packages);
-            }
-        }
-
-        Some(Self {
-            python_path: python_path.clone(),
-            sys_path,
-            sys_prefix: prefix.to_path_buf(),
-        })
-    }
-
-    fn from_system_python() -> Option<Self> {
-        let Ok(python_path) = system::find_executable("python") else {
-            return None;
-        };
-        let bin_dir = python_path.parent()?;
-        let prefix = bin_dir.parent()?;
-
-        let mut sys_path = Vec::new();
-        sys_path.push(bin_dir.to_path_buf());
-
-        if let Some(site_packages) = Self::find_site_packages(prefix) {
-            if site_packages.is_dir() {
-                sys_path.push(site_packages);
-            }
-        }
-
-        Some(Self {
-            python_path: python_path.clone(),
-            sys_path,
-            sys_prefix: prefix.to_path_buf(),
-        })
-    }
-
-    #[cfg(unix)]
-    fn find_site_packages(prefix: &Utf8Path) -> Option<Utf8PathBuf> {
-        let lib_dir = prefix.join("lib");
-        if !lib_dir.is_dir() {
-            return None;
-        }
-        std::fs::read_dir(lib_dir)
-            .ok()?
-            .filter_map(Result::ok)
-            .find(|e| {
-                e.file_type().is_ok_and(|ft| ft.is_dir())
-                    && e.file_name().to_string_lossy().starts_with("python")
-            })
-            .and_then(|e| {
-                Utf8PathBuf::from_path_buf(e.path())
-                    .ok()
-                    .map(|p| p.join("site-packages"))
-            })
-    }
-
-    #[cfg(windows)]
-    fn find_site_packages(prefix: &Utf8Path) -> Option<Utf8PathBuf> {
-        Some(prefix.join("Lib").join("site-packages"))
-    }
-}
-
-impl fmt::Display for PythonEnvironment {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "Python path: {}", self.python_path)?;
-        writeln!(f, "Sys prefix: {}", self.sys_prefix)?;
-        writeln!(f, "Sys paths:")?;
-        for path in &self.sys_path {
-            writeln!(f, "  {path}")?;
-        }
-        Ok(())
-    }
-}
-///
-/// Find the Python environment for the current Django project.
-///
-/// This Salsa tracked function discovers the Python environment based on:
-/// 1. Explicit venv path from project config
-/// 2. `VIRTUAL_ENV` environment variable
-/// 3. Common venv directories in project root (.venv, venv, env, .env)
-/// 4. System Python as fallback
-#[salsa::tracked]
-pub fn python_environment(db: &dyn ProjectDb, project: Project) -> Option<Arc<PythonEnvironment>> {
-    let interpreter_path = resolve_interpreter(db, project)?;
-    let project_path = project.root(db);
-
-    // For venv paths, we need to determine the venv root
-    let interpreter_spec = project.interpreter(db);
-    let venv_path = match &interpreter_spec {
-        Interpreter::InterpreterPath(_) => {
-            // Try to determine venv from interpreter path
-            interpreter_path
-                .parent()
-                .and_then(|bin_dir| bin_dir.parent())
-                .map(camino::Utf8Path::as_str)
-        }
-        Interpreter::VenvPath(path) => Some(path.as_str()),
-        Interpreter::Auto => {
-            // For auto-discovery, let PythonEnvironment::new handle it
-            None
-        }
-    };
-
-    PythonEnvironment::new(project_path, venv_path).map(Arc::new)
 }
 
 #[cfg(test)]
@@ -247,34 +94,78 @@ mod tests {
 
     use super::*;
 
-    fn create_mock_venv(dir: &Utf8Path, version: Option<&str>) -> Utf8PathBuf {
+    fn create_mock_venv(dir: &Utf8Path) -> Utf8PathBuf {
         let prefix = dir.to_path_buf();
 
         #[cfg(unix)]
         {
             let bin_dir = prefix.join("bin");
             fs::create_dir_all(&bin_dir).unwrap();
-            fs::write(bin_dir.join("python"), "").unwrap();
-            let lib_dir = prefix.join("lib");
-            fs::create_dir_all(&lib_dir).unwrap();
-            let py_version_dir = lib_dir.join(version.unwrap_or("python3.9"));
-            fs::create_dir_all(&py_version_dir).unwrap();
-            fs::create_dir_all(py_version_dir.join("site-packages")).unwrap();
+            let python_path = bin_dir.join("python");
+            fs::write(&python_path, "").unwrap();
+            let mut perms = fs::metadata(&python_path).unwrap().permissions();
+            perms.set_mode(0o755);
+            fs::set_permissions(&python_path, perms).unwrap();
         }
         #[cfg(windows)]
         {
             let bin_dir = prefix.join("Scripts");
             fs::create_dir_all(&bin_dir).unwrap();
             fs::write(bin_dir.join("python.exe"), "").unwrap();
-            let lib_dir = prefix.join("Lib");
-            fs::create_dir_all(&lib_dir).unwrap();
-            fs::create_dir_all(lib_dir.join("site-packages")).unwrap();
         }
 
         prefix
     }
 
-    mod env_discovery {
+    mod interpreter_discovery {
+        use system::mock::MockGuard;
+        use system::mock::{
+            self as sys_mock,
+        };
+
+        use super::*;
+
+        #[test]
+        fn test_discover_with_explicit_venv_path() {
+            let interpreter = Interpreter::discover(Some("/path/to/venv"));
+            assert_eq!(
+                interpreter,
+                Interpreter::VenvPath("/path/to/venv".to_string())
+            );
+        }
+
+        #[test]
+        fn test_discover_with_virtual_env_var() {
+            let _guard = MockGuard;
+            sys_mock::set_env_var("VIRTUAL_ENV", "/env/path".to_string());
+
+            let interpreter = Interpreter::discover(None);
+            assert_eq!(interpreter, Interpreter::VenvPath("/env/path".to_string()));
+        }
+
+        #[test]
+        fn test_discover_explicit_overrides_env_var() {
+            let _guard = MockGuard;
+            sys_mock::set_env_var("VIRTUAL_ENV", "/env/path".to_string());
+
+            let interpreter = Interpreter::discover(Some("/explicit/path"));
+            assert_eq!(
+                interpreter,
+                Interpreter::VenvPath("/explicit/path".to_string())
+            );
+        }
+
+        #[test]
+        fn test_discover_auto_when_no_hints() {
+            let _guard = MockGuard;
+            sys_mock::remove_env_var("VIRTUAL_ENV");
+
+            let interpreter = Interpreter::discover(None);
+            assert_eq!(interpreter, Interpreter::Auto);
+        }
+    }
+
+    mod interpreter_resolution {
         use system::mock::MockGuard;
         use system::mock::{
             self as sys_mock,
@@ -284,183 +175,11 @@ mod tests {
         use super::*;
 
         #[test]
-        fn test_explicit_venv_path_found() {
-            let project_dir = tempdir().unwrap();
-            let venv_dir = tempdir().unwrap();
-            let venv_prefix = create_mock_venv(Utf8Path::from_path(venv_dir.path()).unwrap(), None);
-
-            let env = PythonEnvironment::new(
-                Utf8Path::from_path(project_dir.path()).unwrap(),
-                Some(venv_prefix.as_ref()),
-            )
-            .expect("Should find environment with explicit path");
-
-            assert_eq!(env.sys_prefix, venv_prefix);
-
-            #[cfg(unix)]
-            {
-                assert!(env.python_path.ends_with("bin/python"));
-                assert!(env.sys_path.contains(&venv_prefix.join("bin")));
-                assert!(env
-                    .sys_path
-                    .contains(&venv_prefix.join("lib/python3.9/site-packages")));
-            }
-            #[cfg(windows)]
-            {
-                assert!(env.python_path.ends_with("Scripts\\python.exe"));
-                assert!(env.sys_path.contains(&venv_prefix.join("Scripts")));
-                assert!(env
-                    .sys_path
-                    .contains(&venv_prefix.join("Lib").join("site-packages")));
-            }
-        }
-
-        #[test]
-        fn test_explicit_venv_path_invalid_falls_through_to_project_venv() {
-            let project_dir = tempdir().unwrap();
-            let project_venv_prefix = create_mock_venv(
-                Utf8Path::from_path(&project_dir.path().join(".venv")).unwrap(),
-                None,
-            );
-
-            let _guard = MockGuard;
-            // Ensure VIRTUAL_ENV is not set (returns VarError::NotPresent)
-            sys_mock::remove_env_var("VIRTUAL_ENV");
-
-            // Provide an invalid explicit path
-            let invalid_path =
-                Utf8PathBuf::from_path_buf(project_dir.path().join("non_existent_venv"))
-                    .expect("Invalid UTF-8 path");
-            let env = PythonEnvironment::new(
-                Utf8Path::from_path(project_dir.path()).unwrap(),
-                Some(invalid_path.as_ref()),
-            )
-            .expect("Should fall through to project .venv");
-
-            // Should have found the one in the project dir
-            assert_eq!(env.sys_prefix, project_venv_prefix);
-        }
-
-        #[test]
-        fn test_virtual_env_variable_found() {
-            let project_dir = tempdir().unwrap();
-            let venv_dir = tempdir().unwrap();
-            let venv_prefix = create_mock_venv(Utf8Path::from_path(venv_dir.path()).unwrap(), None);
-
-            let _guard = MockGuard;
-            // Mock VIRTUAL_ENV to point to the mock venv
-            sys_mock::set_env_var("VIRTUAL_ENV", venv_prefix.to_string());
-
-            let env =
-                PythonEnvironment::new(Utf8Path::from_path(project_dir.path()).unwrap(), None)
-                    .expect("Should find environment via VIRTUAL_ENV");
-
-            assert_eq!(env.sys_prefix, venv_prefix);
-
-            #[cfg(unix)]
-            assert!(env.python_path.ends_with("bin/python"));
-            #[cfg(windows)]
-            assert!(env.python_path.ends_with("Scripts\\python.exe"));
-        }
-
-        #[test]
-        fn test_explicit_path_overrides_virtual_env() {
-            let project_dir = tempdir().unwrap();
-            let venv1_dir = tempdir().unwrap();
-            let venv1_prefix =
-                create_mock_venv(Utf8Path::from_path(venv1_dir.path()).unwrap(), None); // Mocked by VIRTUAL_ENV
-            let venv2_dir = tempdir().unwrap();
-            let venv2_prefix =
-                create_mock_venv(Utf8Path::from_path(venv2_dir.path()).unwrap(), None); // Provided explicitly
-
-            let _guard = MockGuard;
-            // Mock VIRTUAL_ENV to point to venv1
-            sys_mock::set_env_var("VIRTUAL_ENV", venv1_prefix.to_string());
-
-            // Call with explicit path to venv2
-            let env = PythonEnvironment::new(
-                Utf8Path::from_path(project_dir.path()).unwrap(),
-                Some(venv2_prefix.as_ref()),
-            )
-            .expect("Should find environment via explicit path");
-
-            // Explicit path (venv2) should take precedence
-            assert_eq!(
-                env.sys_prefix, venv2_prefix,
-                "Explicit path should take precedence"
-            );
-        }
-
-        #[test]
-        fn test_project_venv_found() {
-            let project_dir = tempdir().unwrap();
-            let project_utf8 = Utf8Path::from_path(project_dir.path()).unwrap();
-            let venv_path = project_dir.path().join(".venv");
-            let venv_prefix = create_mock_venv(Utf8Path::from_path(&venv_path).unwrap(), None);
-
-            let _guard = MockGuard;
-            // Ensure VIRTUAL_ENV is not set
-            sys_mock::remove_env_var("VIRTUAL_ENV");
-
-            let env = PythonEnvironment::new(project_utf8, None)
-                .expect("Should find environment in project .venv");
-
-            assert_eq!(env.sys_prefix, venv_prefix);
-        }
-
-        #[test]
-        fn test_project_venv_priority() {
-            let project_dir = tempdir().unwrap();
-            let project_utf8 = Utf8Path::from_path(project_dir.path()).unwrap();
-            let dot_venv_prefix = create_mock_venv(
-                Utf8Path::from_path(&project_dir.path().join(".venv")).unwrap(),
-                None,
-            );
-            let _venv_prefix = create_mock_venv(
-                Utf8Path::from_path(&project_dir.path().join("venv")).unwrap(),
-                None,
-            );
-
-            let _guard = MockGuard;
-            // Ensure VIRTUAL_ENV is not set
-            sys_mock::remove_env_var("VIRTUAL_ENV");
-
-            let env = PythonEnvironment::new(project_utf8, None).expect("Should find environment");
-
-            // Should find .venv because it's checked first in the loop
-            assert_eq!(env.sys_prefix, dot_venv_prefix);
-        }
-
-        #[test]
-        fn test_system_python_fallback() {
-            let project_dir = tempdir().unwrap();
-            let project_utf8 = Utf8Path::from_path(project_dir.path()).unwrap();
-
-            let _guard = MockGuard;
-            // Ensure VIRTUAL_ENV is not set
-            sys_mock::remove_env_var("VIRTUAL_ENV");
-
-            let mock_sys_python_dir = tempdir().unwrap();
-            let mock_sys_python_prefix = Utf8Path::from_path(mock_sys_python_dir.path()).unwrap();
-
-            #[cfg(unix)]
-            let (bin_subdir, python_exe, site_packages_rel_path) = (
-                "bin",
-                "python",
-                Utf8PathBuf::from("lib/python3.9/site-packages"),
-            );
-            #[cfg(windows)]
-            let (bin_subdir, python_exe, site_packages_rel_path) = (
-                "Scripts",
-                "python.exe",
-                Utf8PathBuf::from("Lib/site-packages"),
-            );
-
-            let bin_dir = mock_sys_python_prefix.join(bin_subdir);
-            fs::create_dir_all(&bin_dir).unwrap();
-            let python_path = bin_dir.join(python_exe);
+        fn test_interpreter_path_resolution() {
+            let temp_dir = tempdir().unwrap();
+            let temp_path = Utf8Path::from_path(temp_dir.path()).unwrap();
+            let python_path = temp_path.join("python");
             fs::write(&python_path, "").unwrap();
-
             #[cfg(unix)]
             {
                 let mut perms = fs::metadata(&python_path).unwrap().permissions();
@@ -468,314 +187,122 @@ mod tests {
                 fs::set_permissions(&python_path, perms).unwrap();
             }
 
-            let site_packages_path = mock_sys_python_prefix.join(site_packages_rel_path);
-            fs::create_dir_all(&site_packages_path).unwrap();
-
-            sys_mock::set_exec_path("python", python_path.clone());
-
-            let system_env = PythonEnvironment::new(project_utf8, None);
-
-            // Assert it found the mock system python via the mocked finder
-            assert!(
-                system_env.is_some(),
-                "Should fall back to the mock system python"
-            );
-
-            if let Some(env) = system_env {
-                assert_eq!(
-                    env.python_path, python_path,
-                    "Python path should match mock"
-                );
-                assert_eq!(
-                    env.sys_prefix, mock_sys_python_prefix,
-                    "Sys prefix should match mock prefix"
-                );
-                assert!(
-                    env.sys_path.contains(&bin_dir),
-                    "Sys path should contain mock bin dir"
-                );
-                assert!(
-                    env.sys_path.contains(&site_packages_path),
-                    "Sys path should contain mock site-packages"
-                );
-            } else {
-                panic!("Expected to find environment, but got None");
-            }
+            let interpreter = Interpreter::InterpreterPath(python_path.to_string());
+            let resolved = interpreter.python_path(temp_path);
+            assert_eq!(resolved, Some(python_path));
         }
 
         #[test]
-        fn test_no_python_found() {
+        fn test_interpreter_path_not_found() {
+            let interpreter = Interpreter::InterpreterPath("/non/existent/python".to_string());
+            let resolved = interpreter.python_path(Utf8Path::new("/project"));
+            assert_eq!(resolved, None);
+        }
+
+        #[test]
+        fn test_venv_path_resolution() {
+            let venv_dir = tempdir().unwrap();
+            let venv_path = create_mock_venv(Utf8Path::from_path(venv_dir.path()).unwrap());
+
+            let interpreter = Interpreter::VenvPath(venv_path.to_string());
+            let resolved = interpreter.python_path(Utf8Path::new("/project"));
+
+            assert!(resolved.is_some());
+            #[cfg(unix)]
+            assert!(resolved.unwrap().ends_with("bin/python"));
+            #[cfg(windows)]
+            assert!(resolved.unwrap().ends_with("Scripts\\python.exe"));
+        }
+
+        #[test]
+        fn test_venv_path_not_found() {
+            let interpreter = Interpreter::VenvPath("/non/existent/venv".to_string());
+            let resolved = interpreter.python_path(Utf8Path::new("/project"));
+            assert_eq!(resolved, None);
+        }
+
+        #[test]
+        fn test_auto_finds_project_venv() {
             let project_dir = tempdir().unwrap();
-            let project_utf8 = Utf8Path::from_path(project_dir.path()).unwrap();
+            let project_path = Utf8Path::from_path(project_dir.path()).unwrap();
+            let venv_path = project_path.join(".venv");
+            create_mock_venv(&venv_path);
 
-            let _guard = MockGuard; // Setup guard to clear mocks
-
-            // Ensure VIRTUAL_ENV is not set
+            let _guard = MockGuard;
             sys_mock::remove_env_var("VIRTUAL_ENV");
 
-            // Ensure find_executable returns an error
+            let interpreter = Interpreter::Auto;
+            let resolved = interpreter.python_path(project_path);
+
+            assert!(resolved.is_some());
+            #[cfg(unix)]
+            assert!(resolved.unwrap().ends_with(".venv/bin/python"));
+            #[cfg(windows)]
+            assert!(resolved.unwrap().ends_with(".venv\\Scripts\\python.exe"));
+        }
+
+        #[test]
+        fn test_auto_priority_order() {
+            let project_dir = tempdir().unwrap();
+            let project_path = Utf8Path::from_path(project_dir.path()).unwrap();
+
+            // Create both .venv and venv
+            create_mock_venv(&project_path.join(".venv"));
+            create_mock_venv(&project_path.join("venv"));
+
+            let _guard = MockGuard;
+            sys_mock::remove_env_var("VIRTUAL_ENV");
+
+            let interpreter = Interpreter::Auto;
+            let resolved = interpreter.python_path(project_path);
+
+            // Should find .venv first due to order
+            assert!(resolved.is_some());
+            assert!(resolved.unwrap().as_str().contains(".venv"));
+        }
+
+        #[test]
+        fn test_auto_falls_back_to_system() {
+            let project_dir = tempdir().unwrap();
+            let project_path = Utf8Path::from_path(project_dir.path()).unwrap();
+
+            let _guard = MockGuard;
+            sys_mock::remove_env_var("VIRTUAL_ENV");
+
+            // Mock system python
+            let mock_python = tempdir().unwrap();
+            let mock_python_path = Utf8Path::from_path(mock_python.path())
+                .unwrap()
+                .join("python");
+            fs::write(&mock_python_path, "").unwrap();
+            #[cfg(unix)]
+            {
+                let mut perms = fs::metadata(&mock_python_path).unwrap().permissions();
+                perms.set_mode(0o755);
+                fs::set_permissions(&mock_python_path, perms).unwrap();
+            }
+
+            sys_mock::set_exec_path("python", mock_python_path.clone());
+
+            let interpreter = Interpreter::Auto;
+            let resolved = interpreter.python_path(project_path);
+
+            assert_eq!(resolved, Some(mock_python_path));
+        }
+
+        #[test]
+        fn test_auto_no_python_found() {
+            let project_dir = tempdir().unwrap();
+            let project_path = Utf8Path::from_path(project_dir.path()).unwrap();
+
+            let _guard = MockGuard;
+            sys_mock::remove_env_var("VIRTUAL_ENV");
             sys_mock::set_exec_error("python", WhichError::CannotFindBinaryPath);
 
-            let env = PythonEnvironment::new(project_utf8, None);
+            let interpreter = Interpreter::Auto;
+            let resolved = interpreter.python_path(project_path);
 
-            assert!(
-                env.is_none(),
-                "Expected no environment to be found when all discovery methods fail"
-            );
-        }
-
-        #[test]
-        #[cfg(unix)]
-        fn test_unix_site_packages_discovery() {
-            let venv_dir = tempdir().unwrap();
-            let prefix = Utf8Path::from_path(venv_dir.path()).unwrap();
-            let bin_dir = prefix.join("bin");
-            fs::create_dir_all(&bin_dir).unwrap();
-            fs::write(bin_dir.join("python"), "").unwrap();
-            let lib_dir = prefix.join("lib");
-            fs::create_dir_all(&lib_dir).unwrap();
-            let py_version_dir1 = lib_dir.join("python3.8");
-            fs::create_dir_all(&py_version_dir1).unwrap();
-            fs::create_dir_all(py_version_dir1.join("site-packages")).unwrap();
-            let py_version_dir2 = lib_dir.join("python3.10");
-            fs::create_dir_all(&py_version_dir2).unwrap();
-            fs::create_dir_all(py_version_dir2.join("site-packages")).unwrap();
-
-            let env = PythonEnvironment::from_venv_prefix(prefix).unwrap();
-
-            let found_site_packages = env.sys_path.iter().any(|p| p.ends_with("site-packages"));
-            assert!(
-                found_site_packages,
-                "Should have found a site-packages directory"
-            );
-            assert!(env.sys_path.contains(&prefix.join("bin")));
-        }
-
-        #[test]
-        #[cfg(windows)]
-        fn test_windows_site_packages_discovery() {
-            let venv_dir = tempdir().unwrap();
-            let prefix = Utf8Path::from_path(venv_dir.path()).unwrap();
-            let bin_dir = prefix.join("Scripts");
-            fs::create_dir_all(&bin_dir).unwrap();
-            fs::write(bin_dir.join("python.exe"), "").unwrap();
-            let lib_dir = prefix.join("Lib");
-            fs::create_dir_all(&lib_dir).unwrap();
-            let site_packages = lib_dir.join("site-packages");
-            fs::create_dir_all(&site_packages).unwrap();
-
-            let env = PythonEnvironment::from_venv_prefix(prefix).unwrap();
-
-            assert!(env.sys_path.contains(&prefix.join("Scripts")));
-            assert!(
-                env.sys_path.contains(&site_packages),
-                "Should have found Lib/site-packages"
-            );
-        }
-
-        #[test]
-        fn test_from_venv_prefix_returns_none_if_dir_missing() {
-            let dir = tempdir().unwrap();
-            let result =
-                PythonEnvironment::from_venv_prefix(Utf8Path::from_path(dir.path()).unwrap());
-            assert!(result.is_none());
-        }
-
-        #[test]
-        fn test_from_venv_prefix_returns_none_if_binary_missing() {
-            let dir = tempdir().unwrap();
-            let prefix = Utf8Path::from_path(dir.path()).unwrap();
-            fs::create_dir_all(prefix).unwrap();
-
-            #[cfg(unix)]
-            fs::create_dir_all(prefix.join("bin")).unwrap();
-            #[cfg(windows)]
-            fs::create_dir_all(prefix.join("Scripts")).unwrap();
-
-            let result = PythonEnvironment::from_venv_prefix(prefix);
-            assert!(result.is_none());
-        }
-    }
-
-    mod salsa_integration {
-        use std::sync::Arc;
-        use std::sync::Mutex;
-
-        use djls_source::File;
-        use djls_source::FxDashMap;
-        use djls_workspace::FileSystem;
-        use djls_workspace::InMemoryFileSystem;
-        use salsa::Setter;
-
-        use super::*;
-        use crate::inspector::Inspector;
-
-        /// Test implementation of `ProjectDb` for unit tests
-        #[salsa::db]
-        #[derive(Clone)]
-        struct TestDatabase {
-            storage: salsa::Storage<TestDatabase>,
-            project_root: Utf8PathBuf,
-            project: Arc<Mutex<Option<Project>>>,
-            fs: Arc<dyn FileSystem>,
-            files: Arc<FxDashMap<Utf8PathBuf, File>>,
-        }
-
-        impl TestDatabase {
-            fn new(project_root: Utf8PathBuf) -> Self {
-                Self {
-                    storage: salsa::Storage::new(None),
-                    project_root,
-                    project: Arc::new(Mutex::new(None)),
-                    fs: Arc::new(InMemoryFileSystem::new()),
-                    files: Arc::new(FxDashMap::default()),
-                }
-            }
-
-            fn set_project(&self, project: Project) {
-                *self.project.lock().unwrap() = Some(project);
-            }
-        }
-
-        #[salsa::db]
-        impl salsa::Database for TestDatabase {}
-
-        #[salsa::db]
-        impl djls_source::Db for TestDatabase {
-            fn read_file_source(&self, path: &Utf8Path) -> std::io::Result<String> {
-                self.fs.read_to_string(path)
-            }
-        }
-
-        #[salsa::db]
-        impl djls_workspace::Db for TestDatabase {
-            fn fs(&self) -> Arc<dyn FileSystem> {
-                self.fs.clone()
-            }
-
-            fn ensure_file_tracked(&mut self, path: &Utf8Path) -> File {
-                if let Some(entry) = self.files.get(path) {
-                    return *entry;
-                }
-
-                let file = File::new(self, path.to_owned(), 0);
-                self.files.insert(path.to_owned(), file);
-                file
-            }
-
-            fn mark_file_dirty(&mut self, file: File) {
-                let current = file.revision(self);
-                file.set_revision(self).to(current + 1);
-            }
-
-            fn get_file(&self, path: &Utf8Path) -> Option<File> {
-                self.files.get(path).map(|entry| *entry)
-            }
-        }
-
-        #[salsa::db]
-        impl ProjectDb for TestDatabase {
-            fn project(&self) -> Option<Project> {
-                // Return existing project or create a new one
-                let mut project_lock = self.project.lock().unwrap();
-                if project_lock.is_none() {
-                    let root = &self.project_root;
-                    let interpreter_spec = Interpreter::Auto;
-
-                    *project_lock = Some(Project::new(
-                        self,
-                        root.clone(),
-                        interpreter_spec,
-                        djls_conf::Settings::default(),
-                    ));
-                }
-                *project_lock
-            }
-
-            fn inspector(&self) -> Arc<Inspector> {
-                Arc::new(Inspector::new())
-            }
-        }
-
-        #[test]
-        fn test_python_environment_with_salsa_db() {
-            let project_dir = tempdir().unwrap();
-            let venv_dir = tempdir().unwrap();
-
-            // Create a mock venv
-            let venv_prefix = create_mock_venv(Utf8Path::from_path(venv_dir.path()).unwrap(), None);
-
-            // Create a TestDatabase with the project root
-            let db = TestDatabase::new(
-                Utf8PathBuf::from_path_buf(project_dir.path().to_path_buf())
-                    .expect("Invalid UTF-8 path"),
-            );
-
-            // Create and configure the project with the venv path
-            let project = Project::new(
-                &db,
-                Utf8PathBuf::from_path_buf(project_dir.path().to_path_buf())
-                    .expect("Invalid UTF-8 path"),
-                Interpreter::VenvPath(venv_prefix.to_string()),
-                djls_conf::Settings::default(),
-            );
-            db.set_project(project);
-
-            // Call the tracked function
-            let env = python_environment(&db, project);
-
-            // Verify we found the environment
-            assert!(env.is_some(), "Should find environment via salsa db");
-
-            if let Some(env) = env {
-                assert_eq!(env.sys_prefix, venv_prefix);
-
-                #[cfg(unix)]
-                {
-                    assert!(env.python_path.ends_with("bin/python"));
-                    assert!(env.sys_path.contains(&venv_prefix.join("bin")));
-                }
-                #[cfg(windows)]
-                {
-                    assert!(env.python_path.ends_with("Scripts\\python.exe"));
-                    assert!(env.sys_path.contains(&venv_prefix.join("Scripts")));
-                }
-            }
-        }
-
-        #[test]
-        fn test_python_environment_with_project_venv() {
-            let project_dir = tempdir().unwrap();
-
-            // Create a .venv in the project directory
-            let venv_prefix = create_mock_venv(
-                Utf8Path::from_path(&project_dir.path().join(".venv")).unwrap(),
-                None,
-            );
-
-            // Create a TestDatabase with the project root
-            let db = TestDatabase::new(
-                Utf8PathBuf::from_path_buf(project_dir.path().to_path_buf())
-                    .expect("Invalid UTF-8 path"),
-            );
-
-            // Mock to ensure VIRTUAL_ENV is not set
-            let _guard = system::mock::MockGuard;
-            system::mock::remove_env_var("VIRTUAL_ENV");
-
-            // Call the tracked function (should find .venv)
-            let project = db.project().unwrap();
-            let env = python_environment(&db, project);
-
-            // Verify we found the environment
-            assert!(
-                env.is_some(),
-                "Should find environment in project .venv via salsa db"
-            );
-
-            if let Some(env) = env {
-                assert_eq!(env.sys_prefix, venv_prefix);
-            }
+            assert_eq!(resolved, None);
         }
     }
 }

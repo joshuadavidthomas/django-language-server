@@ -36,6 +36,7 @@ pub struct Settings {
     #[serde(default)]
     debug: bool,
     venv_path: Option<String>,
+    django_settings_module: Option<String>,
     #[serde(default)]
     tagspecs: Vec<TagSpecDef>,
 }
@@ -102,6 +103,11 @@ impl Settings {
     }
 
     #[must_use]
+    pub fn django_settings_module(&self) -> Option<&str> {
+        self.django_settings_module.as_deref()
+    }
+
+    #[must_use]
     pub fn tagspecs(&self) -> &[TagSpecDef] {
         &self.tagspecs
     }
@@ -128,6 +134,7 @@ mod tests {
                 Settings {
                     debug: false,
                     venv_path: None,
+                    django_settings_module: None,
                     tagspecs: vec![],
                 }
             );

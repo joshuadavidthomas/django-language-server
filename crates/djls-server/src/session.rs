@@ -59,15 +59,13 @@ impl Session {
                     .and_then(|p| Utf8PathBuf::from_path_buf(p).ok())
             });
 
+        let workspace = Workspace::new();
         let settings = project_path
             .as_ref()
             .and_then(|path| djls_conf::Settings::new(path).ok())
             .unwrap_or_default();
 
-        let workspace = Workspace::new();
-
-        let mut db = DjangoDatabase::new(workspace.overlay());
-        db.set_project(project_path.as_deref(), &settings);
+        let db = DjangoDatabase::new(workspace.overlay(), &settings, project_path.as_deref());
 
         let position_encoding = LspPositionEncoding::from(params)
             .to_position_encoding()
@@ -86,18 +84,8 @@ impl Session {
         &self.db
     }
 
-    #[must_use]
-    pub fn settings(&self) -> Option<&Settings> {
-        self.db.project().map(|project| project.settings(&self.db))
-    }
-
-    pub fn update_settings(&mut self, settings: &Settings) {
-        let project_root = self
-            .db
-            .project()
-            .map(|project| project.root(&self.db).to_owned());
-
-        self.db.set_project(project_root.as_deref(), settings);
+    pub fn set_settings(&mut self, settings: Settings) {
+        self.db.set_settings(settings);
     }
 
     #[must_use]
