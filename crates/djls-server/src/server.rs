@@ -426,7 +426,7 @@ impl LanguageServer for DjangoLanguageServer {
 
                 match djls_conf::Settings::new(&project_root) {
                     Ok(new_settings) => {
-                        session.update_settings(new_settings);
+                        session.set_settings(new_settings);
                     }
                     Err(e) => {
                         tracing::error!("Error loading settings: {}", e);

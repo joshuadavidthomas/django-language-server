@@ -89,17 +89,27 @@ impl Default for DjangoDatabase {
 
 impl DjangoDatabase {
     /// Create a new [`DjangoDatabase`] with the given file system handle.
-    pub fn new(file_system: Arc<dyn FileSystem>) -> Self {
-        Self {
+    pub fn new(
+        file_system: Arc<dyn FileSystem>,
+        settings: &Settings,
+        project_path: Option<&Utf8Path>,
+    ) -> Self {
+        let mut db = Self {
             fs: file_system,
             files: Arc::new(FxDashMap::default()),
             project: Arc::new(Mutex::new(None)),
-            settings: Arc::new(Mutex::new(Settings::default())),
+            settings: Arc::new(Mutex::new(settings.clone())),
             inspector: Arc::new(Inspector::new()),
             storage: salsa::Storage::new(None),
             #[cfg(test)]
             logs: Arc::new(Mutex::new(None)),
+        };
+
+        if let Some(path) = project_path {
+            db.set_project(path, settings);
         }
+
+        db
     }
 
     /// Get the current settings
@@ -116,38 +126,32 @@ impl DjangoDatabase {
     /// # Panics
     ///
     /// Panics if the settings mutex is poisoned (another thread panicked while holding the lock)
-    pub fn update_settings(&mut self, new_settings: Settings) {
-        let old_settings = self.settings();
-        let old_venv_path = old_settings.venv_path().map(String::from);
-        let new_venv_path = new_settings.venv_path().map(String::from);
-        let old_django_module = old_settings.django_settings_module().map(String::from);
-        let new_django_module = new_settings.django_settings_module().map(String::from);
+    pub fn set_settings(&mut self, settings: Settings) {
+        let project_needs_update = {
+            let old = self.settings();
+            old.venv_path() != settings.venv_path()
+                || old.django_settings_module() != settings.django_settings_module()
+        };
 
-        *self.settings.lock().unwrap() = new_settings;
+        *self.settings.lock().unwrap() = settings;
 
-        // If venv_path or django_settings_module changed and we have a project, update it
-        if (old_venv_path != new_venv_path) || (old_django_module != new_django_module) {
+        if project_needs_update {
             if let Some(project) = self.project() {
                 let root = project.root(self).clone();
-                self.set_project(Some(&root));
+                let settings = self.settings();
+                self.set_project(&root, &settings);
             }
         }
     }
 
-    /// Set the project for this database instance
-    ///
-    /// # Panics
-    ///
-    /// Panics if the project mutex is poisoned.
-    pub fn set_project(&mut self, root: Option<&Utf8Path>) {
-        if let Some(path) = root {
-            let settings = self.settings();
-            let venv_path = settings.venv_path();
-            let django_settings_module = settings.django_settings_module();
-
-            let project = Project::bootstrap(self, path, venv_path, django_settings_module);
-            *self.project.lock().unwrap() = Some(project);
-        }
+    fn set_project(&mut self, root: &Utf8Path, settings: &Settings) {
+        let project = Project::bootstrap(
+            self,
+            root,
+            settings.venv_path(),
+            settings.django_settings_module(),
+        );
+        *self.project.lock().unwrap() = Some(project);
     }
 }
 
