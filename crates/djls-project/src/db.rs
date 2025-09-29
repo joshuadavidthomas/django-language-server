@@ -36,12 +36,4 @@ pub trait Db: salsa::Database {
             Utf8PathBuf::from(".")
         }
     }
-
-    /// Get the Python interpreter path for the current project
-    fn python_interpreter(&self) -> Option<Utf8PathBuf> {
-        let project = self.project()?;
-        let interpreter = project.interpreter(self);
-        let project_root = project.root(self);
-        interpreter.python_path(project_root)
-    }
 }
