@@ -103,11 +103,19 @@ impl DjangoDatabase {
     }
 
     /// Get the current settings
+    ///
+    /// # Panics
+    ///
+    /// Panics if the settings mutex is poisoned (another thread panicked while holding the lock)
     pub fn settings(&self) -> Settings {
         self.settings.lock().unwrap().clone()
     }
 
     /// Update the settings, potentially updating the project if `venv_path` or `django_settings_module` changed
+    ///
+    /// # Panics
+    ///
+    /// Panics if the settings mutex is poisoned (another thread panicked while holding the lock)
     pub fn update_settings(&mut self, new_settings: Settings) {
         let old_settings = self.settings();
         let old_venv_path = old_settings.venv_path().map(String::from);
