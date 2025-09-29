@@ -11,7 +11,7 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_conf::Settings;
 use djls_project::Db as ProjectDb;
-use djls_project::InspectorPool;
+use djls_project::Inspector;
 use djls_project::Project;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::TagIndex;
@@ -42,8 +42,8 @@ pub struct DjangoDatabase {
     /// The single project for this database instance
     project: Arc<Mutex<Option<Project>>>,
 
-    /// Shared inspector pool for executing Python queries
-    inspector_pool: Arc<InspectorPool>,
+    /// Shared inspector for executing Python queries
+    inspector: Arc<Inspector>,
 
     storage: salsa::Storage<Self>,
 
@@ -59,11 +59,12 @@ impl Default for DjangoDatabase {
         use djls_workspace::InMemoryFileSystem;
 
         let logs = <Arc<Mutex<Option<Vec<String>>>>>::default();
+
         Self {
             fs: Arc::new(InMemoryFileSystem::new()),
             files: Arc::new(FxDashMap::default()),
             project: Arc::new(Mutex::new(None)),
-            inspector_pool: Arc::new(InspectorPool::new()),
+            inspector: Arc::new(Inspector::new()),
             storage: salsa::Storage::new(Some(Box::new({
                 let logs = logs.clone();
                 move |event| {
@@ -89,7 +90,7 @@ impl DjangoDatabase {
             fs: file_system,
             files: Arc::new(FxDashMap::default()),
             project: Arc::new(Mutex::new(None)),
-            inspector_pool: Arc::new(InspectorPool::new()),
+            inspector: Arc::new(Inspector::new()),
             storage: salsa::Storage::new(None),
             #[cfg(test)]
             logs: Arc::new(Mutex::new(None)),
@@ -177,7 +178,7 @@ impl ProjectDb for DjangoDatabase {
         *self.project.lock().unwrap()
     }
 
-    fn inspector_pool(&self) -> Arc<InspectorPool> {
-        self.inspector_pool.clone()
+    fn inspector(&self) -> Arc<Inspector> {
+        self.inspector.clone()
     }
 }

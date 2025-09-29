@@ -608,7 +608,7 @@ mod tests {
         use salsa::Setter;
 
         use super::*;
-        use crate::inspector::pool::InspectorPool;
+        use crate::inspector::Inspector;
 
         /// Test implementation of `ProjectDb` for unit tests
         #[salsa::db]
@@ -692,8 +692,8 @@ mod tests {
                 *project_lock
             }
 
-            fn inspector_pool(&self) -> Arc<InspectorPool> {
-                Arc::new(InspectorPool::new())
+            fn inspector(&self) -> Arc<Inspector> {
+                Arc::new(Inspector::new())
             }
         }
 

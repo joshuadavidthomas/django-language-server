@@ -5,7 +5,7 @@ pub use templatetags::TemplateTags;
 
 use crate::db::Db as ProjectDb;
 use crate::inspector::inspector_run;
-use crate::inspector::queries::Query;
+use crate::inspector::Query;
 use crate::python::python_environment;
 use crate::Project;
 

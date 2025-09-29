@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use camino::Utf8PathBuf;
 
-use crate::inspector::pool::InspectorPool;
+use crate::inspector::Inspector;
 use crate::project::Project;
 
 /// Project-specific database trait extending the workspace database
@@ -23,8 +23,8 @@ pub trait Db: salsa::Database {
     /// Get the current project (if set)
     fn project(&self) -> Option<Project>;
 
-    /// Get the shared inspector pool for executing Python queries
-    fn inspector_pool(&self) -> Arc<InspectorPool>;
+    /// Get the shared inspector for executing Python queries
+    fn inspector(&self) -> Arc<Inspector>;
 
     /// Return the current project root or fall back to the current working directory.
     fn project_root_or_cwd(&self) -> Utf8PathBuf {
