@@ -1,4 +1,4 @@
-pub mod queries;
+mod queries;
 
 use std::io::BufRead;
 use std::io::BufReader;
@@ -23,7 +23,7 @@ use tempfile::NamedTempFile;
 use crate::db::Db as ProjectDb;
 use crate::python::python_environment;
 use crate::python::PythonEnvironment;
-use queries::Query;
+pub use queries::Query;
 
 #[derive(Serialize)]
 pub struct DjlsRequest {

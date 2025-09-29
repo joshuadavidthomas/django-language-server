@@ -6,7 +6,7 @@ use serde_json::Value;
 
 use crate::db::Db as ProjectDb;
 use crate::inspector::inspector_run;
-use crate::inspector::queries::Query;
+use crate::inspector::Query;
 use crate::Project;
 
 /// Get template tags for the current project by querying the inspector.

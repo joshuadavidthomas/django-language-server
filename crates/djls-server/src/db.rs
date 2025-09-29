@@ -59,7 +59,7 @@ impl Default for DjangoDatabase {
         use djls_workspace::InMemoryFileSystem;
 
         let logs = <Arc<Mutex<Option<Vec<String>>>>>::default();
-        
+
         Self {
             fs: Arc::new(InMemoryFileSystem::new()),
             files: Arc::new(FxDashMap::default()),
