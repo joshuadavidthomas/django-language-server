@@ -107,7 +107,7 @@ impl DjangoDatabase {
         self.settings.lock().unwrap().clone()
     }
 
-    /// Update the settings, potentially updating the project if venv_path or django_settings_module changed
+    /// Update the settings, potentially updating the project if `venv_path` or `django_settings_module` changed
     pub fn update_settings(&mut self, new_settings: Settings) {
         let old_settings = self.settings();
         let old_venv_path = old_settings.venv_path().map(String::from);

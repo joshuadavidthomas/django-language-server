@@ -1,6 +1,7 @@
-use camino::Utf8PathBuf;
 #[cfg(test)]
 use std::env::VarError;
+
+use camino::Utf8PathBuf;
 use which::Error as WhichError;
 
 pub fn find_executable(name: &str) -> Result<Utf8PathBuf, WhichError> {
@@ -104,7 +105,9 @@ mod tests {
     use std::env::VarError;
 
     use super::mock::MockGuard;
-    use super::mock::{self as sys_mock};
+    use super::mock::{
+        self as sys_mock,
+    };
     use super::*;
 
     #[test]
