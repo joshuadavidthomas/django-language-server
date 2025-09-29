@@ -112,12 +112,7 @@ impl DjangoDatabase {
         db
     }
 
-    /// Get the current settings
-    ///
-    /// # Panics
-    ///
-    /// Panics if the settings mutex is poisoned (another thread panicked while holding the lock)
-    pub fn settings(&self) -> Settings {
+    fn settings(&self) -> Settings {
         self.settings.lock().unwrap().clone()
     }
 
