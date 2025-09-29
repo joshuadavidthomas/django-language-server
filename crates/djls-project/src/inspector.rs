@@ -15,6 +15,7 @@ use anyhow::Context;
 use anyhow::Result;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
+pub use queries::Query;
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde::Serialize;
@@ -23,7 +24,6 @@ use tempfile::NamedTempFile;
 use crate::db::Db as ProjectDb;
 use crate::python::python_environment;
 use crate::python::PythonEnvironment;
-pub use queries::Query;
 
 #[derive(Serialize)]
 pub struct DjlsRequest {
