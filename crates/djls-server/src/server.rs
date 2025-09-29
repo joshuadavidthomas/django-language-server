@@ -311,8 +311,16 @@ impl LanguageServer for DjangoLanguageServer {
                     let file_kind = FileKind::from(&path);
                     let template_tags = session.with_db(|db| {
                         if let Some(project) = db.project() {
-                            djls_project::templatetags(db, project)
+                            tracing::debug!("Fetching templatetags for project");
+                            let tags = djls_project::templatetags(db, project);
+                            if let Some(ref t) = tags {
+                                tracing::debug!("Got {} templatetags", t.len());
+                            } else {
+                                tracing::warn!("No templatetags returned from project");
+                            }
+                            tags
                         } else {
+                            tracing::warn!("No project available for templatetags");
                             None
                         }
                     });
@@ -418,7 +426,7 @@ impl LanguageServer for DjangoLanguageServer {
 
                 match djls_conf::Settings::new(&project_root) {
                     Ok(new_settings) => {
-                        session.update_settings(&new_settings);
+                        session.update_settings(new_settings);
                     }
                     Err(e) => {
                         tracing::error!("Error loading settings: {}", e);

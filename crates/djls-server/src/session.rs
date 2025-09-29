@@ -67,7 +67,10 @@ impl Session {
         let workspace = Workspace::new();
 
         let mut db = DjangoDatabase::new(workspace.overlay());
-        db.set_project(project_path.as_deref(), &settings);
+        db.update_settings(settings);
+        if let Some(path) = project_path.as_deref() {
+            db.set_project(Some(path));
+        }
 
         let position_encoding = LspPositionEncoding::from(params)
             .to_position_encoding()
@@ -87,17 +90,12 @@ impl Session {
     }
 
     #[must_use]
-    pub fn settings(&self) -> Option<&Settings> {
-        self.db.project().map(|project| project.settings(&self.db))
+    pub fn settings(&self) -> Settings {
+        self.db.settings()
     }
 
-    pub fn update_settings(&mut self, settings: &Settings) {
-        let project_root = self
-            .db
-            .project()
-            .map(|project| project.root(&self.db).to_owned());
-
-        self.db.set_project(project_root.as_deref(), settings);
+    pub fn update_settings(&mut self, settings: Settings) {
+        self.db.update_settings(settings);
     }
 
     #[must_use]

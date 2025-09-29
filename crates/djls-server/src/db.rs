@@ -42,6 +42,9 @@ pub struct DjangoDatabase {
     /// The single project for this database instance
     project: Arc<Mutex<Option<Project>>>,
 
+    /// Configuration settings for the language server
+    settings: Arc<Mutex<Settings>>,
+
     /// Shared inspector for executing Python queries
     inspector: Arc<Inspector>,
 
@@ -64,6 +67,7 @@ impl Default for DjangoDatabase {
             fs: Arc::new(InMemoryFileSystem::new()),
             files: Arc::new(FxDashMap::default()),
             project: Arc::new(Mutex::new(None)),
+            settings: Arc::new(Mutex::new(Settings::default())),
             inspector: Arc::new(Inspector::new()),
             storage: salsa::Storage::new(Some(Box::new({
                 let logs = logs.clone();
@@ -90,10 +94,35 @@ impl DjangoDatabase {
             fs: file_system,
             files: Arc::new(FxDashMap::default()),
             project: Arc::new(Mutex::new(None)),
+            settings: Arc::new(Mutex::new(Settings::default())),
             inspector: Arc::new(Inspector::new()),
             storage: salsa::Storage::new(None),
             #[cfg(test)]
             logs: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    /// Get the current settings
+    pub fn settings(&self) -> Settings {
+        self.settings.lock().unwrap().clone()
+    }
+
+    /// Update the settings, potentially updating the project if venv_path or django_settings_module changed
+    pub fn update_settings(&mut self, new_settings: Settings) {
+        let old_settings = self.settings();
+        let old_venv_path = old_settings.venv_path().map(String::from);
+        let new_venv_path = new_settings.venv_path().map(String::from);
+        let old_django_module = old_settings.django_settings_module().map(String::from);
+        let new_django_module = new_settings.django_settings_module().map(String::from);
+
+        *self.settings.lock().unwrap() = new_settings;
+
+        // If venv_path or django_settings_module changed and we have a project, update it
+        if (old_venv_path != new_venv_path) || (old_django_module != new_django_module) {
+            if let Some(project) = self.project() {
+                let root = project.root(self).clone();
+                self.set_project(Some(&root));
+            }
         }
     }
 
@@ -102,9 +131,13 @@ impl DjangoDatabase {
     /// # Panics
     ///
     /// Panics if the project mutex is poisoned.
-    pub fn set_project(&mut self, root: Option<&Utf8Path>, settings: &Settings) {
+    pub fn set_project(&mut self, root: Option<&Utf8Path>) {
         if let Some(path) = root {
-            let project = Project::bootstrap(self, path, settings.venv_path(), settings.clone());
+            let settings = self.settings();
+            let venv_path = settings.venv_path();
+            let django_settings_module = settings.django_settings_module();
+
+            let project = Project::bootstrap(self, path, venv_path, django_settings_module);
             *self.project.lock().unwrap() = Some(project);
         }
     }
@@ -160,11 +193,7 @@ impl TemplateDb for DjangoDatabase {}
 #[salsa::db]
 impl SemanticDb for DjangoDatabase {
     fn tag_specs(&self) -> TagSpecs {
-        if let Some(project) = self.project() {
-            TagSpecs::from(project.settings(self))
-        } else {
-            TagSpecs::from(&Settings::default())
-        }
+        TagSpecs::from(&self.settings())
     }
 
     fn tag_index(&self) -> TagIndex<'_> {

@@ -6,7 +6,6 @@ use serde::Serialize;
 use crate::db::Db as ProjectDb;
 use crate::inspector;
 use crate::inspector::InspectorRequest;
-use crate::python::python_environment;
 use crate::Project;
 
 #[derive(Serialize)]
@@ -20,68 +19,13 @@ impl InspectorRequest for DjangoInitRequest {
     type Response = DjangoInitResponse;
 }
 
-/// Initialize Django for the current project.
+/// Check if Django is available for the current project.
 ///
 /// This tracked function attempts to initialize Django via the inspector.
 /// Returns true if Django was successfully initialized, false otherwise.
 #[salsa::tracked]
-pub fn django_initialized(db: &dyn ProjectDb, _project: Project) -> bool {
+pub fn django_available(db: &dyn ProjectDb, _project: Project) -> bool {
     inspector::query(db, &DjangoInitRequest).is_some()
-}
-
-/// Check if Django is available for the current project.
-///
-/// This determines if Django is installed and configured in the Python environment.
-/// First attempts to initialize Django, then falls back to environment detection.
-#[salsa::tracked]
-pub fn django_available(db: &dyn ProjectDb, project: Project) -> bool {
-    // Try to initialize Django
-    if django_initialized(db, project) {
-        return true;
-    }
-
-    // Fallback to environment detection
-    python_environment(db, project).is_some()
-}
-
-/// Get the Django settings module name for the current project.
-///
-/// Returns `DJANGO_SETTINGS_MODULE` env var, or attempts to detect it
-/// via common patterns.
-#[salsa::tracked]
-pub fn django_settings_module(db: &dyn ProjectDb, project: Project) -> Option<String> {
-    // Note: The django_init query doesn't return the settings module,
-    // it just initializes Django. So we detect it ourselves.
-
-    // Check environment override first
-    if let Ok(env_value) = std::env::var("DJANGO_SETTINGS_MODULE") {
-        if !env_value.is_empty() {
-            return Some(env_value);
-        }
-    }
-
-    let project_path = project.root(db);
-
-    // Try to detect settings module
-    if project_path.join("manage.py").exists() {
-        // Look for common settings modules
-        for candidate in &["settings", "config.settings", "project.settings"] {
-            let parts: Vec<&str> = candidate.split('.').collect();
-            let mut path = project_path.clone();
-            for part in &parts[..parts.len() - 1] {
-                path = path.join(part);
-            }
-            if let Some(last) = parts.last() {
-                path = path.join(format!("{last}.py"));
-            }
-
-            if path.exists() {
-                return Some((*candidate).to_string());
-            }
-        }
-    }
-
-    None
 }
 
 #[derive(Serialize)]
@@ -103,6 +47,8 @@ impl InspectorRequest for TemplatetagsRequest {
 #[salsa::tracked]
 pub fn templatetags(db: &dyn ProjectDb, _project: Project) -> Option<TemplateTags> {
     let response = inspector::query(db, &TemplatetagsRequest)?;
+    let tag_count = response.templatetags.len();
+    tracing::debug!("Retrieved {} templatetags from inspector", tag_count);
     Some(TemplateTags(response.templatetags))
 }
 
