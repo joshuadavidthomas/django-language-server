@@ -1,26 +1,43 @@
-mod templatetags;
+use std::ops::Deref;
 
-pub use templatetags::get_templatetags;
-pub use templatetags::TemplateTags;
+use serde::Deserialize;
+use serde::Serialize;
 
 use crate::db::Db as ProjectDb;
-use crate::inspector::inspector_run;
-use crate::inspector::Query;
+use crate::inspector;
+use crate::inspector::InspectorRequest;
 use crate::python::python_environment;
 use crate::Project;
+
+#[derive(Serialize)]
+struct DjangoInitRequest;
+
+#[derive(Deserialize)]
+struct DjangoInitResponse;
+
+impl InspectorRequest for DjangoInitRequest {
+    const NAME: &'static str = "django_init";
+    type Response = DjangoInitResponse;
+}
+
+/// Initialize Django for the current project.
+///
+/// This tracked function attempts to initialize Django via the inspector.
+/// Returns true if Django was successfully initialized, false otherwise.
+#[salsa::tracked]
+pub fn django_initialized(db: &dyn ProjectDb, _project: Project) -> bool {
+    inspector::query(db, &DjangoInitRequest).is_some()
+}
 
 /// Check if Django is available for the current project.
 ///
 /// This determines if Django is installed and configured in the Python environment.
-/// First consults the inspector, then falls back to environment detection.
+/// First attempts to initialize Django, then falls back to environment detection.
 #[salsa::tracked]
 pub fn django_available(db: &dyn ProjectDb, project: Project) -> bool {
-    // First try to get Django availability from inspector
-    if let Some(json_data) = inspector_run(db, Query::DjangoInit) {
-        // Parse the JSON response - expect a boolean
-        if let Ok(available) = serde_json::from_str::<bool>(&json_data) {
-            return available;
-        }
+    // Try to initialize Django
+    if django_initialized(db, project) {
+        return true;
     }
 
     // Fallback to environment detection
@@ -29,19 +46,14 @@ pub fn django_available(db: &dyn ProjectDb, project: Project) -> bool {
 
 /// Get the Django settings module name for the current project.
 ///
-/// Returns the inspector result, `DJANGO_SETTINGS_MODULE` env var, or attempts to detect it
+/// Returns `DJANGO_SETTINGS_MODULE` env var, or attempts to detect it
 /// via common patterns.
 #[salsa::tracked]
 pub fn django_settings_module(db: &dyn ProjectDb, project: Project) -> Option<String> {
-    // Try to get settings module from inspector
-    if let Some(json_data) = inspector_run(db, Query::DjangoInit) {
-        // Parse the JSON response - expect a string
-        if let Ok(settings) = serde_json::from_str::<String>(&json_data) {
-            return Some(settings);
-        }
-    }
+    // Note: The django_init query doesn't return the settings module,
+    // it just initializes Django. So we detect it ourselves.
 
-    // Fall back to environment override if present
+    // Check environment override first
     if let Ok(env_value) = std::env::var("DJANGO_SETTINGS_MODULE") {
         if !env_value.is_empty() {
             return Some(env_value);
@@ -70,4 +82,96 @@ pub fn django_settings_module(db: &dyn ProjectDb, project: Project) -> Option<St
     }
 
     None
+}
+
+#[derive(Serialize)]
+struct TemplatetagsRequest;
+
+#[derive(Deserialize)]
+struct TemplatetagsResponse {
+    templatetags: Vec<TemplateTag>,
+}
+
+impl InspectorRequest for TemplatetagsRequest {
+    const NAME: &'static str = "templatetags";
+    type Response = TemplatetagsResponse;
+}
+
+/// Get template tags for the current project by querying the inspector.
+///
+/// This is the primary Salsa-tracked entry point for templatetags.
+#[salsa::tracked]
+pub fn templatetags(db: &dyn ProjectDb, _project: Project) -> Option<TemplateTags> {
+    let response = inspector::query(db, &TemplatetagsRequest)?;
+    Some(TemplateTags(response.templatetags))
+}
+
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct TemplateTags(Vec<TemplateTag>);
+
+impl Deref for TemplateTags {
+    type Target = Vec<TemplateTag>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct TemplateTag {
+    name: String,
+    module: String,
+    doc: Option<String>,
+}
+
+impl TemplateTag {
+    pub fn name(&self) -> &String {
+        &self.name
+    }
+
+    pub fn module(&self) -> &String {
+        &self.module
+    }
+
+    pub fn doc(&self) -> Option<&String> {
+        self.doc.as_ref()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_template_tag_fields() {
+        // Test that TemplateTag fields are accessible correctly
+        let tag = TemplateTag {
+            name: "test_tag".to_string(),
+            module: "test_module".to_string(),
+            doc: Some("Test documentation".to_string()),
+        };
+        assert_eq!(tag.name(), "test_tag");
+        assert_eq!(tag.module(), "test_module");
+        assert_eq!(tag.doc(), Some(&"Test documentation".to_string()));
+    }
+
+    #[test]
+    fn test_template_tags_deref() {
+        // Test that TemplateTags derefs to Vec<TemplateTag>
+        let tags = TemplateTags(vec![
+            TemplateTag {
+                name: "tag1".to_string(),
+                module: "module1".to_string(),
+                doc: None,
+            },
+            TemplateTag {
+                name: "tag2".to_string(),
+                module: "module2".to_string(),
+                doc: None,
+            },
+        ]);
+        assert_eq!(tags.len(), 2);
+        assert_eq!(tags[0].name(), "tag1");
+        assert_eq!(tags[1].name(), "tag2");
+    }
 }

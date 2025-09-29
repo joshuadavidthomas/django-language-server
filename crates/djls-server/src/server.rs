@@ -311,7 +311,7 @@ impl LanguageServer for DjangoLanguageServer {
                     let file_kind = FileKind::from(&path);
                     let template_tags = session.with_db(|db| {
                         if let Some(project) = db.project() {
-                            djls_project::get_templatetags(db, project)
+                            djls_project::templatetags(db, project)
                         } else {
                             None
                         }

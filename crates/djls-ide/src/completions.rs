@@ -485,7 +485,7 @@ fn generate_tag_name_completions(
             let completion_item = lsp_types::CompletionItem {
                 label: tag.name().clone(),
                 kind: Some(kind),
-                detail: Some(format!("from {}", tag.library())),
+                detail: Some(format!("from {}", tag.module())),
                 documentation: tag
                     .doc()
                     .map(|doc| lsp_types::Documentation::String(doc.clone())),
@@ -661,7 +661,7 @@ fn generate_library_completions(
     // Get unique library names
     let mut libraries = std::collections::HashSet::new();
     for tag in tags.iter() {
-        libraries.insert(tag.library());
+        libraries.insert(tag.module());
     }
 
     let mut completions = Vec::new();

@@ -5,8 +5,8 @@ use djls_conf::Settings;
 use crate::db::Db as ProjectDb;
 use crate::django_available;
 use crate::django_settings_module;
-use crate::get_templatetags;
 use crate::python::Interpreter;
+use crate::templatetags;
 
 /// Complete project configuration as a Salsa input.
 ///
@@ -15,7 +15,6 @@ use crate::python::Interpreter;
 /// Project input and ProjectMetadata, and now captures the resolved `djls` settings
 /// so higher layers can access configuration through Salsa instead of rereading
 /// from disk.
-// TODO: Add templatetags as a field on this input
 #[salsa::input]
 #[derive(Debug)]
 pub struct Project {
@@ -47,6 +46,6 @@ impl Project {
     pub fn initialize(self, db: &dyn ProjectDb) {
         let _ = django_available(db, self);
         let _ = django_settings_module(db, self);
-        let _ = get_templatetags(db, self);
+        let _ = templatetags(db, self);
     }
 }

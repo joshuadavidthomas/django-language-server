@@ -1,5 +1,3 @@
-mod queries;
-
 use std::io::BufRead;
 use std::io::BufReader;
 use std::io::Write;
@@ -15,7 +13,6 @@ use anyhow::Context;
 use anyhow::Result;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
-pub use queries::Query;
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde::Serialize;
@@ -25,88 +22,29 @@ use crate::db::Db as ProjectDb;
 use crate::python::python_environment;
 use crate::python::PythonEnvironment;
 
-#[derive(Serialize)]
-pub struct DjlsRequest {
-    #[serde(flatten)]
-    pub query: Query,
+pub trait InspectorRequest: Serialize {
+    /// The query name sent to Python (e.g., "templatetags", "`python_env`")
+    const NAME: &'static str;
+    /// The response type to deserialize into
+    type Response: DeserializeOwned;
 }
 
 #[derive(Debug, Deserialize)]
-pub struct DjlsResponse<T = serde_json::Value> {
+pub struct InspectorResponse<T = serde_json::Value> {
     pub ok: bool,
     pub data: Option<T>,
     pub error: Option<String>,
 }
 
-/// Run an inspector query and return the JSON result as a string.
-///
-/// This tracked function executes inspector queries through the shared inspector
-/// and caches the results based on project state and query kind.
-pub fn inspector_run(db: &dyn ProjectDb, query: Query) -> Option<String> {
+pub fn query<Q: InspectorRequest>(db: &dyn ProjectDb, request: &Q) -> Option<Q::Response> {
     let project = db.project()?;
     let python_env = python_environment(db, project)?;
     let project_path = project.root(db);
 
-    match db
-        .inspector()
-        .query(&python_env, project_path, &DjlsRequest { query })
-    {
-        Ok(response) => {
-            if response.ok {
-                if let Some(data) = response.data {
-                    // Convert to JSON string
-                    serde_json::to_string(&data).ok()
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        }
-        Err(_) => None,
-    }
-}
-
-/// Run an inspector query and return the typed result directly.
-///
-/// This generic function executes inspector queries and deserializes
-/// the response data into the specified type.
-#[allow(dead_code)]
-pub fn inspector_run_typed<T>(db: &dyn ProjectDb, query: Query) -> Option<T>
-where
-    T: DeserializeOwned,
-{
-    let json_str = inspector_run(db, query)?;
-    serde_json::from_str(&json_str).ok()
-}
-
-const INSPECTOR_PYZ: &[u8] = include_bytes!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/dist/djls_inspector.pyz"
-));
-
-struct InspectorFile(NamedTempFile);
-
-impl InspectorFile {
-    pub fn create() -> Result<Self> {
-        let mut zipapp_file = tempfile::Builder::new()
-            .prefix("djls_inspector_")
-            .suffix(".pyz")
-            .tempfile()
-            .context("Failed to create temp file for inspector")?;
-
-        zipapp_file
-            .write_all(INSPECTOR_PYZ)
-            .context("Failed to write inspector zipapp to temp file")?;
-        zipapp_file
-            .flush()
-            .context("Failed to flush inspector zipapp")?;
-
-        Ok(Self(zipapp_file))
-    }
-
-    pub fn path(&self) -> &Utf8Path {
-        Utf8Path::from_path(self.0.path()).expect("Temp file path should always be valid UTF-8")
+    let inspector = db.inspector();
+    match inspector.query::<Q, Q::Response>(&python_env, project_path, request) {
+        Ok(response) if response.ok => response.data,
+        _ => None,
     }
 }
 
@@ -157,14 +95,15 @@ impl Inspector {
         self.inner.lock().expect("Inspector mutex poisoned")
     }
 
-    /// Execute a query, reusing existing process if available
-    pub fn query(
+    /// Execute a typed query, reusing existing process if available
+    pub fn query<Q: InspectorRequest, R: DeserializeOwned>(
         &self,
         python_env: &PythonEnvironment,
         project_path: &Utf8Path,
-        request: &DjlsRequest,
-    ) -> Result<DjlsResponse> {
-        self.inner().query(python_env, project_path, request)
+        request: &Q,
+    ) -> Result<InspectorResponse<R>> {
+        self.inner()
+            .query::<Q, R>(python_env, project_path, request)
     }
 
     /// Manually close the inspector process
@@ -199,17 +138,17 @@ struct InspectorInner {
 }
 
 impl InspectorInner {
-    /// Execute a query, ensuring a valid process exists
-    fn query(
+    /// Execute a typed query, ensuring a valid process exists
+    fn query<Q: InspectorRequest, R: DeserializeOwned>(
         &mut self,
         python_env: &PythonEnvironment,
         project_path: &Utf8Path,
-        request: &DjlsRequest,
-    ) -> Result<DjlsResponse> {
+        request: &Q,
+    ) -> Result<InspectorResponse<R>> {
         self.ensure_process(python_env, project_path)?;
 
         let process = self.process_mut();
-        let response = process.query(request)?;
+        let response = process.query::<Q, R>(request)?;
         process.last_used = Instant::now();
 
         Ok(response)
@@ -255,6 +194,36 @@ impl InspectorInner {
 impl Drop for InspectorInner {
     fn drop(&mut self) {
         self.shutdown_process();
+    }
+}
+
+const INSPECTOR_PYZ: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/dist/djls_inspector.pyz"
+));
+
+struct InspectorFile(NamedTempFile);
+
+impl InspectorFile {
+    pub fn create() -> Result<Self> {
+        let mut zipapp_file = tempfile::Builder::new()
+            .prefix("djls_inspector_")
+            .suffix(".pyz")
+            .tempfile()
+            .context("Failed to create temp file for inspector")?;
+
+        zipapp_file
+            .write_all(INSPECTOR_PYZ)
+            .context("Failed to write inspector zipapp to temp file")?;
+        zipapp_file
+            .flush()
+            .context("Failed to flush inspector zipapp")?;
+
+        Ok(Self(zipapp_file))
+    }
+
+    pub fn path(&self) -> &Utf8Path {
+        Utf8Path::from_path(self.0.path()).expect("Temp file path should always be valid UTF-8")
     }
 }
 
@@ -328,9 +297,18 @@ impl InspectorProcess {
         })
     }
 
-    /// Send a request and receive a response
-    pub fn query(&mut self, request: &DjlsRequest) -> Result<DjlsResponse> {
-        let request_json = serde_json::to_string(request)?;
+    /// Send a typed request and receive a typed response
+    pub fn query<Q: InspectorRequest, R: DeserializeOwned>(
+        &mut self,
+        request: &Q,
+    ) -> Result<InspectorResponse<R>> {
+        // Build the wire format request
+        let wire_request = serde_json::json!({
+            "query": Q::NAME,
+            "args": request,
+        });
+
+        let request_json = serde_json::to_string(&wire_request)?;
 
         writeln!(self.stdin, "{request_json}")?;
         self.stdin.flush()?;
@@ -340,7 +318,7 @@ impl InspectorProcess {
             .read_line(&mut response_line)
             .context("Failed to read response from inspector")?;
 
-        let response: DjlsResponse =
+        let response: InspectorResponse<R> =
             serde_json::from_str(&response_line).context("Failed to parse inspector response")?;
 
         Ok(response)
