@@ -428,15 +428,17 @@ impl LanguageServer for DjangoLanguageServer {
                     &params.text_document_position_params.text_document.uri,
                     paths::LspContext::GotoDefinition,
                 )?;
-
-                let position = params.text_document_position_params.position;
-
                 let path = paths::url_to_path(&url)?;
                 let file = session.get_or_create_file(&path);
-                let encoding = session.position_encoding();
 
-                session
-                    .with_db(|db| djls_ide::goto_template_definition(db, file, position, encoding))
+                session.with_db(|db| {
+                    djls_ide::goto_template_definition(
+                        db,
+                        file,
+                        params.text_document_position_params.position,
+                        session.position_encoding(),
+                    )
+                })
             })
             .await;
 
