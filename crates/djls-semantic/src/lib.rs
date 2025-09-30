@@ -1,6 +1,7 @@
 mod blocks;
 mod db;
 mod errors;
+mod resolution;
 mod semantic;
 mod templatetags;
 mod traits;
@@ -10,6 +11,8 @@ pub use blocks::TagIndex;
 pub use db::Db;
 pub use db::ValidationErrorAccumulator;
 pub use errors::ValidationError;
+pub use resolution::resolve_template;
+pub use resolution::ResolveResult;
 pub use semantic::build_semantic_forest;
 use semantic::validate_block_tags;
 use semantic::validate_non_block_tags;

@@ -167,6 +167,7 @@ impl LanguageServer for DjangoLanguageServer {
                         work_done_progress_options: lsp_types::WorkDoneProgressOptions::default(),
                     },
                 )),
+                definition_provider: Some(lsp_types::OneOf::Left(true)),
                 ..Default::default()
             },
             server_info: Some(lsp_types::ServerInfo {
@@ -415,6 +416,33 @@ impl LanguageServer for DjangoLanguageServer {
                 },
             ),
         ))
+    }
+
+    async fn goto_definition(
+        &self,
+        params: lsp_types::GotoDefinitionParams,
+    ) -> LspResult<Option<lsp_types::GotoDefinitionResponse>> {
+        let response = self
+            .with_session_mut(|session| {
+                let url = paths::parse_lsp_uri(
+                    &params.text_document_position_params.text_document.uri,
+                    paths::LspContext::GotoDefinition,
+                )?;
+                let path = paths::url_to_path(&url)?;
+                let file = session.get_or_create_file(&path);
+
+                session.with_db(|db| {
+                    djls_ide::goto_template_definition(
+                        db,
+                        file,
+                        params.text_document_position_params.position,
+                        session.position_encoding(),
+                    )
+                })
+            })
+            .await;
+
+        Ok(response)
     }
 
     async fn did_change_configuration(&self, _params: lsp_types::DidChangeConfigurationParams) {

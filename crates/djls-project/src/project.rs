@@ -3,6 +3,7 @@ use camino::Utf8PathBuf;
 
 use crate::db::Db as ProjectDb;
 use crate::django_available;
+use crate::template_dirs;
 use crate::templatetags;
 use crate::Interpreter;
 
@@ -80,5 +81,6 @@ impl Project {
     pub fn initialize(self, db: &dyn ProjectDb) {
         let _ = django_available(db, self);
         let _ = templatetags(db, self);
+        let _ = template_dirs(db, self);
     }
 }

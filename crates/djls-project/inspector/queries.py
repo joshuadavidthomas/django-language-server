@@ -9,9 +9,27 @@ from typing import Literal
 
 
 class Query(str, Enum):
-    PYTHON_ENV = "python_env"
-    TEMPLATETAGS = "templatetags"
     DJANGO_INIT = "django_init"
+    PYTHON_ENV = "python_env"
+    TEMPLATE_DIRS = "template_dirs"
+    TEMPLATETAGS = "templatetags"
+
+
+def initialize_django() -> tuple[bool, str | None]:
+    import django
+    from django.apps import apps
+
+    try:
+        if not os.environ.get("DJANGO_SETTINGS_MODULE"):
+            return False, None
+
+        if not apps.ready:
+            django.setup()
+
+        return True, None
+
+    except Exception as e:
+        return False, str(e)
 
 
 @dataclass
@@ -43,21 +61,30 @@ def get_python_environment_info():
     )
 
 
-def initialize_django() -> tuple[bool, str | None]:
-    import django
+@dataclass
+class TemplateDirsQueryData:
+    dirs: list[Path]
+
+
+def get_template_dirs() -> TemplateDirsQueryData:
     from django.apps import apps
+    from django.conf import settings
 
-    try:
-        if not os.environ.get("DJANGO_SETTINGS_MODULE"):
-            return False, None
+    dirs = []
 
-        if not apps.ready:
-            django.setup()
+    for engine in settings.TEMPLATES:
+        if "django" not in engine["BACKEND"].lower():
+            continue
 
-        return True, None
+        dirs.extend(engine.get("DIRS", []))
 
-    except Exception as e:
-        return False, str(e)
+        if engine.get("APP_DIRS", False):
+            for app_config in apps.get_app_configs():
+                template_dir = Path(app_config.path) / "templates"
+                if template_dir.exists():
+                    dirs.append(template_dir)
+
+    return TemplateDirsQueryData(dirs)
 
 
 @dataclass
@@ -108,4 +135,4 @@ def get_installed_templatetags() -> TemplateTagQueryData:
     return TemplateTagQueryData(templatetags=templatetags)
 
 
-QueryData = PythonEnvironmentQueryData | TemplateTagQueryData
+QueryData = PythonEnvironmentQueryData | TemplateDirsQueryData | TemplateTagQueryData

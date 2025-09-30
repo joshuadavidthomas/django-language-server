@@ -587,6 +587,7 @@ dependencies = [
  "djls-workspace",
  "salsa",
  "tower-lsp-server",
+ "tracing",
 ]
 
 [[package]]
@@ -622,6 +623,8 @@ dependencies = [
  "serde",
  "tempfile",
  "thiserror 2.0.17",
+ "tracing",
+ "walkdir",
 ]
 
 [[package]]

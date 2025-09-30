@@ -10,6 +10,7 @@ use std::sync::Mutex;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_conf::Settings;
+use djls_project::template_dirs;
 use djls_project::Db as ProjectDb;
 use djls_project::Inspector;
 use djls_project::Project;
@@ -205,6 +206,14 @@ impl SemanticDb for DjangoDatabase {
 
     fn tag_index(&self) -> TagIndex<'_> {
         TagIndex::from_specs(self)
+    }
+
+    fn template_dirs(&self) -> Option<Vec<Utf8PathBuf>> {
+        if let Some(project) = self.project() {
+            template_dirs(self, project)
+        } else {
+            None
+        }
     }
 }
 
