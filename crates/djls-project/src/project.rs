@@ -2,8 +2,8 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 
 use crate::db::Db as ProjectDb;
-use crate::django::template_dirs;
 use crate::django_available;
+use crate::template_dirs;
 use crate::templatetags;
 use crate::Interpreter;
 

@@ -54,12 +54,10 @@ pub fn template_dirs(db: &dyn ProjectDb, _project: Project) -> Option<TemplateDi
         dir_count
     );
 
-    // Log each directory for debugging
     for (i, dir) in response.dirs.iter().enumerate() {
         tracing::debug!("  Template dir [{}]: {}", i, dir);
     }
 
-    // Check for any non-existent directories
     let missing_dirs: Vec<_> = response.dirs.iter().filter(|dir| !dir.exists()).collect();
 
     if !missing_dirs.is_empty() {
