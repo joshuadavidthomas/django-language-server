@@ -76,7 +76,8 @@ pub fn find_template_references(
             let ref_file = djls_source::File::new(db, source_path.clone(), 0);
             let line_index = ref_file.line_index(db);
 
-            let tag_span = reference.tag_span(db);
+            let tag = reference.tag(db);
+            let tag_span = tag.span(db);
             let start_offset = tag_span.start_offset();
             let end_offset = tag_span.end_offset();
 

@@ -1,35 +1,13 @@
 use camino::Utf8PathBuf;
 use djls_source::safe_join;
-use djls_source::Span;
+use djls_source::File;
 use djls_source::Utf8PathClean;
-use djls_templates::parse_template;
-use djls_templates::Node;
 use walkdir::WalkDir;
 
 pub use crate::db::Db as SemanticDb;
-
-#[salsa::tracked]
-pub struct Template<'db> {
-    name: TemplateName<'db>,
-    #[returns(ref)]
-    path: Utf8PathBuf,
-}
-
-impl<'db> Template<'db> {
-    pub fn name_str(&'db self, db: &'db dyn SemanticDb) -> &'db str {
-        self.name(db).name(db)
-    }
-
-    pub fn path_buf(&'db self, db: &'db dyn SemanticDb) -> &'db Utf8PathBuf {
-        self.path(db)
-    }
-}
-
-#[salsa::interned]
-pub struct TemplateName {
-    #[returns(ref)]
-    name: String,
-}
+use crate::primitives::Tag;
+pub use crate::primitives::Template;
+pub use crate::primitives::TemplateName;
 
 #[salsa::tracked]
 pub fn discover_templates(db: &dyn SemanticDb) -> Vec<Template<'_>> {
@@ -58,7 +36,11 @@ pub fn discover_templates(db: &dyn SemanticDb) -> Vec<Template<'_>> {
                     Err(_) => continue,
                 };
 
-                templates.push(Template::new(db, TemplateName::new(db, name), path));
+                templates.push(Template::new(
+                    db,
+                    TemplateName::new(db, name),
+                    File::new(db, path, 0),
+                ));
             }
         }
     } else {
@@ -131,9 +113,7 @@ pub fn resolve_template<'db>(db: &'db dyn SemanticDb, name: &str) -> ResolveResu
 pub struct TemplateReference<'db> {
     pub source: Template<'db>,
     pub target: TemplateName<'db>,
-    pub tag_span: Span,
-    #[returns(ref)]
-    pub tag_name: String,
+    pub tag: Tag<'db>,
 }
 
 pub fn find_references_to_template<'db>(
@@ -141,7 +121,7 @@ pub fn find_references_to_template<'db>(
     name: &str,
 ) -> Vec<TemplateReference<'db>> {
     let template_name = TemplateName::new(db, name.to_string());
-    let all_refs = index_template_references(db);
+    let all_refs = template_reference_index(db);
 
     let matches: Vec<_> = all_refs
         .into_iter()
@@ -157,42 +137,30 @@ pub fn find_references_to_template<'db>(
 }
 
 #[salsa::tracked]
-fn index_template_references(db: &dyn SemanticDb) -> Vec<TemplateReference<'_>> {
+fn template_reference_index(db: &dyn SemanticDb) -> Vec<TemplateReference<'_>> {
     let mut references = Vec::new();
     let templates = discover_templates(db);
 
     for template in templates {
-        let path = template.path_buf(db);
-        let file = djls_source::File::new(db, path.clone(), 0);
+        for tag in template.tags(db) {
+            let tag_name = tag.name(db);
+            if tag_name == "extends" || tag_name == "include" {
+                if let Some(template_str) = tag.arguments(db).first() {
+                    let template_name = template_str
+                        .trim()
+                        .trim_start_matches('"')
+                        .trim_end_matches('"')
+                        .trim_start_matches('\'')
+                        .trim_end_matches('\'')
+                        .to_string();
 
-        let Some(nodelist) = parse_template(db, file) else {
-            continue;
-        };
-
-        for node in nodelist.nodelist(db) {
-            match node {
-                Node::Tag {
-                    name, bits, span, ..
-                } if name == "extends" || name == "include" => {
-                    if let Some(template_str) = bits.first() {
-                        let template_name = template_str
-                            .trim()
-                            .trim_start_matches('"')
-                            .trim_end_matches('"')
-                            .trim_start_matches('\'')
-                            .trim_end_matches('\'')
-                            .to_string();
-
-                        references.push(TemplateReference::new(
-                            db,
-                            template,
-                            TemplateName::new(db, template_name),
-                            *span,
-                            name.clone(),
-                        ));
-                    }
+                    references.push(TemplateReference::new(
+                        db,
+                        template,
+                        TemplateName::new(db, template_name),
+                        tag,
+                    ));
                 }
-                _ => {}
             }
         }
     }
