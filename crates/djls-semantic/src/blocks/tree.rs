@@ -168,6 +168,7 @@ mod tests {
     use std::sync::Mutex;
 
     use camino::Utf8Path;
+    use camino::Utf8PathBuf;
     use djls_source::File;
     use djls_source::Span;
     use djls_templates::parse_template;
@@ -215,11 +216,7 @@ mod tests {
     }
 
     #[salsa::db]
-    impl djls_templates::Db for TestDatabase {
-        fn template_dirs(&self) -> Option<Vec<Utf8PathBuf>> {
-            None // Tests don't need template resolution
-        }
-    }
+    impl djls_templates::Db for TestDatabase {}
 
     #[salsa::db]
     impl crate::Db for TestDatabase {
@@ -229,6 +226,9 @@ mod tests {
 
         fn tag_index(&self) -> TagIndex<'_> {
             TagIndex::from_specs(self)
+        }
+        fn template_dirs(&self) -> Option<Vec<Utf8PathBuf>> {
+            None
         }
     }
 
