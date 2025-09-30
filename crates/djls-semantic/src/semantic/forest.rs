@@ -217,6 +217,7 @@ mod tests {
     use std::sync::Mutex;
 
     use camino::Utf8Path;
+    use camino::Utf8PathBuf;
     use djls_source::File;
     use djls_templates::parse_template;
     use djls_workspace::FileSystem;
@@ -273,6 +274,10 @@ mod tests {
 
         fn tag_index(&self) -> TagIndex<'_> {
             TagIndex::from_specs(self)
+        }
+
+        fn template_dirs(&self) -> Option<Vec<Utf8PathBuf>> {
+            None
         }
     }
 

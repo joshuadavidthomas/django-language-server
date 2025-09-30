@@ -88,6 +88,7 @@ pub enum ResolveResult<'db> {
 }
 
 impl<'db> ResolveResult<'db> {
+    #[must_use] 
     pub fn ok(self) -> Option<Template<'db>> {
         match self {
             Self::Found(t) => Some(t),
@@ -95,6 +96,7 @@ impl<'db> ResolveResult<'db> {
         }
     }
 
+    #[must_use] 
     pub fn is_found(&self) -> bool {
         matches!(self, Self::Found(_))
     }
