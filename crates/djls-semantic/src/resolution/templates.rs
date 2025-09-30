@@ -1,8 +1,9 @@
 use camino::Utf8PathBuf;
+use djls_source::safe_join;
+use djls_source::Utf8PathClean;
 use walkdir::WalkDir;
 
 pub use crate::db::Db as SemanticDb;
-use djls_source::{safe_join, Utf8PathClean};
 
 #[salsa::tracked]
 pub struct Template<'db> {
@@ -88,15 +89,15 @@ pub enum ResolveResult<'db> {
 }
 
 impl<'db> ResolveResult<'db> {
-    #[must_use] 
+    #[must_use]
     pub fn ok(self) -> Option<Template<'db>> {
         match self {
             Self::Found(t) => Some(t),
-            _ => None,
+            Self::NotFound { .. } => None,
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn is_found(&self) -> bool {
         matches!(self, Self::Found(_))
     }

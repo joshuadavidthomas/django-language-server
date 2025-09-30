@@ -20,8 +20,10 @@
 //! LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 //! OUT OF OR IN
 
-use camino::{Utf8Path, Utf8PathBuf};
 use std::path::Component;
+
+use camino::Utf8Path;
+use camino::Utf8PathBuf;
 
 pub trait Utf8PathClean {
     fn clean(&self) -> Utf8PathBuf;

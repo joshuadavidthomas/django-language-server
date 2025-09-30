@@ -1,7 +1,13 @@
-use djls_semantic::{resolve_template, ResolveResult};
-use djls_source::{File, LineCol, Offset, PositionEncoding};
-use djls_templates::{parse_template, Node};
-use tower_lsp_server::{lsp_types, UriExt};
+use djls_semantic::resolve_template;
+use djls_semantic::ResolveResult;
+use djls_source::File;
+use djls_source::LineCol;
+use djls_source::Offset;
+use djls_source::PositionEncoding;
+use djls_templates::parse_template;
+use djls_templates::Node;
+use tower_lsp_server::lsp_types;
+use tower_lsp_server::UriExt;
 
 pub fn goto_template_definition(
     db: &dyn djls_semantic::Db,
