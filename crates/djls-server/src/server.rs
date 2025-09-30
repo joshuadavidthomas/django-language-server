@@ -168,6 +168,7 @@ impl LanguageServer for DjangoLanguageServer {
                     },
                 )),
                 definition_provider: Some(lsp_types::OneOf::Left(true)),
+                references_provider: Some(lsp_types::OneOf::Left(true)),
                 ..Default::default()
             },
             server_info: Some(lsp_types::ServerInfo {
@@ -436,6 +437,33 @@ impl LanguageServer for DjangoLanguageServer {
                         db,
                         file,
                         params.text_document_position_params.position,
+                        session.position_encoding(),
+                    )
+                })
+            })
+            .await;
+
+        Ok(response)
+    }
+
+    async fn references(
+        &self,
+        params: lsp_types::ReferenceParams,
+    ) -> LspResult<Option<Vec<lsp_types::Location>>> {
+        let response = self
+            .with_session_mut(|session| {
+                let url = paths::parse_lsp_uri(
+                    &params.text_document_position.text_document.uri,
+                    paths::LspContext::References,
+                )?;
+                let path = paths::url_to_path(&url)?;
+                let file = session.get_or_create_file(&path);
+
+                session.with_db(|db| {
+                    djls_ide::find_template_references(
+                        db,
+                        file,
+                        params.text_document_position.position,
                         session.position_encoding(),
                     )
                 })

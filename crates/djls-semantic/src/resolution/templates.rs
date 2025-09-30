@@ -1,6 +1,9 @@
 use camino::Utf8PathBuf;
 use djls_source::safe_join;
+use djls_source::Span;
 use djls_source::Utf8PathClean;
+use djls_templates::parse_template;
+use djls_templates::Node;
 use walkdir::WalkDir;
 
 pub use crate::db::Db as SemanticDb;
@@ -122,4 +125,97 @@ pub fn resolve_template<'db>(db: &'db dyn SemanticDb, name: &str) -> ResolveResu
         name: name.to_string(),
         tried,
     }
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct TemplateReference {
+    pub referencing_path: Utf8PathBuf,
+    pub referenced_name: String,
+    pub tag_span: Span,
+    pub tag_name: String,
+}
+
+pub fn find_references_to_template(db: &dyn SemanticDb, name: &str) -> Vec<TemplateReference> {
+    let template_name = TemplateName::new(db, name.to_string());
+    find_references_to_template_tracked(db, template_name)
+}
+
+#[salsa::tracked]
+fn find_references_to_template_tracked<'db>(
+    db: &'db dyn SemanticDb,
+    template_name: TemplateName<'db>,
+) -> Vec<TemplateReference> {
+    let all_refs = index_template_references(db);
+    let name_str = template_name.name(db);
+
+    let matches: Vec<_> = all_refs
+        .into_iter()
+        .filter(|r| r.referenced_name == *name_str)
+        .collect();
+
+    tracing::debug!("Found {} references to '{}'", matches.len(), name_str);
+    matches
+}
+
+#[salsa::tracked]
+fn index_template_references(db: &dyn SemanticDb) -> Vec<TemplateReference> {
+    let mut references = Vec::new();
+    let templates = discover_templates(db);
+
+    for template in templates {
+        let path = template.path_buf(db);
+        let file = djls_source::File::new(db, path.clone(), 0);
+
+        let Some(nodelist) = parse_template(db, file) else {
+            continue;
+        };
+
+        for extracted in collect_template_references(nodelist.nodelist(db)) {
+            references.push(TemplateReference {
+                referencing_path: path.clone(),
+                referenced_name: extracted.referenced_name,
+                tag_span: extracted.span,
+                tag_name: extracted.tag_name,
+            });
+        }
+    }
+
+    references
+}
+
+struct ExtractedReference {
+    referenced_name: String,
+    span: Span,
+    tag_name: String,
+}
+
+fn collect_template_references(nodes: &[Node]) -> Vec<ExtractedReference> {
+    let mut references = Vec::new();
+
+    for node in nodes {
+        match node {
+            Node::Tag {
+                name, bits, span, ..
+            } if name == "extends" || name == "include" => {
+                if let Some(template_str) = bits.first() {
+                    let template_name = template_str
+                        .trim()
+                        .trim_start_matches('"')
+                        .trim_end_matches('"')
+                        .trim_start_matches('\'')
+                        .trim_end_matches('\'')
+                        .to_string();
+
+                    references.push(ExtractedReference {
+                        referenced_name: template_name,
+                        span: *span,
+                        tag_name: name.clone(),
+                    });
+                }
+            }
+            _ => {}
+        }
+    }
+
+    references
 }
