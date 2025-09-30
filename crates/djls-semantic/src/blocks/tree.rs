@@ -227,7 +227,6 @@ mod tests {
         fn tag_index(&self) -> TagIndex<'_> {
             TagIndex::from_specs(self)
         }
-
         fn template_dirs(&self) -> Option<Vec<Utf8PathBuf>> {
             None
         }
