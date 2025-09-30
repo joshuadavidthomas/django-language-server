@@ -69,13 +69,16 @@ pub fn find_template_references(
     let locations: Vec<lsp_types::Location> = references
         .iter()
         .filter_map(|reference| {
-            let uri = lsp_types::Uri::from_file_path(reference.referencing_path.as_std_path())?;
+            let source_template = reference.source(db);
+            let source_path = source_template.path_buf(db);
+            let uri = lsp_types::Uri::from_file_path(source_path.as_std_path())?;
 
-            let ref_file = djls_source::File::new(db, reference.referencing_path.clone(), 0);
+            let ref_file = djls_source::File::new(db, source_path.clone(), 0);
             let line_index = ref_file.line_index(db);
 
-            let start_offset = reference.tag_span.start_offset();
-            let end_offset = reference.tag_span.end_offset();
+            let tag_span = reference.tag_span(db);
+            let start_offset = tag_span.start_offset();
+            let end_offset = tag_span.end_offset();
 
             let start_lc = line_index.to_line_col(start_offset);
             let end_lc = line_index.to_line_col(end_offset);
