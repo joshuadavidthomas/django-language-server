@@ -215,7 +215,11 @@ mod tests {
     }
 
     #[salsa::db]
-    impl djls_templates::Db for TestDatabase {}
+    impl djls_templates::Db for TestDatabase {
+        fn template_dirs(&self) -> Option<Vec<Utf8PathBuf>> {
+            None // Tests don't need template resolution
+        }
+    }
 
     #[salsa::db]
     impl crate::Db for TestDatabase {

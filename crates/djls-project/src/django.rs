@@ -1,5 +1,6 @@
 use std::ops::Deref;
 
+use camino::Utf8PathBuf;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -27,6 +28,52 @@ impl InspectorRequest for DjangoInitRequest {
 pub fn django_available(db: &dyn ProjectDb, _project: Project) -> bool {
     inspector::query(db, &DjangoInitRequest).is_some()
 }
+
+#[derive(Serialize)]
+struct TemplateDirsRequest;
+
+#[derive(Deserialize)]
+struct TemplateDirsResponse {
+    dirs: Vec<Utf8PathBuf>,
+}
+
+impl InspectorRequest for TemplateDirsRequest {
+    const NAME: &'static str = "template_dirs";
+    type Response = TemplateDirsResponse;
+}
+
+#[salsa::tracked]
+pub fn template_dirs(db: &dyn ProjectDb, _project: Project) -> Option<TemplateDirs> {
+    tracing::debug!("Requesting template directories from inspector");
+
+    let response = inspector::query(db, &TemplateDirsRequest)?;
+
+    let dir_count = response.dirs.len();
+    tracing::info!(
+        "Retrieved {} template directories from inspector",
+        dir_count
+    );
+
+    // Log each directory for debugging
+    for (i, dir) in response.dirs.iter().enumerate() {
+        tracing::debug!("  Template dir [{}]: {}", i, dir);
+    }
+
+    // Check for any non-existent directories
+    let missing_dirs: Vec<_> = response.dirs.iter().filter(|dir| !dir.exists()).collect();
+
+    if !missing_dirs.is_empty() {
+        tracing::warn!(
+            "Found {} non-existent template directories: {:?}",
+            missing_dirs.len(),
+            missing_dirs
+        );
+    }
+
+    Some(response.dirs)
+}
+
+type TemplateDirs = Vec<Utf8PathBuf>;
 
 #[derive(Serialize)]
 struct TemplatetagsRequest;

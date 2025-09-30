@@ -1,25 +1,16 @@
-{% load static %}
-
 <!DOCTYPE html>
-<html>
+<html lang="en">
   <head>
-    <title>Test Page</title>
+    <meta charset="UTF-8">
+    <title>{% block title %}Django Test App{% endblock %}</title>
   </head>
   <body>
+    {% include "djls_app/header.html" %}
 
-    {% block content %}
-      <h1>Hello, {{ user.username }}!</h1>
-      <p>This is a test template.</p>
-      {% if items %}
-        <ul>
-          {% for item in items %}<li>{{ item.name }}</li>{% endfor %}
-        </ul>
-      {% else %}
-        <p>No items found.</p>
-      {% endif %}
-      <img src="{% static 'images/logo.png' %}" alt="Logo">
-      {# This is a comment #}
-    {% endblock content %}
-
+    <main>
+      {% block content %}
+        <p>Default content</p>
+      {% endblock content %}
+    </main>
   </body>
 </html>

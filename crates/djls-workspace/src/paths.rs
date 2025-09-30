@@ -49,29 +49,25 @@ pub fn url_to_path(url: &Url) -> Option<Utf8PathBuf> {
 /// Context for LSP operations, used for error reporting
 #[derive(Debug, Clone, Copy)]
 pub enum LspContext {
-    /// textDocument/didOpen notification
-    DidOpen,
-    /// textDocument/didChange notification
-    DidChange,
-    /// textDocument/didClose notification
-    DidClose,
-    /// textDocument/didSave notification
-    DidSave,
-    /// textDocument/completion request
     Completion,
-    /// textDocument/diagnostic request
     Diagnostic,
+    DidChange,
+    DidClose,
+    DidOpen,
+    DidSave,
+    GotoDefinition,
 }
 
 impl std::fmt::Display for LspContext {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::DidOpen => write!(f, "didOpen"),
-            Self::DidChange => write!(f, "didChange"),
-            Self::DidClose => write!(f, "didClose"),
-            Self::DidSave => write!(f, "didSave"),
             Self::Completion => write!(f, "completion"),
             Self::Diagnostic => write!(f, "diagnostic"),
+            Self::DidChange => write!(f, "didChange"),
+            Self::DidClose => write!(f, "didClose"),
+            Self::DidOpen => write!(f, "didOpen"),
+            Self::DidSave => write!(f, "didSave"),
+            Self::GotoDefinition => write!(f, "gotoDefinition"),
         }
     }
 }

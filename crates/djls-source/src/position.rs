@@ -206,6 +206,12 @@ impl Span {
             length: length_expand,
         }
     }
+
+    #[must_use]
+    pub fn contains(self, offset: Offset) -> bool {
+        let offset_u32 = offset.get();
+        offset_u32 >= self.start && offset_u32 < self.end()
+    }
 }
 
 impl From<(u32, u32)> for Span {

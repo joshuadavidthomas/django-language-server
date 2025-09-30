@@ -1,3 +1,4 @@
+use camino::Utf8PathBuf;
 use djls_templates::Db as TemplateDb;
 
 use crate::blocks::TagIndex;
@@ -10,6 +11,8 @@ pub trait Db: TemplateDb {
     fn tag_specs(&self) -> TagSpecs;
 
     fn tag_index(&self) -> TagIndex<'_>;
+
+    fn template_dirs(&self) -> Option<Vec<Utf8PathBuf>>;
 }
 
 #[salsa::accumulator]

@@ -1,9 +1,11 @@
 mod completions;
 mod diagnostics;
+mod navigation;
 mod snippets;
 
 pub use completions::handle_completion;
 pub use diagnostics::collect_diagnostics;
+pub use navigation::goto_template_definition;
 pub use snippets::generate_partial_snippet;
 pub use snippets::generate_snippet_for_tag;
 pub use snippets::generate_snippet_for_tag_with_end;
