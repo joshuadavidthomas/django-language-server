@@ -86,11 +86,11 @@ version_pattern = "MAJOR.MINOR.PATCH[-TAG[.NUM]]"
 
 [tool.bumpver.file_patterns]
 "crates/djls/Cargo.toml" = [
-  'version = "{version}"',
+  '^version = "{version}"',
 ]
 "pyproject.toml" = [
-  'version = "{pep440_version}"',
-  'current_version = "{version}"',
+  '^version = "{pep440_version}"',
+  '^current_version = "{version}"',
 ]
 
 [tool.djlint]
