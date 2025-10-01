@@ -580,6 +580,7 @@ dependencies = [
 name = "djls-ide"
 version = "0.0.0"
 dependencies = [
+ "camino",
  "djls-project",
  "djls-semantic",
  "djls-source",

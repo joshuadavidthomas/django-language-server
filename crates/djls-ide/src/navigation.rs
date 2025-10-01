@@ -5,7 +5,9 @@ use djls_source::Offset;
 use djls_templates::parse_template;
 use djls_templates::Node;
 use tower_lsp_server::lsp_types;
-use tower_lsp_server::UriExt;
+
+use crate::ext::SpanExt;
+use crate::ext::Utf8PathExt;
 
 pub fn goto_template_definition(
     db: &dyn djls_semantic::Db,
@@ -21,11 +23,10 @@ pub fn goto_template_definition(
         ResolveResult::Found(template) => {
             let path = template.path_buf(db);
             tracing::debug!("Resolved template to: {}", path);
-            let uri = lsp_types::Uri::from_file_path(path.as_std_path())?;
 
             Some(lsp_types::GotoDefinitionResponse::Scalar(
                 lsp_types::Location {
-                    uri,
+                    uri: path.to_lsp_uri()?,
                     range: lsp_types::Range::default(),
                 },
             ))
@@ -57,34 +58,17 @@ pub fn find_template_references(
         .filter_map(|reference| {
             let source_template = reference.source(db);
             let source_path = source_template.path_buf(db);
-            let uri = lsp_types::Uri::from_file_path(source_path.as_std_path())?;
 
             let ref_file = djls_source::File::new(db, source_path.clone(), 0);
             let line_index = ref_file.line_index(db);
 
             let tag = reference.tag(db);
             let tag_span = tag.span(db);
-            let start_offset = tag_span.start_offset();
-            let end_offset = tag_span.end_offset();
-
-            let start_lc = line_index.to_line_col(start_offset);
-            let end_lc = line_index.to_line_col(end_offset);
-
-            let start_pos = lsp_types::Position {
-                line: start_lc.line(),
-                character: start_lc.column(),
-            };
-            let end_pos = lsp_types::Position {
-                line: end_lc.line(),
-                character: end_lc.column(),
-            };
+            let range = tag_span.to_lsp_range(line_index);
 
             Some(lsp_types::Location {
-                uri,
-                range: lsp_types::Range {
-                    start: start_pos,
-                    end: end_pos,
-                },
+                uri: source_path.to_lsp_uri()?,
+                range,
             })
         })
         .collect();

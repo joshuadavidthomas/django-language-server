@@ -7,6 +7,8 @@ use djls_templates::TemplateError;
 use djls_templates::TemplateErrorAccumulator;
 use tower_lsp_server::lsp_types;
 
+use crate::ext::SpanExt;
+
 trait DiagnosticError: std::fmt::Display {
     fn span(&self) -> Option<(u32, u32)>;
     fn diagnostic_code(&self) -> &'static str;
@@ -18,10 +20,7 @@ trait DiagnosticError: std::fmt::Display {
     fn as_diagnostic(&self, line_index: &LineIndex) -> lsp_types::Diagnostic {
         let range = self
             .span()
-            .map(|(start, length)| {
-                let span = Span::new(start, length);
-                LspRange::from((&span, line_index)).into()
-            })
+            .map(|(start, length)| Span::new(start, length).to_lsp_range(line_index))
             .unwrap_or_default();
 
         lsp_types::Diagnostic {
@@ -81,46 +80,6 @@ impl DiagnosticError for ValidationError {
             ValidationError::InvalidLiteralArgument { .. } => "S106",
             ValidationError::InvalidArgumentChoice { .. } => "S107",
         }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-#[repr(transparent)]
-pub struct LspRange(pub lsp_types::Range);
-
-impl From<(&Span, &LineIndex)> for LspRange {
-    #[inline]
-    fn from((s, line_index): (&Span, &LineIndex)) -> Self {
-        let start = LspPosition::from((s.start_offset(), line_index)).into();
-        let end = LspPosition::from((s.end_offset(), line_index)).into();
-
-        LspRange(lsp_types::Range { start, end })
-    }
-}
-
-impl From<LspRange> for lsp_types::Range {
-    #[inline]
-    fn from(value: LspRange) -> Self {
-        value.0
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-#[repr(transparent)]
-pub struct LspPosition(pub lsp_types::Position);
-
-impl From<(Offset, &LineIndex)> for LspPosition {
-    #[inline]
-    fn from((offset, line_index): (Offset, &LineIndex)) -> Self {
-        let (line, character) = line_index.to_line_col(offset).into();
-        Self(lsp_types::Position { line, character })
-    }
-}
-
-impl From<LspPosition> for lsp_types::Position {
-    #[inline]
-    fn from(value: LspPosition) -> Self {
-        value.0
     }
 }
 

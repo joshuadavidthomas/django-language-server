@@ -36,11 +36,11 @@ impl TextDocumentIdentifierExt for lsp_types::TextDocumentIdentifier {
 
 pub(crate) trait TextDocumentItemExt {
     /// Convert LSP `TextDocumentItem` to internal `TextDocument`
-    fn to_text_document(self) -> TextDocument;
+    fn into_text_document(self) -> TextDocument;
 }
 
 impl TextDocumentItemExt for lsp_types::TextDocumentItem {
-    fn to_text_document(self) -> TextDocument {
+    fn into_text_document(self) -> TextDocument {
         TextDocument::new(
             self.text,
             self.version,
