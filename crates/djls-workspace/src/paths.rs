@@ -56,6 +56,7 @@ pub enum LspContext {
     DidOpen,
     DidSave,
     GotoDefinition,
+    References,
 }
 
 impl std::fmt::Display for LspContext {
@@ -68,6 +69,7 @@ impl std::fmt::Display for LspContext {
             Self::DidOpen => write!(f, "didOpen"),
             Self::DidSave => write!(f, "didSave"),
             Self::GotoDefinition => write!(f, "gotoDefinition"),
+            Self::References => write!(f, "references"),
         }
     }
 }
