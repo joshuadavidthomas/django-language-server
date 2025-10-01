@@ -6,7 +6,6 @@ use djls_project::Db as ProjectDb;
 use djls_semantic::Db as SemanticDb;
 use djls_source::FileKind;
 use djls_workspace::paths;
-use djls_workspace::LanguageId;
 use tokio::sync::Mutex;
 use tower_lsp_server::jsonrpc::Result as LspResult;
 use tower_lsp_server::lsp_types;

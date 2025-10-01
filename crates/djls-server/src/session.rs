@@ -9,7 +9,6 @@ use djls_project::Db as ProjectDb;
 use djls_source::File;
 use djls_source::FileKind;
 use djls_source::PositionEncoding;
-use djls_workspace::paths;
 use djls_workspace::Db as WorkspaceDb;
 use djls_workspace::TextDocument;
 use djls_workspace::Workspace;

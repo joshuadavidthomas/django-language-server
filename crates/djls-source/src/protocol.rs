@@ -1,9 +1,5 @@
 use std::fmt;
 
-use crate::line::LineIndex;
-use crate::position::LineCol;
-use crate::position::Offset;
-
 /// Specifies how column positions are counted in text.
 ///
 /// While motivated by LSP (Language Server Protocol) requirements, this enum
