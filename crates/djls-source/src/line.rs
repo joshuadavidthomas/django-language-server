@@ -1,5 +1,6 @@
 use crate::LineCol;
 use crate::Offset;
+use crate::PositionEncoding;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum LineEnding {
@@ -84,6 +85,83 @@ impl LineIndex {
         let column = offset_u32.saturating_sub(self.0[line]);
 
         LineCol::new(u32::try_from(line).unwrap_or_default(), column)
+    }
+
+    #[must_use]
+    pub fn offset(&self, line_col: LineCol, text: &str, encoding: PositionEncoding) -> Offset {
+        let line = line_col.line();
+        let character = line_col.column();
+
+        // Handle line bounds - if line > line_count, return document length
+        let line_start_utf8 = match self.lines().get(line as usize) {
+            Some(start) => *start,
+            None => return Offset::new(u32::try_from(text.len()).unwrap_or(u32::MAX)),
+        };
+
+        if character == 0 {
+            return Offset::new(line_start_utf8);
+        }
+
+        let next_line_start = self
+            .lines()
+            .get(line as usize + 1)
+            .copied()
+            .unwrap_or_else(|| u32::try_from(text.len()).unwrap_or(u32::MAX));
+
+        let line_start_usize = (line_start_utf8 as usize).min(text.len());
+        let next_line_start_usize = (next_line_start as usize).min(text.len());
+
+        // Ensure valid range (start <= end)
+        if line_start_usize > next_line_start_usize {
+            // Corrupt line index - return clamped offset
+            return Offset::new(u32::try_from(text.len()).unwrap_or(u32::MAX));
+        }
+
+        let line_text = &text[line_start_usize..next_line_start_usize];
+
+        // Fast path optimization for ASCII text, all encodings are equivalent to byte offsets
+        if line_text.is_ascii() {
+            let char_offset = character.min(u32::try_from(line_text.len()).unwrap_or(u32::MAX));
+            return Offset::new(line_start_utf8 + char_offset);
+        }
+
+        match encoding {
+            PositionEncoding::Utf8 => {
+                // UTF-8: character positions are already byte offsets
+                let char_offset = character.min(u32::try_from(line_text.len()).unwrap_or(u32::MAX));
+                Offset::new(line_start_utf8 + char_offset)
+            }
+            PositionEncoding::Utf16 => {
+                // UTF-16: count UTF-16 code units
+                let mut utf16_pos = 0;
+                let mut utf8_pos = 0;
+
+                for c in line_text.chars() {
+                    if utf16_pos >= character {
+                        break;
+                    }
+                    utf16_pos += u32::try_from(c.len_utf16()).unwrap_or(0);
+                    utf8_pos += u32::try_from(c.len_utf8()).unwrap_or(0);
+                }
+
+                // If character position exceeds line length, clamp to line end
+                Offset::new(line_start_utf8 + utf8_pos)
+            }
+            PositionEncoding::Utf32 => {
+                // UTF-32: count Unicode code points (characters)
+                let mut utf8_pos = 0;
+
+                for (char_count, c) in line_text.chars().enumerate() {
+                    if char_count >= character as usize {
+                        break;
+                    }
+                    utf8_pos += u32::try_from(c.len_utf8()).unwrap_or(0);
+                }
+
+                // If character position exceeds line length, clamp to line end
+                Offset::new(line_start_utf8 + utf8_pos)
+            }
+        }
     }
 }
 

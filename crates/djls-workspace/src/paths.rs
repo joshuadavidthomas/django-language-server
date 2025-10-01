@@ -3,11 +3,8 @@
 //! This module provides consistent conversion between file paths and URLs,
 //! handling platform-specific differences and encoding issues.
 
-use std::str::FromStr;
-
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
-use tower_lsp_server::lsp_types;
 use url::Url;
 
 /// Convert a `file://` URL to a [`Utf8PathBuf`].
@@ -46,69 +43,6 @@ pub fn url_to_path(url: &Url) -> Option<Utf8PathBuf> {
     Some(Utf8PathBuf::from(&*path))
 }
 
-/// Context for LSP operations, used for error reporting
-#[derive(Debug, Clone, Copy)]
-pub enum LspContext {
-    Completion,
-    Diagnostic,
-    DidChange,
-    DidClose,
-    DidOpen,
-    DidSave,
-    GotoDefinition,
-    References,
-}
-
-impl std::fmt::Display for LspContext {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Completion => write!(f, "completion"),
-            Self::Diagnostic => write!(f, "diagnostic"),
-            Self::DidChange => write!(f, "didChange"),
-            Self::DidClose => write!(f, "didClose"),
-            Self::DidOpen => write!(f, "didOpen"),
-            Self::DidSave => write!(f, "didSave"),
-            Self::GotoDefinition => write!(f, "gotoDefinition"),
-            Self::References => write!(f, "references"),
-        }
-    }
-}
-
-/// Parse an LSP URI to a [`Url`], logging errors if parsing fails.
-///
-/// This function is designed for use in LSP notification handlers where
-/// invalid URIs should be logged but not crash the server.
-pub fn parse_lsp_uri(lsp_uri: &lsp_types::Uri, context: LspContext) -> Option<Url> {
-    match Url::parse(lsp_uri.as_str()) {
-        Ok(url) => Some(url),
-        Err(e) => {
-            tracing::error!(
-                "Invalid URI from LSP client in {}: {} - Error: {}",
-                context,
-                lsp_uri.as_str(),
-                e
-            );
-            None
-        }
-    }
-}
-
-/// Convert an LSP [`Uri`](lsp_types::Uri) to a [`Utf8PathBuf`].
-///
-/// This is a convenience wrapper that parses the LSP URI string and converts it.
-#[must_use]
-pub fn lsp_uri_to_path(lsp_uri: &lsp_types::Uri) -> Option<Utf8PathBuf> {
-    let url = Url::parse(lsp_uri.as_str()).ok()?;
-    url_to_path(&url)
-}
-
-/// Convert a [`Url`] to an LSP [`Uri`](lsp_types::Uri).
-#[must_use]
-pub fn url_to_lsp_uri(url: &Url) -> Option<lsp_types::Uri> {
-    let uri_string = url.to_string();
-    lsp_types::Uri::from_str(&uri_string).ok()
-}
-
 /// Convert a [`Path`] to a `file://` URL
 ///
 /// Handles both absolute and relative paths. Relative paths are resolved
@@ -136,8 +70,6 @@ pub fn path_to_url(path: &Utf8Path) -> Option<Url> {
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-
     use super::*;
 
     #[test]
@@ -194,47 +126,6 @@ mod tests {
             url_to_path(&url),
             Some(Utf8PathBuf::from("C:/Users/test.py"))
         );
-    }
-
-    #[test]
-    fn test_parse_lsp_uri_valid() {
-        let uri = lsp_types::Uri::from_str("file:///test.py").unwrap();
-        let result = parse_lsp_uri(&uri, LspContext::DidOpen);
-        assert!(result.is_some());
-        assert_eq!(result.unwrap().scheme(), "file");
-    }
-
-    // lsp_uri_to_path tests
-    #[test]
-    fn test_lsp_uri_to_path_valid_file() {
-        #[cfg(not(windows))]
-        {
-            let uri = lsp_types::Uri::from_str("file:///home/user/test.py").unwrap();
-            assert_eq!(
-                lsp_uri_to_path(&uri),
-                Some(Utf8PathBuf::from("/home/user/test.py"))
-            );
-        }
-        #[cfg(windows)]
-        {
-            let uri = lsp_types::Uri::from_str("file:///C:/Users/test.py").unwrap();
-            assert_eq!(
-                lsp_uri_to_path(&uri),
-                Some(Utf8PathBuf::from("C:/Users/test.py"))
-            );
-        }
-    }
-
-    #[test]
-    fn test_lsp_uri_to_path_non_file() {
-        let uri = lsp_types::Uri::from_str("http://example.com/test.py").unwrap();
-        assert_eq!(lsp_uri_to_path(&uri), None);
-    }
-
-    #[test]
-    fn test_lsp_uri_to_path_invalid_uri() {
-        let uri = lsp_types::Uri::from_str("not://valid").unwrap();
-        assert_eq!(lsp_uri_to_path(&uri), None);
     }
 
     // path_to_url tests

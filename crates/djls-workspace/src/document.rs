@@ -77,10 +77,9 @@ impl TextDocument {
     #[must_use]
     pub fn get_text_range(&self, range: Range, encoding: PositionEncoding) -> Option<String> {
         let start_offset =
-            Self::calculate_offset(&self.line_index, range.start, &self.content, encoding)?
-                as usize;
+            Self::calculate_offset(&self.line_index, range.start, &self.content, encoding) as usize;
         let end_offset =
-            Self::calculate_offset(&self.line_index, range.end, &self.content, encoding)? as usize;
+            Self::calculate_offset(&self.line_index, range.end, &self.content, encoding) as usize;
 
         Some(self.content[start_offset..end_offset].to_string())
     }
@@ -115,10 +114,10 @@ impl TextDocument {
                 // that matches the current state of new_content
                 let start_offset =
                     Self::calculate_offset(&new_line_index, range.start, &new_content, encoding)
-                        .unwrap_or(0) as usize;
+                        as usize;
                 let end_offset =
                     Self::calculate_offset(&new_line_index, range.end, &new_content, encoding)
-                        .unwrap_or(0) as usize;
+                        as usize;
 
                 // Apply change
                 new_content.replace_range(start_offset..end_offset, &change.text);
@@ -143,11 +142,9 @@ impl TextDocument {
         position: Position,
         text: &str,
         encoding: PositionEncoding,
-    ) -> Option<u32> {
+    ) -> u32 {
         let line_col = djls_source::LineCol::new(position.line, position.character);
-        encoding
-            .line_col_to_offset(line_index, line_col, text)
-            .map(|offset| offset.get())
+        line_index.offset(line_col, text, encoding).get()
     }
 }
 
