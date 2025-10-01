@@ -2,7 +2,6 @@ mod clean;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
-
 use clean::clean_utf8_path;
 pub use clean::Utf8PathClean;
 
