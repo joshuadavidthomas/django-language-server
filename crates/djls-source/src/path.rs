@@ -1,52 +1,10 @@
 mod clean;
 
-use std::path::Component;
-
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 
-pub trait Utf8PathClean {
-    fn clean(&self) -> Utf8PathBuf;
-}
-
-impl Utf8PathClean for Utf8Path {
-    fn clean(&self) -> Utf8PathBuf {
-        clean_utf8_path(self)
-    }
-}
-
-impl Utf8PathClean for Utf8PathBuf {
-    fn clean(&self) -> Utf8PathBuf {
-        clean_utf8_path(self)
-    }
-}
-
-pub fn clean_utf8_path(path: &Utf8Path) -> Utf8PathBuf {
-    let mut out = Vec::new();
-
-    for comp in path.as_std_path().components() {
-        match comp {
-            Component::CurDir => (),
-            Component::ParentDir => match out.last() {
-                Some(Component::RootDir) => (),
-                Some(Component::Normal(_)) => {
-                    out.pop();
-                }
-                None | Some(Component::CurDir | Component::ParentDir | Component::Prefix(_)) => {
-                    out.push(comp);
-                }
-            },
-            comp => out.push(comp),
-        }
-    }
-
-    if out.is_empty() {
-        Utf8PathBuf::from(".")
-    } else {
-        let cleaned: std::path::PathBuf = out.iter().collect();
-        Utf8PathBuf::from_path_buf(cleaned).expect("Path should still be UTF-8")
-    }
-}
+use clean::clean_utf8_path;
+pub use clean::Utf8PathClean;
 
 /// Django's `safe_join` equivalent - join paths and ensure result is within base
 pub fn safe_join(base: &Utf8Path, name: &str) -> Result<Utf8PathBuf, SafeJoinError> {
