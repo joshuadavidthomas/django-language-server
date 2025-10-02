@@ -182,13 +182,13 @@ mod tests {
         }
 
         fn make_doc(content: &str, version: i32, language_id: LanguageId) -> TextDocument {
-            let mut db = TestDb::default();
+            let db = TestDb::default();
             TextDocument::new(
                 content.to_string(),
                 version,
                 language_id,
                 Utf8Path::new("/test.txt"),
-                &mut db,
+                &db,
             )
         }
 
@@ -421,7 +421,7 @@ mod tests {
                 1,
                 LanguageId::Python,
                 path,
-                &mut db,
+                &db,
             );
             let file = workspace.open_document(&mut db, &url, document).unwrap();
             let path = file.path(&db);
@@ -485,7 +485,7 @@ mod tests {
                 1,
                 LanguageId::Python,
                 path,
-                &mut db,
+                &db,
             );
             workspace.open_document(&mut db, &url, document);
 
@@ -511,7 +511,7 @@ mod tests {
                 1,
                 LanguageId::HtmlDjango,
                 &file_path,
-                &mut db,
+                &db,
             );
             let file = workspace
                 .open_document(&mut db, &url, document.clone())
@@ -545,7 +545,7 @@ mod tests {
                 1,
                 LanguageId::Python,
                 &file_path,
-                &mut db,
+                &db,
             );
             let file = workspace.open_document(&mut db, &url, document).unwrap();
 
@@ -576,7 +576,7 @@ mod tests {
                 1,
                 LanguageId::Python,
                 &file_path,
-                &mut db,
+                &db,
             );
             let file = workspace.open_document(&mut db, &url, document).unwrap();
 
