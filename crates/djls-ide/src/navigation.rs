@@ -4,7 +4,7 @@ use djls_source::File;
 use djls_source::Offset;
 use tower_lsp_server::lsp_types;
 
-use crate::context::ContextKind;
+use crate::context::OffsetContext;
 use crate::ext::SpanExt;
 use crate::ext::Utf8PathExt;
 
@@ -13,8 +13,8 @@ pub fn goto_definition(
     file: File,
     offset: Offset,
 ) -> Option<lsp_types::GotoDefinitionResponse> {
-    match ContextKind::from_offset(db, file, offset) {
-        ContextKind::TemplateReference(template_name) => {
+    match OffsetContext::from_offset(db, file, offset) {
+        OffsetContext::TemplateReference(template_name) => {
             tracing::debug!("Found template reference: '{}'", template_name);
 
             match resolve_template(db, &template_name) {
@@ -35,7 +35,7 @@ pub fn goto_definition(
                 }
             }
         }
-        ContextKind::None => None,
+        OffsetContext::None => None,
     }
 }
 
@@ -44,8 +44,8 @@ pub fn find_references(
     file: File,
     offset: Offset,
 ) -> Option<Vec<lsp_types::Location>> {
-    match ContextKind::from_offset(db, file, offset) {
-        ContextKind::TemplateReference(template_name) => {
+    match OffsetContext::from_offset(db, file, offset) {
+        OffsetContext::TemplateReference(template_name) => {
             tracing::debug!(
                 "Cursor is inside extends/include tag referencing: '{}'",
                 template_name
@@ -72,6 +72,6 @@ pub fn find_references(
                 Some(locations)
             }
         }
-        ContextKind::None => None,
+        OffsetContext::None => None,
     }
 }
