@@ -258,7 +258,15 @@ mod tests {
 
     #[salsa::db]
     impl djls_source::Db for TestDatabase {
-        fn read_file_source(&self, path: &Utf8Path) -> std::io::Result<String> {
+        fn create_file(&self, path: &Utf8Path) -> File {
+            File::new(self, path.to_owned(), 0)
+        }
+
+        fn get_file(&self, _path: &Utf8Path) -> Option<File> {
+            None
+        }
+
+        fn read_file(&self, path: &Utf8Path) -> std::io::Result<String> {
             self.fs.lock().unwrap().read_to_string(path)
         }
     }

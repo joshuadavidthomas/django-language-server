@@ -23,7 +23,6 @@ use djls_source::FxDashMap;
 use djls_templates::Db as TemplateDb;
 use djls_workspace::Db as WorkspaceDb;
 use djls_workspace::FileSystem;
-use salsa::Setter;
 
 /// Concrete Salsa database for the Django Language Server.
 ///
@@ -156,22 +155,7 @@ impl salsa::Database for DjangoDatabase {}
 
 #[salsa::db]
 impl SourceDb for DjangoDatabase {
-    fn read_file_source(&self, path: &Utf8Path) -> std::io::Result<String> {
-        self.fs.read_to_string(path)
-    }
-}
-
-#[salsa::db]
-impl WorkspaceDb for DjangoDatabase {
-    fn fs(&self) -> Arc<dyn FileSystem> {
-        self.fs.clone()
-    }
-
-    fn ensure_file_tracked(&mut self, path: &Utf8Path) -> File {
-        if let Some(entry) = self.files.get(path) {
-            return *entry;
-        }
-
+    fn create_file(&self, path: &Utf8Path) -> File {
         let file = File::new(self, path.to_owned(), 0);
         self.files.insert(path.to_owned(), file);
         file
@@ -181,17 +165,15 @@ impl WorkspaceDb for DjangoDatabase {
         self.files.get(path).map(|entry| *entry)
     }
 
-    fn mark_file_dirty(&mut self, file: File) {
-        let current_rev = file.revision(self);
-        let new_rev = current_rev + 1;
-        file.set_revision(self).to(new_rev);
+    fn read_file(&self, path: &Utf8Path) -> std::io::Result<String> {
+        self.fs.read_to_string(path)
+    }
+}
 
-        tracing::debug!(
-            "Touched {}: revision {} -> {}",
-            file.path(self),
-            current_rev,
-            new_rev
-        );
+#[salsa::db]
+impl WorkspaceDb for DjangoDatabase {
+    fn fs(&self) -> Arc<dyn FileSystem> {
+        self.fs.clone()
     }
 }
 

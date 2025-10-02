@@ -14,9 +14,7 @@ pub fn goto_template_definition(
     file: File,
     offset: Offset,
 ) -> Option<lsp_types::GotoDefinitionResponse> {
-    let nodelist = parse_template(db, file)?;
-
-    let template_name = find_template_name_at_offset(nodelist.nodelist(db), offset)?;
+    let template_name = find_template_name_at_offset(db, file, offset)?;
     tracing::debug!("Found template reference: '{}'", template_name);
 
     match resolve_template(db, &template_name) {
@@ -43,9 +41,7 @@ pub fn find_template_references(
     file: File,
     offset: Offset,
 ) -> Option<Vec<lsp_types::Location>> {
-    let nodelist = parse_template(db, file)?;
-
-    let template_name = find_template_name_at_offset(nodelist.nodelist(db), offset)?;
+    let template_name = find_template_name_at_offset(db, file, offset)?;
     tracing::debug!(
         "Cursor is inside extends/include tag referencing: '{}'",
         template_name
@@ -56,18 +52,12 @@ pub fn find_template_references(
     let locations: Vec<lsp_types::Location> = references
         .iter()
         .filter_map(|reference| {
-            let source_template = reference.source(db);
-            let source_path = source_template.path_buf(db);
-
-            let ref_file = djls_source::File::new(db, source_path.clone(), 0);
+            let ref_file = reference.source_file(db);
             let line_index = ref_file.line_index(db);
 
-            let tag = reference.tag(db);
-            let tag_span = tag.span(db);
-
             Some(lsp_types::Location {
-                uri: source_path.to_lsp_uri()?,
-                range: tag_span.to_lsp_range(line_index),
+                uri: ref_file.path(db).to_lsp_uri()?,
+                range: reference.tag_span(db).to_lsp_range(line_index),
             })
         })
         .collect();
@@ -79,8 +69,13 @@ pub fn find_template_references(
     }
 }
 
-fn find_template_name_at_offset(nodes: &[Node], offset: Offset) -> Option<String> {
-    for node in nodes {
+fn find_template_name_at_offset(
+    db: &dyn djls_semantic::Db,
+    file: File,
+    offset: Offset,
+) -> Option<String> {
+    let nodelist = parse_template(db, file)?;
+    for node in nodelist.nodelist(db) {
         if let Node::Tag {
             name, bits, span, ..
         } = node

@@ -52,7 +52,15 @@ impl salsa::Database for Db {}
 
 #[salsa::db]
 impl SourceDb for Db {
-    fn read_file_source(&self, path: &Utf8Path) -> io::Result<String> {
+    fn create_file(&self, path: &Utf8Path) -> File {
+        File::new(self, path.to_owned(), 0)
+    }
+
+    fn get_file(&self, _path: &Utf8Path) -> Option<File> {
+        None
+    }
+
+    fn read_file(&self, path: &Utf8Path) -> io::Result<String> {
         Ok(self
             .sources
             .get(path)

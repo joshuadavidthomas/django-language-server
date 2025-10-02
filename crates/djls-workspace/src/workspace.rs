@@ -74,7 +74,7 @@ impl Workspace {
     ) -> Option<File> {
         self.buffers.open(url.clone(), document);
         let path = paths::url_to_path(url)?;
-        Some(db.ensure_file_dirty(path.as_path()))
+        Some(db.invalidate_file(path.as_path()))
     }
 
     /// Update a document with incremental changes and touch the associated file.
@@ -101,13 +101,13 @@ impl Workspace {
         }
 
         let path = paths::url_to_path(url)?;
-        Some(db.ensure_file_dirty(path.as_path()))
+        Some(db.invalidate_file(path.as_path()))
     }
 
     /// Touch the tracked file when the client saves the document.
     pub fn save_document(&mut self, db: &mut dyn Db, url: &Url) -> Option<File> {
         let path = paths::url_to_path(url)?;
-        Some(db.ensure_file_dirty(path.as_path()))
+        Some(db.invalidate_file(path.as_path()))
     }
 
     /// Close a document, removing it from buffers and touching the tracked file.
@@ -116,7 +116,7 @@ impl Workspace {
 
         if let Some(path) = paths::url_to_path(url) {
             if let Some(file) = db.get_file(path.as_path()) {
-                db.mark_file_dirty(file);
+                db.bump_file_revision(file);
             }
         }
 
@@ -310,7 +310,6 @@ mod tests {
         use camino::Utf8Path;
         use camino::Utf8PathBuf;
         use djls_source::FxDashMap;
-        use salsa::Setter;
         use tempfile::tempdir;
         use url::Url;
 
@@ -340,22 +339,7 @@ mod tests {
 
         #[salsa::db]
         impl djls_source::Db for TestDb {
-            fn read_file_source(&self, path: &Utf8Path) -> std::io::Result<String> {
-                self.fs.read_to_string(path)
-            }
-        }
-
-        #[salsa::db]
-        impl crate::db::Db for TestDb {
-            fn fs(&self) -> Arc<dyn FileSystem> {
-                self.fs.clone()
-            }
-
-            fn ensure_file_tracked(&mut self, path: &Utf8Path) -> File {
-                if let Some(entry) = self.files.get(path) {
-                    return *entry;
-                }
-
+            fn create_file(&self, path: &Utf8Path) -> File {
                 let file = File::new(self, path.to_owned(), 0);
                 self.files.insert(path.to_owned(), file);
                 file
@@ -365,9 +349,15 @@ mod tests {
                 self.files.get(path).map(|entry| *entry)
             }
 
-            fn mark_file_dirty(&mut self, file: File) {
-                let current_rev = file.revision(self);
-                file.set_revision(self).to(current_rev + 1);
+            fn read_file(&self, path: &Utf8Path) -> std::io::Result<String> {
+                self.fs.read_to_string(path)
+            }
+        }
+
+        #[salsa::db]
+        impl crate::db::Db for TestDb {
+            fn fs(&self) -> Arc<dyn FileSystem> {
+                self.fs.clone()
             }
         }
 

@@ -21,7 +21,7 @@ impl File {
     pub fn source(self, db: &dyn Db) -> SourceText {
         let _ = self.revision(db);
         let path = self.path(db);
-        let source = db.read_file_source(path).unwrap_or_default();
+        let source = db.read_file(path).unwrap_or_default();
         SourceText::new(path, source)
     }
 

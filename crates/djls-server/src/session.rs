@@ -9,7 +9,6 @@ use djls_project::Db as ProjectDb;
 use djls_source::File;
 use djls_source::FileKind;
 use djls_source::PositionEncoding;
-use djls_workspace::Db as WorkspaceDb;
 use djls_workspace::TextDocument;
 use djls_workspace::Workspace;
 use tower_lsp_server::lsp_types;
@@ -173,11 +172,6 @@ impl Session {
         self.workspace.get_document(url)
     }
 
-    /// Get or create a file in the database.
-    pub fn get_or_create_file(&mut self, path: &Utf8PathBuf) -> File {
-        self.db.ensure_file_tracked(path.as_path())
-    }
-
     /// Warm template caches and semantic diagnostics for the updated file.
     fn handle_file(&self, file: File) {
         if FileKind::from(file.path(&self.db)) == FileKind::Template {
@@ -221,6 +215,7 @@ impl Default for Session {
 
 #[cfg(test)]
 mod tests {
+    use djls_source::Db as SourceDb;
     use djls_workspace::LanguageId;
 
     use super::*;
@@ -238,19 +233,6 @@ mod tests {
     }
 
     #[test]
-    fn test_session_database_operations() {
-        let mut session = Session::default();
-
-        // Can create files in the database
-        let path = Utf8PathBuf::from("/test.py");
-        let file = session.get_or_create_file(&path);
-
-        // Can read file content through database
-        let content = session.with_db(|db| file.source(db).to_string());
-        assert_eq!(content, ""); // Non-existent file returns empty
-    }
-
-    #[test]
     fn test_session_document_lifecycle() {
         let mut session = Session::default();
         let (path, url) = test_file_url("test.py");
@@ -263,8 +245,10 @@ mod tests {
         assert!(session.get_document(&url).is_some());
 
         // Should be queryable through database
-        let file = session.get_or_create_file(&path);
-        let content = session.with_db(|db| file.source(db).to_string());
+        let content = session.with_db(|db| {
+            let file = db.get_or_create_file(&path);
+            file.source(db).to_string()
+        });
         assert_eq!(content, "print('hello')");
 
         // Close document
@@ -295,8 +279,10 @@ mod tests {
         assert_eq!(doc.version(), 2);
 
         // Database should also see updated content
-        let file = session.get_or_create_file(&path);
-        let content = session.with_db(|db| file.source(db).to_string());
+        let content = session.with_db(|db| {
+            let file = db.get_or_create_file(&path);
+            file.source(db).to_string()
+        });
         assert_eq!(content, "updated");
     }
 }
