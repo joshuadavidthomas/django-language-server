@@ -148,15 +148,6 @@ impl UriExt for lsp_types::Uri {
     }
 }
 
-// TODO(virtual-paths): This will become DocumentPath::from_uri() in Step 2
-// Keeping as standalone function now to mark the conversion boundary
-#[allow(dead_code)]
-fn uri_to_document_path(uri: &lsp_types::Uri) -> Option<Utf8PathBuf> {
-    // Step 1: Only support file:// URIs
-    // Step 2: Return DocumentPath enum with File or Virtual variant
-    uri.to_utf8_path_buf()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
