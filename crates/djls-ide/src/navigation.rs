@@ -64,7 +64,6 @@ pub fn find_template_references(
 
             let tag = reference.tag(db);
             let tag_span = tag.span(db);
-            let range = tag_span.to_lsp_range(line_index);
 
             Some(lsp_types::Location {
                 uri: source_path.to_lsp_uri()?,
