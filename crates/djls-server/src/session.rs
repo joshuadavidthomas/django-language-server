@@ -66,12 +66,10 @@ impl Session {
 
         let db = DjangoDatabase::new(workspace.overlay(), &settings, project_path.as_deref());
 
-        let position_encoding = negotiate_position_encoding(&params.capabilities);
-
         Self {
             workspace,
             client_capabilities: params.capabilities.clone(),
-            position_encoding,
+            position_encoding: negotiate_position_encoding(&params.capabilities),
             db,
         }
     }
