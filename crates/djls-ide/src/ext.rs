@@ -39,7 +39,6 @@ impl Utf8PathExt for Utf8Path {
     }
 }
 
-// Or if you have a Utf8PathBuf
 impl Utf8PathExt for Utf8PathBuf {
     fn to_lsp_uri(&self) -> Option<lsp_types::Uri> {
         lsp_types::Uri::from_file_path(self.as_std_path())
