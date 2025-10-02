@@ -5,6 +5,7 @@
 //! performance when handling frequent position-based operations like hover, completion,
 //! and diagnostics.
 
+use djls_source::File;
 use djls_source::LineIndex;
 use djls_source::PositionEncoding;
 use tower_lsp_server::lsp_types::Position;
@@ -17,7 +18,10 @@ use crate::language::LanguageId;
 /// Combines document content with metadata needed for LSP operations,
 /// including version tracking for synchronization and pre-computed line
 /// indices for efficient position lookups.
-#[derive(Clone, Debug)]
+///
+/// Links to the corresponding Salsa [`File`] for integration with incremental
+/// computation and invalidation tracking.
+#[derive(Clone)]
 pub struct TextDocument {
     /// The document's content
     content: String,
@@ -27,17 +31,20 @@ pub struct TextDocument {
     language_id: LanguageId,
     /// Line index for efficient position lookups
     line_index: LineIndex,
+    /// The Salsa file this document represents
+    file: File,
 }
 
 impl TextDocument {
     #[must_use]
-    pub fn new(content: String, version: i32, language_id: LanguageId) -> Self {
+    pub fn new(content: String, version: i32, language_id: LanguageId, file: File) -> Self {
         let line_index = LineIndex::from(content.as_str());
         Self {
             content,
             version,
             language_id,
             line_index,
+            file,
         }
     }
 
@@ -59,6 +66,11 @@ impl TextDocument {
     #[must_use]
     pub fn line_index(&self) -> &LineIndex {
         &self.line_index
+    }
+
+    #[must_use]
+    pub fn file(&self) -> File {
+        self.file
     }
 
     #[must_use]
@@ -150,14 +162,54 @@ impl TextDocument {
 
 #[cfg(test)]
 mod tests {
+    use camino::Utf8Path;
+    use djls_source::Db as SourceDb;
     use tower_lsp_server::lsp_types::TextDocumentContentChangeEvent;
 
     use super::*;
     use crate::language::LanguageId;
 
+    #[salsa::db]
+    #[derive(Clone)]
+    struct TestDb {
+        storage: salsa::Storage<Self>,
+    }
+
+    impl Default for TestDb {
+        fn default() -> Self {
+            Self {
+                storage: salsa::Storage::new(None),
+            }
+        }
+    }
+
+    #[salsa::db]
+    impl salsa::Database for TestDb {}
+
+    #[salsa::db]
+    impl djls_source::Db for TestDb {
+        fn create_file(&self, path: &Utf8Path) -> File {
+            File::new(self, path.to_path_buf(), 0)
+        }
+
+        fn get_file(&self, _path: &Utf8Path) -> Option<File> {
+            None
+        }
+
+        fn read_file(&self, _path: &Utf8Path) -> std::io::Result<String> {
+            Ok(String::new())
+        }
+    }
+
+    fn text_document(content: &str, version: i32, language_id: LanguageId) -> TextDocument {
+        let db = TestDb::default();
+        let file = db.create_file(Utf8Path::new("/test.txt"));
+        TextDocument::new(content.to_string(), version, language_id, file)
+    }
+
     #[test]
     fn test_incremental_update_single_change() {
-        let mut doc = TextDocument::new("Hello world".to_string(), 1, LanguageId::Other);
+        let mut doc = text_document("Hello world", 1, LanguageId::Other);
 
         // Replace "world" with "Rust"
         let changes = vec![TextDocumentContentChangeEvent {
@@ -173,11 +225,7 @@ mod tests {
 
     #[test]
     fn test_incremental_update_multiple_changes() {
-        let mut doc = TextDocument::new(
-            "First line\nSecond line\nThird line".to_string(),
-            1,
-            LanguageId::Other,
-        );
+        let mut doc = text_document("First line\nSecond line\nThird line", 1, LanguageId::Other);
 
         // Multiple changes: replace "First" with "1st" and "Third" with "3rd"
         let changes = vec![
@@ -199,7 +247,7 @@ mod tests {
 
     #[test]
     fn test_incremental_update_insertion() {
-        let mut doc = TextDocument::new("Hello world".to_string(), 1, LanguageId::Other);
+        let mut doc = text_document("Hello world", 1, LanguageId::Other);
 
         // Insert text at position (empty range)
         let changes = vec![TextDocumentContentChangeEvent {
@@ -214,7 +262,7 @@ mod tests {
 
     #[test]
     fn test_incremental_update_deletion() {
-        let mut doc = TextDocument::new("Hello beautiful world".to_string(), 1, LanguageId::Other);
+        let mut doc = text_document("Hello beautiful world", 1, LanguageId::Other);
 
         // Delete "beautiful " (replace with empty string)
         let changes = vec![TextDocumentContentChangeEvent {
@@ -229,7 +277,7 @@ mod tests {
 
     #[test]
     fn test_full_document_replacement() {
-        let mut doc = TextDocument::new("Old content".to_string(), 1, LanguageId::Other);
+        let mut doc = text_document("Old content", 1, LanguageId::Other);
 
         // Full document replacement (no range)
         let changes = vec![TextDocumentContentChangeEvent {
@@ -245,7 +293,7 @@ mod tests {
 
     #[test]
     fn test_incremental_update_multiline() {
-        let mut doc = TextDocument::new("Line 1\nLine 2\nLine 3".to_string(), 1, LanguageId::Other);
+        let mut doc = text_document("Line 1\nLine 2\nLine 3", 1, LanguageId::Other);
 
         // Replace across multiple lines
         let changes = vec![TextDocumentContentChangeEvent {
@@ -260,7 +308,7 @@ mod tests {
 
     #[test]
     fn test_incremental_update_with_emoji() {
-        let mut doc = TextDocument::new("Hello 🌍 world".to_string(), 1, LanguageId::Other);
+        let mut doc = text_document("Hello 🌍 world", 1, LanguageId::Other);
 
         // Replace "world" after emoji - must handle UTF-16 positions correctly
         // "Hello " = 6 UTF-16 units, "🌍" = 2 UTF-16 units, " " = 1 unit, "world" starts at 9
@@ -276,7 +324,7 @@ mod tests {
 
     #[test]
     fn test_incremental_update_newline_at_end() {
-        let mut doc = TextDocument::new("Hello".to_string(), 1, LanguageId::Other);
+        let mut doc = text_document("Hello", 1, LanguageId::Other);
 
         // Add newline and new line at end
         let changes = vec![TextDocumentContentChangeEvent {
@@ -292,8 +340,7 @@ mod tests {
     #[test]
     fn test_utf16_position_handling() {
         // Test document with emoji and multi-byte characters
-        let content = "Hello 🌍!\nSecond 行 line";
-        let doc = TextDocument::new(content.to_string(), 1, LanguageId::HtmlDjango);
+        let doc = text_document("Hello 🌍!\nSecond 行 line", 1, LanguageId::HtmlDjango);
 
         // Test position after emoji by extracting text up to that position
         // "Hello 🌍!" - the 🌍 emoji is 4 UTF-8 bytes but 2 UTF-16 code units
@@ -337,8 +384,7 @@ mod tests {
 
     #[test]
     fn test_get_text_range_with_emoji() {
-        let content = "Hello 🌍 world";
-        let doc = TextDocument::new(content.to_string(), 1, LanguageId::HtmlDjango);
+        let doc = text_document("Hello 🌍 world", 1, LanguageId::HtmlDjango);
 
         // Range that spans across the emoji
         // "Hello 🌍 world"

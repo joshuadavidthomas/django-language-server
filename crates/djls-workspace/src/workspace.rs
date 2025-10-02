@@ -86,22 +86,32 @@ impl Workspace {
         version: i32,
         encoding: PositionEncoding,
     ) -> Option<File> {
+        let path = paths::url_to_path(url)?;
+
         if let Some(mut document) = self.buffers.get(url) {
+            let file = document.file();
             document.update(changes, version, encoding);
             self.buffers.update(url.clone(), document);
+            db.bump_file_revision(file);
+            Some(file)
         } else if let Some(first_change) = changes.into_iter().next() {
             if first_change.range.is_none() {
+                let file = db.get_or_create_file(path.as_path());
                 let document = TextDocument::new(
                     first_change.text,
                     version,
                     crate::language::LanguageId::Other,
+                    file,
                 );
                 self.buffers.open(url.clone(), document);
+                db.bump_file_revision(file);
+                Some(file)
+            } else {
+                None
             }
+        } else {
+            None
         }
-
-        let path = paths::url_to_path(url)?;
-        Some(db.invalidate_file(path.as_path()))
     }
 
     /// Touch the tracked file when the client saves the document.
@@ -137,12 +147,52 @@ mod tests {
     mod file_system {
         use std::io;
 
+        use camino::Utf8Path;
         use camino::Utf8PathBuf;
+        use djls_source::Db as SourceDb;
         use url::Url;
 
         use super::*;
         use crate::files::InMemoryFileSystem;
         use crate::language::LanguageId;
+
+        #[salsa::db]
+        #[derive(Clone)]
+        struct TestDb {
+            storage: salsa::Storage<Self>,
+        }
+
+        impl Default for TestDb {
+            fn default() -> Self {
+                Self {
+                    storage: salsa::Storage::new(None),
+                }
+            }
+        }
+
+        #[salsa::db]
+        impl salsa::Database for TestDb {}
+
+        #[salsa::db]
+        impl djls_source::Db for TestDb {
+            fn create_file(&self, path: &Utf8Path) -> djls_source::File {
+                djls_source::File::new(self, path.to_path_buf(), 0)
+            }
+
+            fn get_file(&self, _path: &Utf8Path) -> Option<djls_source::File> {
+                None
+            }
+
+            fn read_file(&self, _path: &Utf8Path) -> std::io::Result<String> {
+                Ok(String::new())
+            }
+        }
+
+        fn make_doc(content: &str, version: i32, language_id: LanguageId) -> TextDocument {
+            let db = TestDb::default();
+            let file = db.create_file(Utf8Path::new("/test.txt"));
+            TextDocument::new(content.to_string(), version, language_id, file)
+        }
 
         // Helper to create platform-appropriate test paths
         fn test_file_path(name: &str) -> Utf8PathBuf {
@@ -161,7 +211,7 @@ mod tests {
             // Add file to buffer
             let path = test_file_path("test.py");
             let url = Url::from_file_path(&path).unwrap();
-            let doc = TextDocument::new("buffer content".to_string(), 1, LanguageId::Python);
+            let doc = make_doc("buffer content", 1, LanguageId::Python);
             buffers.open(url, doc);
 
             assert_eq!(fs.read_to_string(&path).unwrap(), "buffer content");
@@ -190,7 +240,7 @@ mod tests {
 
             // Add buffer with different content
             let url = Url::from_file_path(&path).unwrap();
-            let doc = TextDocument::new("buffer content".to_string(), 1, LanguageId::Python);
+            let doc = make_doc("buffer content", 1, LanguageId::Python);
             buffers.open(url, doc);
 
             assert_eq!(fs.read_to_string(&path).unwrap(), "buffer content");
@@ -205,7 +255,7 @@ mod tests {
             // Add file to buffer only
             let path = test_file_path("buffer_only.py");
             let url = Url::from_file_path(&path).unwrap();
-            let doc = TextDocument::new("content".to_string(), 1, LanguageId::Python);
+            let doc = make_doc("content", 1, LanguageId::Python);
             buffers.open(url, doc);
 
             assert!(fs.exists(&path));
@@ -234,7 +284,7 @@ mod tests {
 
             // Also add to buffer
             let url = Url::from_file_path(&path).unwrap();
-            let doc = TextDocument::new("buffer".to_string(), 1, LanguageId::Python);
+            let doc = make_doc("buffer", 1, LanguageId::Python);
             buffers.open(url, doc);
 
             assert!(fs.exists(&path));
@@ -272,12 +322,12 @@ mod tests {
             let url = Url::from_file_path(&path).unwrap();
 
             // Initial buffer content
-            let doc1 = TextDocument::new("version 1".to_string(), 1, LanguageId::Python);
+            let doc1 = make_doc("version 1", 1, LanguageId::Python);
             buffers.open(url.clone(), doc1);
             assert_eq!(fs.read_to_string(&path).unwrap(), "version 1");
 
             // Update buffer content
-            let doc2 = TextDocument::new("version 2".to_string(), 2, LanguageId::Python);
+            let doc2 = make_doc("version 2", 2, LanguageId::Python);
             buffers.update(url, doc2);
             assert_eq!(fs.read_to_string(&path).unwrap(), "version 2");
         }
@@ -294,7 +344,7 @@ mod tests {
             let url = Url::from_file_path(&path).unwrap();
 
             // Add buffer
-            let doc = TextDocument::new("buffer content".to_string(), 1, LanguageId::Python);
+            let doc = make_doc("buffer content", 1, LanguageId::Python);
             buffers.open(url.clone(), doc);
             assert_eq!(fs.read_to_string(&path).unwrap(), "buffer content");
 
@@ -309,6 +359,7 @@ mod tests {
 
         use camino::Utf8Path;
         use camino::Utf8PathBuf;
+        use djls_source::Db as SourceDb;
         use djls_source::FxDashMap;
         use tempfile::tempdir;
         use url::Url;
@@ -366,8 +417,15 @@ mod tests {
             let mut workspace = Workspace::new();
             let mut db = TestDb::new(workspace.overlay());
             let url = Url::parse("file:///test.py").unwrap();
+            let path = Utf8Path::new("/test.py");
+            let file_ref = db.create_file(path);
 
-            let document = TextDocument::new("print('hello')".to_string(), 1, LanguageId::Python);
+            let document = TextDocument::new(
+                "print('hello')".to_string(),
+                1,
+                LanguageId::Python,
+                file_ref,
+            );
             let file = workspace.open_document(&mut db, &url, document).unwrap();
             let path = file.path(&db);
             assert_eq!(path.file_name(), Some("test.py"));
@@ -379,8 +437,10 @@ mod tests {
             let mut workspace = Workspace::new();
             let mut db = TestDb::new(workspace.overlay());
             let url = Url::parse("file:///test.py").unwrap();
+            let path = Utf8Path::new("/test.py");
+            let file = db.create_file(path);
 
-            let document = TextDocument::new("initial".to_string(), 1, LanguageId::Python);
+            let document = TextDocument::new("initial".to_string(), 1, LanguageId::Python, file);
             workspace.open_document(&mut db, &url, document);
 
             let changes = vec![TextDocumentContentChangeEvent {
@@ -403,8 +463,10 @@ mod tests {
             let mut workspace = Workspace::new();
             let mut db = TestDb::new(workspace.overlay());
             let url = Url::parse("file:///test.py").unwrap();
+            let path = Utf8Path::new("/test.py");
+            let file = db.create_file(path);
 
-            let document = TextDocument::new("content".to_string(), 1, LanguageId::Python);
+            let document = TextDocument::new("content".to_string(), 1, LanguageId::Python, file);
             workspace.open_document(&mut db, &url, document.clone());
 
             let closed = workspace.close_document(&mut db, &url);
@@ -421,8 +483,11 @@ mod tests {
             let mut workspace = Workspace::new();
             let mut db = TestDb::new(workspace.overlay());
             let url = Url::from_file_path(&file_path).unwrap();
+            let path = Utf8Path::from_path(&file_path).unwrap();
+            let file = db.create_file(path);
 
-            let document = TextDocument::new("buffer content".to_string(), 1, LanguageId::Python);
+            let document =
+                TextDocument::new("buffer content".to_string(), 1, LanguageId::Python, file);
             workspace.open_document(&mut db, &url, document);
 
             let content = workspace
@@ -442,8 +507,14 @@ mod tests {
                 Utf8PathBuf::from_path_buf(temp_dir.path().join("template.html")).unwrap();
             std::fs::write(file_path.as_std_path(), "disk template").unwrap();
             let url = Url::from_file_path(file_path.as_std_path()).unwrap();
+            let file_ref = db.create_file(&file_path);
 
-            let document = TextDocument::new("line1\nline2".to_string(), 1, LanguageId::HtmlDjango);
+            let document = TextDocument::new(
+                "line1\nline2".to_string(),
+                1,
+                LanguageId::HtmlDjango,
+                file_ref,
+            );
             let file = workspace
                 .open_document(&mut db, &url, document.clone())
                 .unwrap();
@@ -471,8 +542,10 @@ mod tests {
             let file_path = Utf8PathBuf::from_path_buf(temp_dir.path().join("buffer.py")).unwrap();
             std::fs::write(file_path.as_std_path(), "disk").unwrap();
             let url = Url::from_file_path(file_path.as_std_path()).unwrap();
+            let file_ref = db.create_file(&file_path);
 
-            let document = TextDocument::new("initial".to_string(), 1, LanguageId::Python);
+            let document =
+                TextDocument::new("initial".to_string(), 1, LanguageId::Python, file_ref);
             let file = workspace.open_document(&mut db, &url, document).unwrap();
 
             let changes = vec![TextDocumentContentChangeEvent {
@@ -497,8 +570,14 @@ mod tests {
             let file_path = Utf8PathBuf::from_path_buf(temp_dir.path().join("close.py")).unwrap();
             std::fs::write(file_path.as_std_path(), "disk content").unwrap();
             let url = Url::from_file_path(file_path.as_std_path()).unwrap();
+            let file_ref = db.create_file(&file_path);
 
-            let document = TextDocument::new("buffer content".to_string(), 1, LanguageId::Python);
+            let document = TextDocument::new(
+                "buffer content".to_string(),
+                1,
+                LanguageId::Python,
+                file_ref,
+            );
             let file = workspace.open_document(&mut db, &url, document).unwrap();
 
             assert_eq!(file.source(&db).as_str(), "buffer content");
