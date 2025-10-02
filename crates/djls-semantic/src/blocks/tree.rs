@@ -211,7 +211,6 @@ mod tests {
     #[salsa::db]
     impl djls_source::Db for TestDatabase {
         fn create_file(&self, path: &Utf8Path) -> File {
-            
             File::new(self, path.to_owned(), 0)
         }
 

@@ -53,7 +53,6 @@ impl salsa::Database for Db {}
 #[salsa::db]
 impl SourceDb for Db {
     fn create_file(&self, path: &Utf8Path) -> File {
-        
         File::new(self, path.to_owned(), 0)
     }
 

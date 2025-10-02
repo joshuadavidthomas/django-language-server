@@ -18,6 +18,10 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed stale diagnostics and references for templates open in the editor
+
 ## [5.2.1]
 
 ### Added
