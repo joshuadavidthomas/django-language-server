@@ -1,6 +1,10 @@
-use camino::{Utf8Path, Utf8PathBuf};
-use djls_source::{LineIndex, Offset, Span};
-use tower_lsp_server::{lsp_types, UriExt};
+use camino::Utf8Path;
+use camino::Utf8PathBuf;
+use djls_source::LineIndex;
+use djls_source::Offset;
+use djls_source::Span;
+use tower_lsp_server::lsp_types;
+use tower_lsp_server::UriExt;
 
 pub(crate) trait OffsetExt {
     fn to_lsp_position(&self, line_index: &LineIndex) -> lsp_types::Position;

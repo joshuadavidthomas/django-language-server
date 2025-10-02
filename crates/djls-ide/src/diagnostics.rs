@@ -1,7 +1,6 @@
 use djls_semantic::ValidationError;
 use djls_source::File;
 use djls_source::LineIndex;
-use djls_source::Offset;
 use djls_source::Span;
 use djls_templates::TemplateError;
 use djls_templates::TemplateErrorAccumulator;
