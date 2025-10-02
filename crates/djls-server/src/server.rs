@@ -6,7 +6,6 @@ use djls_project::Db as ProjectDb;
 use djls_semantic::Db as SemanticDb;
 use djls_source::FileKind;
 use djls_workspace::paths;
-use djls_workspace::LanguageId;
 use tokio::sync::Mutex;
 use tower_lsp_server::jsonrpc::Result as LspResult;
 use tower_lsp_server::lsp_types;
@@ -16,6 +15,10 @@ use tracing_appender::non_blocking::WorkerGuard;
 use url::Url;
 
 use crate::encoding::LspPositionEncoding;
+use crate::ext::PositionExt;
+use crate::ext::TextDocumentIdentifierExt;
+use crate::ext::TextDocumentItemExt;
+use crate::ext::UriExt;
 use crate::queue::Queue;
 use crate::session::Session;
 
@@ -103,16 +106,13 @@ impl DjangoLanguageServer {
             })
             .await;
 
-        let Some(lsp_uri) = paths::url_to_lsp_uri(url) else {
-            tracing::debug!("Could not convert URL to LSP Uri: {}", url);
-            return;
-        };
+        if let Some(lsp_uri) = lsp_types::Uri::from_url(url) {
+            self.client
+                .publish_diagnostics(lsp_uri, diagnostics.clone(), version)
+                .await;
 
-        self.client
-            .publish_diagnostics(lsp_uri, diagnostics.clone(), version)
-            .await;
-
-        tracing::debug!("Published {} diagnostics for {}", diagnostics.len(), url);
+            tracing::debug!("Published {} diagnostics for {}", diagnostics.len(), url);
+        }
     }
 }
 
@@ -208,17 +208,13 @@ impl LanguageServer for DjangoLanguageServer {
 
         let url_version = self
             .with_session_mut(|session| {
-                let url =
-                    paths::parse_lsp_uri(&params.text_document.uri, paths::LspContext::DidOpen)?;
-                let document = djls_workspace::TextDocument::new(
-                    params.text_document.text.clone(),
-                    params.text_document.version,
-                    LanguageId::from(params.text_document.language_id.as_str()),
-                );
+                let url = params.text_document.uri.to_url()?;
+                let version = params.text_document.version;
+                let document = params.text_document.into_text_document();
 
                 session.open_document(&url, document);
 
-                Some((url, params.text_document.version))
+                Some((url, version))
             })
             .await;
 
@@ -232,8 +228,7 @@ impl LanguageServer for DjangoLanguageServer {
 
         let url_version = self
             .with_session_mut(|session| {
-                let url =
-                    paths::parse_lsp_uri(&params.text_document.uri, paths::LspContext::DidSave)?;
+                let url = params.text_document.uri.to_url()?;
                 let version = session.save_document(&url).map(|doc| doc.version());
                 Some((url, version))
             })
@@ -248,8 +243,7 @@ impl LanguageServer for DjangoLanguageServer {
         tracing::info!("Changed document: {:?}", params.text_document.uri);
 
         self.with_session_mut(|session| {
-            let url =
-                paths::parse_lsp_uri(&params.text_document.uri, paths::LspContext::DidChange)?;
+            let url = params.text_document.uri.to_url()?;
             session.update_document(&url, params.content_changes, params.text_document.version);
             Some(url)
         })
@@ -259,32 +253,14 @@ impl LanguageServer for DjangoLanguageServer {
     async fn did_close(&self, params: lsp_types::DidCloseTextDocumentParams) {
         tracing::info!("Closed document: {:?}", params.text_document.uri);
 
-        let url = self
-            .with_session_mut(|session| {
-                let url =
-                    paths::parse_lsp_uri(&params.text_document.uri, paths::LspContext::DidClose)?;
-                if session.close_document(&url).is_none() {
-                    tracing::warn!("Attempted to close document without overlay: {}", url);
-                }
-                Some(url)
-            })
-            .await;
-
-        // Clear diagnostics when closing a template file
-        if let Some(url) = url {
-            if let Some(path) = paths::url_to_path(&url) {
-                if FileKind::from(&path) == FileKind::Template {
-                    let Some(lsp_uri) = paths::url_to_lsp_uri(&url) else {
-                        tracing::debug!("Could not convert URL to LSP Uri: {}", url);
-                        return;
-                    };
-
-                    // Publish empty diagnostics to clear them (this method doesn't return a Result)
-                    self.client.publish_diagnostics(lsp_uri, vec![], None).await;
-                    tracing::debug!("Cleared diagnostics for {}", url);
-                }
+        self.with_session_mut(|session| {
+            let url = params.text_document.uri.to_url()?;
+            if session.close_document(&url).is_none() {
+                tracing::warn!("Attempted to close document without overlay: {}", url);
             }
-        }
+            Some(url)
+        })
+        .await;
     }
 
     async fn completion(
@@ -293,12 +269,7 @@ impl LanguageServer for DjangoLanguageServer {
     ) -> LspResult<Option<lsp_types::CompletionResponse>> {
         let response = self
             .with_session_mut(|session| {
-                let Some(url) = paths::parse_lsp_uri(
-                    &params.text_document_position.text_document.uri,
-                    paths::LspContext::Completion,
-                ) else {
-                    return None; // Error parsing uri (unlikely), return no completions
-                };
+                let url = params.text_document_position.text_document.uri.to_url()?;
 
                 tracing::debug!(
                     "Completion requested for {} at {:?}",
@@ -362,9 +333,7 @@ impl LanguageServer for DjangoLanguageServer {
             params.text_document.uri
         );
 
-        let Some(url) =
-            paths::parse_lsp_uri(&params.text_document.uri, paths::LspContext::Diagnostic)
-        else {
+        let Some(url) = params.text_document.uri.to_url() else {
             return Ok(lsp_types::DocumentDiagnosticReportResult::Report(
                 lsp_types::DocumentDiagnosticReport::Full(
                     lsp_types::RelatedFullDocumentDiagnosticReport {
@@ -399,7 +368,7 @@ impl LanguageServer for DjangoLanguageServer {
         let diagnostics: Vec<lsp_types::Diagnostic> = self
             .with_session_mut(|session| {
                 let file = session.get_or_create_file(&path);
-                session.with_db(|db| {
+                session.with_db_mut(|db| {
                     let nodelist = djls_templates::parse_template(db, file);
                     djls_ide::collect_diagnostics(db, file, nodelist)
                 })
@@ -425,20 +394,21 @@ impl LanguageServer for DjangoLanguageServer {
     ) -> LspResult<Option<lsp_types::GotoDefinitionResponse>> {
         let response = self
             .with_session_mut(|session| {
-                let url = paths::parse_lsp_uri(
-                    &params.text_document_position_params.text_document.uri,
-                    paths::LspContext::GotoDefinition,
-                )?;
-                let path = paths::url_to_path(&url)?;
-                let file = session.get_or_create_file(&path);
+                let encoding = session.position_encoding();
 
-                session.with_db(|db| {
-                    djls_ide::goto_template_definition(
-                        db,
-                        file,
-                        params.text_document_position_params.position,
-                        session.position_encoding(),
-                    )
+                session.with_db_mut(|db| {
+                    let file = params
+                        .text_document_position_params
+                        .text_document
+                        .to_file(db)?;
+                    let line_index = file.line_index(db);
+                    let source = file.source(db);
+                    let offset = params.text_document_position_params.position.to_offset(
+                        source.as_str(),
+                        line_index,
+                        encoding,
+                    );
+                    djls_ide::goto_template_definition(db, file, offset)
                 })
             })
             .await;
@@ -452,20 +422,18 @@ impl LanguageServer for DjangoLanguageServer {
     ) -> LspResult<Option<Vec<lsp_types::Location>>> {
         let response = self
             .with_session_mut(|session| {
-                let url = paths::parse_lsp_uri(
-                    &params.text_document_position.text_document.uri,
-                    paths::LspContext::References,
-                )?;
-                let path = paths::url_to_path(&url)?;
-                let file = session.get_or_create_file(&path);
+                let encoding = session.position_encoding();
 
-                session.with_db(|db| {
-                    djls_ide::find_template_references(
-                        db,
-                        file,
-                        params.text_document_position.position,
-                        session.position_encoding(),
-                    )
+                session.with_db_mut(|db| {
+                    let file = params.text_document_position.text_document.to_file(db)?;
+                    let line_index = file.line_index(db);
+                    let source = file.source(db);
+                    let offset = params.text_document_position.position.to_offset(
+                        source.as_str(),
+                        line_index,
+                        encoding,
+                    );
+                    djls_ide::find_template_references(db, file, offset)
                 })
             })
             .await;

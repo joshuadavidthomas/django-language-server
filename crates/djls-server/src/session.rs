@@ -9,7 +9,6 @@ use djls_project::Db as ProjectDb;
 use djls_source::File;
 use djls_source::FileKind;
 use djls_source::PositionEncoding;
-use djls_workspace::paths;
 use djls_workspace::Db as WorkspaceDb;
 use djls_workspace::TextDocument;
 use djls_workspace::Workspace;
@@ -18,6 +17,7 @@ use url::Url;
 
 use crate::db::DjangoDatabase;
 use crate::encoding::LspPositionEncoding;
+use crate::ext::UriExt;
 
 /// LSP Session managing project-specific state and database operations.
 ///
@@ -51,7 +51,7 @@ impl Session {
             .workspace_folders
             .as_ref()
             .and_then(|folders| folders.first())
-            .and_then(|folder| paths::lsp_uri_to_path(&folder.uri))
+            .and_then(|folder| folder.uri.to_utf8_path_buf())
             .or_else(|| {
                 // Fall back to current directory
                 std::env::current_dir()

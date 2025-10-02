@@ -1,0 +1,91 @@
+use std::str::FromStr;
+
+use camino::Utf8PathBuf;
+use djls_source::File;
+use djls_source::LineCol;
+use djls_source::LineIndex;
+use djls_source::Offset;
+use djls_source::PositionEncoding;
+use djls_workspace::paths;
+use djls_workspace::Db as WorkspaceDb;
+use djls_workspace::TextDocument;
+use tower_lsp_server::lsp_types;
+use url::Url;
+
+pub(crate) trait PositionExt {
+    fn to_offset(&self, text: &str, index: &LineIndex, encoding: PositionEncoding) -> Offset;
+}
+
+impl PositionExt for lsp_types::Position {
+    fn to_offset(&self, text: &str, index: &LineIndex, encoding: PositionEncoding) -> Offset {
+        let line_col = LineCol::new(self.line, self.character);
+        index.offset(line_col, text, encoding)
+    }
+}
+
+pub(crate) trait TextDocumentIdentifierExt {
+    fn to_file(&self, db: &mut dyn WorkspaceDb) -> Option<File>;
+}
+
+impl TextDocumentIdentifierExt for lsp_types::TextDocumentIdentifier {
+    fn to_file(&self, db: &mut dyn WorkspaceDb) -> Option<File> {
+        let path = self.uri.to_utf8_path_buf()?;
+        Some(db.ensure_file_tracked(&path))
+    }
+}
+
+pub(crate) trait TextDocumentItemExt {
+    /// Convert LSP `TextDocumentItem` to internal `TextDocument`
+    fn into_text_document(self) -> TextDocument;
+}
+
+impl TextDocumentItemExt for lsp_types::TextDocumentItem {
+    fn into_text_document(self) -> TextDocument {
+        TextDocument::new(
+            self.text,
+            self.version,
+            djls_workspace::LanguageId::from(self.language_id.as_str()),
+        )
+    }
+}
+
+pub(crate) trait UriExt {
+    /// Convert `uri::Url` to LSP Uri
+    fn from_url(url: &Url) -> Option<Self>
+    where
+        Self: Sized;
+
+    /// Convert LSP URI to `url::Url,` logging errors
+    fn to_url(&self) -> Option<Url>;
+
+    /// Convert LSP URI directly to `Utf8PathBuf` (convenience)
+    fn to_utf8_path_buf(&self) -> Option<Utf8PathBuf>;
+}
+
+impl UriExt for lsp_types::Uri {
+    fn from_url(url: &Url) -> Option<Self> {
+        let uri_string = url.to_string();
+        lsp_types::Uri::from_str(&uri_string)
+            .inspect_err(|e| {
+                tracing::error!("Failed to convert URL to LSP Uri: {} - Error: {}", url, e);
+            })
+            .ok()
+    }
+
+    fn to_url(&self) -> Option<Url> {
+        Url::parse(self.as_str())
+            .inspect_err(|e| {
+                tracing::error!(
+                    "Invalid URI from LSP client: {} - Error: {}",
+                    self.as_str(),
+                    e
+                );
+            })
+            .ok()
+    }
+
+    fn to_utf8_path_buf(&self) -> Option<Utf8PathBuf> {
+        let url = self.to_url()?;
+        paths::url_to_path(&url)
+    }
+}

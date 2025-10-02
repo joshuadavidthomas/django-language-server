@@ -1,5 +1,6 @@
 mod completions;
 mod diagnostics;
+mod ext;
 mod navigation;
 mod snippets;
 
