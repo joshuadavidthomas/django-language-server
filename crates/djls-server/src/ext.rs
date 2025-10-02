@@ -163,7 +163,8 @@ mod tests {
 
     #[test]
     fn test_negotiate_prefers_utf8_when_available() {
-        use tower_lsp_server::lsp_types::{ClientCapabilities, GeneralClientCapabilities};
+        use tower_lsp_server::lsp_types::ClientCapabilities;
+        use tower_lsp_server::lsp_types::GeneralClientCapabilities;
 
         let params = lsp_types::InitializeParams {
             capabilities: ClientCapabilities {
@@ -184,7 +185,8 @@ mod tests {
 
     #[test]
     fn test_negotiate_prefers_utf32_over_utf16() {
-        use tower_lsp_server::lsp_types::{ClientCapabilities, GeneralClientCapabilities};
+        use tower_lsp_server::lsp_types::ClientCapabilities;
+        use tower_lsp_server::lsp_types::GeneralClientCapabilities;
 
         let params = lsp_types::InitializeParams {
             capabilities: ClientCapabilities {
@@ -207,7 +209,8 @@ mod tests {
 
     #[test]
     fn test_negotiate_fallback_with_unsupported_encodings() {
-        use tower_lsp_server::lsp_types::{ClientCapabilities, GeneralClientCapabilities};
+        use tower_lsp_server::lsp_types::ClientCapabilities;
+        use tower_lsp_server::lsp_types::GeneralClientCapabilities;
 
         let params = lsp_types::InitializeParams {
             capabilities: ClientCapabilities {
