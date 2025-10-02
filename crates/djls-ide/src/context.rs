@@ -13,21 +13,6 @@ pub struct OffsetContext {
 
 pub enum ContextKind {
     TemplateReference(String),
-    TemplateTag {
-        name: String,
-        args: Vec<String>,
-    },
-    TemplateVariable {
-        variable: String,
-        filters: Vec<String>,
-    },
-    TemplateFilter {
-        variable: String,
-        name: String,
-        args: Option<String>,
-    },
-    TemplateComment(String),
-    TemplateText,
     None,
 }
 
@@ -49,30 +34,11 @@ impl OffsetContext {
 
             let span = node.full_span();
             let context = match node {
-                Node::Tag { name, bits, .. } => {
-                    if Self::is_template_reference_tag(name) {
-                        if let Some(template_name) = Self::extract_template_name(bits) {
-                            ContextKind::TemplateReference(template_name)
-                        } else {
-                            ContextKind::TemplateTag {
-                                name: name.clone(),
-                                args: bits.clone(),
-                            }
-                        }
-                    } else {
-                        ContextKind::TemplateTag {
-                            name: name.clone(),
-                            args: bits.clone(),
-                        }
-                    }
+                Node::Tag { name, bits, .. } if Self::is_loader_tag(name) => {
+                    Self::extract_template_name(bits)
+                        .map_or(ContextKind::None, ContextKind::TemplateReference)
                 }
-                Node::Variable { var, filters, .. } => ContextKind::TemplateVariable {
-                    variable: var.clone(),
-                    filters: filters.clone(),
-                },
-                Node::Comment { content, .. } => ContextKind::TemplateComment(content.clone()),
-                Node::Text { .. } => ContextKind::TemplateText,
-                Node::Error { .. } => continue,
+                _ => ContextKind::None,
             };
 
             return Self {
@@ -91,8 +57,8 @@ impl OffsetContext {
         }
     }
 
-    fn is_template_reference_tag(tag: &str) -> bool {
-        matches!(tag, "extends" | "include")
+    fn is_loader_tag(tag_name: &str) -> bool {
+        matches!(tag_name, "extends" | "include")
     }
 
     fn extract_template_name(bits: &[String]) -> Option<String> {

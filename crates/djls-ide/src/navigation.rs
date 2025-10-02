@@ -33,7 +33,7 @@ pub fn goto_definition(
                 }
             }
         }
-        _ => None,
+        ContextKind::None => None,
     }
 }
 
@@ -69,6 +69,6 @@ pub fn find_references(
                 Some(locations)
             }
         }
-        _ => None,
+        ContextKind::None => None,
     }
 }
