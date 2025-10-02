@@ -334,47 +334,23 @@ impl LanguageServer for DjangoLanguageServer {
             params.text_document.uri
         );
 
-        let Some(url) = params.text_document.uri.to_url() else {
-            return Ok(lsp_types::DocumentDiagnosticReportResult::Report(
-                lsp_types::DocumentDiagnosticReport::Full(
-                    lsp_types::RelatedFullDocumentDiagnosticReport {
-                        related_documents: None,
-                        full_document_diagnostic_report: lsp_types::FullDocumentDiagnosticReport {
-                            result_id: None,
-                            items: vec![],
-                        },
-                    },
-                ),
-            ));
-        };
-
-        let path: Utf8PathBuf = url.path().into();
-
-        // Only provide diagnostics for template files
-        if FileKind::from(&path) != FileKind::Template {
-            return Ok(lsp_types::DocumentDiagnosticReportResult::Report(
-                lsp_types::DocumentDiagnosticReport::Full(
-                    lsp_types::RelatedFullDocumentDiagnosticReport {
-                        related_documents: None,
-                        full_document_diagnostic_report: lsp_types::FullDocumentDiagnosticReport {
-                            result_id: None,
-                            items: vec![],
-                        },
-                    },
-                ),
-            ));
-        }
-
-        // Get diagnostics from the database
-        let diagnostics: Vec<lsp_types::Diagnostic> = self
-            .with_session_mut(|session| {
-                session.with_db_mut(|db| {
-                    let file = db.get_or_create_file(&path);
-                    let nodelist = djls_templates::parse_template(db, file);
-                    djls_ide::collect_diagnostics(db, file, nodelist)
+        let diagnostics = match params.text_document.uri.to_url().filter(|url| {
+            let path: Utf8PathBuf = url.path().into();
+            FileKind::from(&path) == FileKind::Template
+        }) {
+            Some(url) => {
+                let path: Utf8PathBuf = url.path().into();
+                self.with_session_mut(move |session| {
+                    session.with_db_mut(|db| {
+                        let file = db.get_or_create_file(&path);
+                        let nodelist = djls_templates::parse_template(db, file);
+                        djls_ide::collect_diagnostics(db, file, nodelist)
+                    })
                 })
-            })
-            .await;
+                .await
+            }
+            None => vec![],
+        };
 
         Ok(lsp_types::DocumentDiagnosticReportResult::Report(
             lsp_types::DocumentDiagnosticReport::Full(
@@ -402,15 +378,14 @@ impl LanguageServer for DjangoLanguageServer {
                         .text_document_position_params
                         .text_document
                         .to_file(db)?;
-                    let line_index = file.line_index(db);
                     let source = file.source(db);
+                    let line_index = file.line_index(db);
                     let offset = params.text_document_position_params.position.to_offset(
                         source.as_str(),
                         line_index,
                         encoding,
                     );
-                    let context = djls_ide::OffsetContext::from_offset(db, file, offset);
-                    djls_ide::goto_definition(db, &context)
+                    djls_ide::goto_definition(db, file, offset)
                 })
             })
             .await;
@@ -428,15 +403,14 @@ impl LanguageServer for DjangoLanguageServer {
 
                 session.with_db_mut(|db| {
                     let file = params.text_document_position.text_document.to_file(db)?;
-                    let line_index = file.line_index(db);
                     let source = file.source(db);
+                    let line_index = file.line_index(db);
                     let offset = params.text_document_position.position.to_offset(
                         source.as_str(),
                         line_index,
                         encoding,
                     );
-                    let context = djls_ide::OffsetContext::from_offset(db, file, offset);
-                    djls_ide::find_references(db, &context)
+                    djls_ide::find_references(db, file, offset)
                 })
             })
             .await;
