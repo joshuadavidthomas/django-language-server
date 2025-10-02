@@ -202,9 +202,7 @@ impl LanguageServer for DjangoLanguageServer {
 
         let path_version = self
             .with_session_mut(|session| {
-                let path = if let Some(p) = params.text_document.uri.to_utf8_path_buf() {
-                    p
-                } else {
+                let Some(path) = params.text_document.uri.to_utf8_path_buf() else {
                     tracing::debug!(
                         "Skipping non-file URI in did_open: {}",
                         params.text_document.uri.as_str()
@@ -232,9 +230,7 @@ impl LanguageServer for DjangoLanguageServer {
 
         let path_version = self
             .with_session_mut(|session| {
-                let path = if let Some(p) = params.text_document.uri.to_utf8_path_buf() {
-                    p
-                } else {
+                let Some(path) = params.text_document.uri.to_utf8_path_buf() else {
                     tracing::debug!(
                         "Skipping non-file URI in did_save: {}",
                         params.text_document.uri.as_str()
@@ -256,9 +252,7 @@ impl LanguageServer for DjangoLanguageServer {
         tracing::info!("Changed document: {:?}", params.text_document.uri);
 
         self.with_session_mut(|session| {
-            let path = if let Some(p) = params.text_document.uri.to_utf8_path_buf() {
-                p
-            } else {
+            let Some(path) = params.text_document.uri.to_utf8_path_buf() else {
                 tracing::debug!(
                     "Skipping non-file URI in did_change: {}",
                     params.text_document.uri.as_str()
@@ -276,9 +270,7 @@ impl LanguageServer for DjangoLanguageServer {
         tracing::info!("Closed document: {:?}", params.text_document.uri);
 
         self.with_session_mut(|session| {
-            let path = if let Some(p) = params.text_document.uri.to_utf8_path_buf() {
-                p
-            } else {
+            let Some(path) = params.text_document.uri.to_utf8_path_buf() else {
                 tracing::debug!(
                     "Skipping non-file URI in did_close: {}",
                     params.text_document.uri.as_str()
@@ -300,14 +292,12 @@ impl LanguageServer for DjangoLanguageServer {
     ) -> LspResult<Option<lsp_types::CompletionResponse>> {
         let response = self
             .with_session_mut(|session| {
-                let path = if let Some(p) = params
+                let Some(path) = params
                     .text_document_position
                     .text_document
                     .uri
                     .to_utf8_path_buf()
-                {
-                    p
-                } else {
+                else {
                     tracing::debug!(
                         "Skipping non-file URI in completion: {}",
                         params.text_document_position.text_document.uri.as_str()
