@@ -15,7 +15,7 @@ use tower_lsp_server::lsp_types;
 use url::Url;
 
 use crate::db::DjangoDatabase;
-use crate::ext::InitializeParamsExt;
+use crate::ext::ClientCapabilitiesExt;
 use crate::ext::UriExt;
 
 /// LSP Session managing project-specific state and database operations.
@@ -66,7 +66,7 @@ impl Session {
 
         let db = DjangoDatabase::new(workspace.overlay(), &settings, project_path.as_deref());
 
-        let position_encoding = params.negotiate_position_encoding();
+        let position_encoding = params.capabilities.negotiate_position_encoding();
 
         Self {
             workspace,
