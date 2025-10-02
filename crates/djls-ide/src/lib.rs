@@ -6,8 +6,6 @@ mod navigation;
 mod snippets;
 
 pub use completions::handle_completion;
-pub use context::ContextKind;
-pub use context::OffsetContext;
 pub use diagnostics::collect_diagnostics;
 pub use navigation::find_references;
 pub use navigation::goto_definition;

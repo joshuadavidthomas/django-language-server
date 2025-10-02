@@ -1,21 +1,23 @@
 use djls_semantic::resolve_template;
 use djls_semantic::ResolveResult;
+use djls_source::File;
+use djls_source::Offset;
 use tower_lsp_server::lsp_types;
 
+use crate::context::OffsetContext;
 use crate::ext::SpanExt;
 use crate::ext::Utf8PathExt;
-use crate::ContextKind;
-use crate::OffsetContext;
 
 pub fn goto_definition(
     db: &dyn djls_semantic::Db,
-    context: &OffsetContext,
+    file: File,
+    offset: Offset,
 ) -> Option<lsp_types::GotoDefinitionResponse> {
-    match &context.kind {
-        ContextKind::TemplateReference(template_name) => {
+    match OffsetContext::from_offset(db, file, offset) {
+        OffsetContext::TemplateReference(template_name) => {
             tracing::debug!("Found template reference: '{}'", template_name);
 
-            match resolve_template(db, template_name) {
+            match resolve_template(db, &template_name) {
                 ResolveResult::Found(template) => {
                     let path = template.path_buf(db);
                     tracing::debug!("Resolved template to: {}", path);
@@ -33,22 +35,23 @@ pub fn goto_definition(
                 }
             }
         }
-        ContextKind::None => None,
+        OffsetContext::None => None,
     }
 }
 
 pub fn find_references(
     db: &dyn djls_semantic::Db,
-    context: &OffsetContext,
+    file: File,
+    offset: Offset,
 ) -> Option<Vec<lsp_types::Location>> {
-    match &context.kind {
-        ContextKind::TemplateReference(template_name) => {
+    match OffsetContext::from_offset(db, file, offset) {
+        OffsetContext::TemplateReference(template_name) => {
             tracing::debug!(
                 "Cursor is inside extends/include tag referencing: '{}'",
                 template_name
             );
 
-            let references = djls_semantic::find_references_to_template(db, template_name);
+            let references = djls_semantic::find_references_to_template(db, &template_name);
 
             let locations: Vec<lsp_types::Location> = references
                 .iter()
@@ -69,6 +72,6 @@ pub fn find_references(
                 Some(locations)
             }
         }
-        ContextKind::None => None,
+        OffsetContext::None => None,
     }
 }
