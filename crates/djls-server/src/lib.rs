@@ -1,5 +1,4 @@
 pub mod db;
-mod encoding;
 mod ext;
 mod logging;
 mod queue;

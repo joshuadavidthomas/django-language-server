@@ -15,7 +15,7 @@ use tower_lsp_server::LanguageServer;
 use tracing_appender::non_blocking::WorkerGuard;
 use url::Url;
 
-use crate::encoding::LspPositionEncoding;
+use crate::ext::PositionEncodingExt;
 use crate::ext::PositionExt;
 use crate::ext::TextDocumentIdentifierExt;
 use crate::ext::TextDocumentItemExt;
@@ -159,7 +159,7 @@ impl LanguageServer for DjangoLanguageServer {
                         save: Some(lsp_types::SaveOptions::default().into()),
                     },
                 )),
-                position_encoding: Some(LspPositionEncoding::from(encoding).into()),
+                position_encoding: Some(encoding.to_lsp()),
                 diagnostic_provider: Some(lsp_types::DiagnosticServerCapabilities::Options(
                     lsp_types::DiagnosticOptions {
                         identifier: None,

@@ -15,7 +15,7 @@ use tower_lsp_server::lsp_types;
 use url::Url;
 
 use crate::db::DjangoDatabase;
-use crate::encoding::LspPositionEncoding;
+use crate::ext::PositionEncodingKindExt;
 use crate::ext::UriExt;
 
 /// LSP Session managing project-specific state and database operations.
@@ -66,14 +66,10 @@ impl Session {
 
         let db = DjangoDatabase::new(workspace.overlay(), &settings, project_path.as_deref());
 
-        let position_encoding = LspPositionEncoding::from(params)
-            .to_position_encoding()
-            .unwrap_or_default();
-
         Self {
             workspace,
             client_capabilities: params.capabilities.clone(),
-            position_encoding,
+            position_encoding: negotiate_position_encoding(&params.capabilities),
             db,
         }
     }
@@ -213,6 +209,29 @@ impl Default for Session {
     }
 }
 
+fn negotiate_position_encoding(capabilities: &lsp_types::ClientCapabilities) -> PositionEncoding {
+    let client_encodings = capabilities
+        .general
+        .as_ref()
+        .and_then(|general| general.position_encodings.as_ref())
+        .map_or(&[][..], |encodings| encodings.as_slice());
+
+    for preferred in [
+        PositionEncoding::Utf8,
+        PositionEncoding::Utf32,
+        PositionEncoding::Utf16,
+    ] {
+        if client_encodings
+            .iter()
+            .any(|kind| kind.to_position_encoding() == Some(preferred))
+        {
+            return preferred;
+        }
+    }
+
+    PositionEncoding::Utf16
+}
+
 #[cfg(test)]
 mod tests {
     use djls_source::Db as SourceDb;
@@ -284,5 +303,69 @@ mod tests {
             file.source(db).to_string()
         });
         assert_eq!(content, "updated");
+    }
+
+    #[test]
+    fn test_negotiate_prefers_utf8_when_available() {
+        let capabilities = lsp_types::ClientCapabilities {
+            general: Some(lsp_types::GeneralClientCapabilities {
+                position_encodings: Some(vec![
+                    lsp_types::PositionEncodingKind::new("utf-16"),
+                    lsp_types::PositionEncodingKind::new("utf-8"),
+                    lsp_types::PositionEncodingKind::new("utf-32"),
+                ]),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        assert_eq!(
+            negotiate_position_encoding(&capabilities),
+            PositionEncoding::Utf8
+        );
+    }
+
+    #[test]
+    fn test_negotiate_prefers_utf32_over_utf16() {
+        let capabilities = lsp_types::ClientCapabilities {
+            general: Some(lsp_types::GeneralClientCapabilities {
+                position_encodings: Some(vec![
+                    lsp_types::PositionEncodingKind::new("utf-16"),
+                    lsp_types::PositionEncodingKind::new("utf-32"),
+                ]),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        assert_eq!(
+            negotiate_position_encoding(&capabilities),
+            PositionEncoding::Utf32
+        );
+    }
+
+    #[test]
+    fn test_negotiate_fallback_with_unsupported_encodings() {
+        let capabilities = lsp_types::ClientCapabilities {
+            general: Some(lsp_types::GeneralClientCapabilities {
+                position_encodings: Some(vec![
+                    lsp_types::PositionEncodingKind::new("ascii"),
+                    lsp_types::PositionEncodingKind::new("utf-7"),
+                ]),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        assert_eq!(
+            negotiate_position_encoding(&capabilities),
+            PositionEncoding::Utf16
+        );
+    }
+
+    #[test]
+    fn test_negotiate_fallback_with_no_capabilities() {
+        let capabilities = lsp_types::ClientCapabilities::default();
+        assert_eq!(
+            negotiate_position_encoding(&capabilities),
+            PositionEncoding::Utf16
+        );
     }
 }

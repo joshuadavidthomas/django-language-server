@@ -23,6 +23,35 @@ impl PositionExt for lsp_types::Position {
     }
 }
 
+pub(crate) trait PositionEncodingExt {
+    fn to_lsp(&self) -> lsp_types::PositionEncodingKind;
+}
+
+impl PositionEncodingExt for PositionEncoding {
+    fn to_lsp(&self) -> lsp_types::PositionEncodingKind {
+        match self {
+            PositionEncoding::Utf8 => lsp_types::PositionEncodingKind::new("utf-8"),
+            PositionEncoding::Utf16 => lsp_types::PositionEncodingKind::new("utf-16"),
+            PositionEncoding::Utf32 => lsp_types::PositionEncodingKind::new("utf-32"),
+        }
+    }
+}
+
+pub(crate) trait PositionEncodingKindExt {
+    fn to_position_encoding(&self) -> Option<PositionEncoding>;
+}
+
+impl PositionEncodingKindExt for lsp_types::PositionEncodingKind {
+    fn to_position_encoding(&self) -> Option<PositionEncoding> {
+        match self.as_str() {
+            "utf-8" => Some(PositionEncoding::Utf8),
+            "utf-16" => Some(PositionEncoding::Utf16),
+            "utf-32" => Some(PositionEncoding::Utf32),
+            _ => None,
+        }
+    }
+}
+
 pub(crate) trait TextDocumentIdentifierExt {
     fn to_file(&self, db: &mut dyn WorkspaceDb) -> Option<File>;
 }
@@ -87,5 +116,18 @@ impl UriExt for lsp_types::Uri {
     fn to_utf8_path_buf(&self) -> Option<Utf8PathBuf> {
         let url = self.to_url()?;
         paths::url_to_path(&url)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_position_encoding_kind_unknown_returns_none() {
+        assert_eq!(
+            lsp_types::PositionEncodingKind::new("unknown").to_position_encoding(),
+            None
+        );
     }
 }
