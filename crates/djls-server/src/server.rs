@@ -409,7 +409,8 @@ impl LanguageServer for DjangoLanguageServer {
                         line_index,
                         encoding,
                     );
-                    djls_ide::goto_template_definition(db, file, offset)
+                    let context = djls_ide::OffsetContext::from_offset(db, file, offset);
+                    djls_ide::goto_definition(db, &context)
                 })
             })
             .await;
@@ -434,7 +435,8 @@ impl LanguageServer for DjangoLanguageServer {
                         line_index,
                         encoding,
                     );
-                    djls_ide::find_template_references(db, file, offset)
+                    let context = djls_ide::OffsetContext::from_offset(db, file, offset);
+                    djls_ide::find_references(db, &context)
                 })
             })
             .await;
