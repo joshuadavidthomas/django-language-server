@@ -236,26 +236,27 @@ fn negotiate_position_encoding(capabilities: &lsp_types::ClientCapabilities) -> 
 mod tests {
     use djls_source::Db as SourceDb;
     use djls_workspace::LanguageId;
-    use url::Url;
+    use tower_lsp_server::UriExt;
 
     use super::*;
 
-    // Helper function to create a test file path and URL that works on all platforms
-    fn test_file_url(filename: &str) -> (Utf8PathBuf, Url) {
+    // Helper function to create a test file path and URI that works on all platforms
+    fn test_file_uri(filename: &str) -> (Utf8PathBuf, lsp_types::Uri) {
         // Use an absolute path that's valid on the platform
         #[cfg(windows)]
         let path = Utf8PathBuf::from(format!("C:\\temp\\{filename}"));
         #[cfg(not(windows))]
         let path = Utf8PathBuf::from(format!("/tmp/{filename}"));
 
-        let url = Url::from_file_path(&path).expect("Failed to create file URL");
-        (path, url)
+        let uri =
+            lsp_types::Uri::from_file_path(path.as_std_path()).expect("Failed to create file URI");
+        (path, uri)
     }
 
     #[test]
     fn test_session_document_lifecycle() {
         let mut session = Session::default();
-        let (path, _url) = test_file_url("test.py");
+        let (path, _uri) = test_file_uri("test.py");
 
         // Open document
         let document = session.with_db_mut(|db| {
@@ -287,7 +288,7 @@ mod tests {
     #[test]
     fn test_session_document_update() {
         let mut session = Session::default();
-        let (path, _url) = test_file_url("test.py");
+        let (path, _uri) = test_file_uri("test.py");
 
         // Open with initial content
         let document = session.with_db_mut(|db| {

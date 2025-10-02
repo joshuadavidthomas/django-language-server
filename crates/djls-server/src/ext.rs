@@ -1,5 +1,3 @@
-use std::str::FromStr;
-
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_source::File;
@@ -7,10 +5,9 @@ use djls_source::LineCol;
 use djls_source::LineIndex;
 use djls_source::Offset;
 use djls_source::PositionEncoding;
-use djls_workspace::paths;
 use djls_workspace::Db as WorkspaceDb;
 use tower_lsp_server::lsp_types;
-use url::Url;
+use tower_lsp_server::UriExt as TowerUriExt;
 
 pub(crate) trait PositionExt {
     fn to_offset(&self, text: &str, index: &LineIndex, encoding: PositionEncoding) -> Offset;
@@ -88,68 +85,57 @@ impl TextDocumentItemExt for lsp_types::TextDocumentItem {
 }
 
 pub(crate) trait UriExt {
-    /// Convert `uri::Url` to LSP Uri
-    fn from_url(url: &Url) -> Option<Self>
-    where
-        Self: Sized;
-
     /// Convert `Utf8Path` to LSP Uri
     fn from_path(path: &Utf8Path) -> Option<Self>
     where
         Self: Sized;
 
-    // TODO(virtual-paths): Add from_document_path() method
+    // TODO(virtual-paths): Step 2 - Add wrapper for DocumentPath → Uri conversion:
     // fn from_document_path(path: &DocumentPath) -> Option<Self> where Self: Sized;
-
-    /// Convert LSP URI to `url::Url,` logging errors
-    fn to_url(&self) -> Option<Url>;
+    // This will call DocumentPath::to_uri() internally. The main API boundary is
+    // DocumentPath::from_uri() / to_uri(), not here.
 
     /// Convert LSP URI directly to `Utf8PathBuf` (convenience)
     fn to_utf8_path_buf(&self) -> Option<Utf8PathBuf>;
 }
 
 impl UriExt for lsp_types::Uri {
-    fn from_url(url: &Url) -> Option<Self> {
-        let uri_string = url.to_string();
-        lsp_types::Uri::from_str(&uri_string)
-            .inspect_err(|e| {
-                tracing::error!("Failed to convert URL to LSP Uri: {} - Error: {}", url, e);
-            })
-            .ok()
-    }
-
     fn from_path(path: &Utf8Path) -> Option<Self> {
-        let url = paths::path_to_url(path)?;
-        Self::from_url(&url)
-    }
-
-    fn to_url(&self) -> Option<Url> {
-        Url::parse(self.as_str())
-            .inspect_err(|e| {
-                tracing::error!(
-                    "Invalid URI from LSP client: {} - Error: {}",
-                    self.as_str(),
-                    e
-                );
-            })
-            .ok()
+        <lsp_types::Uri as TowerUriExt>::from_file_path(path.as_std_path())
     }
 
     fn to_utf8_path_buf(&self) -> Option<Utf8PathBuf> {
-        let url = self.to_url()?;
-        let path = paths::url_to_path(&url);
-
-        // TODO(virtual-paths): This will need to return DocumentPath enum
-        if path.is_none() {
-            tracing::trace!("URI conversion to path failed for: {}", self.as_str());
+        // TODO(virtual-paths): Step 2 - This entire method becomes a compatibility wrapper:
+        //   DocumentPath::from_uri(self)?.as_file_path()
+        // The real scheme branching logic will live in DocumentPath::from_uri(), not here.
+        // For now (Step 1), only handle file:// URIs
+        // we don't have fluent_uri as a dep, just transitive, so allow this
+        #[allow(clippy::redundant_closure_for_method_calls)]
+        if self.scheme().map(|s| s.as_str()) != Some("file") {
+            tracing::trace!(
+                "URI conversion to path failed for: {} (non-file scheme)",
+                self.as_str()
+            );
+            return None;
         }
 
-        path
+        let path = <lsp_types::Uri as TowerUriExt>::to_file_path(self)?;
+
+        Utf8PathBuf::from_path_buf(path.into_owned())
+            .inspect_err(|_| {
+                tracing::trace!(
+                    "URI conversion to path failed for: {} (non-UTF-8 path)",
+                    self.as_str()
+                );
+            })
+            .ok()
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use super::*;
 
     #[test]

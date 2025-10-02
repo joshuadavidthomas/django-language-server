@@ -10,13 +10,11 @@
 //! - [`Db`] - Database trait for file system access (concrete impl in server crate)
 //! - [`TextDocument`] - LSP document representation with efficient indexing
 //! - [`FileSystem`] - Abstraction layer for file operations with overlay support
-//! - [`paths`] - Consistent URL/path conversion utilities
 
 mod db;
 mod document;
 mod files;
 mod language;
-pub mod paths;
 mod workspace;
 
 pub use db::Db;

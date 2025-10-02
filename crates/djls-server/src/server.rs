@@ -2,7 +2,6 @@ use std::future::Future;
 use std::sync::Arc;
 
 use camino::Utf8Path;
-use camino::Utf8PathBuf;
 use djls_project::Db as ProjectDb;
 use djls_semantic::Db as SemanticDb;
 use djls_source::Db as SourceDb;
@@ -364,19 +363,19 @@ impl LanguageServer for DjangoLanguageServer {
             params.text_document.uri
         );
 
-        let diagnostics = if let Some(url) = params.text_document.uri.to_url().filter(|url| {
-            let path: Utf8PathBuf = url.path().into();
-            FileKind::from(&path) == FileKind::Template
-        }) {
-            let path: Utf8PathBuf = url.path().into();
-            self.with_session_mut(move |session| {
-                session.with_db_mut(|db| {
-                    let file = db.get_or_create_file(&path);
-                    let nodelist = djls_templates::parse_template(db, file);
-                    djls_ide::collect_diagnostics(db, file, nodelist)
+        let diagnostics = if let Some(path) = params.text_document.uri.to_utf8_path_buf() {
+            if FileKind::from(&path) == FileKind::Template {
+                self.with_session_mut(move |session| {
+                    session.with_db_mut(|db| {
+                        let file = db.get_or_create_file(&path);
+                        let nodelist = djls_templates::parse_template(db, file);
+                        djls_ide::collect_diagnostics(db, file, nodelist)
+                    })
                 })
-            })
-            .await
+                .await
+            } else {
+                vec![]
+            }
         } else {
             tracing::debug!(
                 "Skipping non-file URI in diagnostic: {}",
