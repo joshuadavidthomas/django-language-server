@@ -14,6 +14,10 @@ pub use crate::primitives::TemplateName;
 pub fn discover_templates(db: &dyn SemanticDb) -> Vec<Template<'_>> {
     let mut templates = Vec::new();
 
+    // TODO(virtual-paths): After DocumentPath enum is added, also discover
+    // virtual documents from open buffers and add them to the template index.
+    // This will allow {% extends "virtual/untitled-1.html" %} to work.
+
     if let Some(search_dirs) = db.template_dirs() {
         tracing::debug!("Discovering templates in {} directories", search_dirs.len());
 

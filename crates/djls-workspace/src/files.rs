@@ -1,3 +1,35 @@
+//! File system abstraction with overlay support
+//!
+//! # Architecture: File-Only URIs (Step 1)
+//!
+//! This implementation currently only supports `file://` URIs. Documents are
+//! keyed by `Utf8PathBuf` for optimal performance in the hot path
+//! (`OverlayFileSystem` reads during template parsing).
+//!
+//! ## Design Decision: Path vs URL Keys
+//!
+//! We chose path-based keys (Ty-style) over URL-based keys (Ruff-style) because:
+//! - Django template features require filesystem context (template loaders,
+//!   `INSTALLED_APPS`, settings.py)
+//! - Salsa queries are already keyed on paths
+//! - Direct path lookups in `OverlayFileSystem` (called on every file read)
+//!
+//! ## Future: Virtual Document Support (Step 2)
+//!
+//! Virtual documents (untitled:, inmemory:, etc) will be supported via a
+//! `DocumentPath` enum:
+//! ```ignore
+//! pub enum DocumentPath {
+//!     File(Utf8PathBuf),           // Real filesystem paths
+//!     Virtual(VirtualPath),         // Synthetic paths for non-file URIs
+//! }
+//! ```
+//!
+//! This will enable:
+//! - Template features to work on unsaved documents
+//! - Consistent behavior with other LSP servers (Ruff, Ty)
+//! - Better editor integration for scratch buffers
+
 use std::io;
 use std::sync::Arc;
 
@@ -84,6 +116,9 @@ impl OverlayFileSystem {
 
 impl FileSystem for OverlayFileSystem {
     fn read_to_string(&self, path: &Utf8Path) -> io::Result<String> {
+        // TODO(virtual-paths): Need to handle DocumentPath::Virtual lookups
+        // Virtual docs won't have real paths, need dual-key lookup or
+        // separate virtual document cache
         if let Some(document) = self.buffers.get(path) {
             return Ok(document.content().to_string());
         }
@@ -105,6 +140,16 @@ impl FileSystem for OverlayFileSystem {
 /// The [`OverlayFileSystem`] holds a clone of this structure and checks
 /// it before falling back to disk reads.
 ///
+/// ## File URI Requirement (Step 1)
+///
+/// Currently, this system only supports `file://` URIs. Documents with other
+/// URI schemes (e.g., `untitled:`, `inmemory:`) are silently ignored at the
+/// LSP boundary.
+///
+/// **Future Enhancement (Step 2)**: This will be extended to support virtual
+/// documents using a `DocumentPath` enum similar to Ty's `AnySystemPath`,
+/// allowing untitled documents to work with limited features.
+///
 /// ## Memory Management
 ///
 /// This structure does not implement eviction or memory limits because the
@@ -117,6 +162,8 @@ impl FileSystem for OverlayFileSystem {
 /// [`OverlayFileSystem`]: crate::OverlayFileSystem
 #[derive(Clone)]
 pub struct Buffers {
+    // TODO(virtual-paths): Change to FxDashMap<DocumentPath, TextDocument>
+    // where DocumentPath = File(Utf8PathBuf) | Virtual(VirtualPath)
     inner: Arc<FxDashMap<Utf8PathBuf, TextDocument>>,
 }
 

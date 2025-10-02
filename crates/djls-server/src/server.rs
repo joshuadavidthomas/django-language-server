@@ -2,6 +2,7 @@ use std::future::Future;
 use std::sync::Arc;
 
 use camino::Utf8Path;
+use camino::Utf8PathBuf;
 use djls_project::Db as ProjectDb;
 use djls_semantic::Db as SemanticDb;
 use djls_source::Db as SourceDb;
@@ -201,7 +202,16 @@ impl LanguageServer for DjangoLanguageServer {
 
         let path_version = self
             .with_session_mut(|session| {
-                let path = params.text_document.uri.to_utf8_path_buf()?;
+                let path = if let Some(p) = params.text_document.uri.to_utf8_path_buf() {
+                    p
+                } else {
+                    tracing::debug!(
+                        "Skipping non-file URI in did_open: {}",
+                        params.text_document.uri.as_str()
+                    );
+                    // TODO(virtual-paths): Support virtual documents with DocumentPath enum
+                    return None;
+                };
                 let document =
                     session.with_db_mut(|db| params.text_document.into_text_document(db))?;
                 let version = document.version();
@@ -222,7 +232,16 @@ impl LanguageServer for DjangoLanguageServer {
 
         let path_version = self
             .with_session_mut(|session| {
-                let path = params.text_document.uri.to_utf8_path_buf()?;
+                let path = if let Some(p) = params.text_document.uri.to_utf8_path_buf() {
+                    p
+                } else {
+                    tracing::debug!(
+                        "Skipping non-file URI in did_save: {}",
+                        params.text_document.uri.as_str()
+                    );
+                    // TODO(virtual-paths): Support virtual documents with DocumentPath enum
+                    return None;
+                };
                 let version = session.save_document(&path).map(|doc| doc.version());
                 Some((path, version))
             })
@@ -237,7 +256,16 @@ impl LanguageServer for DjangoLanguageServer {
         tracing::info!("Changed document: {:?}", params.text_document.uri);
 
         self.with_session_mut(|session| {
-            let path = params.text_document.uri.to_utf8_path_buf()?;
+            let path = if let Some(p) = params.text_document.uri.to_utf8_path_buf() {
+                p
+            } else {
+                tracing::debug!(
+                    "Skipping non-file URI in did_change: {}",
+                    params.text_document.uri.as_str()
+                );
+                // TODO(virtual-paths): Support virtual documents with DocumentPath enum
+                return None;
+            };
             session.update_document(&path, params.content_changes, params.text_document.version);
             Some(path)
         })
@@ -248,7 +276,16 @@ impl LanguageServer for DjangoLanguageServer {
         tracing::info!("Closed document: {:?}", params.text_document.uri);
 
         self.with_session_mut(|session| {
-            let path = params.text_document.uri.to_utf8_path_buf()?;
+            let path = if let Some(p) = params.text_document.uri.to_utf8_path_buf() {
+                p
+            } else {
+                tracing::debug!(
+                    "Skipping non-file URI in did_close: {}",
+                    params.text_document.uri.as_str()
+                );
+                // TODO(virtual-paths): Support virtual documents with DocumentPath enum
+                return None;
+            };
             if session.close_document(&path).is_none() {
                 tracing::warn!("Attempted to close document without overlay: {}", path);
             }
@@ -263,11 +300,21 @@ impl LanguageServer for DjangoLanguageServer {
     ) -> LspResult<Option<lsp_types::CompletionResponse>> {
         let response = self
             .with_session_mut(|session| {
-                let path = params
+                let path = if let Some(p) = params
                     .text_document_position
                     .text_document
                     .uri
-                    .to_utf8_path_buf()?;
+                    .to_utf8_path_buf()
+                {
+                    p
+                } else {
+                    tracing::debug!(
+                        "Skipping non-file URI in completion: {}",
+                        params.text_document_position.text_document.uri.as_str()
+                    );
+                    // TODO(virtual-paths): Support virtual documents with DocumentPath enum
+                    return None;
+                };
 
                 tracing::debug!(
                     "Completion requested for {} at {:?}",
@@ -327,18 +374,26 @@ impl LanguageServer for DjangoLanguageServer {
             params.text_document.uri
         );
 
-        let diagnostics = match params.text_document.uri.to_utf8_path_buf() {
-            Some(path) if FileKind::from(&path) == FileKind::Template => {
-                self.with_session_mut(move |session| {
-                    session.with_db_mut(|db| {
-                        let file = db.get_or_create_file(&path);
-                        let nodelist = djls_templates::parse_template(db, file);
-                        djls_ide::collect_diagnostics(db, file, nodelist)
-                    })
+        let diagnostics = if let Some(url) = params.text_document.uri.to_url().filter(|url| {
+            let path: Utf8PathBuf = url.path().into();
+            FileKind::from(&path) == FileKind::Template
+        }) {
+            let path: Utf8PathBuf = url.path().into();
+            self.with_session_mut(move |session| {
+                session.with_db_mut(|db| {
+                    let file = db.get_or_create_file(&path);
+                    let nodelist = djls_templates::parse_template(db, file);
+                    djls_ide::collect_diagnostics(db, file, nodelist)
                 })
-                .await
-            }
-            _ => vec![],
+            })
+            .await
+        } else {
+            tracing::debug!(
+                "Skipping non-file URI in diagnostic: {}",
+                params.text_document.uri.as_str()
+            );
+            // TODO(virtual-paths): Support virtual documents with DocumentPath enum
+            vec![]
         };
 
         Ok(lsp_types::DocumentDiagnosticReportResult::Report(

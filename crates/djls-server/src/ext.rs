@@ -98,6 +98,9 @@ pub(crate) trait UriExt {
     where
         Self: Sized;
 
+    // TODO(virtual-paths): Add from_document_path() method
+    // fn from_document_path(path: &DocumentPath) -> Option<Self> where Self: Sized;
+
     /// Convert LSP URI to `url::Url,` logging errors
     fn to_url(&self) -> Option<Url>;
 
@@ -134,8 +137,24 @@ impl UriExt for lsp_types::Uri {
 
     fn to_utf8_path_buf(&self) -> Option<Utf8PathBuf> {
         let url = self.to_url()?;
-        paths::url_to_path(&url)
+        let path = paths::url_to_path(&url);
+
+        // TODO(virtual-paths): This will need to return DocumentPath enum
+        if path.is_none() {
+            tracing::trace!("URI conversion to path failed for: {}", self.as_str());
+        }
+
+        path
     }
+}
+
+// TODO(virtual-paths): This will become DocumentPath::from_uri() in Step 2
+// Keeping as standalone function now to mark the conversion boundary
+#[allow(dead_code)]
+fn uri_to_document_path(_uri: &lsp_types::Uri) -> Option<Utf8PathBuf> {
+    // Step 1: Only support file:// URIs
+    // Step 2: Return DocumentPath enum with File or Virtual variant
+    _uri.to_utf8_path_buf()
 }
 
 #[cfg(test)]
@@ -148,5 +167,14 @@ mod tests {
             lsp_types::PositionEncodingKind::new("unknown").to_position_encoding(),
             None
         );
+    }
+
+    #[test]
+    fn test_non_file_uri_returns_none() {
+        // Step 1: Non-file URIs are rejected at the LSP boundary
+        let uri = lsp_types::Uri::from_str("untitled:Untitled-1").unwrap();
+        assert!(uri.to_utf8_path_buf().is_none());
+
+        // TODO(virtual-paths): In Step 2, this should return Some(DocumentPath::Virtual(...))
     }
 }
