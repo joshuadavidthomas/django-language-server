@@ -1,19 +1,17 @@
 use std::future::Future;
 use std::sync::Arc;
 
-use camino::Utf8PathBuf;
+use camino::Utf8Path;
 use djls_project::Db as ProjectDb;
 use djls_semantic::Db as SemanticDb;
 use djls_source::Db as SourceDb;
 use djls_source::FileKind;
-use djls_workspace::paths;
 use tokio::sync::Mutex;
 use tower_lsp_server::jsonrpc::Result as LspResult;
 use tower_lsp_server::lsp_types;
 use tower_lsp_server::Client;
 use tower_lsp_server::LanguageServer;
 use tracing_appender::non_blocking::WorkerGuard;
-use url::Url;
 
 use crate::ext::PositionEncodingExt;
 use crate::ext::PositionExt;
@@ -74,8 +72,7 @@ impl DjangoLanguageServer {
         }
     }
 
-    async fn publish_diagnostics(&self, url: &Url, version: Option<i32>) {
-        // Check if client supports pull diagnostics - if so, don't push
+    async fn publish_diagnostics(&self, path: &Utf8Path, version: Option<i32>) {
         let supports_pull = self
             .with_session(super::session::Session::supports_pull_diagnostics)
             .await;
@@ -83,36 +80,31 @@ impl DjangoLanguageServer {
         if supports_pull {
             tracing::debug!(
                 "Client supports pull diagnostics, skipping push for {}",
-                url
+                path
             );
             return;
         }
 
-        let Some(path) = paths::url_to_path(url) else {
-            tracing::debug!("Could not convert URL to path: {}", url);
-            return;
-        };
-
-        if FileKind::from(&path) != FileKind::Template {
+        if FileKind::from(path) != FileKind::Template {
             return;
         }
 
         let diagnostics: Vec<lsp_types::Diagnostic> = self
             .with_session_mut(|session| {
                 session.with_db(|db| {
-                    let file = db.get_or_create_file(&path);
+                    let file = db.get_or_create_file(path);
                     let nodelist = djls_templates::parse_template(db, file);
                     djls_ide::collect_diagnostics(db, file, nodelist)
                 })
             })
             .await;
 
-        if let Some(lsp_uri) = lsp_types::Uri::from_url(url) {
+        if let Some(lsp_uri) = lsp_types::Uri::from_path(path) {
             self.client
                 .publish_diagnostics(lsp_uri, diagnostics.clone(), version)
                 .await;
 
-            tracing::debug!("Published {} diagnostics for {}", diagnostics.len(), url);
+            tracing::debug!("Published {} diagnostics for {}", diagnostics.len(), path);
         }
     }
 }
@@ -207,37 +199,37 @@ impl LanguageServer for DjangoLanguageServer {
     async fn did_open(&self, params: lsp_types::DidOpenTextDocumentParams) {
         tracing::info!("Opened document: {:?}", params.text_document.uri);
 
-        let url_version = self
+        let path_version = self
             .with_session_mut(|session| {
-                let url = params.text_document.uri.to_url()?;
+                let path = params.text_document.uri.to_utf8_path_buf()?;
                 let document =
                     session.with_db_mut(|db| params.text_document.into_text_document(db))?;
                 let version = document.version();
 
-                session.open_document(&url, document);
+                session.open_document(&path, document);
 
-                Some((url, version))
+                Some((path, version))
             })
             .await;
 
-        if let Some((url, version)) = url_version {
-            self.publish_diagnostics(&url, Some(version)).await;
+        if let Some((path, version)) = path_version {
+            self.publish_diagnostics(&path, Some(version)).await;
         }
     }
 
     async fn did_save(&self, params: lsp_types::DidSaveTextDocumentParams) {
         tracing::info!("Saved document: {:?}", params.text_document.uri);
 
-        let url_version = self
+        let path_version = self
             .with_session_mut(|session| {
-                let url = params.text_document.uri.to_url()?;
-                let version = session.save_document(&url).map(|doc| doc.version());
-                Some((url, version))
+                let path = params.text_document.uri.to_utf8_path_buf()?;
+                let version = session.save_document(&path).map(|doc| doc.version());
+                Some((path, version))
             })
             .await;
 
-        if let Some((url, version)) = url_version {
-            self.publish_diagnostics(&url, version).await;
+        if let Some((path, version)) = path_version {
+            self.publish_diagnostics(&path, version).await;
         }
     }
 
@@ -245,9 +237,9 @@ impl LanguageServer for DjangoLanguageServer {
         tracing::info!("Changed document: {:?}", params.text_document.uri);
 
         self.with_session_mut(|session| {
-            let url = params.text_document.uri.to_url()?;
-            session.update_document(&url, params.content_changes, params.text_document.version);
-            Some(url)
+            let path = params.text_document.uri.to_utf8_path_buf()?;
+            session.update_document(&path, params.content_changes, params.text_document.version);
+            Some(path)
         })
         .await;
     }
@@ -256,11 +248,11 @@ impl LanguageServer for DjangoLanguageServer {
         tracing::info!("Closed document: {:?}", params.text_document.uri);
 
         self.with_session_mut(|session| {
-            let url = params.text_document.uri.to_url()?;
-            if session.close_document(&url).is_none() {
-                tracing::warn!("Attempted to close document without overlay: {}", url);
+            let path = params.text_document.uri.to_utf8_path_buf()?;
+            if session.close_document(&path).is_none() {
+                tracing::warn!("Attempted to close document without overlay: {}", path);
             }
-            Some(url)
+            Some(path)
         })
         .await;
     }
@@ -271,54 +263,54 @@ impl LanguageServer for DjangoLanguageServer {
     ) -> LspResult<Option<lsp_types::CompletionResponse>> {
         let response = self
             .with_session_mut(|session| {
-                let url = params.text_document_position.text_document.uri.to_url()?;
+                let path = params
+                    .text_document_position
+                    .text_document
+                    .uri
+                    .to_utf8_path_buf()?;
 
                 tracing::debug!(
                     "Completion requested for {} at {:?}",
-                    url,
+                    path,
                     params.text_document_position.position
                 );
 
-                if let Some(path) = paths::url_to_path(&url) {
-                    let document = session.get_document(&url)?;
-                    let position = params.text_document_position.position;
-                    let encoding = session.position_encoding();
-                    let file_kind = FileKind::from(&path);
-                    let template_tags = session.with_db(|db| {
-                        if let Some(project) = db.project() {
-                            tracing::debug!("Fetching templatetags for project");
-                            let tags = djls_project::templatetags(db, project);
-                            if let Some(ref t) = tags {
-                                tracing::debug!("Got {} templatetags", t.len());
-                            } else {
-                                tracing::warn!("No templatetags returned from project");
-                            }
-                            tags
+                let document = session.get_document(&path)?;
+                let position = params.text_document_position.position;
+                let encoding = session.position_encoding();
+                let file_kind = FileKind::from(&path);
+                let template_tags = session.with_db(|db| {
+                    if let Some(project) = db.project() {
+                        tracing::debug!("Fetching templatetags for project");
+                        let tags = djls_project::templatetags(db, project);
+                        if let Some(ref t) = tags {
+                            tracing::debug!("Got {} templatetags", t.len());
                         } else {
-                            tracing::warn!("No project available for templatetags");
-                            None
+                            tracing::warn!("No templatetags returned from project");
                         }
-                    });
-                    let tag_specs = session.with_db(SemanticDb::tag_specs);
-                    let supports_snippets = session.supports_snippets();
-
-                    let completions = djls_ide::handle_completion(
-                        &document,
-                        position,
-                        encoding,
-                        file_kind,
-                        template_tags.as_ref(),
-                        Some(&tag_specs),
-                        supports_snippets,
-                    );
-
-                    if completions.is_empty() {
-                        None
+                        tags
                     } else {
-                        Some(lsp_types::CompletionResponse::Array(completions))
+                        tracing::warn!("No project available for templatetags");
+                        None
                     }
-                } else {
+                });
+                let tag_specs = session.with_db(SemanticDb::tag_specs);
+                let supports_snippets = session.supports_snippets();
+
+                let completions = djls_ide::handle_completion(
+                    &document,
+                    position,
+                    encoding,
+                    file_kind,
+                    template_tags.as_ref(),
+                    Some(&tag_specs),
+                    supports_snippets,
+                );
+
+                if completions.is_empty() {
                     None
+                } else {
+                    Some(lsp_types::CompletionResponse::Array(completions))
                 }
             })
             .await;
@@ -335,12 +327,8 @@ impl LanguageServer for DjangoLanguageServer {
             params.text_document.uri
         );
 
-        let diagnostics = match params.text_document.uri.to_url().filter(|url| {
-            let path: Utf8PathBuf = url.path().into();
-            FileKind::from(&path) == FileKind::Template
-        }) {
-            Some(url) => {
-                let path: Utf8PathBuf = url.path().into();
+        let diagnostics = match params.text_document.uri.to_utf8_path_buf() {
+            Some(path) if FileKind::from(&path) == FileKind::Template => {
                 self.with_session_mut(move |session| {
                     session.with_db_mut(|db| {
                         let file = db.get_or_create_file(&path);
@@ -350,7 +338,7 @@ impl LanguageServer for DjangoLanguageServer {
                 })
                 .await
             }
-            None => vec![],
+            _ => vec![],
         };
 
         Ok(lsp_types::DocumentDiagnosticReportResult::Report(

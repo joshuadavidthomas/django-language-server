@@ -3,6 +3,7 @@
 //! This module implements the LSP session abstraction that manages project-specific
 //! state and the Salsa database for incremental computation.
 
+use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_conf::Settings;
 use djls_project::Db as ProjectDb;
@@ -12,7 +13,6 @@ use djls_source::PositionEncoding;
 use djls_workspace::TextDocument;
 use djls_workspace::Workspace;
 use tower_lsp_server::lsp_types;
-use url::Url;
 
 use crate::db::DjangoDatabase;
 use crate::ext::PositionEncodingKindExt;
@@ -119,8 +119,8 @@ impl Session {
     /// Updates both the workspace buffers and database. Creates the file in
     /// the database or invalidates it if it already exists.
     /// For template files, immediately triggers parsing and validation.
-    pub fn open_document(&mut self, url: &Url, document: TextDocument) {
-        if let Some(file) = self.workspace.open_document(&mut self.db, url, document) {
+    pub fn open_document(&mut self, path: &Utf8Path, document: TextDocument) {
+        if let Some(file) = self.workspace.open_document(&mut self.db, path, document) {
             self.handle_file(file);
         }
     }
@@ -131,13 +131,13 @@ impl Session {
     /// For template files, immediately triggers parsing and validation.
     pub fn update_document(
         &mut self,
-        url: &Url,
+        path: &Utf8Path,
         changes: Vec<lsp_types::TextDocumentContentChangeEvent>,
         version: i32,
     ) {
         if let Some(file) = self.workspace.update_document(
             &mut self.db,
-            url,
+            path,
             changes,
             version,
             self.position_encoding,
@@ -146,26 +146,26 @@ impl Session {
         }
     }
 
-    pub fn save_document(&mut self, url: &Url) -> Option<TextDocument> {
-        if let Some(file) = self.workspace.save_document(&mut self.db, url) {
+    pub fn save_document(&mut self, path: &Utf8Path) -> Option<TextDocument> {
+        if let Some(file) = self.workspace.save_document(&mut self.db, path) {
             self.handle_file(file);
         }
 
-        self.workspace.get_document(url)
+        self.workspace.get_document(path)
     }
 
     /// Close a document.
     ///
     /// Removes from workspace buffers and triggers database invalidation to fall back to disk.
     /// For template files, immediately re-parses from disk.
-    pub fn close_document(&mut self, url: &Url) -> Option<TextDocument> {
-        self.workspace.close_document(&mut self.db, url)
+    pub fn close_document(&mut self, path: &Utf8Path) -> Option<TextDocument> {
+        self.workspace.close_document(&mut self.db, path)
     }
 
     /// Get a document from the buffer if it's open.
     #[must_use]
-    pub fn get_document(&self, url: &Url) -> Option<TextDocument> {
-        self.workspace.get_document(url)
+    pub fn get_document(&self, path: &Utf8Path) -> Option<TextDocument> {
+        self.workspace.get_document(path)
     }
 
     /// Warm template caches and semantic diagnostics for the updated file.
@@ -236,6 +236,7 @@ fn negotiate_position_encoding(capabilities: &lsp_types::ClientCapabilities) -> 
 mod tests {
     use djls_source::Db as SourceDb;
     use djls_workspace::LanguageId;
+    use url::Url;
 
     use super::*;
 
@@ -254,7 +255,7 @@ mod tests {
     #[test]
     fn test_session_document_lifecycle() {
         let mut session = Session::default();
-        let (path, url) = test_file_url("test.py");
+        let (path, _url) = test_file_url("test.py");
 
         // Open document
         let document = session.with_db_mut(|db| {
@@ -266,10 +267,10 @@ mod tests {
                 db,
             )
         });
-        session.open_document(&url, document);
+        session.open_document(&path, document);
 
         // Should be in workspace buffers
-        assert!(session.get_document(&url).is_some());
+        assert!(session.get_document(&path).is_some());
 
         // Should be queryable through database
         let content = session.with_db(|db| {
@@ -279,20 +280,20 @@ mod tests {
         assert_eq!(content, "print('hello')");
 
         // Close document
-        session.close_document(&url);
-        assert!(session.get_document(&url).is_none());
+        session.close_document(&path);
+        assert!(session.get_document(&path).is_none());
     }
 
     #[test]
     fn test_session_document_update() {
         let mut session = Session::default();
-        let (path, url) = test_file_url("test.py");
+        let (path, _url) = test_file_url("test.py");
 
         // Open with initial content
         let document = session.with_db_mut(|db| {
             TextDocument::new("initial".to_string(), 1, LanguageId::Python, &path, db)
         });
-        session.open_document(&url, document);
+        session.open_document(&path, document);
 
         // Update content
         let changes = vec![lsp_types::TextDocumentContentChangeEvent {
@@ -300,10 +301,10 @@ mod tests {
             range_length: None,
             text: "updated".to_string(),
         }];
-        session.update_document(&url, changes, 2);
+        session.update_document(&path, changes, 2);
 
         // Verify buffer was updated
-        let doc = session.get_document(&url).unwrap();
+        let doc = session.get_document(&path).unwrap();
         assert_eq!(doc.content(), "updated");
         assert_eq!(doc.version(), 2);
 

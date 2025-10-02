@@ -5,10 +5,8 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_source::FxDashMap;
 use rustc_hash::FxHashMap;
-use url::Url;
 
 use crate::document::TextDocument;
-use crate::paths;
 
 pub trait FileSystem: Send + Sync {
     fn read_to_string(&self, path: &Utf8Path) -> io::Result<String>;
@@ -86,17 +84,14 @@ impl OverlayFileSystem {
 
 impl FileSystem for OverlayFileSystem {
     fn read_to_string(&self, path: &Utf8Path) -> io::Result<String> {
-        if let Some(url) = paths::path_to_url(path) {
-            if let Some(document) = self.buffers.get(&url) {
-                return Ok(document.content().to_string());
-            }
+        if let Some(document) = self.buffers.get(path) {
+            return Ok(document.content().to_string());
         }
         self.disk.read_to_string(path)
     }
 
     fn exists(&self, path: &Utf8Path) -> bool {
-        paths::path_to_url(path).is_some_and(|url| self.buffers.contains(&url))
-            || self.disk.exists(path)
+        self.buffers.contains(path) || self.disk.exists(path)
     }
 }
 
@@ -122,7 +117,7 @@ impl FileSystem for OverlayFileSystem {
 /// [`OverlayFileSystem`]: crate::OverlayFileSystem
 #[derive(Clone)]
 pub struct Buffers {
-    inner: Arc<FxDashMap<Url, TextDocument>>,
+    inner: Arc<FxDashMap<Utf8PathBuf, TextDocument>>,
 }
 
 impl Buffers {
@@ -133,31 +128,31 @@ impl Buffers {
         }
     }
 
-    pub fn open(&self, url: Url, document: TextDocument) {
-        self.inner.insert(url, document);
+    pub fn open(&self, path: Utf8PathBuf, document: TextDocument) {
+        self.inner.insert(path, document);
     }
 
-    pub fn update(&self, url: Url, document: TextDocument) {
-        self.inner.insert(url, document);
-    }
-
-    #[must_use]
-    pub fn close(&self, url: &Url) -> Option<TextDocument> {
-        self.inner.remove(url).map(|(_, doc)| doc)
+    pub fn update(&self, path: Utf8PathBuf, document: TextDocument) {
+        self.inner.insert(path, document);
     }
 
     #[must_use]
-    pub fn get(&self, url: &Url) -> Option<TextDocument> {
-        self.inner.get(url).map(|entry| entry.clone())
+    pub fn close(&self, path: &Utf8Path) -> Option<TextDocument> {
+        self.inner.remove(path).map(|(_, doc)| doc)
+    }
+
+    #[must_use]
+    pub fn get(&self, path: &Utf8Path) -> Option<TextDocument> {
+        self.inner.get(path).map(|entry| entry.clone())
     }
 
     /// Check if a document is open
     #[must_use]
-    pub fn contains(&self, url: &Url) -> bool {
-        self.inner.contains_key(url)
+    pub fn contains(&self, path: &Utf8Path) -> bool {
+        self.inner.contains_key(path)
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = (Url, TextDocument)> + '_ {
+    pub fn iter(&self) -> impl Iterator<Item = (Utf8PathBuf, TextDocument)> + '_ {
         self.inner
             .iter()
             .map(|entry| (entry.key().clone(), entry.value().clone()))

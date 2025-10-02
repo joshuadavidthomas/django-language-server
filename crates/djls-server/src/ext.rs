@@ -1,5 +1,6 @@
 use std::str::FromStr;
 
+use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_source::File;
 use djls_source::LineCol;
@@ -92,6 +93,11 @@ pub(crate) trait UriExt {
     where
         Self: Sized;
 
+    /// Convert `Utf8Path` to LSP Uri
+    fn from_path(path: &Utf8Path) -> Option<Self>
+    where
+        Self: Sized;
+
     /// Convert LSP URI to `url::Url,` logging errors
     fn to_url(&self) -> Option<Url>;
 
@@ -107,6 +113,11 @@ impl UriExt for lsp_types::Uri {
                 tracing::error!("Failed to convert URL to LSP Uri: {} - Error: {}", url, e);
             })
             .ok()
+    }
+
+    fn from_path(path: &Utf8Path) -> Option<Self> {
+        let url = paths::path_to_url(path)?;
+        Self::from_url(&url)
     }
 
     fn to_url(&self) -> Option<Url> {

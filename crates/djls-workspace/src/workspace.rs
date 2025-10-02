@@ -6,10 +6,10 @@
 //! state (open documents) while the database observes it through the overlay.
 use std::sync::Arc;
 
+use camino::Utf8Path;
 use djls_source::File;
 use djls_source::PositionEncoding;
 use tower_lsp_server::lsp_types::TextDocumentContentChangeEvent;
-use url::Url;
 
 use crate::db::Db;
 use crate::document::TextDocument;
@@ -17,7 +17,6 @@ use crate::files::Buffers;
 use crate::files::FileSystem;
 use crate::files::OsFileSystem;
 use crate::files::OverlayFileSystem;
-use crate::paths;
 
 /// Workspace facade that manages buffers and file system.
 ///
@@ -61,20 +60,20 @@ impl Workspace {
 
     /// Get a document from the buffer if it's open.
     #[must_use]
-    pub fn get_document(&self, url: &Url) -> Option<TextDocument> {
-        self.buffers.get(url)
+    pub fn get_document(&self, path: &Utf8Path) -> Option<TextDocument> {
+        self.buffers.get(path)
     }
 
     /// Open a document in the workspace and ensure a corresponding Salsa file exists.
     pub fn open_document(
         &mut self,
         db: &mut dyn Db,
-        url: &Url,
+        path: &Utf8Path,
         document: TextDocument,
     ) -> Option<File> {
         document.open(db);
         let file = document.file();
-        self.buffers.open(url.clone(), document);
+        self.buffers.open(path.to_path_buf(), document);
         Some(file)
     }
 
@@ -82,28 +81,27 @@ impl Workspace {
     pub fn update_document(
         &mut self,
         db: &mut dyn Db,
-        url: &Url,
+        path: &Utf8Path,
         changes: Vec<TextDocumentContentChangeEvent>,
         version: i32,
         encoding: PositionEncoding,
     ) -> Option<File> {
-        if let Some(mut document) = self.buffers.get(url) {
+        if let Some(mut document) = self.buffers.get(path) {
             document.update(db, changes, version, encoding);
             let file = document.file();
-            self.buffers.update(url.clone(), document);
+            self.buffers.update(path.to_path_buf(), document);
             Some(file)
         } else if let Some(first_change) = changes.into_iter().next() {
             if first_change.range.is_none() {
-                let path = paths::url_to_path(url)?;
                 let document = TextDocument::new(
                     first_change.text,
                     version,
                     crate::language::LanguageId::Other,
-                    path.as_path(),
+                    path,
                     db,
                 );
                 let file = document.file();
-                self.buffers.open(url.clone(), document);
+                self.buffers.open(path.to_path_buf(), document);
                 Some(file)
             } else {
                 None
@@ -114,15 +112,15 @@ impl Workspace {
     }
 
     /// Touch the tracked file when the client saves the document.
-    pub fn save_document(&mut self, db: &mut dyn Db, url: &Url) -> Option<File> {
-        let document = self.buffers.get(url)?;
+    pub fn save_document(&mut self, db: &mut dyn Db, path: &Utf8Path) -> Option<File> {
+        let document = self.buffers.get(path)?;
         document.save(db);
         Some(document.file())
     }
 
     /// Close a document, removing it from buffers and touching the tracked file.
-    pub fn close_document(&mut self, db: &mut dyn Db, url: &Url) -> Option<TextDocument> {
-        let document = self.buffers.close(url)?;
+    pub fn close_document(&mut self, db: &mut dyn Db, path: &Utf8Path) -> Option<TextDocument> {
+        let document = self.buffers.close(path)?;
         document.close(db);
         Some(document)
     }
@@ -143,7 +141,6 @@ mod tests {
 
         use camino::Utf8Path;
         use camino::Utf8PathBuf;
-        use url::Url;
 
         use super::*;
         use crate::files::InMemoryFileSystem;
@@ -208,9 +205,8 @@ mod tests {
 
             // Add file to buffer
             let path = test_file_path("test.py");
-            let url = Url::from_file_path(&path).unwrap();
             let doc = make_doc("buffer content", 1, LanguageId::Python);
-            buffers.open(url, doc);
+            buffers.open(path.clone(), doc);
 
             assert_eq!(fs.read_to_string(&path).unwrap(), "buffer content");
         }
