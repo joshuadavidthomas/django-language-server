@@ -68,7 +68,7 @@ pub fn find_template_references(
 
             Some(lsp_types::Location {
                 uri: source_path.to_lsp_uri()?,
-                range,
+                range: tag_span.to_lsp_range(line_index),
             })
         })
         .collect();
