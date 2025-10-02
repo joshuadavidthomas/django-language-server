@@ -1,6 +1,7 @@
 use camino::Utf8PathBuf;
 use djls_source::safe_join;
 use djls_source::File;
+use djls_source::Span;
 use djls_source::Utf8PathClean;
 use walkdir::WalkDir;
 
@@ -39,7 +40,7 @@ pub fn discover_templates(db: &dyn SemanticDb) -> Vec<Template<'_>> {
                 templates.push(Template::new(
                     db,
                     TemplateName::new(db, name),
-                    File::new(db, path, 0),
+                    db.get_or_create_file(&path),
                 ));
             }
         }
@@ -114,6 +115,17 @@ pub struct TemplateReference<'db> {
     pub source: Template<'db>,
     pub target: TemplateName<'db>,
     pub tag: Tag<'db>,
+}
+
+impl TemplateReference<'_> {
+    pub fn source_file(&self, db: &dyn SemanticDb) -> File {
+        let template = self.source(db);
+        template.file(db)
+    }
+
+    pub fn tag_span(&self, db: &dyn SemanticDb) -> Span {
+        self.tag(db).span(db)
+    }
 }
 
 pub fn find_references_to_template<'db>(

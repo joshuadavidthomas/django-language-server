@@ -4,6 +4,7 @@ use std::sync::Arc;
 use camino::Utf8PathBuf;
 use djls_project::Db as ProjectDb;
 use djls_semantic::Db as SemanticDb;
+use djls_source::Db as SourceDb;
 use djls_source::FileKind;
 use djls_workspace::paths;
 use tokio::sync::Mutex;
@@ -98,8 +99,8 @@ impl DjangoLanguageServer {
 
         let diagnostics: Vec<lsp_types::Diagnostic> = self
             .with_session_mut(|session| {
-                let file = session.get_or_create_file(&path);
                 session.with_db(|db| {
+                    let file = db.get_or_create_file(&path);
                     let nodelist = djls_templates::parse_template(db, file);
                     djls_ide::collect_diagnostics(db, file, nodelist)
                 })
@@ -367,8 +368,8 @@ impl LanguageServer for DjangoLanguageServer {
         // Get diagnostics from the database
         let diagnostics: Vec<lsp_types::Diagnostic> = self
             .with_session_mut(|session| {
-                let file = session.get_or_create_file(&path);
                 session.with_db_mut(|db| {
+                    let file = db.get_or_create_file(&path);
                     let nodelist = djls_templates::parse_template(db, file);
                     djls_ide::collect_diagnostics(db, file, nodelist)
                 })

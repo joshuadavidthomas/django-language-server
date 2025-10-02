@@ -30,7 +30,7 @@ pub(crate) trait TextDocumentIdentifierExt {
 impl TextDocumentIdentifierExt for lsp_types::TextDocumentIdentifier {
     fn to_file(&self, db: &mut dyn WorkspaceDb) -> Option<File> {
         let path = self.uri.to_utf8_path_buf()?;
-        Some(db.ensure_file_tracked(&path))
+        Some(db.get_or_create_file(&path))
     }
 }
 
