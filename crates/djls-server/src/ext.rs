@@ -64,18 +64,24 @@ impl TextDocumentIdentifierExt for lsp_types::TextDocumentIdentifier {
 
 pub(crate) trait TextDocumentItemExt {
     /// Convert LSP `TextDocumentItem` to internal `TextDocument`
-    fn into_text_document(self, db: &dyn djls_source::Db) -> Option<djls_workspace::TextDocument>;
+    fn into_text_document(
+        self,
+        db: &mut dyn djls_source::Db,
+    ) -> Option<djls_workspace::TextDocument>;
 }
 
 impl TextDocumentItemExt for lsp_types::TextDocumentItem {
-    fn into_text_document(self, db: &dyn djls_source::Db) -> Option<djls_workspace::TextDocument> {
+    fn into_text_document(
+        self,
+        db: &mut dyn djls_source::Db,
+    ) -> Option<djls_workspace::TextDocument> {
         let path = self.uri.to_utf8_path_buf()?;
-        let file = db.get_or_create_file(&path);
         Some(djls_workspace::TextDocument::new(
             self.text,
             self.version,
             djls_workspace::LanguageId::from(self.language_id.as_str()),
-            file,
+            &path,
+            db,
         ))
     }
 }

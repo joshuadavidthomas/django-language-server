@@ -5,6 +5,7 @@
 //! performance when handling frequent position-based operations like hover, completion,
 //! and diagnostics.
 
+use camino::Utf8Path;
 use djls_source::File;
 use djls_source::LineIndex;
 use djls_source::PositionEncoding;
@@ -36,8 +37,14 @@ pub struct TextDocument {
 }
 
 impl TextDocument {
-    #[must_use]
-    pub fn new(content: String, version: i32, language_id: LanguageId, file: File) -> Self {
+    pub fn new(
+        content: String,
+        version: i32,
+        language_id: LanguageId,
+        path: &Utf8Path,
+        db: &dyn djls_source::Db,
+    ) -> Self {
+        let file = db.get_or_create_file(path);
         let line_index = LineIndex::from(content.as_str());
         Self {
             content,
@@ -73,6 +80,18 @@ impl TextDocument {
         self.file
     }
 
+    pub fn open(&self, db: &mut dyn djls_source::Db) {
+        db.bump_file_revision(self.file);
+    }
+
+    pub fn save(&self, db: &mut dyn djls_source::Db) {
+        db.bump_file_revision(self.file);
+    }
+
+    pub fn close(&self, db: &mut dyn djls_source::Db) {
+        db.bump_file_revision(self.file);
+    }
+
     #[must_use]
     pub fn get_line(&self, line: u32) -> Option<String> {
         let line_start = *self.line_index.lines().get(line as usize)?;
@@ -103,6 +122,7 @@ impl TextDocument {
     /// but we rebuild the full document text internally.
     pub fn update(
         &mut self,
+        db: &mut dyn djls_source::Db,
         changes: Vec<tower_lsp_server::lsp_types::TextDocumentContentChangeEvent>,
         version: i32,
         encoding: PositionEncoding,
@@ -112,6 +132,7 @@ impl TextDocument {
             self.content.clone_from(&changes[0].text);
             self.line_index = LineIndex::from(self.content.as_str());
             self.version = version;
+            db.bump_file_revision(self.file);
             return;
         }
 
@@ -146,6 +167,7 @@ impl TextDocument {
         self.content = new_content;
         self.line_index = new_line_index;
         self.version = version;
+        db.bump_file_revision(self.file);
     }
 
     /// Calculate byte offset from an LSP position using the given line index and text.
@@ -163,7 +185,6 @@ impl TextDocument {
 #[cfg(test)]
 mod tests {
     use camino::Utf8Path;
-    use djls_source::Db as SourceDb;
     use tower_lsp_server::lsp_types::TextDocumentContentChangeEvent;
 
     use super::*;
@@ -201,15 +222,25 @@ mod tests {
         }
     }
 
-    fn text_document(content: &str, version: i32, language_id: LanguageId) -> TextDocument {
-        let db = TestDb::default();
-        let file = db.create_file(Utf8Path::new("/test.txt"));
-        TextDocument::new(content.to_string(), version, language_id, file)
+    fn text_document(
+        db: &mut TestDb,
+        content: &str,
+        version: i32,
+        language_id: LanguageId,
+    ) -> TextDocument {
+        TextDocument::new(
+            content.to_string(),
+            version,
+            language_id,
+            Utf8Path::new("/test.txt"),
+            db,
+        )
     }
 
     #[test]
     fn test_incremental_update_single_change() {
-        let mut doc = text_document("Hello world", 1, LanguageId::Other);
+        let mut db = TestDb::default();
+        let mut doc = text_document(&mut db, "Hello world", 1, LanguageId::Other);
 
         // Replace "world" with "Rust"
         let changes = vec![TextDocumentContentChangeEvent {
@@ -218,14 +249,20 @@ mod tests {
             text: "Rust".to_string(),
         }];
 
-        doc.update(changes, 2, PositionEncoding::Utf16);
+        doc.update(&mut db, changes, 2, PositionEncoding::Utf16);
         assert_eq!(doc.content(), "Hello Rust");
         assert_eq!(doc.version(), 2);
     }
 
     #[test]
     fn test_incremental_update_multiple_changes() {
-        let mut doc = text_document("First line\nSecond line\nThird line", 1, LanguageId::Other);
+        let mut db = TestDb::default();
+        let mut doc = text_document(
+            &mut db,
+            "First line\nSecond line\nThird line",
+            1,
+            LanguageId::Other,
+        );
 
         // Multiple changes: replace "First" with "1st" and "Third" with "3rd"
         let changes = vec![
@@ -241,13 +278,14 @@ mod tests {
             },
         ];
 
-        doc.update(changes, 2, PositionEncoding::Utf16);
+        doc.update(&mut db, changes, 2, PositionEncoding::Utf16);
         assert_eq!(doc.content(), "1st line\nSecond line\n3rd line");
     }
 
     #[test]
     fn test_incremental_update_insertion() {
-        let mut doc = text_document("Hello world", 1, LanguageId::Other);
+        let mut db = TestDb::default();
+        let mut doc = text_document(&mut db, "Hello world", 1, LanguageId::Other);
 
         // Insert text at position (empty range)
         let changes = vec![TextDocumentContentChangeEvent {
@@ -256,13 +294,14 @@ mod tests {
             text: " beautiful".to_string(),
         }];
 
-        doc.update(changes, 2, PositionEncoding::Utf16);
+        doc.update(&mut db, changes, 2, PositionEncoding::Utf16);
         assert_eq!(doc.content(), "Hello beautiful world");
     }
 
     #[test]
     fn test_incremental_update_deletion() {
-        let mut doc = text_document("Hello beautiful world", 1, LanguageId::Other);
+        let mut db = TestDb::default();
+        let mut doc = text_document(&mut db, "Hello beautiful world", 1, LanguageId::Other);
 
         // Delete "beautiful " (replace with empty string)
         let changes = vec![TextDocumentContentChangeEvent {
@@ -271,13 +310,14 @@ mod tests {
             text: String::new(),
         }];
 
-        doc.update(changes, 2, PositionEncoding::Utf16);
+        doc.update(&mut db, changes, 2, PositionEncoding::Utf16);
         assert_eq!(doc.content(), "Hello world");
     }
 
     #[test]
     fn test_full_document_replacement() {
-        let mut doc = text_document("Old content", 1, LanguageId::Other);
+        let mut db = TestDb::default();
+        let mut doc = text_document(&mut db, "Old content", 1, LanguageId::Other);
 
         // Full document replacement (no range)
         let changes = vec![TextDocumentContentChangeEvent {
@@ -286,14 +326,15 @@ mod tests {
             text: "Completely new content".to_string(),
         }];
 
-        doc.update(changes, 2, PositionEncoding::Utf16);
+        doc.update(&mut db, changes, 2, PositionEncoding::Utf16);
         assert_eq!(doc.content(), "Completely new content");
         assert_eq!(doc.version(), 2);
     }
 
     #[test]
     fn test_incremental_update_multiline() {
-        let mut doc = text_document("Line 1\nLine 2\nLine 3", 1, LanguageId::Other);
+        let mut db = TestDb::default();
+        let mut doc = text_document(&mut db, "Line 1\nLine 2\nLine 3", 1, LanguageId::Other);
 
         // Replace across multiple lines
         let changes = vec![TextDocumentContentChangeEvent {
@@ -302,13 +343,14 @@ mod tests {
             text: "A\nB\nC".to_string(),
         }];
 
-        doc.update(changes, 2, PositionEncoding::Utf16);
+        doc.update(&mut db, changes, 2, PositionEncoding::Utf16);
         assert_eq!(doc.content(), "Line A\nB\nC 3");
     }
 
     #[test]
     fn test_incremental_update_with_emoji() {
-        let mut doc = text_document("Hello 🌍 world", 1, LanguageId::Other);
+        let mut db = TestDb::default();
+        let mut doc = text_document(&mut db, "Hello 🌍 world", 1, LanguageId::Other);
 
         // Replace "world" after emoji - must handle UTF-16 positions correctly
         // "Hello " = 6 UTF-16 units, "🌍" = 2 UTF-16 units, " " = 1 unit, "world" starts at 9
@@ -318,13 +360,14 @@ mod tests {
             text: "Rust".to_string(),
         }];
 
-        doc.update(changes, 2, PositionEncoding::Utf16);
+        doc.update(&mut db, changes, 2, PositionEncoding::Utf16);
         assert_eq!(doc.content(), "Hello 🌍 Rust");
     }
 
     #[test]
     fn test_incremental_update_newline_at_end() {
-        let mut doc = text_document("Hello", 1, LanguageId::Other);
+        let mut db = TestDb::default();
+        let mut doc = text_document(&mut db, "Hello", 1, LanguageId::Other);
 
         // Add newline and new line at end
         let changes = vec![TextDocumentContentChangeEvent {
@@ -333,14 +376,20 @@ mod tests {
             text: "\nWorld".to_string(),
         }];
 
-        doc.update(changes, 2, PositionEncoding::Utf16);
+        doc.update(&mut db, changes, 2, PositionEncoding::Utf16);
         assert_eq!(doc.content(), "Hello\nWorld");
     }
 
     #[test]
     fn test_utf16_position_handling() {
+        let mut db = TestDb::default();
         // Test document with emoji and multi-byte characters
-        let doc = text_document("Hello 🌍!\nSecond 行 line", 1, LanguageId::HtmlDjango);
+        let doc = text_document(
+            &mut db,
+            "Hello 🌍!\nSecond 行 line",
+            1,
+            LanguageId::HtmlDjango,
+        );
 
         // Test position after emoji by extracting text up to that position
         // "Hello 🌍!" - the 🌍 emoji is 4 UTF-8 bytes but 2 UTF-16 code units
@@ -384,7 +433,8 @@ mod tests {
 
     #[test]
     fn test_get_text_range_with_emoji() {
-        let doc = text_document("Hello 🌍 world", 1, LanguageId::HtmlDjango);
+        let mut db = TestDb::default();
+        let doc = text_document(&mut db, "Hello 🌍 world", 1, LanguageId::HtmlDjango);
 
         // Range that spans across the emoji
         // "Hello 🌍 world"

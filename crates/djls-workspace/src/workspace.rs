@@ -72,9 +72,10 @@ impl Workspace {
         url: &Url,
         document: TextDocument,
     ) -> Option<File> {
+        document.open(db);
+        let file = document.file();
         self.buffers.open(url.clone(), document);
-        let path = paths::url_to_path(url)?;
-        Some(db.invalidate_file(path.as_path()))
+        Some(file)
     }
 
     /// Update a document with incremental changes and touch the associated file.
@@ -86,25 +87,23 @@ impl Workspace {
         version: i32,
         encoding: PositionEncoding,
     ) -> Option<File> {
-        let path = paths::url_to_path(url)?;
-
         if let Some(mut document) = self.buffers.get(url) {
+            document.update(db, changes, version, encoding);
             let file = document.file();
-            document.update(changes, version, encoding);
             self.buffers.update(url.clone(), document);
-            db.bump_file_revision(file);
             Some(file)
         } else if let Some(first_change) = changes.into_iter().next() {
             if first_change.range.is_none() {
-                let file = db.get_or_create_file(path.as_path());
+                let path = paths::url_to_path(url)?;
                 let document = TextDocument::new(
                     first_change.text,
                     version,
                     crate::language::LanguageId::Other,
-                    file,
+                    path.as_path(),
+                    db,
                 );
+                let file = document.file();
                 self.buffers.open(url.clone(), document);
-                db.bump_file_revision(file);
                 Some(file)
             } else {
                 None
@@ -116,21 +115,16 @@ impl Workspace {
 
     /// Touch the tracked file when the client saves the document.
     pub fn save_document(&mut self, db: &mut dyn Db, url: &Url) -> Option<File> {
-        let path = paths::url_to_path(url)?;
-        Some(db.invalidate_file(path.as_path()))
+        let document = self.buffers.get(url)?;
+        document.save(db);
+        Some(document.file())
     }
 
     /// Close a document, removing it from buffers and touching the tracked file.
     pub fn close_document(&mut self, db: &mut dyn Db, url: &Url) -> Option<TextDocument> {
-        let closed = self.buffers.close(url);
-
-        if let Some(path) = paths::url_to_path(url) {
-            if let Some(file) = db.get_file(path.as_path()) {
-                db.bump_file_revision(file);
-            }
-        }
-
-        closed
+        let document = self.buffers.close(url)?;
+        document.close(db);
+        Some(document)
     }
 }
 
@@ -149,7 +143,6 @@ mod tests {
 
         use camino::Utf8Path;
         use camino::Utf8PathBuf;
-        use djls_source::Db as SourceDb;
         use url::Url;
 
         use super::*;
@@ -189,9 +182,14 @@ mod tests {
         }
 
         fn make_doc(content: &str, version: i32, language_id: LanguageId) -> TextDocument {
-            let db = TestDb::default();
-            let file = db.create_file(Utf8Path::new("/test.txt"));
-            TextDocument::new(content.to_string(), version, language_id, file)
+            let mut db = TestDb::default();
+            TextDocument::new(
+                content.to_string(),
+                version,
+                language_id,
+                Utf8Path::new("/test.txt"),
+                &mut db,
+            )
         }
 
         // Helper to create platform-appropriate test paths
@@ -359,7 +357,6 @@ mod tests {
 
         use camino::Utf8Path;
         use camino::Utf8PathBuf;
-        use djls_source::Db as SourceDb;
         use djls_source::FxDashMap;
         use tempfile::tempdir;
         use url::Url;
@@ -418,13 +415,13 @@ mod tests {
             let mut db = TestDb::new(workspace.overlay());
             let url = Url::parse("file:///test.py").unwrap();
             let path = Utf8Path::new("/test.py");
-            let file_ref = db.create_file(path);
 
             let document = TextDocument::new(
                 "print('hello')".to_string(),
                 1,
                 LanguageId::Python,
-                file_ref,
+                path,
+                &mut db,
             );
             let file = workspace.open_document(&mut db, &url, document).unwrap();
             let path = file.path(&db);
@@ -438,9 +435,8 @@ mod tests {
             let mut db = TestDb::new(workspace.overlay());
             let url = Url::parse("file:///test.py").unwrap();
             let path = Utf8Path::new("/test.py");
-            let file = db.create_file(path);
-
-            let document = TextDocument::new("initial".to_string(), 1, LanguageId::Python, file);
+            let document =
+                TextDocument::new("initial".to_string(), 1, LanguageId::Python, path, &db);
             workspace.open_document(&mut db, &url, document);
 
             let changes = vec![TextDocumentContentChangeEvent {
@@ -464,9 +460,8 @@ mod tests {
             let mut db = TestDb::new(workspace.overlay());
             let url = Url::parse("file:///test.py").unwrap();
             let path = Utf8Path::new("/test.py");
-            let file = db.create_file(path);
-
-            let document = TextDocument::new("content".to_string(), 1, LanguageId::Python, file);
+            let document =
+                TextDocument::new("content".to_string(), 1, LanguageId::Python, path, &db);
             workspace.open_document(&mut db, &url, document.clone());
 
             let closed = workspace.close_document(&mut db, &url);
@@ -484,10 +479,14 @@ mod tests {
             let mut db = TestDb::new(workspace.overlay());
             let url = Url::from_file_path(&file_path).unwrap();
             let path = Utf8Path::from_path(&file_path).unwrap();
-            let file = db.create_file(path);
 
-            let document =
-                TextDocument::new("buffer content".to_string(), 1, LanguageId::Python, file);
+            let document = TextDocument::new(
+                "buffer content".to_string(),
+                1,
+                LanguageId::Python,
+                path,
+                &mut db,
+            );
             workspace.open_document(&mut db, &url, document);
 
             let content = workspace
@@ -507,13 +506,12 @@ mod tests {
                 Utf8PathBuf::from_path_buf(temp_dir.path().join("template.html")).unwrap();
             std::fs::write(file_path.as_std_path(), "disk template").unwrap();
             let url = Url::from_file_path(file_path.as_std_path()).unwrap();
-            let file_ref = db.create_file(&file_path);
-
             let document = TextDocument::new(
                 "line1\nline2".to_string(),
                 1,
                 LanguageId::HtmlDjango,
-                file_ref,
+                &file_path,
+                &mut db,
             );
             let file = workspace
                 .open_document(&mut db, &url, document.clone())
@@ -542,10 +540,13 @@ mod tests {
             let file_path = Utf8PathBuf::from_path_buf(temp_dir.path().join("buffer.py")).unwrap();
             std::fs::write(file_path.as_std_path(), "disk").unwrap();
             let url = Url::from_file_path(file_path.as_std_path()).unwrap();
-            let file_ref = db.create_file(&file_path);
-
-            let document =
-                TextDocument::new("initial".to_string(), 1, LanguageId::Python, file_ref);
+            let document = TextDocument::new(
+                "initial".to_string(),
+                1,
+                LanguageId::Python,
+                &file_path,
+                &mut db,
+            );
             let file = workspace.open_document(&mut db, &url, document).unwrap();
 
             let changes = vec![TextDocumentContentChangeEvent {
@@ -570,13 +571,12 @@ mod tests {
             let file_path = Utf8PathBuf::from_path_buf(temp_dir.path().join("close.py")).unwrap();
             std::fs::write(file_path.as_std_path(), "disk content").unwrap();
             let url = Url::from_file_path(file_path.as_std_path()).unwrap();
-            let file_ref = db.create_file(&file_path);
-
             let document = TextDocument::new(
                 "buffer content".to_string(),
                 1,
                 LanguageId::Python,
-                file_ref,
+                &file_path,
+                &mut db,
             );
             let file = workspace.open_document(&mut db, &url, document).unwrap();
 
