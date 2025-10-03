@@ -107,8 +107,25 @@ impl From<&LineCol> for (u32, u32) {
 }
 
 pub struct Range {
-    pub start: LineCol,
-    pub end: LineCol,
+    start: LineCol,
+    end: LineCol,
+}
+
+impl Range {
+    #[must_use]
+    pub fn new(start: LineCol, end: LineCol) -> Self {
+        Self { start, end }
+    }
+
+    #[must_use]
+    pub fn start(&self) -> &LineCol {
+        &self.start
+    }
+
+    #[must_use]
+    pub fn end(&self) -> &LineCol {
+        &self.end
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]

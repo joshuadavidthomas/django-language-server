@@ -5,18 +5,25 @@ use djls_source::LineCol;
 use djls_source::LineIndex;
 use djls_source::Offset;
 use djls_source::PositionEncoding;
+use djls_source::Range;
 use djls_workspace::Db as WorkspaceDb;
+use djls_workspace::DocumentChange;
 use tower_lsp_server::lsp_types;
 use tower_lsp_server::UriExt as TowerUriExt;
 
 pub(crate) trait PositionExt {
-    fn to_offset(&self, text: &str, index: &LineIndex, encoding: PositionEncoding) -> Offset;
+    fn to_line_col(&self) -> LineCol;
+    fn to_offset(&self, text: &str, line_index: &LineIndex, encoding: PositionEncoding) -> Offset;
 }
 
 impl PositionExt for lsp_types::Position {
-    fn to_offset(&self, text: &str, index: &LineIndex, encoding: PositionEncoding) -> Offset {
-        let line_col = LineCol::new(self.line, self.character);
-        index.offset(line_col, text, encoding)
+    fn to_line_col(&self) -> LineCol {
+        LineCol::new(self.line, self.character)
+    }
+
+    fn to_offset(&self, text: &str, line_index: &LineIndex, encoding: PositionEncoding) -> Offset {
+        let line_col = self.to_line_col();
+        line_index.offset(&line_col, text, encoding)
     }
 }
 
@@ -46,6 +53,32 @@ impl PositionEncodingKindExt for lsp_types::PositionEncodingKind {
             "utf-32" => Some(PositionEncoding::Utf32),
             _ => None,
         }
+    }
+}
+
+pub(crate) trait RangeExt {
+    fn to_source_range(&self) -> Range;
+}
+
+impl RangeExt for lsp_types::Range {
+    fn to_source_range(&self) -> Range {
+        let start_line_col = self.start.to_line_col();
+        let end_line_col = self.end.to_line_col();
+        Range::new(start_line_col, end_line_col)
+    }
+}
+
+pub(crate) trait TextDocumentContentChangeEventExt {
+    fn to_document_changes(self) -> Vec<DocumentChange>;
+}
+
+impl TextDocumentContentChangeEventExt for Vec<lsp_types::TextDocumentContentChangeEvent> {
+    fn to_document_changes(self) -> Vec<DocumentChange> {
+        self.into_iter()
+            .map(|change| {
+                DocumentChange::new(change.range.map(|r| r.to_source_range()), change.text)
+            })
+            .collect()
     }
 }
 

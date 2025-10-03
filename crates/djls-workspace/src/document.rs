@@ -91,8 +91,8 @@ impl TextDocument {
         for change in changes {
             if let Some(range) = change.range {
                 let start_offset =
-                    line_index.offset(range.start, &content, encoding).get() as usize;
-                let end_offset = line_index.offset(range.end, &content, encoding).get() as usize;
+                    line_index.offset(range.start(), &content, encoding).get() as usize;
+                let end_offset = line_index.offset(range.end(), &content, encoding).get() as usize;
 
                 content.replace_range(start_offset..end_offset, &change.text);
             } else {
@@ -109,8 +109,25 @@ impl TextDocument {
 }
 
 pub struct DocumentChange {
-    pub range: Option<Range>,
-    pub text: String,
+    range: Option<Range>,
+    text: String,
+}
+
+impl DocumentChange {
+    #[must_use]
+    pub fn new(range: Option<Range>, text: String) -> Self {
+        Self { range, text }
+    }
+
+    #[must_use]
+    pub fn range(&self) -> &Option<Range> {
+        &self.range
+    }
+
+    #[must_use]
+    pub fn text(&self) -> &str {
+        &self.text
+    }
 }
 
 #[cfg(test)]
@@ -165,13 +182,10 @@ mod tests {
     fn test_incremental_update_single_change() {
         let mut doc = text_document("Hello world", 1, LanguageId::Other);
 
-        let changes = vec![DocumentChange {
-            range: Some(Range {
-                start: LineCol::new(0, 6),
-                end: LineCol::new(0, 11),
-            }),
-            text: "Rust".to_string(),
-        }];
+        let changes = vec![DocumentChange::new(
+            Some(Range::new(LineCol::new(0, 6), LineCol::new(0, 11))),
+            "Rust".to_string(),
+        )];
 
         doc.update(changes, 2, PositionEncoding::Utf16);
         assert_eq!(doc.content(), "Hello Rust");
@@ -183,20 +197,14 @@ mod tests {
         let mut doc = text_document("First line\nSecond line\nThird line", 1, LanguageId::Other);
 
         let changes = vec![
-            DocumentChange {
-                range: Some(Range {
-                    start: LineCol::new(0, 0),
-                    end: LineCol::new(0, 5),
-                }),
-                text: "1st".to_string(),
-            },
-            DocumentChange {
-                range: Some(Range {
-                    start: LineCol::new(2, 0),
-                    end: LineCol::new(2, 5),
-                }),
-                text: "3rd".to_string(),
-            },
+            DocumentChange::new(
+                Some(Range::new(LineCol::new(0, 0), LineCol::new(0, 5))),
+                "1st".to_string(),
+            ),
+            DocumentChange::new(
+                Some(Range::new(LineCol::new(2, 0), LineCol::new(2, 5))),
+                "3rd".to_string(),
+            ),
         ];
 
         doc.update(changes, 2, PositionEncoding::Utf16);
@@ -207,13 +215,10 @@ mod tests {
     fn test_incremental_update_insertion() {
         let mut doc = text_document("Hello world", 1, LanguageId::Other);
 
-        let changes = vec![DocumentChange {
-            range: Some(Range {
-                start: LineCol::new(0, 5),
-                end: LineCol::new(0, 5),
-            }),
-            text: " beautiful".to_string(),
-        }];
+        let changes = vec![DocumentChange::new(
+            Some(Range::new(LineCol::new(0, 5), LineCol::new(0, 5))),
+            " beautiful".to_string(),
+        )];
 
         doc.update(changes, 2, PositionEncoding::Utf16);
         assert_eq!(doc.content(), "Hello beautiful world");
@@ -223,13 +228,10 @@ mod tests {
     fn test_incremental_update_deletion() {
         let mut doc = text_document("Hello beautiful world", 1, LanguageId::Other);
 
-        let changes = vec![DocumentChange {
-            range: Some(Range {
-                start: LineCol::new(0, 6),
-                end: LineCol::new(0, 16),
-            }),
-            text: String::new(),
-        }];
+        let changes = vec![DocumentChange::new(
+            Some(Range::new(LineCol::new(0, 6), LineCol::new(0, 16))),
+            String::new(),
+        )];
 
         doc.update(changes, 2, PositionEncoding::Utf16);
         assert_eq!(doc.content(), "Hello world");
@@ -239,10 +241,10 @@ mod tests {
     fn test_full_document_replacement() {
         let mut doc = text_document("Old content", 1, LanguageId::Other);
 
-        let changes = vec![DocumentChange {
-            range: None,
-            text: "Completely new content".to_string(),
-        }];
+        let changes = vec![DocumentChange::new(
+            None,
+            "Completely new content".to_string(),
+        )];
 
         doc.update(changes, 2, PositionEncoding::Utf16);
         assert_eq!(doc.content(), "Completely new content");
@@ -253,13 +255,10 @@ mod tests {
     fn test_incremental_update_multiline() {
         let mut doc = text_document("Line 1\nLine 2\nLine 3", 1, LanguageId::Other);
 
-        let changes = vec![DocumentChange {
-            range: Some(Range {
-                start: LineCol::new(0, 5),
-                end: LineCol::new(2, 4),
-            }),
-            text: "A\nB\nC".to_string(),
-        }];
+        let changes = vec![DocumentChange::new(
+            Some(Range::new(LineCol::new(0, 5), LineCol::new(2, 4))),
+            "A\nB\nC".to_string(),
+        )];
 
         doc.update(changes, 2, PositionEncoding::Utf16);
         assert_eq!(doc.content(), "Line A\nB\nC 3");
@@ -269,13 +268,10 @@ mod tests {
     fn test_incremental_update_with_emoji() {
         let mut doc = text_document("Hello 🌍 world", 1, LanguageId::Other);
 
-        let changes = vec![DocumentChange {
-            range: Some(Range {
-                start: LineCol::new(0, 9),
-                end: LineCol::new(0, 14),
-            }),
-            text: "Rust".to_string(),
-        }];
+        let changes = vec![DocumentChange::new(
+            Some(Range::new(LineCol::new(0, 9), LineCol::new(0, 14))),
+            "Rust".to_string(),
+        )];
 
         doc.update(changes, 2, PositionEncoding::Utf16);
         assert_eq!(doc.content(), "Hello 🌍 Rust");
@@ -285,13 +281,10 @@ mod tests {
     fn test_incremental_update_newline_at_end() {
         let mut doc = text_document("Hello", 1, LanguageId::Other);
 
-        let changes = vec![DocumentChange {
-            range: Some(Range {
-                start: LineCol::new(0, 5),
-                end: LineCol::new(0, 5),
-            }),
-            text: "\nWorld".to_string(),
-        }];
+        let changes = vec![DocumentChange::new(
+            Some(Range::new(LineCol::new(0, 5), LineCol::new(0, 5))),
+            "\nWorld".to_string(),
+        )];
 
         doc.update(changes, 2, PositionEncoding::Utf16);
         assert_eq!(doc.content(), "Hello\nWorld");
