@@ -210,8 +210,9 @@ impl LanguageServer for DjangoLanguageServer {
         let url_version = self
             .with_session_mut(|session| {
                 let url = params.text_document.uri.to_url()?;
-                let version = params.text_document.version;
-                let document = params.text_document.into_text_document();
+                let document =
+                    session.with_db_mut(|db| params.text_document.into_text_document(db))?;
+                let version = document.version();
 
                 session.open_document(&url, document);
 

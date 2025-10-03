@@ -257,7 +257,15 @@ mod tests {
         let (path, url) = test_file_url("test.py");
 
         // Open document
-        let document = TextDocument::new("print('hello')".to_string(), 1, LanguageId::Python);
+        let document = session.with_db_mut(|db| {
+            TextDocument::new(
+                "print('hello')".to_string(),
+                1,
+                LanguageId::Python,
+                &path,
+                db,
+            )
+        });
         session.open_document(&url, document);
 
         // Should be in workspace buffers
@@ -281,7 +289,9 @@ mod tests {
         let (path, url) = test_file_url("test.py");
 
         // Open with initial content
-        let document = TextDocument::new("initial".to_string(), 1, LanguageId::Python);
+        let document = session.with_db_mut(|db| {
+            TextDocument::new("initial".to_string(), 1, LanguageId::Python, &path, db)
+        });
         session.open_document(&url, document);
 
         // Update content

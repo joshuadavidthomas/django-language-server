@@ -120,7 +120,7 @@ impl FileSystem for OverlayFileSystem {
 ///
 /// [`FileSystem`]: crate::fs::FileSystem
 /// [`OverlayFileSystem`]: crate::OverlayFileSystem
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Buffers {
     inner: Arc<FxDashMap<Url, TextDocument>>,
 }
