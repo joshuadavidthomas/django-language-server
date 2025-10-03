@@ -19,6 +19,7 @@ use crate::ext::TextDocumentIdentifierExt;
 use crate::ext::UriExt;
 use crate::queue::Queue;
 use crate::session::Session;
+use crate::session::SessionSnapshot;
 
 const SERVER_NAME: &str = "Django Language Server";
 const SERVER_VERSION: &str = "0.1.0";
@@ -59,12 +60,21 @@ impl DjangoLanguageServer {
 
     pub async fn with_session_task<F, Fut>(&self, f: F)
     where
-        F: FnOnce(Arc<Mutex<Session>>) -> Fut + Send + 'static,
+        F: FnOnce(SessionSnapshot) -> Fut + Send + 'static,
         Fut: Future<Output = anyhow::Result<()>> + Send + 'static,
     {
-        let session_arc = Arc::clone(&self.session);
+        let snapshot = {
+            let session = self.session.lock().await;
+            session.snapshot() // Quick lock, create snapshot, release
+        };
 
-        if let Err(e) = self.queue.submit(async move { f(session_arc).await }).await {
+        if let Err(e) = self
+            .queue
+            .submit(async move {
+                f(snapshot).await // ← Pass snapshot, not Arc<Mutex>
+            })
+            .await
+        {
             tracing::error!("Failed to submit task: {}", e);
         } else {
             tracing::info!("Task submitted successfully");
@@ -174,10 +184,8 @@ impl LanguageServer for DjangoLanguageServer {
     async fn initialized(&self, _params: lsp_types::InitializedParams) {
         tracing::info!("Server received initialized notification.");
 
-        self.with_session_task(move |session_arc| async move {
-            let session = session_arc.lock().await;
-
-            if let Some(project) = session.project() {
+        self.with_session_task(move |session| async move {
+            if let Some(project) = session.db().project() {
                 let path = project.root(session.db()).clone();
                 tracing::info!("Task: Starting initialization for project at: {}", path);
                 project.initialize(session.db());
