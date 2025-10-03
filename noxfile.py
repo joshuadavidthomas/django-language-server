@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 from pathlib import Path
 
 import nox
@@ -128,6 +129,44 @@ def lint(session):
         "--color",
         "always",
     )
+
+
+@nox.session
+def copy_bench_fixtures(session):
+    django_version = (
+        session.posargs[0] if session.posargs and session.posargs[0] else DJ_LTS[-1]
+    )
+
+    if django_version == DJMAIN:
+        session.install(
+            "django @ https://github.com/django/django/archive/refs/heads/main.zip"
+        )
+    else:
+        session.install(f"django=={django_version}")
+
+    django_path = session.run(
+        "python",
+        "-c",
+        "import django, os; print(os.path.dirname(django.__file__))",
+        silent=True,
+    ).strip()
+
+    dest_base = Path("crates/djls-bench/fixtures/django")
+
+    if dest_base.exists():
+        shutil.rmtree(dest_base)
+
+    templates = {
+        "small/forms_widgets_input.html": "forms/templates/django/forms/widgets/input.html",
+        "medium/admin_login.html": "contrib/admin/templates/admin/login.html",
+        "large/views_technical_500.html": "views/templates/technical_500.html",
+    }
+
+    for dest, src in templates.items():
+        dest_path = dest_base / dest
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
+        src_path = Path(django_path) / src
+        shutil.copy2(src_path, dest_path)
 
 
 @nox.session
