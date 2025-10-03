@@ -179,9 +179,9 @@ impl LanguageServer for DjangoLanguageServer {
             let session = session_arc.lock().await;
 
             if let Some(project) = session.project() {
-                let path = project.root(session.database()).clone();
+                let path = project.root(session.db()).clone();
                 tracing::info!("Task: Starting initialization for project at: {}", path);
-                project.initialize(session.database());
+                project.initialize(session.db());
                 tracing::info!("Task: Successfully initialized project: {}", path);
             } else {
                 tracing::info!("Task: No project configured, skipping initialization.");
@@ -404,7 +404,7 @@ impl LanguageServer for DjangoLanguageServer {
 
         self.with_session_mut(|session| {
             if session.project().is_some() {
-                let project_root = session.database().project_root_or_cwd();
+                let project_root = session.db().project_root_or_cwd();
 
                 match djls_conf::Settings::new(&project_root) {
                     Ok(new_settings) => {
