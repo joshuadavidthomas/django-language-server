@@ -23,7 +23,7 @@ impl PositionExt for lsp_types::Position {
 
     fn to_offset(&self, text: &str, line_index: &LineIndex, encoding: PositionEncoding) -> Offset {
         let line_col = self.to_line_col();
-        line_index.offset(&line_col, text, encoding)
+        line_index.offset(text, line_col, encoding)
     }
 }
 

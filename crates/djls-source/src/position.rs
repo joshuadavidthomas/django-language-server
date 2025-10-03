@@ -118,13 +118,13 @@ impl Range {
     }
 
     #[must_use]
-    pub fn start(&self) -> &LineCol {
-        &self.start
+    pub fn start(&self) -> LineCol {
+        self.start
     }
 
     #[must_use]
-    pub fn end(&self) -> &LineCol {
-        &self.end
+    pub fn end(&self) -> LineCol {
+        self.end
     }
 }
 

@@ -91,8 +91,8 @@ impl TextDocument {
         for change in changes {
             if let Some(range) = change.range {
                 let start_offset =
-                    line_index.offset(range.start(), &content, encoding).get() as usize;
-                let end_offset = line_index.offset(range.end(), &content, encoding).get() as usize;
+                    line_index.offset(&content, range.start(), encoding).get() as usize;
+                let end_offset = line_index.offset(&content, range.end(), encoding).get() as usize;
 
                 content.replace_range(start_offset..end_offset, &change.text);
             } else {
