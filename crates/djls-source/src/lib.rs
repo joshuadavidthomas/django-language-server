@@ -17,5 +17,6 @@ pub use path::SafeJoinError;
 pub use path::Utf8PathClean;
 pub use position::LineCol;
 pub use position::Offset;
+pub use position::Range;
 pub use position::Span;
 pub use protocol::PositionEncoding;

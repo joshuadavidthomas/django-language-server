@@ -18,6 +18,7 @@ mod language;
 mod workspace;
 
 pub use db::Db;
+pub use document::DocumentChange;
 pub use document::TextDocument;
 pub use files::FileSystem;
 pub use files::InMemoryFileSystem;

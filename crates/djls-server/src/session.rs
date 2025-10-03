@@ -119,47 +119,90 @@ impl Session {
     /// Updates both the workspace buffers and database. Creates the file in
     /// the database or invalidates it if it already exists.
     /// For template files, immediately triggers parsing and validation.
-    pub fn open_document(&mut self, path: &Utf8Path, document: TextDocument) {
-        if let Some(file) = self.workspace.open_document(&mut self.db, path, document) {
-            self.handle_file(file);
-        }
+    pub fn open_document(
+        &mut self,
+        text_document: &lsp_types::TextDocumentItem,
+    ) -> Option<TextDocument> {
+        let Some(path) = text_document.uri.to_utf8_path_buf() else {
+            tracing::debug!("Skip opening non-file URI: {}", text_document.uri.as_str());
+            return None;
+        };
+
+        let document = self.workspace.open_document(
+            &mut self.db,
+            &path,
+            &text_document.text,
+            text_document.version,
+            &text_document.language_id,
+        )?;
+
+        self.handle_file(document.file());
+        Some(document)
     }
 
-    /// Update a document with incremental changes.
-    ///
-    /// Applies changes to the document and triggers database invalidation.
-    /// For template files, immediately triggers parsing and validation.
+    pub fn save_document(
+        &mut self,
+        text_document: &lsp_types::TextDocumentIdentifier,
+    ) -> Option<TextDocument> {
+        let Some(path) = text_document.uri.to_utf8_path_buf() else {
+            tracing::debug!("Skip saving non-file URI: {}", text_document.uri.as_str());
+            return None;
+        };
+
+        let document = self.workspace.save_document(&mut self.db, &path)?;
+        self.handle_file(document.file());
+        Some(document)
+    }
+
     pub fn update_document(
         &mut self,
-        path: &Utf8Path,
+        text_document: &lsp_types::VersionedTextDocumentIdentifier,
         changes: Vec<lsp_types::TextDocumentContentChangeEvent>,
-        version: i32,
-    ) {
-        if let Some(file) = self.workspace.update_document(
+    ) -> Option<TextDocument> {
+        let Some(path) = text_document.uri.to_utf8_path_buf() else {
+            tracing::debug!("Skip updating non-file URI: {}", text_document.uri.as_str());
+            return None;
+        };
+
+        let doc_changes = changes
+            .into_iter()
+            .map(|change| djls_workspace::DocumentChange {
+                range: change.range.map(|r| djls_source::Range {
+                    start: djls_source::LineCol::new(r.start.line, r.start.character),
+                    end: djls_source::LineCol::new(r.end.line, r.end.character),
+                }),
+                text: change.text,
+            })
+            .collect();
+
+        let document = self.workspace.update_document(
             &mut self.db,
-            path,
-            changes,
-            version,
+            &path,
+            doc_changes,
+            text_document.version,
             self.position_encoding,
-        ) {
-            self.handle_file(file);
-        }
-    }
+        )?;
 
-    pub fn save_document(&mut self, path: &Utf8Path) -> Option<TextDocument> {
-        if let Some(file) = self.workspace.save_document(&mut self.db, path) {
-            self.handle_file(file);
-        }
-
-        self.workspace.get_document(path)
+        self.handle_file(document.file());
+        Some(document)
     }
 
     /// Close a document.
     ///
     /// Removes from workspace buffers and triggers database invalidation to fall back to disk.
     /// For template files, immediately re-parses from disk.
-    pub fn close_document(&mut self, path: &Utf8Path) -> Option<TextDocument> {
-        self.workspace.close_document(&mut self.db, path)
+    pub fn close_document(
+        &mut self,
+        text_document: &lsp_types::TextDocumentIdentifier,
+    ) -> Option<TextDocument> {
+        let Some(path) = text_document.uri.to_utf8_path_buf() else {
+            tracing::debug!("Skip closing non-file URI: {}", text_document.uri.as_str());
+            return None;
+        };
+
+        let document = self.workspace.close_document(&mut self.db, &path)?;
+
+        Some(document)
     }
 
     /// Get a document from the buffer if it's open.
@@ -235,7 +278,6 @@ fn negotiate_position_encoding(capabilities: &lsp_types::ClientCapabilities) -> 
 #[cfg(test)]
 mod tests {
     use djls_source::Db as SourceDb;
-    use djls_workspace::LanguageId;
     use tower_lsp_server::UriExt;
 
     use super::*;
@@ -256,60 +298,54 @@ mod tests {
     #[test]
     fn test_session_document_lifecycle() {
         let mut session = Session::default();
-        let (path, _uri) = test_file_uri("test.py");
+        let (path, uri) = test_file_uri("test.py");
 
-        // Open document
-        let document = session.with_db_mut(|db| {
-            TextDocument::new(
-                "print('hello')".to_string(),
-                1,
-                LanguageId::Python,
-                &path,
-                db,
-            )
-        });
-        session.open_document(&path, document);
+        let text_document = lsp_types::TextDocumentItem {
+            uri: uri.clone(),
+            language_id: "python".to_string(),
+            version: 1,
+            text: "print('hello')".to_string(),
+        };
+        session.open_document(&text_document);
 
-        // Should be in workspace buffers
         assert!(session.get_document(&path).is_some());
 
-        // Should be queryable through database
         let content = session.with_db(|db| {
             let file = db.get_or_create_file(&path);
             file.source(db).to_string()
         });
         assert_eq!(content, "print('hello')");
 
-        // Close document
-        session.close_document(&path);
+        let close_doc = lsp_types::TextDocumentIdentifier { uri };
+        session.close_document(&close_doc);
         assert!(session.get_document(&path).is_none());
     }
 
     #[test]
     fn test_session_document_update() {
         let mut session = Session::default();
-        let (path, _uri) = test_file_uri("test.py");
+        let (path, uri) = test_file_uri("test.py");
 
-        // Open with initial content
-        let document = session.with_db_mut(|db| {
-            TextDocument::new("initial".to_string(), 1, LanguageId::Python, &path, db)
-        });
-        session.open_document(&path, document);
+        let text_document = lsp_types::TextDocumentItem {
+            uri: uri.clone(),
+            language_id: "python".to_string(),
+            version: 1,
+            text: "initial".to_string(),
+        };
+        session.open_document(&text_document);
 
-        // Update content
         let changes = vec![lsp_types::TextDocumentContentChangeEvent {
             range: None,
             range_length: None,
             text: "updated".to_string(),
         }];
-        session.update_document(&path, changes, 2);
+        let versioned_document = lsp_types::VersionedTextDocumentIdentifier { uri, version: 2 };
+        session.update_document(&versioned_document, changes);
 
-        // Verify buffer was updated
         let doc = session.get_document(&path).unwrap();
         assert_eq!(doc.content(), "updated");
         assert_eq!(doc.version(), 2);
 
-        // Database should also see updated content
         let content = session.with_db(|db| {
             let file = db.get_or_create_file(&path);
             file.source(db).to_string()

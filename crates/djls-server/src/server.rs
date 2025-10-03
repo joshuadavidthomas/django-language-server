@@ -1,11 +1,11 @@
 use std::future::Future;
 use std::sync::Arc;
 
-use camino::Utf8Path;
 use djls_project::Db as ProjectDb;
 use djls_semantic::Db as SemanticDb;
 use djls_source::Db as SourceDb;
 use djls_source::FileKind;
+use djls_workspace::TextDocument;
 use tokio::sync::Mutex;
 use tower_lsp_server::jsonrpc::Result as LspResult;
 use tower_lsp_server::lsp_types;
@@ -16,7 +16,6 @@ use tracing_appender::non_blocking::WorkerGuard;
 use crate::ext::PositionEncodingExt;
 use crate::ext::PositionExt;
 use crate::ext::TextDocumentIdentifierExt;
-use crate::ext::TextDocumentItemExt;
 use crate::ext::UriExt;
 use crate::queue::Queue;
 use crate::session::Session;
@@ -72,36 +71,37 @@ impl DjangoLanguageServer {
         }
     }
 
-    async fn publish_diagnostics(&self, path: &Utf8Path, version: Option<i32>) {
+    async fn publish_diagnostics(&self, document: &TextDocument) {
         let supports_pull = self
             .with_session(super::session::Session::supports_pull_diagnostics)
             .await;
 
         if supports_pull {
-            tracing::debug!(
-                "Client supports pull diagnostics, skipping push for {}",
-                path
-            );
+            tracing::debug!("Client supports pull diagnostics, skipping push");
             return;
         }
 
-        if FileKind::from(path) != FileKind::Template {
+        let path = self
+            .with_session(|session| session.with_db(|db| document.file().path(db).to_owned()))
+            .await;
+
+        if FileKind::from(&path) != FileKind::Template {
             return;
         }
 
         let diagnostics: Vec<lsp_types::Diagnostic> = self
             .with_session_mut(|session| {
                 session.with_db(|db| {
-                    let file = db.get_or_create_file(path);
+                    let file = db.get_or_create_file(&path);
                     let nodelist = djls_templates::parse_template(db, file);
                     djls_ide::collect_diagnostics(db, file, nodelist)
                 })
             })
             .await;
 
-        if let Some(lsp_uri) = lsp_types::Uri::from_path(path) {
+        if let Some(lsp_uri) = lsp_types::Uri::from_path(&path) {
             self.client
-                .publish_diagnostics(lsp_uri, diagnostics.clone(), version)
+                .publish_diagnostics(lsp_uri, diagnostics.clone(), Some(document.version()))
                 .await;
 
             tracing::debug!("Published {} diagnostics for {}", diagnostics.len(), path);
@@ -197,92 +197,40 @@ impl LanguageServer for DjangoLanguageServer {
     }
 
     async fn did_open(&self, params: lsp_types::DidOpenTextDocumentParams) {
-        tracing::info!("Opened document: {:?}", params.text_document.uri);
-
-        let path_version = self
-            .with_session_mut(|session| {
-                let Some(path) = params.text_document.uri.to_utf8_path_buf() else {
-                    tracing::debug!(
-                        "Skipping non-file URI in did_open: {}",
-                        params.text_document.uri.as_str()
-                    );
-                    // TODO(virtual-paths): Support virtual documents with DocumentPath enum
-                    return None;
-                };
-                let document =
-                    session.with_db_mut(|db| params.text_document.into_text_document(db))?;
-                let version = document.version();
-
-                session.open_document(&path, document);
-
-                Some((path, version))
-            })
+        let document = self
+            .with_session_mut(|session| session.open_document(&params.text_document))
             .await;
 
-        if let Some((path, version)) = path_version {
-            self.publish_diagnostics(&path, Some(version)).await;
+        if let Some(document) = document {
+            self.publish_diagnostics(&document).await;
         }
     }
 
     async fn did_save(&self, params: lsp_types::DidSaveTextDocumentParams) {
-        tracing::info!("Saved document: {:?}", params.text_document.uri);
-
-        let path_version = self
-            .with_session_mut(|session| {
-                let Some(path) = params.text_document.uri.to_utf8_path_buf() else {
-                    tracing::debug!(
-                        "Skipping non-file URI in did_save: {}",
-                        params.text_document.uri.as_str()
-                    );
-                    // TODO(virtual-paths): Support virtual documents with DocumentPath enum
-                    return None;
-                };
-                let version = session.save_document(&path).map(|doc| doc.version());
-                Some((path, version))
-            })
+        let document = self
+            .with_session_mut(|session| session.save_document(&params.text_document))
             .await;
 
-        if let Some((path, version)) = path_version {
-            self.publish_diagnostics(&path, version).await;
+        if let Some(document) = document {
+            self.publish_diagnostics(&document).await;
         }
     }
 
     async fn did_change(&self, params: lsp_types::DidChangeTextDocumentParams) {
-        tracing::info!("Changed document: {:?}", params.text_document.uri);
+        let document = self
+            .with_session_mut(|session| {
+                session.update_document(&params.text_document, params.content_changes)
+            })
+            .await;
 
-        self.with_session_mut(|session| {
-            let Some(path) = params.text_document.uri.to_utf8_path_buf() else {
-                tracing::debug!(
-                    "Skipping non-file URI in did_change: {}",
-                    params.text_document.uri.as_str()
-                );
-                // TODO(virtual-paths): Support virtual documents with DocumentPath enum
-                return None;
-            };
-            session.update_document(&path, params.content_changes, params.text_document.version);
-            Some(path)
-        })
-        .await;
+        if let Some(document) = document {
+            self.publish_diagnostics(&document).await;
+        }
     }
 
     async fn did_close(&self, params: lsp_types::DidCloseTextDocumentParams) {
-        tracing::info!("Closed document: {:?}", params.text_document.uri);
-
-        self.with_session_mut(|session| {
-            let Some(path) = params.text_document.uri.to_utf8_path_buf() else {
-                tracing::debug!(
-                    "Skipping non-file URI in did_close: {}",
-                    params.text_document.uri.as_str()
-                );
-                // TODO(virtual-paths): Support virtual documents with DocumentPath enum
-                return None;
-            };
-            if session.close_document(&path).is_none() {
-                tracing::warn!("Attempted to close document without overlay: {}", path);
-            }
-            Some(path)
-        })
-        .await;
+        self.with_session_mut(|session| session.close_document(&params.text_document))
+            .await;
     }
 
     async fn completion(
