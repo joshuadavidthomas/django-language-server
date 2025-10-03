@@ -88,7 +88,7 @@ impl LineIndex {
     }
 
     #[must_use]
-    pub fn offset(&self, line_col: LineCol, text: &str, encoding: PositionEncoding) -> Offset {
+    pub fn offset(&self, text: &str, line_col: LineCol, encoding: PositionEncoding) -> Offset {
         let line = line_col.line();
         let character = line_col.column();
 

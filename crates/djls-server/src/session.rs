@@ -16,6 +16,7 @@ use tower_lsp_server::lsp_types;
 
 use crate::db::DjangoDatabase;
 use crate::ext::PositionEncodingKindExt;
+use crate::ext::TextDocumentContentChangeEventExt;
 use crate::ext::UriExt;
 
 /// LSP Session managing project-specific state and database operations.
@@ -155,21 +156,10 @@ impl Session {
             return None;
         };
 
-        let doc_changes = changes
-            .into_iter()
-            .map(|change| djls_workspace::DocumentChange {
-                range: change.range.map(|r| djls_source::Range {
-                    start: djls_source::LineCol::new(r.start.line, r.start.character),
-                    end: djls_source::LineCol::new(r.end.line, r.end.character),
-                }),
-                text: change.text,
-            })
-            .collect();
-
         let document = self.workspace.update_document(
             &mut self.db,
             &path,
-            doc_changes,
+            changes.to_document_changes(),
             text_document.version,
             self.client_capabilities.position_encoding(),
         )?;

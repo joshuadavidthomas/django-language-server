@@ -101,10 +101,14 @@ impl Workspace {
             self.buffers.update(path.to_path_buf(), document.clone());
             Some(document)
         } else if let Some(first_change) = changes.into_iter().next() {
-            if first_change.range.is_none() {
+            if first_change.range().is_none() {
                 let file = db.get_or_create_file(path);
-                let document =
-                    TextDocument::new(first_change.text, version, LanguageId::Other, file);
+                let document = TextDocument::new(
+                    first_change.text().to_string(),
+                    version,
+                    LanguageId::Other,
+                    file,
+                );
                 self.buffers.open(path.to_path_buf(), document.clone());
                 Some(document)
             } else {
@@ -412,10 +416,10 @@ mod tests {
             let path = Utf8Path::new("/test.py");
             workspace.open_document(&mut db, path, "initial", 1, "python");
 
-            let changes = vec![crate::document::DocumentChange {
-                range: None,
-                text: "updated".to_string(),
-            }];
+            let changes = vec![crate::document::DocumentChange::new(
+                None,
+                "updated".to_string(),
+            )];
             let document = workspace
                 .update_document(&mut db, path, changes, 2, PositionEncoding::Utf16)
                 .unwrap();
@@ -496,10 +500,10 @@ mod tests {
                 .open_document(&mut db, &file_path, "initial", 1, "python")
                 .unwrap();
 
-            let changes = vec![crate::document::DocumentChange {
-                range: None,
-                text: "updated".to_string(),
-            }];
+            let changes = vec![crate::document::DocumentChange::new(
+                None,
+                "updated".to_string(),
+            )];
             workspace
                 .update_document(&mut db, &file_path, changes, 2, PositionEncoding::Utf16)
                 .unwrap();
