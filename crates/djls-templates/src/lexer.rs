@@ -1,4 +1,6 @@
 use djls_source::Span;
+use memchr::memchr3;
+use memchr::memmem;
 
 use crate::tokens::TagDelimiter;
 use crate::tokens::Token;
@@ -68,7 +70,7 @@ impl Lexer {
 
         self.consume_n(TagDelimiter::LENGTH);
 
-        match self.consume_until(delimiter.closer()) {
+        match self.consume_until_delimiter(delimiter.closer()) {
             Ok(text) => {
                 let len = text.len();
                 let span = Span::saturating_from_parts_usize(content_start, len);
@@ -91,41 +93,38 @@ impl Lexer {
     }
 
     fn lex_whitespace(&mut self, c: char) -> Token {
+        self.consume();
+
         if c == '\n' || c == '\r' {
-            self.consume(); // \r or \n
             if c == '\r' && self.peek() == '\n' {
-                self.consume(); // \n of \r\n
-            }
-            let span = Span::saturating_from_bounds_usize(self.start, self.current);
-            Token::Newline { span }
-        } else {
-            self.consume(); // Consume the first whitespace
-            while !self.is_at_end() && self.peek().is_whitespace() {
-                if self.peek() == '\n' || self.peek() == '\r' {
-                    break;
-                }
                 self.consume();
             }
             let span = Span::saturating_from_bounds_usize(self.start, self.current);
-            Token::Whitespace { span }
+            return Token::Newline { span };
         }
+
+        while !self.is_at_end() {
+            let remaining = self.remaining_source().as_bytes();
+
+            match remaining.first() {
+                Some(&b'\n' | &b'\r') | None => break,
+                Some(&b' ' | &b'\t') => self.current += 1,
+                Some(_) => {
+                    if !self.peek().is_whitespace() {
+                        break;
+                    }
+                    self.consume();
+                }
+            }
+        }
+
+        let span = Span::saturating_from_bounds_usize(self.start, self.current);
+        Token::Whitespace { span }
     }
 
     fn lex_text(&mut self) -> Token {
         let text_start = self.current;
-
-        while !self.is_at_end() {
-            let remaining = self.remaining_source();
-            if (self.peek() == TagDelimiter::CHAR_OPEN
-                && TagDelimiter::from_input(remaining).is_some())
-                || remaining.starts_with('\n')
-                || remaining.starts_with('\r')
-            {
-                break;
-            }
-            self.consume();
-        }
-
+        self.current += self.consume_until_stop_char();
         let text = self.consumed_source_from(text_start);
         let span = Span::saturating_from_bounds_usize(self.start, self.current);
         Token::Text {
@@ -167,29 +166,45 @@ impl Lexer {
         }
     }
 
-    fn consume_until(&mut self, delimiter: &str) -> Result<String, String> {
+    fn consume_until_delimiter(&mut self, delimiter: &str) -> Result<String, String> {
         let offset = self.current;
-        let mut fallback: Option<usize> = None;
 
-        while self.current < self.source.len() {
-            let remaining = self.remaining_source();
-
-            if remaining.starts_with(delimiter) {
-                return Ok(self.consumed_source_from(offset).to_string());
-            }
-
-            if fallback.is_none() {
-                let ch = self.peek();
-                if TagDelimiter::from_input(remaining).is_some() || matches!(ch, '\n' | '\r') {
-                    fallback = Some(self.current);
-                }
-            }
-
-            self.consume();
+        if let Some(pos) = memmem::find(self.remaining_source().as_bytes(), delimiter.as_bytes()) {
+            self.current += pos;
+            return Ok(self.consumed_source_from(offset).to_string());
         }
 
-        self.current = fallback.unwrap_or(self.current);
+        self.current += self.consume_until_stop_char();
         Err(self.consumed_source_from(offset).to_string())
+    }
+
+    fn consume_until_stop_char(&self) -> usize {
+        let mut offset = 0;
+        let max = self.source.len() - self.current;
+
+        while offset < max {
+            let remaining = &self.remaining_source()[offset..];
+
+            match memchr3(b'{', b'\n', b'\r', remaining.as_bytes()) {
+                None => {
+                    offset = max;
+                    break;
+                }
+                Some(pos) => {
+                    let is_newline = matches!(remaining.as_bytes()[pos], b'\n' | b'\r');
+                    let is_django_delimiter = TagDelimiter::from_input(&remaining[pos..]).is_some();
+
+                    if is_newline || is_django_delimiter {
+                        offset += pos;
+                        break;
+                    }
+
+                    offset += pos + 1;
+                }
+            }
+        }
+
+        offset
     }
 }
 
