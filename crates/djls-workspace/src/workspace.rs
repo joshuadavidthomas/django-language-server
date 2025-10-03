@@ -7,16 +7,16 @@
 use std::sync::Arc;
 
 use camino::Utf8Path;
-use djls_source::File;
 use djls_source::PositionEncoding;
-use tower_lsp_server::lsp_types::TextDocumentContentChangeEvent;
 
 use crate::db::Db;
+use crate::document::DocumentChange;
 use crate::document::TextDocument;
 use crate::files::Buffers;
 use crate::files::FileSystem;
 use crate::files::OsFileSystem;
 use crate::files::OverlayFileSystem;
+use crate::LanguageId;
 
 /// Workspace facade that manages buffers and file system.
 ///
@@ -69,40 +69,44 @@ impl Workspace {
         &mut self,
         db: &mut dyn Db,
         path: &Utf8Path,
-        document: TextDocument,
-    ) -> Option<File> {
-        document.open(db);
-        let file = document.file();
-        self.buffers.open(path.to_path_buf(), document);
-        Some(file)
+        content: &str,
+        version: i32,
+        language_id: &str,
+    ) -> Option<TextDocument> {
+        let language_id = LanguageId::from(language_id);
+        let file = db.get_or_create_file(path);
+        let document = TextDocument::new(content.to_string(), version, language_id, file);
+        db.bump_file_revision(document.file());
+        self.buffers.open(path.to_path_buf(), document.clone());
+        Some(document)
     }
 
-    /// Update a document with incremental changes and touch the associated file.
+    pub fn save_document(&mut self, db: &mut dyn Db, path: &Utf8Path) -> Option<TextDocument> {
+        let document = self.buffers.get(path)?;
+        db.bump_file_revision(document.file());
+        Some(document)
+    }
+
     pub fn update_document(
         &mut self,
         db: &mut dyn Db,
         path: &Utf8Path,
-        changes: Vec<TextDocumentContentChangeEvent>,
+        changes: Vec<DocumentChange>,
         version: i32,
         encoding: PositionEncoding,
-    ) -> Option<File> {
+    ) -> Option<TextDocument> {
         if let Some(mut document) = self.buffers.get(path) {
-            document.update(db, changes, version, encoding);
-            let file = document.file();
-            self.buffers.update(path.to_path_buf(), document);
-            Some(file)
+            db.bump_file_revision(document.file());
+            document.update(changes, version, encoding);
+            self.buffers.update(path.to_path_buf(), document.clone());
+            Some(document)
         } else if let Some(first_change) = changes.into_iter().next() {
             if first_change.range.is_none() {
-                let document = TextDocument::new(
-                    first_change.text,
-                    version,
-                    crate::language::LanguageId::Other,
-                    path,
-                    db,
-                );
-                let file = document.file();
-                self.buffers.open(path.to_path_buf(), document);
-                Some(file)
+                let file = db.get_or_create_file(path);
+                let document =
+                    TextDocument::new(first_change.text, version, LanguageId::Other, file);
+                self.buffers.open(path.to_path_buf(), document.clone());
+                Some(document)
             } else {
                 None
             }
@@ -111,17 +115,10 @@ impl Workspace {
         }
     }
 
-    /// Touch the tracked file when the client saves the document.
-    pub fn save_document(&mut self, db: &mut dyn Db, path: &Utf8Path) -> Option<File> {
-        let document = self.buffers.get(path)?;
-        document.save(db);
-        Some(document.file())
-    }
-
     /// Close a document, removing it from buffers and touching the tracked file.
     pub fn close_document(&mut self, db: &mut dyn Db, path: &Utf8Path) -> Option<TextDocument> {
         let document = self.buffers.close(path)?;
-        document.close(db);
+        db.bump_file_revision(document.file());
         Some(document)
     }
 }
@@ -178,15 +175,11 @@ mod tests {
             }
         }
 
-        fn make_doc(content: &str, version: i32, language_id: LanguageId) -> TextDocument {
+        fn text_document(content: &str, version: i32, language_id: LanguageId) -> TextDocument {
             let db = TestDb::default();
-            TextDocument::new(
-                content.to_string(),
-                version,
-                language_id,
-                Utf8Path::new("/test.txt"),
-                &db,
-            )
+            let path = Utf8Path::new("/test.txt");
+            let file = djls_source::File::new(&db, path.into(), 0);
+            TextDocument::new(content.to_string(), version, language_id, file)
         }
 
         // Helper to create platform-appropriate test paths
@@ -205,7 +198,7 @@ mod tests {
 
             // Add file to buffer
             let path = test_file_path("test.py");
-            let doc = make_doc("buffer content", 1, LanguageId::Python);
+            let doc = text_document("buffer content", 1, LanguageId::Python);
             buffers.open(path.clone(), doc);
 
             assert_eq!(fs.read_to_string(&path).unwrap(), "buffer content");
@@ -233,7 +226,7 @@ mod tests {
             let fs = OverlayFileSystem::new(buffers.clone(), Arc::new(disk_fs));
 
             // Add buffer with different content
-            let doc = make_doc("buffer content", 1, LanguageId::Python);
+            let doc = text_document("buffer content", 1, LanguageId::Python);
             buffers.open(path.clone(), doc);
 
             assert_eq!(fs.read_to_string(&path).unwrap(), "buffer content");
@@ -247,7 +240,7 @@ mod tests {
 
             // Add file to buffer only
             let path = test_file_path("buffer_only.py");
-            let doc = make_doc("content", 1, LanguageId::Python);
+            let doc = text_document("content", 1, LanguageId::Python);
             buffers.open(path.clone(), doc);
 
             assert!(fs.exists(&path));
@@ -275,7 +268,7 @@ mod tests {
             let fs = OverlayFileSystem::new(buffers.clone(), Arc::new(disk_fs));
 
             // Also add to buffer
-            let doc = make_doc("buffer", 1, LanguageId::Python);
+            let doc = text_document("buffer", 1, LanguageId::Python);
             buffers.open(path.clone(), doc);
 
             assert!(fs.exists(&path));
@@ -312,12 +305,12 @@ mod tests {
             let path = test_file_path("test.py");
 
             // Initial buffer content
-            let doc1 = make_doc("version 1", 1, LanguageId::Python);
+            let doc1 = text_document("version 1", 1, LanguageId::Python);
             buffers.open(path.clone().clone(), doc1);
             assert_eq!(fs.read_to_string(&path).unwrap(), "version 1");
 
             // Update buffer content
-            let doc2 = make_doc("version 2", 2, LanguageId::Python);
+            let doc2 = text_document("version 2", 2, LanguageId::Python);
             buffers.update(path.clone(), doc2);
             assert_eq!(fs.read_to_string(&path).unwrap(), "version 2");
         }
@@ -332,7 +325,7 @@ mod tests {
             let fs = OverlayFileSystem::new(buffers.clone(), Arc::new(disk_fs));
 
             // Add buffer
-            let doc = make_doc("buffer content", 1, LanguageId::Python);
+            let doc = text_document("buffer content", 1, LanguageId::Python);
             buffers.open(path.clone().clone(), doc);
             assert_eq!(fs.read_to_string(&path).unwrap(), "buffer content");
 
@@ -347,11 +340,11 @@ mod tests {
 
         use camino::Utf8Path;
         use camino::Utf8PathBuf;
+        use djls_source::File;
         use djls_source::FxDashMap;
         use tempfile::tempdir;
 
         use super::*;
-        use crate::LanguageId;
 
         #[salsa::db]
         #[derive(Clone)]
@@ -404,16 +397,11 @@ mod tests {
             let mut db = TestDb::new(workspace.overlay());
             let path = Utf8Path::new("/test.py");
 
-            let document = TextDocument::new(
-                "print('hello')".to_string(),
-                1,
-                LanguageId::Python,
-                path,
-                &db,
-            );
-            let file = workspace.open_document(&mut db, path, document).unwrap();
-            let path = file.path(&db);
-            assert_eq!(path.file_name(), Some("test.py"));
+            let document = workspace
+                .open_document(&mut db, path, "print('hello')", 1, "python")
+                .unwrap();
+            let file_path = document.file().path(&db);
+            assert_eq!(file_path.file_name(), Some("test.py"));
             assert!(workspace.buffers.get(path).is_some());
         }
 
@@ -422,20 +410,17 @@ mod tests {
             let mut workspace = Workspace::new();
             let mut db = TestDb::new(workspace.overlay());
             let path = Utf8Path::new("/test.py");
-            let document =
-                TextDocument::new("initial".to_string(), 1, LanguageId::Python, path, &db);
-            workspace.open_document(&mut db, path, document);
+            workspace.open_document(&mut db, path, "initial", 1, "python");
 
-            let changes = vec![TextDocumentContentChangeEvent {
+            let changes = vec![crate::document::DocumentChange {
                 range: None,
-                range_length: None,
                 text: "updated".to_string(),
             }];
-            let file = workspace
+            let document = workspace
                 .update_document(&mut db, path, changes, 2, PositionEncoding::Utf16)
                 .unwrap();
 
-            assert_eq!(file.path(&db).file_name(), Some("test.py"));
+            assert_eq!(document.file().path(&db).file_name(), Some("test.py"));
             let buffer = workspace.buffers.get(path).unwrap();
             assert_eq!(buffer.content(), "updated");
             assert_eq!(buffer.version(), 2);
@@ -446,9 +431,7 @@ mod tests {
             let mut workspace = Workspace::new();
             let mut db = TestDb::new(workspace.overlay());
             let path = Utf8Path::new("/test.py");
-            let document =
-                TextDocument::new("content".to_string(), 1, LanguageId::Python, path, &db);
-            workspace.open_document(&mut db, path, document.clone());
+            workspace.open_document(&mut db, path, "content", 1, "python");
 
             let closed = workspace.close_document(&mut db, path);
             assert!(closed.is_some());
@@ -465,14 +448,7 @@ mod tests {
             let mut db = TestDb::new(workspace.overlay());
             let path = Utf8Path::from_path(&file_path).unwrap();
 
-            let document = TextDocument::new(
-                "buffer content".to_string(),
-                1,
-                LanguageId::Python,
-                path,
-                &db,
-            );
-            workspace.open_document(&mut db, path, document);
+            workspace.open_document(&mut db, path, "buffer content", 1, "python");
 
             let content = workspace
                 .overlay()
@@ -490,21 +466,14 @@ mod tests {
             let file_path =
                 Utf8PathBuf::from_path_buf(temp_dir.path().join("template.html")).unwrap();
             std::fs::write(file_path.as_std_path(), "disk template").unwrap();
-            let document = TextDocument::new(
-                "line1\nline2".to_string(),
-                1,
-                LanguageId::HtmlDjango,
-                &file_path,
-                &db,
-            );
-            let file = workspace
-                .open_document(&mut db, &file_path, document.clone())
+            let document = workspace
+                .open_document(&mut db, &file_path, "line1\nline2", 1, "django-html")
                 .unwrap();
 
-            let source = file.source(&db);
+            let source = document.file().source(&db);
             assert_eq!(source.as_str(), document.content());
 
-            let line_index = file.line_index(&db);
+            let line_index = document.file().line_index(&db);
             assert_eq!(
                 line_index.to_line_col(djls_source::Offset::new(0)),
                 djls_source::LineCol::new(0, 0)
@@ -523,27 +492,19 @@ mod tests {
             let temp_dir = tempdir().unwrap();
             let file_path = Utf8PathBuf::from_path_buf(temp_dir.path().join("buffer.py")).unwrap();
             std::fs::write(file_path.as_std_path(), "disk").unwrap();
-            let document = TextDocument::new(
-                "initial".to_string(),
-                1,
-                LanguageId::Python,
-                &file_path,
-                &db,
-            );
-            let file = workspace
-                .open_document(&mut db, &file_path, document)
+            let document = workspace
+                .open_document(&mut db, &file_path, "initial", 1, "python")
                 .unwrap();
 
-            let changes = vec![TextDocumentContentChangeEvent {
+            let changes = vec![crate::document::DocumentChange {
                 range: None,
-                range_length: None,
                 text: "updated".to_string(),
             }];
             workspace
                 .update_document(&mut db, &file_path, changes, 2, PositionEncoding::Utf16)
                 .unwrap();
 
-            let source = file.source(&db);
+            let source = document.file().source(&db);
             assert_eq!(source.as_str(), "updated");
         }
 
@@ -555,17 +516,11 @@ mod tests {
             let temp_dir = tempdir().unwrap();
             let file_path = Utf8PathBuf::from_path_buf(temp_dir.path().join("close.py")).unwrap();
             std::fs::write(file_path.as_std_path(), "disk content").unwrap();
-            let document = TextDocument::new(
-                "buffer content".to_string(),
-                1,
-                LanguageId::Python,
-                &file_path,
-                &db,
-            );
-            let file = workspace
-                .open_document(&mut db, &file_path, document)
+            let document = workspace
+                .open_document(&mut db, &file_path, "buffer content", 1, "python")
                 .unwrap();
 
+            let file = document.file();
             assert_eq!(file.source(&db).as_str(), "buffer content");
 
             workspace.close_document(&mut db, &file_path);

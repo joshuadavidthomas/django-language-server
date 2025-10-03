@@ -106,6 +106,11 @@ impl From<&LineCol> for (u32, u32) {
     }
 }
 
+pub struct Range {
+    pub start: LineCol,
+    pub end: LineCol,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 pub struct Span {
     start: u32,
