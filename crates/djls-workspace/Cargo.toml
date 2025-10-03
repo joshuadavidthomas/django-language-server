@@ -16,7 +16,6 @@ salsa = { workspace = true }
 tokio = { workspace = true }
 tower-lsp-server = { workspace = true }
 tracing = { workspace = true }
-url = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
