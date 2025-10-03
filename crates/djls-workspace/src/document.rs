@@ -89,16 +89,7 @@ impl TextDocument {
         let mut line_index = self.line_index.clone();
 
         for change in changes {
-            if let Some(range) = change.range {
-                let start_offset =
-                    line_index.offset(&content, range.start(), encoding).get() as usize;
-                let end_offset = line_index.offset(&content, range.end(), encoding).get() as usize;
-
-                content.replace_range(start_offset..end_offset, &change.text);
-            } else {
-                content = change.text;
-            }
-
+            content = change.apply(&content, &line_index, encoding);
             line_index = LineIndex::from(content.as_str());
         }
 
@@ -127,6 +118,28 @@ impl DocumentChange {
     #[must_use]
     pub fn text(&self) -> &str {
         &self.text
+    }
+
+    /// Apply this change to content, returning the new content
+    #[must_use]
+    pub fn apply(
+        &self,
+        content: &str,
+        line_index: &LineIndex,
+        encoding: PositionEncoding,
+    ) -> String {
+        if let Some(range) = &self.range {
+            let start_offset = line_index.offset(content, range.start(), encoding).get() as usize;
+            let end_offset = line_index.offset(content, range.end(), encoding).get() as usize;
+
+            let mut result = String::with_capacity(content.len() + self.text.len());
+            result.push_str(&content[..start_offset]);
+            result.push_str(&self.text);
+            result.push_str(&content[end_offset..]);
+            result
+        } else {
+            self.text.clone()
+        }
     }
 }
 
