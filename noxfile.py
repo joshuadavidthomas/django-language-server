@@ -151,6 +151,11 @@ def copy_bench_fixtures(session):
         silent=True,
     ).strip()
 
+    dest_base = Path("crates/djls-bench/fixtures/django")
+
+    if dest_base.exists():
+        shutil.rmtree(dest_base)
+
     templates = {
         "small/forms_widgets_input.html": "forms/templates/django/forms/widgets/input.html",
         "medium/admin_login.html": "contrib/admin/templates/admin/login.html",
@@ -158,7 +163,7 @@ def copy_bench_fixtures(session):
     }
 
     for dest, src in templates.items():
-        dest_path = Path("crates/djls-bench/fixtures/django") / dest
+        dest_path = dest_base / dest
         dest_path.parent.mkdir(parents=True, exist_ok=True)
         src_path = Path(django_path) / src
         shutil.copy2(src_path, dest_path)
