@@ -71,6 +71,10 @@ impl Session {
         }
     }
 
+    pub fn snapshot(&self) -> SessionSnapshot {
+        SessionSnapshot::new(self.db.clone(), self.client_capabilities)
+    }
+
     pub fn client_capabilities(&self) -> ClientCapabilities {
         self.client_capabilities
     }
@@ -190,6 +194,30 @@ impl Session {
 impl Default for Session {
     fn default() -> Self {
         Self::new(&lsp_types::InitializeParams::default())
+    }
+}
+
+/// Immutable snapshot of session state for background tasks
+#[derive(Clone)]
+pub struct SessionSnapshot {
+    db: DjangoDatabase,
+    client_capabilities: ClientCapabilities,
+}
+
+impl SessionSnapshot {
+    pub fn new(db: DjangoDatabase, client_capabilities: ClientCapabilities) -> Self {
+        Self {
+            db,
+            client_capabilities,
+        }
+    }
+
+    pub fn db(&self) -> &DjangoDatabase {
+        &self.db
+    }
+
+    pub fn client_capabilities(&self) -> ClientCapabilities {
+        self.client_capabilities
     }
 }
 
@@ -332,6 +360,21 @@ mod tests {
         let file = db.get_or_create_file(&path);
         let content = file.source(db).to_string();
         assert_eq!(content, "updated");
+    }
+
+    #[test]
+    fn test_snapshot_creation() {
+        let session = Session::default();
+        let snapshot = session.snapshot();
+
+        assert_eq!(
+            session.client_capabilities().position_encoding(),
+            snapshot.client_capabilities().position_encoding()
+        );
+        assert_eq!(
+            session.project().is_some(),
+            snapshot.db().project().is_some()
+        );
     }
 
     #[test]
