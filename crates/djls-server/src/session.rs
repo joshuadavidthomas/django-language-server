@@ -71,34 +71,20 @@ impl Session {
         }
     }
 
-    #[must_use]
     pub fn client_capabilities(&self) -> ClientCapabilities {
         self.client_capabilities
     }
 
-    #[must_use]
     pub fn db(&self) -> &DjangoDatabase {
         &self.db
     }
 
+    pub fn db_mut(&mut self) -> &mut DjangoDatabase {
+        &mut self.db
+    }
+
     pub fn set_settings(&mut self, settings: Settings) {
         self.db.set_settings(settings);
-    }
-
-    /// Execute a read-only operation with access to the database.
-    pub fn with_db<F, R>(&self, f: F) -> R
-    where
-        F: FnOnce(&DjangoDatabase) -> R,
-    {
-        f(&self.db)
-    }
-
-    /// Execute a mutable operation with exclusive access to the database.
-    pub fn with_db_mut<F, R>(&mut self, f: F) -> R
-    where
-        F: FnOnce(&mut DjangoDatabase) -> R,
-    {
-        f(&mut self.db)
     }
 
     /// Get the current project for this session
@@ -187,7 +173,6 @@ impl Session {
     }
 
     /// Get a document from the buffer if it's open.
-    #[must_use]
     pub fn get_document(&self, path: &Utf8Path) -> Option<TextDocument> {
         self.workspace.get_document(path)
     }
@@ -308,10 +293,9 @@ mod tests {
 
         assert!(session.get_document(&path).is_some());
 
-        let content = session.with_db(|db| {
-            let file = db.get_or_create_file(&path);
-            file.source(db).to_string()
-        });
+        let db = session.db();
+        let file = db.get_or_create_file(&path);
+        let content = file.source(db).to_string();
         assert_eq!(content, "print('hello')");
 
         let close_doc = lsp_types::TextDocumentIdentifier { uri };
@@ -344,10 +328,9 @@ mod tests {
         assert_eq!(doc.content(), "updated");
         assert_eq!(doc.version(), 2);
 
-        let content = session.with_db(|db| {
-            let file = db.get_or_create_file(&path);
-            file.source(db).to_string()
-        });
+        let db = session.db();
+        let file = db.get_or_create_file(&path);
+        let content = file.source(db).to_string();
         assert_eq!(content, "updated");
     }
 
