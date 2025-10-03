@@ -164,7 +164,7 @@ impl Session {
             return None;
         };
 
-        let domain_changes = changes
+        let doc_changes = changes
             .into_iter()
             .map(|change| djls_workspace::DocumentChange {
                 range: change.range.map(|r| djls_source::Range {
@@ -178,7 +178,7 @@ impl Session {
         let document = self.workspace.update_document(
             &mut self.db,
             &path,
-            domain_changes,
+            doc_changes,
             text_document.version,
             self.position_encoding,
         )?;
