@@ -128,24 +128,20 @@ impl Lexer {
         while !self.is_at_end() {
             let remaining = self.remaining_source();
 
-            if let Some(pos) = memchr3(b'{', b'\n', b'\r', remaining.as_bytes()) {
-                let found_char = remaining.as_bytes()[pos];
-
-                if found_char == b'{' {
-                    let substr = &remaining[pos..];
-                    if TagDelimiter::from_input(substr).is_some() {
-                        self.current += pos;
-                        break;
-                    }
-                    self.current += pos + 1;
-                } else {
-                    self.current += pos;
-                    break;
-                }
-            } else {
+            let Some(pos) = memchr3(b'{', b'\n', b'\r', remaining.as_bytes()) else {
                 self.current = self.source.len();
                 break;
+            };
+
+            let is_newline = matches!(remaining.as_bytes()[pos], b'\n' | b'\r');
+            let is_django_delimiter = TagDelimiter::from_input(&remaining[pos..]).is_some();
+
+            if is_newline || is_django_delimiter {
+                self.current += pos;
+                break;
             }
+
+            self.current += pos + 1;
         }
 
         let text = self.consumed_source_from(text_start);
