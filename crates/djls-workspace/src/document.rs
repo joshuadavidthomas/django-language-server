@@ -5,7 +5,6 @@
 //! performance when handling frequent position-based operations like hover, completion,
 //! and diagnostics.
 
-use camino::Utf8Path;
 use djls_source::File;
 use djls_source::LineIndex;
 use djls_source::PositionEncoding;

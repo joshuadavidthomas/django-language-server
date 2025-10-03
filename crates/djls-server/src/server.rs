@@ -1,7 +1,6 @@
 use std::future::Future;
 use std::sync::Arc;
 
-use camino::Utf8Path;
 use djls_project::Db as ProjectDb;
 use djls_semantic::Db as SemanticDb;
 use djls_source::Db as SourceDb;

@@ -278,7 +278,6 @@ fn negotiate_position_encoding(capabilities: &lsp_types::ClientCapabilities) -> 
 #[cfg(test)]
 mod tests {
     use djls_source::Db as SourceDb;
-    use djls_workspace::LanguageId;
     use tower_lsp_server::UriExt;
 
     use super::*;
