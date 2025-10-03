@@ -152,9 +152,9 @@ def copy_bench_fixtures(session):
     ).strip()
 
     templates = {
-        "small/forms_widget_input.html": "forms/templates/django/forms/widgets/input.html",
+        "small/forms_widgets_input.html": "forms/templates/django/forms/widgets/input.html",
         "medium/admin_login.html": "contrib/admin/templates/admin/login.html",
-        "large/technical_500.html": "views/templates/technical_500.html",
+        "large/views_technical_500.html": "views/templates/technical_500.html",
     }
 
     for dest, src in templates.items():
