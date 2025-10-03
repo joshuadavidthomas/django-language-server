@@ -70,7 +70,7 @@ impl Lexer {
 
         self.consume_n(TagDelimiter::LENGTH);
 
-        match self.consume_until(delimiter.closer()) {
+        match self.consume_until_delimiter(delimiter.closer()) {
             Ok(text) => {
                 let len = text.len();
                 let span = Span::saturating_from_parts_usize(content_start, len);
@@ -166,7 +166,7 @@ impl Lexer {
         }
     }
 
-    fn consume_until(&mut self, delimiter: &str) -> Result<String, String> {
+    fn consume_until_delimiter(&mut self, delimiter: &str) -> Result<String, String> {
         let offset = self.current;
 
         if let Some(pos) = memmem::find(self.remaining_source().as_bytes(), delimiter.as_bytes()) {
@@ -180,23 +180,31 @@ impl Lexer {
 
     fn consume_until_stop_char(&self) -> usize {
         let mut offset = 0;
+        let max = self.source.len() - self.current;
 
-        loop {
+        while offset < max {
             let remaining = &self.remaining_source()[offset..];
 
-            let Some(pos) = memchr3(b'{', b'\n', b'\r', remaining.as_bytes()) else {
-                return self.source.len() - self.current;
-            };
+            match memchr3(b'{', b'\n', b'\r', remaining.as_bytes()) {
+                None => {
+                    offset = max;
+                    break;
+                }
+                Some(pos) => {
+                    let is_newline = matches!(remaining.as_bytes()[pos], b'\n' | b'\r');
+                    let is_django_delimiter = TagDelimiter::from_input(&remaining[pos..]).is_some();
 
-            let is_newline = matches!(remaining.as_bytes()[pos], b'\n' | b'\r');
-            let is_django_delimiter = TagDelimiter::from_input(&remaining[pos..]).is_some();
+                    if is_newline || is_django_delimiter {
+                        offset += pos;
+                        break;
+                    }
 
-            if is_newline || is_django_delimiter {
-                return offset + pos;
+                    offset += pos + 1;
+                }
             }
-
-            offset += pos + 1;
         }
+
+        offset
     }
 }
 
