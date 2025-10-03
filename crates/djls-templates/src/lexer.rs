@@ -94,20 +94,37 @@ impl Lexer {
 
     fn lex_whitespace(&mut self, c: char) -> Token {
         if c == '\n' || c == '\r' {
-            self.consume(); // \r or \n
+            self.consume();
             if c == '\r' && self.peek() == '\n' {
-                self.consume(); // \n of \r\n
+                self.consume();
             }
             let span = Span::saturating_from_bounds_usize(self.start, self.current);
             Token::Newline { span }
         } else {
-            self.consume(); // Consume the first whitespace
-            while !self.is_at_end() && self.peek().is_whitespace() {
-                if self.peek() == '\n' || self.peek() == '\r' {
+            self.consume();
+
+            loop {
+                if self.is_at_end() {
                     break;
                 }
-                self.consume();
+
+                let remaining = self.remaining_source().as_bytes();
+                if remaining.is_empty() {
+                    break;
+                }
+
+                match remaining[0] {
+                    b' ' | b'\t' => self.current += 1,
+                    b'\n' | b'\r' => break,
+                    _ => {
+                        if !self.peek().is_whitespace() {
+                            break;
+                        }
+                        self.consume();
+                    }
+                }
             }
+
             let span = Span::saturating_from_bounds_usize(self.start, self.current);
             Token::Whitespace { span }
         }
@@ -118,10 +135,10 @@ impl Lexer {
 
         while !self.is_at_end() {
             let remaining = self.remaining_source();
-            
+
             if let Some(pos) = memchr3(b'{', b'\n', b'\r', remaining.as_bytes()) {
                 let found_char = remaining.as_bytes()[pos];
-                
+
                 if found_char == b'{' {
                     let substr = &remaining[pos..];
                     if TagDelimiter::from_input(substr).is_some() {
