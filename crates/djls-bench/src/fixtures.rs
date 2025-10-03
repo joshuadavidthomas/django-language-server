@@ -25,13 +25,13 @@ pub fn template_fixtures() -> &'static [TemplateFixture] {
 }
 
 fn load_template_fixtures() -> Vec<TemplateFixture> {
-    let workspace_root = option_env!("CARGO_WORKSPACE_DIR")
+    let crate_root = option_env!("CARGO_MANIFEST_DIR")
         .and_then(|value| if value.is_empty() { None } else { Some(value) })
         .map_or_else(
-            || panic!("CARGO_WORKSPACE_DIR must be configured for benchmarks"),
+            || panic!("CARGO_MANIFEST_DIR must be set for benchmarks"),
             Utf8PathBuf::from,
         );
-    let template_root = workspace_root.join("tests/project");
+    let template_root = crate_root.join("fixtures");
 
     let mut fixtures = Vec::new();
     collect_template_files(
