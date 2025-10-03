@@ -65,16 +65,10 @@ impl DjangoLanguageServer {
     {
         let snapshot = {
             let session = self.session.lock().await;
-            session.snapshot() // Quick lock, create snapshot, release
+            session.snapshot()
         };
 
-        if let Err(e) = self
-            .queue
-            .submit(async move {
-                f(snapshot).await // ← Pass snapshot, not Arc<Mutex>
-            })
-            .await
-        {
+        if let Err(e) = self.queue.submit(async move { f(snapshot).await }).await {
             tracing::error!("Failed to submit task: {}", e);
         } else {
             tracing::info!("Task submitted successfully");
