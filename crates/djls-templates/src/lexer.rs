@@ -93,41 +93,33 @@ impl Lexer {
     }
 
     fn lex_whitespace(&mut self, c: char) -> Token {
+        self.consume();
+
         if c == '\n' || c == '\r' {
-            self.consume();
             if c == '\r' && self.peek() == '\n' {
                 self.consume();
             }
             let span = Span::saturating_from_bounds_usize(self.start, self.current);
-            Token::Newline { span }
-        } else {
-            self.consume();
+            return Token::Newline { span };
+        }
 
-            loop {
-                if self.is_at_end() {
-                    break;
-                }
+        while !self.is_at_end() {
+            let remaining = self.remaining_source().as_bytes();
 
-                let remaining = self.remaining_source().as_bytes();
-                if remaining.is_empty() {
-                    break;
-                }
-
-                match remaining[0] {
-                    b' ' | b'\t' => self.current += 1,
-                    b'\n' | b'\r' => break,
-                    _ => {
-                        if !self.peek().is_whitespace() {
-                            break;
-                        }
-                        self.consume();
+            match remaining.first() {
+                Some(&b'\n' | &b'\r') | None => break,
+                Some(&b' ' | &b'\t') => self.current += 1,
+                Some(_) => {
+                    if !self.peek().is_whitespace() {
+                        break;
                     }
+                    self.consume();
                 }
             }
-
-            let span = Span::saturating_from_bounds_usize(self.start, self.current);
-            Token::Whitespace { span }
         }
+
+        let span = Span::saturating_from_bounds_usize(self.start, self.current);
+        Token::Whitespace { span }
     }
 
     fn lex_text(&mut self) -> Token {
