@@ -1,4 +1,6 @@
 use djls_source::Span;
+use memchr::memchr3;
+use memchr::memmem;
 
 use crate::tokens::TagDelimiter;
 use crate::tokens::Token;
@@ -116,14 +118,25 @@ impl Lexer {
 
         while !self.is_at_end() {
             let remaining = self.remaining_source();
-            if (self.peek() == TagDelimiter::CHAR_OPEN
-                && TagDelimiter::from_input(remaining).is_some())
-                || remaining.starts_with('\n')
-                || remaining.starts_with('\r')
-            {
+            
+            if let Some(pos) = memchr3(b'{', b'\n', b'\r', remaining.as_bytes()) {
+                let found_char = remaining.as_bytes()[pos];
+                
+                if found_char == b'{' {
+                    let substr = &remaining[pos..];
+                    if TagDelimiter::from_input(substr).is_some() {
+                        self.current += pos;
+                        break;
+                    }
+                    self.current += pos + 1;
+                } else {
+                    self.current += pos;
+                    break;
+                }
+            } else {
+                self.current = self.source.len();
                 break;
             }
-            self.consume();
         }
 
         let text = self.consumed_source_from(text_start);
@@ -170,18 +183,21 @@ impl Lexer {
     fn consume_until(&mut self, delimiter: &str) -> Result<String, String> {
         let offset = self.current;
         let mut fallback: Option<usize> = None;
+        let remaining = self.remaining_source();
+
+        if let Some(pos) = memmem::find(remaining.as_bytes(), delimiter.as_bytes()) {
+            self.current += pos;
+            return Ok(self.consumed_source_from(offset).to_string());
+        }
 
         while self.current < self.source.len() {
             let remaining = self.remaining_source();
-
-            if remaining.starts_with(delimiter) {
-                return Ok(self.consumed_source_from(offset).to_string());
-            }
 
             if fallback.is_none() {
                 let ch = self.peek();
                 if TagDelimiter::from_input(remaining).is_some() || matches!(ch, '\n' | '\r') {
                     fallback = Some(self.current);
+                    break;
                 }
             }
 

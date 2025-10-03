@@ -9,6 +9,7 @@ djls-source = { workspace = true }
 djls-workspace = { workspace = true }
 
 anyhow = { workspace = true }
+memchr = { workspace = true }
 salsa = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
