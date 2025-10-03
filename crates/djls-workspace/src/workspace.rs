@@ -331,7 +331,6 @@ mod tests {
             let buffers = Buffers::new();
             let fs = OverlayFileSystem::new(buffers.clone(), Arc::new(disk_fs));
 
-
             // Add buffer
             let doc = make_doc("buffer content", 1, LanguageId::Python);
             buffers.open(path.clone().clone(), doc);
@@ -531,7 +530,9 @@ mod tests {
                 &file_path,
                 &db,
             );
-            let file = workspace.open_document(&mut db, &file_path, document).unwrap();
+            let file = workspace
+                .open_document(&mut db, &file_path, document)
+                .unwrap();
 
             let changes = vec![TextDocumentContentChangeEvent {
                 range: None,
@@ -561,7 +562,9 @@ mod tests {
                 &file_path,
                 &db,
             );
-            let file = workspace.open_document(&mut db, &file_path, document).unwrap();
+            let file = workspace
+                .open_document(&mut db, &file_path, document)
+                .unwrap();
 
             assert_eq!(file.source(&db).as_str(), "buffer content");
 
