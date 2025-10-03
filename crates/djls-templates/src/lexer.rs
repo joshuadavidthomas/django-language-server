@@ -124,26 +124,7 @@ impl Lexer {
 
     fn lex_text(&mut self) -> Token {
         let text_start = self.current;
-
-        while !self.is_at_end() {
-            let remaining = self.remaining_source();
-
-            let Some(pos) = memchr3(b'{', b'\n', b'\r', remaining.as_bytes()) else {
-                self.current = self.source.len();
-                break;
-            };
-
-            let is_newline = matches!(remaining.as_bytes()[pos], b'\n' | b'\r');
-            let is_django_delimiter = TagDelimiter::from_input(&remaining[pos..]).is_some();
-
-            if is_newline || is_django_delimiter {
-                self.current += pos;
-                break;
-            }
-
-            self.current += pos + 1;
-        }
-
+        self.current += self.consume_until_stop_char();
         let text = self.consumed_source_from(text_start);
         let span = Span::saturating_from_bounds_usize(self.start, self.current);
         Token::Text {
@@ -187,30 +168,35 @@ impl Lexer {
 
     fn consume_until(&mut self, delimiter: &str) -> Result<String, String> {
         let offset = self.current;
-        let mut fallback: Option<usize> = None;
-        let remaining = self.remaining_source();
 
-        if let Some(pos) = memmem::find(remaining.as_bytes(), delimiter.as_bytes()) {
+        if let Some(pos) = memmem::find(self.remaining_source().as_bytes(), delimiter.as_bytes()) {
             self.current += pos;
             return Ok(self.consumed_source_from(offset).to_string());
         }
 
-        while self.current < self.source.len() {
-            let remaining = self.remaining_source();
+        self.current += self.consume_until_stop_char();
+        Err(self.consumed_source_from(offset).to_string())
+    }
 
-            if fallback.is_none() {
-                let ch = self.peek();
-                if TagDelimiter::from_input(remaining).is_some() || matches!(ch, '\n' | '\r') {
-                    fallback = Some(self.current);
-                    break;
-                }
+    fn consume_until_stop_char(&self) -> usize {
+        let mut offset = 0;
+
+        loop {
+            let remaining = &self.remaining_source()[offset..];
+
+            let Some(pos) = memchr3(b'{', b'\n', b'\r', remaining.as_bytes()) else {
+                return self.source.len() - self.current;
+            };
+
+            let is_newline = matches!(remaining.as_bytes()[pos], b'\n' | b'\r');
+            let is_django_delimiter = TagDelimiter::from_input(&remaining[pos..]).is_some();
+
+            if is_newline || is_django_delimiter {
+                return offset + pos;
             }
 
-            self.consume();
+            offset += pos + 1;
         }
-
-        self.current = fallback.unwrap_or(self.current);
-        Err(self.consumed_source_from(offset).to_string())
     }
 }
 
