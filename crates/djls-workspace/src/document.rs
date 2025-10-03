@@ -5,6 +5,8 @@
 //! performance when handling frequent position-based operations like hover, completion,
 //! and diagnostics.
 
+use camino::Utf8Path;
+use djls_source::Db as SourceDb;
 use djls_source::File;
 use djls_source::LineIndex;
 use djls_source::PositionEncoding;
@@ -70,6 +72,10 @@ impl TextDocument {
     #[must_use]
     pub fn file(&self) -> File {
         self.file
+    }
+
+    pub fn path<'db>(&self, db: &'db dyn SourceDb) -> &'db Utf8Path {
+        self.file.path(db)
     }
 
     pub fn update(

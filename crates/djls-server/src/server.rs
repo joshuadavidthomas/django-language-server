@@ -82,7 +82,7 @@ impl DjangoLanguageServer {
         }
 
         let path = self
-            .with_session(|session| session.with_db(|db| document.file().path(db).to_owned()))
+            .with_session(|session| document.path(session.db()).to_owned())
             .await;
 
         if FileKind::from(&path) != FileKind::Template {
@@ -91,11 +91,10 @@ impl DjangoLanguageServer {
 
         let diagnostics: Vec<lsp_types::Diagnostic> = self
             .with_session_mut(|session| {
-                session.with_db(|db| {
-                    let file = db.get_or_create_file(&path);
-                    let nodelist = djls_templates::parse_template(db, file);
-                    djls_ide::collect_diagnostics(db, file, nodelist)
-                })
+                let db = session.db();
+                let file = db.get_or_create_file(&path);
+                let nodelist = djls_templates::parse_template(db, file);
+                djls_ide::collect_diagnostics(db, file, nodelist)
             })
             .await;
 
@@ -263,22 +262,21 @@ impl LanguageServer for DjangoLanguageServer {
                 let position = params.text_document_position.position;
                 let encoding = session.client_capabilities().position_encoding();
                 let file_kind = FileKind::from(&path);
-                let template_tags = session.with_db(|db| {
-                    if let Some(project) = db.project() {
-                        tracing::debug!("Fetching templatetags for project");
-                        let tags = djls_project::templatetags(db, project);
-                        if let Some(ref t) = tags {
-                            tracing::debug!("Got {} templatetags", t.len());
-                        } else {
-                            tracing::warn!("No templatetags returned from project");
-                        }
-                        tags
+                let db = session.db();
+                let template_tags = if let Some(project) = db.project() {
+                    tracing::debug!("Fetching templatetags for project");
+                    let tags = djls_project::templatetags(db, project);
+                    if let Some(ref t) = tags {
+                        tracing::debug!("Got {} templatetags", t.len());
                     } else {
-                        tracing::warn!("No project available for templatetags");
-                        None
+                        tracing::warn!("No templatetags returned from project");
                     }
-                });
-                let tag_specs = session.with_db(SemanticDb::tag_specs);
+                    tags
+                } else {
+                    tracing::warn!("No project available for templatetags");
+                    None
+                };
+                let tag_specs = db.tag_specs();
                 let supports_snippets = session.client_capabilities().supports_snippets();
 
                 let completions = djls_ide::handle_completion(
@@ -314,11 +312,10 @@ impl LanguageServer for DjangoLanguageServer {
         let diagnostics = if let Some(path) = params.text_document.uri.to_utf8_path_buf() {
             if FileKind::from(&path) == FileKind::Template {
                 self.with_session_mut(move |session| {
-                    session.with_db_mut(|db| {
-                        let file = db.get_or_create_file(&path);
-                        let nodelist = djls_templates::parse_template(db, file);
-                        djls_ide::collect_diagnostics(db, file, nodelist)
-                    })
+                    let db = session.db_mut();
+                    let file = db.get_or_create_file(&path);
+                    let nodelist = djls_templates::parse_template(db, file);
+                    djls_ide::collect_diagnostics(db, file, nodelist)
                 })
                 .await
             } else {
@@ -353,21 +350,19 @@ impl LanguageServer for DjangoLanguageServer {
         let response = self
             .with_session_mut(|session| {
                 let encoding = session.client_capabilities().position_encoding();
-
-                session.with_db_mut(|db| {
-                    let file = params
-                        .text_document_position_params
-                        .text_document
-                        .to_file(db)?;
-                    let source = file.source(db);
-                    let line_index = file.line_index(db);
-                    let offset = params.text_document_position_params.position.to_offset(
-                        source.as_str(),
-                        line_index,
-                        encoding,
-                    );
-                    djls_ide::goto_definition(db, file, offset)
-                })
+                let db = session.db_mut();
+                let file = params
+                    .text_document_position_params
+                    .text_document
+                    .to_file(db)?;
+                let source = file.source(db);
+                let line_index = file.line_index(db);
+                let offset = params.text_document_position_params.position.to_offset(
+                    source.as_str(),
+                    line_index,
+                    encoding,
+                );
+                djls_ide::goto_definition(db, file, offset)
             })
             .await;
 
@@ -381,18 +376,16 @@ impl LanguageServer for DjangoLanguageServer {
         let response = self
             .with_session_mut(|session| {
                 let encoding = session.client_capabilities().position_encoding();
-
-                session.with_db_mut(|db| {
-                    let file = params.text_document_position.text_document.to_file(db)?;
-                    let source = file.source(db);
-                    let line_index = file.line_index(db);
-                    let offset = params.text_document_position.position.to_offset(
-                        source.as_str(),
-                        line_index,
-                        encoding,
-                    );
-                    djls_ide::find_references(db, file, offset)
-                })
+                let db = session.db_mut();
+                let file = params.text_document_position.text_document.to_file(db)?;
+                let source = file.source(db);
+                let line_index = file.line_index(db);
+                let offset = params.text_document_position.position.to_offset(
+                    source.as_str(),
+                    line_index,
+                    encoding,
+                );
+                djls_ide::find_references(db, file, offset)
             })
             .await;
 
