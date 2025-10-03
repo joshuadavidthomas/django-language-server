@@ -35,10 +35,7 @@ pub struct Session {
     /// but not the database (which is owned directly by Session).
     workspace: Workspace,
 
-    client_capabilities: lsp_types::ClientCapabilities,
-
-    /// Position encoding negotiated with client
-    position_encoding: PositionEncoding,
+    client_capabilities: ClientCapabilities,
 
     /// The Salsa database for incremental computation
     db: DjangoDatabase,
@@ -68,10 +65,14 @@ impl Session {
 
         Self {
             workspace,
-            client_capabilities: params.capabilities.clone(),
-            position_encoding: negotiate_position_encoding(&params.capabilities),
+            client_capabilities: ClientCapabilities::negotiate(&params.capabilities),
             db,
         }
+    }
+
+    #[must_use]
+    pub fn client_capabilities(&self) -> ClientCapabilities {
+        self.client_capabilities
     }
 
     #[must_use]
@@ -81,11 +82,6 @@ impl Session {
 
     pub fn set_settings(&mut self, settings: Settings) {
         self.db.set_settings(settings);
-    }
-
-    #[must_use]
-    pub fn position_encoding(&self) -> PositionEncoding {
-        self.position_encoding
     }
 
     /// Execute a read-only operation with access to the database.
@@ -102,11 +98,6 @@ impl Session {
         F: FnOnce(&mut DjangoDatabase) -> R,
     {
         f(&mut self.db)
-    }
-
-    /// Get a reference to the database for project operations.
-    pub fn database(&self) -> &DjangoDatabase {
-        &self.db
     }
 
     /// Get the current project for this session
@@ -180,7 +171,7 @@ impl Session {
             &path,
             doc_changes,
             text_document.version,
-            self.position_encoding,
+            self.client_capabilities.position_encoding(),
         )?;
 
         self.handle_file(document.file());
@@ -219,31 +210,6 @@ impl Session {
             }
         }
     }
-
-    /// Check if the client supports pull diagnostics.
-    ///
-    /// Returns true if the client has indicated support for textDocument/diagnostic requests.
-    /// When true, the server should not push diagnostics and instead wait for pull requests.
-    #[must_use]
-    pub fn supports_pull_diagnostics(&self) -> bool {
-        self.client_capabilities
-            .text_document
-            .as_ref()
-            .and_then(|td| td.diagnostic.as_ref())
-            .is_some()
-    }
-
-    /// Check if the client supports snippet completions
-    #[must_use]
-    pub fn supports_snippets(&self) -> bool {
-        self.client_capabilities
-            .text_document
-            .as_ref()
-            .and_then(|td| td.completion.as_ref())
-            .and_then(|c| c.completion_item.as_ref())
-            .and_then(|ci| ci.snippet_support)
-            .unwrap_or(false)
-    }
 }
 
 impl Default for Session {
@@ -252,27 +218,69 @@ impl Default for Session {
     }
 }
 
-fn negotiate_position_encoding(capabilities: &lsp_types::ClientCapabilities) -> PositionEncoding {
-    let client_encodings = capabilities
-        .general
-        .as_ref()
-        .and_then(|general| general.position_encodings.as_ref())
-        .map_or(&[][..], |encodings| encodings.as_slice());
+#[derive(Debug, Clone, Copy)]
+pub struct ClientCapabilities {
+    pull_diagnostics: bool,
+    snippets: bool,
+    position_encoding: PositionEncoding,
+}
 
-    for preferred in [
-        PositionEncoding::Utf8,
-        PositionEncoding::Utf32,
-        PositionEncoding::Utf16,
-    ] {
-        if client_encodings
-            .iter()
-            .any(|kind| kind.to_position_encoding() == Some(preferred))
-        {
-            return preferred;
+impl ClientCapabilities {
+    fn negotiate(capabilities: &lsp_types::ClientCapabilities) -> Self {
+        let pull_diagnostics = capabilities
+            .text_document
+            .as_ref()
+            .and_then(|text_doc| text_doc.diagnostic.as_ref())
+            .is_some();
+
+        let snippets = capabilities
+            .text_document
+            .as_ref()
+            .and_then(|text_document| text_document.completion.as_ref())
+            .and_then(|completion| completion.completion_item.as_ref())
+            .and_then(|completion_item| completion_item.snippet_support)
+            .unwrap_or(false);
+
+        let client_encodings = capabilities
+            .general
+            .as_ref()
+            .and_then(|general| general.position_encodings.as_ref())
+            .map_or(&[][..], |kinds| kinds.as_slice());
+
+        let position_encoding = [
+            PositionEncoding::Utf8,
+            PositionEncoding::Utf32,
+            PositionEncoding::Utf16,
+        ]
+        .into_iter()
+        .find(|&preferred| {
+            client_encodings
+                .iter()
+                .any(|kind| kind.to_position_encoding() == Some(preferred))
+        })
+        .unwrap_or(PositionEncoding::Utf16);
+
+        Self {
+            pull_diagnostics,
+            snippets,
+            position_encoding,
         }
     }
 
-    PositionEncoding::Utf16
+    #[must_use]
+    pub fn supports_pull_diagnostics(&self) -> bool {
+        self.pull_diagnostics
+    }
+
+    #[must_use]
+    pub fn supports_snippets(&self) -> bool {
+        self.snippets
+    }
+
+    #[must_use]
+    pub fn position_encoding(&self) -> PositionEncoding {
+        self.position_encoding
+    }
 }
 
 #[cfg(test)]
@@ -367,7 +375,7 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            negotiate_position_encoding(&capabilities),
+            ClientCapabilities::negotiate(&capabilities).position_encoding(),
             PositionEncoding::Utf8
         );
     }
@@ -385,7 +393,7 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            negotiate_position_encoding(&capabilities),
+            ClientCapabilities::negotiate(&capabilities).position_encoding(),
             PositionEncoding::Utf32
         );
     }
@@ -403,7 +411,7 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            negotiate_position_encoding(&capabilities),
+            ClientCapabilities::negotiate(&capabilities).position_encoding(),
             PositionEncoding::Utf16
         );
     }
@@ -412,7 +420,7 @@ mod tests {
     fn test_negotiate_fallback_with_no_capabilities() {
         let capabilities = lsp_types::ClientCapabilities::default();
         assert_eq!(
-            negotiate_position_encoding(&capabilities),
+            ClientCapabilities::negotiate(&capabilities).position_encoding(),
             PositionEncoding::Utf16
         );
     }
