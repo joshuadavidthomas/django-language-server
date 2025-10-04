@@ -237,20 +237,6 @@ def cog(session):
 
 
 @nox.session
-def process_docs(session):
-    session.run("uv", "run", "docs/processor.py")
-    session.run("git", "add", "docs/", external=True)
-    session.run(
-        "git",
-        "commit",
-        "-m",
-        "process docs from GHFM to mkdocs-style",
-        external=True,
-        silent=True,
-    )
-
-
-@nox.session
 def update_changelog(session):
     version = get_version(session)
 
@@ -308,7 +294,7 @@ def update_uvlock(session):
     )
 
 
-@nox.session(requires=["cog", "process_docs", "update_changelog", "update_uvlock"])
+@nox.session(requires=["cog", "update_changelog", "update_uvlock"])
 def release(session):
     version = get_version(session)
     session.run("git", "checkout", "-b", f"release/v{version}")
