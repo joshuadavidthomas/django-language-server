@@ -294,7 +294,7 @@ def update_uvlock(session):
     )
 
 
-@nox.session(requires=["cog", "process_docs", "update_changelog", "update_uvlock"])
+@nox.session(requires=["cog", "update_changelog", "update_uvlock"])
 def release(session):
     version = get_version(session)
     session.run("git", "checkout", "-b", f"release/v{version}")
