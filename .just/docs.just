@@ -13,20 +13,15 @@ fmt:
 
 # Build documentation
 [no-cd]
-build LOCATION="site": process
+build LOCATION="site":
     uv run --group docs --frozen mkdocs build --config-file {{ mkdoc_config }} --site-dir {{ LOCATION }}
 
 # Serve documentation locally
 [no-cd]
-serve PORT="8000": process
+serve PORT="8000":
     #!/usr/bin/env sh
     HOST="localhost"
     if [ -f "/.dockerenv" ]; then
         HOST="0.0.0.0"
     fi
     uv run --group docs --frozen mkdocs serve --config-file {{ mkdoc_config }} --dev-addr localhost:{{ PORT }}
-
-[no-cd]
-[private]
-process:
-    uv run docs/processor.py

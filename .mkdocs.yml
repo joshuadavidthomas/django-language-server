@@ -1,6 +1,8 @@
 # yaml-language-server: $schema=https://squidfunk.github.io/mkdocs-material/schema.json
 extra_css:
   - stylesheets/extra.css
+hooks:
+  - docs/hooks.py
 markdown_extensions:
   - attr_list
   - admonition
@@ -18,8 +20,11 @@ markdown_extensions:
   - pymdownx.superfences
   - pymdownx.tasklist:
       custom_checkbox: true
+  - pymdownx.tilde
 plugins:
   - search
+  - include-markdown:
+      rewrite_relative_urls: false
 repo_name: django-language-server
 repo_url: https://github.com/joshuadavidthomas/django-language-server
 site_author: joshuadavidthomas

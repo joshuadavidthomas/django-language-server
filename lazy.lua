@@ -4,7 +4,7 @@ return {
     "neovim/nvim-lspconfig",
   },
   config = function(plugin, opts)
-    vim.opt.rtp:append(plugin.dir .. "/editors/nvim")
+    vim.opt.rtp:append(plugin.dir .. "/clients/nvim")
     require("djls").setup(opts)
   end,
 }

@@ -237,20 +237,6 @@ def cog(session):
 
 
 @nox.session
-def process_docs(session):
-    session.run("uv", "run", "docs/processor.py")
-    session.run("git", "add", "docs/", external=True)
-    session.run(
-        "git",
-        "commit",
-        "-m",
-        "process docs from GHFM to mkdocs-style",
-        external=True,
-        silent=True,
-    )
-
-
-@nox.session
 def update_changelog(session):
     version = get_version(session)
 

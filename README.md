@@ -22,7 +22,7 @@ cog.outl(f"![Django Version](https://img.shields.io/badge/django-{'%20%7C%20'.jo
 A language server for the Django web framework.
 
 > [!CAUTION]
-> This project is in early stages. ~All~ Most features are incomplete and missing.
+> This project is in early stages. ~~All~~ Most features are incomplete and missing.
 
 ## Features
 
@@ -105,7 +105,7 @@ The package provides pre-built wheels with the Rust-based LSP server compiled fo
 
 The Django Language Server works with any editor that supports the Language Server Protocol (LSP). We currently have setup instructions for:
 
-- [Neovim](docs/editors/neovim.md)
+- [Neovim](clients/nvim/README.md)
 
 Got it working in your editor? [Help us add setup instructions!](#testing-and-documenting-editor-setup)
 
@@ -141,7 +141,7 @@ The server has only been tested with Neovim. Documentation for setting up the la
 
 If you run into issues setting up the language server:
 
-1. Check the existing documentation in `docs/editors/`
+1. Check the existing documentation in `docs/clients/`
 2. [Open an issue](../../issues/new) describing your setup and the problems you're encountering
    - Include your editor and any relevant configuration
    - Share any error messages or unexpected behavior
@@ -149,7 +149,7 @@ If you run into issues setting up the language server:
 
 If you get it working in your editor:
 
-1. Create a new Markdown file in the `docs/editors/` directory (e.g., `docs/editors/vscode.md`)
+1. Create a new Markdown file in the `docs/clients/` directory (e.g., `docs/clients/vscode.md`)
 2. Include step-by-step setup instructions, any required configuration snippets, and tips for troubleshooting
 
 Your feedback and contributions will help make the setup process smoother for everyone! 🙌
