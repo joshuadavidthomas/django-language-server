@@ -2,8 +2,18 @@ name: bench
 
 on:
   pull_request:
+    paths:
+      - ".github/workflows/bench.yml"
+      - "crates/**"
+      - "Cargo.lock"
+      - "Cargo.toml"
   push:
     branches: [main]
+    paths:
+      - ".github/workflows/bench.yml"
+      - "crates/**"
+      - "Cargo.lock"
+      - "Cargo.toml"
   workflow_dispatch:
 
 jobs:
