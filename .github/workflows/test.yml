@@ -2,8 +2,26 @@ name: test
 
 on:
   pull_request:
+    paths:
+      - ".github/workflows/test.yml"
+      - "crates/**"
+      - "tests/**"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "pyproject.toml"
+      - "noxfile.py"
+      - "uv.lock"
   push:
     branches: [main]
+    paths:
+      - ".github/workflows/test.yml"
+      - "crates/**"
+      - "tests/**"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "pyproject.toml"
+      - "noxfile.py"
+      - "uv.lock"
   workflow_call:
     inputs:
       os:
