@@ -49,8 +49,29 @@ jobs:
           SKIP=no-commit-to-branch \
           uv run --no-project --with "nox[uv]" nox --session lint
 
+  rust-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      rust: ${{ steps.filter.outputs.rust }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+        id: filter
+        with:
+          filters: |
+            rust:
+              - '.github/workflows/lint.yml'
+              - 'crates/**'
+              - 'Cargo.lock'
+              - 'Cargo.toml'
+
   rustfmt:
     runs-on: ubuntu-24.04
+    needs: rust-changes
+    if: needs.rust-changes.outputs.rust == 'true'
     steps:
       - uses: actions/checkout@v5
         with:
@@ -66,6 +87,8 @@ jobs:
 
   clippy:
     runs-on: ubuntu-24.04
+    needs: rust-changes
+    if: needs.rust-changes.outputs.rust == 'true'
     steps:
       - uses: actions/checkout@v5
         with:
@@ -80,6 +103,8 @@ jobs:
 
   cargo-check:
     runs-on: ubuntu-24.04
+    needs: rust-changes
+    if: needs.rust-changes.outputs.rust == 'true'
     steps:
       - uses: actions/checkout@v5
         with:
