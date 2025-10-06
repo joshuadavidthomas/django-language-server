@@ -19,19 +19,14 @@ jobs:
         platform:
           - runner: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
-            name: djls-linux-x64
           - runner: ubuntu-22.04
             target: aarch64-unknown-linux-gnu
-            name: djls-linux-arm64
           - runner: macos-13
             target: x86_64-apple-darwin
-            name: djls-darwin-x64
           - runner: macos-14
             target: aarch64-apple-darwin
-            name: djls-darwin-arm64
           - runner: windows-latest
             target: x86_64-pc-windows-msvc
-            name: djls-windows-x64.exe
     steps:
       - uses: actions/checkout@v5
         with:
