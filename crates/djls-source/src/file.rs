@@ -118,7 +118,7 @@ impl From<&str> for FileKind {
     fn from(value: &str) -> Self {
         match value {
             "py" => FileKind::Python,
-            "html" | "htm" => FileKind::Template,
+            "djhtml" | "html" | "htm" => FileKind::Template,
             _ => FileKind::Other,
         }
     }
