@@ -18,47 +18,36 @@ jobs:
       matrix:
         platform:
           - runner: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
+            target: x86_64
           - runner: ubuntu-22.04
-            target: aarch64-unknown-linux-gnu
+            target: aarch64
           - runner: macos-13
-            target: x86_64-apple-darwin
+            target: x86_64
           - runner: macos-14
-            target: aarch64-apple-darwin
+            target: aarch64
           - runner: windows-latest
-            target: x86_64-pc-windows-msvc
+            target: x86_64
     steps:
       - uses: actions/checkout@v5
         with:
           persist-credentials: false
 
-      - uses: actions-rust-lang/setup-rust-toolchain@1780873c7b576612439a134613cc4cc74ce5538c
-        with:
-          cache: ${{ !startsWith(github.ref, 'refs/tags/') }}
-          target: ${{ matrix.platform.target }}
-
-      - name: Install cross-compilation tools (Linux ARM64)
-        if: ${{ matrix.platform.target == 'aarch64-unknown-linux-gnu' }}
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu
-
-      - name: Build
-        run: |
-          cargo build --release --target ${{ matrix.platform.target }}
-
-      - name: Prepare binary
-        id: binary
+      - name: Prepare platform
+        id: platform
         shell: bash
         run: |
           name="djls"
+          target="${{ matrix.platform.target }}"
 
           if ${{ runner.os == 'Linux' }}; then
             name+="-linux"
+            target+="-unknown-linux-gnu"
           elif ${{ runner.os == 'macOS' }}; then
             name+="-darwin"
+            target+="-apple-darwin"
           elif ${{ runner.os == 'Windows' }}; then
             name+="-windows"
+            target+="-pc-windows-msvc"
           fi
 
           if ${{ contains(matrix.platform.target, 'x86_64') }}; then
@@ -68,25 +57,48 @@ jobs:
           fi
 
           if ${{ runner.os == 'Windows' }}; then
-            source="target/${{ matrix.platform.target }}/release/djls.exe"
-            dest="target/${{ matrix.platform.target }}/release/${name}.exe"
+            source="target/${target}/release/djls.exe"
+            dest="target/${target}/release/${name}.exe"
           else
-            source="target/${{ matrix.platform.target }}/release/djls"
-            dest="target/${{ matrix.platform.target }}/release/${name}"
-
-            strip "$source"
+            source="target/${target}/release/djls"
+            dest="target/${target}/release/${name}"
           fi
 
-          mv "$source" "$dest"
-
           echo "name=$name" >> $GITHUB_OUTPUT
-          echo "path=$dest" >> $GITHUB_OUTPUT
+          echo "target=$target" >> $GITHUB_OUTPUT
+          echo "source=$source" >> $GITHUB_OUTPUT
+          echo "dest=$dest" >> $GITHUB_OUTPUT
+
+      - uses: actions-rust-lang/setup-rust-toolchain@1780873c7b576612439a134613cc4cc74ce5538c
+        with:
+          cache: ${{ !startsWith(github.ref, 'refs/tags/') }}
+          target: ${{ steps.platform.outputs.target }}
+
+      - name: Install cross-compilation tools (Linux ARM64)
+        if: ${{ steps.platform.outputs.target == 'aarch64-unknown-linux-gnu' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+
+      - name: Build
+        run: |
+          cargo build --release --target ${{ steps.platform.outputs.target }}
+
+      - name: Prepare binary
+        shell: bash
+        run: |
+          if ${{ runner.os != 'Windows' }}; then
+            strip "${{ steps.platform.outputs.source }}"
+          fi
+
+          mv "${{ steps.platform.outputs.source }}" "${{ steps.platform.outputs.dest }}"
 
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
-          name: binary-${{ steps.binary.outputs.name }}
-          path: ${{ steps.binary.outputs.path }}
+          name: binary-${{ steps.platform.outputs.name }}
+          path: ${{ steps.platform.outputs.dest }}
 
   linux:
     runs-on: ${{ matrix.platform.runner }}
