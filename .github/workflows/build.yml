@@ -52,24 +52,46 @@ jobs:
         run: |
           cargo build --release --target ${{ matrix.platform.target }}
 
-      - name: Prepare binary (Unix)
-        if: ${{ runner.os != 'Windows' }}
+      - name: Prepare binary
+        id: binary
         shell: bash
         run: |
-          strip target/${{ matrix.platform.target }}/release/djls
-          mv target/${{ matrix.platform.target }}/release/djls target/${{ matrix.platform.target }}/release/${{ matrix.platform.name }}
+          name="djls"
 
-      - name: Prepare binary (Windows)
-        if: ${{ runner.os == 'Windows' }}
-        shell: bash
-        run: |
-          mv target/${{ matrix.platform.target }}/release/djls.exe target/${{ matrix.platform.target }}/release/${{ matrix.platform.name }}
+          if ${{ runner.os == 'Linux' }}; then
+            name+="-linux"
+          elif ${{ runner.os == 'macOS' }}; then
+            name+="-darwin"
+          elif ${{ runner.os == 'Windows' }}; then
+            name+="-windows"
+          fi
+
+          if ${{ contains(matrix.platform.target, 'x86_64') }}; then
+            name+="-x64"
+          elif ${{ contains(matrix.platform.target, 'aarch64') }}; then
+            name+="-arm64"
+          fi
+
+          if ${{ runner.os == 'Windows' }}; then
+            source="target/${{ matrix.platform.target }}/release/djls.exe"
+            dest="target/${{ matrix.platform.target }}/release/${name}.exe"
+          else
+            source="target/${{ matrix.platform.target }}/release/djls"
+            dest="target/${{ matrix.platform.target }}/release/${name}"
+
+            strip "$source"
+          fi
+
+          mv "$source" "$dest"
+
+          echo "name=$name" >> $GITHUB_OUTPUT
+          echo "path=$dest" >> $GITHUB_OUTPUT
 
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
-          name: binary-${{ matrix.platform.name }}
-          path: target/${{ matrix.platform.target }}/release/${{ matrix.platform.name }}
+          name: binary-${{ steps.binary.outputs.name }}
+          path: ${{ steps.binary.outputs.path }}
 
   linux:
     runs-on: ${{ matrix.platform.runner }}
