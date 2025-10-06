@@ -43,7 +43,7 @@ jobs:
           target: ${{ matrix.platform.target }}
 
       - name: Install cross-compilation tools (Linux ARM64)
-        if: matrix.platform.target == 'aarch64-unknown-linux-gnu'
+        if: ${{ matrix.platform.target == 'aarch64-unknown-linux-gnu' }}
         run: |
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu
@@ -53,14 +53,14 @@ jobs:
           cargo build --release --target ${{ matrix.platform.target }}
 
       - name: Prepare binary (Unix)
-        if: runner.os != "Windows"
+        if: ${{ runner.os != 'Windows' }}
         shell: bash
         run: |
           strip target/${{ matrix.platform.target }}/release/djls
           mv target/${{ matrix.platform.target }}/release/djls target/${{ matrix.platform.target }}/release/${{ matrix.platform.name }}
 
       - name: Prepare binary (Windows)
-        if: runner.os == "Windows"
+        if: ${{ runner.os == 'Windows' }}
         shell: bash
         run: |
           mv target/${{ matrix.platform.target }}/release/djls.exe target/${{ matrix.platform.target }}/release/${{ matrix.platform.name }}
