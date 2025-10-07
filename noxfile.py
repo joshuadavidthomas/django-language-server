@@ -118,8 +118,8 @@ def tests(session, django):
 @nox.session
 def lint(session):
     for python_version in reversed(PY_VERSIONS):
-        try:
-            with tempfile.TemporaryFile(mode="w+") as output_file:
+        with tempfile.TemporaryFile(mode="w+") as output_file:
+            try:
                 session.run(
                     "uv",
                     "run",
@@ -139,15 +139,27 @@ def lint(session):
                 )
                 output_file.seek(0)
                 output = output_file.read().rstrip("\n")
+                if output:
+                    print(output)
+                break
+            except CommandFailed as e:
+                # Parse exit code from exception reason: "Returned code X"
+                match = re.search(r"Returned code (\d+)", e.reason or "")
+                exit_code = int(match.group(1)) if match else None
 
-            if output:
-                print(output)
-            break
-        except CommandFailed:
-            # Failed, file gets cleaned up automatically, try next version
-            session.log(
-                f"Linting with Python {python_version} failed, trying next version"
-            )
+                # Only retry on exit code 3 (infrastructure error)
+                if exit_code == 3:
+                    session.log(
+                        f"Linting with Python {python_version} failed due to pre-commit infrastructure issue (exit code 3), trying next version"
+                    )
+                    continue
+                else:
+                    # Real lint failure (exit code 1) or unknown error - re-raise
+                    output_file.seek(0)
+                    error_output = output_file.read().rstrip("\n")
+                    if error_output:
+                        print(error_output)
+                    raise
     else:
         session.error("Linting failed with all Python versions")
 
