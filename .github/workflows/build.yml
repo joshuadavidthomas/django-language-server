@@ -91,7 +91,6 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            /usr/local/Cellar
             ~/Library/Caches/Homebrew
           key: ${{ runner.os }}-${{ matrix.platform.target }}-homebrew-${{ hashFiles('.github/workflows/build.yml') }}
           restore-keys: |
