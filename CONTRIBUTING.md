@@ -16,9 +16,9 @@ We adhere to Django's Code of Conduct in all interactions and expect all contrib
 
 The project uses [`noxfile.py`](noxfile.py) as the single source of truth for supported Python versions. The `PY_VERSIONS` list in this file controls:
 
-- Auto-generated documentation: [cogapp](https://nedbatchelder.com/code/cog/) reads `PY_VERSIONS` to generate Python version classifiers in [`pyproject.toml`](pyproject.toml) and the supported versions list in [`README.md`](README.md)
-- CI/CD test matrix: GitHub Actions workflows call the `gha_matrix` nox session to dynamically generate the test matrix from `PY_VERSIONS`, ensuring all supported Python versions are tested automatically
-- Local testing: The `tests` nox session uses `PY_VERSIONS` to parametrize test runs across all supported Python versions
+- **Auto-generated documentation**: [cogapp](https://nedbatchelder.com/code/cog/) reads `PY_VERSIONS` to generate Python version classifiers in [`pyproject.toml`](pyproject.toml) and the supported versions list in [`README.md`](README.md)
+- **CI/CD test matrix**: GitHub Actions workflows call the `gha_matrix` nox session to dynamically generate the test matrix from `PY_VERSIONS`, ensuring all supported Python versions are tested automatically
+- **Local testing**: The `tests` nox session uses `PY_VERSIONS` to parametrize test runs across all supported Python versions
 
 > [!NOTE]
 > When possible, prefer submitting additions and removals in separate pull requests. This makes it easier to review changes and track the impact of each version update independently.
