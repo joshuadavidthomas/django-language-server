@@ -278,11 +278,12 @@ jobs:
           architecture: ${{ matrix.platform.target }}
           python-version: 3.x
 
-      - uses: actions/cache@v4
+      - name: Cache Cargo registry and toolchain
+        uses: actions/cache@v4
         with:
           path: |
-            ~/.cargo/git/
-            ~/.cargo/registry/
+            ~/.cargo/git
+            ~/.cargo/registry
             ~/.rustup
           key: ${{ runner.os }}-cargo-wheels-${{ matrix.platform.target }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
@@ -320,11 +321,12 @@ jobs:
         with:
           python-version: 3.x
 
-      - uses: actions/cache@v4
+      - name: Cache Cargo registry and toolchain
+        uses: actions/cache@v4
         with:
           path: |
-            ~/.cargo/git/
-            ~/.cargo/registry/
+            ~/.cargo/git
+            ~/.cargo/registry
             ~/.rustup
           key: ${{ runner.os }}-cargo-wheels-${{ matrix.platform.target }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
