@@ -55,27 +55,19 @@ The project uses [`noxfile.py`](noxfile.py) as the single source of truth for su
    just cog
    ```
 
-   This updates Python version classifiers in [`pyproject.toml`](pyproject.toml) and supported versions in [`README.md`](README.md).
+   This updates:
 
-3. Update the ruff target-version in [`pyproject.toml`](pyproject.toml) if removing the lowest supported Python version.
+   - The `requires-python` field in [`pyproject.toml`](pyproject.toml)
+   - Python version trove classifiers in [`pyproject.toml`](pyproject.toml)
+   - Supported versions list in [`README.md`](README.md)
 
-   For instance, if removing Python 3.9, update:
-
-   ```toml
-   [tool.ruff]
-   # Assume Python 3.10
-   target-version = "py310"
-   ```
-
-   The `target-version` should match the new minimum supported Python version. This ensures `ruff`'s linting and formatting rules are appropriate for the oldest Python version supported.
-
-4. Update the lock file:
+3. Update the lock file:
 
    ```bash
    uv lock
    ```
 
-5. Test the changes:
+4. Test the changes:
 
    ```bash
    just testall
@@ -89,19 +81,7 @@ The project uses [`noxfile.py`](noxfile.py) as the single source of truth for su
    nox --python 3.14 --session tests
    ```
 
-6. Optional: Update [`.readthedocs.yaml`](.readthedocs.yaml) if changing the documentation build Python version:
-
-   ```yaml
-   build:
-     os: ubuntu-24.04
-     tools:
-       python: "3.14"  # Update to desired version
-   ```
-
-   > [!NOTE]
-   > Before updating, verify that the new Python version is available on Read the Docs. Check the [Read the Docs documentation](https://docs.readthedocs.io/en/stable/config-file/v2.html#build-tools-python) for supported versions. If the version isn't available yet, mark this as a follow-up task to circle back to later.
-
-7. Update [`CHANGELOG.md`](CHANGELOG.md), adding entries for any versions added or removed.
+5. Update [`CHANGELOG.md`](CHANGELOG.md), adding entries for any versions added or removed.
 
 ### `Justfile`
 
