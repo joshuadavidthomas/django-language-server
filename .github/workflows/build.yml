@@ -12,6 +12,142 @@ permissions:
   contents: read
 
 jobs:
+  binary:
+    runs-on: ${{ matrix.platform.runner }}
+    env:
+      ZIG_VERSION: 0.13.0
+    strategy:
+      matrix:
+        platform:
+          - runner: ubuntu-22.04
+            target: x86_64
+          - runner: ubuntu-22.04
+            target: aarch64
+          - runner: macos-13
+            target: x86_64
+          - runner: macos-14
+            target: aarch64
+          - runner: windows-latest
+            target: x86_64
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Prepare target
+        shell: bash
+        env:
+          RUNNER_OS: ${{ runner.os }}
+          PLATFORM_TARGET: ${{ matrix.platform.target }}
+        run: |
+          target="${PLATFORM_TARGET}"
+
+          if [[ "${RUNNER_OS}" == "Linux" ]]; then
+            target+="-unknown-linux-gnu"
+          elif [[ "${RUNNER_OS}" == "macOS" ]]; then
+            target+="-apple-darwin"
+          elif [[ "${RUNNER_OS}" == "Windows" ]]; then
+            target+="-pc-windows-msvc"
+          fi
+
+          echo "TARGET=${target}" >> $GITHUB_ENV
+
+      - uses: actions-rust-lang/setup-rust-toolchain@1780873c7b576612439a134613cc4cc74ce5538c
+        with:
+          cache: ${{ !startsWith(github.ref, 'refs/tags/') }}
+          target: ${{ env.TARGET }}
+
+      - name: Cache Zig toolchain
+        if: ${{ runner.os == 'Linux' && matrix.platform.target == 'aarch64' }}
+        id: cache-zig
+        uses: actions/cache@v4
+        with:
+          path: |
+            zig-linux-x86_64-${{ env.ZIG_VERSION }}
+            ~/.cargo/bin/cargo-zigbuild
+          key: ${{ runner.os }}-zig-toolchain-${{ env.ZIG_VERSION }}
+
+      - name: Install Zig and cargo-zigbuild
+        if: ${{ runner.os == 'Linux' && matrix.platform.target == 'aarch64' && steps.cache-zig. outputs.cache-hit != 'true' }}
+        shell: bash
+        run: |
+          wget -q "https://ziglang.org/download/${ZIG_VERSION}/zig-linux-x86_64-${ZIG_VERSION}.tar. xz"
+          tar xf "zig-linux-x86_64-${ZIG_VERSION}.tar.xz"
+          cargo install cargo-zigbuild
+
+      - name: Add Zig to PATH
+        if: ${{ runner.os == 'Linux' && matrix.platform.target == 'aarch64' }}
+        shell: bash
+        run: echo "$PWD/zig-linux-x86_64-${ZIG_VERSION}" >> $GITHUB_PATH
+
+      - name: Build release binary
+        shell: bash
+        env:
+          RUNNER_OS: ${{ runner.os }}
+          PLATFORM_TARGET: ${{ matrix.platform.target }}
+          PLATFORM_RUNNER: ${{ matrix.platform.runner }}
+        run: |
+          if [[ "${RUNNER_OS}" == "Linux" && "${PLATFORM_TARGET}" == "aarch64" ]]; then
+            cargo zigbuild --release --target "${TARGET}"
+          else
+            cargo build --verbose --release --target "${TARGET}"
+          fi
+
+          if [[ "${PLATFORM_RUNNER}" == windows-* ]]; then
+            bin="./target/${TARGET}/release/djls.exe"
+          else
+            bin="./target/${TARGET}/release/djls"
+          fi
+
+          echo "BIN=${bin}" >> $GITHUB_ENV
+
+      - name: Determine binary name
+        shell: bash
+        run: |
+          target="${TARGET}"
+          name="djls"
+
+          if [[ "$target" == *linux* ]]; then
+            name+="-linux"
+          elif [[ "$target" == *apple* ]]; then
+            name+="-darwin"
+          elif [[ "$target" == *windows* ]]; then
+            name+="-windows"
+          fi
+
+          if [[ "$target" == x86_64* ]]; then
+            name+="-x64"
+          elif [[ "$target" == aarch64* ]]; then
+            name+="-arm64"
+          fi
+
+          if [[ "$target" == *windows* ]]; then
+            name+=".exe"
+          fi
+
+          echo "BINARY_NAME=${name}" >> $GITHUB_ENV
+
+      - name: Strip release binary (Unix)
+        if: ${{ runner.os != 'Windows' }}
+        shell: bash
+        env:
+          RUNNER_OS: ${{ runner.os }}
+          PLATFORM_TARGET: ${{ matrix.platform.target }}
+        run: |
+          if [[ "${RUNNER_OS}" == "Linux" && "${PLATFORM_TARGET}" == "aarch64" ]]; then
+            sudo apt-get update
+            sudo apt-get install -y binutils-aarch64-linux-gnu
+            aarch64-linux-gnu-strip "${BIN}"
+          else
+            strip "${BIN}"
+          fi
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ env.BINARY_NAME }}
+          path: ${{ env.BIN }}
+
   linux:
     runs-on: ${{ matrix.platform.runner }}
     strategy:
@@ -37,6 +173,19 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: 3.x
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-wheels-${{ matrix.platform.target }}-${{ hashFiles('**/Cargo. lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-wheels-${{ matrix.platform.target }}-
+            ${{ runner.os }}-cargo-wheels-
 
       - name: Build wheels
         uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380
@@ -74,6 +223,19 @@ jobs:
         with:
           python-version: 3.x
 
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-wheels-${{ matrix.platform.target }}-${{ hashFiles('**/Cargo. lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-wheels-${{ matrix.platform.target }}-
+            ${{ runner.os }}-cargo-wheels-
+
       - name: Build wheels
         uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380
         with:
@@ -104,8 +266,21 @@ jobs:
 
       - uses: actions/setup-python@v6
         with:
-          python-version: 3.x
           architecture: ${{ matrix.platform.target }}
+          python-version: 3.x
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-wheels-${{ matrix.platform.target }}-${{ hashFiles('**/Cargo. lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-wheels-${{ matrix.platform.target }}-
+            ${{ runner.os }}-cargo-wheels-
 
       - name: Build wheels
         uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380
@@ -137,6 +312,19 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: 3.x
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-wheels-${{ matrix.platform.target }}-${{ hashFiles('**/Cargo. lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-wheels-${{ matrix.platform.target }}-
+            ${{ runner.os }}-cargo-wheels-
 
       - name: Build wheels
         uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380
