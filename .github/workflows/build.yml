@@ -81,9 +81,9 @@ jobs:
         with:
           path: |
             ~/.rustup
-          key: ${{ runner.os }}-${{ matrix.platform.target }}-rustup-${{ hashFiles('rust-toolchain.toml') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-rustup-${{ hashFiles('rust-toolchain.toml') }}
           restore-keys: |
-            ${{ runner.os }}-${{ matrix.platform.target }}-rustup-
+            ${{ runner.os }}-${{ runner.arch }}-rustup-
 
       - name: Cache Homebrew packages (macOS)
         if: ${{ runner.os == 'macOS' }}
@@ -283,9 +283,9 @@ jobs:
         with:
           path: |
             ~/.rustup
-          key: ${{ runner.os }}-${{ matrix.platform.target }}-rustup-${{ hashFiles('rust-toolchain.toml') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-rustup-${{ hashFiles('rust-toolchain.toml') }}
           restore-keys: |
-            ${{ runner.os }}-${{ matrix.platform.target }}-rustup-
+            ${{ runner.os }}-${{ runner.arch }}-rustup-
 
       - name: Cache Cargo registry
         uses: actions/cache@v4
@@ -293,10 +293,10 @@ jobs:
           path: |
             ~/.cargo/git
             ~/.cargo/registry
-          key: ${{ runner.os }}-cargo-wheels-${{ matrix.platform.target }}-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-wheels-${{ matrix.platform.target }}-
-            ${{ runner.os }}-cargo-wheels-
+            ${{ runner.os }}-${{ runner.arch }}-cargo-registry-
+            ${{ runner.os }}-cargo-registry-
 
       - name: Build wheels
         uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380
@@ -334,9 +334,9 @@ jobs:
         with:
           path: |
             ~/.rustup
-          key: ${{ runner.os }}-${{ matrix.platform.target }}-rustup-${{ hashFiles('rust-toolchain.toml') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-rustup-${{ hashFiles('rust-toolchain.toml') }}
           restore-keys: |
-            ${{ runner.os }}-${{ matrix.platform.target }}-rustup-
+            ${{ runner.os }}-${{ runner.arch }}-rustup-
 
       - name: Cache Cargo registry
         uses: actions/cache@v4
@@ -344,10 +344,10 @@ jobs:
           path: |
             ~/.cargo/git
             ~/.cargo/registry
-          key: ${{ runner.os }}-cargo-wheels-${{ matrix.platform.target }}-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-wheels-${{ matrix.platform.target }}-
-            ${{ runner.os }}-cargo-wheels-
+            ${{ runner.os }}-${{ runner.arch }}-cargo-registry-
+            ${{ runner.os }}-cargo-registry-
 
       - name: Build wheels
         uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380
