@@ -15,7 +15,7 @@ jobs:
   binary:
     runs-on: ${{ matrix.platform.runner }}
     env:
-      CROSS_VERSION: v0.2.5
+      RUST_BACKTRACE: 1
     strategy:
       matrix:
         platform:
@@ -55,23 +55,25 @@ jobs:
           cache: ${{ !startsWith(github.ref, 'refs/tags/') }}
           target: ${{ steps.target.outputs.target }}
 
-      - name: Install cross
-        if: ${{ runner.os == 'Linux' }}
+      - name: Install uv
+        if: ${{ runner.os == 'Linux' && matrix.platform.target == 'aarch64' }}
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e
+        with:
+          enable-cache: true
+
+      - name: Install Zig and cargo-zigbuild
+        if: ${{ runner.os == 'Linux' && matrix.platform.target == 'aarch64' }}
         shell: bash
         run: |
-          dir="$RUNNER_TEMP/cross-download"
-          mkdir "$dir"
-          echo "$dir" >> $GITHUB_PATH
-          cd "$dir"
-          curl -LO "https://github.com/cross-rs/cross/releases/download/$CROSS_VERSION/cross-x86_64-unknown-linux-musl.tar.gz"
-          tar xf cross-x86_64-unknown-linux-musl.tar.gz
+          uv tool install ziglang
+          cargo install cargo-zigbuild
 
       - name: Build release binary
         id: build
         shell: bash
         run: |
-          if ${{ runner.os == 'Linux' }}; then
-            cross build --verbose --release --target ${{ steps.target.outputs.target }}
+          if [[ "${{ runner.os }}" == "Linux" && "${{ matrix.platform.target }}" == "aarch64" ]]; then
+            cargo zigbuild --release --target ${{ steps.target.outputs.target }}
           else
             cargo build --verbose --release --target ${{ steps.target.outputs.target }}
           fi
@@ -111,25 +113,13 @@ jobs:
 
           echo "name=$name" >> $GITHUB_OUTPUT
 
-      - name: Strip release binary (Linux)
-        if: ${{ runner.os == 'Linux' }}
-        shell: bash
-        run: |
-          target="${{ steps.target.outputs.target }}"
-          if [[ "$target" == x86_64* ]]; then
-            strip_cmd="x86_64-linux-gnu-strip"
-          elif [[ "$target" == aarch64* ]]; then
-            strip_cmd="aarch64-linux-gnu-strip"
-          fi
-
-          docker run --rm -v \
-            "$PWD/target:/target:Z" \
-            "ghcr.io/cross-rs/${{ steps.target.outputs.target }}:main" \
-            "$strip_cmd" \
-            "/${{ steps.build.outputs.bin }}"
-
       - name: Strip release binary (macOS)
         if: ${{ runner.os == 'macOS' }}
+        shell: bash
+        run: strip "${{ steps.build.outputs.bin }}"
+
+      - name: Strip release binary (Linux)
+        if: ${{ runner.os == 'Linux' }}
         shell: bash
         run: strip "${{ steps.build.outputs.bin }}"
 
