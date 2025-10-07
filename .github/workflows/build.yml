@@ -4,7 +4,6 @@ on:
   pull_request:
     branches:
       - main
-      - release/*
     paths:
       - .github/workflows/build.yml
       - crates/**
@@ -13,7 +12,6 @@ on:
   push:
     branches:
       - main
-      - release/*
     paths:
       - .github/workflows/build.yml
       - crates/**
