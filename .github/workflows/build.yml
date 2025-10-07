@@ -236,6 +236,19 @@ jobs:
           python-version: 3.x
           architecture: ${{ matrix.platform.target }}
 
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-wheels-${{ matrix.platform.target }}-${{ hashFiles('**/Cargo. lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-wheels-${{ matrix.platform.target }}-
+            ${{ runner.os }}-cargo-wheels-
+
       - name: Build wheels
         uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380
         with:
