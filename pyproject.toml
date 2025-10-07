@@ -31,7 +31,7 @@ authors = [
 #
 # cog.outl(f'requires-python = ">={PY_DEFAULT}"')
 # ]]] -->
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 # [[[end]]]
 classifiers = [
   "Development Status :: 4 - Beta",
@@ -68,7 +68,6 @@ classifiers = [
   # for version in PY_VERSIONS:
   #     cog.outl(f'  "Programming Language :: Python :: {version}",')
   # ]]] -->
-  "Programming Language :: Python :: 3.9",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
