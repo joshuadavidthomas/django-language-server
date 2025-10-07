@@ -234,7 +234,7 @@ jobs:
           args: --release --out dist --find-interpreter
           sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
           manylinux: auto
-          docker-options: -v ${{ runner.home }}/.cargo/registry:/root/.cargo/registry -v ${{ runner.home }}/.cargo/git:/root/.cargo/git
+          docker-options: -v ~/.cargo/registry:/root/.cargo/registry -v ~/.cargo/git:/root/.cargo/git
 
       - name: Upload wheels
         uses: actions/upload-artifact@v4
@@ -277,7 +277,7 @@ jobs:
           args: --release --out dist --find-interpreter
           sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
           manylinux: musllinux_1_2
-          docker-options: -v ${{ runner.home }}/.cargo/registry:/root/.cargo/registry -v ${{ runner.home }}/.cargo/git:/root/.cargo/git
+          docker-options: -v ~/.cargo/registry:/root/.cargo/registry -v ~/.cargo/git:/root/.cargo/git
 
       - name: Upload wheels
         uses: actions/upload-artifact@v4
