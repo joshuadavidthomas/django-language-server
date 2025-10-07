@@ -18,6 +18,8 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ## [Unreleased]
 
+## [5.2.3]
+
 ### Added
 
 - Added support for Python 3.14
@@ -154,7 +156,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 - Josh Thomas <josh@joshthomas.dev> (maintainer)
 
-[unreleased]: https://github.com/joshuadavidthomas/django-language-server/compare/v5.2.2...HEAD
+[unreleased]: https://github.com/joshuadavidthomas/django-language-server/compare/v5.2.3...HEAD
 [5.1.0a0]: https://github.com/joshuadavidthomas/django-language-server/releases/tag/v5.1.0a0
 [5.1.0a1]: https://github.com/joshuadavidthomas/django-language-server/releases/tag/v5.1.0a1
 [5.1.0a2]: https://github.com/joshuadavidthomas/django-language-server/releases/tag/v5.1.0a2
@@ -162,3 +164,4 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 [5.2.0]: https://github.com/joshuadavidthomas/django-language-server/releases/tag/v5.2.0
 [5.2.1]: https://github.com/joshuadavidthomas/django-language-server/releases/tag/v5.2.1
 [5.2.2]: https://github.com/joshuadavidthomas/django-language-server/releases/tag/v5.2.2
+[5.2.3]: https://github.com/joshuadavidthomas/django-language-server/releases/tag/v5.2.3
