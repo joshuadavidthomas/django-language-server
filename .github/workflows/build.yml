@@ -14,6 +14,8 @@ permissions:
 jobs:
   binary:
     runs-on: ${{ matrix.platform.runner }}
+    env:
+      CROSS_VERSION: v0.2.5
     strategy:
       matrix:
         platform:
@@ -32,73 +34,110 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Prepare platform
-        id: platform
+      - name: Prepare target
+        id: target
         shell: bash
         run: |
-          name="djls"
           target="${{ matrix.platform.target }}"
 
           if ${{ runner.os == 'Linux' }}; then
-            name+="-linux"
             target+="-unknown-linux-gnu"
           elif ${{ runner.os == 'macOS' }}; then
-            name+="-darwin"
             target+="-apple-darwin"
           elif ${{ runner.os == 'Windows' }}; then
-            name+="-windows"
             target+="-pc-windows-msvc"
           fi
 
-          if ${{ contains(matrix.platform.target, 'x86_64') }}; then
-            name+="-x64"
-          elif ${{ contains(matrix.platform.target, 'aarch64') }}; then
-            name+="-arm64"
-          fi
-
-          if ${{ runner.os == 'Windows' }}; then
-            source="target/${target}/release/djls.exe"
-            dest="target/${target}/release/${name}.exe"
-          else
-            source="target/${target}/release/djls"
-            dest="target/${target}/release/${name}"
-          fi
-
-          echo "name=$name" >> $GITHUB_OUTPUT
           echo "target=$target" >> $GITHUB_OUTPUT
-          echo "source=$source" >> $GITHUB_OUTPUT
-          echo "dest=$dest" >> $GITHUB_OUTPUT
 
       - uses: actions-rust-lang/setup-rust-toolchain@1780873c7b576612439a134613cc4cc74ce5538c
         with:
           cache: ${{ !startsWith(github.ref, 'refs/tags/') }}
-          target: ${{ steps.platform.outputs.target }}
+          target: ${{ steps.target.outputs.target }}
 
-      - name: Install cross-compilation tools (Linux ARM64)
-        if: ${{ steps.platform.outputs.target == 'aarch64-unknown-linux-gnu' }}
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu
-          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
-
-      - name: Build
-        run: |
-          cargo build --release --target ${{ steps.platform.outputs.target }}
-
-      - name: Prepare binary
+      - name: Install cross
+        if: ${{ runner.os == 'Linux' }}
         shell: bash
         run: |
-          if ${{ runner.os != 'Windows' }}; then
-            strip "${{ steps.platform.outputs.source }}"
+          dir="$RUNNER_TEMP/cross-download"
+          mkdir "$dir"
+          echo "$dir" >> $GITHUB_PATH
+          cd "$dir"
+          curl -LO "https://github.com/cross-rs/cross/releases/download/$CROSS_VERSION/cross-x86_64-unknown-linux-musl.tar.gz"
+          tar xf cross-x86_64-unknown-linux-musl.tar.gz
+
+      - name: Build release binary
+        id: build
+        shell: bash
+        run: |
+          if ${{ runner.os == 'Linux' }}; then
+            cross build --verbose --release --target ${{ steps.target.outputs.target }}
+          else
+            cargo build --verbose --release --target ${{ steps.target.outputs.target }}
           fi
 
-          mv "${{ steps.platform.outputs.source }}" "${{ steps.platform.outputs.dest }}"
+          if [[ "${{ matrix.platform.runner }}" == windows-* ]]; then
+            bin="./target/${{ steps.target.outputs.target }}/release/djls.exe"
+          else
+            bin="./target/${{ steps.target.outputs.target }}/release/djls"
+          fi
+
+          echo "bin=$bin" >> $GITHUB_OUTPUT
+
+      - name: Determine binary name
+        id: binary-name
+        shell: bash
+        run: |
+          target="${{ steps.target.outputs.target }}"
+          name="djls"
+
+          if [[ "$target" == *linux* ]]; then
+            name+="-linux"
+          elif [[ "$target" == *apple* ]]; then
+            name+="-darwin"
+          elif [[ "$target" == *windows* ]]; then
+            name+="-windows"
+          fi
+
+          if [[ "$target" == x86_64* ]]; then
+            name+="-x64"
+          elif [[ "$target" == aarch64* ]]; then
+            name+="-arm64"
+          fi
+
+          if [[ "$target" == *windows* ]]; then
+            name+=".exe"
+          fi
+
+          echo "name=$name" >> $GITHUB_OUTPUT
+
+      - name: Strip release binary (Linux)
+        if: ${{ runner.os == 'Linux' }}
+        shell: bash
+        run: |
+          target="${{ steps.target.outputs.target }}"
+          if [[ "$target" == x86_64* ]]; then
+            strip_cmd="x86_64-linux-gnu-strip"
+          elif [[ "$target" == aarch64* ]]; then
+            strip_cmd="aarch64-linux-gnu-strip"
+          fi
+
+          docker run --rm -v \
+            "$PWD/target:/target:Z" \
+            "ghcr.io/cross-rs/${{ steps.target.outputs.target }}:main" \
+            "$strip_cmd" \
+            "/${{ steps.build.outputs.bin }}"
+
+      - name: Strip release binary (macOS)
+        if: ${{ runner.os == 'macOS' }}
+        shell: bash
+        run: strip "${{ steps.build.outputs.bin }}"
 
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
-          name: binary-${{ steps.platform.outputs.name }}
-          path: ${{ steps.platform.outputs.dest }}
+          name: binary-${{ steps.binary-name.outputs.name }}
+          path: ${{ steps.build.outputs.bin }}
 
   linux:
     runs-on: ${{ matrix.platform.runner }}
