@@ -143,7 +143,7 @@ jobs:
         env:
           VERSION: ${{ inputs.version }}
         run: |
-          archive="djls-${VERSION}-${OS}-${ARCH}"
+          archive="django-language-server-${VERSION}-${OS}-${ARCH}"
 
           mkdir -p "$archive"
           cp "$BIN" "$archive/"
