@@ -2,36 +2,41 @@ name: test
 
 on:
   pull_request:
+    branches:
+      - main
+      - release/*
     paths:
-      - ".github/workflows/test.yml"
-      - "crates/**"
-      - "tests/**"
-      - "Cargo.lock"
-      - "Cargo.toml"
-      - "pyproject.toml"
-      - "noxfile.py"
-      - "uv.lock"
+      - .github/workflows/test.yml
+      - crates/**
+      - tests/**
+      - Cargo.lock
+      - Cargo.toml
+      - pyproject.toml
+      - noxfile.py
+      - uv.lock
   push:
-    branches: [main]
+    branches:
+      - main
+      - release/*
     paths:
-      - ".github/workflows/test.yml"
-      - "crates/**"
-      - "tests/**"
-      - "Cargo.lock"
-      - "Cargo.toml"
-      - "pyproject.toml"
-      - "noxfile.py"
-      - "uv.lock"
+      - .github/workflows/test.yml
+      - crates/**
+      - tests/**
+      - Cargo.lock
+      - Cargo.toml
+      - pyproject.toml
+      - noxfile.py
+      - uv.lock
   workflow_call:
     inputs:
       os:
-        description: "Comma-delineated list of OS targets to run tests on"
+        description: Comma-delineated list of OS targets to run tests on
         required: false
         type: string
   workflow_dispatch:
     inputs:
       os:
-        description: "Comma-delineated list of OS targets to run tests on"
+        description: Comma-delineated list of OS targets to run tests on
         required: false
         type: string
 

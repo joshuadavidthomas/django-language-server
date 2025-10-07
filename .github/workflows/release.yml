@@ -1,15 +1,8 @@
 name: release
 
 on:
-  push:
-    branches:
-      - main
-      - "release/*"
-    tags:
-      - "*"
-  pull_request:
-    branches:
-      - "release/*"
+  release:
+    types: [published]
   workflow_dispatch:
 
 concurrency:

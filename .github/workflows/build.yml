@@ -2,18 +2,33 @@ name: build
 
 on:
   pull_request:
+    branches:
+      - main
+      - release/*
     paths:
       - .github/workflows/build.yml
+      - crates/**
+      - Cargo.lock
+      - Cargo.toml
+  push:
+    branches:
+      - main
+      - release/*
+    paths:
+      - .github/workflows/build.yml
+      - crates/**
+      - Cargo.lock
+      - Cargo.toml
   workflow_call:
     inputs:
       version:
-        description: "Version tag for release packaging"
+        description: Version tag for release packaging
         required: false
         type: string
   workflow_dispatch:
     inputs:
       version:
-        description: "Version tag for release packaging"
+        description: Version tag for release packaging
         required: false
         type: string
 
