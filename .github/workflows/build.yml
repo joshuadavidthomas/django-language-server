@@ -76,8 +76,18 @@ jobs:
           echo "OS=${os:-'unknown'}" >> $GITHUB_ENV
           echo "ARCH=${arch:-'unknown'}" >> $GITHUB_ENV
 
+      - name: Cache rustup toolchain
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.rustup
+            ~/.cargo/bin
+          key: ${{ runner.os }}-${{ matrix.platform.target }}-rustup-${{ hashFiles('rust-toolchain.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.platform.target }}-rustup-
+
       - name: Cache Homebrew packages (macOS)
-        if: runner.os == 'macOS'
+        if: ${{ runner.os == 'macOS' }}
         uses: actions/cache@v4
         with:
           path: |
