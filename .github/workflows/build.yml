@@ -172,7 +172,6 @@ jobs:
 
       - uses: actions/setup-python@v6
         with:
-          cache: "pip"
           python-version: 3.x
 
       - uses: actions/cache@v4
@@ -222,7 +221,6 @@ jobs:
 
       - uses: actions/setup-python@v6
         with:
-          cache: "pip"
           python-version: 3.x
 
       - uses: actions/cache@v4
@@ -269,7 +267,6 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           architecture: ${{ matrix.platform.target }}
-          cache: "pip"
           python-version: 3.x
 
       - uses: actions/cache@v4
@@ -314,7 +311,6 @@ jobs:
 
       - uses: actions/setup-python@v6
         with:
-          cache: "pip"
           python-version: 3.x
 
       - uses: actions/cache@v4
