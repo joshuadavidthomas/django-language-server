@@ -24,7 +24,15 @@ readme = "README.md"
 authors = [
   { name = "Josh Thomas", email = "josh@joshthomas.dev" }
 ]
+# [[[cog
+# import cog
+#
+# from noxfile import PY_DEFAULT
+#
+# cog.outl(f'requires-python = ">={PY_DEFAULT}"')
+# ]]] -->
 requires-python = ">=3.9"
+# [[[end]]]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Framework :: Django",
@@ -65,6 +73,7 @@ classifiers = [
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
   # [[[end]]]
   "Programming Language :: Python :: Implementation :: CPython",
   "Programming Language :: Rust",
@@ -143,8 +152,6 @@ extend-include = ["*.pyi?"]
 indent-width = 4
 # Same as Black.
 line-length = 88
-# Assume Python 3.9
-target-version = "py39"
 
 [tool.ruff.format]
 # Like Black, indent with spaces, rather than tabs.

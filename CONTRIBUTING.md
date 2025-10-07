@@ -8,6 +8,81 @@ Not all contributions need to start with an issue, such as typo fixes in documen
 
 We adhere to Django's Code of Conduct in all interactions and expect all contributors to do the same. Please read the [Code of Conduct](https://www.djangoproject.com/conduct/) before contributing.
 
+## Development
+
+### Version Updates
+
+#### Python
+
+The project uses [`noxfile.py`](noxfile.py) as the single source of truth for supported Python versions. The `PY_VERSIONS` list in this file controls:
+
+- **Auto-generated documentation**: [cogapp](https://nedbatchelder.com/code/cog/) reads `PY_VERSIONS` to generate Python version classifiers in [`pyproject.toml`](pyproject.toml) and the supported versions list in [`README.md`](README.md)
+- **CI/CD test matrix**: GitHub Actions workflows call the `gha_matrix` nox session to dynamically generate the test matrix from `PY_VERSIONS`, ensuring all supported Python versions are tested automatically
+- **Local testing**: The `tests` nox session uses `PY_VERSIONS` to parametrize test runs across all supported Python versions
+
+> [!NOTE]
+> When possible, prefer submitting additions and removals in separate pull requests. This makes it easier to review changes and track the impact of each version update independently.
+
+**To update the list of supported Python versions:**
+
+1. Update [`noxfile.py`](noxfile.py), adding or removing version constants as needed and updating the `PY_VERSIONS` list accordingly.
+
+   For example, given the following versions:
+
+   ```python
+   PY39 = "3.9"
+   PY310 = "3.10"
+   PY311 = "3.11"
+   PY312 = "3.12"
+   PY313 = "3.13"
+   PY_VERSIONS = [PY39, PY310, PY311, PY312, PY313]
+   ```
+
+   To add Python 3.14 and remove Python 3.9, the final list will be:
+
+   ```python
+   PY310 = "3.10"
+   PY311 = "3.11"
+   PY312 = "3.12"
+   PY313 = "3.13"
+   PY314 = "3.14"
+   PY_VERSIONS = [PY310, PY311, PY312, PY313, PY314]
+   ```
+
+2. Regenerate auto-generated content:
+
+   ```bash
+   just cog
+   ```
+
+   This updates:
+
+   - The `requires-python` field in [`pyproject.toml`](pyproject.toml)
+   - Python version trove classifiers in [`pyproject.toml`](pyproject.toml)
+   - Supported versions list in [`README.md`](README.md)
+
+3. Update the lock file:
+
+   ```bash
+   uv lock
+   ```
+
+4. Test the changes:
+
+   ```bash
+   just testall
+   ```
+
+   Use `just testall` rather than `just test` to ensure all Python versions are tested. The `just test` command only runs against the default versions (the oldest supported Python and Django LTS) and won't catch issues with newly added versions.
+
+   If you want, you can also test only a specific Python version across all Django versions by `nox` directly:
+
+   ```bash
+   nox --python 3.14 --session tests
+   ```
+
+5. Update [`CHANGELOG.md`](CHANGELOG.md), adding entries for any versions added or removed.
+
 ### `Justfile`
 
 The repository includes a [`Justfile`](./Justfile) that provides all common development tasks with a consistent interface. Running `just` without arguments shows all available commands and their descriptions.
