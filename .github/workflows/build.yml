@@ -55,21 +55,28 @@ jobs:
           cache: ${{ !startsWith(github.ref, 'refs/tags/') }}
           target: ${{ steps.target.outputs.target }}
 
-      - name: Cache Zig
+      - name: Cache Zig toolchain
         if: ${{ runner.os == 'Linux' && matrix.platform.target == 'aarch64' }}
+        id: cache-zig
         uses: actions/cache@v4
         with:
-          path: zig-linux-x86_64-${{ env.ZIG_VERSION }}
-          key: ${{ runner.os }}-zig-${{ env.ZIG_VERSION }}
+          path: |
+            zig-linux-x86_64-${{ env.ZIG_VERSION }}
+            ~/.cargo/bin/cargo-zigbuild
+          key: ${{ runner.os }}-zig-toolchain-${{ env.ZIG_VERSION }}
 
       - name: Install Zig and cargo-zigbuild
-        if: ${{ runner.os == 'Linux' && matrix.platform.target == 'aarch64' }}
+        if: ${{ runner.os == 'Linux' && matrix.platform.target == 'aarch64' && steps.cache-zig.outputs. cache-hit != 'true' }}
         shell: bash
         run: |
-          wget -q https://ziglang.org/download/${{ env.ZIG_VERSION }}/zig-linux-x86_64-${{ env.ZIG_VERSION }}.tar.xz
+          wget -q https://ziglang.org/download/${{ env.ZIG_VERSION }}/zig-linux-x86_64-${{ env. ZIG_VERSION }}.tar.xz
           tar xf zig-linux-x86_64-${{ env.ZIG_VERSION }}.tar.xz
-          echo "$PWD/zig-linux-x86_64-${{ env.ZIG_VERSION }}" >> $GITHUB_PATH
           cargo install cargo-zigbuild
+
+      - name: Add Zig to PATH
+        if: ${{ runner.os == 'Linux' && matrix.platform.target == 'aarch64' }}
+        shell: bash
+        run: echo "$PWD/zig-linux-x86_64-${{ env.ZIG_VERSION }}" >> $GITHUB_PATH
 
       - name: Build release binary
         id: build
