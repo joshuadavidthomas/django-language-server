@@ -4,9 +4,11 @@ import json
 import os
 import re
 import shutil
+import tempfile
 from pathlib import Path
 
 import nox
+from nox.command import CommandFailed
 
 nox.options.default_venv_backend = "uv|virtualenv"
 nox.options.reuse_existing_virtualenvs = True
@@ -115,21 +117,39 @@ def tests(session, django):
 
 @nox.session
 def lint(session):
-    session.run(
-        "uv",
-        "run",
-        "--no-project",
-        "--with",
-        "pre-commit-uv",
-        "--python",
-        PY_LATEST,
-        "pre-commit",
-        "run",
-        "--all-files",
-        "--show-diff-on-failure",
-        "--color",
-        "always",
-    )
+    for python_version in reversed(PY_VERSIONS):
+        try:
+            with tempfile.TemporaryFile(mode="w+") as output_file:
+                session.run(
+                    "uv",
+                    "run",
+                    "--no-project",
+                    "--with",
+                    "pre-commit-uv",
+                    "--python",
+                    python_version,
+                    "pre-commit",
+                    "run",
+                    "--all-files",
+                    "--show-diff-on-failure",
+                    "--color",
+                    "always",
+                    stdout=output_file,
+                    stderr=output_file,
+                )
+                output_file.seek(0)
+                output = output_file.read().rstrip("\n")
+
+            if output:
+                print(output)
+            break
+        except CommandFailed:
+            # Failed, file gets cleaned up automatically, try next version
+            session.log(
+                f"Linting with Python {python_version} failed, trying next version"
+            )
+    else:
+        session.error("Linting failed with all Python versions")
 
 
 @nox.session
