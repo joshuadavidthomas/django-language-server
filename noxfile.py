@@ -16,7 +16,8 @@ PY310 = "3.10"
 PY311 = "3.11"
 PY312 = "3.12"
 PY313 = "3.13"
-PY_VERSIONS = [PY39, PY310, PY311, PY312, PY313]
+PY314 = "3.14"
+PY_VERSIONS = [PY39, PY310, PY311, PY312, PY313, PY314]
 PY_DEFAULT = PY_VERSIONS[0]
 PY_LATEST = PY_VERSIONS[-1]
 
@@ -220,19 +221,6 @@ def cog(session):
         "cog",
         "-r",
         *COG_FILES,
-    )
-    git_status = session.run("git", "status", "--porcelain", external=True, silent=True)
-    if not any(cog_file in git_status for cog_file in COG_FILES):
-        session.log("No changes to documentation files, skipping commit")
-        return
-    session.run("git", "add", *COG_FILES, external=True)
-    session.run(
-        "git",
-        "commit",
-        "-m",
-        "auto-regenerate docs using cog",
-        external=True,
-        silent=True,
     )
 
 

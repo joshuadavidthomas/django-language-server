@@ -74,7 +74,7 @@ The project uses [`noxfile.py`](noxfile.py) as the single source of truth for su
    If you want, you can also test only a specific Python version across all Django versions by `nox` directly:
 
    ```bash
-   just nox -s 'tests(python="3.14")'
+   nox --python 3.14 --session tests
    ```
 
 5. Optional: Update [`.readthedocs.yaml`](.readthedocs.yaml) if changing the documentation build Python version:
