@@ -47,10 +47,19 @@ jobs:
       - name: Generate artifact attestation
         uses: actions/attest-build-provenance@v3
         with:
-          subject-path: "wheels-*/*"
+          subject-path: |
+            wheels-*/*
+            binary-*/*
 
       - name: Publish to PyPI
         uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380
         with:
           command: upload
           args: --non-interactive --skip-existing wheels-*/*
+
+      - name: Upload release assets to GitHub
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          gh release upload "${TAG_NAME}" binary-*/*
