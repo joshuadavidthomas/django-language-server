@@ -1,0 +1,18 @@
+rules:
+  cache-poisoning:
+    ignore:
+      # test workflow does not produce artifacts to poison
+      - test.yml
+      # all caching is disabled when a tag is pushed
+      - build.yml:96:9
+      - build.yml:106:9
+      - build.yml:115:9
+      - build.yml:122:9
+      - build.yml:236:9
+      - build.yml:268:9
+      - build.yml:299:9
+      - build.yml:309:9
+      - build.yml:321:9
+      - build.yml:352:9
+      - build.yml:362:9
+      - build.yml:374:9
