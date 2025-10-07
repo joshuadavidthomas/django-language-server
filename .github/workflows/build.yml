@@ -71,7 +71,7 @@ jobs:
         if: ${{ runner.os == 'Linux' && matrix.platform.target == 'aarch64' && steps.cache-zig. outputs.cache-hit != 'true' }}
         shell: bash
         run: |
-          wget -q "https://ziglang.org/download/${ZIG_VERSION}/zig-linux-x86_64-${ZIG_VERSION}.tar. xz"
+          wget -q "https://ziglang.org/download/${ZIG_VERSION}/zig-linux-x86_64-${ZIG_VERSION}.tar.xz"
           tar xf "zig-linux-x86_64-${ZIG_VERSION}.tar.xz"
           cargo install cargo-zigbuild
 
