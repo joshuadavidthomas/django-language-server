@@ -285,7 +285,7 @@ jobs:
             ~/.cargo/git
             ~/.cargo/registry
             ~/.rustup
-          key: ${{ runner.os }}-cargo-wheels-${{ matrix.platform.target }}-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-wheels-${{ matrix.platform.target }}-${{ hashFiles('**/Cargo.lock', 'rust-toolchain.toml') }}
           restore-keys: |
             ${{ runner.os }}-cargo-wheels-${{ matrix.platform.target }}-
             ${{ runner.os }}-cargo-wheels-
@@ -328,7 +328,7 @@ jobs:
             ~/.cargo/git
             ~/.cargo/registry
             ~/.rustup
-          key: ${{ runner.os }}-cargo-wheels-${{ matrix.platform.target }}-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-wheels-${{ matrix.platform.target }}-${{ hashFiles('**/Cargo.lock', 'rust-toolchain.toml') }}
           restore-keys: |
             ${{ runner.os }}-cargo-wheels-${{ matrix.platform.target }}-
             ${{ runner.os }}-cargo-wheels-
