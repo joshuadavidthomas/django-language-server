@@ -164,7 +164,13 @@ jobs:
             echo "ARTIFACT_PATH=${archive_name}.zip*" >> $GITHUB_ENV
           else
             tar czf "${archive_name}.tar.gz" "$archive_name"
-            sha256sum "${archive_name}.tar.gz" > "${archive_name}.tar.gz.sha256"
+
+            if [[ "$RUNNER_OS" == "macOS" ]]; then
+              shasum -a 256 "${archive_name}.tar.gz" > "${archive_name}.tar.gz.sha256"
+            else
+              sha256sum "${archive_name}.tar.gz" > "${archive_name}.tar.gz.sha256"
+            fi
+
             echo "ARTIFACT_PATH=${archive_name}.tar.gz*" >> $GITHUB_ENV
           fi
 
