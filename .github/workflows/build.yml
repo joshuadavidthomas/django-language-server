@@ -65,7 +65,7 @@ jobs:
         if: ${{ runner.os == 'Linux' && matrix.platform.target == 'aarch64' }}
         shell: bash
         run: |
-          uv pip install ziglang
+          uv pip install --system ziglang
           cargo install cargo-zigbuild
 
       - name: Build release binary
