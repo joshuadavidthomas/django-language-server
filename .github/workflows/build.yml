@@ -81,7 +81,6 @@ jobs:
         with:
           path: |
             ~/.rustup
-            ~/.cargo/bin
           key: ${{ runner.os }}-${{ matrix.platform.target }}-rustup-${{ hashFiles('rust-toolchain.toml') }}
           restore-keys: |
             ${{ runner.os }}-${{ matrix.platform.target }}-rustup-
@@ -282,8 +281,9 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: |
-            ~/.cargo/registry/
             ~/.cargo/git/
+            ~/.cargo/registry/
+            ~/.rustup
           key: ${{ runner.os }}-cargo-wheels-${{ matrix.platform.target }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-wheels-${{ matrix.platform.target }}-
@@ -323,8 +323,9 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: |
-            ~/.cargo/registry/
             ~/.cargo/git/
+            ~/.cargo/registry/
+            ~/.rustup
           key: ${{ runner.os }}-cargo-wheels-${{ matrix.platform.target }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-wheels-${{ matrix.platform.target }}-
