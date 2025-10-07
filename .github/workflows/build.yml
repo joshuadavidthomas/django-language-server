@@ -15,7 +15,7 @@ jobs:
   binary:
     runs-on: ${{ matrix.platform.runner }}
     env:
-      RUST_BACKTRACE: 1
+      ZIG_VERSION: 0.13.0
     strategy:
       matrix:
         platform:
@@ -55,19 +55,14 @@ jobs:
           cache: ${{ !startsWith(github.ref, 'refs/tags/') }}
           target: ${{ steps.target.outputs.target }}
 
-      - name: Install uv
-        if: ${{ runner.os == 'Linux' && matrix.platform.target == 'aarch64' }}
-        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e
-        with:
-          enable-cache: true
-
       - name: Install Zig and cargo-zigbuild
         if: ${{ runner.os == 'Linux' && matrix.platform.target == 'aarch64' }}
         shell: bash
         run: |
-          uv tool install ziglang
+          wget -q https://ziglang.org/download/0.13.0/zig-linux-x86_64-${{ env.ZIG_VERSION }}.tar.xz
+          tar xf zig-linux-x86_64-${{ env.ZIG_VERSION }}.tar.xz
+          echo "$PWD/zig-linux-x86_64-${{ env.ZIG_VERSION }}" >> $GITHUB_PATH
           cargo install cargo-zigbuild
-          echo "$(uv tool dir)/bin" >> $GITHUB_PATH
 
       - name: Build release binary
         id: build
