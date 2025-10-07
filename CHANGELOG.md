@@ -18,9 +18,23 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ## [Unreleased]
 
+### Added
+
+- Added support for `djhtml` file extension
+- Added standalone binary builds for direct installation
+- Added debug Neovim plugin for lsp-devtools and server logs
+
+### Changed
+
+- Reorganized clients directory
+- **Internal**: Optimized lexer performance with memchr and byte-level whitespace parsing
+- **Internal**: Simplified background tasks with `SessionSnapshot`
+- **Internal**: Refactored LSP boundary with extension traits
+
 ### Fixed
 
 - Fixed stale diagnostics and references for templates open in the editor
+- Fixed template file tracking by moving Db methods to SourceDb
 
 ## [5.2.1]
 
