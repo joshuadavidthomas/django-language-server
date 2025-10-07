@@ -61,11 +61,19 @@ jobs:
         with:
           enable-cache: true
 
+      - name: Install Zig and cargo-zigbuild
+        if: ${{ runner.os == 'Linux' && matrix.platform.target == 'aarch64' }}
+        shell: bash
+        run: |
+          uv pip install ziglang
+          cargo install cargo-zigbuild
+
       - name: Build release binary
+        id: build
         shell: bash
         run: |
           if [[ "${{ runner.os }}" == "Linux" && "${{ matrix.platform.target }}" == "aarch64" ]]; then
-            uvx --with ziglang cargo-zigbuild --release --target ${{ steps.target.outputs.target }}
+            cargo zigbuild --release --target ${{ steps.target.outputs.target }}
           else
             cargo build --verbose --release --target ${{ steps.target.outputs.target }}
           fi
