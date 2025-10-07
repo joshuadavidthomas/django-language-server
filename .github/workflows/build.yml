@@ -35,25 +35,27 @@ jobs:
           persist-credentials: false
 
       - name: Prepare target
-        id: target
         shell: bash
+        env:
+          RUNNER_OS: ${{ runner.os }}
+          PLATFORM_TARGET: ${{ matrix.platform.target }}
         run: |
-          target="${{ matrix.platform.target }}"
+          target="${PLATFORM_TARGET}"
 
-          if ${{ runner.os == 'Linux' }}; then
+          if [[ "${RUNNER_OS}" == "Linux" ]]; then
             target+="-unknown-linux-gnu"
-          elif ${{ runner.os == 'macOS' }}; then
+          elif [[ "${RUNNER_OS}" == "macOS" ]]; then
             target+="-apple-darwin"
-          elif ${{ runner.os == 'Windows' }}; then
+          elif [[ "${RUNNER_OS}" == "Windows" ]]; then
             target+="-pc-windows-msvc"
           fi
 
-          echo "target=$target" >> $GITHUB_OUTPUT
+          echo "TARGET=${target}" >> $GITHUB_ENV
 
       - uses: actions-rust-lang/setup-rust-toolchain@1780873c7b576612439a134613cc4cc74ce5538c
         with:
           cache: ${{ !startsWith(github.ref, 'refs/tags/') }}
-          target: ${{ steps.target.outputs.target }}
+          target: ${{ env.TARGET }}
 
       - name: Cache Zig toolchain
         if: ${{ runner.os == 'Linux' && matrix.platform.target == 'aarch64' }}
@@ -66,41 +68,43 @@ jobs:
           key: ${{ runner.os }}-zig-toolchain-${{ env.ZIG_VERSION }}
 
       - name: Install Zig and cargo-zigbuild
-        if: ${{ runner.os == 'Linux' && matrix.platform.target == 'aarch64' && steps.cache-zig.outputs. cache-hit != 'true' }}
+        if: ${{ runner.os == 'Linux' && matrix.platform.target == 'aarch64' && steps.cache-zig. outputs.cache-hit != 'true' }}
         shell: bash
         run: |
-          wget -q https://ziglang.org/download/${{ env.ZIG_VERSION }}/zig-linux-x86_64-${{ env. ZIG_VERSION }}.tar.xz
-          tar xf zig-linux-x86_64-${{ env.ZIG_VERSION }}.tar.xz
+          wget -q "https://ziglang.org/download/${ZIG_VERSION}/zig-linux-x86_64-${ZIG_VERSION}.tar. xz"
+          tar xf "zig-linux-x86_64-${ZIG_VERSION}.tar.xz"
           cargo install cargo-zigbuild
 
       - name: Add Zig to PATH
         if: ${{ runner.os == 'Linux' && matrix.platform.target == 'aarch64' }}
         shell: bash
-        run: echo "$PWD/zig-linux-x86_64-${{ env.ZIG_VERSION }}" >> $GITHUB_PATH
+        run: echo "$PWD/zig-linux-x86_64-${ZIG_VERSION}" >> $GITHUB_PATH
 
       - name: Build release binary
-        id: build
         shell: bash
+        env:
+          RUNNER_OS: ${{ runner.os }}
+          PLATFORM_TARGET: ${{ matrix.platform.target }}
+          PLATFORM_RUNNER: ${{ matrix.platform.runner }}
         run: |
-          if [[ "${{ runner.os }}" == "Linux" && "${{ matrix.platform.target }}" == "aarch64" ]]; then
-            cargo zigbuild --release --target ${{ steps.target.outputs.target }}
+          if [[ "${RUNNER_OS}" == "Linux" && "${PLATFORM_TARGET}" == "aarch64" ]]; then
+            cargo zigbuild --release --target "${TARGET}"
           else
-            cargo build --verbose --release --target ${{ steps.target.outputs.target }}
+            cargo build --verbose --release --target "${TARGET}"
           fi
 
-          if [[ "${{ matrix.platform.runner }}" == windows-* ]]; then
-            bin="./target/${{ steps.target.outputs.target }}/release/djls.exe"
+          if [[ "${PLATFORM_RUNNER}" == windows-* ]]; then
+            bin="./target/${TARGET}/release/djls.exe"
           else
-            bin="./target/${{ steps.target.outputs.target }}/release/djls"
+            bin="./target/${TARGET}/release/djls"
           fi
 
-          echo "bin=$bin" >> $GITHUB_OUTPUT
+          echo "BIN=${bin}" >> $GITHUB_ENV
 
       - name: Determine binary name
-        id: binary-name
         shell: bash
         run: |
-          target="${{ steps.target.outputs.target }}"
+          target="${TARGET}"
           name="djls"
 
           if [[ "$target" == *linux* ]]; then
@@ -121,25 +125,28 @@ jobs:
             name+=".exe"
           fi
 
-          echo "name=$name" >> $GITHUB_OUTPUT
+          echo "BINARY_NAME=${name}" >> $GITHUB_ENV
 
       - name: Strip release binary (Unix)
         if: ${{ runner.os != 'Windows' }}
         shell: bash
+        env:
+          RUNNER_OS: ${{ runner.os }}
+          PLATFORM_TARGET: ${{ matrix.platform.target }}
         run: |
-          if [[ "${{ runner.os }}" == "Linux" && "${{ matrix.platform.target }}" == "aarch64" ]]; then
+          if [[ "${RUNNER_OS}" == "Linux" && "${PLATFORM_TARGET}" == "aarch64" ]]; then
             sudo apt-get update
             sudo apt-get install -y binutils-aarch64-linux-gnu
-            aarch64-linux-gnu-strip "${{ steps.build.outputs.bin }}"
+            aarch64-linux-gnu-strip "${BIN}"
           else
-            strip "${{ steps.build.outputs.bin }}"
+            strip "${BIN}"
           fi
 
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
-          name: binary-${{ steps.binary-name.outputs.name }}
-          path: ${{ steps.build.outputs.bin }}
+          name: binary-${{ env.BINARY_NAME }}
+          path: ${{ env.BIN }}
 
   linux:
     runs-on: ${{ matrix.platform.runner }}
