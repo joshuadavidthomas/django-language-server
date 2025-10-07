@@ -22,6 +22,10 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 - Added support for Python 3.14
 
+### Removed
+
+- Dropped support for Python 3.9
+
 ## [5.2.2]
 
 ### Added
