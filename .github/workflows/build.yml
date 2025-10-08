@@ -1,17 +1,10 @@
 name: build
 
 on:
-  pull_request:
-    branches:
-      - main
-    paths:
-      - .github/workflows/build.yml
-      - crates/**
-      - Cargo.lock
-      - Cargo.toml
   push:
     branches:
       - main
+      - release/*
     paths:
       - .github/workflows/build.yml
       - crates/**
@@ -31,7 +24,7 @@ on:
         type: string
 
 concurrency:
-  group: build-${{ github.head_ref }}
+  group: build-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:

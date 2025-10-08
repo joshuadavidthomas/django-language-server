@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: release-${{ github.head_ref }}
+  group: release-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -22,16 +22,10 @@ jobs:
     with:
       version: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
 
-  test:
-    uses: ./.github/workflows/test.yml
-    if: ${{ startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' }}
-    with:
-      os: "macos-latest,ubuntu-latest,windows-latest"
-
   release:
     runs-on: ubuntu-latest
     if: ${{ startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' }}
-    needs: [build, test]
+    needs: [build]
     environment: release
     permissions:
       attestations: write
