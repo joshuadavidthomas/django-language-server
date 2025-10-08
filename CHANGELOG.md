@@ -21,6 +21,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 ### Added
 
 - Added documentation for Zed extension
+- Added documentation for setting up Sublime Text
 
 ## [5.2.3]
 
