@@ -22,8 +22,15 @@ pub enum LanguageId {
 impl From<&str> for LanguageId {
     fn from(language_id: &str) -> Self {
         match language_id {
-            "django-html" | "htmldjango" => Self::HtmlDjango,
-            "html" => Self::Html,
+            // TODO: create a client -> language id mapping
+            // "html" was switched from `LanguageId::Html` to `LanguageId::HtmlDjango`
+            // to account for Sublime Text as it the Django extensions
+            // provided by their ecosystem use "html" as the language id
+            // for any Django templates. For now, we'll just map all of "html"
+            // and count on the server only running in Django contexts -- with
+            // a long term goal of creating a `Client` enum with the specific clients
+            // that need specific overrides.
+            "django-html" | "htmldjango" | "html" => Self::HtmlDjango,
             "plaintext" => Self::PlainText,
             "python" => Self::Python,
             _ => Self::Other,
