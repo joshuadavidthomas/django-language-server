@@ -45,6 +45,9 @@ def _convert_repo_links(content, repo_url):
         if path.startswith(("#", "http://", "https://", "./assets/", "assets/")):
             return match.group(0)
 
+        if path.startswith("docs/"):
+            return f"[{text}]({path.removeprefix('docs/')})"
+
         if "clients/nvim/README.md" in path:
             return f"[{text}](clients/neovim.md)"
 
