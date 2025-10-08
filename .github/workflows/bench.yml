@@ -33,10 +33,10 @@ jobs:
       - run: cargo install cargo-codspeed --locked
 
       - name: Build the benchmark target(s)
-        run: cargo codspeed build
+        run: cargo codspeed build -p djls-bench
 
       - name: Run the benchmarks
         uses: CodSpeedHQ/action@3959e9e296ef25296e93e32afcc97196f966e57f
         with:
           mode: instrumentation
-          run: cargo codspeed run
+          run: cargo codspeed run -p djls-bench
