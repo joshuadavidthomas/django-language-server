@@ -29,7 +29,7 @@ trait DiagnosticError: std::fmt::Display {
                 self.diagnostic_code().to_string(),
             )),
             code_description: None,
-            source: Some("djls".to_string()),
+            source: Some(crate::SOURCE_NAME.to_string()),
             message: self.message(),
             related_information: None,
             tags: None,

@@ -13,3 +13,5 @@ pub use snippets::generate_partial_snippet;
 pub use snippets::generate_snippet_for_tag;
 pub use snippets::generate_snippet_for_tag_with_end;
 pub use snippets::generate_snippet_from_args;
+
+pub const SOURCE_NAME: &str = "djls";
