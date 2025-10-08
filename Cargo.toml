@@ -1,15 +1,7 @@
 [workspace]
 members = ["crates/*"]
-default-members = [
-  "crates/djls",
-  "crates/djls-conf",
-  "crates/djls-ide",
-  "crates/djls-project",
-  "crates/djls-semantic",
-  "crates/djls-server",
-  "crates/djls-source",
-  "crates/djls-templates",
-  "crates/djls-workspace",
+exclude = [
+  "crates/djls-bench",
 ]
 resolver = "2"
 
