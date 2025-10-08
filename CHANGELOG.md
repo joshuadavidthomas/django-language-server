@@ -18,6 +18,10 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ## [Unreleased]
 
+### Added
+
+- Added documentation for Zed extension
+
 ## [5.2.3]
 
 ### Added
