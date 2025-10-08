@@ -9,9 +9,11 @@ The Django Language Server can be used with [Zed](https://zed.dev) via the [zed-
 ## Installation
 
 > [!NOTE]
-> The extension is currently awaiting approval for the official Zed extension store.
+> The extension is currently awaiting approval for the official Zed extension store ([relevant PR](https://github.com/zed-industries/extensions/pull/3525)).
 >
-> In the meantime, you can install it as a dev extension:
+> In the meantime, you can install it as a dev extension. To do so, you will need a Rust toolchain available on your machine, the easiest and recommended way is via [rustup](https://rust-lang.org/tools/install). See the Zed docs on [developing an extension locally](https://zed.dev/docs/extensions/developing-extensions#developing-an-extension-locally) for more information.
+>
+> Once you have Rust available, you can follow these steps:
 >
 > 1. Clone the [zed-django](https://github.com/joshuadavidthomas/zed-django) repository locally
 > 2. Open the Extensions panel (`zed: extensions` in the command palette or `ctrl-shift-x`/`cmd-shift-x`)
