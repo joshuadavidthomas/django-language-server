@@ -819,7 +819,8 @@ mod tests {
     fn test_conversion_from_settings() {
         // Test case 1: Empty settings gives built-in specs
         let dir = tempfile::TempDir::new().unwrap();
-        let settings = djls_conf::Settings::new(Utf8Path::from_path(dir.path()).unwrap()).unwrap();
+        let settings =
+            djls_conf::Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
         let specs = TagSpecs::from(&settings);
 
         // Should have built-in specs
@@ -847,7 +848,8 @@ end_tag = { name = "endif", optional = true }
 "#;
         fs::write(dir.path().join("djls.toml"), config_content).unwrap();
 
-        let settings = djls_conf::Settings::new(Utf8Path::from_path(dir.path()).unwrap()).unwrap();
+        let settings =
+            djls_conf::Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
         let specs = TagSpecs::from(&settings);
 
         // Should have built-in specs

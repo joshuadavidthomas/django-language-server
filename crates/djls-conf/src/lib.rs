@@ -42,11 +42,24 @@ pub struct Settings {
 }
 
 impl Settings {
-    pub fn new(project_root: &Utf8Path) -> Result<Self, ConfigError> {
+    pub fn new(project_root: &Utf8Path, overrides: Option<Settings>) -> Result<Self, ConfigError> {
         let user_config_file = ProjectDirs::from("com.github", "joshuadavidthomas", "djls")
             .map(|proj_dirs| proj_dirs.config_dir().join("djls.toml"));
 
-        Self::load_from_paths(project_root, user_config_file.as_deref())
+        let mut settings = Self::load_from_paths(project_root, user_config_file.as_deref())?;
+
+        if let Some(overrides) = overrides {
+            settings.debug = overrides.debug || settings.debug;
+            settings.venv_path = overrides.venv_path.or(settings.venv_path);
+            settings.django_settings_module = overrides
+                .django_settings_module
+                .or(settings.django_settings_module);
+            if !overrides.tagspecs.is_empty() {
+                settings.tagspecs = overrides.tagspecs;
+            }
+        }
+
+        Ok(settings)
     }
 
     fn load_from_paths(
@@ -127,7 +140,7 @@ mod tests {
         #[test]
         fn test_load_no_files() {
             let dir = tempdir().unwrap();
-            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap()).unwrap();
+            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
             // Add assertions for future default fields here
             assert_eq!(
                 settings,
@@ -148,7 +161,7 @@ mod tests {
         fn test_load_djls_toml_only() {
             let dir = tempdir().unwrap();
             fs::write(dir.path().join("djls.toml"), "debug = true").unwrap();
-            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap()).unwrap();
+            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
             assert_eq!(
                 settings,
                 Settings {
@@ -162,7 +175,7 @@ mod tests {
         fn test_load_venv_path_config() {
             let dir = tempdir().unwrap();
             fs::write(dir.path().join("djls.toml"), "venv_path = '/path/to/venv'").unwrap();
-            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap()).unwrap();
+            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
             assert_eq!(
                 settings,
                 Settings {
@@ -176,7 +189,7 @@ mod tests {
         fn test_load_dot_djls_toml_only() {
             let dir = tempdir().unwrap();
             fs::write(dir.path().join(".djls.toml"), "debug = true").unwrap();
-            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap()).unwrap();
+            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
             assert_eq!(
                 settings,
                 Settings {
@@ -192,7 +205,7 @@ mod tests {
             // Write the setting under [tool.djls]
             let content = "[tool.djls]\ndebug = true\n";
             fs::write(dir.path().join("pyproject.toml"), content).unwrap();
-            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap()).unwrap();
+            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
             assert_eq!(
                 settings,
                 Settings {
@@ -211,7 +224,7 @@ mod tests {
             let dir = tempdir().unwrap();
             fs::write(dir.path().join(".djls.toml"), "debug = false").unwrap();
             fs::write(dir.path().join("djls.toml"), "debug = true").unwrap();
-            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap()).unwrap();
+            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
             // djls.toml wins
             assert_eq!(
                 settings,
@@ -228,7 +241,7 @@ mod tests {
             let pyproject_content = "[tool.djls]\ndebug = false\n";
             fs::write(dir.path().join("pyproject.toml"), pyproject_content).unwrap();
             fs::write(dir.path().join(".djls.toml"), "debug = true").unwrap();
-            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap()).unwrap();
+            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
             // .djls.toml wins
             assert_eq!(
                 settings,
@@ -246,7 +259,7 @@ mod tests {
             fs::write(dir.path().join("pyproject.toml"), pyproject_content).unwrap();
             fs::write(dir.path().join(".djls.toml"), "debug = false").unwrap();
             fs::write(dir.path().join("djls.toml"), "debug = true").unwrap();
-            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap()).unwrap();
+            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
             // djls.toml wins
             assert_eq!(
                 settings,
@@ -380,7 +393,7 @@ mod tests {
             let dir = tempdir().unwrap();
             fs::write(dir.path().join("djls.toml"), "debug = not_a_boolean").unwrap();
             // Need to call Settings::new here as load_from_paths doesn't involve ProjectDirs
-            let result = Settings::new(Utf8Path::from_path(dir.path()).unwrap());
+            let result = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None);
             assert!(result.is_err());
             assert!(matches!(result.unwrap_err(), ConfigError::Config(_)));
         }
@@ -412,7 +425,7 @@ args = [
 ]
 "#;
             fs::write(dir.path().join("djls.toml"), content).unwrap();
-            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap()).unwrap();
+            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
 
             assert_eq!(settings.tagspecs().len(), 2);
 
@@ -445,7 +458,7 @@ args = [
 ]
 "#;
             fs::write(dir.path().join("pyproject.toml"), content).unwrap();
-            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap()).unwrap();
+            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
 
             assert_eq!(settings.tagspecs().len(), 1);
             let cache = &settings.tagspecs()[0];
@@ -468,7 +481,7 @@ args = [
 ]
 "#;
             fs::write(dir.path().join("djls.toml"), content).unwrap();
-            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap()).unwrap();
+            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
 
             let test = &settings.tagspecs()[0];
             assert_eq!(test.args.len(), 3);
@@ -507,7 +520,7 @@ args = [
 ]
 "#;
             fs::write(dir.path().join("djls.toml"), content).unwrap();
-            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap()).unwrap();
+            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
 
             let if_tag = &settings.tagspecs()[0];
             assert_eq!(if_tag.name, "if");
@@ -530,7 +543,7 @@ args = [
 ]
 "#;
             fs::write(dir.path().join("djls.toml"), content).unwrap();
-            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap()).unwrap();
+            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
 
             let block_tag = &settings.tagspecs()[0];
             assert_eq!(block_tag.name, "block");
@@ -554,7 +567,7 @@ module = "myapp.tags"
 args = []
 "#;
             fs::write(dir.path().join("djls.toml"), content).unwrap();
-            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap()).unwrap();
+            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
 
             assert!(settings.debug());
             assert_eq!(settings.venv_path(), Some("/path/to/venv"));
@@ -579,7 +592,7 @@ args = [
 ]
 "#;
             fs::write(dir.path().join("djls.toml"), content).unwrap();
-            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap()).unwrap();
+            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
 
             let test = &settings.tagspecs()[0];
             assert_eq!(test.args.len(), 6);

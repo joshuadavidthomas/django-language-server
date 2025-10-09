@@ -13,8 +13,9 @@ use djls_workspace::TextDocument;
 use djls_workspace::Workspace;
 use tower_lsp_server::lsp_types;
 
-use crate::client::ClientCapabilities;
+use crate::client::ClientInfo;
 use crate::db::DjangoDatabase;
+use crate::ext::InitializeParamsExt;
 use crate::ext::TextDocumentContentChangeEventExt;
 use crate::ext::TextDocumentItemExt;
 use crate::ext::UriExt;
@@ -36,7 +37,7 @@ pub struct Session {
     /// but not the database (which is owned directly by Session).
     workspace: Workspace,
 
-    client_capabilities: ClientCapabilities,
+    client_info: ClientInfo,
 
     /// The Salsa database for incremental computation
     db: DjangoDatabase,
@@ -56,30 +57,41 @@ impl Session {
                     .and_then(|p| Utf8PathBuf::from_path_buf(p).ok())
             });
 
+        let client_options = params.client_options();
+
+        let client_settings = client_options.settings.clone();
+
         let workspace = Workspace::new();
         let settings = project_path
             .as_ref()
-            .and_then(|path| djls_conf::Settings::new(path).ok())
-            .unwrap_or_default();
+            .and_then(|path| djls_conf::Settings::new(path, Some(client_settings.clone())).ok())
+            .unwrap_or(client_settings);
 
         let db = DjangoDatabase::new(workspace.overlay(), &settings, project_path.as_deref());
 
+        let client_info = ClientInfo::new(
+            &params.capabilities,
+            params.client_info.as_ref(),
+            client_options,
+        );
+
         Self {
             workspace,
-            client_capabilities: ClientCapabilities::negotiate(
-                &params.capabilities,
-                params.client_info.as_ref(),
-            ),
+            client_info,
             db,
         }
     }
 
     pub fn snapshot(&self) -> SessionSnapshot {
-        SessionSnapshot::new(self.db.clone(), self.client_capabilities)
+        SessionSnapshot::new(self.db.clone(), self.client_info.clone())
     }
 
-    pub fn client_capabilities(&self) -> ClientCapabilities {
-        self.client_capabilities
+    pub fn client_info(&self) -> &ClientInfo {
+        &self.client_info
+    }
+
+    pub fn client_capabilities(&self) -> crate::client::ClientCapabilities {
+        self.client_info.capabilities()
     }
 
     pub fn db(&self) -> &DjangoDatabase {
@@ -113,7 +125,7 @@ impl Session {
             return None;
         };
 
-        let kind = text_document.language_id_to_file_kind(self.client_capabilities.client());
+        let kind = text_document.language_id_to_file_kind(self.client_info.client());
 
         let document = self.workspace.open_document(
             &mut self.db,
@@ -156,7 +168,7 @@ impl Session {
             &path,
             changes.to_document_changes(),
             text_document.version,
-            self.client_capabilities.position_encoding(),
+            self.client_info.position_encoding(),
         )?;
 
         self.handle_file(document.file());
@@ -206,23 +218,24 @@ impl Default for Session {
 #[derive(Clone)]
 pub struct SessionSnapshot {
     db: DjangoDatabase,
-    client_capabilities: ClientCapabilities,
+    client_info: ClientInfo,
 }
 
 impl SessionSnapshot {
-    pub fn new(db: DjangoDatabase, client_capabilities: ClientCapabilities) -> Self {
-        Self {
-            db,
-            client_capabilities,
-        }
+    pub fn new(db: DjangoDatabase, client_info: ClientInfo) -> Self {
+        Self { db, client_info }
     }
 
     pub fn db(&self) -> &DjangoDatabase {
         &self.db
     }
 
-    pub fn client_capabilities(&self) -> ClientCapabilities {
-        self.client_capabilities
+    pub fn client_info(&self) -> &ClientInfo {
+        &self.client_info
+    }
+
+    pub fn client_capabilities(&self) -> crate::client::ClientCapabilities {
+        self.client_info.capabilities()
     }
 }
 
@@ -308,8 +321,8 @@ mod tests {
         let snapshot = session.snapshot();
 
         assert_eq!(
-            session.client_capabilities().position_encoding(),
-            snapshot.client_capabilities().position_encoding()
+            session.client_info().position_encoding(),
+            snapshot.client_info().position_encoding()
         );
         assert_eq!(
             session.project().is_some(),

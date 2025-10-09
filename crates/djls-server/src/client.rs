@@ -1,49 +1,29 @@
-//! LSP client identification for client-specific behavioral overrides.
-
+use djls_conf::Settings;
 use djls_source::PositionEncoding;
+use rustc_hash::FxHashMap;
+use serde::Deserialize;
+use serde_json::Value;
 use tower_lsp_server::lsp_types;
 
 use crate::ext::ClientInfoExt;
 use crate::ext::PositionEncodingKindExt;
 
-/// LSP client identification for client-specific behavioral overrides.
-///
-/// Most clients work fine with standard LSP behavior, but some require
-/// specific workarounds (e.g., language ID mappings, capability quirks).
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Client {
-    /// Standard LSP client behavior (no special overrides needed)
-    Default,
-    /// Sublime Text LSP - uses "html" language ID for Django templates
-    SublimeText,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct ClientCapabilities {
+#[derive(Debug, Clone)]
+pub struct ClientInfo {
     client: Client,
     position_encoding: PositionEncoding,
-    pull_diagnostics: bool,
-    snippets: bool,
+    capabilities: ClientCapabilities,
+    options: ClientOptions,
 }
 
-impl ClientCapabilities {
-    pub fn negotiate(
+impl ClientInfo {
+    #[must_use]
+    pub fn new(
         capabilities: &lsp_types::ClientCapabilities,
         client_info: Option<&lsp_types::ClientInfo>,
+        options: ClientOptions,
     ) -> Self {
-        let pull_diagnostics = capabilities
-            .text_document
-            .as_ref()
-            .and_then(|text_doc| text_doc.diagnostic.as_ref())
-            .is_some();
-
-        let snippets = capabilities
-            .text_document
-            .as_ref()
-            .and_then(|text_document| text_document.completion.as_ref())
-            .and_then(|completion| completion.completion_item.as_ref())
-            .and_then(|completion_item| completion_item.snippet_support)
-            .unwrap_or(false);
+        let client = client_info.to_client();
 
         let client_encodings = capabilities
             .general
@@ -64,35 +44,101 @@ impl ClientCapabilities {
         })
         .unwrap_or(PositionEncoding::Utf16);
 
-        let client = client_info.to_client();
+        let capabilities = ClientCapabilities::new(capabilities);
 
         Self {
             client,
             position_encoding,
-            pull_diagnostics,
-            snippets,
+            capabilities,
+            options,
         }
     }
 
     #[must_use]
-    pub fn position_encoding(self) -> PositionEncoding {
-        self.position_encoding
-    }
-
-    #[must_use]
-    pub fn client(self) -> Client {
+    pub fn client(&self) -> Client {
         self.client
     }
 
     #[must_use]
-    pub fn supports_pull_diagnostics(self) -> bool {
-        self.pull_diagnostics
+    pub fn capabilities(&self) -> ClientCapabilities {
+        self.capabilities
     }
 
     #[must_use]
-    pub fn supports_snippets(self) -> bool {
-        self.snippets
+    pub fn options(&self) -> &ClientOptions {
+        &self.options
     }
+
+    #[must_use]
+    pub fn config_overrides(&self) -> &Settings {
+        &self.options.settings
+    }
+
+    #[must_use]
+    pub fn position_encoding(&self) -> PositionEncoding {
+        self.position_encoding
+    }
+
+    #[must_use]
+    pub fn supports_pull_diagnostics(&self) -> bool {
+        self.capabilities.pull_diagnostics
+    }
+
+    #[must_use]
+    pub fn supports_snippets(&self) -> bool {
+        self.capabilities.snippets
+    }
+}
+
+/// LSP client identification for client-specific behavioral overrides.
+///
+/// Most clients work fine with standard LSP behavior, but some require
+/// specific workarounds (e.g., language ID mappings, capability quirks).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Client {
+    /// Standard LSP client behavior (no special overrides needed)
+    Default,
+    /// Sublime Text LSP - uses "html" language ID for Django templates
+    SublimeText,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ClientCapabilities {
+    pull_diagnostics: bool,
+    snippets: bool,
+}
+
+impl ClientCapabilities {
+    #[must_use]
+    pub fn new(capabilities: &lsp_types::ClientCapabilities) -> Self {
+        let pull_diagnostics = capabilities
+            .text_document
+            .as_ref()
+            .and_then(|text_doc| text_doc.diagnostic.as_ref())
+            .is_some();
+
+        let snippets = capabilities
+            .text_document
+            .as_ref()
+            .and_then(|text_document| text_document.completion.as_ref())
+            .and_then(|completion| completion.completion_item.as_ref())
+            .and_then(|completion_item| completion_item.snippet_support)
+            .unwrap_or(false);
+
+        Self {
+            pull_diagnostics,
+            snippets,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct ClientOptions {
+    #[serde(flatten)]
+    pub settings: Settings,
+
+    #[serde(flatten)]
+    pub unknown: FxHashMap<String, Value>,
 }
 
 #[cfg(test)]
@@ -117,10 +163,8 @@ mod tests {
             }),
             ..Default::default()
         };
-        assert_eq!(
-            ClientCapabilities::negotiate(&capabilities, None).position_encoding(),
-            PositionEncoding::Utf8
-        );
+        let client_info = ClientInfo::new(&capabilities, None, ClientOptions::default());
+        assert_eq!(client_info.position_encoding(), PositionEncoding::Utf8);
     }
 
     #[test]
@@ -135,10 +179,8 @@ mod tests {
             }),
             ..Default::default()
         };
-        assert_eq!(
-            ClientCapabilities::negotiate(&capabilities, None).position_encoding(),
-            PositionEncoding::Utf32
-        );
+        let client_info = ClientInfo::new(&capabilities, None, ClientOptions::default());
+        assert_eq!(client_info.position_encoding(), PositionEncoding::Utf32);
     }
 
     #[test]
@@ -153,55 +195,59 @@ mod tests {
             }),
             ..Default::default()
         };
-        assert_eq!(
-            ClientCapabilities::negotiate(&capabilities, None).position_encoding(),
-            PositionEncoding::Utf16
-        );
+        let client_info = ClientInfo::new(&capabilities, None, ClientOptions::default());
+        assert_eq!(client_info.position_encoding(), PositionEncoding::Utf16);
     }
 
     #[test]
     fn test_negotiate_fallback_with_no_capabilities() {
         let capabilities = lsp_types::ClientCapabilities::default();
-        assert_eq!(
-            ClientCapabilities::negotiate(&capabilities, None).position_encoding(),
-            PositionEncoding::Utf16
-        );
+        let client_info = ClientInfo::new(&capabilities, None, ClientOptions::default());
+        assert_eq!(client_info.position_encoding(), PositionEncoding::Utf16);
     }
 
     #[test]
     fn test_negotiate_detects_sublime_client() {
         let capabilities = lsp_types::ClientCapabilities::default();
-        let client_info = lsp_types::ClientInfo {
+        let lsp_client_info = lsp_types::ClientInfo {
             name: "Sublime Text LSP".to_string(),
             version: Some("1.0.0".to_string()),
         };
-        assert_eq!(
-            ClientCapabilities::negotiate(&capabilities, Some(&client_info)).client(),
-            Client::SublimeText
+        let client_info = ClientInfo::new(
+            &capabilities,
+            Some(&lsp_client_info),
+            ClientOptions::default(),
         );
+        assert_eq!(client_info.client(), Client::SublimeText);
     }
 
     #[test]
     fn test_negotiate_defaults_to_default_client() {
         let capabilities = lsp_types::ClientCapabilities::default();
-        let client_info = lsp_types::ClientInfo {
+        let lsp_client_info = lsp_types::ClientInfo {
             name: "Other Client".to_string(),
             version: None,
         };
-        assert_eq!(
-            ClientCapabilities::negotiate(&capabilities, Some(&client_info)).client(),
-            Client::Default
+        let client_info = ClientInfo::new(
+            &capabilities,
+            Some(&lsp_client_info),
+            ClientOptions::default(),
         );
+        assert_eq!(client_info.client(), Client::Default);
     }
 
     #[test]
     fn test_map_language_id_sublime_html_to_template() {
         let capabilities = lsp_types::ClientCapabilities::default();
-        let client_info = lsp_types::ClientInfo {
+        let lsp_client_info = lsp_types::ClientInfo {
             name: "Sublime Text LSP".to_string(),
             version: None,
         };
-        let client_caps = ClientCapabilities::negotiate(&capabilities, Some(&client_info));
+        let client_info = ClientInfo::new(
+            &capabilities,
+            Some(&lsp_client_info),
+            ClientOptions::default(),
+        );
         let doc = lsp_types::TextDocumentItem {
             uri: lsp_types::Uri::from_str("file:///test.html").unwrap(),
             language_id: "html".to_string(),
@@ -209,7 +255,7 @@ mod tests {
             text: String::new(),
         };
         assert_eq!(
-            doc.language_id_to_file_kind(client_caps.client()),
+            doc.language_id_to_file_kind(client_info.client()),
             FileKind::Template
         );
     }
@@ -217,7 +263,7 @@ mod tests {
     #[test]
     fn test_map_language_id_default_html_to_other() {
         let capabilities = lsp_types::ClientCapabilities::default();
-        let client_caps = ClientCapabilities::negotiate(&capabilities, None);
+        let client_info = ClientInfo::new(&capabilities, None, ClientOptions::default());
         let doc = lsp_types::TextDocumentItem {
             uri: lsp_types::Uri::from_str("file:///test.html").unwrap(),
             language_id: "html".to_string(),
@@ -225,7 +271,7 @@ mod tests {
             text: String::new(),
         };
         assert_eq!(
-            doc.language_id_to_file_kind(client_caps.client()),
+            doc.language_id_to_file_kind(client_info.client()),
             FileKind::Other
         );
     }
@@ -233,7 +279,7 @@ mod tests {
     #[test]
     fn test_map_language_id_django_html_always_template() {
         let capabilities = lsp_types::ClientCapabilities::default();
-        let client_caps = ClientCapabilities::negotiate(&capabilities, None);
+        let client_info = ClientInfo::new(&capabilities, None, ClientOptions::default());
         let doc = lsp_types::TextDocumentItem {
             uri: lsp_types::Uri::from_str("file:///test.html").unwrap(),
             language_id: "django-html".to_string(),
@@ -241,7 +287,7 @@ mod tests {
             text: String::new(),
         };
         assert_eq!(
-            doc.language_id_to_file_kind(client_caps.client()),
+            doc.language_id_to_file_kind(client_info.client()),
             FileKind::Template
         );
     }

@@ -77,7 +77,7 @@ impl DjangoLanguageServer {
 
     async fn publish_diagnostics(&self, document: &TextDocument) {
         let supports_pull = self
-            .with_session(|session| session.client_capabilities().supports_pull_diagnostics())
+            .with_session(|session| session.client_info().supports_pull_diagnostics())
             .await;
 
         if supports_pull {
@@ -120,7 +120,7 @@ impl LanguageServer for DjangoLanguageServer {
         tracing::info!("Initializing server...");
 
         let session = Session::new(&params);
-        let encoding = session.client_capabilities().position_encoding();
+        let encoding = session.client_info().position_encoding();
 
         {
             let mut session_lock = self.session.lock().await;
@@ -262,7 +262,7 @@ impl LanguageServer for DjangoLanguageServer {
 
                 let document = session.get_document(&path)?;
                 let position = params.text_document_position.position;
-                let encoding = session.client_capabilities().position_encoding();
+                let encoding = session.client_info().position_encoding();
                 let file_kind = FileKind::from(&path);
                 let db = session.db();
                 let template_tags = if let Some(project) = db.project() {
@@ -279,7 +279,7 @@ impl LanguageServer for DjangoLanguageServer {
                     None
                 };
                 let tag_specs = db.tag_specs();
-                let supports_snippets = session.client_capabilities().supports_snippets();
+                let supports_snippets = session.client_info().supports_snippets();
 
                 let completions = djls_ide::handle_completion(
                     &document,
@@ -351,7 +351,7 @@ impl LanguageServer for DjangoLanguageServer {
     ) -> LspResult<Option<lsp_types::GotoDefinitionResponse>> {
         let response = self
             .with_session_mut(|session| {
-                let encoding = session.client_capabilities().position_encoding();
+                let encoding = session.client_info().position_encoding();
                 let db = session.db_mut();
                 let file = params
                     .text_document_position_params
@@ -377,7 +377,7 @@ impl LanguageServer for DjangoLanguageServer {
     ) -> LspResult<Option<Vec<lsp_types::Location>>> {
         let response = self
             .with_session_mut(|session| {
-                let encoding = session.client_capabilities().position_encoding();
+                let encoding = session.client_info().position_encoding();
                 let db = session.db_mut();
                 let file = params.text_document_position.text_document.to_file(db)?;
                 let source = file.source(db);
@@ -401,7 +401,10 @@ impl LanguageServer for DjangoLanguageServer {
             if session.project().is_some() {
                 let project_root = session.db().project_root_or_cwd();
 
-                match djls_conf::Settings::new(&project_root) {
+                match djls_conf::Settings::new(
+                    &project_root,
+                    Some(session.client_info().config_overrides().clone()),
+                ) {
                     Ok(new_settings) => {
                         session.set_settings(new_settings);
                     }
