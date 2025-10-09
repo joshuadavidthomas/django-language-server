@@ -23,6 +23,11 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Added documentation for Zed extension
 - Added documentation for setting up Sublime Text
 
+### Changed
+
+- **Internal**: Refactored workspace to use domain types (`FileKind`) instead of LSP types (`LanguageId`)
+- **Internal**: Added client detection for LSP-specific workarounds (e.g., Sublime Text's `html` language ID handling)
+
 ## [5.2.3]
 
 ### Added
