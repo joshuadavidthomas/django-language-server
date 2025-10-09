@@ -13,6 +13,7 @@ use tower_lsp_server::lsp_types;
 use tower_lsp_server::UriExt as TowerUriExt;
 
 use crate::client::Client;
+use crate::client::ClientOptions;
 
 pub(crate) trait PositionExt {
     fn to_line_col(&self) -> LineCol;
@@ -93,6 +94,43 @@ impl TextDocumentIdentifierExt for lsp_types::TextDocumentIdentifier {
     fn to_file(&self, db: &mut dyn WorkspaceDb) -> Option<File> {
         let path = self.uri.to_utf8_path_buf()?;
         Some(db.get_or_create_file(&path))
+    }
+}
+
+pub(crate) trait InitializeParamsExt {
+    fn client_options(&self) -> ClientOptions;
+}
+
+impl InitializeParamsExt for lsp_types::InitializeParams {
+    fn client_options(&self) -> ClientOptions {
+        let client_options: ClientOptions = self
+            .initialization_options
+            .as_ref()
+            .and_then(|v| match serde_json::from_value(v.clone()) {
+                Ok(opts) => Some(opts),
+                Err(err) => {
+                    tracing::error!(
+                        "Failed to deserialize initialization options: {}. Using defaults.",
+                        err
+                    );
+                    None
+                }
+            })
+            .unwrap_or_default();
+
+        if !client_options.unknown.is_empty() {
+            tracing::warn!(
+                "Received unknown initialization options: {}",
+                client_options
+                    .unknown
+                    .keys()
+                    .map(String::as_str)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+        }
+
+        client_options
     }
 }
 

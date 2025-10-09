@@ -632,6 +632,7 @@ dependencies = [
  "djls-templates",
  "djls-workspace",
  "percent-encoding",
+ "rustc-hash",
  "salsa",
  "serde",
  "serde_json",

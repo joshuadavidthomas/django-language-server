@@ -1,7 +1,6 @@
-use std::collections::HashMap;
-
 use djls_conf::Settings;
 use djls_source::PositionEncoding;
+use rustc_hash::FxHashMap;
 use serde::Deserialize;
 use serde_json::Value;
 use tower_lsp_server::lsp_types;
@@ -139,21 +138,7 @@ pub struct ClientOptions {
     pub settings: Settings,
 
     #[serde(flatten)]
-    pub unknown: HashMap<String, Value>,
-}
-
-impl ClientOptions {
-    #[must_use]
-    pub fn from_value(value: Option<Value>) -> (Self, Option<serde_json::Error>) {
-        let Some(value) = value else {
-            return (Self::default(), None);
-        };
-
-        match serde_json::from_value::<Self>(value) {
-            Ok(client_opts) => (client_opts, None),
-            Err(err) => (Self::default(), Some(err)),
-        }
-    }
+    pub unknown: FxHashMap<String, Value>,
 }
 
 #[cfg(test)]
@@ -305,78 +290,5 @@ mod tests {
             doc.language_id_to_file_kind(client_info.client()),
             FileKind::Template
         );
-    }
-
-    #[test]
-    fn test_client_options_from_value_none() {
-        let (opts, err) = super::ClientOptions::from_value(None);
-        assert!(err.is_none());
-        assert!(!opts.settings.debug());
-        assert!(opts.unknown.is_empty());
-    }
-
-    #[test]
-    fn test_client_options_from_value_empty_object() {
-        let value = serde_json::json!({});
-        let (opts, err) = super::ClientOptions::from_value(Some(value));
-        assert!(err.is_none());
-        assert!(!opts.settings.debug());
-        assert!(opts.unknown.is_empty());
-    }
-
-    #[test]
-    fn test_client_options_from_value_valid_settings() {
-        let value = serde_json::json!({
-            "debug": true,
-            "venv_path": "/path/to/venv",
-            "django_settings_module": "myproject.settings"
-        });
-        let (opts, err) = super::ClientOptions::from_value(Some(value));
-        assert!(err.is_none());
-        assert!(opts.settings.debug());
-        assert_eq!(opts.settings.venv_path(), Some("/path/to/venv"));
-        assert_eq!(
-            opts.settings.django_settings_module(),
-            Some("myproject.settings")
-        );
-        assert!(opts.unknown.is_empty());
-    }
-
-    #[test]
-    fn test_client_options_from_value_unknown_fields() {
-        let value = serde_json::json!({
-            "debug": true,
-            "unknownOption": "value",
-            "anotherUnknown": 42
-        });
-        let (opts, err) = super::ClientOptions::from_value(Some(value));
-        assert!(err.is_none());
-        assert!(opts.settings.debug());
-        assert_eq!(opts.unknown.len(), 2);
-        assert!(opts.unknown.contains_key("unknownOption"));
-        assert!(opts.unknown.contains_key("anotherUnknown"));
-    }
-
-    #[test]
-    fn test_client_options_from_value_invalid_json() {
-        let value = serde_json::json!({
-            "debug": "not_a_boolean"
-        });
-        let (opts, err) = super::ClientOptions::from_value(Some(value));
-        assert!(err.is_some());
-        assert!(!opts.settings.debug());
-        assert!(opts.unknown.is_empty());
-    }
-
-    #[test]
-    fn test_client_options_from_value_partial_settings() {
-        let value = serde_json::json!({
-            "venv_path": "/custom/venv"
-        });
-        let (opts, err) = super::ClientOptions::from_value(Some(value));
-        assert!(err.is_none());
-        assert!(!opts.settings.debug());
-        assert_eq!(opts.settings.venv_path(), Some("/custom/venv"));
-        assert_eq!(opts.settings.django_settings_module(), None);
     }
 }

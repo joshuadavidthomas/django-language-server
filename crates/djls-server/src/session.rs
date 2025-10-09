@@ -14,8 +14,8 @@ use djls_workspace::Workspace;
 use tower_lsp_server::lsp_types;
 
 use crate::client::ClientInfo;
-use crate::client::ClientOptions;
 use crate::db::DjangoDatabase;
+use crate::ext::InitializeParamsExt;
 use crate::ext::TextDocumentContentChangeEventExt;
 use crate::ext::TextDocumentItemExt;
 use crate::ext::UriExt;
@@ -57,29 +57,9 @@ impl Session {
                     .and_then(|p| Utf8PathBuf::from_path_buf(p).ok())
             });
 
-        let (client_opts, deser_error) =
-            ClientOptions::from_value(params.initialization_options.clone());
+        let client_options = params.client_options();
 
-        if let Some(err) = deser_error {
-            tracing::error!(
-                "Failed to deserialize initialization options: {}. Falling back to file-based configuration.",
-                err
-            );
-        }
-
-        if !client_opts.unknown.is_empty() {
-            tracing::warn!(
-                "Received unknown initialization options: {}",
-                client_opts
-                    .unknown
-                    .keys()
-                    .map(String::as_str)
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            );
-        }
-
-        let client_settings = client_opts.settings.clone();
+        let client_settings = client_options.settings.clone();
 
         let workspace = Workspace::new();
         let settings = project_path
@@ -92,7 +72,7 @@ impl Session {
         let client_info = ClientInfo::new(
             &params.capabilities,
             params.client_info.as_ref(),
-            client_opts,
+            client_options,
         );
 
         Self {
