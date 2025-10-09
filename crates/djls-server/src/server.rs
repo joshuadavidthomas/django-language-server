@@ -21,9 +21,6 @@ use crate::queue::Queue;
 use crate::session::Session;
 use crate::session::SessionSnapshot;
 
-const SERVER_NAME: &str = "Django Language Server";
-const SERVER_VERSION: &str = "0.1.0";
-
 pub struct DjangoLanguageServer {
     client: Client,
     session: Arc<Mutex<Session>>,
@@ -168,8 +165,8 @@ impl LanguageServer for DjangoLanguageServer {
                 ..Default::default()
             },
             server_info: Some(lsp_types::ServerInfo {
-                name: SERVER_NAME.to_string(),
-                version: Some(SERVER_VERSION.to_string()),
+                name: "Django Language Server".to_string(),
+                version: Some(env!("DJLS_VERSION").to_string()),
             }),
             offset_encoding: Some(encoding.to_string()),
         })

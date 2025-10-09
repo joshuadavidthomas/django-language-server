@@ -26,6 +26,9 @@ tracing = { workspace = true }
 tracing-appender = { workspace = true }
 tracing-subscriber = { workspace = true }
 
+[build-dependencies]
+toml = { workspace = true }
+
 [dev-dependencies]
 tempfile = { workspace = true }
 
