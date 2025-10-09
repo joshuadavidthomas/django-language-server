@@ -9,14 +9,14 @@ use djls_conf::Settings;
 use djls_project::Db as ProjectDb;
 use djls_source::File;
 use djls_source::FileKind;
-use djls_source::PositionEncoding;
 use djls_workspace::TextDocument;
 use djls_workspace::Workspace;
 use tower_lsp_server::lsp_types;
 
+use crate::client::ClientCapabilities;
 use crate::db::DjangoDatabase;
-use crate::ext::PositionEncodingKindExt;
 use crate::ext::TextDocumentContentChangeEventExt;
+use crate::ext::TextDocumentItemExt;
 use crate::ext::UriExt;
 
 /// LSP Session managing project-specific state and database operations.
@@ -66,7 +66,10 @@ impl Session {
 
         Self {
             workspace,
-            client_capabilities: ClientCapabilities::negotiate(&params.capabilities),
+            client_capabilities: ClientCapabilities::negotiate(
+                &params.capabilities,
+                params.client_info.as_ref(),
+            ),
             db,
         }
     }
@@ -110,12 +113,14 @@ impl Session {
             return None;
         };
 
+        let kind = text_document.language_id_to_file_kind(self.client_capabilities.client());
+
         let document = self.workspace.open_document(
             &mut self.db,
             &path,
             &text_document.text,
             text_document.version,
-            &text_document.language_id,
+            kind,
         )?;
 
         self.handle_file(document.file());
@@ -221,71 +226,6 @@ impl SessionSnapshot {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct ClientCapabilities {
-    pull_diagnostics: bool,
-    snippets: bool,
-    position_encoding: PositionEncoding,
-}
-
-impl ClientCapabilities {
-    fn negotiate(capabilities: &lsp_types::ClientCapabilities) -> Self {
-        let pull_diagnostics = capabilities
-            .text_document
-            .as_ref()
-            .and_then(|text_doc| text_doc.diagnostic.as_ref())
-            .is_some();
-
-        let snippets = capabilities
-            .text_document
-            .as_ref()
-            .and_then(|text_document| text_document.completion.as_ref())
-            .and_then(|completion| completion.completion_item.as_ref())
-            .and_then(|completion_item| completion_item.snippet_support)
-            .unwrap_or(false);
-
-        let client_encodings = capabilities
-            .general
-            .as_ref()
-            .and_then(|general| general.position_encodings.as_ref())
-            .map_or(&[][..], |kinds| kinds.as_slice());
-
-        let position_encoding = [
-            PositionEncoding::Utf8,
-            PositionEncoding::Utf32,
-            PositionEncoding::Utf16,
-        ]
-        .into_iter()
-        .find(|&preferred| {
-            client_encodings
-                .iter()
-                .any(|kind| kind.to_position_encoding() == Some(preferred))
-        })
-        .unwrap_or(PositionEncoding::Utf16);
-
-        Self {
-            pull_diagnostics,
-            snippets,
-            position_encoding,
-        }
-    }
-
-    #[must_use]
-    pub fn supports_pull_diagnostics(&self) -> bool {
-        self.pull_diagnostics
-    }
-
-    #[must_use]
-    pub fn supports_snippets(&self) -> bool {
-        self.snippets
-    }
-
-    #[must_use]
-    pub fn position_encoding(&self) -> PositionEncoding {
-        self.position_encoding
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use djls_source::Db as SourceDb;
@@ -374,70 +314,6 @@ mod tests {
         assert_eq!(
             session.project().is_some(),
             snapshot.db().project().is_some()
-        );
-    }
-
-    #[test]
-    fn test_negotiate_prefers_utf8_when_available() {
-        let capabilities = lsp_types::ClientCapabilities {
-            general: Some(lsp_types::GeneralClientCapabilities {
-                position_encodings: Some(vec![
-                    lsp_types::PositionEncodingKind::new("utf-16"),
-                    lsp_types::PositionEncodingKind::new("utf-8"),
-                    lsp_types::PositionEncodingKind::new("utf-32"),
-                ]),
-                ..Default::default()
-            }),
-            ..Default::default()
-        };
-        assert_eq!(
-            ClientCapabilities::negotiate(&capabilities).position_encoding(),
-            PositionEncoding::Utf8
-        );
-    }
-
-    #[test]
-    fn test_negotiate_prefers_utf32_over_utf16() {
-        let capabilities = lsp_types::ClientCapabilities {
-            general: Some(lsp_types::GeneralClientCapabilities {
-                position_encodings: Some(vec![
-                    lsp_types::PositionEncodingKind::new("utf-16"),
-                    lsp_types::PositionEncodingKind::new("utf-32"),
-                ]),
-                ..Default::default()
-            }),
-            ..Default::default()
-        };
-        assert_eq!(
-            ClientCapabilities::negotiate(&capabilities).position_encoding(),
-            PositionEncoding::Utf32
-        );
-    }
-
-    #[test]
-    fn test_negotiate_fallback_with_unsupported_encodings() {
-        let capabilities = lsp_types::ClientCapabilities {
-            general: Some(lsp_types::GeneralClientCapabilities {
-                position_encodings: Some(vec![
-                    lsp_types::PositionEncodingKind::new("ascii"),
-                    lsp_types::PositionEncodingKind::new("utf-7"),
-                ]),
-                ..Default::default()
-            }),
-            ..Default::default()
-        };
-        assert_eq!(
-            ClientCapabilities::negotiate(&capabilities).position_encoding(),
-            PositionEncoding::Utf16
-        );
-    }
-
-    #[test]
-    fn test_negotiate_fallback_with_no_capabilities() {
-        let capabilities = lsp_types::ClientCapabilities::default();
-        assert_eq!(
-            ClientCapabilities::negotiate(&capabilities).position_encoding(),
-            PositionEncoding::Utf16
         );
     }
 }

@@ -14,7 +14,6 @@ percent-encoding = { workspace = true }
 rustc-hash = { workspace = true }
 salsa = { workspace = true }
 tokio = { workspace = true }
-tower-lsp-server = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]

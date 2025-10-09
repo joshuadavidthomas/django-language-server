@@ -1,6 +1,7 @@
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_source::File;
+use djls_source::FileKind;
 use djls_source::LineCol;
 use djls_source::LineIndex;
 use djls_source::Offset;
@@ -10,6 +11,8 @@ use djls_workspace::Db as WorkspaceDb;
 use djls_workspace::DocumentChange;
 use tower_lsp_server::lsp_types;
 use tower_lsp_server::UriExt as TowerUriExt;
+
+use crate::client::Client;
 
 pub(crate) trait PositionExt {
     fn to_line_col(&self) -> LineCol;
@@ -93,6 +96,33 @@ impl TextDocumentIdentifierExt for lsp_types::TextDocumentIdentifier {
     }
 }
 
+pub(crate) trait ClientInfoExt {
+    fn to_client(&self) -> Client;
+}
+
+impl ClientInfoExt for Option<&lsp_types::ClientInfo> {
+    fn to_client(&self) -> Client {
+        match self.map(|info| info.name.as_str()) {
+            Some("Sublime Text LSP") => Client::SublimeText,
+            _ => Client::Default,
+        }
+    }
+}
+
+pub(crate) trait TextDocumentItemExt {
+    fn language_id_to_file_kind(&self, client: Client) -> FileKind;
+}
+
+impl TextDocumentItemExt for lsp_types::TextDocumentItem {
+    fn language_id_to_file_kind(&self, client: Client) -> FileKind {
+        match (client, self.language_id.as_str()) {
+            (_, "python") => FileKind::Python,
+            (_, "django-html" | "htmldjango") | (Client::SublimeText, "html") => FileKind::Template,
+            _ => FileKind::Other,
+        }
+    }
+}
+
 pub(crate) trait UriExt {
     /// Convert `Utf8Path` to LSP Uri
     fn from_path(path: &Utf8Path) -> Option<Self>
@@ -162,5 +192,107 @@ mod tests {
         assert!(uri.to_utf8_path_buf().is_none());
 
         // TODO(virtual-paths): In Step 2, this should return Some(DocumentPath::Virtual(...))
+    }
+
+    #[test]
+    fn test_client_info_sublime_to_client() {
+        let client_info = lsp_types::ClientInfo {
+            name: "Sublime Text LSP".to_string(),
+            version: Some("1.0.0".to_string()),
+        };
+        assert_eq!(Some(&client_info).to_client(), Client::SublimeText);
+    }
+
+    #[test]
+    fn test_client_info_other_to_client() {
+        let client_info = lsp_types::ClientInfo {
+            name: "Other Client".to_string(),
+            version: None,
+        };
+        assert_eq!(Some(&client_info).to_client(), Client::Default);
+    }
+
+    #[test]
+    fn test_text_document_item_sublime_html_to_template() {
+        let doc = lsp_types::TextDocumentItem {
+            uri: lsp_types::Uri::from_str("file:///test.html").unwrap(),
+            language_id: "html".to_string(),
+            version: 1,
+            text: String::new(),
+        };
+        assert_eq!(
+            doc.language_id_to_file_kind(Client::SublimeText),
+            FileKind::Template
+        );
+    }
+
+    #[test]
+    fn test_text_document_item_default_html_to_other() {
+        let doc = lsp_types::TextDocumentItem {
+            uri: lsp_types::Uri::from_str("file:///test.html").unwrap(),
+            language_id: "html".to_string(),
+            version: 1,
+            text: String::new(),
+        };
+        assert_eq!(
+            doc.language_id_to_file_kind(Client::Default),
+            FileKind::Other
+        );
+    }
+
+    #[test]
+    fn test_text_document_item_django_html_to_template() {
+        let doc = lsp_types::TextDocumentItem {
+            uri: lsp_types::Uri::from_str("file:///test.html").unwrap(),
+            language_id: "django-html".to_string(),
+            version: 1,
+            text: String::new(),
+        };
+        assert_eq!(
+            doc.language_id_to_file_kind(Client::Default),
+            FileKind::Template
+        );
+    }
+
+    #[test]
+    fn test_text_document_item_htmldjango_to_template() {
+        let doc = lsp_types::TextDocumentItem {
+            uri: lsp_types::Uri::from_str("file:///test.html").unwrap(),
+            language_id: "htmldjango".to_string(),
+            version: 1,
+            text: String::new(),
+        };
+        assert_eq!(
+            doc.language_id_to_file_kind(Client::Default),
+            FileKind::Template
+        );
+    }
+
+    #[test]
+    fn test_text_document_item_python_to_python() {
+        let doc = lsp_types::TextDocumentItem {
+            uri: lsp_types::Uri::from_str("file:///test.py").unwrap(),
+            language_id: "python".to_string(),
+            version: 1,
+            text: String::new(),
+        };
+        assert_eq!(
+            doc.language_id_to_file_kind(Client::Default),
+            FileKind::Python
+        );
+    }
+
+    #[test]
+    fn test_text_document_item_unknown_to_other() {
+        let doc = lsp_types::TextDocumentItem {
+            uri: lsp_types::Uri::from_str("file:///test.rs").unwrap(),
+            language_id: "rust".to_string(),
+            version: 1,
+            text: String::new(),
+        };
+        assert_eq!(
+            doc.language_id_to_file_kind(Client::Default),
+            FileKind::Other
+        );
     }
 }
