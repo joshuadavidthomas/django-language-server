@@ -3,7 +3,8 @@
 use djls_source::PositionEncoding;
 use tower_lsp_server::lsp_types;
 
-use crate::ext::{ClientInfoExt, PositionEncodingKindExt};
+use crate::ext::ClientInfoExt;
+use crate::ext::PositionEncodingKindExt;
 
 /// LSP client identification for client-specific behavioral overrides.
 ///
@@ -100,9 +101,8 @@ mod tests {
 
     use djls_source::FileKind;
 
-    use crate::ext::TextDocumentItemExt;
-
     use super::*;
+    use crate::ext::TextDocumentItemExt;
 
     #[test]
     fn test_negotiate_prefers_utf8_when_available() {
