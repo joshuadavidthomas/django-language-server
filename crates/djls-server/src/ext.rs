@@ -12,7 +12,7 @@ use djls_workspace::DocumentChange;
 use tower_lsp_server::lsp_types;
 use tower_lsp_server::UriExt as TowerUriExt;
 
-use crate::Client;
+use crate::client::Client;
 
 pub(crate) trait PositionExt {
     fn to_line_col(&self) -> LineCol;

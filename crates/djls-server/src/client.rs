@@ -177,7 +177,7 @@ mod tests {
         };
         assert_eq!(
             ClientCapabilities::negotiate(&capabilities, Some(&client_info)).client(),
-            crate::Client::SublimeText
+            Client::SublimeText
         );
     }
 
@@ -190,7 +190,7 @@ mod tests {
         };
         assert_eq!(
             ClientCapabilities::negotiate(&capabilities, Some(&client_info)).client(),
-            crate::Client::Default
+            Client::Default
         );
     }
 
