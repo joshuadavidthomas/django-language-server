@@ -8,11 +8,10 @@
 use camino::Utf8Path;
 use djls_source::Db as SourceDb;
 use djls_source::File;
+use djls_source::FileKind;
 use djls_source::LineIndex;
 use djls_source::PositionEncoding;
 use djls_source::Range;
-
-use crate::language::LanguageId;
 
 /// In-memory representation of an open document in the LSP.
 ///
@@ -28,8 +27,8 @@ pub struct TextDocument {
     content: String,
     /// The version number of this document (from LSP)
     version: i32,
-    /// The language identifier (python, htmldjango, etc.)
-    language_id: LanguageId,
+    /// The file kind for analyzer routing (python, template, other)
+    kind: FileKind,
     /// Line index for efficient position lookups
     line_index: LineIndex,
     /// The Salsa file this document represents
@@ -38,12 +37,12 @@ pub struct TextDocument {
 
 impl TextDocument {
     #[must_use]
-    pub fn new(content: String, version: i32, language_id: LanguageId, file: File) -> Self {
+    pub fn new(content: String, version: i32, kind: FileKind, file: File) -> Self {
         let line_index = LineIndex::from(content.as_str());
         Self {
             content,
             version,
-            language_id,
+            kind,
             line_index,
             file,
         }
@@ -60,8 +59,8 @@ impl TextDocument {
     }
 
     #[must_use]
-    pub fn language_id(&self) -> LanguageId {
-        self.language_id.clone()
+    pub fn kind(&self) -> FileKind {
+        self.kind
     }
 
     #[must_use]
@@ -156,7 +155,6 @@ mod tests {
     use djls_source::Range;
 
     use super::*;
-    use crate::language::LanguageId;
 
     #[salsa::db]
     #[derive(Clone)]
@@ -190,16 +188,16 @@ mod tests {
         }
     }
 
-    fn text_document(content: &str, version: i32, language_id: LanguageId) -> TextDocument {
+    fn text_document(content: &str, version: i32, kind: FileKind) -> TextDocument {
         let db = TestDb::default();
         let path = Utf8Path::new("/test.txt");
         let file = File::new(&db, path.into(), 0);
-        TextDocument::new(content.to_string(), version, language_id, file)
+        TextDocument::new(content.to_string(), version, kind, file)
     }
 
     #[test]
     fn test_incremental_update_single_change() {
-        let mut doc = text_document("Hello world", 1, LanguageId::Other);
+        let mut doc = text_document("Hello world", 1, FileKind::Other);
 
         let changes = vec![DocumentChange::new(
             Some(Range::new(LineCol::new(0, 6), LineCol::new(0, 11))),
@@ -213,7 +211,7 @@ mod tests {
 
     #[test]
     fn test_incremental_update_multiple_changes() {
-        let mut doc = text_document("First line\nSecond line\nThird line", 1, LanguageId::Other);
+        let mut doc = text_document("First line\nSecond line\nThird line", 1, FileKind::Other);
 
         let changes = vec![
             DocumentChange::new(
@@ -232,7 +230,7 @@ mod tests {
 
     #[test]
     fn test_incremental_update_insertion() {
-        let mut doc = text_document("Hello world", 1, LanguageId::Other);
+        let mut doc = text_document("Hello world", 1, FileKind::Other);
 
         let changes = vec![DocumentChange::new(
             Some(Range::new(LineCol::new(0, 5), LineCol::new(0, 5))),
@@ -245,7 +243,7 @@ mod tests {
 
     #[test]
     fn test_incremental_update_deletion() {
-        let mut doc = text_document("Hello beautiful world", 1, LanguageId::Other);
+        let mut doc = text_document("Hello beautiful world", 1, FileKind::Other);
 
         let changes = vec![DocumentChange::new(
             Some(Range::new(LineCol::new(0, 6), LineCol::new(0, 16))),
@@ -258,7 +256,7 @@ mod tests {
 
     #[test]
     fn test_full_document_replacement() {
-        let mut doc = text_document("Old content", 1, LanguageId::Other);
+        let mut doc = text_document("Old content", 1, FileKind::Other);
 
         let changes = vec![DocumentChange::new(
             None,
@@ -272,7 +270,7 @@ mod tests {
 
     #[test]
     fn test_incremental_update_multiline() {
-        let mut doc = text_document("Line 1\nLine 2\nLine 3", 1, LanguageId::Other);
+        let mut doc = text_document("Line 1\nLine 2\nLine 3", 1, FileKind::Other);
 
         let changes = vec![DocumentChange::new(
             Some(Range::new(LineCol::new(0, 5), LineCol::new(2, 4))),
@@ -285,7 +283,7 @@ mod tests {
 
     #[test]
     fn test_incremental_update_with_emoji() {
-        let mut doc = text_document("Hello 🌍 world", 1, LanguageId::Other);
+        let mut doc = text_document("Hello 🌍 world", 1, FileKind::Other);
 
         let changes = vec![DocumentChange::new(
             Some(Range::new(LineCol::new(0, 9), LineCol::new(0, 14))),
@@ -298,7 +296,7 @@ mod tests {
 
     #[test]
     fn test_incremental_update_newline_at_end() {
-        let mut doc = text_document("Hello", 1, LanguageId::Other);
+        let mut doc = text_document("Hello", 1, FileKind::Other);
 
         let changes = vec![DocumentChange::new(
             Some(Range::new(LineCol::new(0, 5), LineCol::new(0, 5))),
