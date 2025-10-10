@@ -35,7 +35,7 @@ pub fn goto_definition(
                 }
             }
         }
-        OffsetContext::None => None,
+        _ => None,
     }
 }
 
@@ -72,6 +72,6 @@ pub fn find_references(
                 Some(locations)
             }
         }
-        OffsetContext::None => None,
+        _ => None,
     }
 }
