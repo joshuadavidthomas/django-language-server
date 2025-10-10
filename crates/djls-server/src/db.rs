@@ -116,7 +116,7 @@ impl DjangoDatabase {
         self.settings.lock().unwrap().clone()
     }
 
-    /// Update the settings, potentially updating the project if `venv_path` or `django_settings_module` changed
+    /// Update the settings, potentially updating the project if `venv_path`, `django_settings_module`, or `pythonpath` changed
     ///
     /// # Panics
     ///
@@ -126,6 +126,7 @@ impl DjangoDatabase {
             let old = self.settings();
             old.venv_path() != settings.venv_path()
                 || old.django_settings_module() != settings.django_settings_module()
+                || old.pythonpath() != settings.pythonpath()
         };
 
         *self.settings.lock().unwrap() = settings;
@@ -145,6 +146,7 @@ impl DjangoDatabase {
             root,
             settings.venv_path(),
             settings.django_settings_module(),
+            settings.pythonpath(),
         );
         *self.project.lock().unwrap() = Some(project);
     }

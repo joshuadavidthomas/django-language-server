@@ -38,6 +38,8 @@ pub struct Settings {
     venv_path: Option<String>,
     django_settings_module: Option<String>,
     #[serde(default)]
+    pythonpath: Vec<String>,
+    #[serde(default)]
     tagspecs: Vec<TagSpecDef>,
 }
 
@@ -54,6 +56,9 @@ impl Settings {
             settings.django_settings_module = overrides
                 .django_settings_module
                 .or(settings.django_settings_module);
+            if !overrides.pythonpath.is_empty() {
+                settings.pythonpath = overrides.pythonpath;
+            }
             if !overrides.tagspecs.is_empty() {
                 settings.tagspecs = overrides.tagspecs;
             }
@@ -121,6 +126,11 @@ impl Settings {
     }
 
     #[must_use]
+    pub fn pythonpath(&self) -> &[String] {
+        &self.pythonpath
+    }
+
+    #[must_use]
     pub fn tagspecs(&self) -> &[TagSpecDef] {
         &self.tagspecs
     }
@@ -148,6 +158,7 @@ mod tests {
                     debug: false,
                     venv_path: None,
                     django_settings_module: None,
+                    pythonpath: vec![],
                     tagspecs: vec![],
                 }
             );
@@ -180,6 +191,24 @@ mod tests {
                 settings,
                 Settings {
                     venv_path: Some("/path/to/venv".to_string()),
+                    ..Default::default()
+                }
+            );
+        }
+
+        #[test]
+        fn test_load_pythonpath_config() {
+            let dir = tempdir().unwrap();
+            fs::write(
+                dir.path().join("djls.toml"),
+                r#"pythonpath = ["/path/to/lib", "/another/path"]"#,
+            )
+            .unwrap();
+            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
+            assert_eq!(
+                settings,
+                Settings {
+                    pythonpath: vec!["/path/to/lib".to_string(), "/another/path".to_string()],
                     ..Default::default()
                 }
             );
