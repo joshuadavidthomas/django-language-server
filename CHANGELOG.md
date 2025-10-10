@@ -25,6 +25,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Changed
 
+- Changed user configuration directory paths to use application name only, removing organization identifiers
 - **Internal**: Refactored workspace to use domain types (`FileKind`) instead of LSP types (`LanguageId`)
 - **Internal**: Added client detection for LSP-specific workarounds (e.g., Sublime Text's `html` language ID handling)
 
