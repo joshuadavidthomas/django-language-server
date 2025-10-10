@@ -64,9 +64,10 @@ impl<'a> IntoIterator for &'a mut Blocks {
 
 impl Blocks {
     pub fn alloc(&mut self, span: Span, parent: Option<BlockId>) -> BlockId {
-        let id = BlockId(u32::try_from(self.0.len()).unwrap_or_default());
+        let next = self.0.len();
+        let id = u32::try_from(next).expect("too many blocks (overflow u32::MAX)");
         self.0.push(Region::new(span, parent));
-        id
+        BlockId(id)
     }
 
     pub fn extend_block(&mut self, id: BlockId, span: Span) {
@@ -95,6 +96,13 @@ impl Blocks {
     fn block_mut(&mut self, id: BlockId) -> &mut Region {
         let idx = id.index();
         &mut self.0[idx]
+    }
+}
+
+impl std::ops::Index<BlockId> for Blocks {
+    type Output = Region;
+    fn index(&self, id: BlockId) -> &Self::Output {
+        &self.0[id.index()]
     }
 }
 
