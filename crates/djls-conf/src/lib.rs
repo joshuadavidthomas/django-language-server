@@ -43,7 +43,7 @@ pub struct Settings {
 
 impl Settings {
     pub fn new(project_root: &Utf8Path, overrides: Option<Settings>) -> Result<Self, ConfigError> {
-        let user_config_file = ProjectDirs::from("com.github", "joshuadavidthomas", "djls")
+        let user_config_file = ProjectDirs::from("", "", "djls")
             .map(|proj_dirs| proj_dirs.config_dir().join("djls.toml"));
 
         let mut settings = Self::load_from_paths(project_root, user_config_file.as_deref())?;
