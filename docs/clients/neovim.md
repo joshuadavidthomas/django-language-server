@@ -85,7 +85,7 @@ local function is_django_project(path)
     if vim.fn.filereadable(current .. "/manage.py") == 1 then
       return true
     end
-    
+
     -- Check for pyproject.toml with django dependency
     -- Note: This is a naive check that just searches for "django" in the file.
     -- A more robust approach would parse the TOML and check dependencies properly.
@@ -98,7 +98,7 @@ local function is_django_project(path)
         end
       end
     end
-    
+
     current = vim.fn.fnamemodify(current, ":h")
   end
   return false
