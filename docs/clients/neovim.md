@@ -20,8 +20,7 @@ You can define the configuration inline in your `init.lua`:
 vim.lsp.config('djls', {
   cmd = { 'djls', 'serve' },
   filetypes = { 'htmldjango', 'html', 'python' },
-  root_markers = { 'manage.py', 'pyproject.toml' },
-  single_file_support = true,
+  root_markers = { 'manage.py', 'pyproject.toml', '.git' },
 })
 
 vim.lsp.enable('djls')
@@ -34,8 +33,7 @@ Or create a dedicated config file in your runtimepath at `lsp/djls.lua`:
 return {
   cmd = { 'djls', 'serve' },
   filetypes = { 'htmldjango', 'html', 'python' },
-  root_markers = { 'manage.py', 'pyproject.toml' },
-  single_file_support = true,
+  root_markers = { 'manage.py', 'pyproject.toml', '.git' },
 }
 ```
 
