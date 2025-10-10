@@ -105,7 +105,7 @@ The package provides pre-built wheels with the Rust-based LSP server compiled fo
 
 The Django Language Server works with any editor that supports the Language Server Protocol (LSP). We currently have setup instructions for:
 
-- [Neovim](clients/nvim/README.md)
+- [Neovim](docs/clients/neovim.md)
 - [Sublime Text](docs/clients/sublime-text.md)
 - [VS Code](docs/clients/vscode.md)
 - [Zed](docs/clients/zed.md)

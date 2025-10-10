@@ -24,12 +24,21 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Added documentation for VS Code extension
 - Added documentation for Zed extension
 - Added documentation for setting up Sublime Text
+- Added documentation for setting up Neovim 0.11+ using `vim.lsp.config()` and `vim.lsp.enable()`
 
 ### Changed
 
 - Changed user configuration directory paths to use application name only, removing organization identifiers
 - **Internal**: Refactored workspace to use domain types (`FileKind`) instead of LSP types (`LanguageId`)
 - **Internal**: Added client detection for LSP-specific workarounds (e.g., Sublime Text's `html` language ID handling)
+
+### Deprecated
+
+- Deprecated `lazy.lua` Neovim plugin spec. It now only shows a migration warning and will be removed in the next release. See [Neovim client docs](docs/clients/neovim.md) for the new Neovim 0.11+ configuration approach.
+
+### Removed
+
+- Removed `clients/nvim/` directory. Neovim 0.11+ has built-in LSP configuration via `vim.lsp.config()` which replaces the need for the custom plugin.
 
 ## [5.2.3]
 
