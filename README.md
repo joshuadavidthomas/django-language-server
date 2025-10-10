@@ -107,6 +107,7 @@ The Django Language Server works with any editor that supports the Language Serv
 
 - [Neovim](clients/nvim/README.md)
 - [Sublime Text](docs/clients/sublime-text.md)
+- [VS Code](docs/clients/vscode.md)
 - [Zed](docs/clients/zed.md)
 
 Got it working in your editor? [Help us add setup instructions!](#testing-and-documenting-editor-setup)
