@@ -36,6 +36,19 @@ The server needs access to your virtual environment to discover installed Django
 - Your virtual environment is in a non-standard location
 - Auto-detection fails for your setup
 
+### `pythonpath`
+
+**Default:** `[]` (empty list)
+
+Additional directories to add to Python's import search path when the inspector process runs. These paths are added to `PYTHONPATH` alongside the project root and any existing `PYTHONPATH` environment variable.
+
+**When to configure:**
+
+- Your project has a non-standard structure where Django code imports from directories outside the project root
+- You're working in a monorepo where Django imports shared packages from other directories
+- Your project depends on internal libraries in non-standard locations
+- You need to make additional packages importable for Django introspection
+
 ### `debug`
 
 **Default:** `false`
@@ -66,7 +79,8 @@ Pass configuration through your editor's LSP client using `initializationOptions
 ```json
 {
   "django_settings_module": "myproject.settings",
-  "venv_path": "/path/to/venv"
+  "venv_path": "/path/to/venv",
+  "pythonpath": ["/path/to/shared/libs"]
 }
 ```
 
@@ -82,6 +96,7 @@ If you use `pyproject.toml`, add a `[tool.djls]` section:
 [tool.djls]
 django_settings_module = "myproject.settings"
 venv_path = "/path/to/venv"  # Optional: only if auto-detection fails
+pythonpath = ["/path/to/shared/libs"]  # Optional: additional import paths
 ```
 
 If you prefer a dedicated config file or don't use `pyproject.toml`, you can use `djls.toml` (same settings, no `[tool.djls]` table).

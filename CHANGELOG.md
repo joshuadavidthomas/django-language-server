@@ -20,6 +20,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Added
 
+- Added `pythonpath` configuration option for specifying additional Python import paths
 - Added documentation for Zed extension
 - Added documentation for setting up Sublime Text
 

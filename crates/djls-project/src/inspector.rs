@@ -40,13 +40,15 @@ pub fn query<Q: InspectorRequest>(db: &dyn ProjectDb, request: &Q) -> Option<Q::
     let interpreter = project.interpreter(db);
     let project_path = project.root(db);
     let django_settings_module = project.django_settings_module(db);
+    let pythonpath = project.pythonpath(db);
 
     tracing::debug!(
-        "Inspector query '{}': interpreter={:?}, project_path={}, django_settings_module={:?}",
+        "Inspector query '{}': interpreter={:?}, project_path={}, django_settings_module={:?}, pythonpath={:?}",
         Q::NAME,
         interpreter,
         project_path,
-        django_settings_module
+        django_settings_module,
+        pythonpath
     );
 
     let inspector = db.inspector();
@@ -54,6 +56,7 @@ pub fn query<Q: InspectorRequest>(db: &dyn ProjectDb, request: &Q) -> Option<Q::
         interpreter,
         project_path,
         django_settings_module.as_deref(),
+        pythonpath,
         request,
     ) {
         Ok(response) if response.ok => {
@@ -128,10 +131,16 @@ impl Inspector {
         interpreter: &Interpreter,
         project_path: &Utf8Path,
         django_settings_module: Option<&str>,
+        pythonpath: &[String],
         request: &Q,
     ) -> Result<InspectorResponse<R>> {
-        self.inner()
-            .query::<Q, R>(interpreter, project_path, django_settings_module, request)
+        self.inner().query::<Q, R>(
+            interpreter,
+            project_path,
+            django_settings_module,
+            pythonpath,
+            request,
+        )
     }
 
     /// Manually close the inspector process
@@ -172,9 +181,15 @@ impl InspectorInner {
         interpreter: &Interpreter,
         project_path: &Utf8Path,
         django_settings_module: Option<&str>,
+        pythonpath: &[String],
         request: &Q,
     ) -> Result<InspectorResponse<R>> {
-        self.ensure_process(interpreter, project_path, django_settings_module)?;
+        self.ensure_process(
+            interpreter,
+            project_path,
+            django_settings_module,
+            pythonpath,
+        )?;
 
         let process = self.process_mut();
         let response = process.query::<Q, R>(request)?;
@@ -196,6 +211,7 @@ impl InspectorInner {
         interpreter: &Interpreter,
         project_path: &Utf8Path,
         django_settings_module: Option<&str>,
+        pythonpath: &[String],
     ) -> Result<()> {
         let needs_new_process = match &mut self.process {
             None => {
@@ -208,11 +224,17 @@ impl InspectorInner {
                 let path_changed = state.project_path != project_path;
                 let settings_changed =
                     state.django_settings_module.as_deref() != django_settings_module;
+                let pythonpath_changed = state.pythonpath != pythonpath;
 
-                if not_running || interpreter_changed || path_changed || settings_changed {
+                if not_running
+                    || interpreter_changed
+                    || path_changed
+                    || settings_changed
+                    || pythonpath_changed
+                {
                     tracing::debug!(
-                        "Inspector process needs restart: not_running={}, interpreter_changed={}, path_changed={}, settings_changed={}",
-                        not_running, interpreter_changed, path_changed, settings_changed
+                        "Inspector process needs restart: not_running={}, interpreter_changed={}, path_changed={}, settings_changed={}, pythonpath_changed={}",
+                        not_running, interpreter_changed, path_changed, settings_changed, pythonpath_changed
                     );
                     true
                 } else {
@@ -224,13 +246,15 @@ impl InspectorInner {
         if needs_new_process {
             self.shutdown_process();
             tracing::info!(
-                "Spawning new inspector process with django_settings_module={:?}",
-                django_settings_module
+                "Spawning new inspector process with django_settings_module={:?}, pythonpath={:?}",
+                django_settings_module,
+                pythonpath
             );
             self.process = Some(InspectorProcess::spawn(
                 interpreter.to_owned(),
-                project_path.to_path_buf(),
+                &project_path.to_path_buf(),
                 django_settings_module.map(String::from),
+                pythonpath.to_vec(),
             )?);
         }
         Ok(())
@@ -288,6 +312,7 @@ struct InspectorProcess {
     interpreter: Interpreter,
     project_path: Utf8PathBuf,
     django_settings_module: Option<String>,
+    pythonpath: Vec<String>,
     // keep a handle on the tempfile so it doesn't get cleaned up
     _zipapp_file_handle: InspectorFile,
 }
@@ -296,13 +321,14 @@ impl InspectorProcess {
     /// Spawn a new inspector process
     pub fn spawn(
         interpreter: Interpreter,
-        project_path: Utf8PathBuf,
+        project_path: &Utf8PathBuf,
         django_settings_module: Option<String>,
+        pythonpath: Vec<String>,
     ) -> Result<Self> {
         let zipapp_file = InspectorFile::create()?;
 
         let python_path = interpreter
-            .python_path(&project_path)
+            .python_path(project_path)
             .context("Failed to resolve Python interpreter")?;
 
         let mut cmd = Command::new(&python_path);
@@ -310,15 +336,20 @@ impl InspectorProcess {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped()) // Capture stderr instead of inheriting
-            .current_dir(&project_path);
+            .current_dir(project_path);
 
-        if let Ok(pythonpath) = std::env::var("PYTHONPATH") {
-            let mut paths = vec![project_path.to_string()];
-            paths.push(pythonpath);
-            cmd.env("PYTHONPATH", paths.join(":"));
-        } else {
-            cmd.env("PYTHONPATH", project_path.clone());
+        let mut paths = vec![project_path.to_string()];
+        paths.extend(pythonpath.iter().cloned());
+        if let Ok(env_pythonpath) = std::env::var("PYTHONPATH") {
+            paths.push(env_pythonpath);
         }
+
+        #[cfg(unix)]
+        let path_separator = ":";
+        #[cfg(windows)]
+        let path_separator = ";";
+
+        cmd.env("PYTHONPATH", paths.join(path_separator));
 
         // Set Django settings module if we have one
         if let Some(ref module) = django_settings_module {
@@ -355,8 +386,9 @@ impl InspectorProcess {
             stdout,
             last_used: Instant::now(),
             interpreter,
-            project_path,
+            project_path: project_path.to_owned(),
             django_settings_module,
+            pythonpath,
             _zipapp_file_handle: zipapp_file,
         })
     }

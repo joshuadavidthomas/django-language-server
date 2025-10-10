@@ -23,6 +23,9 @@ pub struct Project {
     /// Django settings module (e.g., "myproject.settings")
     #[returns(ref)]
     pub django_settings_module: Option<String>,
+    /// Additional Python import paths (PYTHONPATH entries)
+    #[returns(ref)]
+    pub pythonpath: Vec<String>,
 }
 
 impl Project {
@@ -31,6 +34,7 @@ impl Project {
         root: &Utf8Path,
         venv_path: Option<&str>,
         django_settings_module: Option<&str>,
+        pythonpath: &[String],
     ) -> Project {
         let interpreter = Interpreter::discover(venv_path);
 
@@ -75,6 +79,7 @@ impl Project {
             root.to_path_buf(),
             interpreter,
             resolved_django_settings_module,
+            pythonpath.to_vec(),
         )
     }
 
