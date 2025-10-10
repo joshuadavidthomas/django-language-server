@@ -51,6 +51,9 @@ def _convert_repo_links(content, repo_url):
         if "clients/nvim/README.md" in path:
             return f"[{text}](clients/neovim.md)"
 
+        if path.startswith(("../", "./")) and (path.endswith(".md") or ".md#" in path):
+            return match.group(0)
+
         clean_path = path.replace("../", "").replace("./", "").lstrip("/")
         return f"[{text}]({repo_url.rstrip('/')}/blob/main/{clean_path})"
 
