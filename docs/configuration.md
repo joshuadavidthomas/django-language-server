@@ -16,7 +16,7 @@ Django Language Server auto-detects your project configuration in most cases. It
 
 Your Django settings module path (e.g., `"myproject.settings"`).
 
-The server uses this to introspect your Django project and provide template tag completions, diagnostics, and navigation. If not explicitly configured, the server reads the `DJANGO_SETTINGS_MODULE` environment variable. 
+The server uses this to introspect your Django project and provide template tag completions, diagnostics, and navigation. If not explicitly configured, the server reads the `DJANGO_SETTINGS_MODULE` environment variable.
 
 **When to configure:**
 
