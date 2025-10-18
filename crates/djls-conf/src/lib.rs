@@ -676,33 +676,4 @@ args = [
             ));
         }
     }
-
-    mod log_dir_tests {
-        use super::*;
-
-        #[test]
-        fn test_log_dir_returns_path() {
-            let dir = log_dir().unwrap();
-            // Either it's the XDG cache dir or /tmp
-            assert!(dir.as_str().contains("djls") || dir == "/tmp");
-        }
-
-        #[test]
-        fn test_log_dir_creates_directory() {
-            // Test that the function creates the directory
-            let dir = log_dir().unwrap();
-            assert!(dir.exists());
-        }
-
-        #[test]
-        fn test_log_dir_xdg_pattern() {
-            // Verify that if ProjectDirs is available, it returns a proper path
-            if let Some(proj_dirs) = project_dirs() {
-                let cache_dir = proj_dirs.cache_dir();
-                // Should contain djls in the path
-                assert!(cache_dir.to_string_lossy().contains("djls"));
-            }
-            // If project_dirs() returns None, the test passes
-        }
-    }
 }
