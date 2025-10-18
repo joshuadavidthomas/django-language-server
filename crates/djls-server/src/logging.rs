@@ -15,7 +15,6 @@
 
 use std::sync::Arc;
 
-use directories::ProjectDirs;
 use tower_lsp_server::lsp_types;
 use tracing::field::Visit;
 use tracing::Level;
@@ -116,9 +115,8 @@ pub fn init_tracing<F>(send_message: F) -> WorkerGuard
 where
     F: Fn(lsp_types::MessageType, String) + Send + Sync + 'static,
 {
-    // Determine log directory: prefer XDG cache dir, fallback to /tmp
-    let log_dir = ProjectDirs::from("", "", "djls")
-        .map_or_else(|| std::path::PathBuf::from("/tmp"), |proj_dirs| proj_dirs.cache_dir().to_path_buf());
+    // Get log directory from djls-conf
+    let log_dir = djls_conf::log_dir();
     
     // Ensure the log directory exists
     if let Err(e) = std::fs::create_dir_all(&log_dir) {
@@ -145,33 +143,4 @@ where
     Registry::default().with(file_layer).with(lsp_layer).init();
 
     guard
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_log_directory_fallback_when_xdg_unavailable() {
-        // Test that the log directory logic works correctly
-        // This tests the logic even if we can't guarantee XDG dirs are unavailable
-        let log_dir = ProjectDirs::from("", "", "djls")
-            .map_or_else(|| std::path::PathBuf::from("/tmp"), |proj_dirs| proj_dirs.cache_dir().to_path_buf());
-        
-        // Either it's the XDG cache dir or /tmp
-        assert!(log_dir.to_string_lossy().contains("djls") || log_dir == std::path::PathBuf::from("/tmp"));
-    }
-
-    #[test]
-    fn test_xdg_cache_dir_pattern() {
-        // Verify that if ProjectDirs is available, it returns a proper path
-        if let Some(proj_dirs) = ProjectDirs::from("", "", "djls") {
-            let cache_dir = proj_dirs.cache_dir();
-            // On Linux, should contain .cache/djls
-            // On macOS, should contain Library/Caches/djls
-            // On Windows, should contain AppData/Local/djls/cache
-            assert!(cache_dir.to_string_lossy().contains("djls"));
-        }
-        // If ProjectDirs::from returns None, the test passes (some environments don't have HOME set)
-    }
 }

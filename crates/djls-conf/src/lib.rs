@@ -136,6 +136,16 @@ impl Settings {
     }
 }
 
+/// Get the log directory for the application.
+///
+/// Returns the XDG cache directory (e.g., ~/.cache/djls on Linux) if available,
+/// otherwise falls back to /tmp.
+#[must_use]
+pub fn log_dir() -> std::path::PathBuf {
+    ProjectDirs::from("", "", "djls")
+        .map_or_else(|| std::path::PathBuf::from("/tmp"), |proj_dirs| proj_dirs.cache_dir().to_path_buf())
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -650,6 +660,28 @@ args = [
                 test.args[5].arg_type,
                 ArgTypeDef::Simple(SimpleArgTypeDef::VarArgs)
             ));
+        }
+    }
+
+    mod log_dir_tests {
+        use super::*;
+
+        #[test]
+        fn test_log_dir_returns_path() {
+            let dir = log_dir();
+            // Either it's the XDG cache dir or /tmp
+            assert!(dir.to_string_lossy().contains("djls") || dir == std::path::PathBuf::from("/tmp"));
+        }
+
+        #[test]
+        fn test_log_dir_xdg_pattern() {
+            // Verify that if ProjectDirs is available, it returns a proper path
+            if let Some(proj_dirs) = ProjectDirs::from("", "", "djls") {
+                let cache_dir = proj_dirs.cache_dir();
+                // Should contain djls in the path
+                assert!(cache_dir.to_string_lossy().contains("djls"));
+            }
+            // If ProjectDirs::from returns None, the test passes
         }
     }
 }
