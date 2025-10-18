@@ -2,8 +2,9 @@ pub mod tagspecs;
 
 use std::fs;
 use std::path::Path;
+use std::sync::LazyLock;
 
-use camino::Utf8Path;
+use camino::{Utf8Path, Utf8PathBuf};
 use config::Config;
 use config::ConfigError as ExternalConfigError;
 use config::File;
@@ -136,15 +137,15 @@ impl Settings {
     }
 }
 
-/// Get the log directory for the application.
+/// The log directory for the application.
 ///
 /// Returns the XDG cache directory (e.g., ~/.cache/djls on Linux) if available,
 /// otherwise falls back to /tmp.
-#[must_use]
-pub fn log_dir() -> std::path::PathBuf {
+pub static LOG_DIR: LazyLock<Utf8PathBuf> = LazyLock::new(|| {
     ProjectDirs::from("", "", "djls")
-        .map_or_else(|| std::path::PathBuf::from("/tmp"), |proj_dirs| proj_dirs.cache_dir().to_path_buf())
-}
+        .map(|proj_dirs| Utf8PathBuf::from_path_buf(proj_dirs.cache_dir().to_path_buf()).unwrap())
+        .unwrap_or_else(|| Utf8PathBuf::from("/tmp"))
+});
 
 #[cfg(test)]
 mod tests {
@@ -668,9 +669,9 @@ args = [
 
         #[test]
         fn test_log_dir_returns_path() {
-            let dir = log_dir();
+            let dir = &*LOG_DIR;
             // Either it's the XDG cache dir or /tmp
-            assert!(dir.to_string_lossy().contains("djls") || dir == std::path::PathBuf::from("/tmp"));
+            assert!(dir.as_str().contains("djls") || dir == "/tmp");
         }
 
         #[test]

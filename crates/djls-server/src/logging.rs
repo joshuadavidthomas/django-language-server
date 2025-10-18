@@ -116,14 +116,14 @@ where
     F: Fn(lsp_types::MessageType, String) + Send + Sync + 'static,
 {
     // Get log directory from djls-conf
-    let log_dir = djls_conf::log_dir();
+    let log_dir = &*djls_conf::LOG_DIR;
     
     // Ensure the log directory exists
-    if let Err(e) = std::fs::create_dir_all(&log_dir) {
-        eprintln!("Warning: Failed to create log directory {}: {e}", log_dir.display());
+    if let Err(e) = std::fs::create_dir_all(log_dir) {
+        eprintln!("Warning: Failed to create log directory {log_dir}: {e}");
     }
 
-    let file_appender = tracing_appender::rolling::daily(log_dir, "djls.log");
+    let file_appender = tracing_appender::rolling::daily(log_dir.as_std_path(), "djls.log");
     let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
 
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
