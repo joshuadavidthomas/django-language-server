@@ -145,13 +145,10 @@ impl Settings {
 /// # Errors
 ///
 /// Returns an error if the directory cannot be created.
-///
-/// # Panics
-///
-/// Panics if the XDG cache directory path contains invalid UTF-8.
 pub fn log_dir() -> anyhow::Result<Utf8PathBuf> {
     let dir = ProjectDirs::from("", "", "djls")
-        .map_or_else(|| Utf8PathBuf::from("/tmp"), |proj_dirs| Utf8PathBuf::from_path_buf(proj_dirs.cache_dir().to_path_buf()).unwrap());
+        .and_then(|proj_dirs| Utf8PathBuf::from_path_buf(proj_dirs.cache_dir().to_path_buf()).ok())
+        .unwrap_or_else(|| Utf8PathBuf::from("/tmp"));
     
     fs::create_dir_all(&dir)
         .with_context(|| format!("Failed to create log directory: {dir}"))?;
