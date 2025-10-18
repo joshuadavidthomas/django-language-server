@@ -2,8 +2,8 @@ pub mod tagspecs;
 
 use std::fs;
 use std::path::Path;
-use std::sync::LazyLock;
 
+use anyhow::Context;
 use camino::{Utf8Path, Utf8PathBuf};
 use config::Config;
 use config::ConfigError as ExternalConfigError;
@@ -137,15 +137,27 @@ impl Settings {
     }
 }
 
-/// The log directory for the application.
+/// Get the log directory for the application and ensure it exists.
 ///
 /// Returns the XDG cache directory (e.g., ~/.cache/djls on Linux) if available,
-/// otherwise falls back to /tmp.
-pub static LOG_DIR: LazyLock<Utf8PathBuf> = LazyLock::new(|| {
-    ProjectDirs::from("", "", "djls")
-        .map(|proj_dirs| Utf8PathBuf::from_path_buf(proj_dirs.cache_dir().to_path_buf()).unwrap())
-        .unwrap_or_else(|| Utf8PathBuf::from("/tmp"))
-});
+/// otherwise falls back to /tmp. Creates the directory if it doesn't exist.
+///
+/// # Errors
+///
+/// Returns an error if the directory cannot be created.
+///
+/// # Panics
+///
+/// Panics if the XDG cache directory path contains invalid UTF-8.
+pub fn log_dir() -> anyhow::Result<Utf8PathBuf> {
+    let dir = ProjectDirs::from("", "", "djls")
+        .map_or_else(|| Utf8PathBuf::from("/tmp"), |proj_dirs| Utf8PathBuf::from_path_buf(proj_dirs.cache_dir().to_path_buf()).unwrap());
+    
+    fs::create_dir_all(&dir)
+        .with_context(|| format!("Failed to create log directory: {dir}"))?;
+    
+    Ok(dir)
+}
 
 #[cfg(test)]
 mod tests {
@@ -669,9 +681,16 @@ args = [
 
         #[test]
         fn test_log_dir_returns_path() {
-            let dir = &*LOG_DIR;
+            let dir = log_dir().unwrap();
             // Either it's the XDG cache dir or /tmp
             assert!(dir.as_str().contains("djls") || dir == "/tmp");
+        }
+
+        #[test]
+        fn test_log_dir_creates_directory() {
+            // Test that the function creates the directory
+            let dir = log_dir().unwrap();
+            assert!(dir.exists());
         }
 
         #[test]
