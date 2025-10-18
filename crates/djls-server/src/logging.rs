@@ -118,9 +118,6 @@ where
 {
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
 
-    let lsp_layer =
-        LspLayer::new(send_message).with_filter(tracing_subscriber::filter::LevelFilter::INFO);
-
     let (non_blocking, guard) = match djls_conf::log_dir() {
         Ok(log_dir) => {
             let file_appender = tracing_appender::rolling::daily(log_dir.as_std_path(), "djls.log");
@@ -142,6 +139,9 @@ where
         .with_file(true)
         .with_line_number(true)
         .with_filter(env_filter);
+
+    let lsp_layer =
+        LspLayer::new(send_message).with_filter(tracing_subscriber::filter::LevelFilter::INFO);
 
     Registry::default().with(log_layer).with(lsp_layer).init();
 
