@@ -20,6 +20,10 @@ pub use crate::tagspecs::SimpleArgTypeDef;
 pub use crate::tagspecs::TagArgDef;
 pub use crate::tagspecs::TagSpecDef;
 
+pub(crate) fn project_dirs() -> Option<ProjectDirs> {
+    ProjectDirs::from("", "", "djls")
+}
+
 #[derive(Error, Debug)]
 pub enum ConfigError {
     #[error("Configuration build/deserialize error")]
@@ -46,7 +50,7 @@ pub struct Settings {
 
 impl Settings {
     pub fn new(project_root: &Utf8Path, overrides: Option<Settings>) -> Result<Self, ConfigError> {
-        let user_config_file = ProjectDirs::from("", "", "djls")
+        let user_config_file = project_dirs()
             .map(|proj_dirs| proj_dirs.config_dir().join("djls.toml"));
 
         let mut settings = Self::load_from_paths(project_root, user_config_file.as_deref())?;
@@ -146,7 +150,7 @@ impl Settings {
 ///
 /// Returns an error if the directory cannot be created.
 pub fn log_dir() -> anyhow::Result<Utf8PathBuf> {
-    let dir = ProjectDirs::from("", "", "djls")
+    let dir = project_dirs()
         .and_then(|proj_dirs| Utf8PathBuf::from_path_buf(proj_dirs.cache_dir().to_path_buf()).ok())
         .unwrap_or_else(|| Utf8PathBuf::from("/tmp"));
     
@@ -693,12 +697,12 @@ args = [
         #[test]
         fn test_log_dir_xdg_pattern() {
             // Verify that if ProjectDirs is available, it returns a proper path
-            if let Some(proj_dirs) = ProjectDirs::from("", "", "djls") {
+            if let Some(proj_dirs) = project_dirs() {
                 let cache_dir = proj_dirs.cache_dir();
                 // Should contain djls in the path
                 assert!(cache_dir.to_string_lossy().contains("djls"));
             }
-            // If ProjectDirs::from returns None, the test passes
+            // If project_dirs() returns None, the test passes
         }
     }
 }
