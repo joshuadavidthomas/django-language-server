@@ -3,7 +3,9 @@ pub mod tagspecs;
 use std::fs;
 use std::path::Path;
 
+use anyhow::Context;
 use camino::Utf8Path;
+use camino::Utf8PathBuf;
 use config::Config;
 use config::ConfigError as ExternalConfigError;
 use config::File;
@@ -18,6 +20,28 @@ pub use crate::tagspecs::IntermediateTagDef;
 pub use crate::tagspecs::SimpleArgTypeDef;
 pub use crate::tagspecs::TagArgDef;
 pub use crate::tagspecs::TagSpecDef;
+
+pub(crate) fn project_dirs() -> Option<ProjectDirs> {
+    ProjectDirs::from("", "", "djls")
+}
+
+/// Get the log directory for the application and ensure it exists.
+///
+/// Returns the XDG cache directory (e.g., ~/.cache/djls on Linux) if available,
+/// otherwise falls back to /tmp. Creates the directory if it doesn't exist.
+///
+/// # Errors
+///
+/// Returns an error if the directory cannot be created.
+pub fn log_dir() -> anyhow::Result<Utf8PathBuf> {
+    let dir = project_dirs()
+        .and_then(|proj_dirs| Utf8PathBuf::from_path_buf(proj_dirs.cache_dir().to_path_buf()).ok())
+        .unwrap_or_else(|| Utf8PathBuf::from("/tmp"));
+
+    fs::create_dir_all(&dir).with_context(|| format!("Failed to create log directory: {dir}"))?;
+
+    Ok(dir)
+}
 
 #[derive(Error, Debug)]
 pub enum ConfigError {
@@ -45,8 +69,8 @@ pub struct Settings {
 
 impl Settings {
     pub fn new(project_root: &Utf8Path, overrides: Option<Settings>) -> Result<Self, ConfigError> {
-        let user_config_file = ProjectDirs::from("", "", "djls")
-            .map(|proj_dirs| proj_dirs.config_dir().join("djls.toml"));
+        let user_config_file =
+            project_dirs().map(|proj_dirs| proj_dirs.config_dir().join("djls.toml"));
 
         let mut settings = Self::load_from_paths(project_root, user_config_file.as_deref())?;
 

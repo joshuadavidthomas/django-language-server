@@ -15,6 +15,7 @@ use tower_lsp_server::Server;
 pub use crate::server::DjangoLanguageServer;
 pub use crate::session::Session;
 
+/// Run the Django language server.
 pub fn run() -> Result<()> {
     if std::io::stdin().is_terminal() {
         eprintln!(
