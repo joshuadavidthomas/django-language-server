@@ -105,40 +105,63 @@ where
 /// Initialize the dual-layer tracing subscriber.
 ///
 /// Sets up:
-/// - File layer: writes to XDG cache directory (e.g., ~/.cache/djls/djls.log on Linux) with daily rotation,
-///   falls back to /tmp/djls.log if XDG cache directory is not available
+/// - File layer: writes to XDG cache directory (e.g., ~/.cache/djls/djls.log on Linux) with daily rotation.
+///   Falls back to /tmp/djls.log if XDG cache directory is not available.
+///   If file logging cannot be initialized, falls back to stderr.
 /// - LSP layer: forwards INFO+ messages to the client
 /// - `EnvFilter`: respects `RUST_LOG` env var, defaults to "info"
 ///
-/// Returns a `WorkerGuard` that must be kept alive for the file logging to work.
-///
-/// # Errors
-///
-/// Returns an error if the log directory cannot be created.
-pub fn init_tracing<F>(send_message: F) -> anyhow::Result<WorkerGuard>
+/// Returns a `WorkerGuard` that must be kept alive for the logging to work.
+pub fn init_tracing<F>(send_message: F) -> WorkerGuard
 where
     F: Fn(lsp_types::MessageType, String) + Send + Sync + 'static,
 {
-    let log_dir = djls_conf::log_dir()?;
-
-    let file_appender = tracing_appender::rolling::daily(log_dir.as_std_path(), "djls.log");
-    let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
-
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
-    let file_layer = fmt::layer()
-        .with_writer(non_blocking)
-        .with_ansi(false)
-        .with_thread_ids(true)
-        .with_thread_names(true)
-        .with_target(true)
-        .with_file(true)
-        .with_line_number(true)
-        .with_filter(env_filter);
 
     let lsp_layer =
         LspLayer::new(send_message).with_filter(tracing_subscriber::filter::LevelFilter::INFO);
 
-    Registry::default().with(file_layer).with(lsp_layer).init();
+    match djls_conf::log_dir() {
+        Ok(log_dir) => {
+            let file_appender = tracing_appender::rolling::daily(log_dir.as_std_path(), "djls.log");
+            let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
 
-    Ok(guard)
+            let file_layer = fmt::layer()
+                .with_writer(non_blocking)
+                .with_ansi(false)
+                .with_thread_ids(true)
+                .with_thread_names(true)
+                .with_target(true)
+                .with_file(true)
+                .with_line_number(true)
+                .with_filter(env_filter);
+
+            Registry::default().with(file_layer).with(lsp_layer).init();
+
+            guard
+        }
+        Err(e) => {
+            eprintln!("Warning: Failed to initialize file logging: {e}");
+            eprintln!("Falling back to stderr logging...");
+
+            let (non_blocking, guard) = tracing_appender::non_blocking(std::io::stderr());
+
+            let stderr_layer = fmt::layer()
+                .with_writer(non_blocking)
+                .with_ansi(false)
+                .with_thread_ids(true)
+                .with_thread_names(true)
+                .with_target(true)
+                .with_file(true)
+                .with_line_number(true)
+                .with_filter(env_filter);
+
+            Registry::default()
+                .with(stderr_layer)
+                .with(lsp_layer)
+                .init();
+
+            guard
+        }
+    }
 }

@@ -16,10 +16,6 @@ pub use crate::server::DjangoLanguageServer;
 pub use crate::session::Session;
 
 /// Run the Django language server.
-///
-/// # Panics
-///
-/// Panics if the logging system cannot be initialized (e.g., unable to create log directory).
 pub fn run() -> Result<()> {
     if std::io::stdin().is_terminal() {
         eprintln!(
@@ -60,8 +56,7 @@ pub fn run() -> Result<()> {
                         client.log_message(message_type, message).await;
                     });
                 }
-            })
-            .expect("Failed to initialize logging");
+            });
 
             DjangoLanguageServer::new(client, log_guard)
         })
