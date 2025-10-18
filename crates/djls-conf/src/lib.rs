@@ -25,6 +25,24 @@ pub(crate) fn project_dirs() -> Option<ProjectDirs> {
     ProjectDirs::from("", "", "djls")
 }
 
+/// Get the log directory for the application and ensure it exists.
+///
+/// Returns the XDG cache directory (e.g., ~/.cache/djls on Linux) if available,
+/// otherwise falls back to /tmp. Creates the directory if it doesn't exist.
+///
+/// # Errors
+///
+/// Returns an error if the directory cannot be created.
+pub fn log_dir() -> anyhow::Result<Utf8PathBuf> {
+    let dir = project_dirs()
+        .and_then(|proj_dirs| Utf8PathBuf::from_path_buf(proj_dirs.cache_dir().to_path_buf()).ok())
+        .unwrap_or_else(|| Utf8PathBuf::from("/tmp"));
+
+    fs::create_dir_all(&dir).with_context(|| format!("Failed to create log directory: {dir}"))?;
+
+    Ok(dir)
+}
+
 #[derive(Error, Debug)]
 pub enum ConfigError {
     #[error("Configuration build/deserialize error")]
@@ -140,24 +158,6 @@ impl Settings {
     pub fn tagspecs(&self) -> &[TagSpecDef] {
         &self.tagspecs
     }
-}
-
-/// Get the log directory for the application and ensure it exists.
-///
-/// Returns the XDG cache directory (e.g., ~/.cache/djls on Linux) if available,
-/// otherwise falls back to /tmp. Creates the directory if it doesn't exist.
-///
-/// # Errors
-///
-/// Returns an error if the directory cannot be created.
-pub fn log_dir() -> anyhow::Result<Utf8PathBuf> {
-    let dir = project_dirs()
-        .and_then(|proj_dirs| Utf8PathBuf::from_path_buf(proj_dirs.cache_dir().to_path_buf()).ok())
-        .unwrap_or_else(|| Utf8PathBuf::from("/tmp"));
-
-    fs::create_dir_all(&dir).with_context(|| format!("Failed to create log directory: {dir}"))?;
-
-    Ok(dir)
 }
 
 #[cfg(test)]
