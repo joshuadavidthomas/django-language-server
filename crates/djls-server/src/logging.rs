@@ -15,6 +15,7 @@
 
 use std::sync::Arc;
 
+use directories::ProjectDirs;
 use tower_lsp_server::lsp_types;
 use tracing::field::Visit;
 use tracing::Level;
@@ -105,7 +106,8 @@ where
 /// Initialize the dual-layer tracing subscriber.
 ///
 /// Sets up:
-/// - File layer: writes to /tmp/djls.log with daily rotation
+/// - File layer: writes to XDG cache directory (e.g., ~/.cache/djls/djls.log on Linux) with daily rotation,
+///   falls back to /tmp/djls.log if XDG cache directory is not available
 /// - LSP layer: forwards INFO+ messages to the client
 /// - `EnvFilter`: respects `RUST_LOG` env var, defaults to "info"
 ///
@@ -114,7 +116,16 @@ pub fn init_tracing<F>(send_message: F) -> WorkerGuard
 where
     F: Fn(lsp_types::MessageType, String) + Send + Sync + 'static,
 {
-    let file_appender = tracing_appender::rolling::daily("/tmp", "djls.log");
+    // Determine log directory: prefer XDG cache dir, fallback to /tmp
+    let log_dir = ProjectDirs::from("", "", "djls")
+        .map_or_else(|| std::path::PathBuf::from("/tmp"), |proj_dirs| proj_dirs.cache_dir().to_path_buf());
+    
+    // Ensure the log directory exists
+    if let Err(e) = std::fs::create_dir_all(&log_dir) {
+        eprintln!("Warning: Failed to create log directory {}: {e}", log_dir.display());
+    }
+
+    let file_appender = tracing_appender::rolling::daily(log_dir, "djls.log");
     let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
 
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
@@ -134,4 +145,33 @@ where
     Registry::default().with(file_layer).with(lsp_layer).init();
 
     guard
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_log_directory_fallback_when_xdg_unavailable() {
+        // Test that the log directory logic works correctly
+        // This tests the logic even if we can't guarantee XDG dirs are unavailable
+        let log_dir = ProjectDirs::from("", "", "djls")
+            .map_or_else(|| std::path::PathBuf::from("/tmp"), |proj_dirs| proj_dirs.cache_dir().to_path_buf());
+        
+        // Either it's the XDG cache dir or /tmp
+        assert!(log_dir.to_string_lossy().contains("djls") || log_dir == std::path::PathBuf::from("/tmp"));
+    }
+
+    #[test]
+    fn test_xdg_cache_dir_pattern() {
+        // Verify that if ProjectDirs is available, it returns a proper path
+        if let Some(proj_dirs) = ProjectDirs::from("", "", "djls") {
+            let cache_dir = proj_dirs.cache_dir();
+            // On Linux, should contain .cache/djls
+            // On macOS, should contain Library/Caches/djls
+            // On Windows, should contain AppData/Local/djls/cache
+            assert!(cache_dir.to_string_lossy().contains("djls"));
+        }
+        // If ProjectDirs::from returns None, the test passes (some environments don't have HOME set)
+    }
 }

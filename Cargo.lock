@@ -624,6 +624,7 @@ dependencies = [
  "anyhow",
  "camino",
  "dashmap",
+ "directories",
  "djls-conf",
  "djls-ide",
  "djls-project",
