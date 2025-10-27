@@ -36,7 +36,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v6
 
       - name: Publish to PyPI
         uses: PyO3/maturin-action@86b9d133d34bc1b40018696f782949dac11bd380

@@ -199,7 +199,7 @@ jobs:
           echo "ARTIFACT_PATH=${ARCHIVE}.tar.gz*" >> $GITHUB_ENV
 
       - name: Upload binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: binary-${{ env.OS }}-${{ env.ARCH }}
           path: ${{ env.ARTIFACT_PATH }}
@@ -231,7 +231,7 @@ jobs:
           manylinux: auto
 
       - name: Upload wheels
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: wheels-linux-${{ matrix.platform.target }}
           path: dist
@@ -263,7 +263,7 @@ jobs:
           manylinux: musllinux_1_2
 
       - name: Upload wheels
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: wheels-musllinux-${{ matrix.platform.target }}
           path: dist
@@ -315,7 +315,7 @@ jobs:
           sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
       - name: Upload wheels
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: wheels-windows-${{ matrix.platform.target }}
           path: dist
@@ -368,7 +368,7 @@ jobs:
           sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
       - name: Upload wheels
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: wheels-macos-${{ matrix.platform.target }}
           path: dist
@@ -387,7 +387,7 @@ jobs:
           args: --out dist
 
       - name: Upload sdist
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: wheels-sdist
           path: dist
@@ -400,7 +400,7 @@ jobs:
       id-token: write
       attestations: write
     steps:
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v6
 
       - name: Generate artifact attestation
         uses: actions/attest-build-provenance@v3
