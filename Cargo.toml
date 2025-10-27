@@ -15,7 +15,7 @@ djls-templates = { path = "crates/djls-templates" }
 djls-workspace = { path = "crates/djls-workspace" }
 
 # core deps, pin exact versions
-salsa = "0.23.0"
+salsa = "0.24.0"
 tower-lsp-server = { version = "0.22.0", features = ["proposed"] }
 
 anyhow = "1.0"
@@ -40,7 +40,7 @@ walkdir = "2.5"
 which = "8.0"
 
 # testing
-divan = { package = "codspeed-divan-compat", version = "3.0" }
+divan = { package = "codspeed-divan-compat", version = "4.0" }
 insta = { version = "1.43", features = ["yaml"] }
 tempfile = "3.23"
 
