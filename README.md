@@ -101,6 +101,11 @@ The package provides pre-built wheels with the Rust-based LSP server compiled fo
 >
 > It's recommended to use `uv` or `pipx` to install it system-wide for convenience, but installing in your project's environment will work just as well to give it a test drive around the block.
 
+## Documentation
+
+- **[Diagnostic Rules](docs/rules.md)** - Reference guide for all diagnostic error codes (S100-S107, T100, T900, T901)
+- **[Configuration](docs/configuration.md)** - Server configuration options
+
 ## Editor Setup
 
 The Django Language Server works with any editor that supports the Language Server Protocol (LSP). We currently have setup instructions for:

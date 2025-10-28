@@ -38,49 +38,9 @@ trait DiagnosticError: std::fmt::Display {
     }
 }
 
-impl DiagnosticError for TemplateError {
-    fn span(&self) -> Option<(u32, u32)> {
-        None
-    }
-
-    fn diagnostic_code(&self) -> &'static str {
-        match self {
-            TemplateError::Parser(_) => "T100",
-            TemplateError::Io(_) => "T900",
-            TemplateError::Config(_) => "T901",
-        }
-    }
-}
-
-impl DiagnosticError for ValidationError {
-    fn span(&self) -> Option<(u32, u32)> {
-        match self {
-            ValidationError::UnbalancedStructure { opening_span, .. } => Some(opening_span.into()),
-            ValidationError::UnclosedTag { span, .. }
-            | ValidationError::OrphanedTag { span, .. }
-            | ValidationError::UnmatchedBlockName { span, .. }
-            | ValidationError::MissingRequiredArguments { span, .. }
-            | ValidationError::TooManyArguments { span, .. }
-            | ValidationError::MissingArgument { span, .. }
-            | ValidationError::InvalidLiteralArgument { span, .. }
-            | ValidationError::InvalidArgumentChoice { span, .. } => Some(span.into()),
-        }
-    }
-
-    fn diagnostic_code(&self) -> &'static str {
-        match self {
-            ValidationError::UnclosedTag { .. } => "S100",
-            ValidationError::UnbalancedStructure { .. } => "S101",
-            ValidationError::OrphanedTag { .. } => "S102",
-            ValidationError::UnmatchedBlockName { .. } => "S103",
-            ValidationError::MissingRequiredArguments { .. }
-            | ValidationError::MissingArgument { .. } => "S104",
-            ValidationError::TooManyArguments { .. } => "S105",
-            ValidationError::InvalidLiteralArgument { .. } => "S106",
-            ValidationError::InvalidArgumentChoice { .. } => "S107",
-        }
-    }
-}
+// The diagnostic code mappings are generated from diagnostics.toml by build.rs
+// See diagnostics.toml for the source of truth for all diagnostic rules
+include!(concat!(env!("OUT_DIR"), "/diagnostic_impls.rs"));
 
 /// Collect all diagnostics for a template file.
 ///

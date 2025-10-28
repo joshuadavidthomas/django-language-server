@@ -15,5 +15,9 @@ salsa = { workspace = true }
 tower-lsp-server = { workspace = true }
 tracing = { workspace = true }
 
+[build-dependencies]
+serde = { workspace = true }
+toml = { workspace = true }
+
 [lints]
 workspace = true
