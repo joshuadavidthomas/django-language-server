@@ -4,35 +4,27 @@ IDE integration layer for the Django Language Server.
 
 ## Diagnostic Rules
 
-Diagnostic rules (error codes like S105, T100, etc.) are defined directly in the Rust error enums using attributes and doc comments. A proc macro automatically generates the necessary code, and the build script generates user-facing documentation.
+Diagnostic rules (error codes like S105, T100, etc.) are defined using `#[diagnostic]` attributes on error enum variants. The build script extracts these to generate user-facing documentation.
 
 ### How it works
 
-1. **Source of Truth**: Error enum variants in Rust source code with:
-   - `#[derive(Diagnostic)]` on the enum
-   - `#[diagnostic(code = "...", category = "...")]` attributes on each variant
+1. **Source of Truth**: Error enum variants with:
+   - `#[diagnostic(code = "...", category = "...")]` attributes
    - Comprehensive doc comments with examples and fixes
    - Located in `djls-semantic/src/errors.rs` and `djls-templates/src/error.rs`
 
-2. **Proc Macro** (`djls-macros`):
-   - Generates a `diagnostic_code()` method implementation from the attributes
-   - No manual match statements needed
-   - Compile-time validation (missing attribute = compile error)
-
-3. **Build Script** (`build.rs`):
+2. **Build Script** (`build.rs`):
    - Parses Rust source files to extract attributes and doc comments
-   - **Only** generates documentation (not runtime code)
-   - Creates individual markdown files for each rule in `/docs/rules/`
+   - Generates individual markdown files for each rule in `/docs/rules/`
    - Creates an index page at `/docs/rules/index.md`
 
-4. **Runtime Usage**: `src/diagnostics.rs` simply calls the generated `diagnostic_code()` method
+3. **Runtime Code**: Manual trait implementations in `src/diagnostics.rs` map error variants to their diagnostic codes
 
 ### Adding a new diagnostic rule
 
 1. Add a new enum variant with the `#[diagnostic]` attribute and doc comment:
 
 ```rust
-#[derive(Error, Diagnostic, Serialize)]
 pub enum ValidationError {
     /// Too Many Arguments
     ///
@@ -56,9 +48,18 @@ pub enum ValidationError {
 }
 ```
 
-2. Rebuild - everything is automatic:
-   - Proc macro generates the `diagnostic_code()` method
-   - Build script generates documentation
+2. Add the variant to the match statement in `src/diagnostics.rs`:
+
+```rust
+fn diagnostic_code(&self) -> &'static str {
+    match self {
+        ValidationError::TooManyArguments { .. } => "S105",
+        // ...
+    }
+}
+```
+
+3. Rebuild - the build script generates documentation
 
 ### Doc comment format
 
@@ -72,19 +73,16 @@ The build script extracts these and formats them as markdown documentation.
 ### File locations
 
 - **Rule definitions**: `crates/djls-semantic/src/errors.rs`, `crates/djls-templates/src/error.rs`
-- **Proc macro**: `crates/djls-macros/src/lib.rs`
-- **Build script**: `crates/djls-ide/build.rs` (docs only)
+- **Build script**: `crates/djls-ide/build.rs` (docs generation only)
 - **Generated docs**: `docs/rules/*.md` (checked in)
-- **Runtime code**: `crates/djls-ide/src/diagnostics.rs` (calls generated methods)
+- **Runtime code**: `crates/djls-ide/src/diagnostics.rs` (manual trait implementations)
 
 ### Why this approach?
 
 This design ensures:
-- **Single source of truth**: All information lives with the error definition in Rust
-- **Zero duplication**: Proc macro generates code from attributes
-- **Compile-time safety**: Missing attributes cause compile errors
-- **Documentation at source**: Docs are right next to the code that uses them
+- **Single source of truth**: Attributes define codes, doc comments define documentation
+- **Simple and clear**: Manual trait implementations are easy to understand
+- **Documentation at source**: Docs are right next to the error definitions
 - **Works with cargo doc**: Doc comments show up in generated Rust documentation
 - **IDE support**: Developers see examples when hovering over error types
-- **Build script only for docs**: No runtime code generation, just static documentation
-- **Cannot drift**: No separate files to keep in sync
+- **Build script only for user docs**: No runtime code generation

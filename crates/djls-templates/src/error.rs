@@ -1,10 +1,9 @@
-use djls_macros::Diagnostic;
 use serde::Serialize;
 use thiserror::Error;
 
 use crate::parser::ParseError;
 
-#[derive(Clone, Debug, Error, Diagnostic, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Error, PartialEq, Eq, Serialize)]
 pub enum TemplateError {
     /// Parser Error
     ///

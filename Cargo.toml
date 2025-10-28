@@ -7,7 +7,6 @@ djls = { path = "crates/djls" }
 djls-bench = { path = "crates/djls-bench" }
 djls-conf = { path = "crates/djls-conf" }
 djls-ide = { path = "crates/djls-ide" }
-djls-macros = { path = "crates/djls-macros" }
 djls-project = { path = "crates/djls-project" }
 djls-semantic = { path = "crates/djls-semantic" }
 djls-server = { path = "crates/djls-server" }

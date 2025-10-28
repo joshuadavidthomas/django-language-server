@@ -70,13 +70,12 @@ def main():
     print("\n" + "="*70)
     print("✓ All diagnostic attributes verified!")
     print("="*70)
-    print("\nThe #[derive(Diagnostic)] proc macro will:")
-    print("  1. Generate diagnostic_code() method implementations")
-    print("  2. Provide compile-time validation of attributes")
     print("\nThe build.rs script will:")
     print("  1. Parse these Rust files with syn")
     print("  2. Extract diagnostic codes and doc comments")
     print("  3. Generate markdown docs in docs/rules/*.md")
+    print("\nThe diagnostic codes are manually implemented in:")
+    print("  - crates/djls-ide/src/diagnostics.rs")
     print("\nTo test the full build, run: cargo build -p djls-ide")
 
     return 0
