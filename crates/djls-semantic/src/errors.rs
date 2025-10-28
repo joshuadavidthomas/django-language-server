@@ -1,8 +1,9 @@
+use djls_macros::Diagnostic;
 use djls_source::Span;
 use serde::Serialize;
 use thiserror::Error;
 
-#[derive(Clone, Debug, Error, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Error, Diagnostic, PartialEq, Eq, Serialize)]
 pub enum ValidationError {
     /// Unclosed Tag
     ///
