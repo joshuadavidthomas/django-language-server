@@ -38,9 +38,77 @@ trait DiagnosticError: std::fmt::Display {
     }
 }
 
-// The diagnostic code mappings are generated from diagnostics.toml by build.rs
-// See diagnostics.toml for the source of truth for all diagnostic rules
-include!(concat!(env!("OUT_DIR"), "/diagnostic_impls.rs"));
+// Include the generated lookup table from diagnostics.toml
+// This const array maps error type names to diagnostic codes
+include!(concat!(env!("OUT_DIR"), "/diagnostic_codes.rs"));
+
+/// Helper function to look up diagnostic code from the generated mappings
+#[inline]
+fn lookup_code(error_type: &str) -> &'static str {
+    DIAGNOSTIC_CODE_MAPPINGS
+        .iter()
+        .find(|(type_name, _)| *type_name == error_type)
+        .map(|(_, code)| *code)
+        .unwrap_or("UNKNOWN")
+}
+
+impl DiagnosticError for TemplateError {
+    fn span(&self) -> Option<(u32, u32)> {
+        None
+    }
+
+    fn diagnostic_code(&self) -> &'static str {
+        match self {
+            TemplateError::Parser(_) => lookup_code("TemplateError::Parser"),
+            TemplateError::Io(_) => lookup_code("TemplateError::Io"),
+            TemplateError::Config(_) => lookup_code("TemplateError::Config"),
+        }
+    }
+}
+
+impl DiagnosticError for ValidationError {
+    fn span(&self) -> Option<(u32, u32)> {
+        match self {
+            ValidationError::UnbalancedStructure { opening_span, .. } => Some(opening_span.into()),
+            ValidationError::UnclosedTag { span, .. }
+            | ValidationError::OrphanedTag { span, .. }
+            | ValidationError::UnmatchedBlockName { span, .. }
+            | ValidationError::MissingRequiredArguments { span, .. }
+            | ValidationError::TooManyArguments { span, .. }
+            | ValidationError::MissingArgument { span, .. }
+            | ValidationError::InvalidLiteralArgument { span, .. }
+            | ValidationError::InvalidArgumentChoice { span, .. } => Some(span.into()),
+        }
+    }
+
+    fn diagnostic_code(&self) -> &'static str {
+        match self {
+            ValidationError::UnclosedTag { .. } => lookup_code("ValidationError::UnclosedTag"),
+            ValidationError::UnbalancedStructure { .. } => {
+                lookup_code("ValidationError::UnbalancedStructure")
+            }
+            ValidationError::OrphanedTag { .. } => lookup_code("ValidationError::OrphanedTag"),
+            ValidationError::UnmatchedBlockName { .. } => {
+                lookup_code("ValidationError::UnmatchedBlockName")
+            }
+            ValidationError::MissingRequiredArguments { .. } => {
+                lookup_code("ValidationError::MissingRequiredArguments")
+            }
+            ValidationError::TooManyArguments { .. } => {
+                lookup_code("ValidationError::TooManyArguments")
+            }
+            ValidationError::MissingArgument { .. } => {
+                lookup_code("ValidationError::MissingArgument")
+            }
+            ValidationError::InvalidLiteralArgument { .. } => {
+                lookup_code("ValidationError::InvalidLiteralArgument")
+            }
+            ValidationError::InvalidArgumentChoice { .. } => {
+                lookup_code("ValidationError::InvalidArgumentChoice")
+            }
+        }
+    }
+}
 
 /// Collect all diagnostics for a template file.
 ///

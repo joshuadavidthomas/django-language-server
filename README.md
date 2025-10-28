@@ -103,7 +103,7 @@ The package provides pre-built wheels with the Rust-based LSP server compiled fo
 
 ## Documentation
 
-- **[Diagnostic Rules](docs/rules.md)** - Reference guide for all diagnostic error codes (S100-S107, T100, T900, T901)
+- **[Diagnostic Rules](docs/rules/)** - Reference guide for all diagnostic error codes (S100-S107, T100, T900, T901)
 - **[Configuration](docs/configuration.md)** - Server configuration options
 
 ## Editor Setup

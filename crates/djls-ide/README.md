@@ -16,10 +16,11 @@ Diagnostic rules (error codes like S105, T100, etc.) are defined in `diagnostics
    - Detailed explanation with examples
 
 2. **Build-time Generation**: `build.rs` reads the TOML and generates:
-   - Rust code in `diagnostic_impls.rs` (generated in `OUT_DIR`)
-   - Documentation in `/docs/rules.md`
+   - A simple lookup table in `diagnostic_codes.rs` (generated in `OUT_DIR`)
+   - Individual markdown files for each rule in `/docs/rules/`
+   - An index page at `/docs/rules/index.md`
 
-3. **Code Integration**: `src/diagnostics.rs` includes the generated code via `include!()` macro
+3. **Code Integration**: `src/diagnostics.rs` includes the lookup table and trait implementations use it to map error variants to diagnostic codes
 
 ### Adding a new diagnostic rule
 
@@ -53,14 +54,16 @@ error_type = "ValidationError::Type1|ValidationError::Type2"
 
 - **Rule definitions**: `crates/djls-ide/diagnostics.toml`
 - **Build script**: `crates/djls-ide/build.rs`
-- **Generated code**: `target/.../build/djls-ide-.../out/diagnostic_impls.rs` (not checked in)
-- **Generated docs**: `docs/rules.md` (checked in)
+- **Generated code**: `target/.../build/djls-ide-.../out/diagnostic_codes.rs` (not checked in)
+- **Generated docs**: `docs/rules/*.md` (checked in)
 - **Code that uses rules**: `crates/djls-ide/src/diagnostics.rs`
 
 ### Why this approach?
 
 This design ensures:
 - **Single source of truth**: No manual synchronization needed between code and docs
-- **Type safety**: Compilation fails if TOML references non-existent error variants
+- **Data-driven**: The crate reads from generated lookup data rather than having logic generated
+- **Maintainable**: Trait implementations remain in the crate where they can be easily read
+- **Flexible**: Individual rule pages make it easy to link directly to specific error codes
 - **Consistency**: All rules follow the same format and structure
-- **Easy maintenance**: Adding or updating rules only requires editing one file
+- **Easy updates**: Adding or updating rules only requires editing the TOML file
