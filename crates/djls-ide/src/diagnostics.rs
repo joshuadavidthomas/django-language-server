@@ -38,7 +38,7 @@ trait DiagnosticError: std::fmt::Display {
     }
 }
 
-// Include the generated lookup table from diagnostics.toml
+// Include the generated lookup table from error enum definitions
 // This const array maps error type names to diagnostic codes
 include!(concat!(env!("OUT_DIR"), "/diagnostic_codes.rs"));
 

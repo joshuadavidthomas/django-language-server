@@ -16,8 +16,7 @@ tower-lsp-server = { workspace = true }
 tracing = { workspace = true }
 
 [build-dependencies]
-serde = { workspace = true }
-toml = { workspace = true }
+syn = { version = "2.0", features = ["full", "extra-traits"] }
 
 [lints]
 workspace = true
