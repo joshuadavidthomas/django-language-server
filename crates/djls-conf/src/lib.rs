@@ -1,3 +1,4 @@
+pub mod diagnostics;
 pub mod tagspecs;
 
 use std::fs;
@@ -14,6 +15,8 @@ use directories::ProjectDirs;
 use serde::Deserialize;
 use thiserror::Error;
 
+pub use crate::diagnostics::DiagnosticSeverity;
+pub use crate::diagnostics::DiagnosticsConfig;
 pub use crate::tagspecs::ArgTypeDef;
 pub use crate::tagspecs::EndTagDef;
 pub use crate::tagspecs::IntermediateTagDef;
@@ -66,7 +69,7 @@ pub struct Settings {
     #[serde(default)]
     tagspecs: Vec<TagSpecDef>,
     #[serde(default)]
-    disabled_diagnostics: Vec<String>,
+    diagnostics: DiagnosticsConfig,
 }
 
 impl Settings {
@@ -88,8 +91,9 @@ impl Settings {
             if !overrides.tagspecs.is_empty() {
                 settings.tagspecs = overrides.tagspecs;
             }
-            if !overrides.disabled_diagnostics.is_empty() {
-                settings.disabled_diagnostics = overrides.disabled_diagnostics;
+            // For diagnostics, override if the config is non-default
+            if overrides.diagnostics != DiagnosticsConfig::default() {
+                settings.diagnostics = overrides.diagnostics;
             }
         }
 
@@ -165,8 +169,8 @@ impl Settings {
     }
 
     #[must_use]
-    pub fn disabled_diagnostics(&self) -> &[String] {
-        &self.disabled_diagnostics
+    pub fn diagnostics(&self) -> &DiagnosticsConfig {
+        &self.diagnostics
     }
 }
 
@@ -194,7 +198,7 @@ mod tests {
                     django_settings_module: None,
                     pythonpath: vec![],
                     tagspecs: vec![],
-                    disabled_diagnostics: vec![],
+                    diagnostics: DiagnosticsConfig::default(),
                 }
             );
         }
@@ -280,24 +284,26 @@ mod tests {
         }
 
         #[test]
-        fn test_load_disabled_diagnostics_config() {
+        fn test_load_diagnostics_config() {
             let dir = tempdir().unwrap();
             fs::write(
                 dir.path().join("djls.toml"),
-                r#"disabled_diagnostics = ["S100", "S101", "T100"]"#,
+                r#"
+[diagnostics]
+select = ["S", "T"]
+ignore = ["S100"]
+
+[diagnostics.severity]
+S101 = "warning"
+"#,
             )
             .unwrap();
             let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
+            assert_eq!(settings.diagnostics.select, vec!["S", "T"]);
+            assert_eq!(settings.diagnostics.ignore, vec!["S100"]);
             assert_eq!(
-                settings,
-                Settings {
-                    disabled_diagnostics: vec![
-                        "S100".to_string(),
-                        "S101".to_string(),
-                        "T100".to_string()
-                    ],
-                    ..Default::default()
-                }
+                settings.diagnostics.severity.get("S101"),
+                Some(&DiagnosticSeverity::Warning)
             );
         }
     }

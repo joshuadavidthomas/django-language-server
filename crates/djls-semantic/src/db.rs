@@ -1,4 +1,5 @@
 use camino::Utf8PathBuf;
+use djls_conf::DiagnosticsConfig;
 use djls_templates::Db as TemplateDb;
 
 use crate::blocks::TagIndex;
@@ -14,8 +15,8 @@ pub trait Db: TemplateDb {
 
     fn template_dirs(&self) -> Option<Vec<Utf8PathBuf>>;
 
-    /// Get the list of disabled diagnostic codes
-    fn disabled_diagnostics(&self) -> Vec<String>;
+    /// Get the diagnostics configuration
+    fn diagnostics_config(&self) -> DiagnosticsConfig;
 }
 
 #[salsa::accumulator]

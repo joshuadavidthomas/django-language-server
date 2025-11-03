@@ -55,41 +55,105 @@ Additional directories to add to Python's import search path when the inspector 
 
 Enable debug logging for troubleshooting language server issues.
 
-### `disabled_diagnostics`
+### `diagnostics`
 
-**Default:** `[]` (empty list)
+Configure which diagnostics are enabled and their severity levels. Inspired by Ruff's approach with `select` and `ignore` patterns.
 
-List of diagnostic codes to disable. Use this to suppress specific diagnostics that may be incorrect or not applicable to your project.
-
-**Available diagnostic codes:**
-
-- **Template Errors (T-series):**
-  - `T100` - Parser errors (syntax issues in templates)
-  - `T900` - IO errors (file read/write issues)
-  - `T901` - Configuration errors (invalid tagspecs)
-
-- **Semantic Validation Errors (S-series):**
-  - `S100` - Unclosed tag (missing end tag)
-  - `S101` - Unbalanced structure (mismatched block tags)
-  - `S102` - Orphaned tag (intermediate tag without parent)
-  - `S103` - Unmatched block name (e.g., `{% endblock foo %}` doesn't match `{% block bar %}`)
-  - `S104` - Missing required arguments
-  - `S105` - Too many arguments
-  - `S106` - Invalid literal argument
-  - `S107` - Invalid argument choice
-
-**Example:**
-
+**Default:**
 ```toml
-# Disable unclosed tag and parser error diagnostics
-disabled_diagnostics = ["S100", "T100"]
+[diagnostics]
+select = ["ALL"]  # All diagnostics enabled
+ignore = []       # None disabled
+```
+
+#### `diagnostics.select`
+
+Diagnostic codes or prefixes to enable. Supports pattern matching:
+- `"ALL"` - Enable all diagnostics (default)
+- `"S"` - Enable all semantic validation errors (S100-S107)
+- `"T"` - Enable all template errors (T100, T900, T901)
+- `"S1"` - Enable S100-S199 range
+- `"T9"` - Enable T900-T999 range
+- Exact codes like `"S100"`, `"T100"`
+
+#### `diagnostics.ignore`
+
+Diagnostic codes or prefixes to disable. Applied after `select`. Supports the same pattern matching as `select`.
+
+#### `diagnostics.severity`
+
+Override severity levels for specific diagnostic codes. Available levels:
+- `"error"` (default) - Shows as error
+- `"warning"` - Shows as warning
+- `"info"` - Shows as information
+- `"hint"` - Shows as hint
+
+#### Available Diagnostic Codes
+
+**Template Errors (T-series):**
+- `T100` - Parser errors (syntax issues in templates)
+- `T900` - IO errors (file read/write issues)
+- `T901` - Configuration errors (invalid tagspecs)
+
+**Semantic Validation Errors (S-series):**
+- `S100` - Unclosed tag (missing end tag)
+- `S101` - Unbalanced structure (mismatched block tags)
+- `S102` - Orphaned tag (intermediate tag without parent)
+- `S103` - Unmatched block name (e.g., `{% endblock foo %}` doesn't match `{% block bar %}`)
+- `S104` - Missing required arguments
+- `S105` - Too many arguments
+- `S106` - Invalid literal argument
+- `S107` - Invalid argument choice
+
+#### Examples
+
+**Disable specific diagnostics:**
+```toml
+[diagnostics]
+select = ["ALL"]
+ignore = ["S100", "T100"]  # Disable unclosed tags and parser errors
+```
+
+**Enable only semantic errors:**
+```toml
+[diagnostics]
+select = ["S"]  # Only S-series diagnostics
+```
+
+**Disable all S100-S109 diagnostics:**
+```toml
+[diagnostics]
+select = ["ALL"]
+ignore = ["S10"]  # Disables S100-S109
+```
+
+**Change severity levels:**
+```toml
+[diagnostics]
+select = ["ALL"]
+
+[diagnostics.severity]
+S101 = "warning"  # Unbalanced structure as warning instead of error
+S103 = "hint"     # Unmatched block name as hint
+```
+
+**Complex configuration:**
+```toml
+[diagnostics]
+select = ["S", "T"]    # Enable semantic and template errors
+ignore = ["S100", "S101"]  # But disable these specific ones
+
+[diagnostics.severity]
+S102 = "warning"  # Make orphaned tags a warning
+T100 = "hint"     # Make parser errors hints
 ```
 
 **When to configure:**
 
 - A diagnostic is producing false positives for your use case
+- You want to focus on specific types of issues (e.g., only semantic errors)
+- You want certain diagnostics to appear as warnings instead of errors
 - You're working around a known issue in the diagnostic system
-- Your project uses custom template tag patterns that trigger incorrect diagnostics
 
 ### `tagspecs`
 
@@ -117,7 +181,13 @@ Pass configuration through your editor's LSP client using `initializationOptions
   "django_settings_module": "myproject.settings",
   "venv_path": "/path/to/venv",
   "pythonpath": ["/path/to/shared/libs"],
-  "disabled_diagnostics": ["S100", "T100"]
+  "diagnostics": {
+    "select": ["ALL"],
+    "ignore": ["S100", "T100"],
+    "severity": {
+      "S101": "warning"
+    }
+  }
 }
 ```
 
@@ -134,7 +204,13 @@ If you use `pyproject.toml`, add a `[tool.djls]` section:
 django_settings_module = "myproject.settings"
 venv_path = "/path/to/venv"  # Optional: only if auto-detection fails
 pythonpath = ["/path/to/shared/libs"]  # Optional: additional import paths
-disabled_diagnostics = ["S100", "T100"]  # Optional: disable specific diagnostics
+
+[tool.djls.diagnostics]
+select = ["ALL"]
+ignore = ["S100", "T100"]
+
+[tool.djls.diagnostics.severity]
+S101 = "warning"
 ```
 
 If you prefer a dedicated config file or don't use `pyproject.toml`, you can use `djls.toml` (same settings, no `[tool.djls]` table).

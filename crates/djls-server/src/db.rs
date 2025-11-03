@@ -200,8 +200,8 @@ impl SemanticDb for DjangoDatabase {
         }
     }
 
-    fn disabled_diagnostics(&self) -> Vec<String> {
-        self.settings().disabled_diagnostics().to_vec()
+    fn diagnostics_config(&self) -> djls_conf::DiagnosticsConfig {
+        self.settings().diagnostics().clone()
     }
 }
 

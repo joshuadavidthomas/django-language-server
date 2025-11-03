@@ -88,8 +88,8 @@ impl DiagnosticError for ValidationError {
 /// parsing and validation. The caller must provide the parsed `NodeList` (or `None`
 /// if parsing failed), making it explicit that parsing should have already occurred.
 ///
-/// Diagnostics can be filtered based on the configuration settings. Any diagnostic
-/// codes listed in `disabled_diagnostics` will be excluded from the results.
+/// Diagnostics are filtered based on the configuration settings (`select` and `ignore`),
+/// and severity levels can be overridden per diagnostic code.
 ///
 /// # Parameters
 /// - `db`: The Salsa database
@@ -98,7 +98,7 @@ impl DiagnosticError for ValidationError {
 ///
 /// # Returns
 /// A vector of LSP diagnostics combining both template syntax errors and
-/// semantic validation errors, filtered by the disabled diagnostics configuration.
+/// semantic validation errors, filtered by the diagnostics configuration.
 ///
 /// # Design
 /// This API design makes it clear that:
@@ -113,7 +113,7 @@ pub fn collect_diagnostics(
 ) -> Vec<lsp_types::Diagnostic> {
     let mut diagnostics = Vec::new();
 
-    let disabled_codes = db.disabled_diagnostics();
+    let config = db.diagnostics_config();
 
     let template_errors =
         djls_templates::parse_template::accumulated::<TemplateErrorAccumulator>(db, file);
@@ -121,10 +121,16 @@ pub fn collect_diagnostics(
     let line_index = file.line_index(db);
 
     for error_acc in template_errors {
-        let diagnostic = error_acc.0.as_diagnostic(line_index);
-        if !is_diagnostic_disabled(&diagnostic, &disabled_codes) {
-            diagnostics.push(diagnostic);
+        let mut diagnostic = error_acc.0.as_diagnostic(line_index);
+        if let Some(lsp_types::NumberOrString::String(code)) = &diagnostic.code {
+            // Check if this diagnostic is enabled
+            if !config.is_enabled(code) {
+                continue;
+            }
+            // Apply severity override if configured
+            diagnostic.severity = Some(config.get_severity(code).to_lsp_severity());
         }
+        diagnostics.push(diagnostic);
     }
 
     if let Some(nodelist) = nodelist {
@@ -133,116 +139,25 @@ pub fn collect_diagnostics(
         >(db, nodelist);
 
         for error_acc in validation_errors {
-            let diagnostic = error_acc.0.as_diagnostic(line_index);
-            if !is_diagnostic_disabled(&diagnostic, &disabled_codes) {
-                diagnostics.push(diagnostic);
+            let mut diagnostic = error_acc.0.as_diagnostic(line_index);
+            if let Some(lsp_types::NumberOrString::String(code)) = &diagnostic.code {
+                // Check if this diagnostic is enabled
+                if !config.is_enabled(code) {
+                    continue;
+                }
+                // Apply severity override if configured
+                diagnostic.severity = Some(config.get_severity(code).to_lsp_severity());
             }
+            diagnostics.push(diagnostic);
         }
     }
 
     diagnostics
 }
 
-/// Check if a diagnostic should be filtered out based on the disabled codes.
-fn is_diagnostic_disabled(diagnostic: &lsp_types::Diagnostic, disabled_codes: &[String]) -> bool {
-    if let Some(lsp_types::NumberOrString::String(code)) = &diagnostic.code {
-        disabled_codes.contains(code)
-    } else {
-        false
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    #[test]
-    fn test_is_diagnostic_disabled_with_matching_code() {
-        let diagnostic = lsp_types::Diagnostic {
-            range: lsp_types::Range::default(),
-            severity: Some(lsp_types::DiagnosticSeverity::ERROR),
-            code: Some(lsp_types::NumberOrString::String("S100".to_string())),
-            code_description: None,
-            source: Some("djls".to_string()),
-            message: "Test error".to_string(),
-            related_information: None,
-            tags: None,
-            data: None,
-        };
-
-        let disabled_codes = vec!["S100".to_string(), "S101".to_string()];
-        assert!(is_diagnostic_disabled(&diagnostic, &disabled_codes));
-    }
-
-    #[test]
-    fn test_is_diagnostic_disabled_with_non_matching_code() {
-        let diagnostic = lsp_types::Diagnostic {
-            range: lsp_types::Range::default(),
-            severity: Some(lsp_types::DiagnosticSeverity::ERROR),
-            code: Some(lsp_types::NumberOrString::String("S102".to_string())),
-            code_description: None,
-            source: Some("djls".to_string()),
-            message: "Test error".to_string(),
-            related_information: None,
-            tags: None,
-            data: None,
-        };
-
-        let disabled_codes = vec!["S100".to_string(), "S101".to_string()];
-        assert!(!is_diagnostic_disabled(&diagnostic, &disabled_codes));
-    }
-
-    #[test]
-    fn test_is_diagnostic_disabled_with_empty_disabled_list() {
-        let diagnostic = lsp_types::Diagnostic {
-            range: lsp_types::Range::default(),
-            severity: Some(lsp_types::DiagnosticSeverity::ERROR),
-            code: Some(lsp_types::NumberOrString::String("S100".to_string())),
-            code_description: None,
-            source: Some("djls".to_string()),
-            message: "Test error".to_string(),
-            related_information: None,
-            tags: None,
-            data: None,
-        };
-
-        let disabled_codes = vec![];
-        assert!(!is_diagnostic_disabled(&diagnostic, &disabled_codes));
-    }
-
-    #[test]
-    fn test_is_diagnostic_disabled_with_no_code() {
-        let diagnostic = lsp_types::Diagnostic {
-            range: lsp_types::Range::default(),
-            severity: Some(lsp_types::DiagnosticSeverity::ERROR),
-            code: None,
-            code_description: None,
-            source: Some("djls".to_string()),
-            message: "Test error".to_string(),
-            related_information: None,
-            tags: None,
-            data: None,
-        };
-
-        let disabled_codes = vec!["S100".to_string()];
-        assert!(!is_diagnostic_disabled(&diagnostic, &disabled_codes));
-    }
-
-    #[test]
-    fn test_is_diagnostic_disabled_with_numeric_code() {
-        let diagnostic = lsp_types::Diagnostic {
-            range: lsp_types::Range::default(),
-            severity: Some(lsp_types::DiagnosticSeverity::ERROR),
-            code: Some(lsp_types::NumberOrString::Number(100)),
-            code_description: None,
-            source: Some("djls".to_string()),
-            message: "Test error".to_string(),
-            related_information: None,
-            tags: None,
-            data: None,
-        };
-
-        let disabled_codes = vec!["S100".to_string()];
-        assert!(!is_diagnostic_disabled(&diagnostic, &disabled_codes));
-    }
+    // Tests for diagnostic collection are integration tests that require
+    // a full database setup. The core filtering logic is tested in
+    // djls_conf::diagnostics module.
 }
