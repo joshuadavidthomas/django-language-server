@@ -1,4 +1,3 @@
-use djls_conf::DiagnosticSeverity;
 use djls_semantic::ValidationError;
 use djls_source::File;
 use djls_source::LineIndex;
@@ -166,6 +165,7 @@ pub fn collect_diagnostics(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use djls_conf::DiagnosticSeverity;
 
     #[test]
     fn test_to_lsp_severity() {
