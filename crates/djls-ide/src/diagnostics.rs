@@ -164,8 +164,9 @@ pub fn collect_diagnostics(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use djls_conf::DiagnosticSeverity;
+    
+    use super::*;
 
     #[test]
     fn test_to_lsp_severity() {
