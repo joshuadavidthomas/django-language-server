@@ -71,30 +71,87 @@ See the [Versioning](#versioning) section for details on how this project's vers
 
 ## Installation
 
-The Django Language Server can be installed using your preferred Python package manager.
+The Django Language Server can be installed using your preferred Python package manager or as a standalone binary.
 
-For system-wide availability using either `uv` or `pipx`:
+### Install with a package manager (recommended)
+
+The language server is published to PyPI with pre-built wheels for common platforms. Installing it adds the `djls` command-line tool to your environment.
+
+#### Install with uv
+
+For system-wide availability:
 
 ```bash
 uv tool install django-language-server
-
-# or
-
-pipx install django-language-server
 ```
 
-Or to try it out in your current project:
+Or as a development dependency in your project:
 
 ```bash
 uv add --dev django-language-server
-uv sync
+```
 
-# or
+#### Install with pipx
 
+For system-wide availability in an isolated environment:
+
+```bash
+pipx install django-language-server
+```
+
+#### Install with pip
+
+For system-wide availability:
+
+```bash
 pip install django-language-server
 ```
 
-The package provides pre-built wheels with the Rust-based LSP server compiled for common platforms. Installing it adds the `djls` command-line tool to your environment.
+Or in your project's virtual environment:
+
+```bash
+# Activate your virtual environment first, then:
+pip install django-language-server
+```
+
+### Standalone binaries
+
+Standalone binaries are available for macOS, Linux, and Windows from [GitHub Releases](https://github.com/joshuadavidthomas/django-language-server/releases).
+
+Pre-built binaries are provided for the following platforms:
+
+- Linux: x64, arm64
+- macOS: x64 (Intel), arm64 (Apple Silicon)
+- Windows: x64
+
+Download the archive for your platform, extract it, and add the binary to your PATH.
+
+#### Linux and macOS
+
+```bash
+# Download the latest release for your platform
+# Example for Linux x64:
+curl -LO https://github.com/joshuadavidthomas/django-language-server/releases/latest/download/django-language-server-VERSION-linux-x64.tar.gz
+
+# Extract the archive
+tar -xzf django-language-server-VERSION-linux-x64.tar.gz
+
+# Move the binary to a location in your PATH
+sudo mv django-language-server-VERSION-linux-x64/djls /usr/local/bin/
+```
+
+#### Windows
+
+Download the `.zip` file for Windows from the [releases page](https://github.com/joshuadavidthomas/django-language-server/releases), extract it, and add the directory containing `djls.exe` to your PATH.
+
+### Pre-built wheels
+
+The package provides pre-built wheels for the following platforms:
+
+- **Linux**: x86_64, aarch64 (both glibc and musl)
+- **macOS**: x86_64, aarch64
+- **Windows**: x64
+- **Source distribution**: Available for other platforms
 
 > [!NOTE]
 > The server will automatically detect and use your project's Python environment when you open a Django project. It needs access to your project's Django installation and other dependencies, but should be able to find these regardless of where the server itself is installed.
