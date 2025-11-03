@@ -75,7 +75,14 @@ The Django Language Server can be installed using your preferred Python package 
 
 ### Install with a package manager (recommended)
 
-The language server is published to PyPI with pre-built wheels for common platforms. Installing it adds the `djls` command-line tool to your environment.
+The language server is published to PyPI with pre-built wheels for the following platforms:
+
+- **Linux**: x86_64, aarch64 (both glibc and musl)
+- **macOS**: x86_64, aarch64
+- **Windows**: x64
+- **Source distribution**: Available for other platforms
+
+Installing it adds the `djls` command-line tool to your environment.
 
 #### System-wide tool installation
 
@@ -95,6 +102,9 @@ uv tool install django-language-server
 pipx install django-language-server
 ```
 
+> [!NOTE]
+> The server will automatically detect and use your project's Python environment when you open a Django project. It needs access to your project's Django installation and other dependencies, but should be able to find these regardless of where the server itself is installed.
+
 #### Install with pip
 
 Install from PyPI using pip:
@@ -108,16 +118,6 @@ Or add as a development dependency with uv:
 ```bash
 uv add --dev django-language-server
 ```
-
-#### Install from source with cargo
-
-Build and install directly from source using Rust's cargo:
-
-```bash
-cargo install --git https://github.com/joshuadavidthomas/django-language-server djls --locked
-```
-
-This requires a Rust toolchain (see [rust-toolchain.toml](rust-toolchain.toml) for the required version) and will compile the language server from source.
 
 ### Standalone binaries
 
@@ -147,21 +147,28 @@ sudo mv django-language-server-VERSION-linux-x64/djls /usr/local/bin/
 
 #### Windows
 
-Download the `.zip` file for Windows from the [releases page](https://github.com/joshuadavidthomas/django-language-server/releases), extract it, and add the directory containing `djls.exe` to your PATH.
+```powershell
+# Download the latest release for your platform
+# Example for Windows x64:
+Invoke-WebRequest -Uri "https://github.com/joshuadavidthomas/django-language-server/releases/latest/download/django-language-server-VERSION-windows-x64.zip" -OutFile "django-language-server-VERSION-windows-x64.zip"
 
-### Pre-built wheels
+# Extract the archive
+Expand-Archive -Path "django-language-server-VERSION-windows-x64.zip" -DestinationPath .
 
-The package provides pre-built wheels for the following platforms:
+# Move the binary to a location in your PATH (requires admin)
+# Or add the directory containing djls.exe to your PATH
+Move-Item -Path "django-language-server-VERSION-windows-x64\djls.exe" -Destination "$env:LOCALAPPDATA\Programs\djls.exe"
+```
 
-- **Linux**: x86_64, aarch64 (both glibc and musl)
-- **macOS**: x86_64, aarch64
-- **Windows**: x64
-- **Source distribution**: Available for other platforms
+### Install from source with cargo
 
-> [!NOTE]
-> The server will automatically detect and use your project's Python environment when you open a Django project. It needs access to your project's Django installation and other dependencies, but should be able to find these regardless of where the server itself is installed.
->
-> It's recommended to use `uv` or `pipx` to install it system-wide for convenience, but installing in your project's environment will work just as well to give it a test drive around the block.
+Build and install directly from source using Rust's cargo:
+
+```bash
+cargo install --git https://github.com/joshuadavidthomas/django-language-server djls --locked
+```
+
+This requires a Rust toolchain (see [rust-toolchain.toml](rust-toolchain.toml) for the required version) and will compile the language server from source.
 
 ## Editor Setup
 
