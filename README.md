@@ -73,6 +73,16 @@ See the [Versioning](#versioning) section for details on how this project's vers
 
 The Django Language Server can be installed using your preferred Python package manager or as a standalone binary.
 
+### Try it out
+
+Try the language server without installing using `uvx`:
+
+```bash
+uvx django-language-server
+```
+
+This will run the language server without installing it, perfect for testing it out first.
+
 ### Install with a package manager (recommended)
 
 The language server is published to PyPI with pre-built wheels for the following platforms:
@@ -84,15 +94,12 @@ The language server is published to PyPI with pre-built wheels for the following
 
 Installing it adds the `djls` command-line tool to your environment.
 
+> [!NOTE]
+> The server will automatically detect and use your project's Python environment when you open a Django project. It needs access to your project's Django installation and other dependencies, but should be able to find these regardless of where the server itself is installed.
+
 #### System-wide tool installation
 
-Try the language server without installing using `uvx`:
-
-```bash
-uvx django-language-server
-```
-
-Or install it globally in an isolated environment using `uv` or `pipx`:
+Install it globally in an isolated environment using `uv` or `pipx`:
 
 ```bash
 # Using uv
@@ -101,9 +108,6 @@ uv tool install django-language-server
 # Or using pipx
 pipx install django-language-server
 ```
-
-> [!NOTE]
-> The server will automatically detect and use your project's Python environment when you open a Django project. It needs access to your project's Django installation and other dependencies, but should be able to find these regardless of where the server itself is installed.
 
 #### Install with pip
 
