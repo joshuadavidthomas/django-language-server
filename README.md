@@ -73,15 +73,7 @@ See the [Versioning](#versioning) section for details on how this project's vers
 
 The Django Language Server can be installed using your preferred Python package manager or as a standalone binary.
 
-### Try it out
-
-Try the language server without installing using `uvx`:
-
-```bash
-uvx django-language-server
-```
-
-This will run the language server without installing it, perfect for testing it out first.
+To try the language server without installing, use `uvx --from django-language-server djls serve`.
 
 ### Install with a package manager (recommended)
 
