@@ -1,3 +1,4 @@
+use djls_conf::DiagnosticSeverity;
 use djls_semantic::ValidationError;
 use djls_source::File;
 use djls_source::LineIndex;
@@ -7,6 +8,18 @@ use djls_templates::TemplateErrorAccumulator;
 use tower_lsp_server::lsp_types;
 
 use crate::ext::SpanExt;
+
+/// Convert DiagnosticSeverity to LSP diagnostic severity.
+/// Returns None for Off (diagnostic should not be shown).
+fn to_lsp_severity(severity: DiagnosticSeverity) -> Option<lsp_types::DiagnosticSeverity> {
+    match severity {
+        DiagnosticSeverity::Off => None,
+        DiagnosticSeverity::Error => Some(lsp_types::DiagnosticSeverity::ERROR),
+        DiagnosticSeverity::Warning => Some(lsp_types::DiagnosticSeverity::WARNING),
+        DiagnosticSeverity::Info => Some(lsp_types::DiagnosticSeverity::INFORMATION),
+        DiagnosticSeverity::Hint => Some(lsp_types::DiagnosticSeverity::HINT),
+    }
+}
 
 trait DiagnosticError: std::fmt::Display {
     fn span(&self) -> Option<(u32, u32)>;
@@ -126,7 +139,7 @@ pub fn collect_diagnostics(
             let severity = config.get_severity(code);
 
             // Skip if diagnostic is disabled (severity = off)
-            if let Some(lsp_severity) = severity.to_lsp_severity() {
+            if let Some(lsp_severity) = to_lsp_severity(severity) {
                 diagnostic.severity = Some(lsp_severity);
                 diagnostics.push(diagnostic);
             }
@@ -147,7 +160,7 @@ pub fn collect_diagnostics(
                 let severity = config.get_severity(code);
 
                 // Skip if diagnostic is disabled (severity = off)
-                if let Some(lsp_severity) = severity.to_lsp_severity() {
+                if let Some(lsp_severity) = to_lsp_severity(severity) {
                     diagnostic.severity = Some(lsp_severity);
                     diagnostics.push(diagnostic);
                 }
@@ -163,7 +176,26 @@ pub fn collect_diagnostics(
 
 #[cfg(test)]
 mod tests {
-    // Tests for diagnostic collection are integration tests that require
-    // a full database setup. The core filtering logic is tested in
-    // djls_conf::diagnostics module.
+    use super::*;
+
+    #[test]
+    fn test_to_lsp_severity() {
+        assert_eq!(to_lsp_severity(DiagnosticSeverity::Off), None);
+        assert_eq!(
+            to_lsp_severity(DiagnosticSeverity::Error),
+            Some(lsp_types::DiagnosticSeverity::ERROR)
+        );
+        assert_eq!(
+            to_lsp_severity(DiagnosticSeverity::Warning),
+            Some(lsp_types::DiagnosticSeverity::WARNING)
+        );
+        assert_eq!(
+            to_lsp_severity(DiagnosticSeverity::Info),
+            Some(lsp_types::DiagnosticSeverity::INFORMATION)
+        );
+        assert_eq!(
+            to_lsp_severity(DiagnosticSeverity::Hint),
+            Some(lsp_types::DiagnosticSeverity::HINT)
+        );
+    }
 }

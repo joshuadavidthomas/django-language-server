@@ -13,28 +13,6 @@ pub enum DiagnosticSeverity {
     Hint,
 }
 
-impl DiagnosticSeverity {
-    /// Convert to LSP diagnostic severity.
-    /// Returns None for Off (diagnostic should not be shown).
-    pub fn to_lsp_severity(self) -> Option<tower_lsp_server::lsp_types::DiagnosticSeverity> {
-        match self {
-            DiagnosticSeverity::Off => None,
-            DiagnosticSeverity::Error => {
-                Some(tower_lsp_server::lsp_types::DiagnosticSeverity::ERROR)
-            }
-            DiagnosticSeverity::Warning => {
-                Some(tower_lsp_server::lsp_types::DiagnosticSeverity::WARNING)
-            }
-            DiagnosticSeverity::Info => {
-                Some(tower_lsp_server::lsp_types::DiagnosticSeverity::INFORMATION)
-            }
-            DiagnosticSeverity::Hint => {
-                Some(tower_lsp_server::lsp_types::DiagnosticSeverity::HINT)
-            }
-        }
-    }
-}
-
 /// Configuration for diagnostic severity levels.
 ///
 /// All diagnostics are enabled by default at "error" severity.
@@ -238,27 +216,6 @@ mod tests {
         // Other T codes are off
         assert!(!config.is_enabled("T900"));
         assert!(!config.is_enabled("T901"));
-    }
-
-    #[test]
-    fn test_to_lsp_severity() {
-        assert_eq!(DiagnosticSeverity::Off.to_lsp_severity(), None);
-        assert_eq!(
-            DiagnosticSeverity::Error.to_lsp_severity(),
-            Some(tower_lsp_server::lsp_types::DiagnosticSeverity::ERROR)
-        );
-        assert_eq!(
-            DiagnosticSeverity::Warning.to_lsp_severity(),
-            Some(tower_lsp_server::lsp_types::DiagnosticSeverity::WARNING)
-        );
-        assert_eq!(
-            DiagnosticSeverity::Info.to_lsp_severity(),
-            Some(tower_lsp_server::lsp_types::DiagnosticSeverity::INFORMATION)
-        );
-        assert_eq!(
-            DiagnosticSeverity::Hint.to_lsp_severity(),
-            Some(tower_lsp_server::lsp_types::DiagnosticSeverity::HINT)
-        );
     }
 
     #[test]
