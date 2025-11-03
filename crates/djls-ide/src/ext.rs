@@ -1,5 +1,6 @@
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
+use djls_conf::DiagnosticSeverity;
 use djls_source::LineIndex;
 use djls_source::Offset;
 use djls_source::Span;
@@ -42,5 +43,21 @@ impl Utf8PathExt for Utf8Path {
 impl Utf8PathExt for Utf8PathBuf {
     fn to_lsp_uri(&self) -> Option<lsp_types::Uri> {
         lsp_types::Uri::from_file_path(self.as_std_path())
+    }
+}
+
+pub(crate) trait DiagnosticSeverityExt {
+    fn to_lsp_severity(self) -> Option<lsp_types::DiagnosticSeverity>;
+}
+
+impl DiagnosticSeverityExt for DiagnosticSeverity {
+    fn to_lsp_severity(self) -> Option<lsp_types::DiagnosticSeverity> {
+        match self {
+            DiagnosticSeverity::Off => None,
+            DiagnosticSeverity::Error => Some(lsp_types::DiagnosticSeverity::ERROR),
+            DiagnosticSeverity::Warning => Some(lsp_types::DiagnosticSeverity::WARNING),
+            DiagnosticSeverity::Info => Some(lsp_types::DiagnosticSeverity::INFORMATION),
+            DiagnosticSeverity::Hint => Some(lsp_types::DiagnosticSeverity::HINT),
+        }
     }
 }

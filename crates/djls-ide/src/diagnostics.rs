@@ -7,19 +7,8 @@ use djls_templates::TemplateError;
 use djls_templates::TemplateErrorAccumulator;
 use tower_lsp_server::lsp_types;
 
+use crate::ext::DiagnosticSeverityExt;
 use crate::ext::SpanExt;
-
-/// Convert `DiagnosticSeverity` to LSP diagnostic severity.
-/// Returns None for Off (diagnostic should not be shown).
-fn to_lsp_severity(severity: DiagnosticSeverity) -> Option<lsp_types::DiagnosticSeverity> {
-    match severity {
-        DiagnosticSeverity::Off => None,
-        DiagnosticSeverity::Error => Some(lsp_types::DiagnosticSeverity::ERROR),
-        DiagnosticSeverity::Warning => Some(lsp_types::DiagnosticSeverity::WARNING),
-        DiagnosticSeverity::Info => Some(lsp_types::DiagnosticSeverity::INFORMATION),
-        DiagnosticSeverity::Hint => Some(lsp_types::DiagnosticSeverity::HINT),
-    }
-}
 
 trait DiagnosticError: std::fmt::Display {
     fn span(&self) -> Option<(u32, u32)>;
@@ -139,7 +128,7 @@ pub fn collect_diagnostics(
             let severity = config.get_severity(code);
 
             // Skip if diagnostic is disabled (severity = off)
-            if let Some(lsp_severity) = to_lsp_severity(severity) {
+            if let Some(lsp_severity) = severity.to_lsp_severity() {
                 diagnostic.severity = Some(lsp_severity);
                 diagnostics.push(diagnostic);
             }
@@ -160,7 +149,7 @@ pub fn collect_diagnostics(
                 let severity = config.get_severity(code);
 
                 // Skip if diagnostic is disabled (severity = off)
-                if let Some(lsp_severity) = to_lsp_severity(severity) {
+                if let Some(lsp_severity) = severity.to_lsp_severity() {
                     diagnostic.severity = Some(lsp_severity);
                     diagnostics.push(diagnostic);
                 }
@@ -180,21 +169,21 @@ mod tests {
 
     #[test]
     fn test_to_lsp_severity() {
-        assert_eq!(to_lsp_severity(DiagnosticSeverity::Off), None);
+        assert_eq!(DiagnosticSeverity::Off.to_lsp_severity(), None);
         assert_eq!(
-            to_lsp_severity(DiagnosticSeverity::Error),
+            DiagnosticSeverity::Error.to_lsp_severity(),
             Some(lsp_types::DiagnosticSeverity::ERROR)
         );
         assert_eq!(
-            to_lsp_severity(DiagnosticSeverity::Warning),
+            DiagnosticSeverity::Warning.to_lsp_severity(),
             Some(lsp_types::DiagnosticSeverity::WARNING)
         );
         assert_eq!(
-            to_lsp_severity(DiagnosticSeverity::Info),
+            DiagnosticSeverity::Info.to_lsp_severity(),
             Some(lsp_types::DiagnosticSeverity::INFORMATION)
         );
         assert_eq!(
-            to_lsp_severity(DiagnosticSeverity::Hint),
+            DiagnosticSeverity::Hint.to_lsp_severity(),
             Some(lsp_types::DiagnosticSeverity::HINT)
         );
     }
