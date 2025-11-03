@@ -9,7 +9,7 @@ use tower_lsp_server::lsp_types;
 
 use crate::ext::SpanExt;
 
-/// Convert DiagnosticSeverity to LSP diagnostic severity.
+/// Convert `DiagnosticSeverity` to LSP diagnostic severity.
 /// Returns None for Off (diagnostic should not be shown).
 fn to_lsp_severity(severity: DiagnosticSeverity) -> Option<lsp_types::DiagnosticSeverity> {
     match severity {

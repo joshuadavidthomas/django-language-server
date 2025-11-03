@@ -72,8 +72,7 @@ impl DiagnosticsConfig {
             }
         }
 
-        best_match
-            .map_or(DiagnosticSeverity::Error, |(_, severity)| severity)
+        best_match.map_or(DiagnosticSeverity::Error, |(_, severity)| severity)
     }
 
     /// Check if a diagnostic should be shown (severity is not Off).
