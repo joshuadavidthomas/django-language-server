@@ -298,21 +298,24 @@ T100 = "hint"
             )
             .unwrap();
             let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
+            // Test via public API
             assert_eq!(
-                settings.diagnostics.severity.get("S100"),
-                Some(&DiagnosticSeverity::Off)
+                settings.diagnostics.get_severity("S100"),
+                DiagnosticSeverity::Off
             );
             assert_eq!(
-                settings.diagnostics.severity.get("S101"),
-                Some(&DiagnosticSeverity::Warning)
+                settings.diagnostics.get_severity("S101"),
+                DiagnosticSeverity::Warning
             );
+            // T prefix applies to T900
             assert_eq!(
-                settings.diagnostics.severity.get("T"),
-                Some(&DiagnosticSeverity::Off)
+                settings.diagnostics.get_severity("T900"),
+                DiagnosticSeverity::Off
             );
+            // T100 has specific override
             assert_eq!(
-                settings.diagnostics.severity.get("T100"),
-                Some(&DiagnosticSeverity::Hint)
+                settings.diagnostics.get_severity("T100"),
+                DiagnosticSeverity::Hint
             );
         }
     }

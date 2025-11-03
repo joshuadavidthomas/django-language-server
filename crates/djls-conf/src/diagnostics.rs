@@ -60,7 +60,7 @@ pub struct DiagnosticsConfig {
     /// - Prefixes: "S" (all S-series), "T" (all T-series), "S1" (S100-S199)
     /// - More specific patterns override less specific ones
     #[serde(default)]
-    pub severity: HashMap<String, DiagnosticSeverity>,
+    severity: HashMap<String, DiagnosticSeverity>,
 }
 
 impl DiagnosticsConfig {
@@ -273,14 +273,13 @@ mod tests {
         "#;
 
         let config: DiagnosticsConfig = toml::from_str(toml).unwrap();
-        assert_eq!(config.severity.get("S100"), Some(&DiagnosticSeverity::Off));
-        assert_eq!(
-            config.severity.get("S101"),
-            Some(&DiagnosticSeverity::Warning)
-        );
-        assert_eq!(config.severity.get("S102"), Some(&DiagnosticSeverity::Hint));
-        assert_eq!(config.severity.get("T"), Some(&DiagnosticSeverity::Off));
-        assert_eq!(config.severity.get("T100"), Some(&DiagnosticSeverity::Info));
+        assert_eq!(config.get_severity("S100"), DiagnosticSeverity::Off);
+        assert_eq!(config.get_severity("S101"), DiagnosticSeverity::Warning);
+        assert_eq!(config.get_severity("S102"), DiagnosticSeverity::Hint);
+        // T prefix applies to T900
+        assert_eq!(config.get_severity("T900"), DiagnosticSeverity::Off);
+        // T100 has specific override
+        assert_eq!(config.get_severity("T100"), DiagnosticSeverity::Info);
     }
 
     #[test]
