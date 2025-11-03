@@ -48,6 +48,7 @@ impl DiagnosticsConfig {
     /// 1. Exact match (e.g., "S100")
     /// 2. Longest prefix match (e.g., "S1" over "S")
     /// 3. Default: Error
+    #[must_use]
     pub fn get_severity(&self, code: &str) -> DiagnosticSeverity {
         // First, check for exact match
         if let Some(&severity) = self.severity.get(code) {
@@ -72,11 +73,11 @@ impl DiagnosticsConfig {
         }
 
         best_match
-            .map(|(_, severity)| severity)
-            .unwrap_or(DiagnosticSeverity::Error)
+            .map_or(DiagnosticSeverity::Error, |(_, severity)| severity)
     }
 
     /// Check if a diagnostic should be shown (severity is not Off).
+    #[must_use]
     pub fn is_enabled(&self, code: &str) -> bool {
         self.get_severity(code) != DiagnosticSeverity::Off
     }
