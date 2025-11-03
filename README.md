@@ -103,14 +103,7 @@ Install from PyPI using pip:
 pip install django-language-server
 ```
 
-Or in your project's virtual environment:
-
-```bash
-# Activate your virtual environment first, then:
-pip install django-language-server
-```
-
-Or as a development dependency with uv:
+Or add as a development dependency with uv:
 
 ```bash
 uv add --dev django-language-server
