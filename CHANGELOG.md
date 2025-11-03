@@ -20,6 +20,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Added
 
+- Added `diagnostics.severity` configuration for fine-grained control over diagnostic behavior with support for prefix matching and severity levels (off, hint, info, warning, error)
 - Added `pythonpath` configuration option for specifying additional Python import paths
 - Added documentation for VS Code extension
 - Added documentation for Zed extension
