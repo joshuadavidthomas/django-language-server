@@ -79,19 +79,13 @@ The language server is published to PyPI with pre-built wheels for common platfo
 
 #### System-wide tool installation
 
-Install the language server globally using `uvx` or `uv tool install`:
+Install the language server globally in an isolated environment using `uv` or `pipx`:
 
 ```bash
-# Using uvx (recommended)
-uvx django-language-server
-
-# Or install with uv tool
+# Using uv
 uv tool install django-language-server
-```
 
-Or with `pipx` for an isolated environment:
-
-```bash
+# Or using pipx
 pipx install django-language-server
 ```
 
