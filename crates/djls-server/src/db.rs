@@ -199,6 +199,10 @@ impl SemanticDb for DjangoDatabase {
             None
         }
     }
+
+    fn disabled_diagnostics(&self) -> Vec<String> {
+        self.settings().disabled_diagnostics().to_vec()
+    }
 }
 
 #[salsa::db]

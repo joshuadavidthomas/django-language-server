@@ -65,6 +65,8 @@ pub struct Settings {
     pythonpath: Vec<String>,
     #[serde(default)]
     tagspecs: Vec<TagSpecDef>,
+    #[serde(default)]
+    disabled_diagnostics: Vec<String>,
 }
 
 impl Settings {
@@ -85,6 +87,9 @@ impl Settings {
             }
             if !overrides.tagspecs.is_empty() {
                 settings.tagspecs = overrides.tagspecs;
+            }
+            if !overrides.disabled_diagnostics.is_empty() {
+                settings.disabled_diagnostics = overrides.disabled_diagnostics;
             }
         }
 
@@ -158,6 +163,11 @@ impl Settings {
     pub fn tagspecs(&self) -> &[TagSpecDef] {
         &self.tagspecs
     }
+
+    #[must_use]
+    pub fn disabled_diagnostics(&self) -> &[String] {
+        &self.disabled_diagnostics
+    }
 }
 
 #[cfg(test)]
@@ -184,6 +194,7 @@ mod tests {
                     django_settings_module: None,
                     pythonpath: vec![],
                     tagspecs: vec![],
+                    disabled_diagnostics: vec![],
                 }
             );
         }
@@ -263,6 +274,28 @@ mod tests {
                 settings,
                 Settings {
                     debug: true,
+                    ..Default::default()
+                }
+            );
+        }
+
+        #[test]
+        fn test_load_disabled_diagnostics_config() {
+            let dir = tempdir().unwrap();
+            fs::write(
+                dir.path().join("djls.toml"),
+                r#"disabled_diagnostics = ["S100", "S101", "T100"]"#,
+            )
+            .unwrap();
+            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
+            assert_eq!(
+                settings,
+                Settings {
+                    disabled_diagnostics: vec![
+                        "S100".to_string(),
+                        "S101".to_string(),
+                        "T100".to_string()
+                    ],
                     ..Default::default()
                 }
             );

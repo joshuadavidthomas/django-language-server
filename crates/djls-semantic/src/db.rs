@@ -13,6 +13,9 @@ pub trait Db: TemplateDb {
     fn tag_index(&self) -> TagIndex<'_>;
 
     fn template_dirs(&self) -> Option<Vec<Utf8PathBuf>>;
+
+    /// Get the list of disabled diagnostic codes
+    fn disabled_diagnostics(&self) -> Vec<String>;
 }
 
 #[salsa::accumulator]

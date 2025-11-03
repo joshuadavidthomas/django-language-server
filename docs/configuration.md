@@ -55,6 +55,42 @@ Additional directories to add to Python's import search path when the inspector 
 
 Enable debug logging for troubleshooting language server issues.
 
+### `disabled_diagnostics`
+
+**Default:** `[]` (empty list)
+
+List of diagnostic codes to disable. Use this to suppress specific diagnostics that may be incorrect or not applicable to your project.
+
+**Available diagnostic codes:**
+
+- **Template Errors (T-series):**
+  - `T100` - Parser errors (syntax issues in templates)
+  - `T900` - IO errors (file read/write issues)
+  - `T901` - Configuration errors (invalid tagspecs)
+
+- **Semantic Validation Errors (S-series):**
+  - `S100` - Unclosed tag (missing end tag)
+  - `S101` - Unbalanced structure (mismatched block tags)
+  - `S102` - Orphaned tag (intermediate tag without parent)
+  - `S103` - Unmatched block name (e.g., `{% endblock foo %}` doesn't match `{% block bar %}`)
+  - `S104` - Missing required arguments
+  - `S105` - Too many arguments
+  - `S106` - Invalid literal argument
+  - `S107` - Invalid argument choice
+
+**Example:**
+
+```toml
+# Disable unclosed tag and parser error diagnostics
+disabled_diagnostics = ["S100", "T100"]
+```
+
+**When to configure:**
+
+- A diagnostic is producing false positives for your use case
+- You're working around a known issue in the diagnostic system
+- Your project uses custom template tag patterns that trigger incorrect diagnostics
+
 ### `tagspecs`
 
 **Default:** `[]`
@@ -80,7 +116,8 @@ Pass configuration through your editor's LSP client using `initializationOptions
 {
   "django_settings_module": "myproject.settings",
   "venv_path": "/path/to/venv",
-  "pythonpath": ["/path/to/shared/libs"]
+  "pythonpath": ["/path/to/shared/libs"],
+  "disabled_diagnostics": ["S100", "T100"]
 }
 ```
 
@@ -97,6 +134,7 @@ If you use `pyproject.toml`, add a `[tool.djls]` section:
 django_settings_module = "myproject.settings"
 venv_path = "/path/to/venv"  # Optional: only if auto-detection fails
 pythonpath = ["/path/to/shared/libs"]  # Optional: additional import paths
+disabled_diagnostics = ["S100", "T100"]  # Optional: disable specific diagnostics
 ```
 
 If you prefer a dedicated config file or don't use `pyproject.toml`, you can use `djls.toml` (same settings, no `[tool.djls]` table).
