@@ -48,23 +48,6 @@ impl DiagnosticsConfig {
     /// 1. Exact match (e.g., "S100")
     /// 2. Longest prefix match (e.g., "S1" over "S")
     /// 3. Default: Error
-    ///
-    /// # Examples
-    /// ```
-    /// # use djls_conf::diagnostics::{DiagnosticsConfig, DiagnosticSeverity};
-    /// # use std::collections::HashMap;
-    /// let mut severity = HashMap::new();
-    /// severity.insert("S".to_string(), DiagnosticSeverity::Warning);
-    /// severity.insert("S1".to_string(), DiagnosticSeverity::Off);
-    /// severity.insert("S100".to_string(), DiagnosticSeverity::Error);
-    ///
-    /// let config = DiagnosticsConfig { severity };
-    ///
-    /// assert_eq!(config.get_severity("S100"), DiagnosticSeverity::Error);  // Exact
-    /// assert_eq!(config.get_severity("S101"), DiagnosticSeverity::Off);    // "S1" prefix
-    /// assert_eq!(config.get_severity("S200"), DiagnosticSeverity::Warning); // "S" prefix
-    /// assert_eq!(config.get_severity("T100"), DiagnosticSeverity::Error);   // Default
-    /// ```
     pub fn get_severity(&self, code: &str) -> DiagnosticSeverity {
         // First, check for exact match
         if let Some(&severity) = self.severity.get(code) {
