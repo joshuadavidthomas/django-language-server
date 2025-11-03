@@ -123,14 +123,17 @@ pub fn collect_diagnostics(
     for error_acc in template_errors {
         let mut diagnostic = error_acc.0.as_diagnostic(line_index);
         if let Some(lsp_types::NumberOrString::String(code)) = &diagnostic.code {
-            // Check if this diagnostic is enabled
-            if !config.is_enabled(code) {
-                continue;
+            let severity = config.get_severity(code);
+
+            // Skip if diagnostic is disabled (severity = off)
+            if let Some(lsp_severity) = severity.to_lsp_severity() {
+                diagnostic.severity = Some(lsp_severity);
+                diagnostics.push(diagnostic);
             }
-            // Apply severity override if configured
-            diagnostic.severity = Some(config.get_severity(code).to_lsp_severity());
+        } else {
+            // No code, use default
+            diagnostics.push(diagnostic);
         }
-        diagnostics.push(diagnostic);
     }
 
     if let Some(nodelist) = nodelist {
@@ -141,14 +144,17 @@ pub fn collect_diagnostics(
         for error_acc in validation_errors {
             let mut diagnostic = error_acc.0.as_diagnostic(line_index);
             if let Some(lsp_types::NumberOrString::String(code)) = &diagnostic.code {
-                // Check if this diagnostic is enabled
-                if !config.is_enabled(code) {
-                    continue;
+                let severity = config.get_severity(code);
+
+                // Skip if diagnostic is disabled (severity = off)
+                if let Some(lsp_severity) = severity.to_lsp_severity() {
+                    diagnostic.severity = Some(lsp_severity);
+                    diagnostics.push(diagnostic);
                 }
-                // Apply severity override if configured
-                diagnostic.severity = Some(config.get_severity(code).to_lsp_severity());
+            } else {
+                // No code, use default
+                diagnostics.push(diagnostic);
             }
-            diagnostics.push(diagnostic);
         }
     }
 

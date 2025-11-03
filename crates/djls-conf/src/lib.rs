@@ -289,21 +289,30 @@ mod tests {
             fs::write(
                 dir.path().join("djls.toml"),
                 r#"
-[diagnostics]
-select = ["S", "T"]
-ignore = ["S100"]
-
 [diagnostics.severity]
+S100 = "off"
 S101 = "warning"
+"T" = "off"
+T100 = "hint"
 "#,
             )
             .unwrap();
             let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
-            assert_eq!(settings.diagnostics.select, vec!["S", "T"]);
-            assert_eq!(settings.diagnostics.ignore, vec!["S100"]);
+            assert_eq!(
+                settings.diagnostics.severity.get("S100"),
+                Some(&DiagnosticSeverity::Off)
+            );
             assert_eq!(
                 settings.diagnostics.severity.get("S101"),
                 Some(&DiagnosticSeverity::Warning)
+            );
+            assert_eq!(
+                settings.diagnostics.severity.get("T"),
+                Some(&DiagnosticSeverity::Off)
+            );
+            assert_eq!(
+                settings.diagnostics.severity.get("T100"),
+                Some(&DiagnosticSeverity::Hint)
             );
         }
     }

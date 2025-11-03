@@ -57,36 +57,23 @@ Enable debug logging for troubleshooting language server issues.
 
 ### `diagnostics`
 
-Configure which diagnostics are enabled and their severity levels. Inspired by Ruff's approach with `select` and `ignore` patterns.
+Configure diagnostic severity levels. All diagnostics are enabled by default at "error" severity level.
 
-**Default:**
-```toml
-[diagnostics]
-select = ["ALL"]  # All diagnostics enabled
-ignore = []       # None disabled
-```
-
-#### `diagnostics.select`
-
-Diagnostic codes or prefixes to enable. Supports pattern matching:
-- `"ALL"` - Enable all diagnostics (default)
-- `"S"` - Enable all semantic validation errors (S100-S107)
-- `"T"` - Enable all template errors (T100, T900, T901)
-- `"S1"` - Enable S100-S199 range
-- `"T9"` - Enable T900-T999 range
-- Exact codes like `"S100"`, `"T100"`
-
-#### `diagnostics.ignore`
-
-Diagnostic codes or prefixes to disable. Applied after `select`. Supports the same pattern matching as `select`.
+**Default:** All diagnostics shown as errors
 
 #### `diagnostics.severity`
 
-Override severity levels for specific diagnostic codes. Available levels:
-- `"error"` (default) - Shows as error
-- `"warning"` - Shows as warning
-- `"info"` - Shows as information
-- `"hint"` - Shows as hint
+Map diagnostic codes or prefixes to severity levels. Supports:
+- **Exact codes:** `"S100"`, `"T100"`
+- **Prefixes:** `"S"` (all S-series), `"T"` (all T-series), `"S1"` (S100-S199), `"T9"` (T900-T999)
+- **Resolution:** More specific patterns override less specific (exact > longer prefix > shorter prefix)
+
+**Available severity levels:**
+- `"off"` - Disable diagnostic completely
+- `"hint"` - Show as subtle hint
+- `"info"` - Show as information
+- `"warning"` - Show as warning
+- `"error"` - Show as error (default)
 
 #### Available Diagnostic Codes
 
@@ -109,51 +96,68 @@ Override severity levels for specific diagnostic codes. Available levels:
 
 **Disable specific diagnostics:**
 ```toml
-[diagnostics]
-select = ["ALL"]
-ignore = ["S100", "T100"]  # Disable unclosed tags and parser errors
-```
-
-**Enable only semantic errors:**
-```toml
-[diagnostics]
-select = ["S"]  # Only S-series diagnostics
-```
-
-**Disable all S100-S109 diagnostics:**
-```toml
-[diagnostics]
-select = ["ALL"]
-ignore = ["S10"]  # Disables S100-S109
-```
-
-**Change severity levels:**
-```toml
-[diagnostics]
-select = ["ALL"]
-
 [diagnostics.severity]
-S101 = "warning"  # Unbalanced structure as warning instead of error
-S103 = "hint"     # Unmatched block name as hint
+S100 = "off"  # Don't show unclosed tag errors
+T100 = "off"  # Don't show parser errors
+```
+
+**Disable all template errors:**
+```toml
+[diagnostics.severity]
+"T" = "off"  # Prefix matches all T-series
+```
+
+**Disable with specific override:**
+```toml
+[diagnostics.severity]
+"T" = "off"     # Disable all template errors
+T100 = "hint"   # But show parser errors as hints (specific overrides prefix)
+```
+
+**Make all semantic errors warnings:**
+```toml
+[diagnostics.severity]
+"S" = "warning"  # All semantic errors as warnings
 ```
 
 **Complex configuration:**
 ```toml
-[diagnostics]
-select = ["S", "T"]    # Enable semantic and template errors
-ignore = ["S100", "S101"]  # But disable these specific ones
-
 [diagnostics.severity]
-S102 = "warning"  # Make orphaned tags a warning
-T100 = "hint"     # Make parser errors hints
+# Disable all template errors
+"T" = "off"
+
+# But show parser errors as hints
+T100 = "hint"
+
+# Make all semantic errors warnings
+"S" = "warning"
+
+# Except completely disable unclosed tags
+S100 = "off"
+
+# And make S10x (S100-S109) info level
+"S10" = "info"
+```
+
+**Resolution order example:**
+```toml
+[diagnostics.severity]
+"S" = "warning"    # Base: all S-series are warnings
+"S1" = "info"      # Override: S100-S199 are info
+S100 = "off"       # Override: S100 is off
+
+# Results:
+# S100 → off (exact match)
+# S101 → info ("S1" prefix)
+# S200 → warning ("S" prefix)
 ```
 
 **When to configure:**
 
-- A diagnostic is producing false positives for your use case
-- You want to focus on specific types of issues (e.g., only semantic errors)
-- You want certain diagnostics to appear as warnings instead of errors
-- You're working around a known issue in the diagnostic system
+- Disable false positives: Set problematic diagnostics to `"off"`
+- Gradual adoption: Downgrade to `"warning"` or `"hint"` during migration
+- Focus attention: Disable entire categories with prefix patterns
+- Fine-tune experience: Mix prefix patterns with specific overrides
 
 ### `tagspecs`
 
@@ -182,10 +186,11 @@ Pass configuration through your editor's LSP client using `initializationOptions
   "venv_path": "/path/to/venv",
   "pythonpath": ["/path/to/shared/libs"],
   "diagnostics": {
-    "select": ["ALL"],
-    "ignore": ["S100", "T100"],
     "severity": {
-      "S101": "warning"
+      "S100": "off",
+      "S101": "warning",
+      "T": "off",
+      "T100": "hint"
     }
   }
 }
@@ -205,12 +210,11 @@ django_settings_module = "myproject.settings"
 venv_path = "/path/to/venv"  # Optional: only if auto-detection fails
 pythonpath = ["/path/to/shared/libs"]  # Optional: additional import paths
 
-[tool.djls.diagnostics]
-select = ["ALL"]
-ignore = ["S100", "T100"]
-
 [tool.djls.diagnostics.severity]
+S100 = "off"
 S101 = "warning"
+"T" = "off"
+T100 = "hint"
 ```
 
 If you prefer a dedicated config file or don't use `pyproject.toml`, you can use `djls.toml` (same settings, no `[tool.djls]` table).
