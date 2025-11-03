@@ -165,7 +165,7 @@ pub fn collect_diagnostics(
 #[cfg(test)]
 mod tests {
     use djls_conf::DiagnosticSeverity;
-    
+
     use super::*;
 
     #[test]
