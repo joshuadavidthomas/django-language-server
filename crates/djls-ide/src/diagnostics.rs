@@ -6,6 +6,7 @@ use djls_templates::TemplateError;
 use djls_templates::TemplateErrorAccumulator;
 use tower_lsp_server::lsp_types;
 
+use crate::ext::DiagnosticSeverityExt;
 use crate::ext::SpanExt;
 
 trait DiagnosticError: std::fmt::Display {
@@ -88,6 +89,9 @@ impl DiagnosticError for ValidationError {
 /// parsing and validation. The caller must provide the parsed `NodeList` (or `None`
 /// if parsing failed), making it explicit that parsing should have already occurred.
 ///
+/// Diagnostics are filtered based on the configuration settings (`select` and `ignore`),
+/// and severity levels can be overridden per diagnostic code.
+///
 /// # Parameters
 /// - `db`: The Salsa database
 /// - `file`: The source file (needed to retrieve accumulated template errors)
@@ -95,7 +99,7 @@ impl DiagnosticError for ValidationError {
 ///
 /// # Returns
 /// A vector of LSP diagnostics combining both template syntax errors and
-/// semantic validation errors.
+/// semantic validation errors, filtered by the diagnostics configuration.
 ///
 /// # Design
 /// This API design makes it clear that:
@@ -110,13 +114,27 @@ pub fn collect_diagnostics(
 ) -> Vec<lsp_types::Diagnostic> {
     let mut diagnostics = Vec::new();
 
+    let config = db.diagnostics_config();
+
     let template_errors =
         djls_templates::parse_template::accumulated::<TemplateErrorAccumulator>(db, file);
 
     let line_index = file.line_index(db);
 
     for error_acc in template_errors {
-        diagnostics.push(error_acc.0.as_diagnostic(line_index));
+        let mut diagnostic = error_acc.0.as_diagnostic(line_index);
+        if let Some(lsp_types::NumberOrString::String(code)) = &diagnostic.code {
+            let severity = config.get_severity(code);
+
+            // Skip if diagnostic is disabled (severity = off)
+            if let Some(lsp_severity) = severity.to_lsp_severity() {
+                diagnostic.severity = Some(lsp_severity);
+                diagnostics.push(diagnostic);
+            }
+        } else {
+            // No code, use default
+            diagnostics.push(diagnostic);
+        }
     }
 
     if let Some(nodelist) = nodelist {
@@ -125,9 +143,49 @@ pub fn collect_diagnostics(
         >(db, nodelist);
 
         for error_acc in validation_errors {
-            diagnostics.push(error_acc.0.as_diagnostic(line_index));
+            let mut diagnostic = error_acc.0.as_diagnostic(line_index);
+            if let Some(lsp_types::NumberOrString::String(code)) = &diagnostic.code {
+                let severity = config.get_severity(code);
+
+                // Skip if diagnostic is disabled (severity = off)
+                if let Some(lsp_severity) = severity.to_lsp_severity() {
+                    diagnostic.severity = Some(lsp_severity);
+                    diagnostics.push(diagnostic);
+                }
+            } else {
+                // No code, use default
+                diagnostics.push(diagnostic);
+            }
         }
     }
 
     diagnostics
+}
+
+#[cfg(test)]
+mod tests {
+    use djls_conf::DiagnosticSeverity;
+
+    use super::*;
+
+    #[test]
+    fn test_to_lsp_severity() {
+        assert_eq!(DiagnosticSeverity::Off.to_lsp_severity(), None);
+        assert_eq!(
+            DiagnosticSeverity::Error.to_lsp_severity(),
+            Some(lsp_types::DiagnosticSeverity::ERROR)
+        );
+        assert_eq!(
+            DiagnosticSeverity::Warning.to_lsp_severity(),
+            Some(lsp_types::DiagnosticSeverity::WARNING)
+        );
+        assert_eq!(
+            DiagnosticSeverity::Info.to_lsp_severity(),
+            Some(lsp_types::DiagnosticSeverity::INFORMATION)
+        );
+        assert_eq!(
+            DiagnosticSeverity::Hint.to_lsp_severity(),
+            Some(lsp_types::DiagnosticSeverity::HINT)
+        );
+    }
 }

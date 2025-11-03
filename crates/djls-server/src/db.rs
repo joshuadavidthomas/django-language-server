@@ -199,6 +199,10 @@ impl SemanticDb for DjangoDatabase {
             None
         }
     }
+
+    fn diagnostics_config(&self) -> djls_conf::DiagnosticsConfig {
+        self.settings().diagnostics().clone()
+    }
 }
 
 #[salsa::db]

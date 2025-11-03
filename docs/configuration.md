@@ -55,6 +55,110 @@ Additional directories to add to Python's import search path when the inspector 
 
 Enable debug logging for troubleshooting language server issues.
 
+### `diagnostics`
+
+Configure diagnostic severity levels. All diagnostics are enabled by default at "error" severity level.
+
+**Default:** All diagnostics shown as errors
+
+#### `diagnostics.severity`
+
+Map diagnostic codes or prefixes to severity levels. Supports:
+- **Exact codes:** `"S100"`, `"T100"`
+- **Prefixes:** `"S"` (all S-series), `"T"` (all T-series), `"S1"` (S100-S199), `"T9"` (T900-T999)
+- **Resolution:** More specific patterns override less specific (exact > longer prefix > shorter prefix)
+
+**Available severity levels:**
+- `"off"` - Disable diagnostic completely
+- `"hint"` - Show as subtle hint
+- `"info"` - Show as information
+- `"warning"` - Show as warning
+- `"error"` - Show as error (default)
+
+#### Available Diagnostic Codes
+
+**Template Errors (T-series):**
+- `T100` - Parser errors (syntax issues in templates)
+- `T900` - IO errors (file read/write issues)
+- `T901` - Configuration errors (invalid tagspecs)
+
+**Semantic Validation Errors (S-series):**
+- `S100` - Unclosed tag (missing end tag)
+- `S101` - Unbalanced structure (mismatched block tags)
+- `S102` - Orphaned tag (intermediate tag without parent)
+- `S103` - Unmatched block name (e.g., `{% endblock foo %}` doesn't match `{% block bar %}`)
+- `S104` - Missing required arguments
+- `S105` - Too many arguments
+- `S106` - Invalid literal argument
+- `S107` - Invalid argument choice
+
+#### Examples
+
+**Disable specific diagnostics:**
+```toml
+[diagnostics.severity]
+S100 = "off"  # Don't show unclosed tag errors
+T100 = "off"  # Don't show parser errors
+```
+
+**Disable all template errors:**
+```toml
+[diagnostics.severity]
+"T" = "off"  # Prefix matches all T-series
+```
+
+**Disable with specific override:**
+```toml
+[diagnostics.severity]
+"T" = "off"     # Disable all template errors
+T100 = "hint"   # But show parser errors as hints (specific overrides prefix)
+```
+
+**Make all semantic errors warnings:**
+```toml
+[diagnostics.severity]
+"S" = "warning"  # All semantic errors as warnings
+```
+
+**Complex configuration:**
+```toml
+[diagnostics.severity]
+# Disable all template errors
+"T" = "off"
+
+# But show parser errors as hints
+T100 = "hint"
+
+# Make all semantic errors warnings
+"S" = "warning"
+
+# Except completely disable unclosed tags
+S100 = "off"
+
+# And make S10x (S100-S109) info level
+"S10" = "info"
+```
+
+**Resolution order example:**
+```toml
+[diagnostics.severity]
+"S" = "warning"    # Base: all S-series are warnings
+"S1" = "info"      # Override: S100-S199 are info
+S100 = "off"       # Override: S100 is off
+
+# Results:
+# S100 → off (exact match)
+# S101 → info ("S1" prefix)
+# S200 → warning ("S" prefix)
+```
+
+**When to configure:**
+
+- Disable false positives: Set problematic diagnostics to `"off"`
+- Gradual adoption: Downgrade to `"warning"` or `"hint"` during migration
+- Focus attention: Disable entire categories with prefix patterns
+- Fine-tune experience: Mix prefix patterns with specific overrides
+
 ### `tagspecs`
 
 **Default:** `[]`
@@ -80,7 +184,15 @@ Pass configuration through your editor's LSP client using `initializationOptions
 {
   "django_settings_module": "myproject.settings",
   "venv_path": "/path/to/venv",
-  "pythonpath": ["/path/to/shared/libs"]
+  "pythonpath": ["/path/to/shared/libs"],
+  "diagnostics": {
+    "severity": {
+      "S100": "off",
+      "S101": "warning",
+      "T": "off",
+      "T100": "hint"
+    }
+  }
 }
 ```
 
@@ -97,6 +209,12 @@ If you use `pyproject.toml`, add a `[tool.djls]` section:
 django_settings_module = "myproject.settings"
 venv_path = "/path/to/venv"  # Optional: only if auto-detection fails
 pythonpath = ["/path/to/shared/libs"]  # Optional: additional import paths
+
+[tool.djls.diagnostics.severity]
+S100 = "off"
+S101 = "warning"
+"T" = "off"
+T100 = "hint"
 ```
 
 If you prefer a dedicated config file or don't use `pyproject.toml`, you can use `djls.toml` (same settings, no `[tool.djls]` table).

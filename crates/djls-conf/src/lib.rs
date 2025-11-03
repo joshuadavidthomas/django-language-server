@@ -1,3 +1,4 @@
+pub mod diagnostics;
 pub mod tagspecs;
 
 use std::fs;
@@ -14,6 +15,8 @@ use directories::ProjectDirs;
 use serde::Deserialize;
 use thiserror::Error;
 
+pub use crate::diagnostics::DiagnosticSeverity;
+pub use crate::diagnostics::DiagnosticsConfig;
 pub use crate::tagspecs::ArgTypeDef;
 pub use crate::tagspecs::EndTagDef;
 pub use crate::tagspecs::IntermediateTagDef;
@@ -65,6 +68,8 @@ pub struct Settings {
     pythonpath: Vec<String>,
     #[serde(default)]
     tagspecs: Vec<TagSpecDef>,
+    #[serde(default)]
+    diagnostics: DiagnosticsConfig,
 }
 
 impl Settings {
@@ -85,6 +90,10 @@ impl Settings {
             }
             if !overrides.tagspecs.is_empty() {
                 settings.tagspecs = overrides.tagspecs;
+            }
+            // For diagnostics, override if the config is non-default
+            if overrides.diagnostics != DiagnosticsConfig::default() {
+                settings.diagnostics = overrides.diagnostics;
             }
         }
 
@@ -158,6 +167,11 @@ impl Settings {
     pub fn tagspecs(&self) -> &[TagSpecDef] {
         &self.tagspecs
     }
+
+    #[must_use]
+    pub fn diagnostics(&self) -> &DiagnosticsConfig {
+        &self.diagnostics
+    }
 }
 
 #[cfg(test)]
@@ -184,6 +198,7 @@ mod tests {
                     django_settings_module: None,
                     pythonpath: vec![],
                     tagspecs: vec![],
+                    diagnostics: DiagnosticsConfig::default(),
                 }
             );
         }
@@ -265,6 +280,42 @@ mod tests {
                     debug: true,
                     ..Default::default()
                 }
+            );
+        }
+
+        #[test]
+        fn test_load_diagnostics_config() {
+            let dir = tempdir().unwrap();
+            fs::write(
+                dir.path().join("djls.toml"),
+                r#"
+[diagnostics.severity]
+S100 = "off"
+S101 = "warning"
+"T" = "off"
+T100 = "hint"
+"#,
+            )
+            .unwrap();
+            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
+            // Test via public API
+            assert_eq!(
+                settings.diagnostics.get_severity("S100"),
+                DiagnosticSeverity::Off
+            );
+            assert_eq!(
+                settings.diagnostics.get_severity("S101"),
+                DiagnosticSeverity::Warning
+            );
+            // T prefix applies to T900
+            assert_eq!(
+                settings.diagnostics.get_severity("T900"),
+                DiagnosticSeverity::Off
+            );
+            // T100 has specific override
+            assert_eq!(
+                settings.diagnostics.get_severity("T100"),
+                DiagnosticSeverity::Hint
             );
         }
     }

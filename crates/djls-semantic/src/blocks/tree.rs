@@ -247,6 +247,10 @@ mod tests {
         fn template_dirs(&self) -> Option<Vec<Utf8PathBuf>> {
             None
         }
+
+        fn diagnostics_config(&self) -> djls_conf::DiagnosticsConfig {
+            djls_conf::DiagnosticsConfig::default()
+        }
     }
 
     #[test]
