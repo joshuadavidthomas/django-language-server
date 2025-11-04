@@ -1,6 +1,6 @@
 # TagSpecs v0.4.0 Deprecation Removal Checklist
 
-**Target Version:** v5.2.7  
+**Target Version:** v5.2.7
 **Timeline:** Remove after v5.2.5 and v5.2.6 releases
 
 This document provides a step-by-step checklist for removing the deprecated TagSpecs v0.4.0 format support.
@@ -57,9 +57,9 @@ This document provides a step-by-step checklist for removing the deprecated TagS
 - [ ] Add removal notice to CHANGELOG.md under v5.2.7:
   ```markdown
   ## [5.2.7]
-  
+
   ### Removed
-  
+
   - TagSpecs v0.4.0 flat format support (deprecated in v5.2.5)
   ```
 

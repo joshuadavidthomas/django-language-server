@@ -214,10 +214,10 @@ fn validate_choices_and_order(
                 // - We hit the next literal keyword
                 // - We hit the end of bits
                 // - We've consumed at least one token
-                
+
                 let start_index = bit_index;
                 let next_literal = find_next_literal(&args[arg_index + 1..]);
-                
+
                 // Consume tokens greedily until we hit a known literal
                 while bit_index < bits.len() {
                     if let Some(ref lit) = next_literal {
@@ -227,7 +227,7 @@ fn validate_choices_and_order(
                     }
                     bit_index += 1;
                 }
-                
+
                 // Must consume at least one token for expression
                 if bit_index == start_index {
                     bit_index += 1;
@@ -238,24 +238,24 @@ fn validate_choices_and_order(
                 // 1. Single token with = (e.g., "total=value")
                 // 2. Multiple tokens with "as" keyword (e.g., "url 'name' as varname")
                 // For now, consume until we find pattern or reach next literal
-                
+
                 let next_literal = find_next_literal(&args[arg_index + 1..]);
-                
+
                 while bit_index < bits.len() {
                     let token = &bits[bit_index];
                     bit_index += 1;
-                    
+
                     // If token contains =, we're done with this assignment
                     if token.contains('=') {
                         break;
                     }
-                    
+
                     // If we hit "as", consume one more token (the variable name)
                     if token == "as" && bit_index < bits.len() {
                         bit_index += 1;
                         break;
                     }
-                    
+
                     // Stop if we hit next literal
                     if let Some(ref lit) = next_literal {
                         if token == lit {
@@ -319,7 +319,7 @@ mod tests {
     // Helper to manually validate arguments without full database setup
     fn validate_args_simple(bits: Vec<String>, args: Vec<TagArg>) -> Vec<String> {
         let mut errors = Vec::new();
-        
+
         let has_varargs = args.iter().any(|arg| matches!(arg, TagArg::VarArgs { .. }));
         let required_count = args.iter().filter(|arg| arg.is_required()).count();
 
@@ -361,7 +361,7 @@ mod tests {
                 TagArg::Expr { .. } => {
                     let start_index = bit_index;
                     let next_literal = find_next_literal(&args[arg_index + 1..]);
-                    
+
                     while bit_index < bits.len() {
                         if let Some(ref lit) = next_literal {
                             if bits[bit_index] == *lit {
@@ -370,27 +370,27 @@ mod tests {
                         }
                         bit_index += 1;
                     }
-                    
+
                     if bit_index == start_index {
                         bit_index += 1;
                     }
                 }
                 TagArg::Assignment { .. } => {
                     let next_literal = find_next_literal(&args[arg_index + 1..]);
-                    
+
                     while bit_index < bits.len() {
                         let token = &bits[bit_index];
                         bit_index += 1;
-                        
+
                         if token.contains('=') {
                             break;
                         }
-                        
+
                         if token == "as" && bit_index < bits.len() {
                             bit_index += 1;
                             break;
                         }
-                        
+
                         if let Some(ref lit) = next_literal {
                             if token == lit {
                                 break;
@@ -426,7 +426,7 @@ mod tests {
             name: "condition".into(),
             required: true,
         }];
-        
+
         let errors = validate_args_simple(bits, args);
         assert!(errors.is_empty(), "Should not error on expression with multiple tokens: {:?}", errors);
     }
@@ -440,7 +440,7 @@ mod tests {
             name: "message".into(),
             required: true,
         }];
-        
+
         let errors = validate_args_simple(bits, args);
         assert!(errors.is_empty(), "Should not error on quoted string: {:?}", errors);
     }
@@ -472,7 +472,7 @@ mod tests {
                 required: false,
             },
         ];
-        
+
         let errors = validate_args_simple(bits, args);
         assert!(errors.is_empty(), "Should handle optional literal 'reversed': {:?}", errors);
     }
@@ -489,7 +489,7 @@ mod tests {
             name: "condition".into(),
             required: true,
         }];
-        
+
         let errors = validate_args_simple(bits, args);
         assert!(errors.is_empty(), "Should handle complex boolean expression: {:?}", errors);
     }
@@ -513,7 +513,7 @@ mod tests {
                 required: false,
             },
         ];
-        
+
         let errors = validate_args_simple(bits, args);
         assert!(errors.is_empty(), "Should handle varargs: {:?}", errors);
     }
@@ -526,7 +526,7 @@ mod tests {
             name: "bindings".into(),
             required: true,
         }];
-        
+
         let errors = validate_args_simple(bits, args);
         assert!(errors.is_empty(), "Should handle assignment with filter: {:?}", errors);
     }
@@ -539,7 +539,7 @@ mod tests {
             name: "template".into(),
             required: true,
         }];
-        
+
         let errors = validate_args_simple(bits, args);
         assert!(errors.is_empty(), "Should handle quoted path: {:?}", errors);
     }
@@ -558,7 +558,7 @@ mod tests {
                 required: false,
             },
         ];
-        
+
         let errors = validate_args_simple(bits, args);
         assert!(errors.is_empty(), "Expr should stop before literal keyword: {:?}", errors);
     }

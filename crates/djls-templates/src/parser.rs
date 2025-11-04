@@ -6,7 +6,7 @@ use crate::nodelist::Node;
 use crate::tokens::Token;
 
 /// Tokenize tag content respecting quoted strings.
-/// 
+///
 /// Splits on whitespace but keeps quoted strings as single tokens.
 /// Handles both single and double quotes, and escaped quotes within strings.
 fn tokenize_tag_content(content: &str) -> Vec<String> {
@@ -147,7 +147,7 @@ impl Parser {
         };
 
         let tokens = tokenize_tag_content(content_ref);
-        
+
         let mut iter = tokens.into_iter();
         let name = iter.next().ok_or(ParseError::EmptyTag)?;
         let bits: Vec<String> = iter.collect();
