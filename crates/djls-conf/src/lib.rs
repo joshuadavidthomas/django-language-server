@@ -78,7 +78,6 @@ pub struct Settings {
 }
 
 // DEPRECATION: Remove in v5.2.7
-// Custom deserializer that supports both v0.6.0 (new) and v0.4.0 (legacy) formats
 fn deserialize_tagspecs<'de, D>(deserializer: D) -> Result<TagSpecDef, D::Error>
 where
     D: Deserializer<'de>,
@@ -88,22 +87,19 @@ where
 
     let value = Value::deserialize(deserializer)?;
 
-    // Try new v0.6.0 format first (hierarchical with libraries)
     if let Ok(new_format) = TagSpecDef::deserialize(&value) {
         return Ok(new_format);
     }
 
-    // Fall back to legacy v0.4.0 format (flat array of tags)
     if let Ok(legacy) = Vec::<tagspecs::legacy::LegacyTagSpecDef>::deserialize(&value) {
         tracing::warn!(
             "DEPRECATED: TagSpecs v0.4.0 format detected. Please migrate to v0.6.0 format. \
              The old format will be removed in v5.2.7. \
-             See migration guide: https://github.com/joshuadavidthomas/django-language-server/blob/main/crates/djls-conf/TAGSPECS.md#migration-from-v040"
+             See migration guide: https://djls.joshthomas.dev/tagspecs/#migration-from-v040"
         );
         return Ok(tagspecs::legacy::convert_legacy_tagspecs(legacy));
     }
 
-    // Neither format worked, return default
     Err(D::Error::custom(
         "Invalid tagspecs format. Expected v0.6.0 hierarchical format or legacy v0.4.0 array format",
     ))
@@ -847,7 +843,6 @@ kind = "choice"
         }
 
         // DEPRECATION TESTS: Remove in v5.2.7
-        // These tests validate that the legacy v0.4.0 format still works
         mod legacy_format {
             use super::*;
 
