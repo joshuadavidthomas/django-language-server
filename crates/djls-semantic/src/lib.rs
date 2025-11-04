@@ -1,3 +1,4 @@
+mod arguments;
 mod blocks;
 mod db;
 mod errors;
@@ -7,6 +8,7 @@ mod semantic;
 mod templatetags;
 mod traits;
 
+use arguments::validate_all_tag_arguments;
 pub use blocks::build_block_tree;
 pub use blocks::TagIndex;
 pub use db::Db;
@@ -20,31 +22,41 @@ pub use resolution::resolve_template;
 pub use resolution::ResolveResult;
 pub use resolution::TemplateReference;
 pub use semantic::build_semantic_forest;
-use semantic::validate_block_tags;
-use semantic::validate_non_block_tags;
 pub use templatetags::django_builtin_specs;
 pub use templatetags::EndTag;
 pub use templatetags::TagArg;
 pub use templatetags::TagSpec;
 pub use templatetags::TagSpecs;
 
-/// Validate a Django template node list and return validation errors.
+/// Validate a Django template node list.
 ///
-/// This function builds a `BlockTree` from the parsed node list and, during
-/// construction, accumulates semantic validation errors for issues such as:
-/// - Unclosed block tags
-/// - Mismatched tag pairs
-/// - Orphaned intermediate tags
-/// - Invalid argument counts
-/// - Unmatched block names
+/// This performs two types of validation:
+///
+/// 1. **Block Structure Validation** (via `build_block_tree`):
+///    - Unclosed block tags
+///    - Mismatched tag pairs
+///    - Orphaned intermediate tags
+///    - Unmatched block names
+///
+/// 2. **Argument Validation** (via `validate_all_tag_arguments`):
+///    - Missing required arguments
+///    - Too many arguments
+///    - Invalid argument values (choices, literals)
+///
+/// These are independent concerns: structure validation happens during tree building,
+/// while argument validation is a simple pass over all tags regardless of structure.
 #[salsa::tracked]
 pub fn validate_nodelist(db: &dyn Db, nodelist: djls_templates::NodeList<'_>) {
     if nodelist.nodelist(db).is_empty() {
         return;
     }
 
+    // Validate block structure (unclosed tags, mismatched pairs, etc.)
     let block_tree = build_block_tree(db, nodelist);
-    let forest = build_semantic_forest(db, block_tree, nodelist);
-    validate_block_tags(db, forest.roots(db));
-    validate_non_block_tags(db, nodelist, forest.tag_spans(db));
+
+    // Build semantic forest (for IDE features, code navigation, etc.)
+    let _forest = build_semantic_forest(db, block_tree, nodelist);
+
+    // Validate tag arguments (independent of structure)
+    validate_all_tag_arguments(db, nodelist);
 }

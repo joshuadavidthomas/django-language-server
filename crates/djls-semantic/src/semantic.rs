@@ -1,8 +1,5 @@
-mod args;
 mod forest;
 
-pub(crate) use args::validate_block_tags;
-pub(crate) use args::validate_non_block_tags;
 use forest::build_root_tag;
 pub(crate) use forest::SemanticForest;
 use rustc_hash::FxHashSet;

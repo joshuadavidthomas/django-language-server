@@ -1,104 +1,92 @@
 use djls_source::Span;
 use djls_templates::tokens::TagDelimiter;
 use djls_templates::Node;
-use rustc_hash::FxHashSet;
 use salsa::Accumulator;
 
-use crate::semantic::forest::SegmentKind;
-use crate::semantic::forest::SemanticNode;
-use crate::templatetags::IntermediateTag;
 use crate::templatetags::TagArg;
-use crate::templatetags::TagSpecs;
+use crate::templatetags::TagArgSliceExt;
 use crate::Db;
 use crate::ValidationError;
 use crate::ValidationErrorAccumulator;
 
-pub fn validate_block_tags(db: &dyn Db, roots: &[SemanticNode]) {
-    for node in roots {
-        validate_node(db, node);
-    }
-}
+// ============================================================================
+// PUBLIC ENTRY POINTS
+// ============================================================================
 
-pub fn validate_non_block_tags(
-    db: &dyn Db,
-    nodelist: djls_templates::NodeList<'_>,
-    skip_spans: &[Span],
-) {
-    let skip: FxHashSet<_> = skip_spans.iter().copied().collect();
-
+/// Validate arguments for all tags in the template.
+///
+/// Performs a single pass over the flat `NodeList`, validating each tag's arguments
+/// against its `TagSpec` definition. This is independent of block structure - we validate
+/// opening tags, closing tags, intermediate tags, and standalone tags all the same way.
+///
+/// # Parameters
+/// - `db`: The Salsa database containing tag specifications
+/// - `nodelist`: The parsed template `NodeList` containing all tags
+pub fn validate_all_tag_arguments(db: &dyn Db, nodelist: djls_templates::NodeList<'_>) {
     for node in nodelist.nodelist(db) {
         if let Node::Tag { name, bits, span } = node {
             let marker_span = span.expand(TagDelimiter::LENGTH_U32, TagDelimiter::LENGTH_U32);
-            if skip.contains(&marker_span) {
-                continue;
-            }
             validate_tag_arguments(db, name, bits, marker_span);
         }
     }
 }
 
-fn validate_node(db: &dyn Db, node: &SemanticNode) {
-    match node {
-        SemanticNode::Tag {
-            name,
-            marker_span,
-            arguments,
-            segments,
-        } => {
-            validate_tag_arguments(db, name, arguments, *marker_span);
+// ============================================================================
+// CORE ARGUMENT VALIDATION
+// ============================================================================
 
-            for segment in segments {
-                match &segment.kind {
-                    SegmentKind::Main => {
-                        validate_children(db, &segment.children);
-                    }
-                    SegmentKind::Intermediate { tag } => {
-                        validate_tag_arguments(db, tag, &segment.arguments, segment.marker_span);
-                        validate_children(db, &segment.children);
-                    }
-                }
-            }
-        }
-        SemanticNode::Leaf { .. } => {}
-    }
-}
-
-fn validate_children(db: &dyn Db, children: &[SemanticNode]) {
-    for child in children {
-        validate_node(db, child);
-    }
-}
-
-/// Validate a single tag invocation against its `TagSpec` definition.
+/// Validate a single tag's arguments against its `TagSpec` definition.
+///
+/// This is the main entry point for tag argument validation. It looks up the tag
+/// in the `TagSpecs` (checking opening tags, closing tags, and intermediate tags)
+/// and delegates to the appropriate validation logic.
+///
+/// # Parameters
+/// - `db`: The Salsa database containing tag specifications
+/// - `tag_name`: The name of the tag (e.g., "if", "for", "endfor", "elif")
+/// - `bits`: The tokenized arguments from the tag
+/// - `span`: The span of the tag for error reporting
 pub fn validate_tag_arguments(db: &dyn Db, tag_name: &str, bits: &[String], span: Span) {
     let tag_specs = db.tag_specs();
 
+    // Try to find spec for: opening tag, closing tag, or intermediate tag
     if let Some(spec) = tag_specs.get(tag_name) {
-        validate_args(db, tag_name, bits, span, spec.args.as_ref());
+        validate_args_against_spec(db, tag_name, bits, span, spec.args.as_ref());
         return;
     }
 
     if let Some(end_spec) = tag_specs.get_end_spec_for_closer(tag_name) {
-        validate_args(db, tag_name, bits, span, end_spec.args.as_ref());
+        validate_args_against_spec(db, tag_name, bits, span, end_spec.args.as_ref());
         return;
     }
 
-    if let Some(intermediate) = find_intermediate_spec(&tag_specs, tag_name) {
-        validate_args(db, tag_name, bits, span, intermediate.args.as_ref());
+    if let Some(intermediate) = tag_specs.get_intermediate_spec(tag_name) {
+        validate_args_against_spec(db, tag_name, bits, span, intermediate.args.as_ref());
     }
+
+    // Unknown tag - no validation (could be custom tag from unloaded library)
 }
 
-fn find_intermediate_spec<'a>(specs: &'a TagSpecs, tag_name: &str) -> Option<&'a IntermediateTag> {
-    specs.iter().find_map(|(_, spec)| {
-        spec.intermediate_tags
-            .iter()
-            .find(|it| it.name.as_ref() == tag_name)
-    })
-}
-
-fn validate_args(db: &dyn Db, tag_name: &str, bits: &[String], span: Span, args: &[TagArg]) {
+/// Validate tag arguments against an argument specification.
+///
+/// This function performs high-level validation (argument count) and delegates
+/// to more detailed validation for argument order, choices, and literal values.
+///
+/// # Parameters
+/// - `db`: The Salsa database
+/// - `tag_name`: The name of the tag being validated
+/// - `bits`: The tokenized arguments
+/// - `span`: The span for error reporting
+/// - `args`: The argument specification from the `TagSpec`
+fn validate_args_against_spec(
+    db: &dyn Db,
+    tag_name: &str,
+    bits: &[String],
+    span: Span,
+    args: &[TagArg],
+) {
+    // Special case: tag expects no arguments
     if args.is_empty() {
-        // If the spec expects no arguments but bits exist, report once.
         if !bits.is_empty() {
             ValidationErrorAccumulator(ValidationError::TooManyArguments {
                 tag: tag_name.to_string(),
@@ -110,9 +98,8 @@ fn validate_args(db: &dyn Db, tag_name: &str, bits: &[String], span: Span, args:
         return;
     }
 
-    let has_varargs = args.iter().any(|arg| matches!(arg, TagArg::VarArgs { .. }));
+    // Check minimum required arguments
     let required_count = args.iter().filter(|arg| arg.is_required()).count();
-
     if bits.len() < required_count {
         ValidationErrorAccumulator(ValidationError::MissingRequiredArguments {
             tag: tag_name.to_string(),
@@ -122,30 +109,33 @@ fn validate_args(db: &dyn Db, tag_name: &str, bits: &[String], span: Span, args:
         .accumulate(db);
     }
 
-    validate_literals(db, tag_name, bits, span, args);
-
+    // For varargs tags, we can't validate order/excess (they consume everything)
+    // For all other tags, perform detailed positional validation
+    let has_varargs = args.iter().any(|arg| matches!(arg, TagArg::VarArgs { .. }));
     if !has_varargs {
-        validate_choices_and_order(db, tag_name, bits, span, args);
+        validate_argument_order(db, tag_name, bits, span, args);
     }
 }
 
-fn validate_literals(db: &dyn Db, tag_name: &str, bits: &[String], span: Span, args: &[TagArg]) {
-    for arg in args {
-        if let TagArg::Literal { lit, required } = arg {
-            if *required && !bits.iter().any(|bit| bit == lit.as_ref()) {
-                ValidationErrorAccumulator(ValidationError::InvalidLiteralArgument {
-                    tag: tag_name.to_string(),
-                    expected: lit.to_string(),
-                    span,
-                })
-                .accumulate(db);
-            }
-        }
-    }
-}
-
+/// Walk through arguments sequentially, consuming tokens and validating as we go.
+///
+/// This is the core validation logic that performs detailed argument validation by:
+/// - Walking through the argument specification in order
+/// - Consuming tokens from the bits array as each argument is satisfied
+/// - Validating that literals appear in the correct positions
+/// - Validating that choice arguments have valid values
+/// - Handling multi-token expressions that consume greedily until the next literal
+/// - Detecting when there are too many arguments (leftover tokens)
+/// - Detecting when required arguments are missing
+///
+/// We can't use a simple `bits.len() > args.len()` check because Expression arguments
+/// can consume multiple tokens (e.g., "x > 0" is 3 tokens, 1 arg) and this would cause
+/// false positives for expressions with operators
+///
+/// Instead, we walk through arguments and track how many tokens each consumes,
+/// then check if there are leftovers.
 #[allow(clippy::too_many_lines)]
-fn validate_choices_and_order(
+fn validate_argument_order(
     db: &dyn Db,
     tag_name: &str,
     bits: &[String],
@@ -154,9 +144,10 @@ fn validate_choices_and_order(
 ) {
     let mut bit_index = 0usize;
 
+    // Walk through argument spec, consuming tokens as we match each argument
     for (arg_index, arg) in args.iter().enumerate() {
         if bit_index >= bits.len() {
-            break;
+            break; // Ran out of tokens to consume
         }
 
         match arg {
@@ -172,12 +163,14 @@ fn validate_choices_and_order(
                             span,
                         })
                         .accumulate(db);
-                        break;
+                        break; // Can't continue if required literal is wrong
                     }
                 } else if matches_literal {
-                    bit_index += 1;
+                    bit_index += 1; // Optional literal matched, consume it
                 }
+                // Optional literal didn't match - don't consume, continue
             }
+
             TagArg::Choice {
                 name,
                 required,
@@ -185,7 +178,7 @@ fn validate_choices_and_order(
             } => {
                 let value = &bits[bit_index];
                 if choices.iter().any(|choice| choice.as_ref() == value) {
-                    bit_index += 1;
+                    bit_index += 1; // Valid choice, consume it
                 } else if *required {
                     ValidationErrorAccumulator(ValidationError::InvalidArgumentChoice {
                         tag: tag_name.to_string(),
@@ -198,21 +191,24 @@ fn validate_choices_and_order(
                         span,
                     })
                     .accumulate(db);
-                    break;
+                    break; // Can't continue if required choice is invalid
                 }
+                // Optional choice didn't match - don't consume, continue
             }
+
             TagArg::Var { .. } | TagArg::String { .. } => {
-                // Consume exactly 1 token
+                // Simple arguments consume exactly one token
                 bit_index += 1;
             }
+
             TagArg::Expr { .. } => {
-                // Expression arguments consume tokens until:
-                // - We hit the next literal keyword
-                // - We hit the end of bits
-                // - We've consumed at least one token
+                // Expression arguments consume tokens greedily until:
+                // - We hit the next literal keyword (if any)
+                // - We run out of tokens
+                // Must consume at least one token
 
                 let start_index = bit_index;
-                let next_literal = find_next_literal(&args[arg_index + 1..]);
+                let next_literal = args[arg_index + 1..].find_next_literal();
 
                 // Consume tokens greedily until we hit a known literal
                 while bit_index < bits.len() {
@@ -224,35 +220,36 @@ fn validate_choices_and_order(
                     bit_index += 1;
                 }
 
-                // Must consume at least one token for expression
+                // Ensure we consumed at least one token for the expression
                 if bit_index == start_index {
                     bit_index += 1;
                 }
             }
-            TagArg::Assignment { .. } => {
-                // Assignment can be:
-                // 1. Single token with = (e.g., "total=value")
-                // 2. Multiple tokens with "as" keyword (e.g., "url 'name' as varname")
-                // For now, consume until we find pattern or reach next literal
 
-                let next_literal = find_next_literal(&args[arg_index + 1..]);
+            TagArg::Assignment { .. } => {
+                // Assignment arguments can appear as:
+                // 1. Single token: var=value
+                // 2. Multi-token: expr as varname
+                // Consume until we find = or "as", or hit next literal
+
+                let next_literal = args[arg_index + 1..].find_next_literal();
 
                 while bit_index < bits.len() {
                     let token = &bits[bit_index];
                     bit_index += 1;
 
-                    // If token contains =, we're done with this assignment
+                    // If token contains =, we've found the assignment
                     if token.contains('=') {
                         break;
                     }
 
-                    // If we hit "as", consume one more token (the variable name)
+                    // If we hit "as", consume the variable name after it
                     if token == "as" && bit_index < bits.len() {
-                        bit_index += 1;
+                        bit_index += 1; // Consume the variable name
                         break;
                     }
 
-                    // Stop if we hit next literal
+                    // Stop if we hit the next literal argument
                     if let Some(ref lit) = next_literal {
                         if token == lit {
                             break;
@@ -260,31 +257,34 @@ fn validate_choices_and_order(
                     }
                 }
             }
+
             TagArg::VarArgs { .. } => {
-                // Consume all remaining tokens
+                // VarArgs consumes all remaining tokens
                 bit_index = bits.len();
             }
         }
     }
 
-    // Check for too many arguments: if we have unconsumed tokens after processing all args
+    // Check for unconsumed tokens (too many arguments)
     if bit_index < bits.len() {
         // We have unconsumed tokens - this is a too-many-arguments error
         // Note: VarArgs sets bit_index = bits.len(), so we never reach here for VarArgs tags
         ValidationErrorAccumulator(ValidationError::TooManyArguments {
             tag: tag_name.to_string(),
-            max: args.len(),
+            max: args.len(), // Approximate - imperfect for Expr args but close enough
             span,
         })
         .accumulate(db);
         return;
     }
 
+    // Check for missing required arguments that weren't satisfied
+    // (Only matters if we consumed all tokens but didn't satisfy all required args)
     for arg in args.iter().skip(bit_index) {
         if arg.is_required() {
             ValidationErrorAccumulator(ValidationError::MissingArgument {
                 tag: tag_name.to_string(),
-                argument: argument_name(arg),
+                argument: arg.name().to_string(),
                 span,
             })
             .accumulate(db);
@@ -292,28 +292,9 @@ fn validate_choices_and_order(
     }
 }
 
-fn argument_name(arg: &TagArg) -> String {
-    match arg {
-        TagArg::Literal { lit, .. } => lit.to_string(),
-        TagArg::Choice { name, .. }
-        | TagArg::Var { name, .. }
-        | TagArg::String { name, .. }
-        | TagArg::Expr { name, .. }
-        | TagArg::Assignment { name, .. }
-        | TagArg::VarArgs { name, .. } => name.to_string(),
-    }
-}
-
-/// Find the next literal keyword in the argument list.
-/// This helps expression arguments know when to stop consuming tokens.
-fn find_next_literal(remaining_args: &[TagArg]) -> Option<String> {
-    for arg in remaining_args {
-        if let TagArg::Literal { lit, .. } = arg {
-            return Some(lit.to_string());
-        }
-    }
-    None
-}
+// ============================================================================
+// TESTS
+// ============================================================================
 
 #[cfg(test)]
 mod tests {
