@@ -71,35 +71,96 @@ See the [Versioning](#versioning) section for details on how this project's vers
 
 ## Installation
 
-The Django Language Server can be installed using your preferred Python package manager.
+The Django Language Server can be installed using your preferred Python package manager or as a standalone binary.
 
-For system-wide availability using either `uv` or `pipx`:
-
-```bash
-uv tool install django-language-server
-
-# or
-
-pipx install django-language-server
-```
-
-Or to try it out in your current project:
+To try the language server without installing using [`uvx`](https://docs.astral.sh/uv/guides/tools/#running-tools):
 
 ```bash
-uv add --dev django-language-server
-uv sync
-
-# or
-
-pip install django-language-server
+uvx --from django-language-server djls serve
 ```
-
-The package provides pre-built wheels with the Rust-based LSP server compiled for common platforms. Installing it adds the `djls` command-line tool to your environment.
 
 > [!NOTE]
 > The server will automatically detect and use your project's Python environment when you open a Django project. It needs access to your project's Django installation and other dependencies, but should be able to find these regardless of where the server itself is installed.
->
-> It's recommended to use `uv` or `pipx` to install it system-wide for convenience, but installing in your project's environment will work just as well to give it a test drive around the block.
+
+### Install with a package manager (recommended)
+
+The language server is published to PyPI with pre-built wheels for the following platforms:
+
+- **Linux**: x86_64, aarch64 (both glibc and musl)
+- **macOS**: x86_64, aarch64
+- **Windows**: x64
+- **Source distribution**: Available for other platforms
+
+Installing it adds the `djls` command-line tool to your environment.
+
+#### System-wide tool installation
+
+Install it globally in an isolated environment using `uv` or `pipx`:
+
+```bash
+# Using uv
+uv tool install django-language-server
+
+# Or using pipx
+pipx install django-language-server
+```
+
+#### Install with pip
+
+Install from PyPI using pip:
+
+```bash
+pip install django-language-server
+```
+
+Or add as a development dependency with uv:
+
+```bash
+uv add --dev django-language-server
+```
+
+### Standalone binaries
+
+Standalone binaries are available for macOS, Linux, and Windows from [GitHub Releases](https://github.com/joshuadavidthomas/django-language-server/releases).
+
+#### Linux and macOS
+
+```bash
+# Download the latest release for your platform
+# Example for Linux x64:
+curl -LO https://github.com/joshuadavidthomas/django-language-server/releases/latest/download/django-language-server-VERSION-linux-x64.tar.gz
+
+# Extract the archive
+tar -xzf django-language-server-VERSION-linux-x64.tar.gz
+
+# Move the binary to a location in your PATH
+sudo mv django-language-server-VERSION-linux-x64/djls /usr/local/bin/
+```
+
+#### Windows
+
+```powershell
+# Download the latest release for your platform
+# Example for Windows x64:
+Invoke-WebRequest -Uri "https://github.com/joshuadavidthomas/django-language-server/releases/latest/download/django-language-server-VERSION-windows-x64.zip" -OutFile "django-language-server-VERSION-windows-x64.zip"
+
+# Extract the archive
+Expand-Archive -Path "django-language-server-VERSION-windows-x64.zip" -DestinationPath .
+
+# Move the binary to a location in your PATH (requires admin)
+# Or add the directory containing djls.exe to your PATH
+Move-Item -Path "django-language-server-VERSION-windows-x64\djls.exe" -Destination "$env:LOCALAPPDATA\Programs\djls.exe"
+```
+
+### Install from source with cargo
+
+Build and install directly from source using Rust's cargo:
+
+```bash
+cargo install --git https://github.com/joshuadavidthomas/django-language-server djls --locked
+```
+
+This requires a Rust toolchain (see [rust-toolchain.toml](rust-toolchain.toml) for the required version) and will compile the language server from source.
 
 ## Editor Setup
 
