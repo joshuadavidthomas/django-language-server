@@ -20,6 +20,9 @@ markdown_extensions:
   - pymdownx.superfences
   - pymdownx.tasklist:
       custom_checkbox: true
+  - pymdownx.tabbed:
+      alternate_style: true
+      combine_header_slug: true
   - pymdownx.tilde
 plugins:
   - search

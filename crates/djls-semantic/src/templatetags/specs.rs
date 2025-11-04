@@ -877,7 +877,7 @@ mod tests {
         let dir = tempfile::TempDir::new().unwrap();
         let config_content = r#"
 [tagspecs]
-version = "0.5.0"
+version = "0.6.0"
 
 [[tagspecs.libraries]]
 module = "myapp.templatetags.custom"

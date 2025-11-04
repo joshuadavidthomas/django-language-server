@@ -66,7 +66,7 @@ pub struct LegacyTagArgDef {
     /// Whether the argument is required (default: true)
     #[serde(default = "default_true")]
     pub required: bool,
-    /// Argument type (called "kind" in v0.5.0)
+    /// Argument type (called "kind" in v0.6.0)
     #[serde(rename = "type")]
     pub arg_type: LegacyArgTypeDef,
 }
@@ -97,7 +97,7 @@ fn default_true() -> bool {
     true
 }
 
-/// Convert a vector of legacy tagspecs to the new v0.5.0 hierarchical format
+/// Convert a vector of legacy tagspecs to the new v0.6.0 hierarchical format
 ///
 /// Groups tags by module and creates the appropriate library structure.
 #[must_use]
@@ -121,7 +121,7 @@ pub fn convert_legacy_tagspecs(legacy: Vec<LegacyTagSpecDef>) -> TagSpecDef {
         .collect();
 
     TagSpecDef {
-        version: "0.5.0".to_string(),
+        version: "0.6.0".to_string(),
         engine: "django".to_string(),
         requires_engine: None,
         extends: vec![],
@@ -187,7 +187,7 @@ fn convert_legacy_arg(legacy: LegacyTagArgDef) -> TagArgDef {
             (kind, None)
         }
         LegacyArgTypeDef::Choice { choice } => {
-            // Store choices in extra metadata as required by v0.5.0 spec
+            // Store choices in extra metadata as required by v0.6.0 spec
             let mut extra = std::collections::HashMap::new();
             extra.insert(
                 "choices".to_string(),
@@ -225,7 +225,7 @@ mod tests {
 
         let converted = convert_legacy_tagspecs(legacy);
 
-        assert_eq!(converted.version, "0.5.0");
+        assert_eq!(converted.version, "0.6.0");
         assert_eq!(converted.libraries.len(), 1);
         assert_eq!(converted.libraries[0].module, "myapp.tags");
         assert_eq!(converted.libraries[0].tags.len(), 1);

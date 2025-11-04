@@ -20,7 +20,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Changed
 
-- Updated TagSpecs to v0.5.0 format with hierarchical `[[tagspecs.libraries]]` structure
+- Updated TagSpecs to v0.6.0 format with hierarchical `[[tagspecs.libraries]]` structure
 
 ### Deprecated
 

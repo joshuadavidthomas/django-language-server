@@ -5,11 +5,11 @@ use serde::Deserialize;
 // DEPRECATION: Remove in v5.2.2 (after v5.2.0 and v5.2.1)
 pub mod legacy;
 
-/// Root `TagSpec` document (v0.5.0)
+/// Root `TagSpec` document (v0.6.0)
 #[derive(Debug, Clone, Deserialize, PartialEq, Default)]
 #[serde(default)]
 pub struct TagSpecDef {
-    /// Specification version (defaults to "0.5.0")
+    /// Specification version (defaults to "0.6.0")
     #[serde(default = "default_version")]
     pub version: String,
     /// Template engine (defaults to "django")
@@ -181,7 +181,7 @@ pub enum ArgKindDef {
 }
 
 fn default_version() -> String {
-    "0.5.0".to_string()
+    "0.6.0".to_string()
 }
 
 fn default_engine() -> String {

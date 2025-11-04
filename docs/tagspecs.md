@@ -1,14 +1,12 @@
 ---
-title: TagSpecs Configuration
+title: TagSpecs
 ---
-
-# TagSpecs Configuration
 
 Configure custom template tag specifications to extend Django Language Server's understanding of your custom template tags.
 
 ## Overview
 
-TagSpecs (Tag Specifications) define the structure and behavior of Django template tags, enabling the language server to provide:
+[TagSpecs](https://github.com/joshuadavidthomas/djtagspecs) (Tag Specifications) define the structure and behavior of Django template tags, enabling the language server to provide:
 
 - Autocompletion with context-aware snippets
 - Validation and diagnostics for tag arguments
@@ -17,56 +15,80 @@ TagSpecs (Tag Specifications) define the structure and behavior of Django templa
 
 Django Language Server includes built-in TagSpecs for Django's standard template tags and popular third-party libraries. You only need to define TagSpecs for your custom template tags.
 
-> **Specification Reference:** Django Language Server implements the [TagSpecs v0.5.0 specification](https://github.com/joshuadavidthomas/django-tagspecs). See the specification repository for complete schema documentation.
+!!! note "Specification Reference"
+
+    Django Language Server implements the [TagSpecs v0.6.0 specification](https://github.com/joshuadavidthomas/djtagspecs/tree/v0.6.0). See the specification repository for complete schema documentation.
 
 ## Configuration
 
-TagSpecs can be configured in your project's `djls.toml`, `.djls.toml`, or `pyproject.toml` file.
+TagSpecs can be configured in your project's `djls.toml`, `.djls.toml`, or `pyproject.toml` file:
 
-### Basic Example
+=== "`djls.toml`"
 
-```toml
-# In djls.toml
-[tagspecs]
-version = "0.5.0"
+    ```toml
+    [tagspecs]
+    version = "0.6.0"
 
-[[tagspecs.libraries]]
-module = "myapp.templatetags.custom"
+    [[tagspecs.libraries]]
+    module = "myapp.templatetags.custom"
 
-[[tagspecs.libraries.tags]]
-name = "highlight"
-type = "block"
+    [[tagspecs.libraries.tags]]
+    name = "highlight"
+    type = "block"
 
-[tagspecs.libraries.tags.end]
-name = "endhighlight"
+    [tagspecs.libraries.tags.end]
+    name = "endhighlight"
 
-[[tagspecs.libraries.tags.args]]
-name = "language"
-kind = "variable"
-```
+    [[tagspecs.libraries.tags.args]]
+    name = "language"
+    kind = "variable"
+    ```
 
-### Using pyproject.toml
+=== "`pyproject.toml`"
 
-```toml
-[tool.djls.tagspecs]
-version = "0.5.0"
+    ```toml
+    [tool.djls.tagspecs]
+    version = "0.6.0"
 
-[[tool.djls.tagspecs.libraries]]
-module = "myapp.templatetags.custom"
+    [[tool.djls.tagspecs.libraries]]
+    module = "myapp.templatetags.custom"
 
-[[tool.djls.tagspecs.libraries.tags]]
-name = "highlight"
-type = "block"
+    [[tool.djls.tagspecs.libraries.tags]]
+    name = "highlight"
+    type = "block"
 
-[tool.djls.tagspecs.libraries.tags.end]
-name = "endhighlight"
+    [tool.djls.tagspecs.libraries.tags.end]
+    name = "endhighlight"
 
-[[tool.djls.tagspecs.libraries.tags.args]]
-name = "language"
-kind = "variable"
-```
+    [[tool.djls.tagspecs.libraries.tags.args]]
+    name = "language"
+    kind = "variable"
+    ```
+
+    In `pyproject.toml`, prefix all tables with `tool.djls.` - otherwise the structure is identical.
+
+### Tag Types
+
+- `"block"` - Block tag with opening and closing tags (e.g., `{% mytag %}...{% endmytag %}`)
+- `"standalone"` - Single tag with no closing tag (e.g., `{% mytag %}`)
+- `"loader"` - Loader tag that may optionally behave as block (e.g., `{% extends %}`)
+
+### Argument Kinds
+
+The `kind` field defines the semantic role of an argument:
+
+- `"literal"` - Exact literal token (e.g., `"reversed"`)
+- `"syntax"` - Mandatory syntactic keyword (e.g., `"in"`, `"as"`)
+- `"variable"` - Template variable or filter expression
+- `"any"` - Any template expression or literal
+- `"assignment"` - Variable assignment pattern
+- `"modifier"` - Boolean modifier flag
+- `"choice"` - Choice from specific literals (requires `extra.choices`)
 
 ## Common Patterns
+
+!!! note
+    Examples below use `djls.toml` format. For `pyproject.toml`, prefix all tables with `tool.djls.`
 
 ### Block Tag with Intermediates
 
@@ -151,56 +173,39 @@ kind = "any"
 required = false
 ```
 
-## Argument Kinds
-
-The `kind` field defines the semantic role of an argument:
-
-- `"literal"` - Exact literal token (e.g., `"reversed"`)
-- `"syntax"` - Mandatory syntactic keyword (e.g., `"in"`, `"as"`)
-- `"variable"` - Template variable or filter expression
-- `"any"` - Any template expression or literal
-- `"assignment"` - Variable assignment pattern
-- `"modifier"` - Boolean modifier flag
-- `"choice"` - Choice from specific literals (requires `extra.choices`)
-
-## Tag Types
-
-- `"block"` - Block tag with opening and closing tags (e.g., `{% mytag %}...{% endmytag %}`)
-- `"standalone"` - Single tag with no closing tag (e.g., `{% mytag %}`)
-- `"loader"` - Loader tag that may optionally behave as block (e.g., `{% extends %}`)
-
 ## Migration from v0.4.0
 
-> **⚠️ DEPRECATED**: The v0.4.0 flat format is deprecated and will be removed in v5.2.7.
+The v0.6.0 format introduces a hierarchical structure that better represents how Django organizes template tags into libraries. 
 
-The v0.5.0 format introduces a hierarchical structure that better represents how Django organizes template tags into libraries. Here are the key changes:
+The migration to the new version will follow the [breaking changes policy](./index.md#breaking-changes), with this deprecation timeline:
 
-### Key Changes
+- **v5.2.5** (current): Old format supported with deprecation warnings
+- **v5.2.6**: Old format still supported with deprecation warnings
+- **v5.2.7**: Old format **removed** - you must migrate to v0.6.0
+
+Here are the key changes:
 
 1. **Hierarchical Structure**: Tags are now grouped by library module
-   - Old: `[[tagspecs]]` (flat array of tags, each with `module` field)
-   - New: `[[tagspecs.libraries]]` containing `[[tagspecs.libraries.tags]]`
-
+    - Old: `[[tagspecs]]` (flat array of tags, each with `module` field)
+    - New: `[[tagspecs.libraries]]` containing `[[tagspecs.libraries.tags]]`
 2. **Tag Type Classification**: Tags now have an explicit `type` field
-   - Old: Implicitly determined by presence of `end_tag`
-   - New: Explicit `type = "block"`, `"standalone"`, or `"loader"`
-
+    - Old: Implicitly determined by presence of `end_tag`
+    - New: Explicit `type = "block"`, `"standalone"`, or `"loader"`
 3. **Argument Kind vs Type**: Semantic role separated from positional/keyword designation
-   - Old: `args = [{ name = "foo", type = "variable" }]`
-   - New: `args = [{ name = "foo", kind = "variable" }]`
-   - The `type` field now means positional vs keyword (`"both"`, `"positional"`, `"keyword"`)
-
+    - Old: `args = [{ name = "foo", type = "variable" }]`
+    - New: `args = [{ name = "foo", kind = "variable" }]`
+    - The `type` field now means positional vs keyword (`"both"`, `"positional"`, `"keyword"`)
 4. **End Tag Optional → Required**: Inverted boolean for clarity
-   - Old: `end_tag = { name = "endif", optional = false }`
-   - New: `end = { name = "endif", required = true }`
-
+    - Old: `end_tag = { name = "endif", optional = false }`
+    - New: `end = { name = "endif", required = true }`
 5. **Renamed Fields**:
-   - `end_tag` → `end`
-   - `intermediate_tags` → `intermediates`
-
+    - `end_tag` → `end`
+    - `intermediate_tags` → `intermediates`
 6. **Choice Arguments**: Moved to extra metadata
-   - Old: `type = { choice = ["on", "off"] }`
-   - New: `kind = "choice"` with `extra.choices = ["on", "off"]`
+    - Old: `type = { choice = ["on", "off"] }`
+    - New: `kind = "choice"` with `extra.choices = ["on", "off"]`
+
+If you encounter issues during migration, please [open an issue](https://github.com/joshuadavidthomas/django-language-server/issues) with your tagspec configuration.
 
 ### Migration Examples
 
@@ -217,10 +222,10 @@ args = [
 ]
 ```
 
-**New format (v0.5.0):**
+**New format (v0.6.0):**
 ```toml
 [tagspecs]
-version = "0.5.0"
+version = "0.6.0"
 
 [[tagspecs.libraries]]
 module = "django.template.defaulttags"
@@ -253,10 +258,10 @@ module = "myapp.tags"
 args = [{ name = "arg2", type = "literal" }]
 ```
 
-**New format (v0.5.0):**
+**New format (v0.6.0):**
 ```toml
 [tagspecs]
-version = "0.5.0"
+version = "0.6.0"
 
 [[tagspecs.libraries]]
 module = "myapp.tags"
@@ -291,10 +296,10 @@ args = [
 ]
 ```
 
-**New format (v0.5.0):**
+**New format (v0.6.0):**
 ```toml
 [tagspecs]
-version = "0.5.0"
+version = "0.6.0"
 
 [[tagspecs.libraries]]
 module = "django.template.defaulttags"
@@ -322,18 +327,9 @@ choices = ["on", "off"]
 |------------|------------|-------|
 | `"literal"` | `"literal"` or `"syntax"` | Use `"syntax"` for mandatory tokens like `"in"`, `"as"` |
 | `"variable"` | `"variable"` | No change |
-| `"string"` | `"variable"` | Strings are just variables in v0.5.0 |
+| `"string"` | `"variable"` | Strings are just variables in v0.6.0 |
 | `"expression"` | `"any"` | Renamed for clarity |
 | `"assignment"` | `"assignment"` | No change |
 | `"varargs"` | `"any"` | Use count or omit for variable-length |
 | `{ choice = [...] }` | `"choice"` | Choices moved to `extra.choices` |
 
-### Deprecation Timeline
-
-- **v5.2.5** (current): Old format supported with deprecation warnings
-- **v5.2.6**: Old format still supported with deprecation warnings
-- **v5.2.7**: Old format **removed** - you must migrate to v0.5.0
-
-### Need Help?
-
-If you encounter issues during migration, please [open an issue](https://github.com/joshuadavidthomas/django-language-server/issues) with your tagspec configuration.

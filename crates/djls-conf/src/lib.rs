@@ -78,7 +78,7 @@ pub struct Settings {
 }
 
 // DEPRECATION: Remove in v5.2.7
-// Custom deserializer that supports both v0.5.0 (new) and v0.4.0 (legacy) formats
+// Custom deserializer that supports both v0.6.0 (new) and v0.4.0 (legacy) formats
 fn deserialize_tagspecs<'de, D>(deserializer: D) -> Result<TagSpecDef, D::Error>
 where
     D: Deserializer<'de>,
@@ -88,7 +88,7 @@ where
 
     let value = Value::deserialize(deserializer)?;
 
-    // Try new v0.5.0 format first (hierarchical with libraries)
+    // Try new v0.6.0 format first (hierarchical with libraries)
     if let Ok(new_format) = TagSpecDef::deserialize(&value) {
         return Ok(new_format);
     }
@@ -96,7 +96,7 @@ where
     // Fall back to legacy v0.4.0 format (flat array of tags)
     if let Ok(legacy) = Vec::<tagspecs::legacy::LegacyTagSpecDef>::deserialize(&value) {
         tracing::warn!(
-            "DEPRECATED: TagSpecs v0.4.0 format detected. Please migrate to v0.5.0 format. \
+            "DEPRECATED: TagSpecs v0.4.0 format detected. Please migrate to v0.6.0 format. \
              The old format will be removed in v5.2.7. \
              See migration guide: https://github.com/joshuadavidthomas/django-language-server/blob/main/crates/djls-conf/TAGSPECS.md#migration-from-v040"
         );
@@ -105,7 +105,7 @@ where
 
     // Neither format worked, return default
     Err(D::Error::custom(
-        "Invalid tagspecs format. Expected v0.5.0 hierarchical format or legacy v0.4.0 array format",
+        "Invalid tagspecs format. Expected v0.6.0 hierarchical format or legacy v0.4.0 array format",
     ))
 }
 
@@ -549,7 +549,7 @@ T100 = "hint"
             let dir = tempdir().unwrap();
             let content = r#"
 [tagspecs]
-version = "0.5.0"
+version = "0.6.0"
 
 [[tagspecs.libraries]]
 module = "myapp.templatetags.custom"
@@ -615,7 +615,7 @@ kind = "variable"
 debug = true
 
 [tool.djls.tagspecs]
-version = "0.5.0"
+version = "0.6.0"
 
 [[tool.djls.tagspecs.libraries]]
 module = "django.templatetags.cache"
@@ -876,7 +876,7 @@ args = [
                     Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
 
                 // Should be converted to new hierarchical format
-                assert_eq!(settings.tagspecs().version, "0.5.0");
+                assert_eq!(settings.tagspecs().version, "0.6.0");
                 assert_eq!(settings.tagspecs().libraries.len(), 2);
 
                 // Find libraries (order not guaranteed)
