@@ -85,18 +85,43 @@ impl Parser {
             });
         };
 
-        let mut parts = content_ref.split_ascii_whitespace();
-
-        let name = parts.next().ok_or(ParseError::EmptyTag)?.to_string();
-
-        let mut bits = Vec::with_capacity(parts.clone().count());
-        for part in parts {
-            bits.push(part.to_owned());
-        }
-
+        let (name, bits) = Self::parse_tag_args(content_ref)?;
         let span = token.content_span_or_fallback();
 
         Ok(Node::Tag { name, bits, span })
+    }
+
+    fn parse_tag_args(content: &str) -> Result<(String, Vec<String>), ParseError> {
+        let mut pieces = Vec::with_capacity((content.len() / 8).clamp(2, 8));
+        let mut start = None;
+        let mut quote: Option<char> = None;
+        let mut escape = false;
+        for (idx, ch) in content.char_indices() {
+            if start.is_none() && !ch.is_whitespace() {
+                start = Some(idx);
+            }
+            if escape {
+                escape = false;
+                continue;
+            }
+            match ch {
+                '\\' if quote.is_some() => escape = true,
+                '"' | '\'' if quote == Some(ch) => quote = None,
+                '"' | '\'' if quote.is_none() => quote = Some(ch),
+                c if quote.is_none() && c.is_whitespace() => {
+                    if let Some(s) = start.take() {
+                        pieces.push(content[s..idx].to_owned());
+                    }
+                }
+                _ => {}
+            }
+        }
+        if let Some(s) = start {
+            pieces.push(content[s..].to_owned());
+        }
+        let mut iter = pieces.into_iter();
+        let name = iter.next().ok_or(ParseError::EmptyTag)?;
+        Ok((name, iter.collect()))
     }
 
     fn parse_comment(&mut self) -> Result<Node, ParseError> {
