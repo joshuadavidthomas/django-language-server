@@ -503,7 +503,7 @@ dependencies = [
 
 [[package]]
 name = "djls"
-version = "5.2.3"
+version = "5.2.4"
 dependencies = [
  "anyhow",
  "clap",
@@ -518,6 +518,7 @@ version = "0.0.0"
 dependencies = [
  "camino",
  "codspeed-divan-compat",
+ "djls-conf",
  "djls-semantic",
  "djls-source",
  "djls-templates",
@@ -543,6 +544,7 @@ name = "djls-ide"
 version = "0.0.0"
 dependencies = [
  "camino",
+ "djls-conf",
  "djls-project",
  "djls-semantic",
  "djls-source",

@@ -232,7 +232,7 @@ wheels = [
 
 [[package]]
 name = "django-language-server"
-version = "5.2.3"
+version = "5.2.4"
 source = { editable = "." }
 
 [package.dev-dependencies]
