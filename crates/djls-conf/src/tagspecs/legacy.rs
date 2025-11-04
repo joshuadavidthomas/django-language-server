@@ -6,6 +6,7 @@
 // project's deprecation policy.
 
 use serde::Deserialize;
+use std::collections::HashMap;
 
 use super::ArgKindDef;
 use super::EndTagDef;
@@ -101,9 +102,6 @@ fn default_true() -> bool {
 /// Groups tags by module and creates the appropriate library structure.
 #[must_use]
 pub fn convert_legacy_tagspecs(legacy: Vec<LegacyTagSpecDef>) -> TagSpecDef {
-    use std::collections::HashMap;
-
-    // Group tags by module
     let mut modules: HashMap<String, Vec<TagDef>> = HashMap::new();
 
     for legacy_tag in legacy {
@@ -112,7 +110,6 @@ pub fn convert_legacy_tagspecs(legacy: Vec<LegacyTagSpecDef>) -> TagSpecDef {
         modules.entry(module).or_default().push(tag);
     }
 
-    // Create libraries from grouped tags
     let libraries = modules
         .into_iter()
         .map(|(module, tags)| TagLibraryDef {
@@ -134,7 +131,6 @@ pub fn convert_legacy_tagspecs(legacy: Vec<LegacyTagSpecDef>) -> TagSpecDef {
 }
 
 fn convert_legacy_tag(legacy: LegacyTagSpecDef) -> TagDef {
-    // Determine tag type based on presence of end_tag
     let tag_type = if legacy.end_tag.is_some() {
         TagTypeDef::Block
     } else {
