@@ -329,13 +329,13 @@ mod tests {
 
     use camino::Utf8Path;
     use camino::Utf8PathBuf;
+    use djls_source::Db as SourceDb;
     use djls_source::File;
     use djls_workspace::FileSystem;
     use djls_workspace::InMemoryFileSystem;
     use rustc_hash::FxHashMap;
 
     use super::*;
-    use crate::templatetags::django_builtin_specs;
     use crate::TagIndex;
     use crate::TagSpec;
     use crate::TagSpecs;
@@ -408,8 +408,6 @@ mod tests {
         bits: &[String],
         _args: &[TagArg],
     ) -> Vec<ValidationError> {
-        use djls_source::Db as SourceDb;
-
         let db = TestDatabase::new();
 
         // Build a minimal template content that parses to a tag
