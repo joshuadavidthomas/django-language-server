@@ -153,11 +153,14 @@ fn validate_choices_and_order(
     args: &[TagArg],
 ) {
     let mut bit_index = 0usize;
+    let mut args_consumed = 0usize;
 
     for (arg_index, arg) in args.iter().enumerate() {
         if bit_index >= bits.len() {
             break;
         }
+
+        args_consumed = arg_index + 1;
 
         match arg {
             TagArg::Literal { lit, required } => {
@@ -205,7 +208,7 @@ fn validate_choices_and_order(
                 // Consume exactly 1 token
                 bit_index += 1;
             }
-            TagArg::Expr { .. } => {
+            TagArg::Expr { required, .. } => {
                 // Expression arguments consume tokens until:
                 // - We hit the next literal keyword
                 // - We hit the end of bits
@@ -224,8 +227,12 @@ fn validate_choices_and_order(
                     bit_index += 1;
                 }
 
-                // Must consume at least one token for expression
-                if bit_index == start_index {
+                // Optional expressions shouldn't steal the next literal
+                if bit_index == start_index
+                    && bit_index < bits.len()
+                    && (*required
+                        || next_literal.map_or(true, |lit| bits[bit_index] != lit))
+                {
                     bit_index += 1;
                 }
             }
@@ -281,7 +288,7 @@ fn validate_choices_and_order(
         return;
     }
 
-    for arg in args.iter().skip(bit_index) {
+    for arg in args.iter().skip(args_consumed) {
         if arg.is_required() {
             ValidationErrorAccumulator(ValidationError::MissingArgument {
                 tag: tag_name.to_string(),
@@ -326,23 +333,32 @@ mod tests {
     use djls_source::File;
     use djls_workspace::FileSystem;
     use djls_workspace::InMemoryFileSystem;
+    use rustc_hash::FxHashMap;
 
     use super::*;
     use crate::templatetags::django_builtin_specs;
     use crate::TagIndex;
+    use crate::TagSpec;
+    use crate::TagSpecs;
 
     #[salsa::db]
     #[derive(Clone)]
     struct TestDatabase {
         storage: salsa::Storage<Self>,
         fs: Arc<Mutex<InMemoryFileSystem>>,
+        tag_specs: Arc<TagSpecs>,
     }
 
     impl TestDatabase {
         fn new() -> Self {
+            Self::with_specs(django_builtin_specs())
+        }
+
+        fn with_specs(specs: TagSpecs) -> Self {
             Self {
                 storage: salsa::Storage::default(),
                 fs: Arc::new(Mutex::new(InMemoryFileSystem::new())),
+                tag_specs: Arc::new(specs),
             }
         }
     }
@@ -371,7 +387,7 @@ mod tests {
     #[salsa::db]
     impl crate::Db for TestDatabase {
         fn tag_specs(&self) -> crate::templatetags::TagSpecs {
-            django_builtin_specs()
+            (*self.tag_specs).clone()
         }
 
         fn tag_index(&self) -> TagIndex<'_> {
@@ -602,6 +618,59 @@ mod tests {
         assert!(
             errors.is_empty(),
             "Expr should stop before literal keyword: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn test_optional_expr_skips_literal() {
+        let mut specs_map: FxHashMap<String, TagSpec> =
+            django_builtin_specs().into_iter().collect();
+        specs_map.insert(
+            "optional_expr".to_string(),
+            TagSpec {
+                module: "tests.optional".into(),
+                end_tag: None,
+                intermediate_tags: Vec::new().into(),
+                args: vec![
+                    TagArg::Expr {
+                        name: "optional".into(),
+                        required: false,
+                    },
+                    TagArg::Literal {
+                        lit: "reversed".into(),
+                        required: true,
+                    },
+                ]
+                .into(),
+            },
+        );
+        let db = TestDatabase::with_specs(TagSpecs::new(specs_map));
+
+        use djls_source::Db as SourceDb;
+
+        let bits = vec!["reversed".to_string()];
+        let bits_str = bits.join(" ");
+        let content = format!("{{% optional_expr {bits_str} %}}");
+
+        let path = Utf8Path::new("/optional.html");
+        db.fs
+            .lock()
+            .unwrap()
+            .add_file(path.to_owned(), content);
+
+        let file = db.create_file(path);
+        let nodelist = djls_templates::parse_template(&db, file).expect("Failed to parse template");
+
+        crate::validate_nodelist(&db, nodelist);
+
+        let errors: Vec<_> =
+            crate::validate_nodelist::accumulated::<ValidationErrorAccumulator>(&db, nodelist)
+                .into_iter()
+                .map(|acc| acc.0.clone())
+                .collect();
+        assert!(
+            errors.is_empty(),
+            "Optional expr should not consume following literal: {errors:?}"
         );
     }
 
