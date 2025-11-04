@@ -22,7 +22,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             module: B(DEFAULTTAGS_MOD),
             end_tag: Some(EndTag {
                 name: B("endautoescape"),
-                optional: false,
+                required: true,
                 args: B(&[]),
             }),
             intermediate_tags: B(&[]),
@@ -39,7 +39,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             module: B(DEFAULTTAGS_MOD),
             end_tag: Some(EndTag {
                 name: B("endcomment"),
-                optional: false,
+                required: true,
                 args: B(&[]),
             }),
             intermediate_tags: B(&[]),
@@ -99,7 +99,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             module: B(DEFAULTTAGS_MOD),
             end_tag: Some(EndTag {
                 name: B("endfilter"),
-                optional: false,
+                required: true,
                 args: B(&[]),
             }),
             intermediate_tags: B(&[]),
@@ -141,7 +141,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             module: B(DEFAULTTAGS_MOD),
             end_tag: Some(EndTag {
                 name: B("endfor"),
-                optional: false,
+                required: true,
                 args: B(&[]),
             }),
             intermediate_tags: B(&[IntermediateTag {
@@ -174,7 +174,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             module: B(DEFAULTTAGS_MOD),
             end_tag: Some(EndTag {
                 name: B("endif"),
-                optional: false,
+                required: true,
                 args: B(&[]),
             }),
             intermediate_tags: B(&[
@@ -202,7 +202,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             module: B(DEFAULTTAGS_MOD),
             end_tag: Some(EndTag {
                 name: B("endifchanged"),
-                optional: false,
+                required: true,
                 args: B(&[]),
             }),
             intermediate_tags: B(&[IntermediateTag {
@@ -312,7 +312,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             module: B(DEFAULTTAGS_MOD),
             end_tag: Some(EndTag {
                 name: B("endspaceless"),
-                optional: false,
+                required: true,
                 args: B(&[]),
             }),
             intermediate_tags: B(&[]),
@@ -373,7 +373,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             module: B(DEFAULTTAGS_MOD),
             end_tag: Some(EndTag {
                 name: B("endverbatim"),
-                optional: false,
+                required: true,
                 args: B(&[]),
             }),
             intermediate_tags: B(&[]),
@@ -419,7 +419,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             module: B(DEFAULTTAGS_MOD),
             end_tag: Some(EndTag {
                 name: B("endwith"),
-                optional: false,
+                required: true,
                 args: B(&[]),
             }),
             intermediate_tags: B(&[]),
@@ -439,7 +439,7 @@ static LOADER_TAGS_PAIRS: &[(&str, &TagSpec)] = &[
             module: B(MOD_LOADER_TAGS),
             end_tag: Some(EndTag {
                 name: B("endblock"),
-                optional: false,
+                required: true,
                 args: B(&[TagArg::Var {
                     name: B("name"),
                     required: false,
@@ -499,7 +499,7 @@ static CACHE_PAIRS: &[(&str, &TagSpec)] = &[(
         module: B(CACHE_MOD),
         end_tag: Some(EndTag {
             name: B("endcache"),
-            optional: false,
+            required: true,
             args: B(&[]),
         }),
         intermediate_tags: B(&[]),
@@ -528,7 +528,7 @@ static I18N_PAIRS: &[(&str, &TagSpec)] = &[
             module: B(I18N_MOD),
             end_tag: Some(EndTag {
                 name: B("endblocktrans"),
-                optional: false,
+                required: true,
                 args: B(&[]),
             }),
             intermediate_tags: B(BLOCKTRANS_INTERMEDIATE_TAGS),
@@ -541,7 +541,7 @@ static I18N_PAIRS: &[(&str, &TagSpec)] = &[
             module: B(I18N_MOD),
             end_tag: Some(EndTag {
                 name: B("endblocktranslate"),
-                optional: false,
+                required: true,
                 args: B(&[]),
             }),
             intermediate_tags: B(BLOCKTRANS_INTERMEDIATE_TAGS),
@@ -621,7 +621,7 @@ static L10N_PAIRS: &[(&str, &TagSpec)] = &[(
         module: B(L10N_MOD),
         end_tag: Some(EndTag {
             name: B("endlocalize"),
-            optional: false,
+            required: true,
             args: B(&[]),
         }),
         intermediate_tags: B(&[]),
@@ -660,7 +660,7 @@ static TZ_PAIRS: &[(&str, &TagSpec)] = &[
             module: B(TZ_MOD),
             end_tag: Some(EndTag {
                 name: B("endlocaltime"),
-                optional: false,
+                required: true,
                 args: B(&[]),
             }),
             intermediate_tags: B(&[]),
@@ -677,7 +677,7 @@ static TZ_PAIRS: &[(&str, &TagSpec)] = &[
             module: B(TZ_MOD),
             end_tag: Some(EndTag {
                 name: B("endtimezone"),
-                optional: false,
+                required: true,
                 args: B(&[]),
             }),
             intermediate_tags: B(&[]),

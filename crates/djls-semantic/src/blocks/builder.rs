@@ -352,19 +352,19 @@ impl<'db> BlockTreeBuilder<'db> {
 
     fn finish(&mut self) {
         while let Some(frame) = self.stack.pop() {
-            if self.index.is_end_optional(self.db, &frame.opener_name) {
-                // No explicit closer: finalize last segment to end of input (best-effort)
-                // We do not know the real end; leave as-is and extend container by opener span only.
-                self.ops.push(TreeOp::ExtendBlockSpan {
-                    id: frame.container_body,
-                    span: frame.opener_span,
-                });
-            } else {
+            if self.index.is_end_required(self.db, &frame.opener_name) {
                 self.ops
                     .push(TreeOp::AccumulateDiagnostic(ValidationError::UnclosedTag {
                         tag: frame.opener_name,
                         span: frame.opener_span,
                     }));
+            } else {
+                // No explicit closer required: finalize last segment to end of input (best-effort)
+                // We do not know the real end; leave as-is and extend container by opener span only.
+                self.ops.push(TreeOp::ExtendBlockSpan {
+                    id: frame.container_body,
+                    span: frame.opener_span,
+                });
             }
         }
     }

@@ -19,6 +19,8 @@ use super::TagSpecDef;
 use super::TagTypeDef;
 
 /// Legacy v0.4.0 tag specification (DEPRECATED)
+#[deprecated(since = "5.2.5", note = "Remove in v5.2.7")]
+#[allow(deprecated)]
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct LegacyTagSpecDef {
     /// Tag name (e.g., "for", "if", "cache")
@@ -37,6 +39,8 @@ pub struct LegacyTagSpecDef {
 }
 
 /// Legacy end tag specification
+#[deprecated(since = "5.2.5", note = "Remove in v5.2.7")]
+#[allow(deprecated)]
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct LegacyEndTagDef {
     /// End tag name (e.g., "endfor", "endif")
@@ -50,6 +54,8 @@ pub struct LegacyEndTagDef {
 }
 
 /// Legacy intermediate tag specification
+#[deprecated(since = "5.2.5", note = "Remove in v5.2.7")]
+#[allow(deprecated)]
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct LegacyIntermediateTagDef {
     /// Intermediate tag name (e.g., "elif", "else")
@@ -60,6 +66,8 @@ pub struct LegacyIntermediateTagDef {
 }
 
 /// Legacy tag argument specification
+#[deprecated(since = "5.2.5", note = "Remove in v5.2.7")]
+#[allow(deprecated)]
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct LegacyTagArgDef {
     /// Argument name
@@ -73,6 +81,8 @@ pub struct LegacyTagArgDef {
 }
 
 /// Legacy argument type specification
+#[deprecated(since = "5.2.5", note = "Remove in v5.2.7")]
+#[allow(deprecated)]
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(untagged)]
 pub enum LegacyArgTypeDef {
@@ -83,6 +93,7 @@ pub enum LegacyArgTypeDef {
 }
 
 /// Legacy simple argument types
+#[deprecated(since = "5.2.5", note = "Remove in v5.2.7")]
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum LegacySimpleArgTypeDef {
@@ -101,6 +112,7 @@ fn default_true() -> bool {
 /// Convert a vector of legacy tagspecs to the new v0.6.0 hierarchical format
 ///
 /// Groups tags by module and creates the appropriate library structure.
+#[deprecated(since = "5.2.5", note = "Remove in v5.2.7")]
 #[must_use]
 pub fn convert_legacy_tagspecs(legacy: Vec<LegacyTagSpecDef>) -> TagSpecDef {
     let mut modules: HashMap<String, Vec<TagDef>> = HashMap::new();
@@ -212,6 +224,8 @@ fn convert_legacy_arg(legacy: LegacyTagArgDef) -> TagArgDef {
 
 #[cfg(test)]
 mod tests {
+    #![allow(deprecated)]
+
     use super::*;
 
     #[test]

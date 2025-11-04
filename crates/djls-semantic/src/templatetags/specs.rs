@@ -192,7 +192,7 @@ impl From<(djls_conf::TagDef, String)> for TagSpec {
                 tag_def.end.map(Into::into).or_else(|| {
                     Some(EndTag {
                         name: format!("end{}", tag_def.name).into(),
-                        optional: false,
+                        required: true,
                         args: B(&[]),
                     })
                 })
@@ -385,7 +385,7 @@ impl From<djls_conf::TagArgDef> for TagArg {
 #[derive(Debug, Clone, PartialEq)]
 pub struct EndTag {
     pub name: S,
-    pub optional: bool,
+    pub required: bool,
     pub args: L<TagArg>,
 }
 
@@ -393,7 +393,7 @@ impl From<djls_conf::EndTagDef> for EndTag {
     fn from(value: djls_conf::EndTagDef) -> Self {
         EndTag {
             name: value.name.into(),
-            optional: !value.required, // Invert: new spec uses 'required', runtime uses 'optional'
+            required: value.required,
             args: value
                 .args
                 .into_iter()
@@ -454,7 +454,7 @@ mod tests {
                 module: "django.template.defaulttags".into(),
                 end_tag: Some(EndTag {
                     name: "endif".into(),
-                    optional: false,
+                    required: true,
                     args: Cow::Borrowed(&[]),
                 }),
                 intermediate_tags: Cow::Owned(vec![
@@ -478,7 +478,7 @@ mod tests {
                 module: "django.template.defaulttags".into(),
                 end_tag: Some(EndTag {
                     name: "endfor".into(),
-                    optional: false,
+                    required: true,
                     args: Cow::Borrowed(&[]),
                 }),
                 intermediate_tags: Cow::Owned(vec![
@@ -502,7 +502,7 @@ mod tests {
                 module: "django.template.loader_tags".into(),
                 end_tag: Some(EndTag {
                     name: "endblock".into(),
-                    optional: false,
+                    required: true,
                     args: Cow::Owned(vec![TagArg::Var {
                         name: "name".into(),
                         required: false,
@@ -584,7 +584,7 @@ mod tests {
 
         let endif_spec = specs.get_end_spec_for_closer("endif").unwrap();
         assert_eq!(endif_spec.name.as_ref(), "endif");
-        assert!(!endif_spec.optional);
+        assert!(endif_spec.required);
         assert_eq!(endif_spec.args.len(), 0);
 
         let endblock_spec = specs.get_end_spec_for_closer("endblock").unwrap();
@@ -708,7 +708,7 @@ mod tests {
                 module: "django.template.defaulttags".into(),
                 end_tag: Some(EndTag {
                     name: "endif".into(),
-                    optional: true, // Changed to optional
+                    required: false, // Changed to not required
                     args: Cow::Borrowed(&[]),
                 }),
                 intermediate_tags: Cow::Borrowed(&[]), // Removed intermediates
@@ -729,7 +729,7 @@ mod tests {
 
         // Check that existing tag was overwritten
         let if_spec = specs1.get("if").unwrap();
-        assert!(if_spec.end_tag.as_ref().unwrap().optional); // Should be optional now
+        assert!(!if_spec.end_tag.as_ref().unwrap().required); // Should not be required now
         assert!(if_spec.intermediate_tags.is_empty()); // Should have no intermediates
 
         // Check that unaffected tags remain
@@ -796,16 +796,16 @@ mod tests {
             panic!("Expected Choice variant");
         }
 
-        // Test EndTagDef -> EndTag conversion (note: required inverted to optional)
+        // Test EndTagDef -> EndTag conversion
         let end_tag_def = djls_conf::EndTagDef {
             name: "endtest".to_string(),
-            required: false, // Becomes optional=true in runtime
+            required: false,
             args: vec![],
             extra: None,
         };
         let end_tag = EndTag::from(end_tag_def);
         assert_eq!(end_tag.name.as_ref(), "endtest");
-        assert!(end_tag.optional); // required=false becomes optional=true
+        assert!(!end_tag.required);
         assert_eq!(end_tag.args.len(), 0);
 
         // Test IntermediateTagDef -> IntermediateTag conversion
@@ -931,7 +931,7 @@ required = false
         let mytag = specs.get("mytag").expect("mytag should be present");
         assert_eq!(mytag.module.as_ref(), "myapp.templatetags.custom");
         assert_eq!(mytag.end_tag.as_ref().unwrap().name.as_ref(), "endmytag");
-        assert!(!mytag.end_tag.as_ref().unwrap().optional); // required=true becomes optional=false
+        assert!(mytag.end_tag.as_ref().unwrap().required);
         assert_eq!(mytag.intermediate_tags.len(), 1);
         assert_eq!(mytag.intermediate_tags[0].name.as_ref(), "mybranch");
         assert_eq!(mytag.args.len(), 2);
@@ -942,9 +942,9 @@ required = false
 
         // Should have overridden built-in "if" tag
         let if_tag = specs.get("if").expect("if tag should be present");
-        assert!(if_tag.end_tag.as_ref().unwrap().optional); // required=false becomes optional=true
-                                                            // Note: The built-in if tag has intermediate tags, but the override doesn't specify them
-                                                            // The override completely replaces the built-in
+        assert!(!if_tag.end_tag.as_ref().unwrap().required);
+        // Note: The built-in if tag has intermediate tags, but the override doesn't specify them
+        // The override completely replaces the built-in
         assert!(if_tag.intermediate_tags.is_empty());
     }
 }
