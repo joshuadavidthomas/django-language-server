@@ -92,39 +92,34 @@ impl Parser {
     }
 
     fn parse_tag_args(content: &str) -> Result<(String, Vec<String>), ParseError> {
-        let estimated_args = (content.len() / 8).clamp(2, 8);
-        let mut tokens = Vec::with_capacity(estimated_args);
-        let mut current = String::new();
-        let mut in_quote: Option<char> = None;
-        let mut chars = content.chars();
-        while let Some(ch) = chars.next() {
-            match (ch, in_quote) {
-                ('\\', Some(_)) => {
-                    current.push(ch);
-                    if let Some(next) = chars.next() {
-                        current.push(next);
+        let mut pieces = Vec::with_capacity((content.len() / 8).clamp(2, 8));
+        let mut start = None;
+        let mut quote: Option<char> = None;
+        let mut escape = false;
+        for (idx, ch) in content.char_indices() {
+            if start.is_none() && !ch.is_whitespace() {
+                start = Some(idx);
+            }
+            if escape {
+                escape = false;
+                continue;
+            }
+            match ch {
+                '\\' if quote.is_some() => escape = true,
+                '"' | '\'' if quote == Some(ch) => quote = None,
+                '"' | '\'' if quote.is_none() => quote = Some(ch),
+                c if quote.is_none() && c.is_whitespace() => {
+                    if let Some(s) = start.take() {
+                        pieces.push(content[s..idx].to_owned());
                     }
                 }
-                ('"' | '\'', None) => {
-                    in_quote = Some(ch);
-                    current.push(ch);
-                }
-                ('"', Some('"')) | ('\'', Some('\'')) => {
-                    current.push(ch);
-                    in_quote = None;
-                }
-                (c, None) if c.is_whitespace() => {
-                    if !current.is_empty() {
-                        tokens.push(std::mem::take(&mut current));
-                    }
-                }
-                _ => current.push(ch),
+                _ => {}
             }
         }
-        if !current.is_empty() {
-            tokens.push(current);
+        if let Some(s) = start {
+            pieces.push(content[s..].to_owned());
         }
-        let mut iter = tokens.into_iter();
+        let mut iter = pieces.into_iter();
         let name = iter.next().ok_or(ParseError::EmptyTag)?;
         Ok((name, iter.collect()))
     }
