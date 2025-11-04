@@ -230,8 +230,7 @@ fn validate_choices_and_order(
                 // Optional expressions shouldn't steal the next literal
                 if bit_index == start_index
                     && bit_index < bits.len()
-                    && (*required
-                        || next_literal.map_or(true, |lit| bits[bit_index] != lit))
+                    && (*required || next_literal.is_none_or(|lit| bits[bit_index] != lit))
                 {
                     bit_index += 1;
                 }
@@ -648,15 +647,12 @@ mod tests {
 
         use djls_source::Db as SourceDb;
 
-        let bits = vec!["reversed".to_string()];
+        let bits = ["reversed".to_string()];
         let bits_str = bits.join(" ");
         let content = format!("{{% optional_expr {bits_str} %}}");
 
         let path = Utf8Path::new("/optional.html");
-        db.fs
-            .lock()
-            .unwrap()
-            .add_file(path.to_owned(), content);
+        db.fs.lock().unwrap().add_file(path.to_owned(), content);
 
         let file = db.create_file(path);
         let nodelist = djls_templates::parse_template(&db, file).expect("Failed to parse template");
