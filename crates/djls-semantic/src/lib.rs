@@ -1,3 +1,4 @@
+mod arguments;
 mod blocks;
 mod db;
 mod errors;
@@ -7,6 +8,7 @@ mod semantic;
 mod templatetags;
 mod traits;
 
+use arguments::validate_all_tag_arguments;
 pub use blocks::build_block_tree;
 pub use blocks::TagIndex;
 pub use db::Db;
@@ -20,8 +22,6 @@ pub use resolution::resolve_template;
 pub use resolution::ResolveResult;
 pub use resolution::TemplateReference;
 pub use semantic::build_semantic_forest;
-use semantic::validate_block_tags;
-use semantic::validate_non_block_tags;
 pub use templatetags::django_builtin_specs;
 pub use templatetags::EndTag;
 pub use templatetags::TagArg;
@@ -44,7 +44,6 @@ pub fn validate_nodelist(db: &dyn Db, nodelist: djls_templates::NodeList<'_>) {
     }
 
     let block_tree = build_block_tree(db, nodelist);
-    let forest = build_semantic_forest(db, block_tree, nodelist);
-    validate_block_tags(db, forest.roots(db));
-    validate_non_block_tags(db, nodelist, forest.tag_spans(db));
+    let _forest = build_semantic_forest(db, block_tree, nodelist);
+    validate_all_tag_arguments(db, nodelist);
 }
