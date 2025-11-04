@@ -122,11 +122,6 @@ fn validate_args(db: &dyn Db, tag_name: &str, bits: &[String], span: Span, args:
         .accumulate(db);
     }
 
-    // NOTE: We cannot check bits.len() > args.len() because:
-    // - Expression arguments can consume multiple tokens (e.g., "x > 0" is 3 tokens, 1 arg)
-    // - String arguments are now single tokens even if they contain spaces
-    // The validate_choices_and_order function will catch actual too-many-arguments cases
-
     validate_literals(db, tag_name, bits, span, args);
 
     if !has_varargs {
@@ -272,9 +267,16 @@ fn validate_choices_and_order(
         }
     }
 
-    // Remaining arguments with explicit names that were not satisfied because the bit stream
-    // terminated early should emit specific missing argument diagnostics.
+    // Check for too many arguments: if we have unconsumed tokens after processing all args
     if bit_index < bits.len() {
+        // We have unconsumed tokens - this is a too-many-arguments error
+        // Note: VarArgs sets bit_index = bits.len(), so we never reach here for VarArgs tags
+        ValidationErrorAccumulator(ValidationError::TooManyArguments {
+            tag: tag_name.to_string(),
+            max: args.len(),
+            span,
+        })
+        .accumulate(db);
         return;
     }
 
@@ -315,115 +317,117 @@ fn find_next_literal(remaining_args: &[TagArg]) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+    use std::sync::Mutex;
+
+    use camino::Utf8Path;
+    use camino::Utf8PathBuf;
+    use djls_source::File;
+    use djls_workspace::FileSystem;
+    use djls_workspace::InMemoryFileSystem;
+
     use super::*;
+    use crate::templatetags::django_builtin_specs;
+    use crate::TagIndex;
 
-    // Helper to manually validate arguments without full database setup
-    fn validate_args_simple(bits: &[String], args: &[TagArg]) -> Vec<String> {
-        let mut errors = Vec::new();
+    #[salsa::db]
+    #[derive(Clone)]
+    struct TestDatabase {
+        storage: salsa::Storage<Self>,
+        fs: Arc<Mutex<InMemoryFileSystem>>,
+    }
 
-        let has_varargs = args.iter().any(|arg| matches!(arg, TagArg::VarArgs { .. }));
-        let required_count = args.iter().filter(|arg| arg.is_required()).count();
-
-        if bits.len() < required_count {
-            errors.push(format!(
-                "Missing required arguments: expected at least {required_count}, got {}",
-                bits.len()
-            ));
-        }
-
-        // Validate using the actual logic
-        let mut bit_index = 0usize;
-
-        for (arg_index, arg) in args.iter().enumerate() {
-            if bit_index >= bits.len() {
-                break;
-            }
-
-            match arg {
-                TagArg::Literal { lit, required } => {
-                    let matches_literal = bits[bit_index] == lit.as_ref();
-                    if *required {
-                        if matches_literal {
-                            bit_index += 1;
-                        } else {
-                            errors.push(format!(
-                                "Expected literal '{}', got '{}'",
-                                lit, bits[bit_index]
-                            ));
-                            break;
-                        }
-                    } else if matches_literal {
-                        bit_index += 1;
-                    }
-                }
-                TagArg::Choice {
-                    name: _,
-                    required: _,
-                    choices,
-                } => {
-                    let value = &bits[bit_index];
-                    if choices.iter().any(|choice| choice.as_ref() == value) {
-                        bit_index += 1;
-                    }
-                }
-                TagArg::Var { .. } | TagArg::String { .. } => {
-                    bit_index += 1;
-                }
-                TagArg::Expr { .. } => {
-                    let start_index = bit_index;
-                    let next_literal = find_next_literal(&args[arg_index + 1..]);
-
-                    while bit_index < bits.len() {
-                        if let Some(ref lit) = next_literal {
-                            if bits[bit_index] == *lit {
-                                break;
-                            }
-                        }
-                        bit_index += 1;
-                    }
-
-                    if bit_index == start_index {
-                        bit_index += 1;
-                    }
-                }
-                TagArg::Assignment { .. } => {
-                    let next_literal = find_next_literal(&args[arg_index + 1..]);
-
-                    while bit_index < bits.len() {
-                        let token = &bits[bit_index];
-                        bit_index += 1;
-
-                        if token.contains('=') {
-                            break;
-                        }
-
-                        if token == "as" && bit_index < bits.len() {
-                            bit_index += 1;
-                            break;
-                        }
-
-                        if let Some(ref lit) = next_literal {
-                            if token == lit {
-                                break;
-                            }
-                        }
-                    }
-                }
-                TagArg::VarArgs { .. } => {
-                    bit_index = bits.len();
-                }
+    impl TestDatabase {
+        fn new() -> Self {
+            Self {
+                storage: salsa::Storage::default(),
+                fs: Arc::new(Mutex::new(InMemoryFileSystem::new())),
             }
         }
+    }
 
-        // Check if we have leftover bits (too many arguments)
-        if !has_varargs && bit_index < bits.len() {
-            errors.push(format!(
-                "Too many arguments: consumed {bit_index} tokens but got {}",
-                bits.len()
-            ));
+    #[salsa::db]
+    impl salsa::Database for TestDatabase {}
+
+    #[salsa::db]
+    impl djls_source::Db for TestDatabase {
+        fn create_file(&self, path: &Utf8Path) -> File {
+            File::new(self, path.to_owned(), 0)
         }
 
-        errors
+        fn get_file(&self, _path: &Utf8Path) -> Option<File> {
+            None
+        }
+
+        fn read_file(&self, path: &Utf8Path) -> std::io::Result<String> {
+            self.fs.lock().unwrap().read_to_string(path)
+        }
+    }
+
+    #[salsa::db]
+    impl djls_templates::Db for TestDatabase {}
+
+    #[salsa::db]
+    impl crate::Db for TestDatabase {
+        fn tag_specs(&self) -> crate::templatetags::TagSpecs {
+            django_builtin_specs()
+        }
+
+        fn tag_index(&self) -> TagIndex<'_> {
+            TagIndex::from_specs(self)
+        }
+
+        fn template_dirs(&self) -> Option<Vec<Utf8PathBuf>> {
+            None
+        }
+
+        fn diagnostics_config(&self) -> djls_conf::DiagnosticsConfig {
+            djls_conf::DiagnosticsConfig::default()
+        }
+    }
+
+    /// Test helper: Create a temporary NodeList with a single tag and validate it
+    fn check_validation_errors(
+        tag_name: &str,
+        bits: &[String],
+        _args: &[TagArg],
+    ) -> Vec<ValidationError> {
+        use djls_source::Db as SourceDb;
+
+        let db = TestDatabase::new();
+
+        // Build a minimal template content that parses to a tag
+        let bits_str = bits.join(" ");
+
+        // Add closing tags for block tags to avoid UnclosedTag errors
+        let content = match tag_name {
+            "if" => format!("{{% {tag_name} {bits_str} %}}{{% endif %}}"),
+            "for" => format!("{{% {tag_name} {bits_str} %}}{{% endfor %}}"),
+            "with" => format!("{{% {tag_name} {bits_str} %}}{{% endwith %}}"),
+            "block" => format!("{{% {tag_name} {bits_str} %}}{{% endblock %}}"),
+            "autoescape" => format!("{{% {tag_name} {bits_str} %}}{{% endautoescape %}}"),
+            "filter" => format!("{{% {tag_name} {bits_str} %}}{{% endfilter %}}"),
+            "spaceless" => format!("{{% {tag_name} {bits_str} %}}{{% endspaceless %}}"),
+            "verbatim" => format!("{{% {tag_name} {bits_str} %}}{{% endverbatim %}}"),
+            _ => format!("{{% {tag_name} {bits_str} %}}"),
+        };
+
+        // Create a file and parse it
+        let path = camino::Utf8Path::new("/test.html");
+        db.fs.lock().unwrap().add_file(path.to_owned(), content);
+
+        let file = db.create_file(path);
+        let nodelist = djls_templates::parse_template(&db, file).expect("Failed to parse template");
+
+        // Validate through the normal path
+        crate::validate_nodelist(&db, nodelist);
+
+        // Collect accumulated errors, filtering out UnclosedTag errors (test setup issue)
+        crate::validate_nodelist::accumulated::<ValidationErrorAccumulator>(&db, nodelist)
+            .into_iter()
+            .map(|acc| acc.0.clone())
+            .filter(|err| !matches!(err, ValidationError::UnclosedTag { .. }))
+            .collect()
     }
 
     #[test]
@@ -441,7 +445,7 @@ mod tests {
             required: true,
         }];
 
-        let errors = validate_args_simple(&bits, &args);
+        let errors = check_validation_errors("if", &bits, &args);
         assert!(
             errors.is_empty(),
             "Should not error on expression with multiple tokens: {errors:?}"
@@ -458,7 +462,7 @@ mod tests {
             required: true,
         }];
 
-        let errors = validate_args_simple(&bits, &args);
+        let errors = check_validation_errors("translate", &bits, &args);
         assert!(
             errors.is_empty(),
             "Should not error on quoted string: {errors:?}"
@@ -493,7 +497,7 @@ mod tests {
             },
         ];
 
-        let errors = validate_args_simple(&bits, &args);
+        let errors = check_validation_errors("for", &bits, &args);
         assert!(
             errors.is_empty(),
             "Should handle optional literal 'reversed': {errors:?}"
@@ -513,7 +517,7 @@ mod tests {
             required: true,
         }];
 
-        let errors = validate_args_simple(&bits, &args);
+        let errors = check_validation_errors("if", &bits, &args);
         assert!(
             errors.is_empty(),
             "Should handle complex boolean expression: {errors:?}"
@@ -540,7 +544,7 @@ mod tests {
             },
         ];
 
-        let errors = validate_args_simple(&bits, &args);
+        let errors = check_validation_errors("url", &bits, &args);
         assert!(errors.is_empty(), "Should handle varargs: {errors:?}");
     }
 
@@ -553,7 +557,7 @@ mod tests {
             required: true,
         }];
 
-        let errors = validate_args_simple(&bits, &args);
+        let errors = check_validation_errors("with", &bits, &args);
         assert!(
             errors.is_empty(),
             "Should handle assignment with filter: {errors:?}"
@@ -569,7 +573,7 @@ mod tests {
             required: true,
         }];
 
-        let errors = validate_args_simple(&bits, &args);
+        let errors = check_validation_errors("include", &bits, &args);
         assert!(errors.is_empty(), "Should handle quoted path: {errors:?}");
     }
 
@@ -593,10 +597,154 @@ mod tests {
             },
         ];
 
-        let errors = validate_args_simple(&bits, &args);
+        let errors = check_validation_errors("if", &bits, &args);
         assert!(
             errors.is_empty(),
             "Expr should stop before literal keyword: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn test_tag_with_no_args_rejects_extra() {
+        // {% csrf_token extra_arg %}
+        // csrf_token expects no arguments
+        let bits = vec!["extra_arg".to_string()];
+        let args = vec![]; // No arguments expected
+
+        let errors = check_validation_errors("csrf_token", &bits, &args);
+        assert_eq!(errors.len(), 1, "Should error on unexpected argument");
+        assert!(
+            matches!(errors[0], ValidationError::TooManyArguments { max: 0, .. }),
+            "Expected TooManyArguments error, got: {:?}",
+            errors[0]
+        );
+    }
+
+    #[test]
+    fn test_tag_with_no_args_rejects_multiple_extra() {
+        // {% debug arg1 arg2 arg3 %}
+        // debug expects no arguments
+        let bits = vec!["arg1".to_string(), "arg2".to_string(), "arg3".to_string()];
+        let args = vec![]; // No arguments expected
+
+        let errors = check_validation_errors("debug", &bits, &args);
+        assert_eq!(errors.len(), 1, "Should error once for extra arguments");
+        assert!(
+            matches!(errors[0], ValidationError::TooManyArguments { max: 0, .. }),
+            "Expected TooManyArguments error, got: {:?}",
+            errors[0]
+        );
+    }
+
+    #[test]
+    fn test_autoescape_rejects_extra_args() {
+        // {% autoescape on extra_arg %}
+        // autoescape expects exactly 1 choice argument (on/off)
+        let bits = vec!["on".to_string(), "extra_arg".to_string()];
+        let args = vec![TagArg::Choice {
+            name: "mode".into(),
+            required: true,
+            choices: vec!["on".into(), "off".into()].into(),
+        }];
+
+        let errors = check_validation_errors("autoescape", &bits, &args);
+        // This is the key test - does the real implementation catch too many args?
+        assert!(
+            !errors.is_empty(),
+            "Should error on extra argument after choice"
+        );
+    }
+
+    #[test]
+    fn test_csrf_token_rejects_extra_args() {
+        // {% csrf_token "extra" %}
+        // csrf_token expects no arguments
+        let bits = vec![r#""extra""#.to_string()];
+        let args = vec![];
+
+        let errors = check_validation_errors("csrf_token", &bits, &args);
+        assert!(
+            !errors.is_empty(),
+            "Should error on extra argument for zero-arg tag"
+        );
+        assert!(
+            matches!(errors[0], ValidationError::TooManyArguments { .. }),
+            "Expected TooManyArguments, got: {:?}",
+            errors[0]
+        );
+    }
+
+    #[test]
+    fn test_now_rejects_extra_args() {
+        // {% now "Y-m-d" as varname extra_arg %}
+        // now expects: format, optional "as" + varname, then nothing more
+        let bits = vec![
+            r#""Y-m-d""#.to_string(),
+            "as".to_string(),
+            "varname".to_string(),
+            "extra_arg".to_string(),
+        ];
+        let args = vec![];
+
+        let errors = check_validation_errors("now", &bits, &args);
+        // Should have too many arguments after consuming all valid args
+        assert!(
+            !errors.is_empty(),
+            "Should error when extra arg appears after complete argument list"
+        );
+    }
+
+    #[test]
+    fn test_load_accepts_varargs() {
+        // {% load tag1 tag2 tag3 from library %}
+        // load has varargs, so should accept many arguments
+        let bits = vec![
+            "tag1".to_string(),
+            "tag2".to_string(),
+            "tag3".to_string(),
+            "from".to_string(),
+            "library".to_string(),
+        ];
+        let args = vec![
+            TagArg::VarArgs {
+                name: "tags".into(),
+                required: false,
+            },
+            TagArg::Literal {
+                lit: "from".into(),
+                required: false,
+            },
+            TagArg::Var {
+                name: "library".into(),
+                required: false,
+            },
+        ];
+
+        let errors = check_validation_errors("load", &bits, &args);
+        assert!(
+            errors.is_empty(),
+            "VarArgs should accept many arguments: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn test_regroup_rejects_extra_args() {
+        // {% regroup list by attr as varname extra_arg %}
+        // regroup expects: list, "by", attr, "as", varname - no more
+        let bits = vec![
+            "list".to_string(),
+            "by".to_string(),
+            "attr".to_string(),
+            "as".to_string(),
+            "varname".to_string(),
+            "extra_arg".to_string(),
+        ];
+        let args = vec![];
+
+        let errors = check_validation_errors("regroup", &bits, &args);
+        assert!(
+            !errors.is_empty(),
+            "Should error on extra argument after complete regroup args"
         );
     }
 }
