@@ -872,7 +872,8 @@ args = [
 ]
 "#;
                 fs::write(dir.path().join("djls.toml"), content).unwrap();
-                let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
+                let settings =
+                    Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
 
                 // Should be converted to new hierarchical format
                 assert_eq!(settings.tagspecs().version, "0.5.0");
@@ -922,7 +923,8 @@ args = [
 ]
 "#;
                 fs::write(dir.path().join("djls.toml"), content).unwrap();
-                let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
+                let settings =
+                    Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
 
                 let lib = &settings.tagspecs().libraries[0];
                 let cache = &lib.tags[0];
@@ -943,7 +945,8 @@ args = [
 ]
 "#;
                 fs::write(dir.path().join("djls.toml"), content).unwrap();
-                let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
+                let settings =
+                    Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
 
                 let lib = &settings.tagspecs().libraries[0];
                 let test = &lib.tags[0];
@@ -974,7 +977,8 @@ name = "tag3"
 module = "other.tags"
 "#;
                 fs::write(dir.path().join("djls.toml"), content).unwrap();
-                let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
+                let settings =
+                    Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
 
                 // Should group tags by module
                 assert_eq!(settings.tagspecs().libraries.len(), 2);

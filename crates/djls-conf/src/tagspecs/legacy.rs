@@ -150,11 +150,7 @@ fn convert_legacy_tag(legacy: LegacyTagSpecDef) -> TagDef {
             .into_iter()
             .map(convert_legacy_intermediate_tag)
             .collect(),
-        args: legacy
-            .args
-            .into_iter()
-            .map(convert_legacy_arg)
-            .collect(),
+        args: legacy.args.into_iter().map(convert_legacy_arg).collect(),
         extra: None,
     }
 }
@@ -163,11 +159,7 @@ fn convert_legacy_end_tag(legacy: LegacyEndTagDef) -> EndTagDef {
     EndTagDef {
         name: legacy.name,
         required: !legacy.optional, // Invert: optional -> required
-        args: legacy
-            .args
-            .into_iter()
-            .map(convert_legacy_arg)
-            .collect(),
+        args: legacy.args.into_iter().map(convert_legacy_arg).collect(),
         extra: None,
     }
 }
@@ -175,11 +167,7 @@ fn convert_legacy_end_tag(legacy: LegacyEndTagDef) -> EndTagDef {
 fn convert_legacy_intermediate_tag(legacy: LegacyIntermediateTagDef) -> IntermediateTagDef {
     IntermediateTagDef {
         name: legacy.name,
-        args: legacy
-            .args
-            .into_iter()
-            .map(convert_legacy_arg)
-            .collect(),
+        args: legacy.args.into_iter().map(convert_legacy_arg).collect(),
         min: None,
         max: None,
         position: super::PositionDef::Any,
@@ -208,10 +196,7 @@ fn convert_legacy_arg(legacy: LegacyTagArgDef) -> TagArgDef {
             extra.insert(
                 "choices".to_string(),
                 serde_json::Value::Array(
-                    choice
-                        .into_iter()
-                        .map(serde_json::Value::String)
-                        .collect(),
+                    choice.into_iter().map(serde_json::Value::String).collect(),
                 ),
             );
             (ArgKindDef::Choice, Some(extra))
@@ -277,8 +262,17 @@ mod tests {
             TagTypeDef::Block
         ));
         assert!(converted.libraries[0].tags[0].end.is_some());
-        assert_eq!(converted.libraries[0].tags[0].end.as_ref().unwrap().name, "endblock");
-        assert!(converted.libraries[0].tags[0].end.as_ref().unwrap().required);
+        assert_eq!(
+            converted.libraries[0].tags[0].end.as_ref().unwrap().name,
+            "endblock"
+        );
+        assert!(
+            converted.libraries[0].tags[0]
+                .end
+                .as_ref()
+                .unwrap()
+                .required
+        );
     }
 
     #[test]
@@ -297,7 +291,13 @@ mod tests {
 
         let converted = convert_legacy_tagspecs(legacy);
 
-        assert!(!converted.libraries[0].tags[0].end.as_ref().unwrap().required);
+        assert!(
+            !converted.libraries[0].tags[0]
+                .end
+                .as_ref()
+                .unwrap()
+                .required
+        );
     }
 
     #[test]
@@ -338,10 +338,7 @@ mod tests {
         // Check that choices are stored in extra
         assert!(args[2].extra.is_some());
         let choices = args[2].extra.as_ref().unwrap().get("choices").unwrap();
-        assert_eq!(
-            choices,
-            &serde_json::json!(["on", "off"])
-        );
+        assert_eq!(choices, &serde_json::json!(["on", "off"]));
     }
 
     #[test]

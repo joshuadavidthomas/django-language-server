@@ -775,10 +775,7 @@ mod tests {
 
         // Test choice argument with extra metadata
         let mut choice_extra = HashMap::new();
-        choice_extra.insert(
-            "choices".to_string(),
-            serde_json::json!(["on", "off"]),
-        );
+        choice_extra.insert("choices".to_string(), serde_json::json!(["on", "off"]));
         let choice_arg_def = djls_conf::TagArgDef {
             name: "mode".to_string(),
             required: false,
@@ -787,7 +784,10 @@ mod tests {
             count: Some(1),
             extra: Some(choice_extra),
         };
-        if let TagArg::Choice { choices, required, .. } = TagArg::from(choice_arg_def) {
+        if let TagArg::Choice {
+            choices, required, ..
+        } = TagArg::from(choice_arg_def)
+        {
             assert!(!required);
             assert_eq!(choices.len(), 2);
             assert_eq!(choices[0].as_ref(), "on");
@@ -943,8 +943,8 @@ required = false
         // Should have overridden built-in "if" tag
         let if_tag = specs.get("if").expect("if tag should be present");
         assert!(if_tag.end_tag.as_ref().unwrap().optional); // required=false becomes optional=true
-        // Note: The built-in if tag has intermediate tags, but the override doesn't specify them
-        // The override completely replaces the built-in
+                                                            // Note: The built-in if tag has intermediate tags, but the override doesn't specify them
+                                                            // The override completely replaces the built-in
         assert!(if_tag.intermediate_tags.is_empty());
     }
 }
