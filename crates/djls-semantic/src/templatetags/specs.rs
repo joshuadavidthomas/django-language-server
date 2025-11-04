@@ -340,16 +340,14 @@ impl TagArg {
 impl From<djls_conf::TagArgDef> for TagArg {
     fn from(value: djls_conf::TagArgDef) -> Self {
         match value.kind {
-            djls_conf::ArgKindDef::Literal => TagArg::Literal {
+            djls_conf::ArgKindDef::Literal
+            | djls_conf::ArgKindDef::Syntax
+            | djls_conf::ArgKindDef::Modifier => TagArg::Literal {
                 lit: value.name.into(),
                 required: value.required,
             },
             djls_conf::ArgKindDef::Variable => TagArg::Var {
                 name: value.name.into(),
-                required: value.required,
-            },
-            djls_conf::ArgKindDef::Syntax => TagArg::Literal {
-                lit: value.name.into(),
                 required: value.required,
             },
             djls_conf::ArgKindDef::Any => TagArg::Expr {
@@ -358,10 +356,6 @@ impl From<djls_conf::TagArgDef> for TagArg {
             },
             djls_conf::ArgKindDef::Assignment => TagArg::Assignment {
                 name: value.name.into(),
-                required: value.required,
-            },
-            djls_conf::ArgKindDef::Modifier => TagArg::Literal {
-                lit: value.name.into(),
                 required: value.required,
             },
             djls_conf::ArgKindDef::Choice => {

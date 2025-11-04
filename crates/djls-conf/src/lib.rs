@@ -13,6 +13,7 @@ use config::File;
 use config::FileFormat;
 use directories::ProjectDirs;
 use serde::Deserialize;
+use serde::Deserializer;
 use thiserror::Error;
 
 pub use crate::diagnostics::DiagnosticSeverity;
@@ -70,10 +71,42 @@ pub struct Settings {
     django_settings_module: Option<String>,
     #[serde(default)]
     pythonpath: Vec<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_tagspecs")]
     tagspecs: TagSpecDef,
     #[serde(default)]
     diagnostics: DiagnosticsConfig,
+}
+
+// DEPRECATION: Remove in v5.2.2
+// Custom deserializer that supports both v0.5.0 (new) and v0.4.0 (legacy) formats
+fn deserialize_tagspecs<'de, D>(deserializer: D) -> Result<TagSpecDef, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::Error;
+    use serde_json::Value;
+
+    let value = Value::deserialize(deserializer)?;
+
+    // Try new v0.5.0 format first (hierarchical with libraries)
+    if let Ok(new_format) = TagSpecDef::deserialize(&value) {
+        return Ok(new_format);
+    }
+
+    // Fall back to legacy v0.4.0 format (flat array of tags)
+    if let Ok(legacy) = Vec::<tagspecs::legacy::LegacyTagSpecDef>::deserialize(&value) {
+        tracing::warn!(
+            "DEPRECATED: TagSpecs v0.4.0 format detected. Please migrate to v0.5.0 format. \
+             The old format will be removed in v5.2.2. \
+             See migration guide: https://github.com/joshuadavidthomas/django-language-server/blob/main/crates/djls-conf/TAGSPECS.md#migration-from-v040"
+        );
+        return Ok(tagspecs::legacy::convert_legacy_tagspecs(legacy));
+    }
+
+    // Neither format worked, return default
+    Err(D::Error::custom(
+        "Invalid tagspecs format. Expected v0.5.0 hierarchical format or legacy v0.4.0 array format",
+    ))
 }
 
 impl Settings {
@@ -811,6 +844,157 @@ kind = "choice"
             assert!(matches!(test.args[4].kind, ArgKindDef::Assignment));
             assert!(matches!(test.args[5].kind, ArgKindDef::Modifier));
             assert!(matches!(test.args[6].kind, ArgKindDef::Choice));
+        }
+
+        // DEPRECATION TESTS: Remove in v5.2.2
+        // These tests validate that the legacy v0.4.0 format still works
+        mod legacy_format {
+            use super::*;
+
+            #[test]
+            fn test_load_legacy_flat_format() {
+                let dir = tempdir().unwrap();
+                let content = r#"
+[[tagspecs]]
+name = "mytag"
+module = "myapp.templatetags.custom"
+end_tag = { name = "endmytag" }
+
+[[tagspecs]]
+name = "for"
+module = "django.template.defaulttags"
+end_tag = { name = "endfor" }
+intermediate_tags = [{ name = "empty" }]
+args = [
+    { name = "item", type = "variable" },
+    { name = "in", type = "literal" },
+    { name = "items", type = "variable" }
+]
+"#;
+                fs::write(dir.path().join("djls.toml"), content).unwrap();
+                let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
+
+                // Should be converted to new hierarchical format
+                assert_eq!(settings.tagspecs().version, "0.5.0");
+                assert_eq!(settings.tagspecs().libraries.len(), 2);
+
+                // Find libraries (order not guaranteed)
+                let myapp_lib = settings
+                    .tagspecs()
+                    .libraries
+                    .iter()
+                    .find(|lib| lib.module == "myapp.templatetags.custom")
+                    .unwrap();
+                let django_lib = settings
+                    .tagspecs()
+                    .libraries
+                    .iter()
+                    .find(|lib| lib.module == "django.template.defaulttags")
+                    .unwrap();
+
+                // Verify mytag conversion
+                assert_eq!(myapp_lib.tags.len(), 1);
+                let mytag = &myapp_lib.tags[0];
+                assert_eq!(mytag.name, "mytag");
+                assert!(matches!(mytag.tag_type, TagTypeDef::Block));
+                assert_eq!(mytag.end.as_ref().unwrap().name, "endmytag");
+
+                // Verify for tag conversion
+                assert_eq!(django_lib.tags.len(), 1);
+                let for_tag = &django_lib.tags[0];
+                assert_eq!(for_tag.name, "for");
+                assert_eq!(for_tag.intermediates.len(), 1);
+                assert_eq!(for_tag.intermediates[0].name, "empty");
+                assert_eq!(for_tag.args.len(), 3);
+            }
+
+            #[test]
+            fn test_legacy_optional_end_tag_conversion() {
+                let dir = tempdir().unwrap();
+                let content = r#"
+[[tagspecs]]
+name = "cache"
+module = "django.templatetags.cache"
+end_tag = { name = "endcache", optional = false }
+args = [
+    { name = "expire_time", type = "variable" },
+    { name = "fragment_name", type = "string" }
+]
+"#;
+                fs::write(dir.path().join("djls.toml"), content).unwrap();
+                let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
+
+                let lib = &settings.tagspecs().libraries[0];
+                let cache = &lib.tags[0];
+                
+                // optional: false should convert to required: true
+                assert!(cache.end.as_ref().unwrap().required);
+            }
+
+            #[test]
+            fn test_legacy_choice_arg_conversion() {
+                let dir = tempdir().unwrap();
+                let content = r#"
+[[tagspecs]]
+name = "test"
+module = "test.module"
+args = [
+    { name = "choice", type = { choice = ["on", "off"] } }
+]
+"#;
+                fs::write(dir.path().join("djls.toml"), content).unwrap();
+                let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
+
+                let lib = &settings.tagspecs().libraries[0];
+                let test = &lib.tags[0];
+                
+                assert_eq!(test.args.len(), 1);
+                assert!(matches!(test.args[0].kind, ArgKindDef::Choice));
+                
+                // Verify choices are in extra metadata
+                assert!(test.args[0].extra.is_some());
+                let choices = test.args[0].extra.as_ref().unwrap().get("choices");
+                assert!(choices.is_some());
+            }
+
+            #[test]
+            fn test_legacy_multiple_tags_same_module() {
+                let dir = tempdir().unwrap();
+                let content = r#"
+[[tagspecs]]
+name = "tag1"
+module = "myapp.tags"
+
+[[tagspecs]]
+name = "tag2"
+module = "myapp.tags"
+
+[[tagspecs]]
+name = "tag3"
+module = "other.tags"
+"#;
+                fs::write(dir.path().join("djls.toml"), content).unwrap();
+                let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
+
+                // Should group tags by module
+                assert_eq!(settings.tagspecs().libraries.len(), 2);
+
+                let myapp_lib = settings
+                    .tagspecs()
+                    .libraries
+                    .iter()
+                    .find(|lib| lib.module == "myapp.tags")
+                    .unwrap();
+                assert_eq!(myapp_lib.tags.len(), 2);
+
+                let other_lib = settings
+                    .tagspecs()
+                    .libraries
+                    .iter()
+                    .find(|lib| lib.module == "other.tags")
+                    .unwrap();
+                assert_eq!(other_lib.tags.len(), 1);
+            }
         }
     }
 }
