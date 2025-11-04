@@ -644,8 +644,6 @@ mod tests {
         );
         let db = TestDatabase::with_specs(TagSpecs::new(specs_map));
 
-        use djls_source::Db as SourceDb;
-
         let bits = ["reversed".to_string()];
         let bits_str = bits.join(" ");
         let content = format!("{{% optional_expr {bits_str} %}}");
