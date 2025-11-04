@@ -158,7 +158,7 @@ impl From<&djls_conf::Settings> for TagSpecs {
         // Convert and merge user-defined tagspecs from all libraries
         let mut user_specs = FxHashMap::default();
         let tagspec_doc = settings.tagspecs();
-        
+
         for library in &tagspec_doc.libraries {
             for tag_def in &library.tags {
                 let name = tag_def.name.clone();

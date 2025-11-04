@@ -654,7 +654,7 @@ kind = "variable"
 
             // Check choice kind
             assert!(matches!(test.args[1].kind, ArgKindDef::Choice));
-            
+
             // Check optional arg
             assert!(!test.args[2].required);
         }
