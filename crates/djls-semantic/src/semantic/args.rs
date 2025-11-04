@@ -386,7 +386,7 @@ mod tests {
         }
     }
 
-    /// Test helper: Create a temporary NodeList with a single tag and validate it
+    /// Test helper: Create a temporary `NodeList` with a single tag and validate it
     fn check_validation_errors(
         tag_name: &str,
         bits: &[String],
