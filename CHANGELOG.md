@@ -18,6 +18,14 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ## [Unreleased]
 
+### Changed
+
+- Updated TagSpecs to v0.6.0 format with hierarchical `[[tagspecs.libraries]]` structure
+
+### Deprecated
+
+- TagSpecs v0.4.0 flat format (will be removed in v5.2.7), [migration guide here](docs/tagspecs.md#migration-from-v040)
+
 ## [5.2.4]
 
 ### Added

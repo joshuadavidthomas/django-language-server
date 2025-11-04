@@ -161,9 +161,12 @@ S100 = "off"       # Override: S100 is off
 
 ### `tagspecs`
 
-**Default:** `[]`
+**Default:** Empty (no custom tagspecs)
 
 Define custom template tag specifications for tags not included in Django's built-in or popular third-party libraries.
+
+> **⚠️ DEPRECATED FORMAT**: The v0.4.0 flat `[[tagspecs]]` format is deprecated and will be removed in v5.2.7.
+> Please migrate to the [v0.6.0 hierarchical format](../crates/djls-conf/TAGSPECS.md#migration-from-v040).
 
 See the [TagSpecs documentation](../crates/djls-conf/TAGSPECS.md) for detailed schema and examples.
 

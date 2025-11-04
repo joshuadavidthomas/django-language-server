@@ -93,7 +93,7 @@ pub fn generate_snippet_for_tag_with_end(tag_name: &str, spec: &TagSpec) -> Stri
 
     // If this tag has a required end tag, include it in the snippet
     if let Some(end_tag) = &spec.end_tag {
-        if !end_tag.optional {
+        if end_tag.required {
             // Add closing %} for the opening tag, newline, cursor position, newline, then end tag
             snippet.push_str(" %}\n$0\n{% ");
             snippet.push_str(&end_tag.name);
@@ -197,7 +197,7 @@ mod tests {
             module: "django.template.loader_tags".into(),
             end_tag: Some(EndTag {
                 name: "endblock".into(),
-                optional: false,
+                required: true,
                 args: vec![TagArg::Var {
                     name: "name".into(),
                     required: false,
@@ -224,7 +224,7 @@ mod tests {
             module: "django.template.defaulttags".into(),
             end_tag: Some(EndTag {
                 name: "endautoescape".into(),
-                optional: false,
+                required: true,
                 args: Cow::Borrowed(&[]),
             }),
             intermediate_tags: Cow::Borrowed(&[]),

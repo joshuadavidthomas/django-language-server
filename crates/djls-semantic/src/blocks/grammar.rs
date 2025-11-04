@@ -19,7 +19,7 @@ pub struct TagIndex<'db> {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EndMeta {
-    optional: bool,
+    required: bool,
     match_args: Vec<MatchArgSpec>,
 }
 
@@ -49,10 +49,10 @@ impl<'db> TagIndex<'db> {
         TagClass::Unknown
     }
 
-    pub fn is_end_optional(self, db: &'db dyn crate::Db, opener_name: &str) -> bool {
+    pub fn is_end_required(self, db: &'db dyn crate::Db, opener_name: &str) -> bool {
         self.openers(db)
             .get(opener_name)
-            .is_some_and(|meta| meta.optional)
+            .is_some_and(|meta| meta.required)
     }
 
     pub fn validate_close(
@@ -133,7 +133,7 @@ impl<'db> TagIndex<'db> {
                     .collect();
 
                 let meta = EndMeta {
-                    optional: end_tag.optional,
+                    required: end_tag.required,
                     match_args,
                 };
 
