@@ -5,8 +5,9 @@
 // It should be removed after two releases (v5.2.5 and v5.2.6) following the
 // project's deprecation policy.
 
-use serde::Deserialize;
 use std::collections::HashMap;
+
+use serde::Deserialize;
 
 use super::ArgKindDef;
 use super::EndTagDef;
