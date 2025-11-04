@@ -336,6 +336,7 @@ mod tests {
     use rustc_hash::FxHashMap;
 
     use super::*;
+    use crate::templatetags::django_builtin_specs;
     use crate::TagIndex;
     use crate::TagSpec;
     use crate::TagSpecs;
