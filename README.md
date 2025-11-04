@@ -123,14 +123,6 @@ uv add --dev django-language-server
 
 Standalone binaries are available for macOS, Linux, and Windows from [GitHub Releases](https://github.com/joshuadavidthomas/django-language-server/releases).
 
-Pre-built binaries are provided for the following platforms:
-
-- Linux: x64, arm64
-- macOS: x64 (Intel), arm64 (Apple Silicon)
-- Windows: x64
-
-Download the archive for your platform, extract it, and add the binary to your PATH.
-
 #### Linux and macOS
 
 ```bash
