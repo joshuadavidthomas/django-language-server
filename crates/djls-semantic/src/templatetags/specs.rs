@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::borrow::Cow::Borrowed as B;
 use std::collections::hash_map::IntoIter;
 use std::collections::hash_map::Iter;
 use std::ops::Deref;
@@ -154,13 +155,16 @@ impl From<&djls_conf::Settings> for TagSpecs {
         // Start with built-in specs
         let mut specs = crate::templatetags::django_builtin_specs();
 
-        // Convert and merge user-defined tagspecs
+        // Convert and merge user-defined tagspecs from all libraries
         let mut user_specs = FxHashMap::default();
-        for tagspec_def in settings.tagspecs() {
-            // Clone because we're consuming the tagspec_def in the conversion
-            let name = tagspec_def.name.clone();
-            let tagspec: TagSpec = tagspec_def.clone().into();
-            user_specs.insert(name, tagspec);
+        let tagspec_doc = settings.tagspecs();
+        
+        for library in &tagspec_doc.libraries {
+            for tag_def in &library.tags {
+                let name = tag_def.name.clone();
+                let tagspec: TagSpec = (tag_def.clone(), library.module.clone()).into();
+                user_specs.insert(name, tagspec);
+            }
         }
 
         // Merge user specs into built-in specs (user specs override built-ins)
@@ -180,18 +184,39 @@ pub struct TagSpec {
     pub args: L<TagArg>,
 }
 
-impl From<djls_conf::TagSpecDef> for TagSpec {
-    fn from(value: djls_conf::TagSpecDef) -> Self {
+impl From<(djls_conf::TagDef, String)> for TagSpec {
+    fn from((tag_def, module): (djls_conf::TagDef, String)) -> Self {
+        let end_tag = match tag_def.tag_type {
+            djls_conf::TagTypeDef::Block => {
+                // Block tags: synthesize end tag if not provided
+                tag_def.end.map(Into::into).or_else(|| {
+                    Some(EndTag {
+                        name: format!("end{}", tag_def.name).into(),
+                        optional: false,
+                        args: B(&[]),
+                    })
+                })
+            }
+            djls_conf::TagTypeDef::Loader => {
+                // Loader tags: use end tag if provided, otherwise None
+                tag_def.end.map(Into::into)
+            }
+            djls_conf::TagTypeDef::Standalone => {
+                // Standalone tags: must not have end tag
+                None
+            }
+        };
+
         TagSpec {
-            module: value.module.into(),
-            end_tag: value.end_tag.map(Into::into),
-            intermediate_tags: value
-                .intermediate_tags
+            module: module.into(),
+            end_tag,
+            intermediate_tags: tag_def
+                .intermediates
                 .into_iter()
                 .map(Into::into)
                 .collect::<Vec<_>>()
                 .into(),
-            args: value
+            args: tag_def
                 .args
                 .into_iter()
                 .map(Into::into)
@@ -314,42 +339,51 @@ impl TagArg {
 
 impl From<djls_conf::TagArgDef> for TagArg {
     fn from(value: djls_conf::TagArgDef) -> Self {
-        match value.arg_type {
-            djls_conf::ArgTypeDef::Simple(simple) => match simple {
-                djls_conf::SimpleArgTypeDef::Literal => TagArg::Literal {
-                    lit: value.name.into(),
-                    required: value.required,
-                },
-                djls_conf::SimpleArgTypeDef::Variable => TagArg::Var {
-                    name: value.name.into(),
-                    required: value.required,
-                },
-                djls_conf::SimpleArgTypeDef::String => TagArg::String {
-                    name: value.name.into(),
-                    required: value.required,
-                },
-                djls_conf::SimpleArgTypeDef::Expression => TagArg::Expr {
-                    name: value.name.into(),
-                    required: value.required,
-                },
-                djls_conf::SimpleArgTypeDef::Assignment => TagArg::Assignment {
-                    name: value.name.into(),
-                    required: value.required,
-                },
-                djls_conf::SimpleArgTypeDef::VarArgs => TagArg::VarArgs {
-                    name: value.name.into(),
-                    required: value.required,
-                },
+        match value.kind {
+            djls_conf::ArgKindDef::Literal => TagArg::Literal {
+                lit: value.name.into(),
+                required: value.required,
             },
-            djls_conf::ArgTypeDef::Choice { choice } => TagArg::Choice {
+            djls_conf::ArgKindDef::Variable => TagArg::Var {
                 name: value.name.into(),
                 required: value.required,
-                choices: choice
-                    .into_iter()
-                    .map(Into::into)
-                    .collect::<Vec<_>>()
-                    .into(),
             },
+            djls_conf::ArgKindDef::Syntax => TagArg::Literal {
+                lit: value.name.into(),
+                required: value.required,
+            },
+            djls_conf::ArgKindDef::Any => TagArg::Expr {
+                name: value.name.into(),
+                required: value.required,
+            },
+            djls_conf::ArgKindDef::Assignment => TagArg::Assignment {
+                name: value.name.into(),
+                required: value.required,
+            },
+            djls_conf::ArgKindDef::Modifier => TagArg::Literal {
+                lit: value.name.into(),
+                required: value.required,
+            },
+            djls_conf::ArgKindDef::Choice => {
+                // Extract choices from extra metadata
+                let choices: Vec<S> = value
+                    .extra
+                    .as_ref()
+                    .and_then(|e| e.get("choices"))
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(|s| Cow::Owned(s.to_string())))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+
+                TagArg::Choice {
+                    name: value.name.into(),
+                    required: value.required,
+                    choices: Cow::Owned(choices),
+                }
+            }
         }
     }
 }
@@ -365,7 +399,7 @@ impl From<djls_conf::EndTagDef> for EndTag {
     fn from(value: djls_conf::EndTagDef) -> Self {
         EndTag {
             name: value.name.into(),
-            optional: value.optional,
+            optional: !value.required, // Invert: new spec uses 'required', runtime uses 'optional'
             args: value
                 .args
                 .into_iter()
@@ -727,25 +761,40 @@ mod tests {
 
     #[test]
     fn test_conversion_from_conf_types() {
-        // Test TagArgDef -> TagArg conversion for different arg types
-        let string_arg_def = djls_conf::TagArgDef {
-            name: "test".to_string(),
-            required: true,
-            arg_type: djls_conf::ArgTypeDef::Simple(djls_conf::SimpleArgTypeDef::String),
-        };
-        assert!(matches!(
-            TagArg::from(string_arg_def),
-            TagArg::String { .. }
-        ));
+        use std::collections::HashMap;
 
+        // Test TagArgDef -> TagArg conversion for Variable kind
+        let var_arg_def = djls_conf::TagArgDef {
+            name: "test_arg".to_string(),
+            required: true,
+            arg_type: djls_conf::ArgTypeDef::Both,
+            kind: djls_conf::ArgKindDef::Variable,
+            count: None,
+            extra: None,
+        };
+        let arg = TagArg::from(var_arg_def);
+        assert!(matches!(arg, TagArg::Var { .. }));
+        if let TagArg::Var { name, required } = arg {
+            assert_eq!(name.as_ref(), "test_arg");
+            assert!(required);
+        }
+
+        // Test choice argument with extra metadata
+        let mut choice_extra = HashMap::new();
+        choice_extra.insert(
+            "choices".to_string(),
+            serde_json::json!(["on", "off"]),
+        );
         let choice_arg_def = djls_conf::TagArgDef {
             name: "mode".to_string(),
             required: false,
-            arg_type: djls_conf::ArgTypeDef::Choice {
-                choice: vec!["on".to_string(), "off".to_string()],
-            },
+            arg_type: djls_conf::ArgTypeDef::Both,
+            kind: djls_conf::ArgKindDef::Choice,
+            count: Some(1),
+            extra: Some(choice_extra),
         };
-        if let TagArg::Choice { choices, .. } = TagArg::from(choice_arg_def) {
+        if let TagArg::Choice { choices, required, .. } = TagArg::from(choice_arg_def) {
+            assert!(!required);
             assert_eq!(choices.len(), 2);
             assert_eq!(choices[0].as_ref(), "on");
             assert_eq!(choices[1].as_ref(), "off");
@@ -753,28 +802,16 @@ mod tests {
             panic!("Expected Choice variant");
         }
 
-        // Test TagArgDef -> TagArg conversion for Variable type
-        let tag_arg_def = djls_conf::TagArgDef {
-            name: "test_arg".to_string(),
-            required: true,
-            arg_type: djls_conf::ArgTypeDef::Simple(djls_conf::SimpleArgTypeDef::Variable),
-        };
-        let arg = TagArg::from(tag_arg_def);
-        assert!(matches!(arg, TagArg::Var { .. }));
-        if let TagArg::Var { name, required } = arg {
-            assert_eq!(name.as_ref(), "test_arg");
-            assert!(required);
-        }
-
-        // Test EndTagDef -> EndTag conversion
+        // Test EndTagDef -> EndTag conversion (note: required inverted to optional)
         let end_tag_def = djls_conf::EndTagDef {
             name: "endtest".to_string(),
-            optional: true,
+            required: false, // Becomes optional=true in runtime
             args: vec![],
+            extra: None,
         };
         let end_tag = EndTag::from(end_tag_def);
         assert_eq!(end_tag.name.as_ref(), "endtest");
-        assert!(end_tag.optional);
+        assert!(end_tag.optional); // required=false becomes optional=true
         assert_eq!(end_tag.args.len(), 0);
 
         // Test IntermediateTagDef -> IntermediateTag conversion
@@ -783,31 +820,45 @@ mod tests {
             args: vec![djls_conf::TagArgDef {
                 name: "condition".to_string(),
                 required: true,
-                arg_type: djls_conf::ArgTypeDef::Simple(djls_conf::SimpleArgTypeDef::Expression),
+                arg_type: djls_conf::ArgTypeDef::Both,
+                kind: djls_conf::ArgKindDef::Any,
+                count: None,
+                extra: None,
             }],
+            min: None,
+            max: None,
+            position: djls_conf::PositionDef::Any,
+            extra: None,
         };
         let intermediate = IntermediateTag::from(intermediate_def);
         assert_eq!(intermediate.name.as_ref(), "elif");
         assert_eq!(intermediate.args.len(), 1);
         assert_eq!(intermediate.args[0].name().as_ref(), "condition");
 
-        // Test full TagSpecDef -> TagSpec conversion
-        let tagspec_def = djls_conf::TagSpecDef {
+        // Test full TagDef -> TagSpec conversion with module
+        let tag_def = djls_conf::TagDef {
             name: "custom".to_string(),
-            module: "myapp.templatetags".to_string(), // Note: module is ignored in conversion
-            end_tag: Some(djls_conf::EndTagDef {
+            tag_type: djls_conf::TagTypeDef::Block,
+            end: Some(djls_conf::EndTagDef {
                 name: "endcustom".to_string(),
-                optional: false,
+                required: true,
                 args: vec![],
+                extra: None,
             }),
-            intermediate_tags: vec![djls_conf::IntermediateTagDef {
+            intermediates: vec![djls_conf::IntermediateTagDef {
                 name: "branch".to_string(),
                 args: vec![],
+                min: None,
+                max: None,
+                position: djls_conf::PositionDef::Any,
+                extra: None,
             }],
             args: vec![],
+            extra: None,
         };
-        let tagspec = TagSpec::from(tagspec_def);
-        // Name field was removed from TagSpec
+        let module = "myapp.templatetags".to_string();
+        let tagspec = TagSpec::from((tag_def, module));
+        assert_eq!(tagspec.module.as_ref(), "myapp.templatetags");
         assert!(tagspec.end_tag.is_some());
         assert_eq!(tagspec.end_tag.as_ref().unwrap().name.as_ref(), "endcustom");
         assert_eq!(tagspec.intermediate_tags.len(), 1);
@@ -831,20 +882,46 @@ mod tests {
         // Test case 2: Settings with user-defined tagspecs
         let dir = tempfile::TempDir::new().unwrap();
         let config_content = r#"
-[[tagspecs]]
-name = "mytag"
-module = "myapp.templatetags.custom"
-end_tag = { name = "endmytag", optional = false }
-intermediate_tags = [{ name = "mybranch" }]
-args = [
-    { name = "arg1", type = "variable", required = true },
-    { name = "arg2", type = { choice = ["on", "off"] }, required = false }
-]
+[tagspecs]
+version = "0.5.0"
 
-[[tagspecs]]
-name = "if"
+[[tagspecs.libraries]]
+module = "myapp.templatetags.custom"
+
+[[tagspecs.libraries.tags]]
+name = "mytag"
+type = "block"
+
+[tagspecs.libraries.tags.end]
+name = "endmytag"
+required = true
+
+[[tagspecs.libraries.tags.intermediates]]
+name = "mybranch"
+
+[[tagspecs.libraries.tags.args]]
+name = "arg1"
+kind = "variable"
+required = true
+
+[[tagspecs.libraries.tags.args]]
+name = "arg2"
+kind = "choice"
+required = false
+
+[tagspecs.libraries.tags.args.extra]
+choices = ["on", "off"]
+
+[[tagspecs.libraries]]
 module = "myapp.overrides"
-end_tag = { name = "endif", optional = true }
+
+[[tagspecs.libraries.tags]]
+name = "if"
+type = "block"
+
+[tagspecs.libraries.tags.end]
+name = "endif"
+required = false
 "#;
         fs::write(dir.path().join("djls.toml"), config_content).unwrap();
 
@@ -858,9 +935,9 @@ end_tag = { name = "endif", optional = true }
 
         // Should have user-defined custom tag
         let mytag = specs.get("mytag").expect("mytag should be present");
-        // Name field was removed from TagSpec
+        assert_eq!(mytag.module.as_ref(), "myapp.templatetags.custom");
         assert_eq!(mytag.end_tag.as_ref().unwrap().name.as_ref(), "endmytag");
-        assert!(!mytag.end_tag.as_ref().unwrap().optional);
+        assert!(!mytag.end_tag.as_ref().unwrap().optional); // required=true becomes optional=false
         assert_eq!(mytag.intermediate_tags.len(), 1);
         assert_eq!(mytag.intermediate_tags[0].name.as_ref(), "mybranch");
         assert_eq!(mytag.args.len(), 2);
@@ -871,9 +948,9 @@ end_tag = { name = "endif", optional = true }
 
         // Should have overridden built-in "if" tag
         let if_tag = specs.get("if").expect("if tag should be present");
-        assert!(if_tag.end_tag.as_ref().unwrap().optional); // Changed to optional
-                                                            // Note: The built-in if tag has intermediate tags, but the override doesn't specify them
-                                                            // The override completely replaces the built-in
+        assert!(if_tag.end_tag.as_ref().unwrap().optional); // required=false becomes optional=true
+        // Note: The built-in if tag has intermediate tags, but the override doesn't specify them
+        // The override completely replaces the built-in
         assert!(if_tag.intermediate_tags.is_empty());
     }
 }
