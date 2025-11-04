@@ -40,10 +40,6 @@ fn tokenize_tag_content(content: &str) -> Vec<String> {
                 current.push(ch);
                 in_quote = None;
             }
-            // Inside quote - add everything
-            (_, Some(_)) => {
-                current.push(ch);
-            }
             // Outside quote - whitespace = delimiter
             (c, None) if c.is_whitespace() => {
                 if !current.is_empty() {
@@ -51,8 +47,8 @@ fn tokenize_tag_content(content: &str) -> Vec<String> {
                     current = String::new();
                 }
             }
-            // Outside quote - regular char
-            (_, None) => {
+            // Inside quote or outside quote - regular char
+            (_, Some(_) | None) => {
                 current.push(ch);
             }
         }

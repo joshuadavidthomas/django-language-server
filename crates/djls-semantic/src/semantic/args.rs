@@ -149,6 +149,7 @@ fn validate_literals(db: &dyn Db, tag_name: &str, bits: &[String], span: Span, a
     }
 }
 
+#[allow(clippy::too_many_lines)]
 fn validate_choices_and_order(
     db: &dyn Db,
     tag_name: &str,
@@ -317,7 +318,7 @@ mod tests {
     use super::*;
 
     // Helper to manually validate arguments without full database setup
-    fn validate_args_simple(bits: Vec<String>, args: Vec<TagArg>) -> Vec<String> {
+    fn validate_args_simple(bits: &[String], args: &[TagArg]) -> Vec<String> {
         let mut errors = Vec::new();
 
         let has_varargs = args.iter().any(|arg| matches!(arg, TagArg::VarArgs { .. }));
@@ -440,7 +441,7 @@ mod tests {
             required: true,
         }];
 
-        let errors = validate_args_simple(bits, args);
+        let errors = validate_args_simple(&bits, &args);
         assert!(
             errors.is_empty(),
             "Should not error on expression with multiple tokens: {errors:?}"
@@ -457,7 +458,7 @@ mod tests {
             required: true,
         }];
 
-        let errors = validate_args_simple(bits, args);
+        let errors = validate_args_simple(&bits, &args);
         assert!(
             errors.is_empty(),
             "Should not error on quoted string: {errors:?}"
@@ -492,7 +493,7 @@ mod tests {
             },
         ];
 
-        let errors = validate_args_simple(bits, args);
+        let errors = validate_args_simple(&bits, &args);
         assert!(
             errors.is_empty(),
             "Should handle optional literal 'reversed': {errors:?}"
@@ -512,7 +513,7 @@ mod tests {
             required: true,
         }];
 
-        let errors = validate_args_simple(bits, args);
+        let errors = validate_args_simple(&bits, &args);
         assert!(
             errors.is_empty(),
             "Should handle complex boolean expression: {errors:?}"
@@ -539,7 +540,7 @@ mod tests {
             },
         ];
 
-        let errors = validate_args_simple(bits, args);
+        let errors = validate_args_simple(&bits, &args);
         assert!(errors.is_empty(), "Should handle varargs: {errors:?}");
     }
 
@@ -552,7 +553,7 @@ mod tests {
             required: true,
         }];
 
-        let errors = validate_args_simple(bits, args);
+        let errors = validate_args_simple(&bits, &args);
         assert!(
             errors.is_empty(),
             "Should handle assignment with filter: {errors:?}"
@@ -568,7 +569,7 @@ mod tests {
             required: true,
         }];
 
-        let errors = validate_args_simple(bits, args);
+        let errors = validate_args_simple(&bits, &args);
         assert!(errors.is_empty(), "Should handle quoted path: {errors:?}");
     }
 
@@ -592,7 +593,7 @@ mod tests {
             },
         ];
 
-        let errors = validate_args_simple(bits, args);
+        let errors = validate_args_simple(&bits, &args);
         assert!(
             errors.is_empty(),
             "Expr should stop before literal keyword: {errors:?}"
