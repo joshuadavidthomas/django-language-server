@@ -79,6 +79,9 @@ To try the language server without installing using [`uvx`](https://docs.astral.
 uvx --from django-language-server djls serve
 ```
 
+> [!NOTE]
+> The server will automatically detect and use your project's Python environment when you open a Django project. It needs access to your project's Django installation and other dependencies, but should be able to find these regardless of where the server itself is installed.
+
 ### Install with a package manager (recommended)
 
 The language server is published to PyPI with pre-built wheels for the following platforms:
@@ -89,9 +92,6 @@ The language server is published to PyPI with pre-built wheels for the following
 - **Source distribution**: Available for other platforms
 
 Installing it adds the `djls` command-line tool to your environment.
-
-> [!NOTE]
-> The server will automatically detect and use your project's Python environment when you open a Django project. It needs access to your project's Django installation and other dependencies, but should be able to find these regardless of where the server itself is installed.
 
 #### System-wide tool installation
 
