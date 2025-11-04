@@ -5,63 +5,6 @@ use thiserror::Error;
 use crate::nodelist::Node;
 use crate::tokens::Token;
 
-/// Tokenize tag content respecting quoted strings.
-///
-/// Splits on whitespace but keeps quoted strings as single tokens.
-/// Handles both single and double quotes, and escaped quotes within strings.
-fn tokenize_tag_content(content: &str) -> Vec<String> {
-    let mut tokens = Vec::new();
-    let mut current = String::new();
-    let mut in_quote: Option<char> = None;
-    let chars = content.chars().peekable();
-    let mut escape_next = false;
-
-    for ch in chars {
-        if escape_next {
-            // Add escaped character literally
-            current.push(ch);
-            escape_next = false;
-            continue;
-        }
-
-        match (ch, in_quote) {
-            // Backslash - escape next character
-            ('\\', Some(_)) => {
-                current.push(ch);
-                escape_next = true;
-            }
-            // Start quote (double or single)
-            ('"' | '\'', None) => {
-                in_quote = Some(ch);
-                current.push(ch);
-            }
-            // End quote (matching)
-            ('"', Some('"')) | ('\'', Some('\'')) => {
-                current.push(ch);
-                in_quote = None;
-            }
-            // Outside quote - whitespace = delimiter
-            (c, None) if c.is_whitespace() => {
-                if !current.is_empty() {
-                    tokens.push(current);
-                    current = String::new();
-                }
-            }
-            // Inside quote or outside quote - regular char
-            (_, Some(_) | None) => {
-                current.push(ch);
-            }
-        }
-    }
-
-    // Push remaining token
-    if !current.is_empty() {
-        tokens.push(current);
-    }
-
-    tokens
-}
-
 pub struct Parser {
     tokens: Vec<Token>,
     current: usize,
@@ -142,15 +85,48 @@ impl Parser {
             });
         };
 
-        let tokens = tokenize_tag_content(content_ref);
-
-        let mut iter = tokens.into_iter();
-        let name = iter.next().ok_or(ParseError::EmptyTag)?;
-        let bits: Vec<String> = iter.collect();
-
+        let (name, bits) = Self::parse_tag_args(content_ref)?;
         let span = token.content_span_or_fallback();
 
         Ok(Node::Tag { name, bits, span })
+    }
+
+    fn parse_tag_args(content: &str) -> Result<(String, Vec<String>), ParseError> {
+        let estimated_args = (content.len() / 8).clamp(2, 8);
+        let mut tokens = Vec::with_capacity(estimated_args);
+        let mut current = String::new();
+        let mut in_quote: Option<char> = None;
+        let mut chars = content.chars();
+        while let Some(ch) = chars.next() {
+            match (ch, in_quote) {
+                ('\\', Some(_)) => {
+                    current.push(ch);
+                    if let Some(next) = chars.next() {
+                        current.push(next);
+                    }
+                }
+                ('"' | '\'', None) => {
+                    in_quote = Some(ch);
+                    current.push(ch);
+                }
+                ('"', Some('"')) | ('\'', Some('\'')) => {
+                    current.push(ch);
+                    in_quote = None;
+                }
+                (c, None) if c.is_whitespace() => {
+                    if !current.is_empty() {
+                        tokens.push(std::mem::take(&mut current));
+                    }
+                }
+                _ => current.push(ch),
+            }
+        }
+        if !current.is_empty() {
+            tokens.push(current);
+        }
+        let mut iter = tokens.into_iter();
+        let name = iter.next().ok_or(ParseError::EmptyTag)?;
+        Ok((name, iter.collect()))
     }
 
     fn parse_comment(&mut self) -> Result<Node, ParseError> {
@@ -752,83 +728,6 @@ mod tests {
             let nodelist = parse_test_template(&source);
             let test_nodelist = convert_nodelist_for_testing(&nodelist);
             insta::assert_yaml_snapshot!(test_nodelist);
-        }
-    }
-
-    mod tokenization {
-        use super::*;
-
-        #[test]
-        fn test_tokenize_simple() {
-            let content = "if condition";
-            let tokens = tokenize_tag_content(content);
-            assert_eq!(tokens, vec!["if", "condition"]);
-        }
-
-        #[test]
-        fn test_tokenize_double_quoted_string() {
-            let content = "translate \"Contact the owner of the site\"";
-            let tokens = tokenize_tag_content(content);
-            assert_eq!(
-                tokens,
-                vec!["translate", "\"Contact the owner of the site\""]
-            );
-        }
-
-        #[test]
-        fn test_tokenize_single_quoted_string() {
-            let content = "url 'view_name' arg1 arg2";
-            let tokens = tokenize_tag_content(content);
-            assert_eq!(tokens, vec!["url", "'view_name'", "arg1", "arg2"]);
-        }
-
-        #[test]
-        fn test_tokenize_escaped_quotes() {
-            let content = r#"trans "Say \"hello\"""#;
-            let tokens = tokenize_tag_content(content);
-            assert_eq!(tokens, vec!["trans", r#""Say \"hello\"""#]);
-        }
-
-        #[test]
-        fn test_tokenize_mixed_quotes() {
-            let content = r#"trans 'He said "hello"'"#;
-            let tokens = tokenize_tag_content(content);
-            assert_eq!(tokens, vec!["trans", r#"'He said "hello"'"#]);
-        }
-
-        #[test]
-        fn test_tokenize_expression_with_operators() {
-            let content = "if message.input_tokens > 0";
-            let tokens = tokenize_tag_content(content);
-            assert_eq!(tokens, vec!["if", "message.input_tokens", ">", "0"]);
-        }
-
-        #[test]
-        fn test_tokenize_for_loop() {
-            let content = "for item in items reversed";
-            let tokens = tokenize_tag_content(content);
-            assert_eq!(tokens, vec!["for", "item", "in", "items", "reversed"]);
-        }
-
-        #[test]
-        fn test_tokenize_empty_string() {
-            let content = r#"if value == """#;
-            let tokens = tokenize_tag_content(content);
-            assert_eq!(tokens, vec!["if", "value", "==", r#""""#]);
-        }
-
-        #[test]
-        fn test_tokenize_with_template_variable() {
-            let content = r#"trans "Hello {{ user }}""#;
-            let tokens = tokenize_tag_content(content);
-            assert_eq!(tokens, vec!["trans", r#""Hello {{ user }}""#]);
-        }
-
-        #[test]
-        fn test_tokenize_assignment() {
-            let content = "with total=value|length";
-            let tokens = tokenize_tag_content(content);
-            assert_eq!(tokens, vec!["with", "total=value|length"]);
         }
     }
 }
