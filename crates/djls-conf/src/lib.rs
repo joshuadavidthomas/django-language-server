@@ -926,7 +926,7 @@ args = [
 
                 let lib = &settings.tagspecs().libraries[0];
                 let cache = &lib.tags[0];
-                
+
                 // optional: false should convert to required: true
                 assert!(cache.end.as_ref().unwrap().required);
             }
@@ -947,10 +947,10 @@ args = [
 
                 let lib = &settings.tagspecs().libraries[0];
                 let test = &lib.tags[0];
-                
+
                 assert_eq!(test.args.len(), 1);
                 assert!(matches!(test.args[0].kind, ArgKindDef::Choice));
-                
+
                 // Verify choices are in extra metadata
                 assert!(test.args[0].extra.is_some());
                 let choices = test.args[0].extra.as_ref().unwrap().get("choices");
