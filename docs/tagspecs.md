@@ -175,7 +175,7 @@ required = false
 
 ## Migration from v0.4.0
 
-The v0.6.0 format introduces a hierarchical structure that better represents how Django organizes template tags into libraries. 
+The v0.6.0 format introduces a hierarchical structure that better represents how Django organizes template tags into libraries.
 
 The migration to the new version will follow the [breaking changes policy](./index.md#breaking-changes), with this deprecation timeline:
 
@@ -332,4 +332,3 @@ choices = ["on", "off"]
 | `"assignment"` | `"assignment"` | No change |
 | `"varargs"` | `"any"` | Use count or omit for variable-length |
 | `{ choice = [...] }` | `"choice"` | Choices moved to `extra.choices` |
-
