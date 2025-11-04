@@ -216,8 +216,8 @@ fn validate_choices_and_order(
 
                 // Consume tokens greedily until we hit a known literal
                 while bit_index < bits.len() {
-                    if let Some(ref lit) = next_literal {
-                        if bits[bit_index] == *lit {
+                    if let Some(lit) = next_literal {
+                        if bits[bit_index] == lit {
                             break; // Stop before the literal
                         }
                     }
@@ -238,6 +238,12 @@ fn validate_choices_and_order(
                 let next_literal = find_next_literal(&args[arg_index + 1..]);
 
                 while bit_index < bits.len() {
+                    if let Some(lit) = next_literal {
+                        if bits[bit_index] == lit {
+                            break;
+                        }
+                    }
+
                     let token = &bits[bit_index];
                     bit_index += 1;
 
@@ -247,16 +253,11 @@ fn validate_choices_and_order(
                     }
 
                     // If we hit "as", consume one more token (the variable name)
-                    if token == "as" && bit_index < bits.len() {
-                        bit_index += 1;
-                        break;
-                    }
-
-                    // Stop if we hit next literal
-                    if let Some(ref lit) = next_literal {
-                        if token == lit {
-                            break;
+                    if token == "as" {
+                        if bit_index < bits.len() {
+                            bit_index += 1;
                         }
+                        break;
                     }
                 }
             }
@@ -306,10 +307,10 @@ fn argument_name(arg: &TagArg) -> String {
 
 /// Find the next literal keyword in the argument list.
 /// This helps expression arguments know when to stop consuming tokens.
-fn find_next_literal(remaining_args: &[TagArg]) -> Option<String> {
+fn find_next_literal(remaining_args: &[TagArg]) -> Option<&str> {
     for arg in remaining_args {
         if let TagArg::Literal { lit, .. } = arg {
-            return Some(lit.to_string());
+            return Some(lit.as_ref());
         }
     }
     None
