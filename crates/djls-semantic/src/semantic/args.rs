@@ -324,7 +324,10 @@ mod tests {
         let required_count = args.iter().filter(|arg| arg.is_required()).count();
 
         if bits.len() < required_count {
-            errors.push(format!("Missing required arguments: expected at least {required_count}, got {}", bits.len()));
+            errors.push(format!(
+                "Missing required arguments: expected at least {required_count}, got {}",
+                bits.len()
+            ));
         }
 
         // Validate using the actual logic
@@ -342,14 +345,21 @@ mod tests {
                         if matches_literal {
                             bit_index += 1;
                         } else {
-                            errors.push(format!("Expected literal '{}', got '{}'", lit, bits[bit_index]));
+                            errors.push(format!(
+                                "Expected literal '{}', got '{}'",
+                                lit, bits[bit_index]
+                            ));
                             break;
                         }
                     } else if matches_literal {
                         bit_index += 1;
                     }
                 }
-                TagArg::Choice { name: _, required: _, choices } => {
+                TagArg::Choice {
+                    name: _,
+                    required: _,
+                    choices,
+                } => {
                     let value = &bits[bit_index];
                     if choices.iter().any(|choice| choice.as_ref() == value) {
                         bit_index += 1;
@@ -406,7 +416,10 @@ mod tests {
 
         // Check if we have leftover bits (too many arguments)
         if !has_varargs && bit_index < bits.len() {
-            errors.push(format!("Too many arguments: consumed {bit_index} tokens but got {}", bits.len()));
+            errors.push(format!(
+                "Too many arguments: consumed {bit_index} tokens but got {}",
+                bits.len()
+            ));
         }
 
         errors
@@ -428,7 +441,10 @@ mod tests {
         }];
 
         let errors = validate_args_simple(bits, args);
-        assert!(errors.is_empty(), "Should not error on expression with multiple tokens: {:?}", errors);
+        assert!(
+            errors.is_empty(),
+            "Should not error on expression with multiple tokens: {errors:?}"
+        );
     }
 
     #[test]
@@ -442,7 +458,10 @@ mod tests {
         }];
 
         let errors = validate_args_simple(bits, args);
-        assert!(errors.is_empty(), "Should not error on quoted string: {:?}", errors);
+        assert!(
+            errors.is_empty(),
+            "Should not error on quoted string: {errors:?}"
+        );
     }
 
     #[test]
@@ -474,7 +493,10 @@ mod tests {
         ];
 
         let errors = validate_args_simple(bits, args);
-        assert!(errors.is_empty(), "Should handle optional literal 'reversed': {:?}", errors);
+        assert!(
+            errors.is_empty(),
+            "Should handle optional literal 'reversed': {errors:?}"
+        );
     }
 
     #[test]
@@ -491,7 +513,10 @@ mod tests {
         }];
 
         let errors = validate_args_simple(bits, args);
-        assert!(errors.is_empty(), "Should handle complex boolean expression: {:?}", errors);
+        assert!(
+            errors.is_empty(),
+            "Should handle complex boolean expression: {errors:?}"
+        );
     }
 
     #[test]
@@ -515,7 +540,7 @@ mod tests {
         ];
 
         let errors = validate_args_simple(bits, args);
-        assert!(errors.is_empty(), "Should handle varargs: {:?}", errors);
+        assert!(errors.is_empty(), "Should handle varargs: {errors:?}");
     }
 
     #[test]
@@ -528,7 +553,10 @@ mod tests {
         }];
 
         let errors = validate_args_simple(bits, args);
-        assert!(errors.is_empty(), "Should handle assignment with filter: {:?}", errors);
+        assert!(
+            errors.is_empty(),
+            "Should handle assignment with filter: {errors:?}"
+        );
     }
 
     #[test]
@@ -541,13 +569,18 @@ mod tests {
         }];
 
         let errors = validate_args_simple(bits, args);
-        assert!(errors.is_empty(), "Should handle quoted path: {:?}", errors);
+        assert!(errors.is_empty(), "Should handle quoted path: {errors:?}");
     }
 
     #[test]
     fn test_expr_stops_at_literal() {
         // {% if condition reversed %} - "reversed" should not be consumed by expr
-        let bits = vec!["x".to_string(), ">".to_string(), "0".to_string(), "reversed".to_string()];
+        let bits = vec![
+            "x".to_string(),
+            ">".to_string(),
+            "0".to_string(),
+            "reversed".to_string(),
+        ];
         let args = vec![
             TagArg::Expr {
                 name: "condition".into(),
@@ -560,6 +593,9 @@ mod tests {
         ];
 
         let errors = validate_args_simple(bits, args);
-        assert!(errors.is_empty(), "Expr should stop before literal keyword: {:?}", errors);
+        assert!(
+            errors.is_empty(),
+            "Expr should stop before literal keyword: {errors:?}"
+        );
     }
 }

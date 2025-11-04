@@ -13,10 +13,10 @@ fn tokenize_tag_content(content: &str) -> Vec<String> {
     let mut tokens = Vec::new();
     let mut current = String::new();
     let mut in_quote: Option<char> = None;
-    let mut chars = content.chars().peekable();
+    let chars = content.chars().peekable();
     let mut escape_next = false;
 
-    while let Some(ch) = chars.next() {
+    for ch in chars {
         if escape_next {
             // Add escaped character literally
             current.push(ch);
@@ -773,7 +773,10 @@ mod tests {
         fn test_tokenize_double_quoted_string() {
             let content = "translate \"Contact the owner of the site\"";
             let tokens = tokenize_tag_content(content);
-            assert_eq!(tokens, vec!["translate", "\"Contact the owner of the site\""]);
+            assert_eq!(
+                tokens,
+                vec!["translate", "\"Contact the owner of the site\""]
+            );
         }
 
         #[test]
