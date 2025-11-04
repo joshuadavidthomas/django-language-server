@@ -20,14 +20,11 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Changed
 
-- **BREAKING (with deprecation)**: Updated TagSpecs to v0.5.0 format with hierarchical `[[tagspecs.libraries]]` structure
-  - Old v0.4.0 flat format still works with deprecation warnings in v5.2.0 and v5.2.1
-  - Old format will be **removed in v5.2.2**
-  - See migration guide: [TAGSPECS.md](crates/djls-conf/TAGSPECS.md#migration-from-v040)
+- Updated TagSpecs to v0.5.0 format with hierarchical `[[tagspecs.libraries]]` structure
 
 ### Deprecated
 
-- TagSpecs v0.4.0 flat format (will be removed in v5.2.2)
+- TagSpecs v0.4.0 flat format (will be removed in v5.2.7). See migration guide: [TAGSPECS.md](crates/djls-conf/TAGSPECS.md#migration-from-v040)
 
 ## [5.2.4]
 

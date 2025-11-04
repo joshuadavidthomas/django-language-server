@@ -1,8 +1,8 @@
-// DEPRECATION: This entire module will be removed in v5.2.2
+// DEPRECATION: This entire module will be removed in v5.2.7
 // Legacy v0.4.0 TagSpec format support with deprecation warnings
 //
 // This module provides backward compatibility for the old flat tagspec format.
-// It should be removed after two releases (v5.2.0 and v5.2.1) following the
+// It should be removed after two releases (v5.2.5 and v5.2.6) following the
 // project's deprecation policy.
 
 use serde::Deserialize;

@@ -5,7 +5,7 @@ Tag Specifications (TagSpecs) define how template tags are structured, helping t
 > **⚠️ DEPRECATED FORMAT (v0.4.0)**
 >
 > If you're using the old flat `[[tagspecs]]` format, please migrate to the new v0.5.0 hierarchical format.
-> The old format still works but will be **removed in v5.2.2**.
+> The old format still works but will be **removed in v5.2.7**.
 >
 > 👉 See [Migration from v0.4.0](#migration-from-v040) below for the migration guide.
 
@@ -384,9 +384,9 @@ choices = ["on", "off"]
 
 ### Deprecation Timeline
 
-- **v5.2.0** (current): Old format supported with deprecation warnings
-- **v5.2.1**: Old format still supported with deprecation warnings
-- **v5.2.2**: Old format **removed** - you must migrate to v0.5.0
+- **v5.2.5** (current): Old format supported with deprecation warnings
+- **v5.2.6**: Old format still supported with deprecation warnings
+- **v5.2.7**: Old format **removed** - you must migrate to v0.5.0
 
 ### Need Help?
 

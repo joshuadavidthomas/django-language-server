@@ -77,7 +77,7 @@ pub struct Settings {
     diagnostics: DiagnosticsConfig,
 }
 
-// DEPRECATION: Remove in v5.2.2
+// DEPRECATION: Remove in v5.2.7
 // Custom deserializer that supports both v0.5.0 (new) and v0.4.0 (legacy) formats
 fn deserialize_tagspecs<'de, D>(deserializer: D) -> Result<TagSpecDef, D::Error>
 where
@@ -97,7 +97,7 @@ where
     if let Ok(legacy) = Vec::<tagspecs::legacy::LegacyTagSpecDef>::deserialize(&value) {
         tracing::warn!(
             "DEPRECATED: TagSpecs v0.4.0 format detected. Please migrate to v0.5.0 format. \
-             The old format will be removed in v5.2.2. \
+             The old format will be removed in v5.2.7. \
              See migration guide: https://github.com/joshuadavidthomas/django-language-server/blob/main/crates/djls-conf/TAGSPECS.md#migration-from-v040"
         );
         return Ok(tagspecs::legacy::convert_legacy_tagspecs(legacy));
@@ -846,7 +846,7 @@ kind = "choice"
             assert!(matches!(test.args[6].kind, ArgKindDef::Choice));
         }
 
-        // DEPRECATION TESTS: Remove in v5.2.2
+        // DEPRECATION TESTS: Remove in v5.2.7
         // These tests validate that the legacy v0.4.0 format still works
         mod legacy_format {
             use super::*;
