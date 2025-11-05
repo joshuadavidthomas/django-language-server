@@ -1,6 +1,4 @@
----
-title: TagSpecs
----
+# TagSpecs
 
 Configure custom template tag specifications to extend Django Language Server's understanding of your custom template tags.
 
@@ -67,13 +65,13 @@ TagSpecs can be configured in your project's `djls.toml`, `.djls.toml`, or `pypr
 
     In `pyproject.toml`, prefix all tables with `tool.djls.` - otherwise the structure is identical.
 
-### Tag Types
+### Tag types
 
 - `"block"` - Block tag with opening and closing tags (e.g., `{% mytag %}...{% endmytag %}`)
 - `"standalone"` - Single tag with no closing tag (e.g., `{% mytag %}`)
 - `"loader"` - Loader tag that may optionally behave as block (e.g., `{% extends %}`)
 
-### Argument Kinds
+### Argument kinds
 
 The `kind` field defines the semantic role of an argument:
 
@@ -85,12 +83,13 @@ The `kind` field defines the semantic role of an argument:
 - `"modifier"` - Boolean modifier flag
 - `"choice"` - Choice from specific literals (requires `extra.choices`)
 
-## Common Patterns
+## Examples
 
 !!! note
-    Examples below use `djls.toml` format. For `pyproject.toml`, prefix all tables with `tool.djls.`
 
-### Block Tag with Intermediates
+    All examples below use `djls.toml` format. For `pyproject.toml`, prefix all tables with `tool.djls.`
+
+### Block tag with intermediates
 
 ```toml
 [[tagspecs.libraries]]
@@ -114,7 +113,7 @@ name = "value"
 kind = "variable"
 ```
 
-### Tag with Syntax Keywords
+### Tag with syntax keywords
 
 ```toml
 [[tagspecs.libraries.tags]]
@@ -134,7 +133,7 @@ name = "varname"
 kind = "variable"
 ```
 
-### Tag with Choice Arguments
+### Tag with choice arguments
 
 ```toml
 [[tagspecs.libraries.tags]]
@@ -156,7 +155,7 @@ kind = "choice"
 choices = ["public", "private"]
 ```
 
-### Standalone Tag
+### Standalone tag
 
 ```toml
 [[tagspecs.libraries.tags]]
@@ -177,7 +176,7 @@ required = false
 
 The v0.6.0 format introduces a hierarchical structure that better represents how Django organizes template tags into libraries.
 
-The migration to the new version will follow the [breaking changes policy](./index.md#breaking-changes), with this deprecation timeline:
+The migration to the new version will follow the [breaking changes policy](../versioning.md#breaking-changes), with this deprecation timeline:
 
 - **v5.2.5** (current): Old format supported with deprecation warnings
 - **v5.2.6**: Old format still supported with deprecation warnings
@@ -207,9 +206,22 @@ Here are the key changes:
 
 If you encounter issues during migration, please [open an issue](https://github.com/joshuadavidthomas/django-language-server/issues) with your tagspec configuration.
 
-### Migration Examples
+### Argument type mapping
 
-#### Example 1: Simple Block Tag
+
+| Old `type` | New `kind` | Notes |
+|------------|------------|-------|
+| `"literal"` | `"literal"` or `"syntax"` | Use `"syntax"` for mandatory tokens like `"in"`, `"as"` |
+| `"variable"` | `"variable"` | No change |
+| `"string"` | `"variable"` | Strings are just variables in v0.6.0 |
+| `"expression"` | `"any"` | Renamed for clarity |
+| `"assignment"` | `"assignment"` | No change |
+| `"varargs"` | `"any"` | Use count or omit for variable-length |
+| `{ choice = [...] }` | `"choice"` | Choices moved to `extra.choices` |
+
+### Examples
+
+#### Simple block tag
 
 **Old format (v0.4.0) - DEPRECATED:**
 ```toml
@@ -243,7 +255,7 @@ name = "name"
 kind = "variable"
 ```
 
-#### Example 2: Multiple Tags from Same Module
+#### Multiple tags from same module
 
 **Old format (v0.4.0) - DEPRECATED:**
 ```toml
@@ -283,7 +295,7 @@ name = "arg2"
 kind = "literal"
 ```
 
-#### Example 3: Choice Arguments
+#### Choice arguments
 
 **Old format (v0.4.0) - DEPRECATED:**
 ```toml
@@ -318,17 +330,3 @@ kind = "choice"
 [tagspecs.libraries.tags.args.extra]
 choices = ["on", "off"]
 ```
-
-#### Example 4: Argument Type Mapping
-
-**Old argument types → New argument kinds:**
-
-| Old `type` | New `kind` | Notes |
-|------------|------------|-------|
-| `"literal"` | `"literal"` or `"syntax"` | Use `"syntax"` for mandatory tokens like `"in"`, `"as"` |
-| `"variable"` | `"variable"` | No change |
-| `"string"` | `"variable"` | Strings are just variables in v0.6.0 |
-| `"expression"` | `"any"` | Renamed for clarity |
-| `"assignment"` | `"assignment"` | No change |
-| `"varargs"` | `"any"` | Use count or omit for variable-length |
-| `{ choice = [...] }` | `"choice"` | Choices moved to `extra.choices` |

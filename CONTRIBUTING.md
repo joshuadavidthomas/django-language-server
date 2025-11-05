@@ -10,6 +10,19 @@ We adhere to Django's Code of Conduct in all interactions and expect all contrib
 
 ## Development
 
+The project is written in Rust with IPC for Python communication. Here is a high-level overview of the project and the various crates:
+
+- CLI entrypoint ([`crates/djls/`](./crates/djls/))
+- Configuration management ([`crates/djls-conf/`](./crates/djls-conf/))
+- Django and Python project introspection ([`crates/djls-project/`](./crates/djls-project/))
+- LSP server implementation ([`crates/djls-server/`](./crates/djls-server/))
+- Template parsing ([`crates/djls-templates/`](./crates/djls-templates/))
+- Workspace and document management ([`crates/djls-workspace/`](./crates/djls-workspace/))
+
+Code contributions are welcome from developers of all backgrounds. Rust expertise is valuable for the LSP server and core components, but Python and Django developers should not be deterred by the Rust codebase - Django expertise is just as valuable. Understanding Django's internals and common development patterns helps inform what features would be most valuable.
+
+So far it's all been built by a [a simple country CRUD web developer](https://youtu.be/7ij_1SQqbVo?si=hwwPyBjmaOGnvPPI&t=53) learning Rust along the way - send help!
+
 ### Version Updates
 
 #### Python
@@ -27,59 +40,59 @@ The project uses [`noxfile.py`](noxfile.py) as the single source of truth for su
 
 1. Update [`noxfile.py`](noxfile.py), adding or removing version constants as needed and updating the `PY_VERSIONS` list accordingly.
 
-   For example, given the following versions:
+    For example, given the following versions:
 
-   ```python
-   PY39 = "3.9"
-   PY310 = "3.10"
-   PY311 = "3.11"
-   PY312 = "3.12"
-   PY313 = "3.13"
-   PY_VERSIONS = [PY39, PY310, PY311, PY312, PY313]
-   ```
+    ```python
+    PY39 = "3.9"
+    PY310 = "3.10"
+    PY311 = "3.11"
+    PY312 = "3.12"
+    PY313 = "3.13"
+    PY_VERSIONS = [PY39, PY310, PY311, PY312, PY313]
+    ```
 
-   To add Python 3.14 and remove Python 3.9, the final list will be:
+    To add Python 3.14 and remove Python 3.9, the final list will be:
 
-   ```python
-   PY310 = "3.10"
-   PY311 = "3.11"
-   PY312 = "3.12"
-   PY313 = "3.13"
-   PY314 = "3.14"
-   PY_VERSIONS = [PY310, PY311, PY312, PY313, PY314]
-   ```
+    ```python
+    PY310 = "3.10"
+    PY311 = "3.11"
+    PY312 = "3.12"
+    PY313 = "3.13"
+    PY314 = "3.14"
+    PY_VERSIONS = [PY310, PY311, PY312, PY313, PY314]
+    ```
 
 2. Regenerate auto-generated content:
 
-   ```bash
-   just cog
-   ```
+    ```bash
+    just cog
+    ```
 
-   This updates:
+    This updates:
 
-   - The `requires-python` field in [`pyproject.toml`](pyproject.toml)
-   - Python version trove classifiers in [`pyproject.toml`](pyproject.toml)
-   - Supported versions list in [`README.md`](README.md)
+    - The `requires-python` field in [`pyproject.toml`](pyproject.toml)
+    - Python version trove classifiers in [`pyproject.toml`](pyproject.toml)
+    - Supported versions list in [`README.md`](README.md)
 
 3. Update the lock file:
 
-   ```bash
-   uv lock
-   ```
+    ```bash
+    uv lock
+    ```
 
 4. Test the changes:
 
-   ```bash
-   just testall
-   ```
+    ```bash
+    just testall
+    ```
 
-   Use `just testall` rather than `just test` to ensure all Python versions are tested. The `just test` command only runs against the default versions (the oldest supported Python and Django LTS) and won't catch issues with newly added versions.
+    Use `just testall` rather than `just test` to ensure all Python versions are tested. The `just test` command only runs against the default versions (the oldest supported Python and Django LTS) and won't catch issues with newly added versions.
 
-   If you want, you can also test only a specific Python version across all Django versions by `nox` directly:
+    Alternatively, you can test only a specific Python version across all Django versions by `nox` directly:
 
-   ```bash
-   nox --python 3.14 --session tests
-   ```
+    ```bash
+    nox --python 3.14 --session tests
+    ```
 
 5. Update [`CHANGELOG.md`](CHANGELOG.md), adding entries for any versions added or removed.
 

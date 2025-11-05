@@ -1,25 +1,17 @@
----
-title: Sublime Text
----
-
 # Sublime Text
 
 ## Requirements
 
-> [!NOTE]
-> Requires Sublime Text 4 (build 4132 or later). The LSP package does not support Sublime Text 3.
-
-Before configuring Django Language Server, you need:
-
-1. [Package Control](https://packagecontrol.io/installation)
-2. The [LSP](https://github.com/sublimelsp/LSP/) client package (install via Package Control)
-3. Django template syntax support - install [Djaneiro](https://github.com/squ1b3r/Djaneiro) via Package Control to get the `text.html.django` filetype (other Django syntax packages like [Django Syntax](https://packagecontrol.io/packages/Django%20Syntax) also work, but may require adjusting the `selector` value)
+- Sublime Text 4 build 4132+
+- [Package Control](https://packagecontrol.io/installation)
+- The [LSP](https://github.com/sublimelsp/LSP/) client package (install via Package Control)
+- Django template syntax support - install [Djaneiro](https://github.com/squ1b3r/Djaneiro) via Package Control to get the `text.html.django` filetype (other Django syntax packages like [Django Syntax](https://packagecontrol.io/packages/Django%20Syntax) also work, but may require adjusting the `selector` value)
 
 ## Configuration
 
 To use Django Language Server with Sublime Text, you'll need to configure two things: the LSP client settings to enable and run the server, and your Python environment and Django project settings so the server can introspect your project.
 
-### LSP Client Settings
+### LSP client
 
 Add the following to your LSP settings (`Preferences > Package Settings > LSP > Settings`):
 
@@ -47,7 +39,7 @@ Replace `/path/to/djls` with the actual path to your `djls` installation:
 > [!NOTE]
 > GUI applications on Linux and macOS don't inherit your shell's PATH, so using the full path ensures Sublime Text can find `djls`. If you encounter issues, see the [LSP documentation on PATH configuration](https://lsp.sublimetext.io/troubleshooting/#updating-the-path-used-by-lsp-servers).
 
-### Python/Django Settings
+### Python/Django
 
 The language server requires two settings to provide full functionality:
 
@@ -58,9 +50,9 @@ Without these, the language server can't introspect your Django project and will
 
 However, **Sublime Text launches language servers as subprocesses that don't inherit your terminal's environment**, so you must explicitly configure at least `django_settings_module`, and likely `venv_path` as well unless your venv uses a standard name.
 
-#### Configuration Methods
+#### Configuration methods
 
-##### Tool specific file (Recommended)
+##### Tool specific file
 
 Add a `[tool.djls]` section to your `pyproject.toml`:
 

@@ -42,3 +42,11 @@
   -webkit-mask-image: var(--magiclink-github-icon);
   mask-image: var(--magiclink-github-icon);
 }
+
+.md-copyright__disclaimer {
+  margin-bottom: 1em;
+}
+
+.md-copyright__disclaimer p {
+  margin: 0;
+}

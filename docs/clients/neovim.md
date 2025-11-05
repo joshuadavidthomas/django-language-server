@@ -1,7 +1,3 @@
----
-title: Neovim
----
-
 # Neovim
 
 ## Requirements
@@ -11,7 +7,19 @@ title: Neovim
 
 ## Configuration
 
-The server can be configured using Neovim's built-in [`vim.lsp.config()`](https://neovim.io/doc/user/lsp.html#lsp-config).
+### With nvim-lspconfig
+
+If you have [nvim-lspconfig](https://github.com/neovim/nvim-lspconfig) installed, the `djls` configuration is provided automatically. Simply enable it in your `init.lua`:
+
+```lua
+vim.lsp.enable('djls')
+```
+
+That's it! Neovim will use the configuration from nvim-lspconfig's `lsp/djls.lua`.
+
+### Without nvim-lspconfig
+
+If you don't use nvim-lspconfig, you can configure the server manually using Neovim's built-in [`vim.lsp.config()`](https://neovim.io/doc/user/lsp.html#lsp-config).
 
 You can define the configuration inline in your `init.lua`:
 
@@ -44,7 +52,7 @@ Then just enable it in your `init.lua`:
 vim.lsp.enable('djls')
 ```
 
-### Django Settings
+### Django settings
 
 For Django project settings and other server options, see [Configuration](../configuration.md).
 
@@ -60,7 +68,7 @@ vim.lsp.config('djls', {
 })
 ```
 
-### File Type Detection
+### File type detection
 
 Django templates need the correct filetype for LSP activation. The simplest approach is a pattern match:
 
@@ -113,10 +121,6 @@ vim.api.nvim_create_autocmd({ "BufRead", "BufNewFile" }, {
   end,
 })
 ```
-
-## Using with nvim-lspconfig
-
-[nvim-lspconfig](https://github.com/neovim/nvim-lspconfig) does not currently include a `djls` configuration, but we plan to submit one. Once available, if you have nvim-lspconfig installed, it will provide the configuration automatically and you can skip defining it yourself.
 
 ## Troubleshooting
 
