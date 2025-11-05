@@ -1,7 +1,3 @@
----
-title: VS Code
----
-
 # VS Code
 
 Django Language Server can be used with [VS Code](https://code.visualstudio.com) via the [djls-vscode](https://github.com/joshuadavidthomas/djls-vscode) extension.

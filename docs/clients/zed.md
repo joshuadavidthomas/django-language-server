@@ -1,7 +1,3 @@
----
-title: Zed
----
-
 # Zed
 
 Django Language Server can be used with [Zed](https://zed.dev) via the [zed-django](https://github.com/joshuadavidthomas/zed-django) extension.

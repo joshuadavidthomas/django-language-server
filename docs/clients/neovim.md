@@ -1,7 +1,3 @@
----
-title: Neovim
----
-
 # Neovim
 
 ## Requirements

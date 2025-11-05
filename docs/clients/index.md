@@ -1,12 +1,8 @@
----
-title: Clients
----
-
 # Clients
 
 Django Language Server works with any client that supports the Language Server Protocol (LSP).
 
-### Adding a New Client
+### Adding a new client
 
 Documentation for setting up the language server in other clients is sorely needed. Any editor that has [LSP client](https://langserver.org/#:~:text=for%20more%20information.-,LSP%20clients,opensesame%2Dextension%2Dlanguage_server,-Community%20Discussion%20Forums) support should work.
 

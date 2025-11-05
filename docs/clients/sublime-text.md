@@ -1,7 +1,3 @@
----
-title: Sublime Text
----
-
 # Sublime Text
 
 ## Requirements

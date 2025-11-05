@@ -1,6 +1,4 @@
----
-title: Configuration
----
+# Configuration
 
 Django Language Server auto-detects your project configuration in most cases. It reads the `DJANGO_SETTINGS_MODULE` environment variable and searches for standard virtual environment directories (`.venv`, `venv`, `env`, `.env`).
 
