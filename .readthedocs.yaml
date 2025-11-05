@@ -11,7 +11,8 @@ build:
   commands:
     - asdf plugin add just && asdf install just latest && asdf global just latest
     - asdf plugin add uv && asdf install uv latest && asdf global uv latest
-    - just docs build $READTHEDOCS_OUTPUT/html
+    - just docs build
+    - mv $READTHEDOCS_OUTPUT/site $READTHEDOCS_OUTPUT/html
 
 mkdocs:
   configuration: .mkdocs.yml
