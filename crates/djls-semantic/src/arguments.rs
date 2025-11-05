@@ -189,51 +189,44 @@ fn validate_argument_order(
                 // Optional choice didn't match - don't consume, continue
             }
 
-            TagArg::Var { .. } | TagArg::String { .. } => {
-                // Simple arguments consume exactly one token
+            TagArg::String { .. } => {
+                // String arguments consume exactly one token
                 bit_index += 1;
             }
 
-            TagArg::Expr { .. } => {
-                // Expression arguments consume tokens greedily until:
-                // - We hit the next literal keyword (if any)
-                // - We run out of tokens
-                // Must consume at least one token
+            TagArg::Variable { count, .. } | TagArg::Any { count, .. } => {
+                match count {
+                    crate::templatetags::TokenCount::Exact(n) => {
+                        // Consume exactly N tokens
+                        bit_index += n;
+                    }
+                    crate::templatetags::TokenCount::Greedy => {
+                        // Greedy: consume tokens until next literal or end
+                        let start_index = bit_index;
+                        let next_literal = args[arg_index + 1..].find_next_literal();
 
-                let start_index = bit_index;
-                let next_literal = args[arg_index + 1..].find_next_literal();
+                        while bit_index < bits.len() {
+                            if let Some(ref lit) = next_literal {
+                                if bits[bit_index] == *lit {
+                                    break; // Stop before the literal
+                                }
+                            }
+                            bit_index += 1;
+                        }
 
-                // Consume tokens greedily until we hit a known literal
-                while bit_index < bits.len() {
-                    if let Some(ref lit) = next_literal {
-                        if bits[bit_index] == *lit {
-                            break; // Stop before the literal
+                        // Ensure we consumed at least one token
+                        if bit_index == start_index {
+                            bit_index += 1;
                         }
                     }
-                    bit_index += 1;
-                }
-
-                // Ensure we consumed at least one token for the expression
-                if bit_index == start_index {
-                    bit_index += 1;
                 }
             }
 
-            TagArg::Assignment { .. } => {
-                // Assignment arguments can appear as:
-                // 1. Single token: var=value
-                // 2. Multi-token: expr as varname
-                // Consume until we find = or "as", or hit next literal
-
-                let next_literal = args[arg_index + 1..].find_next_literal();
-
-                while bit_index < bits.len() {
-                    let token = &bits[bit_index];
-                    bit_index += 1;
-
-                    // If token contains =, we've found the assignment
-                    if token.contains('=') {
-                        break;
+            TagArg::Assignment { count, .. } => {
+                match count {
+                    crate::templatetags::TokenCount::Exact(n) => {
+                        // Consume exactly N tokens
+                        bit_index += n;
                     }
                     crate::templatetags::TokenCount::Greedy => {
                         // Assignment arguments can appear as:
@@ -241,16 +234,29 @@ fn validate_argument_order(
                         // 2. Multi-token: expr as varname
                         // Consume until we find = or "as", or hit next literal
 
-                    // If we hit "as", consume the variable name after it
-                    if token == "as" && bit_index < bits.len() {
-                        bit_index += 1; // Consume the variable name
-                        break;
-                    }
+                        let next_literal = args[arg_index + 1..].find_next_literal();
 
-                    // Stop if we hit the next literal argument
-                    if let Some(ref lit) = next_literal {
-                        if token == lit {
-                            break;
+                        while bit_index < bits.len() {
+                            let token = &bits[bit_index];
+                            bit_index += 1;
+
+                            // If token contains =, we've found the assignment
+                            if token.contains('=') {
+                                break;
+                            }
+
+                            // If we hit "as", consume the variable name after it
+                            if token == "as" && bit_index < bits.len() {
+                                bit_index += 1; // Consume the variable name
+                                break;
+                            }
+
+                            // Stop if we hit the next literal argument
+                            if let Some(ref lit) = next_literal {
+                                if token == lit {
+                                    break;
+                                }
+                            }
                         }
                     }
                 }
