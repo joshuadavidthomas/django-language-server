@@ -190,8 +190,9 @@ debug/
 
 # End of https://www.toptal.com/developers/gitignore/api/rust,python
 
-# mkdocs
+# mkdocs / zensical
 site/
+trace.json
 
 # lsp-devtools db
 djls.db

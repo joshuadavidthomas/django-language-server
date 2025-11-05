@@ -27,10 +27,10 @@ A language server for the Django web framework.
 ## Features
 
 - [x] **Completions** - Template tag autocompletion with snippets
-  ![Completions](./docs/assets/autocomplete.png)
+  ![Completions](docs/assets/autocomplete.png)
 
 - [x] **Diagnostics** - Real-time error checking and validation
-  ![Diagnostics](./docs/assets/diagnostics.png)
+  ![Diagnostics](docs/assets/diagnostics.png)
 
 - [ ] **Go to definition** - Jump to template, block, or variable definitions
 - [ ] **Find references** - See where templates and blocks are used
@@ -42,204 +42,35 @@ A language server for the Django web framework.
 - [ ] **Workspace symbols** - Search across all project templates
 - [ ] **Signature help** - Parameter hints while typing
 
-## Requirements
+## Getting Started
 
-An editor that supports the Language Server Protocol (LSP) is required.
+Set up your editor's LSP client to run the server:
 
-The Django Language Server aims to supports all actively maintained versions of Python and Django. Currently this includes:
+- [VS Code](docs/clients/vscode.md) - Install the extension from the marketplace
+- [Neovim](docs/clients/neovim.md) - Configure with `vim.lsp.config()`
+- [Sublime Text](docs/clients/sublime-text.md) - Set up with LSP package
+- [Zed](docs/clients/zed.md) - Install the extension
 
-<!-- [[[cog
-import subprocess
-import cog
+See [all client configurations](docs/clients/index.md).
 
-from noxfile import DJ_VERSIONS
-from noxfile import PY_VERSIONS
-from noxfile import display_version
-
-django_versions = [
-    display_version(version) for version in DJ_VERSIONS if version != "main"
-]
-
-cog.outl(f"- Python {', '.join(PY_VERSIONS)}")
-cog.outl(f"- Django {', '.join(django_versions)}")
-]]] -->
-- Python 3.10, 3.11, 3.12, 3.13, 3.14
-- Django 4.2, 5.1, 5.2, 6.0
-<!-- [[[end]]] -->
-
-See the [Versioning](#versioning) section for details on how this project's version indicates Django compatibility.
-
-## Installation
-
-The Django Language Server can be installed using your preferred Python package manager or as a standalone binary.
-
-To try the language server without installing using [`uvx`](https://docs.astral.sh/uv/guides/tools/#running-tools):
+Most editors can use `uvx --from django-language-server djls serve` to run the server on-demand without installing it. Alternatively, install it globally first:
 
 ```bash
-uvx --from django-language-server djls serve
-```
-
-> [!NOTE]
-> The server will automatically detect and use your project's Python environment when you open a Django project. It needs access to your project's Django installation and other dependencies, but should be able to find these regardless of where the server itself is installed.
-
-### Install with a package manager (recommended)
-
-The language server is published to PyPI with pre-built wheels for the following platforms:
-
-- **Linux**: x86_64, aarch64 (both glibc and musl)
-- **macOS**: x86_64, aarch64
-- **Windows**: x64
-- **Source distribution**: Available for other platforms
-
-Installing it adds the `djls` command-line tool to your environment.
-
-#### System-wide tool installation
-
-Install it globally in an isolated environment using `uv` or `pipx`:
-
-```bash
-# Using uv
 uv tool install django-language-server
-
-# Or using pipx
-pipx install django-language-server
+# or: pipx install django-language-server
 ```
 
-#### Install with pip
+See the [Installation](docs/installation.md) guide for more options including pip, standalone binaries, and building from source.
 
-Install from PyPI using pip:
+Once configured, open any Django template file in your project to get:
 
-```bash
-pip install django-language-server
-```
+- Template tag completions with snippets
+- Real-time syntax validation and diagnostics
+- Navigation to template definitions and references
 
-Or add as a development dependency with uv:
+## Documentation
 
-```bash
-uv add --dev django-language-server
-```
-
-### Standalone binaries
-
-Standalone binaries are available for macOS, Linux, and Windows from [GitHub Releases](https://github.com/joshuadavidthomas/django-language-server/releases).
-
-#### Linux and macOS
-
-```bash
-# Download the latest release for your platform
-# Example for Linux x64:
-curl -LO https://github.com/joshuadavidthomas/django-language-server/releases/latest/download/django-language-server-VERSION-linux-x64.tar.gz
-
-# Extract the archive
-tar -xzf django-language-server-VERSION-linux-x64.tar.gz
-
-# Move the binary to a location in your PATH
-sudo mv django-language-server-VERSION-linux-x64/djls /usr/local/bin/
-```
-
-#### Windows
-
-```powershell
-# Download the latest release for your platform
-# Example for Windows x64:
-Invoke-WebRequest -Uri "https://github.com/joshuadavidthomas/django-language-server/releases/latest/download/django-language-server-VERSION-windows-x64.zip" -OutFile "django-language-server-VERSION-windows-x64.zip"
-
-# Extract the archive
-Expand-Archive -Path "django-language-server-VERSION-windows-x64.zip" -DestinationPath .
-
-# Move the binary to a location in your PATH (requires admin)
-# Or add the directory containing djls.exe to your PATH
-Move-Item -Path "django-language-server-VERSION-windows-x64\djls.exe" -Destination "$env:LOCALAPPDATA\Programs\djls.exe"
-```
-
-### Install from source with cargo
-
-Build and install directly from source using Rust's cargo:
-
-```bash
-cargo install --git https://github.com/joshuadavidthomas/django-language-server djls --locked
-```
-
-This requires a Rust toolchain (see [rust-toolchain.toml](rust-toolchain.toml) for the required version) and will compile the language server from source.
-
-## Editor Setup
-
-The Django Language Server works with any editor that supports the Language Server Protocol (LSP). We currently have setup instructions for:
-
-- [Neovim](docs/clients/neovim.md)
-- [Sublime Text](docs/clients/sublime-text.md)
-- [VS Code](docs/clients/vscode.md)
-- [Zed](docs/clients/zed.md)
-
-Got it working in your editor? [Help us add setup instructions!](#testing-and-documenting-editor-setup)
-
-## Versioning
-
-This project adheres to DjangoVer. For a quick overview of what DjangoVer is, here's an excerpt from Django core developer James Bennett's [Introducing DjangoVer](https://www.b-list.org/weblog/2024/nov/18/djangover/) blog post:
-
-> In DjangoVer, a Django-related package has a version number of the form `DJANGO_MAJOR.DJANGO_FEATURE.PACKAGE_VERSION`, where `DJANGO_MAJOR` and `DJANGO_FEATURE` indicate the most recent feature release series of Django supported by the package, and `PACKAGE_VERSION` begins at zero and increments by one with each release of the package supporting that feature release of Django.
-
-In short, `v5.1.x` means the latest version of Django the Django Language Server would support is 5.1 — so, e.g., versions `v5.1.0`, `v5.1.1`, `v5.1.2`, etc. should all work with Django 5.1.
-
-### Breaking Changes
-
-While DjangoVer doesn't encode API stability in the version number, this project strives to follow Django's standard practice of "deprecate for two releases, then remove" policy for breaking changes. Given this is a language server, breaking changes should primarily affect:
-
-- Configuration options (settings in editor config files)
-- CLI commands and arguments
-- LSP protocol extensions (custom commands/notifications)
-
-The project will provide deprecation warnings where possible and document breaking changes clearly in release notes. For example, if a configuration option is renamed:
-
-- **`v5.1.0`**: Old option works but logs deprecation warning
-- **`v5.1.1`**: Old option still works, continues to show warning
-- **`v5.1.2`**: Old option removed, only new option works
-
-## Contributing
-
-The project needs help in several areas:
-
-### Testing and Documenting Editor Setup
-
-The server has only been tested with Neovim. Documentation for setting up the language server in other editors is sorely needed, particularly VS Code. However, any editor that has [LSP client](https://langserver.org/#:~:text=for%20more%20information.-,LSP%20clients,opensesame%2Dextension%2Dlanguage_server,-Community%20Discussion%20Forums) support should work.
-
-If you run into issues setting up the language server:
-
-1. Check the existing documentation in `docs/clients/`
-2. [Open an issue](../../issues/new) describing your setup and the problems you're encountering
-   - Include your editor and any relevant configuration
-   - Share any error messages or unexpected behavior
-   - The more details, the better!
-
-If you get it working in your editor:
-
-1. Create a new Markdown file in the `docs/clients/` directory (e.g., `docs/clients/vscode.md`)
-2. Include step-by-step setup instructions, any required configuration snippets, and tips for troubleshooting
-
-Your feedback and contributions will help make the setup process smoother for everyone! 🙌
-
-### Feature Requests
-
-The motivation behind writing the server has been to improve the experience of using Django templates. However, it doesn't need to be limited to just that part of Django. In particular, it's easy to imagine how a language server could improve the experience of using the ORM -- imagine diagnostics warning about potential N+1 queries right in your editor!
-
-After getting the basic plumbing of the server and agent in place, it's personally been hard to think of an area of the framework that *wouldn't* benefit from at least some feature of a language server.
-
-All feature requests should ideally start out as a discussion topic, to gather feedback and consensus.
-
-### Development
-
-The project is written in Rust with IPC for Python communication. Here is a high-level overview of the project and the various crates:
-
-- Main CLI interface ([`crates/djls/`](./crates/djls/))
-- Configuration management ([`crates/djls-conf/`](./crates/djls-conf/))
-- Django and Python project introspection ([`crates/djls-project/`](./crates/djls-project/))
-- LSP server implementation ([`crates/djls-server/`](./crates/djls-server/))
-- Template parsing ([`crates/djls-templates/`](./crates/djls-templates/))
-- Workspace and document management ([`crates/djls-workspace/`](./crates/djls-workspace/))
-
-Code contributions are welcome from developers of all backgrounds. Rust expertise is valuable for the LSP server and core components, but Python and Django developers should not be deterred by the Rust codebase - Django expertise is just as valuable. Understanding Django's internals and common development patterns helps inform what features would be most valuable.
-
-So far it's all been built by a [a simple country CRUD web developer](https://youtu.be/7ij_1SQqbVo?si=hwwPyBjmaOGnvPPI&t=53) learning Rust along the way - send help!
+Visit [djls.joshthomas.dev](https://djls.joshthomas.dev) for full documentation including installation guides, configuration options, and editor setup instructions.
 
 ## License
 

@@ -1,11 +1,11 @@
 # yaml-language-server: $schema=https://squidfunk.github.io/mkdocs-material/schema.json
+copyright: Copyright &copy; 2025 Josh Thomas
 extra_css:
   - stylesheets/extra.css
-hooks:
-  - docs/hooks.py
 markdown_extensions:
   - attr_list
   - admonition
+  - md_in_html
   - pymdownx.emoji:
       emoji_index: !!python/name:material.extensions.emoji.twemoji
       emoji_generator: !!python/name:material.extensions.emoji.to_svg
@@ -24,19 +24,37 @@ markdown_extensions:
       alternate_style: true
       combine_header_slug: true
   - pymdownx.tilde
-plugins:
-  - search
-  - include-markdown:
-      rewrite_relative_urls: false
+  - toc:
+      permalink: true
+nav:
+  - Home: index.md
+  - Installation: installation.md
+  - Configuration:
+      - configuration/index.md
+      - TagSpecs: configuration/tagspecs.md
+  - Clients:
+      - clients/index.md
+      - Neovim: clients/neovim.md
+      - Sublime Text: clients/sublime-text.md
+      - VS Code: clients/vscode.md
+      - Zed: clients/zed.md
+  - Versioning: versioning.md
+  - Changelog: changelog.md
+  - Contributing: contributing.md
 repo_name: django-language-server
 repo_url: https://github.com/joshuadavidthomas/django-language-server
 site_author: joshuadavidthomas
 site_name: Django Language Server
-site_url: http://joshuadavidthomas.github.io/django-language-server
+site_url: https://djls.joshthomas.dev
 theme:
+  custom_dir: docs/overrides
   features:
+    - navigation.footer
+    - navigation.indexes
     - navigation.instant
+    - navigation.instant.prefetch
     - navigation.instant.progress
+    - navigation.path
     - navigation.sections
     - navigation.tracking
     - search.highlight

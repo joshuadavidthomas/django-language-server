@@ -14,7 +14,7 @@ Install the extension from the [VS Code Marketplace](https://marketplace.visuals
 2. Search for "Django Language Server"
 3. Click "Install"
 
-The extension requires Django Language Server (`djls`) to be installed on your system. See [Installation](../index.md#installation) for setup instructions.
+The extension requires Django Language Server (`djls`) to be installed on your system. See [Installation](../installation.md) for setup instructions.
 
 ## Documentation
 

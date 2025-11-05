@@ -13,7 +13,7 @@ dev = [
 ]
 docs = [
   "mkdocs-include-markdown-plugin>=7.1.3",
-  "mkdocs-material>=9.5.49",
+  "zensical>=0.0.3",
 ]
 
 [project]

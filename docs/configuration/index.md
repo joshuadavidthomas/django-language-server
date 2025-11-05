@@ -2,13 +2,11 @@
 title: Configuration
 ---
 
-# Configuration
-
 Django Language Server auto-detects your project configuration in most cases. It reads the `DJANGO_SETTINGS_MODULE` environment variable and searches for standard virtual environment directories (`.venv`, `venv`, `env`, `.env`).
 
 **Most users don't need any configuration.** The settings below are for edge cases like non-standard virtual environment locations, editors that don't pass environment variables, or custom template tag definitions.
 
-## Configuration Options
+## Options
 
 ### `django_settings_module`
 
@@ -75,7 +73,7 @@ Map diagnostic codes or prefixes to severity levels. Supports:
 - `"warning"` - Show as warning
 - `"error"` - Show as error (default)
 
-#### Available Diagnostic Codes
+#### Available diagnostic codes
 
 **Template Errors (T-series):**
 - `T100` - Parser errors (syntax issues in templates)
@@ -165,12 +163,15 @@ S100 = "off"       # Override: S100 is off
 
 Define custom template tag specifications for tags not included in Django's built-in or popular third-party libraries.
 
-> **⚠️ DEPRECATED FORMAT**: The v0.4.0 flat `[[tagspecs]]` format is deprecated and will be removed in v5.2.7.
-> Please migrate to the [v0.6.0 hierarchical format](../crates/djls-conf/TAGSPECS.md#migration-from-v040).
+!!! warning "Deprecation Warning"
 
-See the [TagSpecs documentation](../crates/djls-conf/TAGSPECS.md) for detailed schema and examples.
+    The v0.4.0 flat `[[tagspecs]]` format is deprecated and will be removed in v5.2.7.
 
-## Configuration Methods
+    Please migrate to the [v0.6.0 hierarchical format](./tagspecs.md#migration-from-v040).
+
+See the [TagSpecs documentation](./tagspecs.md) for detailed schema and examples.
+
+## Methods
 
 When configuration is needed, the server supports multiple methods in priority order (highest to lowest):
 
@@ -179,7 +180,7 @@ When configuration is needed, the server supports multiple methods in priority o
 3. **[User File](#user-file)** - Global defaults
 4. **[Environment Variables](#environment-variables)** - Automatic fallback
 
-### LSP Client
+### LSP client
 
 Pass configuration through your editor's LSP client using `initializationOptions`. This has the highest priority and is useful for workspace-specific overrides.
 
@@ -201,7 +202,7 @@ Pass configuration through your editor's LSP client using `initializationOptions
 
 See your editor's documentation for specific instructions on passing initialization options.
 
-### Project Files
+### Project files
 
 Project configuration files are the recommended method for explicit configuration. They keep settings with your project and work consistently across editors.
 
@@ -224,7 +225,7 @@ If you prefer a dedicated config file or don't use `pyproject.toml`, you can use
 
 Files are checked in order: `djls.toml` → `.djls.toml` → `pyproject.toml`
 
-### User File
+### User file
 
 For settings that apply to all your projects, create a user-level config file at:
 
@@ -234,7 +235,7 @@ For settings that apply to all your projects, create a user-level config file at
 
 The file uses the same format as `djls.toml` shown above.
 
-### Environment Variables
+### Environment variables
 
 Django Language Server reads standard Python and Django environment variables:
 
