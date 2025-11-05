@@ -25,7 +25,7 @@ pub fn generate_snippet_from_args(args: &[TagArg]) -> String {
                 // At this point, we know it's required (optional literals were skipped above)
                 lit.to_string()
             }
-            TagArg::Var { name, .. } | TagArg::Expr { name, .. } => {
+            TagArg::Variable { name, .. } | TagArg::Any { name, .. } => {
                 // Variables and expressions become placeholders
                 let result = format!("${{{}:{}}}", placeholder_index, name.as_ref());
                 placeholder_index += 1;
@@ -125,22 +125,10 @@ mod tests {
     #[test]
     fn test_snippet_for_for_tag() {
         let args = vec![
-            TagArg::Var {
-                name: "item".into(),
-                required: true,
-            },
-            TagArg::Literal {
-                lit: "in".into(),
-                required: true,
-            },
-            TagArg::Var {
-                name: "items".into(),
-                required: true,
-            },
-            TagArg::Literal {
-                lit: "reversed".into(),
-                required: false,
-            },
+            TagArg::var("item", true),
+            TagArg::syntax("in", true),
+            TagArg::var("items", true),
+            TagArg::modifier("reversed", false),
         ];
 
         let snippet = generate_snippet_from_args(&args);
@@ -149,10 +137,7 @@ mod tests {
 
     #[test]
     fn test_snippet_for_if_tag() {
-        let args = vec![TagArg::Expr {
-            name: "condition".into(),
-            required: true,
-        }];
+        let args = vec![TagArg::expr("condition", true)];
 
         let snippet = generate_snippet_from_args(&args);
         assert_eq!(snippet, "${1:condition}");
@@ -198,17 +183,11 @@ mod tests {
             end_tag: Some(EndTag {
                 name: "endblock".into(),
                 required: true,
-                args: vec![TagArg::Var {
-                    name: "name".into(),
-                    required: false,
-                }]
+                args: vec![TagArg::var("name", false)]
                 .into(),
             }),
             intermediate_tags: Cow::Borrowed(&[]),
-            args: vec![TagArg::Var {
-                name: "name".into(),
-                required: true,
-            }]
+            args: vec![TagArg::var("name", true)]
             .into(),
         };
 
@@ -254,14 +233,8 @@ mod tests {
                 name: "args".into(),
                 required: false,
             },
-            TagArg::Literal {
-                lit: "as".into(),
-                required: false,
-            },
-            TagArg::Var {
-                name: "varname".into(),
-                required: false,
-            },
+            TagArg::syntax("as", false),
+            TagArg::var("varname", false),
         ];
 
         let snippet = generate_snippet_from_args(&args);
