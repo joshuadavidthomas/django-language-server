@@ -24,7 +24,7 @@ pub enum TokenCount {
 
 /// Semantic classification for literal arguments.
 ///
-/// All three map to TagArg::Literal but provide semantic hints
+/// All three map to `TagArg::Literal` but provide semantic hints
 /// for better diagnostics and IDE features.
 #[derive(Debug, Clone, PartialEq)]
 pub enum LiteralKind {
@@ -271,10 +271,7 @@ pub enum TagArg {
         count: TokenCount,
     },
     /// String literal argument (no direct v0.6.0 equivalent, implementation detail)
-    String {
-        name: S,
-        required: bool,
-    },
+    String { name: S, required: bool },
     /// Literal token with semantic classification (kind = "literal", "syntax", or "modifier")
     Literal {
         lit: S,
@@ -294,10 +291,7 @@ pub enum TagArg {
         count: TokenCount,
     },
     /// Consumes all remaining tokens (implementation detail)
-    VarArgs {
-        name: S,
-        required: bool,
-    },
+    VarArgs { name: S, required: bool },
     /// Choice from specific literals (kind = "choice")
     Choice {
         name: S,
@@ -341,7 +335,7 @@ impl TagArg {
         }
     }
 
-    /// Create an Any argument with greedy token consumption (replaces old expr())
+    /// Create an Any argument with greedy token consumption (replaces old `expr()`)
     pub fn expr(name: impl Into<S>, required: bool) -> Self {
         Self::Any {
             name: name.into(),
@@ -384,7 +378,7 @@ impl TagArg {
         }
     }
 
-    /// Create a Variable argument with single token consumption (replaces old var())
+    /// Create a Variable argument with single token consumption (replaces old `var()`)
     pub fn var(name: impl Into<S>, required: bool) -> Self {
         Self::Variable {
             name: name.into(),
@@ -890,7 +884,12 @@ mod tests {
         };
         let arg = TagArg::from(var_arg_def);
         assert!(matches!(arg, TagArg::Variable { .. }));
-        if let TagArg::Variable { name, required, count } = arg {
+        if let TagArg::Variable {
+            name,
+            required,
+            count,
+        } = arg
+        {
             assert_eq!(name.as_ref(), "test_arg");
             assert!(required);
             // count is None in spec, so should be Greedy
