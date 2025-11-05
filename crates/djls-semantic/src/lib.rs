@@ -24,9 +24,11 @@ use semantic::validate_block_tags;
 use semantic::validate_non_block_tags;
 pub use templatetags::django_builtin_specs;
 pub use templatetags::EndTag;
+pub use templatetags::LiteralKind;
 pub use templatetags::TagArg;
 pub use templatetags::TagSpec;
 pub use templatetags::TagSpecs;
+pub use templatetags::TokenCount;
 
 /// Validate a Django template node list and return validation errors.
 ///

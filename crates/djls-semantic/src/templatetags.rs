@@ -7,3 +7,4 @@ pub(crate) use specs::IntermediateTag;
 pub use specs::TagArg;
 pub use specs::TagSpec;
 pub use specs::TagSpecs;
+pub use specs::TokenCount;

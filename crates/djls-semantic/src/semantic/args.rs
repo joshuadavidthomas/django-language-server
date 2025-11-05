@@ -163,7 +163,8 @@ fn validate_choices_and_order(
         args_consumed = arg_index + 1;
 
         match arg {
-            TagArg::Literal { lit, required } => {
+            TagArg::Literal { lit, required, .. } => {
+                // kind field is ignored for validation - it's only for semantic hints
                 let matches_literal = bits[bit_index] == lit.as_ref();
                 if *required {
                     if matches_literal {
@@ -257,6 +258,11 @@ fn validate_choices_and_order(
                     if token.contains('=') {
                         break;
                     }
+                    crate::templatetags::TokenCount::Greedy => {
+                        // Assignment arguments can appear as:
+                        // 1. Single token: var=value
+                        // 2. Multi-token: expr as varname
+                        // Consume until we find = or "as", or hit next literal
 
                     // If we hit "as", consume one more token (the variable name)
                     if token == "as" {
@@ -449,16 +455,13 @@ mod tests {
     fn test_if_tag_with_comparison_operator() {
         // Issue #1: {% if message.input_tokens > 0 %}
         // Parser tokenizes as: ["message.input_tokens", ">", "0"]
-        // Spec expects: [Expr{name="condition"}]
+        // Spec expects: [Any{name="condition", count=Greedy}]
         let bits = vec![
             "message.input_tokens".to_string(),
             ">".to_string(),
             "0".to_string(),
         ];
-        let args = vec![TagArg::Expr {
-            name: "condition".into(),
-            required: true,
-        }];
+        let args = vec![TagArg::expr("condition", true)];
 
         let errors = check_validation_errors("if", &bits, &args);
         assert!(
@@ -494,22 +497,10 @@ mod tests {
             "reversed".to_string(),
         ];
         let args = vec![
-            TagArg::Var {
-                name: "item".into(),
-                required: true,
-            },
-            TagArg::Literal {
-                lit: "in".into(),
-                required: true,
-            },
-            TagArg::Var {
-                name: "items".into(),
-                required: true,
-            },
-            TagArg::Literal {
-                lit: "reversed".into(),
-                required: false,
-            },
+            TagArg::var("item", true),
+            TagArg::syntax("in", true),
+            TagArg::var("items", true),
+            TagArg::modifier("reversed", false),
         ];
 
         let errors = check_validation_errors("for", &bits, &args);
@@ -527,10 +518,7 @@ mod tests {
             "and".to_string(),
             "user.is_staff".to_string(),
         ];
-        let args = vec![TagArg::Expr {
-            name: "condition".into(),
-            required: true,
-        }];
+        let args = vec![TagArg::expr("condition", true)];
 
         let errors = check_validation_errors("if", &bits, &args);
         assert!(
@@ -567,10 +555,7 @@ mod tests {
     fn test_with_assignment() {
         // {% with total=items|length %}
         let bits = vec!["total=items|length".to_string()];
-        let args = vec![TagArg::Assignment {
-            name: "bindings".into(),
-            required: true,
-        }];
+        let args = vec![TagArg::assignment("bindings", true)];
 
         let errors = check_validation_errors("with", &bits, &args);
         assert!(
@@ -602,14 +587,8 @@ mod tests {
             "reversed".to_string(),
         ];
         let args = vec![
-            TagArg::Expr {
-                name: "condition".into(),
-                required: true,
-            },
-            TagArg::Literal {
-                lit: "reversed".into(),
-                required: false,
-            },
+            TagArg::expr("condition", true),
+            TagArg::modifier("reversed", false),
         ];
 
         let errors = check_validation_errors("if", &bits, &args);
@@ -769,18 +748,9 @@ mod tests {
             "library".to_string(),
         ];
         let args = vec![
-            TagArg::VarArgs {
-                name: "tags".into(),
-                required: false,
-            },
-            TagArg::Literal {
-                lit: "from".into(),
-                required: false,
-            },
-            TagArg::Var {
-                name: "library".into(),
-                required: false,
-            },
+            TagArg::varargs("tags", false),
+            TagArg::syntax("from", false),
+            TagArg::var("library", false),
         ];
 
         let errors = check_validation_errors("load", &bits, &args);
