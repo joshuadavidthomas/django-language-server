@@ -69,6 +69,16 @@ impl TagSpecs {
         None
     }
 
+    /// Get the intermediate tag spec for a given intermediate tag
+    #[must_use]
+    pub fn get_intermediate_spec(&self, tag_name: &str) -> Option<&IntermediateTag> {
+        self.0.values().find_map(|spec| {
+            spec.intermediate_tags
+                .iter()
+                .find(|it| it.name.as_ref() == tag_name)
+        })
+    }
+
     #[must_use]
     pub fn is_opener(&self, name: &str) -> bool {
         self.0
@@ -334,6 +344,27 @@ impl TagArg {
             name: name.into(),
             required,
         }
+    }
+}
+
+/// Extension methods for slices of `TagArg`.
+pub(crate) trait TagArgSliceExt {
+    /// Find the next literal keyword in the argument list.
+    ///
+    /// This helps expression and assignment arguments know when to stop consuming tokens.
+    /// For example, in `{% if expr reversed %}`, the expression should stop before "reversed".
+    fn find_next_literal(&self) -> Option<String>;
+}
+
+impl TagArgSliceExt for [TagArg] {
+    fn find_next_literal(&self) -> Option<String> {
+        self.iter().find_map(|arg| {
+            if let TagArg::Literal { lit, .. } = arg {
+                Some(lit.to_string())
+            } else {
+                None
+            }
+        })
     }
 }
 
