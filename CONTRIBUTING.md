@@ -12,7 +12,7 @@ We adhere to Django's Code of Conduct in all interactions and expect all contrib
 
 The project is written in Rust with IPC for Python communication. Here is a high-level overview of the project and the various crates:
 
-- Main CLI interface ([`crates/djls/`](./crates/djls/))
+- CLI entrypoint ([`crates/djls/`](./crates/djls/))
 - Configuration management ([`crates/djls-conf/`](./crates/djls-conf/))
 - Django and Python project introspection ([`crates/djls-project/`](./crates/djls-project/))
 - LSP server implementation ([`crates/djls-server/`](./crates/djls-server/))
@@ -88,7 +88,7 @@ The project uses [`noxfile.py`](noxfile.py) as the single source of truth for su
 
     Use `just testall` rather than `just test` to ensure all Python versions are tested. The `just test` command only runs against the default versions (the oldest supported Python and Django LTS) and won't catch issues with newly added versions.
 
-    If you want, you can also test only a specific Python version across all Django versions by `nox` directly:
+    Alternatively, you can test only a specific Python version across all Django versions by `nox` directly:
 
     ```bash
     nox --python 3.14 --session tests
