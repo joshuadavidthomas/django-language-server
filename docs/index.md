@@ -54,4 +54,3 @@ Once configured, open any Django template file in your project to get:
 - Template tag completions with snippets
 - Real-time syntax validation and diagnostics
 - Navigation to template definitions and references
-
