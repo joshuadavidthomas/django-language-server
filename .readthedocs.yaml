@@ -13,9 +13,7 @@ build:
     - asdf plugin add uv && asdf install uv latest && asdf global uv latest
     - just docs build
     - mkdir -p $READTHEDOCS_OUTPUT/html
-    - mv site $READTHEDOCS_OUTPUT/html
-    - ls -la
-    - ls -la $READTHEDOCS_OUTPUT/html
+    - mv site/* $READTHEDOCS_OUTPUT/html
 
 mkdocs:
   configuration: .mkdocs.yml
