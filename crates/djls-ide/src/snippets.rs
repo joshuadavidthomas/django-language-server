@@ -183,12 +183,10 @@ mod tests {
             end_tag: Some(EndTag {
                 name: "endblock".into(),
                 required: true,
-                args: vec![TagArg::var("name", false)]
-                .into(),
+                args: vec![TagArg::var("name", false)].into(),
             }),
             intermediate_tags: Cow::Borrowed(&[]),
-            args: vec![TagArg::var("name", true)]
-            .into(),
+            args: vec![TagArg::var("name", true)].into(),
         };
 
         let snippet = generate_snippet_for_tag_with_end("block", &spec);
