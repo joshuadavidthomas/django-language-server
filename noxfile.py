@@ -164,6 +164,27 @@ def lint(session):
 
 
 @nox.session
+@nox.parametrize("django", [DJ42, DJ51, DJ52, DJ60, DJMAIN])
+def analyze_tags(session, django):
+    """Analyze Django template tags and generate TagSpec suggestions."""
+    if django == DJMAIN:
+        session.install(
+            "django @ https://github.com/django/django/archive/refs/heads/main.zip"
+        )
+    else:
+        session.install(f"django=={django}")
+
+    session.run(
+        "python",
+        "scripts/analyze_django_tags.py",
+        "--version",
+        django,
+        "--output-dir",
+        "analysis",
+    )
+
+
+@nox.session
 def copy_bench_fixtures(session):
     django_version = (
         session.posargs[0] if session.posargs and session.posargs[0] else DJ_LTS[-1]

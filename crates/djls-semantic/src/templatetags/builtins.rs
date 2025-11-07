@@ -10,9 +10,11 @@ use rustc_hash::FxHashMap;
 
 use super::specs::EndTag;
 use super::specs::IntermediateTag;
+use super::specs::LiteralKind;
 use super::specs::TagArg;
 use super::specs::TagSpec;
 use super::specs::TagSpecs;
+use super::specs::TokenCount;
 
 const DEFAULTTAGS_MOD: &str = "django.template.defaulttags";
 static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
@@ -72,14 +74,17 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                 TagArg::Literal {
                     lit: B("as"),
                     required: false,
+                    kind: LiteralKind::Syntax,
                 },
-                TagArg::Var {
+                TagArg::Variable {
                     name: B("varname"),
                     required: false,
+                    count: TokenCount::Exact(1),
                 },
                 TagArg::Literal {
                     lit: B("silent"),
                     required: false,
+                    kind: LiteralKind::Modifier,
                 },
             ]),
         },
@@ -127,10 +132,12 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                 TagArg::Literal {
                     lit: B("as"),
                     required: false,
+                    kind: LiteralKind::Syntax,
                 },
-                TagArg::Var {
+                TagArg::Variable {
                     name: B("varname"),
                     required: false,
+                    count: TokenCount::Exact(1),
                 },
             ]),
         },
@@ -149,21 +156,25 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                 args: B(&[]),
             }]),
             args: B(&[
-                TagArg::Var {
+                TagArg::Variable {
                     name: B("item"),
                     required: true,
+                    count: TokenCount::Exact(1),
                 },
                 TagArg::Literal {
                     lit: B("in"),
                     required: true,
+                    kind: LiteralKind::Syntax,
                 },
-                TagArg::Var {
+                TagArg::Variable {
                     name: B("items"),
                     required: true,
+                    count: TokenCount::Exact(1),
                 },
                 TagArg::Literal {
                     lit: B("reversed"),
                     required: false,
+                    kind: LiteralKind::Modifier,
                 },
             ]),
         },
@@ -180,9 +191,10 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             intermediate_tags: B(&[
                 IntermediateTag {
                     name: B("elif"),
-                    args: B(&[TagArg::Expr {
+                    args: B(&[TagArg::Any {
                         name: B("condition"),
                         required: true,
+                        count: TokenCount::Greedy,
                     }]),
                 },
                 IntermediateTag {
@@ -190,9 +202,10 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                     args: B(&[]),
                 },
             ]),
-            args: B(&[TagArg::Expr {
+            args: B(&[TagArg::Any {
                 name: B("condition"),
                 required: true,
+                count: TokenCount::Greedy,
             }]),
         },
     ),
@@ -234,9 +247,10 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             end_tag: None,
             intermediate_tags: B(&[]),
             args: B(&[
-                TagArg::Var {
+                TagArg::Variable {
                     name: B("count"),
                     required: false,
+                    count: TokenCount::Exact(1),
                 },
                 TagArg::Choice {
                     name: B("method"),
@@ -246,6 +260,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                 TagArg::Literal {
                     lit: B("random"),
                     required: false,
+                    kind: LiteralKind::Literal,
                 },
             ]),
         },
@@ -264,10 +279,12 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                 TagArg::Literal {
                     lit: B("as"),
                     required: false,
+                    kind: LiteralKind::Syntax,
                 },
-                TagArg::Var {
+                TagArg::Variable {
                     name: B("varname"),
                     required: false,
+                    count: TokenCount::Exact(1),
                 },
             ]),
         },
@@ -282,25 +299,30 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             end_tag: None,
             intermediate_tags: B(&[]),
             args: B(&[
-                TagArg::Var {
+                TagArg::Variable {
                     name: B("target"),
                     required: true,
+                    count: TokenCount::Exact(1),
                 },
                 TagArg::Literal {
                     lit: B("by"),
                     required: true,
+                    kind: LiteralKind::Syntax,
                 },
-                TagArg::Var {
+                TagArg::Variable {
                     name: B("attribute"),
                     required: true,
+                    count: TokenCount::Exact(1),
                 },
                 TagArg::Literal {
                     lit: B("as"),
                     required: true,
+                    kind: LiteralKind::Syntax,
                 },
-                TagArg::Var {
+                TagArg::Variable {
                     name: B("grouped"),
                     required: true,
+                    count: TokenCount::Exact(1),
                 },
             ]),
         },
@@ -359,10 +381,12 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                 TagArg::Literal {
                     lit: B("as"),
                     required: false,
+                    kind: LiteralKind::Syntax,
                 },
-                TagArg::Var {
+                TagArg::Variable {
                     name: B("varname"),
                     required: false,
+                    count: TokenCount::Exact(1),
                 },
             ]),
         },
@@ -390,25 +414,30 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             end_tag: None,
             intermediate_tags: B(&[]),
             args: B(&[
-                TagArg::Var {
+                TagArg::Variable {
                     name: B("this_value"),
                     required: true,
+                    count: TokenCount::Exact(1),
                 },
-                TagArg::Var {
+                TagArg::Variable {
                     name: B("max_value"),
                     required: true,
+                    count: TokenCount::Exact(1),
                 },
-                TagArg::Var {
+                TagArg::Variable {
                     name: B("max_width"),
                     required: true,
+                    count: TokenCount::Exact(1),
                 },
                 TagArg::Literal {
                     lit: B("as"),
                     required: false,
+                    kind: LiteralKind::Syntax,
                 },
-                TagArg::Var {
+                TagArg::Variable {
                     name: B("varname"),
                     required: false,
+                    count: TokenCount::Exact(1),
                 },
             ]),
         },
@@ -440,15 +469,17 @@ static LOADER_TAGS_PAIRS: &[(&str, &TagSpec)] = &[
             end_tag: Some(EndTag {
                 name: B("endblock"),
                 required: true,
-                args: B(&[TagArg::Var {
+                args: B(&[TagArg::Variable {
                     name: B("name"),
                     required: false,
+                    count: TokenCount::Exact(1),
                 }]),
             }),
             intermediate_tags: B(&[]),
-            args: B(&[TagArg::Var {
+            args: B(&[TagArg::Variable {
                 name: B("name"),
                 required: true,
+                count: TokenCount::Exact(1),
             }]),
         },
     ),
@@ -478,6 +509,7 @@ static LOADER_TAGS_PAIRS: &[(&str, &TagSpec)] = &[
                 TagArg::Literal {
                     lit: B("with"),
                     required: false,
+                    kind: LiteralKind::Syntax,
                 },
                 TagArg::VarArgs {
                     name: B("context"),
@@ -486,6 +518,7 @@ static LOADER_TAGS_PAIRS: &[(&str, &TagSpec)] = &[
                 TagArg::Literal {
                     lit: B("only"),
                     required: false,
+                    kind: LiteralKind::Modifier,
                 },
             ]),
         },
@@ -504,13 +537,15 @@ static CACHE_PAIRS: &[(&str, &TagSpec)] = &[(
         }),
         intermediate_tags: B(&[]),
         args: B(&[
-            TagArg::Var {
+            TagArg::Variable {
                 name: B("timeout"),
                 required: true,
+                count: TokenCount::Exact(1),
             },
-            TagArg::Var {
+            TagArg::Variable {
                 name: B("cache_key"),
                 required: true,
+                count: TokenCount::Exact(1),
             },
             TagArg::VarArgs {
                 name: B("variables"),
@@ -559,9 +594,10 @@ static I18N_PAIRS: &[(&str, &TagSpec)] = &[
 ];
 const BLOCKTRANS_INTERMEDIATE_TAGS: &[IntermediateTag] = &[IntermediateTag {
     name: B("plural"),
-    args: B(&[TagArg::Var {
+    args: B(&[TagArg::Variable {
         name: B("count"),
         required: false,
+        count: TokenCount::Exact(1),
     }]),
 }];
 const BLOCKTRANS_ARGS: &[TagArg] = &[
@@ -572,6 +608,7 @@ const BLOCKTRANS_ARGS: &[TagArg] = &[
     TagArg::Literal {
         lit: B("with"),
         required: false,
+        kind: LiteralKind::Syntax,
     },
     TagArg::VarArgs {
         name: B("assignments"),
@@ -580,10 +617,12 @@ const BLOCKTRANS_ARGS: &[TagArg] = &[
     TagArg::Literal {
         lit: B("asvar"),
         required: false,
+        kind: LiteralKind::Literal,
     },
-    TagArg::Var {
+    TagArg::Variable {
         name: B("varname"),
         required: false,
+        count: TokenCount::Exact(1),
     },
 ];
 const TRANS_SPEC: TagSpec = TagSpec {
@@ -602,14 +641,17 @@ const TRANS_SPEC: TagSpec = TagSpec {
         TagArg::Literal {
             lit: B("as"),
             required: false,
+            kind: LiteralKind::Syntax,
         },
-        TagArg::Var {
+        TagArg::Variable {
             name: B("varname"),
             required: false,
+            count: TokenCount::Exact(1),
         },
         TagArg::Literal {
             lit: B("noop"),
             required: false,
+            kind: LiteralKind::Literal,
         },
     ]),
 };
@@ -681,9 +723,10 @@ static TZ_PAIRS: &[(&str, &TagSpec)] = &[
                 args: B(&[]),
             }),
             intermediate_tags: B(&[]),
-            args: B(&[TagArg::Var {
+            args: B(&[TagArg::Variable {
                 name: B("timezone"),
                 required: true,
+                count: TokenCount::Exact(1),
             }]),
         },
     ),
