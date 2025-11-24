@@ -41,7 +41,7 @@ which = "8.0"
 
 # testing
 divan = { package = "codspeed-divan-compat", version = "4.0" }
-insta = { version = "1.43", features = ["yaml"] }
+insta = { version = "1.44", features = ["yaml"] }
 tempfile = "3.23"
 
 [workspace.lints.clippy]
