@@ -22,12 +22,12 @@ jobs:
   pre-commit:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@85856786d1ce8acfbcc2f13a5f3fbd6b938f9f41
+        uses: astral-sh/setup-uv@1e862dfacbd1d6d858c55d9b792c756523627244
         with:
           activate-environment: true
           enable-cache: true
@@ -54,7 +54,7 @@ jobs:
     outputs:
       rust: ${{ steps.filter.outputs.rust }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           persist-credentials: false
 
@@ -73,7 +73,7 @@ jobs:
     needs: rust-changes
     if: needs.rust-changes.outputs.rust == 'true'
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           persist-credentials: false
 
@@ -110,7 +110,7 @@ jobs:
     needs: rust-changes
     if: needs.rust-changes.outputs.rust == 'true'
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           persist-credentials: false
 
@@ -146,7 +146,7 @@ jobs:
     needs: rust-changes
     if: needs.rust-changes.outputs.rust == 'true'
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           persist-credentials: false
 
