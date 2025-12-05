@@ -15,6 +15,6 @@ repos:
       - id: no-commit-to-branch
         args: ["--branch", "main"]
   - repo: https://github.com/woodruffw/zizmor-pre-commit
-    rev: v1.16.2
+    rev: v1.18.0
     hooks:
     - id: zizmor
