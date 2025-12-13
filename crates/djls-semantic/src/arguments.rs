@@ -135,12 +135,16 @@ fn validate_argument_order(
     args: &[TagArg],
 ) {
     let mut bit_index = 0usize;
+    let mut args_processed = 0usize;
 
     // Walk through argument spec, consuming tokens as we match each argument
     for (arg_index, arg) in args.iter().enumerate() {
         if bit_index >= bits.len() {
             break; // Ran out of tokens to consume
         }
+
+        // Track that we've visited this argument
+        args_processed = arg_index + 1;
 
         match arg {
             TagArg::Literal { lit, required, .. } => {
@@ -325,7 +329,8 @@ fn validate_argument_order(
 
     // Check for missing required arguments that weren't satisfied
     // (Only matters if we consumed all tokens but didn't satisfy all required args)
-    for arg in args.iter().skip(bit_index) {
+    // Skip arguments we've already processed (args_processed), not tokens consumed (bit_index)
+    for arg in args.iter().skip(args_processed) {
         if arg.is_required() {
             ValidationErrorAccumulator(ValidationError::MissingArgument {
                 tag: tag_name.to_string(),
@@ -357,6 +362,7 @@ mod tests {
     struct TestDatabase {
         storage: salsa::Storage<Self>,
         fs: Arc<Mutex<InMemoryFileSystem>>,
+        custom_specs: Option<crate::templatetags::TagSpecs>,
     }
 
     impl TestDatabase {
@@ -364,6 +370,15 @@ mod tests {
             Self {
                 storage: salsa::Storage::default(),
                 fs: Arc::new(Mutex::new(InMemoryFileSystem::new())),
+                custom_specs: None,
+            }
+        }
+
+        fn with_custom_specs(specs: crate::templatetags::TagSpecs) -> Self {
+            Self {
+                storage: salsa::Storage::default(),
+                fs: Arc::new(Mutex::new(InMemoryFileSystem::new())),
+                custom_specs: Some(specs),
             }
         }
     }
@@ -392,7 +407,9 @@ mod tests {
     #[salsa::db]
     impl crate::Db for TestDatabase {
         fn tag_specs(&self) -> crate::templatetags::TagSpecs {
-            django_builtin_specs()
+            self.custom_specs
+                .clone()
+                .unwrap_or_else(django_builtin_specs)
         }
 
         fn tag_index(&self) -> TagIndex<'_> {
@@ -414,9 +431,17 @@ mod tests {
         bits: &[String],
         _args: &[TagArg],
     ) -> Vec<ValidationError> {
-        use djls_source::Db as SourceDb;
+        check_validation_errors_with_db(tag_name, bits, TestDatabase::new())
+    }
 
-        let db = TestDatabase::new();
+    /// Test helper: Create a temporary `NodeList` with a single tag and validate it using custom specs
+    #[allow(clippy::needless_pass_by_value)]
+    fn check_validation_errors_with_db(
+        tag_name: &str,
+        bits: &[String],
+        db: TestDatabase,
+    ) -> Vec<ValidationError> {
+        use djls_source::Db as SourceDb;
 
         // Build a minimal template content that parses to a tag
         let bits_str = bits.join(" ");
@@ -782,6 +807,84 @@ mod tests {
             matches!(errors[0], ValidationError::MissingRequiredArguments { .. }),
             "Expected MissingRequiredArguments, got: {:?}",
             errors[0]
+        );
+    }
+
+    #[test]
+    fn test_skip_bit_index_bug_with_exact_multi_token() {
+        // Regression test for CodeRabbit review comment:
+        // bug: skip(bit_index) conflates token count with argument count
+        //
+        // Scenario: A tag with Exact(2) consumes 2 tokens for the first argument,
+        // then has additional required arguments. If we provide exactly enough tokens
+        // to pass the early count check but not satisfy all positional requirements,
+        // the missing argument check should fire.
+        //
+        // Custom tag spec: customtag <pair:Exact(2)> "as" <result:required>
+        // Input bits: ["a", "b", "as"]  (3 tokens)
+        // Expected: 3 required args, 3 tokens provided → passes early count check
+        // Actual validation flow:
+        //   - arg[0] Exact(2) consumes ["a", "b"], bit_index = 2
+        //   - arg[1] "as" matches bits[2], bit_index = 3
+        //   - arg[2] "result" → bit_index(3) >= bits.len()(3), loop breaks
+        //   - Missing args check: skip(bit_index) = skip(3) skips all 3 args
+        //   - BUG: arg[2] is required but unprocessed, no error emitted
+        use std::borrow::Cow;
+
+        use rustc_hash::FxHashMap;
+
+        use crate::templatetags::EndTag;
+        use crate::templatetags::TagSpec;
+        use crate::templatetags::TagSpecs;
+        use crate::TokenCount;
+
+        // Create custom spec: customtag expects [Exact(2), "as", Variable]
+        let mut specs = FxHashMap::default();
+        specs.insert(
+            "customtag".to_string(),
+            TagSpec {
+                module: Cow::Borrowed("test.module"),
+                end_tag: Some(EndTag {
+                    name: Cow::Borrowed("endcustomtag"),
+                    required: true,
+                    args: Cow::Borrowed(&[]),
+                }),
+                intermediate_tags: Cow::Borrowed(&[]),
+                args: Cow::Owned(vec![
+                    TagArg::Variable {
+                        name: Cow::Borrowed("pair"),
+                        required: true,
+                        count: TokenCount::Exact(2),
+                    },
+                    TagArg::syntax("as", true),
+                    TagArg::var("result", true),
+                ]),
+            },
+        );
+
+        let db = TestDatabase::with_custom_specs(TagSpecs::new(specs));
+
+        // Input: 3 tokens, passes early count check (3 required args = 3 tokens)
+        // but doesn't satisfy all positional requirements
+        let bits = vec!["a".to_string(), "b".to_string(), "as".to_string()];
+
+        let errors = check_validation_errors_with_db("customtag", &bits, db);
+
+        // BUG: Currently this test will FAIL because skip(bit_index) doesn't detect
+        // the missing "result" argument
+        assert!(
+            !errors.is_empty(),
+            "Should error when required 'result' argument is missing"
+        );
+
+        // The error should be MissingArgument for "result"
+        let has_missing_result = errors.iter().any(|err| {
+            matches!(err, ValidationError::MissingArgument { argument, .. }
+                if argument == "result")
+        });
+        assert!(
+            has_missing_result,
+            "Should have MissingArgument error for 'result', got: {errors:?}"
         );
     }
 }
