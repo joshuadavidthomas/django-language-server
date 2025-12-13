@@ -3,7 +3,7 @@ use djls_source::PositionEncoding;
 use rustc_hash::FxHashMap;
 use serde::Deserialize;
 use serde_json::Value;
-use tower_lsp_server::lsp_types;
+use tower_lsp_server::ls_types;
 
 use crate::ext::ClientInfoExt;
 use crate::ext::PositionEncodingKindExt;
@@ -19,8 +19,8 @@ pub struct ClientInfo {
 impl ClientInfo {
     #[must_use]
     pub fn new(
-        capabilities: &lsp_types::ClientCapabilities,
-        client_info: Option<&lsp_types::ClientInfo>,
+        capabilities: &ls_types::ClientCapabilities,
+        client_info: Option<&ls_types::ClientInfo>,
         options: ClientOptions,
     ) -> Self {
         let client = client_info.to_client();
@@ -110,7 +110,7 @@ pub struct ClientCapabilities {
 
 impl ClientCapabilities {
     #[must_use]
-    pub fn new(capabilities: &lsp_types::ClientCapabilities) -> Self {
+    pub fn new(capabilities: &ls_types::ClientCapabilities) -> Self {
         let pull_diagnostics = capabilities
             .text_document
             .as_ref()
@@ -152,12 +152,12 @@ mod tests {
 
     #[test]
     fn test_negotiate_prefers_utf8_when_available() {
-        let capabilities = lsp_types::ClientCapabilities {
-            general: Some(lsp_types::GeneralClientCapabilities {
+        let capabilities = ls_types::ClientCapabilities {
+            general: Some(ls_types::GeneralClientCapabilities {
                 position_encodings: Some(vec![
-                    lsp_types::PositionEncodingKind::new("utf-16"),
-                    lsp_types::PositionEncodingKind::new("utf-8"),
-                    lsp_types::PositionEncodingKind::new("utf-32"),
+                    ls_types::PositionEncodingKind::new("utf-16"),
+                    ls_types::PositionEncodingKind::new("utf-8"),
+                    ls_types::PositionEncodingKind::new("utf-32"),
                 ]),
                 ..Default::default()
             }),
@@ -169,11 +169,11 @@ mod tests {
 
     #[test]
     fn test_negotiate_prefers_utf32_over_utf16() {
-        let capabilities = lsp_types::ClientCapabilities {
-            general: Some(lsp_types::GeneralClientCapabilities {
+        let capabilities = ls_types::ClientCapabilities {
+            general: Some(ls_types::GeneralClientCapabilities {
                 position_encodings: Some(vec![
-                    lsp_types::PositionEncodingKind::new("utf-16"),
-                    lsp_types::PositionEncodingKind::new("utf-32"),
+                    ls_types::PositionEncodingKind::new("utf-16"),
+                    ls_types::PositionEncodingKind::new("utf-32"),
                 ]),
                 ..Default::default()
             }),
@@ -185,11 +185,11 @@ mod tests {
 
     #[test]
     fn test_negotiate_fallback_with_unsupported_encodings() {
-        let capabilities = lsp_types::ClientCapabilities {
-            general: Some(lsp_types::GeneralClientCapabilities {
+        let capabilities = ls_types::ClientCapabilities {
+            general: Some(ls_types::GeneralClientCapabilities {
                 position_encodings: Some(vec![
-                    lsp_types::PositionEncodingKind::new("ascii"),
-                    lsp_types::PositionEncodingKind::new("utf-7"),
+                    ls_types::PositionEncodingKind::new("ascii"),
+                    ls_types::PositionEncodingKind::new("utf-7"),
                 ]),
                 ..Default::default()
             }),
@@ -201,15 +201,15 @@ mod tests {
 
     #[test]
     fn test_negotiate_fallback_with_no_capabilities() {
-        let capabilities = lsp_types::ClientCapabilities::default();
+        let capabilities = ls_types::ClientCapabilities::default();
         let client_info = ClientInfo::new(&capabilities, None, ClientOptions::default());
         assert_eq!(client_info.position_encoding(), PositionEncoding::Utf16);
     }
 
     #[test]
     fn test_negotiate_detects_sublime_client() {
-        let capabilities = lsp_types::ClientCapabilities::default();
-        let lsp_client_info = lsp_types::ClientInfo {
+        let capabilities = ls_types::ClientCapabilities::default();
+        let lsp_client_info = ls_types::ClientInfo {
             name: "Sublime Text LSP".to_string(),
             version: Some("1.0.0".to_string()),
         };
@@ -223,8 +223,8 @@ mod tests {
 
     #[test]
     fn test_negotiate_defaults_to_default_client() {
-        let capabilities = lsp_types::ClientCapabilities::default();
-        let lsp_client_info = lsp_types::ClientInfo {
+        let capabilities = ls_types::ClientCapabilities::default();
+        let lsp_client_info = ls_types::ClientInfo {
             name: "Other Client".to_string(),
             version: None,
         };
@@ -238,8 +238,8 @@ mod tests {
 
     #[test]
     fn test_map_language_id_sublime_html_to_template() {
-        let capabilities = lsp_types::ClientCapabilities::default();
-        let lsp_client_info = lsp_types::ClientInfo {
+        let capabilities = ls_types::ClientCapabilities::default();
+        let lsp_client_info = ls_types::ClientInfo {
             name: "Sublime Text LSP".to_string(),
             version: None,
         };
@@ -248,8 +248,8 @@ mod tests {
             Some(&lsp_client_info),
             ClientOptions::default(),
         );
-        let doc = lsp_types::TextDocumentItem {
-            uri: lsp_types::Uri::from_str("file:///test.html").unwrap(),
+        let doc = ls_types::TextDocumentItem {
+            uri: ls_types::Uri::from_str("file:///test.html").unwrap(),
             language_id: "html".to_string(),
             version: 1,
             text: String::new(),
@@ -262,10 +262,10 @@ mod tests {
 
     #[test]
     fn test_map_language_id_default_html_to_other() {
-        let capabilities = lsp_types::ClientCapabilities::default();
+        let capabilities = ls_types::ClientCapabilities::default();
         let client_info = ClientInfo::new(&capabilities, None, ClientOptions::default());
-        let doc = lsp_types::TextDocumentItem {
-            uri: lsp_types::Uri::from_str("file:///test.html").unwrap(),
+        let doc = ls_types::TextDocumentItem {
+            uri: ls_types::Uri::from_str("file:///test.html").unwrap(),
             language_id: "html".to_string(),
             version: 1,
             text: String::new(),
@@ -278,10 +278,10 @@ mod tests {
 
     #[test]
     fn test_map_language_id_django_html_always_template() {
-        let capabilities = lsp_types::ClientCapabilities::default();
+        let capabilities = ls_types::ClientCapabilities::default();
         let client_info = ClientInfo::new(&capabilities, None, ClientOptions::default());
-        let doc = lsp_types::TextDocumentItem {
-            uri: lsp_types::Uri::from_str("file:///test.html").unwrap(),
+        let doc = ls_types::TextDocumentItem {
+            uri: ls_types::Uri::from_str("file:///test.html").unwrap(),
             language_id: "django-html".to_string(),
             version: 1,
             text: String::new(),
