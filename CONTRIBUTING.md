@@ -96,6 +96,81 @@ The project uses [`noxfile.py`](noxfile.py) as the single source of truth for su
 
 5. Update [`CHANGELOG.md`](CHANGELOG.md), adding entries for any versions added or removed.
 
+#### Django
+
+The project uses [`noxfile.py`](noxfile.py) as the single source of truth for supported Django versions. The `DJ_VERSIONS` list in this file controls:
+
+- **Auto-generated documentation**: [cogapp](https://nedbatchelder.com/code/cog/) reads `DJ_VERSIONS` to generate Django version classifiers in [`pyproject.toml`](pyproject.toml) and the supported versions list in [`README.md`](README.md)
+- **CI/CD test matrix**: GitHub Actions workflows call the `gha_matrix` nox session to dynamically generate the test matrix from `DJ_VERSIONS`, ensuring all supported Django versions are tested automatically
+- **Local testing**: The `tests` nox session uses `DJ_VERSIONS` to parametrize test runs across all supported Django versions
+
+> [!NOTE]
+> When possible, prefer submitting additions and removals in separate pull requests. This makes it easier to review changes and track the impact of each version update independently.
+
+**To update the list of supported Django versions:**
+
+1. Update [`noxfile.py`](noxfile.py), adding or removing version constants as needed and updating the `DJ_VERSIONS` list accordingly.
+
+    For example, given the following versions:
+
+    ```python
+    DJ42 = "4.2"
+    DJ51 = "5.1"
+    DJ52 = "5.2"
+    DJ60 = "6.0"
+    DJMAIN = "main"
+    DJ_VERSIONS = [DJ42, DJ51, DJ52, DJ60, DJMAIN]
+    ```
+
+    To add Django 6.1 and remove Django 4.2, the final list will be:
+
+    ```python
+    DJ51 = "5.1"
+    DJ52 = "5.2"
+    DJ60 = "6.0"
+    DJ61 = "6.1"
+    DJMAIN = "main"
+    DJ_VERSIONS = [DJ51, DJ52, DJ60, DJ61, DJMAIN]
+    ```
+
+2. Update any Python version constraints in the `should_skip()` function if the new Django version has specific Python requirements.
+
+3. Regenerate auto-generated content:
+
+    ```bash
+    just cog
+    ```
+
+    This updates:
+
+    - Django version trove classifiers in [`pyproject.toml`](pyproject.toml)
+    - Supported versions list in [`README.md`](README.md)
+    - Supported versions list in [`docs/installation.md`](docs/installation.md)
+
+4. Update the lock file:
+
+    ```bash
+    uv lock
+    ```
+
+5. Test the changes:
+
+    ```bash
+    just testall
+    ```
+
+    Use `just testall` rather than `just test` to ensure all Django versions are tested. The `just test` command only runs against the default versions (the oldest supported Python and Django LTS) and won't catch issues with newly added versions.
+
+    Alternatively, you can test only a specific Django version across all Python versions by using `nox` directly:
+
+    ```bash
+    nox --session "tests(django='6.1')"
+    ```
+
+6. Update [`CHANGELOG.md`](CHANGELOG.md), adding entries for any versions added or removed.
+
+7. **For major Django releases**: If adding support for a new major Django version (e.g., Django 6.0), the language server version should be bumped to match per [DjangoVer](docs/versioning.md) versioning. For example, when adding Django 6.0 support, bump the server from v5.x.x to v6.0.0.
+
 ### `Justfile`
 
 The repository includes a [`Justfile`](./Justfile) that provides all common development tasks with a consistent interface. Running `just` without arguments shows all available commands and their descriptions.
