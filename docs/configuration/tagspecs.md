@@ -178,9 +178,13 @@ The v0.6.0 format introduces a hierarchical structure that better represents how
 
 The migration to the new version will follow the [breaking changes policy](../versioning.md#breaking-changes), with this deprecation timeline:
 
-- **v5.2.5** (current): Old format supported with deprecation warnings
-- **v5.2.6**: Old format still supported with deprecation warnings
-- **v5.2.7**: Old format **removed** - you must migrate to v0.6.0
+- **v6.0.0** (current): Old format supported with deprecation warnings
+- **v6.1.0**: Old format still supported with deprecation warnings
+- **v6.2.0**: Old format **removed** - you must migrate to v0.6.0
+
+!!! info "Version Timeline Note"
+
+    The deprecation was introduced in v5.2.5 (unreleased). When Django 6.0 was officially released, the language server bumped from v5.2.4 directly to v6.0.0 per [DjangoVer versioning](../versioning.md). The two-release deprecation policy continues uninterrupted across this version boundary: v6.0.0 and v6.1.0 serve as the two warning releases before removal in v6.2.0.
 
 Here are the key changes:
 

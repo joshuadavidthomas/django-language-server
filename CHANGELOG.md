@@ -24,7 +24,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Deprecated
 
-- TagSpecs v0.4.0 flat format (will be removed in v5.2.7), [migration guide here](docs/tagspecs.md#migration-from-v040)
+- TagSpecs v0.4.0 flat format (will be removed in v6.2.0), [migration guide here](docs/tagspecs.md#migration-from-v040)
 
 ### Fixed
 

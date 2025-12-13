@@ -163,7 +163,7 @@ Define custom template tag specifications for tags not included in Django's buil
 
 !!! warning "Deprecation Warning"
 
-    The v0.4.0 flat `[[tagspecs]]` format is deprecated and will be removed in v5.2.7.
+    The v0.4.0 flat `[[tagspecs]]` format is deprecated and will be removed in v6.2.0.
 
     Please migrate to the [v0.6.0 hierarchical format](./tagspecs.md#migration-from-v040).
 

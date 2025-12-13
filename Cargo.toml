@@ -49,8 +49,8 @@ pedantic = { level = "warn", priority = -1 }
 missing_errors_doc = "allow"
 
 [workspace.lints.rust]
-# Allow deprecated warnings for legacy tagspecs (remove in v5.2.7)
-# NOTE: To see all deprecation warnings when removing legacy code in v5.2.7,
+# Allow deprecated warnings for legacy tagspecs (remove in v6.2.0)
+# NOTE: To see all deprecation warnings when removing legacy code in v6.2.0,
 #       temporarily delete this `deprecated = "allow"` line
 deprecated = "allow"
 
