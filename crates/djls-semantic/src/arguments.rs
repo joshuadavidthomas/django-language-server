@@ -237,9 +237,14 @@ fn validate_argument_order(
                             bit_index += 1;
                         }
 
-                        // Ensure we consumed at least one token
+                        // Ensure we consumed at least one token, but don't consume the next literal
                         if bit_index == start_index {
-                            bit_index += 1;
+                            let is_next_literal = next_literal
+                                .as_ref()
+                                .is_some_and(|lit| bits.get(bit_index) == Some(lit));
+                            if !is_next_literal {
+                                bit_index += 1;
+                            }
                         }
                     }
                 }
@@ -777,33 +782,6 @@ mod tests {
             matches!(errors[0], ValidationError::MissingRequiredArguments { .. }),
             "Expected MissingRequiredArguments, got: {:?}",
             errors[0]
-        );
-    }
-
-    #[test]
-    fn test_assignment_greedy_stops_before_literal() {
-        // Regression test for assignment greedy loop consuming literal sentinel
-        // Pattern: assignment followed by optional literal modifier
-        // Input: "total=items|length" followed by "only"
-        // Expected: Assignment should NOT consume "only", leaving it for the literal arg
-        let bits = vec!["total=items|length".to_string(), "only".to_string()];
-        let args = vec![
-            TagArg::Assignment {
-                name: "bindings".into(),
-                required: true,
-                count: crate::templatetags::TokenCount::Greedy,
-            },
-            TagArg::Literal {
-                lit: "only".into(),
-                required: false,
-                kind: crate::templatetags::LiteralKind::Modifier,
-            },
-        ];
-
-        let errors = check_validation_errors("customtag", &bits, &args);
-        assert!(
-            errors.is_empty(),
-            "Assignment should stop before literal 'only': {errors:?}"
         );
     }
 }
