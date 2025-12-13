@@ -595,11 +595,7 @@ mod tests {
     fn test_with_multiple_greedy_assignments() {
         // {% with a=1 b=2 c=3 %}
         // Tests that Assignment::Greedy consumes multiple assignment tokens
-        let bits = vec![
-            "a=1".to_string(),
-            "b=2".to_string(),
-            "c=3".to_string(),
-        ];
+        let bits = vec!["a=1".to_string(), "b=2".to_string(), "c=3".to_string()];
         let args = vec![TagArg::assignment("bindings", true)];
 
         let errors = check_validation_errors("with", &bits, &args);
