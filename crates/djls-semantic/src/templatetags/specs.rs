@@ -10,6 +10,32 @@ use rustc_hash::FxHashMap;
 pub type S<T = str> = Cow<'static, T>;
 pub type L<T> = Cow<'static, [T]>;
 
+/// Token consumption strategy for tag arguments.
+///
+/// This separates "how many tokens" from "what the tokens mean",
+/// allowing v0.6.0 spec semantics to be properly represented.
+#[derive(Debug, Clone, PartialEq)]
+pub enum TokenCount {
+    /// Exactly N tokens (count = N in spec)
+    Exact(usize),
+    /// Variable/greedy consumption until next literal or end (count = null in spec)
+    Greedy,
+}
+
+/// Semantic classification for literal arguments.
+///
+/// All three map to `TagArg::Literal` but provide semantic hints
+/// for better diagnostics and IDE features.
+#[derive(Debug, Clone, PartialEq)]
+pub enum LiteralKind {
+    /// Plain literal token (kind = "literal" in spec)
+    Literal,
+    /// Mandatory syntactic token like "in", "as" (kind = "syntax" in spec)
+    Syntax,
+    /// Boolean modifier like "reversed", "silent" (kind = "modifier" in spec)
+    Modifier,
+}
+
 #[allow(dead_code)]
 pub enum TagType {
     Opener,
@@ -238,30 +264,35 @@ impl From<(djls_conf::TagDef, String)> for TagSpec {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TagArg {
-    Var {
+    /// Template variable or filter expression (kind = "variable")
+    Variable {
         name: S,
         required: bool,
+        count: TokenCount,
     },
-    String {
-        name: S,
-        required: bool,
-    },
+    /// String literal argument (no direct v0.6.0 equivalent, implementation detail)
+    String { name: S, required: bool },
+    /// Literal token with semantic classification (kind = "literal", "syntax", or "modifier")
     Literal {
         lit: S,
         required: bool,
+        kind: LiteralKind,
     },
-    Expr {
+    /// Any template expression or literal (kind = "any")
+    Any {
         name: S,
         required: bool,
+        count: TokenCount,
     },
+    /// Variable assignment (kind = "assignment")
     Assignment {
         name: S,
         required: bool,
+        count: TokenCount,
     },
-    VarArgs {
-        name: S,
-        required: bool,
-    },
+    /// Consumes all remaining tokens (implementation detail)
+    VarArgs { name: S, required: bool },
+    /// Choice from specific literals (kind = "choice")
     Choice {
         name: S,
         required: bool,
@@ -273,9 +304,9 @@ impl TagArg {
     #[must_use]
     pub fn name(&self) -> &S {
         match self {
-            Self::Var { name, .. }
+            Self::Variable { name, .. }
             | Self::String { name, .. }
-            | Self::Expr { name, .. }
+            | Self::Any { name, .. }
             | Self::Assignment { name, .. }
             | Self::VarArgs { name, .. }
             | Self::Choice { name, .. } => name,
@@ -286,10 +317,10 @@ impl TagArg {
     #[must_use]
     pub fn is_required(&self) -> bool {
         match self {
-            Self::Var { required, .. }
+            Self::Variable { required, .. }
             | Self::String { required, .. }
             | Self::Literal { required, .. }
-            | Self::Expr { required, .. }
+            | Self::Any { required, .. }
             | Self::Assignment { required, .. }
             | Self::VarArgs { required, .. }
             | Self::Choice { required, .. } => *required,
@@ -304,17 +335,39 @@ impl TagArg {
         }
     }
 
+    /// Create an Any argument with greedy token consumption (replaces old `expr()`)
     pub fn expr(name: impl Into<S>, required: bool) -> Self {
-        Self::Expr {
+        Self::Any {
             name: name.into(),
             required,
+            count: TokenCount::Greedy,
         }
     }
 
+    /// Create a literal with Literal kind (plain literal)
     pub fn literal(lit: impl Into<S>, required: bool) -> Self {
         Self::Literal {
             lit: lit.into(),
             required,
+            kind: LiteralKind::Literal,
+        }
+    }
+
+    /// Create a literal with Syntax kind (keywords like "in", "as")
+    pub fn syntax(lit: impl Into<S>, required: bool) -> Self {
+        Self::Literal {
+            lit: lit.into(),
+            required,
+            kind: LiteralKind::Syntax,
+        }
+    }
+
+    /// Create a literal with Modifier kind (modifiers like "reversed")
+    pub fn modifier(lit: impl Into<S>, required: bool) -> Self {
+        Self::Literal {
+            lit: lit.into(),
+            required,
+            kind: LiteralKind::Modifier,
         }
     }
 
@@ -325,10 +378,21 @@ impl TagArg {
         }
     }
 
+    /// Create a Variable argument with single token consumption (replaces old `var()`)
     pub fn var(name: impl Into<S>, required: bool) -> Self {
-        Self::Var {
+        Self::Variable {
             name: name.into(),
             required,
+            count: TokenCount::Exact(1),
+        }
+    }
+
+    /// Create a Variable argument with greedy token consumption
+    pub fn var_greedy(name: impl Into<S>, required: bool) -> Self {
+        Self::Variable {
+            name: name.into(),
+            required,
+            count: TokenCount::Greedy,
         }
     }
 
@@ -339,10 +403,12 @@ impl TagArg {
         }
     }
 
+    /// Create an Assignment argument with greedy token consumption
     pub fn assignment(name: impl Into<S>, required: bool) -> Self {
         Self::Assignment {
             name: name.into(),
             required,
+            count: TokenCount::Greedy,
         }
     }
 }
@@ -370,24 +436,42 @@ impl TagArgSliceExt for [TagArg] {
 
 impl From<djls_conf::TagArgDef> for TagArg {
     fn from(value: djls_conf::TagArgDef) -> Self {
+        // Convert count: Option<usize> to TokenCount
+        let token_count = match value.count {
+            Some(n) => TokenCount::Exact(n),
+            None => TokenCount::Greedy,
+        };
+
         match value.kind {
-            djls_conf::ArgKindDef::Literal
-            | djls_conf::ArgKindDef::Syntax
-            | djls_conf::ArgKindDef::Modifier => TagArg::Literal {
+            djls_conf::ArgKindDef::Literal => TagArg::Literal {
                 lit: value.name.into(),
                 required: value.required,
+                kind: LiteralKind::Literal,
             },
-            djls_conf::ArgKindDef::Variable => TagArg::Var {
+            djls_conf::ArgKindDef::Syntax => TagArg::Literal {
+                lit: value.name.into(),
+                required: value.required,
+                kind: LiteralKind::Syntax,
+            },
+            djls_conf::ArgKindDef::Modifier => TagArg::Literal {
+                lit: value.name.into(),
+                required: value.required,
+                kind: LiteralKind::Modifier,
+            },
+            djls_conf::ArgKindDef::Variable => TagArg::Variable {
                 name: value.name.into(),
                 required: value.required,
+                count: token_count,
             },
-            djls_conf::ArgKindDef::Any => TagArg::Expr {
+            djls_conf::ArgKindDef::Any => TagArg::Any {
                 name: value.name.into(),
                 required: value.required,
+                count: token_count,
             },
             djls_conf::ArgKindDef::Assignment => TagArg::Assignment {
                 name: value.name.into(),
                 required: value.required,
+                count: token_count,
             },
             djls_conf::ArgKindDef::Choice => {
                 // Extract choices from extra metadata
@@ -534,9 +618,10 @@ mod tests {
                 end_tag: Some(EndTag {
                     name: "endblock".into(),
                     required: true,
-                    args: Cow::Owned(vec![TagArg::Var {
+                    args: Cow::Owned(vec![TagArg::Variable {
                         name: "name".into(),
                         required: false,
+                        count: TokenCount::Exact(1),
                     }]),
                 }),
                 intermediate_tags: Cow::Borrowed(&[]),
@@ -798,10 +883,17 @@ mod tests {
             extra: None,
         };
         let arg = TagArg::from(var_arg_def);
-        assert!(matches!(arg, TagArg::Var { .. }));
-        if let TagArg::Var { name, required } = arg {
+        assert!(matches!(arg, TagArg::Variable { .. }));
+        if let TagArg::Variable {
+            name,
+            required,
+            count,
+        } = arg
+        {
             assert_eq!(name.as_ref(), "test_arg");
             assert!(required);
+            // count is None in spec, so should be Greedy
+            assert_eq!(count, TokenCount::Greedy);
         }
 
         // Test choice argument with extra metadata
