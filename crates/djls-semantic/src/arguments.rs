@@ -143,12 +143,10 @@ fn validate_argument_order(
             break; // Ran out of tokens to consume
         }
 
-        // Track that we've visited this argument
         args_processed = arg_index + 1;
 
         match arg {
             TagArg::Literal { lit, required, .. } => {
-                // kind field is ignored for validation - it's only for semantic hints
                 let matches_literal = bits[bit_index] == lit.as_ref();
                 if *required {
                     if matches_literal {
@@ -241,7 +239,7 @@ fn validate_argument_order(
                             bit_index += 1;
                         }
 
-                        // Ensure we consumed at least one token, but don't consume the next literal
+                        // Ensure we consumed at least one token
                         if bit_index == start_index {
                             let is_next_literal = next_literal
                                 .as_ref()
@@ -279,14 +277,9 @@ fn validate_argument_order(
                         bit_index += n;
                     }
                     crate::templatetags::TokenCount::Greedy => {
-                        // Assignment arguments handle var=value patterns
-                        // For "expr as varname" patterns, model "as" as a separate syntax argument
-                        // Consume multiple assignment tokens until we hit next literal or non-assignment token
-
                         let next_literal = args[arg_index + 1..].find_next_literal();
 
                         while bit_index < bits.len() {
-                            // Check for next literal sentinel BEFORE consuming
                             if let Some(ref lit) = next_literal {
                                 if bits[bit_index] == *lit {
                                     break;
@@ -295,12 +288,9 @@ fn validate_argument_order(
 
                             let token = &bits[bit_index];
 
-                            // Assignment tokens must contain '='; others terminate consumption
                             if token.contains('=') {
                                 bit_index += 1;
-                                // Continue to consume more assignment tokens
                             } else {
-                                // Non-assignment token terminates greedy consumption (don't consume it)
                                 break;
                             }
                         }
@@ -330,7 +320,6 @@ fn validate_argument_order(
 
     // Check for missing required arguments that weren't satisfied
     // (Only matters if we consumed all tokens but didn't satisfy all required args)
-    // Skip arguments we've already processed (args_processed), not tokens consumed (bit_index)
     for arg in args.iter().skip(args_processed) {
         if arg.is_required() {
             ValidationErrorAccumulator(ValidationError::MissingArgument {
@@ -594,7 +583,6 @@ mod tests {
     #[test]
     fn test_with_multiple_greedy_assignments() {
         // {% with a=1 b=2 c=3 %}
-        // Tests that Assignment::Greedy consumes multiple assignment tokens
         let bits = vec!["a=1".to_string(), "b=2".to_string(), "c=3".to_string()];
         let args = vec![TagArg::assignment("bindings", true)];
 
@@ -607,10 +595,7 @@ mod tests {
 
     #[test]
     fn test_greedy_consumes_all_leaving_required_literal_unsatisfied() {
-        // Custom tag with greedy expr followed by required literal
-        // {% customcond x > 0 reversed %}
-        // Greedy expr should consume ["x", ">", "0"] until literal or end
-        // If literal "reversed" is required but missing, should error
+        // {% customcond x > 0 %} - greedy expr consumes all, missing required "reversed" literal
         use std::borrow::Cow;
 
         use rustc_hash::FxHashMap;
@@ -837,10 +822,7 @@ mod tests {
 
     #[test]
     fn test_exact_token_count_insufficient_tokens_required() {
-        // Regression test for Exact bounds check
-        // The 'for' tag requires: item (Exact(1)), "in", items (Exact(1))
-        // Input: only "item" provided - not enough tokens
-        // Expected: MissingRequiredArguments (caught by count check before positional validation)
+        // {% for item %} - missing required "in" and items arguments
         let bits = vec!["item".to_string()];
         let args = vec![
             TagArg::var("item", true),
@@ -862,10 +844,7 @@ mod tests {
 
     #[test]
     fn test_exact_token_count_does_not_overflow() {
-        // Regression test: Ensure Exact bounds check prevents bit_index overflow
-        // Previously, Exact(1) would blindly increment bit_index even with 0 tokens
-        // The 'for' tag structure tests this: if we run out of tokens mid-spec,
-        // validation should error gracefully, not overflow
+        // {% for item in %} - missing required items argument
         let bits = vec!["item".to_string(), "in".to_string()];
         let args = vec![
             TagArg::var("item", true),
@@ -888,23 +867,7 @@ mod tests {
 
     #[test]
     fn test_skip_bit_index_bug_with_exact_multi_token() {
-        // Regression test for CodeRabbit review comment:
-        // bug: skip(bit_index) conflates token count with argument count
-        //
-        // Scenario: A tag with Exact(2) consumes 2 tokens for the first argument,
-        // then has additional required arguments. If we provide exactly enough tokens
-        // to pass the early count check but not satisfy all positional requirements,
-        // the missing argument check should fire.
-        //
-        // Custom tag spec: customtag <pair:Exact(2)> "as" <result:required>
-        // Input bits: ["a", "b", "as"]  (3 tokens)
-        // Expected: 3 required args, 3 tokens provided → passes early count check
-        // Actual validation flow:
-        //   - arg[0] Exact(2) consumes ["a", "b"], bit_index = 2
-        //   - arg[1] "as" matches bits[2], bit_index = 3
-        //   - arg[2] "result" → bit_index(3) >= bits.len()(3), loop breaks
-        //   - Missing args check: skip(bit_index) = skip(3) skips all 3 args
-        //   - BUG: arg[2] is required but unprocessed, no error emitted
+        // {% customtag a b as %} - Exact(2) consumes 2 tokens, missing required "result" argument
         use std::borrow::Cow;
 
         use rustc_hash::FxHashMap;
