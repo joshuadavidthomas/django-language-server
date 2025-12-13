@@ -26,6 +26,10 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 - TagSpecs v0.4.0 flat format (will be removed in v6.2.0), [migration guide here](docs/tagspecs.md#migration-from-v040)
 
+### Removed
+
+- Removed deprecated `lazy.lua` Neovim plugin spec.
+
 ### Fixed
 
 - Fixed false positive "accepts at most N arguments" errors for expressions with operators (e.g., `{% if x > 0 %}`)
