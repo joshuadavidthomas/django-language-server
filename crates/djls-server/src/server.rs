@@ -8,7 +8,7 @@ use djls_source::FileKind;
 use djls_workspace::TextDocument;
 use tokio::sync::Mutex;
 use tower_lsp_server::jsonrpc::Result as LspResult;
-use tower_lsp_server::lsp_types;
+use tower_lsp_server::ls_types;
 use tower_lsp_server::Client;
 use tower_lsp_server::LanguageServer;
 use tracing_appender::non_blocking::WorkerGuard;
@@ -90,7 +90,7 @@ impl DjangoLanguageServer {
             return;
         }
 
-        let diagnostics: Vec<lsp_types::Diagnostic> = self
+        let diagnostics: Vec<ls_types::Diagnostic> = self
             .with_session_mut(|session| {
                 let db = session.db();
                 let file = db.get_or_create_file(&path);
@@ -99,7 +99,7 @@ impl DjangoLanguageServer {
             })
             .await;
 
-        if let Some(lsp_uri) = lsp_types::Uri::from_path(&path) {
+        if let Some(lsp_uri) = ls_types::Uri::from_path(&path) {
             self.client
                 .publish_diagnostics(lsp_uri, diagnostics.clone(), Some(document.version()))
                 .await;
@@ -112,8 +112,8 @@ impl DjangoLanguageServer {
 impl LanguageServer for DjangoLanguageServer {
     async fn initialize(
         &self,
-        params: lsp_types::InitializeParams,
-    ) -> LspResult<lsp_types::InitializeResult> {
+        params: ls_types::InitializeParams,
+    ) -> LspResult<ls_types::InitializeResult> {
         tracing::info!("Initializing server...");
 
         let session = Session::new(&params);
@@ -124,9 +124,9 @@ impl LanguageServer for DjangoLanguageServer {
             *session_lock = session;
         }
 
-        Ok(lsp_types::InitializeResult {
-            capabilities: lsp_types::ServerCapabilities {
-                completion_provider: Some(lsp_types::CompletionOptions {
+        Ok(ls_types::InitializeResult {
+            capabilities: ls_types::ServerCapabilities {
+                completion_provider: Some(ls_types::CompletionOptions {
                     resolve_provider: Some(false),
                     trigger_characters: Some(vec![
                         "{".to_string(),
@@ -135,36 +135,36 @@ impl LanguageServer for DjangoLanguageServer {
                     ]),
                     ..Default::default()
                 }),
-                workspace: Some(lsp_types::WorkspaceServerCapabilities {
-                    workspace_folders: Some(lsp_types::WorkspaceFoldersServerCapabilities {
+                workspace: Some(ls_types::WorkspaceServerCapabilities {
+                    workspace_folders: Some(ls_types::WorkspaceFoldersServerCapabilities {
                         supported: Some(true),
-                        change_notifications: Some(lsp_types::OneOf::Left(true)),
+                        change_notifications: Some(ls_types::OneOf::Left(true)),
                     }),
                     file_operations: None,
                 }),
-                text_document_sync: Some(lsp_types::TextDocumentSyncCapability::Options(
-                    lsp_types::TextDocumentSyncOptions {
+                text_document_sync: Some(ls_types::TextDocumentSyncCapability::Options(
+                    ls_types::TextDocumentSyncOptions {
                         open_close: Some(true),
-                        change: Some(lsp_types::TextDocumentSyncKind::INCREMENTAL),
+                        change: Some(ls_types::TextDocumentSyncKind::INCREMENTAL),
                         will_save: Some(false),
                         will_save_wait_until: Some(false),
-                        save: Some(lsp_types::SaveOptions::default().into()),
+                        save: Some(ls_types::SaveOptions::default().into()),
                     },
                 )),
                 position_encoding: Some(encoding.to_lsp()),
-                diagnostic_provider: Some(lsp_types::DiagnosticServerCapabilities::Options(
-                    lsp_types::DiagnosticOptions {
+                diagnostic_provider: Some(ls_types::DiagnosticServerCapabilities::Options(
+                    ls_types::DiagnosticOptions {
                         identifier: None,
                         inter_file_dependencies: false,
                         workspace_diagnostics: false,
-                        work_done_progress_options: lsp_types::WorkDoneProgressOptions::default(),
+                        work_done_progress_options: ls_types::WorkDoneProgressOptions::default(),
                     },
                 )),
-                definition_provider: Some(lsp_types::OneOf::Left(true)),
-                references_provider: Some(lsp_types::OneOf::Left(true)),
+                definition_provider: Some(ls_types::OneOf::Left(true)),
+                references_provider: Some(ls_types::OneOf::Left(true)),
                 ..Default::default()
             },
-            server_info: Some(lsp_types::ServerInfo {
+            server_info: Some(ls_types::ServerInfo {
                 name: "Django Language Server".to_string(),
                 version: Some(env!("DJLS_VERSION").to_string()),
             }),
@@ -172,7 +172,7 @@ impl LanguageServer for DjangoLanguageServer {
         })
     }
 
-    async fn initialized(&self, _params: lsp_types::InitializedParams) {
+    async fn initialized(&self, _params: ls_types::InitializedParams) {
         tracing::info!("Server received initialized notification.");
 
         self.with_session_task(move |session| async move {
@@ -194,7 +194,7 @@ impl LanguageServer for DjangoLanguageServer {
         Ok(())
     }
 
-    async fn did_open(&self, params: lsp_types::DidOpenTextDocumentParams) {
+    async fn did_open(&self, params: ls_types::DidOpenTextDocumentParams) {
         let document = self
             .with_session_mut(|session| session.open_document(&params.text_document))
             .await;
@@ -204,7 +204,7 @@ impl LanguageServer for DjangoLanguageServer {
         }
     }
 
-    async fn did_save(&self, params: lsp_types::DidSaveTextDocumentParams) {
+    async fn did_save(&self, params: ls_types::DidSaveTextDocumentParams) {
         let document = self
             .with_session_mut(|session| session.save_document(&params.text_document))
             .await;
@@ -214,7 +214,7 @@ impl LanguageServer for DjangoLanguageServer {
         }
     }
 
-    async fn did_change(&self, params: lsp_types::DidChangeTextDocumentParams) {
+    async fn did_change(&self, params: ls_types::DidChangeTextDocumentParams) {
         let document = self
             .with_session_mut(|session| {
                 session.update_document(&params.text_document, params.content_changes)
@@ -226,15 +226,15 @@ impl LanguageServer for DjangoLanguageServer {
         }
     }
 
-    async fn did_close(&self, params: lsp_types::DidCloseTextDocumentParams) {
+    async fn did_close(&self, params: ls_types::DidCloseTextDocumentParams) {
         self.with_session_mut(|session| session.close_document(&params.text_document))
             .await;
     }
 
     async fn completion(
         &self,
-        params: lsp_types::CompletionParams,
-    ) -> LspResult<Option<lsp_types::CompletionResponse>> {
+        params: ls_types::CompletionParams,
+    ) -> LspResult<Option<ls_types::CompletionResponse>> {
         let response = self
             .with_session_mut(|session| {
                 let Some(path) = params
@@ -291,7 +291,7 @@ impl LanguageServer for DjangoLanguageServer {
                 if completions.is_empty() {
                     None
                 } else {
-                    Some(lsp_types::CompletionResponse::Array(completions))
+                    Some(ls_types::CompletionResponse::Array(completions))
                 }
             })
             .await;
@@ -301,8 +301,8 @@ impl LanguageServer for DjangoLanguageServer {
 
     async fn diagnostic(
         &self,
-        params: lsp_types::DocumentDiagnosticParams,
-    ) -> LspResult<lsp_types::DocumentDiagnosticReportResult> {
+        params: ls_types::DocumentDiagnosticParams,
+    ) -> LspResult<ls_types::DocumentDiagnosticReportResult> {
         tracing::debug!(
             "Received diagnostic request for {:?}",
             params.text_document.uri
@@ -329,11 +329,11 @@ impl LanguageServer for DjangoLanguageServer {
             vec![]
         };
 
-        Ok(lsp_types::DocumentDiagnosticReportResult::Report(
-            lsp_types::DocumentDiagnosticReport::Full(
-                lsp_types::RelatedFullDocumentDiagnosticReport {
+        Ok(ls_types::DocumentDiagnosticReportResult::Report(
+            ls_types::DocumentDiagnosticReport::Full(
+                ls_types::RelatedFullDocumentDiagnosticReport {
                     related_documents: None,
-                    full_document_diagnostic_report: lsp_types::FullDocumentDiagnosticReport {
+                    full_document_diagnostic_report: ls_types::FullDocumentDiagnosticReport {
                         result_id: None,
                         items: diagnostics,
                     },
@@ -344,8 +344,8 @@ impl LanguageServer for DjangoLanguageServer {
 
     async fn goto_definition(
         &self,
-        params: lsp_types::GotoDefinitionParams,
-    ) -> LspResult<Option<lsp_types::GotoDefinitionResponse>> {
+        params: ls_types::GotoDefinitionParams,
+    ) -> LspResult<Option<ls_types::GotoDefinitionResponse>> {
         let response = self
             .with_session_mut(|session| {
                 let encoding = session.client_info().position_encoding();
@@ -370,8 +370,8 @@ impl LanguageServer for DjangoLanguageServer {
 
     async fn references(
         &self,
-        params: lsp_types::ReferenceParams,
-    ) -> LspResult<Option<Vec<lsp_types::Location>>> {
+        params: ls_types::ReferenceParams,
+    ) -> LspResult<Option<Vec<ls_types::Location>>> {
         let response = self
             .with_session_mut(|session| {
                 let encoding = session.client_info().position_encoding();
@@ -391,7 +391,7 @@ impl LanguageServer for DjangoLanguageServer {
         Ok(response)
     }
 
-    async fn did_change_configuration(&self, _params: lsp_types::DidChangeConfigurationParams) {
+    async fn did_change_configuration(&self, _params: ls_types::DidChangeConfigurationParams) {
         tracing::info!("Configuration change detected. Reloading settings...");
 
         self.with_session_mut(|session| {

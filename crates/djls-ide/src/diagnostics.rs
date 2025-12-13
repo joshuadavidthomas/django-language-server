@@ -4,7 +4,7 @@ use djls_source::LineIndex;
 use djls_source::Span;
 use djls_templates::TemplateError;
 use djls_templates::TemplateErrorAccumulator;
-use tower_lsp_server::lsp_types;
+use tower_lsp_server::ls_types;
 
 use crate::ext::DiagnosticSeverityExt;
 use crate::ext::SpanExt;
@@ -17,16 +17,16 @@ trait DiagnosticError: std::fmt::Display {
         self.to_string()
     }
 
-    fn as_diagnostic(&self, line_index: &LineIndex) -> lsp_types::Diagnostic {
+    fn as_diagnostic(&self, line_index: &LineIndex) -> ls_types::Diagnostic {
         let range = self
             .span()
             .map(|(start, length)| Span::new(start, length).to_lsp_range(line_index))
             .unwrap_or_default();
 
-        lsp_types::Diagnostic {
+        ls_types::Diagnostic {
             range,
-            severity: Some(lsp_types::DiagnosticSeverity::ERROR),
-            code: Some(lsp_types::NumberOrString::String(
+            severity: Some(ls_types::DiagnosticSeverity::ERROR),
+            code: Some(ls_types::NumberOrString::String(
                 self.diagnostic_code().to_string(),
             )),
             code_description: None,
@@ -111,7 +111,7 @@ pub fn collect_diagnostics(
     db: &dyn djls_semantic::Db,
     file: File,
     nodelist: Option<djls_templates::NodeList<'_>>,
-) -> Vec<lsp_types::Diagnostic> {
+) -> Vec<ls_types::Diagnostic> {
     let mut diagnostics = Vec::new();
 
     let config = db.diagnostics_config();
@@ -123,7 +123,7 @@ pub fn collect_diagnostics(
 
     for error_acc in template_errors {
         let mut diagnostic = error_acc.0.as_diagnostic(line_index);
-        if let Some(lsp_types::NumberOrString::String(code)) = &diagnostic.code {
+        if let Some(ls_types::NumberOrString::String(code)) = &diagnostic.code {
             let severity = config.get_severity(code);
 
             // Skip if diagnostic is disabled (severity = off)
@@ -144,7 +144,7 @@ pub fn collect_diagnostics(
 
         for error_acc in validation_errors {
             let mut diagnostic = error_acc.0.as_diagnostic(line_index);
-            if let Some(lsp_types::NumberOrString::String(code)) = &diagnostic.code {
+            if let Some(ls_types::NumberOrString::String(code)) = &diagnostic.code {
                 let severity = config.get_severity(code);
 
                 // Skip if diagnostic is disabled (severity = off)
@@ -173,19 +173,19 @@ mod tests {
         assert_eq!(DiagnosticSeverity::Off.to_lsp_severity(), None);
         assert_eq!(
             DiagnosticSeverity::Error.to_lsp_severity(),
-            Some(lsp_types::DiagnosticSeverity::ERROR)
+            Some(ls_types::DiagnosticSeverity::ERROR)
         );
         assert_eq!(
             DiagnosticSeverity::Warning.to_lsp_severity(),
-            Some(lsp_types::DiagnosticSeverity::WARNING)
+            Some(ls_types::DiagnosticSeverity::WARNING)
         );
         assert_eq!(
             DiagnosticSeverity::Info.to_lsp_severity(),
-            Some(lsp_types::DiagnosticSeverity::INFORMATION)
+            Some(ls_types::DiagnosticSeverity::INFORMATION)
         );
         assert_eq!(
             DiagnosticSeverity::Hint.to_lsp_severity(),
-            Some(lsp_types::DiagnosticSeverity::HINT)
+            Some(ls_types::DiagnosticSeverity::HINT)
         );
     }
 }
