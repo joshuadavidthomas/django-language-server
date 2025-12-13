@@ -608,7 +608,7 @@ fn generate_argument_completions(
             }
         }
         _ => {
-            // Other argument types (Expr, Assignment, VarArgs) not handled yet
+            // Other argument types (Any, Assignment, VarArgs) not handled yet
         }
     }
 

@@ -194,9 +194,32 @@ fn validate_argument_order(
                 bit_index += 1;
             }
 
-            TagArg::Variable { count, .. } | TagArg::Any { count, .. } => {
+            TagArg::Variable {
+                name,
+                required,
+                count,
+            }
+            | TagArg::Any {
+                name,
+                required,
+                count,
+            } => {
                 match count {
                     crate::templatetags::TokenCount::Exact(n) => {
+                        let available = bits.len().saturating_sub(bit_index);
+                        if available < *n {
+                            if *required {
+                                ValidationErrorAccumulator(ValidationError::MissingArgument {
+                                    tag: tag_name.to_string(),
+                                    argument: name.to_string(),
+                                    span,
+                                })
+                                .accumulate(db);
+                                return;
+                            }
+                            continue;
+                        }
+
                         // Consume exactly N tokens
                         bit_index += n;
                     }
@@ -222,41 +245,54 @@ fn validate_argument_order(
                 }
             }
 
-            TagArg::Assignment { count, .. } => {
+            TagArg::Assignment {
+                name,
+                required,
+                count,
+            } => {
                 match count {
                     crate::templatetags::TokenCount::Exact(n) => {
+                        let available = bits.len().saturating_sub(bit_index);
+                        if available < *n {
+                            if *required {
+                                ValidationErrorAccumulator(ValidationError::MissingArgument {
+                                    tag: tag_name.to_string(),
+                                    argument: name.to_string(),
+                                    span,
+                                })
+                                .accumulate(db);
+                                return;
+                            }
+                            continue;
+                        }
+
                         // Consume exactly N tokens
                         bit_index += n;
                     }
                     crate::templatetags::TokenCount::Greedy => {
-                        // Assignment arguments can appear as:
-                        // 1. Single token: var=value
-                        // 2. Multi-token: expr as varname
-                        // Consume until we find = or "as", or hit next literal
+                        // Assignment arguments handle var=value patterns
+                        // For "expr as varname" patterns, model "as" as a separate syntax argument
+                        // Consume until we find = or hit next literal
 
                         let next_literal = args[arg_index + 1..].find_next_literal();
 
                         while bit_index < bits.len() {
-                            let token = &bits[bit_index];
-                            bit_index += 1;
-
-                            // If token contains =, we've found the assignment
-                            if token.contains('=') {
-                                break;
-                            }
-
-                            // If we hit "as", consume the variable name after it
-                            if token == "as" && bit_index < bits.len() {
-                                bit_index += 1; // Consume the variable name
-                                break;
-                            }
-
-                            // Stop if we hit the next literal argument
+                            // Check for next literal sentinel BEFORE consuming
                             if let Some(ref lit) = next_literal {
-                                if token == lit {
+                                if bits[bit_index] == *lit {
                                     break;
                                 }
                             }
+
+                            let token = &bits[bit_index];
+
+                            // If token contains =, we've found the assignment
+                            if token.contains('=') {
+                                bit_index += 1;
+                                break;
+                            }
+
+                            bit_index += 1;
                         }
                     }
                 }
@@ -690,6 +726,84 @@ mod tests {
         assert!(
             !errors.is_empty(),
             "Should error on extra argument after complete regroup args"
+        );
+    }
+
+    #[test]
+    fn test_exact_token_count_insufficient_tokens_required() {
+        // Regression test for Exact bounds check
+        // The 'for' tag requires: item (Exact(1)), "in", items (Exact(1))
+        // Input: only "item" provided - not enough tokens
+        // Expected: MissingRequiredArguments (caught by count check before positional validation)
+        let bits = vec!["item".to_string()];
+        let args = vec![
+            TagArg::var("item", true),
+            TagArg::syntax("in", true),
+            TagArg::var("items", true),
+        ];
+
+        let errors = check_validation_errors("for", &bits, &args);
+        assert!(
+            !errors.is_empty(),
+            "Should error when required arguments are missing"
+        );
+        assert!(
+            matches!(errors[0], ValidationError::MissingRequiredArguments { .. }),
+            "Expected MissingRequiredArguments, got: {:?}",
+            errors[0]
+        );
+    }
+
+    #[test]
+    fn test_exact_token_count_does_not_overflow() {
+        // Regression test: Ensure Exact bounds check prevents bit_index overflow
+        // Previously, Exact(1) would blindly increment bit_index even with 0 tokens
+        // The 'for' tag structure tests this: if we run out of tokens mid-spec,
+        // validation should error gracefully, not overflow
+        let bits = vec!["item".to_string(), "in".to_string()];
+        let args = vec![
+            TagArg::var("item", true),
+            TagArg::syntax("in", true),
+            TagArg::var("items", true), // Missing this required arg
+        ];
+
+        let errors = check_validation_errors("for", &bits, &args);
+        // Should detect missing required argument (caught by count check)
+        assert!(
+            !errors.is_empty(),
+            "Should error when required 'items' argument is missing"
+        );
+        assert!(
+            matches!(errors[0], ValidationError::MissingRequiredArguments { .. }),
+            "Expected MissingRequiredArguments, got: {:?}",
+            errors[0]
+        );
+    }
+
+    #[test]
+    fn test_assignment_greedy_stops_before_literal() {
+        // Regression test for assignment greedy loop consuming literal sentinel
+        // Pattern: assignment followed by optional literal modifier
+        // Input: "total=items|length" followed by "only"
+        // Expected: Assignment should NOT consume "only", leaving it for the literal arg
+        let bits = vec!["total=items|length".to_string(), "only".to_string()];
+        let args = vec![
+            TagArg::Assignment {
+                name: "bindings".into(),
+                required: true,
+                count: crate::templatetags::TokenCount::Greedy,
+            },
+            TagArg::Literal {
+                lit: "only".into(),
+                required: false,
+                kind: crate::templatetags::LiteralKind::Modifier,
+            },
+        ];
+
+        let errors = check_validation_errors("customtag", &bits, &args);
+        assert!(
+            errors.is_empty(),
+            "Assignment should stop before literal 'only': {errors:?}"
         );
     }
 }
