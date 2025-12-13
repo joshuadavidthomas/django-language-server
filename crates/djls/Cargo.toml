@@ -1,6 +1,6 @@
 [package]
 name = "djls"
-version = "5.2.4"
+version = "6.0.0"
 edition = "2021"
 
 [dependencies]
