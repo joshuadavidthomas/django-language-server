@@ -11,7 +11,7 @@ use djls_source::File;
 use djls_source::FileKind;
 use djls_workspace::TextDocument;
 use djls_workspace::Workspace;
-use tower_lsp_server::lsp_types;
+use tower_lsp_server::ls_types;
 
 use crate::client::ClientInfo;
 use crate::db::DjangoDatabase;
@@ -44,7 +44,8 @@ pub struct Session {
 }
 
 impl Session {
-    pub fn new(params: &lsp_types::InitializeParams) -> Self {
+    #[must_use]
+    pub fn new(params: &ls_types::InitializeParams) -> Self {
         let project_path = params
             .workspace_folders
             .as_ref()
@@ -118,7 +119,7 @@ impl Session {
     /// For template files, immediately triggers parsing and validation.
     pub fn open_document(
         &mut self,
-        text_document: &lsp_types::TextDocumentItem,
+        text_document: &ls_types::TextDocumentItem,
     ) -> Option<TextDocument> {
         let Some(path) = text_document.uri.to_utf8_path_buf() else {
             tracing::debug!("Skip opening non-file URI: {}", text_document.uri.as_str());
@@ -141,7 +142,7 @@ impl Session {
 
     pub fn save_document(
         &mut self,
-        text_document: &lsp_types::TextDocumentIdentifier,
+        text_document: &ls_types::TextDocumentIdentifier,
     ) -> Option<TextDocument> {
         let Some(path) = text_document.uri.to_utf8_path_buf() else {
             tracing::debug!("Skip saving non-file URI: {}", text_document.uri.as_str());
@@ -155,8 +156,8 @@ impl Session {
 
     pub fn update_document(
         &mut self,
-        text_document: &lsp_types::VersionedTextDocumentIdentifier,
-        changes: Vec<lsp_types::TextDocumentContentChangeEvent>,
+        text_document: &ls_types::VersionedTextDocumentIdentifier,
+        changes: Vec<ls_types::TextDocumentContentChangeEvent>,
     ) -> Option<TextDocument> {
         let Some(path) = text_document.uri.to_utf8_path_buf() else {
             tracing::debug!("Skip updating non-file URI: {}", text_document.uri.as_str());
@@ -181,7 +182,7 @@ impl Session {
     /// For template files, immediately re-parses from disk.
     pub fn close_document(
         &mut self,
-        text_document: &lsp_types::TextDocumentIdentifier,
+        text_document: &ls_types::TextDocumentIdentifier,
     ) -> Option<TextDocument> {
         let Some(path) = text_document.uri.to_utf8_path_buf() else {
             tracing::debug!("Skip closing non-file URI: {}", text_document.uri.as_str());
@@ -210,7 +211,7 @@ impl Session {
 
 impl Default for Session {
     fn default() -> Self {
-        Self::new(&lsp_types::InitializeParams::default())
+        Self::new(&ls_types::InitializeParams::default())
     }
 }
 
@@ -242,12 +243,11 @@ impl SessionSnapshot {
 #[cfg(test)]
 mod tests {
     use djls_source::Db as SourceDb;
-    use tower_lsp_server::UriExt;
 
     use super::*;
 
     // Helper function to create a test file path and URI that works on all platforms
-    fn test_file_uri(filename: &str) -> (Utf8PathBuf, lsp_types::Uri) {
+    fn test_file_uri(filename: &str) -> (Utf8PathBuf, ls_types::Uri) {
         // Use an absolute path that's valid on the platform
         #[cfg(windows)]
         let path = Utf8PathBuf::from(format!("C:\\temp\\{filename}"));
@@ -255,7 +255,7 @@ mod tests {
         let path = Utf8PathBuf::from(format!("/tmp/{filename}"));
 
         let uri =
-            lsp_types::Uri::from_file_path(path.as_std_path()).expect("Failed to create file URI");
+            ls_types::Uri::from_file_path(path.as_std_path()).expect("Failed to create file URI");
         (path, uri)
     }
 
@@ -264,7 +264,7 @@ mod tests {
         let mut session = Session::default();
         let (path, uri) = test_file_uri("test.py");
 
-        let text_document = lsp_types::TextDocumentItem {
+        let text_document = ls_types::TextDocumentItem {
             uri: uri.clone(),
             language_id: "python".to_string(),
             version: 1,
@@ -279,7 +279,7 @@ mod tests {
         let content = file.source(db).to_string();
         assert_eq!(content, "print('hello')");
 
-        let close_doc = lsp_types::TextDocumentIdentifier { uri };
+        let close_doc = ls_types::TextDocumentIdentifier { uri };
         session.close_document(&close_doc);
         assert!(session.get_document(&path).is_none());
     }
@@ -289,7 +289,7 @@ mod tests {
         let mut session = Session::default();
         let (path, uri) = test_file_uri("test.py");
 
-        let text_document = lsp_types::TextDocumentItem {
+        let text_document = ls_types::TextDocumentItem {
             uri: uri.clone(),
             language_id: "python".to_string(),
             version: 1,
@@ -297,12 +297,12 @@ mod tests {
         };
         session.open_document(&text_document);
 
-        let changes = vec![lsp_types::TextDocumentContentChangeEvent {
+        let changes = vec![ls_types::TextDocumentContentChangeEvent {
             range: None,
             range_length: None,
             text: "updated".to_string(),
         }];
-        let versioned_document = lsp_types::VersionedTextDocumentIdentifier { uri, version: 2 };
+        let versioned_document = ls_types::VersionedTextDocumentIdentifier { uri, version: 2 };
         session.update_document(&versioned_document, changes);
 
         let doc = session.get_document(&path).unwrap();

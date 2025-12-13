@@ -2,7 +2,7 @@ use djls_semantic::resolve_template;
 use djls_semantic::ResolveResult;
 use djls_source::File;
 use djls_source::Offset;
-use tower_lsp_server::lsp_types;
+use tower_lsp_server::ls_types;
 
 use crate::context::OffsetContext;
 use crate::ext::SpanExt;
@@ -12,7 +12,7 @@ pub fn goto_definition(
     db: &dyn djls_semantic::Db,
     file: File,
     offset: Offset,
-) -> Option<lsp_types::GotoDefinitionResponse> {
+) -> Option<ls_types::GotoDefinitionResponse> {
     match OffsetContext::from_offset(db, file, offset) {
         OffsetContext::TemplateReference(template_name) => {
             tracing::debug!("Found template reference: '{}'", template_name);
@@ -22,10 +22,10 @@ pub fn goto_definition(
                     let path = template.path_buf(db);
                     tracing::debug!("Resolved template to: {}", path);
 
-                    Some(lsp_types::GotoDefinitionResponse::Scalar(
-                        lsp_types::Location {
+                    Some(ls_types::GotoDefinitionResponse::Scalar(
+                        ls_types::Location {
                             uri: path.to_lsp_uri()?,
-                            range: lsp_types::Range::default(),
+                            range: ls_types::Range::default(),
                         },
                     ))
                 }
@@ -43,7 +43,7 @@ pub fn find_references(
     db: &dyn djls_semantic::Db,
     file: File,
     offset: Offset,
-) -> Option<Vec<lsp_types::Location>> {
+) -> Option<Vec<ls_types::Location>> {
     match OffsetContext::from_offset(db, file, offset) {
         OffsetContext::TemplateReference(template_name) => {
             tracing::debug!(
@@ -53,13 +53,13 @@ pub fn find_references(
 
             let references = djls_semantic::find_references_to_template(db, &template_name);
 
-            let locations: Vec<lsp_types::Location> = references
+            let locations: Vec<ls_types::Location> = references
                 .iter()
                 .filter_map(|reference| {
                     let ref_file = reference.source_file(db);
                     let line_index = ref_file.line_index(db);
 
-                    Some(lsp_types::Location {
+                    Some(ls_types::Location {
                         uri: ref_file.path(db).to_lsp_uri()?,
                         range: reference.tag_span(db).to_lsp_range(line_index),
                     })

@@ -16,7 +16,7 @@ djls-workspace = { path = "crates/djls-workspace" }
 
 # core deps, pin exact versions
 salsa = "0.24.0"
-tower-lsp-server = { version = "0.22.0", features = ["proposed"] }
+tower-lsp-server = { version = "0.23.0", features = ["proposed"] }
 
 anyhow = "1.0"
 camino = "1.2"
@@ -41,7 +41,7 @@ which = "8.0"
 
 # testing
 divan = { package = "codspeed-divan-compat", version = "4.0" }
-insta = { version = "1.43", features = ["yaml"] }
+insta = { version = "1.44", features = ["yaml"] }
 tempfile = "3.23"
 
 [workspace.lints.clippy]
