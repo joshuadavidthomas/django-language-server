@@ -579,7 +579,7 @@ fn generate_argument_completions(
                 }
             }
         }
-        TagArg::Var { name, .. } => {
+        TagArg::Variable { name, .. } => {
             // For variables, we could offer variable completions from context
             // For now, just provide a hint
             if partial.is_empty() {
@@ -608,7 +608,7 @@ fn generate_argument_completions(
             }
         }
         _ => {
-            // Other argument types (Expr, Assignment, VarArgs) not handled yet
+            // Other argument types (Any, Assignment, VarArgs) not handled yet
         }
     }
 

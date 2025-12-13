@@ -135,6 +135,7 @@ fn validate_argument_order(
     args: &[TagArg],
 ) {
     let mut bit_index = 0usize;
+    let mut args_processed = 0usize;
 
     // Walk through argument spec, consuming tokens as we match each argument
     for (arg_index, arg) in args.iter().enumerate() {
@@ -142,8 +143,10 @@ fn validate_argument_order(
             break; // Ran out of tokens to consume
         }
 
+        args_processed = arg_index + 1;
+
         match arg {
-            TagArg::Literal { lit, required } => {
+            TagArg::Literal { lit, required, .. } => {
                 let matches_literal = bits[bit_index] == lit.as_ref();
                 if *required {
                     if matches_literal {
@@ -188,63 +191,108 @@ fn validate_argument_order(
                 // Optional choice didn't match - don't consume, continue
             }
 
-            TagArg::Var { .. } | TagArg::String { .. } => {
-                // Simple arguments consume exactly one token
+            TagArg::String { .. } => {
+                // String arguments consume exactly one token
                 bit_index += 1;
             }
 
-            TagArg::Expr { .. } => {
-                // Expression arguments consume tokens greedily until:
-                // - We hit the next literal keyword (if any)
-                // - We run out of tokens
-                // Must consume at least one token
+            TagArg::Variable {
+                name,
+                required,
+                count,
+            }
+            | TagArg::Any {
+                name,
+                required,
+                count,
+            } => {
+                match count {
+                    crate::templatetags::TokenCount::Exact(n) => {
+                        let available = bits.len().saturating_sub(bit_index);
+                        if available < *n {
+                            if *required {
+                                ValidationErrorAccumulator(ValidationError::MissingArgument {
+                                    tag: tag_name.to_string(),
+                                    argument: name.to_string(),
+                                    span,
+                                })
+                                .accumulate(db);
+                                return;
+                            }
+                            continue;
+                        }
 
-                let start_index = bit_index;
-                let next_literal = args[arg_index + 1..].find_next_literal();
+                        // Consume exactly N tokens
+                        bit_index += n;
+                    }
+                    crate::templatetags::TokenCount::Greedy => {
+                        // Greedy: consume tokens until next literal or end
+                        let start_index = bit_index;
+                        let next_literal = args[arg_index + 1..].find_next_literal();
 
-                // Consume tokens greedily until we hit a known literal
-                while bit_index < bits.len() {
-                    if let Some(ref lit) = next_literal {
-                        if bits[bit_index] == *lit {
-                            break; // Stop before the literal
+                        while bit_index < bits.len() {
+                            if let Some(ref lit) = next_literal {
+                                if bits[bit_index] == *lit {
+                                    break; // Stop before the literal
+                                }
+                            }
+                            bit_index += 1;
+                        }
+
+                        // Ensure we consumed at least one token
+                        if bit_index == start_index {
+                            let is_next_literal = next_literal
+                                .as_ref()
+                                .is_some_and(|lit| bits.get(bit_index) == Some(lit));
+                            if !is_next_literal {
+                                bit_index += 1;
+                            }
                         }
                     }
-                    bit_index += 1;
-                }
-
-                // Ensure we consumed at least one token for the expression
-                if bit_index == start_index {
-                    bit_index += 1;
                 }
             }
 
-            TagArg::Assignment { .. } => {
-                // Assignment arguments can appear as:
-                // 1. Single token: var=value
-                // 2. Multi-token: expr as varname
-                // Consume until we find = or "as", or hit next literal
+            TagArg::Assignment {
+                name,
+                required,
+                count,
+            } => {
+                match count {
+                    crate::templatetags::TokenCount::Exact(n) => {
+                        let available = bits.len().saturating_sub(bit_index);
+                        if available < *n {
+                            if *required {
+                                ValidationErrorAccumulator(ValidationError::MissingArgument {
+                                    tag: tag_name.to_string(),
+                                    argument: name.to_string(),
+                                    span,
+                                })
+                                .accumulate(db);
+                                return;
+                            }
+                            continue;
+                        }
 
-                let next_literal = args[arg_index + 1..].find_next_literal();
-
-                while bit_index < bits.len() {
-                    let token = &bits[bit_index];
-                    bit_index += 1;
-
-                    // If token contains =, we've found the assignment
-                    if token.contains('=') {
-                        break;
+                        // Consume exactly N tokens
+                        bit_index += n;
                     }
+                    crate::templatetags::TokenCount::Greedy => {
+                        let next_literal = args[arg_index + 1..].find_next_literal();
 
-                    // If we hit "as", consume the variable name after it
-                    if token == "as" && bit_index < bits.len() {
-                        bit_index += 1; // Consume the variable name
-                        break;
-                    }
+                        while bit_index < bits.len() {
+                            if let Some(ref lit) = next_literal {
+                                if bits[bit_index] == *lit {
+                                    break;
+                                }
+                            }
 
-                    // Stop if we hit the next literal argument
-                    if let Some(ref lit) = next_literal {
-                        if token == lit {
-                            break;
+                            let token = &bits[bit_index];
+
+                            if token.contains('=') {
+                                bit_index += 1;
+                            } else {
+                                break;
+                            }
                         }
                     }
                 }
@@ -272,7 +320,7 @@ fn validate_argument_order(
 
     // Check for missing required arguments that weren't satisfied
     // (Only matters if we consumed all tokens but didn't satisfy all required args)
-    for arg in args.iter().skip(bit_index) {
+    for arg in args.iter().skip(args_processed) {
         if arg.is_required() {
             ValidationErrorAccumulator(ValidationError::MissingArgument {
                 tag: tag_name.to_string(),
@@ -304,6 +352,7 @@ mod tests {
     struct TestDatabase {
         storage: salsa::Storage<Self>,
         fs: Arc<Mutex<InMemoryFileSystem>>,
+        custom_specs: Option<crate::templatetags::TagSpecs>,
     }
 
     impl TestDatabase {
@@ -311,6 +360,15 @@ mod tests {
             Self {
                 storage: salsa::Storage::default(),
                 fs: Arc::new(Mutex::new(InMemoryFileSystem::new())),
+                custom_specs: None,
+            }
+        }
+
+        fn with_custom_specs(specs: crate::templatetags::TagSpecs) -> Self {
+            Self {
+                storage: salsa::Storage::default(),
+                fs: Arc::new(Mutex::new(InMemoryFileSystem::new())),
+                custom_specs: Some(specs),
             }
         }
     }
@@ -339,7 +397,9 @@ mod tests {
     #[salsa::db]
     impl crate::Db for TestDatabase {
         fn tag_specs(&self) -> crate::templatetags::TagSpecs {
-            django_builtin_specs()
+            self.custom_specs
+                .clone()
+                .unwrap_or_else(django_builtin_specs)
         }
 
         fn tag_index(&self) -> TagIndex<'_> {
@@ -361,9 +421,17 @@ mod tests {
         bits: &[String],
         _args: &[TagArg],
     ) -> Vec<ValidationError> {
-        use djls_source::Db as SourceDb;
+        check_validation_errors_with_db(tag_name, bits, TestDatabase::new())
+    }
 
-        let db = TestDatabase::new();
+    /// Test helper: Create a temporary `NodeList` with a single tag and validate it using custom specs
+    #[allow(clippy::needless_pass_by_value)]
+    fn check_validation_errors_with_db(
+        tag_name: &str,
+        bits: &[String],
+        db: TestDatabase,
+    ) -> Vec<ValidationError> {
+        use djls_source::Db as SourceDb;
 
         // Build a minimal template content that parses to a tag
         let bits_str = bits.join(" ");
@@ -403,16 +471,13 @@ mod tests {
     fn test_if_tag_with_comparison_operator() {
         // Issue #1: {% if message.input_tokens > 0 %}
         // Parser tokenizes as: ["message.input_tokens", ">", "0"]
-        // Spec expects: [Expr{name="condition"}]
+        // Spec expects: [Any{name="condition", count=Greedy}]
         let bits = vec![
             "message.input_tokens".to_string(),
             ">".to_string(),
             "0".to_string(),
         ];
-        let args = vec![TagArg::Expr {
-            name: "condition".into(),
-            required: true,
-        }];
+        let args = vec![TagArg::expr("condition", true)];
 
         let errors = check_validation_errors("if", &bits, &args);
         assert!(
@@ -448,22 +513,10 @@ mod tests {
             "reversed".to_string(),
         ];
         let args = vec![
-            TagArg::Var {
-                name: "item".into(),
-                required: true,
-            },
-            TagArg::Literal {
-                lit: "in".into(),
-                required: true,
-            },
-            TagArg::Var {
-                name: "items".into(),
-                required: true,
-            },
-            TagArg::Literal {
-                lit: "reversed".into(),
-                required: false,
-            },
+            TagArg::var("item", true),
+            TagArg::syntax("in", true),
+            TagArg::var("items", true),
+            TagArg::modifier("reversed", false),
         ];
 
         let errors = check_validation_errors("for", &bits, &args);
@@ -481,10 +534,7 @@ mod tests {
             "and".to_string(),
             "user.is_staff".to_string(),
         ];
-        let args = vec![TagArg::Expr {
-            name: "condition".into(),
-            required: true,
-        }];
+        let args = vec![TagArg::expr("condition", true)];
 
         let errors = check_validation_errors("if", &bits, &args);
         assert!(
@@ -521,15 +571,83 @@ mod tests {
     fn test_with_assignment() {
         // {% with total=items|length %}
         let bits = vec!["total=items|length".to_string()];
-        let args = vec![TagArg::Assignment {
-            name: "bindings".into(),
-            required: true,
-        }];
+        let args = vec![TagArg::assignment("bindings", true)];
 
         let errors = check_validation_errors("with", &bits, &args);
         assert!(
             errors.is_empty(),
             "Should handle assignment with filter: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn test_with_multiple_greedy_assignments() {
+        // {% with a=1 b=2 c=3 %}
+        let bits = vec!["a=1".to_string(), "b=2".to_string(), "c=3".to_string()];
+        let args = vec![TagArg::assignment("bindings", true)];
+
+        let errors = check_validation_errors("with", &bits, &args);
+        assert!(
+            errors.is_empty(),
+            "Should handle multiple greedy assignments: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn test_greedy_consumes_all_leaving_required_literal_unsatisfied() {
+        // {% customcond x > 0 %} - greedy expr consumes all, missing required "reversed" literal
+        use std::borrow::Cow;
+
+        use rustc_hash::FxHashMap;
+
+        use crate::templatetags::EndTag;
+        use crate::templatetags::TagSpec;
+        use crate::templatetags::TagSpecs;
+        use crate::TokenCount;
+
+        // Create custom spec: customcond expects [Greedy expr, required "reversed" literal]
+        let mut specs = FxHashMap::default();
+        specs.insert(
+            "customcond".to_string(),
+            TagSpec {
+                module: Cow::Borrowed("test.module"),
+                end_tag: Some(EndTag {
+                    name: Cow::Borrowed("endcustomcond"),
+                    required: true,
+                    args: Cow::Borrowed(&[]),
+                }),
+                intermediate_tags: Cow::Borrowed(&[]),
+                args: Cow::Owned(vec![
+                    TagArg::Any {
+                        name: Cow::Borrowed("condition"),
+                        required: true,
+                        count: TokenCount::Greedy,
+                    },
+                    TagArg::modifier("reversed", true),
+                ]),
+            },
+        );
+
+        let db = TestDatabase::with_custom_specs(TagSpecs::new(specs));
+
+        // Input: 3 tokens, greedy consumes all, required literal missing
+        let bits = vec!["x".to_string(), ">".to_string(), "0".to_string()];
+
+        let errors = check_validation_errors_with_db("customcond", &bits, db);
+
+        assert!(
+            !errors.is_empty(),
+            "Should error when greedy arg consumes all tokens, leaving required literal unsatisfied"
+        );
+
+        // The error should be MissingArgument for "reversed"
+        let has_missing_reversed = errors.iter().any(|err| {
+            matches!(err, ValidationError::MissingArgument { argument, .. }
+                if argument == "reversed")
+        });
+        assert!(
+            has_missing_reversed,
+            "Should have MissingArgument error for 'reversed', got: {errors:?}"
         );
     }
 
@@ -556,14 +674,8 @@ mod tests {
             "reversed".to_string(),
         ];
         let args = vec![
-            TagArg::Expr {
-                name: "condition".into(),
-                required: true,
-            },
-            TagArg::Literal {
-                lit: "reversed".into(),
-                required: false,
-            },
+            TagArg::expr("condition", true),
+            TagArg::modifier("reversed", false),
         ];
 
         let errors = check_validation_errors("if", &bits, &args);
@@ -675,18 +787,9 @@ mod tests {
             "library".to_string(),
         ];
         let args = vec![
-            TagArg::VarArgs {
-                name: "tags".into(),
-                required: false,
-            },
-            TagArg::Literal {
-                lit: "from".into(),
-                required: false,
-            },
-            TagArg::Var {
-                name: "library".into(),
-                required: false,
-            },
+            TagArg::varargs("tags", false),
+            TagArg::syntax("from", false),
+            TagArg::var("library", false),
         ];
 
         let errors = check_validation_errors("load", &bits, &args);
@@ -714,6 +817,113 @@ mod tests {
         assert!(
             !errors.is_empty(),
             "Should error on extra argument after complete regroup args"
+        );
+    }
+
+    #[test]
+    fn test_exact_token_count_insufficient_tokens_required() {
+        // {% for item %} - missing required "in" and items arguments
+        let bits = vec!["item".to_string()];
+        let args = vec![
+            TagArg::var("item", true),
+            TagArg::syntax("in", true),
+            TagArg::var("items", true),
+        ];
+
+        let errors = check_validation_errors("for", &bits, &args);
+        assert!(
+            !errors.is_empty(),
+            "Should error when required arguments are missing"
+        );
+        assert!(
+            matches!(errors[0], ValidationError::MissingRequiredArguments { .. }),
+            "Expected MissingRequiredArguments, got: {:?}",
+            errors[0]
+        );
+    }
+
+    #[test]
+    fn test_exact_token_count_does_not_overflow() {
+        // {% for item in %} - missing required items argument
+        let bits = vec!["item".to_string(), "in".to_string()];
+        let args = vec![
+            TagArg::var("item", true),
+            TagArg::syntax("in", true),
+            TagArg::var("items", true), // Missing this required arg
+        ];
+
+        let errors = check_validation_errors("for", &bits, &args);
+        // Should detect missing required argument (caught by count check)
+        assert!(
+            !errors.is_empty(),
+            "Should error when required 'items' argument is missing"
+        );
+        assert!(
+            matches!(errors[0], ValidationError::MissingRequiredArguments { .. }),
+            "Expected MissingRequiredArguments, got: {:?}",
+            errors[0]
+        );
+    }
+
+    #[test]
+    fn test_skip_bit_index_bug_with_exact_multi_token() {
+        // {% customtag a b as %} - Exact(2) consumes 2 tokens, missing required "result" argument
+        use std::borrow::Cow;
+
+        use rustc_hash::FxHashMap;
+
+        use crate::templatetags::EndTag;
+        use crate::templatetags::TagSpec;
+        use crate::templatetags::TagSpecs;
+        use crate::TokenCount;
+
+        // Create custom spec: customtag expects [Exact(2), "as", Variable]
+        let mut specs = FxHashMap::default();
+        specs.insert(
+            "customtag".to_string(),
+            TagSpec {
+                module: Cow::Borrowed("test.module"),
+                end_tag: Some(EndTag {
+                    name: Cow::Borrowed("endcustomtag"),
+                    required: true,
+                    args: Cow::Borrowed(&[]),
+                }),
+                intermediate_tags: Cow::Borrowed(&[]),
+                args: Cow::Owned(vec![
+                    TagArg::Variable {
+                        name: Cow::Borrowed("pair"),
+                        required: true,
+                        count: TokenCount::Exact(2),
+                    },
+                    TagArg::syntax("as", true),
+                    TagArg::var("result", true),
+                ]),
+            },
+        );
+
+        let db = TestDatabase::with_custom_specs(TagSpecs::new(specs));
+
+        // Input: 3 tokens, passes early count check (3 required args = 3 tokens)
+        // but doesn't satisfy all positional requirements
+        let bits = vec!["a".to_string(), "b".to_string(), "as".to_string()];
+
+        let errors = check_validation_errors_with_db("customtag", &bits, db);
+
+        // BUG: Currently this test will FAIL because skip(bit_index) doesn't detect
+        // the missing "result" argument
+        assert!(
+            !errors.is_empty(),
+            "Should error when required 'result' argument is missing"
+        );
+
+        // The error should be MissingArgument for "result"
+        let has_missing_result = errors.iter().any(|err| {
+            matches!(err, ValidationError::MissingArgument { argument, .. }
+                if argument == "result")
+        });
+        assert!(
+            has_missing_result,
+            "Should have MissingArgument error for 'result', got: {errors:?}"
         );
     }
 }
