@@ -281,7 +281,7 @@ fn validate_argument_order(
                     crate::templatetags::TokenCount::Greedy => {
                         // Assignment arguments handle var=value patterns
                         // For "expr as varname" patterns, model "as" as a separate syntax argument
-                        // Consume until we find = or hit next literal
+                        // Consume multiple assignment tokens until we hit next literal or non-assignment token
 
                         let next_literal = args[arg_index + 1..].find_next_literal();
 
@@ -295,13 +295,14 @@ fn validate_argument_order(
 
                             let token = &bits[bit_index];
 
-                            // If token contains =, we've found the assignment
+                            // Assignment tokens must contain '='; others terminate consumption
                             if token.contains('=') {
                                 bit_index += 1;
+                                // Continue to consume more assignment tokens
+                            } else {
+                                // Non-assignment token terminates greedy consumption (don't consume it)
                                 break;
                             }
-
-                            bit_index += 1;
                         }
                     }
                 }
@@ -587,6 +588,85 @@ mod tests {
         assert!(
             errors.is_empty(),
             "Should handle assignment with filter: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn test_with_multiple_greedy_assignments() {
+        // {% with a=1 b=2 c=3 %}
+        // Tests that Assignment::Greedy consumes multiple assignment tokens
+        let bits = vec![
+            "a=1".to_string(),
+            "b=2".to_string(),
+            "c=3".to_string(),
+        ];
+        let args = vec![TagArg::assignment("bindings", true)];
+
+        let errors = check_validation_errors("with", &bits, &args);
+        assert!(
+            errors.is_empty(),
+            "Should handle multiple greedy assignments: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn test_greedy_consumes_all_leaving_required_literal_unsatisfied() {
+        // Custom tag with greedy expr followed by required literal
+        // {% customcond x > 0 reversed %}
+        // Greedy expr should consume ["x", ">", "0"] until literal or end
+        // If literal "reversed" is required but missing, should error
+        use std::borrow::Cow;
+
+        use rustc_hash::FxHashMap;
+
+        use crate::templatetags::EndTag;
+        use crate::templatetags::TagSpec;
+        use crate::templatetags::TagSpecs;
+        use crate::TokenCount;
+
+        // Create custom spec: customcond expects [Greedy expr, required "reversed" literal]
+        let mut specs = FxHashMap::default();
+        specs.insert(
+            "customcond".to_string(),
+            TagSpec {
+                module: Cow::Borrowed("test.module"),
+                end_tag: Some(EndTag {
+                    name: Cow::Borrowed("endcustomcond"),
+                    required: true,
+                    args: Cow::Borrowed(&[]),
+                }),
+                intermediate_tags: Cow::Borrowed(&[]),
+                args: Cow::Owned(vec![
+                    TagArg::Any {
+                        name: Cow::Borrowed("condition"),
+                        required: true,
+                        count: TokenCount::Greedy,
+                    },
+                    TagArg::modifier("reversed", true),
+                ]),
+            },
+        );
+
+        let db = TestDatabase::with_custom_specs(TagSpecs::new(specs));
+
+        // Input: 3 tokens, greedy consumes all, required literal missing
+        let bits = vec!["x".to_string(), ">".to_string(), "0".to_string()];
+
+        let errors = check_validation_errors_with_db("customcond", &bits, db);
+
+        assert!(
+            !errors.is_empty(),
+            "Should error when greedy arg consumes all tokens, leaving required literal unsatisfied"
+        );
+
+        // The error should be MissingArgument for "reversed"
+        let has_missing_reversed = errors.iter().any(|err| {
+            matches!(err, ValidationError::MissingArgument { argument, .. }
+                if argument == "reversed")
+        });
+        assert!(
+            has_missing_reversed,
+            "Should have MissingArgument error for 'reversed', got: {errors:?}"
         );
     }
 
