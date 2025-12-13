@@ -2,7 +2,7 @@
 // Legacy v0.4.0 TagSpec format support with deprecation warnings
 //
 // This module provides backward compatibility for the old flat tagspec format.
-// It should be removed after two releases (v6.0.0 and v6.1.0) following the
+// Supported in v6.0.x and v6.1.x; removed in v6.2.0 following the
 // project's deprecation policy.
 
 use std::collections::HashMap;

@@ -93,9 +93,11 @@ where
 
     if let Ok(legacy) = Vec::<tagspecs::legacy::LegacyTagSpecDef>::deserialize(&value) {
         tracing::warn!(
-            "DEPRECATED: TagSpecs v0.4.0 format detected. Please migrate to v0.6.0 format. \
-             The old format will be removed in v6.2.0. \
-             See migration guide: https://djls.joshthomas.dev/tagspecs/#migration-from-v040"
+            concat!(
+                "DEPRECATED: TagSpecs v0.4.0 format detected. Please migrate to v0.6.0 format. ",
+                "The old format will be removed in v6.2.0. ",
+                "See migration guide: https://djls.joshthomas.dev/tagspecs/#migration-from-v040",
+            )
         );
         return Ok(tagspecs::legacy::convert_legacy_tagspecs(legacy));
     }
