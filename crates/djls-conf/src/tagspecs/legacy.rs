@@ -1,8 +1,8 @@
-// DEPRECATION: This entire module will be removed in v5.2.7
+// DEPRECATION: This entire module will be removed in v6.2.0
 // Legacy v0.4.0 TagSpec format support with deprecation warnings
 //
 // This module provides backward compatibility for the old flat tagspec format.
-// It should be removed after two releases (v5.2.5 and v5.2.6) following the
+// Supported in v6.0.x and v6.1.x; removed in v6.2.0 following the
 // project's deprecation policy.
 
 use std::collections::HashMap;
@@ -19,7 +19,7 @@ use super::TagSpecDef;
 use super::TagTypeDef;
 
 /// Legacy v0.4.0 tag specification (DEPRECATED)
-#[deprecated(since = "5.2.5", note = "Remove in v5.2.7")]
+#[deprecated(since = "6.0.0", note = "Remove in v6.2.0")]
 #[allow(deprecated)]
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct LegacyTagSpecDef {
@@ -39,7 +39,7 @@ pub struct LegacyTagSpecDef {
 }
 
 /// Legacy end tag specification
-#[deprecated(since = "5.2.5", note = "Remove in v5.2.7")]
+#[deprecated(since = "6.0.0", note = "Remove in v6.2.0")]
 #[allow(deprecated)]
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct LegacyEndTagDef {
@@ -54,7 +54,7 @@ pub struct LegacyEndTagDef {
 }
 
 /// Legacy intermediate tag specification
-#[deprecated(since = "5.2.5", note = "Remove in v5.2.7")]
+#[deprecated(since = "6.0.0", note = "Remove in v6.2.0")]
 #[allow(deprecated)]
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct LegacyIntermediateTagDef {
@@ -66,7 +66,7 @@ pub struct LegacyIntermediateTagDef {
 }
 
 /// Legacy tag argument specification
-#[deprecated(since = "5.2.5", note = "Remove in v5.2.7")]
+#[deprecated(since = "6.0.0", note = "Remove in v6.2.0")]
 #[allow(deprecated)]
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct LegacyTagArgDef {
@@ -81,7 +81,7 @@ pub struct LegacyTagArgDef {
 }
 
 /// Legacy argument type specification
-#[deprecated(since = "5.2.5", note = "Remove in v5.2.7")]
+#[deprecated(since = "6.0.0", note = "Remove in v6.2.0")]
 #[allow(deprecated)]
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(untagged)]
@@ -93,7 +93,7 @@ pub enum LegacyArgTypeDef {
 }
 
 /// Legacy simple argument types
-#[deprecated(since = "5.2.5", note = "Remove in v5.2.7")]
+#[deprecated(since = "6.0.0", note = "Remove in v6.2.0")]
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum LegacySimpleArgTypeDef {
@@ -112,7 +112,7 @@ fn default_true() -> bool {
 /// Convert a vector of legacy tagspecs to the new v0.6.0 hierarchical format
 ///
 /// Groups tags by module and creates the appropriate library structure.
-#[deprecated(since = "5.2.5", note = "Remove in v5.2.7")]
+#[deprecated(since = "6.0.0", note = "Remove in v6.2.0")]
 #[must_use]
 pub fn convert_legacy_tagspecs(legacy: Vec<LegacyTagSpecDef>) -> TagSpecDef {
     let mut modules: HashMap<String, Vec<TagDef>> = HashMap::new();

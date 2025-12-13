@@ -14,8 +14,20 @@ While DjangoVer doesn't encode API stability in the version number, this project
 - CLI commands and arguments
 - LSP protocol extensions (custom commands/notifications)
 
-The project will provide deprecation warnings where possible and document breaking changes clearly in release notes. For example, if a configuration option is renamed:
+The project will provide deprecation warnings where possible and document breaking changes clearly in release notes.
 
-- **`v5.1.0`**: Old option works but logs deprecation warning
-- **`v5.1.1`**: Old option still works, continues to show warning
-- **`v5.1.2`**: Old option removed, only new option works
+!!! note "Deprecation Policy Across Django Version Updates"
+
+    The "two releases" policy refers to two **release cycles**, not specific version number components. When the language server bumps its major version to track a new Django release (per DjangoVer), ongoing deprecation timelines continue uninterrupted across this version boundary.
+
+For example, if a configuration option is deprecated:
+
+- **`v6.0.0`**: Old option works but logs deprecation warning
+- **`v6.1.0`**: Old option still works, continues to show warning
+- **`v6.2.0`**: Old option removed, only new option works
+
+Or spanning a Django version update:
+
+- **`v5.2.4`**: Feature deprecated with warning
+- **`v6.0.0`**: Still supported with warning (despite major version bump for Django 6.0)
+- **`v6.1.0`**: Feature removed after two release cycles
