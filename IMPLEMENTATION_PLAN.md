@@ -50,10 +50,46 @@
 
 ## M2 - Salsa Invalidation Plumbing
 
-**Status:** backlog
+**Status:** in-progress
 **Plan:** `.agents/plans/2026-02-05-m2-salsa-invalidation-plumbing.md`
 
-_Tasks to be expanded when M1 is complete._
+### Phase 1: Extend Project Input with djls-conf Types
+
+- [ ] Verify `PartialEq` is derived on `TagSpecDef`, `TagLibraryDef`, `TagDef`, `EndTagDef`, `IntermediateTagDef`, `TagArgDef` in `crates/djls-conf/src/tagspecs.rs` (already done — confirm, do NOT add `Eq` since `serde_json::Value` in `extra` prevents it)
+- [ ] Verify `PartialEq` + `Eq` on `DiagnosticsConfig` in `crates/djls-conf/src/diagnostics.rs` (already `PartialEq` — add `Eq` if not present)
+- [ ] Add three new fields to `Project` salsa input in `crates/djls-project/src/project.rs`: `inspector_inventory: Option<TemplateTags>`, `tagspecs: TagSpecDef`, `diagnostics: DiagnosticsConfig` (all with `#[returns(ref)]`)
+- [ ] Update `Project::bootstrap()` signature to accept `settings: &djls_conf::Settings` and pass new fields to `Project::new()`: `None` for inventory, `settings.tagspecs().clone()`, `settings.diagnostics().clone()`
+- [ ] Update `Project::initialize()` if needed (may no longer need to call `templatetags()` eagerly since inventory comes via `refresh_inspector`)
+- [ ] Update all call sites of `Project::new()` and `Project::bootstrap()` to pass the new arguments (search crates for calls)
+- [ ] Run `cargo build`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test`
+
+### Phase 2: Add `TagSpecs::from_config_def` and Tracked Queries
+
+- [ ] Add `TagSpecs::from_config_def(def: &TagSpecDef) -> Self` in `crates/djls-semantic/src/templatetags/specs.rs` — extracts the conversion logic from `impl From<&Settings> for TagSpecs` to avoid duplication
+- [ ] Add `#[salsa::tracked] fn compute_tag_specs(db: &DjangoDatabase, project: Project) -> TagSpecs` in `crates/djls-server/src/db.rs` — reads `project.tagspecs(db)` and `project.inspector_inventory(db)`, starts with `django_builtin_specs()`, merges user specs
+- [ ] Add `#[salsa::tracked] fn compute_tag_index<'db>(db: &'db DjangoDatabase, project: Project) -> TagIndex<'db>` in `crates/djls-server/src/db.rs` — depends on `compute_tag_specs`
+- [ ] Update `SemanticDb` impl for `DjangoDatabase`: `tag_specs()` delegates to `compute_tag_specs`, `tag_index()` delegates to `compute_tag_index`, `diagnostics_config()` reads from `project.diagnostics(db)` — NO `Arc<Mutex<Settings>>` reads in any of these
+- [ ] Run `cargo build`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test`
+
+### Phase 3: Project Update APIs with Manual Comparison
+
+- [ ] Add `update_project_from_settings(&mut self, project: Project, settings: &Settings)` method on `DjangoDatabase` — compares each field before calling setters (Ruff/RA pattern to avoid spurious invalidation)
+- [ ] Add `refresh_inspector(&mut self)` method on `DjangoDatabase` — queries Python inspector directly, compares result with `project.inspector_inventory(db)`, only calls setter if changed
+- [ ] Rewrite `set_project()` to use `Project::bootstrap` with the new signature and call `refresh_inspector()` after creation
+- [ ] Rewrite `set_settings()` to delegate field updates to `update_project_from_settings()` and trigger `refresh_inspector()` only when environment fields change
+- [ ] Make `TemplatetagsRequest`, `TemplatetagsResponse` public in `crates/djls-project/src/django.rs` and export from `crates/djls-project/src/lib.rs` (needed for direct inspector queries)
+- [ ] Run `cargo build`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test`
+
+### Phase 4: Invalidation Tests with Event Capture
+
+- [ ] Add `EventLogger` test infrastructure in `crates/djls-server/src/db.rs` `#[cfg(test)]` module — stores raw `salsa::Event` values, provides `was_executed(db, query_name)` helper using `db.ingredient_debug_name()`
+- [ ] Add `TestDatabase` helper struct with `with_project()` constructor that wires up `EventLogger` to Salsa storage
+- [ ] Test: `tag_specs_cached_on_repeated_access` — first call executes `compute_tag_specs`, second call uses cache
+- [ ] Test: `tagspecs_change_invalidates` — modifying `project.tagspecs` via setter causes recomputation
+- [ ] Test: `inspector_inventory_change_invalidates` — setting `project.inspector_inventory` causes recomputation
+- [ ] Test: `same_value_no_invalidation` — comparing before setting prevents spurious invalidation
+- [ ] Test: `tag_index_depends_on_tag_specs` — changing tagspecs recomputes tag_index too
+- [ ] Run `cargo build`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test`
 
 ---
 
