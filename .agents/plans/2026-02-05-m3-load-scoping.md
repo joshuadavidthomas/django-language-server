@@ -14,64 +14,30 @@ This builds on M1 (payload shape with `TagProvenance`) and M2 (Salsa invalidatio
 
 ### Parser Representation of `{% load %}`
 
-**Location**: `crates/djls-templates/src/nodelist.rs`
-
-`{% load %}` is parsed as a generic `Node::Tag`:
-
-```rust
-Node::Tag {
-    name: "load",           // The tag name
-    bits: ["i18n", "static"], // or ["trans", "from", "i18n"]
-    span: Span,             // Position in source
-}
-```
-
-The `bits` field captures library names or selective imports but lacks semantic structure.
+`{% load %}` is parsed as a generic `Node::Tag` in `crates/djls-templates/src/nodelist.rs` with `name: "load"` and `bits` capturing library names or selective import tokens (e.g., `["trans", "from", "i18n"]`). Lacks semantic structure.
 
 ### Unknown Tags Pass Silently
 
-**Location**: `crates/djls-semantic/src/arguments.rs:59`
-
-```rust
-// Unknown tag - no validation (could be custom tag from unloaded library)
-```
-
-Currently, any tag without a `TagSpec` passes validation silently.
+In `crates/djls-semantic/src/arguments.rs`, any tag without a `TagSpec` passes validation silently.
 
 ### Block Builder Ignores Unknown Tags for Scoping
 
-**Location**: `crates/djls-semantic/src/blocks/builder.rs`
-
-Unknown tags are classified as `TagClass::Unknown` and added as leaf nodes without any scoping consideration.
+In `crates/djls-semantic/src/blocks/builder.rs`, unknown tags are classified as `TagClass::Unknown` and added as leaf nodes without scoping consideration.
 
 ### Completions Show All Tags
 
-**Location**: `crates/djls-ide/src/completions.rs:310-340`
-
-All tags from `TemplateTags` are shown regardless of `{% load %}` state:
-
-```rust
-for tag in tags.iter() {
-    if tag.name().starts_with(partial) {
-        // Generate completion - no load-scoping filter
-    }
-}
-```
+In `crates/djls-ide/src/completions.rs`, all tags from `TemplateTags` are shown regardless of `{% load %}` state.
 
 ### M1 Payload Shape (Assumed Complete)
 
-After M1, `TemplateTags` contains:
-
-- `libraries: HashMap<String, String>` - load_name → module_path
-- `builtins: Vec<String>` - ordered builtin module paths
-- Tags with `TagProvenance::Library { load_name, module }` or `TagProvenance::Builtin { module }`
+After M1, `TemplateTags` contains `libraries: HashMap<String, String>`, `builtins: Vec<String>`, and tags with `TagProvenance::Library { load_name, module }` or `TagProvenance::Builtin { module }`.
 
 ## Desired End State
 
 ### Per Charter Section 1.2
 
-1. **Diagnostics respect load scope**: A tag/filter from library `foo` produces an error if `{% load foo %}` hasn't preceded it
-2. **Completions respect load scope**: Tag/filter completions only show symbols available at cursor position
+1. **Diagnostics respect load scope**: A tag from library `foo` produces an error if `{% load foo %}` hasn't preceded it
+2. **Completions respect load scope**: Tag completions only show symbols available at cursor position
 3. **`{% load X from Y %}` handled**: Selective imports correctly scope only the named symbols
 4. **Builtins always available**: Tags from `engine.template_builtins` available without `{% load %}`
 
@@ -81,17 +47,9 @@ After M1, `TemplateTags` contains:
 | ------------------------- | ---------------------------------------------------------------------- |
 | **Inspector healthy**     | Unknown tags/filters produce diagnostics by default (S108, S109, S110) |
 | **Inspector unavailable** | Suppress S108/S109/S110 entirely; show all tags in completions         |
-| **Truly unknown**         | Error: "Unknown tag `{% xyz %}`" / "Unknown filter `\|xyz`"            |
+| **Truly unknown**         | Error: "Unknown tag `{% xyz %}`" / "Unknown filter `\|xyz`"           |
 
 ### "Inspector Unavailable" Behavior (Explicit)
-
-The inspector may be unavailable when:
-
-- Django initialization failed
-- Python environment not configured
-- Inspector subprocess crashed
-
-**Where the check lives:**
 
 | Component                                                | Check                                | Behavior when unavailable               |
 | -------------------------------------------------------- | ------------------------------------ | --------------------------------------- |
@@ -99,164 +57,138 @@ The inspector may be unavailable when:
 | **Completions** (`generate_tag_name_completions`)        | `loaded_libraries.is_none()`         | Skip availability filter, show all tags |
 | **Library completions** (`generate_library_completions`) | `template_tags.is_none()`            | Return empty (no libraries known)       |
 
-This ensures we never emit false positives when we don't have authoritative runtime truth.
-
-## Correctness Fixes (from Review)
-
-The following issues were identified during review and are addressed in this plan:
-
-### Fix 1: Selective Import vs Full Load Logic
-
-**Problem**: The original `available_tags_at()` prevented "full library availability" if ANY selective import existed for that library before the position. This meant `{% load trans from i18n %}` followed by `{% load i18n %}` would NOT make `blocktrans` available.
-
-**Solution**: Use a **state-machine approach** that processes load statements in document order:
-
-- `fully_loaded: HashSet<load_name>` - libraries fully loaded
-- `selective: HashMap<load_name, HashSet<symbol>>` - selective imports
-- On `Libraries([...])`: add to `fully_loaded` AND **clear** `selective[lib]`
-- On `Selective{symbols, library}`: if library NOT fully loaded, add symbols to `selective[library]`
-- Tag available iff `library ∈ fully_loaded` OR `tag_name ∈ selective[library]`
-
-### Fix 2: Nested Node Traversal
-
-**Problem**: Load extraction might only scan top-level nodes, missing `{% load %}` inside blocks.
-
-**Solution**: Ensure `compute_loaded_libraries` processes ALL nodes (the current djls-templates parser produces a flat nodelist, but we add a note about future changes). Sort by span start position to guarantee document order.
-
-### Fix 3: Tag-Name Collision Handling
-
-**Problem**: Using `HashMap<tag_name, provenance>` loses information when multiple libraries define the same tag. This leads to arbitrary/incorrect "requires `{% load X %}`" messages.
-
-**Solution**: Use `HashMap<tag_name, TagInventoryEntry>` where `TagInventoryEntry::Libraries(Vec<String>)` collects ALL candidate libraries. When emitting errors:
-
-- Single library → S109 with specific library name
-- Multiple libraries → S110 (AmbiguousUnloadedTag) listing all candidates
-
----
-
 ## What We're NOT Doing
 
-- **`{% extends %}`/`{% include %}` scoping**: Load scope inheritance is future work (charter Q2)
+- **`{% extends %}`/`{% include %}` scoping**: Load scope inheritance is future work
 - **Filter validation**: Filter scoping/completions is M4 scope
-- **Collision handling with warning**: Per charter, when inspector healthy, Django resolves collisions; we trust `engine.libraries`
 - **Cross-template state**: Cycle names, partialdef tracking deferred
 
-## Implementation Approach
+## Correctness Requirements
 
-**Key design decision**: Compute `LoadedLibraries` in semantic crate during a single nodelist pass, store as spans-to-libraries mapping. Completions and validation query this structure.
+### Selective Import vs Full Load Logic
 
-### Architecture
+Use a **state-machine approach** that processes load statements in document order:
 
-```mermaid
-flowchart TB
-    subgraph DataStructures["DATA STRUCTURES"]
-        direction TB
-        LS["LoadStatement"]
-        SI["SelectiveImport"]
-        LL["LoadedLibraries"]
-    end
+- `fully_loaded: HashSet<load_name>` — libraries fully loaded
+- `selective: HashMap<load_name, HashSet<symbol>>` — selective imports
+- On `{% load X Y %}` (full load): add to `fully_loaded` AND **clear** `selective[lib]`
+- On `{% load X from Y %}` (selective): if library NOT fully loaded, add symbols to `selective[library]`
+- Tag available iff `library ∈ fully_loaded` OR `tag_name ∈ selective[library]`
 
-    DataStructures --> Computation
+This ensures `{% load trans from i18n %}` followed by `{% load i18n %}` correctly makes ALL i18n tags available.
 
-    subgraph Computation["COMPUTATION"]
-        direction TB
-        CLL["compute_loaded_libraries"]
-        ASA["available_symbols_at"]
-    end
-```
+### Tag-Name Collision Handling
 
-**Data Structures:**
+When building the tag inventory from inspector data, track ALL candidate libraries for each tag name. When emitting errors:
 
-- **`LoadStatement`**: `span: Span` (position of load tag), `libraries: Vec<String>` (library names), `selective: Option<SelectiveImport>`
-- **`SelectiveImport`**: For `{% load trans blocktrans from i18n %}` — `symbols: Vec<String>` (`["trans", "blocktrans"]`), `library: String` (`"i18n"`)
-- **`LoadedLibraries`**: `loads: Vec<LoadStatement>` (ordered by position), provides `at_position(span) → Set<TagName>`
+- Single library candidate → S109 with specific library name ("requires `{% load X %}`")
+- Multiple library candidates → S110 (AmbiguousUnloadedTag) listing all candidates
 
-**Computation:**
+### Structural Tag Exclusion
 
-- **`compute_loaded_libraries(db, nodelist) → LoadedLibraries`** (tracked)
-    - Single pass over nodelist
-    - Extract load tags and parse bits
-    - Build ordered list of `LoadStatement`
-- **`available_symbols_at(db, nodelist, position, inventory) → AvailableSymbols`**
-    - Builtins: always available
-    - Library tags: only if library loaded before position
+Skip structural tags (openers/closers/intermediates that have TagSpecs) when checking load scoping — those are validated by block/argument validation, not load scoping. For example, `{% endif %}` should never get S108 even if its opener's library isn't loaded.
 
 ---
 
-## Phase Documents
+## Implementation Plan
 
-This plan is split into phase-specific documents for easier navigation:
+### Phase 1: Load Statement Parsing and Data Structures
 
-- [Phase 1: Load Statement Parsing and Data Structures](2026-02-05-m3.1-load-scoping.md)
-- [Phase 2: Compute LoadedLibraries from NodeList](2026-02-05-m3.2-load-scoping.md)
-- [Phase 3: Available Symbols Query](2026-02-05-m3.3-load-scoping.md)
-- [Phase 4: Validation Integration - Unknown Tag Diagnostics](2026-02-05-m3.4-load-scoping.md)
-- [Phase 5: Completions Integration](2026-02-05-m3.5-load-scoping.md)
-- [Phase 6: Library Completions Enhancement](2026-02-05-m3.6-load-scoping.md)
+**Location**: New module `crates/djls-semantic/src/load_resolution.rs`
+
+Create data structures for:
+
+- **`LoadStatement`**: Captures a parsed `{% load %}` tag with its `span`, the list of library names (for full loads), and an optional selective import (symbols + library name for `{% load X from Y %}`).
+- **`LoadedLibraries`**: An ordered collection of `LoadStatement` values that can answer "what libraries/symbols are available at a given position?" by filtering loads whose span ends before the query position.
+
+Implement a `parse_load_bits` function that takes the `bits` from a `Node::Tag` with `name == "load"` and determines whether it's a full library load or a selective import (`from` keyword detection).
+
+Export the new module from `crates/djls-semantic/src/lib.rs`.
+
+**Tests**: Parse various load syntaxes — `{% load i18n %}`, `{% load i18n static %}`, `{% load trans from i18n %}`, `{% load trans blocktrans from i18n %}`, empty load (edge case).
+
+### Phase 2: Compute LoadedLibraries from NodeList
+
+Add a tracked Salsa query `compute_loaded_libraries(db, file) → LoadedLibraries` that:
+
+- Iterates all nodes in the file's nodelist
+- Identifies `Node::Tag` with `name == "load"`
+- Parses each load tag's bits into `LoadStatement`
+- Returns an ordered `LoadedLibraries` collection
+
+**Tests**: Given a nodelist with load tags at various positions, verify the computed `LoadedLibraries` returns correct results.
+
+### Phase 3: Available Symbols Query
+
+Create an `AvailableSymbols` type that represents the set of tags available at a given position, and a query to compute it:
+
+- **Inputs**: `LoadedLibraries` (from Phase 2), inspector inventory (from `Project`), and a cursor position
+- **Logic**:
+  - Start with all builtin tags (always available)
+  - Add tags from fully-loaded libraries (where load span < position)
+  - Add selectively-imported symbols (where load span < position)
+  - Handle the state-machine semantics for selective-then-full load ordering
+- **Output**: A set of available tag names plus a mapping of unavailable tags to their required library/libraries
+
+**Tests**: Comprehensive scoping boundary tests — tag before load (unavailable), tag after load (available), selective imports, full load overriding selective, multiple libraries for same tag name, builtins always available.
+
+### Phase 4: Validation Integration — Unknown Tag Diagnostics
+
+Wire the available symbols query into the validation pipeline:
+
+- Add new error variants: `S108` (UnknownTag), `S109` (UnloadedTag — requires specific library), `S110` (AmbiguousUnloadedTag — multiple candidates)
+- Add the new diagnostic codes to the diagnostic system
+- Extend the `SemanticDb` trait with `inspector_inventory()` so validation can check inspector health
+- In tag validation, after checking TagSpecs (structural tags), check if the tag is in the available symbols set. If not, determine whether it's truly unknown (S108), known but unloaded (S109), or ambiguously defined across multiple libraries (S110).
+- **Guard**: If inspector inventory is `None`, skip all S108/S109/S110 diagnostics entirely.
+
+**Tests**: Unknown tag produces S108, unloaded library tag produces S109 with correct library name, tag from multiple libraries produces S110, inspector unavailable produces no scoping diagnostics, structural tags (closers/intermediates) skip scoping checks.
+
+### Phase 5: Completions Integration
+
+Update `generate_tag_name_completions` to filter tags by availability at cursor position:
+
+- Accept `LoadedLibraries` and inspector inventory as parameters
+- When inspector is available: only show builtins + tags from loaded libraries at cursor position
+- When inspector is unavailable: show all tags (fallback behavior, no filtering)
+- Update call sites in the server to pass the new parameters
+
+**Tests**: Before any load only builtins appear, after `{% load i18n %}` i18n tags appear, inspector unavailable shows all tags.
+
+### Phase 6: Library Completions Enhancement
+
+Update `generate_library_completions` to use the inspector inventory's library data directly:
+
+- Show all known library names from `tags.libraries()` (already done in M1)
+- When inspector unavailable: return empty (no libraries known)
+
+**Tests**: Library completions show correct names, inspector unavailable returns empty list.
+
+---
 
 ## Testing Strategy
 
-### Unit Tests
-
-#### In `crates/djls-semantic/src/load_resolution.rs`:
-
-1. **parse_load_bits** - Various load syntaxes
-2. **LoadedLibraries** - Position-based queries
-3. **available_tags_at** - Scoping logic
-
-#### In `crates/djls-ide/src/completions.rs`:
-
-1. **Tag completions** - Verify filtering by load state
-2. **Library completions** - Verify library names shown
-
-### Integration Tests
+### Integration Test Templates
 
 Create test templates that exercise scoping boundaries:
 
-```html
-{# test_scoping_boundaries.html #} {# 1. Builtin should work everywhere #} {% if True %}OK{% endif
-%} {# 2. Library tag BEFORE load - should error #} {% trans "hello" %} {# S109 expected #} {# 3.
-Load the library #} {% load i18n %} {# 4. Library tag AFTER load - should be valid #} {% trans
-"world" %} {# No error expected #} {# 5. Selective import #} {% load blocktrans from i18n %} {#
-Already have i18n, but this is valid #} {# 6. Unknown tag - should error #} {% nonexistent %} {#
-S108 expected #}
-```
-
-```html
-{# test_selective_then_full.html #} {# 1. Selective import first #} {% load trans from i18n %} {# 2.
-trans available, blocktrans not #} {% trans "hello" %} {# No error #} {% blocktrans %}Hi{%
-endblocktrans %} {# S109 expected - blocktrans not imported #} {# 3. Full load overrides selective
-#} {% load i18n %} {# 4. Now all i18n tags available #} {% blocktrans %}World{% endblocktrans %} {#
-No error - full load makes all available #}
-```
-
-```html
-{# test_collision_handling.html #} {# Assumes inventory has mytag defined in both myapp and otherapp
-libraries #} {# 1. Tag from multiple libraries, none loaded - should get S110 #} {% mytag %} {#
-S110: requires one of {% load myapp %}, {% load otherapp %} #} {# 2. Load one of them #} {% load
-myapp %} {# 3. Now valid - Django will use myapp's version #} {% mytag %} {# No error #}
-```
+1. **Basic scoping**: Builtin works everywhere, library tag before load → S109, library tag after load → valid, unknown tag → S108
+2. **Selective then full**: `{% load trans from i18n %}` → only trans available; then `{% load i18n %}` → all i18n tags available
+3. **Collision handling**: Tag defined in multiple libraries, none loaded → S110; load one → valid
 
 ### Completion Position Tests
 
-1. **Before any load**: Only builtins in completions
-2. **After `{% load i18n %}`**: Builtins + i18n tags
-3. **With `{% load trans from i18n %}`**: Builtins + trans only
-4. **Multiple loads**: Cumulative availability
-5. **Inspector unavailable**: All tags shown (fallback behavior)
+1. Before any load: only builtins
+2. After `{% load i18n %}`: builtins + i18n tags
+3. With `{% load trans from i18n %}`: builtins + trans only
+4. Multiple loads: cumulative availability
+5. Inspector unavailable: all tags shown (fallback)
 
 ### TagSpecs/Structural Edge Cases
 
-1. **Closers without inventory**: `{% endif %}` should NOT get S108 (has spec via opener)
-2. **Intermediates**: `{% else %}` should NOT get S108 (has intermediate spec)
-3. **Unknown closer**: `{% endfoo %}` where "foo" unknown → S108 only if no spec exists
-4. **Library closer after load**: `{% endblocktrans %}` after `{% load i18n %}` → valid (opener in inventory)
-
-### Position Unit Tests
-
-1. **Byte offset calculation**: Verify `calculate_byte_offset()` handles UTF-16 → bytes
-2. **Multi-byte chars**: Template with emoji, verify span positions correct
-3. **Load at position boundary**: Tag at exact `span.end()` position → not yet available
+1. `{% endif %}` should NOT get S108 (has spec via opener)
+2. `{% else %}` should NOT get S108 (has intermediate spec)
+3. `{% endfoo %}` where "foo" unknown → S108 only if no spec exists
 
 ---
 
@@ -264,34 +196,11 @@ myapp %} {# 3. Now valid - Django will use myapp's version #} {% mytag %} {# No 
 
 - **Single-pass extraction**: `compute_loaded_libraries` is O(n) over nodelist
 - **Cached via Salsa**: LoadedLibraries computed once per file revision
-- **Position lookup**: `libraries_before` is O(k) where k = number of load statements (typically small)
-- **Completion filtering**: O(t) where t = total tags (already existing cost)
-
----
+- **Position lookup**: O(k) where k = number of load statements (typically small)
 
 ## Migration Notes
 
-This is a **user-visible behavior change**:
-
-### Before M3:
-
-- Unknown tags pass silently
-- All tags shown in completions regardless of `{% load %}`
-
-### After M3:
-
-- Unknown tags produce S108 diagnostic (when inspector healthy)
-- Unloaded library tags produce S109 diagnostic
-- Completions filtered by load state
-
-### Configuration (Future)
-
-Consider adding config options:
-
-- `djls.validation.unknown_tag_severity`: error | warning | off
-- `djls.validation.unloaded_library_severity`: error | warning | off
-
----
+This is a **user-visible behavior change**: unknown tags now produce diagnostics (when inspector healthy), and completions are filtered by load state.
 
 ## References
 
@@ -299,4 +208,3 @@ Consider adding config options:
 - M1 Plan: [`.agents/plans/2026-02-05-m1-payload-library-name-fix.md`](2026-02-05-m1-payload-library-name-fix.md) (TagProvenance)
 - M2 Plan: [`.agents/plans/2026-02-05-m2-salsa-invalidation-plumbing.md`](2026-02-05-m2-salsa-invalidation-plumbing.md) (inspector_inventory)
 - Research: [`.agents/research/2026-02-04_load-tag-library-scoping.md`](../research/2026-02-04_load-tag-library-scoping.md)
-- Research: [`.agents/research/2026-02-04_semantic-validation-orchestration.md`](../research/2026-02-04_semantic-validation-orchestration.md)

@@ -361,20 +361,14 @@ Plan must include:
 - Minimal tests/verification for the docs/template changes (lint/build docs if applicable).
 
 Output file:
-- `.agents/plans/YYYY-MM-DD-m7-docs-and-issue-template.md`
+- `.agents/plans/2026-02-05-m7-docs-and-issue-template.md`
 ```
 
 ---
 
 ## Documents To Generate (Remaining)
 
-These are the next "paperwork" outputs to keep the program coordinated:
-
-1. `.agents/plans/YYYY-MM-DD-m7-docs-and-issue-template.md`
-
-Optional (only if we feel lost again):
-
-- `.agents/rfcs/YYYY-MM-DD-rfc-milestone-decomposition.md` (turns milestones into a dependency graph with exact "touch points" per crate)
+All milestone plans have been generated and are ready for implementation.
 
 ---
 

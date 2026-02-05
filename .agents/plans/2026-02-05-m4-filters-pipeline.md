@@ -4,376 +4,172 @@
 
 Implement complete filter support for Django templates:
 
-1. **Inspector filter inventory** - Collect filters from Django with provenance (builtin vs library)
-2. **Structured filter representation** - Transform `Vec<String>` → `Vec<Filter>` with name/arg/span
-3. **Filter completions** - Completions in `{{ x| }}` context
-4. **Unknown filter diagnostics** - Validate filters against inventory with load scoping
-5. **Load scoping for filters** - Reuse M3 infrastructure for filter availability
+1. **Inspector filter inventory** — Collect filters from Django with provenance (builtin vs library)
+2. **Structured filter representation** — Transform `Vec<String>` → structured `Filter` type with name/arg/span
+3. **Filter completions** — Completions in `{{ x| }}` context
+4. **Unknown filter diagnostics** — Validate filters against inventory with load scoping
+5. **Load scoping for filters** — Reuse M3 infrastructure for filter availability
 
 This builds on M1 (payload shape with provenance), M2 (Salsa invalidation), and M3 (load scoping infrastructure).
 
 ## Current State Analysis
 
-### Parser Representation (`crates/djls-templates/src/parser.rs:182-202`)
+### Parser Representation (`crates/djls-templates/src/parser.rs`)
 
-```rust
-fn parse_variable(&mut self) -> Result<Node, ParseError> {
-    // ...
-    let mut parts = content_ref.split('|');
-    let var = parts.next().ok_or(ParseError::EmptyTag)?.trim().to_string();
-    let filters: Vec<String> = parts.map(|s| s.trim().to_string()).collect();
-    Ok(Node::Variable { var, filters, span })
-}
-```
-
-**Current limitations:**
-
-- `filters: Vec<String>` stores raw strings like `["default:'nothing'", "title"]`
-- No parsing of filter name vs argument
-- No individual spans per filter
-- No validation against known filters
-
-### Node::Variable (`crates/djls-templates/src/nodelist.rs:27-31`)
-
-```rust
-Variable {
-    var: String,           // e.g., "user.name"
-    filters: Vec<String>,  // e.g., ["default:'nothing'", "title"]
-    span: Span,            // Entire content span
-}
-```
+Filters are stored as `filters: Vec<String>` on `Node::Variable`, containing raw strings like `["default:'nothing'", "title"]`. No parsing of filter name vs argument, no individual spans per filter, no validation against known filters.
 
 ### Inspector (`crates/djls-project/inspector/queries.py`)
 
-- **Filters not collected** - Only `library.tags` is iterated, `library.filters` is ignored
-- No filter inventory in the payload
+**Filters not collected** — Only `library.tags` is iterated, `library.filters` is ignored. No filter inventory in the payload.
 
-### Completions (`crates/djls-ide/src/completions.rs:67-70, 327-329`)
+### Completions (`crates/djls-ide/src/completions.rs`)
 
-- `TemplateCompletionContext::Filter { partial }` - Placeholder, returns empty vec
-- No detection of `{{ var|` context in `analyze_template_context()`
+`TemplateCompletionContext::Filter { partial }` exists as a placeholder that returns empty. No detection of `{{ var|` context in `analyze_template_context()`.
 
 ### Validation (`crates/djls-semantic/`)
 
-- **No filter validation** - `filters` field is passed through but never validated
+No filter validation — `filters` field is passed through but never validated.
 
 ## Desired End State
 
-Per charter section M4:
-
 1. **Filter completions** appear in `{{ var|` context
-2. **Unknown filter** produces diagnostic: `"Unknown filter 'xyz'"`
-3. **Unloaded filter** produces diagnostic: `"Filter 'escape' requires {% load i18n %}"`
-4. **Filter scoping** respects `{% load %}` (reuses M3 infrastructure)
-5. **Inspector reports filter inventory** with provenance consistent with M1
+2. **Unknown filter** produces S111 diagnostic
+3. **Unloaded filter** produces S112 diagnostic with required library name
+4. **Ambiguous filter** (multiple libraries) produces S113 diagnostic
+5. **Filter scoping** respects `{% load %}` via M3 infrastructure
+6. **Inspector reports filter inventory** with provenance consistent with M1's tag provenance
 
-### Filter Provenance (Mirrors Tag Provenance from M1)
+### Inventory Type Evolution (Breaking Change in M4)
 
-```python
-# Python payload
-{
-    "name": "date",
-    "provenance": {"builtin": {"module": "django.template.defaultfilters"}},
-    "defining_module": "django.template.defaultfilters",
-    "doc": "Formats a date...",
-    "expects_arg": true  # optional enrichment
-}
-```
+Switch the `Project` field carrying inspector data from a tags-only shape (`TemplateTags`) to a unified inventory shape that includes both tags and filters. M1-M3 are implemented against the tags-only shape; M4 expands it.
 
-```rust
-// Rust types
-pub enum FilterProvenance {
-    Library { load_name: String, module: String },
-    Builtin { module: String },
-}
-```
+### Filter Provenance
+
+Filter provenance mirrors `TagProvenance` from M1 — either `Library { load_name, module }` or `Builtin { module }`. The Python inspector collects filters the same way it collects tags (iterating `library.filters.items()` in addition to `library.tags.items()`).
 
 ## What We're NOT Doing
 
-- **Filter arity/signature validation** - That's M5/M6 scope (extraction)
-- **Filter argument type checking** - Runtime concern
-- **Cross-template state** - Future work
-- **Safe/autoescape flags** - Not needed for basic validation
+- **Filter arity/signature validation** — That's M5/M6 scope (extraction)
+- **Filter argument type checking** — Runtime concern
+- **Cross-template state** — Future work
+- **Safe/autoescape flags** — Not needed for basic validation
 
 ---
 
-## Implementation Approach
+## Implementation Plan
 
-**Critical breakpoint**: The parser filter representation change (`Vec<String>` → `Vec<Filter>`) touches many layers. This is explicitly handled in **Phase 2** with a clear strategy: update all consumers in one pass.
+### Phase 1: Inspector Filter Inventory
 
-### Architecture Overview
+**Goal**: Expand the inspector to collect filters alongside tags.
 
-```mermaid
-flowchart TB
-    subgraph FilterFlow["FILTER DATA FLOW"]
-        direction TB
+Update `crates/djls-project/inspector/queries.py` to iterate `library.filters.items()` (not just `library.tags`) and return a filter inventory with the same provenance structure as tags.
 
-        subgraph Phase1["Phase 1: Inspector"]
-            PI["Collect filters"]
-        end
+Update the Rust types to include a filter inventory. Expand `TemplateTags` (or create a new unified inventory type) to hold filters alongside tags, with `FilterProvenance` mirroring `TagProvenance`.
 
-        Phase1 --> Phase2
+Update the Salsa query/Project field to carry the expanded inventory.
 
-        subgraph Phase2["Phase 2: Parsing"]
-            Parser["Structured filters"]
-        end
+### Phase 2: Structured Filter Representation (BREAKPOINT)
 
-        Phase2 --> Phase3
+**Goal**: Transform filters from raw strings to structured data with individual spans.
 
-        subgraph Phase3["Phase 3: Completions"]
-            Comp["Filter completions"]
-        end
+**This is a wide-reaching change** — `Node::Variable` is consumed by semantic analysis, block building, IDE context detection, and snapshot tests.
 
-        Phase3 --> Phase4
+Create a `Filter` type (in `djls-templates`) with:
+- `name: String` — the filter name (e.g., `"default"`)
+- `arg: Option<String>` — the filter argument (e.g., `"'nothing'"`)
+- `span: Span` — byte span of this filter within the source
 
-        subgraph Phase4["Phase 4: Validation"]
-            Val["Load scoping"]
-        end
-    end
-```
+Update `parse_variable()` to parse filter strings into structured `Filter` values. Handle:
+- Simple filters: `title` → `Filter { name: "title", arg: None, span }`
+- Filters with args: `default:'nothing'` → `Filter { name: "default", arg: Some("'nothing'"), span }`
+- Colon inside quoted args: `default:'time:12:30'` → name is `"default"`, arg is `'time:12:30'`
+- Filter chains: each filter gets its own span within the variable expression
 
-**Phase Details:**
+Update ALL consumers of `Node::Variable.filters` in a single pass:
+- `djls-semantic/blocks/tree.rs` — `NodeView::Variable`
+- `djls-semantic/blocks/builder.rs` — pattern matching
+- `djls-ide/context.rs` — `OffsetContext::Variable`
+- All snapshot tests that include filters
 
-1. **Inspector Filter Inventory** (`queries.py`)
-    - Iterate `library.filters.items()` (not just `library.tags`)
-    - Return `TemplateFilter { name, module, doc, provenance }`
+### Phase 3: Filter Completions
 
-2. **Structured Filter Parsing** (`djls-templates`)
-    - Transform `"default:'nothing'"` → `Filter { name: "default", arg: Some("'nothing'"), span }`
-    - `filters: Vec<Filter>` instead of `Vec<String>`
-    - **BREAKPOINT**: Parser changes happen here
+**Goal**: Provide filter completions in `{{ x| }}` context.
 
-3. **Completions** (`djls-ide`)
-    - Detect `{{ x|` context in `analyze_template_context()`
-    - `generate_filter_completions(inventory, loaded_libs, position)`
+Update `analyze_template_context()` in `crates/djls-ide/src/completions.rs` to detect the `{{ var|` context — specifically, when the cursor is after a pipe character inside a variable expression. Extract the partial filter name (text after the last pipe).
 
-4. **Validation with Load Scoping** (`djls-semantic`)
-    - Reuse M3 `LoadedLibraries` infrastructure
-    - S111: Unknown filter "xyz"
-    - S112: Filter "X" requires `{% load Y %}`
-    - S113: Ambiguous filter (multiple libraries)
+Implement `generate_filter_completions()` that:
+- Shows builtin filters always
+- Shows library filters only if their library is loaded before cursor position (reuse M3 `LoadedLibraries`)
+- Filters by partial prefix
+- Returns deterministic alphabetical ordering
+
+### Phase 4: Filter Validation with Load Scoping
+
+**Goal**: Validate filters against inventory using M3's load scoping infrastructure.
+
+Add diagnostic codes:
+- **S111**: Unknown filter (not in any inventory)
+- **S112**: Unloaded filter (known but requires `{% load X %}`)
+- **S113**: Ambiguous unloaded filter (defined in multiple libraries)
+
+Wire filter validation into the semantic analysis pipeline. For each filter in a `Node::Variable`, check:
+1. Is it a builtin filter? → always valid
+2. Is its library loaded before this position? → valid
+3. Is it known but not loaded? → S112 (single library) or S113 (multiple)
+4. Is it completely unknown? → S111
+
+Guard: if inspector inventory is `None`, skip all filter scoping diagnostics.
 
 ---
-
-## Phase Documents
-
-This plan is split into phase-specific documents for easier navigation:
-
-- [Phase 1: Inspector Filter Inventory (via Project Field)](2026-02-05-m4.1-filters-pipeline.md)
-- [Phase 2: Structured Filter Representation (BREAKPOINT)](2026-02-05-m4.2-filters-pipeline.md)
-- [Phase 3: Filter Completions](2026-02-05-m4.3-filters-pipeline.md)
-- [Phase 4: Filter Validation with Load Scoping](2026-02-05-m4.4-filters-pipeline.md)
 
 ## Testing Strategy
 
-### Unit Tests
+### Parser Tests
 
-#### Parser Tests (`crates/djls-templates/src/parser.rs`)
+- Filter with argument parses correctly (name vs arg separated)
+- Filter chain with mixed args
+- Colon inside quoted argument doesn't split
+- Each filter has correct span positions
+- Empty/trailing pipe edge case
+- Use `insta` snapshot tests
 
-```rust
-#[test]
-fn test_parse_filter_with_arg() {
-    let source = "{{ value|default:'fallback' }}";
-    let nodelist = parse_test_template(source);
-    insta::assert_yaml_snapshot!(convert_nodelist_for_testing(&nodelist));
-}
+### Completion Tests
 
-#[test]
-fn test_parse_filter_chain_with_args() {
-    let source = "{{ value|default:'x'|date:'Y-m-d' }}";
-    let nodelist = parse_test_template(source);
-    insta::assert_yaml_snapshot!(convert_nodelist_for_testing(&nodelist));
-}
+- `{{ value|` context detected correctly
+- `{{ value|def` partial filtering works
+- Builtin filters always appear
+- Library filters excluded when their library isn't loaded
+- Inspector unavailable shows all filters
 
-#[test]
-fn test_parse_filter_no_arg() {
-    let source = "{{ value|title|upper }}";
-    let nodelist = parse_test_template(source);
-    insta::assert_yaml_snapshot!(convert_nodelist_for_testing(&nodelist));
-}
+### Validation Tests
 
-#[test]
-fn test_parse_filter_quoted_colon() {
-    // Colon inside quoted arg should not split
-    let source = "{{ value|default:'time:12:30' }}";
-    let nodelist = parse_test_template(source);
-    insta::assert_yaml_snapshot!(convert_nodelist_for_testing(&nodelist));
-}
-
-#[test]
-fn test_parse_filter_empty_chain() {
-    // Trailing pipe with nothing after
-    let source = "{{ value| }}";
-    let nodelist = parse_test_template(source);
-    insta::assert_yaml_snapshot!(convert_nodelist_for_testing(&nodelist));
-}
-
-#[test]
-fn test_filter_spans() {
-    // Verify span positions are accurate
-    let source = "{{ v|a|b:x }}";
-    let nodelist = parse_test_template(source);
-    // Filter 'a' should span positions 5-6
-    // Filter 'b:x' should span positions 7-10
-    insta::assert_yaml_snapshot!(convert_nodelist_for_testing(&nodelist));
-}
-```
-
-#### Completion Tests (`crates/djls-ide/src/completions.rs`)
-
-```rust
-#[test]
-fn test_filter_context_detection() {
-    // After pipe
-    let ctx = analyze_template_context("{{ value|", 9);
-    assert!(matches!(ctx, Some(TemplateCompletionContext::Filter { partial, .. }) if partial.is_empty()));
-
-    // Partial filter name
-    let ctx = analyze_template_context("{{ value|def", 12);
-    assert!(matches!(ctx, Some(TemplateCompletionContext::Filter { partial, .. }) if partial == "def"));
-
-    // After space (still in filter context)
-    let ctx = analyze_template_context("{{ value| ", 10);
-    assert!(matches!(ctx, Some(TemplateCompletionContext::Filter { partial, .. }) if partial.is_empty()));
-}
-
-#[test]
-fn test_filter_completions_builtin() {
-    // Builtin filters should always appear
-    let filters = make_test_filter_inventory();
-    let completions = generate_filter_completions(
-        "",
-        &VariableClosingBrace::None,
-        Some(&filters),
-        None, // No load info
-        0,
-    );
-
-    let labels: Vec<_> = completions.iter().map(|c| c.label.as_str()).collect();
-    assert!(labels.contains(&"title"));
-    assert!(labels.contains(&"upper"));
-    assert!(labels.contains(&"default"));
-}
-
-#[test]
-fn test_filter_completions_scoped() {
-    // i18n filters should NOT appear without load
-    let filters = make_test_filter_inventory_with_i18n();
-    let loaded = LoadedLibraries::new(); // Empty
-
-    let completions = generate_filter_completions(
-        "",
-        &VariableClosingBrace::None,
-        Some(&filters),
-        Some(&loaded),
-        50,
-    );
-
-    let labels: Vec<_> = completions.iter().map(|c| c.label.as_str()).collect();
-    // Assuming 'localize' is an i18n filter
-    assert!(!labels.contains(&"localize"));
-}
-```
-
-#### Validation Tests (`crates/djls-semantic/src/load_resolution.rs`)
-
-```rust
-#[test]
-fn test_unknown_filter_diagnostic() {
-    // {{ value|nonexistent }} should produce S111
-    // ... test setup with db ...
-}
-
-#[test]
-fn test_unloaded_filter_diagnostic() {
-    // {{ value|localize }} without {% load l10n %} should produce S112
-    // ... test setup with db ...
-}
-
-#[test]
-fn test_filter_after_load_valid() {
-    // {% load l10n %}{{ value|localize }} should NOT produce diagnostic
-    // ... test setup with db ...
-}
-
-#[test]
-fn test_builtin_filter_always_valid() {
-    // {{ value|title }} should NEVER produce diagnostic
-    // ... test setup with db ...
-}
-```
-
-### Integration Tests
-
-Create test templates:
-
-```html
-{# test_filter_scoping.html #} {# 1. Builtin filters work everywhere #} {{ value|title }} {{
-value|upper|lower }} {# 2. Unknown filter - should error #} {{ value|nonexistent }} {# S111 expected
-#} {# 3. Library filter BEFORE load - should error #} {{ value|localize }} {# S112 expected #} {# 4.
-Load the library #} {% load l10n %} {# 5. Library filter AFTER load - valid #} {{ value|localize }}
-{# No error #}
-```
-
-```html
-{# test_filter_with_args.html #} {# Filter arguments should parse correctly #} {{
-value|default:'fallback' }} {{ value|date:'Y-m-d H:i:s' }} {{ value|default:"with:colon" }} {{
-value|floatformat:2 }} {# Chain with mixed args #} {{ value|default:'x'|title|truncatewords:3 }}
-```
-
-### Manual Testing Steps
-
-1. **Filter completions appear**:
-    - Type `{{ value|` - should see filter list
-    - Type `{{ value|def` - should filter to `default`
-    - Verify documentation appears in completion detail
-
-2. **Unknown filter diagnostic**:
-    - Type `{{ value|fakefiltername }}` - should see S111 squiggle
-
-3. **Unloaded filter diagnostic**:
-    - Type `{{ value|localize }}` - should see S112 squiggle
-    - Add `{% load l10n %}` before it - squiggle should disappear
-
-4. **Builtin filters never error**:
-    - `{{ value|title|upper|default:'x' }}` - no diagnostics
+- Unknown filter → S111
+- Unloaded library filter → S112
+- Filter after `{% load %}` → valid
+- Builtin filter → always valid
+- Inspector unavailable → no scoping diagnostics
 
 ---
 
 ## Performance Considerations
 
-- **Filter inventory cached**: Fetched once via Salsa tracked query
-- **Load state computed once**: `compute_loaded_libraries` is cached per file revision
-- **Completion filtering**: O(f) where f = total filters (typically ~50-100)
-- **Validation**: O(v×f) where v = variables with filters in template, f = filters per variable (typically small)
-
----
+- Filter inventory cached via Salsa
+- Load state from M3 reused (no recomputation)
+- Filter parsing is O(n) per variable expression
 
 ## Migration Notes
 
 ### Parser Representation Change (Phase 2)
 
-**This is a breaking change** to `Node::Variable` structure. All consumers must be updated simultaneously:
+**Breaking change** to `Node::Variable` — all consumers must be updated simultaneously in one PR. Run `cargo test --all` with snapshot updates.
 
-| Consumer                          | Update Required                               |
-| --------------------------------- | --------------------------------------------- |
-| `djls-semantic/blocks/tree.rs`    | Change `NodeView::Variable` filters type      |
-| `djls-semantic/blocks/builder.rs` | Pattern match (likely unchanged)              |
-| `djls-ide/context.rs`             | Change `OffsetContext::Variable` filters type |
-| Snapshot tests                    | All filter snapshots need update              |
+### Inspector Filter Query
 
-**Strategy**: Single PR, update all consumers, run `cargo test --all` with snapshot updates.
-
-### New Inspector Query
-
-The `templatefilters` query is new. Older djls versions won't have it, but the Salsa query returns `Option<TemplateFilters>`, so missing data is handled gracefully.
-
----
+New inspector query for filters. Returns `Option<...>` so missing data is handled gracefully.
 
 ## References
 
 - Charter: [`.agents/charter/2026-02-05-template-validation-port-charter.md`](../charter/2026-02-05-template-validation-port-charter.md) (Section M4)
 - M1 Plan: [`.agents/plans/2026-02-05-m1-payload-library-name-fix.md`](2026-02-05-m1-payload-library-name-fix.md) (TagProvenance pattern)
-- M3 Plan: [`.agents/plans/2026-02-05-m3-load-scoping.md`](2026-02-05-m3-load-scoping.md) (LoadedLibraries infrastructure)
+- M3 Plan: [`.agents/plans/2026-02-05-m3-load-scoping.md`](2026-02-05-m3-load-scoping.md) (LoadedLibraries)
 - Research: [`.agents/research/2026-02-04_template-filters-analysis.md`](../research/2026-02-04_template-filters-analysis.md)
-- Research: [`.agents/research/2026-02-04_load-tag-library-scoping.md`](../research/2026-02-04_load-tag-library-scoping.md)

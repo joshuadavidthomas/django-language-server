@@ -7,32 +7,21 @@ Implement Rust-side rule mining using Ruff AST to derive validation semantics fr
 **Key architectural principles:**
 
 1. Python inspector provides **authoritative inventory** (what exists + provenance + registry)
-2. Rust does **AST extraction** (validation semantics) - no Python AST analysis in inspector
-3. Salsa inputs stay minimal: `File` + `Project` only - no new global inputs
+2. Rust does **AST extraction** (validation semantics) — no Python AST analysis in inspector
+3. Salsa inputs stay minimal: `File` + `Project` only — no new global inputs
 4. Extraction results keyed by `SymbolKey` to avoid collisions across libraries
 
 **Critical extraction constraints (non-negotiable):**
 
-1. **No `end*` string heuristics** for end-tag inference - infer closers from control flow patterns only
-2. **No hardcoded split variable name** - detect the variable bound to `token.split_contents()` dynamically
-3. **Conservative fallback** - emit `None` for block specs when inference is ambiguous
+1. **No `end*` string heuristics** for end-tag inference — infer closers from control flow patterns only
+2. **No hardcoded split variable name** — detect the variable bound to `token.split_contents()` dynamically
+3. **Conservative fallback** — emit `None` for block specs when inference is ambiguous
 
 ## Current State Analysis
 
 ### Inspector Payload (Post-M4)
 
-From M4, `Project.inspector_inventory` contains:
-
-```rust
-pub struct InspectorInventory {
-    pub libraries: HashMap<String, String>,  // load_name → module_path
-    pub builtins: Vec<String>,               // ordered builtin module paths
-    pub tags: Vec<TemplateTag>,              // provenance.{library,builtin}.module
-    pub filters: Vec<TemplateFilter>,        // provenance.{library,builtin}.module
-}
-```
-
-**Key**: Each tag/filter carries `provenance.module` - the **registration module** where `@register.tag` is called. This is the extraction target.
+From M4, `Project.inspector_inventory` contains tags and filters with provenance, where each item carries `provenance.module` — the **registration module** where `@register.tag` is called. This is the extraction target.
 
 ### What Extraction Adds
 
@@ -41,151 +30,194 @@ pub struct InspectorInventory {
 | Tag names + provenance      | Argument validation rules                     |
 | Filter names + provenance   | Filter arity (arg count)                      |
 | Library/builtin distinction | Block specs (end_tag, intermediate)           |
-| -                           | Option constraints (known values, duplicates) |
-| -                           | Opaque block specs (verbatim-like)            |
+| —                           | Option constraints (known values, duplicates) |
+| —                           | Opaque block specs (verbatim-like)            |
 
-### Key Files to Reference
+### Key Existing Files
 
-| Location                                            | Content                    |
-| --------------------------------------------------- | -------------------------- |
-| `crates/djls-semantic/src/templatetags/specs.rs`    | `TagSpec`, `TagArg` types  |
-| `crates/djls-semantic/src/templatetags/builtins.rs` | Handcoded specs to replace |
-| `crates/djls-project/inspector/queries.py`          | Inspector query pattern    |
-| `crates/djls-source/src/file.rs`                    | `File` Salsa input pattern |
-| `crates/djls-server/src/db.rs`                      | Salsa query patterns       |
+- `crates/djls-semantic/src/templatetags/specs.rs` — `TagSpec`, `TagArg` types
+- `crates/djls-semantic/src/templatetags/builtins.rs` — Handcoded specs to replace
+- `crates/djls-project/inspector/queries.py` — Inspector query pattern
+- `crates/djls-source/src/file.rs` — `File` Salsa input pattern
+- `crates/djls-server/src/db.rs` — Salsa query patterns
 
 ## Desired End State
 
-After M5 (9 phases):
+After M5:
 
-1. **`djls-extraction` crate exists** with pure API: `extract_rules(&str) -> ExtractionResult`
+1. **`djls-extraction` crate exists** with pure API: `extract_rules(source: &str) -> ExtractionResult`
 2. **Registration discovery** finds `@register.tag`/`@register.filter` decorators
-3. **Function context detection** identifies split-contents variable dynamically (not hardcoded `bits`)
+3. **Function context detection** identifies split-contents variable dynamically
 4. **Rule extraction** derives validation conditions from TemplateSyntaxError guards
 5. **Block spec extraction** infers end-tags from control flow patterns (NO string heuristics)
 6. **Filter arity extraction** determines argument requirements
 7. **Salsa integration** wires extraction into tracked queries with proper invalidation
-8. **Small fixture golden tests** verify individual patterns (fast, always-run)
-9. **Corpus/full-source tests** validate at Django + ecosystem scale (env-gated)
-
-### Dependency Graph (Post-M5)
-
-```mermaid
-flowchart TB
-    subgraph Inputs["SALSA INPUTS - 2 total"]
-        direction TB
-        File["File"]
-        Project["Project"]
-    end
-
-    Inputs --> Flow
-
-    subgraph Flow["EXTRACTION FLOW"]
-        direction TB
-
-        Workspace["Workspace modules"]
-        External["External modules"]
-        Compute["compute_tag_specs"]
-
-        Workspace --> Compute
-        External --> Compute
-    end
-```
-
-**Salsa inputs (unchanged: 2 total):**
-
-- `File`: `path`, `revision` — workspace Python files become extraction deps
-- `Project`: `inspector_inventory` + `extracted_external_rules` + `tagspecs` + ...
-
-**Extraction flow:**
-
-- **Workspace registration modules:**
-    - `extract_module_rules(db, file: File) → ExtractionResult` (salsa::tracked)
-    - File change → automatic re-extraction
-- **External modules (site-packages):**
-    - Extracted in `refresh_inspector()`, not as tracked queries
-    - Stored on `Project.extracted_external_rules`
-- **`compute_tag_specs(db, project)`** merges all sources (salsa::tracked):
-    1. `django_builtin_specs()` — compile-time constant
-    2. Extracted rules from workspace modules — tracked queries
-    3. Extracted rules from external modules — Project field
-    4. User config overrides — `Project.tagspecs` field
+8. **Small fixture golden tests** verify individual patterns
+9. **Corpus/full-source tests** validate at Django + ecosystem scale
 
 ## What We're NOT Doing
 
 - **Python-side AST analysis**: Inspector reports only inventory, not validation rules
-- **New Salsa inputs**: No `ExtractedRules` input - use tracked queries over `File`
+- **New Salsa inputs**: No `ExtractedRules` input — use tracked queries over `File`
 - **Type checking Python code**: Extract statically provable patterns only
 - **Import tracing**: Don't follow Python imports beyond registration module
 - **Immediate builtins.rs removal**: Keep as fallback; extraction enriches/overrides
-- **Full parity with template_linter patterns**: Start with core patterns, expand incrementally
 - **String-based end-tag heuristics**: No `starts_with("end")` or similar name matching
-- **Hardcoded variable names**: No assuming `bits` - detect from `token.split_contents()` binding
-- **Guessing when uncertain**: If end-tag inference is ambiguous, return `None` - never guess
+- **Hardcoded variable names**: No assuming `bits` — detect from `token.split_contents()` binding
+- **Guessing when uncertain**: If end-tag inference is ambiguous, return `None`
 
 ---
 
-## Phase Documents
+## Implementation Plan
 
-This plan is split into phase-specific documents for easier navigation:
+### Phase 1: Create `djls-extraction` Crate with Ruff Parser
 
-- [Phase 1: Create `djls-extraction` Crate with Ruff Parser](2026-02-05-m5.1-extraction-engine.md)
-- [Phase 2: Implement Registration Discovery](2026-02-05-m5.2-extraction-engine.md)
-- [Phase 3: Implement Function Context Detection](2026-02-05-m5.3-extraction-engine.md)
-- [Phase 4: Implement Rule Extraction](2026-02-05-m5.4-extraction-engine.md)
-- [Phase 5: Implement Block Spec Extraction (Control-Flow Based)](2026-02-05-m5.5-extraction-engine.md)
-- [Phase 6: Implement Filter Arity Extraction](2026-02-05-m5.6-extraction-engine.md)
-- [Phase 7: Salsa Integration](2026-02-05-m5.7-extraction-engine.md)
-- [Phase 8: Small Fixture Golden Tests (Tier 1)](2026-02-05-m5.8-extraction-engine.md)
-- [Phase 9: Corpus / Full-Source Extraction Tests](2026-02-05-m5.9-extraction-engine.md)
+**Goal**: Set up the crate with `ruff_python_parser` as a git dependency, pinned to a specific SHA (choose a recent stable Ruff release tag, e.g., v0.9.x).
 
-## Testing Strategy Summary
+Create `crates/djls-extraction/` with:
+- Public API: `extract_rules(source: &str) -> ExtractionResult`
+- Types: `SymbolKey { registration_module, name, kind }`, `ExtractionResult`, `TagRule`, `FilterArity`, `BlockTagSpec`
+- Use a Cargo feature gate (`parser`) so that downstream crates can depend on `djls-extraction` for types only without pulling in the Ruff parser transitively. `djls-project` depends on types only; `djls-server` enables the `parser` feature.
 
-### Two-Tier Testing Approach
+Add `ruff_python_parser` and `ruff_python_ast` as workspace git dependencies (SHA-pinned). Verify the parser works with a trivial smoke test.
 
-| Tier                           | Location                            | Gating                                        | Purpose                               |
-| ------------------------------ | ----------------------------------- | --------------------------------------------- | ------------------------------------- |
-| **Tier 1: Unit/Fixture**       | `tests/golden.rs`, inline `#[test]` | Always runs                                   | Fast, deterministic, pattern-focused  |
-| **Tier 2: Corpus/Full-source** | `tests/corpus.rs`                   | Corpus synced (auto-detects default location) | Scale validation, real-world coverage |
+### Phase 2: Registration Discovery
 
-### Tier 1: Unit Tests
+**Goal**: Find `@register.tag(...)` and `@register.filter(...)` decorators in Python source.
 
-| Category     | Coverage                                          |
-| ------------ | ------------------------------------------------- |
-| Registration | Decorators with various names                     |
-| Context      | Split variable detection: `bits`, `args`, `parts` |
-| Rules        | All condition types, using detected variable      |
-| Structural   | End-tag inference WITHOUT string heuristics       |
-| Filters      | Arity detection                                   |
+Implement a registry scanner that walks the AST to find:
+- `@register.tag` / `@register.simple_tag` / `@register.inclusion_tag` / `@register.filter` decorators
+- `register.tag("name", func)` call expressions
+- Registration name (from decorator keyword arg, explicit string arg, or function name)
+- The decorated/referenced function for downstream analysis
 
-### Tier 2: Corpus Tests
+The Python prototype's `template_linter/src/template_linter/extraction/registry.py` is the behavioral reference.
 
-| Category             | Gating                                     | Coverage                                          | Lifetime                        |
-| -------------------- | ------------------------------------------ | ------------------------------------------------- | ------------------------------- |
-| No panics            | Corpus synced                              | Extraction handles all real-world Python patterns | **Permanent**                   |
-| Yield metrics        | Corpus synced                              | Corpus produces meaningful tag/filter counts      | **Permanent**                   |
-| Django versions      | Corpus synced                              | Golden snapshots across Django 4.2-6.0            | **Permanent**                   |
-| Unsupported tracking | Corpus synced                              | Counts of opaque rules, ambiguous blocks          | **Permanent**                   |
-| Parity oracle        | `DJLS_PY_ORACLE=1` + `DJLS_PY_ORACLE_PATH` | Comparison with Python prototype                  | **TEMPORARY** (delete after M6) |
+### Phase 3: Function Context Detection
 
-### Key Invariants Verified by Tests
+**Goal**: Dynamically detect the variable bound to `token.split_contents()` within a compile function.
+
+Scan the function body for a call to `split_contents()` and track which variable the result is bound to. This variable name (commonly `bits` but could be `args`, `parts`, `tokens`, etc.) is needed for rule extraction to interpret comparisons like `len(bits) < 4`.
+
+The Python prototype's `template_linter/src/template_linter/extraction/helpers.py` (`detect_split_var`) is the behavioral reference.
+
+### Phase 4: Rule Extraction
+
+**Goal**: Extract validation rules from TemplateSyntaxError guard conditions.
+
+Walk the function body looking for `raise TemplateSyntaxError(...)` statements and extract the guard conditions that precede them:
+- Token count checks: `if len(bits) < 4`
+- Keyword position checks: `if bits[2] != "as"`
+- Option validation: while loops checking known options, duplicates
+- `parse_bits` signatures for `simple_tag`/`inclusion_tag`
+
+Represent extracted rules as structured data (argument count constraints, required keywords at positions, known option sets).
+
+The Python prototype's `template_linter/src/template_linter/extraction/rules.py` is the behavioral reference.
+
+### Phase 5: Block Spec Extraction (Control-Flow Based)
+
+**Goal**: Infer end-tags and intermediate tags from `parser.parse((...))` call patterns.
+
+Find calls to `parser.parse()` with tuple arguments containing stop-token strings. Determine:
+- Which tokens are end-tags vs intermediate tags (based on control flow — if a stop-token leads to another `parser.parse()` call, it's intermediate; if it leads to return/node construction, it's terminal)
+- Dynamic end-tag patterns like `f"end{tag_name}"` (best-effort)
+- Opaque block detection: `parser.skip_past(...)` patterns indicate content should not be parsed
+
+**Non-negotiable constraints**:
+- Infer closers from control flow patterns only — NEVER from string prefix matching
+- When inference is ambiguous (multiple candidates, unclear control flow), return `None` for the end-tag
+- The `end{tag_name}` Django convention is ONLY used as a tie-breaker among candidates already found via control flow — never invented from thin air
+
+The Python prototype's `template_linter/src/template_linter/extraction/structural.py` and `extraction/opaque.py` are the behavioral references.
+
+### Phase 6: Filter Arity Extraction
+
+**Goal**: Determine filter argument requirements from function signatures.
+
+For `@register.filter` decorated functions, inspect the function signature to determine:
+- Required argument count (excluding `self` and the value parameter)
+- Whether an argument is optional (has a default value)
+
+This produces a `FilterArity` (e.g., `expects_arg: bool` or `arg_count: 0..=1`).
+
+The Python prototype's `template_linter/src/template_linter/extraction/filters.py` is the behavioral reference.
+
+### Phase 7: Salsa Integration
+
+**Goal**: Wire extraction into the Salsa query system with proper invalidation.
+
+**Workspace modules** (files under project root):
+- Create a tracked query `extract_module_rules(db, file: File) -> ExtractionResult`
+- File edits automatically invalidate via the `File` input → re-extraction happens naturally
+
+**External modules** (site-packages, stdlib):
+- Extract during `refresh_inspector()` (not as tracked queries — these files don't change during a session)
+- Store results on `Project.extracted_external_rules` field
+- Manual refresh triggers re-extraction with comparison before setter call
+
+**Module path resolution**:
+- Create a resolver that maps module paths (e.g., `django.templatetags.i18n`) to file paths using `sys_path` from the Python environment
+- Classify as workspace vs external based on whether the path is under project root
+- `sys_path` comes from the `python_env` inspector query, stored on `Project`
+
+**`compute_tag_specs` update**:
+- Merge extracted rules into tag specs (extraction enriches/overrides `builtins.rs` defaults)
+- Workspace extraction → tracked queries → automatic invalidation
+- External extraction → Project field → manual refresh invalidation
+
+### Phase 8: Small Fixture Golden Tests
+
+**Goal**: Fast, always-run tests that verify individual extraction patterns.
+
+Create small Python source fixtures (inline strings or fixture files) that exercise:
+- Registration discovery patterns (decorator styles, call-based registration)
+- Rule extraction patterns (len checks, keyword checks, option loops)
+- Block spec extraction (simple end-tag, intermediates, opaque blocks)
+- Filter arity detection
+- Edge cases: no split_contents call, ambiguous control flow, dynamic end-tags
+
+Use `insta` for snapshot testing where appropriate. These tests should run in `cargo test` without any external dependencies.
+
+### Phase 9: Corpus / Full-Source Extraction Tests
+
+**Goal**: Scale validation against real Django and ecosystem source code.
+
+Create test infrastructure (possibly in a `djls-corpus` crate or test module) that can:
+- Point at a synced corpus directory (from `template_linter/corpus/`)
+- Run extraction against all `templatetags/**/*.py` files
+- Verify: no panics, meaningful yield (tag/filter counts), golden snapshots for Django versions
+
+Gate these tests on corpus availability (auto-detect default location, skip gracefully if not present).
+
+**Temporary parity oracle**: Optionally compare Rust extraction output against the Python prototype's output. This oracle is explicitly temporary and should be deleted after M6 parity is achieved.
+
+---
+
+## Testing Invariants
+
+These invariants MUST be verified by tests:
 
 1. **No hardcoded `bits`**: Tests use `args`, `parts`, etc. and verify extraction works
-2. **Primary signals first**: `test_singleton_closer_pattern` proves `if`→`endif` via control flow, not naming
-3. **No `end*` heuristics**: `test_non_end_prefix_closer` and `test_generic_tag_with_non_conventional_closer` prove we don't rely on naming
-4. **Never guess**: `test_ambiguous_returns_none` verifies `end_tag: None` when uncertain
-5. **Never invent**: `test_django_convention_not_invented` verifies we don't create end tags from thin air
-6. **Convention is tie-breaker for ALL block tags**: `test_django_convention_fallback` selects `end{tag}` only when present in stop-tags
-7. **Ambiguity blocks fallback**: `test_django_convention_blocked_by_singleton_ambiguity` verifies competing signals prevent convention
-8. **Decorator default vs convention**: `test_simple_block_tag_without_end_name_uses_django_default` is Django-defined semantic (decorator-level), distinct from convention fallback
-9. **Corpus diversity**: `test_corpus_no_hardcoded_bits_assumption` confirms corpus has non-`bits` variables
+2. **Primary signals first**: End-tag inference works via control flow, not naming
+3. **No `end*` heuristics**: Tests prove non-conventional closer names are found correctly
+4. **Never guess**: Ambiguous cases return `None` for end-tag
+5. **Never invent**: End tags are never created from thin air — only from stop-tokens found in source
+6. **Convention is tie-breaker only**: `end{tag_name}` used to select among existing candidates, not to create new ones
+7. **Corpus diversity**: Corpus contains non-`bits` variable names, confirming dynamic detection works
 
 ---
+
+## Performance Considerations
+
+- Ruff parser is fast (designed for linting entire codebases)
+- Extraction cached via Salsa (workspace) or Project field (external)
+- Feature-gated parser dependency keeps compile times down for crates that only need types
 
 ## References
 
 - Charter: [`.agents/charter/2026-02-05-template-validation-port-charter.md`](../charter/2026-02-05-template-validation-port-charter.md)
 - RFC: [`.agents/rfcs/2026-02-05-rfc-extraction-placement.md`](../rfcs/2026-02-05-rfc-extraction-placement.md)
 - Research: [`.agents/research/2026-02-04_python-ast-parsing-rust.md`](../research/2026-02-04_python-ast-parsing-rust.md)
-- M2 Plan: [`.agents/plans/2026-02-05-m2-salsa-invalidation-plumbing.md`](2026-02-05-m2-salsa-invalidation-plumbing.md)
-- M4 Plan: [`.agents/plans/2026-02-05-m4-filters-pipeline.md`](2026-02-05-m4-filters-pipeline.md)
+- Research: [`.agents/research/2026-02-04_tagspecs-flow-analysis.md`](../research/2026-02-04_tagspecs-flow-analysis.md)
+- Python prototype extraction: `template_linter/src/template_linter/extraction/`
