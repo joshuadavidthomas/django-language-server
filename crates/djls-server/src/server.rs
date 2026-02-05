@@ -278,6 +278,12 @@ impl LanguageServer for DjangoLanguageServer {
                 let tag_specs = db.tag_specs();
                 let supports_snippets = session.client_info().supports_snippets();
 
+                // Get loaded libraries if we have a parsed nodelist
+                let loaded_libraries = db.get_file(&path).and_then(|file| {
+                    let nodelist = djls_templates::parse_template(db, file)?;
+                    Some(djls_semantic::compute_loaded_libraries(db, nodelist))
+                });
+
                 let completions = djls_ide::handle_completion(
                     &document,
                     position,
@@ -285,6 +291,7 @@ impl LanguageServer for DjangoLanguageServer {
                     file_kind,
                     template_tags.as_ref(),
                     Some(&tag_specs),
+                    loaded_libraries.as_ref(),
                     supports_snippets,
                 );
 

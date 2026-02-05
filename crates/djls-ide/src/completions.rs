@@ -4,6 +4,7 @@
 //! and generating appropriate completion items for Django templates.
 
 use djls_project::TemplateTags;
+use djls_semantic::LoadedLibraries;
 use djls_semantic::TagArg;
 use djls_semantic::TagSpecs;
 use djls_source::FileKind;
@@ -91,6 +92,7 @@ pub struct LineInfo {
 
 /// Main entry point for handling completion requests
 #[must_use]
+#[allow(clippy::too_many_arguments)]
 pub fn handle_completion(
     document: &TextDocument,
     position: ls_types::Position,
@@ -98,6 +100,7 @@ pub fn handle_completion(
     file_kind: FileKind,
     template_tags: Option<&TemplateTags>,
     tag_specs: Option<&TagSpecs>,
+    loaded_libraries: Option<&LoadedLibraries>,
     supports_snippets: bool,
 ) -> Vec<ls_types::CompletionItem> {
     // Only handle template files
@@ -115,16 +118,64 @@ pub fn handle_completion(
         return Vec::new();
     };
 
+    // Calculate byte offset for load scoping
+    let cursor_byte_offset = calculate_byte_offset(document, position, encoding);
+
     // Generate completions based on available template tags
     generate_template_completions(
         &context,
         template_tags,
         tag_specs,
+        loaded_libraries,
+        cursor_byte_offset,
         supports_snippets,
         position,
         &line_info.text,
         line_info.cursor_offset,
     )
+}
+
+/// Calculate byte offset from line/character position
+fn calculate_byte_offset(
+    document: &TextDocument,
+    position: ls_types::Position,
+    encoding: PositionEncoding,
+) -> u32 {
+    let content = document.content();
+    let lines: Vec<&str> = content.lines().collect();
+
+    let mut byte_offset: usize = 0;
+
+    // Add bytes for all complete lines before cursor
+    for line in lines.iter().take(position.line as usize) {
+        byte_offset += line.len() + 1; // +1 for newline
+    }
+
+    // Add bytes for characters in the current line up to cursor
+    if let Some(line) = lines.get(position.line as usize) {
+        let char_offset = match encoding {
+            PositionEncoding::Utf16 => {
+                let mut char_count = 0;
+                let mut utf16_count = 0;
+                for ch in line.chars() {
+                    if utf16_count >= position.character as usize {
+                        break;
+                    }
+                    utf16_count += ch.len_utf16();
+                    char_count += 1;
+                }
+                char_count
+            }
+            _ => position.character as usize,
+        };
+
+        byte_offset += line.chars().take(char_offset).map(char::len_utf8).sum::<usize>();
+    }
+
+    #[allow(clippy::cast_possible_truncation)]
+    {
+        byte_offset as u32
+    }
 }
 
 /// Extract line information from document at given position
@@ -280,10 +331,13 @@ fn detect_closing_brace(suffix: &str) -> ClosingBrace {
 }
 
 /// Generate Django template tag completion items based on context
+#[allow(clippy::too_many_arguments)]
 fn generate_template_completions(
     context: &TemplateCompletionContext,
     template_tags: Option<&TemplateTags>,
     tag_specs: Option<&TagSpecs>,
+    loaded_libraries: Option<&LoadedLibraries>,
+    cursor_byte_offset: u32,
     supports_snippets: bool,
     position: ls_types::Position,
     line_text: &str,
@@ -300,6 +354,8 @@ fn generate_template_completions(
             closing,
             template_tags,
             tag_specs,
+            loaded_libraries,
+            cursor_byte_offset,
             supports_snippets,
             position,
             line_text,
@@ -362,13 +418,15 @@ fn calculate_replacement_range(
 }
 
 /// Generate completions for tag names
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 fn generate_tag_name_completions(
     partial: &str,
     needs_space: bool,
     closing: &ClosingBrace,
     template_tags: Option<&TemplateTags>,
     tag_specs: Option<&TagSpecs>,
+    loaded_libraries: Option<&LoadedLibraries>,
+    cursor_byte_offset: u32,
     supports_snippets: bool,
     position: ls_types::Position,
     line_text: &str,
@@ -377,6 +435,11 @@ fn generate_tag_name_completions(
     let Some(tags) = template_tags else {
         return Vec::new();
     };
+
+    // Compute available tags at cursor position when load info is present.
+    // When load info is unavailable (None), show all tags as fallback.
+    let available = loaded_libraries
+        .map(|loaded| djls_semantic::available_tags_at(loaded, tags, cursor_byte_offset));
 
     let mut completions = Vec::new();
 
@@ -426,84 +489,83 @@ fn generate_tag_name_completions(
     }
 
     for tag in tags.iter() {
-        if tag.name().starts_with(partial) {
-            // Try to get snippet from TagSpecs if available and client supports snippets
-            let (insert_text, insert_format) = if supports_snippets {
-                if let Some(specs) = tag_specs {
-                    if let Some(spec) = specs.get(tag.name()) {
-                        if spec.args.is_empty() {
-                            // No args, use plain text
-                            build_plain_insert_for_tag(tag.name(), needs_space, closing)
-                        } else {
-                            // Generate snippet from tag spec
-                            let mut text = String::new();
+        if !tag.name().starts_with(partial) {
+            continue;
+        }
 
-                            // Add leading space if needed
-                            if needs_space {
-                                text.push(' ');
-                            }
+        // Filter by availability when load info is present.
+        // When available is None (no load info / inspector unavailable),
+        // show all tags to avoid false negatives.
+        if let Some(ref avail) = available {
+            if !avail.has_tag(tag.name()) {
+                continue;
+            }
+        }
 
-                            // Generate the snippet
-                            let snippet = generate_snippet_for_tag_with_end(tag.name(), spec);
-                            text.push_str(&snippet);
-
-                            // Only add closing if the snippet doesn't already include it
-                            // (snippets for tags with end tags include their own %} closing)
-                            if !snippet.contains("%}") {
-                                // Add closing based on what's already present
-                                match closing {
-                                    ClosingBrace::PartialClose | ClosingBrace::None => {
-                                        text.push_str(" %}");
-                                    }
-                                    ClosingBrace::FullClose => {} // No closing needed
-                                }
-                            }
-
-                            (text, ls_types::InsertTextFormat::SNIPPET)
-                        }
-                    } else {
-                        // No spec found, use plain text
+        // Try to get snippet from TagSpecs if available and client supports snippets
+        let (insert_text, insert_format) = if supports_snippets {
+            if let Some(specs) = tag_specs {
+                if let Some(spec) = specs.get(tag.name()) {
+                    if spec.args.is_empty() {
                         build_plain_insert_for_tag(tag.name(), needs_space, closing)
+                    } else {
+                        let mut text = String::new();
+
+                        if needs_space {
+                            text.push(' ');
+                        }
+
+                        let snippet = generate_snippet_for_tag_with_end(tag.name(), spec);
+                        text.push_str(&snippet);
+
+                        if !snippet.contains("%}") {
+                            match closing {
+                                ClosingBrace::PartialClose | ClosingBrace::None => {
+                                    text.push_str(" %}");
+                                }
+                                ClosingBrace::FullClose => {}
+                            }
+                        }
+
+                        (text, ls_types::InsertTextFormat::SNIPPET)
                     }
                 } else {
-                    // No specs available, use plain text
                     build_plain_insert_for_tag(tag.name(), needs_space, closing)
                 }
             } else {
-                // Client doesn't support snippets
                 build_plain_insert_for_tag(tag.name(), needs_space, closing)
-            };
+            }
+        } else {
+            build_plain_insert_for_tag(tag.name(), needs_space, closing)
+        };
 
-            // Create completion item
-            // Use SNIPPET kind when we're inserting a snippet, KEYWORD otherwise
-            let kind = if matches!(insert_format, ls_types::InsertTextFormat::SNIPPET) {
-                ls_types::CompletionItemKind::SNIPPET
+        let kind = if matches!(insert_format, ls_types::InsertTextFormat::SNIPPET) {
+            ls_types::CompletionItemKind::SNIPPET
+        } else {
+            ls_types::CompletionItemKind::KEYWORD
+        };
+
+        let completion_item = ls_types::CompletionItem {
+            label: tag.name().clone(),
+            kind: Some(kind),
+            detail: Some(if let Some(lib) = tag.library_load_name() {
+                format!("from {} ({{% load {} %}})", tag.defining_module(), lib)
             } else {
-                ls_types::CompletionItemKind::KEYWORD
-            };
+                format!("builtin from {}", tag.defining_module())
+            }),
+            documentation: tag
+                .doc()
+                .map(|doc| ls_types::Documentation::String(doc.clone())),
+            text_edit: Some(tower_lsp_server::ls_types::CompletionTextEdit::Edit(
+                ls_types::TextEdit::new(replacement_range, insert_text.clone()),
+            )),
+            insert_text_format: Some(insert_format),
+            filter_text: Some(tag.name().clone()),
+            sort_text: Some(format!("1_{}", tag.name())),
+            ..Default::default()
+        };
 
-            let completion_item = ls_types::CompletionItem {
-                label: tag.name().clone(),
-                kind: Some(kind),
-                detail: Some(if let Some(lib) = tag.library_load_name() {
-                    format!("from {} ({{% load {} %}})", tag.defining_module(), lib)
-                } else {
-                    format!("builtin from {}", tag.defining_module())
-                }),
-                documentation: tag
-                    .doc()
-                    .map(|doc| ls_types::Documentation::String(doc.clone())),
-                text_edit: Some(tower_lsp_server::ls_types::CompletionTextEdit::Edit(
-                    ls_types::TextEdit::new(replacement_range, insert_text.clone()),
-                )),
-                insert_text_format: Some(insert_format),
-                filter_text: Some(tag.name().clone()),
-                sort_text: Some(format!("1_{}", tag.name())), // Regular tags sort after end tags
-                ..Default::default()
-            };
-
-            completions.push(completion_item);
-        }
+        completions.push(completion_item);
     }
 
     completions
@@ -850,6 +912,8 @@ mod tests {
             &context,
             None,
             None,
+            None,
+            0,
             false,
             ls_types::Position::new(0, 0),
             "",
@@ -1062,5 +1126,209 @@ mod tests {
             full[0].insert_text.as_deref(),
             Some("static")
         );
+    }
+
+    fn make_test_tags() -> TemplateTags {
+        let mut libraries = std::collections::HashMap::new();
+        libraries.insert(
+            "i18n".to_string(),
+            "django.templatetags.i18n".to_string(),
+        );
+        libraries.insert(
+            "static".to_string(),
+            "django.templatetags.static".to_string(),
+        );
+
+        TemplateTags::new(
+            libraries,
+            vec!["django.template.defaulttags".to_string()],
+            vec![
+                djls_project::TemplateTag::new_builtin(
+                    "if",
+                    "django.template.defaulttags",
+                    None,
+                ),
+                djls_project::TemplateTag::new_builtin(
+                    "for",
+                    "django.template.defaulttags",
+                    None,
+                ),
+                djls_project::TemplateTag::new_library(
+                    "trans",
+                    "i18n",
+                    "django.templatetags.i18n",
+                    None,
+                ),
+                djls_project::TemplateTag::new_library(
+                    "blocktrans",
+                    "i18n",
+                    "django.templatetags.i18n",
+                    None,
+                ),
+                djls_project::TemplateTag::new_library(
+                    "static",
+                    "static",
+                    "django.templatetags.static",
+                    None,
+                ),
+            ],
+        )
+    }
+
+    #[test]
+    fn test_tag_completions_no_load_info_shows_all() {
+        let tags = make_test_tags();
+
+        let completions = generate_tag_name_completions(
+            "",
+            false,
+            &ClosingBrace::None,
+            Some(&tags),
+            None,
+            None, // no loaded_libraries → fallback shows all
+            0,
+            false,
+            ls_types::Position::new(0, 3),
+            "{% ",
+            3,
+        );
+
+        let labels: Vec<_> = completions.iter().map(|c| c.label.as_str()).collect();
+        assert!(labels.contains(&"if"));
+        assert!(labels.contains(&"for"));
+        assert!(labels.contains(&"trans"));
+        assert!(labels.contains(&"blocktrans"));
+        assert!(labels.contains(&"static"));
+    }
+
+    #[test]
+    fn test_tag_completions_no_loads_only_builtins() {
+        let tags = make_test_tags();
+        let loaded = djls_semantic::LoadedLibraries::new();
+
+        let completions = generate_tag_name_completions(
+            "",
+            false,
+            &ClosingBrace::None,
+            Some(&tags),
+            None,
+            Some(&loaded),
+            100, // cursor at byte 100, no loads present
+            false,
+            ls_types::Position::new(0, 3),
+            "{% ",
+            3,
+        );
+
+        let labels: Vec<_> = completions.iter().map(|c| c.label.as_str()).collect();
+        assert!(labels.contains(&"if"), "builtins should appear");
+        assert!(labels.contains(&"for"), "builtins should appear");
+        assert!(!labels.contains(&"trans"), "library tags should not appear without load");
+        assert!(!labels.contains(&"static"), "library tags should not appear without load");
+    }
+
+    #[test]
+    fn test_tag_completions_after_load_shows_loaded_tags() {
+        use djls_semantic::LoadKind;
+        use djls_semantic::LoadStatement;
+        use djls_source::Span;
+
+        let tags = make_test_tags();
+        let mut loaded = djls_semantic::LoadedLibraries::new();
+        // {% load i18n %} at span 0..15
+        loaded.push(LoadStatement {
+            span: Span::new(0, 15),
+            kind: LoadKind::Libraries(vec!["i18n".to_string()]),
+        });
+
+        let completions = generate_tag_name_completions(
+            "",
+            false,
+            &ClosingBrace::None,
+            Some(&tags),
+            None,
+            Some(&loaded),
+            50, // cursor after the load
+            false,
+            ls_types::Position::new(1, 3),
+            "{% ",
+            3,
+        );
+
+        let labels: Vec<_> = completions.iter().map(|c| c.label.as_str()).collect();
+        assert!(labels.contains(&"if"), "builtins should appear");
+        assert!(labels.contains(&"trans"), "i18n tags should appear after load");
+        assert!(labels.contains(&"blocktrans"), "i18n tags should appear after load");
+        assert!(!labels.contains(&"static"), "static tags should not appear (not loaded)");
+    }
+
+    #[test]
+    fn test_tag_completions_before_load_hides_library_tags() {
+        use djls_semantic::LoadKind;
+        use djls_semantic::LoadStatement;
+        use djls_source::Span;
+
+        let tags = make_test_tags();
+        let mut loaded = djls_semantic::LoadedLibraries::new();
+        // {% load i18n %} at span 50..65
+        loaded.push(LoadStatement {
+            span: Span::new(50, 15),
+            kind: LoadKind::Libraries(vec!["i18n".to_string()]),
+        });
+
+        let completions = generate_tag_name_completions(
+            "",
+            false,
+            &ClosingBrace::None,
+            Some(&tags),
+            None,
+            Some(&loaded),
+            10, // cursor BEFORE the load
+            false,
+            ls_types::Position::new(0, 3),
+            "{% ",
+            3,
+        );
+
+        let labels: Vec<_> = completions.iter().map(|c| c.label.as_str()).collect();
+        assert!(labels.contains(&"if"), "builtins should appear");
+        assert!(!labels.contains(&"trans"), "i18n tags should NOT appear before load");
+    }
+
+    #[test]
+    fn test_tag_completions_selective_import() {
+        use djls_semantic::LoadKind;
+        use djls_semantic::LoadStatement;
+        use djls_source::Span;
+
+        let tags = make_test_tags();
+        let mut loaded = djls_semantic::LoadedLibraries::new();
+        // {% load trans from i18n %} at span 0..25
+        loaded.push(LoadStatement {
+            span: Span::new(0, 25),
+            kind: LoadKind::Selective {
+                symbols: vec!["trans".to_string()],
+                library: "i18n".to_string(),
+            },
+        });
+
+        let completions = generate_tag_name_completions(
+            "",
+            false,
+            &ClosingBrace::None,
+            Some(&tags),
+            None,
+            Some(&loaded),
+            50, // cursor after the load
+            false,
+            ls_types::Position::new(1, 3),
+            "{% ",
+            3,
+        );
+
+        let labels: Vec<_> = completions.iter().map(|c| c.label.as_str()).collect();
+        assert!(labels.contains(&"if"), "builtins should appear");
+        assert!(labels.contains(&"trans"), "selectively imported trans should appear");
+        assert!(!labels.contains(&"blocktrans"), "non-imported blocktrans should NOT appear");
     }
 }

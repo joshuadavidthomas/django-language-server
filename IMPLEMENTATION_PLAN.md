@@ -137,12 +137,12 @@
 
 ### Phase 5: Completions Integration
 
-- [ ] Add `loaded_libraries: Option<&LoadedLibraries>` and `cursor_byte_offset: u32` params to `generate_tag_name_completions`, `generate_template_completions`, and `handle_completion`
-- [ ] Add `calculate_byte_offset(document, position, encoding) -> u32` helper for UTF-16 → byte offset conversion
-- [ ] Filter tag name completions by `available_tags_at` when load info is present; show all tags when unavailable (fallback)
-- [ ] Update server call site (`crates/djls-server/src/server.rs`) to compute `LoadedLibraries` from nodelist and pass to completion handler
-- [ ] Update completion tests to cover load-scoped filtering
-- [ ] Run `cargo build`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test`
+- [x] Add `loaded_libraries: Option<&LoadedLibraries>` and `cursor_byte_offset: u32` params to `generate_tag_name_completions`, `generate_template_completions`, and `handle_completion`
+- [x] Add `calculate_byte_offset(document, position, encoding) -> u32` helper for UTF-16 → byte offset conversion
+- [x] Filter tag name completions by `available_tags_at` when load info is present; show all tags when unavailable (fallback)
+- [x] Update server call site (`crates/djls-server/src/server.rs`) to compute `LoadedLibraries` from nodelist and pass to completion handler
+- [x] Update completion tests to cover load-scoped filtering
+- [x] Run `cargo build`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test`
 
 ### Phase 6: Library Completions Enhancement
 
