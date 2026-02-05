@@ -35,6 +35,8 @@ just lint                       # Run pre-commit hooks
 - Return `&str` not `&String` from new accessors — clippy flags this
 - All public accessors/constructors need `#[must_use]` — clippy enforces `must_use_candidate`
 - After editing `queries.py`, `cargo build` triggers pyz rebuild via `build.rs`
+- Salsa `#[salsa::tracked]` functions require `&dyn Trait` — cannot use concrete `&DjangoDatabase`
+- Salsa tracked return types need `PartialEq` — add derive if missing (e.g., `TagSpecs`)
 
 ## Task Management
 Use `/dex` to break down complex work, track progress across sessions, and coordinate multi-step implementations.

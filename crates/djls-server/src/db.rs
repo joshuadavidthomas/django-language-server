@@ -14,6 +14,7 @@ use djls_project::template_dirs;
 use djls_project::Db as ProjectDb;
 use djls_project::Inspector;
 use djls_project::Project;
+use djls_semantic::django_builtin_specs;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::TagIndex;
 use djls_semantic::TagSpecs;
@@ -23,6 +24,35 @@ use djls_source::FxDashMap;
 use djls_templates::Db as TemplateDb;
 use djls_workspace::Db as WorkspaceDb;
 use djls_workspace::FileSystem;
+
+/// Compute tag specifications from all sources.
+///
+/// This tracked query reads only from Salsa-tracked Project fields,
+/// starts with `django_builtin_specs()`, then merges user-defined specs
+/// from the project's `TagSpecDef` config document.
+#[salsa::tracked]
+fn compute_tag_specs(db: &dyn SemanticDb, project: Project) -> TagSpecs {
+    let _inventory = project.inspector_inventory(db);
+    let tagspecs_def = project.tagspecs(db);
+
+    let mut specs = django_builtin_specs();
+
+    let user_specs = TagSpecs::from_config_def(tagspecs_def);
+    if !user_specs.is_empty() {
+        specs.merge(user_specs);
+    }
+
+    specs
+}
+
+/// Build the tag index from computed tag specs.
+///
+/// Depends on `compute_tag_specs` — automatic invalidation cascade.
+#[salsa::tracked]
+fn compute_tag_index(db: &dyn SemanticDb, project: Project) -> TagIndex<'_> {
+    let _specs = compute_tag_specs(db, project);
+    TagIndex::from_specs(db)
+}
 
 /// Concrete Salsa database for the Django Language Server.
 ///
@@ -186,11 +216,19 @@ impl TemplateDb for DjangoDatabase {}
 #[salsa::db]
 impl SemanticDb for DjangoDatabase {
     fn tag_specs(&self) -> TagSpecs {
-        TagSpecs::from(&self.settings())
+        if let Some(project) = self.project() {
+            compute_tag_specs(self, project)
+        } else {
+            django_builtin_specs()
+        }
     }
 
     fn tag_index(&self) -> TagIndex<'_> {
-        TagIndex::from_specs(self)
+        if let Some(project) = self.project() {
+            compute_tag_index(self, project)
+        } else {
+            TagIndex::from_specs(self)
+        }
     }
 
     fn template_dirs(&self) -> Option<Vec<Utf8PathBuf>> {
@@ -202,7 +240,11 @@ impl SemanticDb for DjangoDatabase {
     }
 
     fn diagnostics_config(&self) -> djls_conf::DiagnosticsConfig {
-        self.settings().diagnostics().clone()
+        if let Some(project) = self.project() {
+            project.diagnostics(self).clone()
+        } else {
+            djls_conf::DiagnosticsConfig::default()
+        }
     }
 }
 

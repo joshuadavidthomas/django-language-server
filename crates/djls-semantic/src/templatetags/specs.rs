@@ -60,7 +60,7 @@ impl TagType {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct TagSpecs(FxHashMap<String, TagSpec>);
 
 impl TagSpecs {
@@ -186,16 +186,17 @@ impl IntoIterator for TagSpecs {
     }
 }
 
-impl From<&djls_conf::Settings> for TagSpecs {
-    fn from(settings: &djls_conf::Settings) -> Self {
-        // Start with built-in specs
-        let mut specs = crate::templatetags::django_builtin_specs();
-
-        // Convert and merge user-defined tagspecs from all libraries
+impl TagSpecs {
+    /// Convert a config document (`TagSpecDef`) to semantic `TagSpecs`.
+    ///
+    /// This extracts only the user-defined specs from the config document,
+    /// without merging Django builtins. Use `django_builtin_specs()` separately
+    /// and merge as needed.
+    #[must_use]
+    pub fn from_config_def(def: &djls_conf::TagSpecDef) -> Self {
         let mut user_specs = FxHashMap::default();
-        let tagspec_doc = settings.tagspecs();
 
-        for library in &tagspec_doc.libraries {
+        for library in &def.libraries {
             for tag_def in &library.tags {
                 let name = tag_def.name.clone();
                 let tagspec: TagSpec = (tag_def.clone(), library.module.clone()).into();
@@ -203,9 +204,17 @@ impl From<&djls_conf::Settings> for TagSpecs {
             }
         }
 
-        // Merge user specs into built-in specs (user specs override built-ins)
+        TagSpecs::new(user_specs)
+    }
+}
+
+impl From<&djls_conf::Settings> for TagSpecs {
+    fn from(settings: &djls_conf::Settings) -> Self {
+        let mut specs = crate::templatetags::django_builtin_specs();
+
+        let user_specs = TagSpecs::from_config_def(settings.tagspecs());
         if !user_specs.is_empty() {
-            specs.merge(TagSpecs::new(user_specs));
+            specs.merge(user_specs);
         }
 
         specs

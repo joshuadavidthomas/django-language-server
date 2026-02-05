@@ -65,11 +65,11 @@
 
 ### Phase 2: Add `TagSpecs::from_config_def` and Tracked Queries
 
-- [ ] Add `TagSpecs::from_config_def(def: &TagSpecDef) -> Self` in `crates/djls-semantic/src/templatetags/specs.rs` — extracts the conversion logic from `impl From<&Settings> for TagSpecs` to avoid duplication
-- [ ] Add `#[salsa::tracked] fn compute_tag_specs(db: &DjangoDatabase, project: Project) -> TagSpecs` in `crates/djls-server/src/db.rs` — reads `project.tagspecs(db)` and `project.inspector_inventory(db)`, starts with `django_builtin_specs()`, merges user specs
-- [ ] Add `#[salsa::tracked] fn compute_tag_index<'db>(db: &'db DjangoDatabase, project: Project) -> TagIndex<'db>` in `crates/djls-server/src/db.rs` — depends on `compute_tag_specs`
-- [ ] Update `SemanticDb` impl for `DjangoDatabase`: `tag_specs()` delegates to `compute_tag_specs`, `tag_index()` delegates to `compute_tag_index`, `diagnostics_config()` reads from `project.diagnostics(db)` — NO `Arc<Mutex<Settings>>` reads in any of these
-- [ ] Run `cargo build`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test`
+- [x] Add `TagSpecs::from_config_def(def: &TagSpecDef) -> Self` in `crates/djls-semantic/src/templatetags/specs.rs` — extracts the conversion logic from `impl From<&Settings> for TagSpecs` to avoid duplication
+- [x] Add `#[salsa::tracked] fn compute_tag_specs(db: &dyn SemanticDb, project: Project) -> TagSpecs` in `crates/djls-server/src/db.rs` — reads `project.tagspecs(db)` and `project.inspector_inventory(db)`, starts with `django_builtin_specs()`, merges user specs
+- [x] Add `#[salsa::tracked] fn compute_tag_index(db: &dyn SemanticDb, project: Project) -> TagIndex<'_>` in `crates/djls-server/src/db.rs` — depends on `compute_tag_specs`
+- [x] Update `SemanticDb` impl for `DjangoDatabase`: `tag_specs()` delegates to `compute_tag_specs`, `tag_index()` delegates to `compute_tag_index`, `diagnostics_config()` reads from `project.diagnostics(db)` — NO `Arc<Mutex<Settings>>` reads in any of these
+- [x] Run `cargo build`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test`
 
 ### Phase 3: Project Update APIs with Manual Comparison
 
@@ -144,3 +144,5 @@ _Tasks to be expanded when M6 is complete._
 - M1: `TemplateTag` no longer has `.module()`. Use `.defining_module()` (where function is defined), `.registration_module()` (library/builtin module), or `.library_load_name()` (load name for `{% load %}`).
 - M1: Clippy requires `#[must_use]` on all public accessors and constructors in this project.
 - M1: `TemplateTag` and `TagProvenance` are now exported from `djls-project`.
+- M2: Salsa `#[salsa::tracked]` functions require `&dyn Trait` parameters, not concrete types. Used `&dyn SemanticDb` for `compute_tag_specs`/`compute_tag_index`.
+- M2: `TagSpecs` needed `PartialEq` derive for use as Salsa tracked return value (Salsa requires equality comparison for memoization).
