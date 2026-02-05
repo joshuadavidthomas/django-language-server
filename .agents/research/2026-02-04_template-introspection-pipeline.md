@@ -244,7 +244,5 @@ flowchart TB
 ## Open Questions
 
 1. **Library name mismatch:** The `module` field from `TemplateTags` is the Python module path (e.g., `django.template.defaulttags`), not the template library name used in `{% load %}`. This may cause incorrect suggestions.
-
 2. **TagSpecs coverage:** Static `TagSpecs` only covers Django builtins + user config. Tags from third-party libraries won't have argument specifications unless manually configured.
-
 3. **python_env query:** The `python_env` inspector query exists but is not exposed to Rust. Could be useful for environment-aware features.

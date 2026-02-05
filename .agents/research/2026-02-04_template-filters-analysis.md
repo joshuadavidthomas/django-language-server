@@ -306,9 +306,6 @@ flowchart TB
 ## Open Questions
 
 1. **Filter argument structure**: Should filters be parsed into structured `{name, args}` tuples, or is the raw string sufficient for most use cases?
-
 2. **FilterSpecs vs runtime-only**: Would a static `FilterSpecs` system (like `TagSpecs`) be valuable for validation, or is runtime data from the inspector sufficient for completions?
-
 3. **Library scoping priority**: How important is accurate library scoping (only showing loaded tags/filters) versus showing everything available?
-
 4. **The `{% load from %}` syntax**: The `{% load foo from bar %}` syntax imports specific items - this adds complexity to library tracking.

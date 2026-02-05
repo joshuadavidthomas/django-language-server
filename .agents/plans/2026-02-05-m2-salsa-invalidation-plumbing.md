@@ -53,8 +53,7 @@ After M2:
     - Converts `TagSpecDef` → `TagSpecs` and merges with `django_builtin_specs()`
     - Never touches `Arc<Mutex<Settings>>`
 - Update methods **manually compare old vs new** before calling setters (Ruff/RA style)
-- Tests capture raw `salsa::Event` values and identify executed queries via
-  `db.ingredient_debug_name(database_key.ingredient_index())` (Ruff/RA pattern).
+- Tests capture raw `salsa::Event` values and identify executed queries via `db.ingredient_debug_name(database_key.ingredient_index())` (Ruff/RA pattern).
 
 ### Dependency Graph (Post-M2)
 
@@ -128,11 +127,9 @@ flowchart BT
 
 #### 1. Ensure config types are comparable
 
-**File**: `crates/djls-conf/src/tagspecs.rs`
-**Changes**: Ensure `PartialEq` is derived (it already is today). **Do not require `Eq`** here.
+**File**: `crates/djls-conf/src/tagspecs.rs` **Changes**: Ensure `PartialEq` is derived (it already is today). **Do not require `Eq`** here.
 
-**Why not `Eq`?** `TagSpecDef` (and friends) include `serde_json::Value` inside `extra`, and
-`serde_json::Value` does not implement `Eq`. Manual comparison only needs `PartialEq`.
+**Why not `Eq`?** `TagSpecDef` (and friends) include `serde_json::Value` inside `extra`, and `serde_json::Value` does not implement `Eq`. Manual comparison only needs `PartialEq`.
 
 ```rust
 #[derive(Debug, Clone, Deserialize, PartialEq, Default)]
@@ -144,8 +141,7 @@ pub struct TagLibraryDef { /* ... */ }
 // ... similarly for TagDef, EndTagDef, IntermediateTagDef, TagArgDef, etc.
 ```
 
-**File**: `crates/djls-conf/src/diagnostics.rs`
-**Changes**: `DiagnosticsConfig` can derive `Eq`, but `PartialEq` is sufficient for manual comparison.
+**File**: `crates/djls-conf/src/diagnostics.rs` **Changes**: `DiagnosticsConfig` can derive `Eq`, but `PartialEq` is sufficient for manual comparison.
 
 ```rust
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
@@ -154,8 +150,7 @@ pub struct DiagnosticsConfig { /* ... */ }
 
 #### 2. Add new fields to Project
 
-**File**: `crates/djls-project/src/project.rs`
-**Changes**: Add config fields using djls-conf types only
+**File**: `crates/djls-project/src/project.rs` **Changes**: Add config fields using djls-conf types only
 
 ```rust
 use djls_conf::DiagnosticsConfig;
@@ -211,8 +206,7 @@ pub struct Project {
 
 #### 3. Update Project::bootstrap
 
-**File**: `crates/djls-project/src/project.rs`
-**Changes**: Initialize new fields from settings
+**File**: `crates/djls-project/src/project.rs` **Changes**: Initialize new fields from settings
 
 ```rust
 impl Project {
@@ -249,8 +243,7 @@ impl Project {
 
 #### 4. Add djls-conf dependency to djls-project
 
-**File**: `crates/djls-project/Cargo.toml`
-**Changes**: Add dependency (if not already present)
+**File**: `crates/djls-project/Cargo.toml` **Changes**: Add dependency (if not already present)
 
 ```toml
 [dependencies]
@@ -291,8 +284,7 @@ if project.tagspecs(db) != &new_tagspecs {
 
 #### 1. Update set_project with manual comparison
 
-**File**: `crates/djls-server/src/db.rs`
-**Changes**: Only create Project if none exists; update via setters with comparison
+**File**: `crates/djls-server/src/db.rs` **Changes**: Only create Project if none exists; update via setters with comparison
 
 ```rust
 impl DjangoDatabase {
@@ -374,8 +366,7 @@ impl DjangoDatabase {
 
 #### 2. Add refresh_inspector with comparison
 
-**File**: `crates/djls-server/src/db.rs`
-**Changes**: Compare before setting inventory
+**File**: `crates/djls-server/src/db.rs` **Changes**: Compare before setting inventory
 
 ```rust
 use djls_project::inspector;
@@ -426,8 +417,7 @@ impl DjangoDatabase {
 
 #### 3. Update set_settings
 
-**File**: `crates/djls-server/src/db.rs`
-**Changes**: Delegate to update_project_from_settings
+**File**: `crates/djls-server/src/db.rs` **Changes**: Delegate to update_project_from_settings
 
 ```rust
 pub fn set_settings(&mut self, settings: Settings) {
@@ -443,8 +433,7 @@ pub fn set_settings(&mut self, settings: Settings) {
 
 #### 4. Make inspector types public
 
-**File**: `crates/djls-project/src/django.rs`
-**Changes**: Export types for direct inspector queries
+**File**: `crates/djls-project/src/django.rs` **Changes**: Export types for direct inspector queries
 
 ```rust
 #[derive(Serialize)]
@@ -471,8 +460,7 @@ impl TemplateTags {
 
 #### 5. Add PartialEq to TemplateTags
 
-**File**: `crates/djls-project/src/django.rs`
-**Changes**: Derive PartialEq for comparison
+**File**: `crates/djls-project/src/django.rs` **Changes**: Derive PartialEq for comparison
 
 ```rust
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -491,8 +479,7 @@ pub enum TagProvenance { /* ... */ }
 
 #### 6. Export from djls-project
 
-**File**: `crates/djls-project/src/lib.rs`
-**Changes**: Export the new public types
+**File**: `crates/djls-project/src/lib.rs` **Changes**: Export the new public types
 
 ```rust
 pub use django::TemplatetagsRequest;
@@ -522,8 +509,7 @@ Add `compute_tag_specs()` as a tracked query that:
 
 #### 1. Add TagSpecs::from_config_def conversion
 
-**File**: `crates/djls-semantic/src/templatetags/specs.rs`
-**Changes**: Add conversion from config doc to semantic type
+**File**: `crates/djls-semantic/src/templatetags/specs.rs` **Changes**: Add conversion from config doc to semantic type
 
 ```rust
 use djls_conf::TagSpecDef;
@@ -559,8 +545,7 @@ impl TagSpecs {
 
 #### 2. Add tracked compute_tag_specs query
 
-**File**: `crates/djls-server/src/db.rs`
-**Changes**: Add tracked function that reads only from Project
+**File**: `crates/djls-server/src/db.rs` **Changes**: Add tracked function that reads only from Project
 
 ```rust
 use djls_project::Project;
@@ -676,9 +661,7 @@ Write tests that capture Salsa events and verify invalidation in a stable way.
 Prefer the Ruff/Rust-Analyzer approach:
 
 - capture raw `salsa::Event` values
-- assert execution by inspecting `WillExecute` events and comparing
-  `db.ingredient_debug_name(database_key.ingredient_index())` to the query name
-  (avoid substring-matching `Debug` output).
+- assert execution by inspecting `WillExecute` events and comparing `db.ingredient_debug_name(database_key.ingredient_index())` to the query name (avoid substring-matching `Debug` output).
 
 ### Salsa Test Pattern (Stable)
 
@@ -1004,8 +987,7 @@ assert!(test.logger.was_executed(&test.db, "compute_tag_specs"));
 
 ### Event Format
 
-The `was_executed()` helper checks `WillExecute` events and compares
-`db.ingredient_debug_name(database_key.ingredient_index())` to the query name.
+The `was_executed()` helper checks `WillExecute` events and compares `db.ingredient_debug_name(database_key.ingredient_index())` to the query name.
 
 ---
 

@@ -71,7 +71,6 @@ bits: ["trans", "from", "i18n"] # "from" is just another bit, no special parsing
     ```
 
 2. **No scope tracking** - `TagSpecs` is a single global collection via `Db::tag_specs()`. No per-template "loaded libraries" state.
-
 3. **Unknown tags pass silently** (`arguments.rs:59`):
 
     ```rust
@@ -144,18 +143,14 @@ But `{% load %}` expects the **template library name**:
 1. **Library completions** (`djls-ide/completions.rs:651`)
     - Currently shows: `django.templatetags.i18n`
     - Should show: `i18n`
-
 2. **{% load %} argument validation** (doesn't exist)
     - Would validate library names against `Engine.libraries.keys()`
-
 3. **Tag availability scoping** (doesn't exist)
     - "Tag `{% trans %}` requires `{% load i18n %}`"
     - Need mapping: library name → set of tags it provides
-
 4. **Diagnostic messages** (doesn't exist)
     - "Unknown library 'foo'"
     - "Tag 'mytag' is not available. Did you mean to {% load mylib %}?"
-
 5. **Hover/documentation info** (doesn't exist)
     - "From library: i18n (django.templatetags.i18n)"
 
@@ -268,9 +263,6 @@ flowchart TB
 ## Open Questions
 
 1. **Built-in tags**: Should they have `library: None` or `library: Some("")`? They don't need `{% load %}`.
-
 2. **`{% load from %}` syntax**: Should we parse `{% load trans blocktrans from i18n %}` into a structured form, or is `bits: ["trans", "blocktrans", "from", "i18n"]` sufficient for now?
-
 3. **Per-template vs per-file scoping**: If template A `{% extends B %}` and B has `{% load i18n %}`, are i18n tags available in A?
-
 4. **Validation strictness**: Should unknown tags be errors? Warnings? Off by default?

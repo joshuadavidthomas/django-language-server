@@ -1,8 +1,6 @@
 # Template Validation Port Charter
 
-**Date:** 2026-02-05  
-**Status:** Draft  
-**Scope:** Porting `template_linter/` capabilities to Rust (`django-language-server`)
+**Date:** 2026-02-05 **Status:** Draft **Scope:** Porting `template_linter/` capabilities to Rust (`django-language-server`)
 
 ---
 

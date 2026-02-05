@@ -570,9 +570,6 @@ flowchart TB
 ## Open Questions
 
 1. **Extracting specs from Django source**: Is there a reliable way to introspect tag argument patterns from Django's template library registration? The `@register.tag` decorator doesn't capture argument schemas.
-
 2. **Third-party tag coverage**: How important is it to support third-party tags (django-crispy-forms, django-allauth, etc.) without manual config?
-
 3. **Caching strategy**: If TagSpecs becomes runtime-derived, what's the invalidation strategy? Per-file? Per-project? On Django settings change?
-
 4. **Graceful degradation**: Should unknown tags (no spec) show warnings, or silently skip validation?

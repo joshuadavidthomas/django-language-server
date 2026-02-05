@@ -1,24 +1,16 @@
 # RFC: Extraction Code Placement
 
-**Date:** 2026-02-05
-**Status:** Draft (revised)
-**Scope:** Where Ruff AST extraction code lives and how it integrates with Salsa and inspector inventory
+**Date:** 2026-02-05 **Status:** Draft (revised) **Scope:** Where Ruff AST extraction code lives and how it integrates with Salsa and inspector inventory
 
 ---
 
 ## What Changed Since Initial RFC
 
-> **Revision note (2026-02-05):** The Salsa integration story in sections 5.2-5.6 has been revised to
-> align with the M2 implementation plan ([`.agents/plans/2026-02-05-m2-salsa-invalidation-plumbing.md`](../plans/2026-02-05-m2-salsa-invalidation-plumbing.md)).
+> **Revision note (2026-02-05):** The Salsa integration story in sections 5.2-5.6 has been revised to align with the M2 implementation plan ([`.agents/plans/2026-02-05-m2-salsa-invalidation-plumbing.md`](../plans/2026-02-05-m2-salsa-invalidation-plumbing.md)).
 >
-> **Key change:** The original RFC proposed new global Salsa inputs (`InspectorInventory`,
-> `ExtractedRules`). The M2 direction keeps Salsa inputs minimal-**target: 2 primary inputs (`File` +
-> `Project`)**-and folds inspector snapshot + semantic config into `Project` fields updated via setters
-> with manual comparison before setting (Ruff/RA pattern).
+> **Key change:** The original RFC proposed new global Salsa inputs (`InspectorInventory`, `ExtractedRules`). The M2 direction keeps Salsa inputs minimal-**target: 2 primary inputs (`File` + `Project`)**-and folds inspector snapshot + semantic config into `Project` fields updated via setters with manual comparison before setting (Ruff/RA pattern).
 >
-> **Extraction caching:** Now recommends **derived tracked queries over Python module `File` sources**
-> rather than a new global `ExtractedRules` input, so edits to registration modules invalidate
-> naturally through the file dependency graph.
+> **Extraction caching:** Now recommends **derived tracked queries over Python module `File` sources** rather than a new global `ExtractedRules` input, so edits to registration modules invalidate naturally through the file dependency graph.
 
 ---
 

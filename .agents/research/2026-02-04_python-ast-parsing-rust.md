@@ -49,9 +49,11 @@ Ruff has an extremely fast, hand-written recursive descent parser. As of v0.4.0,
 - **NOT published to crates.io** - `ruff_python_parser` and `ruff_python_ast` crates don't exist on crates.io
 - Internal crates within the astral-sh/ruff monorepo
 - To use, you'd need a git dependency:
+
     ```toml
     ruff_python_parser = { git = "https://github.com/astral-sh/ruff", branch = "main" }
     ```
+
 - No stability guarantees for external use
 - Very fast - blog post claims 2x faster than their previous LALRPOP parser
 - Powers Ruff linting/formatting and Astral's new `ty` type checker
@@ -70,9 +72,11 @@ Ruff has an extremely fast, hand-written recursive descent parser. As of v0.4.0,
 - Modern Python syntax support (3.12+, 3.13+)
 - Battle-tested in production (Ruff has 45k stars, used everywhere)
 - Pin to git SHA for stability:
+
     ```toml
     ruff_python_parser = { git = "https://github.com/astral-sh/ruff", rev = "abc123" }
     ```
+
 - Update SHA when you want new features/fixes
 
 ### References

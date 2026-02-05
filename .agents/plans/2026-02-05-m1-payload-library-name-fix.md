@@ -36,9 +36,7 @@ Per charter section 1.1:
         - `Builtin { module }` — always available
     - `defining_module` — where the function is defined (`tag_func.__module__`)
     - `doc` — optional docstring
-
 2. **`{% load %}` completions show library load-names** (`static`, `i18n`) not module paths
-
 3. **Builtins excluded from `{% load %}` completions** (they're always available)
 
 ## What We're NOT Doing
@@ -66,8 +64,7 @@ Update the inspector to return library information with proper provenance distin
 
 #### 1. Update Data Structures
 
-**File**: `crates/djls-project/inspector/queries.py`
-**Changes**: Add new dataclasses for provenance and top-level registry data
+**File**: `crates/djls-project/inspector/queries.py` **Changes**: Add new dataclasses for provenance and top-level registry data
 
 ```python
 @dataclass
@@ -91,8 +88,7 @@ class TemplateTagQueryData:
 
 #### 2. Update Collection Logic
 
-**File**: `crates/djls-project/inspector/queries.py`
-**Changes**: Rewrite `get_installed_templatetags()` to preserve library keys and use `engine.builtins` for correct module paths
+**File**: `crates/djls-project/inspector/queries.py` **Changes**: Rewrite `get_installed_templatetags()` to preserve library keys and use `engine.builtins` for correct module paths
 
 ```python
 def get_installed_templatetags() -> TemplateTagQueryData:
@@ -185,8 +181,7 @@ Update Rust types to deserialize the new payload structure with `TagProvenance` 
 
 #### 1. Add TagProvenance Enum and Update Response
 
-**File**: `crates/djls-project/src/django.rs`
-**Changes**: Add new enum, update `TemplateTag` struct, and expand response to include registry data
+**File**: `crates/djls-project/src/django.rs` **Changes**: Add new enum, update `TemplateTag` struct, and expand response to include registry data
 
 ```rust
 use std::collections::HashMap;
@@ -231,8 +226,7 @@ pub struct TemplateTag {
 
 #### 2. Update TemplateTag Accessors
 
-**File**: `crates/djls-project/src/django.rs`
-**Changes**: Add clear accessors - avoid confusing `module()` name
+**File**: `crates/djls-project/src/django.rs` **Changes**: Add clear accessors - avoid confusing `module()` name
 
 ```rust
 impl TemplateTag {
@@ -284,8 +278,7 @@ impl TemplateTag {
 
 #### 3. Update TemplateTags to Include Registry Data
 
-**File**: `crates/djls-project/src/django.rs`
-**Changes**: Expand `TemplateTags` to hold top-level registry structures
+**File**: `crates/djls-project/src/django.rs` **Changes**: Expand `TemplateTags` to hold top-level registry structures
 
 ```rust
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -369,8 +362,7 @@ impl TemplateTag {
 
 #### 4. Update the Salsa Query
 
-**File**: `crates/djls-project/src/django.rs`
-**Changes**: Convert response to new TemplateTags structure
+**File**: `crates/djls-project/src/django.rs` **Changes**: Convert response to new TemplateTags structure
 
 ```rust
 #[salsa::tracked]
@@ -388,8 +380,7 @@ pub fn templatetags(db: &dyn ProjectDb, _project: Project) -> Option<TemplateTag
 
 #### 5. Update lib.rs Exports
 
-**File**: `crates/djls-project/src/lib.rs`
-**Changes**: Export the new enum
+**File**: `crates/djls-project/src/lib.rs` **Changes**: Export the new enum
 
 ```rust
 pub use django::TagProvenance;
@@ -397,8 +388,7 @@ pub use django::TagProvenance;
 
 #### 6. Update Tests
 
-**File**: `crates/djls-project/src/django.rs`
-**Changes**: Update existing tests and add new ones for provenance
+**File**: `crates/djls-project/src/django.rs` **Changes**: Update existing tests and add new ones for provenance
 
 ```rust
 #[cfg(test)]
@@ -520,8 +510,7 @@ Update completions to use library load-name and exclude builtins from `{% load %
 
 #### 1. Update Library Completions
 
-**File**: `crates/djls-ide/src/completions.rs`
-**Changes**: Fix `generate_library_completions()` to use library keys directly, with deterministic ordering
+**File**: `crates/djls-ide/src/completions.rs` **Changes**: Fix `generate_library_completions()` to use library keys directly, with deterministic ordering
 
 ```rust
 /// Generate completions for library names (for {% load %} tag)
@@ -572,8 +561,7 @@ fn generate_library_completions(
 
 #### 2. Update Tag Name Completion Detail
 
-**File**: `crates/djls-ide/src/completions.rs`
-**Changes**: Update detail to show more useful info in `generate_tag_name_completions()`
+**File**: `crates/djls-ide/src/completions.rs` **Changes**: Update detail to show more useful info in `generate_tag_name_completions()`
 
 Find the line (around line 488):
 
@@ -593,8 +581,7 @@ detail: Some(if let Some(lib) = tag.library_load_name() {
 
 #### 3. Update Tag Iteration
 
-**File**: `crates/djls-ide/src/completions.rs`
-**Changes**: Since `TemplateTags` no longer implements `Deref`, update iteration
+**File**: `crates/djls-ide/src/completions.rs` **Changes**: Since `TemplateTags` no longer implements `Deref`, update iteration
 
 Find uses of `tags.iter()` in `generate_tag_name_completions()` and ensure they still work (the `iter()` method is still available on `TemplateTags`).
 

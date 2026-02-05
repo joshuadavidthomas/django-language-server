@@ -123,8 +123,6 @@ flowchart TB
 
 ---
 
----
-
 ## Phase Documents
 
 This plan is split into phase-specific documents for easier navigation:
