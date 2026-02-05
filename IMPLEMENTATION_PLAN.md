@@ -95,10 +95,60 @@
 
 ## M3 - `{% load %}` Scoping Infrastructure
 
-**Status:** backlog
+**Status:** in-progress
 **Plan:** `.agents/plans/2026-02-05-m3-load-scoping.md` (overview), phases in `m3.1` through `m3.6`
 
-_Tasks to be expanded when M2 is complete._
+### Phase 1: Load Statement Parsing and Data Structures
+
+- [ ] Create `crates/djls-semantic/src/load_resolution.rs` with `LoadStatement`, `LoadKind` (Libraries/Selective), and `LoadedLibraries` types
+- [ ] Implement `parse_load_bits(bits, span) -> Option<LoadStatement>` — handles `{% load lib1 lib2 %}` and `{% load sym from lib %}` syntax
+- [ ] Implement `LoadedLibraries` methods: `new()`, `push()`, `loads()`, `libraries_before(position)`, `selective_symbols_before(position)`, `is_library_loaded_before(library, position)`
+- [ ] Add unit tests: single library, multiple libraries, selective single, selective multiple, empty bits, invalid from syntax, libraries_before position, selective_symbols_before
+- [ ] Export `LoadKind`, `LoadStatement`, `LoadedLibraries`, `parse_load_bits` from `crates/djls-semantic/src/lib.rs`
+- [ ] Run `cargo build -p djls-semantic`, `cargo clippy -p djls-semantic --all-targets --all-features -- -D warnings`, `cargo test -p djls-semantic`
+
+### Phase 2: Compute LoadedLibraries from NodeList (Tracked Query)
+
+- [ ] Add `djls-project` dependency to `crates/djls-semantic/Cargo.toml` (needed for `TemplateTags`/`TagProvenance` in Phase 3)
+- [ ] Add `#[salsa::tracked] fn compute_loaded_libraries(db, nodelist) -> LoadedLibraries` — iterate over nodelist, extract `{% load %}` tags, parse bits, sort by span start
+- [ ] Export `compute_loaded_libraries` from `crates/djls-semantic/src/lib.rs`
+- [ ] Run `cargo build -p djls-semantic`, `cargo clippy -p djls-semantic --all-targets --all-features -- -D warnings`, `cargo test -p djls-semantic`
+
+### Phase 3: Available Symbols Query
+
+- [ ] Add `AvailableSymbols` type with `tags: FxHashSet<String>` and `has_tag(name)` method
+- [ ] Add `LoadState` internal struct with state-machine approach: `fully_loaded: FxHashSet`, `selective: FxHashMap<lib, FxHashSet<sym>>`, `process(stmt)`, `is_tag_available(tag, lib)`
+- [ ] Implement `available_tags_at(loaded, inventory, position) -> AvailableSymbols` — processes loads in order, builtins always available, library tags require loaded library or selective import
+- [ ] Add `inspector_inventory() -> Option<TemplateTags>` method to `crate::Db` trait in `crates/djls-semantic/src/db.rs`
+- [ ] Implement `inspector_inventory()` in `DjangoDatabase` (`crates/djls-server/src/db.rs`) — reads `project.inspector_inventory(db)`
+- [ ] Export `available_tags_at` and `AvailableSymbols` from `crates/djls-semantic/src/lib.rs`
+- [ ] Add comprehensive tests: builtins_always_available, library_tag_after_load, selective_import, selective_then_full_load, full_then_selective_no_effect, multiple_selective_same_lib
+- [ ] Run `cargo build`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test`
+
+### Phase 4: Validation Integration - Unknown Tag Diagnostics
+
+- [ ] Add new `ValidationError` variants: `UnknownTag { tag, span }`, `UnloadedLibraryTag { tag, library, span }`, `AmbiguousUnloadedTag { tag, libraries, span }`
+- [ ] Add diagnostic codes in `crates/djls-ide/src/diagnostics.rs`: S108 (UnknownTag), S109 (UnloadedLibraryTag), S110 (AmbiguousUnloadedTag)
+- [ ] Add `TagInventoryEntry` enum (Builtin / Libraries(Vec<String>)) and `build_tag_inventory(inventory) -> FxHashMap<String, TagInventoryEntry>` for collision handling
+- [ ] Implement `#[salsa::tracked] fn validate_tag_scoping(db, nodelist)` — skip if inspector unavailable, skip tags with structural specs (openers/closers/intermediates), emit S108/S109/S110
+- [ ] Wire `validate_tag_scoping` into `validate_nodelist` in `crates/djls-semantic/src/lib.rs`
+- [ ] Run `cargo build`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test`
+
+### Phase 5: Completions Integration
+
+- [ ] Add `loaded_libraries: Option<&LoadedLibraries>` and `cursor_byte_offset: u32` params to `generate_tag_name_completions`, `generate_template_completions`, and `handle_completion`
+- [ ] Add `calculate_byte_offset(document, position, encoding) -> u32` helper for UTF-16 → byte offset conversion
+- [ ] Filter tag name completions by `available_tags_at` when load info is present; show all tags when unavailable (fallback)
+- [ ] Update server call site (`crates/djls-server/src/server.rs`) to compute `LoadedLibraries` from nodelist and pass to completion handler
+- [ ] Update completion tests to cover load-scoped filtering
+- [ ] Run `cargo build`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test`
+
+### Phase 6: Library Completions Enhancement
+
+- [ ] Update `generate_library_completions` to accept `loaded_libraries` and `cursor_byte_offset` params
+- [ ] Deprioritize already-loaded libraries (sort_text `"1_"` prefix, mark deprecated for strikethrough)
+- [ ] Update call site in `generate_template_completions` to pass new params
+- [ ] Run `cargo build`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test`
 
 ---
 
