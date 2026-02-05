@@ -29,7 +29,7 @@ fn parse_variable(&mut self) -> Result<Node, ParseError> {
     let mut parts = content_ref.split('|');
     let var = parts.next().ok_or(ParseError::EmptyTag)?.trim().to_string();
     let filters: Vec<String> = parts.map(|s| s.trim().to_string()).collect();
-    
+
     Ok(Node::Variable { var, filters, span })
 }
 ```
@@ -48,24 +48,27 @@ Variable {
 
 ### What's Preserved vs Lost
 
-| Preserved | Lost |
-|-----------|------|
-| Variable name (before first `\|`) | Structured filter name vs argument |
-| Raw filter strings (including args) | Individual filter spans |
-| Overall variable span | Filter argument types |
-| Order of filter chain | Whether argument is quoted/unquoted |
+| Preserved                           | Lost                                |
+| ----------------------------------- | ----------------------------------- |
+| Variable name (before first `\|`)   | Structured filter name vs argument  |
+| Raw filter strings (including args) | Individual filter spans             |
+| Overall variable span               | Filter argument types               |
+| Order of filter chain               | Whether argument is quoted/unquoted |
 
 **Example parsing:**
+
 ```django
 {{ value|default:'nothing'|title|upper }}
 ```
+
 Becomes:
+
 ```yaml
 var: value
 filters:
-  - "default:'nothing'"   # NOT parsed into {name: "default", arg: "'nothing'"}
-  - title
-  - upper
+    - "default:'nothing'" # NOT parsed into {name: "default", arg: "'nothing'"}
+    - title
+    - upper
 ```
 
 ### Error Type (Unused)
@@ -85,16 +88,17 @@ There is **no filter-specific validation** in `djls-semantic`. The validation sy
 
 ### What's Missing
 
-| Missing Capability | Would Need |
-|--------------------|------------|
-| Unknown filter detection | `FilterSpecs` or runtime filter data |
-| Filter argument validation | Structured filter parsing + specs |
-| Filter arity checking | Know how many args each filter takes |
-| Filter type checking | Know argument types (strings vs variables) |
+| Missing Capability         | Would Need                                 |
+| -------------------------- | ------------------------------------------ |
+| Unknown filter detection   | `FilterSpecs` or runtime filter data       |
+| Filter argument validation | Structured filter parsing + specs          |
+| Filter arity checking      | Know how many args each filter takes       |
+| Filter type checking       | Know argument types (strings vs variables) |
 
 ### The `{% filter %}` Tag Confusion
 
 There's a `TagSpec` for the `{% filter %}` **block tag** (builtins.rs:102-114):
+
 ```rust
 ("filter", &TagSpec {
     end_tag: Some(EndTag { name: B("endfilter"), ... }),
@@ -102,11 +106,13 @@ There's a `TagSpec` for the `{% filter %}` **block tag** (builtins.rs:102-114):
     ...
 })
 ```
+
 This is for `{% filter escape|lower %}...{% endfilter %}`, **not** for validating filter expressions in variables.
 
 ### Implicit Assumption
 
 From `arguments.rs:59`:
+
 ```rust
 // Unknown tag - no validation (could be custom tag from unloaded library)
 ```
@@ -140,21 +146,22 @@ Variable {
 The `Filter` and `Variable` contexts exist but:
 
 1. **Never detected** - `analyze_template_context()` only handles `{%` tags, not `{{` variables:
-   ```rust
-   fn analyze_template_context(line: &str, cursor_offset: usize) -> Option<...> {
-       let tag_start = prefix.rfind("{%")?;  // ← Only looks for tags!
-       // No handling for {{ at all
-   }
-   ```
+
+    ```rust
+    fn analyze_template_context(line: &str, cursor_offset: usize) -> Option<...> {
+        let tag_start = prefix.rfind("{%")?;  // ← Only looks for tags!
+        // No handling for {{ at all
+    }
+    ```
 
 2. **Returns empty** when matched (lines 327-329):
-   ```rust
-   TemplateCompletionContext::Filter { .. }
-   | TemplateCompletionContext::Variable { .. }
-   | TemplateCompletionContext::None => {
-       Vec::new()  // No completions generated
-   }
-   ```
+    ```rust
+    TemplateCompletionContext::Filter { .. }
+    | TemplateCompletionContext::Variable { .. }
+    | TemplateCompletionContext::None => {
+        Vec::new()  // No completions generated
+    }
+    ```
 
 ### Snippet Generation (Tags Only)
 
@@ -177,7 +184,7 @@ def get_installed_templatetags() -> TemplateTagQueryData:
     for library in engine.template_builtins:
         for tag_name, tag_func in library.tags.items():  # ← Only .tags
             templatetags.append(...)
-    
+
     for lib_module in engine.libraries.values():
         library = import_library(lib_module)
         for tag_name, tag_func in library.tags.items():  # ← Only .tags
@@ -187,6 +194,7 @@ def get_installed_templatetags() -> TemplateTagQueryData:
 ### What Django Exposes
 
 Django's `Library` objects have both:
+
 - `library.tags` - dict of tag functions
 - `library.filters` - dict of filter functions
 
@@ -209,6 +217,7 @@ def get_installed_filters() -> TemplateFilterQueryData:
 ### Rust Side Types That Would Be Needed
 
 Would need parallel types in `crates/djls-project/src/django.rs`:
+
 ```rust
 pub struct TemplateFilters(Vec<TemplateFilter>);
 pub struct TemplateFilter {
@@ -228,11 +237,11 @@ The codebase has **no tracking** of what `{% load %}` statements appear in a tem
 
 ### What This Means
 
-| Behavior | Implication |
-|----------|-------------|
-| All builtins always shown | Correct - they don't need loading |
-| All third-party tags shown | Wrong - should only show if library loaded |
-| No "unknown filter" diagnostic | Can't know what's available |
+| Behavior                              | Implication                                          |
+| ------------------------------------- | ---------------------------------------------------- |
+| All builtins always shown             | Correct - they don't need loading                    |
+| All third-party tags shown            | Wrong - should only show if library loaded           |
+| No "unknown filter" diagnostic        | Can't know what's available                          |
 | Library completions use `module` path | Bug - shows "django.template.defaulttags" not "i18n" |
 
 ### Library Name Bug
@@ -267,12 +276,12 @@ flowchart TB
         direction TB
         TS[Template Source<br/>{{ x|filter:arg }}]
         PI[Python Inspector<br/>queries.py]
-        
+
         TS --> Parser[Parser - parser.rs<br/>split pipe → Vec<br/>NO granular parsing]
         PI -.->|✗ Filters not collected| NoData[No Filter Data]
-        
+
         Parser --> NV[Node::Variable<br/>filters: Vec String<br/>filter:arg]
-        
+
         NV --> NoConsumers[NO FILTER CONSUMERS<br/>• No validation djls-semantic<br/>• No completions djls-ide stub only<br/>• No snippets<br/>• No load tracking]
     end
 ```
@@ -281,16 +290,16 @@ flowchart TB
 
 ## Key Code References
 
-| Purpose | Location | Status |
-|---------|----------|--------|
-| Filter parsing | `djls-templates/src/parser.rs:182-202` | Minimal (splits on `\|`) |
-| Filter AST node | `djls-templates/src/nodelist.rs:27-31` | `Vec<String>` only |
-| Parse error variant | `djls-templates/src/parser.rs:285-286` | Defined, never used |
-| IDE context enum | `djls-ide/src/completions.rs:67-75` | TODO stub |
-| Context detection | `djls-ide/src/completions.rs:178-270` | Tags only, no `{{` |
-| Completion handler | `djls-ide/src/completions.rs:327-329` | Returns empty |
-| Inspector query | `djls-project/inspector/queries.py:102-135` | Tags only |
-| Library completion bug | `djls-ide/src/completions.rs:664-667` | Uses module path |
+| Purpose                | Location                                    | Status                   |
+| ---------------------- | ------------------------------------------- | ------------------------ |
+| Filter parsing         | `djls-templates/src/parser.rs:182-202`      | Minimal (splits on `\|`) |
+| Filter AST node        | `djls-templates/src/nodelist.rs:27-31`      | `Vec<String>` only       |
+| Parse error variant    | `djls-templates/src/parser.rs:285-286`      | Defined, never used      |
+| IDE context enum       | `djls-ide/src/completions.rs:67-75`         | TODO stub                |
+| Context detection      | `djls-ide/src/completions.rs:178-270`       | Tags only, no `{{`       |
+| Completion handler     | `djls-ide/src/completions.rs:327-329`       | Returns empty            |
+| Inspector query        | `djls-project/inspector/queries.py:102-135` | Tags only                |
+| Library completion bug | `djls-ide/src/completions.rs:664-667`       | Uses module path         |
 
 ---
 

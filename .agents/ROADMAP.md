@@ -1,4 +1,5 @@
 # Template Validation Port: Program Roadmap
+
 **Last updated:** 2026-02-05
 
 This file is the single “what are we doing next?” index for porting the Python
@@ -12,12 +13,14 @@ live in per-milestone plans under `.agents/plans/`.
 ## North Star (End Result)
 
 djls provides **runtime-aware, `{% load %}`-scoped template validation** where:
+
 - The **Python inspector** reports authoritative runtime inventory (what tags/filters exist, which
   `{% load %}` libraries exist, builtins ordering).
 - Rust (with Ruff AST) provides **rules/semantics enrichment** (how to validate usage), without
   runtime execution, and with **Salsa correctness** (no stale diagnostics).
 
 Source of truth for requirements:
+
 - `.agents/charter/2026-02-05-template-validation-port-charter.md`
 
 ---
@@ -25,6 +28,7 @@ Source of truth for requirements:
 ## Documents (What Exists Now)
 
 ### Research (completed)
+
 - `.agents/research/2026-02-04_template-introspection-pipeline.md`
 - `.agents/research/2026-02-04_tagspecs-flow-analysis.md`
 - `.agents/research/2026-02-04_template-filters-analysis.md`
@@ -35,14 +39,17 @@ Source of truth for requirements:
 - `.agents/research/2026-02-04_template-linter-integration-seams.md`
 
 ### Program charter (requirements + milestones)
+
 - `.agents/charter/2026-02-05-template-validation-port-charter.md`
 
 ### RFCs (architecture decisions)
+
 - `.agents/rfcs/2026-02-05-rfc-extraction-placement.md` (recommends `djls-extraction` crate;
   extraction keyed by `SymbolKey`. Note: its earlier “new Salsa inputs” discussion is superseded by
   the M2 direction to fold inspector/config into `Project` and avoid new global inputs.)
 
 ### Implementation plans (per milestone)
+
 - `.agents/plans/2026-02-05-m1-payload-library-name-fix.md` (M1 plan; ready to implement)
 - `.agents/plans/2026-02-05-m2-salsa-invalidation-plumbing.md` (M2 plan; ready to implement)
 - `.agents/plans/2026-02-05-m3-load-scoping.md` (M3 plan; ready to implement)
@@ -56,106 +63,120 @@ Source of truth for requirements:
 Milestones below are copied/condensed from the charter, with explicit dependencies.
 
 ### M1 — Payload shape + `{% load %}` library name correctness
+
 **Status:** planned (plan exists)
 **Why:** fixes a correctness bug and establishes the canonical inventory payload shape.
 **Deliverables:**
+
 - Inspector payload preserves:
-  - `libraries: {load_name -> module_path}` (keys preserved)
-  - `builtins: [module_path, ...]` (ordered)
-  - `templatetags[]` items with provenance + `defining_module`
+    - `libraries: {load_name -> module_path}` (keys preserved)
+    - `builtins: [module_path, ...]` (ordered)
+    - `templatetags[]` items with provenance + `defining_module`
 - Rust `TemplateTags` model includes top-level `libraries`/`builtins`.
 - `{% load %}` completions show load-names (e.g. `i18n`, `static`), not module paths.
-**Plan:** `.agents/plans/2026-02-05-m1-payload-library-name-fix.md`
+  **Plan:** `.agents/plans/2026-02-05-m1-payload-library-name-fix.md`
 
 ### M2 — Salsa invalidation plumbing (no stale inventory/spec/rules)
+
 **Status:** planned (plan exists; ready to implement)
 **Depends on:** M1 payload shape (so inventory can become an input)
 **Why:** prevents building M3/M4/M5 on invisible/stale dependencies.
 **Deliverables (conceptual):**
+
 - **Hard constraint:** do **not** “explode” Salsa inputs. Prefer the Ruff/Rust-Analyzer pattern:
-  a *small* number of semantically-meaningful, *large* inputs updated via setters.
+  a _small_ number of semantically-meaningful, _large_ inputs updated via setters.
 - **Target:** keep djls at **two** primary inputs (`File`, `Project`) by extending `Project` to hold:
-  - semantic config needed for validation (`tagspecs`, `diagnostics`, strictness knobs)
-  - the authoritative inspector snapshot (tags/filters inventory + `libraries`/`builtins` + health)
+    - semantic config needed for validation (`tagspecs`, `diagnostics`, strictness knobs)
+    - the authoritative inspector snapshot (tags/filters inventory + `libraries`/`builtins` + health)
 - Replace untracked `Arc<Mutex<Settings>>` reads inside semantic code with **Salsa-visible** reads
   from the `Project` input (no invisible dependencies).
 - Provide an explicit refresh path (`db.refresh_inspector()` or equivalent) that:
-  1) queries Python (side effect), 2) updates `Project` input fields (setters), 3) relies on Salsa
-     invalidation for downstream recomputation.
-- **Future (M5+):** prefer extracted rules as *derived tracked queries* over Python module `File`
+    1. queries Python (side effect), 2) updates `Project` input fields (setters), 3) relies on Salsa
+       invalidation for downstream recomputation.
+- **Future (M5+):** prefer extracted rules as _derived tracked queries_ over Python module `File`
   sources (so edits invalidate naturally) rather than introducing another global “rev counter” input.
-**Anchor:** `.agents/rfcs/2026-02-05-rfc-extraction-placement.md`
-**Plan:** `.agents/plans/2026-02-05-m2-salsa-invalidation-plumbing.md`
+  **Anchor:** `.agents/rfcs/2026-02-05-rfc-extraction-placement.md`
+  **Plan:** `.agents/plans/2026-02-05-m2-salsa-invalidation-plumbing.md`
 
 ### M3 — `{% load %}` scoping infrastructure (diagnostics + completions)
+
 **Status:** planned (plan exists; ready to implement)
 **Depends on:** M1, M2
 **Deliverables:**
+
 - Position-aware tag/filter availability at cursor position:
-  - builtins always available
-  - libraries available only after `{% load %}`
-  - `{% load X from Y %}` selective imports supported
+    - builtins always available
+    - libraries available only after `{% load %}`
+    - `{% load X from Y %}` selective imports supported
 - Diagnostics + completions are scoped when inspector is healthy; conservative fallback when not:
-  - validation: emit no S108/S109/S110 if inspector unavailable
-  - completions: skip availability filtering if inspector unavailable (show all known tags)
-  - library completions: empty if inspector unavailable (no libraries known)
+    - validation: emit no S108/S109/S110 if inspector unavailable
+    - completions: skip availability filtering if inspector unavailable (show all known tags)
+    - library completions: empty if inspector unavailable (no libraries known)
 - Selective-vs-full load semantics are explicit (full load overrides/clears selective imports).
 - Span/position semantics are explicit: byte offsets matching `djls_source::Span`, and availability
   boundary is `load_stmt.span.end() <= position`.
 - TagSpecs interaction is explicit: skip structural tags (openers/closers/intermediates) because those
   are validated by block/argument validation, not load scoping.
-**Plan:** `.agents/plans/2026-02-05-m3-load-scoping.md`
+  **Plan:** `.agents/plans/2026-02-05-m3-load-scoping.md`
 
 ### M4 — Filters pipeline (inventory-driven; scoped; parsing breakpoint)
+
 **Status:** planned (plan exists; ready to implement)
 **Depends on:** M1, M2, M3
 **Deliverables:**
+
 - Inspector provides authoritative filter inventory (grouped by provenance).
 - `djls-templates` parses filters into structured representation with spans.
 - Filter completions in `{{ x|... }}` respect scoping (builtins + loaded libs).
 - Unknown filter diagnostics (post-M3 semantics).
 - **Planned type evolution (breaking change in M4):** switch the `Project` field carrying inspector
-   data from a tags-only shape (`TemplateTags`) to a unified inventory shape (`InspectorInventory`)
-   that includes both tags and filters. This is implemented *as part of M4*; M1–M3 are implemented
-   against the tags-only shape.
-**Plan:** `.agents/plans/2026-02-05-m4-filters-pipeline.md`
+  data from a tags-only shape (`TemplateTags`) to a unified inventory shape (`InspectorInventory`)
+  that includes both tags and filters. This is implemented _as part of M4_; M1–M3 are implemented
+  against the tags-only shape.
+  **Plan:** `.agents/plans/2026-02-05-m4-filters-pipeline.md`
 
 ### M5 — Rust extraction engine (`djls-extraction`) for rule enrichment
+
 **Status:** planned (plan exists; ready to implement)
 **Depends on:** M1, M2 (and ideally M3)
 **Deliverables:**
+
 - New crate `djls-extraction` using `ruff_python_parser` (SHA-pinned).
 - Extraction keyed by `SymbolKey { registration_module, name, kind }` to avoid collisions.
 - Extraction output cached via Salsa (prefer **derived tracked queries over Python module `File`**
   sources; avoid introducing a new global `ExtractedRules` input unless it’s the only practical way).
 - Corpus/full-source extraction tests (Rust-native corpus tooling), with a **temporary** Python parity
   oracle during the port that is explicitly deleted after M6 parity is achieved.
-**Plan:** `.agents/plans/2026-02-05-m5-extraction-engine.md`
+  **Plan:** `.agents/plans/2026-02-05-m5-extraction-engine.md`
 
 ### M6 — Rule evaluation + expression validation
+
 **Status:** not planned yet
 **Depends on:** M3–M5
 **Deliverables:**
+
 - Apply extracted rules to templates (TemplateSyntaxError-derived constraints).
 - Block structure derived from extraction (end tags, intermediates, opaque blocks).
 - `{% if %}` / `{% elif %}` expression syntax validation.
 
 ### M7 — Documentation + issue reporting (post-port hardening)
+
 **Status:** not planned yet
 **Depends on:** M1–M6
 **Why:** template validation is ultimately heuristic/static compared to Python runtime behavior; we need
 clear docs + a high-signal repro path for gaps we discover in the wild.
 **Deliverables:**
+
 - Documentation update that explains:
-  - the new runtime-inventory + load-scoping model (what’s validated, when it’s conservative)
-  - known limitations of AST-derived rule mining (what we can/can’t infer)
-  - how to configure severities for “unknown/unloaded” diagnostics during adoption
+    - the new runtime-inventory + load-scoping model (what’s validated, when it’s conservative)
+    - known limitations of AST-derived rule mining (what we can/can’t infer)
+    - how to configure severities for “unknown/unloaded” diagnostics during adoption
 - GitHub issue template for “Template validation mismatch” with a strict repro checklist:
-  - environment/version info
-  - minimal template snippet
-  - relevant `{% load %}` statements + library names
-  - `djls.toml` (tagspecs/diagnostics) excerpt
-  - inspector snapshot / debug logs collection instructions
+    - environment/version info
+    - minimal template snippet
+    - relevant `{% load %}` statements + library names
+    - `djls.toml` (tagspecs/diagnostics) excerpt
+    - inspector snapshot / debug logs collection instructions
 - Link the issue template from docs (and `CONTRIBUTING.md` if appropriate).
 
 ---
@@ -168,6 +189,7 @@ These are the next “paperwork” outputs to keep the program coordinated:
 2. `.agents/plans/YYYY-MM-DD-m7-docs-and-issue-template.md`
 
 Optional (only if we feel lost again):
+
 - `.agents/rfcs/YYYY-MM-DD-rfc-milestone-decomposition.md` (turns milestones into a dependency graph
   with exact “touch points” per crate)
 
@@ -359,18 +381,19 @@ Output file:
 
 - Implement one milestone per PR (or a tightly-coupled pair if unavoidable).
 - Every milestone must have:
-  - automated tests for any new code paths
-  - a deterministic story for ordering (completions, maps) to avoid flakiness
-  - clear “inspector healthy vs unavailable” behavior when it affects diagnostics
+    - automated tests for any new code paths
+    - a deterministic story for ordering (completions, maps) to avoid flakiness
+    - clear “inspector healthy vs unavailable” behavior when it affects diagnostics
 - Run tests after major changes:
-  - crate-local while iterating (e.g. `cargo test -p djls-project`, `cargo test -p djls-ide`)
-  - broader `cargo test` before landing
+    - crate-local while iterating (e.g. `cargo test -p djls-project`, `cargo test -p djls-ide`)
+    - broader `cargo test` before landing
 
 ---
 
 ## Open Decisions / Inputs Needed (Tracked)
 
 From `.agents/rfcs/2026-02-05-rfc-extraction-placement.md`:
+
 - Which Ruff SHA to pin initially.
 - Refresh triggers: user command vs timer vs watchers (what calls `db.refresh_inspector()`).
 - Eager vs lazy extraction: extract everything at refresh vs on-demand per module, with caching.

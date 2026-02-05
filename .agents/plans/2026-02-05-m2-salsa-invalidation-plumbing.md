@@ -21,15 +21,16 @@ validate_nodelist (tracked)
 ```
 
 **File references:**
+
 - `crates/djls-semantic/src/db.rs:10-14` — trait definition with plain methods
 - `crates/djls-server/src/db.rs:186-193` — implementation reading from mutex
 - `crates/djls-semantic/src/blocks.rs:17-22` — `build_block_tree` calling `db.tag_index()`
 
 ### Current Salsa Inputs (2 total — keep it this way)
 
-| Input | Location | Purpose |
-|-------|----------|---------|
-| `File` | `djls-source/src/file.rs` | File path + revision counter |
+| Input     | Location                      | Purpose                                  |
+| --------- | ----------------------------- | ---------------------------------------- |
+| `File`    | `djls-source/src/file.rs`     | File path + revision counter             |
 | `Project` | `djls-project/src/project.rs` | Project root + Python environment config |
 
 ### Key Problems
@@ -41,15 +42,16 @@ validate_nodelist (tracked)
 ## Desired End State
 
 After M2:
+
 - `Project` is the **single source of truth** for all semantic-relevant external data
 - `Project` fields include:
-  - `inspector_inventory: Option<TemplateTags>` — M1 payload shape
-  - `tagspecs: TagSpecDef` — config document from djls-conf
-  - `diagnostics: DiagnosticsConfig` — from djls-conf
+    - `inspector_inventory: Option<TemplateTags>` — M1 payload shape
+    - `tagspecs: TagSpecDef` — config document from djls-conf
+    - `diagnostics: DiagnosticsConfig` — from djls-conf
 - `compute_tag_specs()` is a **tracked query** that:
-  - Reads **only** from Salsa-tracked Project fields
-  - Converts `TagSpecDef` → `TagSpecs` and merges with `django_builtin_specs()`
-  - Never touches `Arc<Mutex<Settings>>`
+    - Reads **only** from Salsa-tracked Project fields
+    - Converts `TagSpecDef` → `TagSpecs` and merges with `django_builtin_specs()`
+    - Never touches `Arc<Mutex<Settings>>`
 - Update methods **manually compare old vs new** before calling setters (Ruff/RA style)
 - Tests capture raw `salsa::Event` values and identify executed queries via
   `db.ingredient_debug_name(database_key.ingredient_index())` (Ruff/RA pattern).
@@ -63,15 +65,15 @@ flowchart TB
         File["File<br/>- path, revision"]
         Project["Project<br/>- root, interpreter, django_settings_module, pythonpath<br/>+ inspector_inventory: Option TemplateTags M1 shape<br/>+ tagspecs: TagSpecDef config doc, not TagSpecs!<br/>+ diagnostics: DiagnosticsConfig from djls-conf"]
     end
-    
+
     Project --> Queries
-    
+
     subgraph Queries["TRACKED QUERIES"]
         direction TB
         CTS["compute_tag_specs db, project → TagSpecs<br/>1. Read project.inspector_inventory db Salsa dependency<br/>2. Read project.tagspecs db Salsa dependency<br/>3. Start with django_builtin_specs<br/>4. Convert TagSpecDef → TagSpecs and merge<br/>NO Arc Mutex Settings access"]
-        
+
         CTI["compute_tag_index db, project → TagIndex<br/>DEPENDS ON: compute_tag_specs"]
-        
+
         CTS --> CTI
     end
 ```
@@ -89,6 +91,7 @@ flowchart TB
 ## Phase 1: Extend Project Input with djls-conf Types
 
 ### Overview
+
 Add new fields to the existing `Project` Salsa input using only types from `djls-conf`. No semantic crate dependency.
 
 ### Layering Principle
@@ -108,6 +111,7 @@ djls-server (compute_tag_specs: TagSpecDef → TagSpecs conversion)
 ### Changes Required:
 
 #### 1. Ensure config types are comparable
+
 **File**: `crates/djls-conf/src/tagspecs.rs`
 **Changes**: Ensure `PartialEq` is derived (it already is today). **Do not require `Eq`** here.
 
@@ -133,6 +137,7 @@ pub struct DiagnosticsConfig { /* ... */ }
 ```
 
 #### 2. Add new fields to Project
+
 **File**: `crates/djls-project/src/project.rs`
 **Changes**: Add config fields using djls-conf types only
 
@@ -166,22 +171,22 @@ pub struct Project {
     /// Additional Python import paths (PYTHONPATH entries)
     #[returns(ref)]
     pub pythonpath: Vec<String>,
-    
+
     // === NEW FIELDS FOR M2 ===
-    
+
     /// Runtime inventory from Python inspector (M1 payload shape).
     /// Contains: libraries mapping, ordered builtins, tag inventory with provenance.
     /// None if inspector hasn't been queried yet or failed.
     /// Updated via `DjangoDatabase::refresh_inspector()`.
     #[returns(ref)]
     pub inspector_inventory: Option<TemplateTags>,
-    
+
     /// Tag specifications config document.
     /// This is the raw config (TagSpecDef), NOT the derived TagSpecs.
     /// compute_tag_specs() converts this to TagSpecs and merges with builtins.
     #[returns(ref)]
     pub tagspecs: TagSpecDef,
-    
+
     /// Diagnostic severity overrides.
     #[returns(ref)]
     pub diagnostics: DiagnosticsConfig,
@@ -189,6 +194,7 @@ pub struct Project {
 ```
 
 #### 3. Update Project::bootstrap
+
 **File**: `crates/djls-project/src/project.rs`
 **Changes**: Initialize new fields from settings
 
@@ -226,6 +232,7 @@ impl Project {
 ```
 
 #### 4. Add djls-conf dependency to djls-project
+
 **File**: `crates/djls-project/Cargo.toml`
 **Changes**: Add dependency (if not already present)
 
@@ -237,6 +244,7 @@ djls-conf = { path = "../djls-conf" }
 ### Success Criteria:
 
 #### Automated Verification:
+
 - [ ] Cargo build passes: `cargo build -p djls-project`
 - [ ] No dependency cycles: `cargo build` (full build)
 - [ ] Clippy passes: `cargo clippy -p djls-project --all-targets -- -D warnings`
@@ -246,6 +254,7 @@ djls-conf = { path = "../djls-conf" }
 ## Phase 2: Add Project Update APIs with Manual Comparison
 
 ### Overview
+
 Add methods to `DjangoDatabase` that update Project fields **only when values actually change** (Ruff/RA style). This avoids unnecessary invalidation.
 
 ### Design Decision: Manual Comparison Before Setting
@@ -265,13 +274,14 @@ if project.tagspecs(db) != &new_tagspecs {
 ### Changes Required:
 
 #### 1. Update set_project with manual comparison
+
 **File**: `crates/djls-server/src/db.rs`
 **Changes**: Only create Project if none exists; update via setters with comparison
 
 ```rust
 impl DjangoDatabase {
     /// Initialize or update the project.
-    /// 
+    ///
     /// If no project exists, creates one. If project exists, updates
     /// fields via setters ONLY when values actually changed (Ruff/RA style).
     fn set_project(&mut self, root: &Utf8Path, settings: &Settings) {
@@ -289,54 +299,54 @@ impl DjangoDatabase {
                 settings,
             );
             *self.project.lock().unwrap() = Some(project);
-            
+
             // Refresh inspector after project creation
             self.refresh_inspector();
         }
     }
-    
+
     /// Update Project fields from settings, comparing before setting.
-    /// 
+    ///
     /// Only calls Salsa setters when values actually changed.
     /// This is the Ruff/RA pattern to avoid unnecessary invalidation.
     fn update_project_from_settings(&mut self, project: Project, settings: &Settings) {
         let mut env_changed = false;
-        
+
         // Check and update interpreter
         let new_interpreter = Interpreter::discover(settings.venv_path());
         if project.interpreter(self) != &new_interpreter {
             project.set_interpreter(self).to(new_interpreter);
             env_changed = true;
         }
-        
+
         // Check and update django_settings_module
         let new_dsm = settings.django_settings_module().map(String::from);
         if project.django_settings_module(self) != &new_dsm {
             project.set_django_settings_module(self).to(new_dsm);
             env_changed = true;
         }
-        
+
         // Check and update pythonpath
         let new_pp = settings.pythonpath().to_vec();
         if project.pythonpath(self) != &new_pp {
             project.set_pythonpath(self).to(new_pp);
             env_changed = true;
         }
-        
+
         // Check and update tagspecs (config doc, not TagSpecs!)
         let new_tagspecs = settings.tagspecs().clone();
         if project.tagspecs(self) != &new_tagspecs {
             tracing::debug!("Tagspecs config changed, updating Project");
             project.set_tagspecs(self).to(new_tagspecs);
         }
-        
+
         // Check and update diagnostics
         let new_diagnostics = settings.diagnostics().clone();
         if project.diagnostics(self) != &new_diagnostics {
             tracing::debug!("Diagnostics config changed, updating Project");
             project.set_diagnostics(self).to(new_diagnostics);
         }
-        
+
         // Refresh inspector if environment changed
         if env_changed {
             tracing::debug!("Python environment changed, refreshing inspector");
@@ -347,6 +357,7 @@ impl DjangoDatabase {
 ```
 
 #### 2. Add refresh_inspector with comparison
+
 **File**: `crates/djls-server/src/db.rs`
 **Changes**: Compare before setting inventory
 
@@ -372,7 +383,7 @@ impl DjangoDatabase {
             tracing::warn!("Cannot refresh inspector: no project set");
             return;
         };
-        
+
         // Call inspector::query directly (side-effect, not tracked)
         let new_inventory = inspector::query(self, &TemplatetagsRequest)
             .map(|response| TemplateTags::from_response(
@@ -380,7 +391,7 @@ impl DjangoDatabase {
                 response.builtins,
                 response.templatetags,
             ));
-        
+
         // Compare before setting (Ruff/RA style)
         let current = project.inspector_inventory(self);
         if current != &new_inventory {
@@ -398,6 +409,7 @@ impl DjangoDatabase {
 ```
 
 #### 3. Update set_settings
+
 **File**: `crates/djls-server/src/db.rs`
 **Changes**: Delegate to update_project_from_settings
 
@@ -414,6 +426,7 @@ pub fn set_settings(&mut self, settings: Settings) {
 ```
 
 #### 4. Make inspector types public
+
 **File**: `crates/djls-project/src/django.rs`
 **Changes**: Export types for direct inspector queries
 
@@ -441,6 +454,7 @@ impl TemplateTags {
 ```
 
 #### 5. Add PartialEq to TemplateTags
+
 **File**: `crates/djls-project/src/django.rs`
 **Changes**: Derive PartialEq for comparison
 
@@ -460,6 +474,7 @@ pub enum TagProvenance { /* ... */ }
 ```
 
 #### 6. Export from djls-project
+
 **File**: `crates/djls-project/src/lib.rs`
 **Changes**: Export the new public types
 
@@ -471,6 +486,7 @@ pub use django::TemplatetagsResponse;
 ### Success Criteria:
 
 #### Automated Verification:
+
 - [ ] Cargo build passes: `cargo build -p djls-server`
 - [ ] Clippy passes: `cargo clippy -p djls-server --all-targets -- -D warnings`
 
@@ -479,7 +495,9 @@ pub use django::TemplatetagsResponse;
 ## Phase 3: Make tag_specs a Tracked Query
 
 ### Overview
+
 Add `compute_tag_specs()` as a tracked query that:
+
 1. Reads **only** from Salsa-tracked Project fields
 2. Converts `TagSpecDef` → `TagSpecs`
 3. Merges with `django_builtin_specs()`
@@ -487,6 +505,7 @@ Add `compute_tag_specs()` as a tracked query that:
 ### Changes Required:
 
 #### 1. Add TagSpecs::from_config_def conversion
+
 **File**: `crates/djls-semantic/src/templatetags/specs.rs`
 **Changes**: Add conversion from config doc to semantic type
 
@@ -495,14 +514,14 @@ use djls_conf::TagSpecDef;
 
 impl TagSpecs {
     /// Convert config document (TagSpecDef) to semantic TagSpecs.
-    /// 
+    ///
     /// This is used by compute_tag_specs() to convert the Project's
     /// config document into the derived semantic artifact.
     pub fn from_config_def(def: &TagSpecDef) -> Self {
         // Implementation converts TagSpecDef → TagSpecs
         // Similar to existing TagSpecs::from(&Settings) but takes TagSpecDef directly
         let mut specs = TagSpecs::default();
-        
+
         for library in &def.libraries {
             for tag in &library.tags {
                 // Keep module provenance (needed downstream for extraction + attribution).
@@ -511,7 +530,7 @@ impl TagSpecs {
                 specs.insert(tag.name.clone(), spec);
             }
         }
-        
+
         specs
     }
 }
@@ -523,6 +542,7 @@ impl TagSpecs {
 **Note**: If `TagSpecs::from(&Settings)` already has this logic, refactor to share code.
 
 #### 2. Add tracked compute_tag_specs query
+
 **File**: `crates/djls-server/src/db.rs`
 **Changes**: Add tracked function that reads only from Project
 
@@ -545,27 +565,28 @@ pub fn compute_tag_specs(db: &DjangoDatabase, project: Project) -> TagSpecs {
     // Read Salsa-tracked fields to establish dependencies
     let _inventory = project.inspector_inventory(db);
     let tagspecs_def = project.tagspecs(db);
-    
+
     // Start with Django builtins (compile-time constant)
     let mut specs = django_builtin_specs();
-    
+
     // TODO (M3+): Merge inspector inventory for load scoping
     // if let Some(tags) = _inventory {
     //     specs.merge_from_inventory(&tags);
     // }
-    
+
     // Convert config doc to TagSpecs and merge
     // This does NOT include builtins - that's why we start with django_builtin_specs()
     let user_specs = TagSpecs::from_config_def(tagspecs_def);
     specs.merge(user_specs);
-    
+
     tracing::trace!("Computed tag specs: {} tags", specs.len());
-    
+
     specs
 }
 ```
 
 #### 3. Add tracked compute_tag_index query
+
 **File**: `crates/djls-server/src/db.rs`
 
 ```rust
@@ -580,6 +601,7 @@ pub fn compute_tag_index<'db>(db: &'db DjangoDatabase, project: Project) -> TagI
 ```
 
 #### 4. Update SemanticDb implementation
+
 **File**: `crates/djls-server/src/db.rs`
 
 ```rust
@@ -600,7 +622,7 @@ impl SemanticDb for DjangoDatabase {
             TagIndex::from_specs(self)
         }
     }
-    
+
     fn template_dirs(&self) -> Option<Vec<Utf8PathBuf>> {
         if let Some(project) = self.project() {
             template_dirs(self, project)
@@ -622,6 +644,7 @@ impl SemanticDb for DjangoDatabase {
 ### Success Criteria:
 
 #### Automated Verification:
+
 - [ ] Cargo build passes: `cargo build`
 - [ ] Clippy passes: `cargo clippy --all-targets -- -D warnings`
 - [ ] All tests pass: `cargo test`
@@ -631,9 +654,11 @@ impl SemanticDb for DjangoDatabase {
 ## Phase 4: Invalidation Tests with Event Capture
 
 ### Overview
+
 Write tests that capture Salsa events and verify invalidation in a stable way.
 
 Prefer the Ruff/Rust-Analyzer approach:
+
 - capture raw `salsa::Event` values
 - assert execution by inspecting `WillExecute` events and comparing
   `db.ingredient_debug_name(database_key.ingredient_index())` to the query name
@@ -655,6 +680,7 @@ assert!(ran);
 ### Changes Required:
 
 #### 1. Add event logging infrastructure
+
 **File**: `crates/djls-server/src/db.rs`
 
 ```rust
@@ -662,26 +688,26 @@ assert!(ran);
 mod test_infrastructure {
     use super::*;
     use std::sync::{Arc, Mutex};
-    
+
     /// Test logger that stores raw Salsa events for stable identification.
     #[derive(Clone, Default)]
     pub struct EventLogger {
         events: Arc<Mutex<Vec<salsa::Event>>>,
     }
-    
+
     impl EventLogger {
         pub fn push(&self, event: salsa::Event) {
             self.events.lock().unwrap().push(event);
         }
-        
+
         pub fn take(&self) -> Vec<salsa::Event> {
             std::mem::take(&mut *self.events.lock().unwrap())
         }
-        
+
         pub fn clear(&self) {
             self.events.lock().unwrap().clear();
         }
-        
+
         /// Check if a query was executed by looking for a matching ingredient debug name
         /// in `WillExecute` events.
         pub fn was_executed(&self, db: &dyn salsa::Database, query_name: &str) -> bool {
@@ -693,24 +719,24 @@ mod test_infrastructure {
             })
         }
     }
-    
+
     /// Test database with event logging (Salsa pattern)
     pub struct TestDatabase {
         pub db: DjangoDatabase,
         pub logger: EventLogger,
     }
-    
+
     impl TestDatabase {
         pub fn new() -> Self {
             let logger = EventLogger::default();
             let db = Self::create_db_with_logger(logger.clone());
             Self { db, logger }
         }
-        
+
         pub fn with_project() -> Self {
             let mut test_db = Self::new();
             let settings = Settings::default();
-            
+
             // Create project directly (bypass bootstrap which needs real files)
             let project = Project::new(
                 &test_db.db,
@@ -723,13 +749,13 @@ mod test_infrastructure {
                 settings.diagnostics().clone(), // diagnostics
             );
             *test_db.db.project.lock().unwrap() = Some(project);
-            
+
             test_db
         }
-        
+
         fn create_db_with_logger(logger: EventLogger) -> DjangoDatabase {
             use djls_workspace::InMemoryFileSystem;
-            
+
             DjangoDatabase {
                 fs: Arc::new(InMemoryFileSystem::new()),
                 files: Arc::new(FxDashMap::default()),
@@ -751,6 +777,7 @@ mod test_infrastructure {
 ```
 
 #### 2. Add invalidation tests
+
 **File**: `crates/djls-server/src/db.rs`
 
 ```rust
@@ -764,7 +791,7 @@ mod invalidation_tests {
     #[test]
     fn test_tag_specs_cached_on_repeated_access() {
         let test = TestDatabase::with_project();
-        
+
         // First access — should execute query
         let _specs1 = test.db.tag_specs();
         assert!(
@@ -772,9 +799,9 @@ mod invalidation_tests {
             "compute_tag_specs should execute on first access.\nLogs: {:?}",
             test.logger.take()
         );
-        
+
         test.logger.clear();
-        
+
         // Second access — should use cache (no WillExecute event)
         let _specs2 = test.db.tag_specs();
         assert!(
@@ -786,11 +813,11 @@ mod invalidation_tests {
     #[test]
     fn test_tagspecs_change_invalidates() {
         let mut test = TestDatabase::with_project();
-        
+
         // First access
         let _specs1 = test.db.tag_specs();
         test.logger.clear();
-        
+
         // Update tagspecs via Project setter
         let project = test.db.project().expect("test project exists");
         let mut new_tagspecs = project.tagspecs(&test.db).clone();
@@ -801,11 +828,11 @@ mod invalidation_tests {
             tags: vec![],
             extra: None,
         });
-        
+
         // Manual comparison shows change - set it
         assert!(project.tagspecs(&test.db) != &new_tagspecs);
         project.set_tagspecs(&mut test.db).to(new_tagspecs);
-        
+
         // Access again — should recompute
         let _specs2 = test.db.tag_specs();
         assert!(
@@ -817,11 +844,11 @@ mod invalidation_tests {
     #[test]
     fn test_inspector_inventory_change_invalidates() {
         let mut test = TestDatabase::with_project();
-        
+
         // First access
         let _specs1 = test.db.tag_specs();
         test.logger.clear();
-        
+
         // Update inspector inventory
         let project = test.db.project().expect("test project exists");
         let new_inventory = TemplateTags::from_response(
@@ -830,7 +857,7 @@ mod invalidation_tests {
             vec![],
         );
         project.set_inspector_inventory(&mut test.db).to(Some(new_inventory));
-        
+
         // Access again — should recompute
         let _specs2 = test.db.tag_specs();
         assert!(
@@ -842,19 +869,19 @@ mod invalidation_tests {
     #[test]
     fn test_same_value_no_invalidation() {
         let mut test = TestDatabase::with_project();
-        
+
         // First access
         let _specs1 = test.db.tag_specs();
         test.logger.clear();
-        
+
         // "Update" with same value - should NOT call setter
         let project = test.db.project().expect("test project exists");
         let same_tagspecs = project.tagspecs(&test.db).clone();
-        
+
         // Manual comparison shows NO change - don't set
         assert!(project.tagspecs(&test.db) == &same_tagspecs);
         // Note: We don't call set_tagspecs because values are equal
-        
+
         // Access again — should NOT recompute
         let _specs2 = test.db.tag_specs();
         assert!(
@@ -866,16 +893,16 @@ mod invalidation_tests {
     #[test]
     fn test_tag_index_depends_on_tag_specs() {
         let mut test = TestDatabase::with_project();
-        
+
         // Access tag_index (triggers tag_specs)
         let _index1 = test.db.tag_index();
         assert!(
             test.logger.was_executed(&test.db, "compute_tag_specs"),
             "tag_index should trigger tag_specs"
         );
-        
+
         test.logger.clear();
-        
+
         // Change tagspecs
         let project = test.db.project().expect("test project exists");
         let mut new_tagspecs = project.tagspecs(&test.db).clone();
@@ -886,7 +913,7 @@ mod invalidation_tests {
             extra: None,
         });
         project.set_tagspecs(&mut test.db).to(new_tagspecs);
-        
+
         // Access tag_index — should recompute
         let _index2 = test.db.tag_index();
         assert!(
@@ -898,16 +925,16 @@ mod invalidation_tests {
     #[test]
     fn test_update_project_from_settings_compares() {
         let mut test = TestDatabase::with_project();
-        
+
         // First access
         let _specs1 = test.db.tag_specs();
         test.logger.clear();
-        
+
         // Call update_project_from_settings with same settings
         let project = test.db.project().expect("test project exists");
         let settings = test.db.settings();
         test.db.update_project_from_settings(project, &settings);
-        
+
         // Should NOT invalidate (manual comparison prevents setter calls)
         let _specs2 = test.db.tag_specs();
         assert!(
@@ -921,6 +948,7 @@ mod invalidation_tests {
 ### Success Criteria:
 
 #### Automated Verification:
+
 - [ ] All invalidation tests pass: `cargo test invalidation_tests`
 - [ ] Full test suite passes: `cargo test`
 - [ ] Clippy passes: `cargo clippy --all-targets -- -D warnings`
@@ -977,11 +1005,13 @@ The `was_executed()` helper checks `WillExecute` events and compares
 ## Migration Notes
 
 This is an **internal refactoring** with no external API changes:
+
 - LSP protocol unchanged
 - Config file format unchanged
 - User-visible behavior: diagnostics now update correctly when config changes
 
 ### Breaking Internal Changes:
+
 - `Project::new()` / `Project::bootstrap()` signature changes (3 new fields)
 - `SemanticDb::tag_specs()` now delegates to tracked query
 - New `TagSpecs::from_config_def()` method

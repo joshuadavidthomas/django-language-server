@@ -35,10 +35,10 @@ pub fn validate_nodelist(db: &dyn Db, nodelist: djls_templates::NodeList<'_>) {
 
 ### Call Sites (Production)
 
-| Location | Trigger |
-|----------|---------|
-| `djls-server/src/session.rs:206` | Cache warming on `did_open`/`did_change`/`did_save` |
-| `djls-ide/src/diagnostics.rs:141` | Retrieves accumulated errors via `::accumulated()` |
+| Location                          | Trigger                                             |
+| --------------------------------- | --------------------------------------------------- |
+| `djls-server/src/session.rs:206`  | Cache warming on `did_open`/`did_change`/`did_save` |
+| `djls-ide/src/diagnostics.rs:141` | Retrieves accumulated errors via `::accumulated()`  |
 
 ---
 
@@ -134,11 +134,11 @@ pub enum ValidationError {
 pub fn collect_diagnostics(db, file, nodelist) -> Vec<ls_types::Diagnostic> {
     // 1. Get parse errors (TemplateErrorAccumulator)
     let template_errors = parse_template::accumulated::<TemplateErrorAccumulator>(db, file);
-    
+
     // 2. Get validation errors (ValidationErrorAccumulator)
     if let Some(nodelist) = nodelist {
         let validation_errors = validate_nodelist::accumulated::<ValidationErrorAccumulator>(db, nodelist);
-        
+
         for error_acc in validation_errors {
             let diagnostic = error_acc.0.as_diagnostic(line_index);
             // Apply severity config filtering
@@ -153,16 +153,16 @@ pub fn collect_diagnostics(db, file, nodelist) -> Vec<ls_types::Diagnostic> {
 
 ### Diagnostic Code Mapping (`diagnostics.rs:57-80`)
 
-| Code | Error Type |
-|------|------------|
-| S100 | UnclosedTag |
-| S101 | UnbalancedStructure |
-| S102 | OrphanedTag |
-| S103 | UnmatchedBlockName |
+| Code | Error Type                                 |
+| ---- | ------------------------------------------ |
+| S100 | UnclosedTag                                |
+| S101 | UnbalancedStructure                        |
+| S102 | OrphanedTag                                |
+| S103 | UnmatchedBlockName                         |
 | S104 | MissingRequiredArguments / MissingArgument |
-| S105 | TooManyArguments |
-| S106 | InvalidLiteralArgument |
-| S107 | InvalidArgumentChoice |
+| S105 | TooManyArguments                           |
+| S106 | InvalidLiteralArgument                     |
+| S107 | InvalidArgumentChoice                      |
 
 ---
 
@@ -171,12 +171,12 @@ pub fn collect_diagnostics(db, file, nodelist) -> Vec<ls_types::Diagnostic> {
 ### Where TagSpecs Come From
 
 1. **Hardcoded builtins** (`djls-semantic/src/templatetags/builtins.rs:759`)
-   - ~35 Django builtin tags (if, for, with, block, extends, include, trans, etc.)
-   - Manually maintained argument specs
+    - ~35 Django builtin tags (if, for, with, block, extends, include, trans, etc.)
+    - Manually maintained argument specs
 
 2. **TOML config** (`djls-conf/src/tagspecs/`)
-   - User can add custom tag specs via `djls.toml` or `pyproject.toml`
-   - Merges with builtins (user overrides)
+    - User can add custom tag specs via `djls.toml` or `pyproject.toml`
+    - Merges with builtins (user overrides)
 
 ### The Merge Logic (`djls-semantic/src/templatetags/specs.rs:176-195`)
 
@@ -194,6 +194,7 @@ impl From<&Settings> for TagSpecs {
 ### Key Assumption: Unknown Tags Pass Silently
 
 **`arguments.rs:59`** - If a tag has no spec, no validation occurs:
+
 ```rust
 // Unknown tag - no validation (could be custom tag from unloaded library)
 ```
@@ -207,15 +208,16 @@ impl From<&Settings> for TagSpecs {
 ### Option A: Add a New Data Source to `tag_specs()`
 
 **Change `djls-server/src/db.rs`:**
+
 ```rust
 fn tag_specs(&self) -> TagSpecs {
     let mut specs = TagSpecs::from(&self.settings());  // existing
-    
+
     // NEW: Merge runtime-derived specs (e.g., from Python introspection)
     if let Some(runtime_specs) = self.runtime_tag_specs() {
         specs.merge(runtime_specs);
     }
-    
+
     specs
 }
 ```
@@ -223,10 +225,11 @@ fn tag_specs(&self) -> TagSpecs {
 ### Option B: Add a New Validation Pass in `validate_nodelist`
 
 **Change `djls-semantic/src/lib.rs`:**
+
 ```rust
 pub fn validate_nodelist(db: &dyn Db, nodelist: NodeList<'_>) {
     // ... existing passes ...
-    
+
     // NEW: Additional rule-based validation
     validate_custom_rules(db, nodelist);  // Would need new accumulator or reuse existing
 }
@@ -235,6 +238,7 @@ pub fn validate_nodelist(db: &dyn Db, nodelist: NodeList<'_>) {
 ### Option C: Extend `TagSpecs` with New Rule Types
 
 **Change `djls-semantic/src/templatetags/specs.rs`:**
+
 ```rust
 pub struct TagSpec {
     // ... existing fields ...
@@ -252,25 +256,25 @@ flowchart TB
         direction TB
         Events[did_open / did_change / did_save]
         Events --> Handle[session.handle_file - file]
-        
+
         Handle --> Parse[parse_template db, file<br/>→ NodeList + TemplateErrorAccumulator]
         Handle --> Validate[validate_nodelist db, nodelist]
-        
+
         Validate --> BBT[build_block_tree db, nodelist]
         BBT --> TagIndex[db.tag_index ← db.tag_specs<br/>◄── PLUG IN HERE]
         TagIndex --> VEA1[ValidationErrorAccumulator<br/>S100-S103]
-        
+
         Validate --> BSF[build_semantic_forest<br/>no errors]
-        
+
         Validate --> VATA[validate_all_tag_arguments db, nodelist]
         VATA --> TagSpecs[db.tag_specs<br/>◄── PLUG IN HERE]
         TagSpecs --> VEA2[ValidationErrorAccumulator<br/>S104-S107]
     end
-    
+
     VEA1 --> Collection
     VEA2 --> Collection
     Parse --> Collection
-    
+
     subgraph Collection["DIAGNOSTIC COLLECTION"]
         direction TB
         CD[collect_diagnostics db, file, nodelist]
@@ -285,33 +289,33 @@ flowchart TB
 
 ## Summary: Insertion Points for New Rule Sources
 
-| Goal | Insertion Point | Changes Required |
-|------|-----------------|------------------|
-| Runtime-derived tag specs | `DjangoDatabase::tag_specs()` | Add Python introspection query, merge with static |
-| New validation pass | `validate_nodelist()` | Add new function call, use existing accumulator |
-| New error types | `ValidationError` enum + `diagnostics.rs` | Add variants, implement `DiagnosticError` |
-| Config-driven rules | `TagSpec` struct | Add `custom_rules` field, extend validation |
-| Library-scoped validation | New infrastructure | Track `{% load %}`, scope tag availability |
+| Goal                      | Insertion Point                           | Changes Required                                  |
+| ------------------------- | ----------------------------------------- | ------------------------------------------------- |
+| Runtime-derived tag specs | `DjangoDatabase::tag_specs()`             | Add Python introspection query, merge with static |
+| New validation pass       | `validate_nodelist()`                     | Add new function call, use existing accumulator   |
+| New error types           | `ValidationError` enum + `diagnostics.rs` | Add variants, implement `DiagnosticError`         |
+| Config-driven rules       | `TagSpec` struct                          | Add `custom_rules` field, extend validation       |
+| Library-scoped validation | New infrastructure                        | Track `{% load %}`, scope tag availability        |
 
 ---
 
 ## Code References
 
-| Purpose | File | Key Code |
-|---------|------|----------|
-| Entry point | `djls-semantic/src/lib.rs:42-51` | `validate_nodelist()` |
-| Block validation | `djls-semantic/src/blocks.rs:17` | `build_block_tree()` |
-| Block builder | `djls-semantic/src/blocks/builder.rs` | `BlockTreeBuilder` |
-| Argument validation | `djls-semantic/src/arguments.rs:21` | `validate_all_tag_arguments()` |
-| Db trait | `djls-semantic/src/db.rs` | `Db::tag_specs()`, `Db::tag_index()` |
-| Server Db impl | `djls-server/src/db.rs:166-175` | `SemanticDb for DjangoDatabase` |
-| Error accumulator | `djls-semantic/src/db.rs:23` | `ValidationErrorAccumulator` |
-| Error types | `djls-semantic/src/errors.rs` | `ValidationError` enum |
-| Diagnostic collection | `djls-ide/src/diagnostics.rs:110-158` | `collect_diagnostics()` |
-| Diagnostic codes | `djls-ide/src/diagnostics.rs:57-80` | `DiagnosticError` impl |
-| TagSpecs source | `djls-semantic/src/templatetags/builtins.rs:759` | `django_builtin_specs()` |
-| TagSpecs merge | `djls-semantic/src/templatetags/specs.rs:176-195` | `From<&Settings>` |
-| Cache warming | `djls-server/src/session.rs:203-210` | `handle_file()` |
+| Purpose               | File                                              | Key Code                             |
+| --------------------- | ------------------------------------------------- | ------------------------------------ |
+| Entry point           | `djls-semantic/src/lib.rs:42-51`                  | `validate_nodelist()`                |
+| Block validation      | `djls-semantic/src/blocks.rs:17`                  | `build_block_tree()`                 |
+| Block builder         | `djls-semantic/src/blocks/builder.rs`             | `BlockTreeBuilder`                   |
+| Argument validation   | `djls-semantic/src/arguments.rs:21`               | `validate_all_tag_arguments()`       |
+| Db trait              | `djls-semantic/src/db.rs`                         | `Db::tag_specs()`, `Db::tag_index()` |
+| Server Db impl        | `djls-server/src/db.rs:166-175`                   | `SemanticDb for DjangoDatabase`      |
+| Error accumulator     | `djls-semantic/src/db.rs:23`                      | `ValidationErrorAccumulator`         |
+| Error types           | `djls-semantic/src/errors.rs`                     | `ValidationError` enum               |
+| Diagnostic collection | `djls-ide/src/diagnostics.rs:110-158`             | `collect_diagnostics()`              |
+| Diagnostic codes      | `djls-ide/src/diagnostics.rs:57-80`               | `DiagnosticError` impl               |
+| TagSpecs source       | `djls-semantic/src/templatetags/builtins.rs:759`  | `django_builtin_specs()`             |
+| TagSpecs merge        | `djls-semantic/src/templatetags/specs.rs:176-195` | `From<&Settings>`                    |
+| Cache warming         | `djls-server/src/session.rs:203-210`              | `handle_file()`                      |
 
 ---
 

@@ -5,12 +5,14 @@
 Implement Rust-side rule mining using Ruff AST to derive validation semantics from Python template tag/filter registration modules. This enriches the inspector inventory with validation rules (argument counts, block structure, option constraints) that power M6 rule evaluation.
 
 **Key architectural principles:**
+
 1. Python inspector provides **authoritative inventory** (what exists + provenance + registry)
 2. Rust does **AST extraction** (validation semantics) — no Python AST analysis in inspector
 3. Salsa inputs stay minimal: `File` + `Project` only — no new global inputs
 4. Extraction results keyed by `SymbolKey` to avoid collisions across libraries
 
 **Critical extraction constraints (non-negotiable):**
+
 1. **No `end*` string heuristics** for end-tag inference — infer closers from control flow patterns only
 2. **No hardcoded split variable name** — detect the variable bound to `token.split_contents()` dynamically
 3. **Conservative fallback** — emit `None` for block specs when inference is ambiguous
@@ -20,6 +22,7 @@ Implement Rust-side rule mining using Ruff AST to derive validation semantics fr
 ### Inspector Payload (Post-M4)
 
 From M4, `Project.inspector_inventory` contains:
+
 ```rust
 pub struct InspectorInventory {
     pub libraries: HashMap<String, String>,  // load_name → module_path
@@ -33,23 +36,23 @@ pub struct InspectorInventory {
 
 ### What Extraction Adds
 
-| Existing (M1-M4) | M5 Adds |
-|------------------|---------|
-| Tag names + provenance | Argument validation rules |
-| Filter names + provenance | Filter arity (arg count) |
-| Library/builtin distinction | Block specs (end_tag, intermediate) |
-| — | Option constraints (known values, duplicates) |
-| — | Opaque block specs (verbatim-like) |
+| Existing (M1-M4)            | M5 Adds                                       |
+| --------------------------- | --------------------------------------------- |
+| Tag names + provenance      | Argument validation rules                     |
+| Filter names + provenance   | Filter arity (arg count)                      |
+| Library/builtin distinction | Block specs (end_tag, intermediate)           |
+| —                           | Option constraints (known values, duplicates) |
+| —                           | Opaque block specs (verbatim-like)            |
 
 ### Key Files to Reference
 
-| Location | Content |
-|----------|---------|
-| `crates/djls-semantic/src/templatetags/specs.rs` | `TagSpec`, `TagArg` types |
+| Location                                            | Content                    |
+| --------------------------------------------------- | -------------------------- |
+| `crates/djls-semantic/src/templatetags/specs.rs`    | `TagSpec`, `TagArg` types  |
 | `crates/djls-semantic/src/templatetags/builtins.rs` | Handcoded specs to replace |
-| `crates/djls-project/inspector/queries.py` | Inspector query pattern |
-| `crates/djls-source/src/file.rs` | `File` Salsa input pattern |
-| `crates/djls-server/src/db.rs` | Salsa query patterns |
+| `crates/djls-project/inspector/queries.py`          | Inspector query pattern    |
+| `crates/djls-source/src/file.rs`                    | `File` Salsa input pattern |
+| `crates/djls-server/src/db.rs`                      | Salsa query patterns       |
 
 ## Desired End State
 
@@ -74,18 +77,18 @@ flowchart TB
         File["File - path, revision<br/>workspace Python files become extraction deps"]
         Project["Project - inspector_inventory + extracted_external_rules<br/>+ tagspecs + ..."]
     end
-    
+
     Inputs --> Flow
-    
+
     subgraph Flow["EXTRACTION FLOW"]
         direction TB
-        
+
         Workspace["For workspace registration modules:<br/>extract_module_rules db, file: File<br/>→ ExtractionResult salsa::tracked"]
-        
+
         External["For external modules site-packages:<br/>Extracted in refresh_inspector<br/>stored on Project.extracted_external_rules"]
-        
+
         Compute["compute_tag_specs db, project<br/>merges all sources salsa::tracked<br/>1. django_builtin_specs compile-time constant<br/>2. Extracted rules from workspace modules tracked queries<br/>3. Extracted rules from external modules Project field<br/>4. User config overrides Project.tagspecs field"]
-        
+
         Workspace --> Compute
         External --> Compute
     end
@@ -104,7 +107,6 @@ flowchart TB
 - **Guessing when uncertain**: If end-tag inference is ambiguous, return `None` — never guess
 
 ---
-
 
 ---
 
@@ -126,30 +128,30 @@ This plan is split into phase-specific documents for easier navigation:
 
 ### Two-Tier Testing Approach
 
-| Tier | Location | Gating | Purpose |
-|------|----------|--------|---------|
-| **Tier 1: Unit/Fixture** | `tests/golden.rs`, inline `#[test]` | Always runs | Fast, deterministic, pattern-focused |
-| **Tier 2: Corpus/Full-source** | `tests/corpus.rs` | Corpus synced (auto-detects default location) | Scale validation, real-world coverage |
+| Tier                           | Location                            | Gating                                        | Purpose                               |
+| ------------------------------ | ----------------------------------- | --------------------------------------------- | ------------------------------------- |
+| **Tier 1: Unit/Fixture**       | `tests/golden.rs`, inline `#[test]` | Always runs                                   | Fast, deterministic, pattern-focused  |
+| **Tier 2: Corpus/Full-source** | `tests/corpus.rs`                   | Corpus synced (auto-detects default location) | Scale validation, real-world coverage |
 
 ### Tier 1: Unit Tests
 
-| Category | Coverage |
-|----------|----------|
-| Registration | Decorators with various names |
-| Context | Split variable detection: `bits`, `args`, `parts` |
-| Rules | All condition types, using detected variable |
-| Structural | End-tag inference WITHOUT string heuristics |
-| Filters | Arity detection |
+| Category     | Coverage                                          |
+| ------------ | ------------------------------------------------- |
+| Registration | Decorators with various names                     |
+| Context      | Split variable detection: `bits`, `args`, `parts` |
+| Rules        | All condition types, using detected variable      |
+| Structural   | End-tag inference WITHOUT string heuristics       |
+| Filters      | Arity detection                                   |
 
 ### Tier 2: Corpus Tests
 
-| Category | Gating | Coverage | Lifetime |
-|----------|--------|----------|----------|
-| No panics | Corpus synced | Extraction handles all real-world Python patterns | **Permanent** |
-| Yield metrics | Corpus synced | Corpus produces meaningful tag/filter counts | **Permanent** |
-| Django versions | Corpus synced | Golden snapshots across Django 4.2–6.0 | **Permanent** |
-| Unsupported tracking | Corpus synced | Counts of opaque rules, ambiguous blocks | **Permanent** |
-| Parity oracle | `DJLS_PY_ORACLE=1` + `DJLS_PY_ORACLE_PATH` | Comparison with Python prototype | **TEMPORARY** (delete after M6) |
+| Category             | Gating                                     | Coverage                                          | Lifetime                        |
+| -------------------- | ------------------------------------------ | ------------------------------------------------- | ------------------------------- |
+| No panics            | Corpus synced                              | Extraction handles all real-world Python patterns | **Permanent**                   |
+| Yield metrics        | Corpus synced                              | Corpus produces meaningful tag/filter counts      | **Permanent**                   |
+| Django versions      | Corpus synced                              | Golden snapshots across Django 4.2–6.0            | **Permanent**                   |
+| Unsupported tracking | Corpus synced                              | Counts of opaque rules, ambiguous blocks          | **Permanent**                   |
+| Parity oracle        | `DJLS_PY_ORACLE=1` + `DJLS_PY_ORACLE_PATH` | Comparison with Python prototype                  | **TEMPORARY** (delete after M6) |
 
 ### Key Invariants Verified by Tests
 

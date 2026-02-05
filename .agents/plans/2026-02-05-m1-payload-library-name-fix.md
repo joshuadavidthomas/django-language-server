@@ -7,17 +7,20 @@ Fix the inspector payload structure to preserve Django library load-names and di
 ## Current State Analysis
 
 ### Python Inspector (`crates/djls-project/inspector/queries.py`)
+
 - `TemplateTag` dataclass has `name`, `module`, `doc`
 - `get_installed_templatetags()` iterates `engine.libraries.values()`, **losing the library name key**
 - `module` field stores `tag_func.__module__` (defining module), not the library module
 - No distinction between builtins and loadable libraries—all flattened into one list
 
 ### Rust Types (`crates/djls-project/src/django.rs`)
+
 - `TemplateTag` struct mirrors Python: `name`, `module`, `doc`
 - `module()` returns the defining module path (e.g., `django.template.defaulttags`)
 - No concept of library load-name or provenance
 
 ### Completions (`crates/djls-ide/src/completions.rs`)
+
 - `generate_library_completions()` at line 526 collects `tag.module()` as library names
 - Results in completions like `django.templatetags.static` instead of `static`
 - Cannot filter out builtins (which shouldn't appear in `{% load %}` completions)
@@ -27,12 +30,12 @@ Fix the inspector payload structure to preserve Django library load-names and di
 Per charter section 1.1:
 
 1. **Inventory items carry:**
-   - `name` — tag name as used in templates
-   - `provenance` — **exactly one of:**
-     - `Library { load_name, module }` — requires `{% load X %}`
-     - `Builtin { module }` — always available
-   - `defining_module` — where the function is defined (`tag_func.__module__`)
-   - `doc` — optional docstring
+    - `name` — tag name as used in templates
+    - `provenance` — **exactly one of:**
+        - `Library { load_name, module }` — requires `{% load X %}`
+        - `Builtin { module }` — always available
+    - `defining_module` — where the function is defined (`tag_func.__module__`)
+    - `doc` — optional docstring
 
 2. **`{% load %}` completions show library load-names** (`static`, `i18n`) not module paths
 
@@ -48,6 +51,7 @@ Per charter section 1.1:
 ## Implementation Approach
 
 Single PR with three components:
+
 1. Expand Python inspector payload with new data model
 2. Update Rust types to deserialize new payload
 3. Fix completions to use `load_name` from `Library` provenance
@@ -55,11 +59,13 @@ Single PR with three components:
 ## Phase 1: Python Inspector Payload Changes
 
 ### Overview
+
 Update the inspector to return library information with proper provenance distinction, plus top-level registry structures for downstream use.
 
 ### Changes Required:
 
 #### 1. Update Data Structures
+
 **File**: `crates/djls-project/inspector/queries.py`
 **Changes**: Add new dataclasses for provenance and top-level registry data
 
@@ -84,6 +90,7 @@ class TemplateTagQueryData:
 **Note**: We use `dict` for provenance (not dataclass) because it serializes naturally with `asdict()` as the externally-tagged union `{"library": {...}}` or `{"builtin": {...}}` that Rust's serde expects.
 
 #### 2. Update Collection Logic
+
 **File**: `crates/djls-project/inspector/queries.py`
 **Changes**: Rewrite `get_installed_templatetags()` to preserve library keys and use `engine.builtins` for correct module paths
 
@@ -152,11 +159,13 @@ def get_installed_templatetags() -> TemplateTagQueryData:
 ### Success Criteria:
 
 #### Automated Verification:
+
 - [ ] Rust build passes (which exercises inspector via tests): `cargo build`
 - [ ] Inspector integration test passes: `cargo test -p djls-project`
 - [ ] Manual inspector test: `echo '{"query":"templatetags"}' | python crates/djls-project/inspector/__main__.py`
 
 #### Manual Verification:
+
 - [ ] Verify payload includes top-level `libraries` dict with load-names as keys
 - [ ] Verify payload includes top-level `builtins` list in correct order
 - [ ] Confirm builtin provenance modules are correct (e.g., `django.template.defaulttags`, not `django.template.library`)
@@ -169,11 +178,13 @@ def get_installed_templatetags() -> TemplateTagQueryData:
 ## Phase 2: Rust Type Updates
 
 ### Overview
+
 Update Rust types to deserialize the new payload structure with `TagProvenance` enum and top-level registry data.
 
 ### Changes Required:
 
 #### 1. Add TagProvenance Enum and Update Response
+
 **File**: `crates/djls-project/src/django.rs`
 **Changes**: Add new enum, update `TemplateTag` struct, and expand response to include registry data
 
@@ -219,6 +230,7 @@ pub struct TemplateTag {
 ```
 
 #### 2. Update TemplateTag Accessors
+
 **File**: `crates/djls-project/src/django.rs`
 **Changes**: Add clear accessors - avoid confusing `module()` name
 
@@ -271,6 +283,7 @@ impl TemplateTag {
 **Note**: We use `defining_module()` for where the function is defined (the old `module()` behavior) and `registration_module()` for the library/builtin module. This avoids the ambiguity of a bare `module()` accessor.
 
 #### 3. Update TemplateTags to Include Registry Data
+
 **File**: `crates/djls-project/src/django.rs`
 **Changes**: Expand `TemplateTags` to hold top-level registry structures
 
@@ -355,6 +368,7 @@ impl TemplateTag {
 ```
 
 #### 4. Update the Salsa Query
+
 **File**: `crates/djls-project/src/django.rs`
 **Changes**: Convert response to new TemplateTags structure
 
@@ -373,6 +387,7 @@ pub fn templatetags(db: &dyn ProjectDb, _project: Project) -> Option<TemplateTag
 ```
 
 #### 5. Update lib.rs Exports
+
 **File**: `crates/djls-project/src/lib.rs`
 **Changes**: Export the new enum
 
@@ -381,6 +396,7 @@ pub use django::TagProvenance;
 ```
 
 #### 6. Update Tests
+
 **File**: `crates/djls-project/src/django.rs`
 **Changes**: Update existing tests and add new ones for provenance
 
@@ -480,12 +496,14 @@ mod tests {
 ### Success Criteria:
 
 #### Automated Verification:
+
 - [ ] Rust compiles: `cargo build -p djls-project`
 - [ ] Clippy passes: `cargo clippy -p djls-project --all-targets -- -D warnings`
 - [ ] Unit tests pass: `cargo test -p djls-project`
 - [ ] Deserialization test passes with mock JSON
 
 #### Manual Verification:
+
 - [ ] Confirm `TagProvenance` enum is ergonomic to use in downstream code
 
 **Implementation Note**: After completing this phase and all automated verification passes, pause here for manual confirmation from the human that the Rust types are correct before proceeding to the next phase.
@@ -495,11 +513,13 @@ mod tests {
 ## Phase 3: Completions Fix
 
 ### Overview
+
 Update completions to use library load-name and exclude builtins from `{% load %}` completions.
 
 ### Changes Required:
 
 #### 1. Update Library Completions
+
 **File**: `crates/djls-ide/src/completions.rs`
 **Changes**: Fix `generate_library_completions()` to use library keys directly, with deterministic ordering
 
@@ -551,15 +571,18 @@ fn generate_library_completions(
 **Note**: We sort library names alphabetically for deterministic completion ordering. HashMap iteration order is nondeterministic, which would cause flaky tests and inconsistent UX.
 
 #### 2. Update Tag Name Completion Detail
+
 **File**: `crates/djls-ide/src/completions.rs`
 **Changes**: Update detail to show more useful info in `generate_tag_name_completions()`
 
 Find the line (around line 488):
+
 ```rust
 detail: Some(format!("from {}", tag.module())),
 ```
 
 Change to show library info when available:
+
 ```rust
 detail: Some(if let Some(lib) = tag.library_load_name() {
     format!("from {} ({{% load {} %}})", tag.defining_module(), lib)
@@ -569,6 +592,7 @@ detail: Some(if let Some(lib) = tag.library_load_name() {
 ```
 
 #### 3. Update Tag Iteration
+
 **File**: `crates/djls-ide/src/completions.rs`
 **Changes**: Since `TemplateTags` no longer implements `Deref`, update iteration
 
@@ -577,6 +601,7 @@ Find uses of `tags.iter()` in `generate_tag_name_completions()` and ensure they 
 ### Success Criteria:
 
 #### Automated Verification:
+
 - [ ] Rust compiles: `cargo build -p djls-ide`
 - [ ] Clippy passes: `cargo clippy -p djls-ide --all-targets -- -D warnings`
 - [ ] Unit tests pass: `cargo test -p djls-ide`
@@ -584,6 +609,7 @@ Find uses of `tags.iter()` in `generate_tag_name_completions()` and ensure they 
 - [ ] All tests pass: `cargo test`
 
 #### Manual Verification:
+
 - [ ] Open a Django project in editor with djls
 - [ ] Type `{% load ` and verify completions show `static`, `i18n`, `cache` etc.
 - [ ] Verify completions do NOT show module paths like `django.templatetags.static`
@@ -599,11 +625,13 @@ Find uses of `tags.iter()` in `generate_tag_name_completions()` and ensure they 
 ### Unit Tests (Automated):
 
 #### In `crates/djls-project/src/django.rs`:
+
 1. **Rust deserialization** - verify `TagProvenance` enum deserializes correctly from JSON
 2. **Accessor methods** - verify `library_load_name()`, `is_builtin()`, `defining_module()`, `registration_module()` work correctly
 3. **Registry data accessors** - verify `libraries()`, `builtins()` return expected data
 
 #### In `crates/djls-ide/src/completions.rs`:
+
 Add a new test for library completions:
 
 ```rust
@@ -633,10 +661,10 @@ fn test_generate_library_completions() {
     assert!(labels.contains(&"static"));
     assert!(labels.contains(&"i18n"));
     assert!(labels.contains(&"cache"));
-    
+
     // Should NOT contain module paths
     assert!(!labels.iter().any(|l| l.contains("django.")));
-    
+
     // Should be deterministically ordered (alphabetical)
     assert_eq!(labels, vec!["cache", "i18n", "static"]);
 }
@@ -650,6 +678,7 @@ fn test_generate_library_completions_partial() {
 **Note**: This requires adding constructor methods to `TemplateTags`/`TemplateTag` for test convenience, or making fields pub(crate).
 
 ### Manual Testing Steps:
+
 1. Start djls in a Django project
 2. Open a template file
 3. Type `{% load ` and trigger completion
@@ -670,33 +699,35 @@ fn test_generate_library_completions_partial() {
 This is a **breaking change** to the inspector payload format:
 
 **Old payload:**
+
 ```json
 {
-  "templatetags": [
-    {"name": "static", "module": "django.templatetags.static", "doc": "..."}
-  ]
+    "templatetags": [{ "name": "static", "module": "django.templatetags.static", "doc": "..." }]
 }
 ```
 
 **New payload:**
+
 ```json
 {
-  "libraries": {"static": "django.templatetags.static", "i18n": "django.templatetags.i18n"},
-  "builtins": ["django.template.defaulttags", "django.template.defaultfilters"],
-  "templatetags": [
-    {
-      "name": "static",
-      "provenance": {"library": {"load_name": "static", "module": "django.templatetags.static"}},
-      "defining_module": "django.templatetags.static",
-      "doc": "..."
-    },
-    {
-      "name": "if",
-      "provenance": {"builtin": {"module": "django.template.defaulttags"}},
-      "defining_module": "django.template.defaulttags",
-      "doc": "..."
-    }
-  ]
+    "libraries": { "static": "django.templatetags.static", "i18n": "django.templatetags.i18n" },
+    "builtins": ["django.template.defaulttags", "django.template.defaultfilters"],
+    "templatetags": [
+        {
+            "name": "static",
+            "provenance": {
+                "library": { "load_name": "static", "module": "django.templatetags.static" }
+            },
+            "defining_module": "django.templatetags.static",
+            "doc": "..."
+        },
+        {
+            "name": "if",
+            "provenance": { "builtin": { "module": "django.template.defaulttags" } },
+            "defining_module": "django.template.defaulttags",
+            "doc": "..."
+        }
+    ]
 }
 ```
 

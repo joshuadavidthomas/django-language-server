@@ -20,10 +20,10 @@ tags: [salsa, settings, invalidation, caching, tag-specs, configuration, memoiza
 
 Only **two** Salsa inputs exist in the codebase:
 
-| Input | Location | Fields | Triggers Invalidation When |
-|-------|----------|--------|---------------------------|
-| `File` | `djls-source/src/file.rs:10` | `path`, `revision` | `revision` incremented via `set_revision()` |
-| `Project` | `djls-project/src/project.rs:14` | `root`, `interpreter`, `django_settings_module`, `pythonpath` | New `Project::new()` called |
+| Input     | Location                         | Fields                                                        | Triggers Invalidation When                  |
+| --------- | -------------------------------- | ------------------------------------------------------------- | ------------------------------------------- |
+| `File`    | `djls-source/src/file.rs:10`     | `path`, `revision`                                            | `revision` incremented via `set_revision()` |
+| `Project` | `djls-project/src/project.rs:14` | `root`, `interpreter`, `django_settings_module`, `pythonpath` | New `Project::new()` called                 |
 
 **Settings is NOT a Salsa input** - it's stored in `Arc<Mutex<Settings>>`.
 
@@ -74,18 +74,18 @@ pub fn set_settings(&mut self, settings: Settings) {
 
 ### ✅ Settings That DO Trigger Invalidation
 
-| Setting | Why | Effect |
-|---------|-----|--------|
-| `venv_path` | Recreates `Project` | All Project-dependent queries invalidate |
+| Setting                  | Why                 | Effect                                        |
+| ------------------------ | ------------------- | --------------------------------------------- |
+| `venv_path`              | Recreates `Project` | All Project-dependent queries invalidate      |
 | `django_settings_module` | Recreates `Project` | `templatetags()`, `template_dirs()` recompute |
-| `pythonpath` | Recreates `Project` | Python import resolution changes |
+| `pythonpath`             | Recreates `Project` | Python import resolution changes              |
 
 ### ❌ Settings That DON'T Trigger Invalidation
 
-| Setting | Why | Consequence |
-|---------|-----|-------------|
-| `tagspecs` | Read fresh via `tag_specs()`, but not tracked by Salsa | Cached `build_block_tree` / `validate_all_tag_arguments` not invalidated |
-| `diagnostics` | Read fresh via `diagnostics_config()` | Already read at display time (no caching issue) |
+| Setting       | Why                                                    | Consequence                                                              |
+| ------------- | ------------------------------------------------------ | ------------------------------------------------------------------------ |
+| `tagspecs`    | Read fresh via `tag_specs()`, but not tracked by Salsa | Cached `build_block_tree` / `validate_all_tag_arguments` not invalidated |
+| `diagnostics` | Read fresh via `diagnostics_config()`                  | Already read at display time (no caching issue)                          |
 
 ---
 
@@ -131,6 +131,7 @@ pub fn validate_all_tag_arguments(db: &dyn Db, nodelist: NodeList<'_>) {
 ```
 
 **Salsa only tracks `nodelist` as a dependency**, not `tag_specs`/`tag_index`. If settings change:
+
 - `tag_specs()` returns new values on next call
 - But `build_block_tree` cache entry for that `nodelist` is still valid (from Salsa's perspective)
 - **Stale validation results may be returned**
@@ -148,17 +149,17 @@ flowchart TB
         Init["1. Initialization server.rs:104<br/>InitializeParams.initialization_options"]
         Runtime["2. Runtime server.rs:380<br/>workspace/didChangeConfiguration<br/>Reloads from disk: djls.toml, pyproject.toml"]
     end
-    
+
     Init --> SetSettings
     Runtime --> SetSettings
-    
+
     subgraph SetSettings["db.set_settings - settings"]
         direction TB
         Lock["1. *self.settings.lock = settings - always"]
-        
+
         Check{"2. If venv_path/django_settings_module/<br/>pythonpath changed?"}
         Lock --> Check
-        
+
         Check -->|Yes| SetProj[set_project → Project::bootstrap<br/>→ Project::new db, ...]
         SetProj --> NewInput[NEW Salsa Input Created]
         NewInput --> Invalidated["All Project-dependent queries invalidated:<br/>• templatetags db, project<br/>• template_dirs db, project<br/>• django_available db, project"]
@@ -173,17 +174,17 @@ flowchart TB
         direction TB
         BBT["build_block_tree db, nodelist"]
         BBT --> SalsaTracked["Salsa tracks: nodelist<br/>NodeList Salsa interned struct"]
-        
+
         subgraph Inside["Inside function body"]
             direction TB
             TI["db.tag_index ← NOT TRACKED by Salsa"]
             TI --> TS["db.tag_specs ← NOT TRACKED by Salsa"]
             TS --> Settings["self.settings ← NOT TRACKED Mutex"]
         end
-        
+
         BBT --> Inside
     end
-    
+
     subgraph Consequence["CONSEQUENCE"]
         direction LR
         Change["Settings.tagspecs changes"]
@@ -191,7 +192,7 @@ flowchart TB
         NewVals --> NotInval["BUT build_block_tree cache<br/>NOT invalidated"]
         NotInval --> Stale["Stale results returned<br/>until nodelist changes"]
     end
-    
+
     SalsaView --> Consequence
 ```
 
@@ -199,17 +200,17 @@ flowchart TB
 
 ## 6. Caching Behavior Summary
 
-| Query/Method | Type | Cached? | Invalidated By |
-|--------------|------|---------|----------------|
-| `parse_template(db, file)` | Salsa tracked | ✅ Yes | `file.revision` change |
-| `validate_nodelist(db, nodelist)` | Salsa tracked | ✅ Yes | `nodelist` change only |
-| `build_block_tree(db, nodelist)` | Salsa tracked | ✅ Yes | `nodelist` change only |
-| `build_semantic_forest(db, tree, nodelist)` | Salsa tracked | ✅ Yes | `tree` or `nodelist` change |
-| `templatetags(db, project)` | Salsa tracked | ✅ Yes | `project` recreation |
-| `template_dirs(db, project)` | Salsa tracked | ✅ Yes | `project` recreation |
-| `tag_specs()` | Plain method | ❌ No | N/A (always recomputes) |
-| `tag_index()` | Plain method | ❌ No | N/A (always recomputes) |
-| `diagnostics_config()` | Plain method | ❌ No | N/A (always recomputes) |
+| Query/Method                                | Type          | Cached? | Invalidated By              |
+| ------------------------------------------- | ------------- | ------- | --------------------------- |
+| `parse_template(db, file)`                  | Salsa tracked | ✅ Yes  | `file.revision` change      |
+| `validate_nodelist(db, nodelist)`           | Salsa tracked | ✅ Yes  | `nodelist` change only      |
+| `build_block_tree(db, nodelist)`            | Salsa tracked | ✅ Yes  | `nodelist` change only      |
+| `build_semantic_forest(db, tree, nodelist)` | Salsa tracked | ✅ Yes  | `tree` or `nodelist` change |
+| `templatetags(db, project)`                 | Salsa tracked | ✅ Yes  | `project` recreation        |
+| `template_dirs(db, project)`                | Salsa tracked | ✅ Yes  | `project` recreation        |
+| `tag_specs()`                               | Plain method  | ❌ No   | N/A (always recomputes)     |
+| `tag_index()`                               | Plain method  | ❌ No   | N/A (always recomputes)     |
+| `diagnostics_config()`                      | Plain method  | ❌ No   | N/A (always recomputes)     |
 
 ---
 
@@ -233,7 +234,7 @@ pub struct TagSpecsInput {
 
 #[salsa::tracked]
 pub fn build_block_tree<'db>(
-    db: &'db dyn Db, 
+    db: &'db dyn Db,
     nodelist: NodeList<'db>,
     tag_specs: TagSpecsInput,  // ← Now Salsa tracks this
 ) -> BlockTree<'db> {
@@ -248,9 +249,9 @@ Then when settings change, create new `TagSpecsInput` to trigger invalidation.
 ```rust
 pub fn set_settings(&mut self, settings: Settings) {
     let tagspecs_changed = self.settings().tagspecs() != settings.tagspecs();
-    
+
     *self.settings.lock().unwrap() = settings;
-    
+
     if tagspecs_changed {
         // Force revalidation of all open files
         for file in self.files.iter() {
@@ -264,30 +265,30 @@ pub fn set_settings(&mut self, settings: Settings) {
 
 ## 8. Where Settings Are Consumed
 
-| Consumer | Method Called | Location | Notes |
-|----------|---------------|----------|-------|
-| Block tree building | `db.tag_index()` | `blocks.rs:21` | Inside tracked fn |
-| Tag index construction | `db.tag_specs()` | `grammar.rs:122` | Inside `TagIndex::from_specs()` |
-| Argument validation | `db.tag_specs()` | `arguments.rs:42` | Inside tracked fn |
-| Completions | `db.tag_specs()` | `server.rs:278` | At request time |
-| Diagnostic filtering | `db.diagnostics_config()` | `diagnostics.rs:117` | At display time (OK) |
+| Consumer               | Method Called             | Location             | Notes                           |
+| ---------------------- | ------------------------- | -------------------- | ------------------------------- |
+| Block tree building    | `db.tag_index()`          | `blocks.rs:21`       | Inside tracked fn               |
+| Tag index construction | `db.tag_specs()`          | `grammar.rs:122`     | Inside `TagIndex::from_specs()` |
+| Argument validation    | `db.tag_specs()`          | `arguments.rs:42`    | Inside tracked fn               |
+| Completions            | `db.tag_specs()`          | `server.rs:278`      | At request time                 |
+| Diagnostic filtering   | `db.diagnostics_config()` | `diagnostics.rs:117` | At display time (OK)            |
 
 ---
 
 ## Code References
 
-| Purpose | File | Line(s) |
-|---------|------|---------|
-| Settings storage | `djls-server/src/db.rs` | 45-47 |
-| Settings update | `djls-server/src/db.rs` | 107-140 |
-| Project Salsa input | `djls-project/src/project.rs` | 14 |
-| File Salsa input | `djls-source/src/file.rs` | 10 |
-| `tag_specs()` impl | `djls-server/src/db.rs` | 187-189 |
-| `tag_index()` impl | `djls-server/src/db.rs` | 191-193 |
-| Untracked call in `build_block_tree` | `djls-semantic/src/blocks.rs` | 21 |
-| Untracked call in `validate_all_tag_arguments` | `djls-semantic/src/arguments.rs` | 42 |
-| Config change handler | `djls-server/src/server.rs` | 380-404 |
-| File revision setter | `djls-source/src/db.rs` | 27 |
+| Purpose                                        | File                             | Line(s) |
+| ---------------------------------------------- | -------------------------------- | ------- |
+| Settings storage                               | `djls-server/src/db.rs`          | 45-47   |
+| Settings update                                | `djls-server/src/db.rs`          | 107-140 |
+| Project Salsa input                            | `djls-project/src/project.rs`    | 14      |
+| File Salsa input                               | `djls-source/src/file.rs`        | 10      |
+| `tag_specs()` impl                             | `djls-server/src/db.rs`          | 187-189 |
+| `tag_index()` impl                             | `djls-server/src/db.rs`          | 191-193 |
+| Untracked call in `build_block_tree`           | `djls-semantic/src/blocks.rs`    | 21      |
+| Untracked call in `validate_all_tag_arguments` | `djls-semantic/src/arguments.rs` | 42      |
+| Config change handler                          | `djls-server/src/server.rs`      | 380-404 |
+| File revision setter                           | `djls-source/src/db.rs`          | 27      |
 
 ---
 

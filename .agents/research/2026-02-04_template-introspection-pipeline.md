@@ -25,7 +25,7 @@ The inspector queries Django's template engine for all registered tags:
 ```python
 def get_installed_templatetags() -> TemplateTagQueryData:
     engine = Engine.get_default()
-    
+
     # 1. Iterate engine.template_builtins (built-in tag libraries)
     for library in engine.template_builtins:
         for tag_name, tag_func in library.tags.items():
@@ -34,7 +34,7 @@ def get_installed_templatetags() -> TemplateTagQueryData:
                 module=tag_func.__module__,
                 doc=tag_func.__doc__
             ))
-    
+
     # 2. Iterate engine.libraries.values() (registered libraries)
     for lib_module in engine.libraries.values():
         library = import_library(lib_module)
@@ -42,16 +42,18 @@ def get_installed_templatetags() -> TemplateTagQueryData:
 ```
 
 **Django imports used:**
+
 - `django.template.engine.Engine` - Get default template engine
 - `django.template.library.import_library` - Import tag libraries
 - `django.apps.apps` - Check apps.ready
 
 **Data returned:**
+
 ```python
 @dataclass
 class TemplateTag:
     name: str       # e.g., "if", "for", "block"
-    module: str     # e.g., "django.template.defaulttags"  
+    module: str     # e.g., "django.template.defaulttags"
     doc: str | None # Docstring from tag function
 ```
 
@@ -68,6 +70,7 @@ pub fn templatetags(db: &dyn ProjectDb, _project: Project) -> Option<TemplateTag
 ```
 
 **Types (`django.rs:101-127`):**
+
 ```rust
 pub struct TemplateTags(Vec<TemplateTag>);  // Deref to Vec
 
@@ -79,6 +82,7 @@ pub struct TemplateTag {
 ```
 
 **Public exports (`lib.rs:10-11`):**
+
 ```rust
 pub use django::templatetags;
 pub use django::TemplateTags;
@@ -86,11 +90,11 @@ pub use django::TemplateTags;
 
 ### 3. Consumers of TemplateTags Data
 
-| Location | Usage | Assumptions |
-|----------|-------|-------------|
-| `djls-server/src/server.rs:265-277` | Fetches tags via `djls_project::templatetags(db, project)` and passes to completion handler | Expects `Option<TemplateTags>` |
-| `djls-ide/src/completions.rs:370-450` | `generate_tag_name_completions()` - iterates tags for names, modules, docs | Tags have 3 fields |
-| `djls-ide/src/completions.rs:655-690` | `generate_library_completions()` - extracts unique modules for `{% load %}` | `module` = library name |
+| Location                              | Usage                                                                                       | Assumptions                    |
+| ------------------------------------- | ------------------------------------------------------------------------------------------- | ------------------------------ |
+| `djls-server/src/server.rs:265-277`   | Fetches tags via `djls_project::templatetags(db, project)` and passes to completion handler | Expects `Option<TemplateTags>` |
+| `djls-ide/src/completions.rs:370-450` | `generate_tag_name_completions()` - iterates tags for names, modules, docs                  | Tags have 3 fields             |
+| `djls-ide/src/completions.rs:655-690` | `generate_library_completions()` - extracts unique modules for `{% load %}`                 | `module` = library name        |
 
 **Key assumption:** The `module` field is used directly as a library name for `{% load %}` completions, but this is technically the Python module path not the template library name.
 
@@ -99,6 +103,7 @@ pub use django::TemplateTags;
 #### Step 1: Parsing (`djls-templates`)
 
 **Key files:**
+
 - `crates/djls-templates/src/parser.rs` - Main parser with `ParseError` enum
 - `crates/djls-templates/src/db.rs:50-51` - `TemplateErrorAccumulator` (Salsa accumulator)
 - `crates/djls-templates/src/lib.rs:75` - Entry: `parse_template(db, file) -> Option<NodeList>`
@@ -106,6 +111,7 @@ pub use django::TemplateTags;
 #### Step 2: Semantic Validation (`djls-semantic`)
 
 **Key files:**
+
 - `crates/djls-semantic/src/arguments.rs:30-57` - Tag argument validation against `TagSpec`
 - `crates/djls-semantic/src/blocks/builder.rs:44,129-130` - Block tree builder, accumulates `ValidationError`s
 - `crates/djls-semantic/src/db.rs:22-23` - `ValidationErrorAccumulator`
@@ -118,15 +124,16 @@ pub use django::TemplateTags;
 pub fn collect_diagnostics(db, file, nodelist) -> Vec<Diagnostic> {
     // 1. Get parse errors from TemplateErrorAccumulator
     let template_errors = parse_template::accumulated::<TemplateErrorAccumulator>(db, file);
-    
-    // 2. Get validation errors from ValidationErrorAccumulator  
+
+    // 2. Get validation errors from ValidationErrorAccumulator
     let validation_errors = validate_nodelist::accumulated::<ValidationErrorAccumulator>(db, nodelist);
-    
+
     // 3. Filter by DiagnosticsConfig severity, convert to LSP Diagnostics
 }
 ```
 
 **Diagnostic codes:**
+
 - `T100` - Parser errors
 - `T900/T901` - IO/config errors
 - `S100-S107` - Semantic validation errors
@@ -139,11 +146,11 @@ Triggered by: `did_open`, `did_change`, `did_save`
 
 ### 5. Other Inspector Queries for Templates
 
-| Query | Python Function | Rust Function | Returns | Used By |
-|-------|----------------|---------------|---------|---------|
-| `django_init` | `initialize_django()` | `django_available(db, project)` | `bool` | Project init check |
-| `python_env` | `get_python_environment_info()` | *(not exposed)* | sys.*, version | N/A |
-| `template_dirs` | `get_template_dirs()` | `template_dirs(db, project)` | `Vec<Utf8PathBuf>` | Template resolution |
+| Query           | Python Function                 | Rust Function                   | Returns            | Used By             |
+| --------------- | ------------------------------- | ------------------------------- | ------------------ | ------------------- |
+| `django_init`   | `initialize_django()`           | `django_available(db, project)` | `bool`             | Project init check  |
+| `python_env`    | `get_python_environment_info()` | _(not exposed)_                 | sys.\*, version    | N/A                 |
+| `template_dirs` | `get_template_dirs()`           | `template_dirs(db, project)`    | `Vec<Utf8PathBuf>` | Template resolution |
 
 **`template_dirs` usage:** `crates/djls-semantic/src/resolution/templates.rs:21,103` - Used for go-to-definition to find template files.
 
@@ -152,12 +159,14 @@ Triggered by: `did_open`, `did_change`, `did_save`
 The system has **two parallel sources** of template tag information:
 
 #### Static TagSpecs (`djls-semantic/src/templatetags/`)
+
 - **Source:** Hardcoded in `builtins.rs` + user config (`djls.toml`)
 - **Purpose:** Argument specifications for validation & snippets
 - **Contains:** `TagSpec` with `args`, `end_tag`, `intermediate_tags`
 - **Used by:** Argument validation, snippet generation, block tree building
 
 #### Runtime TemplateTags (`djls-project`)
+
 - **Source:** Python inspector querying live Django project
 - **Purpose:** List of available tag names & their modules
 - **Contains:** `TemplateTag` with `name`, `module`, `doc`
@@ -166,6 +175,7 @@ The system has **two parallel sources** of template tag information:
 #### Merge Point
 
 In `crates/djls-ide/src/completions.rs:370-450`:
+
 ```rust
 // Get tag names from TemplateTags (runtime)
 for tag in tags.iter() {
@@ -184,7 +194,7 @@ Key locations for future reference:
 - `crates/djls-project/src/django.rs:91-99` - Salsa tracked `templatetags()` function
 - `crates/djls-project/src/django.rs:101-127` - `TemplateTags` and `TemplateTag` types
 - `crates/djls-semantic/src/templatetags/specs.rs:64-208` - `TagSpecs` type and config conversion
-- `crates/djls-semantic/src/templatetags/builtins.rs:759` - `django_builtin_specs()` 
+- `crates/djls-semantic/src/templatetags/builtins.rs:759` - `django_builtin_specs()`
 - `crates/djls-ide/src/completions.rs:370-450` - Tag name completion using both sources
 - `crates/djls-ide/src/diagnostics.rs:110-158` - Diagnostic collection combining accumulators
 - `crates/djls-server/src/server.rs:265-277` - Server fetching templatetags for completions
@@ -197,25 +207,25 @@ flowchart TB
         direction TB
         PI[Python Inspector<br/>queries.py]
         SC[Static Config<br/>builtins.rs + djls.toml]
-        
+
         PI --> TT[TemplateTags<br/>- name<br/>- module<br/>- doc]
         SC --> TS[TagSpecs<br/>- args<br/>- end_tag<br/>- intermediate_tags]
     end
-    
+
     TT --> Merge
     TS --> Merge
-    
+
     subgraph Consumers["CONSUMERS"]
         direction TB
         Merge((Merge)) --> Comp[Completions<br/>tag names, libraries, snippets]
         Merge --> ArgVal[Arg Validation<br/>validates tag args against TagSpec.args]
         Merge --> BTB[Block Tree Builder<br/>matches openers/closers, intermediates]
-        
+
         Comp --> VEA[ValidationError<br/>Accumulator]
         ArgVal --> VEA
         BTB --> VEA
     end
-    
+
     subgraph Pipeline["DIAGNOSTICS PIPELINE"]
         direction TB
         File[File] --> parse[parse_template]
@@ -227,7 +237,7 @@ flowchart TB
         LSP --> publish[publish_diagnostics]
         publish --> Client[Client]
     end
-    
+
     VEA --> Pipeline
 ```
 

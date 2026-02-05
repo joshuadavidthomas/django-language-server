@@ -3,6 +3,7 @@
 ## Overview
 
 Implement complete filter support for Django templates:
+
 1. **Inspector filter inventory** — Collect filters from Django with provenance (builtin vs library)
 2. **Structured filter representation** — Transform `Vec<String>` → `Vec<Filter>` with name/arg/span
 3. **Filter completions** — Completions in `{{ x| }}` context
@@ -14,6 +15,7 @@ This builds on M1 (payload shape with provenance), M2 (Salsa invalidation), and 
 ## Current State Analysis
 
 ### Parser Representation (`crates/djls-templates/src/parser.rs:182-202`)
+
 ```rust
 fn parse_variable(&mut self) -> Result<Node, ParseError> {
     // ...
@@ -25,12 +27,14 @@ fn parse_variable(&mut self) -> Result<Node, ParseError> {
 ```
 
 **Current limitations:**
+
 - `filters: Vec<String>` stores raw strings like `["default:'nothing'", "title"]`
 - No parsing of filter name vs argument
 - No individual spans per filter
 - No validation against known filters
 
 ### Node::Variable (`crates/djls-templates/src/nodelist.rs:27-31`)
+
 ```rust
 Variable {
     var: String,           // e.g., "user.name"
@@ -40,14 +44,17 @@ Variable {
 ```
 
 ### Inspector (`crates/djls-project/inspector/queries.py`)
+
 - **Filters not collected** — Only `library.tags` is iterated, `library.filters` is ignored
 - No filter inventory in the payload
 
 ### Completions (`crates/djls-ide/src/completions.rs:67-70, 327-329`)
+
 - `TemplateCompletionContext::Filter { partial }` — Placeholder, returns empty vec
 - No detection of `{{ var|` context in `analyze_template_context()`
 
 ### Validation (`crates/djls-semantic/`)
+
 - **No filter validation** — `filters` field is passed through but never validated
 
 ## Desired End State
@@ -100,25 +107,25 @@ pub enum FilterProvenance {
 flowchart TB
     subgraph FilterFlow["FILTER DATA FLOW"]
         direction TB
-        
+
         subgraph Phase1["Phase 1: Inspector Filter Inventory"]
             PI["Python Inspector queries.py<br/>for filter_name, filter_func in library.filters.items<br/>filters.append TemplateFilter..."]
         end
-        
+
         Phase1 --> Phase2
-        
+
         subgraph Phase2["Phase 2: Structured Filter Parsing - BREAKPOINT"]
             Parser["Parser djls-templates<br/>default:nothing → Filter name: default, arg: ..., span<br/>filters: Vec Filter not Vec String"]
         end
-        
+
         Phase2 --> Phase3
-        
+
         subgraph Phase3["Phase 3: Completions in {{ x| }} context"]
             Comp["analyze_template_context → Filter partial<br/>generate_filter_completions inventory, loaded_libs, position"]
         end
-        
+
         Phase3 --> Phase4
-        
+
         subgraph Phase4["Phase 4: Validation with Load Scoping"]
             Val["validate_filter_scoping reuse M3 LoadedLibraries<br/>S111: Unknown filter xyz<br/>S112: Filter X requires load Y<br/>S113: Ambiguous filter multiple libraries"]
         end
@@ -126,7 +133,6 @@ flowchart TB
 ```
 
 ---
-
 
 ---
 
@@ -223,7 +229,7 @@ fn test_filter_completions_builtin() {
         None, // No load info
         0,
     );
-    
+
     let labels: Vec<_> = completions.iter().map(|c| c.label.as_str()).collect();
     assert!(labels.contains(&"title"));
     assert!(labels.contains(&"upper"));
@@ -235,7 +241,7 @@ fn test_filter_completions_scoped() {
     // i18n filters should NOT appear without load
     let filters = make_test_filter_inventory_with_i18n();
     let loaded = LoadedLibraries::new(); // Empty
-    
+
     let completions = generate_filter_completions(
         "",
         &VariableClosingBrace::None,
@@ -243,7 +249,7 @@ fn test_filter_completions_scoped() {
         Some(&loaded),
         50,
     );
-    
+
     let labels: Vec<_> = completions.iter().map(|c| c.label.as_str()).collect();
     // Assuming 'localize' is an i18n filter
     assert!(!labels.contains(&"localize"));
@@ -283,54 +289,35 @@ fn test_builtin_filter_always_valid() {
 Create test templates:
 
 ```html
-{# test_filter_scoping.html #}
-
-{# 1. Builtin filters work everywhere #}
-{{ value|title }}
-{{ value|upper|lower }}
-
-{# 2. Unknown filter - should error #}
-{{ value|nonexistent }}  {# S111 expected #}
-
-{# 3. Library filter BEFORE load - should error #}
-{{ value|localize }}  {# S112 expected #}
-
-{# 4. Load the library #}
-{% load l10n %}
-
-{# 5. Library filter AFTER load - valid #}
-{{ value|localize }}  {# No error #}
+{# test_filter_scoping.html #} {# 1. Builtin filters work everywhere #} {{ value|title }} {{
+value|upper|lower }} {# 2. Unknown filter - should error #} {{ value|nonexistent }} {# S111 expected
+#} {# 3. Library filter BEFORE load - should error #} {{ value|localize }} {# S112 expected #} {# 4.
+Load the library #} {% load l10n %} {# 5. Library filter AFTER load - valid #} {{ value|localize }}
+{# No error #}
 ```
 
 ```html
-{# test_filter_with_args.html #}
-
-{# Filter arguments should parse correctly #}
-{{ value|default:'fallback' }}
-{{ value|date:'Y-m-d H:i:s' }}
-{{ value|default:"with:colon" }}
-{{ value|floatformat:2 }}
-
-{# Chain with mixed args #}
-{{ value|default:'x'|title|truncatewords:3 }}
+{# test_filter_with_args.html #} {# Filter arguments should parse correctly #} {{
+value|default:'fallback' }} {{ value|date:'Y-m-d H:i:s' }} {{ value|default:"with:colon" }} {{
+value|floatformat:2 }} {# Chain with mixed args #} {{ value|default:'x'|title|truncatewords:3 }}
 ```
 
 ### Manual Testing Steps
 
 1. **Filter completions appear**:
-   - Type `{{ value|` - should see filter list
-   - Type `{{ value|def` - should filter to `default`
-   - Verify documentation appears in completion detail
+    - Type `{{ value|` - should see filter list
+    - Type `{{ value|def` - should filter to `default`
+    - Verify documentation appears in completion detail
 
 2. **Unknown filter diagnostic**:
-   - Type `{{ value|fakefiltername }}` - should see S111 squiggle
+    - Type `{{ value|fakefiltername }}` - should see S111 squiggle
 
 3. **Unloaded filter diagnostic**:
-   - Type `{{ value|localize }}` - should see S112 squiggle
-   - Add `{% load l10n %}` before it - squiggle should disappear
+    - Type `{{ value|localize }}` - should see S112 squiggle
+    - Add `{% load l10n %}` before it - squiggle should disappear
 
 4. **Builtin filters never error**:
-   - `{{ value|title|upper|default:'x' }}` - no diagnostics
+    - `{{ value|title|upper|default:'x' }}` - no diagnostics
 
 ---
 
@@ -349,12 +336,12 @@ Create test templates:
 
 **This is a breaking change** to `Node::Variable` structure. All consumers must be updated simultaneously:
 
-| Consumer | Update Required |
-|----------|-----------------|
-| `djls-semantic/blocks/tree.rs` | Change `NodeView::Variable` filters type |
-| `djls-semantic/blocks/builder.rs` | Pattern match (likely unchanged) |
-| `djls-ide/context.rs` | Change `OffsetContext::Variable` filters type |
-| Snapshot tests | All filter snapshots need update |
+| Consumer                          | Update Required                               |
+| --------------------------------- | --------------------------------------------- |
+| `djls-semantic/blocks/tree.rs`    | Change `NodeView::Variable` filters type      |
+| `djls-semantic/blocks/builder.rs` | Pattern match (likely unchanged)              |
+| `djls-ide/context.rs`             | Change `OffsetContext::Variable` filters type |
+| Snapshot tests                    | All filter snapshots need update              |
 
 **Strategy**: Single PR, update all consumers, run `cargo test --all` with snapshot updates.
 

@@ -40,14 +40,14 @@ This RFC addresses a narrower question: **where does the extraction code live in
 ```mermaid
 flowchart TB
     Server["djls-server<br/>concrete DjangoDatabase"]
-    
+
     Server --> Semantic["djls-semantic<br/>TagSpecs, validation, blocks"]
     Server --> Project["djls-project<br/>Inspector, Python environment"]
-    
+
     Semantic --> Templates["djls-templates<br/>parsing"]
     Semantic --> Conf["djls-conf<br/>settings, config TagSpecs"]
     Semantic --> Workspace1["djls-workspace<br/>file system"]
-    
+
     Project --> Workspace2["djls-workspace"]
 ```
 
@@ -100,15 +100,16 @@ pub struct TemplateTag {
 
 ### 3.1 Options
 
-| Option | Description |
-|--------|-------------|
-| **A: Expand djls-semantic** | Add `extraction/` module to existing crate |
-| **B: New djls-extraction crate** | Separate crate depending on `ruff_python_parser` |
-| **C: Types-only crate** | `djls-rules` for types; extraction stays in semantic |
+| Option                           | Description                                          |
+| -------------------------------- | ---------------------------------------------------- |
+| **A: Expand djls-semantic**      | Add `extraction/` module to existing crate           |
+| **B: New djls-extraction crate** | Separate crate depending on `ruff_python_parser`     |
+| **C: Types-only crate**          | `djls-rules` for types; extraction stays in semantic |
 
 ### 3.2 Recommendation: **Option B — New `djls-extraction` Crate**
 
 Create a new crate `djls-extraction` that:
+
 - Depends on `ruff_python_parser` (git dependency, SHA-pinned)
 - Exports extraction logic and result types
 - Is consumed by `djls-semantic` for validation enrichment
@@ -118,14 +119,14 @@ Create a new crate `djls-extraction` that:
 ```mermaid
 flowchart TB
     Server["djls-server"]
-    
+
     Server --> Semantic["djls-semantic"]
     Server --> Project["djls-project<br/>Inspector"]
-    
+
     Semantic --> Extraction["djls-extraction ← NEW"]
     Semantic --> Templates["djls-templates"]
     Semantic --> Conf["djls-conf"]
-    
+
     Extraction --> Ruff["ruff_python_parser<br/>git"]
 ```
 
@@ -136,11 +137,13 @@ flowchart TB
 ### 4.1 Dependency Isolation
 
 `ruff_python_parser` is:
+
 - A git dependency (no crates.io stability guarantees)
 - Internal to Astral's tooling (may have breaking changes)
 - Unrelated to template parsing or semantic analysis
 
 Confining it to one crate means:
+
 - Breaking changes affect only `djls-extraction`
 - Other crates compile faster (no Python AST in their dependency tree)
 - Easier to pin/update deliberately
@@ -148,10 +151,12 @@ Confining it to one crate means:
 ### 4.2 Testability
 
 Extraction should be testable in isolation:
+
 - Golden tests: "given this Python source, extract these rules"
 - No template parsing, no Salsa, no file system
 
 With a separate crate:
+
 ```rust
 // djls-extraction/tests/django_tags.rs
 #[test]
@@ -165,6 +170,7 @@ fn test_if_tag_extraction() {
 ### 4.3 Conceptual Clarity
 
 Two distinct concerns:
+
 1. **Extraction:** "Parse Python source → derive validation rules"
 2. **Validation:** "Apply rules to template nodes → produce diagnostics"
 
@@ -172,11 +178,11 @@ These should be separate modules at minimum. A crate boundary makes the separati
 
 ### 4.4 Counter-arguments Considered
 
-| Concern | Response |
-|---------|----------|
-| "More crate boundaries = more complexity" | Minimal: one new Cargo.toml, one new lib.rs. Types naturally cross via pub exports. |
-| "Build graph gets deeper" | Extraction is leaf-ish (no djls dependencies except maybe djls-conf for types). Parallel compilation not harmed. |
-| "Overkill for now" | The git-dep nature of ruff_python_parser makes isolation valuable immediately, not just at scale. |
+| Concern                                   | Response                                                                                                         |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| "More crate boundaries = more complexity" | Minimal: one new Cargo.toml, one new lib.rs. Types naturally cross via pub exports.                              |
+| "Build graph gets deeper"                 | Extraction is leaf-ish (no djls dependencies except maybe djls-conf for types). Parallel compilation not harmed. |
+| "Overkill for now"                        | The git-dep nature of ruff_python_parser makes isolation valuable immediately, not just at scale.                |
 
 ---
 
@@ -186,9 +192,9 @@ These should be separate modules at minimum. A crate boundary makes the separati
 
 Per the M2 plan, djls maintains a **small number of semantically-meaningful inputs** (Ruff/RA pattern):
 
-| Input | Purpose |
-|-------|---------|
-| `File` | File path + revision counter |
+| Input     | Purpose                                                                   |
+| --------- | ------------------------------------------------------------------------- |
+| `File`    | File path + revision counter                                              |
 | `Project` | Project root + Python environment + inspector inventory + semantic config |
 
 **Key principle:** Prefer extending `Project` with fields rather than adding new global inputs. This keeps the dependency graph tractable and avoids "input explosion."
@@ -203,16 +209,16 @@ Per the M2 plan, djls maintains a **small number of semantically-meaningful inpu
 #[salsa::input]
 pub struct Project {
     // ... existing fields (root, interpreter, etc.) ...
-    
+
     /// Runtime inventory from Python inspector (M1 payload shape).
     /// None if inspector hasn't been queried yet or failed.
     #[returns(ref)]
     pub inspector_inventory: Option<TemplateTags>,
-    
+
     /// Tag specifications config document (from djls.toml).
     #[returns(ref)]
     pub tagspecs: TagSpecDef,
-    
+
     /// Diagnostic severity overrides.
     #[returns(ref)]
     pub diagnostics: DiagnosticsConfig,
@@ -220,6 +226,7 @@ pub struct Project {
 ```
 
 **Refresh mechanism:** `db.refresh_inspector()` is an **explicit side-effecting operation** that:
+
 1. Queries the Python inspector (subprocess call)
 2. Compares new inventory with current (`project.inspector_inventory(db)`)
 3. Calls setter **only if changed**: `project.set_inspector_inventory(db).to(new_inventory)`
@@ -247,7 +254,7 @@ pub struct SymbolKey {
 }
 
 /// Extract rules from a Python registration module.
-/// 
+///
 /// This is a tracked query: when the File changes, extraction re-runs.
 #[salsa::tracked]
 pub fn extract_module_rules(db: &dyn Db, file: File) -> Option<ExtractionResult> {
@@ -257,11 +264,13 @@ pub fn extract_module_rules(db: &dyn Db, file: File) -> Option<ExtractionResult>
 ```
 
 **Why not a global `ExtractedRules` input?**
+
 - File-based tracking provides **automatic invalidation** when source changes
 - Avoids a parallel "rule cache" that must be manually synchronized
 - Matches how Ruff/RA handle derived data from source files
 
 **When a global input might be unavoidable:**
+
 - If extraction requires data that isn't derivable from files alone (e.g., runtime-only info)
 - If extraction cost per-file is prohibitive and batching provides significant wins
 - If the workspace doesn't contain the registration modules (e.g., site-packages)
@@ -270,24 +279,26 @@ For site-packages modules (not in workspace), extraction results may need to be 
 
 ### 5.4 Invalidation Triggers
 
-| Change Signal | Who Detects | What Happens |
-|---------------|-------------|--------------|
-| **Startup** | `DjangoDatabase::new()` | Fresh state; no invalidation needed |
-| **Config file change** | File watcher | `update_project_from_settings()` updates `Project` fields via setters |
-| **venv/sys.path change** | Settings change | `refresh_inspector()` re-queries Python, updates `Project.inspector_inventory` |
-| **Inspector refresh** (explicit) | User command | `refresh_inspector()` updates `Project.inspector_inventory` |
-| **Registration module edit** | Workspace file watcher | `File` revision bumps → tracked extraction query re-runs |
+| Change Signal                    | Who Detects             | What Happens                                                                   |
+| -------------------------------- | ----------------------- | ------------------------------------------------------------------------------ |
+| **Startup**                      | `DjangoDatabase::new()` | Fresh state; no invalidation needed                                            |
+| **Config file change**           | File watcher            | `update_project_from_settings()` updates `Project` fields via setters          |
+| **venv/sys.path change**         | Settings change         | `refresh_inspector()` re-queries Python, updates `Project.inspector_inventory` |
+| **Inspector refresh** (explicit) | User command            | `refresh_inspector()` updates `Project.inspector_inventory`                    |
+| **Registration module edit**     | Workspace file watcher  | `File` revision bumps → tracked extraction query re-runs                       |
 
 **Key design decision:** Extraction for workspace files is demand-driven via tracked queries. Extraction for site-packages modules (outside workspace) is triggered by `refresh_inspector()`.
 
 ### 5.5 Integration with TagSpecs
 
 Current flow:
+
 ```
 Settings → TagSpecs (builtins.rs + config overrides)
 ```
 
 Future flow:
+
 ```
 Project.tagspecs + Project.inspector_inventory + Extracted Rules → TagSpecs
 ```
@@ -300,10 +311,10 @@ fn compute_tag_specs(db: &dyn Db, project: Project) -> TagSpecs {
     // Read Salsa-tracked fields to establish dependencies
     let inventory = project.inspector_inventory(db);
     let tagspecs_def = project.tagspecs(db);
-    
+
     // Start with Django builtins (compile-time constant)
     let mut specs = django_builtin_specs();
-    
+
     // Merge extracted rules from workspace registration modules (tracked queries)
     if let Some(inv) = inventory {
         for tag in inv.tags() {
@@ -314,31 +325,33 @@ fn compute_tag_specs(db: &dyn Db, project: Project) -> TagSpecs {
             }
         }
     }
-    
+
     // Merge user config overrides
     specs.merge(TagSpecs::from_config_def(tagspecs_def));
-    
+
     specs
 }
 ```
 
 ### 5.6 Invalidation Contract Summary
 
-| Data Source | Salsa Role | Update Trigger | Updated By |
-|-------------|------------|----------------|------------|
-| `builtins.rs` | Compile-time constant | Rebuild | N/A |
-| User config (djls.toml) | `Project.tagspecs` field | File watcher | `update_project_from_settings()` |
-| Inspector inventory | `Project.inspector_inventory` field | Explicit refresh | `refresh_inspector()` |
-| Workspace registration modules | `File` inputs | File watcher | Automatic (file revision bump) |
-| Site-packages registration modules | Cached on `Project` or alongside inventory | `refresh_inspector()` | Explicit in refresh path |
+| Data Source                        | Salsa Role                                 | Update Trigger        | Updated By                       |
+| ---------------------------------- | ------------------------------------------ | --------------------- | -------------------------------- |
+| `builtins.rs`                      | Compile-time constant                      | Rebuild               | N/A                              |
+| User config (djls.toml)            | `Project.tagspecs` field                   | File watcher          | `update_project_from_settings()` |
+| Inspector inventory                | `Project.inspector_inventory` field        | Explicit refresh      | `refresh_inspector()`            |
+| Workspace registration modules     | `File` inputs                              | File watcher          | Automatic (file revision bump)   |
+| Site-packages registration modules | Cached on `Project` or alongside inventory | `refresh_inspector()` | Explicit in refresh path         |
 
 **Invariant:** Every external data source that affects validation must be either:
+
 - A field on `Project` (updated via setters with comparison), OR
 - Derivable from `File` inputs via tracked queries
 
 No "invisible" dependencies (e.g., `Arc<Mutex<...>>` reads inside tracked functions).
 
 **Dependency chain:**
+
 ```
 Project (input)
   ├── inspector_inventory (field)
@@ -375,11 +388,11 @@ class TemplateTagQueryData:
 
 **Key terminology (avoiding ambiguity):**
 
-| Term | Example | Source | Purpose |
-|------|---------|--------|---------|
-| `load_name` | `"i18n"` | `engine.libraries.keys()` | Used in `{% load X %}` |
+| Term                  | Example                      | Source                                                     | Purpose                                                 |
+| --------------------- | ---------------------------- | ---------------------------------------------------------- | ------------------------------------------------------- |
+| `load_name`           | `"i18n"`                     | `engine.libraries.keys()`                                  | Used in `{% load X %}`                                  |
 | `registration_module` | `"django.templatetags.i18n"` | `provenance.library.module` or `provenance.builtin.module` | Where `@register.tag` is called; **key for extraction** |
-| `defining_module` | `"django.templatetags.i18n"` | `tag_func.__module__` | Where function is defined; for docs/jump-to-def |
+| `defining_module`     | `"django.templatetags.i18n"` | `tag_func.__module__`                                      | Where function is defined; for docs/jump-to-def         |
 
 **Note:** `registration_module` and `defining_module` are often the same, but can differ when tags are defined in one module and registered in another (wrapper patterns).
 
@@ -423,7 +436,7 @@ impl TemplateTag {
 
 **Critical:** Extraction keys off `registration_module`, NOT `defining_module`.
 
-Rule mining (TemplateSyntaxError guards, `parse_bits` usage, `parser.parse((...))`  calls, opaque blocks) happens in the module where registration occurs—the library/builtin module with `@register.tag` decorators.
+Rule mining (TemplateSyntaxError guards, `parse_bits` usage, `parser.parse((...))` calls, opaque blocks) happens in the module where registration occurs—the library/builtin module with `@register.tag` decorators.
 
 **Workflow (orchestrated by djls-server, NOT djls-extraction):**
 
@@ -447,30 +460,30 @@ flowchart TB
         Module["tag_func.__module__ defining_module"]
         SysPath["sys.path for module → file resolution"]
     end
-    
+
     Inspector -->|refresh_inspector| Inventory
-    
+
     subgraph Inventory["Project.inspector_inventory field"]
         direction TB
         TT["TemplateTags<br/>libraries: load_name → module_path<br/>builtins: module_path, ...<br/>tags: name, provenance, defining_module"]
         Prov["provenance.library.module / provenance.builtin.module<br/>= registration_module key for extraction"]
     end
-    
+
     Inventory --> WorkspaceModules["Workspace Registration Modules<br/>Represented as File inputs<br/>Tracked extraction queries"]
     Inventory --> LoadScoping["Load Scoping djls-semantic<br/>Uses provenance.load_name<br/>Which tags are available at this position?"]
-    
+
     WorkspaceModules -->|source text via File.source| Extraction
-    
+
     subgraph Extraction["djls-extraction"]
         direction TB
         Pure["pure: text → rules<br/>ruff_python_parser"]
         Outputs["→ TagValidation<br/>→ FilterSpec<br/>→ BlockTagSpec"]
     end
-    
+
     Extraction --> ExtractQuery["extract_module_rules db, file → ExtractionResult<br/>Tracked query: File change → automatic re-extraction<br/>Results keyed by SymbolKey registration_module, name"]
-    
+
     ExtractQuery --> ComputeSpecs["compute_tag_specs db, project Tracked Query<br/>builtins.rs + extracted rules + user config Project.tagspecs<br/>Depends on: Project fields, extract_module_rules per module"]
-    
+
     ComputeSpecs --> Validation["Template Validation<br/>apply rules to parsed template nodes → diagnostics"]
 ```
 
@@ -522,7 +535,7 @@ insta = { workspace = true }
 pub use types::{TagValidation, FilterSpec, BlockTagSpec, ExtractedRule, SymbolKey, SymbolKind};
 
 /// Extract all rules from a single Python source file.
-/// 
+///
 /// This is a pure function: source text in, rules out.
 /// Module-to-path resolution is NOT this crate's responsibility.
 pub fn extract_rules(source: &str) -> Result<ExtractionResult, ExtractionError>;
@@ -535,6 +548,7 @@ pub struct ExtractionResult {
 ```
 
 **Design principle:** `djls-extraction` is pure—it takes source text and returns rules. It does NOT:
+
 - Resolve module paths to file paths
 - Read files from disk
 - Know about `sys.path` or the Python environment
@@ -566,20 +580,20 @@ This keeps `djls-extraction` testable in isolation (just source strings) and avo
 
 ### 8.1 What We Gain
 
-| Benefit | Impact |
-|---------|--------|
+| Benefit                  | Impact                                                     |
+| ------------------------ | ---------------------------------------------------------- |
 | **Dependency isolation** | `ruff_python_parser` changes don't ripple through codebase |
-| **Fast iteration** | Extraction tests run without template/Salsa overhead |
-| **Clear ownership** | "Python AST stuff" has a home; easier to navigate |
-| **Future flexibility** | Could swap parser, cache extraction artifacts, etc. |
+| **Fast iteration**       | Extraction tests run without template/Salsa overhead       |
+| **Clear ownership**      | "Python AST stuff" has a home; easier to navigate          |
+| **Future flexibility**   | Could swap parser, cache extraction artifacts, etc.        |
 
 ### 8.2 What We Pay
 
-| Cost | Mitigation |
-|------|------------|
-| **One more crate** | Minimal overhead; follows existing pattern |
-| **Type re-exports** | `djls-semantic` re-exports what it needs; callers don't know |
-| **Build graph depth** | Extraction is a leaf; doesn't hurt parallelism |
+| Cost                  | Mitigation                                                   |
+| --------------------- | ------------------------------------------------------------ |
+| **One more crate**    | Minimal overhead; follows existing pattern                   |
+| **Type re-exports**   | `djls-semantic` re-exports what it needs; callers don't know |
+| **Build graph depth** | Extraction is a leaf; doesn't hurt parallelism               |
 
 ---
 
@@ -612,15 +626,15 @@ This keeps `djls-extraction` testable in isolation (just source strings) and avo
 
 ## 10. Open Questions (For Implementation)
 
-| # | Question | Notes |
-|---|----------|-------|
-| 1 | Initial SHA for `ruff_python_parser`? | Pick a recent stable Ruff release tag |
-| 2 | Bundle extracted Django rules as JSON or compute at startup? | Charter suggests runtime JSON; TBD based on startup cost |
-| 3 | How to handle site-packages modules not in workspace? | May need to cache extraction results alongside inventory on `Project` |
-| 4 | How to resolve `registration_module` → source path? | Need `sys.path` from inspector + module-to-path logic |
-| 5 | What triggers `db.refresh_inspector()`? | User command? Periodic timer? File watcher on site-packages? |
-| 6 | How to detect workspace templatetags source changes? | File watcher → `File` revision bump → tracked query invalidates |
-| 7 | Should extraction be eager (on refresh) or lazy (on first access)? | Lazy via tracked queries for workspace; eager in refresh for site-packages |
+| #   | Question                                                           | Notes                                                                      |
+| --- | ------------------------------------------------------------------ | -------------------------------------------------------------------------- |
+| 1   | Initial SHA for `ruff_python_parser`?                              | Pick a recent stable Ruff release tag                                      |
+| 2   | Bundle extracted Django rules as JSON or compute at startup?       | Charter suggests runtime JSON; TBD based on startup cost                   |
+| 3   | How to handle site-packages modules not in workspace?              | May need to cache extraction results alongside inventory on `Project`      |
+| 4   | How to resolve `registration_module` → source path?                | Need `sys.path` from inspector + module-to-path logic                      |
+| 5   | What triggers `db.refresh_inspector()`?                            | User command? Periodic timer? File watcher on site-packages?               |
+| 6   | How to detect workspace templatetags source changes?               | File watcher → `File` revision bump → tracked query invalidates            |
+| 7   | Should extraction be eager (on refresh) or lazy (on first access)? | Lazy via tracked queries for workspace; eager in refresh for site-packages |
 
 ---
 
@@ -639,7 +653,8 @@ djls-semantic/src/
     └── specs.rs
 ```
 
-**Why not:** 
+**Why not:**
+
 - `ruff_python_parser` becomes a dependency of `djls-semantic`
 - Everything that depends on `djls-semantic` now transitively depends on the Python parser
 - Harder to test extraction in isolation
@@ -654,6 +669,7 @@ The crate boundary cost is low; the isolation benefit is high.
 ### A.2 Why Not Separate Salsa Inputs?
 
 The initial RFC proposed:
+
 - `#[salsa::input] InspectorInventory` — separate input for inspector data
 - `#[salsa::input] ExtractedRules` — separate input for extraction results
 
@@ -670,6 +686,7 @@ The initial RFC proposed:
 ### A.3 When Might a Global Input Be Necessary?
 
 A new `#[salsa::input]` might be justified if:
+
 - Data cannot be derived from existing inputs (truly external, not representable as files)
 - Performance requires batched updates that don't fit the per-file model
 - The data's lifecycle is fundamentally different from files or project config

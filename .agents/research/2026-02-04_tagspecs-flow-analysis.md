@@ -20,6 +20,7 @@ tags: [tagspecs, semantic, diagnostics, completions, snippets, validation, archi
 4. **Snippet generation** (`djls-ide/snippets.rs`) - generates LSP snippets from argument specs
 
 **Key finding:** TagSpecs and runtime TemplateTags are **separate parallel systems** that only merge at completion time. If TagSpecs moved to runtime-derived, the primary changes would be in:
+
 - `djls-semantic/src/templatetags/builtins.rs` (replace hardcoded specs)
 - `djls-conf/src/tagspecs/` (config loading becomes secondary/override)
 - `TagSpecs::from(&Settings)` (merge logic)
@@ -62,22 +63,22 @@ pub struct IntermediateTag {
 pub enum TagArg {
     /// Template variable/filter (e.g., `item` in `{% for item in items %}`)
     Variable { name: S, required: bool, count: TokenCount },
-    
+
     /// Quoted string (e.g., `"template.html"` in `{% include "template.html" %}`)
     String { name: S, required: bool },
-    
+
     /// Literal keyword with semantic classification
     Literal { lit: S, required: bool, kind: LiteralKind },
-    
+
     /// Any expression (greedy, consumes multiple tokens)
     Any { name: S, required: bool, count: TokenCount },
-    
+
     /// Variable assignment (e.g., `var=value`)
     Assignment { name: S, required: bool, count: TokenCount },
-    
+
     /// Consumes all remaining tokens
     VarArgs { name: S, required: bool },
-    
+
     /// Choice from specific literals (e.g., `on`|`off` for autoescape)
     Choice { name: S, required: bool, choices: Cow<'static, [Cow<'static, str>]> },
 }
@@ -107,6 +108,7 @@ pub fn django_builtin_specs() -> TagSpecs {
 ```
 
 Covers ~35 Django builtin tags from:
+
 - `django.template.defaulttags` (if, for, with, block, etc.)
 - `django.template.loader_tags` (extends, include)
 - `django.templatetags.cache`
@@ -116,6 +118,7 @@ Covers ~35 Django builtin tags from:
 **Source 2: User Configuration** (`djls-conf/src/lib.rs` + `tagspecs/`)
 
 Config files (priority order, later overrides earlier):
+
 1. `~/.config/djls/djls.toml` (user global)
 2. `pyproject.toml` under `[tool.djls]`
 3. `.djls.toml` (project hidden)
@@ -128,7 +131,7 @@ impl From<&djls_conf::Settings> for TagSpecs {
     fn from(settings: &djls_conf::Settings) -> Self {
         // Start with built-in specs
         let mut specs = crate::templatetags::django_builtin_specs();
-        
+
         // Convert user-defined tagspecs from config
         let mut user_specs = FxHashMap::default();
         for library in &settings.tagspecs().libraries {
@@ -137,7 +140,7 @@ impl From<&djls_conf::Settings> for TagSpecs {
                 user_specs.insert(tag_def.name.clone(), tagspec);
             }
         }
-        
+
         // User specs override built-ins
         specs.merge(TagSpecs::new(user_specs));
         specs
@@ -164,6 +167,7 @@ pub trait Db: TemplateDb {
 ```
 
 **Implementations:**
+
 - `DjangoDatabase` (server) - `TagSpecs::from(&self.settings())`
 - `TestDatabase` instances - `django_builtin_specs()` or custom specs
 - `BenchDatabase` - `django_builtin_specs()`
@@ -190,11 +194,11 @@ impl TagIndex {
             }
         }
     }
-    
+
     pub fn classify(&self, tag_name: &str) -> TagClass {
         // Returns: Opener | Closer { opener_name } | Intermediate { possible_openers } | Unknown
     }
-    
+
     pub fn validate_close(&self, opener_name, opener_bits, closer_bits) -> CloseValidation {
         // Validates endblock name matches block name, etc.
     }
@@ -202,12 +206,14 @@ impl TagIndex {
 ```
 
 **What TagIndex needs from TagSpecs:**
+
 - `spec.end_tag.name` - closer tag name
 - `spec.end_tag.required` - must have explicit closer?
 - `spec.end_tag.args` - args that must match opener (e.g., block name)
 - `spec.intermediate_tags[].name` - intermediate tag names
 
 **Consumer:** `BlockTreeBuilder` (`blocks/builder.rs`) uses `TagIndex` to:
+
 - Classify each tag as opener/closer/intermediate/unknown
 - Build the block tree structure
 - Emit `ValidationError::UnclosedTag`, `OrphanedTag`, `UnbalancedStructure`, `UnmatchedBlockName`
@@ -225,7 +231,7 @@ pub fn validate_all_tag_arguments(db: &dyn Db, nodelist: NodeList) {
 
 fn validate_tag_arguments(db: &dyn Db, tag_name: &str, bits: &[String], span: Span) {
     let tag_specs = db.tag_specs();
-    
+
     // Try opener, then closer, then intermediate
     if let Some(spec) = tag_specs.get(tag_name) {
         validate_args_against_spec(db, tag_name, bits, span, spec.args.as_ref());
@@ -239,6 +245,7 @@ fn validate_tag_arguments(db: &dyn Db, tag_name: &str, bits: &[String], span: Sp
 ```
 
 **What argument validation needs from TagSpecs:**
+
 - `spec.args[]` - full argument specification
 - `TagArg::is_required()` - minimum argument count
 - `TagArg::Literal { lit, kind }` - expected keyword validation
@@ -246,6 +253,7 @@ fn validate_tag_arguments(db: &dyn Db, tag_name: &str, bits: &[String], span: Sp
 - `TokenCount::Exact(n)` vs `Greedy` - how many tokens to consume
 
 **Emits ValidationErrors:**
+
 - `MissingRequiredArguments` - too few args
 - `TooManyArguments` - excess args
 - `MissingArgument` - specific required arg missing
@@ -264,7 +272,7 @@ pub fn handle_completion(
     supports_snippets: bool,
 ) -> Vec<CompletionItem> {
     // ... context analysis ...
-    
+
     match context {
         TagName { partial, ... } => generate_tag_name_completions(...),
         TagArgument { tag, position, ... } => generate_argument_completions(...),
@@ -296,6 +304,7 @@ fn generate_tag_name_completions(
 ```
 
 **What completions need from TagSpecs:**
+
 - `spec.args` - for snippet placeholder generation
 - `spec.end_tag` - to include closing tag in snippet
 - `TagArg::Choice { choices }` - for choice argument completions
@@ -307,7 +316,7 @@ fn generate_tag_name_completions(
 ```rust
 pub fn generate_snippet_for_tag_with_end(tag_name: &str, spec: &TagSpec) -> String {
     let mut snippet = generate_snippet_from_args(&spec.args);
-    
+
     if let Some(end_tag) = &spec.end_tag {
         if end_tag.required {
             snippet.push_str(" %}\n$0\n{% ");
@@ -339,19 +348,19 @@ pub fn generate_snippet_from_args(args: &[TagArg]) -> String {
 
 **Location:** `crates/djls-ide/src/diagnostics.rs`
 
-| Code | Error Type | Source | TagSpecs-Dependent? |
-|------|------------|--------|---------------------|
-| T100 | Parser errors | `TemplateError::Parser` | No |
-| T900 | IO errors | `TemplateError::Io` | No |
-| T901 | Config errors | `TemplateError::Config` | No |
-| S100 | UnclosedTag | Block validation | **Yes** (end_tag.required) |
-| S101 | UnbalancedStructure | Block validation | **Yes** (opener/closer mapping) |
-| S102 | OrphanedTag | Block validation | **Yes** (intermediate_to_openers) |
-| S103 | UnmatchedBlockName | Block validation | **Yes** (end_tag.args matching) |
-| S104 | MissingRequiredArguments / MissingArgument | Arg validation | **Yes** (args.required) |
-| S105 | TooManyArguments | Arg validation | **Yes** (args count) |
-| S106 | InvalidLiteralArgument | Arg validation | **Yes** (Literal values) |
-| S107 | InvalidArgumentChoice | Arg validation | **Yes** (Choice values) |
+| Code | Error Type                                 | Source                  | TagSpecs-Dependent?               |
+| ---- | ------------------------------------------ | ----------------------- | --------------------------------- |
+| T100 | Parser errors                              | `TemplateError::Parser` | No                                |
+| T900 | IO errors                                  | `TemplateError::Io`     | No                                |
+| T901 | Config errors                              | `TemplateError::Config` | No                                |
+| S100 | UnclosedTag                                | Block validation        | **Yes** (end_tag.required)        |
+| S101 | UnbalancedStructure                        | Block validation        | **Yes** (opener/closer mapping)   |
+| S102 | OrphanedTag                                | Block validation        | **Yes** (intermediate_to_openers) |
+| S103 | UnmatchedBlockName                         | Block validation        | **Yes** (end_tag.args matching)   |
+| S104 | MissingRequiredArguments / MissingArgument | Arg validation          | **Yes** (args.required)           |
+| S105 | TooManyArguments                           | Arg validation          | **Yes** (args count)              |
+| S106 | InvalidLiteralArgument                     | Arg validation          | **Yes** (Literal values)          |
+| S107 | InvalidArgumentChoice                      | Arg validation          | **Yes** (Choice values)           |
 
 ### 3.2 Severity Configuration
 
@@ -379,13 +388,13 @@ impl DiagnosticsConfig {
 
 ### 4.1 Comparison
 
-| Aspect | TemplateTags (Runtime) | TagSpecs (Static) |
-|--------|------------------------|-------------------|
-| Source | Python inspector querying Django | Hardcoded builtins + TOML config |
-| Content | Tag names, modules, docstrings | Argument specs, block structure |
-| Query | `djls_project::templatetags(db, project)` | `db.tag_specs()` |
-| Crate | `djls-project` | `djls-semantic` |
-| Updates | Per-project, requires running Python | Build-time or config reload |
+| Aspect  | TemplateTags (Runtime)                    | TagSpecs (Static)                |
+| ------- | ----------------------------------------- | -------------------------------- |
+| Source  | Python inspector querying Django          | Hardcoded builtins + TOML config |
+| Content | Tag names, modules, docstrings            | Argument specs, block structure  |
+| Query   | `djls_project::templatetags(db, project)` | `db.tag_specs()`                 |
+| Crate   | `djls-project`                            | `djls-semantic`                  |
+| Updates | Per-project, requires running Python      | Build-time or config reload      |
 
 ### 4.2 Where They Diverge
 
@@ -396,6 +405,7 @@ impl DiagnosticsConfig {
 ### 4.3 Where They Combine
 
 Only in `completions.rs:generate_tag_name_completions`:
+
 ```rust
 // Iterate runtime tags for names, look up static specs for snippets
 for tag in template_tags {
@@ -439,6 +449,7 @@ fn tag_specs(&self) -> TagSpecs {
 ### 5.3 The `TagSpecs::merge()` Method
 
 Already supports layered composition:
+
 ```rust
 pub fn merge(&mut self, other: TagSpecs) -> &mut Self {
     self.0.extend(other.0);  // Later values override
@@ -449,6 +460,7 @@ pub fn merge(&mut self, other: TagSpecs) -> &mut Self {
 ### 5.4 The Config → TagSpecs Conversion
 
 `From<&Settings> for TagSpecs` already handles:
+
 - Starting with builtins
 - Converting TOML `TagDef` → internal `TagSpec`
 - Merging user overrides
@@ -459,13 +471,13 @@ pub fn merge(&mut self, other: TagSpecs) -> &mut Self {
 
 ### 6.1 What Would Change
 
-| Component | Change Required |
-|-----------|-----------------|
-| `djls-semantic/templatetags/builtins.rs` | Could become fallback-only or removed |
-| `djls-conf/tagspecs/` | Becomes override/extension mechanism |
-| `TagSpecs::from(&Settings)` | Add runtime specs as base layer |
-| `djls-project/queries.py` | Add tag argument extraction (complex!) |
-| `djls-project/django.rs` | New tracked function for runtime specs |
+| Component                                | Change Required                        |
+| ---------------------------------------- | -------------------------------------- |
+| `djls-semantic/templatetags/builtins.rs` | Could become fallback-only or removed  |
+| `djls-conf/tagspecs/`                    | Becomes override/extension mechanism   |
+| `TagSpecs::from(&Settings)`              | Add runtime specs as base layer        |
+| `djls-project/queries.py`                | Add tag argument extraction (complex!) |
+| `djls-project/django.rs`                 | New tracked function for runtime specs |
 
 ### 6.2 What Would Stay the Same
 
@@ -486,19 +498,19 @@ pub fn merge(&mut self, other: TagSpecs) -> &mut Self {
 
 ## Code References
 
-| Purpose | File | Key Functions/Types |
-|---------|------|---------------------|
-| TagSpecs types | `crates/djls-semantic/src/templatetags/specs.rs` | `TagSpecs`, `TagSpec`, `TagArg` |
-| Builtin specs | `crates/djls-semantic/src/templatetags/builtins.rs:759` | `django_builtin_specs()` |
-| Config loading | `crates/djls-conf/src/lib.rs` | `Settings::tagspecs()` |
-| Db trait | `crates/djls-semantic/src/db.rs` | `Db::tag_specs()` |
-| Server Db impl | `crates/djls-server/src/db.rs:166-168` | `SemanticDb for DjangoDatabase` |
-| TagIndex | `crates/djls-semantic/src/blocks/grammar.rs` | `TagIndex::from_specs()`, `classify()` |
-| Block validation | `crates/djls-semantic/src/blocks/builder.rs` | `BlockTreeBuilder` |
-| Arg validation | `crates/djls-semantic/src/arguments.rs` | `validate_all_tag_arguments()` |
-| Completions | `crates/djls-ide/src/completions.rs:370-450` | `generate_tag_name_completions()` |
-| Snippets | `crates/djls-ide/src/snippets.rs` | `generate_snippet_for_tag_with_end()` |
-| Diagnostics | `crates/djls-ide/src/diagnostics.rs:46-74` | `ValidationError::diagnostic_code()` |
+| Purpose          | File                                                    | Key Functions/Types                    |
+| ---------------- | ------------------------------------------------------- | -------------------------------------- |
+| TagSpecs types   | `crates/djls-semantic/src/templatetags/specs.rs`        | `TagSpecs`, `TagSpec`, `TagArg`        |
+| Builtin specs    | `crates/djls-semantic/src/templatetags/builtins.rs:759` | `django_builtin_specs()`               |
+| Config loading   | `crates/djls-conf/src/lib.rs`                           | `Settings::tagspecs()`                 |
+| Db trait         | `crates/djls-semantic/src/db.rs`                        | `Db::tag_specs()`                      |
+| Server Db impl   | `crates/djls-server/src/db.rs:166-168`                  | `SemanticDb for DjangoDatabase`        |
+| TagIndex         | `crates/djls-semantic/src/blocks/grammar.rs`            | `TagIndex::from_specs()`, `classify()` |
+| Block validation | `crates/djls-semantic/src/blocks/builder.rs`            | `BlockTreeBuilder`                     |
+| Arg validation   | `crates/djls-semantic/src/arguments.rs`                 | `validate_all_tag_arguments()`         |
+| Completions      | `crates/djls-ide/src/completions.rs:370-450`            | `generate_tag_name_completions()`      |
+| Snippets         | `crates/djls-ide/src/snippets.rs`                       | `generate_snippet_for_tag_with_end()`  |
+| Diagnostics      | `crates/djls-ide/src/diagnostics.rs:46-74`              | `ValidationError::diagnostic_code()`   |
 
 ---
 
@@ -510,36 +522,36 @@ flowchart TB
         direction TB
         HB[Hardcoded Builtins<br/>builtins.rs<br/><br/>• defaulttags if, for, with...<br/>• loader_tags<br/>• i18n, cache, etc.]
         UC[User Configuration<br/>djls.toml / pyproject.toml<br/><br/>tagspecs<br/>libraries<br/>module = myapp.tags]
-        
+
         HB --> TSFrom[TagSpecs::from<br/>specs.rs:176<br/>Merge: builtins + user overrides]
         UC --> TSFrom
     end
-    
+
     TSFrom --> DbTrait
-    
+
     subgraph DbTrait["Db::tag_specs TRAIT<br/>djls-semantic/db.rs"]
         direction TB
         TI[TagIndex<br/>grammar.rs]
         AV[Argument Validation<br/>args.rs]
         Comp[Completions<br/>djls-ide]
-        
+
         TI --> BTB[BlockTreeBuilder<br/>classify, validate_close]
         Comp --> RTags[+ TemplateTags<br/>runtime names]
         RTags --> Snip[Snippet Generation<br/>snippets.rs]
-        
+
         BTB --> VEA[ValidationErrorAccumulator<br/>Salsa accumulator]
         AV --> VEA
         Snip --> VEA
     end
-    
+
     VEA --> Pipeline
-    
+
     subgraph Pipeline["DIAGNOSTICS PIPELINE"]
         direction LR
         VE[ValidationError] --> DC[diagnostic_code]
         DC --> DCfg[DiagnosticsConfig]
         DCfg --> LSP[LSP]
-        
+
         subgraph Codes["Error Codes"]
             S100[S100: UnclosedTag]
             S101[S101: UnbalancedStructure]
@@ -550,7 +562,7 @@ flowchart TB
             S106[S106: InvalidLiteral]
             S107[S107: InvalidChoice]
         end
-        
+
         Codes --> DC
     end
 ```
@@ -559,7 +571,7 @@ flowchart TB
 
 1. **Extracting specs from Django source**: Is there a reliable way to introspect tag argument patterns from Django's template library registration? The `@register.tag` decorator doesn't capture argument schemas.
 
-2. **Third-party tag coverage**: How important is it to support third-party tags (django-crispy-forms, django-allauth, etc.) without manual config? 
+2. **Third-party tag coverage**: How important is it to support third-party tags (django-crispy-forms, django-allauth, etc.) without manual config?
 
 3. **Caching strategy**: If TagSpecs becomes runtime-derived, what's the invalidation strategy? Per-file? Per-project? On Django settings change?
 
