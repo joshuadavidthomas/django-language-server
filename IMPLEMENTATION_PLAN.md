@@ -116,14 +116,15 @@
 
 ### Phase 3: Available Symbols Query
 
-- [ ] Add `AvailableSymbols` type with `tags: FxHashSet<String>` and `has_tag(name)` method
-- [ ] Add `LoadState` internal struct with state-machine approach: `fully_loaded: FxHashSet`, `selective: FxHashMap<lib, FxHashSet<sym>>`, `process(stmt)`, `is_tag_available(tag, lib)`
-- [ ] Implement `available_tags_at(loaded, inventory, position) -> AvailableSymbols` — processes loads in order, builtins always available, library tags require loaded library or selective import
-- [ ] Add `inspector_inventory() -> Option<TemplateTags>` method to `crate::Db` trait in `crates/djls-semantic/src/db.rs`
-- [ ] Implement `inspector_inventory()` in `DjangoDatabase` (`crates/djls-server/src/db.rs`) — reads `project.inspector_inventory(db)`
-- [ ] Export `available_tags_at` and `AvailableSymbols` from `crates/djls-semantic/src/lib.rs`
-- [ ] Add comprehensive tests: builtins_always_available, library_tag_after_load, selective_import, selective_then_full_load, full_then_selective_no_effect, multiple_selective_same_lib
-- [ ] Run `cargo build`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test`
+- [x] Add `AvailableSymbols` type with `tags: FxHashSet<String>` and `has_tag(name)` method
+- [x] Add `LoadState` internal struct with state-machine approach: `fully_loaded: FxHashSet`, `selective: FxHashMap<lib, FxHashSet<sym>>`, `process(stmt)`, `is_tag_available(tag, lib)`
+- [x] Implement `available_tags_at(loaded, inventory, position) -> AvailableSymbols` — processes loads in order, builtins always available, library tags require loaded library or selective import
+- [x] Add `inspector_inventory() -> Option<TemplateTags>` method to `crate::Db` trait in `crates/djls-semantic/src/db.rs`
+- [x] Implement `inspector_inventory()` in `DjangoDatabase` (`crates/djls-server/src/db.rs`) — reads `project.inspector_inventory(db)`
+- [x] Also implemented `inspector_inventory()` in `djls-bench` `Db` (returns `None`) and three test `TestDatabase` impls in djls-semantic
+- [x] Export `available_tags_at` and `AvailableSymbols` from `crates/djls-semantic/src/lib.rs`
+- [x] Add comprehensive tests: builtins_always_available, library_tag_after_load, selective_import, selective_then_full_load, full_then_selective_no_effect, multiple_selective_same_lib
+- [x] Run `cargo build`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test`
 
 ### Phase 4: Validation Integration - Unknown Tag Diagnostics
 

@@ -1,5 +1,8 @@
+use djls_project::TagProvenance;
+use djls_project::TemplateTags;
 use djls_source::Span;
 use djls_templates::Node;
+use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
 
 /// A parsed `{% load %}` statement.
@@ -160,6 +163,102 @@ pub fn compute_loaded_libraries(
     loaded
 }
 
+/// Result of querying available symbols at a position.
+#[derive(Debug, Clone, Default)]
+pub struct AvailableSymbols {
+    tags: FxHashSet<String>,
+}
+
+impl AvailableSymbols {
+    /// Check if a tag name is available at this position.
+    #[must_use]
+    pub fn has_tag(&self, name: &str) -> bool {
+        self.tags.contains(name)
+    }
+}
+
+/// Load state at a given position, computed by processing loads in order.
+///
+/// Uses a state-machine approach to correctly handle the interaction
+/// between selective imports and full library loads:
+/// - `{% load trans from i18n %}` adds "trans" to selective\[i18n\]
+/// - `{% load i18n %}` adds "i18n" to fully\_loaded AND clears selective\[i18n\]
+#[derive(Debug, Clone, Default)]
+struct LoadState {
+    fully_loaded: FxHashSet<String>,
+    selective: FxHashMap<String, FxHashSet<String>>,
+}
+
+impl LoadState {
+    fn process(&mut self, stmt: &LoadStatement) {
+        match &stmt.kind {
+            LoadKind::Libraries(libs) => {
+                for lib in libs {
+                    self.fully_loaded.insert(lib.clone());
+                    self.selective.remove(lib);
+                }
+            }
+            LoadKind::Selective { symbols, library } => {
+                if !self.fully_loaded.contains(library) {
+                    let entry = self.selective.entry(library.clone()).or_default();
+                    entry.extend(symbols.iter().cloned());
+                }
+            }
+        }
+    }
+
+    fn is_tag_available(&self, tag_name: &str, library: &str) -> bool {
+        if self.fully_loaded.contains(library) {
+            return true;
+        }
+        if let Some(symbols) = self.selective.get(library) {
+            return symbols.contains(tag_name);
+        }
+        false
+    }
+}
+
+/// Determine which tags are available at a given byte offset in the template.
+///
+/// Processes load statements in document order up to `position`:
+/// 1. `{% load lib1 lib2 %}`: add libraries to "fully loaded" set,
+///    clear any selective imports for those libraries
+/// 2. `{% load sym from lib %}`: if lib not fully loaded, add sym
+///    to selective imports for lib
+///
+/// Builtins are always available. A library tag is available iff its library
+/// is fully loaded or the tag name was selectively imported.
+#[must_use]
+pub fn available_tags_at(
+    loaded: &LoadedLibraries,
+    inventory: &TemplateTags,
+    position: u32,
+) -> AvailableSymbols {
+    let mut available = AvailableSymbols::default();
+
+    let mut state = LoadState::default();
+    for stmt in loaded.loads() {
+        if stmt.span.end() <= position {
+            state.process(stmt);
+        }
+    }
+
+    for tag in inventory.iter() {
+        match tag.provenance() {
+            TagProvenance::Builtin { .. } => {
+                available.tags.insert(tag.name().clone());
+            }
+            TagProvenance::Library { load_name, .. } => {
+                if state.is_tag_available(tag.name(), load_name) {
+                    available.tags.insert(tag.name().clone());
+                }
+            }
+        }
+    }
+
+    available
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -307,5 +406,181 @@ mod tests {
         assert!(!libs.is_library_loaded_before("i18n", 10));
         assert!(libs.is_library_loaded_before("i18n", 20));
         assert!(!libs.is_library_loaded_before("static", 20));
+    }
+}
+
+#[cfg(test)]
+mod availability_tests {
+    use std::collections::HashMap;
+
+    use djls_project::TemplateTag;
+
+    use super::*;
+
+    fn make_test_inventory() -> TemplateTags {
+        TemplateTags::new(
+            HashMap::from([
+                ("i18n".to_string(), "django.templatetags.i18n".to_string()),
+                (
+                    "static".to_string(),
+                    "django.templatetags.static".to_string(),
+                ),
+            ]),
+            vec!["django.template.defaulttags".to_string()],
+            vec![
+                TemplateTag::new_builtin("if", "django.template.defaulttags", None),
+                TemplateTag::new_library("trans", "i18n", "django.templatetags.i18n", None),
+                TemplateTag::new_library("blocktrans", "i18n", "django.templatetags.i18n", None),
+                TemplateTag::new_library("static", "static", "django.templatetags.static", None),
+            ],
+        )
+    }
+
+    #[test]
+    fn builtins_always_available() {
+        let loaded = LoadedLibraries::new();
+        let inventory = make_test_inventory();
+
+        let available = available_tags_at(&loaded, &inventory, 0);
+
+        assert!(
+            available.has_tag("if"),
+            "Builtins should always be available"
+        );
+        assert!(
+            !available.has_tag("trans"),
+            "Library tags should NOT be available without load"
+        );
+    }
+
+    #[test]
+    fn library_tag_after_load() {
+        let mut loaded = LoadedLibraries::new();
+        loaded.push(LoadStatement {
+            span: Span::new(0, 15),
+            kind: LoadKind::Libraries(vec!["i18n".to_string()]),
+        });
+        let inventory = make_test_inventory();
+
+        let before = available_tags_at(&loaded, &inventory, 5);
+        assert!(
+            !before.has_tag("trans"),
+            "trans should not be available inside load tag"
+        );
+
+        let after = available_tags_at(&loaded, &inventory, 20);
+        assert!(after.has_tag("trans"), "trans should be available after load");
+        assert!(
+            after.has_tag("blocktrans"),
+            "blocktrans should be available after load"
+        );
+        assert!(
+            !after.has_tag("static"),
+            "static should NOT be available (not loaded)"
+        );
+    }
+
+    #[test]
+    fn selective_import() {
+        let mut loaded = LoadedLibraries::new();
+        loaded.push(LoadStatement {
+            span: Span::new(0, 30),
+            kind: LoadKind::Selective {
+                symbols: vec!["trans".to_string()],
+                library: "i18n".to_string(),
+            },
+        });
+        let inventory = make_test_inventory();
+
+        let available = available_tags_at(&loaded, &inventory, 50);
+
+        assert!(
+            available.has_tag("trans"),
+            "trans should be available (selectively imported)"
+        );
+        assert!(
+            !available.has_tag("blocktrans"),
+            "blocktrans should NOT be available (not in selective import)"
+        );
+    }
+
+    #[test]
+    fn selective_then_full_load() {
+        let mut loaded = LoadedLibraries::new();
+        loaded.push(LoadStatement {
+            span: Span::new(0, 30),
+            kind: LoadKind::Selective {
+                symbols: vec!["trans".to_string()],
+                library: "i18n".to_string(),
+            },
+        });
+        loaded.push(LoadStatement {
+            span: Span::new(100, 15),
+            kind: LoadKind::Libraries(vec!["i18n".to_string()]),
+        });
+        let inventory = make_test_inventory();
+
+        let middle = available_tags_at(&loaded, &inventory, 50);
+        assert!(middle.has_tag("trans"));
+        assert!(!middle.has_tag("blocktrans"));
+
+        let after = available_tags_at(&loaded, &inventory, 150);
+        assert!(
+            after.has_tag("trans"),
+            "trans still available after full load"
+        );
+        assert!(
+            after.has_tag("blocktrans"),
+            "blocktrans NOW available after full load"
+        );
+    }
+
+    #[test]
+    fn full_then_selective_no_effect() {
+        let mut loaded = LoadedLibraries::new();
+        loaded.push(LoadStatement {
+            span: Span::new(0, 15),
+            kind: LoadKind::Libraries(vec!["i18n".to_string()]),
+        });
+        loaded.push(LoadStatement {
+            span: Span::new(100, 30),
+            kind: LoadKind::Selective {
+                symbols: vec!["trans".to_string()],
+                library: "i18n".to_string(),
+            },
+        });
+        let inventory = make_test_inventory();
+
+        let after = available_tags_at(&loaded, &inventory, 200);
+        assert!(after.has_tag("trans"));
+        assert!(after.has_tag("blocktrans"), "Full load takes precedence");
+    }
+
+    #[test]
+    fn multiple_selective_same_lib() {
+        let mut loaded = LoadedLibraries::new();
+        loaded.push(LoadStatement {
+            span: Span::new(0, 30),
+            kind: LoadKind::Selective {
+                symbols: vec!["trans".to_string()],
+                library: "i18n".to_string(),
+            },
+        });
+        loaded.push(LoadStatement {
+            span: Span::new(100, 35),
+            kind: LoadKind::Selective {
+                symbols: vec!["blocktrans".to_string()],
+                library: "i18n".to_string(),
+            },
+        });
+        let inventory = make_test_inventory();
+
+        let middle = available_tags_at(&loaded, &inventory, 50);
+        assert!(middle.has_tag("trans"));
+        assert!(!middle.has_tag("blocktrans"));
+
+        let after = available_tags_at(&loaded, &inventory, 200);
+        assert!(after.has_tag("trans"));
+        assert!(after.has_tag("blocktrans"));
     }
 }

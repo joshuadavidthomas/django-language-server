@@ -1,5 +1,6 @@
 use camino::Utf8PathBuf;
 use djls_conf::DiagnosticsConfig;
+use djls_project::TemplateTags;
 use djls_templates::Db as TemplateDb;
 
 use crate::blocks::TagIndex;
@@ -17,6 +18,12 @@ pub trait Db: TemplateDb {
 
     /// Get the diagnostics configuration
     fn diagnostics_config(&self) -> DiagnosticsConfig;
+
+    /// Get the inspector inventory of template tags (from Python runtime).
+    ///
+    /// Returns `None` when the inspector is unavailable (Django not initialized,
+    /// Python env not configured, inspector crashed).
+    fn inspector_inventory(&self) -> Option<TemplateTags>;
 }
 
 #[salsa::accumulator]
