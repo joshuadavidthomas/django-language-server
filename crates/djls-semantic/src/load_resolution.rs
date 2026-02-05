@@ -1,4 +1,5 @@
 use djls_source::Span;
+use djls_templates::Node;
 use rustc_hash::FxHashSet;
 
 /// A parsed `{% load %}` statement.
@@ -21,7 +22,7 @@ pub enum LoadKind {
 }
 
 /// Collection of load statements in a template, ordered by position.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LoadedLibraries {
     loads: Vec<LoadStatement>,
 }
@@ -121,6 +122,42 @@ pub fn parse_load_bits(bits: &[String], span: Span) -> Option<LoadStatement> {
         span,
         kind: LoadKind::Libraries(bits.to_vec()),
     })
+}
+
+/// Extract all `{% load %}` statements from a template nodelist.
+///
+/// Performs a single pass over the nodelist, collecting all load statements
+/// in document order (sorted by span start position).
+///
+/// Django's template parser processes tokens linearly, so `{% load %}` tags
+/// affect global tag availability regardless of nesting. The djls-templates
+/// parser currently produces a flat nodelist, but we sort by position to be
+/// safe if that ever changes.
+#[salsa::tracked]
+pub fn compute_loaded_libraries(
+    db: &dyn crate::Db,
+    nodelist: djls_templates::NodeList<'_>,
+) -> LoadedLibraries {
+    let mut load_spans: Vec<(Span, LoadStatement)> = Vec::new();
+
+    for node in nodelist.nodelist(db) {
+        if let Node::Tag { name, bits, span } = node {
+            if name == "load" {
+                if let Some(stmt) = parse_load_bits(bits, *span) {
+                    load_spans.push((*span, stmt));
+                }
+            }
+        }
+    }
+
+    load_spans.sort_by_key(|(span, _)| span.start());
+
+    let mut loaded = LoadedLibraries::new();
+    for (_, stmt) in load_spans {
+        loaded.push(stmt);
+    }
+
+    loaded
 }
 
 #[cfg(test)]

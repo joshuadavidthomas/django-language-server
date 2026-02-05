@@ -15,6 +15,7 @@ pub use blocks::TagIndex;
 pub use db::Db;
 pub use db::ValidationErrorAccumulator;
 pub use errors::ValidationError;
+pub use load_resolution::compute_loaded_libraries;
 pub use load_resolution::parse_load_bits;
 pub use load_resolution::LoadKind;
 pub use load_resolution::LoadStatement;

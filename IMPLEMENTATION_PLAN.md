@@ -109,10 +109,10 @@
 
 ### Phase 2: Compute LoadedLibraries from NodeList (Tracked Query)
 
-- [ ] Add `djls-project` dependency to `crates/djls-semantic/Cargo.toml` (needed for `TemplateTags`/`TagProvenance` in Phase 3)
-- [ ] Add `#[salsa::tracked] fn compute_loaded_libraries(db, nodelist) -> LoadedLibraries` — iterate over nodelist, extract `{% load %}` tags, parse bits, sort by span start
-- [ ] Export `compute_loaded_libraries` from `crates/djls-semantic/src/lib.rs`
-- [ ] Run `cargo build -p djls-semantic`, `cargo clippy -p djls-semantic --all-targets --all-features -- -D warnings`, `cargo test -p djls-semantic`
+- [x] Add `djls-project` dependency to `crates/djls-semantic/Cargo.toml` (needed for `TemplateTags`/`TagProvenance` in Phase 3)
+- [x] Add `#[salsa::tracked] fn compute_loaded_libraries(db, nodelist) -> LoadedLibraries` — iterate over nodelist, extract `{% load %}` tags, parse bits, sort by span start
+- [x] Export `compute_loaded_libraries` from `crates/djls-semantic/src/lib.rs`
+- [x] Run `cargo build -p djls-semantic`, `cargo clippy -p djls-semantic --all-targets --all-features -- -D warnings`, `cargo test -p djls-semantic`
 
 ### Phase 3: Available Symbols Query
 
