@@ -308,7 +308,7 @@ Output file:
 
 ### M7 - Documentation + issue reporting (post-port hardening)
 
-**Status:** backlog
+**Status:** ready
 
 **Depends on:** M1-M6
 
