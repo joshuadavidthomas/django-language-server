@@ -183,8 +183,9 @@
       "bases:Create new base": false
     }
   },
-  "active": "3a4d70f6eef42d0e",
+  "active": "456bf6e37fbc07e7",
   "lastOpenFiles": [
+    "plans/2026-02-05-m7-docs-and-issue-template.md",
     "plans/2026-02-05-m6.2-filter-arity-validation.md",
     "plans/2026-02-05-m6.1-expression-parser.md",
     "plans/2026-02-05-m6-rule-evaluation.md",
@@ -219,7 +220,6 @@
     "plans/2026-02-05-m5.9-extraction-engine.md",
     "plans/2026-02-05-m3.1-load-scoping.md",
     "plans/2026-02-05-m5.2-extraction-engine.md",
-    "plans/2026-02-05-m4.4-filters-pipeline.md",
-    "plans/2026-02-05-m3.6-load-scoping.md"
+    "plans/2026-02-05-m4.4-filters-pipeline.md"
   ]
 }
