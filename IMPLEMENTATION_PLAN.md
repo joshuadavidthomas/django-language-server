@@ -128,12 +128,12 @@
 
 ### Phase 4: Validation Integration - Unknown Tag Diagnostics
 
-- [ ] Add new `ValidationError` variants: `UnknownTag { tag, span }`, `UnloadedLibraryTag { tag, library, span }`, `AmbiguousUnloadedTag { tag, libraries, span }`
-- [ ] Add diagnostic codes in `crates/djls-ide/src/diagnostics.rs`: S108 (UnknownTag), S109 (UnloadedLibraryTag), S110 (AmbiguousUnloadedTag)
-- [ ] Add `TagInventoryEntry` enum (Builtin / Libraries(Vec<String>)) and `build_tag_inventory(inventory) -> FxHashMap<String, TagInventoryEntry>` for collision handling
-- [ ] Implement `#[salsa::tracked] fn validate_tag_scoping(db, nodelist)` — skip if inspector unavailable, skip tags with structural specs (openers/closers/intermediates), emit S108/S109/S110
-- [ ] Wire `validate_tag_scoping` into `validate_nodelist` in `crates/djls-semantic/src/lib.rs`
-- [ ] Run `cargo build`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test`
+- [x] Add new `ValidationError` variants: `UnknownTag { tag, span }`, `UnloadedLibraryTag { tag, library, span }`, `AmbiguousUnloadedTag { tag, libraries, span }`
+- [x] Add diagnostic codes in `crates/djls-ide/src/diagnostics.rs`: S108 (UnknownTag), S109 (UnloadedLibraryTag), S110 (AmbiguousUnloadedTag)
+- [x] Add `TagInventoryEntry` enum (Builtin / Libraries(Vec<String>)) and `build_tag_inventory(inventory) -> FxHashMap<String, TagInventoryEntry>` for collision handling
+- [x] Implement `#[salsa::tracked] fn validate_tag_scoping(db, nodelist)` — skip if inspector unavailable, skip tags with structural specs (openers/closers/intermediates), emit S108/S109/S110
+- [x] Wire `validate_tag_scoping` into `validate_nodelist` in `crates/djls-semantic/src/lib.rs`
+- [x] Run `cargo build`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test`
 
 ### Phase 5: Completions Integration
 

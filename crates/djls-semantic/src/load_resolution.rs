@@ -1,9 +1,14 @@
 use djls_project::TagProvenance;
 use djls_project::TemplateTags;
 use djls_source::Span;
+use djls_templates::tokens::TagDelimiter;
 use djls_templates::Node;
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
+use salsa::Accumulator;
+
+use crate::ValidationError;
+use crate::ValidationErrorAccumulator;
 
 /// A parsed `{% load %}` statement.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -257,6 +262,103 @@ pub fn available_tags_at(
     }
 
     available
+}
+
+#[derive(Debug, Clone)]
+enum TagInventoryEntry {
+    Builtin,
+    Libraries(Vec<String>),
+}
+
+fn build_tag_inventory(inventory: &TemplateTags) -> FxHashMap<String, TagInventoryEntry> {
+    let mut result: FxHashMap<String, TagInventoryEntry> = FxHashMap::default();
+
+    for tag in inventory.iter() {
+        let name = tag.name().clone();
+        match tag.provenance() {
+            TagProvenance::Builtin { .. } => {
+                result.insert(name, TagInventoryEntry::Builtin);
+            }
+            TagProvenance::Library { load_name, .. } => {
+                if let Some(entry) = result.get_mut(&name) {
+                    if let TagInventoryEntry::Libraries(libs) = entry {
+                        if !libs.contains(load_name) {
+                            libs.push(load_name.clone());
+                        }
+                    }
+                } else {
+                    result.insert(name, TagInventoryEntry::Libraries(vec![load_name.clone()]));
+                }
+            }
+        }
+    }
+
+    result
+}
+
+/// Validate that all tags in the template are either builtins or from loaded libraries.
+///
+/// Skips validation entirely when inspector inventory is unavailable.
+/// Tags with structural specs (openers, closers, intermediates) are skipped
+/// since they are validated by block structure (S100-S103) and argument
+/// validation (S104-S107).
+#[salsa::tracked]
+pub fn validate_tag_scoping(db: &dyn crate::Db, nodelist: djls_templates::NodeList<'_>) {
+    let Some(inventory) = db.inspector_inventory() else {
+        return;
+    };
+
+    let loaded = compute_loaded_libraries(db, nodelist);
+    let tag_inventory = build_tag_inventory(&inventory);
+    let tag_specs = db.tag_specs();
+
+    for node in nodelist.nodelist(db) {
+        if let Node::Tag { name, span, .. } = node {
+            if name == "load" {
+                continue;
+            }
+
+            let has_spec = tag_specs.get(name).is_some()
+                || tag_specs.get_end_spec_for_closer(name).is_some()
+                || tag_specs.get_intermediate_spec(name).is_some();
+
+            let marker_span = span.expand(TagDelimiter::LENGTH_U32, TagDelimiter::LENGTH_U32);
+
+            match tag_inventory.get(name) {
+                None => {
+                    if !has_spec {
+                        ValidationErrorAccumulator(ValidationError::UnknownTag {
+                            tag: name.clone(),
+                            span: marker_span,
+                        })
+                        .accumulate(db);
+                    }
+                }
+                Some(TagInventoryEntry::Builtin) => {}
+                Some(TagInventoryEntry::Libraries(candidate_libs)) => {
+                    let available = available_tags_at(&loaded, &inventory, span.start());
+
+                    if !available.has_tag(name) {
+                        if candidate_libs.len() == 1 {
+                            ValidationErrorAccumulator(ValidationError::UnloadedLibraryTag {
+                                tag: name.clone(),
+                                library: candidate_libs[0].clone(),
+                                span: marker_span,
+                            })
+                            .accumulate(db);
+                        } else {
+                            ValidationErrorAccumulator(ValidationError::AmbiguousUnloadedTag {
+                                tag: name.clone(),
+                                libraries: candidate_libs.clone(),
+                                span: marker_span,
+                            })
+                            .accumulate(db);
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
