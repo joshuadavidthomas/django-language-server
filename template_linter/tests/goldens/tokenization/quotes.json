@@ -1,0 +1,29 @@
+[
+  {
+    "contents": "include \"foo bar.html\"",
+    "kind": "block",
+    "line": 1,
+    "name": "include",
+    "split": [
+      "include",
+      "\"foo bar.html\""
+    ]
+  },
+  {
+    "contents": "include 'baz qux.html'",
+    "kind": "block",
+    "line": 2,
+    "name": "include",
+    "split": [
+      "include",
+      "'baz qux.html'"
+    ]
+  },
+  {
+    "contents": "value|default:\"a b\"",
+    "kind": "var",
+    "line": 3,
+    "name": null,
+    "split": null
+  }
+]

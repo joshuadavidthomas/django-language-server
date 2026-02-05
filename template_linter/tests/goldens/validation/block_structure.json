@@ -1,0 +1,20 @@
+[
+  {
+    "line": 3,
+    "message": "Mismatched 'endif' inside 'for' block",
+    "name": "endif",
+    "raw": "endif"
+  },
+  {
+    "line": 2,
+    "message": "Unclosed 'for' block",
+    "name": "for",
+    "raw": "for y in ys"
+  },
+  {
+    "line": 1,
+    "message": "Unclosed 'if' block",
+    "name": "if",
+    "raw": "if x"
+  }
+]

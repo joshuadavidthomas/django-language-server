@@ -1,0 +1,39 @@
+{
+  "block_specs": [],
+  "filters": {},
+  "opaque_blocks": {
+    "opaque_block": {
+      "end_tags": [
+        "endopaque_block"
+      ],
+      "kind": "skip_past",
+      "match_suffix": false
+    },
+    "opaque_suffix": {
+      "end_tags": [
+        "endopaque_suffix foo"
+      ],
+      "kind": "skip_past",
+      "match_suffix": false
+    }
+  },
+  "rules": {
+    "opaque_block": {
+      "has_parse_bits_spec": false,
+      "no_duplicate_options": false,
+      "rejects_unknown_options": false,
+      "rule_count": 0,
+      "unrestricted": true,
+      "valid_options": []
+    },
+    "opaque_suffix": {
+      "has_parse_bits_spec": false,
+      "no_duplicate_options": false,
+      "rejects_unknown_options": false,
+      "rule_count": 0,
+      "unrestricted": true,
+      "valid_options": []
+    }
+  },
+  "structural_rules": []
+}

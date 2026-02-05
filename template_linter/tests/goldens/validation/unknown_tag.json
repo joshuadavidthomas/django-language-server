@@ -1,0 +1,8 @@
+[
+  {
+    "line": 1,
+    "message": "Unknown tag 'this_tag_does_not_exist'",
+    "name": "this_tag_does_not_exist",
+    "raw": "this_tag_does_not_exist"
+  }
+]

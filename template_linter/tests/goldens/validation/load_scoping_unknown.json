@@ -1,0 +1,8 @@
+[
+  {
+    "line": 3,
+    "message": "Unknown template library 'this_library_does_not_exist'",
+    "name": "load",
+    "raw": "load this_library_does_not_exist"
+  }
+]

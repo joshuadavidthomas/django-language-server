@@ -1,0 +1,223 @@
+[corpus]
+# Store extracted packages under template_linter/.corpus/
+root_dir = ".corpus"
+
+# Start with a small, high-signal set. Add more once the loop is solid.
+[[package]]
+name = "django-debug-toolbar"
+version = "4.4.6"
+
+[[package]]
+name = "django-allauth"
+version = "0.63.3"
+
+[[package]]
+name = "django-crispy-forms"
+version = "2.2"
+
+[[package]]
+name = "django-widget-tweaks"
+version = "1.5.0"
+
+[[package]]
+name = "django-compressor"
+version = "4.5.1"
+
+# Django itself (multiple supported branches; pin latest patch of each branch).
+[[package]]
+name = "Django"
+version = "6.0.2"
+
+[[package]]
+name = "Django"
+version = "5.2.11"
+
+[[package]]
+name = "Django"
+version = "5.1.15"
+
+[[package]]
+name = "Django"
+version = "4.2.28"
+
+# Larger / more complex real-world tag libraries (kept pinned for reproducibility).
+[[package]]
+name = "wagtail"
+version = "7.3"
+
+[[package]]
+name = "wagtail"
+version = "7.2.2"
+
+[[package]]
+name = "wagtail"
+version = "7.1.3"
+
+[[package]]
+name = "wagtail"
+version = "7.0.4"
+
+[[package]]
+name = "wagtail"
+version = "6.4.2"
+
+[[package]]
+name = "django-fastdev"
+version = "1.13.0"
+
+[[package]]
+name = "django-permission"
+version = "1.0.5"
+
+[[package]]
+name = "horizon"
+version = "25.5.1"
+
+# Dependency packages required by pinned project templates. These provide
+# additional `{% load %}` libraries referenced by the repos in this manifest.
+[[package]]
+name = "django-bootstrap3"
+version = "26.1"
+
+[[package]]
+name = "django-formset-js-improved"
+version = "0.5.0.5"
+
+[[package]]
+name = "django-tables2"
+version = "2.7.5"
+
+[[package]]
+name = "django-sekizai"
+version = "4.1.0"
+
+[[package]]
+name = "django-forms-bootstrap"
+version = "3.1.0"
+
+[[package]]
+name = "geonode-announcements"
+version = "2.0.2.2"
+
+[[package]]
+name = "django-activity-stream"
+version = "2.0.0"
+
+[[package]]
+name = "dj-pagination"
+version = "2.5.0"
+
+[[package]]
+name = "django-avatar"
+version = "8.0.1"
+
+[[package]]
+name = "django-markdownify"
+version = "0.9.6"
+
+[[package]]
+name = "django-imagekit"
+version = "6.0.0"
+
+[[package]]
+name = "django-statici18n"
+version = "2.6.0"
+
+[[package]]
+name = "django-import-export"
+version = "4.4.0"
+
+[[package]]
+name = "django-guardian"
+version = "3.2.0"
+
+[[package]]
+name = "django-typogrify"
+version = "1.3.3"
+
+[[package]]
+name = "django-qr-code"
+version = "4.2.0"
+
+[[package]]
+name = "sorl-thumbnail"
+version = "13.0.0"
+
+[[package]]
+name = "django-htmx"
+version = "1.27.0"
+
+[[package]]
+name = "django-pipeline"
+version = "4.1.0"
+
+[[package]]
+name = "django-simple-history"
+version = "3.11.0"
+
+# Project repos (not necessarily published as clean templatetag-focused packages).
+# These are pinned by commit for reproducibility.
+[[repo]]
+name = "getsentry-sentry"
+url = "https://github.com/getsentry/sentry.git"
+ref = "f96e0f2de81f9d5b95614393be420f3107604220"
+
+[[repo]]
+name = "sissbruecker-linkding"
+url = "https://github.com/sissbruecker/linkding.git"
+ref = "dfbba202758e4db60bf188cc9fce49281832871d"
+
+[[repo]]
+name = "rafalp-misago"
+url = "https://github.com/rafalp/Misago.git"
+ref = "84a683717b3f022b10b875248806e541214d784c"
+
+[[repo]]
+name = "pretix-pretix"
+url = "https://github.com/pretix/pretix.git"
+ref = "9879e99c599d18f750feeb02dc42904d0a7ff383"
+
+[[repo]]
+name = "django-oscar-django-oscar"
+url = "https://github.com/django-oscar/django-oscar.git"
+ref = "de217920de717fa894e40f425bfd61bc800721a2"
+
+[[repo]]
+name = "django-cms-django-cms"
+url = "https://github.com/django-cms/django-cms.git"
+ref = "92c646ef35507bd0d36a7280bbf385e0a81d5a9c"
+
+[[repo]]
+name = "netbox-community-netbox"
+url = "https://github.com/netbox-community/netbox.git"
+ref = "ee6cbdcefe1c522d718e880ea3f955e7683f2b9b"
+
+[[repo]]
+name = "inventree-inventree"
+url = "https://github.com/inventree/InvenTree.git"
+ref = "6af956ffbd90a725bebc0f78dbc194db1c00c8f7"
+
+[[repo]]
+name = "geonode-geonode"
+url = "https://github.com/GeoNode/geonode.git"
+ref = "615a9cb146a9818337d7b72c1e53bcf99012ffa2"
+
+[[repo]]
+name = "samuelclay-newsblur"
+url = "https://github.com/samuelclay/NewsBlur.git"
+ref = "201e0e50e9f6830de57de3d83e6fc19400146b6a"
+
+[[repo]]
+name = "babybuddy-babybuddy"
+url = "https://github.com/babybuddy/babybuddy.git"
+ref = "6ce518f3612ae1ee8d49de3434aacf48e15c0724"
+
+[[repo]]
+name = "archivebox-archivebox"
+url = "https://github.com/ArchiveBox/ArchiveBox.git"
+ref = "dcfad7daf1c8037db6b63f699b3721727cbab227"
+
+[[repo]]
+name = "unfoldadmin-django-unfold"
+url = "https://github.com/unfoldadmin/django-unfold.git"
+ref = "e3a7f9f61430d5a36ba6b07a17a4baaf546945a9"

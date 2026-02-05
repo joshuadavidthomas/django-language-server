@@ -1,0 +1,27 @@
+[
+  {
+    "line": 1,
+    "message": "Not expecting 'and' in this position in if tag.",
+    "name": "if",
+    "raw": "if and x"
+  },
+  {
+    "line": 2,
+    "message": "Unused 'y' at end of if expression.",
+    "name": "if",
+    "raw": "if x y"
+  },
+  {
+    "line": 3,
+    "message": "Unexpected end of expression in if tag.",
+    "name": "if",
+    "raw": "if x =="
+  },
+  {
+    "line": 5,
+    "message": "Not expecting 'and' in this position in if tag.",
+    "name": "elif",
+    "raw": "elif and y"
+  }
+]
+

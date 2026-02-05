@@ -1,0 +1,51 @@
+{
+  "block_specs": [
+    {
+      "end_suffix_from_start_index": null,
+      "end_tags": [
+        "endblocky"
+      ],
+      "middle_tags": [
+        "else"
+      ],
+      "repeatable_middle_tags": [],
+      "start_tags": [
+        "blocky"
+      ],
+      "terminal_middle_tags": []
+    },
+    {
+      "end_suffix_from_start_index": null,
+      "end_tags": [
+        "enddynblock"
+      ],
+      "middle_tags": [],
+      "repeatable_middle_tags": [],
+      "start_tags": [
+        "dynblock"
+      ],
+      "terminal_middle_tags": []
+    }
+  ],
+  "filters": {},
+  "opaque_blocks": {},
+  "rules": {
+    "blocky": {
+      "has_parse_bits_spec": false,
+      "no_duplicate_options": false,
+      "rejects_unknown_options": false,
+      "rule_count": 0,
+      "unrestricted": true,
+      "valid_options": []
+    },
+    "dynblock": {
+      "has_parse_bits_spec": false,
+      "no_duplicate_options": false,
+      "rejects_unknown_options": false,
+      "rule_count": 0,
+      "unrestricted": true,
+      "valid_options": []
+    }
+  },
+  "structural_rules": []
+}

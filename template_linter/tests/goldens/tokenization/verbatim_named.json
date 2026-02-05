@@ -1,0 +1,39 @@
+[
+  {
+    "contents": "verbatim foo",
+    "kind": "block",
+    "line": 1,
+    "name": "verbatim",
+    "split": [
+      "verbatim",
+      "foo"
+    ]
+  },
+  {
+    "contents": "endverbatim foo",
+    "kind": "block",
+    "line": 4,
+    "name": "endverbatim",
+    "split": [
+      "endverbatim",
+      "foo"
+    ]
+  },
+  {
+    "contents": "endverbatim foo",
+    "kind": "block",
+    "line": 5,
+    "name": "endverbatim",
+    "split": [
+      "endverbatim",
+      "foo"
+    ]
+  },
+  {
+    "contents": "ok",
+    "kind": "var",
+    "line": 6,
+    "name": null,
+    "split": null
+  }
+]

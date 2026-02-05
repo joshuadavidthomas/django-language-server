@@ -1,0 +1,35 @@
+[
+  {
+    "contents": "user|default:\"x\"",
+    "kind": "var",
+    "line": 1,
+    "name": null,
+    "split": null
+  },
+  {
+    "contents": "if x",
+    "kind": "block",
+    "line": 2,
+    "name": "if",
+    "split": [
+      "if",
+      "x"
+    ]
+  },
+  {
+    "contents": "y",
+    "kind": "var",
+    "line": 3,
+    "name": null,
+    "split": null
+  },
+  {
+    "contents": "endif",
+    "kind": "block",
+    "line": 4,
+    "name": "endif",
+    "split": [
+      "endif"
+    ]
+  }
+]
