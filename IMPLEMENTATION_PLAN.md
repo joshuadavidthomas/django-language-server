@@ -50,7 +50,7 @@
 
 ## M2 - Salsa Invalidation Plumbing
 
-**Status:** in-progress
+**Status:** complete
 **Plan:** `.agents/plans/2026-02-05-m2-salsa-invalidation-plumbing.md`
 
 ### Phase 1: Extend Project Input with djls-conf Types
@@ -82,14 +82,14 @@
 
 ### Phase 4: Invalidation Tests with Event Capture
 
-- [ ] Add `EventLogger` test infrastructure in `crates/djls-server/src/db.rs` `#[cfg(test)]` module — stores raw `salsa::Event` values, provides `was_executed(db, query_name)` helper using `db.ingredient_debug_name()`
-- [ ] Add `TestDatabase` helper struct with `with_project()` constructor that wires up `EventLogger` to Salsa storage
-- [ ] Test: `tag_specs_cached_on_repeated_access` — first call executes `compute_tag_specs`, second call uses cache
-- [ ] Test: `tagspecs_change_invalidates` — modifying `project.tagspecs` via setter causes recomputation
-- [ ] Test: `inspector_inventory_change_invalidates` — setting `project.inspector_inventory` causes recomputation
-- [ ] Test: `same_value_no_invalidation` — comparing before setting prevents spurious invalidation
-- [ ] Test: `tag_index_depends_on_tag_specs` — changing tagspecs recomputes tag_index too
-- [ ] Run `cargo build`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test`
+- [x] Add `EventLogger` test infrastructure in `crates/djls-server/src/db.rs` `#[cfg(test)]` module — stores raw `salsa::Event` values, provides `was_executed(db, query_name)` helper using `db.ingredient_debug_name()`
+- [x] Add `TestDatabase` helper struct with `with_project()` constructor that wires up `EventLogger` to Salsa storage
+- [x] Test: `tag_specs_cached_on_repeated_access` — first call executes `compute_tag_specs`, second call uses cache
+- [x] Test: `tagspecs_change_invalidates` — modifying `project.tagspecs` via setter causes recomputation
+- [x] Test: `inspector_inventory_change_invalidates` — setting `project.inspector_inventory` causes recomputation
+- [x] Test: `same_value_no_invalidation` — comparing before setting prevents spurious invalidation
+- [x] Test: `tag_index_depends_on_tag_specs` — changing tagspecs recomputes tag_index too
+- [x] Run `cargo build`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test`
 
 ---
 
@@ -149,3 +149,4 @@ _Tasks to be expanded when M6 is complete._
 - M2: Salsa input setters require `use salsa::Setter` trait import — the `.to()` method is a trait method.
 - M2: `set_settings` signature changed from `Settings` to `&Settings` — clippy flags needless pass by value. Updated callers in `session.rs` and `server.rs`.
 - M2: Exported `inspector_query` (re-export of `inspector::query`) from `djls-project` for direct inspector access outside tracked queries.
+- M2: Salsa `ingredient_debug_name()` returns the function name (e.g., `"compute_tag_specs"`) — use this in `WillExecute` event matching for stable invalidation tests (not Debug format strings).
