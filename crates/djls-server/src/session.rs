@@ -103,7 +103,7 @@ impl Session {
         &mut self.db
     }
 
-    pub fn set_settings(&mut self, settings: Settings) {
+    pub fn set_settings(&mut self, settings: &Settings) {
         self.db.set_settings(settings);
     }
 

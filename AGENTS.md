@@ -37,6 +37,7 @@ just lint                       # Run pre-commit hooks
 - After editing `queries.py`, `cargo build` triggers pyz rebuild via `build.rs`
 - Salsa `#[salsa::tracked]` functions require `&dyn Trait` — cannot use concrete `&DjangoDatabase`
 - Salsa tracked return types need `PartialEq` — add derive if missing (e.g., `TagSpecs`)
+- Salsa input setters require `use salsa::Setter` — the `.to()` method is a trait method, not inherent
 
 ## Task Management
 Use `/dex` to break down complex work, track progress across sessions, and coordinate multi-step implementations.

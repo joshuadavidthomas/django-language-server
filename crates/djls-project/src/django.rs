@@ -74,13 +74,13 @@ pub fn template_dirs(db: &dyn ProjectDb, _project: Project) -> Option<TemplateDi
 type TemplateDirs = Vec<Utf8PathBuf>;
 
 #[derive(Serialize)]
-struct TemplatetagsRequest;
+pub struct TemplatetagsRequest;
 
 #[derive(Deserialize)]
-struct TemplatetagsResponse {
-    libraries: HashMap<String, String>,
-    builtins: Vec<String>,
-    templatetags: Vec<TemplateTag>,
+pub struct TemplatetagsResponse {
+    pub libraries: HashMap<String, String>,
+    pub builtins: Vec<String>,
+    pub templatetags: Vec<TemplateTag>,
 }
 
 impl InspectorRequest for TemplatetagsRequest {

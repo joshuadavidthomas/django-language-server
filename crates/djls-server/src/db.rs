@@ -10,10 +10,15 @@ use std::sync::Mutex;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_conf::Settings;
+use salsa::Setter;
+use djls_project::inspector_query;
 use djls_project::template_dirs;
 use djls_project::Db as ProjectDb;
 use djls_project::Inspector;
+use djls_project::Interpreter;
 use djls_project::Project;
+use djls_project::TemplateTags;
+use djls_project::TemplatetagsRequest;
 use djls_semantic::django_builtin_specs;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::TagIndex;
@@ -142,34 +147,23 @@ impl DjangoDatabase {
         db
     }
 
-    fn settings(&self) -> Settings {
-        self.settings.lock().unwrap().clone()
-    }
-
-    /// Update the settings, potentially updating the project if `venv_path`, `django_settings_module`, or `pythonpath` changed
+    /// Update the settings, delegating field updates to `update_project_from_settings`.
     ///
     /// # Panics
     ///
     /// Panics if the settings mutex is poisoned (another thread panicked while holding the lock)
-    pub fn set_settings(&mut self, settings: Settings) {
-        let project_needs_update = {
-            let old = self.settings();
-            old.venv_path() != settings.venv_path()
-                || old.django_settings_module() != settings.django_settings_module()
-                || old.pythonpath() != settings.pythonpath()
-        };
+    pub fn set_settings(&mut self, settings: &Settings) {
+        *self.settings.lock().unwrap() = settings.clone();
 
-        *self.settings.lock().unwrap() = settings;
-
-        if project_needs_update {
-            if let Some(project) = self.project() {
-                let root = project.root(self).clone();
-                let settings = self.settings();
-                self.set_project(&root, &settings);
-            }
+        if let Some(project) = self.project() {
+            self.update_project_from_settings(project, settings);
         }
     }
 
+    /// Initialize the project from scratch. Called once during startup.
+    ///
+    /// Creates a new `Project` via `bootstrap` and then refreshes the inspector
+    /// to populate the initial inventory.
     fn set_project(&mut self, root: &Utf8Path, settings: &Settings) {
         let project = Project::bootstrap(
             self,
@@ -180,6 +174,89 @@ impl DjangoDatabase {
             settings,
         );
         *self.project.lock().unwrap() = Some(project);
+
+        self.refresh_inspector();
+    }
+
+    /// Update Project fields from settings, comparing before calling setters.
+    ///
+    /// Only calls Salsa setters when values actually changed (Ruff/RA pattern
+    /// to avoid unnecessary invalidation). Triggers `refresh_inspector()` if
+    /// Python environment fields change.
+    fn update_project_from_settings(&mut self, project: Project, settings: &Settings) {
+        let mut env_changed = false;
+
+        let new_interpreter = Interpreter::discover(settings.venv_path());
+        if project.interpreter(self) != &new_interpreter {
+            project.set_interpreter(self).to(new_interpreter);
+            env_changed = true;
+        }
+
+        let new_dsm = settings.django_settings_module().map(String::from);
+        if project.django_settings_module(self) != &new_dsm {
+            project.set_django_settings_module(self).to(new_dsm);
+            env_changed = true;
+        }
+
+        let new_pp = settings.pythonpath().to_vec();
+        if project.pythonpath(self) != &new_pp {
+            project.set_pythonpath(self).to(new_pp);
+            env_changed = true;
+        }
+
+        let new_tagspecs = settings.tagspecs().clone();
+        if project.tagspecs(self) != &new_tagspecs {
+            tracing::debug!("Tagspecs config changed, updating Project");
+            project.set_tagspecs(self).to(new_tagspecs);
+        }
+
+        let new_diagnostics = settings.diagnostics().clone();
+        if project.diagnostics(self) != &new_diagnostics {
+            tracing::debug!("Diagnostics config changed, updating Project");
+            project.set_diagnostics(self).to(new_diagnostics);
+        }
+
+        if env_changed {
+            tracing::debug!("Python environment changed, refreshing inspector");
+            self.refresh_inspector();
+        }
+    }
+
+    /// Refresh the inspector inventory by querying Python directly.
+    ///
+    /// This method:
+    /// 1. Queries the Python inspector (not through tracked functions)
+    /// 2. Compares the new inventory with the current one
+    /// 3. Updates `Project.inspector_inventory` only if changed
+    ///
+    /// Call this when:
+    /// - Project is first initialized
+    /// - Python environment changes (venv, PYTHONPATH)
+    /// - User explicitly requests refresh
+    fn refresh_inspector(&mut self) {
+        let Some(project) = self.project() else {
+            tracing::warn!("Cannot refresh inspector: no project set");
+            return;
+        };
+
+        let new_inventory: Option<TemplateTags> =
+            inspector_query(self, &TemplatetagsRequest).map(|response| {
+                TemplateTags::new(response.libraries, response.builtins, response.templatetags)
+            });
+
+        let current = project.inspector_inventory(self);
+        if current == &new_inventory {
+            tracing::trace!("Inspector inventory unchanged, skipping update");
+        } else {
+            tracing::debug!(
+                "Inspector inventory changed: {} -> {} tags",
+                current.as_ref().map_or(0, TemplateTags::len),
+                new_inventory.as_ref().map_or(0, TemplateTags::len)
+            );
+            project
+                .set_inspector_inventory(self)
+                .to(new_inventory);
+        }
     }
 }
 
