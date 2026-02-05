@@ -8,41 +8,43 @@
 
 ## M1 - Payload Shape + Library Name Fix
 
-**Status:** in progress
+**Status:** complete
 **Plan:** `.agents/plans/2026-02-05-m1-payload-library-name-fix.md`
 
 ### Phase 1: Python Inspector Payload Changes
 
-- [ ] Update `TemplateTag` dataclass in `queries.py` to include `provenance` dict and `defining_module` field
-- [ ] Add `TemplateTagQueryData` dataclass with `libraries`, `builtins`, and `templatetags` fields
-- [ ] Rewrite `get_installed_templatetags()` to preserve library load-name keys from `engine.libraries`
-- [ ] Collect builtins using `zip(engine.builtins, engine.template_builtins)` with length guard
-- [ ] Collect library tags preserving `load_name` from `engine.libraries` iteration
-- [ ] Verify inspector payload manually: `libraries` dict, `builtins` list, provenance on each tag
+- [x] Update `TemplateTag` dataclass in `queries.py` to include `provenance` dict and `defining_module` field
+- [x] Add `TemplateTagQueryData` dataclass with `libraries`, `builtins`, and `templatetags` fields
+- [x] Rewrite `get_installed_templatetags()` to preserve library load-name keys from `engine.libraries`
+- [x] Collect builtins using `zip(engine.builtins, engine.template_builtins)` with length guard
+- [x] Collect library tags preserving `load_name` from `engine.libraries` iteration
+- [x] Verify inspector payload manually: `libraries` dict, `builtins` list, provenance on each tag
+- [x] Run full `cargo build`, `cargo clippy`, `cargo test`
 
 ### Phase 2: Rust Type Updates
 
-- [ ] Add `TagProvenance` enum (`Library { load_name, module }` / `Builtin { module }`) in `crates/djls-project/src/django.rs`
-- [ ] Update `TemplateTag` struct: replace `module` with `provenance` + `defining_module`
-- [ ] Add accessors: `library_load_name()`, `is_builtin()`, `registration_module()`, `defining_module()`
-- [ ] Add `TemplatetagsResponse` struct with `libraries`, `builtins`, `templatetags`
-- [ ] Update `TemplateTags` to hold `libraries: HashMap<String, String>`, `builtins: Vec<String>`, `tags: Vec<TemplateTag>`
-- [ ] Add `TemplateTags` accessors: `libraries()`, `builtins()`, `tags()`, `iter()`, `len()`, `is_empty()`
-- [ ] Add test constructors: `TemplateTag::new_library()`, `TemplateTag::new_builtin()`, `TemplateTags::new()`
-- [ ] Update `templatetags()` Salsa query to use new response structure
-- [ ] Export `TagProvenance` from `crates/djls-project/src/lib.rs`
-- [ ] Add unit tests: deserialization, accessors, registry data
-- [ ] Fix all compilation errors in downstream crates (`djls-ide`, `djls-server`, `djls-semantic`)
+- [x] Add `TagProvenance` enum (`Library { load_name, module }` / `Builtin { module }`) in `crates/djls-project/src/django.rs`
+- [x] Update `TemplateTag` struct: replace `module` with `provenance` + `defining_module`
+- [x] Add accessors: `library_load_name()`, `is_builtin()`, `registration_module()`, `defining_module()`
+- [x] Add `TemplatetagsResponse` struct with `libraries`, `builtins`, `templatetags`
+- [x] Update `TemplateTags` to hold `libraries: HashMap<String, String>`, `builtins: Vec<String>`, `tags: Vec<TemplateTag>`
+- [x] Add `TemplateTags` accessors: `libraries()`, `builtins()`, `tags()`, `iter()`, `len()`, `is_empty()`
+- [x] Add test constructors: `TemplateTag::new_library()`, `TemplateTag::new_builtin()`, `TemplateTags::new()`
+- [x] Update `templatetags()` Salsa query to use new response structure
+- [x] Export `TagProvenance` and `TemplateTag` from `crates/djls-project/src/lib.rs`
+- [x] Add unit tests: deserialization, accessors, registry data
+- [x] Fix all compilation errors in downstream crates (`djls-ide`, `djls-server`, `djls-semantic`)
+- [x] Run full `cargo build`, `cargo clippy`, `cargo test`
 
 ### Phase 3: Completions Fix
 
-- [ ] Rewrite `generate_library_completions()` to use `tags.libraries()` keys instead of `tag.module()`
-- [ ] Sort library names alphabetically for deterministic completion ordering
-- [ ] Exclude builtins from `{% load %}` completions (they're always available)
-- [ ] Update tag name completion detail to show provenance info ("builtin from ..." / "from ... ({% load X %})")
-- [ ] Update any remaining `tag.module()` calls to use new accessors
-- [ ] Add completion tests for library name completions
-- [ ] Run full `cargo build`, `cargo clippy`, `cargo test`
+- [x] Rewrite `generate_library_completions()` to use `tags.libraries()` keys instead of `tag.module()`
+- [x] Sort library names alphabetically for deterministic completion ordering
+- [x] Exclude builtins from `{% load %}` completions (they're always available)
+- [x] Update tag name completion detail to show provenance info ("builtin from ..." / "from ... ({% load X %})")
+- [x] Update any remaining `tag.module()` calls to use new accessors
+- [x] Add completion tests for library name completions
+- [x] Run full `cargo build`, `cargo clippy`, `cargo test`
 
 ---
 
@@ -102,4 +104,7 @@ _Tasks to be expanded when M6 is complete._
 
 ## Discoveries / Notes
 
-_(Record findings here as implementation progresses)_
+- M1: `TemplateTags` no longer implements `Deref<Target=Vec<TemplateTag>>`. Use `.iter()`, `.tags()`, `.len()`, `.is_empty()` instead.
+- M1: `TemplateTag` no longer has `.module()`. Use `.defining_module()` (where function is defined), `.registration_module()` (library/builtin module), or `.library_load_name()` (load name for `{% load %}`).
+- M1: Clippy requires `#[must_use]` on all public accessors and constructors in this project.
+- M1: `TemplateTag` and `TagProvenance` are now exported from `djls-project`.

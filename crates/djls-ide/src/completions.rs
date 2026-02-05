@@ -485,7 +485,11 @@ fn generate_tag_name_completions(
             let completion_item = ls_types::CompletionItem {
                 label: tag.name().clone(),
                 kind: Some(kind),
-                detail: Some(format!("from {}", tag.module())),
+                detail: Some(if let Some(lib) = tag.library_load_name() {
+                    format!("from {} ({{% load {} %}})", tag.defining_module(), lib)
+                } else {
+                    format!("builtin from {}", tag.defining_module())
+                }),
                 documentation: tag
                     .doc()
                     .map(|doc| ls_types::Documentation::String(doc.clone())),
@@ -658,35 +662,33 @@ fn generate_library_completions(
         return Vec::new();
     };
 
-    // Get unique library names
-    let mut libraries = std::collections::HashSet::new();
-    for tag in tags.iter() {
-        libraries.insert(tag.module());
-    }
+    let mut library_entries: Vec<_> = tags
+        .libraries()
+        .iter()
+        .filter(|(load_name, _)| load_name.starts_with(partial))
+        .collect();
+    library_entries.sort_by_key(|(load_name, _)| load_name.as_str());
 
     let mut completions = Vec::new();
 
-    for library in libraries {
-        if library.starts_with(partial) {
-            let mut insert_text = library.clone();
+    for (load_name, module_path) in library_entries {
+        let mut insert_text = load_name.clone();
 
-            // Add closing if needed
-            match closing {
-                ClosingBrace::None => insert_text.push_str(" %}"),
-                ClosingBrace::PartialClose => insert_text.push_str(" %"),
-                ClosingBrace::FullClose => {} // No closing needed
-            }
-
-            completions.push(ls_types::CompletionItem {
-                label: library.clone(),
-                kind: Some(ls_types::CompletionItemKind::MODULE),
-                detail: Some("Django template library".to_string()),
-                insert_text: Some(insert_text),
-                insert_text_format: Some(ls_types::InsertTextFormat::PLAIN_TEXT),
-                filter_text: Some(library.clone()),
-                ..Default::default()
-            });
+        match closing {
+            ClosingBrace::None => insert_text.push_str(" %}"),
+            ClosingBrace::PartialClose => insert_text.push_str(" %"),
+            ClosingBrace::FullClose => {}
         }
+
+        completions.push(ls_types::CompletionItem {
+            label: load_name.clone(),
+            kind: Some(ls_types::CompletionItemKind::MODULE),
+            detail: Some(format!("Django template library ({module_path})")),
+            insert_text: Some(insert_text),
+            insert_text_format: Some(ls_types::InsertTextFormat::PLAIN_TEXT),
+            filter_text: Some(load_name.clone()),
+            ..Default::default()
+        });
     }
 
     completions
@@ -961,6 +963,104 @@ mod tests {
                 needs_space: false,
                 closing: ClosingBrace::FullClose,
             }
+        );
+    }
+
+    #[test]
+    fn test_generate_library_completions_uses_load_names() {
+        let mut libraries = std::collections::HashMap::new();
+        libraries.insert(
+            "static".to_string(),
+            "django.templatetags.static".to_string(),
+        );
+        libraries.insert(
+            "i18n".to_string(),
+            "django.templatetags.i18n".to_string(),
+        );
+        libraries.insert(
+            "cache".to_string(),
+            "django.templatetags.cache".to_string(),
+        );
+
+        let tags = TemplateTags::new(
+            libraries,
+            vec!["django.template.defaulttags".to_string()],
+            vec![
+                djls_project::TemplateTag::new_builtin(
+                    "if",
+                    "django.template.defaulttags",
+                    None,
+                ),
+                djls_project::TemplateTag::new_library(
+                    "static",
+                    "static",
+                    "django.templatetags.static",
+                    None,
+                ),
+            ],
+        );
+
+        let completions =
+            generate_library_completions("", &ClosingBrace::None, Some(&tags));
+
+        let labels: Vec<_> = completions.iter().map(|c| c.label.as_str()).collect();
+        assert!(labels.contains(&"static"));
+        assert!(labels.contains(&"i18n"));
+        assert!(labels.contains(&"cache"));
+        assert!(!labels.iter().any(|l| l.contains("django.")));
+        assert_eq!(labels, vec!["cache", "i18n", "static"]);
+    }
+
+    #[test]
+    fn test_generate_library_completions_partial_filter() {
+        let mut libraries = std::collections::HashMap::new();
+        libraries.insert(
+            "static".to_string(),
+            "django.templatetags.static".to_string(),
+        );
+        libraries.insert(
+            "i18n".to_string(),
+            "django.templatetags.i18n".to_string(),
+        );
+
+        let tags = TemplateTags::new(libraries, vec![], vec![]);
+
+        let completions =
+            generate_library_completions("st", &ClosingBrace::None, Some(&tags));
+
+        assert_eq!(completions.len(), 1);
+        assert_eq!(completions[0].label, "static");
+    }
+
+    #[test]
+    fn test_generate_library_completions_closing_brace() {
+        let mut libraries = std::collections::HashMap::new();
+        libraries.insert(
+            "static".to_string(),
+            "django.templatetags.static".to_string(),
+        );
+
+        let tags = TemplateTags::new(libraries, vec![], vec![]);
+
+        let no_close =
+            generate_library_completions("", &ClosingBrace::None, Some(&tags));
+        assert_eq!(
+            no_close[0].insert_text.as_deref(),
+            Some("static %}")
+        );
+
+        let partial =
+            generate_library_completions("", &ClosingBrace::PartialClose, Some(&tags));
+        assert_eq!(
+            partial[0].insert_text.as_deref(),
+            Some("static %")
+        );
+
+        let full =
+            generate_library_completions("", &ClosingBrace::FullClose, Some(&tags));
+        assert_eq!(
+            full[0].insert_text.as_deref(),
+            Some("static")
         );
     }
 }

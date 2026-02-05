@@ -29,5 +29,12 @@ just lint                       # Run pre-commit hooks
 - `crates/djls-templates/` - Django template parser
 - `crates/djls-workspace/` - Workspace/document management
 
+## Operational Notes
+- `TemplateTags` does not implement `Deref` — use `.iter()`, `.tags()`, `.len()`, `.is_empty()`
+- `TemplateTag` has no `.module()` — use `.defining_module()`, `.registration_module()`, or `.library_load_name()`
+- Return `&str` not `&String` from new accessors — clippy flags this
+- All public accessors/constructors need `#[must_use]` — clippy enforces `must_use_candidate`
+- After editing `queries.py`, `cargo build` triggers pyz rebuild via `build.rs`
+
 ## Task Management
 Use `/dex` to break down complex work, track progress across sessions, and coordinate multi-step implementations.
