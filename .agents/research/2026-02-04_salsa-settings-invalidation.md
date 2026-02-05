@@ -294,5 +294,5 @@ pub fn set_settings(&mut self, settings: Settings) {
 
 ## Related Research
 
-- `2026-02-04_semantic-validation-orchestration.md` - How validation flows through Salsa
-- `2026-02-04_tagspecs-flow-analysis.md` - TagSpecs definition and consumers
+- [2026-02-04_semantic-validation-orchestration.md](2026-02-04_semantic-validation-orchestration.md) - How validation flows through Salsa
+- [2026-02-04_tagspecs-flow-analysis.md](2026-02-04_tagspecs-flow-analysis.md) - TagSpecs definition and consumers

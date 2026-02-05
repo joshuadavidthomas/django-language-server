@@ -9,7 +9,7 @@
 ## What Changed Since Initial RFC
 
 > **Revision note (2026-02-05):** The Salsa integration story in sections 5.2-5.6 has been revised to
-> align with the M2 implementation plan (`.agents/plans/2026-02-05-m2-salsa-invalidation-plumbing.md`).
+> align with the M2 implementation plan ([`.agents/plans/2026-02-05-m2-salsa-invalidation-plumbing.md`](../plans/2026-02-05-m2-salsa-invalidation-plumbing.md)).
 >
 > **Key change:** The original RFC proposed new global Salsa inputs (`InspectorInventory`,
 > `ExtractedRules`). The M2 direction keeps Salsa inputs minimal-**target: 2 primary inputs (`File` +
@@ -24,7 +24,7 @@
 
 ## 1. Context
 
-The charter (`.agents/charter/2026-02-05-template-validation-port-charter.md`) establishes that:
+The charter ([`.agents/charter/2026-02-05-template-validation-port-charter.md`](../charter/2026-02-05-template-validation-port-charter.md)) establishes that:
 
 1. **Python inspector** provides authoritative inventory (what tags/filters exist, which libraries they belong to)
 2. **Rust extraction** enriches inventory with validation semantics by mining Python source via `ruff_python_parser`

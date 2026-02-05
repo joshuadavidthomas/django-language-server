@@ -374,8 +374,8 @@ The `templatefilters` query is new. Older djls versions won't have it, but the S
 
 ## References
 
-- Charter: `.agents/charter/2026-02-05-template-validation-port-charter.md` (Section M4)
-- M1 Plan: `.agents/plans/2026-02-05-m1-payload-library-name-fix.md` (TagProvenance pattern)
-- M3 Plan: `.agents/plans/2026-02-05-m3-load-scoping.md` (LoadedLibraries infrastructure)
-- Research: `.agents/research/2026-02-04_template-filters-analysis.md`
-- Research: `.agents/research/2026-02-04_load-tag-library-scoping.md`
+- Charter: [`.agents/charter/2026-02-05-template-validation-port-charter.md`](../charter/2026-02-05-template-validation-port-charter.md) (Section M4)
+- M1 Plan: [`.agents/plans/2026-02-05-m1-payload-library-name-fix.md`](2026-02-05-m1-payload-library-name-fix.md) (TagProvenance pattern)
+- M3 Plan: [`.agents/plans/2026-02-05-m3-load-scoping.md`](2026-02-05-m3-load-scoping.md) (LoadedLibraries infrastructure)
+- Research: [`.agents/research/2026-02-04_template-filters-analysis.md`](../research/2026-02-04_template-filters-analysis.md)
+- Research: [`.agents/research/2026-02-04_load-tag-library-scoping.md`](../research/2026-02-04_load-tag-library-scoping.md)

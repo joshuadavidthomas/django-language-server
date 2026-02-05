@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "research/2026-02-04_template-introspection-pipeline.md",
+                "file": "ROADMAP.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "2026-02-04_template-introspection-pipeline"
+              "title": "ROADMAP"
             }
           }
         ]
@@ -78,7 +78,8 @@
       }
     ],
     "direction": "horizontal",
-    "width": 300
+    "width": 300,
+    "collapsed": true
   },
   "right": {
     "id": "60cc687484b8bfd1",
@@ -94,7 +95,7 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "research/2026-02-04_template-introspection-pipeline.md",
+                "file": "ROADMAP.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -104,7 +105,7 @@
                 "unlinkedCollapsed": true
               },
               "icon": "links-coming-in",
-              "title": "Backlinks for 2026-02-04_template-introspection-pipeline"
+              "title": "Backlinks for ROADMAP"
             }
           },
           {
@@ -113,12 +114,12 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "research/2026-02-04_template-introspection-pipeline.md",
+                "file": "ROADMAP.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               },
               "icon": "links-going-out",
-              "title": "Outgoing links from 2026-02-04_template-introspection-pipeline"
+              "title": "Outgoing links from ROADMAP"
             }
           },
           {
@@ -156,13 +157,13 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "research/2026-02-04_template-introspection-pipeline.md",
+                "file": "ROADMAP.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "Outline of 2026-02-04_template-introspection-pipeline"
+              "title": "Outline of ROADMAP"
             }
           }
         ]
@@ -185,6 +186,7 @@
   },
   "active": "456bf6e37fbc07e7",
   "lastOpenFiles": [
+    "research/2026-02-04_template-introspection-pipeline.md",
     "rfcs/2026-02-05-rfc-extraction-placement.md",
     "plans/2026-02-05-m5-extraction-engine.md",
     "plans/2026-02-05-m4.1-filters-pipeline.md",
@@ -199,7 +201,6 @@
     "charter/2026-02-05-template-validation-port-charter.md",
     "plans/2026-02-05-m5.1-extraction-engine.md",
     "research/2026-02-04_tagspecs-flow-analysis.md",
-    "research/2026-02-04_template-introspection-pipeline.md",
     "ROADMAP.md",
     "plans/2026-02-05-m5.9-extraction-engine.md",
     "plans/2026-02-05-m3.1-load-scoping.md",

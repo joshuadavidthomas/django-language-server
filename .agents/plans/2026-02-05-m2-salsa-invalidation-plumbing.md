@@ -1037,7 +1037,7 @@ This is an **internal refactoring** with no external API changes:
 
 ## References
 
-- Charter: `.agents/charter/2026-02-05-template-validation-port-charter.md` (M2 section)
-- M1 Plan: `.agents/plans/2026-02-05-m1-payload-library-name-fix.md` (payload shape)
-- RFC: `.agents/rfcs/2026-02-05-rfc-extraction-placement.md` (Salsa integration)
+- Charter: [`.agents/charter/2026-02-05-template-validation-port-charter.md`](../charter/2026-02-05-template-validation-port-charter.md) (M2 section)
+- M1 Plan: [`.agents/plans/2026-02-05-m1-payload-library-name-fix.md`](2026-02-05-m1-payload-library-name-fix.md) (payload shape)
+- RFC: [`.agents/rfcs/2026-02-05-rfc-extraction-placement.md`](../rfcs/2026-02-05-rfc-extraction-placement.md) (Salsa integration)
 - Salsa tests: `~/.cargo/registry/src/*/salsa-0.25.2/tests/common/mod.rs` (event logging pattern)

@@ -184,8 +184,8 @@ This plan is split into phase-specific documents for easier navigation:
 
 ## References
 
-- Charter: `.agents/charter/2026-02-05-template-validation-port-charter.md`
-- RFC: `.agents/rfcs/2026-02-05-rfc-extraction-placement.md`
-- Research: `.agents/research/2026-02-04_python-ast-parsing-rust.md`
-- M2 Plan: `.agents/plans/2026-02-05-m2-salsa-invalidation-plumbing.md`
-- M4 Plan: `.agents/plans/2026-02-05-m4-filters-pipeline.md`
+- Charter: [`.agents/charter/2026-02-05-template-validation-port-charter.md`](../charter/2026-02-05-template-validation-port-charter.md)
+- RFC: [`.agents/rfcs/2026-02-05-rfc-extraction-placement.md`](../rfcs/2026-02-05-rfc-extraction-placement.md)
+- Research: [`.agents/research/2026-02-04_python-ast-parsing-rust.md`](../research/2026-02-04_python-ast-parsing-rust.md)
+- M2 Plan: [`.agents/plans/2026-02-05-m2-salsa-invalidation-plumbing.md`](2026-02-05-m2-salsa-invalidation-plumbing.md)
+- M4 Plan: [`.agents/plans/2026-02-05-m4-filters-pipeline.md`](2026-02-05-m4-filters-pipeline.md)

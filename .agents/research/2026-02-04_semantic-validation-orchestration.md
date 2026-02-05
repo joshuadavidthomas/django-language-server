@@ -322,7 +322,7 @@ flowchart TB
 
 ## Related Research
 
-- `2026-02-04_tagspecs-flow-analysis.md` - How TagSpecs flow through the system
-- `2026-02-04_load-tag-library-scoping.md` - {% load %} handling and library name issues
-- `2026-02-04_template-introspection-pipeline.md` - Full template processing pipeline
-- `2026-02-04_template-filters-analysis.md` - Filter handling (minimal today)
+- [2026-02-04_tagspecs-flow-analysis.md](2026-02-04_tagspecs-flow-analysis.md) - How TagSpecs flow through the system
+- [2026-02-04_load-tag-library-scoping.md](2026-02-04_load-tag-library-scoping.md) - {% load %} handling and library name issues
+- [2026-02-04_template-introspection-pipeline.md](2026-02-04_template-introspection-pipeline.md) - Full template processing pipeline
+- [2026-02-04_template-filters-analysis.md](2026-02-04_template-filters-analysis.md) - Filter handling (minimal today)

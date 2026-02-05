@@ -735,7 +735,7 @@ No data migration needed—this is runtime data from Django introspection.
 
 ## References
 
-- Charter: `.agents/charter/2026-02-05-template-validation-port-charter.md`
+- Charter: [`.agents/charter/2026-02-05-template-validation-port-charter.md`](../charter/2026-02-05-template-validation-port-charter.md)
 - Current inspector: `crates/djls-project/inspector/queries.py`
 - Current Rust types: `crates/djls-project/src/django.rs`
 - Current completions: `crates/djls-ide/src/completions.rs`

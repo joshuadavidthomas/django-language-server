@@ -297,8 +297,8 @@ Consider adding config options:
 
 ## References
 
-- Charter: `.agents/charter/2026-02-05-template-validation-port-charter.md` (Section 1.2)
-- M1 Plan: `.agents/plans/2026-02-05-m1-payload-library-name-fix.md` (TagProvenance)
-- M2 Plan: `.agents/plans/2026-02-05-m2-salsa-invalidation-plumbing.md` (inspector_inventory)
-- Research: `.agents/research/2026-02-04_load-tag-library-scoping.md`
-- Research: `.agents/research/2026-02-04_semantic-validation-orchestration.md`
+- Charter: [`.agents/charter/2026-02-05-template-validation-port-charter.md`](../charter/2026-02-05-template-validation-port-charter.md) (Section 1.2)
+- M1 Plan: [`.agents/plans/2026-02-05-m1-payload-library-name-fix.md`](2026-02-05-m1-payload-library-name-fix.md) (TagProvenance)
+- M2 Plan: [`.agents/plans/2026-02-05-m2-salsa-invalidation-plumbing.md`](2026-02-05-m2-salsa-invalidation-plumbing.md) (inspector_inventory)
+- Research: [`.agents/research/2026-02-04_load-tag-library-scoping.md`](../research/2026-02-04_load-tag-library-scoping.md)
+- Research: [`.agents/research/2026-02-04_semantic-validation-orchestration.md`](../research/2026-02-04_semantic-validation-orchestration.md)
