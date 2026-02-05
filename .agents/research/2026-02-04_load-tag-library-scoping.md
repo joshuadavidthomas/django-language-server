@@ -217,22 +217,22 @@ Tags from `engine.template_builtins` don't require `{% load %}`. They could use 
 flowchart TB
     subgraph CurrentState["CURRENT STATE"]
         direction TB
-        DE[Django Engine<br/><br/>engine.libraries =<br/>i18n: django...<br/>static: django...]
-
-        DE -->|✗ KEYS DISCARDED| IQ[Inspector queries.py<br/><br/>for lib_module in<br/>libraries.values<br/><br/>loses library name!]
-
-        IQ --> TT[TemplateTags Rust<br/><br/>TemplateTag<br/>name: trans<br/>module: django...i18n<br/>doc: ...<br/>library: ??? ← MISSING]
-
-        TT --> LC[Library Completions djls-ide<br/><br/>libraries.insert tag.module<br/>← WRONG: uses module path<br/><br/>Shows: django.templatetags.i18n<br/>Should show: i18n]
+        DE["Django Engine<br/><br/>engine.libraries =<br/>i18n: django...<br/>static: django..."]
+        
+        DE -->|KEYS DISCARDED IN INSPECTOR| IQ["Inspector queries.py<br/><br/>for lib_module in<br/>libraries.values<br/><br/>loses library name!"]
+        
+        IQ --> TT["TemplateTags Rust<br/><br/>TemplateTag<br/>name: trans<br/>module: django...i18n<br/>doc: ...<br/>library: ??? MISSING"]
+        
+        TT --> LC["Library Completions djls-ide<br/><br/>libraries.insert tag.module<br/>WRONG: uses module path<br/><br/>Shows: django.templatetags.i18n<br/>Should show: i18n"]
     end
-
-    subgraph LoadParsing["{% load %} PARSING"]
+    
+    subgraph LoadParsing["load tag PARSING"]
         direction TB
-        Template["Template: {% load i18n static %}"]
-
-        Template --> Parser[Parser djls-templates<br/><br/>Node::Tag<br/>name: load<br/>bits: i18n, static<br/>← Just whitespace-split strings]
-
-        Parser --> Semantic[Semantic Validation djls-semantic<br/><br/>TagSpec for load: VarArgs<br/><br/>✗ No tracking of which libraries are loaded<br/>✗ No tag availability scoping<br/>✗ Unknown tags silently pass]
+        Template["Template: load i18n static"]
+        
+        Template --> Parser["Parser djls-templates<br/><br/>Node::Tag<br/>name: load<br/>bits: i18n, static<br/>Just whitespace-split strings"]
+        
+        Parser --> Semantic["Semantic Validation djls-semantic<br/><br/>TagSpec for load: VarArgs<br/><br/>No tracking of which libraries are loaded<br/>No tag availability scoping<br/>Unknown tags silently pass"]
     end
 ```
 

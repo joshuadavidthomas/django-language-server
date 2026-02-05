@@ -22,11 +22,11 @@ validate_nodelist (tracked)
 
 **File references:**
 
-- `crates/djls-semantic/src/db.rs:10-14` — trait definition with plain methods
-- `crates/djls-server/src/db.rs:186-193` — implementation reading from mutex
-- `crates/djls-semantic/src/blocks.rs:17-22` — `build_block_tree` calling `db.tag_index()`
+- `crates/djls-semantic/src/db.rs:10-14` - trait definition with plain methods
+- `crates/djls-server/src/db.rs:186-193` - implementation reading from mutex
+- `crates/djls-semantic/src/blocks.rs:17-22` - `build_block_tree` calling `db.tag_index()`
 
-### Current Salsa Inputs (2 total — keep it this way)
+### Current Salsa Inputs (2 total - keep it this way)
 
 | Input     | Location                      | Purpose                                  |
 | --------- | ----------------------------- | ---------------------------------------- |
@@ -35,7 +35,7 @@ validate_nodelist (tracked)
 
 ### Key Problems
 
-1. **Settings stored outside Salsa**: `Arc<Mutex<Settings>>` in `DjangoDatabase` — reads bypass Salsa tracking
+1. **Settings stored outside Salsa**: `Arc<Mutex<Settings>>` in `DjangoDatabase` - reads bypass Salsa tracking
 2. **Inspector results tracked but call is opaque**: `templatetags(db, project)` is `#[salsa::tracked]`, but Salsa can't see when Python state changes
 3. **No invalidation path**: Changing `tagspecs` in config doesn't invalidate cached `build_block_tree` results
 
@@ -45,9 +45,9 @@ After M2:
 
 - `Project` is the **single source of truth** for all semantic-relevant external data
 - `Project` fields include:
-    - `inspector_inventory: Option<TemplateTags>` — M1 payload shape
-    - `tagspecs: TagSpecDef` — config document from djls-conf
-    - `diagnostics: DiagnosticsConfig` — from djls-conf
+    - `inspector_inventory: Option<TemplateTags>` - M1 payload shape
+    - `tagspecs: TagSpecDef` - config document from djls-conf
+    - `diagnostics: DiagnosticsConfig` - from djls-conf
 - `compute_tag_specs()` is a **tracked query** that:
     - Reads **only** from Salsa-tracked Project fields
     - Converts `TagSpecDef` → `TagSpecs` and merges with `django_builtin_specs()`
@@ -62,26 +62,42 @@ After M2:
 flowchart TB
     subgraph Inputs["SALSA INPUTS - 2 total"]
         direction TB
-        File["File<br/>- path, revision"]
-        Project["Project<br/>- root, interpreter, django_settings_module, pythonpath<br/>+ inspector_inventory: Option TemplateTags M1 shape<br/>+ tagspecs: TagSpecDef config doc, not TagSpecs!<br/>+ diagnostics: DiagnosticsConfig from djls-conf"]
+        File["File: path, revision"]
+        Project["Project: root, interpreter, settings, inventory, tagspecs, diagnostics"]
     end
 
     Project --> Queries
 
     subgraph Queries["TRACKED QUERIES"]
         direction TB
-        CTS["compute_tag_specs db, project → TagSpecs<br/>1. Read project.inspector_inventory db Salsa dependency<br/>2. Read project.tagspecs db Salsa dependency<br/>3. Start with django_builtin_specs<br/>4. Convert TagSpecDef → TagSpecs and merge<br/>NO Arc Mutex Settings access"]
-
-        CTI["compute_tag_index db, project → TagIndex<br/>DEPENDS ON: compute_tag_specs"]
+        CTS["compute_tag_specs"]
+        CTI["compute_tag_index"]
 
         CTS --> CTI
     end
 ```
 
+**Salsa input fields:**
+- `File`: `path`, `revision`
+- `Project`: `root`, `interpreter`, `django_settings_module`, `pythonpath` + new fields:
+    - `inspector_inventory: Option<TemplateTags>` (M1 shape)
+    - `tagspecs: TagSpecDef` (config doc, not `TagSpecs`)
+    - `diagnostics: DiagnosticsConfig`
+
+**`compute_tag_specs(db, project) → TagSpecs`:**
+1. Read `project.inspector_inventory(db)` (Salsa dependency)
+2. Read `project.tagspecs(db)` (Salsa dependency)
+3. Start with `django_builtin_specs()` (compile-time constant)
+4. Convert `TagSpecDef → TagSpecs` and merge
+5. **NO `Arc<Mutex<Settings>>` access**
+
+**`compute_tag_index(db, project) → TagIndex`:**
+- Depends on `compute_tag_specs` - automatic invalidation cascade
+
 ## What We're NOT Doing
 
 - **Adding new Salsa inputs**: No separate `InspectorInventory` or `SemanticConfigRev` inputs
-- **Storing derived artifacts in Project**: No `TagSpecs` — only config docs (`TagSpecDef`)
+- **Storing derived artifacts in Project**: No `TagSpecs` - only config docs (`TagSpecDef`)
 - **Assuming Salsa auto-skips on equal sets**: Manually compare before calling setters
 - **Creating djls-project → djls-semantic dependency**: Keep to djls-conf types only
 - **Automatic inspector refresh**: Manual `refresh_inspector()` call required
@@ -96,14 +112,14 @@ Add new fields to the existing `Project` Salsa input using only types from `djls
 
 ### Layering Principle
 
-```
-djls-conf (config types: TagSpecDef, DiagnosticsConfig)
-    ↑
-djls-project (Project input with config fields)
-    ↑
-djls-semantic (TagSpecs, validation logic)
-    ↑
-djls-server (compute_tag_specs: TagSpecDef → TagSpecs conversion)
+```mermaid
+flowchart BT
+    conf["djls-conf: config types"]
+    project["djls-project: Project input with config fields"]
+    semantic["djls-semantic: TagSpecs, validation logic"]
+    server["djls-server: compute_tag_specs conversion"]
+    
+    conf --> project --> semantic --> server
 ```
 
 **Key**: Project stores `TagSpecDef` (the config document), not `TagSpecs` (the derived semantic artifact).
@@ -792,7 +808,7 @@ mod invalidation_tests {
     fn test_tag_specs_cached_on_repeated_access() {
         let test = TestDatabase::with_project();
 
-        // First access — should execute query
+        // First access - should execute query
         let _specs1 = test.db.tag_specs();
         assert!(
             test.logger.was_executed(&test.db, "compute_tag_specs"),
@@ -802,7 +818,7 @@ mod invalidation_tests {
 
         test.logger.clear();
 
-        // Second access — should use cache (no WillExecute event)
+        // Second access - should use cache (no WillExecute event)
         let _specs2 = test.db.tag_specs();
         assert!(
             !test.logger.was_executed(&test.db, "compute_tag_specs"),
@@ -833,7 +849,7 @@ mod invalidation_tests {
         assert!(project.tagspecs(&test.db) != &new_tagspecs);
         project.set_tagspecs(&mut test.db).to(new_tagspecs);
 
-        // Access again — should recompute
+        // Access again - should recompute
         let _specs2 = test.db.tag_specs();
         assert!(
             test.logger.was_executed(&test.db, "compute_tag_specs"),
@@ -858,7 +874,7 @@ mod invalidation_tests {
         );
         project.set_inspector_inventory(&mut test.db).to(Some(new_inventory));
 
-        // Access again — should recompute
+        // Access again - should recompute
         let _specs2 = test.db.tag_specs();
         assert!(
             test.logger.was_executed(&test.db, "compute_tag_specs"),
@@ -882,7 +898,7 @@ mod invalidation_tests {
         assert!(project.tagspecs(&test.db) == &same_tagspecs);
         // Note: We don't call set_tagspecs because values are equal
 
-        // Access again — should NOT recompute
+        // Access again - should NOT recompute
         let _specs2 = test.db.tag_specs();
         assert!(
             !test.logger.was_executed(&test.db, "compute_tag_specs"),
@@ -914,7 +930,7 @@ mod invalidation_tests {
         });
         project.set_tagspecs(&mut test.db).to(new_tagspecs);
 
-        // Access tag_index — should recompute
+        // Access tag_index - should recompute
         let _index2 = test.db.tag_index();
         assert!(
             test.logger.was_executed(&test.db, "compute_tag_specs"),
@@ -963,14 +979,14 @@ mod invalidation_tests {
 // 1. Create test database with event logger
 let test = TestDatabase::with_project();
 
-// 2. First access — establishes cache
+// 2. First access - establishes cache
 let _specs1 = test.db.tag_specs();
 assert!(test.logger.was_executed(&test.db, "compute_tag_specs"));
 
 // 3. Clear logs
 test.logger.clear();
 
-// 4. Second access — should use cache
+// 4. Second access - should use cache
 let _specs2 = test.db.tag_specs();
 assert!(!test.logger.was_executed(&test.db, "compute_tag_specs"));
 
@@ -981,7 +997,7 @@ if project.field(&test.db) != &new_value {
     project.set_field(&mut test.db).to(new_value);
 }
 
-// 6. Access again — should recompute only if value changed
+// 6. Access again - should recompute only if value changed
 let _specs3 = test.db.tag_specs();
 assert!(test.logger.was_executed(&test.db, "compute_tag_specs"));
 ```

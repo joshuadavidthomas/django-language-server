@@ -44,35 +44,36 @@ pub fn validate_nodelist(db: &dyn Db, nodelist: djls_templates::NodeList<'_>) {
 
 ## 2. Order of Validations & Data Dependencies
 
+```mermaid
+flowchart TB
+    VN["validate_nodelist"]
+    VN --> BBT["build_block_tree"]
+    BBT --> BSF["build_semantic_forest"]
+    BSF --> VATA["validate_all_tag_arguments"]
 ```
-validate_nodelist(db, nodelist)
-│
-├─► 1. build_block_tree(db, nodelist)  [blocks.rs:17]
-│       │
-│       ├── DEPENDS ON: db.tag_index() ← derived from db.tag_specs()
-│       │   (TagIndex classifies tags as Opener/Closer/Intermediate/Unknown)
-│       │
-│       └── ACCUMULATES: Block structure errors
-│           • S100: UnclosedTag
-│           • S101: UnbalancedStructure
-│           • S102: OrphanedTag
-│           • S103: UnmatchedBlockName
-│
-├─► 2. build_semantic_forest(db, block_tree, nodelist)  [semantic.rs:11]
-│       │
-│       └── NO ERRORS - Pure transformation (BlockTree → SemanticForest)
-│
-└─► 3. validate_all_tag_arguments(db, nodelist)  [arguments.rs:21]
-        │
-        ├── DEPENDS ON: db.tag_specs()
-        │   (Looks up argument specs per tag name)
-        │
-        └── ACCUMULATES: Argument validation errors
-            • S104: MissingRequiredArguments / MissingArgument
-            • S105: TooManyArguments
-            • S106: InvalidLiteralArgument
-            • S107: InvalidArgumentChoice
-```
+
+### Validation Pass Details
+
+**1. `build_block_tree(db, nodelist)`** — `blocks.rs:17`
+- **DEPENDS ON:** `db.tag_index()` ← derived from `db.tag_specs()`
+    - `TagIndex` classifies tags as Opener/Closer/Intermediate/Unknown
+- **ACCUMULATES:** Block structure errors
+    - S100: UnclosedTag
+    - S101: UnbalancedStructure
+    - S102: OrphanedTag
+    - S103: UnmatchedBlockName
+
+**2. `build_semantic_forest(db, block_tree, nodelist)`** — `semantic.rs:11`
+- **NO ERRORS** — Pure transformation (BlockTree → SemanticForest)
+
+**3. `validate_all_tag_arguments(db, nodelist)`** — `arguments.rs:21`
+- **DEPENDS ON:** `db.tag_specs()`
+    - Looks up argument specs per tag name
+- **ACCUMULATES:** Argument validation errors
+    - S104: MissingRequiredArguments / MissingArgument
+    - S105: TooManyArguments
+    - S106: InvalidLiteralArgument
+    - S107: InvalidArgumentChoice
 
 ### Key Dependency: The `Db` Trait (`djls-semantic/src/db.rs`)
 
@@ -254,21 +255,21 @@ pub struct TagSpec {
 flowchart TB
     subgraph LSPTriggers["LSP EVENT TRIGGERS"]
         direction TB
-        Events[did_open / did_change / did_save]
-        Events --> Handle[session.handle_file - file]
+        Events["did_open / did_change / did_save"]
+        Events --> Handle["session.handle_file"]
 
-        Handle --> Parse[parse_template db, file<br/>→ NodeList + TemplateErrorAccumulator]
-        Handle --> Validate[validate_nodelist db, nodelist]
+        Handle --> Parse["parse_template - returns NodeList + errors"]
+        Handle --> Validate["validate_nodelist"]
 
-        Validate --> BBT[build_block_tree db, nodelist]
-        BBT --> TagIndex[db.tag_index ← db.tag_specs<br/>◄── PLUG IN HERE]
-        TagIndex --> VEA1[ValidationErrorAccumulator<br/>S100-S103]
+        Validate --> BBT["build_block_tree"]
+        BBT --> TagIndex["db.tag_index from db.tag_specs - PLUG IN HERE"]
+        TagIndex --> VEA1["ValidationErrorAccumulator S100-S103"]
 
-        Validate --> BSF[build_semantic_forest<br/>no errors]
+        Validate --> BSF["build_semantic_forest - no errors"]
 
-        Validate --> VATA[validate_all_tag_arguments db, nodelist]
-        VATA --> TagSpecs[db.tag_specs<br/>◄── PLUG IN HERE]
-        TagSpecs --> VEA2[ValidationErrorAccumulator<br/>S104-S107]
+        Validate --> VATA["validate_all_tag_arguments"]
+        VATA --> TagSpecs["db.tag_specs - PLUG IN HERE"]
+        TagSpecs --> VEA2["ValidationErrorAccumulator S104-S107"]
     end
 
     VEA1 --> Collection
@@ -277,11 +278,11 @@ flowchart TB
 
     subgraph Collection["DIAGNOSTIC COLLECTION"]
         direction TB
-        CD[collect_diagnostics db, file, nodelist]
-        CD --> TEA[parse_template::accumulated TemplateErrorAccumulator]
-        CD --> VEAC[validate_nodelist::accumulated ValidationErrorAccumulator]
-        CD --> Apply[Apply DiagnosticsConfig severity overrides]
-        CD --> Convert[Convert to Vec Diagnostic]
+        CD["collect_diagnostics"]
+        CD --> TEA["parse_template accumulated errors"]
+        CD --> VEAC["validate_nodelist accumulated errors"]
+        CD --> Apply["Apply DiagnosticsConfig severity overrides"]
+        CD --> Convert["Convert to Vec Diagnostic"]
     end
 ```
 

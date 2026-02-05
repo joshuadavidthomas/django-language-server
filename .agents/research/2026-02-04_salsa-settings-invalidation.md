@@ -146,23 +146,23 @@ pub fn validate_all_tag_arguments(db: &dyn Db, nodelist: NodeList<'_>) {
 flowchart TB
     subgraph Sources["SETTINGS CHANGE SOURCES"]
         direction TB
-        Init["1. Initialization server.rs:104<br/>InitializeParams.initialization_options"]
-        Runtime["2. Runtime server.rs:380<br/>workspace/didChangeConfiguration<br/>Reloads from disk: djls.toml, pyproject.toml"]
+        Init["Initialization - InitializeParams"]
+        Runtime["Runtime - didChangeConfiguration"]
     end
 
     Init --> SetSettings
     Runtime --> SetSettings
 
-    subgraph SetSettings["db.set_settings - settings"]
+    subgraph SetSettings["db.set_settings"]
         direction TB
-        Lock["1. *self.settings.lock = settings - always"]
+        Lock["Update settings lock"]
 
-        Check{"2. If venv_path/django_settings_module/<br/>pythonpath changed?"}
+        Check{"Python env changed?"}
         Lock --> Check
 
-        Check -->|Yes| SetProj[set_project → Project::bootstrap<br/>→ Project::new db, ...]
-        SetProj --> NewInput[NEW Salsa Input Created]
-        NewInput --> Invalidated["All Project-dependent queries invalidated:<br/>• templatetags db, project<br/>• template_dirs db, project<br/>• django_available db, project"]
+        Check -->|Yes| SetProj["set_project creates new Project"]
+        SetProj --> NewInput["NEW Salsa Input Created"]
+        NewInput --> Invalidated["All Project-dependent queries invalidated"]
     end
 ```
 
@@ -170,29 +170,29 @@ flowchart TB
 
 ```mermaid
 flowchart TB
-    subgraph SalsaView["SALSA'S VIEW OF DEPENDENCIES"]
+    subgraph SalsaView["SALSA VIEW OF DEPENDENCIES"]
         direction TB
-        BBT["build_block_tree db, nodelist"]
-        BBT --> SalsaTracked["Salsa tracks: nodelist<br/>NodeList Salsa interned struct"]
-
-        subgraph Inside["Inside function body"]
+        BBT["build_block_tree"]
+        BBT --> SalsaTracked["Salsa tracks: nodelist only"]
+        
+        subgraph Inside["Inside function body - NOT TRACKED"]
             direction TB
-            TI["db.tag_index ← NOT TRACKED by Salsa"]
-            TI --> TS["db.tag_specs ← NOT TRACKED by Salsa"]
-            TS --> Settings["self.settings ← NOT TRACKED Mutex"]
+            TI["db.tag_index"]
+            TI --> TS["db.tag_specs"]
+            TS --> Settings["self.settings Mutex"]
         end
-
+        
         BBT --> Inside
     end
-
+    
     subgraph Consequence["CONSEQUENCE"]
         direction LR
         Change["Settings.tagspecs changes"]
         Change --> NewVals["tag_specs returns new values"]
-        NewVals --> NotInval["BUT build_block_tree cache<br/>NOT invalidated"]
-        NotInval --> Stale["Stale results returned<br/>until nodelist changes"]
+        NewVals --> NotInval["build_block_tree cache NOT invalidated"]
+        NotInval --> Stale["Stale results until nodelist changes"]
     end
-
+    
     SalsaView --> Consequence
 ```
 

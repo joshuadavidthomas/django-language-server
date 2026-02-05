@@ -274,15 +274,15 @@ This shows `django.template.defaulttags` instead of the template library name (w
 flowchart TB
     subgraph Current["CURRENT STATE - Filters"]
         direction TB
-        TS[Template Source<br/>{{ x|filter:arg }}]
-        PI[Python Inspector<br/>queries.py]
-
-        TS --> Parser[Parser - parser.rs<br/>split pipe → Vec<br/>NO granular parsing]
-        PI -.->|✗ Filters not collected| NoData[No Filter Data]
-
-        Parser --> NV[Node::Variable<br/>filters: Vec String<br/>filter:arg]
-
-        NV --> NoConsumers[NO FILTER CONSUMERS<br/>• No validation djls-semantic<br/>• No completions djls-ide stub only<br/>• No snippets<br/>• No load tracking]
+        TS["Template Source<br/>{{ x|filter:arg }}"]
+        PI["Python Inspector<br/>queries.py"]
+        
+        TS --> Parser["Parser - parser.rs<br/>split on pipe to Vec<br/>NO granular parsing"]
+        PI -.->|Filters NOT collected| NoData[No Filter Data]
+        
+        Parser --> NV["Node::Variable<br/>filters: Vec of String<br/>e.g. filter:arg"]
+        
+        NV --> NoConsumers["NO FILTER CONSUMERS<br/>- No validation in djls-semantic<br/>- No completions, djls-ide stub only<br/>- No snippets<br/>- No load tracking"]
     end
 ```
 

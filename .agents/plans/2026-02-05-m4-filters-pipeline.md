@@ -4,11 +4,11 @@
 
 Implement complete filter support for Django templates:
 
-1. **Inspector filter inventory** — Collect filters from Django with provenance (builtin vs library)
-2. **Structured filter representation** — Transform `Vec<String>` → `Vec<Filter>` with name/arg/span
-3. **Filter completions** — Completions in `{{ x| }}` context
-4. **Unknown filter diagnostics** — Validate filters against inventory with load scoping
-5. **Load scoping for filters** — Reuse M3 infrastructure for filter availability
+1. **Inspector filter inventory** - Collect filters from Django with provenance (builtin vs library)
+2. **Structured filter representation** - Transform `Vec<String>` → `Vec<Filter>` with name/arg/span
+3. **Filter completions** - Completions in `{{ x| }}` context
+4. **Unknown filter diagnostics** - Validate filters against inventory with load scoping
+5. **Load scoping for filters** - Reuse M3 infrastructure for filter availability
 
 This builds on M1 (payload shape with provenance), M2 (Salsa invalidation), and M3 (load scoping infrastructure).
 
@@ -45,17 +45,17 @@ Variable {
 
 ### Inspector (`crates/djls-project/inspector/queries.py`)
 
-- **Filters not collected** — Only `library.tags` is iterated, `library.filters` is ignored
+- **Filters not collected** - Only `library.tags` is iterated, `library.filters` is ignored
 - No filter inventory in the payload
 
 ### Completions (`crates/djls-ide/src/completions.rs:67-70, 327-329`)
 
-- `TemplateCompletionContext::Filter { partial }` — Placeholder, returns empty vec
+- `TemplateCompletionContext::Filter { partial }` - Placeholder, returns empty vec
 - No detection of `{{ var|` context in `analyze_template_context()`
 
 ### Validation (`crates/djls-semantic/`)
 
-- **No filter validation** — `filters` field is passed through but never validated
+- **No filter validation** - `filters` field is passed through but never validated
 
 ## Desired End State
 
@@ -90,10 +90,10 @@ pub enum FilterProvenance {
 
 ## What We're NOT Doing
 
-- **Filter arity/signature validation** — That's M5/M6 scope (extraction)
-- **Filter argument type checking** — Runtime concern
-- **Cross-template state** — Future work
-- **Safe/autoescape flags** — Not needed for basic validation
+- **Filter arity/signature validation** - That's M5/M6 scope (extraction)
+- **Filter argument type checking** - Runtime concern
+- **Cross-template state** - Future work
+- **Safe/autoescape flags** - Not needed for basic validation
 
 ---
 
@@ -107,30 +107,51 @@ pub enum FilterProvenance {
 flowchart TB
     subgraph FilterFlow["FILTER DATA FLOW"]
         direction TB
-
-        subgraph Phase1["Phase 1: Inspector Filter Inventory"]
-            PI["Python Inspector queries.py<br/>for filter_name, filter_func in library.filters.items<br/>filters.append TemplateFilter..."]
+        
+        subgraph Phase1["Phase 1: Inspector"]
+            PI["Collect filters"]
         end
-
+        
         Phase1 --> Phase2
-
-        subgraph Phase2["Phase 2: Structured Filter Parsing - BREAKPOINT"]
-            Parser["Parser djls-templates<br/>default:nothing → Filter name: default, arg: ..., span<br/>filters: Vec Filter not Vec String"]
+        
+        subgraph Phase2["Phase 2: Parsing"]
+            Parser["Structured filters"]
         end
-
+        
         Phase2 --> Phase3
-
-        subgraph Phase3["Phase 3: Completions in {{ x| }} context"]
-            Comp["analyze_template_context → Filter partial<br/>generate_filter_completions inventory, loaded_libs, position"]
+        
+        subgraph Phase3["Phase 3: Completions"]
+            Comp["Filter completions"]
         end
-
+        
         Phase3 --> Phase4
-
-        subgraph Phase4["Phase 4: Validation with Load Scoping"]
-            Val["validate_filter_scoping reuse M3 LoadedLibraries<br/>S111: Unknown filter xyz<br/>S112: Filter X requires load Y<br/>S113: Ambiguous filter multiple libraries"]
+        
+        subgraph Phase4["Phase 4: Validation"]
+            Val["Load scoping"]
         end
     end
 ```
+
+**Phase Details:**
+
+1. **Inspector Filter Inventory** (`queries.py`)
+    - Iterate `library.filters.items()` (not just `library.tags`)
+    - Return `TemplateFilter { name, module, doc, provenance }`
+
+2. **Structured Filter Parsing** (`djls-templates`)
+    - Transform `"default:'nothing'"` → `Filter { name: "default", arg: Some("'nothing'"), span }`
+    - `filters: Vec<Filter>` instead of `Vec<String>`
+    - **BREAKPOINT**: Parser changes happen here
+
+3. **Completions** (`djls-ide`)
+    - Detect `{{ x|` context in `analyze_template_context()`
+    - `generate_filter_completions(inventory, loaded_libs, position)`
+
+4. **Validation with Load Scoping** (`djls-semantic`)
+    - Reuse M3 `LoadedLibraries` infrastructure
+    - S111: Unknown filter "xyz"
+    - S112: Filter "X" requires `{% load Y %}`
+    - S113: Ambiguous filter (multiple libraries)
 
 ---
 

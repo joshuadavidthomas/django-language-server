@@ -62,8 +62,8 @@ for tag in tags.iter() {
 
 After M1, `TemplateTags` contains:
 
-- `libraries: HashMap<String, String>` — load_name → module_path
-- `builtins: Vec<String>` — ordered builtin module paths
+- `libraries: HashMap<String, String>` - load_name → module_path
+- `builtins: Vec<String>` - ordered builtin module paths
 - Tags with `TagProvenance::Library { load_name, module }` or `TagProvenance::Builtin { module }`
 
 ## Desired End State
@@ -111,8 +111,8 @@ The following issues were identified during review and are addressed in this pla
 
 **Solution**: Use a **state-machine approach** that processes load statements in document order:
 
-- `fully_loaded: HashSet<load_name>` — libraries fully loaded
-- `selective: HashMap<load_name, HashSet<symbol>>` — selective imports
+- `fully_loaded: HashSet<load_name>` - libraries fully loaded
+- `selective: HashMap<load_name, HashSet<symbol>>` - selective imports
 - On `Libraries([...])`: add to `fully_loaded` AND **clear** `selective[lib]`
 - On `Selective{symbols, library}`: if library NOT fully loaded, add symbols to `selective[library]`
 - Tag available iff `library ∈ fully_loaded` OR `tag_name ∈ selective[library]`
@@ -151,22 +151,35 @@ The following issues were identified during review and are addressed in this pla
 flowchart TB
     subgraph DataStructures["DATA STRUCTURES"]
         direction TB
-        LS["LoadStatement<br/>- span: Span position of load tag<br/>- libraries: Vec String library names<br/>- selective: Option SelectiveImport"]
-
-        SI["SelectiveImport<br/>symbols: Vec String, library: String<br/>load trans blocktrans from i18n<br/>symbols: trans, blocktrans<br/>library: i18n"]
-
-        LL["LoadedLibraries<br/>- loads: Vec LoadStatement ordered by position<br/>- provides: at_position span → Set TagName"]
+        LS["LoadStatement"]
+        SI["SelectiveImport"]
+        LL["LoadedLibraries"]
     end
-
+    
     DataStructures --> Computation
-
+    
     subgraph Computation["COMPUTATION"]
         direction TB
-        CLL["compute_loaded_libraries db, nodelist<br/>→ LoadedLibraries tracked<br/>- Single pass over nodelist<br/>- Extract load tags and parse bits<br/>- Build ordered list of LoadStatement"]
-
-        ASA["available_symbols_at db, nodelist, position, inventory<br/>→ AvailableSymbols<br/>- builtins: always available<br/>- library tags: only if library loaded before position"]
+        CLL["compute_loaded_libraries"]
+        ASA["available_symbols_at"]
     end
 ```
+
+**Data Structures:**
+
+- **`LoadStatement`**: `span: Span` (position of load tag), `libraries: Vec<String>` (library names), `selective: Option<SelectiveImport>`
+- **`SelectiveImport`**: For `{% load trans blocktrans from i18n %}` — `symbols: Vec<String>` (`["trans", "blocktrans"]`), `library: String` (`"i18n"`)
+- **`LoadedLibraries`**: `loads: Vec<LoadStatement>` (ordered by position), provides `at_position(span) → Set<TagName>`
+
+**Computation:**
+
+- **`compute_loaded_libraries(db, nodelist) → LoadedLibraries`** (tracked)
+    - Single pass over nodelist
+    - Extract load tags and parse bits
+    - Build ordered list of `LoadStatement`
+- **`available_symbols_at(db, nodelist, position, inventory) → AvailableSymbols`**
+    - Builtins: always available
+    - Library tags: only if library loaded before position
 
 ---
 

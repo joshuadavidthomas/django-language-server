@@ -1,19 +1,19 @@
 # RFC: Extraction Code Placement
 
-**Date:** 2026-02-05  
-**Status:** Draft (revised)  
+**Date:** 2026-02-05
+**Status:** Draft (revised)
 **Scope:** Where Ruff AST extraction code lives and how it integrates with Salsa and inspector inventory
 
 ---
 
 ## What Changed Since Initial RFC
 
-> **Revision note (2026-02-05):** The Salsa integration story in sections 5.2–5.6 has been revised to
+> **Revision note (2026-02-05):** The Salsa integration story in sections 5.2-5.6 has been revised to
 > align with the M2 implementation plan (`.agents/plans/2026-02-05-m2-salsa-invalidation-plumbing.md`).
 >
 > **Key change:** The original RFC proposed new global Salsa inputs (`InspectorInventory`,
-> `ExtractedRules`). The M2 direction keeps Salsa inputs minimal—**target: 2 primary inputs (`File` +
-> `Project`)**—and folds inspector snapshot + semantic config into `Project` fields updated via setters
+> `ExtractedRules`). The M2 direction keeps Salsa inputs minimal-**target: 2 primary inputs (`File` +
+> `Project`)**-and folds inspector snapshot + semantic config into `Project` fields updated via setters
 > with manual comparison before setting (Ruff/RA pattern).
 >
 > **Extraction caching:** Now recommends **derived tracked queries over Python module `File` sources**
@@ -39,17 +39,24 @@ This RFC addresses a narrower question: **where does the extraction code live in
 
 ```mermaid
 flowchart TB
-    Server["djls-server<br/>concrete DjangoDatabase"]
+    Server["djls-server"]
 
-    Server --> Semantic["djls-semantic<br/>TagSpecs, validation, blocks"]
-    Server --> Project["djls-project<br/>Inspector, Python environment"]
+    Server --> Semantic["djls-semantic"]
+    Server --> Project["djls-project"]
 
-    Semantic --> Templates["djls-templates<br/>parsing"]
-    Semantic --> Conf["djls-conf<br/>settings, config TagSpecs"]
-    Semantic --> Workspace1["djls-workspace<br/>file system"]
+    Semantic --> Templates["djls-templates"]
+    Semantic --> Conf["djls-conf"]
+    Semantic --> Workspace1["djls-workspace"]
 
     Project --> Workspace2["djls-workspace"]
 ```
+
+**Crate responsibilities:**
+- `djls-server`: Concrete `DjangoDatabase`, LSP protocol handling
+- `djls-semantic`: TagSpecs, validation logic, block tree building
+- `djls-project`: Inspector, Python environment management
+- `djls-templates`: Template parsing
+- `djls-conf`: Settings, config TagSpecs
 
 ### 2.2 Salsa Integration
 
@@ -106,7 +113,7 @@ pub struct TemplateTag {
 | **B: New djls-extraction crate** | Separate crate depending on `ruff_python_parser`     |
 | **C: Types-only crate**          | `djls-rules` for types; extraction stays in semantic |
 
-### 3.2 Recommendation: **Option B — New `djls-extraction` Crate**
+### 3.2 Recommendation: **Option B - New `djls-extraction` Crate**
 
 Create a new crate `djls-extraction` that:
 
@@ -121,14 +128,19 @@ flowchart TB
     Server["djls-server"]
 
     Server --> Semantic["djls-semantic"]
-    Server --> Project["djls-project<br/>Inspector"]
+    Server --> Project["djls-project"]
 
-    Semantic --> Extraction["djls-extraction ← NEW"]
+    Semantic --> Extraction["djls-extraction"]
     Semantic --> Templates["djls-templates"]
     Semantic --> Conf["djls-conf"]
 
-    Extraction --> Ruff["ruff_python_parser<br/>git"]
+    Extraction --> Ruff["ruff_python_parser"]
 ```
+
+**New `djls-extraction` crate:**
+- Depends on `ruff_python_parser` (git dependency)
+- Contains rule extraction logic only
+- Pure functions: source text → rules (no I/O)
 
 ---
 
@@ -275,7 +287,7 @@ pub fn extract_module_rules(db: &dyn Db, file: File) -> Option<ExtractionResult>
 - If extraction cost per-file is prohibitive and batching provides significant wins
 - If the workspace doesn't contain the registration modules (e.g., site-packages)
 
-For site-packages modules (not in workspace), extraction results may need to be cached differently—potentially as fields on `Project` alongside the inspector inventory, refreshed via the same `refresh_inspector()` path.
+For site-packages modules (not in workspace), extraction results may need to be cached differently-potentially as fields on `Project` alongside the inspector inventory, refreshed via the same `refresh_inspector()` path.
 
 ### 5.4 Invalidation Triggers
 
@@ -436,7 +448,7 @@ impl TemplateTag {
 
 **Critical:** Extraction keys off `registration_module`, NOT `defining_module`.
 
-Rule mining (TemplateSyntaxError guards, `parse_bits` usage, `parser.parse((...))` calls, opaque blocks) happens in the module where registration occurs—the library/builtin module with `@register.tag` decorators.
+Rule mining (TemplateSyntaxError guards, `parse_bits` usage, `parser.parse((...))` calls, opaque blocks) happens in the module where registration occurs-the library/builtin module with `@register.tag` decorators.
 
 **Workflow (orchestrated by djls-server, NOT djls-extraction):**
 
@@ -447,7 +459,7 @@ Rule mining (TemplateSyntaxError guards, `parse_bits` usage, `parser.parse((...)
 5. **For site-packages:** Extract via `refresh_inspector()` path, cache alongside inventory
 6. **Merge results** into `TagSpecs` via `compute_tag_specs()` tracked query
 
-**Why this separation?** `djls-extraction` stays pure and testable—it only knows about Python source text, not file systems, paths, or environments. All I/O and path resolution lives in the caller.
+**Why this separation?** `djls-extraction` stays pure and testable-it only knows about Python source text, not file systems, paths, or environments. All I/O and path resolution lives in the caller.
 
 ### 6.4 Data Flow Diagram
 
@@ -455,37 +467,64 @@ Rule mining (TemplateSyntaxError guards, `parse_bits` usage, `parser.parse((...)
 flowchart TB
     subgraph Inspector["Python Inspector"]
         direction TB
-        Libs["engine.libraries load_name → module_path"]
-        Builtins["engine.builtins ordered module paths"]
-        Module["tag_func.__module__ defining_module"]
-        SysPath["sys.path for module → file resolution"]
+        Libs["engine.libraries"]
+        Builtins["engine.builtins"]
+        Module["tag_func.__module__"]
+        SysPath["sys.path"]
     end
-
+    
     Inspector -->|refresh_inspector| Inventory
-
-    subgraph Inventory["Project.inspector_inventory field"]
+    
+    subgraph Inventory["Project.inspector_inventory"]
         direction TB
-        TT["TemplateTags<br/>libraries: load_name → module_path<br/>builtins: module_path, ...<br/>tags: name, provenance, defining_module"]
-        Prov["provenance.library.module / provenance.builtin.module<br/>= registration_module key for extraction"]
+        TT["TemplateTags"]
+        Prov["provenance"]
     end
-
-    Inventory --> WorkspaceModules["Workspace Registration Modules<br/>Represented as File inputs<br/>Tracked extraction queries"]
-    Inventory --> LoadScoping["Load Scoping djls-semantic<br/>Uses provenance.load_name<br/>Which tags are available at this position?"]
-
-    WorkspaceModules -->|source text via File.source| Extraction
-
+    
+    Inventory --> WorkspaceModules["Workspace Registration Modules"]
+    Inventory --> LoadScoping["Load Scoping"]
+    
+    WorkspaceModules -->|source text| Extraction
+    
     subgraph Extraction["djls-extraction"]
         direction TB
-        Pure["pure: text → rules<br/>ruff_python_parser"]
-        Outputs["→ TagValidation<br/>→ FilterSpec<br/>→ BlockTagSpec"]
+        Pure["pure: text to rules"]
+        Outputs["TagValidation, FilterSpec, BlockTagSpec"]
     end
-
-    Extraction --> ExtractQuery["extract_module_rules db, file → ExtractionResult<br/>Tracked query: File change → automatic re-extraction<br/>Results keyed by SymbolKey registration_module, name"]
-
-    ExtractQuery --> ComputeSpecs["compute_tag_specs db, project Tracked Query<br/>builtins.rs + extracted rules + user config Project.tagspecs<br/>Depends on: Project fields, extract_module_rules per module"]
-
-    ComputeSpecs --> Validation["Template Validation<br/>apply rules to parsed template nodes → diagnostics"]
+    
+    Extraction --> ExtractQuery["extract_module_rules"]
+    
+    ExtractQuery --> ComputeSpecs["compute_tag_specs"]
+    
+    ComputeSpecs --> Validation["Template Validation"]
 ```
+
+**Data flow details:**
+
+**Python Inspector provides:**
+- `engine.libraries`: `load_name → module_path` mapping
+- `engine.builtins`: ordered module paths
+- `tag_func.__module__`: defining_module for each tag
+- `sys.path`: for module → file resolution
+
+**`Project.inspector_inventory` field contains:**
+- `TemplateTags`: libraries mapping, builtins list, tags with provenance
+- `provenance.library.module` / `provenance.builtin.module` = **registration_module** (key for extraction)
+
+**Two consumers of inventory:**
+- **Workspace Registration Modules**: Represented as `File` inputs, feed tracked extraction queries
+- **Load Scoping** (`djls-semantic`): Uses `provenance.load_name` to answer "which tags are available at this position?"
+
+**`extract_module_rules(db, file) → ExtractionResult`:**
+- Tracked query: File change → automatic re-extraction
+- Results keyed by `SymbolKey { registration_module, name }`
+
+**`compute_tag_specs(db, project)`:**
+- Tracked query merging all sources:
+    1. `builtins.rs` (compile-time constant)
+    2. Extracted rules from workspace modules (tracked queries)
+    3. Extracted rules from external modules (Project field)
+    4. User config overrides (`Project.tagspecs` field)
 
 ---
 
@@ -547,7 +586,7 @@ pub struct ExtractionResult {
 }
 ```
 
-**Design principle:** `djls-extraction` is pure—it takes source text and returns rules. It does NOT:
+**Design principle:** `djls-extraction` is pure-it takes source text and returns rules. It does NOT:
 
 - Resolve module paths to file paths
 - Read files from disk
@@ -670,8 +709,8 @@ The crate boundary cost is low; the isolation benefit is high.
 
 The initial RFC proposed:
 
-- `#[salsa::input] InspectorInventory` — separate input for inspector data
-- `#[salsa::input] ExtractedRules` — separate input for extraction results
+- `#[salsa::input] InspectorInventory` - separate input for inspector data
+- `#[salsa::input] ExtractedRules` - separate input for extraction results
 
 **Why this was changed:**
 
