@@ -49,6 +49,9 @@ Source of truth for requirements:
 - [`.agents/plans/2026-02-05-m3-load-scoping.md`](plans/2026-02-05-m3-load-scoping.md) (M3 plan; ready to implement)
 - [`.agents/plans/2026-02-05-m4-filters-pipeline.md`](plans/2026-02-05-m4-filters-pipeline.md) (M4 plan; ready to implement)
 - [`.agents/plans/2026-02-05-m5-extraction-engine.md`](plans/2026-02-05-m5-extraction-engine.md) (M5 plan; ready to implement)
+- [`.agents/plans/2026-02-05-m6-rule-evaluation.md`](plans/2026-02-05-m6-rule-evaluation.md) (M6 plan; ready to implement)
+
+**Next action:** start implementation at **M1**, then proceed in order (M2 → M3 → M4 → M5 → M6), running tests after each major change.
 
 ---
 
@@ -208,7 +211,7 @@ Read fully:
 - [`.agents/research/2026-02-04_template-filters-analysis.md`](research/2026-02-04_template-filters-analysis.md)
 - [`.agents/research/2026-02-04_load-tag-library-scoping.md`](research/2026-02-04_load-tag-library-scoping.md)
 - [`.agents/plans/2026-02-05-m1-payload-library-name-fix.md`](plans/2026-02-05-m1-payload-library-name-fix.md)
-- [`.agents/plans/2026-02-05-m3-load-scoping.md`](plans/2026-02-05-m3-load-scoping.md) (once created)
+- [`.agents/plans/2026-02-05-m3-load-scoping.md`](plans/2026-02-05-m3-load-scoping.md)
 
 Plan must include:
 - The explicit "breakpoint" for changing filter representation (`Vec<String>` → structured w/ spans),
@@ -265,7 +268,7 @@ Output file:
 
 ### M6 - Rule evaluation + expression validation
 
-**Status:** backlog
+**Status:** ready
 
 **Depends on:** M3-M5
 
@@ -274,6 +277,8 @@ Output file:
 - Apply extracted rules to templates (TemplateSyntaxError-derived constraints).
 - Block structure derived from extraction (end tags, intermediates, opaque blocks).
 - `{% if %}` / `{% elif %}` expression syntax validation.
+
+**Plan:** [`.agents/plans/2026-02-05-m6-rule-evaluation.md`](plans/2026-02-05-m6-rule-evaluation.md)
 
 ### Plan prompt
 
@@ -288,8 +293,8 @@ Read fully:
 - [`.agents/charter/2026-02-05-template-validation-port-charter.md`](charter/2026-02-05-template-validation-port-charter.md)
 - [`.agents/research/2026-02-04_tagspecs-flow-analysis.md`](research/2026-02-04_tagspecs-flow-analysis.md)
 - [`.agents/research/2026-02-04_semantic-validation-orchestration.md`](research/2026-02-04_semantic-validation-orchestration.md)
-- [`.agents/plans/2026-02-05-m3-load-scoping.md`](plans/2026-02-05-m3-load-scoping.md) (once created)
-- [`.agents/plans/2026-02-05-m5-extraction-engine.md`](plans/2026-02-05-m5-extraction-engine.md) (once created)
+- [`.agents/plans/2026-02-05-m3-load-scoping.md`](plans/2026-02-05-m3-load-scoping.md)
+- [`.agents/plans/2026-02-05-m5-extraction-engine.md`](plans/2026-02-05-m5-extraction-engine.md)
 - `template_linter/PORTING.md` (behavioral reference for rule categories)
 
 Plan must include:
@@ -336,9 +341,9 @@ Read fully:
 - [`.agents/charter/2026-02-05-template-validation-port-charter.md`](charter/2026-02-05-template-validation-port-charter.md)
 - [`.agents/rfcs/2026-02-05-rfc-extraction-placement.md`](rfcs/2026-02-05-rfc-extraction-placement.md)
 - [`.agents/plans/2026-02-05-m3-load-scoping.md`](plans/2026-02-05-m3-load-scoping.md)
-- [`.agents/plans/2026-02-05-m4-filters-pipeline.md`](plans/2026-02-05-m4-filters-pipeline.md) (once created)
-- [`.agents/plans/2026-02-05-m5-extraction-engine.md`](plans/2026-02-05-m5-extraction-engine.md) (once created)
-- [`.agents/plans/2026-02-05-m6-rule-evaluation.md`](plans/2026-02-05-m6-rule-evaluation.md) (once created)
+- [`.agents/plans/2026-02-05-m4-filters-pipeline.md`](plans/2026-02-05-m4-filters-pipeline.md)
+- [`.agents/plans/2026-02-05-m5-extraction-engine.md`](plans/2026-02-05-m5-extraction-engine.md)
+- [`.agents/plans/2026-02-05-m6-rule-evaluation.md`](plans/2026-02-05-m6-rule-evaluation.md)
 
 Also inspect current docs + repo meta:
 - `README.md`
@@ -365,8 +370,7 @@ Output file:
 
 These are the next "paperwork" outputs to keep the program coordinated:
 
-1. `.agents/plans/YYYY-MM-DD-m6-rule-evaluation.md`
-2. `.agents/plans/YYYY-MM-DD-m7-docs-and-issue-template.md`
+1. `.agents/plans/YYYY-MM-DD-m7-docs-and-issue-template.md`
 
 Optional (only if we feel lost again):
 
