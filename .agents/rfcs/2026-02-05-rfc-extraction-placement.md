@@ -44,6 +44,7 @@ flowchart TB
 ```
 
 **Crate responsibilities:**
+
 - `djls-server`: Concrete `DjangoDatabase`, LSP protocol handling
 - `djls-semantic`: TagSpecs, validation logic, block tree building
 - `djls-project`: Inspector, Python environment management
@@ -130,6 +131,7 @@ flowchart TB
 ```
 
 **New `djls-extraction` crate:**
+
 - Depends on `ruff_python_parser` (git dependency)
 - Contains rule extraction logic only
 - Pure functions: source text → rules (no I/O)
@@ -464,54 +466,59 @@ flowchart TB
         Module["tag_func.__module__"]
         SysPath["sys.path"]
     end
-    
+
     Inspector -->|refresh_inspector| Inventory
-    
+
     subgraph Inventory["Project.inspector_inventory"]
         direction TB
         TT["TemplateTags"]
         Prov["provenance"]
     end
-    
+
     Inventory --> WorkspaceModules["Workspace Registration Modules"]
     Inventory --> LoadScoping["Load Scoping"]
-    
+
     WorkspaceModules -->|source text| Extraction
-    
+
     subgraph Extraction["djls-extraction"]
         direction TB
         Pure["pure: text to rules"]
         Outputs["TagValidation, FilterSpec, BlockTagSpec"]
     end
-    
+
     Extraction --> ExtractQuery["extract_module_rules"]
-    
+
     ExtractQuery --> ComputeSpecs["compute_tag_specs"]
-    
+
     ComputeSpecs --> Validation["Template Validation"]
 ```
 
 **Data flow details:**
 
 **Python Inspector provides:**
+
 - `engine.libraries`: `load_name → module_path` mapping
 - `engine.builtins`: ordered module paths
 - `tag_func.__module__`: defining_module for each tag
 - `sys.path`: for module → file resolution
 
 **`Project.inspector_inventory` field contains:**
+
 - `TemplateTags`: libraries mapping, builtins list, tags with provenance
 - `provenance.library.module` / `provenance.builtin.module` = **registration_module** (key for extraction)
 
 **Two consumers of inventory:**
+
 - **Workspace Registration Modules**: Represented as `File` inputs, feed tracked extraction queries
 - **Load Scoping** (`djls-semantic`): Uses `provenance.load_name` to answer "which tags are available at this position?"
 
 **`extract_module_rules(db, file) → ExtractionResult`:**
+
 - Tracked query: File change → automatic re-extraction
 - Results keyed by `SymbolKey { registration_module, name }`
 
 **`compute_tag_specs(db, project)`:**
+
 - Tracked query merging all sources:
     1. `builtins.rs` (compile-time constant)
     2. Extracted rules from workspace modules (tracked queries)

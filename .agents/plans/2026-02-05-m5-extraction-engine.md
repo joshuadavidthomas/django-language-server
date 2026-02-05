@@ -77,26 +77,28 @@ flowchart TB
         File["File"]
         Project["Project"]
     end
-    
+
     Inputs --> Flow
-    
+
     subgraph Flow["EXTRACTION FLOW"]
         direction TB
-        
+
         Workspace["Workspace modules"]
         External["External modules"]
         Compute["compute_tag_specs"]
-        
+
         Workspace --> Compute
         External --> Compute
     end
 ```
 
 **Salsa inputs (unchanged: 2 total):**
+
 - `File`: `path`, `revision` — workspace Python files become extraction deps
 - `Project`: `inspector_inventory` + `extracted_external_rules` + `tagspecs` + ...
 
 **Extraction flow:**
+
 - **Workspace registration modules:**
     - `extract_module_rules(db, file: File) → ExtractionResult` (salsa::tracked)
     - File change → automatic re-extraction

@@ -207,25 +207,25 @@ flowchart TB
         direction TB
         PI["Python Inspector<br/>queries.py"]
         SC["Static Config<br/>builtins.rs + djls.toml"]
-        
+
         PI --> TT["TemplateTags<br/>- name<br/>- module<br/>- doc"]
         SC --> TS["TagSpecs<br/>- args<br/>- end_tag<br/>- intermediate_tags"]
     end
-    
+
     TT --> Merge
     TS --> Merge
-    
+
     subgraph Consumers["CONSUMERS"]
         direction TB
         Merge((Merge)) --> Comp["Completions<br/>tag names, libraries, snippets"]
         Merge --> ArgVal["Arg Validation<br/>validates tag args against TagSpec.args"]
         Merge --> BTB["Block Tree Builder<br/>matches openers/closers, intermediates"]
-        
+
         Comp --> VEA["ValidationError Accumulator"]
         ArgVal --> VEA
         BTB --> VEA
     end
-    
+
     subgraph Pipeline["DIAGNOSTICS PIPELINE"]
         direction TB
         File[File] --> parse[parse_template]
@@ -237,7 +237,7 @@ flowchart TB
         LSP --> publish[publish_diagnostics]
         publish --> Client[Client]
     end
-    
+
     VEA --> Pipeline
 ```
 

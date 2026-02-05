@@ -55,6 +55,7 @@ flowchart TB
 ### Validation Pass Details
 
 **1. `build_block_tree(db, nodelist)`** — `blocks.rs:17`
+
 - **DEPENDS ON:** `db.tag_index()` ← derived from `db.tag_specs()`
     - `TagIndex` classifies tags as Opener/Closer/Intermediate/Unknown
 - **ACCUMULATES:** Block structure errors
@@ -64,9 +65,11 @@ flowchart TB
     - S103: UnmatchedBlockName
 
 **2. `build_semantic_forest(db, block_tree, nodelist)`** — `semantic.rs:11`
+
 - **NO ERRORS** — Pure transformation (BlockTree → SemanticForest)
 
 **3. `validate_all_tag_arguments(db, nodelist)`** — `arguments.rs:21`
+
 - **DEPENDS ON:** `db.tag_specs()`
     - Looks up argument specs per tag name
 - **ACCUMULATES:** Argument validation errors

@@ -107,25 +107,25 @@ pub enum FilterProvenance {
 flowchart TB
     subgraph FilterFlow["FILTER DATA FLOW"]
         direction TB
-        
+
         subgraph Phase1["Phase 1: Inspector"]
             PI["Collect filters"]
         end
-        
+
         Phase1 --> Phase2
-        
+
         subgraph Phase2["Phase 2: Parsing"]
             Parser["Structured filters"]
         end
-        
+
         Phase2 --> Phase3
-        
+
         subgraph Phase3["Phase 3: Completions"]
             Comp["Filter completions"]
         end
-        
+
         Phase3 --> Phase4
-        
+
         subgraph Phase4["Phase 4: Validation"]
             Val["Load scoping"]
         end

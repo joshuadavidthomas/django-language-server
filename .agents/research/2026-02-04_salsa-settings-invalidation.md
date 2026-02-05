@@ -174,17 +174,17 @@ flowchart TB
         direction TB
         BBT["build_block_tree"]
         BBT --> SalsaTracked["Salsa tracks: nodelist only"]
-        
+
         subgraph Inside["Inside function body - NOT TRACKED"]
             direction TB
             TI["db.tag_index"]
             TI --> TS["db.tag_specs"]
             TS --> Settings["self.settings Mutex"]
         end
-        
+
         BBT --> Inside
     end
-    
+
     subgraph Consequence["CONSEQUENCE"]
         direction LR
         Change["Settings.tagspecs changes"]
@@ -192,7 +192,7 @@ flowchart TB
         NewVals --> NotInval["build_block_tree cache NOT invalidated"]
         NotInval --> Stale["Stale results until nodelist changes"]
     end
-    
+
     SalsaView --> Consequence
 ```
 

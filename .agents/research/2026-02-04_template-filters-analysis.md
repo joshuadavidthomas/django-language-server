@@ -276,12 +276,12 @@ flowchart TB
         direction TB
         TS["Template Source<br/>{{ x|filter:arg }}"]
         PI["Python Inspector<br/>queries.py"]
-        
+
         TS --> Parser["Parser - parser.rs<br/>split on pipe to Vec<br/>NO granular parsing"]
         PI -.->|Filters NOT collected| NoData[No Filter Data]
-        
+
         Parser --> NV["Node::Variable<br/>filters: Vec of String<br/>e.g. filter:arg"]
-        
+
         NV --> NoConsumers["NO FILTER CONSUMERS<br/>- No validation in djls-semantic<br/>- No completions, djls-ide stub only<br/>- No snippets<br/>- No load tracking"]
     end
 ```

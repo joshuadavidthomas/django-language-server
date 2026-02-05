@@ -155,9 +155,9 @@ flowchart TB
         SI["SelectiveImport"]
         LL["LoadedLibraries"]
     end
-    
+
     DataStructures --> Computation
-    
+
     subgraph Computation["COMPUTATION"]
         direction TB
         CLL["compute_loaded_libraries"]

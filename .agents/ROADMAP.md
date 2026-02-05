@@ -60,11 +60,11 @@ Statuses: **backlog** -> **planning** -> **ready** -> **in progress** -> **done*
 
 ### M1 - Payload shape + `{% load %}` library name correctness
 
-**Status:** ready 
+**Status:** ready
 
-**Why:** fixes a correctness bug and establishes the canonical inventory payload shape. 
+**Why:** fixes a correctness bug and establishes the canonical inventory payload shape.
 
-**Plan:** [`.agents/plans/2026-02-05-m1-payload-library-name-fix.md`](plans/2026-02-05-m1-payload-library-name-fix.md) 
+**Plan:** [`.agents/plans/2026-02-05-m1-payload-library-name-fix.md`](plans/2026-02-05-m1-payload-library-name-fix.md)
 
 **Deliverables:**
 
@@ -77,13 +77,13 @@ Statuses: **backlog** -> **planning** -> **ready** -> **in progress** -> **done*
 
 ### M2 - Salsa invalidation plumbing (no stale inventory/spec/rules)
 
-**Status:** ready 
+**Status:** ready
 
-**Depends on:** M1 payload shape (so inventory can become an input) 
+**Depends on:** M1 payload shape (so inventory can become an input)
 
-**Why:** prevents building M3/M4/M5 on invisible/stale dependencies. 
+**Why:** prevents building M3/M4/M5 on invisible/stale dependencies.
 
-**Plan:** [`.agents/plans/2026-02-05-m2-salsa-invalidation-plumbing.md`](plans/2026-02-05-m2-salsa-invalidation-plumbing.md) 
+**Plan:** [`.agents/plans/2026-02-05-m2-salsa-invalidation-plumbing.md`](plans/2026-02-05-m2-salsa-invalidation-plumbing.md)
 
 **Deliverables (conceptual):**
 
@@ -132,11 +132,11 @@ Output file:
 
 ### M3 - `{% load %}` scoping infrastructure (diagnostics + completions)
 
-**Status:** ready 
+**Status:** ready
 
-**Depends on:** M1, M2 
+**Depends on:** M1, M2
 
-**Plan:** [`.agents/plans/2026-02-05-m3-load-scoping.md`](plans/2026-02-05-m3-load-scoping.md) 
+**Plan:** [`.agents/plans/2026-02-05-m3-load-scoping.md`](plans/2026-02-05-m3-load-scoping.md)
 
 **Deliverables:**
 
@@ -181,11 +181,11 @@ Output file:
 
 ### M4 - Filters pipeline (inventory-driven; scoped; parsing breakpoint)
 
-**Status:** ready 
+**Status:** ready
 
-**Depends on:** M1, M2, M3 
+**Depends on:** M1, M2, M3
 
-**Plan:** [`.agents/plans/2026-02-05-m4-filters-pipeline.md`](plans/2026-02-05-m4-filters-pipeline.md) 
+**Plan:** [`.agents/plans/2026-02-05-m4-filters-pipeline.md`](plans/2026-02-05-m4-filters-pipeline.md)
 
 **Deliverables:**
 
@@ -223,11 +223,11 @@ Output file:
 
 ### M5 - Rust extraction engine (`djls-extraction`) for rule enrichment
 
-**Status:** ready 
+**Status:** ready
 
-**Depends on:** M1, M2 (and ideally M3) 
+**Depends on:** M1, M2 (and ideally M3)
 
-**Plan:** [`.agents/plans/2026-02-05-m5-extraction-engine.md`](plans/2026-02-05-m5-extraction-engine.md) 
+**Plan:** [`.agents/plans/2026-02-05-m5-extraction-engine.md`](plans/2026-02-05-m5-extraction-engine.md)
 
 **Deliverables:**
 
@@ -265,9 +265,9 @@ Output file:
 
 ### M6 - Rule evaluation + expression validation
 
-**Status:** backlog 
+**Status:** backlog
 
-**Depends on:** M3-M5 
+**Depends on:** M3-M5
 
 **Deliverables:**
 
@@ -303,11 +303,11 @@ Output file:
 
 ### M7 - Documentation + issue reporting (post-port hardening)
 
-**Status:** backlog 
+**Status:** backlog
 
-**Depends on:** M1-M6 
+**Depends on:** M1-M6
 
-**Why:** template validation is ultimately heuristic/static compared to Python runtime behavior; we need clear docs + a high-signal repro path for gaps we discover in the wild. 
+**Why:** template validation is ultimately heuristic/static compared to Python runtime behavior; we need clear docs + a high-signal repro path for gaps we discover in the wild.
 
 **Deliverables:**
 

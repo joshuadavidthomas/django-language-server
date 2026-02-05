@@ -16,9 +16,9 @@ When "done," djls provides **runtime-aware, load-scoped template validation** de
 
 **Separation of concerns:**
 
-| Component | Responsibility |
-|-----------|----------------|
-| **Python inspector** | **Inventory** - authoritative runtime truth: which tags/filters exist, which library they belong to, builtins vs `{% load %}` required. Django is the authority on what's registered. |
+| Component               | Responsibility                                                                                                                                                                                      |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Python inspector**    | **Inventory** - authoritative runtime truth: which tags/filters exist, which library they belong to, builtins vs `{% load %}` required. Django is the authority on what's registered.               |
 | **Rust AST extraction** | **Rules/validation** - enriches inventory with validation semantics: TemplateSyntaxError constraints, block structure, expression grammar, filter arity (as best-effort enrichment, not inventory). |
 
 **Inspector payload preserves Django's registry structure:**
@@ -41,11 +41,11 @@ The `provenance` field is mutually exclusive (either library or builtin, never b
 
 **Clarification on Django's "builtins" concepts:**
 
-| Django Concept | Type | What It Is |
-|----------------|------|------------|
-| `engine.libraries` | `dict[str, str]` | Load-name → module path mapping |
-| `engine.template_builtins` | `list[Library]` | Runtime Library objects, ordered |
-| `TEMPLATES[...]["OPTIONS"]["builtins"]` | `list[str]` | Configured builtin module paths |
+| Django Concept                          | Type             | What It Is                       |
+| --------------------------------------- | ---------------- | -------------------------------- |
+| `engine.libraries`                      | `dict[str, str]` | Load-name → module path mapping  |
+| `engine.template_builtins`              | `list[Library]`  | Runtime Library objects, ordered |
+| `TEMPLATES[...]["OPTIONS"]["builtins"]` | `list[str]`      | Configured builtin module paths  |
 
 What we need to transport: **ordered builtin module paths** (ordering = semantics for "later wins") plus the **libraries mapping with keys intact**.
 

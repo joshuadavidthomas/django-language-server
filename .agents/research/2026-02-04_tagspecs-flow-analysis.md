@@ -522,36 +522,36 @@ flowchart TB
         direction TB
         HB["Hardcoded Builtins<br/>builtins.rs<br/><br/>defaulttags: if, for, with<br/>loader_tags<br/>i18n, cache, etc."]
         UC["User Configuration<br/>djls.toml / pyproject.toml<br/><br/>tagspecs<br/>libraries<br/>module = myapp.tags"]
-        
+
         HB --> TSFrom["TagSpecs::from<br/>specs.rs:176<br/>Merge: builtins + user overrides"]
         UC --> TSFrom
     end
-    
+
     TSFrom --> DbTrait
-    
+
     subgraph DbTrait["Db::tag_specs TRAIT<br/>djls-semantic/db.rs"]
         direction TB
         TI["TagIndex<br/>grammar.rs"]
         AV["Argument Validation<br/>args.rs"]
         Comp["Completions<br/>djls-ide"]
-        
+
         TI --> BTB["BlockTreeBuilder<br/>classify, validate_close"]
         Comp --> RTags["+ TemplateTags<br/>runtime names"]
         RTags --> Snip["Snippet Generation<br/>snippets.rs"]
-        
+
         BTB --> VEA["ValidationErrorAccumulator<br/>Salsa accumulator"]
         AV --> VEA
         Snip --> VEA
     end
-    
+
     VEA --> Pipeline
-    
+
     subgraph Pipeline["DIAGNOSTICS PIPELINE"]
         direction LR
         VE[ValidationError] --> DC[diagnostic_code]
         DC --> DCfg[DiagnosticsConfig]
         DCfg --> LSP[LSP]
-        
+
         subgraph Codes["Error Codes"]
             S100["S100: UnclosedTag"]
             S101["S101: UnbalancedStructure"]
@@ -562,7 +562,7 @@ flowchart TB
             S106["S106: InvalidLiteral"]
             S107["S107: InvalidChoice"]
         end
-        
+
         Codes --> DC
     end
 ```

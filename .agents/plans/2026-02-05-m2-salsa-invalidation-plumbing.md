@@ -77,6 +77,7 @@ flowchart TB
 ```
 
 **Salsa input fields:**
+
 - `File`: `path`, `revision`
 - `Project`: `root`, `interpreter`, `django_settings_module`, `pythonpath` + new fields:
     - `inspector_inventory: Option<TemplateTags>` (M1 shape)
@@ -84,6 +85,7 @@ flowchart TB
     - `diagnostics: DiagnosticsConfig`
 
 **`compute_tag_specs(db, project) → TagSpecs`:**
+
 1. Read `project.inspector_inventory(db)` (Salsa dependency)
 2. Read `project.tagspecs(db)` (Salsa dependency)
 3. Start with `django_builtin_specs()` (compile-time constant)
@@ -91,6 +93,7 @@ flowchart TB
 5. **NO `Arc<Mutex<Settings>>` access**
 
 **`compute_tag_index(db, project) → TagIndex`:**
+
 - Depends on `compute_tag_specs` - automatic invalidation cascade
 
 ## What We're NOT Doing
@@ -117,7 +120,7 @@ flowchart BT
     project["djls-project: Project input with config fields"]
     semantic["djls-semantic: TagSpecs, validation logic"]
     server["djls-server: compute_tag_specs conversion"]
-    
+
     conf --> project --> semantic --> server
 ```
 
