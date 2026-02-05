@@ -2,10 +2,10 @@
 
 ## Build/Test Commands
 ```bash
-cargo build                      # Build all crates
-cargo clippy --all-targets --all-features --fix -- -D warnings  # Lint with fixes
+cargo build -q                      # Build all crates
+cargo clippy -q --all-targets --all-features --fix -- -D warnings  # Lint with fixes
 cargo +nightly fmt              # Format code (requires nightly)
-cargo test                      # Run all tests  
+cargo test -q                      # Run all tests  
 cargo test test_name            # Run single test by name
 cargo test -p crate_name        # Test specific crate
 just test                       # Run tests via nox (with Django matrix)
@@ -55,11 +55,28 @@ just lint                       # Run pre-commit hooks
 - `djls-semantic` templatetags module: `src/templatetags.rs` (re-exports) + `src/templatetags/` dir (contains `specs.rs`, `builtins.rs`)
 - `djls-conf` tagspec types have `PartialEq` but NOT `Eq` — `serde_json::Value` in `extra` field prevents `Eq`
 
+### Trait Impls — Update ALL Locations When Changing Traits
+Adding a method to `djls-semantic`'s `crate::Db` trait requires updating **6 impl blocks**:
+1. `crates/djls-server/src/db.rs` — `impl SemanticDb for DjangoDatabase`
+2. `crates/djls-bench/src/db.rs` — `impl SemanticDb for Db`
+3. `crates/djls-semantic/src/arguments.rs` — `impl crate::Db for TestDatabase` (in `#[cfg(test)]`)
+4. `crates/djls-semantic/src/blocks/tree.rs` — `impl crate::Db for TestDatabase` (in `#[cfg(test)]`)
+5. `crates/djls-semantic/src/semantic/forest.rs` — `impl crate::Db for TestDatabase` (in `#[cfg(test)]`)
+Test impls typically return `None` / default values. Forgetting even one causes `error[E0046]`.
+
+### Test Dependencies
+- `djls-semantic` test modules that use `djls_project` types need `djls-project` in `[dev-dependencies]` in `Cargo.toml`
+- Each test `TestDatabase` also needs `impl djls_source::Db` and `impl djls_templates::Db` — check existing test databases for the full trait hierarchy
+
 ### File Locations (avoid repeated lookups)
 - Salsa database + tracked queries: `crates/djls-server/src/db.rs`
 - Project salsa input: `crates/djls-project/src/project.rs`
+- TemplateTags, TagProvenance, inspector types: `crates/djls-project/src/django.rs`
 - Tag specs + `from_config_def`: `crates/djls-semantic/src/templatetags/specs.rs`
 - Django builtins specs: `crates/djls-semantic/src/templatetags/builtins.rs`
+- Completions (tag names, library names): `crates/djls-ide/src/completions.rs`
+- Semantic Db trait: `crates/djls-semantic/src/db.rs`
+- Load resolution types: `crates/djls-semantic/src/load_resolution.rs`
 - Inspector Python queries: `crates/djls-project/inspector/queries.py`
 - Session/server wiring: `crates/djls-server/src/session.rs`, `crates/djls-server/src/server.rs`
 - Settings/config types: `crates/djls-conf/src/`
