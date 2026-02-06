@@ -296,21 +296,37 @@ Add a tracked Salsa query that extracts `LoadedLibraries` from a parsed template
 
 ### Phase 3: Available Symbols Query
 
-**Status:** 🔲 Not Started
+**Status:** ✅ Complete
 
 Add a query that combines inspector inventory with load state to determine what tags are available at a given position.
 
 **Changes:**
-- Add `AvailableSymbols` struct with `tags: FxHashSet<String>`
-- Add `LoadState` struct with `fully_loaded` and `selective` HashMaps for state-machine approach
-- Add `available_tags_at()` function using state-machine to process loads in order
-- Handle selective import then full load correctly (full load clears selective)
-- Add comprehensive unit tests for all scoping scenarios
+- Added `AvailableSymbols` struct with `tags: FxHashSet<String>` and `has_tag()` method
+- Added `LoadState` struct with `fully_loaded: FxHashSet<String>` and `selective: FxHashMap<String, FxHashSet<String>>` for state-machine approach
+- Added `available_tags_at()` function using state-machine to process loads in order
+- Implemented correct handling of selective import then full load (full load clears selective)
+- Added 6 comprehensive unit tests for all scoping scenarios:
+  - `test_builtins_always_available`
+  - `test_library_tag_after_load`
+  - `test_selective_import`
+  - `test_selective_then_full_load` (key test for state-machine correctness)
+  - `test_full_then_selective_no_effect`
+  - `test_multiple_selective_same_lib`
+- Exported new types from `lib.rs`
+- Added `djls-project` dependency to `Cargo.toml`
 
 **Quality Checks:**
-- [ ] `cargo build -p djls-semantic` passes
-- [ ] `cargo test -p djls-semantic` passes (all unit tests)
-- [ ] `cargo clippy -p djls-semantic --all-targets -- -D warnings` passes
+- [x] `cargo build -p djls-semantic` passes
+- [x] `cargo test -p djls-semantic` passes (55 tests including 6 new availability tests)
+- [x] `cargo clippy -p djls-semantic --all-targets -- -D warnings` passes
+- [x] Full build passes (`cargo build -q`)
+- [x] Full test suite passes (269 tests)
+- [x] Full clippy passes (`cargo clippy -q --all-targets --all-features -- -D warnings`)
+
+**Discoveries:**
+- The state-machine approach correctly handles `{% load trans from i18n %}` followed by `{% load i18n %}` — after the full load, ALL i18n tags become available
+- Full load takes precedence over selective imports for the same library
+- Multiple selective imports from the same library accumulate (until a full load clears them)
 
 ### Phase 4: Validation Integration - Unknown Tag Diagnostics
 

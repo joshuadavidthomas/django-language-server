@@ -581,6 +581,7 @@ version = "0.0.0"
 dependencies = [
  "camino",
  "djls-conf",
+ "djls-project",
  "djls-source",
  "djls-templates",
  "djls-workspace",
