@@ -31,9 +31,13 @@ just lint                       # Run pre-commit hooks
 
 ## Key File Paths
 - **Inspector Python**: `crates/djls-project/inspector/queries.py` — tag/filter collection, `build.rs` rebuilds pyz on change
-- **Rust Django types**: `crates/djls-project/src/django.rs` — `TemplateTag`, `TemplateTags`, Salsa queries
+- **Rust Django types**: `crates/djls-project/src/django.rs` — `TemplateTag`, `TemplateTags`, `TagProvenance` types and accessors
+- **Project Salsa input**: `crates/djls-project/src/project.rs` — `Project` struct with all Salsa input fields
+- **Database + queries**: `crates/djls-server/src/db.rs` — `DjangoDatabase`, update/refresh methods, tracked queries go here
+- **Project lib.rs exports**: `crates/djls-project/src/lib.rs` — re-exports for `TagProvenance`, `TemplateTags`, inspector request/response types
 - **Completions**: `crates/djls-ide/src/completions.rs` — `generate_library_completions()` at ~line 526
-- **M1 plan**: `.agents/plans/2026-02-05-m1-payload-library-name-fix.md`
+- **Semantic specs**: `crates/djls-semantic/src/templatetags/specs.rs` — `TagSpecs`, `TagIndex`, `django_builtin_specs()`
+- **Config types**: `crates/djls-conf/` — `TagSpecDef`, `DiagnosticsConfig`, `Settings`
 
 ## Django Engine Internals (for inspector work)
 - `engine.builtins` — `list[str]` of module paths (e.g., `"django.template.defaulttags"`)
@@ -46,10 +50,18 @@ just lint                       # Run pre-commit hooks
 - **`target/` is tracked in this worktree** — the worktree `.gitignore` doesn't exclude it. Add `target/` to `.gitignore` before committing to avoid bloating diffs with build artifacts.
 - When running `git add -A`, be aware this will stage everything in `target/` if not gitignored.
 
+## Salsa Patterns
+- **Setter API**: Salsa input setters use `.set_field(db).to(value)` — NOT `.set_field(db, value)`. The `.to()` call is required.
+- **Manual comparison before setting**: Always compare old vs new with `project.field(db) != &new_value` before calling `project.set_field(db).to(new_value)` — setters always invalidate, even if the value is the same.
+- **`#[returns(ref)]`**: Use on Salsa input fields that return owned types (String, Vec, HashMap, Option<T>) — Salsa returns `&T` from these fields.
+- **Project is the single source of truth**: Store config docs (`TagSpecDef`, `DiagnosticsConfig`) on `Project`, not derived artifacts (`TagSpecs`). Conversion happens in tracked queries.
+
 ## Clippy Rules
 - Return `&str` not `&String` from accessors — clippy flags this
 - All public accessor methods need `#[must_use]` — clippy enforces `must_use_candidate`
 - Merge match arms with identical bodies (`match_same_arms` lint)
+- Functions over 100 lines trigger `too_many_lines` — split or extract helpers
+- Methods added to `impl DjangoDatabase` that aren't called yet trigger `dead_code` — add `#[allow(dead_code)]` temporarily or wire up call sites in the same commit
 
 ## Task Management
 Use `/dex` to break down complex work, track progress across sessions, and coordinate multi-step implementations.

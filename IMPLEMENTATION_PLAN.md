@@ -137,5 +137,5 @@ _Tasks to be expanded when M6 is complete._
 
 ## Discoveries / Notes
 
-- **Incomplete library loop in queries.py**: The `engine.libraries` iteration (line ~143) still uses old `module=` field instead of `provenance=`/`defining_module=`, and `libraries={}` is a placeholder dict. This is the next task in Phase 1.
-- **`target/` tracked in worktree git**: Build artifacts were committed because worktree `.gitignore` doesn't exclude `target/`. Should be fixed to avoid bloating commits.
+- **`target/` tracked in worktree git**: Fixed — `.gitignore` now excludes `target/`.
+- **M2 Phase 2 remaining**: `set_settings` needs to delegate to `update_project_from_settings` when a project exists. The `update_project_from_settings` and `refresh_inspector` methods are implemented but `set_settings` still recreates the project instead of updating in place.
