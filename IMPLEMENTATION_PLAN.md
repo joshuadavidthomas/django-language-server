@@ -20,7 +20,7 @@ This document tracks progress through the milestones for porting the Python `tem
 | M6 | Rule Evaluation + Expression Validation | ✅ Complete (partial - see M8) | [`.agents/plans/2026-02-05-m6-rule-evaluation.md`](.agents/plans/2026-02-05-m6-rule-evaluation.md) |
 | M7 | Documentation + Issue Reporting | ✅ Complete | [`.agents/plans/2026-02-05-m7-docs-and-issue-template.md`](.agents/plans/2026-02-05-m7-docs-and-issue-template.md) |
 | M8 | Extracted Rule Evaluation | 🔄 In Progress (Phases 1-5 Complete, Phase 6 Pending) | [`.agents/plans/2026-02-06-m8-extracted-rule-evaluation.md`](.agents/plans/2026-02-06-m8-extracted-rule-evaluation.md) |
-| M9 | User Config Tagspec Simplification | 📝 Ready | [`.agents/plans/2026-02-06-m9-tagspec-simplification.md`](.agents/plans/2026-02-06-m9-tagspec-simplification.md) |
+| M9 | User Config Tagspec Simplification | ✅ Complete | [`.agents/plans/2026-02-06-m9-tagspec-simplification.md`](.agents/plans/2026-02-06-m9-tagspec-simplification.md) |
 
 **Legend:**
 - 🔲 Not Started / Backlog
@@ -1148,7 +1148,7 @@ Port the prototype's corpus tests to Rust. Validate actual templates against ext
 
 **Plan:** [`.agents/plans/2026-02-06-m9-tagspec-simplification.md`](.agents/plans/2026-02-06-m9-tagspec-simplification.md)
 
-**Overall Status:** 🔄 In Progress (Phases 1-3 Complete, Phase 4 Pending)
+**Overall Status:** ✅ Complete (all 4 phases done)
 
 ### Phase 1: Remove TagSpecs Config System
 
@@ -1272,45 +1272,45 @@ Delete the tagspecs documentation page, update config docs to remove `tagspecs` 
 **Tasks:**
 
 #### 4.1: Delete tagspecs documentation page
-- [ ] Delete `docs/configuration/tagspecs.md`
-- [ ] Verify file is no longer referenced anywhere
-- [ ] Quality checks pass
+- [x] Delete `docs/configuration/tagspecs.md`
+- [x] Verify file is no longer referenced anywhere
+- [x] Quality checks pass
 
 #### 4.2: Update MkDocs navigation
-- [ ] Edit `.mkdocs.yml` and remove `tagspecs.md` from nav section
-- [ ] Verify no broken nav references
-- [ ] Quality checks pass
+- [x] Edit `.mkdocs.yml` and remove `tagspecs.md` from nav section
+- [x] Verify no broken nav references
+- [x] Quality checks pass
 
 #### 4.3: Update `docs/configuration/index.md`
-- [ ] Remove `### tagspecs` config section
-- [ ] Remove S104-S107 rows from diagnostic codes table
-- [ ] Rename "Block Structure (S100-S107)" to "Block Structure (S100-S103)"
-- [ ] Add S117 (`ExtractedRuleViolation`) to "Argument Validation" subsection
-- [ ] Add note: "Template tag validation is handled automatically by analyzing Python source"
-- [ ] Remove `diagnostics.severity` examples using S104-S107
-- [ ] Quality checks pass
+- [x] Remove `### tagspecs` config section
+- [x] Remove S104-S107 rows from diagnostic codes table
+- [x] Rename "Block Structure (S100-S107)" to "Block Structure (S100-S103)"
+- [x] Add S117 (`ExtractedRuleViolation`) to "Argument Validation" subsection
+- [x] Add note: "Template tag validation is handled automatically by analyzing Python source"
+- [x] Remove `diagnostics.severity` examples using S104-S107
+- [x] Quality checks pass
 
 #### 4.4: Update `docs/template-validation.md`
-- [ ] Remove references to user-defined tagspecs
-- [ ] Remove S104-S107 diagnostic code references
-- [ ] Remove `args` configuration format documentation
-- [ ] Add note about Django's own error messages via AST extraction
-- [ ] Document S117 suppression via `diagnostics.severity.S117`
-- [ ] Quality checks pass
+- [x] Remove references to user-defined tagspecs
+- [x] Remove S104-S107 diagnostic code references
+- [x] Remove `args` configuration format documentation
+- [x] Add note about Django's own error messages via AST extraction
+- [x] Document S117 suppression via `diagnostics.severity.S117`
+- [x] Quality checks pass
 
 #### 4.5: Update cross-references and links
-- [ ] Search docs for links to `tagspecs.md` and remove/redirect
-- [ ] Check `.github/ISSUE_TEMPLATE/` for tagspecs references
-- [ ] Update any README files referencing tagspecs
-- [ ] Quality checks pass
+- [x] Search docs for links to `tagspecs.md` and remove/redirect
+- [x] Check `.github/ISSUE_TEMPLATE/` for tagspecs references
+- [x] Update any README files referencing tagspecs
+- [x] Quality checks pass
 
 #### 4.6: Verification and final checks
-- [ ] Run `just docs build` and verify no broken links
-- [ ] Verify no S104-S107 references in any docs
-- [ ] Verify no `[tagspecs]` config examples in docs
-- [ ] Review config docs for clarity
-- [ ] Review diagnostic codes table is accurate
-- [ ] Final quality checks: `just docs build`, `cargo test -q`
+- [x] Run `just docs build` and verify no broken links
+- [x] Verify no S104-S107 references in any docs
+- [x] Verify no `[tagspecs]` config examples in docs
+- [x] Review config docs for clarity
+- [x] Review diagnostic codes table is accurate
+- [x] Final quality checks: `just docs build`, `cargo test -q`
 
 **Quality Checks (per sub-phase):**
 - [ ] `cargo build -q` passes

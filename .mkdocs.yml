@@ -31,7 +31,6 @@ nav:
   - Installation: installation.md
   - Configuration:
       - configuration/index.md
-      - TagSpecs: configuration/tagspecs.md
   - Clients:
       - clients/index.md
       - Neovim: clients/neovim.md

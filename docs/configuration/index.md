@@ -76,17 +76,16 @@ Map diagnostic codes or prefixes to severity levels. Supports:
 **Template Errors (T-series):**
 - `T100` - Parser errors (syntax issues in templates)
 - `T900` - IO errors (file read/write issues)
-- `T901` - Configuration errors (invalid tagspecs)
+- `T901` - Configuration errors (invalid config)
 
-**Semantic Validation Errors (S-series):**
+**Block Structure (S100-S103):**
 - `S100` - Unclosed tag (missing end tag)
 - `S101` - Unbalanced structure (mismatched block tags)
 - `S102` - Orphaned tag (intermediate tag without parent)
 - `S103` - Unmatched block name (e.g., `{% endblock foo %}` doesn't match `{% block bar %}`)
-- `S104` - Missing required arguments
-- `S105` - Too many arguments
-- `S106` - Invalid literal argument
-- `S107` - Invalid argument choice
+
+**Argument Validation:**
+- `S117` - Extracted rule violation (template tag argument error from Django's own validation rules)
 
 #### Examples
 
@@ -133,6 +132,9 @@ S100 = "off"
 
 # And make S10x (S100-S109) info level
 "S10" = "info"
+
+# Suppress argument validation errors
+S117 = "off"
 ```
 
 **Resolution order example:**
@@ -148,26 +150,16 @@ S100 = "off"       # Override: S100 is off
 # S200 → warning ("S" prefix)
 ```
 
+!!! note "Automatic Template Tag Validation"
+
+    Template tag validation — including argument checking, block structure, and completions — is handled automatically by analyzing your project's Python source code. No manual configuration is needed.
+
 **When to configure:**
 
 - Disable false positives: Set problematic diagnostics to `"off"`
 - Gradual adoption: Downgrade to `"warning"` or `"hint"` during migration
 - Focus attention: Disable entire categories with prefix patterns
 - Fine-tune experience: Mix prefix patterns with specific overrides
-
-### `tagspecs`
-
-**Default:** Empty (no custom tagspecs)
-
-Define custom template tag specifications for tags not included in Django's built-in or popular third-party libraries.
-
-!!! warning "Deprecation Warning"
-
-    The v0.4.0 flat `[[tagspecs]]` format is deprecated and will be removed in v6.2.0.
-
-    Please migrate to the [v0.6.0 hierarchical format](./tagspecs.md#migration-from-v040).
-
-See the [TagSpecs documentation](./tagspecs.md) for detailed schema and examples.
 
 ## Methods
 
