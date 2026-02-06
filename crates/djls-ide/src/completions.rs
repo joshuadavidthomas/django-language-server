@@ -4,6 +4,7 @@
 //! and generating appropriate completion items for Django templates.
 
 use djls_project::InspectorInventory;
+use djls_semantic::available_filters_at;
 use djls_semantic::available_tags_at;
 use djls_semantic::LoadedLibraries;
 use djls_semantic::TagArg;
@@ -28,6 +29,17 @@ pub enum ClosingBrace {
     PartialClose,
     /// Full close present (`%}` or `}}`) - no closing needed
     FullClose,
+}
+
+/// Tracks the closing state for variable/filter context (`{{ ... }}`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum VariableClosingBrace {
+    /// No closing at all: `{{ var|`
+    None,
+    /// Single brace: `{{ var|fil}`
+    Partial,
+    /// Complete: `{{ var|fil }}`
+    Full,
 }
 
 /// Rich context-aware completion information for Django templates.
@@ -66,10 +78,12 @@ pub enum TemplateCompletionContext {
         /// What closing characters are present
         closing: ClosingBrace,
     },
-    /// TODO: Future - completing filters after |
+    /// Completing filters after |
     Filter {
         /// Partial filter name typed so far
         partial: String,
+        /// Closing brace state
+        closing: VariableClosingBrace,
     },
     /// TODO: Future - completing variables after {{
     Variable {
@@ -228,10 +242,54 @@ fn get_line_info(
     })
 }
 
+/// Detect filter completion context in `{{ var| }}` expressions.
+///
+/// Returns Some if cursor is after a `|` inside a variable expression.
+fn analyze_variable_context(
+    prefix: &str,
+    full_line: &str,
+    cursor_offset: usize,
+) -> Option<TemplateCompletionContext> {
+    // Find the start of the variable expression (last {{ before cursor)
+    let var_start = prefix.rfind("{{")?;
+    let var_content = &prefix[var_start + 2..]; // Content after {{
+
+    // Check if we're inside a filter (after |)
+    let pipe_pos = var_content.rfind('|')?;
+
+    // Everything after the last | is the partial filter name
+    let after_pipe = &var_content[pipe_pos + 1..];
+    let partial = after_pipe.trim().to_string();
+
+    // Determine closing state by looking at what's after cursor
+    let suffix = &full_line[cursor_offset.min(full_line.len())..];
+    let closing = detect_variable_closing_brace(suffix);
+
+    Some(TemplateCompletionContext::Filter { partial, closing })
+}
+
+/// Detect what closing brace state exists after the cursor for variables
+fn detect_variable_closing_brace(suffix: &str) -> VariableClosingBrace {
+    let trimmed = suffix.trim_start();
+    if trimmed.starts_with("}}") {
+        VariableClosingBrace::Full
+    } else if trimmed.starts_with('}') {
+        VariableClosingBrace::Partial
+    } else {
+        VariableClosingBrace::None
+    }
+}
+
 /// Analyze a line of template text to determine completion context
 fn analyze_template_context(line: &str, cursor_offset: usize) -> Option<TemplateCompletionContext> {
-    // Find the last {% before cursor position
     let prefix = &line[..cursor_offset.min(line.len())];
+
+    // Check for variable/filter context first ({{ ... |)
+    if let Some(var_ctx) = analyze_variable_context(prefix, line, cursor_offset) {
+        return Some(var_ctx);
+    }
+
+    // Find the last {% before cursor position
     let tag_start = prefix.rfind("{%")?;
 
     // Get the content between {% and cursor
@@ -389,9 +447,16 @@ fn generate_template_completions(
                 cursor_byte_offset,
             )
         }
-        TemplateCompletionContext::Filter { .. }
-        | TemplateCompletionContext::Variable { .. }
-        | TemplateCompletionContext::None => {
+        TemplateCompletionContext::Filter { partial, closing } => {
+            generate_filter_completions(
+                partial,
+                closing,
+                inspector_inventory,
+                loaded_libraries,
+                cursor_byte_offset,
+            )
+        }
+        TemplateCompletionContext::Variable { .. } | TemplateCompletionContext::None => {
             // Not implemented yet
             Vec::new()
         }
@@ -794,6 +859,70 @@ fn generate_library_completions(
             }),
             // Mark deprecated if already loaded (shows strikethrough in some editors)
             deprecated: Some(is_already_loaded),
+            ..Default::default()
+        });
+    }
+
+    completions
+}
+
+/// Generate completions for filter names in `{{ var|` context.
+fn generate_filter_completions(
+    partial: &str,
+    closing: &VariableClosingBrace,
+    inspector_inventory: Option<&InspectorInventory>,
+    loaded_libraries: Option<&LoadedLibraries>,
+    cursor_byte_offset: u32,
+) -> Vec<ls_types::CompletionItem> {
+    let Some(inventory) = inspector_inventory else {
+        return Vec::new();
+    };
+
+    // Compute available filters at cursor position (reuse M3 infrastructure)
+    let available = loaded_libraries
+        .map(|loaded| available_filters_at(loaded, inventory, cursor_byte_offset));
+
+    let mut completions = Vec::new();
+
+    for filter in inventory.filters() {
+        // Filter by partial match
+        if !filter.name().starts_with(partial) {
+            continue;
+        }
+
+        // Filter by availability (if we have load info)
+        if let Some(ref avail) = available {
+            if !avail.has_filter(filter.name()) {
+                continue;
+            }
+        }
+
+        let mut insert_text = filter.name().to_string();
+
+        // Add closing if needed
+        match closing {
+            VariableClosingBrace::None => insert_text.push_str(" }}"),
+            VariableClosingBrace::Partial => insert_text.push('}'),
+            VariableClosingBrace::Full => {} // No closing needed
+        }
+
+        completions.push(ls_types::CompletionItem {
+            label: filter.name().to_string(),
+            kind: Some(ls_types::CompletionItemKind::FUNCTION),
+            detail: Some(if let Some(lib) = filter.library_load_name() {
+                format!("Filter from {} ({{% load {} %}})", filter.defining_module(), lib)
+            } else {
+                format!("Builtin filter from {}", filter.defining_module())
+            }),
+            documentation: filter.doc().map(|d| {
+                ls_types::Documentation::MarkupContent(ls_types::MarkupContent {
+                    kind: ls_types::MarkupKind::Markdown,
+                    value: d.to_string(),
+                })
+            }),
+            insert_text: Some(insert_text),
+            insert_text_format: Some(ls_types::InsertTextFormat::PLAIN_TEXT),
+            filter_text: Some(filter.name().to_string()),
             ..Default::default()
         });
     }

@@ -503,28 +503,37 @@ Transform `filters: Vec<String>` → `Vec<Filter>` with structured data includin
 
 ### Phase 3: Filter Completions
 
-**Status:** 🔲 Not Started
+**Status:** ✅ Complete
 
 Implement filter completions when user types `{{ variable|` or `{{ variable|part`.
 
 **Changes:**
-- Add `VariableClosingBrace` enum for tracking closing state
-- Update `analyze_template_context` to detect filter context via `analyze_variable_context()`
-- Update `TemplateCompletionContext::Filter` with `partial` and `closing` fields
-- Implement `generate_filter_completions()` function
-- Use `available_filters_at()` with load scoping from M3 infrastructure
-- Add insert text with appropriate closing braces
-- Update completion handler to use unified `InspectorInventory`
-- Update server call site to pass unified inventory
+- Added `VariableClosingBrace` enum for tracking closing state (`None`, `Partial`, `Full`)
+- Added `analyze_variable_context()` function to detect `{{ var|` context
+- Updated `TemplateCompletionContext::Filter` with `partial` and `closing` fields
+- Added `available_filters_at()` function in `load_resolution.rs` (mirrors `available_tags_at()`)
+- Added `AvailableFilters` struct with `has_filter()` method
+- Implemented `generate_filter_completions()` function:
+  - Filters by partial match
+  - Filters by availability (respects load scoping)
+  - Adds appropriate closing braces based on context
+  - Shows detail text with library info or builtin status
+- Updated `generate_template_completions()` match to handle Filter context
+- Exported `AvailableFilters` and `available_filters_at` from `lib.rs`
 
 **Quality Checks:**
-- [ ] `cargo build` passes
-- [ ] `cargo test` passes
-- [ ] `cargo clippy --all-targets -- -D warnings` passes
+- [x] `cargo build` passes
+- [x] `cargo test` passes (287 tests)
+- [x] `cargo clippy --all-targets -- -D warnings` passes
 - [ ] Manual: `{{ value|` shows filter completions
 - [ ] Manual: `{{ value|def` filters to `default`
 - [ ] Manual: Builtin filters appear without `{% load %}`
 - [ ] Manual: Library filters appear after `{% load %}`
+
+**Discoveries:**
+- `available_filters_at()` follows the same state-machine pattern as `available_tags_at()` for consistency
+- Filter completions use `CompletionItemKind::FUNCTION` (vs `KEYWORD` for tags)
+- Need to escape `{%` as `{{%` in format strings for proper detail text
 
 ### Phase 4: Filter Validation with Load Scoping
 

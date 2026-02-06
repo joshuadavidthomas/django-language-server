@@ -5,6 +5,7 @@
 
 use crate::errors::ValidationError;
 use crate::ValidationErrorAccumulator;
+use djls_project::FilterProvenance;
 use djls_project::InspectorInventory;
 use djls_project::TagProvenance;
 use djls_source::Span;
@@ -311,6 +312,76 @@ pub fn available_tags_at(
             TagProvenance::Library { load_name, .. } => {
                 if state.is_tag_available(tag.name(), load_name) {
                     available.tags.insert(tag.name().to_string());
+                }
+            }
+        }
+    }
+
+    available
+}
+
+/// Result of querying available filters at a position.
+#[derive(Debug, Clone, Default)]
+pub struct AvailableFilters {
+    /// Filter names available at this position
+    pub filters: FxHashSet<String>,
+}
+
+impl AvailableFilters {
+    /// Check if a filter name is available
+    #[must_use]
+    pub fn has_filter(&self, name: &str) -> bool {
+        self.filters.contains(name)
+    }
+}
+
+/// Determine which filters are available at a given position in the template.
+///
+/// This function mirrors `available_tags_at()` but operates on filters.
+/// It uses the same state-machine approach to process load statements
+/// in document order up to `position`.
+///
+/// A library filter is available iff:
+/// - Its library is in the `fully_loaded` set, OR
+/// - The filter name is in the selective imports for its library
+///
+/// Builtin filters are always available.
+///
+/// # Arguments
+/// * `loaded` - The `LoadedLibraries` computed from the template
+/// * `inventory` - The `InspectorInventory` from inspector (M4+ unified shape)
+/// * `position` - The byte offset to check availability at
+///
+/// # Returns
+/// The set of filter names available at the position.
+#[must_use]
+pub fn available_filters_at(
+    loaded: &LoadedLibraries,
+    inventory: &InspectorInventory,
+    position: u32,
+) -> AvailableFilters {
+    let mut available = AvailableFilters::default();
+
+    // Build load state by processing statements in order up to position
+    let mut state = LoadState::default();
+    for stmt in loaded.loads() {
+        // Only include loads that END before the position
+        // (tag must be fully parsed before it takes effect)
+        if stmt.span.end() <= position {
+            state.process(stmt);
+        }
+    }
+
+    // Determine available filters
+    for filter in inventory.filters() {
+        match filter.provenance() {
+            FilterProvenance::Builtin { .. } => {
+                // Builtins are always available
+                available.filters.insert(filter.name().to_string());
+            }
+            FilterProvenance::Library { load_name, .. } => {
+                if state.is_tag_available(filter.name(), load_name) {
+                    available.filters.insert(filter.name().to_string());
                 }
             }
         }
