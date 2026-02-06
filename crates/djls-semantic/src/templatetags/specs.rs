@@ -248,6 +248,74 @@ pub struct TagSpec {
     pub end_tag: Option<EndTag>,
     pub intermediate_tags: L<IntermediateTag>,
     pub args: L<TagArg>,
+    /// Whether this tag creates an opaque block (like verbatim/comment)
+    pub opaque: bool,
+}
+
+impl TagSpec {
+    /// Merge extracted rules into this spec.
+    ///
+    /// Stores rules for future rule evaluation (M6+). Keep the merge policy conservative.
+    /// (If collisions exist, scoping resolution should decide which spec applies.)
+    pub fn merge_extracted_rules(
+        &mut self,
+        _rules: &[djls_extraction::ExtractedRule],
+    ) {
+        // TODO (M6+): Store extracted rules for rule evaluation
+        // For now, this is a placeholder to satisfy the API
+    }
+
+    /// Merge extracted block spec into this spec.
+    ///
+    /// Persists end tag + intermediate tags + opaque flag.
+    pub fn merge_block_spec(&mut self, block: &djls_extraction::BlockTagSpec) {
+        // Persist opaque flag
+        self.opaque = block.opaque;
+
+        // Update end tag if provided
+        if let Some(ref end) = block.end_tag {
+            self.end_tag = Some(EndTag {
+                name: end.clone().into(),
+                required: true,
+                args: B(&[]),
+            });
+        }
+
+        // Update intermediate tags if provided
+        if !block.intermediate_tags.is_empty() {
+            self.intermediate_tags = block
+                .intermediate_tags
+                .iter()
+                .map(|it| IntermediateTag {
+                    name: it.name.clone().into(),
+                    args: B(&[]),
+                })
+                .collect::<Vec<_>>()
+                .into();
+        }
+    }
+
+    /// Create a new [`TagSpec`] from extraction results.
+    #[must_use]
+    pub fn from_extraction(
+        module_path: &str,
+        tag: &djls_extraction::ExtractedTag,
+    ) -> Self {
+        let mut spec = TagSpec {
+            module: module_path.to_string().into(),
+            end_tag: None,
+            intermediate_tags: B(&[]),
+            args: B(&[]),
+            opaque: false,
+        };
+
+        spec.merge_extracted_rules(&tag.rules);
+        if let Some(ref block_spec) = tag.block_spec {
+            spec.merge_block_spec(block_spec);
+        }
+
+        spec
+    }
 }
 
 impl From<(djls_conf::TagDef, String)> for TagSpec {
@@ -288,6 +356,7 @@ impl From<(djls_conf::TagDef, String)> for TagSpec {
                 .map(Into::into)
                 .collect::<Vec<_>>()
                 .into(),
+            opaque: false,
         }
     }
 }
@@ -589,6 +658,7 @@ mod tests {
                 end_tag: None,
                 intermediate_tags: Cow::Borrowed(&[]),
                 args: Cow::Borrowed(&[]),
+                opaque: false,
             },
         );
 
@@ -613,6 +683,7 @@ mod tests {
                     },
                 ]),
                 args: Cow::Borrowed(&[]),
+                opaque: false,
             },
         );
 
@@ -637,6 +708,7 @@ mod tests {
                     }, // Note: else is shared
                 ]),
                 args: Cow::Borrowed(&[]),
+                opaque: false,
             },
         );
 
@@ -656,6 +728,7 @@ mod tests {
                 }),
                 intermediate_tags: Cow::Borrowed(&[]),
                 args: Cow::Borrowed(&[]),
+                opaque: false,
             },
         );
 
@@ -844,6 +917,7 @@ mod tests {
                 end_tag: None,
                 intermediate_tags: Cow::Borrowed(&[]),
                 args: Cow::Borrowed(&[]),
+                opaque: false,
             },
         );
 
@@ -859,6 +933,7 @@ mod tests {
                 }),
                 intermediate_tags: Cow::Borrowed(&[]), // Removed intermediates
                 args: Cow::Borrowed(&[]),
+                opaque: false,
             },
         );
 

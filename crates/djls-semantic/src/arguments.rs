@@ -630,6 +630,7 @@ mod tests {
                     },
                     TagArg::modifier("reversed", true),
                 ]),
+                opaque: false,
             },
         );
 
@@ -903,6 +904,7 @@ mod tests {
                     TagArg::syntax("as", true),
                     TagArg::var("result", true),
                 ]),
+                opaque: false,
             },
         );
 

@@ -35,14 +35,7 @@
 //! // result.tags contains ExtractedTag for "my_tag" with rules keyed to 'args'
 //! ```
 
-mod context;
 mod error;
-mod filters;
-mod parser;
-mod patterns;
-mod registry;
-mod rules;
-mod structural;
 mod types;
 
 pub use error::ExtractionError;
@@ -58,6 +51,22 @@ pub use types::RuleCondition;
 pub use types::SymbolKey;
 pub use types::SymbolKind;
 
+#[cfg(feature = "parser")]
+mod context;
+#[cfg(feature = "parser")]
+mod filters;
+#[cfg(feature = "parser")]
+mod parser;
+#[cfg(feature = "parser")]
+mod patterns;
+#[cfg(feature = "parser")]
+mod registry;
+#[cfg(feature = "parser")]
+mod rules;
+#[cfg(feature = "parser")]
+mod structural;
+
+#[cfg(feature = "parser")]
 /// Extract validation rules from a Python template registration module.
 ///
 /// This is a pure function: source text in, extraction result out.

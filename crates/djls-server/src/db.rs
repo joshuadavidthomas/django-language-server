@@ -10,57 +10,173 @@ use std::sync::Mutex;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_conf::Settings;
+use djls_extraction::extract_rules;
+use djls_extraction::ExtractionResult;
 use djls_project::query;
+use djls_project::resolve_modules;
 use djls_project::template_dirs;
 use djls_project::Db as ProjectDb;
 use djls_project::Inspector;
 use djls_project::InspectorInventory;
 use djls_project::Interpreter;
+
 use djls_project::Project;
+use djls_project::PythonEnvRequest;
 use djls_project::TemplateInventoryRequest;
+use djls_semantic::TagSpec;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::TagIndex;
 use djls_semantic::TagSpecs;
 use djls_semantic::django_builtin_specs;
 use djls_source::Db as SourceDb;
 use djls_source::File;
+use djls_source::FileKind;
 use djls_source::FxDashMap;
 use djls_templates::Db as TemplateDb;
 use djls_workspace::Db as WorkspaceDb;
 use djls_workspace::FileSystem;
+use rustc_hash::FxHashMap;
+use rustc_hash::FxHashSet;
 use salsa::Setter;
+
+/// Extract validation rules from a workspace Python module.
+///
+/// This is a TRACKED QUERY: changes to the File input (revision bump)
+/// automatically invalidate cached results.
+///
+/// Only extracts from Python files. Returns empty result for other file types.
+#[salsa::tracked]
+pub fn extract_workspace_module_rules(db: &dyn SemanticDb, file: File) -> ExtractionResult {
+    // Check file type
+    let source = file.source(db);
+    if source.kind() != &FileKind::Python {
+        return ExtractionResult::default();
+    }
+
+    // Extract rules using djls-extraction
+    match extract_rules(source.as_str()) {
+        Ok(result) => result,
+        Err(e) => {
+            tracing::warn!("Extraction failed for {}: {}", file.path(db), e);
+            ExtractionResult::default()
+        }
+    }
+}
+
+/// Collect extracted rules from all workspace registration modules.
+///
+/// This tracked query:
+/// 1. Gets registration modules from inspector inventory
+/// 2. Resolves workspace modules to File inputs
+/// 3. Extracts rules from each (via tracked `extract_workspace_module_rules`)
+///
+/// External modules are handled separately (cached on Project).
+#[salsa::tracked]
+pub fn collect_workspace_extraction_results(
+    db: &dyn SemanticDb,
+    project: Project,
+) -> Vec<(String, ExtractionResult)> {
+    let inventory = project.inspector_inventory(db);
+    let sys_path = project.sys_path(db);
+    let root = project.root(db);
+
+    let Some(inventory) = inventory else {
+        return Vec::new();
+    };
+
+    // Get unique registration module paths from inventory (tags + filters).
+    //
+    // IMPORTANT: some registration modules may define only filters (no tags). If we only
+    // enumerate from tags, we will miss those modules and never extract filter arity/specs.
+    let mut module_paths = FxHashSet::<String>::default();
+    for tag in inventory.tags() {
+        module_paths.insert(tag.registration_module().to_string());
+    }
+    for filter in inventory.filters() {
+        module_paths.insert(filter.registration_module().to_string());
+    }
+
+    // Resolve and partition by location
+    let (workspace_modules, _external) =
+        resolve_modules(module_paths.iter().map(String::as_str), sys_path, root);
+
+    let mut results = Vec::new();
+
+    for resolved in workspace_modules {
+        // Get or create File for this workspace module
+        let file = db
+            .get_file(&resolved.file_path)
+            .unwrap_or_else(|| db.create_file(&resolved.file_path));
+
+        // Extract via tracked query (establishes Salsa dependency)
+        let extraction = extract_workspace_module_rules(db, file);
+
+        if !extraction.is_empty() {
+            results.push((resolved.module_path, extraction));
+        }
+    }
+
+    results
+}
 
 /// Compute tag specifications from all sources.
 ///
-/// This tracked query:
-/// 1. Reads `Project.inspector_inventory` and `Project.tagspecs` (Salsa dependencies)
-/// 2. Starts with `django_builtin_specs()` (compile-time constant)
-/// 3. Converts `Project.tagspecs` (`TagSpecDef`) → `TagSpecs` and merges
+/// This tracked query merges:
+/// 1. Django builtin specs (compile-time constant)
+/// 2. Extracted rules from workspace modules (tracked queries)
+/// 3. Extracted rules from external modules (Project field)
+/// 4. User config overrides (Project.tagspecs field)
 ///
-/// **IMPORTANT**: This function does NOT read from `Arc<Mutex<Settings>>`.
-/// All config must come through Project fields.
+/// Invalidation triggers:
+/// - Workspace Python file changes → via `extract_workspace_module_rules` dependency
+/// - External modules change → via `Project.extracted_external_rules`
+/// - User config changes → via `Project.tagspecs`
 #[salsa::tracked]
 pub fn compute_tag_specs(db: &dyn SemanticDb, project: Project) -> TagSpecs {
-    // Read Salsa-tracked fields to establish dependencies
-    let _inventory = project.inspector_inventory(db);
-    let tagspecs_def = project.tagspecs(db);
-
     // Start with Django builtins (compile-time constant)
     let mut specs = django_builtin_specs();
 
-    // TODO (M3+): Merge inspector inventory for load scoping
-    // if let Some(tags) = _inventory {
-    //     specs.merge_from_inventory(&tags);
-    // }
+    // Merge workspace extraction results (tracked)
+    let workspace_results = collect_workspace_extraction_results(db, project);
+    for (module_path, extraction) in workspace_results {
+        merge_extraction_into_specs(&mut specs, &module_path, &extraction);
+    }
 
-    // Convert config doc to TagSpecs and merge
-    // This does NOT include builtins - that's why we start with django_builtin_specs()
-    let user_specs = TagSpecs::from_config_def(tagspecs_def);
+    // Merge external extraction results (from Project field)
+    let external_results = project.extracted_external_rules(db);
+    for (module_path, extraction) in external_results {
+        merge_extraction_into_specs(&mut specs, module_path, extraction);
+    }
+
+    // Apply user config overrides (highest priority)
+    let user_specs = TagSpecs::from_config_def(project.tagspecs(db));
     specs.merge(user_specs);
 
-    tracing::trace!("Computed tag specs: {} tags", specs.len());
+    tracing::trace!("Computed tag specs: {} tags total", specs.len());
 
     specs
+}
+
+/// Merge extraction results into tag specs.
+fn merge_extraction_into_specs(
+    specs: &mut TagSpecs,
+    module_path: &str,
+    extraction: &ExtractionResult,
+) {
+    for tag in &extraction.tags {
+        // Look up existing spec or create new one
+        if let Some(spec) = specs.get_mut(&tag.name) {
+            // Enrich existing spec with extracted rules
+            spec.merge_extracted_rules(&tag.rules);
+            if let Some(ref block_spec) = tag.block_spec {
+                spec.merge_block_spec(block_spec);
+            }
+        } else {
+            // Create new spec from extraction
+            let new_spec = TagSpec::from_extraction(module_path, tag);
+            specs.insert(tag.name.clone(), new_spec);
+        }
+    }
 }
 
 /// Build the tag index from computed tag specs.
@@ -165,6 +281,8 @@ mod test_infrastructure {
                 None,                           // inspector_inventory
                 settings.tagspecs().clone(),    // tagspecs
                 settings.diagnostics().clone(), // diagnostics
+                Vec::new(),                     // sys_path
+                FxHashMap::default(),           // extracted_external_rules
             );
             *test_db.db.project.lock().unwrap() = Some(project);
 
@@ -348,15 +466,16 @@ impl DjangoDatabase {
         }
     }
 
-    /// Refresh the inspector inventory by querying Python.
+    /// Refresh the inspector inventory AND extract rules from external modules.
     ///
-    /// This method (per M2/M4 architecture):
-    /// 1. Queries Python ONCE via `inspector::query()` with `TemplateInventoryRequest`
-    ///    (Single round trip - returns tags + filters + libraries + builtins)
-    /// 2. Compares new inventory with current
-    /// 3. Updates `Project.inspector_inventory` ONLY if changed
+    /// This method:
+    /// 1. Queries Python for `sys_path` (`python_env`)
+    /// 2. Queries Python for inventory (tags + filters)
+    /// 3. Resolves external registration modules
+    /// 4. Extracts rules from external modules (reads file content via fs)
+    /// 5. Updates Project fields with manual comparison
     ///
-    /// Call this when:
+    /// Called when:
     /// - Project is first initialized
     /// - Python environment changes (venv, PYTHONPATH)
     /// - User explicitly requests refresh (e.g., after pip install)
@@ -366,24 +485,99 @@ impl DjangoDatabase {
             return;
         };
 
-        // Single query returning unified inventory (tags + filters)
-        let new_inventory = query(self, &TemplateInventoryRequest)
-            .map(InspectorInventory::from_response);
-
-        // Compare before setting (Ruff/RA style)
-        let current = project.inspector_inventory(self);
-        if current == &new_inventory {
-            tracing::trace!("Inspector inventory unchanged, skipping update");
-        } else {
-            tracing::debug!(
-                "Inspector inventory changed: {} tags, {} filters -> {} tags, {} filters",
-                current.as_ref().map_or(0, InspectorInventory::tag_count),
-                current.as_ref().map_or(0, InspectorInventory::filter_count),
-                new_inventory.as_ref().map_or(0, InspectorInventory::tag_count),
-                new_inventory.as_ref().map_or(0, InspectorInventory::filter_count)
-            );
-            project.set_inspector_inventory(self).to(new_inventory);
+        // 1. Refresh sys_path from python_env query
+        let new_sys_path = self.query_sys_path();
+        if project.sys_path(self) != &new_sys_path {
+            project.set_sys_path(self).to(new_sys_path.clone());
         }
+
+        // 2. Refresh inventory (existing logic)
+        let new_inventory = self.query_inventory();
+        let inventory_changed = project.inspector_inventory(self) != &new_inventory;
+        if inventory_changed {
+            project.set_inspector_inventory(self).to(new_inventory.clone());
+        }
+
+        // 3. Extract from external modules (only if inventory changed or first run)
+        if inventory_changed || project.extracted_external_rules(self).is_empty() {
+            let new_external_rules =
+                self.extract_external_module_rules(new_inventory.as_ref(), &new_sys_path, project.root(self));
+
+            if project.extracted_external_rules(self) != &new_external_rules {
+                tracing::debug!("External extraction updated: {} modules", new_external_rules.len());
+                project
+                    .set_extracted_external_rules(self)
+                    .to(new_external_rules);
+            }
+        }
+    }
+
+    /// Query `sys_path` from Python environment.
+    fn query_sys_path(&self) -> Vec<Utf8PathBuf> {
+        if let Some(response) = query(self, &PythonEnvRequest) {
+            response.sys_path.into_iter().collect()
+        } else {
+            tracing::warn!("Failed to query sys_path");
+            Vec::new()
+        }
+    }
+
+    /// Query inventory from inspector.
+    fn query_inventory(&self) -> Option<InspectorInventory> {
+        query(self, &TemplateInventoryRequest).map(InspectorInventory::from_response)
+    }
+
+    /// Extract rules from external modules.
+    ///
+    /// Reads file content directly from filesystem (not via Salsa File inputs).
+    /// These are external to the project and don't need automatic invalidation.
+    fn extract_external_module_rules(
+        &self,
+        inventory: Option<&InspectorInventory>,
+        sys_path: &[Utf8PathBuf],
+        project_root: &Utf8Path,
+    ) -> FxHashMap<String, ExtractionResult> {
+        let Some(inventory) = inventory else {
+            return FxHashMap::default();
+        };
+
+        // Enumerate registration modules from inventory (tags + filters).
+        // This must include filter-only modules, otherwise we will miss extracted filter arity/specs.
+        let mut module_paths = FxHashSet::<String>::default();
+        for tag in inventory.tags() {
+            module_paths.insert(tag.registration_module().to_string());
+        }
+        for filter in inventory.filters() {
+            module_paths.insert(filter.registration_module().to_string());
+        }
+
+        let (_workspace, external_modules) =
+            resolve_modules(module_paths.iter().map(String::as_str), sys_path, project_root);
+
+        let mut results = FxHashMap::default();
+
+        for resolved in external_modules {
+            // Read file content directly (NOT via Salsa)
+            let Ok(source) = self.fs.read_to_string(&resolved.file_path) else {
+                continue;
+            };
+
+            match extract_rules(&source) {
+                Ok(extraction) if !extraction.is_empty() => {
+                    results.insert(resolved.module_path, extraction);
+                }
+                Ok(_) => {} // Empty extraction, skip
+                Err(e) => {
+                    tracing::debug!(
+                        "Extraction failed for external module {}: {}",
+                        resolved.module_path,
+                        e
+                    );
+                }
+            }
+        }
+
+        results
     }
 }
 
@@ -421,6 +615,10 @@ impl TemplateDb for DjangoDatabase {}
 impl SemanticDb for DjangoDatabase {
     fn tag_specs(&self) -> TagSpecs {
         if let Some(project) = self.project() {
+            // Read inputs to establish Salsa dependencies
+            let _inventory = project.inspector_inventory(self);
+            let _external_rules = project.extracted_external_rules(self);
+            let _tagspecs = project.tagspecs(self);
             compute_tag_specs(self, project)
         } else {
             django_builtin_specs()
@@ -531,6 +729,7 @@ mod invalidation_tests {
     #[test]
     fn test_inspector_inventory_change_invalidates() {
         use djls_project::InspectorInventory;
+        use djls_project::TemplateTag;
 
         let mut test = TestDatabase::with_project();
 
@@ -538,22 +737,32 @@ mod invalidation_tests {
         let _specs1 = test.db.tag_specs();
         test.logger.clear();
 
-        // Update inspector inventory
+        // Update inspector inventory with a tag
         let project = test.db.project().expect("test project exists");
         let new_inventory = InspectorInventory::new(
             HashMap::new(),
             vec!["django.template.defaulttags".to_string()],
-            vec![], // no tags
+            vec![TemplateTag::new_builtin(
+                "if",
+                "django.template.defaulttags",
+                None,
+            )],
             vec![], // no filters
         );
         project.set_inspector_inventory(&mut test.db).to(Some(new_inventory));
 
-        // Access again - should recompute
+        // Access again - should recompute workspace extraction (which depends on inventory)
         let _specs2 = test.db.tag_specs();
+
+        // The dependency chain is: compute_tag_specs -> collect_workspace_extraction_results -> inspector_inventory
+        // When inventory changes, collect_workspace_extraction_results should re-execute
         assert!(
-            test.logger.was_executed(&test.db, "compute_tag_specs"),
-            "compute_tag_specs should recompute after inventory change"
+            test.logger.was_executed(&test.db, "collect_workspace_extraction_results"),
+            "collect_workspace_extraction_results should recompute after inventory change"
         );
+
+        // Note: compute_tag_specs may not re-execute if its output would be identical
+        // (Salsa's incremental computation avoids unnecessary work)
     }
 
     #[test]

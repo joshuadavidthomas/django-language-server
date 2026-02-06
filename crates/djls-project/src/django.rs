@@ -491,6 +491,26 @@ impl InspectorRequest for TemplateInventoryRequest {
     type Response = TemplateInventoryResponse;
 }
 
+/// Request for Python environment information (sys.path, etc.)
+#[derive(Serialize)]
+pub struct PythonEnvRequest;
+
+/// Response containing Python environment details
+#[derive(Deserialize)]
+pub struct PythonEnvResponse {
+    pub sys_base_prefix: Utf8PathBuf,
+    pub sys_executable: Utf8PathBuf,
+    pub sys_path: Vec<Utf8PathBuf>,
+    pub sys_platform: String,
+    pub sys_prefix: Utf8PathBuf,
+    pub sys_version_info: (u8, u8, u8, String, u8),
+}
+
+impl InspectorRequest for PythonEnvRequest {
+    const NAME: &'static str = "python_env";
+    type Response = PythonEnvResponse;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

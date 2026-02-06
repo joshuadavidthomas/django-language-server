@@ -16,9 +16,11 @@ This document tracks progress through the milestones for porting the Python `tem
 | M2 | Salsa Invalidation Plumbing | ✅ Complete | [`.agents/plans/2026-02-05-m2-salsa-invalidation-plumbing.md`](.agents/plans/2026-02-05-m2-salsa-invalidation-plumbing.md) |
 | M3 | `{% load %}` Scoping Infrastructure | ✅ Complete | [`.agents/plans/2026-02-05-m3-load-scoping.md`](.agents/plans/2026-02-05-m3-load-scoping.md) |
 | M4 | Filters Pipeline | ✅ Complete | [`.agents/plans/2026-02-05-m4-filters-pipeline.md`](.agents/plans/2026-02-05-m4-filters-pipeline.md) |
-| M5 | Rust Extraction Engine (`djls-extraction`) | 🔄 In Progress (Phase 2 Complete) | [`.agents/plans/2026-02-05-m5-extraction-engine.md`](.agents/plans/2026-02-05-m5-extraction-engine.md) |
-| M6 | Rule Evaluation + Expression Validation | 🔲 Not Started | [`.agents/plans/2026-02-05-m6-rule-evaluation.md`](.agents/plans/2026-02-05-m6-rule-evaluation.md) |
-| M7 | Documentation + Issue Reporting | 🔲 Not Started | [`.agents/plans/2026-02-05-m7-docs-and-issue-template.md`](.agents/plans/2026-02-05-m7-docs-and-issue-template.md) |
+| M5 | Rust Extraction Engine (`djls-extraction`) | ✅ Complete | [`.agents/plans/2026-02-05-m5-extraction-engine.md`](.agents/plans/2026-02-05-m5-extraction-engine.md) |
+| M6 | Rule Evaluation + Expression Validation | ✅ Complete (partial - see M8) | [`.agents/plans/2026-02-05-m6-rule-evaluation.md`](.agents/plans/2026-02-05-m6-rule-evaluation.md) |
+| M7 | Documentation + Issue Reporting | ✅ Complete | [`.agents/plans/2026-02-05-m7-docs-and-issue-template.md`](.agents/plans/2026-02-05-m7-docs-and-issue-template.md) |
+| M8 | Extracted Rule Evaluation | 📝 Ready | [`.agents/plans/2026-02-06-m8-extracted-rule-evaluation.md`](.agents/plans/2026-02-06-m8-extracted-rule-evaluation.md) |
+| M9 | User Config Tagspec Simplification | 🔲 Backlog | [`.agents/plans/2026-02-06-m9-tagspec-simplification.md`](.agents/plans/2026-02-06-m9-tagspec-simplification.md) |
 
 **Legend:**
 - 🔲 Not Started / Backlog
@@ -562,7 +564,7 @@ Add validation that checks filters against the inventory and load state, produci
 
 ## M5: Rust Extraction Engine
 
-**Status:** 🔄 In Progress (Phase 1 Complete)
+**Status:** ✅ Complete (Phases 1-6)
 
 **Goal:** Implement `djls-extraction` using Ruff AST to mine validation semantics from Python registration modules, keyed by SymbolKey.
 
@@ -844,51 +846,155 @@ Determine argument requirements for filters by analyzing function signatures.
 
 ---
 
-### Phase 7: Salsa Integration
+### Phase 7-9: Integration via `compute_tag_specs`
 
-**Status:** 🔲 Not Started
+**Status:** ✅ Complete (via M2-M4 pipeline)
 
-Wire extraction into tracked queries with proper invalidation.
+Phases 7-9 (Salsa integration, golden tests, corpus tests) are implemented through the existing M2-M4 pipeline:
 
----
+- **Salsa integration:** Extraction results feed into `compute_tag_specs()` tracked query via `merge_extraction_into_specs()` in `db.rs` (M2 Salsa plumbing)
+- **Golden tests:** Golden snapshots in `crates/djls-extraction/tests/golden.rs` verify extraction output stability
+- **Corpus tests:** Extraction-level corpus tests in `crates/djls-extraction/tests/corpus.rs` validate real-world Django packages
 
-### Phase 8: Small Fixture Golden Tests
-
-**Status:** 🔲 Not Started
-
-Fast, deterministic, pattern-focused tests.
-
----
-
-### Phase 9: Corpus / Full-Source Extraction Tests
-
-**Status:** 🔲 Not Started
-
-Scale validation, real-world coverage tests.
+The template-level corpus validation (testing extracted rules against actual templates) is covered in **M8 Phase 6**.
 
 ---
 
 ## M6: Rule Evaluation + Expression Validation
 
-**Status:** 🔲 Not Started
+**Status:** ✅ Complete (partial - see M8 for gap)
 
-**Goal:** Apply extracted rules to templates (argument constraints, block structure, opaque blocks) and add `{% if %}` / `{% elif %}` expression syntax validation.
+**Goal:** Apply extracted block structure and filter arity to templates, and add `{% if %}` / `{% elif %}` expression syntax validation.
 
 **Plan:** [`.agents/plans/2026-02-05-m6-rule-evaluation.md`](.agents/plans/2026-02-05-m6-rule-evaluation.md)
 
-### Tasks (TBD - will expand when M5 complete)
+### Delivered
+
+- ✅ `{% if %}` / `{% elif %}` expression syntax validation (Pratt parser, S114)
+- ✅ Filter arity validation from extraction (S115, S116)
+- ✅ Opaque region handling (`{% verbatim %}` etc.) from extraction
+- ✅ Block structure derived from extraction (end tags, intermediates)
+
+### Deferred to M8
+
+- ❌ `ExtractedRule` evaluation for argument constraints (`MaxArgCount`, `LiteralAt`, `ChoiceAt`, etc.) - extracted rules are stored but never evaluated
+
+The M6 plan originally deferred ExtractedRule evaluation, creating a dual-system architecture. M8 completes this by replacing the old hand-crafted `args` validation with the extracted rule evaluator.
 
 ---
 
 ## M7: Documentation + Issue Reporting
 
-**Status:** 🔲 Not Started
+**Status:** ✅ Complete
 
 **Goal:** Update documentation to reflect the new template validation behavior and add a high-signal issue template for reporting mismatches.
 
 **Plan:** [`.agents/plans/2026-02-05-m7-docs-and-issue-template.md`](.agents/plans/2026-02-05-m7-docs-and-issue-template.md)
 
-### Tasks (TBD - will expand when M6 complete)
+### Tasks
+
+- [x] Documentation explaining runtime-inventory + load-scoping model
+- [x] Known limitations of AST-derived rule mining documented
+- [x] Severity configuration for "unknown/unloaded" diagnostics
+- [x] GitHub issue template for "Template validation mismatch"
+
+---
+
+## M8: Extracted Rule Evaluation
+
+**Status:** 📝 Ready
+
+**Goal:** Build the evaluator that applies `ExtractedRule` conditions to template tag arguments, extract argument structure from Python AST, remove old hand-crafted `args`-based validation, and prove the system works via corpus-scale template validation tests.
+
+**Plan:** [`.agents/plans/2026-02-06-m8-extracted-rule-evaluation.md`](.agents/plans/2026-02-06-m8-extracted-rule-evaluation.md)
+
+This milestone closes the gap identified in the M6 post-mortem: extraction rules are computed but never read. After M8, the old `builtins.rs` args and `validate_argument_order()` are replaced entirely.
+
+### Phase 1: Argument Structure Extraction in `djls-extraction`
+
+**Status:** 🔲 Not Started
+
+Add `ExtractedArg` types and extract argument structure from Python AST. For `simple_tag`/`inclusion_tag`/`simple_block_tag`, derive from function signature. For manual `@register.tag`, reconstruct from `ExtractedRule` conditions + AST analysis.
+
+**Tasks:**
+- [ ] Add `ExtractedArg` and `ExtractedArgKind` types to `types.rs`
+- [ ] Add `extracted_args` field to `ExtractedTag`
+- [ ] Create `args.rs` module with `extract_args_from_signature()` for simple/inclusion/block tags
+- [ ] Implement `reconstruct_args_from_rules_and_ast()` for manual tags
+- [ ] Wire into `extract_rules()` orchestration in `lib.rs`
+- [ ] Update golden tests to include `extracted_args`
+- [ ] Quality checks pass
+
+### Phase 2: Build Extracted Rule Evaluator in `djls-semantic`
+
+**Status:** 🔲 Not Started
+
+Build the function that evaluates `ExtractedRule` conditions against template tag bits. Follow the `filter_arity.rs` pattern.
+
+**Tasks:**
+- [ ] Create `rule_evaluation.rs` module with `evaluate_extracted_rules()` function
+- [ ] Handle all `RuleCondition` variants with correct index offset (N → bits[N-1])
+- [ ] Implement negation semantics (negated = error when condition NOT met)
+- [ ] Add `ExtractedRuleViolation` error variant (S117) in `errors.rs`
+- [ ] Add diagnostic code S117 in `diagnostics.rs`
+- [ ] Unit tests for each `RuleCondition` variant
+- [ ] Quality checks pass
+
+### Phase 3: Wire Evaluator into Validation Pipeline
+
+**Status:** 🔲 Not Started
+
+Replace old `args`-based validation with extracted rule evaluator. Remove hand-crafted `args:` from `builtins.rs`.
+
+**Tasks:**
+- [ ] Update `validate_tag_arguments()` to use `evaluate_extracted_rules()` when `spec.extracted_rules` non-empty
+- [ ] Remove `EndTag.args` and `IntermediateTag.args` fields
+- [ ] Strip `args:` values from all 31 tag specs in `builtins.rs` (set to empty)
+- [ ] Simplify `merge_block_spec()` without args protection
+- [ ] Update existing tests to expect `ExtractedRuleViolation` instead of old errors
+- [ ] Quality checks pass
+
+### Phase 4: Wire Extracted Args into Completions/Snippets
+
+**Status:** 🔲 Not Started
+
+Populate `TagSpec.args` from extraction-derived argument structure so completions and snippets continue working.
+
+**Tasks:**
+- [ ] Add `ExtractedArg` → `TagArg` conversion in `specs.rs`
+- [ ] Add `populate_args_from_extraction()` method to `TagSpec`
+- [ ] Call `populate_args_from_extraction()` in `merge_extraction_into_specs()` in `db.rs`
+- [ ] Verify completions/snippets work without changes to `djls-ide`
+- [ ] Quality checks pass
+
+### Phase 5: Clean Up Dead Code
+
+**Status:** 🔲 Not Started
+
+Remove types and code paths that are now unused.
+
+**Tasks:**
+- [ ] Remove `TagArgSliceExt` trait (only used by deleted `validate_argument_order`)
+- [ ] Update `TagSpec.args` documentation to reflect new role
+- [ ] Update `TagSpec::from_extraction` to handle `extracted_args`
+- [ ] Keep `validate_argument_order` as user-config-only path (not for builtins)
+- [ ] Quality checks pass
+
+### Phase 6: Corpus Template Validation Tests
+
+**Status:** 🔲 Not Started
+
+Port the prototype's corpus tests to Rust. Validate actual templates against extracted rules and assert zero false positives.
+
+**Tasks:**
+- [ ] Create `corpus_templates.rs` integration test in `djls-server/tests/`
+- [ ] Implement `validate_template_file()` helper
+- [ ] Test Django shipped templates (4.2/5.1/5.2/6.0) - zero false positives
+- [ ] Test third-party packages (Wagtail, allauth, crispy-forms, etc.)
+- [ ] Test repo templates (Sentry, NetBox)
+- [ ] Test known-invalid templates produce expected errors
+- [ ] Add corpus validation to Justfile
+- [ ] Quality checks pass
 
 ---
 

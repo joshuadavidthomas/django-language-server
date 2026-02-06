@@ -4,10 +4,14 @@ version = "0.0.0"
 edition = "2021"
 description = "Python AST extraction for Django template tag/filter validation rules"
 
+[features]
+default = ["parser"]
+parser = ["dep:ruff_python_parser", "dep:ruff_python_ast", "dep:ruff_text_size"]
+
 [dependencies]
-ruff_python_parser = { workspace = true }
-ruff_python_ast = { workspace = true }
-ruff_text_size = { workspace = true }
+ruff_python_parser = { workspace = true, optional = true }
+ruff_python_ast = { workspace = true, optional = true }
+ruff_text_size = { workspace = true, optional = true }
 
 rustc-hash = { workspace = true }
 serde = { workspace = true }
