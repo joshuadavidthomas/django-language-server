@@ -369,10 +369,44 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ## M7 — Documentation + Issue Reporting
 
-**Status:** backlog
+**Status:** in-progress
 **Plan:** `.agents/plans/2026-02-05-m7-docs-and-issue-template.md`
 
-_Tasks to be expanded when M6 is complete._
+**Goal:** Document the new validation system (S108–S116), explain the inspector + extraction architecture for users, create a structured GitHub issue template for validation mismatches, and update existing docs with links to new content.
+
+### Phase 1: Create Template Validation Documentation Page
+
+- [ ] Read existing `docs/configuration/index.md` to understand current diagnostic code documentation format
+- [ ] Read existing `docs/configuration/tagspecs.md` to understand current tagspec documentation
+- [ ] Read `.mkdocs.yml` to understand navigation structure
+- [ ] Create `docs/template-validation.md` covering: how validation works (inspector + extraction), what djls validates (unknown tags/filters, unloaded library tags/filters, block structure, if-expression syntax, filter arity), what djls cannot validate (runtime behavior, variable resolution, template inheritance), inspector availability behavior, ambiguous symbols, link to issue template
+- [ ] Update `.mkdocs.yml` navigation to include the new page
+- [ ] Verify: docs structure is consistent, internal links resolve
+
+### Phase 2: Update Diagnostic Codes Documentation
+
+- [ ] Add S108–S110 (Tag Scoping) section to `docs/configuration/index.md`: UnknownTag, UnloadedTag, AmbiguousUnloadedTag
+- [ ] Add S111–S113 (Filter Scoping) section: UnknownFilter, UnloadedFilter, AmbiguousUnloadedFilter
+- [ ] Add S114–S116 (Expression & Filter Arity) section: ExpressionSyntaxError, FilterMissingArgument, FilterUnexpectedArgument
+- [ ] Add link to the new `docs/template-validation.md` page for more context
+- [ ] Verify: diagnostic code descriptions match actual implementation behavior
+
+### Phase 3: Create GitHub Issue Template for Validation Mismatches
+
+- [ ] Create `.github/ISSUE_TEMPLATE/config.yml` linking to documentation
+- [ ] Create `.github/ISSUE_TEMPLATE/template-validation-mismatch.yml` issue form requiring: djls version, Django version, minimal template snippet, relevant `{% load %}` statements, expected vs actual behavior, djls.toml excerpt, inspector status
+- [ ] Verify: YAML is valid syntax
+
+### Phase 4: Update TagSpecs Documentation
+
+- [ ] Update `docs/configuration/tagspecs.md` to replace generic "open an issue" text with link to the new issue template
+- [ ] Add cross-reference from tagspecs page to the template validation page
+- [ ] Verify: all internal links resolve
+
+### Phase 5: Final Validation
+
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q` (no code changes, but confirm nothing broke)
+- [ ] Review all new/updated docs for accuracy and consistency
 
 ---
 
