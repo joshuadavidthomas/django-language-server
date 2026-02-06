@@ -155,7 +155,7 @@
 
 ## M4 - Filters Pipeline
 
-**Status:** in-progress
+**Status:** complete
 **Plan:** `.agents/plans/2026-02-05-m4-filters-pipeline.md` (overview), phases in `m4.1` through `m4.4`
 
 ### Phase 1: Inspector Filter Inventory and Unified Types
@@ -223,13 +223,13 @@
 
 **Goal:** Add S111/S112/S113 diagnostics for unknown/unloaded/ambiguous filters.
 
-- [ ] Add `UnknownFilter { filter, span }`, `UnloadedLibraryFilter { filter, library, span }`, `AmbiguousUnloadedFilter { filter, libraries, span }` variants to `ValidationError` in `crates/djls-semantic/src/errors.rs`
-- [ ] Add S111/S112/S113 diagnostic codes in `crates/djls-ide/src/diagnostics.rs`
-- [ ] Add `FilterInventoryEntry` enum and `build_filter_inventory()` helper in `crates/djls-semantic/src/load_resolution.rs`
-- [ ] Implement `validate_filter_scoping(db, nodelist)` — iterates `Node::Variable` nodes, checks each `Filter` against inventory and load state
-- [ ] Wire `validate_filter_scoping` into `validate_nodelist` in `crates/djls-semantic/src/lib.rs` (after `validate_tag_scoping`)
-- [ ] Add validation tests: unknown filter produces S111, unloaded library filter produces S112, ambiguous filter produces S113, builtin filter always valid, filter valid after load
-- [ ] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Add `UnknownFilter { filter, span }`, `UnloadedLibraryFilter { filter, library, span }`, `AmbiguousUnloadedFilter { filter, libraries, span }` variants to `ValidationError` in `crates/djls-semantic/src/errors.rs`
+- [x] Add S111/S112/S113 diagnostic codes in `crates/djls-ide/src/diagnostics.rs`
+- [x] Add `FilterInventoryEntry` enum and `build_filter_inventory()` helper in `crates/djls-semantic/src/load_resolution.rs`
+- [x] Implement `validate_filter_scoping(db, nodelist)` — iterates `Node::Variable` nodes, checks each `Filter` against inventory and load state
+- [x] Wire `validate_filter_scoping` into `validate_nodelist` in `crates/djls-semantic/src/lib.rs` (after `validate_tag_scoping`)
+- [x] Add validation tests: unknown filter produces S111, unloaded library filter produces S112, ambiguous filter produces S113, builtin filter always valid, filter valid after load
+- [x] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ---
 

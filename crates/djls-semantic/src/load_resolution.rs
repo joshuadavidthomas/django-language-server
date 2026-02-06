@@ -347,6 +347,109 @@ fn build_tag_inventory(inventory: &InspectorInventory) -> FxHashMap<String, TagI
     result
 }
 
+#[derive(Debug, Clone)]
+enum FilterInventoryEntry {
+    Builtin,
+    Libraries(Vec<String>),
+}
+
+fn build_filter_inventory(
+    inventory: &InspectorInventory,
+) -> FxHashMap<String, FilterInventoryEntry> {
+    let mut result: FxHashMap<String, FilterInventoryEntry> = FxHashMap::default();
+
+    for filter in inventory.iter_filters() {
+        let name = filter.name().to_string();
+        match filter.provenance() {
+            FilterProvenance::Builtin { .. } => {
+                result.insert(name, FilterInventoryEntry::Builtin);
+            }
+            FilterProvenance::Library { load_name, .. } => {
+                if let Some(entry) = result.get_mut(&name) {
+                    if let FilterInventoryEntry::Libraries(libs) = entry {
+                        if !libs.contains(load_name) {
+                            libs.push(load_name.clone());
+                        }
+                    }
+                } else {
+                    result.insert(
+                        name,
+                        FilterInventoryEntry::Libraries(vec![load_name.clone()]),
+                    );
+                }
+            }
+        }
+    }
+
+    result
+}
+
+/// Validate that all filters in the template are either builtins or from loaded libraries.
+///
+/// Skips validation entirely when inspector inventory is unavailable.
+/// Iterates over `Node::Variable` nodes and checks each `Filter` against
+/// the inventory and load state, producing S111/S112/S113 diagnostics.
+#[salsa::tracked]
+pub fn validate_filter_scoping(db: &dyn crate::Db, nodelist: djls_templates::NodeList<'_>) {
+    let Some(inventory) = db.inspector_inventory() else {
+        return;
+    };
+
+    let loaded = compute_loaded_libraries(db, nodelist);
+    let filter_lookup = build_filter_inventory(&inventory);
+
+    for node in nodelist.nodelist(db) {
+        if let Node::Variable { filters, .. } = node {
+            for filter in filters {
+                validate_single_filter(db, filter, &filter_lookup, &loaded, &inventory);
+            }
+        }
+    }
+}
+
+fn validate_single_filter(
+    db: &dyn crate::Db,
+    filter: &djls_templates::Filter,
+    filter_lookup: &FxHashMap<String, FilterInventoryEntry>,
+    loaded: &LoadedLibraries,
+    inventory: &InspectorInventory,
+) {
+    let name = &filter.name;
+    let span = filter.name_span();
+
+    match filter_lookup.get(name) {
+        None => {
+            ValidationErrorAccumulator(ValidationError::UnknownFilter {
+                filter: name.clone(),
+                span,
+            })
+            .accumulate(db);
+        }
+        Some(FilterInventoryEntry::Builtin) => {}
+        Some(FilterInventoryEntry::Libraries(candidate_libs)) => {
+            let available = available_filters_at(loaded, inventory, filter.span.start());
+
+            if !available.has_filter(name) {
+                if candidate_libs.len() == 1 {
+                    ValidationErrorAccumulator(ValidationError::UnloadedLibraryFilter {
+                        filter: name.clone(),
+                        library: candidate_libs[0].clone(),
+                        span,
+                    })
+                    .accumulate(db);
+                } else {
+                    ValidationErrorAccumulator(ValidationError::AmbiguousUnloadedFilter {
+                        filter: name.clone(),
+                        libraries: candidate_libs.clone(),
+                        span,
+                    })
+                    .accumulate(db);
+                }
+            }
+        }
+    }
+}
+
 /// Validate that all tags in the template are either builtins or from loaded libraries.
 ///
 /// Skips validation entirely when inspector inventory is unavailable.
@@ -736,5 +839,318 @@ mod availability_tests {
         let after = available_tags_at(&loaded, &inventory, 200);
         assert!(after.has_tag("trans"));
         assert!(after.has_tag("blocktrans"));
+    }
+}
+
+#[cfg(test)]
+mod filter_availability_tests {
+    use std::collections::HashMap;
+
+    use djls_project::TemplateFilter;
+
+    use super::*;
+
+    fn make_filter_inventory() -> InspectorInventory {
+        InspectorInventory::new(
+            HashMap::from([(
+                "humanize".to_string(),
+                "django.contrib.humanize.templatetags.humanize".to_string(),
+            )]),
+            vec!["django.template.defaultfilters".to_string()],
+            vec![],
+            vec![
+                TemplateFilter::new_builtin("title", "django.template.defaultfilters", None),
+                TemplateFilter::new_builtin("upper", "django.template.defaultfilters", None),
+                TemplateFilter::new_builtin("default", "django.template.defaultfilters", None),
+                TemplateFilter::new_library(
+                    "intcomma",
+                    "humanize",
+                    "django.contrib.humanize.templatetags.humanize",
+                    None,
+                ),
+                TemplateFilter::new_library(
+                    "naturaltime",
+                    "humanize",
+                    "django.contrib.humanize.templatetags.humanize",
+                    None,
+                ),
+            ],
+        )
+    }
+
+    #[test]
+    fn builtin_filters_always_available() {
+        let loaded = LoadedLibraries::new();
+        let inventory = make_filter_inventory();
+
+        let available = available_filters_at(&loaded, &inventory, 0);
+
+        assert!(available.has_filter("title"));
+        assert!(available.has_filter("upper"));
+        assert!(available.has_filter("default"));
+        assert!(!available.has_filter("intcomma"));
+    }
+
+    #[test]
+    fn library_filter_after_load() {
+        let mut loaded = LoadedLibraries::new();
+        loaded.push(LoadStatement {
+            span: Span::new(0, 18),
+            kind: LoadKind::Libraries(vec!["humanize".to_string()]),
+        });
+        let inventory = make_filter_inventory();
+
+        let before = available_filters_at(&loaded, &inventory, 5);
+        assert!(!before.has_filter("intcomma"));
+
+        let after = available_filters_at(&loaded, &inventory, 25);
+        assert!(after.has_filter("intcomma"));
+        assert!(after.has_filter("naturaltime"));
+    }
+
+    #[test]
+    fn selective_filter_import() {
+        let mut loaded = LoadedLibraries::new();
+        loaded.push(LoadStatement {
+            span: Span::new(0, 35),
+            kind: LoadKind::Selective {
+                symbols: vec!["intcomma".to_string()],
+                library: "humanize".to_string(),
+            },
+        });
+        let inventory = make_filter_inventory();
+
+        let available = available_filters_at(&loaded, &inventory, 50);
+        assert!(available.has_filter("intcomma"));
+        assert!(!available.has_filter("naturaltime"));
+    }
+
+    #[test]
+    fn filter_not_available_without_load() {
+        let loaded = LoadedLibraries::new();
+        let inventory = make_filter_inventory();
+
+        let available = available_filters_at(&loaded, &inventory, 100);
+        assert!(!available.has_filter("intcomma"));
+        assert!(!available.has_filter("naturaltime"));
+    }
+}
+
+#[cfg(test)]
+mod filter_validation_tests {
+    use std::collections::HashMap;
+    use std::sync::Arc;
+    use std::sync::Mutex;
+
+    use camino::Utf8Path;
+    use camino::Utf8PathBuf;
+    use djls_project::TemplateFilter;
+    use djls_source::File;
+    use djls_workspace::FileSystem;
+    use djls_workspace::InMemoryFileSystem;
+
+    use super::*;
+    use crate::templatetags::django_builtin_specs;
+    use crate::TagIndex;
+
+    #[salsa::db]
+    #[derive(Clone)]
+    struct TestDatabase {
+        storage: salsa::Storage<Self>,
+        fs: Arc<Mutex<InMemoryFileSystem>>,
+        inventory: Option<InspectorInventory>,
+    }
+
+    impl TestDatabase {
+        fn with_inventory(inventory: InspectorInventory) -> Self {
+            Self {
+                storage: salsa::Storage::default(),
+                fs: Arc::new(Mutex::new(InMemoryFileSystem::new())),
+                inventory: Some(inventory),
+            }
+        }
+    }
+
+    #[salsa::db]
+    impl salsa::Database for TestDatabase {}
+
+    #[salsa::db]
+    impl djls_source::Db for TestDatabase {
+        fn create_file(&self, path: &Utf8Path) -> File {
+            File::new(self, path.to_owned(), 0)
+        }
+
+        fn get_file(&self, _path: &Utf8Path) -> Option<File> {
+            None
+        }
+
+        fn read_file(&self, path: &Utf8Path) -> std::io::Result<String> {
+            self.fs.lock().unwrap().read_to_string(path)
+        }
+    }
+
+    #[salsa::db]
+    impl djls_templates::Db for TestDatabase {}
+
+    #[salsa::db]
+    impl crate::Db for TestDatabase {
+        fn tag_specs(&self) -> crate::templatetags::TagSpecs {
+            django_builtin_specs()
+        }
+
+        fn tag_index(&self) -> TagIndex<'_> {
+            TagIndex::from_specs(self)
+        }
+
+        fn template_dirs(&self) -> Option<Vec<Utf8PathBuf>> {
+            None
+        }
+
+        fn diagnostics_config(&self) -> djls_conf::DiagnosticsConfig {
+            djls_conf::DiagnosticsConfig::default()
+        }
+
+        fn inspector_inventory(&self) -> Option<djls_project::InspectorInventory> {
+            self.inventory.clone()
+        }
+    }
+
+    fn make_filter_inventory() -> InspectorInventory {
+        InspectorInventory::new(
+            HashMap::from([
+                (
+                    "humanize".to_string(),
+                    "django.contrib.humanize.templatetags.humanize".to_string(),
+                ),
+                (
+                    "custom".to_string(),
+                    "myapp.templatetags.custom".to_string(),
+                ),
+            ]),
+            vec!["django.template.defaultfilters".to_string()],
+            vec![],
+            vec![
+                TemplateFilter::new_builtin("title", "django.template.defaultfilters", None),
+                TemplateFilter::new_builtin("upper", "django.template.defaultfilters", None),
+                TemplateFilter::new_library(
+                    "intcomma",
+                    "humanize",
+                    "django.contrib.humanize.templatetags.humanize",
+                    None,
+                ),
+                TemplateFilter::new_library(
+                    "myfilter",
+                    "custom",
+                    "myapp.templatetags.custom",
+                    None,
+                ),
+                // Ambiguous filter: same name in two libraries
+                TemplateFilter::new_library(
+                    "sharedfilter",
+                    "humanize",
+                    "django.contrib.humanize.templatetags.humanize",
+                    None,
+                ),
+                TemplateFilter::new_library(
+                    "sharedfilter",
+                    "custom",
+                    "myapp.templatetags.custom",
+                    None,
+                ),
+            ],
+        )
+    }
+
+    fn parse_and_validate(db: &TestDatabase, content: &str) -> Vec<ValidationError> {
+        use djls_source::Db as SourceDb;
+
+        let path = Utf8Path::new("/test.html");
+        db.fs.lock().unwrap().add_file(path.to_owned(), content.to_string());
+
+        let file = db.create_file(path);
+        let nodelist = djls_templates::parse_template(db, file).expect("template should parse");
+
+        validate_filter_scoping::accumulated::<ValidationErrorAccumulator>(db, nodelist)
+            .into_iter()
+            .map(|acc| acc.0.clone())
+            .collect()
+    }
+
+    #[test]
+    fn unknown_filter_produces_s111() {
+        let db = TestDatabase::with_inventory(make_filter_inventory());
+        let errors = parse_and_validate(&db, "{{ value|nonexistent }}");
+
+        assert_eq!(errors.len(), 1);
+        assert!(
+            matches!(&errors[0], ValidationError::UnknownFilter { filter, .. } if filter == "nonexistent")
+        );
+    }
+
+    #[test]
+    fn unloaded_library_filter_produces_s112() {
+        let db = TestDatabase::with_inventory(make_filter_inventory());
+        let errors = parse_and_validate(&db, "{{ value|intcomma }}");
+
+        assert_eq!(errors.len(), 1);
+        assert!(
+            matches!(&errors[0], ValidationError::UnloadedLibraryFilter { filter, library, .. } if filter == "intcomma" && library == "humanize")
+        );
+    }
+
+    #[test]
+    fn ambiguous_filter_produces_s113() {
+        let db = TestDatabase::with_inventory(make_filter_inventory());
+        let errors = parse_and_validate(&db, "{{ value|sharedfilter }}");
+
+        assert_eq!(errors.len(), 1);
+        assert!(
+            matches!(&errors[0], ValidationError::AmbiguousUnloadedFilter { filter, libraries, .. } if filter == "sharedfilter" && libraries.len() == 2)
+        );
+    }
+
+    #[test]
+    fn builtin_filter_always_valid() {
+        let db = TestDatabase::with_inventory(make_filter_inventory());
+        let errors = parse_and_validate(&db, "{{ value|title }}");
+
+        assert!(errors.is_empty(), "Builtin filters should produce no errors");
+    }
+
+    #[test]
+    fn filter_valid_after_load() {
+        let db = TestDatabase::with_inventory(make_filter_inventory());
+        let errors = parse_and_validate(&db, "{% load humanize %}{{ value|intcomma }}");
+
+        assert!(
+            errors.is_empty(),
+            "Filter should be valid after loading its library"
+        );
+    }
+
+    #[test]
+    fn multiple_filters_mixed_validity() {
+        let db = TestDatabase::with_inventory(make_filter_inventory());
+        let errors = parse_and_validate(&db, "{{ value|title|intcomma }}");
+
+        assert_eq!(errors.len(), 1, "Only unloaded filter should error");
+        assert!(
+            matches!(&errors[0], ValidationError::UnloadedLibraryFilter { filter, .. } if filter == "intcomma")
+        );
+    }
+
+    #[test]
+    fn no_errors_without_inventory() {
+        let db = TestDatabase {
+            storage: salsa::Storage::default(),
+            fs: Arc::new(Mutex::new(InMemoryFileSystem::new())),
+            inventory: None,
+        };
+        let errors = parse_and_validate(&db, "{{ value|nonexistent }}");
+
+        assert!(
+            errors.is_empty(),
+            "No errors should be produced without inventory"
+        );
     }
 }
