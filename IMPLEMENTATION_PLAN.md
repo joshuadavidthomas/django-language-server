@@ -116,11 +116,11 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ### Phase 3: Available Symbols Query
 
-- [ ] Define `AvailableSymbols` type representing the set of tags available at a given position, plus a mapping of unavailable-but-known tags to their required library/libraries
-- [ ] Implement query logic: start with all builtin tags (always available), add tags from fully-loaded libraries (load span < position), add selectively-imported symbols, handle selective→full load ordering
-- [ ] Handle tag-name collision: track ALL candidate libraries for each tag name from inspector inventory
-- [ ] Tests: tag before load (unavailable), tag after load (available), selective imports, full load overriding selective, multiple libraries for same tag name → multiple candidates, builtins always available regardless of position
-- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Define `AvailableSymbols` type representing the set of tags available at a given position, plus a mapping of unavailable-but-known tags to their required library/libraries
+- [x] Implement query logic: start with all builtin tags (always available), add tags from fully-loaded libraries (load span < position), add selectively-imported symbols, handle selective→full load ordering
+- [x] Handle tag-name collision: track ALL candidate libraries for each tag name from inspector inventory
+- [x] Tests: tag before load (unavailable), tag after load (available), selective imports, full load overriding selective, multiple libraries for same tag name → multiple candidates, builtins always available regardless of position
+- [x] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 4: Validation Integration — Unknown Tag Diagnostics
 

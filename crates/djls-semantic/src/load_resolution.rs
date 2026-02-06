@@ -1,4 +1,5 @@
 mod load;
+mod symbols;
 
 use djls_templates::Node;
 use djls_templates::NodeList;
@@ -9,6 +10,8 @@ pub use load::LoadKind;
 pub use load::LoadStatement;
 pub use load::LoadedLibraries;
 pub use load::parse_load_bits;
+pub use symbols::AvailableSymbols;
+pub use symbols::TagAvailability;
 
 /// Compute the [`LoadedLibraries`] for a parsed template's node list.
 ///
