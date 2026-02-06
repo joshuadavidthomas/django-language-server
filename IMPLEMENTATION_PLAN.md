@@ -419,7 +419,7 @@ Update `{% load %}` completions to show available libraries and handle completio
 
 ## M4: Filters Pipeline
 
-**Status:** 🔄 In Progress
+**Status:** ✅ Complete
 
 **Goal:** Filter inventory-driven completions + unknown-filter diagnostics, with load scoping correctness, and a structured filter representation in `djls-templates`.
 
@@ -562,13 +562,119 @@ Add validation that checks filters against the inventory and load state, produci
 
 ## M5: Rust Extraction Engine
 
-**Status:** 🔲 Not Started
+**Status:** 📝 Ready
 
 **Goal:** Implement `djls-extraction` using Ruff AST to mine validation semantics from Python registration modules, keyed by SymbolKey.
 
 **Plan:** [`.agents/plans/2026-02-05-m5-extraction-engine.md`](.agents/plans/2026-02-05-m5-extraction-engine.md)
 
-### Tasks (TBD - will expand when M4 complete)
+### Phase 1: Create `djls-extraction` Crate with Ruff Parser
+
+**Status:** 📝 Ready
+
+Create a new crate with a pure, testable API for Python source extraction. Pin Ruff parser to a known-good SHA.
+
+**Tasks:**
+- [ ] Add workspace dependency in root `Cargo.toml`:
+  - Add `djls-extraction = { path = "crates/djls-extraction" }` to `[workspace.dependencies]`
+  - Add Ruff parser deps with SHA: `ruff_python_parser`, `ruff_python_ast`, `ruff_text_size`
+  - Resolve tag to full 40-character SHA via `git ls-remote`
+  - Document both source tag AND resolved SHA in comments
+- [ ] Create crate structure at `crates/djls-extraction/`:
+  - `Cargo.toml` with workspace dependencies
+  - `src/lib.rs` with public API: `extract_rules(source: &str) -> Result<ExtractionResult, ExtractionError>`
+  - `src/error.rs` with `ExtractionError` enum
+  - `src/types.rs` with `SymbolKey`, `ExtractedTag`, `ExtractedFilter`, `ExtractionResult`, etc.
+  - `src/parser.rs` with Ruff parser wrapper
+  - Module stubs: `registry.rs`, `context.rs`, `rules.rs`, `structural.rs`, `filters.rs`, `patterns.rs`
+- [ ] Implement core types with `Serialize`/`Deserialize` derives:
+  - `SymbolKey` with `registration_module`, `name`, `kind` fields
+  - `ExtractedTag` with `name`, `decorator_kind`, `rules`, `block_spec`
+  - `ExtractedFilter` with `name`, `arity`
+  - `RuleCondition` enum for all condition types
+  - `DecoratorKind` enum for tag registration types
+  - `BlockTagSpec` with `end_tag`, `intermediate_tags`, `opaque`
+- [ ] Implement `extract_rules()` entry point with module skeleton:
+  - Call `parser::parse_module()` to get AST
+  - Call `registry::find_registrations()` to find decorators
+  - Iterate tags and call `context::FunctionContext::from_registration()`
+  - Call `rules::extract_tag_rules()` and `structural::extract_block_spec()`
+  - Iterate filters and call `filters::extract_filter_arity()`
+  - Return `ExtractionResult`
+
+**Quality Checks:**
+- [ ] `cargo build -p djls-extraction` passes
+- [ ] `cargo clippy -p djls-extraction --all-targets -- -D warnings` passes
+- [ ] Ruff SHA in Cargo.toml is exactly 40 hex characters
+- [ ] Cargo.toml comment documents both source tag AND resolved SHA
+- [ ] `cargo build` (full build) passes
+- [ ] `cargo test` passes
+
+**Discoveries:** *(to be filled during implementation)*
+
+---
+
+### Phase 2: Implement Registration Discovery
+
+**Status:** 🔲 Not Started
+
+Find `@register.tag`, `@register.filter`, and related decorators in Python AST.
+
+---
+
+### Phase 3: Implement Function Context Detection
+
+**Status:** 🔲 Not Started
+
+Identify split-contents variable dynamically (NOT hardcoded `bits`).
+
+---
+
+### Phase 4: Implement Rule Extraction
+
+**Status:** 🔲 Not Started
+
+Derive validation conditions from TemplateSyntaxError guards.
+
+---
+
+### Phase 5: Implement Block Spec Extraction
+
+**Status:** 🔲 Not Started
+
+Infer end-tags from control flow patterns (NO string heuristics like `starts_with("end")`).
+
+---
+
+### Phase 6: Implement Filter Arity Extraction
+
+**Status:** 🔲 Not Started
+
+Determine argument requirements for filters.
+
+---
+
+### Phase 7: Salsa Integration
+
+**Status:** 🔲 Not Started
+
+Wire extraction into tracked queries with proper invalidation.
+
+---
+
+### Phase 8: Small Fixture Golden Tests
+
+**Status:** 🔲 Not Started
+
+Fast, deterministic, pattern-focused tests.
+
+---
+
+### Phase 9: Corpus / Full-Source Extraction Tests
+
+**Status:** 🔲 Not Started
+
+Scale validation, real-world coverage tests.
 
 ---
 
