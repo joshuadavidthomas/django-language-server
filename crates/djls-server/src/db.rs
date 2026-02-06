@@ -16,6 +16,9 @@ use djls_project::Db as ProjectDb;
 use djls_project::Inspector;
 use djls_project::Interpreter;
 use djls_project::Project;
+use djls_project::TemplateTags;
+use djls_project::TemplatetagsRequest;
+use djls_project::TemplatetagsResponse;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::TagIndex;
 use djls_semantic::TagSpecs;
@@ -191,6 +194,52 @@ impl DjangoDatabase {
         }
 
         env_changed
+    }
+
+    /// Query the Python inspector directly and update the project's inventory
+    /// if the result differs from the current value.
+    ///
+    /// This is a side-effect operation that bypasses Salsa tracked functions,
+    /// querying the inspector subprocess directly and only calling the Salsa
+    /// setter when the inventory has actually changed (Ruff/RA pattern).
+    pub fn refresh_inspector(&mut self) {
+        let Some(project) = self.project() else {
+            return;
+        };
+
+        let interpreter = project.interpreter(self).clone();
+        let root = project.root(self).clone();
+        let dsm = project.django_settings_module(self).clone();
+        let pythonpath = project.pythonpath(self).clone();
+
+        let new_inventory = match self.inspector.query::<TemplatetagsRequest, TemplatetagsResponse>(
+            &interpreter,
+            &root,
+            dsm.as_deref(),
+            &pythonpath,
+            &TemplatetagsRequest,
+        ) {
+            Ok(response) if response.ok => {
+                response.data.map(TemplateTags::from_response)
+            }
+            Ok(response) => {
+                tracing::warn!(
+                    "refresh_inspector: inspector returned ok=false, error={:?}",
+                    response.error
+                );
+                None
+            }
+            Err(e) => {
+                tracing::error!("refresh_inspector: inspector query failed: {}", e);
+                None
+            }
+        };
+
+        if project.inspector_inventory(self) != &new_inventory {
+            project
+                .set_inspector_inventory(self)
+                .to(new_inventory);
+        }
     }
 
     fn set_project(&mut self, root: &Utf8Path, settings: &Settings) {
