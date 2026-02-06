@@ -70,7 +70,7 @@ just lint                       # Run pre-commit hooks
 - `djls-extraction` public API: `extract_rules(source) -> ExtractionResult` orchestrates parse→registry→context→rules→structural→filters
 
 ### Trait Impls — Update ALL Locations When Changing Traits
-Adding a method to `djls-semantic`'s `crate::Db` trait requires updating **8 impl blocks**:
+Adding a method to `djls-semantic`'s `crate::Db` trait requires updating **7 impl blocks**:
 1. `crates/djls-server/src/db.rs` — `impl SemanticDb for DjangoDatabase`
 2. `crates/djls-bench/src/db.rs` — `impl SemanticDb for Db`
 3. `crates/djls-semantic/src/arguments.rs` — `impl crate::Db for TestDatabase` (in `#[cfg(test)]`)
@@ -169,6 +169,13 @@ Test impls typically return `None` / default values. Forgetting even one causes 
 - `not` is prefix-only (unary), all other operators are infix — the parser distinguishes via `is_prefix`/`is_infix` flags
 - Returns `None` for valid expressions, `Some(error_message)` for invalid — error messages match Django's format
 
+### Documentation & MkDocs
+- Config file: `.mkdocs.yml` (NOT `mkdocs.yml` — leading dot)
+- Docs source: `docs/` directory — use Material for MkDocs with admonitions, tabbed content, etc.
+- `just docs build` generates `site/` which is gitignored — never commit built docs
+- GitHub issue templates: `.github/ISSUE_TEMPLATE/` — use `config.yml` for external links, `.yml` forms for structured issue creation
+- Nav structure defined in `.mkdocs.yml` under `nav:` key — new pages must be added there
+
 ### File Locations (avoid repeated lookups)
 - Salsa database + tracked queries: `crates/djls-server/src/db.rs`
 - Project salsa input: `crates/djls-project/src/project.rs`
@@ -203,6 +210,11 @@ Test impls typically return `None` / default values. Forgetting even one causes 
 - `LoadState` (load-scoping state machine): `crates/djls-semantic/src/load_resolution.rs` (pub(crate))
 - Validate nodelist orchestrator: `crates/djls-semantic/src/lib.rs` (`validate_nodelist` calls all validation functions)
 - Project lib.rs re-exports: `crates/djls-project/src/lib.rs` — check here when unsure what's public from djls-project
+- MkDocs config: `.mkdocs.yml`
+- Template validation docs: `docs/template-validation.md`
+- Diagnostic codes docs: `docs/configuration/index.md` (S-codes table in "Available diagnostic codes" section)
+- TagSpecs docs: `docs/configuration/tagspecs.md`
+- GitHub issue template config: `.github/ISSUE_TEMPLATE/config.yml`
 
 ## Task Management
 Use `/dex` to break down complex work, track progress across sessions, and coordinate multi-step implementations.
