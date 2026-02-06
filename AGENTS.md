@@ -67,6 +67,8 @@ just lint                       # Run pre-commit hooks
 - **Filter snapshots**: `crates/djls-templates/src/snapshots/` — `parse_django_variable_with_filter.snap`, `parse_filter_chains.snap` — structured `Filter` objects with name/arg/span
 - **Rule evaluator**: `crates/djls-semantic/src/rule_evaluation.rs` — `evaluate_tag_rules()`, S117 diagnostic, index offset logic between extraction and parser
 - **Extraction types**: `crates/djls-extraction/src/types.rs` — `SymbolKey`, `ExtractionResult`, `TagRule`, `ExtractedArg`, `FilterArity`, `BlockTagSpec`, `ArgumentCountConstraint`
+- **Snippets**: `crates/djls-ide/src/snippets.rs` — `generate_snippet_from_args()`, reads `TagArg` to produce LSP snippet strings
+- **Diagnostics mapping**: `crates/djls-ide/src/diagnostics.rs` — `ValidationError` → S-code mapping, LSP `Diagnostic` construction, span → range conversion
 
 ## Documentation File Paths
 - **MkDocs config**: `.mkdocs.yml` — nav structure, theme config, markdown extensions
@@ -111,6 +113,8 @@ just lint                       # Run pre-commit hooks
 - **Completions depend on load scoping**: `generate_tag_name_completions` needs `LoadedLibraries` + inspector inventory to filter results by position. When inspector unavailable, show all tags as fallback.
 - **SemanticDb trait changes**: When adding methods to `SemanticDb`, update ALL test databases: `arguments.rs`, `blocks/tree.rs`, `semantic/forest.rs`, `load_resolution.rs`, `load_resolution/validation.rs`, `djls-bench/src/db.rs`, `djls-server/src/db.rs`
 - **`crate::Db` vs `SemanticDb`**: In `djls-semantic`, test databases implement `crate::Db` (Salsa jar trait). `SemanticDb` (runtime trait) is only implemented on `DjangoDatabase` in `djls-server` and `Db` in `djls-bench`. Don't confuse the two.
+- **`Serialize` for insta types**: Any type used in `Node` enum variants or test helpers that appear in insta snapshots must derive `serde::Serialize`. E0277 when missing.
+- **Match `ValidationError` exhaustively**: When adding or removing variants from `ValidationError`, update: `errors.rs` (definition), `diagnostics.rs` (S-code mapping + span extraction), test helpers in `lib.rs` that filter errors, any other match sites found via `grep -rn "ValidationError" crates/ --include="*.rs"`.
 
 ## Common Agent Mistakes (from session history)
 - **Wrong file paths**: `crates/djls-templates/src/ast.rs` does NOT exist — node types are in `nodelist.rs`. `templatetags/mod.rs` does NOT exist — uses `templatetags.rs` convention.
@@ -122,6 +126,9 @@ just lint                       # Run pre-commit hooks
 - **Private module access**: E0603. Semantic sub-modules like `blocks/tree.rs` need `pub` re-export from parent (`blocks.rs`) to be accessible from other crates. Check visibility before cross-crate access.
 - **Test inventories need relevant builtins**: When testing tag/filter scoping, add the tags you're testing to the mock builtin inventory — otherwise `validate_tag_scoping` emits spurious S108 (unknown tag) errors that mask the real test intent.
 - **`cargo test` vs `cargo test -p`**: If `cargo test` (workspace) fails with E0599 but `cargo test -p crate_name` passes, it's a shared `target/` directory issue. Stale artifacts from main repo conflict with worktree code. See Worktree Gotchas.
+- **`Filter` struct has public fields, not methods**: `djls_templates::Filter` uses `pub name`, `pub arg`, `pub span` — access as `filter.name`, NOT `filter.name()`. E0599 "no method named `name`" if you use accessor syntax.
+- **New types in snapshot contexts need `Serialize`**: Types used in `Node` variants or test helpers that appear in insta snapshots must derive `serde::Serialize`. E0277 "Serialize is not satisfied" otherwise.
+- **Mass deletion across crates**: When removing a type used across many files (e.g., `TagArg`), grep for the type name across the entire workspace first (`grep -rn "TypeName" crates/ --include="*.rs"`). Delete consumers before the definition — removing the definition first causes cascading compile errors that are harder to track.
 
 ## Extraction Architecture Patterns
 - **Two-dispatch pattern for tag rules**: `extract_tag_rule()` dispatches based on `RegistrationKind` — `@register.tag` (compile function) goes to `extract_compile_function_rule()` which uses split_contents guard analysis; `@register.simple_tag` / `@register.inclusion_tag` goes to `extract_parse_bits_rule()` which uses function signature analysis (parameter count, defaults, `takes_context`).
@@ -136,6 +143,13 @@ just lint                       # Run pre-commit hooks
 - **S117 (`ExtractedRuleViolation`)**: Carries `tag: String`, `message: String`, `span: Span`. Message is dynamically generated from the rule context (e.g., "tag 'for' requires at least 4 arguments"). Severity configurable via `djls-conf` prefix matching (S1, S11, S117).
 - **Rule evaluator file**: `crates/djls-semantic/src/rule_evaluation.rs` — `evaluate_tag_rules()` function, 546 lines with comprehensive unit tests.
 - **`ExtractedArg` type**: In `djls-extraction/src/types.rs` — `name`, `required`, `kind` (`Literal`/`Variable`/`Choice`/`VarArgs`), `default_value`, `position`. Used for completions/snippets; validation uses `TagRule` constraints directly.
+
+## M9 Deletion Scope (active)
+- **`TagArg` consumers**: `completions.rs` (match arms at ~line 617), `snippets.rs` (entire file depends on `TagArg`), `arguments.rs` (`validate_args_against_spec` + `validate_argument_order`). Delete consumers BEFORE the type.
+- **`TagArg` re-export chain**: defined in `specs.rs` → re-exported from `templatetags.rs` → re-exported from `djls-semantic/src/lib.rs` → imported in `djls-ide/src/completions.rs` and `djls-ide/src/snippets.rs`.
+- **S104–S107 variants**: defined in `errors.rs`, mapped to codes in `diagnostics.rs` (~line 88-91), filtered in test helpers in `lib.rs` (~line 912). Remove from all three.
+- **`args` field cascade**: `TagSpec.args`, `EndTag.args`, `IntermediateTag.args` in `specs.rs` → used in `arguments.rs` validation, `completions.rs` argument completion, `snippets.rs` snippet generation, `merge_extraction_results()`, `builtins.rs` construction.
+- **Replacement path for completions/snippets**: After removing `TagArg`, completions/snippets should read `spec.extracted_rules.as_ref().map(|r| &r.extracted_args)` directly using `ExtractedArg` type from `djls-extraction`.
 
 ## Validation Architecture Patterns
 - **`validate_nodelist` is the orchestrator**: All validation passes are called from `crates/djls-semantic/src/lib.rs` `validate_nodelist()`. New validators wire in here.
@@ -152,17 +166,20 @@ just lint                       # Run pre-commit hooks
 - **`TemplateFilter` shares `TagProvenance`**: Filters use the same `TagProvenance` enum as tags (Library/Builtin variants). Don't create a separate provenance type for filters.
 
 ## Hot Files (heavily read/edited — know these well)
-- **`crates/djls-ide/src/completions.rs`** — integration point for tag, library, and filter completions; most-edited file across all sessions (34 edits). Read before modifying any completion logic.
-- **`crates/djls-server/src/db.rs`** — Salsa database, tracked queries, `SemanticDb` impl, update/refresh methods (33 edits).
-- **`crates/djls-extraction/src/lib.rs`** — public API, `extract_rules()` pipeline, feature-gated re-exports (32 edits, 27 reads). Read before adding extraction entry points or changing the pipeline.
-- **`crates/djls-project/src/django.rs`** — `TemplateTag`, `TemplateFilter`, `TemplateTags`, `TagProvenance` (16 edits) — read before any type changes.
-- **`crates/djls-semantic/src/templatetags/specs.rs`** — `TagSpecs`, `TagIndex`, `django_builtin_specs()`, `merge_extraction_results()` (21 reads) — central to tag spec management.
-- **`crates/djls-extraction/src/rules.rs`** — Rule extraction from compile functions and simple_tag signatures (15 edits, 1300+ lines). Read before adding extraction logic.
+- **`crates/djls-server/src/db.rs`** — Salsa database, tracked queries, `SemanticDb` impl, update/refresh methods (42 edits, 46 reads). Read before modifying any Salsa query or database interaction.
+- **`crates/djls-semantic/src/lib.rs`** — `validate_nodelist` orchestrator, wires all validation passes together (41 edits, 34 reads). Read before adding new validation functions.
+- **`crates/djls-ide/src/completions.rs`** — integration point for tag, library, and filter completions (34 edits, 35 reads). Read before modifying any completion logic.
+- **`crates/djls-extraction/src/lib.rs`** — public API, `extract_rules()` pipeline, feature-gated re-exports (33 edits, 33 reads). Read before adding extraction entry points or changing the pipeline.
+- **`crates/djls-semantic/src/templatetags/specs.rs`** — `TagSpecs`, `TagIndex`, `django_builtin_specs()`, `merge_extraction_results()` (32 edits, 64 reads) — central to tag spec management. Most-read file.
+- **`crates/djls-semantic/src/arguments.rs`** — `validate_tag_arguments()` dispatcher, `validate_args_against_spec()` user-config escape hatch (26 reads). Being simplified in M9.
+- **`crates/djls-extraction/src/rules.rs`** — Rule extraction from compile functions and simple_tag signatures (21 edits, 1300+ lines). Read before adding extraction logic.
+- **`crates/djls-project/src/django.rs`** — `TemplateTag`, `TemplateFilter`, `TemplateTags`, `TagProvenance` (16 edits, 22 reads) — read before any type changes.
 - **`crates/djls-semantic/src/load_resolution/symbols.rs`** — `AvailableSymbols`, `TagAvailability`, `FilterAvailability` (19 edits) — complex position-aware logic.
-- **`crates/djls-semantic/src/lib.rs`** — `validate_nodelist` orchestrator, wires all validation passes together (15 edits, 11 reads). Read before adding new validation functions.
-- **`crates/djls-project/src/project.rs`** — `Project` Salsa input struct — read before adding new fields.
+- **`crates/djls-extraction/src/types.rs`** — core extraction types (`TagRule`, `ExtractedArg`, `BlockTagSpec`, etc.) (311 lines, 17 reads). Read before adding extraction output types.
+- **`crates/djls-project/src/project.rs`** — `Project` Salsa input struct (13 reads) — read before adding new fields.
 - **`crates/djls-semantic/src/rule_evaluation.rs`** — extracted rule evaluator, S117 diagnostic (546 lines). Read before modifying validation pipeline.
-- **`crates/djls-extraction/src/types.rs`** — core extraction types (`TagRule`, `ExtractedArg`, `BlockTagSpec`, etc.) (311 lines, 13 reads). Read before adding extraction output types.
+- **`crates/djls-ide/src/snippets.rs`** — snippet generation from `TagArg` (245 lines). Heavily depends on `TagArg` — M9 Phase 2 target.
+- **`crates/djls-ide/src/diagnostics.rs`** — maps `ValidationError` variants to S-codes and LSP `Diagnostic`. Update when adding/removing error variants.
 
 ## Ruff Python AST Patterns (for `djls-extraction`)
 - **Parsing**: `ruff_python_parser::parse_module(source)` returns `Result<Parsed<ModModule>, ParseError>`. Call `.into_syntax()` to get the `ModModule` with `.body: Vec<Stmt>`.
