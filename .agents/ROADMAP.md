@@ -334,7 +334,7 @@ Output file:
 
 ### M8 - Extracted rule evaluation (complete replacement of static argument validation)
 
-**Status:** ready
+**Status:** done (Phases 1-5 complete; Phase 6 pending — requires `.corpus/` directory setup)
 
 **Depends on:** M5, M6
 
@@ -381,9 +381,9 @@ dual-system mess. Instead, M8 delivers the complete replacement in one milestone
 - **Opaque rules:** `RuleCondition::Opaque` = silently skip, never error.
 - **Error messages:** Use `ExtractedRule.message` (Django's original text) in S117 `ExtractedRuleViolation` diagnostic.
 
-### M9 - User config tagspec simplification (evaluate and clean up `djls.toml` args)
+### M9 - User config tagspec simplification (complete removal)
 
-**Status:** backlog
+**Status:** done
 
 **Depends on:** M8
 
@@ -447,7 +447,7 @@ Output file:
 ## Documents To Generate (Remaining)
 
 1. ~~`.agents/plans/YYYY-MM-DD-m8-extracted-rule-evaluation.md`~~ — done: [`.agents/plans/2026-02-06-m8-extracted-rule-evaluation.md`](plans/2026-02-06-m8-extracted-rule-evaluation.md)
-2. `.agents/plans/YYYY-MM-DD-m9-tagspec-simplification.md` — after M8 is implemented (small scope)
+2. ~~`.agents/plans/YYYY-MM-DD-m9-tagspec-simplification.md`~~ — done: [`.agents/plans/2026-02-06-m9-tagspec-simplification.md`](plans/2026-02-06-m9-tagspec-simplification.md)
 
 ---
 

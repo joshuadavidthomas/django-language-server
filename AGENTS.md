@@ -136,6 +136,7 @@ Use `/dex` to break down complex work, track progress across sessions, and coord
 - Use inline format args: `format!("{var}")` not `format!("{}", var)` (`clippy::uninlined_format_args`)
 - `cargo fix` with uncommitted changes requires `--allow-dirty` flag
 - Manual `Option::map` implementations trigger `clippy::manual_map` - use `.map()` instead
+- Use `is_some_and(|x| ...)` instead of `map_or(false, |x| ...)` per clippy recommendation
 - Casting to `u32` from `usize` triggers `clippy::cast_possible_truncation` - add `#[allow(...)]` when safe
 
 ## Common Compile Error Patterns
