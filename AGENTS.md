@@ -40,6 +40,8 @@ Files modified most frequently during template validation work:
 - `djls-semantic/src/load_resolution.rs` - Load scoping, available symbols, inventory
 - `djls-ide/src/completions.rs` - Completion handlers for tags, filters, libraries
 
+These files require extra care with `edit` tool due to complex indentation and frequent modifications.
+
 ## Struct Design Patterns
 - Remove `Deref` impl when a struct gains multiple fields - use explicit accessor methods instead
 - Use `#[must_use]` on pure accessor methods that return borrowed data
@@ -50,7 +52,17 @@ Files modified most frequently during template validation work:
 Use `/dex` to break down complex work, track progress across sessions, and coordinate multi-step implementations.
 
 ## Code Editing
-- See "Edit Tool Patterns" section below for detailed guidance
+
+### Edit Tool Patterns
+- The `edit` tool requires **EXACT** text match including all whitespace, newlines, and indentation
+- **Before editing complex files**, ALWAYS read the exact section first with `read --offset X --limit Y` to capture exact whitespace
+- If edit fails with "2 occurrences", narrow the context by including more surrounding lines to make the match unique
+- **Prefer smaller, surgical edits** over large replacements to avoid matching errors
+- **When edits fail repeatedly**, use `write` to rewrite the entire file rather than fighting `edit`
+- Common files needing extra care (most edited, high failure rate):
+  - `djls-server/src/db.rs`
+  - `djls-semantic/src/load_resolution.rs`
+  - `djls-ide/src/completions.rs`
 
 ## Completion Implementation Notes
 - Library completions (`{% load %}`) use `tags.libraries()` HashMap, not all tags - builtins are excluded
@@ -111,9 +123,22 @@ Use `/dex` to break down complex work, track progress across sessions, and coord
 ## Clippy Patterns to Avoid
 - Functions with >7 arguments trigger `clippy::too_many_arguments` - consider struct bundling
 - Missing backticks in doc comments trigger `clippy::doc_markdown` - use ``[`Type`]`` not `['Type']`
-- Intra-doc links MUST use backticks: ``[`TagSpecs`]`` not `['TagSpecs']`
+- Intra-doc links MUST use backticks: ``[`TagSpecs`]`` not `['TagSpecs']` (clippy flags quote-style links)
 - Template syntax in format strings: escape `{%` as `{{%` (e.g., `format!("{{% load {name} %}}")`)
 - Placeholder methods in phased implementation need `#[allow(dead_code)]` to silence "never used" warnings
+- Use inline format args: `format!("{var}")` not `format!("{}", var)` (`clippy::uninlined_format_args`)
+
+## Common Compile Error Patterns
+- **E0046** "not all trait items implemented": Add missing method to **ALL** test databases immediately:
+  - `djls-semantic/src/arguments.rs` (TestDatabase)
+  - `djls-semantic/src/blocks/tree.rs` (TestDatabase)
+  - `djls-semantic/src/semantic/forest.rs` (TestDatabase)
+  - `djls-bench/src/db.rs` (Db)
+- **E0061** "wrong number of arguments": Update **ALL** callers when changing fn signatures
+- **E0369** "binary operation cannot be applied": Add `PartialEq` impl for types used in Salsa tracked function returns (especially types containing `FxHashMap`)
+- **E0599** "not an iterator": Ruff's `ParseError` is a single error, NOT a Vec - don't call `.collect()` on it
+- **E0603** "module is private": Use public re-exports from crate root, not internal modules (e.g., `djls_project::TemplatetagsResponse` not `djls_project::django::TemplatetagsResponse`)
+- **E0433** "unresolved module": Add dependency to Cargo.toml with `workspace = true`
 
 ## Common Compile Error Patterns
 - E0046 "not all trait items implemented": Add missing method to ALL test databases immediately
@@ -130,9 +155,16 @@ Use `/dex` to break down complex work, track progress across sessions, and coord
 - `ParseError` is NOT an iterator - cannot use `.collect()` on it
 - Boxed expressions in AST use `Box<Expr>` - call `.as_ref()` to access inner value
 - When extracting strings from AST, match on `Expr::StringLiteral(lit)` then access `lit.value`
+- Ruff parser is pinned to specific SHA in workspace Cargo.toml - check `ruff_python_parser` dep for version
 
 ## Navigation Reminders
 - This is a worktree - files like AGENTS.md are in the worktree root (`worktrees/detailed-kimi-k2.5/`), not the main repo root
 - Read files from the current worktree path, not parent directories
 - NEVER look for worktree files in `worktrees/` without the full worktree name (e.g., NOT `worktrees/AGENTS.md`)
 - When running commands from worktree root, use relative paths without changing directory
+
+## Documentation Access Patterns
+- For `djls-templates` crate API questions, check documentation first:
+  - `crates/djls-templates/README.md` for parser usage examples
+  - `crates/djls-templates/src/lib.rs` exports for public API
+- Accessing parser source files (`parser.rs`, `nodelist.rs`) is often unnecessary when README covers the API
