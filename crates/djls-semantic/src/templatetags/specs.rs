@@ -10,32 +10,6 @@ use rustc_hash::FxHashMap;
 pub type S<T = str> = Cow<'static, T>;
 pub type L<T> = Cow<'static, [T]>;
 
-/// Token consumption strategy for tag arguments.
-///
-/// This separates "how many tokens" from "what the tokens mean",
-/// allowing v0.6.0 spec semantics to be properly represented.
-#[derive(Debug, Clone, PartialEq)]
-pub enum TokenCount {
-    /// Exactly N tokens (count = N in spec)
-    Exact(usize),
-    /// Variable/greedy consumption until next literal or end (count = null in spec)
-    Greedy,
-}
-
-/// Semantic classification for literal arguments.
-///
-/// All three map to `TagArg::Literal` but provide semantic hints
-/// for better diagnostics and IDE features.
-#[derive(Debug, Clone, PartialEq)]
-pub enum LiteralKind {
-    /// Plain literal token (kind = "literal" in spec)
-    Literal,
-    /// Mandatory syntactic token like "in", "as" (kind = "syntax" in spec)
-    Syntax,
-    /// Boolean modifier like "reversed", "silent" (kind = "modifier" in spec)
-    Modifier,
-}
-
 #[allow(dead_code)]
 pub enum TagType {
     Opener,
@@ -191,10 +165,6 @@ pub struct TagSpec {
     pub module: S,
     pub end_tag: Option<EndTag>,
     pub intermediate_tags: L<IntermediateTag>,
-    /// Argument structure for completions/snippets.
-    /// Populated from extraction (`populate_args_from_extraction`) or user config.
-    /// NOT used for validation — see `extracted_rules` for the validation path.
-    pub args: L<TagArg>,
     /// Whether this is an opaque block (like verbatim/comment — no inner parsing)
     pub opaque: bool,
     /// Validation rules from Python AST extraction.
@@ -239,25 +209,6 @@ impl TagSpec {
         }
     }
 
-    /// Populate `args` from extracted argument structure.
-    ///
-    /// Called during `compute_tag_specs` to provide completions/snippets data
-    /// derived from Python AST instead of hand-crafted specifications.
-    /// Only populates if `args` is currently empty (don't override user config).
-    pub fn populate_args_from_extraction(
-        &mut self,
-        extracted_args: &[djls_extraction::ExtractedArg],
-    ) {
-        if extracted_args.is_empty() || !self.args.is_empty() {
-            return;
-        }
-        self.args = extracted_args
-            .iter()
-            .map(extracted_arg_to_tag_arg)
-            .collect::<Vec<_>>()
-            .into();
-    }
-
     /// Create a `TagSpec` from extraction results.
     #[must_use]
     pub fn from_extraction(module_path: &str, tag: &djls_extraction::ExtractedTag) -> Self {
@@ -265,7 +216,6 @@ impl TagSpec {
             module: module_path.to_string().into(),
             end_tag: None,
             intermediate_tags: B(&[]),
-            args: B(&[]),
             opaque: false,
             extracted_rules: Vec::new(),
         };
@@ -274,197 +224,11 @@ impl TagSpec {
         if let Some(ref block_spec) = tag.block_spec {
             spec.merge_block_spec(block_spec);
         }
-        spec.populate_args_from_extraction(&tag.extracted_args);
 
         spec
     }
 }
 
-/// Convert an `ExtractedArg` to a `TagArg` for completions/snippets.
-#[must_use]
-fn extracted_arg_to_tag_arg(ea: &djls_extraction::ExtractedArg) -> TagArg {
-    match &ea.kind {
-        djls_extraction::ExtractedArgKind::Literal { value } => TagArg::Literal {
-            lit: value.clone().into(),
-            required: ea.required,
-            kind: LiteralKind::Syntax,
-        },
-        djls_extraction::ExtractedArgKind::Choice { values } => TagArg::Choice {
-            name: ea.name.clone().into(),
-            required: ea.required,
-            choices: values
-                .iter()
-                .map(|v| Cow::Owned(v.clone()))
-                .collect::<Vec<_>>()
-                .into(),
-        },
-        djls_extraction::ExtractedArgKind::Variable => TagArg::Variable {
-            name: ea.name.clone().into(),
-            required: ea.required,
-            count: TokenCount::Exact(1),
-        },
-        djls_extraction::ExtractedArgKind::VarArgs => TagArg::VarArgs {
-            name: ea.name.clone().into(),
-            required: ea.required,
-        },
-        djls_extraction::ExtractedArgKind::KeywordArgs => TagArg::Assignment {
-            name: ea.name.clone().into(),
-            required: ea.required,
-            count: TokenCount::Greedy,
-        },
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum TagArg {
-    /// Template variable or filter expression (kind = "variable")
-    Variable {
-        name: S,
-        required: bool,
-        count: TokenCount,
-    },
-    /// String literal argument (no direct v0.6.0 equivalent, implementation detail)
-    String { name: S, required: bool },
-    /// Literal token with semantic classification (kind = "literal", "syntax", or "modifier")
-    Literal {
-        lit: S,
-        required: bool,
-        kind: LiteralKind,
-    },
-    /// Any template expression or literal (kind = "any")
-    Any {
-        name: S,
-        required: bool,
-        count: TokenCount,
-    },
-    /// Variable assignment (kind = "assignment")
-    Assignment {
-        name: S,
-        required: bool,
-        count: TokenCount,
-    },
-    /// Consumes all remaining tokens (implementation detail)
-    VarArgs { name: S, required: bool },
-    /// Choice from specific literals (kind = "choice")
-    Choice {
-        name: S,
-        required: bool,
-        choices: L<S>,
-    },
-}
-
-impl TagArg {
-    #[must_use]
-    pub fn name(&self) -> &S {
-        match self {
-            Self::Variable { name, .. }
-            | Self::String { name, .. }
-            | Self::Any { name, .. }
-            | Self::Assignment { name, .. }
-            | Self::VarArgs { name, .. }
-            | Self::Choice { name, .. } => name,
-            Self::Literal { lit, .. } => lit,
-        }
-    }
-
-    #[must_use]
-    pub fn is_required(&self) -> bool {
-        match self {
-            Self::Variable { required, .. }
-            | Self::String { required, .. }
-            | Self::Literal { required, .. }
-            | Self::Any { required, .. }
-            | Self::Assignment { required, .. }
-            | Self::VarArgs { required, .. }
-            | Self::Choice { required, .. } => *required,
-        }
-    }
-
-    pub fn choice(name: impl Into<S>, required: bool, choices: impl Into<L<S>>) -> Self {
-        Self::Choice {
-            name: name.into(),
-            required,
-            choices: choices.into(),
-        }
-    }
-
-    /// Create an Any argument with greedy token consumption (replaces old `expr()`)
-    pub fn expr(name: impl Into<S>, required: bool) -> Self {
-        Self::Any {
-            name: name.into(),
-            required,
-            count: TokenCount::Greedy,
-        }
-    }
-
-    /// Create a literal with Literal kind (plain literal)
-    pub fn literal(lit: impl Into<S>, required: bool) -> Self {
-        Self::Literal {
-            lit: lit.into(),
-            required,
-            kind: LiteralKind::Literal,
-        }
-    }
-
-    /// Create a literal with Syntax kind (keywords like "in", "as")
-    pub fn syntax(lit: impl Into<S>, required: bool) -> Self {
-        Self::Literal {
-            lit: lit.into(),
-            required,
-            kind: LiteralKind::Syntax,
-        }
-    }
-
-    /// Create a literal with Modifier kind (modifiers like "reversed")
-    pub fn modifier(lit: impl Into<S>, required: bool) -> Self {
-        Self::Literal {
-            lit: lit.into(),
-            required,
-            kind: LiteralKind::Modifier,
-        }
-    }
-
-    pub fn string(name: impl Into<S>, required: bool) -> Self {
-        Self::String {
-            name: name.into(),
-            required,
-        }
-    }
-
-    /// Create a Variable argument with single token consumption (replaces old `var()`)
-    pub fn var(name: impl Into<S>, required: bool) -> Self {
-        Self::Variable {
-            name: name.into(),
-            required,
-            count: TokenCount::Exact(1),
-        }
-    }
-
-    /// Create a Variable argument with greedy token consumption
-    pub fn var_greedy(name: impl Into<S>, required: bool) -> Self {
-        Self::Variable {
-            name: name.into(),
-            required,
-            count: TokenCount::Greedy,
-        }
-    }
-
-    pub fn varargs(name: impl Into<S>, required: bool) -> Self {
-        Self::VarArgs {
-            name: name.into(),
-            required,
-        }
-    }
-
-    /// Create an Assignment argument with greedy token consumption
-    pub fn assignment(name: impl Into<S>, required: bool) -> Self {
-        Self::Assignment {
-            name: name.into(),
-            required,
-            count: TokenCount::Greedy,
-        }
-    }
-}
 
 
 
@@ -494,7 +258,6 @@ mod tests {
                 module: "django.template.defaulttags".into(),
                 end_tag: None,
                 intermediate_tags: Cow::Borrowed(&[]),
-                args: Cow::Borrowed(&[]),
                 opaque: false,
                 extracted_rules: Vec::new(),
             },
@@ -517,7 +280,6 @@ mod tests {
                         name: "else".into(),
                     },
                 ]),
-                args: Cow::Borrowed(&[]),
                 opaque: false,
                 extracted_rules: Vec::new(),
             },
@@ -540,7 +302,6 @@ mod tests {
                         name: "else".into(),
                     }, // Note: else is shared
                 ]),
-                args: Cow::Borrowed(&[]),
                 opaque: false,
                 extracted_rules: Vec::new(),
             },
@@ -556,7 +317,6 @@ mod tests {
                     required: true,
                 }),
                 intermediate_tags: Cow::Borrowed(&[]),
-                args: Cow::Borrowed(&[]),
                 opaque: false,
                 extracted_rules: Vec::new(),
             },
@@ -743,7 +503,6 @@ mod tests {
                 module: "custom.module".into(),
                 end_tag: None,
                 intermediate_tags: Cow::Borrowed(&[]),
-                args: Cow::Borrowed(&[]),
                 opaque: false,
                 extracted_rules: Vec::new(),
             },
@@ -759,7 +518,6 @@ mod tests {
                     required: false, // Changed to not required
                 }),
                 intermediate_tags: Cow::Borrowed(&[]), // Removed intermediates
-                args: Cow::Borrowed(&[]),
                 opaque: false,
                 extracted_rules: Vec::new(),
             },
@@ -812,7 +570,6 @@ mod tests {
                 required: true,
             }),
             intermediate_tags: Cow::Borrowed(&[]),
-            args: Cow::Borrowed(&[]),
             opaque: false,
             extracted_rules: Vec::new(),
         };
@@ -846,7 +603,6 @@ mod tests {
                     name: "else".into(),
                 },
             ]),
-            args: Cow::Borrowed(&[]),
             opaque: false,
             extracted_rules: Vec::new(),
         };
@@ -879,7 +635,6 @@ mod tests {
             module: "myapp.tags".into(),
             end_tag: None,
             intermediate_tags: Cow::Borrowed(&[]),
-            args: Cow::Borrowed(&[]),
             opaque: false,
             extracted_rules: Vec::new(),
         };

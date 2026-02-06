@@ -5,14 +5,12 @@
 
 use djls_project::InspectorInventory;
 use djls_semantic::LoadedLibraries;
-use djls_semantic::TagArg;
 use djls_semantic::TagSpecs;
 use djls_source::FileKind;
 use djls_source::PositionEncoding;
 use djls_workspace::TextDocument;
 use tower_lsp_server::ls_types;
 
-use crate::snippets::generate_partial_snippet;
 use crate::snippets::generate_snippet_for_tag_with_end;
 
 /// Tracks what closing characters are needed to complete a template tag.
@@ -576,9 +574,7 @@ fn generate_tag_name_completions(
         let (insert_text, insert_format) = if supports_snippets {
             if let Some(specs) = tag_specs {
                 if let Some(spec) = specs.get(tag.name()) {
-                    if spec.args.is_empty() {
-                        build_plain_insert_for_tag(tag.name(), needs_space, closing)
-                    } else {
+                    if spec.end_tag.is_some() {
                         let mut text = String::new();
 
                         if needs_space {
@@ -598,6 +594,8 @@ fn generate_tag_name_completions(
                         }
 
                         (text, ls_types::InsertTextFormat::SNIPPET)
+                    } else {
+                        build_plain_insert_for_tag(tag.name(), needs_space, closing)
                     }
                 } else {
                     build_plain_insert_for_tag(tag.name(), needs_space, closing)
@@ -642,146 +640,23 @@ fn generate_tag_name_completions(
 }
 
 /// Generate completions for tag arguments
-#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+///
+/// Currently returns empty — argument completions will be rebuilt on top of
+/// extraction-derived metadata in a future milestone.
+#[allow(clippy::too_many_arguments)]
 fn generate_argument_completions(
-    tag: &str,
-    position: usize,
-    partial: &str,
+    _tag: &str,
+    _position: usize,
+    _partial: &str,
     _parsed_args: &[String],
-    closing: &ClosingBrace,
+    _closing: &ClosingBrace,
     _inventory: Option<&InspectorInventory>,
-    tag_specs: Option<&TagSpecs>,
-    supports_snippets: bool,
+    _tag_specs: Option<&TagSpecs>,
+    _supports_snippets: bool,
 ) -> Vec<ls_types::CompletionItem> {
-    let Some(specs) = tag_specs else {
-        return Vec::new();
-    };
-
-    let Some(spec) = specs.get(tag) else {
-        return Vec::new();
-    };
-
-    // Get the argument at this position
-    if position >= spec.args.len() {
-        return Vec::new(); // Beyond expected args
-    }
-
-    let arg = &spec.args[position];
-    let mut completions = Vec::new();
-
-    match arg {
-        TagArg::Literal { lit, .. } => {
-            // For literals, complete the exact text
-            if lit.starts_with(partial) {
-                let mut insert_text = lit.to_string();
-
-                // Add closing if needed
-                match closing {
-                    ClosingBrace::PartialClose | ClosingBrace::None => insert_text.push_str(" %}"), // Include full closing since we're replacing the auto-paired }
-                    ClosingBrace::FullClose => {} // No closing needed
-                }
-
-                completions.push(ls_types::CompletionItem {
-                    label: lit.to_string(),
-                    kind: Some(ls_types::CompletionItemKind::KEYWORD),
-                    detail: Some("literal argument".to_string()),
-                    insert_text: Some(insert_text),
-                    insert_text_format: Some(ls_types::InsertTextFormat::PLAIN_TEXT),
-                    ..Default::default()
-                });
-            }
-        }
-        TagArg::Choice { name, choices, .. } => {
-            // For choices, offer each option
-            for option in choices.iter() {
-                if option.starts_with(partial) {
-                    let mut insert_text = option.to_string();
-
-                    // Add closing if needed
-                    match closing {
-                        ClosingBrace::None => insert_text.push_str(" %}"),
-                        ClosingBrace::PartialClose => insert_text.push_str(" %"),
-                        ClosingBrace::FullClose => {} // No closing needed
-                    }
-
-                    completions.push(ls_types::CompletionItem {
-                        label: option.to_string(),
-                        kind: Some(ls_types::CompletionItemKind::ENUM_MEMBER),
-                        detail: Some(format!("choice for {}", name.as_ref())),
-                        insert_text: Some(insert_text),
-                        insert_text_format: Some(ls_types::InsertTextFormat::PLAIN_TEXT),
-                        ..Default::default()
-                    });
-                }
-            }
-        }
-        TagArg::Variable { name, .. } => {
-            // For variables, we could offer variable completions from context
-            // For now, just provide a hint
-            if partial.is_empty() {
-                completions.push(ls_types::CompletionItem {
-                    label: format!("<{}>", name.as_ref()),
-                    kind: Some(ls_types::CompletionItemKind::VARIABLE),
-                    detail: Some("variable argument".to_string()),
-                    insert_text: None, // Don't insert placeholder
-                    insert_text_format: Some(ls_types::InsertTextFormat::PLAIN_TEXT),
-                    ..Default::default()
-                });
-            }
-        }
-        TagArg::String { name, .. } => {
-            // For strings, could offer template name completions
-            // For now, just provide a hint
-            if partial.is_empty() {
-                completions.push(ls_types::CompletionItem {
-                    label: format!("\"{}\"", name.as_ref()),
-                    kind: Some(ls_types::CompletionItemKind::TEXT),
-                    detail: Some("string argument".to_string()),
-                    insert_text: None, // Don't insert placeholder
-                    insert_text_format: Some(ls_types::InsertTextFormat::PLAIN_TEXT),
-                    ..Default::default()
-                });
-            }
-        }
-        _ => {
-            // Other argument types (Any, Assignment, VarArgs) not handled yet
-        }
-    }
-
-    // If we're at the start of an argument position and client supports snippets,
-    // offer a snippet for all remaining arguments
-    if partial.is_empty() && supports_snippets && position < spec.args.len() {
-        let remaining_snippet = generate_partial_snippet(spec, position);
-        if !remaining_snippet.is_empty() {
-            let mut insert_text = remaining_snippet;
-
-            // Add closing if needed
-            match closing {
-                ClosingBrace::None => insert_text.push_str(" %}"),
-                ClosingBrace::PartialClose => insert_text.push_str(" %"),
-                ClosingBrace::FullClose => {} // No closing needed
-            }
-
-            // Create a completion item for the full remaining arguments
-            let label = if position == 0 {
-                format!("{tag} arguments")
-            } else {
-                "remaining arguments".to_string()
-            };
-
-            completions.push(ls_types::CompletionItem {
-                label,
-                kind: Some(ls_types::CompletionItemKind::SNIPPET),
-                detail: Some("Complete remaining arguments".to_string()),
-                insert_text: Some(insert_text),
-                insert_text_format: Some(ls_types::InsertTextFormat::SNIPPET),
-                sort_text: Some("zzz".to_string()), // Sort at the end
-                ..Default::default()
-            });
-        }
-    }
-
-    completions
+    // TagArg-based argument completions have been removed.
+    // Argument completions will be rebuilt using extraction metadata.
+    Vec::new()
 }
 
 /// Generate completions for library names (for {% load %} tag)

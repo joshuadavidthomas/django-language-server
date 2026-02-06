@@ -191,7 +191,7 @@ fn merge_extraction_into_specs(specs: &mut TagSpecs, extraction: &ExtractionResu
             if let Some(ref block_spec) = tag.block_spec {
                 spec.merge_block_spec(block_spec);
             }
-            spec.populate_args_from_extraction(&tag.extracted_args);
+
         } else {
             let new_spec = TagSpec::from_extraction("corpus", tag);
             specs.insert(tag.name.clone(), new_spec);

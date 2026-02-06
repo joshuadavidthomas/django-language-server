@@ -539,12 +539,12 @@
 
 ### Phase 2: Remove `TagArg` System and Old Validation Engine
 
-- [ ] Delete `TagArg` enum, `TokenCount`, `LiteralKind`, `TagArgSliceExt` from `crates/djls-semantic/src/templatetags/specs.rs`
-- [ ] Remove `args` field from `TagSpec`, `EndTag`, `IntermediateTag`
-- [ ] Delete `validate_args_against_spec` and `validate_argument_order` from `crates/djls-semantic/src/arguments.rs`
-- [ ] Strip all `TagArg` references from `builtins.rs`, `completions.rs`, `snippets.rs`
-- [ ] Update all affected tests
-- [ ] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Delete `TagArg` enum, `TokenCount`, `LiteralKind`, `TagArgSliceExt` from `crates/djls-semantic/src/templatetags/specs.rs`
+- [x] Remove `args` field from `TagSpec`, `EndTag`, `IntermediateTag`
+- [x] Delete `validate_args_against_spec` and `validate_argument_order` from `crates/djls-semantic/src/arguments.rs`
+- [x] Strip all `TagArg` references from `builtins.rs`, `completions.rs`, `snippets.rs`
+- [x] Update all affected tests
+- [x] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 3: Remove Dead Error Variants and Diagnostic Codes
 
