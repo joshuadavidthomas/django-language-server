@@ -65,7 +65,7 @@ just lint                       # Run pre-commit hooks
 ### Module Layout
 - This project uses `foo.rs` + `foo/` sibling pattern — NEVER `foo/mod.rs`
 - `djls-semantic` templatetags module: `src/templatetags.rs` (re-exports) + `src/templatetags/` dir (contains `specs.rs`, `builtins.rs`)
-- `djls-conf` tagspec types have `PartialEq` but NOT `Eq` — `serde_json::Value` in `extra` field prevents `Eq`
+- `djls-conf` no longer has tagspec types — they were removed in M9P1. Only exports `Settings`, `DiagnosticsConfig`, `DiagnosticSeverity`, `log_dir()`, `ConfigError`
 - `djls-extraction` is flat module layout: `src/lib.rs` + `src/{types,error,parser,registry,context,rules,structural,filters,patterns,args}.rs`
 - `djls-extraction` public API: `extract_rules(source) -> ExtractionResult` orchestrates parse→registry→context→rules→structural→filters→args
 
@@ -91,6 +91,7 @@ Test impls typically return `None` / default values. Forgetting even one causes 
 - `TemplateFilter` accessors return `&str` (not `&String` like `TemplateTag`) — this is the correct pattern per clippy
 - `Node::Variable { var, filters, span }` has `filters: Vec<Filter>` — `Filter` has `name: String`, `arg: Option<FilterArg>`, `span: Span`. `FilterArg` has `value: String`, `span: Span`
 - Parser's `VariableScanner` is quote-aware — pipes/colons inside `'...'` or `"..."` are not treated as delimiters
+- `Filter` struct has `.name`, `.arg`, `.span` fields only — NO `.name_span()` method. Access name via `.name` directly
 - `refresh_inspector()` uses `TemplateInventoryRequest` ("template_inventory" query) — single IPC round trip for tags + filters
 
 ### Clippy Patterns
@@ -114,11 +115,14 @@ Test impls typically return `None` / default values. Forgetting even one causes 
 - Validation errors (enum variants): `crates/djls-semantic/src/errors.rs` (`ValidationError`)
 - Diagnostic code mapping: `crates/djls-ide/src/diagnostics.rs` (maps `ValidationError` variants → S-codes)
 - New validation passes are wired into `validate_nodelist()` in `crates/djls-semantic/src/lib.rs`
-- Argument validation dispatch order: extracted rules (primary) → `TagArg`-based (user-config fallback) → no validation (conservative). Both empty = no validation
+- Argument validation dispatch order: extracted rules (primary) → `TagArg`-based (fallback, M9P2 will remove) → no validation (conservative). Both empty = no validation
 - `EndTag` and `IntermediateTag` no longer have `args` fields — closer/intermediate tags receive no argument validation
 - Builtin tag specs in `builtins.rs` have empty `args: B(&[])` — argument validation relies entirely on extracted rules populated by `compute_tag_specs` in the server
 - Tests using `django_builtin_specs()` directly will see no argument validation without also providing extracted rules
+- `compute_tag_specs` layers (after M9P1): builtins → workspace extraction → external extraction. User-config merge layer removed
+- `Project` salsa input no longer has `tagspecs` field — removed in M9P1
 - Existing codes: S101-S107 (structural), S108 (UnknownTag), S109 (UnloadedLibraryTag), S110 (AmbiguousUnloadedTag), S111 (UnknownFilter), S112 (UnloadedLibraryFilter), S113 (AmbiguousUnloadedFilter), S114 (ExpressionSyntaxError), S115 (FilterMissingArgument), S116 (FilterUnexpectedArgument), S117 (ExtractedRuleViolation)
+- S104-S107 are dead codes (used by `TagArg` system only) — will be removed in M9P3
 - Next available diagnostic code: S118
 
 ### Build Timeouts
@@ -130,8 +134,9 @@ Test impls typically return `None` / default values. Forgetting even one causes 
 - `djls-project` depends on `djls-extraction` with `default-features = false` (types only)
 - `djls-server` depends on `djls-extraction` with default features (parser enabled)
 - `djls-semantic` depends on `djls-extraction` with `default-features = false` (types only, for `TagSpec` fields)
-- `Project` salsa input now has `sys_path: Vec<Utf8PathBuf>` and `extracted_external_rules: FxHashMap<String, ExtractionResult>` fields
+- `Project` salsa input has `sys_path: Vec<Utf8PathBuf>` and `extracted_external_rules: FxHashMap<String, ExtractionResult>` fields (NOT `tagspecs` — removed)
 - `TagSpec` now has `opaque: bool` and `extracted_rules: Vec<ExtractedRule>` — set to `false`/`Vec::new()` in all static builtins
+- `ExtractedRule` derives `PartialEq`, `Eq`, `Clone`, `Debug`, `Serialize`, `Deserialize` — does NOT derive `Hash`. Don't try to put in `HashSet`/`HashMap` keys
 - `PythonEnvRequest`/`PythonEnvResponse` in `djls-project` for `sys_path` query
 
 ### Ruff Parser Dependencies
@@ -160,6 +165,7 @@ Test impls typically return `None` / default values. Forgetting even one causes 
 - `djls-corpus` crate: `crates/djls-corpus/` — downloads and extracts PyPI sdists and GitHub tarballs (uses `reqwest` blocking + `flate2` + `tar`)
 - `reqwest` needs `features = ["blocking", "json"]` for `.json()` method — `json` feature is NOT default
 - Corpus data lives in `crates/djls-corpus/.corpus/` (gitignored), synced via `just corpus-sync`
+- After adding template enumeration support, existing corpus data needs re-sync: `just corpus-clean && just corpus-sync`
 - Extraction golden tests: `crates/djls-extraction/tests/golden.rs` + `tests/fixtures/` + `tests/snapshots/`
 - Corpus tests in `crates/djls-extraction/tests/corpus.rs` skip gracefully when corpus not synced — check dir existence and return early
 - Integration test crates (`tests/` dir) use `include_str!` for fixture loading — NOT filesystem reads at runtime
@@ -171,6 +177,12 @@ Test impls typically return `None` / default values. Forgetting even one causes 
 - `RuleCondition::Opaque` is always skipped — it represents conditions the extractor couldn't analyze
 - `merge_extraction_into_specs()` in `crates/djls-server/src/db.rs` merges `ExtractionResult` into `TagSpecs` — called from `compute_tag_specs`
 - Rule evaluation emits `ExtractedRuleViolation` (S117) — a generic error with the original Django error message
+
+### M9 Removal Progress (TagArg System)
+- Phase 1 complete: `tagspecs.rs` deleted from `djls-conf`, `tagspecs` field removed from `Project` and `Settings`, user-config merge layer removed from `compute_tag_specs`
+- Phase 2 pending: `TagArg` enum + `validate_args_against_spec` + `validate_argument_order` still exist in `specs.rs`/`arguments.rs` — used as fallback path
+- Phase 3 pending: `MissingRequiredArguments`, `TooManyArguments`, `MissingArgument`, `InvalidLiteralArgument`, `InvalidArgumentChoice` variants still in `ValidationError`, S104-S107 still mapped
+- Phase 4 pending: `docs/configuration/tagspecs.md` still exists, S104-S107 still in docs
 
 ### Validation Interaction Gotcha
 - Adding a new validation pass can cause existing tests to see unexpected errors — if a test template triggers multiple validators, filter the errors to only the type being tested
@@ -195,7 +207,7 @@ Test impls typically return `None` / default values. Forgetting even one causes 
 - Salsa database + tracked queries: `crates/djls-server/src/db.rs`
 - Project salsa input: `crates/djls-project/src/project.rs`
 - TemplateTags, TagProvenance, InspectorInventory, FilterProvenance, TemplateFilter: `crates/djls-project/src/django.rs`
-- Tag specs + `from_config_def`: `crates/djls-semantic/src/templatetags/specs.rs`
+- Tag specs (TagSpec, TagArg, TagSpecs): `crates/djls-semantic/src/templatetags/specs.rs`
 - Django builtins specs: `crates/djls-semantic/src/templatetags/builtins.rs`
 - Completions (tag names, library names, filter names): `crates/djls-ide/src/completions.rs` (most-edited file — 38 edits across sessions)
 - Semantic Db trait: `crates/djls-semantic/src/db.rs`
@@ -204,7 +216,7 @@ Test impls typically return `None` / default values. Forgetting even one causes 
 - Diagnostic code mapping: `crates/djls-ide/src/diagnostics.rs`
 - Inspector Python queries: `crates/djls-project/inspector/queries.py`
 - Session/server wiring: `crates/djls-server/src/session.rs`, `crates/djls-server/src/server.rs`
-- Settings/config types: `crates/djls-conf/src/`
+- Settings/config types: `crates/djls-conf/src/` (only `lib.rs` + `diagnostics.rs` remain — tagspecs removed)
 - Template parser: `crates/djls-templates/src/parser.rs`
 - Node types (Variable, Tag, Filter, FilterArg, etc.): `crates/djls-templates/src/nodelist.rs`
 - Parser snapshots: `crates/djls-templates/src/snapshots/`
@@ -230,7 +242,9 @@ Test impls typically return `None` / default values. Forgetting even one causes 
 - MkDocs config: `.mkdocs.yml`
 - Template validation docs: `docs/template-validation.md`
 - Diagnostic codes docs: `docs/configuration/index.md` (S-codes table in "Available diagnostic codes" section)
-- TagSpecs docs: `docs/configuration/tagspecs.md`
+- TagSpecs docs: `docs/configuration/tagspecs.md` (will be deleted in M9P4)
+- Corpus template validation tests: `crates/djls-server/tests/corpus_templates.rs`
+- Argument validation: `crates/djls-semantic/src/arguments.rs` (dispatches extracted rules → TagArg fallback)
 - GitHub issue template config: `.github/ISSUE_TEMPLATE/config.yml`
 
 ## Task Management
