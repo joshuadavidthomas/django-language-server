@@ -87,4 +87,11 @@ pub enum ValidationError {
         libraries: Vec<String>,
         span: Span,
     },
+
+    #[error("{message}")]
+    ExpressionSyntaxError {
+        tag: String,
+        message: String,
+        span: Span,
+    },
 }

@@ -2,6 +2,7 @@ mod arguments;
 mod blocks;
 mod db;
 mod errors;
+mod if_expression;
 mod load_resolution;
 mod opaque;
 mod primitives;
@@ -12,6 +13,7 @@ mod traits;
 
 use arguments::validate_all_tag_arguments;
 pub use blocks::build_block_tree;
+use if_expression::validate_if_expressions;
 use opaque::compute_opaque_regions;
 pub use opaque::OpaqueRegions;
 pub use blocks::TagIndex;
@@ -65,4 +67,5 @@ pub fn validate_nodelist(db: &dyn Db, nodelist: djls_templates::NodeList<'_>) {
     validate_all_tag_arguments(db, nodelist, &opaque_regions);
     validate_tag_scoping(db, nodelist, &opaque_regions);
     validate_filter_scoping(db, nodelist, &opaque_regions);
+    validate_if_expressions(db, nodelist, &opaque_regions);
 }

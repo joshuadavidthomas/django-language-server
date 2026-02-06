@@ -474,7 +474,13 @@ mod tests {
         crate::validate_nodelist::accumulated::<ValidationErrorAccumulator>(&db, nodelist)
             .into_iter()
             .map(|acc| acc.0.clone())
-            .filter(|err| !matches!(err, ValidationError::UnclosedTag { .. }))
+            .filter(|err| {
+                !matches!(
+                    err,
+                    ValidationError::UnclosedTag { .. }
+                        | ValidationError::ExpressionSyntaxError { .. }
+                )
+            })
             .collect()
     }
 
