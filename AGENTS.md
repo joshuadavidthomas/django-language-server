@@ -58,6 +58,10 @@ just lint                       # Run pre-commit hooks
 - Inspector rebuild warnings in clippy output (`Building Python inspector...`) are expected, not errors
 - `TemplatetagsRequest`/`TemplatetagsResponse` and `inspector_query` are exported from `djls-project`
 
+### Module Registration
+- New modules in `djls-semantic` must be registered in `src/lib.rs` with `mod foo;` AND re-exported — forgetting causes `error[E0433]: failed to resolve`
+- New validation functions must be wired into `validate_nodelist()` in `crates/djls-semantic/src/lib.rs` — they won't run otherwise
+
 ### Module Layout
 - This project uses `foo.rs` + `foo/` sibling pattern — NEVER `foo/mod.rs`
 - `djls-semantic` templatetags module: `src/templatetags.rs` (re-exports) + `src/templatetags/` dir (contains `specs.rs`, `builtins.rs`)
@@ -66,13 +70,14 @@ just lint                       # Run pre-commit hooks
 - `djls-extraction` public API: `extract_rules(source) -> ExtractionResult` orchestrates parse→registry→context→rules→structural→filters
 
 ### Trait Impls — Update ALL Locations When Changing Traits
-Adding a method to `djls-semantic`'s `crate::Db` trait requires updating **7 impl blocks**:
+Adding a method to `djls-semantic`'s `crate::Db` trait requires updating **8 impl blocks**:
 1. `crates/djls-server/src/db.rs` — `impl SemanticDb for DjangoDatabase`
 2. `crates/djls-bench/src/db.rs` — `impl SemanticDb for Db`
 3. `crates/djls-semantic/src/arguments.rs` — `impl crate::Db for TestDatabase` (in `#[cfg(test)]`)
 4. `crates/djls-semantic/src/blocks/tree.rs` — `impl crate::Db for TestDatabase` (in `#[cfg(test)]`)
 5. `crates/djls-semantic/src/semantic/forest.rs` — `impl crate::Db for TestDatabase` (in `#[cfg(test)]`)
 6. `crates/djls-semantic/src/load_resolution.rs` — `impl crate::Db for TestDatabase` (in `#[cfg(test)]`)
+7. `crates/djls-semantic/src/filter_arity.rs` — `impl crate::Db for TestDatabase` (in `#[cfg(test)]`)
 Test impls typically return `None` / default values. Forgetting even one causes `error[E0046]`.
 
 ### Test Dependencies
@@ -100,12 +105,17 @@ Test impls typically return `None` / default values. Forgetting even one causes 
 - Use `r"..."` not `r#"..."#` when the string contains no `"` — clippy flags `unnecessary_raw_string_hashes`
 - Prefer `.map_or(default, f)` → `.is_some_and(f)` or simpler form — clippy flags overly complex `map_or`
 
+### Salsa Accumulators
+- `ValidationErrorAccumulator` is defined in `crates/djls-semantic/src/db.rs` (NOT `errors.rs`) — import as `crate::ValidationErrorAccumulator` or `use crate::db::ValidationErrorAccumulator`
+- Use `use salsa::Accumulator;` to get `.accumulate(db)` method
+- Pattern: `ValidationErrorAccumulator(ValidationError::Variant { ... }).accumulate(db);`
+
 ### Validation Architecture
 - Validation errors (enum variants): `crates/djls-semantic/src/errors.rs` (`ValidationError`)
 - Diagnostic code mapping: `crates/djls-ide/src/diagnostics.rs` (maps `ValidationError` variants → S-codes)
 - New validation passes are wired into `validate_nodelist()` in `crates/djls-semantic/src/lib.rs`
-- Existing codes: S101-S107 (structural), S108 (UnknownTag), S109 (UnloadedLibraryTag), S110 (AmbiguousUnloadedTag), S111 (UnknownFilter), S112 (UnloadedLibraryFilter), S113 (AmbiguousUnloadedFilter)
-- Next available diagnostic code: S114
+- Existing codes: S101-S107 (structural), S108 (UnknownTag), S109 (UnloadedLibraryTag), S110 (AmbiguousUnloadedTag), S111 (UnknownFilter), S112 (UnloadedLibraryFilter), S113 (AmbiguousUnloadedFilter), S114 (ExpressionSyntaxError), S115 (FilterMissingArgument), S116 (FilterUnexpectedArgument)
+- Next available diagnostic code: S117
 
 ### Build Timeouts
 - First build after adding Ruff deps or corpus crate can exceed 10s — use `timeout: 120` or no timeout for cargo builds
@@ -147,6 +157,10 @@ Test impls typically return `None` / default values. Forgetting even one causes 
 - Corpus tests in `crates/djls-extraction/tests/corpus.rs` skip gracefully when corpus not synced — check dir existence and return early
 - Integration test crates (`tests/` dir) use `include_str!` for fixture loading — NOT filesystem reads at runtime
 
+### Validation Interaction Gotcha
+- Adding a new validation pass can cause existing tests to see unexpected errors — if a test template triggers multiple validators, filter the errors to only the type being tested
+- Example: `{% if x > 0 reversed %}` triggers both argument validation (S100-S107) and expression syntax (S114) — the arguments test must filter out `ExpressionSyntaxError`
+
 ### If-Expression Validation
 - `validate_if_expression(bits: &[String]) -> Option<String>` — Pratt parser mirroring Django's `smartif.py`
 - Location: `crates/djls-semantic/src/if_expression.rs`
@@ -187,6 +201,8 @@ Test impls typically return `None` / default values. Forgetting even one causes 
 - Opaque region detection: `crates/djls-semantic/src/opaque.rs`
 - Filter arity validation: `crates/djls-semantic/src/filter_arity.rs`
 - `LoadState` (load-scoping state machine): `crates/djls-semantic/src/load_resolution.rs` (pub(crate))
+- Validate nodelist orchestrator: `crates/djls-semantic/src/lib.rs` (`validate_nodelist` calls all validation functions)
+- Project lib.rs re-exports: `crates/djls-project/src/lib.rs` — check here when unsure what's public from djls-project
 
 ## Task Management
 Use `/dex` to break down complex work, track progress across sessions, and coordinate multi-step implementations.
