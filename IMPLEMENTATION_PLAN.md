@@ -711,9 +711,53 @@ Identify split-contents variable dynamically (NOT hardcoded `bits`).
 
 ### Phase 4: Implement Rule Extraction
 
-**Status:** 🔲 Not Started
+**Status:** ✅ Complete
 
 Derive validation conditions from TemplateSyntaxError guards.
+
+**Changes:**
+- Implemented `patterns.rs` with pattern matching helpers:
+  - `is_len_call()` - checks for `len(<variable>)` pattern
+  - `is_name()` - checks if expression is a specific variable name
+  - `extract_int_literal()` - extracts integer literals from AST
+  - `extract_string_literal()` - extracts string literals from AST
+  - `extract_subscript_index()` - extracts `<var>[N]` pattern returning `(index, var_name)`
+  - `extract_string_tuple()` - extracts tuple of string literals like `("opt1", "opt2")`
+- Implemented `rules.rs` with full rule extraction logic:
+  - `extract_tag_rules()` - main entry point that uses detected `split_var` from FunctionContext
+  - `extract_rules_from_stmts()` - recursively processes function body statements (if/while/for/try)
+  - `has_template_syntax_error_raise()` - checks if statement block raises TemplateSyntaxError
+  - `is_template_syntax_error()` - recognizes TemplateSyntaxError constructor calls
+  - `extract_error_message()` - extracts error message from raise statement
+  - `analyze_condition()` - parses condition expressions into RuleCondition variants
+  - `analyze_comparison()` - handles comparison operators (==, !=, <, <=, >, >=, in, not in)
+  - `negate_condition()` - negates conditions when wrapped in `not`
+- Supported RuleCondition patterns:
+  - `ExactArgCount` - from `len(bits) == N` or `len(bits) != N`
+  - `MinArgCount` - from `len(bits) >= N` or `N <= len(bits)`
+  - `MaxArgCount` - from `len(bits) <= N` or `N >= len(bits)`
+  - `LiteralAt` - from `bits[N] == "value"` or `bits[N] != "value"`
+  - `ChoiceAt` - from `bits[N] in ("a", "b")` or `bits[N] not in ("a", "b")`
+  - `ContainsLiteral` - from `"value" in bits` or `"value" not in bits`
+  - `Opaque` - fallback for complex/unrecognized conditions
+- Added 3 unit tests verifying extraction works with different variable names:
+  - `test_extract_with_bits` - classic Django `bits` variable
+  - `test_extract_with_args` - alternative `args` variable
+  - `test_extract_with_parts` - alternative `parts` variable with subscript comparison
+
+**Quality Checks:**
+- [x] `cargo build -p djls-extraction` passes
+- [x] `cargo clippy -p djls-extraction --all-targets -- -D warnings` passes
+- [x] `cargo test -p djls-extraction rules` passes (3 tests)
+- [x] `cargo test -p djls-extraction` passes (28 tests)
+- [x] `cargo build` (full build) passes
+- [x] `cargo test` (all tests) passes (320 tests)
+- [x] `cargo clippy --all-targets --all-features -- -D warnings` passes
+
+**Discoveries:**
+- Ruff AST wraps the raise exception in `Box<Expr>`, requiring `.as_ref()` to access
+- The split variable name is dynamically detected and threaded through rule extraction
+- Pattern matching is order-sensitive; checking `len()` patterns before subscript patterns ensures correct extraction
 
 ---
 
