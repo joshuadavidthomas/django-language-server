@@ -362,7 +362,7 @@ fn calculate_replacement_range(
 }
 
 /// Generate completions for tag names
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 fn generate_tag_name_completions(
     partial: &str,
     needs_space: bool,
@@ -485,7 +485,13 @@ fn generate_tag_name_completions(
             let completion_item = ls_types::CompletionItem {
                 label: tag.name().to_string(),
                 kind: Some(kind),
-                detail: Some(format!("from {}", tag.registration_module())),
+                detail: Some(if tag.is_builtin() {
+                    format!("builtin from {}", tag.registration_module())
+                } else if let Some(load_name) = tag.library_load_name() {
+                    format!("{{% load {load_name} %}}")
+                } else {
+                    format!("from {}", tag.registration_module())
+                }),
                 documentation: tag
                     .doc()
                     .map(|doc| ls_types::Documentation::String(doc.to_string())),
@@ -658,17 +664,14 @@ fn generate_library_completions(
         return Vec::new();
     };
 
-    // Get unique library names from registration_module (temporary; Phase 3 will use tags.libraries())
-    let mut libraries = std::collections::HashSet::new();
-    for tag in tags.iter() {
-        libraries.insert(tag.registration_module());
-    }
+    let mut library_names: Vec<&String> = tags.libraries().keys().collect();
+    library_names.sort();
 
     let mut completions = Vec::new();
 
-    for library in libraries {
-        if library.starts_with(partial) {
-            let mut insert_text = library.to_string();
+    for load_name in library_names {
+        if load_name.starts_with(partial) {
+            let mut insert_text = load_name.to_string();
 
             // Add closing if needed
             match closing {
@@ -677,13 +680,21 @@ fn generate_library_completions(
                 ClosingBrace::FullClose => {} // No closing needed
             }
 
+            let detail = tags
+                .libraries()
+                .get(load_name.as_str())
+                .map_or_else(
+                    || "Django template library".to_string(),
+                    |module| format!("Django template library ({module})"),
+                );
+
             completions.push(ls_types::CompletionItem {
-                label: library.to_string(),
+                label: load_name.to_string(),
                 kind: Some(ls_types::CompletionItemKind::MODULE),
-                detail: Some("Django template library".to_string()),
+                detail: Some(detail),
                 insert_text: Some(insert_text),
                 insert_text_format: Some(ls_types::InsertTextFormat::PLAIN_TEXT),
-                filter_text: Some(library.to_string()),
+                filter_text: Some(load_name.to_string()),
                 ..Default::default()
             });
         }
@@ -719,7 +730,149 @@ fn build_plain_insert_for_tag(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use super::*;
+
+    fn build_template_tags(
+        libraries: &HashMap<String, String>,
+        builtins: &[String],
+    ) -> TemplateTags {
+        let mut tags = Vec::new();
+
+        for module in builtins {
+            tags.push(serde_json::json!({
+                "name": format!("builtin_from_{}", module.split('.').next_back().unwrap_or("unknown")),
+                "provenance": {"builtin": {"module": module}},
+                "defining_module": module,
+                "doc": null,
+            }));
+        }
+
+        for (load_name, module) in libraries {
+            tags.push(serde_json::json!({
+                "name": format!("{}_tag", load_name),
+                "provenance": {"library": {"load_name": load_name, "module": module}},
+                "defining_module": module,
+                "doc": null,
+            }));
+        }
+
+        let payload = serde_json::json!({
+            "tags": tags,
+            "libraries": libraries,
+            "builtins": builtins,
+        });
+
+        serde_json::from_value(payload).unwrap()
+    }
+
+    #[test]
+    fn test_library_completions_show_load_names_not_module_paths() {
+        let mut libraries = HashMap::new();
+        libraries.insert(
+            "static".to_string(),
+            "django.templatetags.static".to_string(),
+        );
+        libraries.insert("i18n".to_string(), "django.templatetags.i18n".to_string());
+
+        let tags = build_template_tags(&libraries, &[]);
+
+        let completions = generate_library_completions("", &ClosingBrace::None, Some(&tags));
+
+        let labels: Vec<&str> = completions.iter().map(|c| c.label.as_str()).collect();
+        assert!(labels.contains(&"static"));
+        assert!(labels.contains(&"i18n"));
+        // Should NOT contain module paths
+        assert!(!labels.contains(&"django.templatetags.static"));
+        assert!(!labels.contains(&"django.templatetags.i18n"));
+    }
+
+    #[test]
+    fn test_library_completions_deterministic_alphabetical_order() {
+        let mut libraries = HashMap::new();
+        libraries.insert(
+            "static".to_string(),
+            "django.templatetags.static".to_string(),
+        );
+        libraries.insert("i18n".to_string(), "django.templatetags.i18n".to_string());
+        libraries.insert(
+            "admin_list".to_string(),
+            "django.contrib.admin.templatetags.admin_list".to_string(),
+        );
+        libraries.insert("tz".to_string(), "django.templatetags.tz".to_string());
+
+        let tags = build_template_tags(&libraries, &[]);
+
+        let completions = generate_library_completions("", &ClosingBrace::None, Some(&tags));
+
+        let labels: Vec<&str> = completions.iter().map(|c| c.label.as_str()).collect();
+        assert_eq!(labels, vec!["admin_list", "i18n", "static", "tz"]);
+    }
+
+    #[test]
+    fn test_library_completions_builtins_excluded() {
+        let mut libraries = HashMap::new();
+        libraries.insert(
+            "static".to_string(),
+            "django.templatetags.static".to_string(),
+        );
+
+        let builtins = vec![
+            "django.template.defaulttags".to_string(),
+            "django.template.defaultfilters".to_string(),
+        ];
+
+        let tags = build_template_tags(&libraries, &builtins);
+
+        let completions = generate_library_completions("", &ClosingBrace::None, Some(&tags));
+
+        let labels: Vec<&str> = completions.iter().map(|c| c.label.as_str()).collect();
+        // Only the library, not builtins
+        assert_eq!(labels, vec!["static"]);
+    }
+
+    #[test]
+    fn test_library_completions_partial_prefix_filtering() {
+        let mut libraries = HashMap::new();
+        libraries.insert(
+            "static".to_string(),
+            "django.templatetags.static".to_string(),
+        );
+        libraries.insert("i18n".to_string(), "django.templatetags.i18n".to_string());
+        libraries.insert(
+            "staticfiles".to_string(),
+            "django.contrib.staticfiles.templatetags.staticfiles".to_string(),
+        );
+
+        let tags = build_template_tags(&libraries, &[]);
+
+        let completions = generate_library_completions("stat", &ClosingBrace::None, Some(&tags));
+
+        let labels: Vec<&str> = completions.iter().map(|c| c.label.as_str()).collect();
+        assert_eq!(labels, vec!["static", "staticfiles"]);
+        // i18n should be filtered out
+        assert!(!labels.contains(&"i18n"));
+    }
+
+    #[test]
+    fn test_library_completions_detail_shows_module_path() {
+        let mut libraries = HashMap::new();
+        libraries.insert(
+            "static".to_string(),
+            "django.templatetags.static".to_string(),
+        );
+
+        let tags = build_template_tags(&libraries, &[]);
+
+        let completions = generate_library_completions("", &ClosingBrace::None, Some(&tags));
+
+        assert_eq!(completions.len(), 1);
+        assert_eq!(
+            completions[0].detail.as_deref(),
+            Some("Django template library (django.templatetags.static)")
+        );
+    }
 
     #[test]
     fn test_analyze_template_context_tag_name() {

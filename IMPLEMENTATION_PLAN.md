@@ -9,7 +9,7 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ## M1 — Payload Shape + Library Name Fix
 
-**Status:** in progress
+**Status:** complete
 **Plan:** `.agents/plans/2026-02-05-m1-payload-library-name-fix.md`
 
 ### Phase 1: Python Inspector Payload Changes
@@ -34,12 +34,12 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ### Phase 3: Completions Fix
 
-- [ ] Fix `generate_library_completions()` to use `tags.libraries()` keys instead of module paths
-- [ ] Sort library names alphabetically for deterministic ordering
-- [ ] Update tag completion detail text with provenance info (library load-name / builtin hint)
-- [ ] Ensure tag iteration works with updated `TemplateTags` type
-- [ ] Add tests: library completions show names not paths, deterministic order, builtins excluded
-- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Fix `generate_library_completions()` to use `tags.libraries()` keys instead of module paths
+- [x] Sort library names alphabetically for deterministic ordering
+- [x] Update tag completion detail text with provenance info (library load-name / builtin hint)
+- [x] Ensure tag iteration works with updated `TemplateTags` type
+- [x] Add tests: library completions show names not paths, deterministic order, builtins excluded
+- [x] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ---
 

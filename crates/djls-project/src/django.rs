@@ -116,7 +116,7 @@ pub fn templatetags(db: &dyn ProjectDb, _project: Project) -> Option<TemplateTag
     })
 }
 
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq, Deserialize)]
 pub struct TemplateTags {
     tags: Vec<TemplateTag>,
     libraries: HashMap<String, String>,

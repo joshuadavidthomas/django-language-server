@@ -553,6 +553,7 @@ dependencies = [
  "djls-templates",
  "djls-workspace",
  "salsa",
+ "serde_json",
  "tower-lsp-server",
  "tracing",
 ]
