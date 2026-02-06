@@ -263,11 +263,11 @@
 
 ### Phase 3: Implement Function Context Detection
 
-- [ ] Implement `crates/djls-extraction/src/context.rs` — `FunctionContext` with `split_var`, `parser_var`, `token_var` detection
-- [ ] Implement `find_split_contents_var()` — recurse into if/try to find `<var> = <token>.split_contents()`
-- [ ] Implement `is_split_contents_call()` — verify method name and optional token variable match
-- [ ] Add unit tests: detect `bits`, detect `args`, detect `parts`, no split_contents for simple_tag
-- [ ] Run `cargo build -q -p djls-extraction`, `cargo clippy -q -p djls-extraction --all-targets --all-features -- -D warnings`, `cargo test -q -p djls-extraction`
+- [x] Implement `crates/djls-extraction/src/context.rs` — `FunctionContext` with `split_var`, `parser_var`, `token_var` detection
+- [x] Implement `find_split_contents_var()` — recurse into if/try to find `<var> = <token>.split_contents()`
+- [x] Implement `is_split_contents_call()` — verify method name and optional token variable match
+- [x] Add unit tests: detect `bits`, detect `args`, detect `parts`, no split_contents for simple_tag
+- [x] Run `cargo build -q -p djls-extraction`, `cargo clippy -q -p djls-extraction --all-targets --all-features -- -D warnings`, `cargo test -q -p djls-extraction`
 
 ### Phase 4: Implement Rule Extraction
 
