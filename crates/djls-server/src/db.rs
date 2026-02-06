@@ -125,12 +125,10 @@ pub fn collect_workspace_extraction_results(
 /// 1. Django builtin specs (compile-time constant)
 /// 2. Extracted rules from workspace modules (tracked queries)
 /// 3. Extracted rules from external modules (Project field)
-/// 4. User config overrides (Project.tagspecs field)
 ///
 /// Invalidation triggers:
 /// - Workspace Python file changes → via `extract_workspace_module_rules` dependency
 /// - External modules change → via `Project.extracted_external_rules`
-/// - User config changes → via `Project.tagspecs`
 #[salsa::tracked]
 pub fn compute_tag_specs(db: &dyn SemanticDb, project: Project) -> TagSpecs {
     // Start with Django builtins (compile-time constant)
@@ -147,10 +145,6 @@ pub fn compute_tag_specs(db: &dyn SemanticDb, project: Project) -> TagSpecs {
     for (module_path, extraction) in external_results {
         merge_extraction_into_specs(&mut specs, module_path, extraction);
     }
-
-    // Apply user config overrides (highest priority)
-    let user_specs = TagSpecs::from_config_def(project.tagspecs(db));
-    specs.merge(user_specs);
 
     tracing::trace!("Computed tag specs: {} tags total", specs.len());
 
@@ -281,7 +275,6 @@ mod test_infrastructure {
                 Some("test.settings".to_string()),
                 vec![],
                 None,                           // inspector_inventory
-                settings.tagspecs().clone(),    // tagspecs
                 settings.diagnostics().clone(), // diagnostics
                 Vec::new(),                     // sys_path
                 FxHashMap::default(),           // extracted_external_rules
@@ -445,13 +438,6 @@ impl DjangoDatabase {
         if project.pythonpath(self) != &new_pp {
             project.set_pythonpath(self).to(new_pp);
             env_changed = true;
-        }
-
-        // Check and update tagspecs (config doc, not TagSpecs!)
-        let new_tagspecs = settings.tagspecs().clone();
-        if project.tagspecs(self) != &new_tagspecs {
-            tracing::debug!("Tagspecs config changed, updating Project");
-            project.set_tagspecs(self).to(new_tagspecs);
         }
 
         // Check and update diagnostics
@@ -620,7 +606,6 @@ impl SemanticDb for DjangoDatabase {
             // Read inputs to establish Salsa dependencies
             let _inventory = project.inspector_inventory(self);
             let _external_rules = project.extracted_external_rules(self);
-            let _tagspecs = project.tagspecs(self);
             compute_tag_specs(self, project)
         } else {
             django_builtin_specs()
@@ -698,37 +683,6 @@ mod invalidation_tests {
     }
 
     #[test]
-    fn test_tagspecs_change_invalidates() {
-        let mut test = TestDatabase::with_project();
-
-        // First access
-        let _specs1 = test.db.tag_specs();
-        test.logger.clear();
-
-        // Update tagspecs via Project setter
-        let project = test.db.project().expect("test project exists");
-        let mut new_tagspecs = project.tagspecs(&test.db).clone();
-        // Modify tagspecs (add a library)
-        new_tagspecs.libraries.push(djls_conf::TagLibraryDef {
-            module: "test.templatetags".to_string(),
-            requires_engine: None,
-            tags: vec![],
-            extra: None,
-        });
-
-        // Manual comparison shows change - set it
-        assert!(project.tagspecs(&test.db) != &new_tagspecs);
-        project.set_tagspecs(&mut test.db).to(new_tagspecs);
-
-        // Access again - should recompute
-        let _specs2 = test.db.tag_specs();
-        assert!(
-            test.logger.was_executed(&test.db, "compute_tag_specs"),
-            "compute_tag_specs should recompute after tagspecs change"
-        );
-    }
-
-    #[test]
     fn test_inspector_inventory_change_invalidates() {
         use djls_project::InspectorInventory;
         use djls_project::TemplateTag;
@@ -777,49 +731,17 @@ mod invalidation_tests {
 
         // "Update" with same value - should NOT call setter
         let project = test.db.project().expect("test project exists");
-        let same_tagspecs = project.tagspecs(&test.db).clone();
+        let same_diagnostics = project.diagnostics(&test.db).clone();
 
         // Manual comparison shows NO change - don't set
-        assert!(project.tagspecs(&test.db) == &same_tagspecs);
-        // Note: We don't call set_tagspecs because values are equal
+        assert!(project.diagnostics(&test.db) == &same_diagnostics);
+        // Note: We don't call set_diagnostics because values are equal
 
         // Access again - should NOT recompute
         let _specs2 = test.db.tag_specs();
         assert!(
             !test.logger.was_executed(&test.db, "compute_tag_specs"),
             "compute_tag_specs should NOT recompute when value unchanged"
-        );
-    }
-
-    #[test]
-    fn test_tag_index_depends_on_tag_specs() {
-        let mut test = TestDatabase::with_project();
-
-        // Access tag_index (triggers tag_specs)
-        let _index1 = test.db.tag_index();
-        assert!(
-            test.logger.was_executed(&test.db, "compute_tag_specs"),
-            "tag_index should trigger tag_specs"
-        );
-
-        test.logger.clear();
-
-        // Change tagspecs
-        let project = test.db.project().expect("test project exists");
-        let mut new_tagspecs = project.tagspecs(&test.db).clone();
-        new_tagspecs.libraries.push(djls_conf::TagLibraryDef {
-            module: "another.templatetags".to_string(),
-            requires_engine: None,
-            tags: vec![],
-            extra: None,
-        });
-        project.set_tagspecs(&mut test.db).to(new_tagspecs);
-
-        // Access tag_index - should recompute
-        let _index2 = test.db.tag_index();
-        assert!(
-            test.logger.was_executed(&test.db, "compute_tag_specs"),
-            "tag_index should recompute when tagspecs change"
         );
     }
 

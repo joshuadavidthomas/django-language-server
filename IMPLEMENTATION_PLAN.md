@@ -1099,13 +1099,62 @@ Port the prototype's corpus tests to Rust. Validate actual templates against ext
 
 **Plan:** [`.agents/plans/2026-02-06-m9-tagspec-simplification.md`](.agents/plans/2026-02-06-m9-tagspec-simplification.md)
 
-**Overall Status:** 🔲 Not Started
+**Overall Status:** 🔄 In Progress (Phase 1 Complete)
 
 ### Phase 1: Remove TagSpecs Config System
 
-**Status:** 🔲 Not Started
+**Status:** ✅ Complete
 
 Delete the entire tagspecs module from `djls-conf`, remove the `tagspecs` field from `Settings` and `Project`, remove the user-config merge layer from `compute_tag_specs`.
+
+**Changes:**
+- Deleted `crates/djls-conf/src/tagspecs.rs` — all types (`TagSpecDef`, `TagLibraryDef`, `TagDef`, `EndTagDef`, `IntermediateTagDef`, `TagTypeDef`, `PositionDef`, `TagArgDef`, `ArgKindDef`, `ArgTypeDef`)
+- Deleted `crates/djls-conf/src/tagspecs/legacy.rs` — all legacy types and conversion functions
+- Updated `crates/djls-conf/src/lib.rs`:
+  - Removed `pub mod tagspecs;`
+  - Removed all 10 re-exports of tagspec types
+  - Removed `tagspecs` field from `Settings` struct
+  - Removed `deserialize_tagspecs` function
+  - Removed `tagspecs` override logic from `Settings::new()`
+  - Removed `Settings::tagspecs()` accessor
+  - Removed entire `mod tagspecs { ... }` test module (~450 lines)
+  - Updated default test to remove `tagspecs` field
+- Updated `crates/djls-project/src/project.rs`:
+  - Removed `use djls_conf::TagSpecDef;` import
+  - Removed `tagspecs: TagSpecDef` field from `Project` salsa input
+  - Updated `Project::bootstrap()` to remove tagspecs parameter from `Project::new()` call
+- Updated `crates/djls-server/src/db.rs`:
+  - Removed user-config merge layer from `compute_tag_specs()` (layer 4)
+  - Updated doc comment to list only 3 layers (builtins, workspace extraction, external extraction)
+  - Removed tagspecs diff logic from `update_project_from_settings()`
+  - Updated `TestDatabase::with_project()` to remove tagspecs parameter
+  - Removed `let _tagspecs = project.tagspecs(self);` from `SemanticDb::tag_specs()`
+  - Deleted `test_tagspecs_change_invalidates` test entirely
+  - Updated `test_same_value_no_invalidation` to use diagnostics instead of tagspecs
+  - Deleted `test_tag_index_depends_on_tag_specs` test (was testing tagspecs invalidation)
+- Updated `crates/djls-semantic/src/templatetags/specs.rs`:
+  - Removed `TagSpecs::from_config_def()` method
+  - Removed `impl From<&djls_conf::Settings> for TagSpecs`
+  - Removed `impl From<(djls_conf::TagDef, String)> for TagSpec`
+  - Removed `impl From<djls_conf::TagArgDef> for TagArg`
+  - Removed `impl From<djls_conf::EndTagDef> for EndTag`
+  - Removed `impl From<djls_conf::IntermediateTagDef> for IntermediateTag`
+  - Removed `test_conversion_from_conf_types` test (~110 lines)
+  - Removed `test_conversion_from_settings` test (~88 lines)
+  - Removed unused `std::fs` and `camino::Utf8Path` imports from test module
+
+**Quality Checks:**
+- [x] `cargo build -q` passes
+- [x] `cargo test -q` passes (347 tests)
+- [x] `cargo clippy -q --all-targets --all-features -- -D warnings` passes
+- [x] No `TagSpecDef`, `TagLibraryDef`, `TagDef` types exist in `djls-conf`
+- [x] No `tagspecs` field on `Settings` or `Project`
+- [x] `compute_tag_specs` has 3 layers (builtins, workspace extraction, external extraction)
+
+**Discoveries:**
+- Backward compatibility: Existing `djls.toml` files with `[tagspecs]` sections will have those sections silently ignored by serde (unknown fields are skipped by default)
+- Removing a Salsa input field (`Project.tagspecs`) required updating all `Project::new()` call sites
+- The invalidation tests that used tagspecs were rewritten to use diagnostics config instead
 
 ### Phase 2: Remove `TagArg` System and Old Validation Engine
 

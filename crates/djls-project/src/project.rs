@@ -1,7 +1,6 @@
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_conf::DiagnosticsConfig;
-use djls_conf::TagSpecDef;
 use djls_extraction::ExtractionResult;
 use rustc_hash::FxHashMap;
 
@@ -44,11 +43,6 @@ pub struct Project {
     /// Updated via `DjangoDatabase::refresh_inspector()`.
     #[returns(ref)]
     pub inspector_inventory: Option<InspectorInventory>,
-    /// Tag specifications config document.
-    /// This is the raw config (TagSpecDef), NOT the derived TagSpecs.
-    /// compute_tag_specs() converts this to TagSpecs and merges with builtins.
-    #[returns(ref)]
-    pub tagspecs: TagSpecDef,
     /// Diagnostic severity overrides.
     #[returns(ref)]
     pub diagnostics: DiagnosticsConfig,
@@ -117,7 +111,6 @@ impl Project {
             resolved_django_settings_module,
             pythonpath.to_vec(),
             None,                           // inspector_inventory - populated by refresh_inspector()
-            settings.tagspecs().clone(),    // tagspecs config doc
             settings.diagnostics().clone(), // diagnostics config
             Vec::new(),                     // sys_path - populated by refresh_inspector()
             FxHashMap::default(),           // extracted_external_rules - populated by refresh_inspector()
