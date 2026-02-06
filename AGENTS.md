@@ -2,10 +2,10 @@
 
 ## Build/Test Commands
 ```bash
-cargo build                      # Build all crates
-cargo clippy --all-targets --all-features --fix -- -D warnings  # Lint with fixes
+cargo build -q                      # Build all crates
+cargo clippy -q --all-targets --all-features --fix -- -D warnings  # Lint with fixes
 cargo +nightly fmt              # Format code (requires nightly)
-cargo test                      # Run all tests  
+cargo test -q                      # Run all tests  
 cargo test test_name            # Run single test by name
 cargo test -p crate_name        # Test specific crate
 just test                       # Run tests via nox (with Django matrix)
