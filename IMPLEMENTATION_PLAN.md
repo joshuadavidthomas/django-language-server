@@ -410,6 +410,30 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ---
 
+## M8 — Extracted Rule Evaluation
+
+**Status:** not started
+**Plan:** `.agents/plans/2026-02-06-m8-extracted-rule-evaluation.md`
+**Depends on:** M5, M6
+
+**Goal:** Replace the old hand-crafted `args` validation system with extraction-derived rule evaluation. `ExtractedRule` conditions (already stored on `TagSpec.extracted_rules` by M5) become the primary validation path. Remove old `builtins.rs` hand-crafted `args`, wire extracted args into completions/snippets, and validate against real-world template corpora (Django, Wagtail, allauth, etc.) with zero false positives.
+
+_Tasks to be expanded from plan file in a future planning iteration._
+
+---
+
+## M9 — User Config TagSpec Simplification
+
+**Status:** not started (backlog)
+**Plan:** `.agents/plans/2026-02-06-m9-tagspec-simplification.md`
+**Depends on:** M8
+
+**Goal:** Evaluate and simplify the user-facing `djls.toml` tagspec `args` configuration now that extraction handles the majority of validation. Decide whether to simplify to a basic ignore/override mechanism or keep the current `TagArg` format. Clean up any remaining dead code from M8.
+
+_Tasks to be expanded from plan file in a future planning iteration._
+
+---
+
 ## Discoveries / Notes
 
 - **`target/` tracked in worktree git**: Fixed — `.gitignore` now excludes `target/`.
