@@ -89,10 +89,14 @@ Test impls typically return `None` / default values. Forgetting even one causes 
 ### Clippy Patterns
 - Use inline format variables: `format!("{var}")` not `format!("{}", var)` — clippy flags `uninlined_format_args`
 - `usize as u32` casts require `#[allow(clippy::cast_possible_truncation)]` block — see `calculate_byte_offset` in completions.rs
+- `i64 as usize` casts also flagged — any narrowing or sign-changing cast needs the truncation allow
 - `#[must_use]` NOT required on methods returning `impl Iterator` — only on pure accessors/constructors
 - Functions must not exceed 100 lines — clippy flags `too_many_lines`. Extract helpers to stay under the limit
 - Doc comments must use backticks around code/identifiers — clippy flags `doc_markdown` (e.g., write `\`split_contents\`` not `split_contents`)
 - Stub structs with fields not yet used need `#[allow(dead_code)]` — common when scaffolding crates phase-by-phase
+- Stub functions returning `Result` that can't yet fail need `#[allow(clippy::unnecessary_wraps)]`
+- Use `r"..."` not `r#"..."#` when the string contains no `"` — clippy flags `unnecessary_raw_string_hashes`
+- Prefer `.map_or(default, f)` → `.is_some_and(f)` or simpler form — clippy flags overly complex `map_or`
 
 ### Validation Architecture
 - Validation errors (enum variants): `crates/djls-semantic/src/errors.rs` (`ValidationError`)
@@ -107,6 +111,17 @@ Test impls typically return `None` / default values. Forgetting even one causes 
 - `ParsedModule` in `crates/djls-extraction/src/parser.rs` wraps `ruff_python_parser::parse_module`
 - `ParsedModule::ast()` returns `&ModModule` directly (not `Mod` enum) — iterate `module.body` for statements
 - `extract_name_from_call` is decorator-kind-aware: only `Tag` and `HelperWrapper` use first positional string as name; `inclusion_tag`/`simple_tag`/`simple_block_tag` only support `name=` keyword
+- `simple_block_tag` has a special `end_name` keyword arg for custom closer names — always check decorator kwargs before applying convention fallback
+- Ruff AST `Expr::StringLiteral` contains `.value.to_str()` for string extraction — `.as_str()` is NOT available on all string types
+
+### Extraction Crate Patterns
+- Each module has inline `#[cfg(test)] mod tests` — NOT separate test files
+- Test sources use `r#"..."#` for multi-line Python code (but prefer `r"..."` if no quotes needed)
+- `extract_rules(source)` is the single entry point — returns `ExtractionResult { tags, filters }`
+- `RegistrationInfo` has `#[allow(dead_code)]` on some fields until downstream phases consume them
+- `FunctionContext::from_registration()` finds the function body and detects `split_contents()` call variable name
+- `extract_block_spec()` uses three inference strategies in priority order: (1) explicit `end_name` from decorator, (2) singleton `parser.parse()` call, (3) Django convention fallback (`end{tag_name}`)
+- Control-flow recursion in `structural.rs` and `context.rs` must handle `if`/`for`/`while`/`try`/`with` blocks to find nested `parser.parse()` calls and `split_contents()` assignments
 
 ### File Locations (avoid repeated lookups)
 - Salsa database + tracked queries: `crates/djls-server/src/db.rs`
@@ -126,7 +141,13 @@ Test impls typically return `None` / default values. Forgetting even one causes 
 - Node types (Variable, Tag, Filter, FilterArg, etc.): `crates/djls-templates/src/nodelist.rs`
 - Parser snapshots: `crates/djls-templates/src/snapshots/`
 - Extraction crate types: `crates/djls-extraction/src/types.rs`
-- Extraction crate stubs: `crates/djls-extraction/src/{registry,context,rules,structural,filters,patterns}.rs`
+- Extraction registration discovery: `crates/djls-extraction/src/registry.rs`
+- Extraction function context detection: `crates/djls-extraction/src/context.rs`
+- Extraction rule extraction: `crates/djls-extraction/src/rules.rs`
+- Extraction block spec inference: `crates/djls-extraction/src/structural.rs`
+- Extraction filter arity: `crates/djls-extraction/src/filters.rs` (stub — M5P6)
+- Extraction AST pattern helpers: `crates/djls-extraction/src/patterns.rs`
+- Extraction orchestration: `crates/djls-extraction/src/lib.rs` (`extract_rules()` public API)
 
 ## Task Management
 Use `/dex` to break down complex work, track progress across sessions, and coordinate multi-step implementations.
