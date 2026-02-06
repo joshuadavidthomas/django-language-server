@@ -665,9 +665,47 @@ Find `@register.tag`, `@register.filter`, and related decorators in Python AST.
 
 ### Phase 3: Implement Function Context Detection
 
-**Status:** 🔲 Not Started
+**Status:** ✅ Complete
 
 Identify split-contents variable dynamically (NOT hardcoded `bits`).
+
+**Changes:**
+- Implemented `FunctionContext::from_registration()` in `crates/djls-extraction/src/context.rs`:
+  - Finds function definition by matching `registration.function_name`
+  - Extracts parameter names (first two positional): `parser_var` and `token_var`
+  - Detects `split_var` by finding `<var> = <token>.split_contents()` assignment
+- Implemented `find_split_contents_var()` that searches function body recursively:
+  - Handles `Stmt::Assign` for direct assignments
+  - Recurses into `Stmt::If` branches (body and elif_else_clauses)
+  - Recurses into `Stmt::Try` blocks
+  - Uses `is_split_contents_call()` to verify pattern matches expected token variable
+- Implemented `is_split_contents_call()` to detect `<token>.split_contents()` pattern:
+  - Verifies method name is "split_contents"
+  - When `token_var` is known, verifies the receiver matches
+  - When unknown, accepts any `.split_contents()` call
+- Added `split_var()` accessor method for downstream use
+- Added 8 comprehensive unit tests:
+  - `test_detect_bits`: Classic Django convention
+  - `test_detect_args`: Alternative naming (`args` instead of `bits`)
+  - `test_detect_parts`: Another alternative (`parts`)
+  - `test_detect_tokens`: Yet another (`tokens`)
+  - `test_no_split_contents`: Simple tags without split_contents
+  - `test_detect_in_try_block`: Assignment inside try block
+  - `test_detect_in_if_block`: Assignment inside if block
+  - `test_wrong_variable_not_detected`: Ensures we don't match wrong variable
+
+**Quality Checks:**
+- [x] `cargo build -p djls-extraction` passes
+- [x] `cargo clippy -p djls-extraction --all-targets -- -D warnings` passes
+- [x] `cargo test -p djls-extraction context` passes (8 tests)
+- [x] `cargo build` (full build) passes
+- [x] `cargo test` (all tests) passes
+- [x] `cargo clippy --all-targets --all-features -- -D warnings` passes
+
+**Discoveries:**
+- The Ruff AST returns `&ModModule` from `parsed.ast()`, not `Mod` enum variant
+- Need to verify token variable name to avoid false positives (e.g., `other.split_contents()` should not match when token is named `token`)
+- Recursion into control flow blocks (if/try) is necessary for real-world Django tag patterns
 
 ---
 
