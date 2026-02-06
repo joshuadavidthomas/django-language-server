@@ -67,7 +67,10 @@ impl DiagnosticError for ValidationError {
             | ValidationError::InvalidArgumentChoice { span, .. }
             | ValidationError::UnknownTag { span, .. }
             | ValidationError::UnloadedTag { span, .. }
-            | ValidationError::AmbiguousUnloadedTag { span, .. } => Some(span.into()),
+            | ValidationError::AmbiguousUnloadedTag { span, .. }
+            | ValidationError::UnknownFilter { span, .. }
+            | ValidationError::UnloadedFilter { span, .. }
+            | ValidationError::AmbiguousUnloadedFilter { span, .. } => Some(span.into()),
         }
     }
 
@@ -85,6 +88,9 @@ impl DiagnosticError for ValidationError {
             ValidationError::UnknownTag { .. } => "S108",
             ValidationError::UnloadedTag { .. } => "S109",
             ValidationError::AmbiguousUnloadedTag { .. } => "S110",
+            ValidationError::UnknownFilter { .. } => "S111",
+            ValidationError::UnloadedFilter { .. } => "S112",
+            ValidationError::AmbiguousUnloadedFilter { .. } => "S113",
         }
     }
 }

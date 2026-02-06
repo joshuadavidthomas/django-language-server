@@ -23,8 +23,24 @@ pub enum TagAvailability {
     Unknown,
 }
 
-/// The set of tags available at a given position in a template, plus a mapping
-/// of unavailable-but-known tags to their required library/libraries.
+/// The result of checking a filter name against the available symbols at a position.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FilterAvailability {
+    /// The filter is available (builtin or from a loaded library).
+    Available,
+    /// The filter is known but its library is not loaded. Contains exactly one
+    /// candidate library name.
+    Unloaded { library: String },
+    /// The filter is known but defined in multiple unloaded libraries. Contains
+    /// all candidate library names, sorted alphabetically.
+    AmbiguousUnloaded { libraries: Vec<String> },
+    /// The filter is completely unknown — not in builtins and not in the inspector
+    /// inventory.
+    Unknown,
+}
+
+/// The set of tags and filters available at a given position in a template,
+/// plus a mapping of unavailable-but-known symbols to their required library/libraries.
 ///
 /// Constructed from `LoadedLibraries`, inspector inventory (`TemplateTags`),
 /// and a byte position in the template.
@@ -34,7 +50,11 @@ pub struct AvailableSymbols {
     available: BTreeSet<String>,
     /// Tag names → set of candidate libraries. Only populated for tags NOT in `available`.
     candidates: BTreeMap<String, BTreeSet<String>>,
-    /// The load state at this position, retained for filter availability queries.
+    /// Filter names that are available at this position (builtins + loaded library filters).
+    available_filters: BTreeSet<String>,
+    /// Filter names → set of candidate libraries. Only populated for filters NOT in `available_filters`.
+    filter_candidates: BTreeMap<String, BTreeSet<String>>,
+    /// The load state at this position, retained for library availability queries.
     load_state: LoadState,
 }
 
@@ -88,9 +108,45 @@ impl AvailableSymbols {
             }
         }
 
+        // Build filter availability using the same pattern
+        let mut available_filters = BTreeSet::new();
+        let mut filter_candidates: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+
+        for filter in inventory.filters() {
+            match filter.provenance() {
+                TagProvenance::Builtin { .. } => {
+                    available_filters.insert(filter.name().to_string());
+                }
+                TagProvenance::Library { load_name, .. } => {
+                    filter_candidates
+                        .entry(filter.name().to_string())
+                        .or_default()
+                        .insert(load_name.clone());
+                }
+            }
+        }
+
+        // Move loaded library filters from filter_candidates → available_filters
+        let loaded_filter_names: Vec<String> = filter_candidates.keys().cloned().collect();
+        for filter_name in loaded_filter_names {
+            let Some(libs) = filter_candidates.get(&filter_name) else {
+                continue;
+            };
+            let is_available = libs.iter().any(|lib| {
+                load_state.is_fully_loaded(lib)
+                    || load_state.is_symbol_available(lib, &filter_name)
+            });
+            if is_available {
+                available_filters.insert(filter_name.clone());
+                filter_candidates.remove(&filter_name);
+            }
+        }
+
         Self {
             available,
             candidates,
+            available_filters,
+            filter_candidates,
             load_state: load_state.clone(),
         }
     }
@@ -117,6 +173,30 @@ impl AvailableSymbols {
         }
 
         TagAvailability::Unknown
+    }
+
+    /// Check whether a filter name is available at this position.
+    #[must_use]
+    pub fn check_filter(&self, filter_name: &str) -> FilterAvailability {
+        if self.available_filters.contains(filter_name) {
+            return FilterAvailability::Available;
+        }
+
+        if let Some(libs) = self.filter_candidates.get(filter_name) {
+            let mut sorted: Vec<String> = libs.iter().cloned().collect();
+            sorted.sort();
+            return match sorted.as_slice() {
+                [] => FilterAvailability::Unknown,
+                [single] => FilterAvailability::Unloaded {
+                    library: single.clone(),
+                },
+                _ => FilterAvailability::AmbiguousUnloaded {
+                    libraries: sorted,
+                },
+            };
+        }
+
+        FilterAvailability::Unknown
     }
 
     /// Returns the set of available tag names.
@@ -179,13 +259,41 @@ mod tests {
         })
     }
 
+    fn builtin_filter_json(name: &str, module: &str) -> serde_json::Value {
+        serde_json::json!({
+            "name": name,
+            "provenance": {"builtin": {"module": module}},
+            "defining_module": module,
+            "doc": null,
+        })
+    }
+
+    fn library_filter_json(name: &str, load_name: &str, module: &str) -> serde_json::Value {
+        serde_json::json!({
+            "name": name,
+            "provenance": {"library": {"load_name": load_name, "module": module}},
+            "defining_module": module,
+            "doc": null,
+        })
+    }
+
     fn make_inventory(
         tags: &[serde_json::Value],
         libraries: &HashMap<String, String>,
         builtins: &[String],
     ) -> TemplateTags {
+        make_inventory_with_filters(tags, &[], libraries, builtins)
+    }
+
+    fn make_inventory_with_filters(
+        tags: &[serde_json::Value],
+        filters: &[serde_json::Value],
+        libraries: &HashMap<String, String>,
+        builtins: &[String],
+    ) -> TemplateTags {
         let payload = serde_json::json!({
             "tags": tags,
+            "filters": filters,
             "libraries": libraries,
             "builtins": builtins,
         });
@@ -548,5 +656,144 @@ mod tests {
 
         // Should be available because we imported it from lib_a
         assert_eq!(symbols.check("shared"), TagAvailability::Available);
+    }
+
+    // --- Filter availability tests ---
+
+    fn test_inventory_with_filters() -> TemplateTags {
+        let tags = vec![
+            builtin_tag_json("if", "django.template.defaulttags"),
+        ];
+        let filters = vec![
+            builtin_filter_json("title", "django.template.defaultfilters"),
+            builtin_filter_json("lower", "django.template.defaultfilters"),
+            library_filter_json("apnumber", "humanize", "django.contrib.humanize.templatetags.humanize"),
+            library_filter_json("intcomma", "humanize", "django.contrib.humanize.templatetags.humanize"),
+        ];
+
+        let mut libraries = HashMap::new();
+        libraries.insert(
+            "humanize".to_string(),
+            "django.contrib.humanize.templatetags.humanize".to_string(),
+        );
+
+        let builtins = vec![
+            "django.template.defaulttags".to_string(),
+            "django.template.defaultfilters".to_string(),
+        ];
+
+        make_inventory_with_filters(&tags, &filters, &libraries, &builtins)
+    }
+
+    #[test]
+    fn builtin_filter_always_available() {
+        let inventory = test_inventory_with_filters();
+        let loaded = LoadedLibraries::new(vec![]);
+
+        let symbols = AvailableSymbols::at_position(&loaded, &inventory, 0);
+
+        assert_eq!(symbols.check_filter("title"), FilterAvailability::Available);
+        assert_eq!(symbols.check_filter("lower"), FilterAvailability::Available);
+    }
+
+    #[test]
+    fn library_filter_before_load_is_unloaded() {
+        let inventory = test_inventory_with_filters();
+        let loaded = LoadedLibraries::new(vec![make_load(
+            (50, 20),
+            LoadKind::FullLoad {
+                libraries: vec!["humanize".into()],
+            },
+        )]);
+
+        let symbols = AvailableSymbols::at_position(&loaded, &inventory, 10);
+        assert_eq!(
+            symbols.check_filter("apnumber"),
+            FilterAvailability::Unloaded {
+                library: "humanize".into()
+            }
+        );
+    }
+
+    #[test]
+    fn library_filter_after_load_is_available() {
+        let inventory = test_inventory_with_filters();
+        let loaded = LoadedLibraries::new(vec![make_load(
+            (50, 20),
+            LoadKind::FullLoad {
+                libraries: vec!["humanize".into()],
+            },
+        )]);
+
+        let symbols = AvailableSymbols::at_position(&loaded, &inventory, 100);
+        assert_eq!(
+            symbols.check_filter("apnumber"),
+            FilterAvailability::Available
+        );
+        assert_eq!(
+            symbols.check_filter("intcomma"),
+            FilterAvailability::Available
+        );
+    }
+
+    #[test]
+    fn unknown_filter_is_unknown() {
+        let inventory = test_inventory_with_filters();
+        let loaded = LoadedLibraries::new(vec![]);
+
+        let symbols = AvailableSymbols::at_position(&loaded, &inventory, 100);
+
+        assert_eq!(
+            symbols.check_filter("nonexistent"),
+            FilterAvailability::Unknown
+        );
+    }
+
+    #[test]
+    fn filter_in_multiple_libraries_produces_ambiguous() {
+        let filters = vec![
+            library_filter_json("shared", "lib_a", "app.templatetags.lib_a"),
+            library_filter_json("shared", "lib_b", "app.templatetags.lib_b"),
+        ];
+        let mut libraries = HashMap::new();
+        libraries.insert("lib_a".to_string(), "app.templatetags.lib_a".to_string());
+        libraries.insert("lib_b".to_string(), "app.templatetags.lib_b".to_string());
+
+        let inventory = make_inventory_with_filters(&[], &filters, &libraries, &[]);
+        let loaded = LoadedLibraries::new(vec![]);
+
+        let symbols = AvailableSymbols::at_position(&loaded, &inventory, 100);
+
+        assert_eq!(
+            symbols.check_filter("shared"),
+            FilterAvailability::AmbiguousUnloaded {
+                libraries: vec!["lib_a".into(), "lib_b".into()]
+            }
+        );
+    }
+
+    #[test]
+    fn selective_import_filter_available() {
+        let inventory = test_inventory_with_filters();
+        let loaded = LoadedLibraries::new(vec![make_load(
+            (10, 30),
+            LoadKind::SelectiveImport {
+                symbols: vec!["apnumber".into()],
+                library: "humanize".into(),
+            },
+        )]);
+
+        let symbols = AvailableSymbols::at_position(&loaded, &inventory, 100);
+
+        assert_eq!(
+            symbols.check_filter("apnumber"),
+            FilterAvailability::Available
+        );
+        assert_eq!(
+            symbols.check_filter("intcomma"),
+            FilterAvailability::Unloaded {
+                library: "humanize".into()
+            }
+        );
     }
 }

@@ -153,7 +153,7 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ## M4 — Filters Pipeline
 
-**Status:** in-progress
+**Status:** complete
 **Plan:** `.agents/plans/2026-02-05-m4-filters-pipeline.md`
 
 **Goal:** Implement complete filter support: inspector collection, structured parser representation, completions in `{{ x| }}` context, and unknown/unloaded filter diagnostics (S111/S112/S113) with load scoping.
@@ -197,13 +197,13 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ### Phase 4: Filter Validation with Load Scoping
 
-- [ ] Add `FilterAvailability` enum (or reuse existing `TagAvailability` pattern) in load_resolution symbols module
-- [ ] Extend `AvailableSymbols` (or create `AvailableFilterSymbols`) to track filter availability using the same `LoadedLibraries` + inspector inventory pattern as tags
-- [ ] Add diagnostic codes S111 (`UnknownFilter`), S112 (`UnloadedFilter`), S113 (`AmbiguousUnloadedFilter`) to the diagnostic system
-- [ ] Wire filter validation into semantic analysis: for each `Filter` in `Node::Variable`, check availability via load scoping
-- [ ] Guard: skip all filter scoping diagnostics when `inspector_inventory` is `None`
-- [ ] Tests: unknown filter → S111, unloaded library filter → S112 with library name, filter in multiple libraries → S113, filter after `{% load %}` → valid, builtin filter → always valid, inspector unavailable → no diagnostics
-- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Add `FilterAvailability` enum (or reuse existing `TagAvailability` pattern) in load_resolution symbols module
+- [x] Extend `AvailableSymbols` (or create `AvailableFilterSymbols`) to track filter availability using the same `LoadedLibraries` + inspector inventory pattern as tags
+- [x] Add diagnostic codes S111 (`UnknownFilter`), S112 (`UnloadedFilter`), S113 (`AmbiguousUnloadedFilter`) to the diagnostic system
+- [x] Wire filter validation into semantic analysis: for each `Filter` in `Node::Variable`, check availability via load scoping
+- [x] Guard: skip all filter scoping diagnostics when `inspector_inventory` is `None`
+- [x] Tests: unknown filter → S111, unloaded library filter → S112 with library name, filter in multiple libraries → S113, filter after `{% load %}` → valid, builtin filter → always valid, inspector unavailable → no diagnostics
+- [x] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ---
 

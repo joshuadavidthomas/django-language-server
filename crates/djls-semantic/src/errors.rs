@@ -70,4 +70,21 @@ pub enum ValidationError {
         libraries: Vec<String>,
         span: Span,
     },
+
+    #[error("Unknown filter '{filter}'")]
+    UnknownFilter { filter: String, span: Span },
+
+    #[error("Filter '{filter}' requires {{% load {library} %}}")]
+    UnloadedFilter {
+        filter: String,
+        library: String,
+        span: Span,
+    },
+
+    #[error("Filter '{filter}' is defined in multiple libraries: {libraries:?}")]
+    AmbiguousUnloadedFilter {
+        filter: String,
+        libraries: Vec<String>,
+        span: Span,
+    },
 }
