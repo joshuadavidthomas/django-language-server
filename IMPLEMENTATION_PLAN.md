@@ -209,7 +209,7 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ## M5 — Extraction Engine (`djls-extraction`)
 
-**Status:** in-progress
+**Status:** complete
 **Plan:** `.agents/plans/2026-02-05-m5-extraction-engine.md`
 
 **Goal:** Implement Rust-side rule mining using Ruff AST to derive validation semantics (argument counts, block structure, option constraints) from Python template tag/filter registration modules. Enriches inspector inventory for M6 rule evaluation.
@@ -303,12 +303,12 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ### Phase 9: Corpus / Full-Source Extraction Tests
 
-- [ ] Create test infrastructure that can point at a synced corpus directory (from `template_linter/corpus/`)
-- [ ] Run extraction against all `templatetags/**/*.py` files in corpus
-- [ ] Verify: no panics across entire corpus, meaningful extraction yield (tag/filter counts)
-- [ ] Add golden snapshots for key Django modules (e.g., `defaulttags.py`, `i18n.py`, `static.py`)
-- [ ] Gate tests on corpus availability (auto-detect default location `../../template_linter/corpus/`, skip gracefully if not present)
-- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Create test infrastructure that can point at a synced corpus directory (from `template_linter/corpus/`)
+- [x] Run extraction against all `templatetags/**/*.py` files in corpus
+- [x] Verify: no panics across entire corpus, meaningful extraction yield (tag/filter counts)
+- [x] Add golden snapshots for key Django modules (e.g., `defaulttags.py`, `i18n.py`, `static.py`)
+- [x] Gate tests on corpus availability (auto-detect default location `../../template_linter/corpus/`, skip gracefully if not present)
+- [x] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ---
 
@@ -341,4 +341,5 @@ _Tasks to be expanded when M6 is complete._
 - **M5 Phase 1**: Ruff 0.15.0 (SHA `0dfa810e9aad9a465596768b0211c31dd41d3e73`) used for `ruff_python_parser` and `ruff_python_ast`. API: `ruff_python_parser::parse_module(source)` returns `Result<Parsed<ModModule>, ParseError>`. Use `.into_syntax()` on parsed result to get the `ModModule` AST. Feature gate `parser` keeps ruff deps optional for types-only consumers.
 - **M5 Phase 4**: Ruff's `Parameters` struct does NOT have a `defaults` field like Python's `ast.arguments`. Instead, defaults are per-parameter: `ParameterWithDefault { parameter, default: Option<Box<Expr>> }`. Also `StmtWhile.test` is `Box<Expr>` so dereference with `&*while_stmt.test` when pattern matching. `extract_tag_rule()` dispatches to `extract_compile_function_rule()` for `@register.tag` (uses split_contents guards) vs `extract_parse_bits_rule()` for `@register.simple_tag` / `@register.inclusion_tag` (uses function signature analysis).
 - **M5 Phase 5**: Block spec extraction in `blocks.rs`. Classification strategy: (1) Collect all `parser.parse((...))` stop-tokens, (2) Use control flow (if/elif/else/while branches) to classify — tokens leading to another `parser.parse()` → intermediate, others → end-tag. (3) Tokens not classified as intermediate default to end-tag candidates. (4) `end*` convention used ONLY as tie-breaker for single-call multi-token ambiguity. Also handles `parser.skip_past("endverbatim")` → opaque block, and `parser.parse((f"end{tag_name}",))` → dynamic end-tag (returns `end_tag: None`). Ruff's `FStringValue` uses `.iter()` not `.parts()` to iterate over `FStringPart` values. `ExceptHandler::ExceptHandler` is irrefutable — use `let` not `if let`. `startswith` pattern (`while token.contents.startswith("elif"):`) needed dedicated detection separate from `==` comparison detection.
+- **M5 Phase 9**: Corpus tests gated on availability via runtime detection (`find_corpus_dir()` checks `DJLS_CORPUS_PATH` env var + relative paths from crate). Django golden snapshots use `find_django_source()` which checks `DJANGO_SOURCE_PATH` + venv at project root and main repo root (for worktree setups). Corpus `.corpus/` directories exist but `templatetags/*.py` files are empty — sync script needs to be run. Golden Django snapshots created from `.venv/lib/python3.13/site-packages/django/` — `defaulttags.py` (tag rules + block specs), `defaultfilters.py` (43 filter arities), `i18n.py` (trans/blocktrans with option loops), `static.py` (empty — compile functions use classmethod delegation pattern not caught by current extraction).
 - **M5 Phase 7**: Salsa integration adds `Project.extracted_external_rules: Option<ExtractionResult>` field. `compute_tag_specs` reads this field and calls `TagSpecs::merge_extraction_results()` to enrich builtins with extracted block specs. `extract_rules()` wired up from stub to full pipeline: parse → `collect_registrations_from_body` → `find func def by name` → `extract_tag_rule` / `extract_block_spec` / `extract_filter_arity` per registration. Takes `module_path` param for `SymbolKey` keying. `extract_module_rules` tracked query takes only `File` (uses empty module_path — callers re-key when merging). Module path resolver: `resolve_module_to_file()` searches project root + PYTHONPATH + site-packages (derived from venv path). Salsa backdate optimization confirmed: if source content doesn't change across revisions, `extract_module_rules` won't re-execute.

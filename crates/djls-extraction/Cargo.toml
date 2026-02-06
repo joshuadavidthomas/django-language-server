@@ -16,6 +16,7 @@ serde = { workspace = true }
 [dev-dependencies]
 insta = { workspace = true }
 ruff_python_parser = { workspace = true }
+walkdir = { workspace = true }
 
 [lints]
 workspace = true

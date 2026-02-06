@@ -585,6 +585,7 @@ dependencies = [
  "ruff_python_parser",
  "rustc-hash",
  "serde",
+ "walkdir",
 ]
 
 [[package]]
