@@ -1,16 +1,25 @@
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
+use djls_conf::DiagnosticsConfig;
+use djls_conf::TagSpecDef;
 
 use crate::db::Db as ProjectDb;
 use crate::django_available;
 use crate::template_dirs;
 use crate::templatetags;
 use crate::Interpreter;
+use crate::TemplateTags;
 
 /// Complete project configuration as a Salsa input.
 ///
 /// This represents the core identity of a project: where it is (root path),
-/// which Python environment to use (interpreter), and Django-specific configuration.
+/// which Python environment to use (interpreter), Django-specific configuration,
+/// and semantic validation config.
+///
+/// Key invariants:
+/// - Project id is stable once created (updates via setters, not new instances)
+/// - Stores config documents (TagSpecDef), not derived artifacts (TagSpecs)
+/// - All fields use djls-conf types to avoid layering violations
 #[salsa::input]
 #[derive(Debug)]
 pub struct Project {
@@ -26,6 +35,20 @@ pub struct Project {
     /// Additional Python import paths (PYTHONPATH entries)
     #[returns(ref)]
     pub pythonpath: Vec<String>,
+    /// Runtime inventory from Python inspector (M1 payload shape).
+    /// Contains: libraries mapping, ordered builtins, tag inventory with provenance.
+    /// None if inspector hasn't been queried yet or failed.
+    /// Updated via `DjangoDatabase::refresh_inspector()`.
+    #[returns(ref)]
+    pub inspector_inventory: Option<TemplateTags>,
+    /// Tag specifications config document.
+    /// This is the raw config (TagSpecDef), NOT the derived TagSpecs.
+    /// compute_tag_specs() converts this to TagSpecs and merges with builtins.
+    #[returns(ref)]
+    pub tagspecs: TagSpecDef,
+    /// Diagnostic severity overrides.
+    #[returns(ref)]
+    pub diagnostics: DiagnosticsConfig,
 }
 
 impl Project {
@@ -35,6 +58,7 @@ impl Project {
         venv_path: Option<&str>,
         django_settings_module: Option<&str>,
         pythonpath: &[String],
+        settings: &djls_conf::Settings,
     ) -> Project {
         let interpreter = Interpreter::discover(venv_path);
 
@@ -80,6 +104,9 @@ impl Project {
             interpreter,
             resolved_django_settings_module,
             pythonpath.to_vec(),
+            None,                           // inspector_inventory - populated by refresh_inspector()
+            settings.tagspecs().clone(),    // tagspecs config doc
+            settings.diagnostics().clone(), // diagnostics config
         )
     }
 

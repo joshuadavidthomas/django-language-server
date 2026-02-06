@@ -116,20 +116,21 @@ Update completions to use library load-name and exclude builtins from `{% load %
 
 ### Phase 1: Extend Project Input with djls-conf Types
 
-**Status:** 🔲 Not Started
+**Status:** ✅ Complete
 
 Add new fields to the existing `Project` Salsa input using only types from `djls-conf`. No semantic crate dependency.
 
-**Tasks:**
-- [ ] Ensure `TagSpecDef` and related config types have `PartialEq` (in `djls-conf`)
-- [ ] Add new fields to `Project`: `inspector_inventory: Option<TemplateTags>`, `tagspecs: TagSpecDef`, `diagnostics: DiagnosticsConfig`
-- [ ] Update `Project::bootstrap()` to accept and initialize new fields from settings
-- [ ] Add `djls-conf` dependency to `djls-project/Cargo.toml`
+**Changes:**
+- Verified `TagSpecDef` and related config types already have `PartialEq` in `djls-conf`
+- Added new fields to `Project`: `inspector_inventory: Option<TemplateTags>`, `tagspecs: TagSpecDef`, `diagnostics: DiagnosticsConfig`
+- Updated `Project::bootstrap()` to accept `settings: &Settings` parameter and initialize new fields
+- Updated caller in `djls-server/src/db.rs` to pass the new `settings` argument
 
 **Quality Checks:**
-- [ ] `cargo build -p djls-project` passes
-- [ ] `cargo build` (full build) passes
-- [ ] `cargo clippy -p djls-project --all-targets -- -D warnings` passes
+- [x] `cargo build -p djls-project` passes
+- [x] `cargo build` (full build) passes
+- [x] `cargo clippy -p djls-project --all-targets -- -D warnings` passes
+- [x] `cargo test` passes (220 tests)
 
 ### Phase 2: Add Project Update APIs with Manual Comparison
 

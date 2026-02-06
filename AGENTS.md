@@ -48,3 +48,6 @@ Use `/dex` to break down complex work, track progress across sessions, and coord
 - Sort completion items alphabetically for deterministic test results
 - Use `filter_text` for completion items to improve matching behavior
 - Detail text format: `from {module} ({% load {name} %})` for library tags, `builtin from {module}` for builtins
+
+## Project Bootstrap
+- `Project::bootstrap()` takes 6 arguments: `db`, `root`, `venv_path`, `django_settings_module`, `pythonpath`, AND `settings` — when adding new Project fields, update all callers (e.g., `djls-server/src/db.rs:144`)

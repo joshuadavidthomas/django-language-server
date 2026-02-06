@@ -147,6 +147,7 @@ impl DjangoDatabase {
             settings.venv_path(),
             settings.django_settings_module(),
             settings.pythonpath(),
+            settings,
         );
         *self.project.lock().unwrap() = Some(project);
     }
