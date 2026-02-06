@@ -3,6 +3,7 @@ use camino::Utf8PathBuf;
 use djls_conf::DiagnosticsConfig;
 use djls_conf::Settings;
 use djls_conf::TagSpecDef;
+use djls_extraction::ExtractionResult;
 
 use crate::db::Db as ProjectDb;
 use crate::django_available;
@@ -38,6 +39,10 @@ pub struct Project {
     /// Inspector inventory from Python subprocess (populated by `refresh_inspector`)
     #[returns(ref)]
     pub inspector_inventory: Option<TemplateTags>,
+    /// Extraction results from external modules (site-packages), populated by
+    /// `refresh_inspector`. Workspace files use tracked queries instead.
+    #[returns(ref)]
+    pub extracted_external_rules: Option<ExtractionResult>,
     /// Tag specification config document (converted to `TagSpecs` by tracked queries)
     #[returns(ref)]
     pub tagspecs: TagSpecDef,
@@ -93,6 +98,7 @@ impl Project {
             interpreter,
             resolved_django_settings_module,
             settings.pythonpath().to_vec(),
+            None,
             None,
             settings.tagspecs().clone(),
             settings.diagnostics().clone(),

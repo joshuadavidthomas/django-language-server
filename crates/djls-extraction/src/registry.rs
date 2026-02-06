@@ -62,6 +62,17 @@ pub fn collect_registrations(source: &str) -> Vec<RegistrationInfo> {
     registrations
 }
 
+/// Collect registrations from a pre-parsed module body.
+///
+/// This avoids re-parsing the source when the caller already has the AST.
+#[cfg(feature = "parser")]
+#[must_use]
+pub fn collect_registrations_from_body(body: &[Stmt]) -> Vec<RegistrationInfo> {
+    let mut registrations = Vec::new();
+    collect_from_body(body, &mut registrations);
+    registrations
+}
+
 #[cfg(feature = "parser")]
 fn collect_from_body(body: &[Stmt], registrations: &mut Vec<RegistrationInfo>) {
     for stmt in body {

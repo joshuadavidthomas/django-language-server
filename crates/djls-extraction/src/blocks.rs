@@ -69,11 +69,7 @@ fn collect_parser_parse_calls(body: &[Stmt], parser_var: &str) -> Vec<ParseCallI
     calls
 }
 
-fn collect_parse_calls_recursive(
-    body: &[Stmt],
-    parser_var: &str,
-    calls: &mut Vec<ParseCallInfo>,
-) {
+fn collect_parse_calls_recursive(body: &[Stmt], parser_var: &str, calls: &mut Vec<ParseCallInfo>) {
     for stmt in body {
         // Check for direct expression statements or assignments containing parser.parse(...)
         visit_stmt_for_parse_calls(stmt, parser_var, calls);
@@ -234,7 +230,13 @@ fn classify_stop_tokens(
     let mut intermediates: Vec<String> = Vec::new();
     let mut end_tags: Vec<String> = Vec::new();
 
-    classify_in_body(body, parser_var, &all_tokens, &mut intermediates, &mut end_tags);
+    classify_in_body(
+        body,
+        parser_var,
+        &all_tokens,
+        &mut intermediates,
+        &mut end_tags,
+    );
 
     // After flow analysis: any token that was found in stop-token lists but NOT
     // classified as intermediate is a candidate end-tag. This handles the common
@@ -387,13 +389,7 @@ fn classify_in_body(
         if is_parse_call_stmt(stmt, parser_var) {
             // Look ahead for an if-statement checking the token
             if let Some(Stmt::If(if_stmt)) = body.get(i + 1).or_else(|| body.get(i + 2)) {
-                classify_from_if_chain(
-                    if_stmt,
-                    parser_var,
-                    all_tokens,
-                    intermediates,
-                    end_tags,
-                );
+                classify_from_if_chain(if_stmt, parser_var, all_tokens, intermediates, end_tags);
             }
         }
     }
@@ -571,10 +567,7 @@ fn get_string_constant(expr: &Expr) -> Option<String> {
 
 /// Get the first word from a string.
 fn first_word(s: &str) -> String {
-    s.split_whitespace()
-        .next()
-        .unwrap_or("")
-        .to_string()
+    s.split_whitespace().next().unwrap_or("").to_string()
 }
 
 /// Check if a statement body contains a `parser.parse(...)` call.
@@ -759,9 +752,7 @@ fn has_dynamic_end_in_body(body: &[Stmt], parser_var: &str) -> bool {
 fn has_dynamic_end_in_stmt(stmt: &Stmt, parser_var: &str) -> bool {
     match stmt {
         Stmt::Expr(expr_stmt) => is_dynamic_end_parse_call(&expr_stmt.value, parser_var),
-        Stmt::Assign(StmtAssign { value, .. }) => {
-            is_dynamic_end_parse_call(value, parser_var)
-        }
+        Stmt::Assign(StmtAssign { value, .. }) => is_dynamic_end_parse_call(value, parser_var),
         Stmt::If(if_stmt) => {
             has_dynamic_end_in_body(&if_stmt.body, parser_var)
                 || if_stmt
@@ -772,7 +763,9 @@ fn has_dynamic_end_in_stmt(stmt: &Stmt, parser_var: &str) -> bool {
         Stmt::For(StmtFor { body, .. }) | Stmt::While(ruff_python_ast::StmtWhile { body, .. }) => {
             has_dynamic_end_in_body(body, parser_var)
         }
-        Stmt::Return(StmtReturn { value: Some(val), .. }) => {
+        Stmt::Return(StmtReturn {
+            value: Some(val), ..
+        }) => {
             // Return a node constructor that may contain parser.parse(f"end{...}")
             is_dynamic_end_parse_call(val, parser_var)
         }

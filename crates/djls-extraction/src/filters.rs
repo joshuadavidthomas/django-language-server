@@ -75,9 +75,7 @@ pub fn has_stringfilter_decorator(func: &StmtFunctionDef) -> bool {
     for decorator in &func.decorator_list {
         match &decorator.expression {
             Expr::Name(name) if name.id.as_str() == "stringfilter" => return true,
-            Expr::Attribute(ExprAttribute { attr, .. })
-                if attr.as_str() == "stringfilter" =>
-            {
+            Expr::Attribute(ExprAttribute { attr, .. }) if attr.as_str() == "stringfilter" => {
                 return true;
             }
             _ => {}
@@ -110,8 +108,8 @@ pub fn has_is_safe(func: &StmtFunctionDef) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use ruff_python_parser::parse_module;
     use ruff_python_ast::Stmt;
+    use ruff_python_parser::parse_module;
 
     use super::*;
 

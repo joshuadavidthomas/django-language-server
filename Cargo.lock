@@ -611,6 +611,7 @@ dependencies = [
  "anyhow",
  "camino",
  "djls-conf",
+ "djls-extraction",
  "djls-source",
  "djls-workspace",
  "rustc-hash",
@@ -628,6 +629,7 @@ version = "0.0.0"
 dependencies = [
  "camino",
  "djls-conf",
+ "djls-extraction",
  "djls-project",
  "djls-source",
  "djls-templates",
@@ -651,6 +653,7 @@ dependencies = [
  "camino",
  "dashmap",
  "djls-conf",
+ "djls-extraction",
  "djls-ide",
  "djls-project",
  "djls-semantic",

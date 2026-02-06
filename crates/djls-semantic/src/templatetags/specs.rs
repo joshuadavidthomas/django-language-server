@@ -176,6 +176,70 @@ impl TagSpecs {
         self.0.extend(other.0);
         self
     }
+
+    /// Merge extraction results into tag specs.
+    ///
+    /// Block specs from extraction override existing end-tag/intermediate info.
+    /// This enriches the handcoded `builtins.rs` defaults with information
+    /// extracted from actual Python source code.
+    pub fn merge_extraction_results(
+        &mut self,
+        extraction: &djls_extraction::ExtractionResult,
+    ) -> &mut Self {
+        for (key, block_spec) in &extraction.block_specs {
+            if key.kind != djls_extraction::SymbolKind::Tag {
+                continue;
+            }
+            if let Some(spec) = self.0.get_mut(&key.name) {
+                // Override end_tag from extraction
+                if let Some(end_tag_name) = &block_spec.end_tag {
+                    spec.end_tag = Some(EndTag {
+                        name: end_tag_name.clone().into(),
+                        required: true,
+                        args: std::borrow::Cow::Borrowed(&[]),
+                    });
+                }
+                // Override intermediates from extraction
+                if !block_spec.intermediates.is_empty() {
+                    spec.intermediate_tags = std::borrow::Cow::Owned(
+                        block_spec
+                            .intermediates
+                            .iter()
+                            .map(|name| IntermediateTag {
+                                name: name.clone().into(),
+                                args: std::borrow::Cow::Borrowed(&[]),
+                            })
+                            .collect(),
+                    );
+                }
+            } else {
+                // Tag not yet in specs — create a new entry from extraction
+                let end_tag = block_spec.end_tag.as_ref().map(|name| EndTag {
+                    name: name.clone().into(),
+                    required: true,
+                    args: std::borrow::Cow::Borrowed(&[]),
+                });
+                let intermediate_tags: Vec<IntermediateTag> = block_spec
+                    .intermediates
+                    .iter()
+                    .map(|name| IntermediateTag {
+                        name: name.clone().into(),
+                        args: std::borrow::Cow::Borrowed(&[]),
+                    })
+                    .collect();
+                self.0.insert(
+                    key.name.clone(),
+                    TagSpec {
+                        module: key.registration_module.clone().into(),
+                        end_tag,
+                        intermediate_tags: std::borrow::Cow::Owned(intermediate_tags),
+                        args: std::borrow::Cow::Borrowed(&[]),
+                    },
+                );
+            }
+        }
+        self
+    }
 }
 
 impl Deref for TagSpecs {
@@ -1073,5 +1137,102 @@ required = false
         // Note: The built-in if tag has intermediate tags, but the override doesn't specify them
         // The override completely replaces the built-in
         assert!(if_tag.intermediate_tags.is_empty());
+    }
+
+    #[test]
+    fn test_merge_extraction_results_overrides_existing() {
+        let mut specs = create_test_specs();
+
+        // The "if" tag has intermediates ["elif", "else"] and end_tag "endif"
+        assert!(specs.get("if").unwrap().end_tag.is_some());
+        assert_eq!(specs.get("if").unwrap().intermediate_tags.len(), 2);
+
+        // Create extraction result that overrides "if" block spec
+        let mut extraction = djls_extraction::ExtractionResult::default();
+        extraction.block_specs.insert(
+            djls_extraction::SymbolKey::tag("django.template.defaulttags", "if"),
+            djls_extraction::BlockTagSpec {
+                end_tag: Some("endif".to_string()),
+                intermediates: vec![
+                    "elif".to_string(),
+                    "else".to_string(),
+                    "elseif".to_string(), // hypothetical extra intermediate
+                ],
+                opaque: false,
+            },
+        );
+
+        specs.merge_extraction_results(&extraction);
+
+        let if_spec = specs.get("if").unwrap();
+        assert_eq!(if_spec.end_tag.as_ref().unwrap().name.as_ref(), "endif");
+        assert_eq!(if_spec.intermediate_tags.len(), 3);
+        assert!(if_spec
+            .intermediate_tags
+            .iter()
+            .any(|t| t.name.as_ref() == "elseif"));
+    }
+
+    #[test]
+    fn test_merge_extraction_results_adds_new_tag() {
+        let mut specs = create_test_specs();
+        let original_count = specs.len();
+
+        // Add a tag not in the existing specs
+        let mut extraction = djls_extraction::ExtractionResult::default();
+        extraction.block_specs.insert(
+            djls_extraction::SymbolKey::tag("myapp.templatetags.custom", "myblock"),
+            djls_extraction::BlockTagSpec {
+                end_tag: Some("endmyblock".to_string()),
+                intermediates: vec!["mymiddle".to_string()],
+                opaque: false,
+            },
+        );
+
+        specs.merge_extraction_results(&extraction);
+
+        assert_eq!(specs.len(), original_count + 1);
+        let myblock = specs.get("myblock").unwrap();
+        assert_eq!(
+            myblock.end_tag.as_ref().unwrap().name.as_ref(),
+            "endmyblock"
+        );
+        assert_eq!(myblock.intermediate_tags.len(), 1);
+        assert_eq!(myblock.intermediate_tags[0].name.as_ref(), "mymiddle");
+        assert_eq!(myblock.module.as_ref(), "myapp.templatetags.custom");
+    }
+
+    #[test]
+    fn test_merge_extraction_results_skips_filters() {
+        let mut specs = create_test_specs();
+        let original_count = specs.len();
+
+        // Filter block specs should be skipped
+        let mut extraction = djls_extraction::ExtractionResult::default();
+        extraction.block_specs.insert(
+            djls_extraction::SymbolKey::filter("module", "lower"),
+            djls_extraction::BlockTagSpec {
+                end_tag: Some("endlower".to_string()),
+                intermediates: vec![],
+                opaque: false,
+            },
+        );
+
+        specs.merge_extraction_results(&extraction);
+
+        // No new tag added
+        assert_eq!(specs.len(), original_count);
+        assert!(specs.get("lower").is_none());
+    }
+
+    #[test]
+    fn test_merge_extraction_results_empty() {
+        let mut specs = create_test_specs();
+        let original_count = specs.len();
+
+        let extraction = djls_extraction::ExtractionResult::default();
+        specs.merge_extraction_results(&extraction);
+
+        assert_eq!(specs.len(), original_count);
     }
 }

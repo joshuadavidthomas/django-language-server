@@ -281,15 +281,15 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ### Phase 7: Salsa Integration
 
-- [ ] Add `djls-extraction` dependency to `djls-server/Cargo.toml` with `parser` feature enabled
-- [ ] Add `djls-extraction` dependency (types-only, no `parser` feature) to `djls-project/Cargo.toml` if needed for `ExtractionResult` storage
-- [ ] Create tracked query `extract_module_rules(db, file: File) -> ExtractionResult` in `djls-server/src/db.rs` for workspace files
-- [ ] For external modules (site-packages): extract during `refresh_inspector()`, store on `Project.extracted_external_rules: Option<ExtractionResult>` field (new `#[returns(ref)]` field)
-- [ ] Implement module path → file path resolver using `sys_path` from Python environment; classify as workspace vs external based on project root
-- [ ] Update `compute_tag_specs` to merge extracted rules into tag specs — extraction enriches/overrides `builtins.rs` defaults
-- [ ] Ensure workspace extraction → tracked queries → automatic Salsa invalidation; external extraction → Project field → manual refresh invalidation
-- [ ] Tests: verify extraction result cached on second access, file edit triggers re-extraction, external rules stored on Project field, merged tag specs include extracted block specs
-- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Add `djls-extraction` dependency to `djls-server/Cargo.toml` with `parser` feature enabled
+- [x] Add `djls-extraction` dependency (types-only, no `parser` feature) to `djls-project/Cargo.toml` if needed for `ExtractionResult` storage
+- [x] Create tracked query `extract_module_rules(db, file: File) -> ExtractionResult` in `djls-server/src/db.rs` for workspace files
+- [x] For external modules (site-packages): extract during `refresh_inspector()`, store on `Project.extracted_external_rules: Option<ExtractionResult>` field (new `#[returns(ref)]` field)
+- [x] Implement module path → file path resolver using `sys_path` from Python environment; classify as workspace vs external based on project root
+- [x] Update `compute_tag_specs` to merge extracted rules into tag specs — extraction enriches/overrides `builtins.rs` defaults
+- [x] Ensure workspace extraction → tracked queries → automatic Salsa invalidation; external extraction → Project field → manual refresh invalidation
+- [x] Tests: verify extraction result cached on second access, file edit triggers re-extraction, external rules stored on Project field, merged tag specs include extracted block specs
+- [x] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 8: Small Fixture Golden Tests
 
@@ -341,3 +341,4 @@ _Tasks to be expanded when M6 is complete._
 - **M5 Phase 1**: Ruff 0.15.0 (SHA `0dfa810e9aad9a465596768b0211c31dd41d3e73`) used for `ruff_python_parser` and `ruff_python_ast`. API: `ruff_python_parser::parse_module(source)` returns `Result<Parsed<ModModule>, ParseError>`. Use `.into_syntax()` on parsed result to get the `ModModule` AST. Feature gate `parser` keeps ruff deps optional for types-only consumers.
 - **M5 Phase 4**: Ruff's `Parameters` struct does NOT have a `defaults` field like Python's `ast.arguments`. Instead, defaults are per-parameter: `ParameterWithDefault { parameter, default: Option<Box<Expr>> }`. Also `StmtWhile.test` is `Box<Expr>` so dereference with `&*while_stmt.test` when pattern matching. `extract_tag_rule()` dispatches to `extract_compile_function_rule()` for `@register.tag` (uses split_contents guards) vs `extract_parse_bits_rule()` for `@register.simple_tag` / `@register.inclusion_tag` (uses function signature analysis).
 - **M5 Phase 5**: Block spec extraction in `blocks.rs`. Classification strategy: (1) Collect all `parser.parse((...))` stop-tokens, (2) Use control flow (if/elif/else/while branches) to classify — tokens leading to another `parser.parse()` → intermediate, others → end-tag. (3) Tokens not classified as intermediate default to end-tag candidates. (4) `end*` convention used ONLY as tie-breaker for single-call multi-token ambiguity. Also handles `parser.skip_past("endverbatim")` → opaque block, and `parser.parse((f"end{tag_name}",))` → dynamic end-tag (returns `end_tag: None`). Ruff's `FStringValue` uses `.iter()` not `.parts()` to iterate over `FStringPart` values. `ExceptHandler::ExceptHandler` is irrefutable — use `let` not `if let`. `startswith` pattern (`while token.contents.startswith("elif"):`) needed dedicated detection separate from `==` comparison detection.
+- **M5 Phase 7**: Salsa integration adds `Project.extracted_external_rules: Option<ExtractionResult>` field. `compute_tag_specs` reads this field and calls `TagSpecs::merge_extraction_results()` to enrich builtins with extracted block specs. `extract_rules()` wired up from stub to full pipeline: parse → `collect_registrations_from_body` → `find func def by name` → `extract_tag_rule` / `extract_block_spec` / `extract_filter_arity` per registration. Takes `module_path` param for `SymbolKey` keying. `extract_module_rules` tracked query takes only `File` (uses empty module_path — callers re-key when merging). Module path resolver: `resolve_module_to_file()` searches project root + PYTHONPATH + site-packages (derived from venv path). Salsa backdate optimization confirmed: if source content doesn't change across revisions, `extract_module_rules` won't re-execute.
