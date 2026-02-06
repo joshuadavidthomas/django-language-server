@@ -675,7 +675,10 @@ fn generate_argument_completions(
     completions
 }
 
-/// Generate completions for library names (for {% load %} tag)
+/// Generate completions for library names (for {% load %} tag).
+///
+/// When the inspector is unavailable (`template_tags` is `None`), returns an
+/// empty list since we have no knowledge of which libraries are available.
 fn generate_library_completions(
     partial: &str,
     closing: &ClosingBrace,
@@ -893,6 +896,48 @@ mod tests {
             completions[0].detail.as_deref(),
             Some("Django template library (django.templatetags.static)")
         );
+    }
+
+    #[test]
+    fn test_library_completions_inspector_unavailable_returns_empty() {
+        let completions = generate_library_completions("", &ClosingBrace::None, None);
+        assert!(
+            completions.is_empty(),
+            "Library completions should be empty when inspector is unavailable"
+        );
+    }
+
+    #[test]
+    fn test_library_completions_inspector_unavailable_with_partial_returns_empty() {
+        let completions = generate_library_completions("stat", &ClosingBrace::None, None);
+        assert!(
+            completions.is_empty(),
+            "Library completions should be empty even with partial input when inspector is unavailable"
+        );
+    }
+
+    #[test]
+    fn test_library_completions_healthy_inspector_returns_names() {
+        let mut libraries = HashMap::new();
+        libraries.insert("i18n".to_string(), "django.templatetags.i18n".to_string());
+        libraries.insert(
+            "static".to_string(),
+            "django.templatetags.static".to_string(),
+        );
+        libraries.insert("tz".to_string(), "django.templatetags.tz".to_string());
+
+        let tags = build_template_tags(&libraries, &[]);
+
+        let completions = generate_library_completions("", &ClosingBrace::None, Some(&tags));
+
+        assert_eq!(completions.len(), 3);
+        let labels: Vec<&str> = completions.iter().map(|c| c.label.as_str()).collect();
+        assert_eq!(labels, vec!["i18n", "static", "tz"]);
+
+        // Each has MODULE kind
+        for c in &completions {
+            assert_eq!(c.kind, Some(ls_types::CompletionItemKind::MODULE));
+        }
     }
 
     #[test]

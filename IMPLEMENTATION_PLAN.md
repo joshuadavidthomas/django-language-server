@@ -92,7 +92,7 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ## M3 — `{% load %}` Scoping Infrastructure
 
-**Status:** in-progress
+**Status:** complete
 **Plan:** `.agents/plans/2026-02-05-m3-load-scoping.md`
 
 **Goal:** Implement position-aware `{% load %}` scoping so diagnostics and completions respect which libraries are loaded at each position. Produces S108 (unknown tag), S109 (unloaded tag), S110 (ambiguous unloaded tag) diagnostics.
@@ -144,10 +144,10 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ### Phase 6: Library Completions Enhancement
 
-- [ ] Update `generate_library_completions` to check inspector availability — return empty when inspector unavailable
-- [ ] Verify library completions behavior when inspector is healthy (already done in M1, confirm no regressions)
-- [ ] Tests: library completions with healthy inspector show correct names, inspector unavailable returns empty list
-- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Update `generate_library_completions` to check inspector availability — return empty when inspector unavailable
+- [x] Verify library completions behavior when inspector is healthy (already done in M1, confirm no regressions)
+- [x] Tests: library completions with healthy inspector show correct names, inspector unavailable returns empty list
+- [x] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ---
 
