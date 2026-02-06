@@ -262,6 +262,8 @@ impl LanguageServer for DjangoLanguageServer {
                 let encoding = session.client_info().position_encoding();
                 let file_kind = FileKind::from(&path);
                 let db = session.db();
+
+                // Get template tags from project
                 let template_tags = if let Some(project) = db.project() {
                     tracing::debug!("Fetching templatetags for project");
                     let tags = djls_project::templatetags(db, project);
@@ -275,6 +277,16 @@ impl LanguageServer for DjangoLanguageServer {
                     tracing::warn!("No project available for templatetags");
                     None
                 };
+
+                // Compute loaded libraries if we have a parsed nodelist
+                let loaded_libraries = if file_kind == FileKind::Template {
+                    let file = db.get_or_create_file(&path);
+                    djls_templates::parse_template(db, file)
+                        .map(|nodelist| djls_semantic::compute_loaded_libraries(db, nodelist))
+                } else {
+                    None
+                };
+
                 let tag_specs = db.tag_specs();
                 let supports_snippets = session.client_info().supports_snippets();
 
@@ -285,6 +297,7 @@ impl LanguageServer for DjangoLanguageServer {
                     file_kind,
                     template_tags.as_ref(),
                     Some(&tag_specs),
+                    loaded_libraries.as_ref(),
                     supports_snippets,
                 );
 

@@ -244,7 +244,7 @@ Write tests that capture Salsa events and verify invalidation using stable `ingr
 
 **Plan:** [`.agents/plans/2026-02-05-m3-load-scoping.md`](.agents/plans/2026-02-05-m3-load-scoping.md)
 
-**Overall Status:** Phases 1-4 of 6 complete
+**Overall Status:** Phases 1-5 of 6 complete
 
 ### Phase 1: Load Statement Parsing and Data Structures
 
@@ -363,22 +363,27 @@ Integrate load scoping into tag validation to produce diagnostics for unknown ta
 
 ### Phase 5: Completions Integration
 
-**Status:** 🔲 Not Started
+**Status:** ✅ Complete
 
 Update completions to filter tags based on load state at cursor position.
 
 **Changes:**
-- Update `generate_tag_name_completions()` signature with `loaded_libraries` and `cursor_byte_offset`
-- Filter completions by availability at cursor position
-- Add `calculate_byte_offset()` helper to convert LSP Position → byte offset
-- Update `handle_completion()` and `generate_template_completions()` signatures
-- Update server call site in `server.rs` to pass loaded libraries
-- When inspector unavailable (None), show all tags as fallback
+- Updated `handle_completion()` signature to include `loaded_libraries: Option<&LoadedLibraries>` parameter
+- Added `calculate_byte_offset()` helper to convert LSP Position → byte offset (respects UTF-16/UTF-8 encoding)
+- Updated `generate_template_completions()` signature with `loaded_libraries` and `cursor_byte_offset` parameters
+- Updated `generate_tag_name_completions()` to:
+  - Accept `loaded_libraries` and `cursor_byte_offset` parameters
+  - Compute available tags at cursor position using `available_tags_at()`
+  - Filter completions by availability when load info is available
+  - Show all tags as fallback when inspector unavailable (`loaded_libraries = None`)
+- Updated server call site in `server.rs` to:
+  - Parse template and compute `LoadedLibraries` via `compute_loaded_libraries()`
+  - Pass `loaded_libraries` to completion handler
 
 **Quality Checks:**
-- [ ] `cargo build` passes
-- [ ] `cargo test` passes
-- [ ] `cargo clippy --all-targets -- -D warnings` passes
+- [x] `cargo build` passes
+- [x] `cargo test` passes (269 tests)
+- [x] `cargo clippy --all-targets --all-features -- -D warnings` passes
 - [ ] Manual: Without `{% load %}`, only builtins in completions
 - [ ] Manual: After `{% load i18n %}`, i18n tags appear AFTER the load
 - [ ] Manual: Cursor BEFORE `{% load i18n %}` → i18n tags NOT shown

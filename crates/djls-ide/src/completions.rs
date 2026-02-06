@@ -4,6 +4,8 @@
 //! and generating appropriate completion items for Django templates.
 
 use djls_project::TemplateTags;
+use djls_semantic::available_tags_at;
+use djls_semantic::LoadedLibraries;
 use djls_semantic::TagArg;
 use djls_semantic::TagSpecs;
 use djls_source::FileKind;
@@ -90,6 +92,7 @@ pub struct LineInfo {
 }
 
 /// Main entry point for handling completion requests
+#[allow(clippy::too_many_arguments)]
 #[must_use]
 pub fn handle_completion(
     document: &TextDocument,
@@ -98,6 +101,7 @@ pub fn handle_completion(
     file_kind: FileKind,
     template_tags: Option<&TemplateTags>,
     tag_specs: Option<&TagSpecs>,
+    loaded_libraries: Option<&LoadedLibraries>,
     supports_snippets: bool,
 ) -> Vec<ls_types::CompletionItem> {
     // Only handle template files
@@ -115,16 +119,66 @@ pub fn handle_completion(
         return Vec::new();
     };
 
+    // Calculate byte offset for load scoping
+    let byte_offset = calculate_byte_offset(document, position, encoding);
+
     // Generate completions based on available template tags
     generate_template_completions(
         &context,
         template_tags,
         tag_specs,
+        loaded_libraries,
+        byte_offset,
         supports_snippets,
         position,
         &line_info.text,
         line_info.cursor_offset,
     )
+}
+
+/// Calculate byte offset from line/character position.
+///
+/// This converts LSP (line, character) positions into byte offsets
+/// into the document content, respecting the position encoding.
+fn calculate_byte_offset(
+    document: &TextDocument,
+    position: ls_types::Position,
+    encoding: PositionEncoding,
+) -> u32 {
+    let content = document.content();
+    let lines: Vec<&str> = content.lines().collect();
+
+    let mut byte_offset: usize = 0;
+
+    // Add bytes for all complete lines before cursor
+    for line in lines.iter().take(position.line as usize) {
+        byte_offset += line.len() + 1; // +1 for newline
+    }
+
+    // Add bytes for characters in the current line up to cursor
+    if let Some(line) = lines.get(position.line as usize) {
+        let char_offset = match encoding {
+            PositionEncoding::Utf16 => {
+                // Convert UTF-16 offset to character count
+                let mut char_count = 0;
+                let mut utf16_count = 0;
+                for ch in line.chars() {
+                    if utf16_count >= position.character as usize {
+                        break;
+                    }
+                    utf16_count += ch.len_utf16();
+                    char_count += 1;
+                }
+                char_count
+            }
+            _ => position.character as usize,
+        };
+
+        // Convert character offset to byte offset
+        byte_offset += line.chars().take(char_offset).map(char::len_utf8).sum::<usize>();
+    }
+
+    u32::try_from(byte_offset).unwrap_or(u32::MAX)
 }
 
 /// Extract line information from document at given position
@@ -280,10 +334,13 @@ fn detect_closing_brace(suffix: &str) -> ClosingBrace {
 }
 
 /// Generate Django template tag completion items based on context
+#[allow(clippy::too_many_arguments)]
 fn generate_template_completions(
     context: &TemplateCompletionContext,
     template_tags: Option<&TemplateTags>,
     tag_specs: Option<&TagSpecs>,
+    loaded_libraries: Option<&LoadedLibraries>,
+    cursor_byte_offset: u32,
     supports_snippets: bool,
     position: ls_types::Position,
     line_text: &str,
@@ -300,6 +357,8 @@ fn generate_template_completions(
             closing,
             template_tags,
             tag_specs,
+            loaded_libraries,
+            cursor_byte_offset,
             supports_snippets,
             position,
             line_text,
@@ -363,12 +422,15 @@ fn calculate_replacement_range(
 
 /// Generate completions for tag names
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_lines)]
 fn generate_tag_name_completions(
     partial: &str,
     needs_space: bool,
     closing: &ClosingBrace,
     template_tags: Option<&TemplateTags>,
     tag_specs: Option<&TagSpecs>,
+    loaded_libraries: Option<&LoadedLibraries>,
+    cursor_byte_offset: u32,
     supports_snippets: bool,
     position: ls_types::Position,
     line_text: &str,
@@ -377,6 +439,10 @@ fn generate_tag_name_completions(
     let Some(tags) = template_tags else {
         return Vec::new();
     };
+
+    // Compute available tags at cursor position
+    let available = loaded_libraries
+        .map(|loaded| available_tags_at(loaded, tags, cursor_byte_offset));
 
     let mut completions = Vec::new();
 
@@ -426,8 +492,21 @@ fn generate_tag_name_completions(
     }
 
     for tag in tags.iter() {
-        if tag.name().starts_with(partial) {
-            // Try to get snippet from TagSpecs if available and client supports snippets
+        // Filter by partial match
+        if !tag.name().starts_with(partial) {
+            continue;
+        }
+
+        // Filter by availability (if we have load info)
+        // When inspector unavailable (available = None), show all tags (fallback)
+        if let Some(ref avail) = available {
+            if !avail.has_tag(tag.name()) {
+                // Tag not available at this position - hide it
+                continue;
+            }
+        }
+
+        // Try to get snippet from TagSpecs if available and client supports snippets
             let (insert_text, insert_format) = if supports_snippets {
                 if let Some(specs) = tag_specs {
                     if let Some(spec) = specs.get(tag.name()) {
@@ -503,7 +582,6 @@ fn generate_tag_name_completions(
             };
 
             completions.push(completion_item);
-        }
     }
 
     completions
@@ -852,6 +930,8 @@ mod tests {
             &context,
             None,
             None,
+            None,
+            0,
             false,
             ls_types::Position::new(0, 0),
             "",
