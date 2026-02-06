@@ -69,23 +69,42 @@ Test impls typically return `None` / default values. Forgetting even one causes 
 - Each test `TestDatabase` also needs `impl djls_source::Db` and `impl djls_templates::Db` — check existing test databases for the full trait hierarchy
 
 ### Type Evolution
-- `InspectorInventory` replaces `TemplateTags` as the `Project.inspector_inventory` field type
-- `TemplateTags` still exists for the legacy `templatetags` tracked query but downstream code uses `InspectorInventory`
+- `InspectorInventory` replaces `TemplateTags` as the `Project.inspector_inventory` field type — all new code should use `InspectorInventory`
+- `TemplateTags` still exists for the legacy `templatetags` tracked query — do NOT remove yet, but do NOT use for new features
 - `InspectorInventory::new()` takes 4 args: `libraries`, `builtins`, `tags`, `filters`
 - `TemplateFilter` accessors return `&str` (not `&String` like `TemplateTag`) — this is the correct pattern per clippy
+- `Node::Variable { var, filters, span }` currently has `filters: Vec<String>` — M4.2 will change to `Vec<Filter>` with structured name/arg/span
+- `refresh_inspector()` uses `TemplateInventoryRequest` ("template_inventory" query) — single IPC round trip for tags + filters
+
+### Clippy Patterns
+- Use inline format variables: `format!("{var}")` not `format!("{}", var)` — clippy flags `uninlined_format_args`
+- `usize as u32` casts require `#[allow(clippy::cast_possible_truncation)]` block — see `calculate_byte_offset` in completions.rs
+- `#[must_use]` NOT required on methods returning `impl Iterator` — only on pure accessors/constructors
+
+### Validation Architecture
+- Validation errors (enum variants): `crates/djls-semantic/src/errors.rs` (`ValidationError`)
+- Diagnostic code mapping: `crates/djls-ide/src/diagnostics.rs` (maps `ValidationError` variants → S-codes)
+- New validation passes are wired into `validate_nodelist()` in `crates/djls-semantic/src/lib.rs`
+- Existing codes: S101-S107 (structural), S108 (UnknownTag), S109 (UnloadedLibraryTag), S110 (AmbiguousUnloadedTag)
+- Next available codes for filters: S111, S112, S113
 
 ### File Locations (avoid repeated lookups)
 - Salsa database + tracked queries: `crates/djls-server/src/db.rs`
 - Project salsa input: `crates/djls-project/src/project.rs`
-- TemplateTags, TagProvenance, inspector types: `crates/djls-project/src/django.rs`
+- TemplateTags, TagProvenance, InspectorInventory, FilterProvenance, TemplateFilter: `crates/djls-project/src/django.rs`
 - Tag specs + `from_config_def`: `crates/djls-semantic/src/templatetags/specs.rs`
 - Django builtins specs: `crates/djls-semantic/src/templatetags/builtins.rs`
-- Completions (tag names, library names): `crates/djls-ide/src/completions.rs`
+- Completions (tag names, library names, filter names): `crates/djls-ide/src/completions.rs` (most-edited file — 31 edits across sessions)
 - Semantic Db trait: `crates/djls-semantic/src/db.rs`
-- Load resolution types: `crates/djls-semantic/src/load_resolution.rs`
+- Load resolution + tag scoping validation: `crates/djls-semantic/src/load_resolution.rs`
+- Validation error types: `crates/djls-semantic/src/errors.rs`
+- Diagnostic code mapping: `crates/djls-ide/src/diagnostics.rs`
 - Inspector Python queries: `crates/djls-project/inspector/queries.py`
 - Session/server wiring: `crates/djls-server/src/session.rs`, `crates/djls-server/src/server.rs`
 - Settings/config types: `crates/djls-conf/src/`
+- Template parser: `crates/djls-templates/src/parser.rs`
+- Node types (Variable, Tag, etc.): `crates/djls-templates/src/nodelist.rs`
+- Parser snapshots: `crates/djls-templates/src/snapshots/`
 
 ## Task Management
 Use `/dex` to break down complex work, track progress across sessions, and coordinate multi-step implementations.
