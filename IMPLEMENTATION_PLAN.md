@@ -13,7 +13,7 @@ This document tracks progress through the milestones for porting the Python `tem
 | # | Milestone | Status | Plan File |
 |---|-----------|--------|-----------|
 | M1 | Payload Shape + `{% load %}` Library Name Fix | 🔲 In Progress | [`.agents/plans/2026-02-05-m1-payload-library-name-fix.md`](.agents/plans/2026-02-05-m1-payload-library-name-fix.md) |
-| M2 | Salsa Invalidation Plumbing | 🔲 Not Started | [`.agents/plans/2026-02-05-m2-salsa-invalidation-plumbing.md`](.agents/plans/2026-02-05-m2-salsa-invalidation-plumbing.md) |
+| M2 | Salsa Invalidation Plumbing | 📝 Ready | [`.agents/plans/2026-02-05-m2-salsa-invalidation-plumbing.md`](.agents/plans/2026-02-05-m2-salsa-invalidation-plumbing.md) |
 | M3 | `{% load %}` Scoping Infrastructure | 🔲 Not Started | [`.agents/plans/2026-02-05-m3-load-scoping.md`](.agents/plans/2026-02-05-m3-load-scoping.md) |
 | M4 | Filters Pipeline | 🔲 Not Started | [`.agents/plans/2026-02-05-m4-filters-pipeline.md`](.agents/plans/2026-02-05-m4-filters-pipeline.md) |
 | M5 | Rust Extraction Engine (`djls-extraction`) | 🔲 Not Started | [`.agents/plans/2026-02-05-m5-extraction-engine.md`](.agents/plans/2026-02-05-m5-extraction-engine.md) |
@@ -108,13 +108,85 @@ Update completions to use library load-name and exclude builtins from `{% load %
 
 ## M2: Salsa Invalidation Plumbing
 
-**Status:** 🔲 Not Started
+**Status:** 📝 Ready
 
 **Goal:** Prevent stale template diagnostics by making external data sources explicit Salsa inputs with an explicit refresh/update path.
 
 **Plan:** [`.agents/plans/2026-02-05-m2-salsa-invalidation-plumbing.md`](.agents/plans/2026-02-05-m2-salsa-invalidation-plumbing.md)
 
-### Tasks (TBD - will expand when M1 complete)
+### Phase 1: Extend Project Input with djls-conf Types
+
+**Status:** 🔲 Not Started
+
+Add new fields to the existing `Project` Salsa input using only types from `djls-conf`. No semantic crate dependency.
+
+**Tasks:**
+- [ ] Ensure `TagSpecDef` and related config types have `PartialEq` (in `djls-conf`)
+- [ ] Add new fields to `Project`: `inspector_inventory: Option<TemplateTags>`, `tagspecs: TagSpecDef`, `diagnostics: DiagnosticsConfig`
+- [ ] Update `Project::bootstrap()` to accept and initialize new fields from settings
+- [ ] Add `djls-conf` dependency to `djls-project/Cargo.toml`
+
+**Quality Checks:**
+- [ ] `cargo build -p djls-project` passes
+- [ ] `cargo build` (full build) passes
+- [ ] `cargo clippy -p djls-project --all-targets -- -D warnings` passes
+
+### Phase 2: Add Project Update APIs with Manual Comparison
+
+**Status:** 🔲 Not Started
+
+Add methods to `DjangoDatabase` that update Project fields **only when values actually change** (Ruff/RA style).
+
+**Tasks:**
+- [ ] Add `PartialEq` to `TemplateTags`, `TemplateTag`, `TagProvenance` for comparison
+- [ ] Export `TemplatetagsRequest` and `TemplatetagsResponse` from `djls-project`
+- [ ] Add `TemplateTags::from_response()` constructor
+- [ ] Update `set_project()` to only create Project if none exists; use setters for updates
+- [ ] Add `update_project_from_settings()` with manual comparison for each field
+- [ ] Add `refresh_inspector()` that queries Python directly and compares before setting
+- [ ] Update `set_settings()` to delegate to `update_project_from_settings()`
+
+**Quality Checks:**
+- [ ] `cargo build -p djls-server` passes
+- [ ] `cargo clippy -p djls-server --all-targets -- -D warnings` passes
+
+### Phase 3: Make tag_specs a Tracked Query
+
+**Status:** 🔲 Not Started
+
+Add `compute_tag_specs()` as a tracked query that reads only from Salsa-tracked Project fields.
+
+**Tasks:**
+- [ ] Add `TagSpecs::from_config_def()` conversion method in `djls-semantic`
+- [ ] Add `#[salsa::tracked] fn compute_tag_specs()` in `djls-server/src/db.rs`
+- [ ] Add `#[salsa::tracked] fn compute_tag_index()` in `djls-server/src/db.rs`
+- [ ] Update `SemanticDb` implementation to delegate to tracked queries
+
+**Quality Checks:**
+- [ ] `cargo build` passes
+- [ ] `cargo clippy --all-targets -- -D warnings` passes
+- [ ] `cargo test` passes
+
+### Phase 4: Invalidation Tests with Event Capture
+
+**Status:** 🔲 Not Started
+
+Write tests that capture Salsa events and verify invalidation using stable `ingredient_debug_name()` pattern.
+
+**Tasks:**
+- [ ] Add `EventLogger` test infrastructure with `was_executed()` helper
+- [ ] Add `TestDatabase` helper for creating test instances
+- [ ] Add test: `test_tag_specs_cached_on_repeated_access`
+- [ ] Add test: `test_tagspecs_change_invalidates`
+- [ ] Add test: `test_inspector_inventory_change_invalidates`
+- [ ] Add test: `test_same_value_no_invalidation`
+- [ ] Add test: `test_tag_index_depends_on_tag_specs`
+- [ ] Add test: `test_update_project_from_settings_compares`
+
+**Quality Checks:**
+- [ ] `cargo test invalidation_tests` passes
+- [ ] `cargo test` (full suite) passes
+- [ ] `cargo clippy --all-targets -- -D warnings` passes
 
 ---
 
