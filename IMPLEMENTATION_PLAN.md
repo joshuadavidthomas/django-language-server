@@ -341,7 +341,7 @@
 
 ## M6 - Rule Evaluation + Expression Validation
 
-**Status:** in-progress
+**Status:** complete
 **Plan:** `.agents/plans/2026-02-05-m6-rule-evaluation.md` (overview), phases in `m6.1` through `m6.2`
 
 ### Phase 1: Expression Validation Module
@@ -404,13 +404,13 @@
 
 **Goal:** Comprehensive tests for expression validation, filter arity, opaque regions, and no regressions.
 
-- [ ] Add expression parser unit tests in `if_expression.rs`: all operator combinations, complex chains (`x and y or not z`), comparison operators with not-in/is-not
-- [ ] Add opaque region unit tests in `opaque.rs`: basic containment, no opaque tags returns empty, nested opaque blocks, unclosed opaque block (no match)
-- [ ] Add filter arity integration tests: S115 for missing required arg, S116 for unexpected arg, Optional arity allows both, Unknown arity allows both
-- [ ] Add filter arity scoping tests: selective import resolves to correct arity, ambiguous library filters emit no arity error, library filter shadows builtin arity, builtin tiebreak (later module wins)
-- [ ] Add opaque region integration tests: no errors inside `{% verbatim %}...{% endverbatim %}`, errors after `{% endverbatim %}` still reported
-- [ ] Verify all existing S100-S113 tests still pass (no regressions)
-- [ ] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Add expression parser unit tests in `if_expression.rs`: all operator combinations, complex chains (`x and y or not z`), comparison operators with not-in/is-not
+- [x] Add opaque region unit tests in `opaque.rs`: basic containment, no opaque tags returns empty, nested opaque blocks, unclosed opaque block (no match)
+- [x] Add filter arity integration tests: S115 for missing required arg, S116 for unexpected arg, Optional arity allows both, Unknown arity allows both
+- [x] Add filter arity scoping tests: selective import resolves to correct arity, ambiguous library filters emit no arity error, library filter shadows builtin arity, builtin tiebreak (later module wins)
+- [x] Add opaque region integration tests: no errors inside `{% verbatim %}...{% endverbatim %}`, errors after `{% endverbatim %}` still reported
+- [x] Verify all existing S100-S113 tests still pass (no regressions)
+- [x] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ---
 

@@ -143,4 +143,39 @@ mod tests {
         assert!(regions.is_opaque(Span::new(52, 3))); // in second region
         assert!(!regions.is_opaque(Span::new(30, 5))); // between regions
     }
+
+    #[test]
+    fn nested_regions() {
+        // Two adjacent opaque blocks with gap between
+        let regions = OpaqueRegions {
+            regions: vec![
+                Span::new(10, 20), // [10, 30)
+                Span::new(40, 20), // [40, 60)
+            ],
+        };
+        assert!(regions.is_opaque(Span::new(15, 5))); // inside first
+        assert!(regions.is_opaque(Span::new(45, 5))); // inside second
+        assert!(!regions.is_opaque(Span::new(32, 5))); // between the two
+    }
+
+    #[test]
+    fn zero_length_region_not_opaque() {
+        // Edge case: region with zero length
+        let regions = OpaqueRegions {
+            regions: vec![Span::new(10, 0)], // [10, 10) — empty
+        };
+        // A span of length 0 at position 10 is [10, 10) — contained in [10, 10)
+        assert!(regions.is_opaque(Span::new(10, 0)));
+        // But a span with actual content at that point is not
+        assert!(!regions.is_opaque(Span::new(10, 1)));
+    }
+
+    #[test]
+    fn exact_boundary_match() {
+        let regions = OpaqueRegions {
+            regions: vec![Span::new(10, 20)], // [10, 30)
+        };
+        // Span exactly matching the region boundaries
+        assert!(regions.is_opaque(Span::new(10, 20))); // [10, 30) == region
+    }
 }

@@ -390,4 +390,139 @@ mod tests {
             Some("Not expecting 'not' as infix operator in if tag.".to_string())
         );
     }
+
+    // Complex expression chains
+
+    #[test]
+    fn valid_mixed_precedence() {
+        // x and y or not z — tests mixed and/or/not precedence
+        assert!(
+            validate_if_expression(&bits(&["x", "and", "y", "or", "not", "z"])).is_none()
+        );
+    }
+
+    #[test]
+    fn valid_double_not() {
+        // not not x — prefix chaining
+        assert!(validate_if_expression(&bits(&["not", "not", "x"])).is_none());
+    }
+
+    #[test]
+    fn valid_not_with_comparison() {
+        // not x == y
+        assert!(
+            validate_if_expression(&bits(&["not", "x", "==", "y"])).is_none()
+        );
+    }
+
+    #[test]
+    fn valid_complex_and_or_not() {
+        // a == b and c != d or not e
+        assert!(
+            validate_if_expression(&bits(&[
+                "a", "==", "b", "and", "c", "!=", "d", "or", "not", "e"
+            ]))
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn valid_is_and_is_not_together() {
+        // x is y and a is not b
+        assert!(
+            validate_if_expression(&bits(&[
+                "x", "is", "y", "and", "a", "is", "not", "b"
+            ]))
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn valid_in_and_not_in_together() {
+        // x in y and a not in b
+        assert!(
+            validate_if_expression(&bits(&[
+                "x", "in", "y", "and", "a", "not", "in", "b"
+            ]))
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn valid_all_comparison_ops() {
+        // a == b and c != d and e > f and g >= h and i < j and k <= l
+        assert!(
+            validate_if_expression(&bits(&[
+                "a", "==", "b", "and", "c", "!=", "d", "and", "e", ">", "f", "and", "g",
+                ">=", "h", "and", "i", "<", "j", "and", "k", "<=", "l"
+            ]))
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn valid_not_before_in() {
+        // not x in y — "not" is prefix, then "x in y" is infix
+        assert!(
+            validate_if_expression(&bits(&["not", "x", "in", "y"])).is_none()
+        );
+    }
+
+    // Additional invalid cases
+
+    #[test]
+    fn invalid_or_at_start() {
+        assert_eq!(
+            validate_if_expression(&bits(&["or", "x"])),
+            Some("Not expecting 'or' in this position in if tag.".to_string())
+        );
+    }
+
+    #[test]
+    fn invalid_double_and() {
+        assert_eq!(
+            validate_if_expression(&bits(&["x", "and", "and", "y"])),
+            Some("Not expecting 'and' in this position in if tag.".to_string())
+        );
+    }
+
+    #[test]
+    fn invalid_trailing_and() {
+        assert_eq!(
+            validate_if_expression(&bits(&["x", "and"])),
+            Some("Unexpected end of expression in if tag.".to_string())
+        );
+    }
+
+    #[test]
+    fn invalid_trailing_or() {
+        assert_eq!(
+            validate_if_expression(&bits(&["x", "or"])),
+            Some("Unexpected end of expression in if tag.".to_string())
+        );
+    }
+
+    #[test]
+    fn invalid_eq_at_start() {
+        assert_eq!(
+            validate_if_expression(&bits(&["==", "x"])),
+            Some("Not expecting '==' in this position in if tag.".to_string())
+        );
+    }
+
+    #[test]
+    fn invalid_is_at_start() {
+        assert_eq!(
+            validate_if_expression(&bits(&["is", "x"])),
+            Some("Not expecting 'is' in this position in if tag.".to_string())
+        );
+    }
+
+    #[test]
+    fn invalid_is_not_at_start() {
+        assert_eq!(
+            validate_if_expression(&bits(&["is", "not", "x"])),
+            Some("Not expecting 'is not' in this position in if tag.".to_string())
+        );
+    }
 }
