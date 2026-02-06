@@ -271,15 +271,15 @@
 
 ### Phase 4: Implement Rule Extraction
 
-- [ ] Implement `crates/djls-extraction/src/patterns.rs` — `is_len_call()`, `is_name()`, `extract_int_literal()`, `extract_string_literal()`, `extract_subscript_index()`, `extract_string_tuple()`
-- [ ] Implement `crates/djls-extraction/src/rules.rs` — `extract_tag_rules()` finding TemplateSyntaxError guards
-- [ ] Handle `len(<split>) == N`, `len(<split>) != N`, `len(<split>) < N`, `len(<split>) > N`, `len(<split>) >= N`, `len(<split>) <= N`
-- [ ] Handle reversed comparisons: `N <op> len(<split>)`
-- [ ] Handle `<split>[N] == "keyword"`, `<split>[N] != "keyword"`, `"keyword" in <split>`, `<split>[N] in ("opt1", "opt2")`
-- [ ] Handle `not` unary operator negation
-- [ ] Emit `RuleCondition::Opaque` for unrecognized conditions
-- [ ] Add unit tests: extraction with `bits`, `args`, `parts` variable names
-- [ ] Run `cargo build -q -p djls-extraction`, `cargo clippy -q -p djls-extraction --all-targets --all-features -- -D warnings`, `cargo test -q -p djls-extraction`
+- [x] Implement `crates/djls-extraction/src/patterns.rs` — `is_len_call()`, `is_name()`, `extract_int_literal()`, `extract_string_literal()`, `extract_subscript_index()`, `extract_string_tuple()`
+- [x] Implement `crates/djls-extraction/src/rules.rs` — `extract_tag_rules()` finding TemplateSyntaxError guards
+- [x] Handle `len(<split>) == N`, `len(<split>) != N`, `len(<split>) < N`, `len(<split>) > N`, `len(<split>) >= N`, `len(<split>) <= N`
+- [x] Handle reversed comparisons: `N <op> len(<split>)`
+- [x] Handle `<split>[N] == "keyword"`, `<split>[N] != "keyword"`, `"keyword" in <split>`, `<split>[N] in ("opt1", "opt2")`
+- [x] Handle `not` unary operator negation
+- [x] Emit `RuleCondition::Opaque` for unrecognized conditions
+- [x] Add unit tests: extraction with `bits`, `args`, `parts` variable names
+- [x] Run `cargo build -q -p djls-extraction`, `cargo clippy -q -p djls-extraction --all-targets --all-features -- -D warnings`, `cargo test -q -p djls-extraction`
 
 ### Phase 5: Implement Block Spec Extraction (Control-Flow Based)
 
