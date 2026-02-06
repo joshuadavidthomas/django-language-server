@@ -235,10 +235,105 @@
 
 ## M5 - Extraction Engine (`djls-extraction`)
 
-**Status:** backlog
+**Status:** in-progress
 **Plan:** `.agents/plans/2026-02-05-m5-extraction-engine.md` (overview), phases in `m5.1` through `m5.9`
 
-_Tasks to be expanded when M4 is complete._
+### Phase 1: Create `djls-extraction` Crate with Ruff Parser
+
+- [ ] Choose a recent stable Ruff release tag, resolve to 40-char commit SHA
+- [ ] Add workspace dependencies in root `Cargo.toml`: `djls-extraction`, `ruff_python_parser`, `ruff_python_ast`, `ruff_text_size` (all pinned to SHA)
+- [ ] Create `crates/djls-extraction/` directory structure with all module files
+- [ ] Create `crates/djls-extraction/Cargo.toml` with Ruff parser deps + workspace deps (rustc-hash, serde, thiserror, tracing, insta)
+- [ ] Implement `crates/djls-extraction/src/types.rs` — `SymbolKey`, `ExtractionResult`, `ExtractedTag`, `ExtractedFilter`, `DecoratorKind`, `ExtractedRule`, `RuleCondition`, `ComparisonOp`, `BlockTagSpec`, `IntermediateTagSpec`, `FilterArity`
+- [ ] Implement `crates/djls-extraction/src/error.rs` — `ExtractionError` with `ParseError`, `UnsupportedSyntax`, `UnresolvedReference`
+- [ ] Implement `crates/djls-extraction/src/parser.rs` — `ParsedModule` wrapper around `ruff_python_parser::parse_module`
+- [ ] Create stub modules: `registry.rs`, `context.rs`, `rules.rs`, `structural.rs`, `filters.rs`, `patterns.rs` (empty or minimal)
+- [ ] Implement `crates/djls-extraction/src/lib.rs` — public API with `extract_rules()` calling parser→registry→rules→structural→filters
+- [ ] Run `cargo build -q -p djls-extraction`, `cargo clippy -q -p djls-extraction --all-targets --all-features -- -D warnings`
+
+### Phase 2: Implement Registration Discovery
+
+- [ ] Implement `crates/djls-extraction/src/registry.rs` — `RegistrationInfo`, `FoundRegistrations`, `find_registrations()`, decorator analysis for `@register.tag`, `@register.simple_tag`, `@register.inclusion_tag`, `@register.simple_block_tag`, `@register.filter`
+- [ ] Handle bare decorators (`@register.tag`), call decorators (`@register.tag("name")`), keyword name (`name="custom"`)
+- [ ] Handle `simple_block_tag` `end_name` keyword extraction
+- [ ] Handle helper/wrapper decorators (e.g., `@register_simple_block_tag`)
+- [ ] Add `is_register_attribute()` to accept `register`, `lib`, `library`, `*register` names
+- [ ] Add unit tests: bare decorator, decorator with name, simple_block_tag kind, simple_block_tag with end_name, helper wrapper decorator
+- [ ] Run `cargo build -q -p djls-extraction`, `cargo clippy -q -p djls-extraction --all-targets --all-features -- -D warnings`, `cargo test -q -p djls-extraction`
+
+### Phase 3: Implement Function Context Detection
+
+- [ ] Implement `crates/djls-extraction/src/context.rs` — `FunctionContext` with `split_var`, `parser_var`, `token_var` detection
+- [ ] Implement `find_split_contents_var()` — recurse into if/try to find `<var> = <token>.split_contents()`
+- [ ] Implement `is_split_contents_call()` — verify method name and optional token variable match
+- [ ] Add unit tests: detect `bits`, detect `args`, detect `parts`, no split_contents for simple_tag
+- [ ] Run `cargo build -q -p djls-extraction`, `cargo clippy -q -p djls-extraction --all-targets --all-features -- -D warnings`, `cargo test -q -p djls-extraction`
+
+### Phase 4: Implement Rule Extraction
+
+- [ ] Implement `crates/djls-extraction/src/patterns.rs` — `is_len_call()`, `is_name()`, `extract_int_literal()`, `extract_string_literal()`, `extract_subscript_index()`, `extract_string_tuple()`
+- [ ] Implement `crates/djls-extraction/src/rules.rs` — `extract_tag_rules()` finding TemplateSyntaxError guards
+- [ ] Handle `len(<split>) == N`, `len(<split>) != N`, `len(<split>) < N`, `len(<split>) > N`, `len(<split>) >= N`, `len(<split>) <= N`
+- [ ] Handle reversed comparisons: `N <op> len(<split>)`
+- [ ] Handle `<split>[N] == "keyword"`, `<split>[N] != "keyword"`, `"keyword" in <split>`, `<split>[N] in ("opt1", "opt2")`
+- [ ] Handle `not` unary operator negation
+- [ ] Emit `RuleCondition::Opaque` for unrecognized conditions
+- [ ] Add unit tests: extraction with `bits`, `args`, `parts` variable names
+- [ ] Run `cargo build -q -p djls-extraction`, `cargo clippy -q -p djls-extraction --all-targets --all-features -- -D warnings`, `cargo test -q -p djls-extraction`
+
+### Phase 5: Implement Block Spec Extraction (Control-Flow Based)
+
+- [ ] Implement `crates/djls-extraction/src/structural.rs` — `extract_block_spec()` with three inference strategies: singleton pattern, unique stop tag, Django convention fallback
+- [ ] Handle explicit `end_name` from decorator (highest priority)
+- [ ] Handle `simple_block_tag` Django semantic default (`end{function_name}`)
+- [ ] Implement `collect_parse_calls()` — recurse into if/while/for/try to find `parser.parse((...))` calls
+- [ ] Implement `infer_end_tag_from_control_flow()` — singleton → unique → convention → None
+- [ ] Detect opaque blocks (no compile_filter, no intermediates)
+- [ ] Add unit tests: singleton closer (if→endif), single stop tag, non-conventional closer, for with empty, no block spec for simple_tag, simple_block_tag with/without end_name, helper wrapper, ambiguous returns None, convention fallback, convention not invented, convention blocked by ambiguity
+- [ ] Run `cargo build -q -p djls-extraction`, `cargo clippy -q -p djls-extraction --all-targets --all-features -- -D warnings`, `cargo test -q -p djls-extraction`
+
+### Phase 6: Implement Filter Arity Extraction
+
+- [ ] Implement `crates/djls-extraction/src/filters.rs` — `extract_filter_arity()` from function parameter count and defaults
+- [ ] Handle: 0-1 params → None, 2 params no default → Required, 2 params with default → Optional, vararg → Unknown
+- [ ] Add unit tests: no arg filter, required arg filter, optional arg filter
+- [ ] Run `cargo build -q -p djls-extraction`, `cargo clippy -q -p djls-extraction --all-targets --all-features -- -D warnings`, `cargo test -q -p djls-extraction`
+
+### Phase 7: Salsa Integration
+
+- [ ] Add `parser` Cargo feature to `djls-extraction` — gate parsing behind feature, types always available
+- [ ] Add `djls-extraction` dependency to `djls-project` (without `parser` feature — types only)
+- [ ] Add `djls-extraction` dependency to `djls-server` (with `parser` feature)
+- [ ] Add `sys_path: Vec<Utf8PathBuf>` and `extracted_external_rules: FxHashMap<String, ExtractionResult>` fields to `Project` salsa input
+- [ ] Create `crates/djls-project/src/resolve.rs` — `resolve_module()`, `resolve_modules()`, `ModuleLocation`, `ResolvedModule`
+- [ ] Export resolve types from `crates/djls-project/src/lib.rs`
+- [ ] Add `#[salsa::tracked] fn extract_workspace_module_rules(db, file) -> ExtractionResult` in `djls-server/src/db.rs`
+- [ ] Add `#[salsa::tracked] fn collect_workspace_extraction_results(db, project) -> Vec<(String, ExtractionResult)>` in `djls-server/src/db.rs`
+- [ ] Update `refresh_inspector()` to: query sys_path, refresh inventory, extract external module rules
+- [ ] Update `compute_tag_specs()` to merge workspace + external extraction results + user overrides
+- [ ] Add `opaque: bool` and `extracted_rules: Vec<ExtractedRule>` fields to `TagSpec` in `djls-semantic`
+- [ ] Implement `TagSpec::merge_extracted_rules()`, `TagSpec::merge_block_spec()`, `TagSpec::from_extraction()`
+- [ ] Update all `Project::new()` call sites with new fields (`sys_path: Vec::new()`, `extracted_external_rules: FxHashMap::default()`)
+- [ ] Add module resolution unit tests with tempdir
+- [ ] Add invalidation tests: workspace file change triggers re-extraction, cached when unchanged, external rules not auto-invalidated, compute_tag_specs depends on workspace extraction
+- [ ] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 8: Small Fixture Golden Tests (Tier 1)
+
+- [ ] Create `crates/djls-extraction/tests/fixtures/defaulttags_subset.py` — subset of Django defaulttags with `args`/`parts` variable names
+- [ ] Create `crates/djls-extraction/tests/golden.rs` — golden snapshot test, autoescape `args` variable test, for tag `parts` variable test
+- [ ] Run `cargo test -q -p djls-extraction`, review snapshots with `cargo insta review`
+- [ ] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 9: Corpus / Full-Source Extraction Tests
+
+- [ ] Create `crates/djls-corpus/` crate with `manifest.toml`, sync logic, file enumeration
+- [ ] Add `.gitignore` entry for `crates/djls-corpus/.corpus/`
+- [ ] Add `corpus-sync` and `corpus-clean` just targets
+- [ ] Create `crates/djls-extraction/tests/corpus.rs` — no-panics test, yields test, no-hardcoded-bits test, Django versions golden test, unsupported patterns summary
+- [ ] Add parity oracle test (temporary — gated by `DJLS_PY_ORACLE=1`)
+- [ ] Add `walkdir` dev-dependency to `djls-extraction`
+- [ ] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ---
 
