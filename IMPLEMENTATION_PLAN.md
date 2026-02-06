@@ -348,15 +348,15 @@
 
 **Goal:** Port Django's `smartif.py` Pratt parser to Rust for validating `{% if %}`/`{% elif %}` expression syntax.
 
-- [ ] Create `crates/djls-semantic/src/if_expression.rs` with `IfToken`, `Operator`, `IfExpressionParser` types
-- [ ] Implement operator precedence table matching Django's `smartif.py`: `or(6)`, `and(7)`, `not(8)`, `in(9)`, `not in(9)`, `is(10)`, `is not(10)`, `==(10)`, `!=(10)`, `>(10)`, `>=(10)`, `<(10)`, `<=(10)`
-- [ ] Implement two-word operator tokenization: `"not" + "in"` → `"not in"`, `"is" + "not"` → `"is not"`
-- [ ] Implement Pratt parser `expression(rbp)` with prefix (`not`) and infix operator handling
-- [ ] Implement `validate_if_expression(bits: &[String]) -> Option<String>` public API — returns error message or None
-- [ ] Handle error cases: operator at start position, missing RHS, unused trailing tokens, empty expression
-- [ ] Add unit tests: valid expressions (simple, compound, not, not-in, is-not), invalid expressions (and at start, missing RHS, trailing token, empty)
-- [ ] Register module in `crates/djls-semantic/src/lib.rs` and export `validate_if_expression`
-- [ ] Run `cargo build -q -p djls-semantic`, `cargo clippy -q -p djls-semantic --all-targets --all-features -- -D warnings`, `cargo test -q -p djls-semantic`
+- [x] Create `crates/djls-semantic/src/if_expression.rs` with `IfToken`, `Operator`, `IfExpressionParser` types
+- [x] Implement operator precedence table matching Django's `smartif.py`: `or(6)`, `and(7)`, `not(8)`, `in(9)`, `not in(9)`, `is(10)`, `is not(10)`, `==(10)`, `!=(10)`, `>(10)`, `>=(10)`, `<(10)`, `<=(10)`
+- [x] Implement two-word operator tokenization: `"not" + "in"` → `"not in"`, `"is" + "not"` → `"is not"`
+- [x] Implement Pratt parser `expression(rbp)` with prefix (`not`) and infix operator handling
+- [x] Implement `validate_if_expression(bits: &[String]) -> Option<String>` public API — returns error message or None
+- [x] Handle error cases: operator at start position, missing RHS, unused trailing tokens, empty expression
+- [x] Add unit tests: valid expressions (simple, compound, not, not-in, is-not), invalid expressions (and at start, missing RHS, trailing token, empty)
+- [x] Register module in `crates/djls-semantic/src/lib.rs` and export `validate_if_expression`
+- [x] Run `cargo build -q -p djls-semantic`, `cargo clippy -q -p djls-semantic --all-targets --all-features -- -D warnings`, `cargo test -q -p djls-semantic`
 
 ### Phase 2: New Error Types (S114-S116)
 
