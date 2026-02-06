@@ -369,7 +369,7 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ## M7 — Documentation + Issue Reporting
 
-**Status:** in-progress
+**Status:** complete
 **Plan:** `.agents/plans/2026-02-05-m7-docs-and-issue-template.md`
 
 **Goal:** Document the new validation system (S108–S116), explain the inspector + extraction architecture for users, create a structured GitHub issue template for validation mismatches, and update existing docs with links to new content.
@@ -399,14 +399,14 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ### Phase 4: Update TagSpecs Documentation
 
-- [ ] Update `docs/configuration/tagspecs.md` to replace generic "open an issue" text with link to the new issue template
-- [ ] Add cross-reference from tagspecs page to the template validation page
-- [ ] Verify: all internal links resolve
+- [x] Update `docs/configuration/tagspecs.md` to replace generic "open an issue" text with link to the new issue template
+- [x] Add cross-reference from tagspecs page to the template validation page
+- [x] Verify: all internal links resolve
 
 ### Phase 5: Final Validation
 
-- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q` (no code changes, but confirm nothing broke)
-- [ ] Review all new/updated docs for accuracy and consistency
+- [x] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q` (no code changes, but confirm nothing broke)
+- [x] Review all new/updated docs for accuracy and consistency
 
 ---
 

@@ -13,6 +13,8 @@ Configure custom template tag specifications to extend Django Language Server's 
 
 Django Language Server includes built-in TagSpecs for Django's standard template tags and popular third-party libraries. You only need to define TagSpecs for your custom template tags.
 
+For an overview of how TagSpecs fit into the broader validation system (including inspector-based discovery and extraction-based rule mining), see the [Template Validation](../template-validation.md) page.
+
 !!! note "Specification Reference"
 
     Django Language Server implements the [TagSpecs v0.6.0 specification](https://github.com/joshuadavidthomas/djtagspecs/tree/v0.6.0). See the specification repository for complete schema documentation.
@@ -208,7 +210,7 @@ Here are the key changes:
     - Old: `type = { choice = ["on", "off"] }`
     - New: `kind = "choice"` with `extra.choices = ["on", "off"]`
 
-If you encounter issues during migration, please [open an issue](https://github.com/joshuadavidthomas/django-language-server/issues) with your tagspec configuration.
+If you encounter issues during migration, please [open a validation mismatch issue](https://github.com/joshuadavidthomas/django-language-server/issues/new?template=template-validation-mismatch.yml) with your tagspec configuration.
 
 ### Argument type mapping
 
