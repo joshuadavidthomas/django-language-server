@@ -29,6 +29,13 @@ just lint                       # Run pre-commit hooks
 - `crates/djls-templates/` - Django template parser
 - `crates/djls-workspace/` - Workspace/document management
 - `crates/djls-extraction/` - Python AST analysis via Ruff parser (feature-gated)
+- `crates/djls-ide/` - Completions, diagnostics, snippets, and IDE features
+- `crates/djls-semantic/` - Semantic analysis, load resolution, validation, opaque regions
+- `crates/djls-project/` - Project/inspector types, Salsa inputs, Python IPC, module resolution
+- `crates/djls-conf/` - Settings and configuration types (`DiagnosticsConfig`, `Settings`)
+- `crates/djls-source/` - Source file abstractions (`File`, `InMemoryFileSystem`)
+- `crates/djls-bench/` - Benchmarks
+- `crates/djls-corpus/` - Corpus downloading/syncing for integration testing (NetBox, Django, PyPI packages)
 - **Module convention**: Uses `folder.rs` NOT `folder/mod.rs`. E.g. `templatetags.rs` + `templatetags/specs.rs`, NOT `templatetags/mod.rs`
 
 ## Key File Paths — Extraction Crate (`djls-extraction`)
@@ -44,10 +51,10 @@ just lint                       # Run pre-commit hooks
 ## Key File Paths
 - **Inspector Python**: `crates/djls-project/inspector/queries.py` — tag/filter collection, `build.rs` rebuilds pyz on change
 - **Rust Django types**: `crates/djls-project/src/django.rs` — `TemplateTag`, `TemplateFilter`, `TemplateTags`, `TagProvenance` types and accessors
-- **Project Salsa input**: `crates/djls-project/src/project.rs` — `Project` struct with all Salsa input fields
-- **Database + queries**: `crates/djls-server/src/db.rs` — `DjangoDatabase`, update/refresh methods, tracked queries go here
+- **Project Salsa input**: `crates/djls-project/src/project.rs` — `Project` struct with all Salsa input fields. `extracted_external_rules` is `FxHashMap<String, ExtractionResult>` (per-module keying for external/site-packages modules only)
+- **Module resolution**: `crates/djls-project/src/resolve.rs` — `ModuleLocation` (Workspace/External), `ResolvedModule`, `resolve_module()`, `resolve_modules()`, `build_search_paths()`, `find_site_packages()`. Search paths are derived from `interpreter`/`root`/`pythonpath` — NOT stored as a Salsa input
+- **Database + queries**: `crates/djls-server/src/db.rs` — `DjangoDatabase`, update/refresh methods, tracked queries including `compute_tag_specs`, `compute_tag_index`, `compute_filter_arity_specs`, `extract_module_rules` (per-file), `collect_workspace_extraction_results` (tracked aggregation of workspace file extractions)
 - **Semantic Db trait**: `crates/djls-semantic/src/db.rs` — `Db` (Salsa jar trait) and `SemanticDb` (runtime accessor trait for tag_specs, tag_index, diagnostics_config, inspector_inventory)
-- **Project lib.rs exports**: `crates/djls-project/src/lib.rs` — re-exports for `TagProvenance`, `TemplateFilter`, `TemplateTags`, inspector request/response types
 - **Completions**: `crates/djls-ide/src/completions.rs` — `generate_library_completions()` at ~line 526, `TemplateCompletionContext` enum, `analyze_template_context()`
 - **Completion context detection**: `crates/djls-ide/src/context.rs` — `OffsetContext` enum with `Variable { filters: Vec<String> }` variant
 - **Node enum**: `crates/djls-templates/src/nodelist.rs` — `Node::Variable { var, filters: Vec<String>, span }`, `Node::Tag`, etc.
@@ -69,6 +76,10 @@ just lint                       # Run pre-commit hooks
 - **Extraction types**: `crates/djls-extraction/src/types.rs` — `SymbolKey`, `ExtractionResult`, `TagRule`, `ExtractedArg`, `FilterArity`, `BlockTagSpec`, `ArgumentCountConstraint`
 - **Snippets**: `crates/djls-ide/src/snippets.rs` — `generate_snippet_from_args()`, reads `TagArg` to produce LSP snippet strings
 - **Diagnostics mapping**: `crates/djls-ide/src/diagnostics.rs` — `ValidationError` → S-code mapping, LSP `Diagnostic` construction, span → range conversion
+- **Corpus crate**: `crates/djls-corpus/src/` — `lib.rs` (find helpers), `manifest.rs` (package definitions), `sync.rs` (download/extract), `enumerate.rs` (template/Python file discovery), `main.rs` (CLI binary)
+- **Corpus extraction tests**: `crates/djls-extraction/tests/corpus.rs` — tests extraction against real PyPI packages; `tests/golden.rs` — tests against Django source
+- **Corpus template validation tests**: `crates/djls-server/tests/corpus_templates.rs` — integration tests parsing real templates through the full validation pipeline (S114/S115/S116/S117 false positive detection)
+- **Project lib.rs exports**: `crates/djls-project/src/lib.rs` — re-exports for `TagProvenance`, `TemplateFilter`, `TemplateTags`, `ModuleLocation`, `ResolvedModule`, `resolve_module`, `resolve_modules`, `build_search_paths`, `find_site_packages`, inspector request/response types
 
 ## Documentation File Paths
 - **MkDocs config**: `.mkdocs.yml` — nav structure, theme config, markdown extensions
@@ -111,7 +122,8 @@ just lint                       # Run pre-commit hooks
 - **Scoping exclusions**: Only skip closers/intermediates for load scoping checks — openers like `trans` have TagSpecs (for argument validation) BUT still need scoping because they're library tags. `django_builtin_specs()` includes ALL Django tags, not just builtins.
 - **Diagnostic codes**: S108 = unknown tag (not in any library), S109 = unloaded tag (known library, not loaded), S110 = ambiguous unloaded tag (multiple candidate libraries). All three are guarded by `inspector_inventory.is_some()`.
 - **Completions depend on load scoping**: `generate_tag_name_completions` needs `LoadedLibraries` + inspector inventory to filter results by position. When inspector unavailable, show all tags as fallback.
-- **SemanticDb trait changes**: When adding methods to `SemanticDb`, update ALL test databases: `arguments.rs`, `blocks/tree.rs`, `semantic/forest.rs`, `load_resolution.rs`, `load_resolution/validation.rs`, `djls-bench/src/db.rs`, `djls-server/src/db.rs`
+- **SemanticDb trait changes**: When adding methods to `SemanticDb`, update: `djls-server/src/db.rs` (DjangoDatabase impl), `djls-bench/src/db.rs` (Db impl)
+- **`crate::Db` trait changes in `djls-semantic`**: When adding methods, update ALL test databases (currently 9): `arguments.rs`, `blocks/tree.rs`, `semantic/forest.rs`, `load_resolution.rs`, `load_resolution/validation.rs`, `filter_validation.rs`, `opaque.rs`, `if_expression.rs`, `lib.rs` (both `TestDatabase` and `CorpusTestDatabase`). E0046 if you miss one.
 - **`crate::Db` vs `SemanticDb`**: In `djls-semantic`, test databases implement `crate::Db` (Salsa jar trait). `SemanticDb` (runtime trait) is only implemented on `DjangoDatabase` in `djls-server` and `Db` in `djls-bench`. Don't confuse the two.
 - **`Serialize` for insta types**: Any type used in `Node` enum variants or test helpers that appear in insta snapshots must derive `serde::Serialize`. E0277 when missing.
 - **Match `ValidationError` exhaustively**: When adding or removing variants from `ValidationError`, update: `errors.rs` (definition), `diagnostics.rs` (S-code mapping + span extraction), test helpers in `lib.rs` that filter errors, any other match sites found via `grep -rn "ValidationError" crates/ --include="*.rs"`.
@@ -129,6 +141,8 @@ just lint                       # Run pre-commit hooks
 - **`Filter` struct has public fields, not methods**: `djls_templates::Filter` uses `pub name`, `pub arg`, `pub span` — access as `filter.name`, NOT `filter.name()`. E0599 "no method named `name`" if you use accessor syntax.
 - **New types in snapshot contexts need `Serialize`**: Types used in `Node` variants or test helpers that appear in insta snapshots must derive `serde::Serialize`. E0277 "Serialize is not satisfied" otherwise.
 - **Mass deletion across crates**: When removing a type used across many files (e.g., `TagArg`), grep for the type name across the entire workspace first (`grep -rn "TypeName" crates/ --include="*.rs"`). Delete consumers before the definition — removing the definition first causes cascading compile errors that are harder to track.
+- **New modules need registration**: New modules in `djls-semantic` must be registered in `src/lib.rs` with `mod foo;` AND re-exported — forgetting causes `error[E0433]: failed to resolve`.
+- **Build timeout on first compile**: First build after adding Ruff deps or corpus crate can take minutes. Use `timeout: 120` in bash calls.
 
 ## Extraction Architecture Patterns
 - **Two-dispatch pattern for tag rules**: `extract_tag_rule()` dispatches based on `RegistrationKind` — `@register.tag` (compile function) goes to `extract_compile_function_rule()` which uses split_contents guard analysis; `@register.simple_tag` / `@register.inclusion_tag` goes to `extract_parse_bits_rule()` which uses function signature analysis (parameter count, defaults, `takes_context`).
@@ -166,17 +180,18 @@ just lint                       # Run pre-commit hooks
 - **`TemplateFilter` shares `TagProvenance`**: Filters use the same `TagProvenance` enum as tags (Library/Builtin variants). Don't create a separate provenance type for filters.
 
 ## Hot Files (heavily read/edited — know these well)
-- **`crates/djls-server/src/db.rs`** — Salsa database, tracked queries, `SemanticDb` impl, update/refresh methods (42 edits, 46 reads). Read before modifying any Salsa query or database interaction.
-- **`crates/djls-semantic/src/lib.rs`** — `validate_nodelist` orchestrator, wires all validation passes together (41 edits, 34 reads). Read before adding new validation functions.
-- **`crates/djls-ide/src/completions.rs`** — integration point for tag, library, and filter completions (34 edits, 35 reads). Read before modifying any completion logic.
-- **`crates/djls-extraction/src/lib.rs`** — public API, `extract_rules()` pipeline, feature-gated re-exports (33 edits, 33 reads). Read before adding extraction entry points or changing the pipeline.
-- **`crates/djls-semantic/src/templatetags/specs.rs`** — `TagSpecs`, `TagIndex`, `django_builtin_specs()`, `merge_extraction_results()` (32 edits, 64 reads) — central to tag spec management. Most-read file.
-- **`crates/djls-semantic/src/arguments.rs`** — `validate_tag_arguments()` dispatcher, `validate_args_against_spec()` user-config escape hatch (26 reads). Being simplified in M9.
-- **`crates/djls-extraction/src/rules.rs`** — Rule extraction from compile functions and simple_tag signatures (21 edits, 1300+ lines). Read before adding extraction logic.
-- **`crates/djls-project/src/django.rs`** — `TemplateTag`, `TemplateFilter`, `TemplateTags`, `TagProvenance` (16 edits, 22 reads) — read before any type changes.
-- **`crates/djls-semantic/src/load_resolution/symbols.rs`** — `AvailableSymbols`, `TagAvailability`, `FilterAvailability` (19 edits) — complex position-aware logic.
-- **`crates/djls-extraction/src/types.rs`** — core extraction types (`TagRule`, `ExtractedArg`, `BlockTagSpec`, etc.) (311 lines, 17 reads). Read before adding extraction output types.
-- **`crates/djls-project/src/project.rs`** — `Project` Salsa input struct (13 reads) — read before adding new fields.
+- **`crates/djls-server/src/db.rs`** — Salsa database, tracked queries (`compute_tag_specs`, `extract_module_rules`, `collect_workspace_extraction_results`), `SemanticDb` impl, update/refresh methods. Read before modifying any Salsa query or database interaction.
+- **`crates/djls-semantic/src/lib.rs`** — `validate_nodelist` orchestrator, wires all validation passes together. Read before adding new validation functions.
+- **`crates/djls-ide/src/completions.rs`** — integration point for tag, library, and filter completions. Read before modifying any completion logic.
+- **`crates/djls-extraction/src/lib.rs`** — public API, `extract_rules()` pipeline, feature-gated re-exports. Read before adding extraction entry points or changing the pipeline.
+- **`crates/djls-semantic/src/templatetags/specs.rs`** — `TagSpecs`, `TagIndex`, `django_builtin_specs()`, `merge_extraction_results()` — central to tag spec management.
+- **`crates/djls-semantic/src/arguments.rs`** — `validate_tag_arguments()` dispatcher, `validate_args_against_spec()` user-config escape hatch. Being simplified in M9.
+- **`crates/djls-extraction/src/rules.rs`** — Rule extraction from compile functions and simple_tag signatures (1300+ lines). Read before adding extraction logic.
+- **`crates/djls-project/src/django.rs`** — `TemplateTag`, `TemplateFilter`, `TemplateTags`, `TagProvenance` — read before any type changes.
+- **`crates/djls-project/src/resolve.rs`** — Module path resolution, workspace/external classification, search path building. Read before changing extraction partitioning.
+- **`crates/djls-semantic/src/load_resolution/symbols.rs`** — `AvailableSymbols`, `TagAvailability`, `FilterAvailability` — complex position-aware logic.
+- **`crates/djls-extraction/src/types.rs`** — core extraction types (`TagRule`, `ExtractedArg`, `BlockTagSpec`, etc.). Read before adding extraction output types.
+- **`crates/djls-project/src/project.rs`** — `Project` Salsa input struct — read before adding new fields.
 - **`crates/djls-semantic/src/rule_evaluation.rs`** — extracted rule evaluator, S117 diagnostic (546 lines). Read before modifying validation pipeline.
 - **`crates/djls-ide/src/snippets.rs`** — snippet generation from `TagArg` (245 lines). Heavily depends on `TagArg` — M9 Phase 2 target.
 - **`crates/djls-ide/src/diagnostics.rs`** — maps `ValidationError` variants to S-codes and LSP `Diagnostic`. Update when adding/removing error variants.
@@ -196,14 +211,37 @@ just lint                       # Run pre-commit hooks
 - Third-party deps go in `[workspace.dependencies]` in root `Cargo.toml` (pinned versions), then crates reference them with `dep.workspace = true` in their `Cargo.toml`
 - New crates go in `members = ["crates/*"]` (already glob-based, so just creating the directory suffices)
 
+## Extraction Feature Gating
+- `djls-extraction` has `parser` feature (default on): gates Ruff parser deps and `extract_rules()` function
+- `djls-project` depends on `djls-extraction` with `default-features = false` (types only)
+- `djls-server` depends on `djls-extraction` with default features (parser enabled)
+- `djls-semantic` depends on `djls-extraction` with `default-features = false` (types only, for `TagSpec` fields)
+- Types in `types.rs` are always available regardless of feature gate. Code doing actual parsing needs `parser` feature
+
+## Build Timeouts
+- First build after adding Ruff deps or corpus crate can exceed 10s — use `timeout: 120` or no timeout for cargo builds
+- `cargo build -q` and `cargo test -q` suppress normal progress output — only errors shown
+
+## Module Resolution & Extraction Partitioning
+- **Search paths are derived, not stored**: `build_search_paths(interpreter, root, pythonpath)` in `resolve.rs` builds sys_path from existing `Project` fields. No `sys_path` Salsa input — avoids unnecessary invalidation and the question of how/when to populate it.
+- **Workspace vs External**: `resolve_modules()` partitions registration modules into workspace (under `project_root`) and external (site-packages, stdlib). Workspace files get per-file Salsa tracking via `extract_module_rules`; external files are extracted in bulk during `refresh_inspector` and stored per-module in `Project.extracted_external_rules`.
+- **`collect_workspace_extraction_results`**: Tracked Salsa function that reads `inspector_inventory`, builds search paths from project fields, resolves workspace modules, and calls `extract_module_rules` per file. Auto-invalidates when workspace Python files change.
+- **`extract_module_rules`**: `#[salsa::tracked]` per-file extraction. Reads file source, calls `extract_rules(source, module_path)`, returns `ExtractionResult`. Cached by Salsa — only re-runs when file content changes.
+- **`compute_tag_specs` dual-source merge**: Merges `django_builtin_specs()` + workspace results (from tracked query) + external results (from `Project.extracted_external_rules`). Same pattern for `compute_filter_arity_specs`.
+- **Editing `myapp/templatetags/custom.py`**: Now triggers re-extraction via Salsa file tracking → `extract_module_rules` re-runs → `collect_workspace_extraction_results` re-runs → `compute_tag_specs` re-runs → downstream validation updated. Previously required `refresh_inspector()`.
+
 ## Insta Snapshot Testing
 - After changing any serialized type (Node variants, TestNode, etc.), run `INSTA_UPDATE=1 cargo test -q` to auto-update snapshots, then `cargo insta review` to verify changes are correct
 - Snapshot files live in `crates/*/src/snapshots/` directories adjacent to the source
 
-## Corpus / Golden Tests (`djls-extraction`)
-- **Corpus tests**: Gated on `find_corpus_dir()` which checks `DJLS_CORPUS_PATH` env var + relative paths from crate. Skip gracefully when not present.
-- **Django golden tests**: Use `find_django_source()` which checks `DJANGO_SOURCE_PATH` + venv at project root and main repo root (for worktrees). Tests `defaulttags.py`, `defaultfilters.py`, `i18n.py`, `static.py`.
+## Corpus / Golden Tests
+- **Corpus crate**: `crates/djls-corpus/` — downloads and extracts PyPI sdists and GitHub tarballs via `reqwest` (blocking) + `flate2` + `tar`. CLI binary for syncing: `cargo run -p djls-corpus -- sync`. Manifest in `crates/djls-corpus/manifest.toml` defines packages/repos.
+- **Corpus data**: Lives in `crates/djls-corpus/.corpus/` (gitignored). Synced via `just corpus-sync` or the binary directly.
+- **Corpus extraction tests** (`crates/djls-extraction/tests/corpus.rs`): Gated on `find_corpus_dir()` which checks `DJLS_CORPUS_PATH` env var + relative paths from crate. Skip gracefully when not present.
+- **Django golden tests** (`crates/djls-extraction/tests/golden.rs`): Use `find_django_source()` which checks `DJANGO_SOURCE_PATH` + venv at project root and main repo root (for worktrees). Tests `defaulttags.py`, `defaultfilters.py`, `i18n.py`, `static.py`.
+- **Corpus template validation tests** (`crates/djls-server/tests/corpus_templates.rs`): Integration tests that parse real templates through the full validation pipeline. Check for false positives on S114/S115/S116/S117. Use a `CorpusTestDatabase` that takes `(TagSpecs, FilterAritySpecs)`.
 - **Worktree venv path**: Golden tests check both `../../.venv/` (main repo root) and `.venv/` (worktree root) since worktrees share the main repo's venv.
+- **`extract_rules` takes 2 args**: `extract_rules(source, module_path)` — all corpus/golden test calls need the module path argument (derived from file path).
 
 ## Task Management
 Use `/dex` to break down complex work, track progress across sessions, and coordinate multi-step implementations.

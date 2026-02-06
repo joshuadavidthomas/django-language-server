@@ -6,7 +6,7 @@
 - [x] **Phase 2**: Module Resolution — copy `resolve.rs` to `djls-project`, move `build_search_paths`/`find_site_packages`, export types
 - [x] **Phase 3**: Workspace/External Partitioning — update `Project` salsa input, add `collect_workspace_extraction_results`, update compute queries and `refresh_inspector`
 - [x] **Phase 4**: Corpus Template Validation Tests — port integration tests from `djls-server/tests/corpus_templates.rs`
-- [ ] **Phase 5**: AGENTS.md Refresh — update with new file locations, updated field docs, operational notes
+- [x] **Phase 5**: AGENTS.md Refresh — update with new file locations, updated field docs, operational notes
 
 ## Notes
 
@@ -54,6 +54,19 @@
 - **`refresh_inspector` updated** — `unwrap_or_default()` for the extraction result instead of wrapping in `Option`
 - No `sys_path` field added to Project — search paths derived at call sites from `interpreter`/`root`/`pythonpath` via `build_search_paths()`
 - Key difference from detailed-opus: no `FileKind` check needed (intent-opus `File` doesn't have kinds), and `extract_rules()` takes 2 args (source, module_path)
+
+### Phase 5
+- Updated Project Structure section with all crates (was missing `djls-ide`, `djls-semantic`, `djls-project`, `djls-conf`, `djls-source`, `djls-bench`, `djls-corpus`)
+- Added Key File Paths for: `resolve.rs` (module resolution), corpus crate, corpus extraction tests, corpus template validation tests, updated Project lib.rs exports
+- Updated `Project Salsa input` description to document `FxHashMap<String, ExtractionResult>` type
+- Updated `Database + queries` description to list all tracked queries including `collect_workspace_extraction_results` and `extract_module_rules`
+- Added new sections: "Module Resolution & Extraction Partitioning" (workspace/external flow), "Extraction Feature Gating" (parser feature gate details), "Build Timeouts"
+- Updated `crate::Db` trait change note with all 9 current test database locations (was listing 5)
+- Split `SemanticDb` trait changes and `crate::Db` trait changes into separate bullets for clarity
+- Added `resolve.rs` to Hot Files section
+- Removed duplicate "Project lib.rs exports" entry
+- Expanded Corpus / Golden Tests section with corpus crate details, CLI sync command, template validation tests, and `extract_rules` 2-arg API note
+- Added operational notes from detailed-opus: new module registration, build timeout warning
 
 ### Phase 4
 - Created `crates/djls-server/tests/corpus_templates.rs` with 3 integration tests:
