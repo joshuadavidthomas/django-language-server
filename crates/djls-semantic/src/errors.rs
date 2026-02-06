@@ -87,4 +87,17 @@ pub enum ValidationError {
         libraries: Vec<String>,
         span: Span,
     },
+
+    #[error("{message}")]
+    ExpressionSyntaxError {
+        tag: String,
+        message: String,
+        span: Span,
+    },
+
+    #[error("Filter '{filter}' requires an argument")]
+    FilterMissingArgument { filter: String, span: Span },
+
+    #[error("Filter '{filter}' does not accept an argument")]
+    FilterUnexpectedArgument { filter: String, span: Span },
 }

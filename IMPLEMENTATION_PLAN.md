@@ -362,12 +362,12 @@
 
 **Goal:** Add `ValidationError` variants and diagnostic code mappings for expression and filter arity errors.
 
-- [ ] Add `ExpressionSyntaxError { tag, message, span }` variant to `ValidationError` in `crates/djls-semantic/src/errors.rs`
-- [ ] Add `FilterMissingArgument { filter, span }` variant to `ValidationError`
-- [ ] Add `FilterUnexpectedArgument { filter, span }` variant to `ValidationError`
-- [ ] Add S114 (ExpressionSyntaxError), S115 (FilterMissingArgument), S116 (FilterUnexpectedArgument) diagnostic code mappings in `crates/djls-ide/src/diagnostics.rs`
-- [ ] Add span extraction for S114/S115/S116 in `DiagnosticError::span()` impl
-- [ ] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Add `ExpressionSyntaxError { tag, message, span }` variant to `ValidationError` in `crates/djls-semantic/src/errors.rs`
+- [x] Add `FilterMissingArgument { filter, span }` variant to `ValidationError`
+- [x] Add `FilterUnexpectedArgument { filter, span }` variant to `ValidationError`
+- [x] Add S114 (ExpressionSyntaxError), S115 (FilterMissingArgument), S116 (FilterUnexpectedArgument) diagnostic code mappings in `crates/djls-ide/src/diagnostics.rs`
+- [x] Add span extraction for S114/S115/S116 in `DiagnosticError::span()` impl
+- [x] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 3: Extend Db Trait for M6 Queries
 
