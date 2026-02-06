@@ -46,5 +46,10 @@ just lint                       # Run pre-commit hooks
 - **`target/` is tracked in this worktree** — the worktree `.gitignore` doesn't exclude it. Add `target/` to `.gitignore` before committing to avoid bloating diffs with build artifacts.
 - When running `git add -A`, be aware this will stage everything in `target/` if not gitignored.
 
+## Clippy Rules
+- Return `&str` not `&String` from accessors — clippy flags this
+- All public accessor methods need `#[must_use]` — clippy enforces `must_use_candidate`
+- Merge match arms with identical bodies (`match_same_arms` lint)
+
 ## Task Management
 Use `/dex` to break down complex work, track progress across sessions, and coordinate multi-step implementations.

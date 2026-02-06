@@ -22,15 +22,15 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ### Phase 2: Rust Type Updates
 
-- [ ] Add `TagProvenance` enum with `Library { load_name, module }` and `Builtin { module }` variants, serde-compatible with Python's externally-tagged dict
-- [ ] Update `TemplateTag` struct: replace `module` with `provenance: TagProvenance` and `defining_module: String`
-- [ ] Add accessors: `defining_module()`, `registration_module()`, `library_load_name()`, `is_builtin()`
-- [ ] Expand `TemplateTags` with `libraries: HashMap<String, String>` and `builtins: Vec<String>` + accessors
-- [ ] Derive `PartialEq`/`Eq` where needed
-- [ ] Update the `templatetags` Salsa query to construct `TemplateTags` from expanded response
-- [ ] Export `TagProvenance` from `crates/djls-project/src/lib.rs`
-- [ ] Add unit tests for `TagProvenance` deserialization and accessor methods
-- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Add `TagProvenance` enum with `Library { load_name, module }` and `Builtin { module }` variants, serde-compatible with Python's externally-tagged dict
+- [x] Update `TemplateTag` struct: replace `module` with `provenance: TagProvenance` and `defining_module: String`
+- [x] Add accessors: `defining_module()`, `registration_module()`, `library_load_name()`, `is_builtin()`
+- [x] Expand `TemplateTags` with `libraries: HashMap<String, String>` and `builtins: Vec<String>` + accessors
+- [x] Derive `PartialEq`/`Eq` where needed
+- [x] Update the `templatetags` Salsa query to construct `TemplateTags` from expanded response
+- [x] Export `TagProvenance` from `crates/djls-project/src/lib.rs`
+- [x] Add unit tests for `TagProvenance` deserialization and accessor methods
+- [x] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 3: Completions Fix
 

@@ -483,17 +483,17 @@ fn generate_tag_name_completions(
             };
 
             let completion_item = ls_types::CompletionItem {
-                label: tag.name().clone(),
+                label: tag.name().to_string(),
                 kind: Some(kind),
-                detail: Some(format!("from {}", tag.module())),
+                detail: Some(format!("from {}", tag.registration_module())),
                 documentation: tag
                     .doc()
-                    .map(|doc| ls_types::Documentation::String(doc.clone())),
+                    .map(|doc| ls_types::Documentation::String(doc.to_string())),
                 text_edit: Some(tower_lsp_server::ls_types::CompletionTextEdit::Edit(
                     ls_types::TextEdit::new(replacement_range, insert_text.clone()),
                 )),
                 insert_text_format: Some(insert_format),
-                filter_text: Some(tag.name().clone()),
+                filter_text: Some(tag.name().to_string()),
                 sort_text: Some(format!("1_{}", tag.name())), // Regular tags sort after end tags
                 ..Default::default()
             };
@@ -658,17 +658,17 @@ fn generate_library_completions(
         return Vec::new();
     };
 
-    // Get unique library names
+    // Get unique library names from registration_module (temporary; Phase 3 will use tags.libraries())
     let mut libraries = std::collections::HashSet::new();
     for tag in tags.iter() {
-        libraries.insert(tag.module());
+        libraries.insert(tag.registration_module());
     }
 
     let mut completions = Vec::new();
 
     for library in libraries {
         if library.starts_with(partial) {
-            let mut insert_text = library.clone();
+            let mut insert_text = library.to_string();
 
             // Add closing if needed
             match closing {
@@ -678,12 +678,12 @@ fn generate_library_completions(
             }
 
             completions.push(ls_types::CompletionItem {
-                label: library.clone(),
+                label: library.to_string(),
                 kind: Some(ls_types::CompletionItemKind::MODULE),
                 detail: Some("Django template library".to_string()),
                 insert_text: Some(insert_text),
                 insert_text_format: Some(ls_types::InsertTextFormat::PLAIN_TEXT),
-                filter_text: Some(library.clone()),
+                filter_text: Some(library.to_string()),
                 ..Default::default()
             });
         }
