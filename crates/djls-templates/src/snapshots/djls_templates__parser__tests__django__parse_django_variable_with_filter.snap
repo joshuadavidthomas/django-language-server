@@ -6,7 +6,10 @@ nodelist:
   - type: Variable
     var: user.name
     filters:
-      - title
+      - name: title
+        span:
+          - 13
+          - 5
     span:
       - 2
       - 17

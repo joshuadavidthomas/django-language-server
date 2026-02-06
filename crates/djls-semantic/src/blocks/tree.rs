@@ -303,7 +303,7 @@ mod tests {
                 },
                 Variable {
                     var: String,
-                    filters: Vec<String>,
+                    filters: Vec<djls_templates::Filter>,
                     span: Span,
                 },
                 Comment {

@@ -2,6 +2,7 @@ use djls_source::Span;
 use serde::Serialize;
 use thiserror::Error;
 
+use crate::nodelist::Filter;
 use crate::nodelist::Node;
 use crate::tokens::Token;
 
@@ -192,12 +193,19 @@ impl Parser {
             });
         };
 
-        let mut parts = content_ref.split('|');
-
-        let var = parts.next().ok_or(ParseError::EmptyTag)?.trim().to_string();
-
-        let filters: Vec<String> = parts.map(|s| s.trim().to_string()).collect();
         let span = token.content_span_or_fallback();
+        let base_offset = span.start();
+
+        let mut parts = split_variable_expression(content_ref);
+
+        let (var_raw, _) = parts.next().ok_or(ParseError::EmptyTag)?;
+        let var = var_raw.trim().to_string();
+
+        let filters: Vec<Filter> = parts
+            .map(|(raw, offset_in_content)| {
+                parse_filter(raw, base_offset + offset_in_content)
+            })
+            .collect();
 
         Ok(Node::Variable { var, filters, span })
     }
@@ -253,6 +261,73 @@ impl Parser {
         }
         Ok(())
     }
+}
+
+/// Saturating conversion from `usize` to `u32`, clamping at `u32::MAX`.
+fn usize_to_u32(val: usize) -> u32 {
+    u32::try_from(val).unwrap_or(u32::MAX)
+}
+
+/// Split a variable expression (the content between `{{ }}`) into segments
+/// separated by `|`, respecting quoted strings.
+///
+/// Returns an iterator of `(segment_str, byte_offset_within_content)` pairs.
+fn split_variable_expression(content: &str) -> impl Iterator<Item = (&str, u32)> {
+    let mut segments = Vec::new();
+    let mut start = 0;
+    let mut quote: Option<char> = None;
+
+    for (idx, ch) in content.char_indices() {
+        match ch {
+            '\'' | '"' if quote == Some(ch) => quote = None,
+            '\'' | '"' if quote.is_none() => quote = Some(ch),
+            '|' if quote.is_none() => {
+                segments.push((&content[start..idx], usize_to_u32(start)));
+                start = idx + 1; // skip the pipe
+            }
+            _ => {}
+        }
+    }
+    segments.push((&content[start..], usize_to_u32(start)));
+    segments.into_iter()
+}
+
+/// Parse a single raw filter string (e.g. `default:'nothing'` or `title`) into a
+/// structured `Filter`. The `base_offset` is the byte offset of the start of this
+/// filter segment in the source file.
+fn parse_filter(raw: &str, base_offset: u32) -> Filter {
+    let trimmed_start = raw.len() - raw.trim_start().len();
+    let trimmed = raw.trim();
+
+    let filter_offset = base_offset + usize_to_u32(trimmed_start);
+
+    // Split name from argument at the first colon that is NOT inside quotes
+    let mut quote: Option<char> = None;
+    let mut colon_pos = None;
+
+    for (idx, ch) in trimmed.char_indices() {
+        match ch {
+            '\'' | '"' if quote == Some(ch) => quote = None,
+            '\'' | '"' if quote.is_none() => quote = Some(ch),
+            ':' if quote.is_none() => {
+                colon_pos = Some(idx);
+                break;
+            }
+            _ => {}
+        }
+    }
+
+    let (name, arg) = match colon_pos {
+        Some(pos) => {
+            let name = &trimmed[..pos];
+            let arg = &trimmed[pos + 1..];
+            (name.to_string(), Some(arg.to_string()))
+        }
+        None => (trimmed.to_string(), None),
+    };
+
+    let span = Span::new(filter_offset, usize_to_u32(trimmed.len()));
+    Filter::new(name, arg, span)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -331,6 +406,24 @@ mod tests {
     }
 
     #[derive(Debug, Clone, PartialEq, Serialize)]
+    struct TestFilter {
+        name: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        arg: Option<String>,
+        span: (u32, u32),
+    }
+
+    impl TestFilter {
+        fn from_filter(filter: &crate::nodelist::Filter) -> Self {
+            Self {
+                name: filter.name.clone(),
+                arg: filter.arg.clone(),
+                span: (&filter.span).into(),
+            }
+        }
+    }
+
+    #[derive(Debug, Clone, PartialEq, Serialize)]
     #[serde(tag = "type")]
     enum TestNode {
         Tag {
@@ -350,7 +443,7 @@ mod tests {
         },
         Variable {
             var: String,
-            filters: Vec<String>,
+            filters: Vec<TestFilter>,
             span: (u32, u32),
             full_span: (u32, u32),
         },
@@ -381,7 +474,7 @@ mod tests {
                 },
                 Node::Variable { var, filters, span } => TestNode::Variable {
                     var: var.clone(),
-                    filters: filters.clone(),
+                    filters: filters.iter().map(TestFilter::from_filter).collect(),
                     span: span.into(),
                     full_span: node.full_span().into(),
                 },
