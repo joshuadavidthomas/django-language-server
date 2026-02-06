@@ -1,8 +1,0 @@
-blank_issues_enabled: true
-contact_links:
-  - name: Documentation
-    url: https://django-language-server.readthedocs.io/
-    about: Read the documentation before filing an issue.
-  - name: Template Validation
-    url: https://django-language-server.readthedocs.io/template-validation/
-    about: Learn how djls validates Django templates.

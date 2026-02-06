@@ -128,7 +128,7 @@ See the [Configuration](./configuration/index.md#diagnostics) page for full deta
 
 ## Reporting Validation Mismatches
 
-If djls reports an error for a template that works correctly in Django (or misses an error that Django would catch), please [open an issue](https://github.com/joshuadavidthomas/django-language-server/issues/new?template=template-validation-mismatch.yml) with:
+If djls reports an error for a template that works correctly in Django (or misses an error that Django would catch), please [open an issue](https://github.com/joshuadavidthomas/django-language-server/issues/new) with:
 
 - Your djls and Django versions
 - A minimal template snippet reproducing the issue
