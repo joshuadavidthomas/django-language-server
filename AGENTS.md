@@ -86,10 +86,27 @@ just lint                       # Run pre-commit hooks
 - **SemanticDb trait changes**: When adding methods to `SemanticDb`, update ALL test databases: `arguments.rs`, `blocks/tree.rs`, `semantic/forest.rs`, `load_resolution.rs`, `load_resolution/validation.rs`, `djls-bench/src/db.rs`, `djls-server/src/db.rs`
 - **`crate::Db` vs `SemanticDb`**: In `djls-semantic`, test databases implement `crate::Db` (Salsa jar trait). `SemanticDb` (runtime trait) is only implemented on `DjangoDatabase` in `djls-server` and `Db` in `djls-bench`. Don't confuse the two.
 
+## Common Agent Mistakes (from session history)
+- **Wrong file paths**: `crates/djls-templates/src/ast.rs` does NOT exist — node types are in `nodelist.rs`. `templatetags/mod.rs` does NOT exist — uses `templatetags.rs` convention.
+- **Reading directories**: Don't `read` a directory path — use `ls` or `find` instead. `EISDIR` errors waste turns.
+- **Offset errors on `read`**: Don't guess line numbers for large files — use `grep -n` to find the right offset first.
+- **Test failures from wrong assumptions about parser output**: Always parse a sample and inspect actual output before writing assertions. Especially: `Node::Tag.bits` excludes tag name, spans are byte offsets not line numbers, filter `Vec<Filter>` not `Vec<String>`.
+- **Salsa setter `.to()` repeatedly forgotten**: E0599 "no method named `to`" means Salsa version mismatch or missing import. Current API: `project.set_field(db).to(value)`.
+
 ## Cross-Cutting Type Changes
 - **When adding a new parallel type** (e.g., `TemplateFilter` mirroring `TemplateTag`): update Python dataclass, `queries.py` collection, Rust struct, response type, `TemplateTags` struct + `new()` + `from_response()`, tracked query, `lib.rs` re-exports. Easy to miss one step in the chain.
 - **`Node::Variable` filter changes cascade widely**: Changing `filters: Vec<String>` to a structured type requires updates in: `nodelist.rs` (Node enum), `parser.rs` (parse_variable + TestNode), `context.rs` (OffsetContext::Variable), `blocks/tree.rs` (NodeView::Variable), `completions.rs` (any filter handling), plus all insta snapshots. Run `cargo insta review` or `INSTA_UPDATE=1 cargo test` after.
 - **`TemplateFilter` shares `TagProvenance`**: Filters use the same `TagProvenance` enum as tags (Library/Builtin variants). Don't create a separate provenance type for filters.
+
+## Hot Files (heavily read/edited — know these well)
+- **`crates/djls-ide/src/completions.rs`** — integration point for tag, library, and filter completions; most-edited file across all sessions. Read before modifying any completion logic.
+- **`crates/djls-server/src/db.rs`** — Salsa database, tracked queries, `SemanticDb` impl, update/refresh methods. Second most-edited.
+- **`crates/djls-project/src/django.rs`** — `TemplateTag`, `TemplateFilter`, `TemplateTags`, `TagProvenance` — read before any type changes.
+- **`crates/djls-semantic/src/load_resolution/symbols.rs`** — `AvailableSymbols`, `TagAvailability`, `FilterAvailability` — complex position-aware logic.
+
+## Workspace Dependency Pattern
+- Third-party deps go in `[workspace.dependencies]` in root `Cargo.toml` (pinned versions), then crates reference them with `dep.workspace = true` in their `Cargo.toml`
+- New crates go in `members = ["crates/*"]` (already glob-based, so just creating the directory suffices)
 
 ## Insta Snapshot Testing
 - After changing any serialized type (Node variants, TestNode, etc.), run `INSTA_UPDATE=1 cargo test -q` to auto-update snapshots, then `cargo insta review` to verify changes are correct
