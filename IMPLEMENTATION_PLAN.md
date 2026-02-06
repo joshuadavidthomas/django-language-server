@@ -153,10 +153,57 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ## M4 — Filters Pipeline
 
-**Status:** backlog
+**Status:** in-progress
 **Plan:** `.agents/plans/2026-02-05-m4-filters-pipeline.md`
 
-_Tasks to be expanded when M3 is complete._
+**Goal:** Implement complete filter support: inspector collection, structured parser representation, completions in `{{ x| }}` context, and unknown/unloaded filter diagnostics (S111/S112/S113) with load scoping.
+
+### Phase 1: Inspector Filter Inventory
+
+- [ ] Add `TemplateFilter` dataclass to `queries.py` with same shape as `TemplateTag`: `name`, `provenance` (externally-tagged dict), `defining_module`, `doc`
+- [ ] Update `TemplateTagQueryData` to include `templatefilters: list[TemplateFilter]` field
+- [ ] In `get_installed_templatetags()`, iterate `library.filters.items()` for builtins (alongside `library.tags.items()`) and append `TemplateFilter` with `Builtin` provenance
+- [ ] In `get_installed_templatetags()`, iterate `library.filters.items()` for library entries and append `TemplateFilter` with `Library` provenance
+- [ ] Add Rust `TemplateFilter` struct in `crates/djls-project/src/django.rs` mirroring `TemplateTag` but for filters (same `TagProvenance`, same accessors: `name()`, `provenance()`, `defining_module()`, `is_builtin()`, `library_load_name()`)
+- [ ] Expand `TemplatetagsResponse` with `templatefilters: Vec<TemplateFilter>` field
+- [ ] Expand `TemplateTags` with `filters: Vec<TemplateFilter>` field and add `filters()` accessor returning `&[TemplateFilter]`
+- [ ] Update `TemplateTags::new()`, `TemplateTags::from_response()`, and the `templatetags` tracked query to pass through filters
+- [ ] Export `TemplateFilter` from `crates/djls-project/src/lib.rs`
+- [ ] Add unit tests: `TemplateFilter` deserialization, accessor methods, `TemplateTags` with filters round-trip
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 2: Structured Filter Representation in Parser
+
+- [ ] Define `Filter` struct in `crates/djls-templates/src/parser.rs` with `name: String`, `arg: Option<String>`, `span: Span` — handles simple filters (`title`), filters with args (`default:'nothing'`), colon inside quoted args (`default:'time:12:30'`)
+- [ ] Implement `parse_filter(raw: &str, base_offset: u32) -> Filter` helper that splits name from argument at first unquoted colon
+- [ ] Update `Node::Variable` from `filters: Vec<String>` to `filters: Vec<Filter>`
+- [ ] Update `parse_variable()` to produce `Vec<Filter>` with correct per-filter spans (each filter span is relative to the variable expression)
+- [ ] Update `TestNode::Variable` in test helpers to use `Vec<Filter>` or a simplified representation for snapshot compatibility
+- [ ] Update `NodeView::Variable` in `crates/djls-semantic/src/blocks/tree.rs` to use `Vec<Filter>`
+- [ ] Update all pattern matches on `Node::Variable { filters, .. }` in `crates/djls-semantic/src/blocks/builder.rs` if present
+- [ ] Update `OffsetContext::Variable` in `crates/djls-ide/src/context.rs` if it references filters
+- [ ] Run `cargo test -q` and update all `insta` snapshots that include filter data (`cargo insta review` or `INSTA_UPDATE=1`)
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 3: Filter Completions
+
+- [ ] Update `analyze_template_context()` in `crates/djls-ide/src/completions.rs` to detect `{{ var|` context — cursor after pipe inside variable expression, extract partial filter name
+- [ ] Implement `generate_filter_completions()` that shows builtin filters always + library filters only if their library is loaded at cursor position (reuse M3 `LoadedLibraries`)
+- [ ] When inspector unavailable, show all known filters as fallback (consistent with tag completion behavior)
+- [ ] Wire `TemplateCompletionContext::Filter { partial }` case to call `generate_filter_completions()`
+- [ ] Sort results alphabetically for deterministic ordering
+- [ ] Tests: `{{ value|` context detected, partial prefix filtering (`{{ value|def`), builtins always appear, library filters excluded when not loaded, inspector unavailable shows all, selective import only shows imported filter symbols
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 4: Filter Validation with Load Scoping
+
+- [ ] Add `FilterAvailability` enum (or reuse existing `TagAvailability` pattern) in load_resolution symbols module
+- [ ] Extend `AvailableSymbols` (or create `AvailableFilterSymbols`) to track filter availability using the same `LoadedLibraries` + inspector inventory pattern as tags
+- [ ] Add diagnostic codes S111 (`UnknownFilter`), S112 (`UnloadedFilter`), S113 (`AmbiguousUnloadedFilter`) to the diagnostic system
+- [ ] Wire filter validation into semantic analysis: for each `Filter` in `Node::Variable`, check availability via load scoping
+- [ ] Guard: skip all filter scoping diagnostics when `inspector_inventory` is `None`
+- [ ] Tests: unknown filter → S111, unloaded library filter → S112 with library name, filter in multiple libraries → S113, filter after `{% load %}` → valid, builtin filter → always valid, inspector unavailable → no diagnostics
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ---
 
