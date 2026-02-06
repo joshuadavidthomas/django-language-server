@@ -376,20 +376,20 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ### Phase 1: Create Template Validation Documentation Page
 
-- [ ] Read existing `docs/configuration/index.md` to understand current diagnostic code documentation format
-- [ ] Read existing `docs/configuration/tagspecs.md` to understand current tagspec documentation
-- [ ] Read `.mkdocs.yml` to understand navigation structure
-- [ ] Create `docs/template-validation.md` covering: how validation works (inspector + extraction), what djls validates (unknown tags/filters, unloaded library tags/filters, block structure, if-expression syntax, filter arity), what djls cannot validate (runtime behavior, variable resolution, template inheritance), inspector availability behavior, ambiguous symbols, link to issue template
-- [ ] Update `.mkdocs.yml` navigation to include the new page
-- [ ] Verify: docs structure is consistent, internal links resolve
+- [x] Read existing `docs/configuration/index.md` to understand current diagnostic code documentation format
+- [x] Read existing `docs/configuration/tagspecs.md` to understand current tagspec documentation
+- [x] Read `.mkdocs.yml` to understand navigation structure
+- [x] Create `docs/template-validation.md` covering: how validation works (inspector + extraction), what djls validates (unknown tags/filters, unloaded library tags/filters, block structure, if-expression syntax, filter arity), what djls cannot validate (runtime behavior, variable resolution, template inheritance), inspector availability behavior, ambiguous symbols, link to issue template
+- [x] Update `.mkdocs.yml` navigation to include the new page
+- [x] Verify: docs structure is consistent, internal links resolve
 
 ### Phase 2: Update Diagnostic Codes Documentation
 
-- [ ] Add S108–S110 (Tag Scoping) section to `docs/configuration/index.md`: UnknownTag, UnloadedTag, AmbiguousUnloadedTag
-- [ ] Add S111–S113 (Filter Scoping) section: UnknownFilter, UnloadedFilter, AmbiguousUnloadedFilter
-- [ ] Add S114–S116 (Expression & Filter Arity) section: ExpressionSyntaxError, FilterMissingArgument, FilterUnexpectedArgument
-- [ ] Add link to the new `docs/template-validation.md` page for more context
-- [ ] Verify: diagnostic code descriptions match actual implementation behavior
+- [x] Add S108–S110 (Tag Scoping) section to `docs/configuration/index.md`: UnknownTag, UnloadedTag, AmbiguousUnloadedTag
+- [x] Add S111–S113 (Filter Scoping) section: UnknownFilter, UnloadedFilter, AmbiguousUnloadedFilter
+- [x] Add S114–S116 (Expression & Filter Arity) section: ExpressionSyntaxError, FilterMissingArgument, FilterUnexpectedArgument
+- [x] Add link to the new `docs/template-validation.md` page for more context
+- [x] Verify: diagnostic code descriptions match actual implementation behavior
 
 ### Phase 3: Create GitHub Issue Template for Validation Mismatches
 

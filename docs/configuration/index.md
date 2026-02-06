@@ -79,6 +79,9 @@ Map diagnostic codes or prefixes to severity levels. Supports:
 - `T901` - Configuration errors (invalid tagspecs)
 
 **Semantic Validation Errors (S-series):**
+
+*Block Structure:*
+
 - `S100` - Unclosed tag (missing end tag)
 - `S101` - Unbalanced structure (mismatched block tags)
 - `S102` - Orphaned tag (intermediate tag without parent)
@@ -87,6 +90,26 @@ Map diagnostic codes or prefixes to severity levels. Supports:
 - `S105` - Too many arguments
 - `S106` - Invalid literal argument
 - `S107` - Invalid argument choice
+
+*Tag Scoping (requires [inspector](../template-validation.md#inspector-availability)):*
+
+- `S108` - Unknown tag (not defined in any known library)
+- `S109` - Unloaded tag (requires `{% load %}` for a specific library)
+- `S110` - Ambiguous unloaded tag (defined in multiple libraries)
+
+*Filter Scoping (requires [inspector](../template-validation.md#inspector-availability)):*
+
+- `S111` - Unknown filter (not defined in any known library)
+- `S112` - Unloaded filter (requires `{% load %}` for a specific library)
+- `S113` - Ambiguous unloaded filter (defined in multiple libraries)
+
+*Expression & Filter Arity:*
+
+- `S114` - Expression syntax error in `{% if %}` / `{% elif %}`
+- `S115` - Filter requires an argument but none was provided
+- `S116` - Filter does not accept an argument but one was provided
+
+See [Template Validation](../template-validation.md) for details on how these diagnostics work and their limitations.
 
 #### Examples
 
