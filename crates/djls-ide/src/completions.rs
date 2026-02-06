@@ -378,7 +378,13 @@ fn generate_template_completions(
             supports_snippets,
         ),
         TemplateCompletionContext::LibraryName { partial, closing } => {
-            generate_library_completions(partial, closing, template_tags)
+            generate_library_completions(
+                partial,
+                closing,
+                template_tags,
+                loaded_libraries,
+                cursor_byte_offset,
+            )
         }
         TemplateCompletionContext::Filter { .. }
         | TemplateCompletionContext::Variable { .. }
@@ -719,6 +725,8 @@ fn generate_library_completions(
     partial: &str,
     closing: &ClosingBrace,
     template_tags: Option<&TemplateTags>,
+    loaded_libraries: Option<&LoadedLibraries>,
+    cursor_byte_offset: u32,
 ) -> Vec<ls_types::CompletionItem> {
     let Some(tags) = template_tags else {
         return Vec::new();
@@ -731,9 +739,15 @@ fn generate_library_completions(
         .collect();
     library_entries.sort_by_key(|(load_name, _)| load_name.as_str());
 
+    let already_loaded = loaded_libraries
+        .map(|l| l.libraries_before(cursor_byte_offset))
+        .unwrap_or_default();
+
     let mut completions = Vec::new();
 
     for (load_name, module_path) in library_entries {
+        let is_already_loaded = already_loaded.contains(load_name.as_str());
+
         let mut insert_text = load_name.clone();
 
         match closing {
@@ -745,10 +759,20 @@ fn generate_library_completions(
         completions.push(ls_types::CompletionItem {
             label: load_name.clone(),
             kind: Some(ls_types::CompletionItemKind::MODULE),
-            detail: Some(format!("Django template library ({module_path})")),
+            detail: Some(if is_already_loaded {
+                format!("Already loaded ({module_path})")
+            } else {
+                format!("Django template library ({module_path})")
+            }),
             insert_text: Some(insert_text),
             insert_text_format: Some(ls_types::InsertTextFormat::PLAIN_TEXT),
             filter_text: Some(load_name.clone()),
+            sort_text: Some(if is_already_loaded {
+                format!("1_{load_name}")
+            } else {
+                format!("0_{load_name}")
+            }),
+            deprecated: Some(is_already_loaded),
             ..Default::default()
         });
     }
@@ -1065,7 +1089,7 @@ mod tests {
         );
 
         let completions =
-            generate_library_completions("", &ClosingBrace::None, Some(&tags));
+            generate_library_completions("", &ClosingBrace::None, Some(&tags), None, 0);
 
         let labels: Vec<_> = completions.iter().map(|c| c.label.as_str()).collect();
         assert!(labels.contains(&"static"));
@@ -1090,7 +1114,7 @@ mod tests {
         let tags = TemplateTags::new(libraries, vec![], vec![]);
 
         let completions =
-            generate_library_completions("st", &ClosingBrace::None, Some(&tags));
+            generate_library_completions("st", &ClosingBrace::None, Some(&tags), None, 0);
 
         assert_eq!(completions.len(), 1);
         assert_eq!(completions[0].label, "static");
@@ -1107,21 +1131,21 @@ mod tests {
         let tags = TemplateTags::new(libraries, vec![], vec![]);
 
         let no_close =
-            generate_library_completions("", &ClosingBrace::None, Some(&tags));
+            generate_library_completions("", &ClosingBrace::None, Some(&tags), None, 0);
         assert_eq!(
             no_close[0].insert_text.as_deref(),
             Some("static %}")
         );
 
         let partial =
-            generate_library_completions("", &ClosingBrace::PartialClose, Some(&tags));
+            generate_library_completions("", &ClosingBrace::PartialClose, Some(&tags), None, 0);
         assert_eq!(
             partial[0].insert_text.as_deref(),
             Some("static %")
         );
 
         let full =
-            generate_library_completions("", &ClosingBrace::FullClose, Some(&tags));
+            generate_library_completions("", &ClosingBrace::FullClose, Some(&tags), None, 0);
         assert_eq!(
             full[0].insert_text.as_deref(),
             Some("static")
@@ -1330,5 +1354,127 @@ mod tests {
         assert!(labels.contains(&"if"), "builtins should appear");
         assert!(labels.contains(&"trans"), "selectively imported trans should appear");
         assert!(!labels.contains(&"blocktrans"), "non-imported blocktrans should NOT appear");
+    }
+
+    #[test]
+    fn test_library_completions_deprioritize_already_loaded() {
+        use djls_semantic::LoadKind;
+        use djls_semantic::LoadStatement;
+        use djls_source::Span;
+
+        let mut libraries = std::collections::HashMap::new();
+        libraries.insert(
+            "static".to_string(),
+            "django.templatetags.static".to_string(),
+        );
+        libraries.insert(
+            "i18n".to_string(),
+            "django.templatetags.i18n".to_string(),
+        );
+        libraries.insert(
+            "cache".to_string(),
+            "django.templatetags.cache".to_string(),
+        );
+
+        let tags = TemplateTags::new(libraries, vec![], vec![]);
+
+        let mut loaded = djls_semantic::LoadedLibraries::new();
+        // {% load i18n %} at span 0..15
+        loaded.push(LoadStatement {
+            span: Span::new(0, 15),
+            kind: LoadKind::Libraries(vec!["i18n".to_string()]),
+        });
+
+        let completions = generate_library_completions(
+            "",
+            &ClosingBrace::None,
+            Some(&tags),
+            Some(&loaded),
+            50, // cursor after the load
+        );
+
+        // i18n should be marked as already loaded
+        let i18n = completions.iter().find(|c| c.label == "i18n").unwrap();
+        assert_eq!(i18n.deprecated, Some(true));
+        assert!(i18n.detail.as_ref().unwrap().starts_with("Already loaded"));
+        assert!(i18n.sort_text.as_ref().unwrap().starts_with("1_"));
+
+        // static and cache should not be deprioritized
+        let static_item = completions.iter().find(|c| c.label == "static").unwrap();
+        assert_eq!(static_item.deprecated, Some(false));
+        assert!(static_item
+            .detail
+            .as_ref()
+            .unwrap()
+            .starts_with("Django template library"));
+        assert!(static_item.sort_text.as_ref().unwrap().starts_with("0_"));
+
+        let cache_item = completions.iter().find(|c| c.label == "cache").unwrap();
+        assert_eq!(cache_item.deprecated, Some(false));
+        assert!(cache_item.sort_text.as_ref().unwrap().starts_with("0_"));
+    }
+
+    #[test]
+    fn test_library_completions_no_load_info_no_deprioritization() {
+        let mut libraries = std::collections::HashMap::new();
+        libraries.insert(
+            "static".to_string(),
+            "django.templatetags.static".to_string(),
+        );
+        libraries.insert(
+            "i18n".to_string(),
+            "django.templatetags.i18n".to_string(),
+        );
+
+        let tags = TemplateTags::new(libraries, vec![], vec![]);
+
+        let completions = generate_library_completions(
+            "",
+            &ClosingBrace::None,
+            Some(&tags),
+            None, // no load info
+            0,
+        );
+
+        // All should be not deprecated and have 0_ sort prefix
+        for c in &completions {
+            assert_eq!(c.deprecated, Some(false));
+            assert!(c.sort_text.as_ref().unwrap().starts_with("0_"));
+        }
+    }
+
+    #[test]
+    fn test_library_completions_before_load_not_deprioritized() {
+        use djls_semantic::LoadKind;
+        use djls_semantic::LoadStatement;
+        use djls_source::Span;
+
+        let mut libraries = std::collections::HashMap::new();
+        libraries.insert(
+            "i18n".to_string(),
+            "django.templatetags.i18n".to_string(),
+        );
+
+        let tags = TemplateTags::new(libraries, vec![], vec![]);
+
+        let mut loaded = djls_semantic::LoadedLibraries::new();
+        // {% load i18n %} at span 50..65
+        loaded.push(LoadStatement {
+            span: Span::new(50, 15),
+            kind: LoadKind::Libraries(vec!["i18n".to_string()]),
+        });
+
+        let completions = generate_library_completions(
+            "",
+            &ClosingBrace::None,
+            Some(&tags),
+            Some(&loaded),
+            10, // cursor BEFORE the load
+        );
+
+        // i18n should NOT be deprioritized since cursor is before the load
+        let i18n = completions.iter().find(|c| c.label == "i18n").unwrap();
+        assert_eq!(i18n.deprecated, Some(false));
+        assert!(i18n.sort_text.as_ref().unwrap().starts_with("0_"));
     }
 }

@@ -95,7 +95,7 @@
 
 ## M3 - `{% load %}` Scoping Infrastructure
 
-**Status:** in-progress
+**Status:** complete
 **Plan:** `.agents/plans/2026-02-05-m3-load-scoping.md` (overview), phases in `m3.1` through `m3.6`
 
 ### Phase 1: Load Statement Parsing and Data Structures
@@ -146,10 +146,10 @@
 
 ### Phase 6: Library Completions Enhancement
 
-- [ ] Update `generate_library_completions` to accept `loaded_libraries` and `cursor_byte_offset` params
-- [ ] Deprioritize already-loaded libraries (sort_text `"1_"` prefix, mark deprecated for strikethrough)
-- [ ] Update call site in `generate_template_completions` to pass new params
-- [ ] Run `cargo build`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test`
+- [x] Update `generate_library_completions` to accept `loaded_libraries` and `cursor_byte_offset` params
+- [x] Deprioritize already-loaded libraries (sort_text `"1_"` prefix, mark deprecated for strikethrough)
+- [x] Update call site in `generate_template_completions` to pass new params
+- [x] Run `cargo build`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test`
 
 ---
 
