@@ -763,9 +763,45 @@ Derive validation conditions from TemplateSyntaxError guards.
 
 ### Phase 5: Implement Block Spec Extraction
 
-**Status:** 🔲 Not Started
+**Status:** ✅ Complete
 
 Infer end-tags from control flow patterns (NO string heuristics like `starts_with("end")`).
+
+**Changes:**
+- Implemented `extract_block_spec()` in `crates/djls-extraction/src/structural.rs` with:
+  - `infer_end_tag_from_control_flow()` - Three-strategy inference system:
+    1. **Singleton pattern**: `parser.parse(("endfoo",))` with exactly one unique tag → high confidence closer
+    2. **Unique stop tag**: Only one stop tag mentioned across all parse calls → the closer
+    3. **Django convention fallback**: `end{tag_name}` present in stop-tags as conservative tie-breaker
+  - `collect_parse_calls()` - Recursively collects all `parser.parse()` calls from function body
+  - `extract_parse_call_tags()` - Extracts stop-tag literals from parse call arguments
+  - `has_compile_filter_call()` / `is_compile_filter_call()` - Detects verbatim-like opaque blocks
+  - **Explicit `end_name` from decorator** (highest confidence, authoritative)
+  - **Django-defined semantic default** for `simple_block_tag`: `f"end{function_name}"`
+- Added 14 comprehensive tests verifying:
+  - Singleton pattern inference (`test_singleton_closer_pattern`)
+  - Non-conventional closer names (`test_generic_tag_with_non_conventional_closer`, `test_non_end_prefix_closer`)
+  - Django convention fallback (`test_django_convention_fallback`)
+  - Convention only selects, never invents (`test_django_convention_not_invented`)
+  - Ambiguity blocks fallback (`test_django_convention_blocked_by_singleton_ambiguity`)
+  - Simple tags have no block spec (`test_no_block_spec_for_simple_tag`)
+  - Explicit end_name handling (`test_simple_block_tag_with_explicit_end_name`)
+  - Django default for simple_block_tag (`test_simple_block_tag_without_end_name_uses_django_default`)
+
+**Quality Checks:**
+- [x] `cargo build -p djls-extraction` passes
+- [x] `cargo clippy -p djls-extraction --all-targets -- -D warnings` passes
+- [x] `cargo test -p djls-extraction structural` passes (14 tests)
+- [x] `cargo test -p djls-extraction` passes (42 tests)
+- [x] `cargo build` (full build) passes
+- [x] `cargo test` (all tests) passes
+- [x] `cargo clippy --all-targets --all-features -- -D warnings` passes
+
+**Discoveries:**
+- The `simple_block_tag` decorator has special Django-defined semantics: when `end_name` is omitted, Django hardcodes `f"end{function_name}"` at runtime (library.py:190)
+- Convention fallback is a tie-breaker ONLY - it never invents closers, only selects from existing stop-tags
+- Multiple singleton patterns cause ambiguity and block all inference (conservative "never guess" approach)
+- Opaque block detection requires checking for absence of `compile_filter` calls (verbatim-like blocks don't compile filters)
 
 ---
 
