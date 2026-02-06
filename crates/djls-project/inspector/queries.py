@@ -116,12 +116,21 @@ def get_installed_templatetags() -> TemplateTagQueryData:
 
     engine = Engine.get_default()
 
-    for library in engine.template_builtins:
+    # Collect builtin tags: engine.builtins has module paths,
+    # engine.template_builtins has the corresponding loaded Library objects.
+    # Guard against length mismatch by using zip (stops at shorter list).
+    builtin_modules: list[str] = []
+    for builtin_module, library in zip(engine.builtins, engine.template_builtins):
+        if builtin_module not in builtin_modules:
+            builtin_modules.append(builtin_module)
         if library.tags:
             for tag_name, tag_func in library.tags.items():
                 templatetags.append(
                     TemplateTag(
-                        name=tag_name, module=tag_func.__module__, doc=tag_func.__doc__
+                        name=tag_name,
+                        provenance={"builtin": {"module": builtin_module}},
+                        defining_module=tag_func.__module__,
+                        doc=tag_func.__doc__,
                     )
                 )
 
@@ -138,7 +147,7 @@ def get_installed_templatetags() -> TemplateTagQueryData:
     return TemplateTagQueryData(
         templatetags=templatetags,
         libraries={},
-        builtins=[],
+        builtins=builtin_modules,
     )
 
 
