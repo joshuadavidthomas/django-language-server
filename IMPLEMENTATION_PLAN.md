@@ -471,16 +471,16 @@
 
 ### Phase 2: Build Extracted Rule Evaluator in `djls-semantic`
 
-- [ ] Create `crates/djls-semantic/src/rule_evaluation.rs` with `evaluate_extracted_rules()` function
-- [ ] Implement evaluation for all `RuleCondition` variants: `ExactArgCount`, `ArgCountComparison`, `MinArgCount`, `MaxArgCount`, `LiteralAt`, `ChoiceAt`, `ContainsLiteral`, `Opaque`
-- [ ] Handle index offset: extraction index N → bits[N-1]
-- [ ] Handle negation semantics: `negated: true` = error when condition is NOT met
-- [ ] Add `ExtractedRuleViolation { tag, message, span }` variant to `ValidationError` in `crates/djls-semantic/src/errors.rs`
-- [ ] Add S117 diagnostic code mapping in `crates/djls-ide/src/diagnostics.rs`
-- [ ] Register `rule_evaluation` module in `crates/djls-semantic/src/lib.rs`
-- [ ] Add unit tests for each `RuleCondition` variant (both violated and not violated)
-- [ ] Add edge case tests: out-of-bounds index, empty rules, multiple rules accumulate all errors
-- [ ] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Create `crates/djls-semantic/src/rule_evaluation.rs` with `evaluate_extracted_rules()` function
+- [x] Implement evaluation for all `RuleCondition` variants: `ExactArgCount`, `ArgCountComparison`, `MinArgCount`, `MaxArgCount`, `LiteralAt`, `ChoiceAt`, `ContainsLiteral`, `Opaque`
+- [x] Handle index offset: extraction index N → bits[N-1]
+- [x] Handle negation semantics: `negated: true` = error when condition is NOT met
+- [x] Add `ExtractedRuleViolation { tag, message, span }` variant to `ValidationError` in `crates/djls-semantic/src/errors.rs`
+- [x] Add S117 diagnostic code mapping in `crates/djls-ide/src/diagnostics.rs`
+- [x] Register `rule_evaluation` module in `crates/djls-semantic/src/lib.rs`
+- [x] Add unit tests for each `RuleCondition` variant (both violated and not violated)
+- [x] Add edge case tests: out-of-bounds index, empty rules, multiple rules accumulate all errors
+- [x] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 3: Wire Evaluator into Validation Pipeline
 
