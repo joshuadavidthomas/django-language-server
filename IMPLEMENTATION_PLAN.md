@@ -421,9 +421,9 @@
 
 ### Phase 1: Create Template Validation Documentation Page
 
-- [ ] Create `docs/template-validation.md` with sections: How Validation Works (Inspector + Extraction), What djls Validates (table of S108-S116), Filter Arity Validation note, What djls Cannot Validate (runtime-only, dynamic tag behavior), Inspector Availability (healthy vs unavailable), Ambiguous Symbols explanation, Reporting Mismatches link, See Also links
-- [ ] Update `.mkdocs.yml` nav to add "Template Validation: template-validation.md" under Configuration section
-- [ ] Verify documentation builds: `just docs build` or equivalent mkdocs command
+- [x] Create `docs/template-validation.md` with sections: How Validation Works (Inspector + Extraction), What djls Validates (table of S108-S116), Filter Arity Validation note, What djls Cannot Validate (runtime-only, dynamic tag behavior), Inspector Availability (healthy vs unavailable), Ambiguous Symbols explanation, Reporting Mismatches link, See Also links
+- [x] Update `.mkdocs.yml` nav to add "Template Validation: template-validation.md" under Configuration section
+- [x] Verify documentation builds: `just docs build` or equivalent mkdocs command
 
 ### Phase 2: Update Diagnostic Codes Documentation
 
