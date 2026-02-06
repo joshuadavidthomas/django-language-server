@@ -89,13 +89,18 @@ def get_template_dirs() -> TemplateDirsQueryData:
 
 @dataclass
 class TemplateTagQueryData:
+    # Top-level registry structures (preserved from Django engine)
+    libraries: dict[str, str]  # load_name → module_path mapping
+    builtins: list[str]  # ordered builtin module paths
+    # Tag inventory
     templatetags: list[TemplateTag]
 
 
 @dataclass
 class TemplateTag:
     name: str
-    module: str
+    provenance: dict  # {"library": {"load_name": str, "module": str}} | {"builtin": {"module": str}}
+    defining_module: str
     doc: str | None
 
 
@@ -113,26 +118,51 @@ def get_installed_templatetags() -> TemplateTagQueryData:
 
     engine = Engine.get_default()
 
-    for library in engine.template_builtins:
+    # Preserve top-level registry structures
+    # engine.libraries: {load_name: module_path} - the authoritative mapping
+    libraries = dict(engine.libraries)
+    # engine.builtins: ordered list of builtin module paths
+    builtins = list(engine.builtins)
+
+    # Collect builtins with Builtin provenance
+    # Use zip to pair module paths (engine.builtins) with Library objects (engine.template_builtins)
+    # Guard: these should always be the same length, but check to avoid silent data loss
+    if len(engine.builtins) != len(engine.template_builtins):
+        raise RuntimeError(
+            f"engine.builtins ({len(engine.builtins)}) and "
+            f"engine.template_builtins ({len(engine.template_builtins)}) length mismatch"
+        )
+    for builtin_module, library in zip(engine.builtins, engine.template_builtins):
         if library.tags:
             for tag_name, tag_func in library.tags.items():
                 templatetags.append(
                     TemplateTag(
-                        name=tag_name, module=tag_func.__module__, doc=tag_func.__doc__
+                        name=tag_name,
+                        provenance={"builtin": {"module": builtin_module}},
+                        defining_module=tag_func.__module__,
+                        doc=tag_func.__doc__,
                     )
                 )
 
-    for lib_module in engine.libraries.values():
+    # Collect libraries with Library provenance, preserving load-name
+    for load_name, lib_module in engine.libraries.items():
         library = import_library(lib_module)
         if library and library.tags:
             for tag_name, tag_func in library.tags.items():
                 templatetags.append(
                     TemplateTag(
-                        name=tag_name, module=tag_func.__module__, doc=tag_func.__doc__
+                        name=tag_name,
+                        provenance={"library": {"load_name": load_name, "module": lib_module}},
+                        defining_module=tag_func.__module__,
+                        doc=tag_func.__doc__,
                     )
                 )
 
-    return TemplateTagQueryData(templatetags=templatetags)
+    return TemplateTagQueryData(
+        libraries=libraries,
+        builtins=builtins,
+        templatetags=templatetags,
+    )
 
 
 QueryData = PythonEnvironmentQueryData | TemplateDirsQueryData | TemplateTagQueryData

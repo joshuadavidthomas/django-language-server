@@ -36,20 +36,23 @@ This document tracks progress through the milestones for porting the Python `tem
 
 ### Phase 1: Python Inspector Payload Changes
 
-**Status:** 🔲 Not Started
+**Status:** ✅ Complete
 
 Update the inspector to return library information with proper provenance distinction, plus top-level registry structures for downstream use.
 
 **Changes:**
-- Add `TagProvenance` dataclass structure in `queries.py`
-- Update `TemplateTag` dataclass with `provenance`, `defining_module` fields
-- Create `TemplateTagQueryData` container with `libraries`, `builtins`, `templatetags`
-- Rewrite `get_installed_templatetags()` to preserve library keys and use `engine.builtins`
+- Added `provenance` dict field and `defining_module` field to `TemplateTag` dataclass
+- Expanded `TemplateTagQueryData` to include `libraries`, `builtins`, and `templatetags`
+- Rewrote `get_installed_templatetags()` to preserve library keys using `engine.libraries` and correctly pair `engine.builtins` with `engine.template_builtins` using `zip()`
+- Added runtime guard to ensure builtins/template_builtins lengths match
 
 **Quality Checks:**
-- [ ] `cargo build` passes
-- [ ] `cargo test -p djls-project` passes
-- [ ] Manual inspector test: `echo '{"query":"templatetags"}' | python crates/djls-project/inspector/__main__.py`
+- [x] `cargo build` passes
+- [x] `cargo test -p djls-project` passes
+- [x] All tests pass (`cargo test -q`: 217 tests passed)
+
+**Discoveries:**
+- The `engine.builtins` provides ordered module paths while `engine.template_builtins` provides the `Library` objects - they must be paired with `zip()` for correct provenance
 
 ### Phase 2: Rust Type Updates
 
