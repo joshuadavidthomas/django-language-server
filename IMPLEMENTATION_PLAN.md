@@ -14,8 +14,8 @@ This document tracks progress through the milestones for porting the Python `tem
 |---|-----------|--------|-----------|
 | M1 | Payload Shape + `{% load %}` Library Name Fix | ✅ Complete | [`.agents/plans/2026-02-05-m1-payload-library-name-fix.md`](.agents/plans/2026-02-05-m1-payload-library-name-fix.md) |
 | M2 | Salsa Invalidation Plumbing | ✅ Complete | [`.agents/plans/2026-02-05-m2-salsa-invalidation-plumbing.md`](.agents/plans/2026-02-05-m2-salsa-invalidation-plumbing.md) |
-| M3 | `{% load %}` Scoping Infrastructure | 📝 Ready | [`.agents/plans/2026-02-05-m3-load-scoping.md`](.agents/plans/2026-02-05-m3-load-scoping.md) |
-| M4 | Filters Pipeline | 🔲 Not Started | [`.agents/plans/2026-02-05-m4-filters-pipeline.md`](.agents/plans/2026-02-05-m4-filters-pipeline.md) |
+| M3 | `{% load %}` Scoping Infrastructure | ✅ Complete | [`.agents/plans/2026-02-05-m3-load-scoping.md`](.agents/plans/2026-02-05-m3-load-scoping.md) |
+| M4 | Filters Pipeline | 🔄 In Progress | [`.agents/plans/2026-02-05-m4-filters-pipeline.md`](.agents/plans/2026-02-05-m4-filters-pipeline.md) |
 | M5 | Rust Extraction Engine (`djls-extraction`) | 🔲 Not Started | [`.agents/plans/2026-02-05-m5-extraction-engine.md`](.agents/plans/2026-02-05-m5-extraction-engine.md) |
 | M6 | Rule Evaluation + Expression Validation | 🔲 Not Started | [`.agents/plans/2026-02-05-m6-rule-evaluation.md`](.agents/plans/2026-02-05-m6-rule-evaluation.md) |
 | M7 | Documentation + Issue Reporting | 🔲 Not Started | [`.agents/plans/2026-02-05-m7-docs-and-issue-template.md`](.agents/plans/2026-02-05-m7-docs-and-issue-template.md) |
@@ -419,13 +419,117 @@ Update `{% load %}` completions to show available libraries and handle completio
 
 ## M4: Filters Pipeline
 
-**Status:** 🔲 Not Started
+**Status:** 🔄 In Progress
 
 **Goal:** Filter inventory-driven completions + unknown-filter diagnostics, with load scoping correctness, and a structured filter representation in `djls-templates`.
 
 **Plan:** [`.agents/plans/2026-02-05-m4-filters-pipeline.md`](.agents/plans/2026-02-05-m4-filters-pipeline.md)
 
-### Tasks (TBD - will expand when M3 complete)
+### Phase 1: Inspector Filter Inventory (via Project Field)
+
+**Status:** 🔲 Not Started
+
+Add filter collection to the Python inspector and store it on `Project` alongside the tag inventory using the unified `template_inventory` query pattern.
+
+**Changes:**
+- Add `TemplateFilter` dataclass to Python inspector with `name`, `provenance`, `defining_module`, `doc` fields
+- Add `TemplateInventoryQueryData` for unified tags + filters response
+- Add `get_template_inventory()` function that returns tags + filters + registry in one query
+- Add `FilterProvenance` enum in Rust (Library/Builtin variants)
+- Add `TemplateFilter` struct with accessors matching `TemplateTag` pattern
+- Create `InspectorInventory` unified type (tags + filters + libraries + builtins)
+- Update `Project` field from `Option<TemplateTags>` to `Option<InspectorInventory>`
+- Add `TemplateInventoryRequest`/`Response` types
+- Update `refresh_inspector()` to use single unified query (one IPC round trip)
+- Update downstream consumers to use unified inventory
+
+**Quality Checks:**
+- [ ] `cargo build -p djls-project` passes
+- [ ] `cargo clippy -p djls-project --all-targets -- -D warnings` passes
+- [ ] `cargo test -p djls-project` passes
+- [ ] Manual: `template_inventory` query returns both tags AND filters
+- [ ] Manual: Builtin filters have `Builtin` provenance
+- [ ] Manual: Library filters have `Library { load_name, ... }` provenance
+
+### Phase 2: Structured Filter Representation (BREAKPOINT)
+
+**Status:** 🔲 Not Started
+
+Transform `filters: Vec<String>` → `Vec<Filter>` with structured data including name, argument, and span. This is a breaking change that touches multiple layers.
+
+**Changes:**
+- Add `Filter` struct with `name`, `arg: Option<FilterArg>`, `span` fields
+- Add `FilterArg` struct with `value`, `span` fields
+- Update `Node::Variable { filters: Vec<Filter> }` (changed from `Vec<String>`)
+- Implement `VariableScanner` state-machine scanner for quote-aware filter parsing
+- Handle escape sequences (`\"`, `\'`, `\\`) inside quoted arguments
+- Handle `|` inside quotes (should NOT split filters)
+- Handle `:` inside quotes (should NOT split argument)
+- Update `djls-templates/src/lib.rs` exports
+- Update `NodeView::Variable` in semantic blocks tree
+- Update `OffsetContext::Variable` in IDE context
+- Update test snapshot helpers for new format
+- Add comprehensive unit tests for edge cases
+- Update all existing snapshot files
+
+**Quality Checks:**
+- [ ] `cargo build` passes
+- [ ] `cargo clippy --all-targets -- -D warnings` passes
+- [ ] All tests pass (after snapshot updates)
+- [ ] `test_pipe_inside_quotes_not_split` passes
+- [ ] `test_escaped_quote_in_double_quotes` passes
+- [ ] `test_filter_span_accuracy` passes
+
+### Phase 3: Filter Completions
+
+**Status:** 🔲 Not Started
+
+Implement filter completions when user types `{{ variable|` or `{{ variable|part`.
+
+**Changes:**
+- Add `VariableClosingBrace` enum for tracking closing state
+- Update `analyze_template_context` to detect filter context via `analyze_variable_context()`
+- Update `TemplateCompletionContext::Filter` with `partial` and `closing` fields
+- Implement `generate_filter_completions()` function
+- Use `available_filters_at()` with load scoping from M3 infrastructure
+- Add insert text with appropriate closing braces
+- Update completion handler to use unified `InspectorInventory`
+- Update server call site to pass unified inventory
+
+**Quality Checks:**
+- [ ] `cargo build` passes
+- [ ] `cargo test` passes
+- [ ] `cargo clippy --all-targets -- -D warnings` passes
+- [ ] Manual: `{{ value|` shows filter completions
+- [ ] Manual: `{{ value|def` filters to `default`
+- [ ] Manual: Builtin filters appear without `{% load %}`
+- [ ] Manual: Library filters appear after `{% load %}`
+
+### Phase 4: Filter Validation with Load Scoping
+
+**Status:** 🔲 Not Started
+
+Add validation that checks filters against the inventory and load state, producing diagnostics S111-S113.
+
+**Changes:**
+- Add `UnknownFilter`, `UnloadedLibraryFilter`, `AmbiguousUnloadedFilter` error variants
+- Add diagnostic codes S111, S112, S113 in diagnostics module
+- Add `AvailableFilters` struct with `has_filter()` method
+- Implement `available_filters_at()` using M3 state-machine approach
+- Add `FilterInventoryEntry` enum for collision handling
+- Add `build_filter_inventory()` to build lookup map
+- Implement `validate_filter_scoping()` tracked function
+- Add `validate_single_filter()` helper for per-filter validation
+- Wire into `validate_nodelist()` in semantic lib
+
+**Quality Checks:**
+- [ ] `cargo build` passes
+- [ ] `cargo test` passes
+- [ ] `cargo clippy --all-targets -- -D warnings` passes
+- [ ] Manual: `{{ value|nonexistent }}` → S111 diagnostic
+- [ ] Manual: Unloaded library filter → S112 diagnostic
+- [ ] Manual: After `{% load %}`, S112 goes away
+- [ ] Manual: Builtin filters never produce diagnostics
 
 ---
 
