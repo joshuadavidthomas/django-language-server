@@ -1073,7 +1073,13 @@ Remove types and code paths that are now unused.
 
 Port the prototype's corpus tests to Rust. Validate actual templates against extracted rules and assert zero false positives.
 
+**Discovery:** The `.corpus/` directory does not exist and there's no `corpus-sync` mechanism set up. Before implementing corpus tests, need to:
+- Set up corpus directory structure or git submodule
+- Implement `just corpus-sync` command
+- Verify corpus contains Django versions, third-party packages, and repo templates
+
 **Tasks:**
+- [ ] Set up `.corpus/` directory and sync mechanism
 - [ ] Create `corpus_templates.rs` integration test in `djls-server/tests/`
 - [ ] Implement `validate_template_file()` helper
 - [ ] Test Django shipped templates (4.2/5.1/5.2/6.0) - zero false positives
