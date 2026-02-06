@@ -99,13 +99,13 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ### Phase 1: Load Statement Parsing and Data Structures
 
-- [ ] Create `crates/djls-semantic/src/load_resolution.rs` module
-- [ ] Define `LoadStatement` struct: `span` (byte range), `kind` enum distinguishing full load (list of library names) vs selective import (`{% load X from Y %}` — symbols + library name)
-- [ ] Define `LoadedLibraries` struct: ordered collection of `LoadStatement` values with a method `available_at(position) -> LoadState` that filters loads ending before the query position, applying the state-machine semantics (fully_loaded set + selective imports map)
-- [ ] Implement `parse_load_bits(bits: &[String]) -> Option<LoadStatement>` that parses tag bits from a `Node::Tag` with `name == "load"` — detects `from` keyword for selective imports vs full library loads
-- [ ] Export `load_resolution` module from `crates/djls-semantic/src/lib.rs`
-- [ ] Tests: full load (`{% load i18n %}`), multi-library load (`{% load i18n static %}`), selective import (`{% load trans from i18n %}`), multi-symbol selective (`{% load trans blocktrans from i18n %}`), empty/malformed load edge cases
-- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Create `crates/djls-semantic/src/load_resolution.rs` module
+- [x] Define `LoadStatement` struct: `span` (byte range), `kind` enum distinguishing full load (list of library names) vs selective import (`{% load X from Y %}` — symbols + library name)
+- [x] Define `LoadedLibraries` struct: ordered collection of `LoadStatement` values with a method `available_at(position) -> LoadState` that filters loads ending before the query position, applying the state-machine semantics (fully_loaded set + selective imports map)
+- [x] Implement `parse_load_bits(bits: &[String]) -> Option<LoadKind>` that parses tag bits from a `Node::Tag` with `name == "load"` — detects `from` keyword for selective imports vs full library loads
+- [x] Export `load_resolution` module from `crates/djls-semantic/src/lib.rs`
+- [x] Tests: full load (`{% load i18n %}`), multi-library load (`{% load i18n static %}`), selective import (`{% load trans from i18n %}`), multi-symbol selective (`{% load trans blocktrans from i18n %}`), empty/malformed load edge cases
+- [x] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 2: Compute LoadedLibraries from NodeList
 
