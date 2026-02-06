@@ -105,6 +105,10 @@ Test impls typically return `None` / default values. Forgetting even one causes 
 - Existing codes: S101-S107 (structural), S108 (UnknownTag), S109 (UnloadedLibraryTag), S110 (AmbiguousUnloadedTag), S111 (UnknownFilter), S112 (UnloadedLibraryFilter), S113 (AmbiguousUnloadedFilter)
 - Next available diagnostic code: S114
 
+### Build Timeouts
+- First build after adding Ruff deps or corpus crate can exceed 10s — use `timeout: 120` or no timeout for cargo builds
+- `cargo build -q` and `cargo test -q` suppress normal progress output — only errors shown
+
 ### Extraction Feature Gating
 - `djls-extraction` has `parser` feature (default on): gates Ruff parser deps and `extract_rules()` function
 - `djls-project` depends on `djls-extraction` with `default-features = false` (types only)
@@ -133,6 +137,22 @@ Test impls typically return `None` / default values. Forgetting even one causes 
 - `extract_block_spec()` uses three inference strategies in priority order: (1) explicit `end_name` from decorator, (2) singleton `parser.parse()` call, (3) Django convention fallback (`end{tag_name}`)
 - Control-flow recursion in `structural.rs` and `context.rs` must handle `if`/`for`/`while`/`try`/`with` blocks to find nested `parser.parse()` calls and `split_contents()` assignments
 
+### Corpus & Integration Tests
+- `djls-corpus` crate: `crates/djls-corpus/` — downloads and extracts PyPI sdists and GitHub tarballs (uses `reqwest` blocking + `flate2` + `tar`)
+- `reqwest` needs `features = ["blocking", "json"]` for `.json()` method — `json` feature is NOT default
+- Corpus data lives in `crates/djls-corpus/.corpus/` (gitignored), synced via `just corpus-sync`
+- Extraction golden tests: `crates/djls-extraction/tests/golden.rs` + `tests/fixtures/` + `tests/snapshots/`
+- Corpus tests in `crates/djls-extraction/tests/corpus.rs` skip gracefully when corpus not synced — check dir existence and return early
+- Integration test crates (`tests/` dir) use `include_str!` for fixture loading — NOT filesystem reads at runtime
+
+### If-Expression Validation
+- `validate_if_expression(bits: &[String]) -> Option<String>` — Pratt parser mirroring Django's `smartif.py`
+- Location: `crates/djls-semantic/src/if_expression.rs`
+- Two-word operators: `"not" + "in"` → `NotIn`, `"is" + "not"` → `IsNot` — must be handled during tokenization
+- Operator precedence: `or(6)`, `and(7)`, `not(8)`, comparisons/in/is(9-10) — matches Django exactly
+- `not` is prefix-only (unary), all other operators are infix — the parser distinguishes via `is_prefix`/`is_infix` flags
+- Returns `None` for valid expressions, `Some(error_message)` for invalid — error messages match Django's format
+
 ### File Locations (avoid repeated lookups)
 - Salsa database + tracked queries: `crates/djls-server/src/db.rs`
 - Project salsa input: `crates/djls-project/src/project.rs`
@@ -158,6 +178,10 @@ Test impls typically return `None` / default values. Forgetting even one causes 
 - Extraction filter arity: `crates/djls-extraction/src/filters.rs` (stub — M5P6)
 - Extraction AST pattern helpers: `crates/djls-extraction/src/patterns.rs`
 - Extraction orchestration: `crates/djls-extraction/src/lib.rs` (`extract_rules()` public API)
+- Extraction golden tests: `crates/djls-extraction/tests/golden.rs` + `tests/fixtures/` + `tests/snapshots/`
+- Extraction corpus tests: `crates/djls-extraction/tests/corpus.rs`
+- Corpus crate: `crates/djls-corpus/src/` (manifest, sync, enumerate)
+- If-expression validation: `crates/djls-semantic/src/if_expression.rs`
 
 ## Task Management
 Use `/dex` to break down complex work, track progress across sessions, and coordinate multi-step implementations.
