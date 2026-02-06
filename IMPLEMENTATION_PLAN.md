@@ -244,7 +244,7 @@ Write tests that capture Salsa events and verify invalidation using stable `ingr
 
 **Plan:** [`.agents/plans/2026-02-05-m3-load-scoping.md`](.agents/plans/2026-02-05-m3-load-scoping.md)
 
-**Overall Status:** Phase 1 of 6 complete
+**Overall Status:** Phases 1-4 of 6 complete
 
 ### Phase 1: Load Statement Parsing and Data Structures
 

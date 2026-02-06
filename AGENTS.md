@@ -72,3 +72,22 @@ Use `/dex` to break down complex work, track progress across sessions, and coord
 - To establish proper Salsa dependencies, pass data as parameters rather than querying internally — e.g., `TagIndex::from_specs(db, &specs)` instead of having `from_specs` call `db.tag_specs()` internally
 - Types containing `FxHashMap` require manual `PartialEq` impl for Salsa tracked function returns (auto-derive fails)
 - Import `salsa::Setter` trait to use `.to()` method on Salsa input setters
+- Use `db.ingredient_debug_name(index)` for stable query identification in tests (not Debug output substring matching)
+
+## Test Database Patterns
+- When adding new methods to `Db` traits, implement immediately in ALL test databases:
+  - `djls-semantic/src/arguments.rs` (TestDatabase)
+  - `djls-semantic/src/blocks/tree.rs` (TestDatabase)
+  - `djls-semantic/src/semantic/forest.rs` (TestDatabase)
+  - `djls-bench/src/db.rs` (Db)
+- Use `EventLogger` with `was_executed()` helper for Salsa invalidation tests
+- `Interpreter::discover(None)` works for tests that don't need real Python environment detection
+
+## Documentation Style
+- Use backticks for all code items in doc comments (clippy: `doc_markdown`)
+- Intra-doc links must use backticks: ``[`TagSpecs`]`` not `['TagSpecs']`
+- Mark test-only methods with `#[cfg(test)]` to avoid "never used" warnings
+
+## Dependency Management
+- When using `djls_project::` types in a new crate, add `djls-project = { workspace = true }` to Cargo.toml
+- When new crate uses both `djls-semantic` and `djls-project`, add both dependencies
