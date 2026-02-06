@@ -3,6 +3,7 @@ mod django;
 mod inspector;
 mod project;
 mod python;
+mod resolve;
 
 pub use db::Db;
 pub use django::django_available;
@@ -20,3 +21,9 @@ pub use inspector::InspectorRequest;
 pub use inspector::InspectorResponse;
 pub use project::Project;
 pub use python::Interpreter;
+pub use resolve::build_search_paths;
+pub use resolve::find_site_packages;
+pub use resolve::resolve_module;
+pub use resolve::resolve_modules;
+pub use resolve::ModuleLocation;
+pub use resolve::ResolvedModule;

@@ -10,6 +10,7 @@ use std::sync::Mutex;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_conf::Settings;
+use djls_project::build_search_paths;
 use djls_project::template_dirs;
 use djls_project::Db as ProjectDb;
 use djls_project::Inspector;
@@ -354,14 +355,20 @@ fn extract_external_rules(
     let mut result = djls_extraction::ExtractionResult::default();
 
     for module_path in &modules {
-        if let Some(file_path) = resolve_module_to_file(module_path, &search_paths) {
-            match std::fs::read_to_string(file_path.as_std_path()) {
+        if let Some(resolved) =
+            djls_project::resolve_module(module_path, &search_paths, root)
+        {
+            match std::fs::read_to_string(resolved.file_path.as_std_path()) {
                 Ok(source) => {
                     let module_result = djls_extraction::extract_rules(&source, module_path);
                     result.merge(module_result);
                 }
                 Err(e) => {
-                    tracing::debug!("Failed to read module file {}: {}", file_path, e);
+                    tracing::debug!(
+                        "Failed to read module file {}: {}",
+                        resolved.file_path,
+                        e
+                    );
                 }
             }
         } else {
@@ -370,114 +377,6 @@ fn extract_external_rules(
     }
 
     result
-}
-
-/// Build a list of directories to search when resolving Python module paths.
-///
-/// Includes:
-/// - The project root (for workspace modules)
-/// - Explicit PYTHONPATH entries
-/// - Site-packages from the virtual environment (if available)
-fn build_search_paths(
-    interpreter: &Interpreter,
-    root: &Utf8Path,
-    pythonpath: &[String],
-) -> Vec<Utf8PathBuf> {
-    let mut paths = Vec::new();
-
-    // Project root
-    paths.push(root.to_path_buf());
-
-    // Explicit PYTHONPATH entries
-    for p in pythonpath {
-        let path = Utf8PathBuf::from(p);
-        if path.is_dir() {
-            paths.push(path);
-        }
-    }
-
-    // Site-packages from venv
-    if let Some(site_packages) = find_site_packages(interpreter, root) {
-        paths.push(site_packages);
-    }
-
-    paths
-}
-
-/// Find the site-packages directory for the given interpreter.
-fn find_site_packages(interpreter: &Interpreter, root: &Utf8Path) -> Option<Utf8PathBuf> {
-    let venv_path = match interpreter {
-        Interpreter::VenvPath(path) => Some(Utf8PathBuf::from(path)),
-        Interpreter::Auto => {
-            // Check common venv directories
-            for dir in &[".venv", "venv", "env", ".env"] {
-                let candidate = root.join(dir);
-                if candidate.is_dir() {
-                    return find_site_packages_in_venv(&candidate);
-                }
-            }
-            None
-        }
-        Interpreter::InterpreterPath(_) => None,
-    };
-
-    venv_path.as_deref().and_then(find_site_packages_in_venv)
-}
-
-/// Find site-packages within a specific venv directory.
-fn find_site_packages_in_venv(venv: &Utf8Path) -> Option<Utf8PathBuf> {
-    let lib_dir = venv.join("lib");
-    if !lib_dir.is_dir() {
-        return None;
-    }
-
-    // On Linux/macOS: lib/pythonX.Y/site-packages
-    if let Ok(entries) = std::fs::read_dir(lib_dir.as_std_path()) {
-        for entry in entries.flatten() {
-            let name = entry.file_name();
-            let name_str = name.to_string_lossy();
-            if name_str.starts_with("python") {
-                let site_packages =
-                    Utf8PathBuf::from_path_buf(entry.path().join("site-packages")).ok()?;
-                if site_packages.is_dir() {
-                    return Some(site_packages);
-                }
-            }
-        }
-    }
-
-    // On Windows: Lib/site-packages (capitalized)
-    let lib_site = venv.join("Lib").join("site-packages");
-    if lib_site.is_dir() {
-        return Some(lib_site);
-    }
-
-    None
-}
-
-/// Resolve a dotted Python module path to a file system path.
-///
-/// Converts `django.template.defaulttags` to `django/template/defaulttags.py`
-/// and searches the provided paths. Also checks for `__init__.py` (package
-/// modules).
-fn resolve_module_to_file(module_path: &str, search_paths: &[Utf8PathBuf]) -> Option<Utf8PathBuf> {
-    let relative = module_path.replace('.', "/");
-
-    for base in search_paths {
-        // Try as a regular module: base/module/path.py
-        let py_file = base.join(format!("{relative}.py"));
-        if py_file.is_file() {
-            return Some(py_file);
-        }
-
-        // Try as a package: base/module/path/__init__.py
-        let init_file = base.join(&relative).join("__init__.py");
-        if init_file.is_file() {
-            return Some(init_file);
-        }
-    }
-
-    None
 }
 
 #[salsa::db]
@@ -968,50 +867,4 @@ def my_filter(value, arg):
         );
     }
 
-    #[test]
-    fn resolve_module_to_file_finds_py_file() {
-        use tempfile::TempDir;
-
-        let dir = TempDir::new().unwrap();
-        let base = camino::Utf8Path::from_path(dir.path()).unwrap();
-
-        // Create django/template/defaulttags.py
-        let module_dir = base.join("django").join("template");
-        std::fs::create_dir_all(module_dir.as_std_path()).unwrap();
-        std::fs::write(module_dir.join("defaulttags.py").as_std_path(), "").unwrap();
-
-        let search_paths = vec![base.to_path_buf()];
-        let result = super::resolve_module_to_file("django.template.defaulttags", &search_paths);
-        assert!(result.is_some());
-        assert!(result.unwrap().as_str().ends_with("defaulttags.py"));
-    }
-
-    #[test]
-    fn resolve_module_to_file_finds_package_init() {
-        use tempfile::TempDir;
-
-        let dir = TempDir::new().unwrap();
-        let base = camino::Utf8Path::from_path(dir.path()).unwrap();
-
-        // Create myapp/templatetags/__init__.py
-        let pkg_dir = base.join("myapp").join("templatetags");
-        std::fs::create_dir_all(pkg_dir.as_std_path()).unwrap();
-        std::fs::write(pkg_dir.join("__init__.py").as_std_path(), "").unwrap();
-
-        let search_paths = vec![base.to_path_buf()];
-        let result = super::resolve_module_to_file("myapp.templatetags", &search_paths);
-        assert!(result.is_some());
-        assert!(result.unwrap().as_str().ends_with("__init__.py"));
-    }
-
-    #[test]
-    fn resolve_module_to_file_returns_none_for_missing() {
-        use tempfile::TempDir;
-
-        let dir = TempDir::new().unwrap();
-        let base = camino::Utf8Path::from_path(dir.path()).unwrap();
-        let search_paths = vec![base.to_path_buf()];
-        let result = super::resolve_module_to_file("nonexistent.module", &search_paths);
-        assert!(result.is_none());
-    }
 }
