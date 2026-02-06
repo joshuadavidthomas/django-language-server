@@ -3,12 +3,16 @@
 //! This module tracks `{% load %}` statements in a template and provides
 //! position-aware queries for which tags/filters are available.
 
+use crate::errors::ValidationError;
+use crate::ValidationErrorAccumulator;
 use djls_project::TagProvenance;
 use djls_project::TemplateTags;
 use djls_source::Span;
+use djls_templates::tokens::TagDelimiter;
 use djls_templates::Node;
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
+use salsa::Accumulator;
 
 /// A parsed `{% load %}` statement.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -313,6 +317,156 @@ pub fn available_tags_at(
     }
 
     available
+}
+
+/// Entry for a tag in the inventory lookup.
+///
+/// We use Vec<String> for libraries because multiple libraries can define
+/// the same tag name (collision). We need all candidates for proper error messages.
+#[derive(Debug, Clone)]
+enum TagInventoryEntry {
+    /// Tag is a builtin (always available)
+    Builtin,
+    /// Tag requires loading one of these libraries
+    Libraries(Vec<String>),
+}
+
+/// Build a lookup from tag name to inventory entry.
+///
+/// **IMPORTANT**: This handles the case where multiple libraries define the
+/// same tag name by collecting ALL candidate libraries, not just the first one.
+/// This is essential for correct error messages.
+fn build_tag_inventory(inventory: &TemplateTags) -> FxHashMap<String, TagInventoryEntry> {
+    let mut result: FxHashMap<String, TagInventoryEntry> = FxHashMap::default();
+
+    for tag in inventory.iter() {
+        let name = tag.name().clone();
+        match tag.provenance() {
+            TagProvenance::Builtin { .. } => {
+                // Builtin takes precedence (always available)
+                result.insert(name, TagInventoryEntry::Builtin);
+            }
+            TagProvenance::Library { load_name, .. } => {
+                // Add library to list of candidates for this tag
+                if let Some(entry) = result.get_mut(&name) {
+                    // Don't override Builtin
+                    if let TagInventoryEntry::Libraries(libs) = entry {
+                        if !libs.contains(load_name) {
+                            libs.push(load_name.clone());
+                        }
+                    }
+                } else {
+                    result.insert(name, TagInventoryEntry::Libraries(vec![load_name.clone()]));
+                }
+            }
+        }
+    }
+
+    result
+}
+
+/// Validate that all tags in the template are either builtins or from loaded libraries.
+///
+/// This function:
+/// 1. Computes which libraries are loaded at each position
+/// 2. For each tag, checks if it's available at that position
+/// 3. Accumulates errors for unknown or unloaded tags
+///
+/// # Behavior
+/// - If inventory is None (inspector unavailable), skip validation entirely
+/// - Builtins are always valid
+/// - Library tags require their library to be loaded before use
+///
+/// # Collision Handling
+/// When multiple libraries define the same tag name:
+/// - If ONE of them is loaded, the tag is valid (Django resolves at runtime)
+/// - If NONE are loaded, emit S110 (`AmbiguousUnloadedTag`) listing all candidates
+///
+/// # `TagSpecs` Interaction
+/// Tags with structural specs (openers, closers, intermediates) are skipped:
+/// - They're validated by block structure (S100-S103) and argument validation (S104-S107)
+/// - This prevents emitting S108 for "endif" when inspector doesn't list it
+/// - Closers like "endif" derive from opener spec, not inventory
+#[salsa::tracked]
+pub fn validate_tag_scoping(
+    db: &dyn crate::Db,
+    nodelist: djls_templates::NodeList<'_>,
+) {
+    // Get inventory - if unavailable, skip validation
+    let Some(inventory) = db.inspector_inventory() else {
+        tracing::debug!("Inspector inventory unavailable, skipping tag scoping validation");
+        return;
+    };
+
+    // Compute load state
+    let loaded = compute_loaded_libraries(db, nodelist);
+
+    // Build lookup with collision handling
+    let tag_inventory = build_tag_inventory(&inventory);
+
+    // Validate each tag
+    for node in nodelist.nodelist(db) {
+        if let Node::Tag { name, span, .. } = node {
+            // Skip the load tag itself
+            if name == "load" {
+                continue;
+            }
+
+            // Skip tags that have structural meaning via TagSpecs
+            // These are validated by block structure validation (S100-S103) and
+            // argument validation (S104-S107), not by load scoping.
+            let tag_specs = db.tag_specs();
+            let has_spec = tag_specs.get(name).is_some()
+                || tag_specs.get_end_spec_for_closer(name).is_some()
+                || tag_specs.get_intermediate_spec(name).is_some();
+
+            let marker_span = span.expand(TagDelimiter::LENGTH_U32, TagDelimiter::LENGTH_U32);
+
+            match tag_inventory.get(name) {
+                None => {
+                    // Tag not in inventory at all
+                    if !has_spec {
+                        ValidationErrorAccumulator(ValidationError::UnknownTag {
+                            tag: name.clone(),
+                            span: marker_span,
+                        })
+                        .accumulate(db);
+                    }
+                }
+                Some(TagInventoryEntry::Builtin) => {
+                    // Builtins always valid
+                }
+                Some(TagInventoryEntry::Libraries(candidate_libs)) => {
+                    // Check if tag is available at this position
+                    let available = available_tags_at(&loaded, &inventory, span.start());
+
+                    if !available.has_tag(name) {
+                        // Tag not available - emit appropriate error
+                        if candidate_libs.len() == 1 {
+                            // Single library - simple error message
+                            ValidationErrorAccumulator(ValidationError::UnloadedLibraryTag {
+                                tag: name.clone(),
+                                library: candidate_libs[0].clone(),
+                                span: marker_span,
+                            })
+                            .accumulate(db);
+                        } else {
+                            // Multiple libraries define this tag - ambiguous
+                            // Per charter: "don't guess", list all candidates
+                            ValidationErrorAccumulator(ValidationError::AmbiguousUnloadedTag {
+                                tag: name.clone(),
+                                libraries: candidate_libs.clone(),
+                                span: marker_span,
+                            })
+                            .accumulate(db);
+                        }
+                    }
+                    // If available, the tag is valid (even with collisions,
+                    // Django resolves at runtime based on load order)
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]

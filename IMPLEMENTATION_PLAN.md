@@ -330,25 +330,36 @@ Add a query that combines inspector inventory with load state to determine what 
 
 ### Phase 4: Validation Integration - Unknown Tag Diagnostics
 
-**Status:** 🔲 Not Started
+**Status:** ✅ Complete
 
 Integrate load scoping into tag validation to produce diagnostics for unknown tags and unloaded library tags.
 
 **Changes:**
-- Add new error variants in `errors.rs`: `UnknownTag`, `UnloadedLibraryTag`, `AmbiguousUnloadedTag`
-- Add diagnostic codes S108, S109, S110 in `diagnostics.rs`
-- Add `inspector_inventory()` method to `Db` trait and implement in `DjangoDatabase`
-- Add `validate_tag_scoping()` tracked function with collision handling
-- Skip tags with structural specs (openers/closers/intermediates)
-- Wire into `validate_nodelist()` in `lib.rs`
+- Added new error variants in `errors.rs`: `UnknownTag`, `UnloadedLibraryTag`, `AmbiguousUnloadedTag`
+- Added diagnostic codes S108, S109, S110 in `diagnostics.rs`
+- Added `inspector_inventory()` method to `Db` trait and implemented in `DjangoDatabase` and test databases
+- Added `TagInventoryEntry` enum for collision handling (multiple libraries defining same tag)
+- Added `build_tag_inventory()` to build lookup with collision handling
+- Added `validate_tag_scoping()` tracked function that:
+  - Skips validation when inspector unavailable (returns early)
+  - Skips the `load` tag itself
+  - Skips tags with structural specs (openers/closers/intermediates)
+  - Emits S108 for unknown tags, S109 for single-library unloaded tags, S110 for ambiguous collisions
+- Wired into `validate_nodelist()` in `lib.rs`
+- Added `djls-project` dependency to `djls-bench` crate
 
 **Quality Checks:**
-- [ ] `cargo build` passes
-- [ ] `cargo test` passes
-- [ ] `cargo clippy --all-targets -- -D warnings` passes
+- [x] `cargo build` passes
+- [x] `cargo test` passes (269 tests)
+- [x] `cargo clippy --all-targets --all-features -- -D warnings` passes
 - [ ] Manual: Template with `{% trans %}` without `{% load i18n %}` → S109
 - [ ] Manual: Add `{% load i18n %}` → no diagnostic
 - [ ] Manual: Unknown tag `{% nonexistent %}` → S108
+
+**Discoveries:**
+- Test databases in `arguments.rs`, `blocks/tree.rs`, and `semantic/forest.rs` all needed the new `inspector_inventory()` method
+- Added `use djls_templates::tokens::TagDelimiter;` import to expand span for proper error positioning
+- `AmbiguousUnloadedTag` uses inline format args: `format!("{{% load {l} %}}")`
 
 ### Phase 5: Completions Integration
 

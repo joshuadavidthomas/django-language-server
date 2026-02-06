@@ -519,6 +519,7 @@ dependencies = [
  "camino",
  "codspeed-divan-compat",
  "djls-conf",
+ "djls-project",
  "djls-semantic",
  "djls-source",
  "djls-templates",

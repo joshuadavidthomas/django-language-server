@@ -47,6 +47,8 @@ pub use templatetags::TokenCount;
 /// - Orphaned intermediate tags
 /// - Invalid argument counts
 /// - Unmatched block names
+/// - Unknown tags (S108)
+/// - Unloaded library tags (S109, S110)
 #[salsa::tracked]
 pub fn validate_nodelist(db: &dyn Db, nodelist: djls_templates::NodeList<'_>) {
     if nodelist.nodelist(db).is_empty() {
@@ -56,4 +58,7 @@ pub fn validate_nodelist(db: &dyn Db, nodelist: djls_templates::NodeList<'_>) {
     let block_tree = build_block_tree(db, nodelist);
     let _forest = build_semantic_forest(db, block_tree, nodelist);
     validate_all_tag_arguments(db, nodelist);
+
+    // Validate tag scoping (load requirements)
+    load_resolution::validate_tag_scoping(db, nodelist);
 }

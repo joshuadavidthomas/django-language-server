@@ -53,4 +53,22 @@ pub enum ValidationError {
         value: String,
         span: Span,
     },
+
+    #[error("Unknown tag '{tag}'")]
+    UnknownTag { tag: String, span: Span },
+
+    #[error("Tag '{tag}' requires '{{% load {library} %}}'")]
+    UnloadedLibraryTag {
+        tag: String,
+        library: String,
+        span: Span,
+    },
+
+    #[error("Tag '{tag}' requires one of: {}", libraries.iter().map(|l| format!("{{% load {l} %}}")).collect::<Vec<_>>().join(", "))]
+    AmbiguousUnloadedTag {
+        tag: String,
+        /// All libraries that define this tag (for disambiguation)
+        libraries: Vec<String>,
+        span: Span,
+    },
 }
