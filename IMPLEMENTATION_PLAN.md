@@ -238,32 +238,34 @@ Write tests that capture Salsa events and verify invalidation using stable `ingr
 
 ## M3: `{% load %}` Scoping Infrastructure
 
-**Status:** 📝 Ready
+**Status:** 🔄 In Progress
 
 **Goal:** Position-aware `{% load %}` scoping for tags and filters in diagnostics + completions.
 
 **Plan:** [`.agents/plans/2026-02-05-m3-load-scoping.md`](.agents/plans/2026-02-05-m3-load-scoping.md)
 
-**Overall Status:** 🔲 Not Started
+**Overall Status:** Phase 1 of 6 complete
 
 ### Phase 1: Load Statement Parsing and Data Structures
 
-**Status:** 🔲 Not Started
+**Status:** ✅ Complete
 
 Create the core data structures for tracking `{% load %}` statements and implement parsing of `{% load %}` bits into structured form.
 
 **Changes:**
-- Create `crates/djls-semantic/src/load_resolution.rs` with:
+- Created `crates/djls-semantic/src/load_resolution.rs` with:
   - `LoadStatement` struct with span and `LoadKind`
   - `LoadKind` enum (`Libraries(Vec<String>)` or `Selective { symbols, library }`)
   - `LoadedLibraries` struct for ordered load statement collection
   - `parse_load_bits()` function to parse load tag bits
-- Export new types from `crates/djls-semantic/src/lib.rs`
+- Exported new types from `crates/djls-semantic/src/lib.rs`
 
 **Quality Checks:**
-- [ ] `cargo build -p djls-semantic` passes
-- [ ] `cargo clippy -p djls-semantic --all-targets -- -D warnings` passes
-- [ ] `cargo test -p djls-semantic load_resolution` passes
+- [x] `cargo build -p djls-semantic` passes
+- [x] `cargo clippy -p djls-semantic --all-targets -- -D warnings` passes
+- [x] `cargo test -p djls-semantic load_resolution` passes (8 tests)
+- [x] `cargo build` (full build) passes
+- [x] `cargo test` (all tests) passes (263 tests total)
 
 ### Phase 2: Compute LoadedLibraries from NodeList
 
