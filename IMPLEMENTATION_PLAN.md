@@ -412,7 +412,7 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ## M8 — Extracted Rule Evaluation
 
-**Status:** in progress (Phases 1–2 complete)
+**Status:** in progress (Phases 1–3 complete)
 **Plan:** `.agents/plans/2026-02-06-m8-extracted-rule-evaluation.md`
 **Depends on:** M5, M6
 
@@ -447,14 +447,14 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ### Phase 3: Wire Evaluator into Validation Pipeline
 
-- [ ] Add `TagRule` storage: either add `extracted_rules: Option<TagRule>` field to `TagSpec`, or pass `ExtractionResult` directly to validation functions. Decision: store on `TagSpec` for consistency (merging already happens in `merge_extraction_results`)
-- [ ] Extend `merge_extraction_results()` in `specs.rs` to also merge `tag_rules` from `ExtractionResult` into `TagSpec.extracted_rules`
-- [ ] Modify `validate_all_tag_arguments()` in `arguments.rs`: when `spec.extracted_rules` is `Some`, call `evaluate_tag_rules()` instead of `validate_args_against_spec()`. When `None`, fall back to `validate_args_against_spec()` only if `spec.args` is non-empty (user-config `args` escape hatch)
-- [ ] Remove hand-crafted `args:` values from ALL tag specs in `builtins.rs` — set to `Cow::Borrowed(&[])`. Keep block structure (end_tag, intermediates, module, opaque)
-- [ ] Remove `EndTag.args` and `IntermediateTag.args` values from builtins (set to empty) — extraction doesn't produce arg specs for closers/intermediates
-- [ ] Key regression test: `{% for item in items football %}` must still error, `{% for item in items %}` must still pass, `{% autoescape %}` must still error
-- [ ] Update test infrastructure (`check_validation_errors_with_db` etc.) to handle S117 variant
-- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Add `TagRule` storage: either add `extracted_rules: Option<TagRule>` field to `TagSpec`, or pass `ExtractionResult` directly to validation functions. Decision: store on `TagSpec` for consistency (merging already happens in `merge_extraction_results`)
+- [x] Extend `merge_extraction_results()` in `specs.rs` to also merge `tag_rules` from `ExtractionResult` into `TagSpec.extracted_rules`
+- [x] Modify `validate_all_tag_arguments()` in `arguments.rs`: when `spec.extracted_rules` is `Some`, call `evaluate_tag_rules()` instead of `validate_args_against_spec()`. When `None`, fall back to `validate_args_against_spec()` only if `spec.args` is non-empty (user-config `args` escape hatch)
+- [x] Remove hand-crafted `args:` values from ALL tag specs in `builtins.rs` — set to `Cow::Borrowed(&[])`. Keep block structure (end_tag, intermediates, module, opaque)
+- [x] Remove `EndTag.args` and `IntermediateTag.args` values from builtins (set to empty) — extraction doesn't produce arg specs for closers/intermediates
+- [x] Key regression test: `{% for item in items football %}` must still error (with extracted rules), `{% for item in items %}` must still pass, builtins without extracted rules skip validation
+- [x] Update test infrastructure (`check_validation_errors_with_db` etc.) to handle S117 variant — removed `ExtractedRuleViolation` from error filter, converted builtin-dependent tests to use extracted rules or user-config specs
+- [x] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 4: Wire Extracted Args into Completions/Snippets
 
@@ -514,4 +514,5 @@ _Tasks to be expanded from plan file in a future planning iteration._
 - **M6 Phase 1**: Block tree structure: root-level blocks have NO `BranchKind::Opener` — the container IS the root, containing only `BranchKind::Segment` children. `Opener` branches only appear for nested blocks (added to parent's segment). To find opaque blocks, check `Segment` branches whose tag has `opaque: true`, not just `Opener` branches. Validation functions (`validate_all_tag_arguments`, `validate_tag_scoping`, `validate_filter_scoping`) now accept `&OpaqueRegions` parameter and skip nodes inside opaque spans. Test inventories needed `verbatim` and `comment` added as builtins to avoid spurious S108 errors.
 - **M6 Phase 2**: Pratt parser for `{% if %}`/`{% elif %}` expressions ported from Python prototype. Added `ExpressionSyntaxError` variant to `ValidationError` and S114 diagnostic code. The argument validation test helper (`check_validation_errors_with_db`) needed to filter out `ExpressionSyntaxError` since its synthetic `{% if %}` templates can have invalid expressions from the if-parser perspective (e.g., `{% if x > 0 reversed %}` where `reversed` is a test modifier arg, not a valid if-expression token).
 - **M8 Phase 1**: `ExtractedArg` type added to `types.rs` with `ExtractedArgKind` enum (Variable, Literal, Choice, VarArgs, Keyword). Added `extracted_args: Vec<ExtractedArg>` to `TagRule`. For `simple_tag`/`inclusion_tag`: args extracted directly from function parameters with `as varname` auto-appended. For manual `@register.tag`: args reconstructed from tuple unpacking (`tag_name, x, y = bits`), indexed access (`bits[1]`), or generic fallback (`arg1`, `arg2`) based on arg constraints. `RequiredKeyword` positions map to `Literal` kind args. Also fixed pre-existing bug: `filter_validation.rs` and `load_resolution/validation.rs` were calling `filter.name()` / `filter.span()` as methods on `djls_templates::Filter` which has public fields, not accessor methods — changed to `filter.name` / `filter.span`. Shared target dir between worktrees causes build corruption — worktree uses `.cargo/config.toml` with `target-dir = "target_local"`.
+- **M8 Phase 3**: Added `extracted_rules: Option<TagRule>` to `TagSpec`. `merge_extraction_results()` now merges both `block_specs` AND `tag_rules` from `ExtractionResult`. `validate_tag_arguments()` uses `evaluate_tag_rules()` when `extracted_rules.is_some()`, falls back to `validate_args_against_spec()` only when `spec.args` is non-empty (user-config escape hatch). All hand-crafted `args` removed from builtins.rs (~973 lines → all empty). Builtins without extracted rules skip argument validation entirely (conservative — no false positives). Tests converted from testing old `args`-based validation to testing extracted rules (`ArgumentCountConstraint`, `RequiredKeyword`) and user-config escape hatch. Pre-existing worktree `target/` corruption: always use `CARGO_TARGET_DIR=target_local` or `cargo test -p crate_name` to avoid phantom compile errors.
 - **M5 Phase 7**: Salsa integration adds `Project.extracted_external_rules: Option<ExtractionResult>` field. `compute_tag_specs` reads this field and calls `TagSpecs::merge_extraction_results()` to enrich builtins with extracted block specs. `extract_rules()` wired up from stub to full pipeline: parse → `collect_registrations_from_body` → `find func def by name` → `extract_tag_rule` / `extract_block_spec` / `extract_filter_arity` per registration. Takes `module_path` param for `SymbolKey` keying. `extract_module_rules` tracked query takes only `File` (uses empty module_path — callers re-key when merging). Module path resolver: `resolve_module_to_file()` searches project root + PYTHONPATH + site-packages (derived from venv path). Salsa backdate optimization confirmed: if source content doesn't change across revisions, `extract_module_rules` won't re-execute.

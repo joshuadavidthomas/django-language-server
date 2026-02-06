@@ -186,6 +186,7 @@ impl TagSpecs {
         &mut self,
         extraction: &djls_extraction::ExtractionResult,
     ) -> &mut Self {
+        // Merge block specs (end tags, intermediates, opaque)
         for (key, block_spec) in &extraction.block_specs {
             if key.kind != djls_extraction::SymbolKind::Tag {
                 continue;
@@ -237,6 +238,30 @@ impl TagSpecs {
                         intermediate_tags: std::borrow::Cow::Owned(intermediate_tags),
                         args: std::borrow::Cow::Borrowed(&[]),
                         opaque: block_spec.opaque,
+                        extracted_rules: None,
+                    },
+                );
+            }
+        }
+
+        // Merge tag rules (argument validation constraints from extraction)
+        for (key, tag_rule) in &extraction.tag_rules {
+            if key.kind != djls_extraction::SymbolKind::Tag {
+                continue;
+            }
+            if let Some(spec) = self.0.get_mut(&key.name) {
+                spec.extracted_rules = Some(tag_rule.clone());
+            } else {
+                // Tag not yet in specs — create a minimal entry with extracted rules
+                self.0.insert(
+                    key.name.clone(),
+                    TagSpec {
+                        module: key.registration_module.clone().into(),
+                        end_tag: None,
+                        intermediate_tags: std::borrow::Cow::Borrowed(&[]),
+                        args: std::borrow::Cow::Borrowed(&[]),
+                        opaque: false,
+                        extracted_rules: Some(tag_rule.clone()),
                     },
                 );
             }
@@ -290,6 +315,7 @@ pub struct TagSpec {
     pub intermediate_tags: L<IntermediateTag>,
     pub args: L<TagArg>,
     pub opaque: bool,
+    pub extracted_rules: Option<djls_extraction::TagRule>,
 }
 
 impl From<(djls_conf::TagDef, String)> for TagSpec {
@@ -331,6 +357,7 @@ impl From<(djls_conf::TagDef, String)> for TagSpec {
                 .collect::<Vec<_>>()
                 .into(),
             opaque: false,
+            extracted_rules: None,
         }
     }
 }
@@ -633,6 +660,7 @@ mod tests {
                 intermediate_tags: Cow::Borrowed(&[]),
                 args: Cow::Borrowed(&[]),
                 opaque: false,
+                extracted_rules: None,
             },
         );
 
@@ -658,6 +686,7 @@ mod tests {
                 ]),
                 args: Cow::Borrowed(&[]),
                 opaque: false,
+                extracted_rules: None,
             },
         );
 
@@ -683,6 +712,7 @@ mod tests {
                 ]),
                 args: Cow::Borrowed(&[]),
                 opaque: false,
+                extracted_rules: None,
             },
         );
 
@@ -703,6 +733,7 @@ mod tests {
                 intermediate_tags: Cow::Borrowed(&[]),
                 args: Cow::Borrowed(&[]),
                 opaque: false,
+                extracted_rules: None,
             },
         );
 
@@ -892,6 +923,7 @@ mod tests {
                 intermediate_tags: Cow::Borrowed(&[]),
                 args: Cow::Borrowed(&[]),
                 opaque: false,
+                extracted_rules: None,
             },
         );
 
@@ -908,6 +940,7 @@ mod tests {
                 intermediate_tags: Cow::Borrowed(&[]), // Removed intermediates
                 args: Cow::Borrowed(&[]),
                 opaque: false,
+                extracted_rules: None,
             },
         );
 
