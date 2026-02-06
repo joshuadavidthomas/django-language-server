@@ -235,7 +235,7 @@
 
 ## M5 - Extraction Engine (`djls-extraction`)
 
-**Status:** in-progress
+**Status:** complete
 **Plan:** `.agents/plans/2026-02-05-m5-extraction-engine.md` (overview), phases in `m5.1` through `m5.9`
 
 ### Phase 1: Create `djls-extraction` Crate with Ruff Parser
@@ -329,13 +329,13 @@
 
 ### Phase 9: Corpus / Full-Source Extraction Tests
 
-- [ ] Create `crates/djls-corpus/` crate with `manifest.toml`, sync logic, file enumeration
-- [ ] Add `.gitignore` entry for `crates/djls-corpus/.corpus/`
-- [ ] Add `corpus-sync` and `corpus-clean` just targets
-- [ ] Create `crates/djls-extraction/tests/corpus.rs` — no-panics test, yields test, no-hardcoded-bits test, Django versions golden test, unsupported patterns summary
-- [ ] Add parity oracle test (temporary — gated by `DJLS_PY_ORACLE=1`)
-- [ ] Add `walkdir` dev-dependency to `djls-extraction`
-- [ ] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Create `crates/djls-corpus/` crate with `manifest.toml`, sync logic, file enumeration
+- [x] Add `.gitignore` entry for `crates/djls-corpus/.corpus/`
+- [x] Add `corpus-sync` and `corpus-clean` just targets
+- [x] Create `crates/djls-extraction/tests/corpus.rs` — no-panics test, yields test, no-hardcoded-bits test, Django versions golden test, unsupported patterns summary
+- [x] Add parity oracle test (temporary — gated by `DJLS_PY_ORACLE=1`)
+- [x] Add `walkdir` and `serde_json` dev-dependencies to `djls-extraction`
+- [x] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ---
 
@@ -382,3 +382,5 @@ _Tasks to be expanded when M6 is complete._
 - M5.7: Module resolution tests must use separate temp dirs for workspace vs external paths — everything under the same temp dir gets classified as Workspace.
 - M5.7: `InMemoryFileSystem` only has `add_file(&mut self, ...)` — can't write through `Arc<dyn FileSystem>`. Extraction invalidation tests use Salsa input setters instead of filesystem writes.
 - M5.7: Salsa early cutoff: if `file.source(db)` returns the same value after revision bump, `extract_workspace_module_rules` correctly skips re-execution.
+- M5.9: `djls-corpus` crate uses `reqwest` (blocking + json), `flate2`, `tar` for downloading and extracting PyPI sdists and GitHub tarballs. No `zip` crate needed — all sources are `.tar.gz`.
+- M5.9: Corpus tests in `djls-extraction/tests/corpus.rs` skip gracefully when corpus is not synced — they check for corpus root existence and return early with a message.

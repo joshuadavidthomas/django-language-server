@@ -13,6 +13,7 @@ djls-server = { path = "crates/djls-server" }
 djls-source = { path = "crates/djls-source" }
 djls-templates = { path = "crates/djls-templates" }
 djls-extraction = { path = "crates/djls-extraction" }
+djls-corpus = { path = "crates/djls-corpus" }
 djls-workspace = { path = "crates/djls-workspace" }
 
 # core deps, pin exact versions

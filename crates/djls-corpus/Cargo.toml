@@ -1,0 +1,24 @@
+[package]
+name = "djls-corpus"
+version = "0.0.0"
+edition = "2021"
+description = "Corpus management for Django template extraction testing"
+
+[[bin]]
+name = "djls-corpus"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+camino = { workspace = true }
+flate2 = "1.0"
+reqwest = { version = "0.12", features = ["blocking", "json"] }
+serde_json = { workspace = true }
+serde = { workspace = true }
+tar = "0.4"
+toml = { workspace = true }
+walkdir = { workspace = true }
+
+
+[lints]
+workspace = true

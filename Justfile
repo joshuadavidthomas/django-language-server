@@ -42,3 +42,11 @@ test *ARGS:
 
 testall *ARGS:
     @just nox tests {{ ARGS }}
+
+# Sync extraction test corpus from PyPI and GitHub
+corpus-sync:
+    cargo run -p djls-corpus -- sync
+
+# Remove synced corpus data
+corpus-clean:
+    cargo run -p djls-corpus -- clean

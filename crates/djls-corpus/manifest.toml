@@ -1,0 +1,51 @@
+[corpus]
+root_dir = ".corpus"
+
+# Django versions (multiple supported branches)
+[[package]]
+name = "Django"
+version = "6.0.2"
+
+[[package]]
+name = "Django"
+version = "5.2.11"
+
+[[package]]
+name = "Django"
+version = "5.1.15"
+
+[[package]]
+name = "Django"
+version = "4.2.28"
+
+# Third-party packages with templatetags
+[[package]]
+name = "django-debug-toolbar"
+version = "4.4.6"
+
+[[package]]
+name = "django-allauth"
+version = "0.63.3"
+
+[[package]]
+name = "django-crispy-forms"
+version = "2.2"
+
+[[package]]
+name = "wagtail"
+version = "7.3"
+
+[[package]]
+name = "django-compressor"
+version = "4.5.1"
+
+# Project repos (pinned by commit)
+[[repo]]
+name = "getsentry-sentry"
+url = "https://github.com/getsentry/sentry.git"
+ref = "f96e0f2de81f9d5b95614393be420f3107604220"
+
+[[repo]]
+name = "netbox-community-netbox"
+url = "https://github.com/netbox-community/netbox.git"
+ref = "ee6cbdcefe1c522d718e880ea3f955e7683f2b9b"
