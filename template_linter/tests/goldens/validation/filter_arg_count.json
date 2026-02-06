@@ -1,8 +1,0 @@
-[
-  {
-    "line": 1,
-    "message": "default requires 2 arguments, 1 provided",
-    "name": "filter:default",
-    "raw": "value|default"
-  }
-]
