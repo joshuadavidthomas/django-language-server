@@ -562,7 +562,7 @@ Add validation that checks filters against the inventory and load state, produci
 
 ## M5: Rust Extraction Engine
 
-**Status:** 📝 Ready
+**Status:** 🔄 In Progress (Phase 1 Complete)
 
 **Goal:** Implement `djls-extraction` using Ruff AST to mine validation semantics from Python registration modules, keyed by SymbolKey.
 
@@ -570,47 +570,49 @@ Add validation that checks filters against the inventory and load state, produci
 
 ### Phase 1: Create `djls-extraction` Crate with Ruff Parser
 
-**Status:** 📝 Ready
+**Status:** ✅ Complete
 
 Create a new crate with a pure, testable API for Python source extraction. Pin Ruff parser to a known-good SHA.
 
-**Tasks:**
-- [ ] Add workspace dependency in root `Cargo.toml`:
-  - Add `djls-extraction = { path = "crates/djls-extraction" }` to `[workspace.dependencies]`
-  - Add Ruff parser deps with SHA: `ruff_python_parser`, `ruff_python_ast`, `ruff_text_size`
-  - Resolve tag to full 40-character SHA via `git ls-remote`
-  - Document both source tag AND resolved SHA in comments
-- [ ] Create crate structure at `crates/djls-extraction/`:
+**Changes:**
+- Added workspace dependency in root `Cargo.toml`:
+  - Added `djls-extraction = { path = "crates/djls-extraction" }` to `[workspace.dependencies]`
+  - Added Ruff parser deps with SHA: `ruff_python_parser`, `ruff_python_ast`, `ruff_text_size`
+  - Pinned to tag v0.9.9, SHA: `091d0af2ab026a08b82d4aa7d3ab6b1ca4db778c`
+- Created crate structure at `crates/djls-extraction/`:
   - `Cargo.toml` with workspace dependencies
   - `src/lib.rs` with public API: `extract_rules(source: &str) -> Result<ExtractionResult, ExtractionError>`
   - `src/error.rs` with `ExtractionError` enum
   - `src/types.rs` with `SymbolKey`, `ExtractedTag`, `ExtractedFilter`, `ExtractionResult`, etc.
   - `src/parser.rs` with Ruff parser wrapper
   - Module stubs: `registry.rs`, `context.rs`, `rules.rs`, `structural.rs`, `filters.rs`, `patterns.rs`
-- [ ] Implement core types with `Serialize`/`Deserialize` derives:
+- Implemented core types with `Serialize`/`Deserialize` derives:
   - `SymbolKey` with `registration_module`, `name`, `kind` fields
   - `ExtractedTag` with `name`, `decorator_kind`, `rules`, `block_spec`
   - `ExtractedFilter` with `name`, `arity`
   - `RuleCondition` enum for all condition types
   - `DecoratorKind` enum for tag registration types
   - `BlockTagSpec` with `end_tag`, `intermediate_tags`, `opaque`
-- [ ] Implement `extract_rules()` entry point with module skeleton:
-  - Call `parser::parse_module()` to get AST
-  - Call `registry::find_registrations()` to find decorators
-  - Iterate tags and call `context::FunctionContext::from_registration()`
-  - Call `rules::extract_tag_rules()` and `structural::extract_block_spec()`
-  - Iterate filters and call `filters::extract_filter_arity()`
-  - Return `ExtractionResult`
+- Implemented `extract_rules()` entry point with module skeleton:
+  - Calls `parser::parse_module()` to get AST
+  - Calls `registry::find_registrations()` to find decorators (placeholder)
+  - Iterates tags and calls `context::FunctionContext::from_registration()` (placeholder)
+  - Calls `rules::extract_tag_rules()` and `structural::extract_block_spec()` (placeholders)
+  - Iterates filters and calls `filters::extract_filter_arity()` (placeholder)
+  - Returns `ExtractionResult`
 
 **Quality Checks:**
-- [ ] `cargo build -p djls-extraction` passes
-- [ ] `cargo clippy -p djls-extraction --all-targets -- -D warnings` passes
-- [ ] Ruff SHA in Cargo.toml is exactly 40 hex characters
-- [ ] Cargo.toml comment documents both source tag AND resolved SHA
-- [ ] `cargo build` (full build) passes
-- [ ] `cargo test` passes
+- [x] `cargo build -p djls-extraction` passes
+- [x] `cargo clippy -p djls-extraction --all-targets -- -D warnings` passes
+- [x] Ruff SHA in Cargo.toml is exactly 40 hex characters
+- [x] Cargo.toml comment documents both source tag AND resolved SHA
+- [x] `cargo build` (full build) passes
+- [x] `cargo test` passes (292 tests)
 
-**Discoveries:** *(to be filled during implementation)*
+**Discoveries:**
+- Ruff parser's `parse_module()` returns `Result<Parsed<ModModule>, ParseError>` (single error, not a Vec)
+- Added `#[allow(dead_code)]` to placeholder structs/methods that will be used in future phases
+- The Ruff parser crate uses `ModModule` not `Mod` as the AST root type
 
 ---
 

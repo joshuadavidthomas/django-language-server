@@ -1,0 +1,18 @@
+[package]
+name = "djls-extraction"
+version = "0.0.0"
+edition = "2021"
+description = "Python AST extraction for Django template tag/filter validation rules"
+
+[dependencies]
+ruff_python_parser = { workspace = true }
+ruff_python_ast = { workspace = true }
+ruff_text_size = { workspace = true }
+
+rustc-hash = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+insta = { workspace = true }
