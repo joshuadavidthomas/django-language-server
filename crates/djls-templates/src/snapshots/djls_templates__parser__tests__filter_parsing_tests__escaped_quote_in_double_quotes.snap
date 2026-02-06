@@ -1,19 +1,19 @@
 ---
 source: crates/djls-templates/src/parser.rs
-expression: test_nodelist
+expression: convert_nodelist_for_testing(&nodelist)
 ---
 nodelist:
   - type: Variable
-    var: user.name
+    var: x
     filters:
-      - name: title
-        arg: ~
+      - name: default
+        arg: "\"say \\\"hello\\\"\""
         span:
-          - 13
           - 5
+          - 23
     span:
       - 2
-      - 17
+      - 27
     full_span:
       - 0
-      - 21
+      - 31

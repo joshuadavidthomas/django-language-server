@@ -1,0 +1,14 @@
+---
+source: crates/djls-templates/src/parser.rs
+expression: convert_nodelist_for_testing(&nodelist)
+---
+nodelist:
+  - type: Variable
+    var: value
+    filters: []
+    span:
+      - 2
+      - 8
+    full_span:
+      - 0
+      - 12

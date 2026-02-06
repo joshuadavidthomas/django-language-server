@@ -1,7 +1,41 @@
 use djls_source::Span;
+use serde::Serialize;
 
 use crate::parser::ParseError;
 use crate::tokens::TagDelimiter;
+
+/// A parsed filter in a variable expression.
+///
+/// Represents `|filter_name:arg` in `{{ var|filter_name:arg }}`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct Filter {
+    /// The filter name (e.g., "default", "date", "length")
+    pub name: String,
+    /// The filter argument, if any (e.g., `'nothing'` in `|default:'nothing'`)
+    pub arg: Option<FilterArg>,
+    /// Span of the entire filter (name + colon + arg, NOT including the leading `|`)
+    pub span: Span,
+}
+
+impl Filter {
+    /// Span of just the filter name
+    #[must_use]
+    pub fn name_span(&self) -> Span {
+        self.span.with_length_usize_saturating(self.name.len())
+    }
+}
+
+/// A filter argument.
+///
+/// The value is stored as the raw string from the template, including quotes.
+/// E.g., for `|default:'nothing'`, the value is `'nothing'` (with quotes).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct FilterArg {
+    /// Raw argument value including quotes
+    pub value: String,
+    /// Span of the argument (NOT including the colon)
+    pub span: Span,
+}
 
 #[salsa::tracked(debug)]
 pub struct NodeList<'db> {
@@ -26,7 +60,7 @@ pub enum Node {
     },
     Variable {
         var: String,
-        filters: Vec<String>,
+        filters: Vec<Filter>,
         span: Span,
     },
     Error {

@@ -467,32 +467,39 @@ Add filter collection to the Python inspector and store it on `Project` alongsid
 
 ### Phase 2: Structured Filter Representation (BREAKPOINT)
 
-**Status:** 🔲 Not Started
+**Status:** ✅ Complete
 
 Transform `filters: Vec<String>` → `Vec<Filter>` with structured data including name, argument, and span. This is a breaking change that touches multiple layers.
 
 **Changes:**
-- Add `Filter` struct with `name`, `arg: Option<FilterArg>`, `span` fields
-- Add `FilterArg` struct with `value`, `span` fields
-- Update `Node::Variable { filters: Vec<Filter> }` (changed from `Vec<String>`)
-- Implement `VariableScanner` state-machine scanner for quote-aware filter parsing
-- Handle escape sequences (`\"`, `\'`, `\\`) inside quoted arguments
-- Handle `|` inside quotes (should NOT split filters)
-- Handle `:` inside quotes (should NOT split argument)
-- Update `djls-templates/src/lib.rs` exports
-- Update `NodeView::Variable` in semantic blocks tree
-- Update `OffsetContext::Variable` in IDE context
-- Update test snapshot helpers for new format
-- Add comprehensive unit tests for edge cases
-- Update all existing snapshot files
+- Added `Filter` struct with `name`, `arg: Option<FilterArg>`, `span` fields with `Serialize` derive for snapshot tests
+- Added `FilterArg` struct with `value`, `span` fields
+- Updated `Node::Variable { filters: Vec<Filter> }` (changed from `Vec<String>`)
+- Implemented `VariableScanner` state-machine scanner for quote-aware filter parsing
+- Handled escape sequences (`\"`, `\'`, `\\`) inside quoted arguments
+- Handled `|` inside quotes (does NOT split filters)
+- Handled `:` inside quotes (does NOT split argument)
+- Updated `djls-templates/src/lib.rs` exports to include `Filter` and `FilterArg`
+- Updated `NodeView::Variable` in semantic blocks tree to use `Vec<djls_templates::Filter>`
+- Updated `OffsetContext::Variable` in IDE context to use `Vec<djls_templates::Filter>`
+- Updated test snapshot helpers (`TestFilter` struct) for new filter format
+- Added 16 comprehensive unit tests for edge cases (pipe/colon in quotes, escapes, whitespace, spans)
+- Updated all existing snapshot files to new filter format
 
 **Quality Checks:**
-- [ ] `cargo build` passes
-- [ ] `cargo clippy --all-targets -- -D warnings` passes
-- [ ] All tests pass (after snapshot updates)
-- [ ] `test_pipe_inside_quotes_not_split` passes
-- [ ] `test_escaped_quote_in_double_quotes` passes
-- [ ] `test_filter_span_accuracy` passes
+- [x] `cargo build` passes
+- [x] `cargo clippy --all-targets --all-features -- -D warnings` passes
+- [x] All tests pass (269 tests after snapshot updates)
+- [x] `test_pipe_inside_quotes_not_split` passes
+- [x] `test_escaped_quote_in_double_quotes` passes
+- [x] `test_filter_span_accuracy` passes
+- [x] `test_filter_arg_span_with_whitespace_after_colon` passes
+
+**Discoveries:**
+- Filter spans now accurately track byte positions for precise error reporting
+- The quote-aware scanner correctly handles `{{ x|default:"a|b" }}` as a single filter (not split on pipe)
+- Escape sequences `"`, `\'`, `\\` are properly handled inside quoted arguments
+- Added `#[allow(clippy::cast_possible_truncation)]` on scanner since template content length won't exceed u32::MAX
 
 ### Phase 3: Filter Completions
 

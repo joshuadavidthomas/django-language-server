@@ -22,7 +22,7 @@ pub(crate) enum OffsetContext {
     },
     Variable {
         name: String,
-        filters: Vec<String>,
+        filters: Vec<djls_templates::Filter>,
         span: Span,
     },
     Comment {
@@ -130,7 +130,11 @@ mod tests {
             },
             OffsetContext::Variable {
                 name: "user".to_string(),
-                filters: vec!["title".to_string()],
+                filters: vec![djls_templates::Filter {
+                    name: "title".to_string(),
+                    arg: None,
+                    span: Span::new(0, 10),
+                }],
                 span: Span::new(0, 10),
             },
             OffsetContext::Comment {

@@ -1,19 +1,19 @@
 ---
 source: crates/djls-templates/src/parser.rs
-expression: test_nodelist
+expression: convert_nodelist_for_testing(&nodelist)
 ---
 nodelist:
   - type: Variable
-    var: user.name
+    var: x
     filters:
-      - name: title
-        arg: ~
+      - name: default
+        arg: "\"path\\\\to\\\\file\""
         span:
-          - 13
           - 5
+          - 24
     span:
       - 2
-      - 17
+      - 28
     full_span:
       - 0
-      - 21
+      - 32

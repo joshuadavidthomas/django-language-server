@@ -1,29 +1,29 @@
 ---
 source: crates/djls-templates/src/parser.rs
-expression: test_nodelist
+expression: convert_nodelist_for_testing(&nodelist)
 ---
 nodelist:
   - type: Variable
     var: value
     filters:
       - name: default
-        arg: "'nothing'"
+        arg: "\"N/A\""
         span:
           - 9
-          - 17
+          - 13
       - name: title
         arg: ~
         span:
-          - 27
+          - 23
           - 5
-      - name: upper
-        arg: ~
+      - name: truncatewords
+        arg: "5"
         span:
-          - 33
-          - 5
+          - 29
+          - 15
     span:
       - 2
-      - 37
+      - 43
     full_span:
       - 0
-      - 41
+      - 47

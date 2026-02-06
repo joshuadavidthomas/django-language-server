@@ -1,0 +1,19 @@
+---
+source: crates/djls-templates/src/parser.rs
+expression: convert_nodelist_for_testing(&nodelist)
+---
+nodelist:
+  - type: Variable
+    var: value
+    filters:
+      - name: truncatewords
+        arg: "30"
+        span:
+          - 9
+          - 16
+    span:
+      - 2
+      - 24
+    full_span:
+      - 0
+      - 28
