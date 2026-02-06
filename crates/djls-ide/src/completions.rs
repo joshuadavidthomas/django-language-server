@@ -29,6 +29,17 @@ pub enum ClosingBrace {
     FullClose,
 }
 
+/// Tracks what closing characters are needed for a variable/filter expression.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum VariableClosingBrace {
+    /// No closing at all: `{{ var|`
+    None,
+    /// Single brace: `{{ var|fil}`
+    Partial,
+    /// Complete: `{{ var|fil }}`
+    Full,
+}
+
 /// Rich context-aware completion information for Django templates.
 ///
 /// Distinguishes between different completion contexts to provide
@@ -65,10 +76,12 @@ pub enum TemplateCompletionContext {
         /// What closing characters are present
         closing: ClosingBrace,
     },
-    /// TODO: Future - completing filters after |
+    /// Completing filters after | in a variable expression
     Filter {
         /// Partial filter name typed so far
         partial: String,
+        /// Closing brace state for the variable expression
+        closing: VariableClosingBrace,
     },
     /// TODO: Future - completing variables after {{
     Variable {
@@ -227,8 +240,15 @@ fn get_line_info(
 
 /// Analyze a line of template text to determine completion context
 fn analyze_template_context(line: &str, cursor_offset: usize) -> Option<TemplateCompletionContext> {
-    // Find the last {% before cursor position
     let prefix = &line[..cursor_offset.min(line.len())];
+    let suffix = &line[cursor_offset.min(line.len())..];
+
+    // Check for variable/filter context first ({{ var| )
+    if let Some(ctx) = analyze_variable_context(prefix, suffix) {
+        return Some(ctx);
+    }
+
+    // Find the last {% before cursor position
     let tag_start = prefix.rfind("{%")?;
 
     // Get the content between {% and cursor
@@ -318,6 +338,44 @@ fn analyze_template_context(line: &str, cursor_offset: usize) -> Option<Template
     })
 }
 
+/// Detect filter completion context in `{{ var| }}` expressions.
+///
+/// Returns Some if cursor is after a `|` inside a variable expression.
+/// Handles nested cases by checking that the `{{` is not already closed
+/// by a `}}` before the pipe.
+fn analyze_variable_context(
+    prefix: &str,
+    suffix: &str,
+) -> Option<TemplateCompletionContext> {
+    // Find the start of the variable expression
+    let var_start = prefix.rfind("{{")?;
+    let var_content = &prefix[var_start + 2..];
+
+    // Make sure there's no closing `}}` between `{{` and cursor
+    if var_content.contains("}}") {
+        return None;
+    }
+
+    // Check if we're after a pipe (filter position)
+    let pipe_pos = var_content.rfind('|')?;
+
+    // Everything after the last | is the partial filter name
+    let after_pipe = &var_content[pipe_pos + 1..];
+    let partial = after_pipe.trim().to_string();
+
+    // Determine closing state from suffix
+    let trimmed_suffix = suffix.trim_start();
+    let closing = if trimmed_suffix.starts_with("}}") {
+        VariableClosingBrace::Full
+    } else if trimmed_suffix.starts_with('}') {
+        VariableClosingBrace::Partial
+    } else {
+        VariableClosingBrace::None
+    };
+
+    Some(TemplateCompletionContext::Filter { partial, closing })
+}
+
 /// Detect what closing brace is present after the cursor
 fn detect_closing_brace(suffix: &str) -> ClosingBrace {
     let trimmed = suffix.trim_start();
@@ -386,9 +444,14 @@ fn generate_template_completions(
                 cursor_byte_offset,
             )
         }
-        TemplateCompletionContext::Filter { .. }
-        | TemplateCompletionContext::Variable { .. }
-        | TemplateCompletionContext::None => {
+        TemplateCompletionContext::Filter { partial, closing } => generate_filter_completions(
+            partial,
+            closing,
+            inventory,
+            loaded_libraries,
+            cursor_byte_offset,
+        ),
+        TemplateCompletionContext::Variable { .. } | TemplateCompletionContext::None => {
             // Not implemented yet
             Vec::new()
         }
@@ -773,6 +836,75 @@ fn generate_library_completions(
                 format!("0_{load_name}")
             }),
             deprecated: Some(is_already_loaded),
+            ..Default::default()
+        });
+    }
+
+    completions
+}
+
+/// Generate completions for filter names in `{{ var|` context.
+fn generate_filter_completions(
+    partial: &str,
+    closing: &VariableClosingBrace,
+    inventory: Option<&InspectorInventory>,
+    loaded_libraries: Option<&LoadedLibraries>,
+    cursor_byte_offset: u32,
+) -> Vec<ls_types::CompletionItem> {
+    let Some(inv) = inventory else {
+        return Vec::new();
+    };
+
+    // Compute available filters at cursor position when load info is present.
+    // When load info is unavailable (None), show all filters as fallback.
+    let available = loaded_libraries
+        .map(|loaded| djls_semantic::available_filters_at(loaded, inv, cursor_byte_offset));
+
+    let mut completions = Vec::new();
+
+    for filter in inv.iter_filters() {
+        if !filter.name().starts_with(partial) {
+            continue;
+        }
+
+        // Filter by availability when load info is present.
+        if let Some(ref avail) = available {
+            if !avail.has_filter(filter.name()) {
+                continue;
+            }
+        }
+
+        let mut insert_text = filter.name().to_string();
+
+        // Add closing if needed
+        match closing {
+            VariableClosingBrace::None => insert_text.push_str(" }}"),
+            VariableClosingBrace::Partial => insert_text.push('}'),
+            VariableClosingBrace::Full => {}
+        }
+
+        completions.push(ls_types::CompletionItem {
+            label: filter.name().to_string(),
+            kind: Some(ls_types::CompletionItemKind::FUNCTION),
+            detail: Some(if let Some(lib) = filter.library_load_name() {
+                format!(
+                    "Filter from {} ({{% load {} %}})",
+                    filter.defining_module(),
+                    lib
+                )
+            } else {
+                format!("Builtin filter from {}", filter.defining_module())
+            }),
+            documentation: filter.doc().map(|d| {
+                ls_types::Documentation::MarkupContent(ls_types::MarkupContent {
+                    kind: ls_types::MarkupKind::Markdown,
+                    value: d.to_string(),
+                })
+            }),
+            insert_text: Some(insert_text),
+            insert_text_format: Some(ls_types::InsertTextFormat::PLAIN_TEXT),
+            filter_text: Some(filter.name().to_string()),
+            sort_text: Some(format!("1_{}", filter.name())),
             ..Default::default()
         });
     }
@@ -1478,5 +1610,355 @@ mod tests {
         let i18n = completions.iter().find(|c| c.label == "i18n").unwrap();
         assert_eq!(i18n.deprecated, Some(false));
         assert!(i18n.sort_text.as_ref().unwrap().starts_with("0_"));
+    }
+
+    // --- Filter context detection tests ---
+
+    #[test]
+    fn test_analyze_variable_context_after_pipe() {
+        let line = "{{ value|";
+        let cursor_offset = 9;
+
+        let context = analyze_template_context(line, cursor_offset).expect("Should get context");
+
+        assert_eq!(
+            context,
+            TemplateCompletionContext::Filter {
+                partial: String::new(),
+                closing: VariableClosingBrace::None,
+            }
+        );
+    }
+
+    #[test]
+    fn test_analyze_variable_context_partial_filter_name() {
+        let line = "{{ value|def";
+        let cursor_offset = 12;
+
+        let context = analyze_template_context(line, cursor_offset).expect("Should get context");
+
+        assert_eq!(
+            context,
+            TemplateCompletionContext::Filter {
+                partial: "def".to_string(),
+                closing: VariableClosingBrace::None,
+            }
+        );
+    }
+
+    #[test]
+    fn test_analyze_variable_context_with_full_closing() {
+        let line = "{{ value|def }}";
+        let cursor_offset = 12; // after "def", before " }}"
+
+        let context = analyze_template_context(line, cursor_offset).expect("Should get context");
+
+        assert_eq!(
+            context,
+            TemplateCompletionContext::Filter {
+                partial: "def".to_string(),
+                closing: VariableClosingBrace::Full,
+            }
+        );
+    }
+
+    #[test]
+    fn test_analyze_variable_context_with_partial_closing() {
+        let line = "{{ value|def}";
+        let cursor_offset = 12; // after "def", before "}"
+
+        let context = analyze_template_context(line, cursor_offset).expect("Should get context");
+
+        assert_eq!(
+            context,
+            TemplateCompletionContext::Filter {
+                partial: "def".to_string(),
+                closing: VariableClosingBrace::Partial,
+            }
+        );
+    }
+
+    #[test]
+    fn test_analyze_variable_context_chained_filter() {
+        let line = "{{ value|title|lo";
+        let cursor_offset = 17;
+
+        let context = analyze_template_context(line, cursor_offset).expect("Should get context");
+
+        assert_eq!(
+            context,
+            TemplateCompletionContext::Filter {
+                partial: "lo".to_string(),
+                closing: VariableClosingBrace::None,
+            }
+        );
+    }
+
+    #[test]
+    fn test_analyze_variable_context_not_in_variable() {
+        let line = "Just plain text with | pipe";
+        let cursor_offset = 22;
+
+        let context = analyze_template_context(line, cursor_offset);
+
+        // No {{ before the pipe, so no context
+        assert!(context.is_none());
+    }
+
+    #[test]
+    fn test_analyze_variable_context_closed_variable_before_cursor() {
+        let line = "{{ value }} | more text";
+        let cursor_offset = 14;
+
+        let context = analyze_template_context(line, cursor_offset);
+
+        // The variable is already closed with }}, so pipe is not in variable context
+        assert!(context.is_none());
+    }
+
+    // --- Filter completion generation tests ---
+
+    fn make_test_filters() -> InspectorInventory {
+        let mut libraries = std::collections::HashMap::new();
+        libraries.insert(
+            "l10n".to_string(),
+            "django.templatetags.l10n".to_string(),
+        );
+        libraries.insert(
+            "humanize".to_string(),
+            "django.contrib.humanize.templatetags.humanize".to_string(),
+        );
+
+        InspectorInventory::new(
+            libraries,
+            vec!["django.template.defaultfilters".to_string()],
+            vec![],
+            vec![
+                djls_project::TemplateFilter::new_builtin(
+                    "title",
+                    "django.template.defaultfilters",
+                    None,
+                ),
+                djls_project::TemplateFilter::new_builtin(
+                    "upper",
+                    "django.template.defaultfilters",
+                    None,
+                ),
+                djls_project::TemplateFilter::new_builtin(
+                    "default",
+                    "django.template.defaultfilters",
+                    None,
+                ),
+                djls_project::TemplateFilter::new_library(
+                    "localize",
+                    "l10n",
+                    "django.templatetags.l10n",
+                    None,
+                ),
+                djls_project::TemplateFilter::new_library(
+                    "intcomma",
+                    "humanize",
+                    "django.contrib.humanize.templatetags.humanize",
+                    None,
+                ),
+            ],
+        )
+    }
+
+    #[test]
+    fn test_filter_completions_no_inventory_returns_empty() {
+        let completions = generate_filter_completions(
+            "",
+            &VariableClosingBrace::None,
+            None,
+            None,
+            0,
+        );
+        assert!(completions.is_empty());
+    }
+
+    #[test]
+    fn test_filter_completions_no_load_info_shows_all() {
+        let inv = make_test_filters();
+
+        let completions = generate_filter_completions(
+            "",
+            &VariableClosingBrace::None,
+            Some(&inv),
+            None, // no load info = show all
+            0,
+        );
+
+        let labels: Vec<_> = completions.iter().map(|c| c.label.as_str()).collect();
+        assert!(labels.contains(&"title"));
+        assert!(labels.contains(&"upper"));
+        assert!(labels.contains(&"default"));
+        assert!(labels.contains(&"localize"));
+        assert!(labels.contains(&"intcomma"));
+    }
+
+    #[test]
+    fn test_filter_completions_partial_match() {
+        let inv = make_test_filters();
+
+        let completions = generate_filter_completions(
+            "def",
+            &VariableClosingBrace::None,
+            Some(&inv),
+            None,
+            0,
+        );
+
+        assert_eq!(completions.len(), 1);
+        assert_eq!(completions[0].label, "default");
+    }
+
+    #[test]
+    fn test_filter_completions_builtin_always_visible() {
+        let inv = make_test_filters();
+        let loaded = djls_semantic::LoadedLibraries::new(); // no loads
+
+        let completions = generate_filter_completions(
+            "",
+            &VariableClosingBrace::None,
+            Some(&inv),
+            Some(&loaded),
+            100,
+        );
+
+        let labels: Vec<_> = completions.iter().map(|c| c.label.as_str()).collect();
+        assert!(labels.contains(&"title"), "builtin filters should always appear");
+        assert!(labels.contains(&"upper"), "builtin filters should always appear");
+        assert!(labels.contains(&"default"), "builtin filters should always appear");
+        assert!(!labels.contains(&"localize"), "library filter should not appear without load");
+        assert!(!labels.contains(&"intcomma"), "library filter should not appear without load");
+    }
+
+    #[test]
+    fn test_filter_completions_scoped_after_load() {
+        use djls_semantic::LoadKind;
+        use djls_semantic::LoadStatement;
+        use djls_source::Span;
+
+        let inv = make_test_filters();
+        let mut loaded = djls_semantic::LoadedLibraries::new();
+        loaded.push(LoadStatement {
+            span: Span::new(0, 15),
+            kind: LoadKind::Libraries(vec!["l10n".to_string()]),
+        });
+
+        let completions = generate_filter_completions(
+            "",
+            &VariableClosingBrace::None,
+            Some(&inv),
+            Some(&loaded),
+            50, // after the load
+        );
+
+        let labels: Vec<_> = completions.iter().map(|c| c.label.as_str()).collect();
+        assert!(labels.contains(&"title"), "builtins always visible");
+        assert!(labels.contains(&"localize"), "l10n filter visible after load");
+        assert!(!labels.contains(&"intcomma"), "humanize filter not visible (not loaded)");
+    }
+
+    #[test]
+    fn test_filter_completions_closing_brace_none() {
+        let inv = make_test_filters();
+
+        let completions = generate_filter_completions(
+            "titl",
+            &VariableClosingBrace::None,
+            Some(&inv),
+            None,
+            0,
+        );
+
+        assert_eq!(completions.len(), 1);
+        assert_eq!(completions[0].insert_text.as_deref(), Some("title }}"));
+    }
+
+    #[test]
+    fn test_filter_completions_closing_brace_partial() {
+        let inv = make_test_filters();
+
+        let completions = generate_filter_completions(
+            "titl",
+            &VariableClosingBrace::Partial,
+            Some(&inv),
+            None,
+            0,
+        );
+
+        assert_eq!(completions.len(), 1);
+        assert_eq!(completions[0].insert_text.as_deref(), Some("title}"));
+    }
+
+    #[test]
+    fn test_filter_completions_closing_brace_full() {
+        let inv = make_test_filters();
+
+        let completions = generate_filter_completions(
+            "titl",
+            &VariableClosingBrace::Full,
+            Some(&inv),
+            None,
+            0,
+        );
+
+        assert_eq!(completions.len(), 1);
+        assert_eq!(completions[0].insert_text.as_deref(), Some("title"));
+    }
+
+    #[test]
+    fn test_filter_completions_detail_builtin() {
+        let inv = make_test_filters();
+
+        let completions = generate_filter_completions(
+            "titl",
+            &VariableClosingBrace::Full,
+            Some(&inv),
+            None,
+            0,
+        );
+
+        assert_eq!(completions.len(), 1);
+        assert_eq!(
+            completions[0].detail.as_deref(),
+            Some("Builtin filter from django.template.defaultfilters")
+        );
+    }
+
+    #[test]
+    fn test_filter_completions_detail_library() {
+        let inv = make_test_filters();
+
+        let completions = generate_filter_completions(
+            "localiz",
+            &VariableClosingBrace::Full,
+            Some(&inv),
+            None,
+            0,
+        );
+
+        assert_eq!(completions.len(), 1);
+        assert_eq!(
+            completions[0].detail.as_deref(),
+            Some("Filter from django.templatetags.l10n ({% load l10n %})")
+        );
+    }
+
+    #[test]
+    fn test_filter_completions_kind_is_function() {
+        let inv = make_test_filters();
+
+        let completions = generate_filter_completions(
+            "titl",
+            &VariableClosingBrace::Full,
+            Some(&inv),
+            None,
+            0,
+        );
+
+        assert_eq!(completions[0].kind, Some(ls_types::CompletionItemKind::FUNCTION));
     }
 }

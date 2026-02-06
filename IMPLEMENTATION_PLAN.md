@@ -206,18 +206,18 @@
 
 **Goal:** Show filter completions in `{{ var|` context, scoped by `{% load %}` state.
 
-- [ ] Add `VariableClosingBrace` enum to `crates/djls-ide/src/completions.rs` (`None`/`Partial`/`Full`)
-- [ ] Update `TemplateCompletionContext::Filter` variant to include `partial: String` and `closing: VariableClosingBrace`
-- [ ] Implement `analyze_variable_context(prefix) -> Option<TemplateCompletionContext>` — detect `{{ var|` pattern, extract partial filter name
-- [ ] Wire `analyze_variable_context` into `analyze_template_context` (check variable context before tag context)
-- [ ] Add `AvailableFilters` struct and `available_filters_at()` function in `crates/djls-semantic/src/load_resolution.rs` — reuses `LoadState` from M3
-- [ ] Export `AvailableFilters` and `available_filters_at` from `crates/djls-semantic/src/lib.rs`
-- [ ] Implement `generate_filter_completions()` in `crates/djls-ide/src/completions.rs` — filters by partial match and availability, adds closing braces
-- [ ] Update `handle_completion` signature to accept `Option<&InspectorInventory>` (unified type for both tags and filters)
-- [ ] Wire `generate_filter_completions` into the `Filter` match arm
-- [ ] Update server completion call site in `crates/djls-server/src/server.rs` to pass inventory and load info for filters
-- [ ] Add completion tests: filter context detection after pipe, partial filter name, builtin filters always visible, scoped filters require load
-- [ ] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Add `VariableClosingBrace` enum to `crates/djls-ide/src/completions.rs` (`None`/`Partial`/`Full`)
+- [x] Update `TemplateCompletionContext::Filter` variant to include `partial: String` and `closing: VariableClosingBrace`
+- [x] Implement `analyze_variable_context(prefix) -> Option<TemplateCompletionContext>` — detect `{{ var|` pattern, extract partial filter name
+- [x] Wire `analyze_variable_context` into `analyze_template_context` (check variable context before tag context)
+- [x] Add `AvailableFilters` struct and `available_filters_at()` function in `crates/djls-semantic/src/load_resolution.rs` — reuses `LoadState` from M3
+- [x] Export `AvailableFilters` and `available_filters_at` from `crates/djls-semantic/src/lib.rs`
+- [x] Implement `generate_filter_completions()` in `crates/djls-ide/src/completions.rs` — filters by partial match and availability, adds closing braces
+- [x] Update `handle_completion` signature to accept `Option<&InspectorInventory>` (unified type for both tags and filters)
+- [x] Wire `generate_filter_completions` into the `Filter` match arm
+- [x] Update server completion call site in `crates/djls-server/src/server.rs` to pass inventory and load info for filters
+- [x] Add completion tests: filter context detection after pipe, partial filter name, builtin filters always visible, scoped filters require load
+- [x] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 4: Filter Validation with Load Scoping
 

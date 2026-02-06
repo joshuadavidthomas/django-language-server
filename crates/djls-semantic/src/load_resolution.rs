@@ -1,3 +1,4 @@
+use djls_project::FilterProvenance;
 use djls_project::InspectorInventory;
 use djls_project::TagProvenance;
 use djls_source::Span;
@@ -256,6 +257,56 @@ pub fn available_tags_at(
             TagProvenance::Library { load_name, .. } => {
                 if state.is_tag_available(tag.name(), load_name) {
                     available.tags.insert(tag.name().to_string());
+                }
+            }
+        }
+    }
+
+    available
+}
+
+/// Result of querying available filters at a position.
+#[derive(Debug, Clone, Default)]
+pub struct AvailableFilters {
+    filters: FxHashSet<String>,
+}
+
+impl AvailableFilters {
+    /// Check if a filter name is available at this position.
+    #[must_use]
+    pub fn has_filter(&self, name: &str) -> bool {
+        self.filters.contains(name)
+    }
+}
+
+/// Determine which filters are available at a given byte offset in the template.
+///
+/// Same logic as `available_tags_at` but for filters:
+/// builtins are always available, library filters require a loaded library
+/// or selective import.
+#[must_use]
+pub fn available_filters_at(
+    loaded: &LoadedLibraries,
+    inventory: &InspectorInventory,
+    position: u32,
+) -> AvailableFilters {
+    let mut available = AvailableFilters::default();
+
+    let mut state = LoadState::default();
+    for stmt in loaded.loads() {
+        if stmt.span.end() <= position {
+            state.process(stmt);
+        }
+    }
+
+    for filter in inventory.iter_filters() {
+        match filter.provenance() {
+            FilterProvenance::Builtin { .. } => {
+                available.filters.insert(filter.name().to_string());
+            }
+            FilterProvenance::Library { load_name, .. } => {
+                if state.is_tag_available(filter.name(), load_name) {
+                    available.filters.insert(filter.name().to_string());
                 }
             }
         }
