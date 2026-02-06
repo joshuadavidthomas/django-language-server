@@ -66,8 +66,8 @@ just lint                       # Run pre-commit hooks
 - This project uses `foo.rs` + `foo/` sibling pattern — NEVER `foo/mod.rs`
 - `djls-semantic` templatetags module: `src/templatetags.rs` (re-exports) + `src/templatetags/` dir (contains `specs.rs`, `builtins.rs`)
 - `djls-conf` tagspec types have `PartialEq` but NOT `Eq` — `serde_json::Value` in `extra` field prevents `Eq`
-- `djls-extraction` is flat module layout: `src/lib.rs` + `src/{types,error,parser,registry,context,rules,structural,filters,patterns}.rs`
-- `djls-extraction` public API: `extract_rules(source) -> ExtractionResult` orchestrates parse→registry→context→rules→structural→filters
+- `djls-extraction` is flat module layout: `src/lib.rs` + `src/{types,error,parser,registry,context,rules,structural,filters,patterns,args}.rs`
+- `djls-extraction` public API: `extract_rules(source) -> ExtractionResult` orchestrates parse→registry→context→rules→structural→filters→args
 
 ### Trait Impls — Update ALL Locations When Changing Traits
 Adding a method to `djls-semantic`'s `crate::Db` trait requires updating **7 impl blocks**:
@@ -114,8 +114,12 @@ Test impls typically return `None` / default values. Forgetting even one causes 
 - Validation errors (enum variants): `crates/djls-semantic/src/errors.rs` (`ValidationError`)
 - Diagnostic code mapping: `crates/djls-ide/src/diagnostics.rs` (maps `ValidationError` variants → S-codes)
 - New validation passes are wired into `validate_nodelist()` in `crates/djls-semantic/src/lib.rs`
-- Existing codes: S101-S107 (structural), S108 (UnknownTag), S109 (UnloadedLibraryTag), S110 (AmbiguousUnloadedTag), S111 (UnknownFilter), S112 (UnloadedLibraryFilter), S113 (AmbiguousUnloadedFilter), S114 (ExpressionSyntaxError), S115 (FilterMissingArgument), S116 (FilterUnexpectedArgument)
-- Next available diagnostic code: S117
+- Argument validation dispatch order: extracted rules (primary) → `TagArg`-based (user-config fallback) → no validation (conservative). Both empty = no validation
+- `EndTag` and `IntermediateTag` no longer have `args` fields — closer/intermediate tags receive no argument validation
+- Builtin tag specs in `builtins.rs` have empty `args: B(&[])` — argument validation relies entirely on extracted rules populated by `compute_tag_specs` in the server
+- Tests using `django_builtin_specs()` directly will see no argument validation without also providing extracted rules
+- Existing codes: S101-S107 (structural), S108 (UnknownTag), S109 (UnloadedLibraryTag), S110 (AmbiguousUnloadedTag), S111 (UnknownFilter), S112 (UnloadedLibraryFilter), S113 (AmbiguousUnloadedFilter), S114 (ExpressionSyntaxError), S115 (FilterMissingArgument), S116 (FilterUnexpectedArgument), S117 (ExtractedRuleViolation)
+- Next available diagnostic code: S118
 
 ### Build Timeouts
 - First build after adding Ruff deps or corpus crate can exceed 10s — use `timeout: 120` or no timeout for cargo builds
@@ -148,6 +152,9 @@ Test impls typically return `None` / default values. Forgetting even one causes 
 - `FunctionContext::from_registration()` finds the function body and detects `split_contents()` call variable name
 - `extract_block_spec()` uses three inference strategies in priority order: (1) explicit `end_name` from decorator, (2) singleton `parser.parse()` call, (3) Django convention fallback (`end{tag_name}`)
 - Control-flow recursion in `structural.rs` and `context.rs` must handle `if`/`for`/`while`/`try`/`with` blocks to find nested `parser.parse()` calls and `split_contents()` assignments
+- `extract_args()` in `args.rs` dispatches by decorator kind: `simple_tag`/`inclusion_tag` → signature-based, `@register.tag` → rule-reconstructed from AST, `simple_block_tag` → signature-based with nodelist param skipped
+- `takes_context=True` on decorators means skip the first positional parameter (it's the template context, not a user arg)
+- `ExtractedArg` types: `Required`, `Optional`, `VarArgs`, `KwArgs`, `KwOnly`, `KwOnlyOptional` — inferred from Python function signature
 
 ### Corpus & Integration Tests
 - `djls-corpus` crate: `crates/djls-corpus/` — downloads and extracts PyPI sdists and GitHub tarballs (uses `reqwest` blocking + `flate2` + `tar`)
@@ -156,6 +163,14 @@ Test impls typically return `None` / default values. Forgetting even one causes 
 - Extraction golden tests: `crates/djls-extraction/tests/golden.rs` + `tests/fixtures/` + `tests/snapshots/`
 - Corpus tests in `crates/djls-extraction/tests/corpus.rs` skip gracefully when corpus not synced — check dir existence and return early
 - Integration test crates (`tests/` dir) use `include_str!` for fixture loading — NOT filesystem reads at runtime
+
+### Rule Evaluation
+- `evaluate_extracted_rules(bits, tag_name, rules, span)` evaluates `ExtractedRule`s against template tag arguments
+- Index offset: extraction uses 1-based indexing (position 0 = tag name), `bits` slice already excludes tag name, so rule index N → `bits[N-1]`
+- Negation semantics: `negated: true` means error fires when condition is NOT met (guard pattern inversion)
+- `RuleCondition::Opaque` is always skipped — it represents conditions the extractor couldn't analyze
+- `merge_extraction_into_specs()` in `crates/djls-server/src/db.rs` merges `ExtractionResult` into `TagSpecs` — called from `compute_tag_specs`
+- Rule evaluation emits `ExtractedRuleViolation` (S117) — a generic error with the original Django error message
 
 ### Validation Interaction Gotcha
 - Adding a new validation pass can cause existing tests to see unexpected errors — if a test template triggers multiple validators, filter the errors to only the type being tested
@@ -198,7 +213,8 @@ Test impls typically return `None` / default values. Forgetting even one causes 
 - Extraction function context detection: `crates/djls-extraction/src/context.rs`
 - Extraction rule extraction: `crates/djls-extraction/src/rules.rs`
 - Extraction block spec inference: `crates/djls-extraction/src/structural.rs`
-- Extraction filter arity: `crates/djls-extraction/src/filters.rs` (stub — M5P6)
+- Extraction filter arity: `crates/djls-extraction/src/filters.rs`
+- Extraction argument structure: `crates/djls-extraction/src/args.rs` (`extract_args()` dispatch, `takes_context` detection, tuple unpacking, indexed access naming)
 - Extraction AST pattern helpers: `crates/djls-extraction/src/patterns.rs`
 - Extraction orchestration: `crates/djls-extraction/src/lib.rs` (`extract_rules()` public API)
 - Extraction golden tests: `crates/djls-extraction/tests/golden.rs` + `tests/fixtures/` + `tests/snapshots/`
@@ -207,6 +223,7 @@ Test impls typically return `None` / default values. Forgetting even one causes 
 - If-expression validation: `crates/djls-semantic/src/if_expression.rs`
 - Opaque region detection: `crates/djls-semantic/src/opaque.rs`
 - Filter arity validation: `crates/djls-semantic/src/filter_arity.rs`
+- Rule evaluation (extracted rules → validation errors): `crates/djls-semantic/src/rule_evaluation.rs`
 - `LoadState` (load-scoping state machine): `crates/djls-semantic/src/load_resolution.rs` (pub(crate))
 - Validate nodelist orchestrator: `crates/djls-semantic/src/lib.rs` (`validate_nodelist` calls all validation functions)
 - Project lib.rs re-exports: `crates/djls-project/src/lib.rs` — check here when unsure what's public from djls-project
