@@ -35,13 +35,16 @@ just lint                       # Run pre-commit hooks
 - **Rust Django types**: `crates/djls-project/src/django.rs` — `TemplateTag`, `TemplateTags`, `TagProvenance` types and accessors
 - **Project Salsa input**: `crates/djls-project/src/project.rs` — `Project` struct with all Salsa input fields
 - **Database + queries**: `crates/djls-server/src/db.rs` — `DjangoDatabase`, update/refresh methods, tracked queries go here
+- **Semantic Db trait**: `crates/djls-semantic/src/db.rs` — `Db` (Salsa jar trait) and `SemanticDb` (runtime accessor trait for tag_specs, tag_index, diagnostics_config, inspector_inventory)
 - **Project lib.rs exports**: `crates/djls-project/src/lib.rs` — re-exports for `TagProvenance`, `TemplateTags`, inspector request/response types
 - **Completions**: `crates/djls-ide/src/completions.rs` — `generate_library_completions()` at ~line 526
 - **Semantic templatetags module**: `crates/djls-semantic/src/templatetags.rs` (NOT `templatetags/mod.rs`)
 - **Semantic specs**: `crates/djls-semantic/src/templatetags/specs.rs` — `TagSpecs`, `TagIndex`, `django_builtin_specs()`
 - **Semantic builtins**: `crates/djls-semantic/src/templatetags/builtins.rs` — builtin tag spec definitions
-- **Block grammar**: `crates/djls-semantic/src/blocks/grammar.rs` — block structure parsing (read 5x in sessions)
+- **Block grammar**: `crates/djls-semantic/src/blocks/grammar.rs` — block structure parsing
 - **Config types**: `crates/djls-conf/` — `TagSpecDef`, `DiagnosticsConfig`, `Settings`; `tagspecs.rs` for `TagSpecDef`
+- **Load resolution root**: `crates/djls-semantic/src/load_resolution.rs` — re-exports `LoadedLibraries`, `AvailableSymbols`, `validate_tag_scoping`, `compute_loaded_libraries`
+- **Load resolution submodules**: `crates/djls-semantic/src/load_resolution/load.rs` (parsing), `symbols.rs` (AvailableSymbols + TagAvailability), `validation.rs` (S108/S109/S110 diagnostics)
 
 ## Django Engine Internals (for inspector work)
 - `engine.builtins` — `list[str]` of module paths (e.g., `"django.template.defaulttags"`)
@@ -60,6 +63,7 @@ just lint                       # Run pre-commit hooks
 - **Project is the single source of truth**: Store config docs (`TagSpecDef`, `DiagnosticsConfig`) on `Project`, not derived artifacts (`TagSpecs`). Conversion happens in tracked queries.
 - **Tracked function return types need `PartialEq`**: Salsa uses equality to decide whether to propagate invalidation ("backdate" optimization). If a tracked function returns `TagSpecs`, `TagSpecs` must derive `PartialEq`.
 - **Backdate optimization in tests**: If `compute_tag_specs` returns the same value after an input change, downstream queries like `compute_tag_index` will NOT re-execute. Test invalidation cascades with inputs that produce *distinct* outputs.
+- **`#[returns(ref)]` and PartialEq**: When comparing a `#[returns(ref)]` field value, Salsa returns `&T`. Compare with `project.field(db) != &new_value` (borrow the new value). Both sides must be `&T` for `PartialEq` to work — forgetting the `&` on `new_value` gives E0369.
 - **Parser `Node::Tag.bits` excludes tag name**: The parser splits `{% load i18n %}` into `name: "load"`, `bits: ["i18n"]`. The tag name is NOT in `bits`. Functions processing `bits` should work with arguments only.
 
 ## Clippy Rules
@@ -72,7 +76,10 @@ just lint                       # Run pre-commit hooks
 - Prefer `HashMap::default()` over `HashMap::new()` — clippy flags `HashMap::new()` as less clear
 - Don't use explicit lifetimes when they can be elided — `fn foo<'db>(&'db self)` → `fn foo(&self)` (`explicit_lifetimes_could_be_elided`)
 - **Scoping exclusions**: Only skip closers/intermediates for load scoping checks — openers like `trans` have TagSpecs (for argument validation) BUT still need scoping because they're library tags. `django_builtin_specs()` includes ALL Django tags, not just builtins.
-- **SemanticDb trait changes**: When adding methods to `SemanticDb`, update ALL test databases: `arguments.rs`, `blocks/tree.rs`, `semantic/forest.rs`, `load_resolution.rs`, `djls-bench/src/db.rs`, `djls-server/src/db.rs`
+- **Diagnostic codes**: S108 = unknown tag (not in any library), S109 = unloaded tag (known library, not loaded), S110 = ambiguous unloaded tag (multiple candidate libraries). All three are guarded by `inspector_inventory.is_some()`.
+- **Completions depend on load scoping**: `generate_tag_name_completions` needs `LoadedLibraries` + inspector inventory to filter results by position. When inspector unavailable, show all tags as fallback.
+- **SemanticDb trait changes**: When adding methods to `SemanticDb`, update ALL test databases: `arguments.rs`, `blocks/tree.rs`, `semantic/forest.rs`, `load_resolution.rs`, `load_resolution/validation.rs`, `djls-bench/src/db.rs`, `djls-server/src/db.rs`
+- **`crate::Db` vs `SemanticDb`**: In `djls-semantic`, test databases implement `crate::Db` (Salsa jar trait). `SemanticDb` (runtime trait) is only implemented on `DjangoDatabase` in `djls-server` and `Db` in `djls-bench`. Don't confuse the two.
 
 ## Task Management
 Use `/dex` to break down complex work, track progress across sessions, and coordinate multi-step implementations.
