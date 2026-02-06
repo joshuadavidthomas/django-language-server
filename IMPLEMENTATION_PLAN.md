@@ -435,15 +435,15 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ### Phase 2: Extracted Rule Evaluator
 
-- [ ] Create `crates/djls-semantic/src/rule_evaluation.rs` module
-- [ ] Implement evaluator for `ArgumentCountConstraint` variants: `Exact(N)` → error if `split_len != N`, `Min(N)` → error if `split_len < N`, `Max(N)` → error if `split_len > N`, `OneOf(set)` → error if `split_len not in set`. **Index offset**: extraction uses `split_contents()` indices (tag name at index 0), but parser `bits` excludes tag name — evaluator must account for this (+1 offset to split_len since bits doesn't include tag name)
-- [ ] Implement evaluator for `RequiredKeyword { position, value }`: check that `bits[position - 1]` (adjusted for tag name offset) equals `value`. Negative positions index from end. Skip check if position is out of bounds (tag too short — already caught by arg count constraint)
-- [ ] Implement evaluator for `KnownOptions { values, allow_duplicates, rejects_unknown }`: scan remaining bits for option-style arguments, validate against known set
-- [ ] Add `S117` diagnostic code (`ExtractedRuleViolation`) to `ValidationError` enum in `crates/djls-semantic/src/errors.rs` — carries a descriptive message derived from the rule context (e.g., "tag 'for' requires at least 4 arguments" or "'in' keyword expected at position 2")
-- [ ] Add `S117` to diagnostic system in `crates/djls-conf/` if needed
-- [ ] Implement `evaluate_tag_rules(tag_name: &str, bits: &[String], rules: &TagRule) -> Vec<ValidationError>` that runs all constraint checks and accumulates errors
-- [ ] Unit tests: each `ArgumentCountConstraint` variant individually, `RequiredKeyword` positive and negative positions, `KnownOptions` with unknown/duplicate values, index offset correctness (`bits` excludes tag name), empty rules → no errors
-- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Create `crates/djls-semantic/src/rule_evaluation.rs` module
+- [x] Implement evaluator for `ArgumentCountConstraint` variants: `Exact(N)` → error if `split_len != N`, `Min(N)` → error if `split_len < N`, `Max(N)` → error if `split_len > N`, `OneOf(set)` → error if `split_len not in set`. **Index offset**: extraction uses `split_contents()` indices (tag name at index 0), but parser `bits` excludes tag name — evaluator must account for this (+1 offset to split_len since bits doesn't include tag name)
+- [x] Implement evaluator for `RequiredKeyword { position, value }`: check that `bits[position - 1]` (adjusted for tag name offset) equals `value`. Negative positions index from end. Skip check if position is out of bounds (tag too short — already caught by arg count constraint)
+- [x] Implement evaluator for `KnownOptions { values, allow_duplicates, rejects_unknown }`: scan remaining bits for option-style arguments, validate against known set
+- [x] Add `S117` diagnostic code (`ExtractedRuleViolation`) to `ValidationError` enum in `crates/djls-semantic/src/errors.rs` — carries a descriptive message derived from the rule context (e.g., "tag 'for' requires at least 4 arguments" or "'in' keyword expected at position 2")
+- [x] Add `S117` to diagnostic system in `crates/djls-conf/` if needed
+- [x] Implement `evaluate_tag_rules(tag_name: &str, bits: &[String], rules: &TagRule) -> Vec<ValidationError>` that runs all constraint checks and accumulates errors
+- [x] Unit tests: each `ArgumentCountConstraint` variant individually, `RequiredKeyword` positive and negative positions, `KnownOptions` with unknown/duplicate values, index offset correctness (`bits` excludes tag name), empty rules → no errors
+- [x] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 3: Wire Evaluator into Validation Pipeline
 

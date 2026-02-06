@@ -485,6 +485,7 @@ mod tests {
                         | ValidationError::ExpressionSyntaxError { .. }
                         | ValidationError::FilterMissingArgument { .. }
                         | ValidationError::FilterUnexpectedArgument { .. }
+                        | ValidationError::ExtractedRuleViolation { .. }
                 )
             })
             .collect()

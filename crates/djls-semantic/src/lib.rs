@@ -7,6 +7,7 @@ mod filter_validation;
 mod if_expression;
 mod load_resolution;
 mod opaque;
+pub mod rule_evaluation;
 mod primitives;
 mod resolution;
 mod semantic;
@@ -331,7 +332,8 @@ mod tests {
             | ValidationError::UnknownFilter { span, .. }
             | ValidationError::UnloadedFilter { span, .. }
             | ValidationError::AmbiguousUnloadedFilter { span, .. }
-            | ValidationError::UnmatchedBlockName { span, .. } => span.start(),
+            | ValidationError::UnmatchedBlockName { span, .. }
+            | ValidationError::ExtractedRuleViolation { span, .. } => span.start(),
             ValidationError::UnbalancedStructure { opening_span, .. } => opening_span.start(),
         }
     }

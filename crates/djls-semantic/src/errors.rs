@@ -100,4 +100,11 @@ pub enum ValidationError {
 
     #[error("Filter '{filter}' does not accept an argument")]
     FilterUnexpectedArgument { filter: String, span: Span },
+
+    #[error("{message}")]
+    ExtractedRuleViolation {
+        tag: String,
+        message: String,
+        span: Span,
+    },
 }
