@@ -249,8 +249,20 @@ impl TagSpecs {
             if key.kind != djls_extraction::SymbolKind::Tag {
                 continue;
             }
+            // Convert extracted args to TagArg for completions/snippets
+            let args_from_extraction: Vec<TagArg> = tag_rule
+                .extracted_args
+                .iter()
+                .cloned()
+                .map(TagArg::from)
+                .collect();
+
             if let Some(spec) = self.0.get_mut(&key.name) {
                 spec.extracted_rules = Some(tag_rule.clone());
+                // Populate args from extraction when available (for completions/snippets)
+                if !args_from_extraction.is_empty() {
+                    spec.args = std::borrow::Cow::Owned(args_from_extraction);
+                }
             } else {
                 // Tag not yet in specs — create a minimal entry with extracted rules
                 self.0.insert(
@@ -259,7 +271,7 @@ impl TagSpecs {
                         module: key.registration_module.clone().into(),
                         end_tag: None,
                         intermediate_tags: std::borrow::Cow::Borrowed(&[]),
-                        args: std::borrow::Cow::Borrowed(&[]),
+                        args: std::borrow::Cow::Owned(args_from_extraction),
                         opaque: false,
                         extracted_rules: Some(tag_rule.clone()),
                     },
@@ -593,6 +605,38 @@ impl From<djls_conf::TagArgDef> for TagArg {
                     choices: Cow::Owned(choices),
                 }
             }
+        }
+    }
+}
+
+impl From<djls_extraction::ExtractedArg> for TagArg {
+    fn from(arg: djls_extraction::ExtractedArg) -> Self {
+        match arg.kind {
+            djls_extraction::ExtractedArgKind::Variable
+            | djls_extraction::ExtractedArgKind::Keyword => TagArg::Variable {
+                name: Cow::Owned(arg.name),
+                required: arg.required,
+                count: TokenCount::Exact(1),
+            },
+            djls_extraction::ExtractedArgKind::Literal(value) => TagArg::Literal {
+                lit: Cow::Owned(value),
+                required: arg.required,
+                kind: LiteralKind::Syntax,
+            },
+            djls_extraction::ExtractedArgKind::Choice(choices) => TagArg::Choice {
+                name: Cow::Owned(arg.name),
+                required: arg.required,
+                choices: Cow::Owned(
+                    choices
+                        .into_iter()
+                        .map(Cow::Owned)
+                        .collect::<Vec<_>>(),
+                ),
+            },
+            djls_extraction::ExtractedArgKind::VarArgs => TagArg::VarArgs {
+                name: Cow::Owned(arg.name),
+                required: arg.required,
+            },
         }
     }
 }
@@ -1278,5 +1322,166 @@ required = false
         specs.merge_extraction_results(&extraction);
 
         assert_eq!(specs.len(), original_count);
+    }
+
+    #[test]
+    fn test_extracted_arg_to_tag_arg_variable() {
+        let arg = djls_extraction::ExtractedArg {
+            name: "item".to_string(),
+            required: true,
+            kind: djls_extraction::ExtractedArgKind::Variable,
+            position: 0,
+        };
+        let tag_arg = TagArg::from(arg);
+        assert!(matches!(
+            tag_arg,
+            TagArg::Variable {
+                ref name,
+                required: true,
+                count: TokenCount::Exact(1),
+            } if name.as_ref() == "item"
+        ));
+    }
+
+    #[test]
+    fn test_extracted_arg_to_tag_arg_literal() {
+        let arg = djls_extraction::ExtractedArg {
+            name: "in".to_string(),
+            required: true,
+            kind: djls_extraction::ExtractedArgKind::Literal("in".to_string()),
+            position: 1,
+        };
+        let tag_arg = TagArg::from(arg);
+        assert!(matches!(
+            tag_arg,
+            TagArg::Literal {
+                ref lit,
+                required: true,
+                kind: LiteralKind::Syntax,
+            } if lit.as_ref() == "in"
+        ));
+    }
+
+    #[test]
+    fn test_extracted_arg_to_tag_arg_choice() {
+        let arg = djls_extraction::ExtractedArg {
+            name: "mode".to_string(),
+            required: false,
+            kind: djls_extraction::ExtractedArgKind::Choice(vec![
+                "on".to_string(),
+                "off".to_string(),
+            ]),
+            position: 2,
+        };
+        let tag_arg = TagArg::from(arg);
+        if let TagArg::Choice {
+            name,
+            required,
+            choices,
+        } = &tag_arg
+        {
+            assert_eq!(name.as_ref(), "mode");
+            assert!(!required);
+            assert_eq!(choices.len(), 2);
+            assert_eq!(choices[0].as_ref(), "on");
+            assert_eq!(choices[1].as_ref(), "off");
+        } else {
+            panic!("expected TagArg::Choice");
+        }
+    }
+
+    #[test]
+    fn test_extracted_arg_to_tag_arg_varargs() {
+        let arg = djls_extraction::ExtractedArg {
+            name: "extra".to_string(),
+            required: false,
+            kind: djls_extraction::ExtractedArgKind::VarArgs,
+            position: 3,
+        };
+        let tag_arg = TagArg::from(arg);
+        assert!(matches!(
+            tag_arg,
+            TagArg::VarArgs {
+                ref name,
+                required: false,
+            } if name.as_ref() == "extra"
+        ));
+    }
+
+    #[test]
+    fn test_merge_extraction_results_populates_args() {
+        let mut specs = create_test_specs();
+
+        let mut extraction = djls_extraction::ExtractionResult::default();
+        extraction.tag_rules.insert(
+            djls_extraction::SymbolKey::tag("django.template.defaulttags", "for"),
+            djls_extraction::TagRule {
+                arg_constraints: vec![],
+                required_keywords: vec![],
+                known_options: None,
+                extracted_args: vec![
+                    djls_extraction::ExtractedArg {
+                        name: "item".to_string(),
+                        required: true,
+                        kind: djls_extraction::ExtractedArgKind::Variable,
+                        position: 0,
+                    },
+                    djls_extraction::ExtractedArg {
+                        name: "in".to_string(),
+                        required: true,
+                        kind: djls_extraction::ExtractedArgKind::Literal("in".to_string()),
+                        position: 1,
+                    },
+                    djls_extraction::ExtractedArg {
+                        name: "iterable".to_string(),
+                        required: true,
+                        kind: djls_extraction::ExtractedArgKind::Variable,
+                        position: 2,
+                    },
+                ],
+            },
+        );
+
+        specs.merge_extraction_results(&extraction);
+
+        let for_spec = specs.get("for").unwrap();
+        assert_eq!(for_spec.args.len(), 3);
+        assert_eq!(for_spec.args[0].name().as_ref(), "item");
+        assert!(for_spec.args[0].is_required());
+        assert!(matches!(for_spec.args[1], TagArg::Literal { ref lit, .. } if lit.as_ref() == "in"));
+        assert_eq!(for_spec.args[2].name().as_ref(), "iterable");
+    }
+
+    #[test]
+    fn test_merge_extraction_results_empty_args_preserves_existing() {
+        let mut specs = create_test_specs();
+
+        // Add user-config args to a tag first
+        if let Some(spec) = specs.get_mut("block") {
+            spec.args = std::borrow::Cow::Owned(vec![TagArg::Variable {
+                name: "name".into(),
+                required: true,
+                count: TokenCount::Exact(1),
+            }]);
+        }
+
+        // Merge extraction with empty extracted_args — should NOT clear existing args
+        let mut extraction = djls_extraction::ExtractionResult::default();
+        extraction.tag_rules.insert(
+            djls_extraction::SymbolKey::tag("django.template.defaulttags", "block"),
+            djls_extraction::TagRule {
+                arg_constraints: vec![],
+                required_keywords: vec![],
+                known_options: None,
+                extracted_args: vec![],
+            },
+        );
+
+        specs.merge_extraction_results(&extraction);
+
+        let block_spec = specs.get("block").unwrap();
+        // Empty extracted_args should NOT overwrite existing args
+        assert_eq!(block_spec.args.len(), 1);
+        assert_eq!(block_spec.args[0].name().as_ref(), "name");
     }
 }
