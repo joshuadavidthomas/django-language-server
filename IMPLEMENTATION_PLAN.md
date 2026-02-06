@@ -238,13 +238,13 @@ Write tests that capture Salsa events and verify invalidation using stable `ingr
 
 ## M3: `{% load %}` Scoping Infrastructure
 
-**Status:** 🔄 In Progress
+**Status:** ✅ Complete
 
 **Goal:** Position-aware `{% load %}` scoping for tags and filters in diagnostics + completions.
 
 **Plan:** [`.agents/plans/2026-02-05-m3-load-scoping.md`](.agents/plans/2026-02-05-m3-load-scoping.md)
 
-**Overall Status:** Phases 1-5 of 6 complete
+**Overall Status:** All 6 phases complete
 
 ### Phase 1: Load Statement Parsing and Data Structures
 
@@ -391,22 +391,29 @@ Update completions to filter tags based on load state at cursor position.
 
 ### Phase 6: Library Completions Enhancement
 
-**Status:** 🔲 Not Started
+**Status:** ✅ Complete
 
 Update `{% load %}` completions to show available libraries and handle completion behavior correctly.
 
 **Changes:**
-- Update `generate_library_completions()` to accept `loaded_libraries` and `cursor_byte_offset`
-- Filter to show libraries NOT yet loaded (or deprioritize already-loaded)
-- Add sort_text to deprioritize already-loaded libraries
-- Mark already-loaded libraries as deprecated (strikethrough in editors)
-- Update call site in `generate_template_completions()`
+- Updated `generate_library_completions()` to accept `loaded_libraries` and `cursor_byte_offset` parameters
+- Used `libraries_before()` to determine which libraries are already loaded at cursor position
+- Added `sort_text` to deprioritize already-loaded libraries (`1_` prefix vs `0_` prefix)
+- Marked already-loaded libraries as deprecated (`deprecated: Some(true)`) for strikethrough in editors
+- Updated detail text to show "Already loaded (module)" for loaded libraries
+- Updated call site in `generate_template_completions()` to pass new parameters
 
 **Quality Checks:**
-- [ ] `cargo build` passes
-- [ ] `cargo test` passes
+- [x] `cargo build` passes
+- [x] `cargo test` passes (269 tests)
+- [x] `cargo clippy --all-targets --all-features -- -D warnings` passes
 - [ ] Manual: `{% load %}` completions show all available libraries
 - [ ] Manual: Already-loaded libraries are deprioritized/marked
+
+**Discoveries:**
+- Using `sort_text` with prefix (`0_` vs `1_`) is the standard way to deprioritize completion items in LSP
+- Setting `deprecated: Some(true)` shows strikethrough in supporting editors (VS Code, etc.)
+- Detail text now clearly indicates when a library is already loaded
 
 ---
 

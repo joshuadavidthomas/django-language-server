@@ -381,7 +381,13 @@ fn generate_template_completions(
             supports_snippets,
         ),
         TemplateCompletionContext::LibraryName { partial, closing } => {
-            generate_library_completions(partial, closing, template_tags)
+            generate_library_completions(
+                partial,
+                closing,
+                template_tags,
+                loaded_libraries,
+                cursor_byte_offset,
+            )
         }
         TemplateCompletionContext::Filter { .. }
         | TemplateCompletionContext::Variable { .. }
@@ -735,6 +741,8 @@ fn generate_library_completions(
     partial: &str,
     closing: &ClosingBrace,
     template_tags: Option<&TemplateTags>,
+    loaded_libraries: Option<&LoadedLibraries>,
+    cursor_byte_offset: u32,
 ) -> Vec<ls_types::CompletionItem> {
     let Some(tags) = template_tags else {
         return Vec::new();
@@ -748,9 +756,16 @@ fn generate_library_completions(
         .collect();
     library_entries.sort_by_key(|(load_name, _)| load_name.as_str());
 
+    // Get already-loaded libraries to deprioritize them
+    let already_loaded = loaded_libraries
+        .map(|l| l.libraries_before(cursor_byte_offset))
+        .unwrap_or_default();
+
     let mut completions = Vec::new();
 
     for (load_name, module_path) in library_entries {
+        let is_already_loaded = already_loaded.contains(load_name);
+
         let mut insert_text = load_name.clone();
 
         // Add closing if needed
@@ -763,10 +778,22 @@ fn generate_library_completions(
         completions.push(ls_types::CompletionItem {
             label: load_name.clone(),
             kind: Some(ls_types::CompletionItemKind::MODULE),
-            detail: Some(format!("Django template library ({module_path})")),
+            detail: Some(if is_already_loaded {
+                format!("Already loaded ({module_path})")
+            } else {
+                format!("Django template library ({module_path})")
+            }),
             insert_text: Some(insert_text),
             insert_text_format: Some(ls_types::InsertTextFormat::PLAIN_TEXT),
             filter_text: Some(load_name.clone()),
+            // Deprioritize already-loaded libraries
+            sort_text: Some(if is_already_loaded {
+                format!("1_{load_name}")
+            } else {
+                format!("0_{load_name}")
+            }),
+            // Mark deprecated if already loaded (shows strikethrough in some editors)
+            deprecated: Some(is_already_loaded),
             ..Default::default()
         });
     }
