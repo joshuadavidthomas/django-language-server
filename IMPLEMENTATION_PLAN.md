@@ -393,9 +393,9 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ### Phase 3: Create GitHub Issue Template for Validation Mismatches
 
-- [ ] Create `.github/ISSUE_TEMPLATE/config.yml` linking to documentation
-- [ ] Create `.github/ISSUE_TEMPLATE/template-validation-mismatch.yml` issue form requiring: djls version, Django version, minimal template snippet, relevant `{% load %}` statements, expected vs actual behavior, djls.toml excerpt, inspector status
-- [ ] Verify: YAML is valid syntax
+- [x] Create `.github/ISSUE_TEMPLATE/config.yml` linking to documentation
+- [x] Create `.github/ISSUE_TEMPLATE/template-validation-mismatch.yml` issue form requiring: djls version, Django version, minimal template snippet, relevant `{% load %}` statements, expected vs actual behavior, djls.toml excerpt, inspector status
+- [x] Verify: YAML is valid syntax
 
 ### Phase 4: Update TagSpecs Documentation
 

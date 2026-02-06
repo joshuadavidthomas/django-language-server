@@ -1,0 +1,126 @@
+name: Template Validation Mismatch
+description: Report a mismatch between djls static validation and Django runtime behavior.
+title: "[Validation] "
+labels: ["validation", "bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting a validation mismatch! This helps us improve djls's accuracy.
+
+        A validation mismatch is when djls reports an error (or doesn't report one) but Django
+        behaves differently at runtime.
+
+        See [Template Validation](https://django-language-server.readthedocs.io/template-validation/)
+        for how djls validates templates.
+
+  - type: input
+    id: djls-version
+    attributes:
+      label: djls version
+      description: Output of `djls --version` or the version shown in your editor.
+      placeholder: "0.1.0"
+    validations:
+      required: true
+
+  - type: input
+    id: django-version
+    attributes:
+      label: Django version
+      description: Output of `python -c "import django; print(django.VERSION)"`.
+      placeholder: "5.2"
+    validations:
+      required: true
+
+  - type: textarea
+    id: template-snippet
+    attributes:
+      label: Minimal template snippet
+      description: |
+        The smallest template that reproduces the issue. Include any relevant
+        `{% load %}` statements.
+      render: django
+      placeholder: |
+        {% load i18n %}
+
+        {% blocktrans with name=user.name %}
+        Hello, {{ name }}!
+        {% endblocktrans %}
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: Expected behavior
+      description: What does Django do with this template at runtime?
+      placeholder: "Django renders the template without errors."
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual-behavior
+    attributes:
+      label: Actual djls behavior
+      description: |
+        What diagnostic(s) does djls report? Include the diagnostic code (e.g., S108)
+        and the full message.
+      placeholder: |
+        S109: Tag 'blocktrans' requires loading library 'i18n'
+    validations:
+      required: true
+
+  - type: dropdown
+    id: diagnostic-code
+    attributes:
+      label: Diagnostic code
+      description: Which diagnostic code is involved?
+      options:
+        - S100-S107 (Block Structure)
+        - S108 (UnknownTag)
+        - S109 (UnloadedTag)
+        - S110 (AmbiguousUnloadedTag)
+        - S111 (UnknownFilter)
+        - S112 (UnloadedFilter)
+        - S113 (AmbiguousUnloadedFilter)
+        - S114 (ExpressionSyntaxError)
+        - S115 (FilterMissingArgument)
+        - S116 (FilterUnexpectedArgument)
+        - Other / Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: djls-config
+    attributes:
+      label: djls.toml configuration
+      description: |
+        Paste any relevant sections from your `djls.toml`, especially
+        `[diagnostics]` severity overrides and `[tagspecs]` definitions.
+        Write "default" if you haven't customized anything.
+      render: toml
+      placeholder: |
+        [diagnostics]
+        S108 = "warning"
+
+  - type: dropdown
+    id: inspector-status
+    attributes:
+      label: Inspector status
+      description: |
+        Is the Python inspector healthy? Check your editor's djls output
+        for "inspector" messages. If unsure, select "Not sure".
+      options:
+        - Healthy (Django initialized successfully)
+        - Unavailable (Django failed to initialize)
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: |
+        Any other relevant information — custom template tags, third-party libraries,
+        project structure details, etc.
