@@ -165,11 +165,10 @@ fn merge_extraction_into_specs(
             if let Some(ref block_spec) = tag.block_spec {
                 spec.merge_block_spec(block_spec);
             }
-            spec.populate_args_from_extraction(&tag.extracted_args);
+            // TODO(M9 Phase 4): Populate args for completions using ExtractedArg
         } else {
             // Create new spec from extraction
-            let mut new_spec = TagSpec::from_extraction(module_path, tag);
-            new_spec.populate_args_from_extraction(&tag.extracted_args);
+            let new_spec = TagSpec::from_extraction(module_path, tag);
             specs.insert(tag.name.clone(), new_spec);
         }
     }

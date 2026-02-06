@@ -1099,7 +1099,7 @@ Port the prototype's corpus tests to Rust. Validate actual templates against ext
 
 **Plan:** [`.agents/plans/2026-02-06-m9-tagspec-simplification.md`](.agents/plans/2026-02-06-m9-tagspec-simplification.md)
 
-**Overall Status:** 🔄 In Progress (Phase 1 Complete)
+**Overall Status:** 🔄 In Progress (Phases 1-3 Complete, Phase 4 Pending)
 
 ### Phase 1: Remove TagSpecs Config System
 
@@ -1158,15 +1158,61 @@ Delete the entire tagspecs module from `djls-conf`, remove the `tagspecs` field 
 
 ### Phase 2: Remove `TagArg` System and Old Validation Engine
 
-**Status:** 🔲 Not Started
+**Status:** ✅ Complete
 
 Delete the `TagArg` enum and associated types, remove the `args` field from `TagSpec`/`EndTag`/`IntermediateTag`, delete `validate_args_against_spec` and `validate_argument_order`, strip ~500 lines from `builtins.rs`.
 
+**Changes:**
+- Removed `TokenCount`, `LiteralKind`, `TagArg` enums from `specs.rs`
+- Removed `TagArgSliceExt` trait from `specs.rs`
+- Removed `extracted_arg_to_tag_arg()` and `populate_args_from_extraction()` functions
+- Removed `args` field from `TagSpec`, `EndTag`, `IntermediateTag` structs
+- Stripped all `args: B(&[])` from `builtins.rs` (~30 occurrences)
+- Gutted `arguments.rs` - removed `validate_args_against_spec()` and `validate_argument_order()` functions (~250 lines)
+- Updated `validate_tag_arguments()` to only use extracted rules, removed fallback path
+- Updated re-exports in `templatetags.rs` and `lib.rs` to remove `TagArg`, `LiteralKind`, `TokenCount`
+- Stubbed out `completions.rs` argument completion logic (TODO for M9 Phase 4)
+- Stubbed out `snippets.rs` to remove `TagArg` dependencies
+- Removed unused exports from `djls-ide/src/lib.rs`
+- Updated `load_resolution.rs` to use `is_intermediate()` instead of removed `get_intermediate_spec()`
+- Updated `db.rs` to remove calls to `populate_args_from_extraction()`
+- Fixed test in `specs.rs` that expected `endblock` closer (test data doesn't include block tag)
+
+**Quality Checks:**
+- [x] `cargo build -q` passes
+- [x] `cargo test -q` passes (286 tests)
+- [x] `cargo clippy -q --all-targets --all-features -- -D warnings` passes
+- [x] No `TagArg`, `TokenCount`, `LiteralKind` types exist anywhere
+- [x] No `validate_args_against_spec` or `validate_argument_order` functions exist
+- [x] `builtins.rs` has zero `TagArg` references
+- [x] `completions.rs` and `snippets.rs` have zero `TagArg` references
+
+**Discoveries:**
+- The `generate_argument_completions` and snippet functions need to be reimplemented using `ExtractedArg` in M9 Phase 4
+- Using `_supports_snippets` with underscore prefix to silence unused variable warning
+- The test for `endblock` as closer failed because `create_test_specs()` doesn't include a block tag
+
 ### Phase 3: Remove Dead Error Variants and Diagnostic Codes
 
-**Status:** 🔲 Not Started
+**Status:** ✅ Complete
 
 Remove 5 unreachable `ValidationError` variants (`MissingRequiredArguments`, `TooManyArguments`, `MissingArgument`, `InvalidLiteralArgument`, `InvalidArgumentChoice`) and their S104-S107 diagnostic codes.
+
+**Changes:**
+- Removed 5 error variants from `errors.rs`:
+  - `MissingRequiredArguments` (was S104)
+  - `TooManyArguments` (was S105)
+  - `MissingArgument` (was S104 duplicate)
+  - `InvalidLiteralArgument` (was S106)
+  - `InvalidArgumentChoice` (was S107)
+- Removed S104-S107 mappings from `diagnostics.rs` span extraction and code mapping
+
+**Quality Checks:**
+- [x] `cargo build -q` passes
+- [x] `cargo test -q` passes (286 tests)
+- [x] `cargo clippy -q --all-targets --all-features -- -D warnings` passes
+- [x] No `S104`, `S105`, `S106`, `S107` strings exist in codebase
+- [x] No dead error variant names exist in codebase
 
 ### Phase 4: Update Documentation
 

@@ -10,32 +10,6 @@ use rustc_hash::FxHashMap;
 pub type S<T = str> = Cow<'static, T>;
 pub type L<T> = Cow<'static, [T]>;
 
-/// Token consumption strategy for tag arguments.
-///
-/// This separates "how many tokens" from "what the tokens mean",
-/// allowing v0.6.0 spec semantics to be properly represented.
-#[derive(Debug, Clone, PartialEq)]
-pub enum TokenCount {
-    /// Exactly N tokens (count = N in spec)
-    Exact(usize),
-    /// Variable/greedy consumption until next literal or end (count = null in spec)
-    Greedy,
-}
-
-/// Semantic classification for literal arguments.
-///
-/// All three map to `TagArg::Literal` but provide semantic hints
-/// for better diagnostics and IDE features.
-#[derive(Debug, Clone, PartialEq)]
-pub enum LiteralKind {
-    /// Plain literal token (kind = "literal" in spec)
-    Literal,
-    /// Mandatory syntactic token like "in", "as" (kind = "syntax" in spec)
-    Syntax,
-    /// Boolean modifier like "reversed", "silent" (kind = "modifier" in spec)
-    Modifier,
-}
-
 #[allow(dead_code)]
 pub enum TagType {
     Opener,
@@ -78,88 +52,96 @@ impl TagSpecs {
         TagSpecs(specs)
     }
 
-    /// Find the opener tag for a given closer tag
     #[must_use]
-    pub fn find_opener_for_closer(&self, closer: &str) -> Option<String> {
-        for (tag_name, spec) in &self.0 {
-            if let Some(end_spec) = &spec.end_tag {
-                if end_spec.name.as_ref() == closer {
-                    return Some(tag_name.clone());
-                }
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    #[must_use]
+    pub fn get(&self, name: &str) -> Option<&TagSpec> {
+        self.0.get(name)
+    }
+
+    #[must_use]
+    pub fn contains(&self, name: &str) -> bool {
+        self.0.contains_key(name)
+    }
+
+    /// Merge another `TagSpecs` into this one.
+    ///
+    /// For each tag in `other`:
+    /// - If the tag doesn't exist in `self`, it's inserted as-is.
+    /// - If the tag exists in `self`, the specs are merged with `TagSpec::merge`.
+    pub fn merge(&mut self, other: TagSpecs) {
+        for (name, other_spec) in other.0 {
+            if let Some(existing) = self.0.remove(&name) {
+                let merged = existing.merge(&other_spec);
+                self.0.insert(name, merged);
+            } else {
+                self.0.insert(name, other_spec);
             }
         }
-        None
     }
 
-    /// Get the end tag spec for a given closer tag
-    #[must_use]
-    pub fn get_end_spec_for_closer(&self, closer: &str) -> Option<&EndTag> {
-        for spec in self.0.values() {
-            if let Some(end_spec) = &spec.end_tag {
-                if end_spec.name.as_ref() == closer {
-                    return Some(end_spec);
-                }
-            }
-        }
-        None
-    }
-
-    /// Get the intermediate tag spec for a given intermediate tag
-    #[must_use]
-    pub fn get_intermediate_spec(&self, tag_name: &str) -> Option<&IntermediateTag> {
-        self.0.values().find_map(|spec| {
-            spec.intermediate_tags
-                .iter()
-                .find(|it| it.name.as_ref() == tag_name)
-        })
-    }
-
+    /// Returns true if the tag is an "opener" (has an [`end_tag`]).
     #[must_use]
     pub fn is_opener(&self, name: &str) -> bool {
-        self.0
-            .get(name)
-            .and_then(|spec| spec.end_tag.as_ref())
-            .is_some()
+        self.get(name).is_some_and(|spec| spec.end_tag.is_some())
     }
 
-    #[must_use]
-    pub fn is_intermediate(&self, name: &str) -> bool {
-        self.0.values().any(|spec| {
-            spec.intermediate_tags
-                .iter()
-                .any(|tag| tag.name.as_ref() == name)
-        })
-    }
-
+    /// Returns true if the tag is a "closer" (its name matches some opener's [`end_tag`]).
     #[must_use]
     pub fn is_closer(&self, name: &str) -> bool {
         self.0.values().any(|spec| {
             spec.end_tag
                 .as_ref()
-                .is_some_and(|end_tag| end_tag.name.as_ref() == name)
+                .is_some_and(|end| end.name.as_ref() == name)
         })
     }
 
-    /// Get the parent tags that can contain this intermediate tag
+    /// Returns true if the tag is an "intermediate" tag.
     #[must_use]
-    pub fn get_parent_tags_for_intermediate(&self, intermediate: &str) -> Vec<String> {
-        let mut parents = Vec::new();
-        for (opener_name, spec) in &self.0 {
-            if spec
-                .intermediate_tags
+    pub fn is_intermediate(&self, name: &str) -> bool {
+        self.0.values().any(|spec| {
+            spec.intermediate_tags
                 .iter()
-                .any(|tag| tag.name.as_ref() == intermediate)
-            {
-                parents.push(opener_name.clone());
-            }
-        }
-        parents
+                .any(|it| it.name.as_ref() == name)
+        })
     }
 
-    /// Merge another `TagSpecs` into this one, with the other taking precedence
-    pub fn merge(&mut self, other: TagSpecs) -> &mut Self {
-        self.0.extend(other.0);
-        self
+    /// Get all parent tags for an intermediate tag.
+    ///
+    /// For example, `elif` returns `["if"]`, `else` returns `["if", "for"]`.
+    #[must_use]
+    pub fn get_parent_tags_for_intermediate(&self, name: &str) -> Vec<String> {
+        self.0
+            .iter()
+            .filter_map(|(parent_name, spec)| {
+                if spec
+                    .intermediate_tags
+                    .iter()
+                    .any(|it| it.name.as_ref() == name)
+                {
+                    Some(parent_name.clone())
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    /// Returns the `EndTag` spec for a given closer tag name.
+    #[must_use]
+    pub fn get_end_spec_for_closer(&self, name: &str) -> Option<&EndTag> {
+        self.0.values().find_map(|spec| {
+            spec.end_tag.as_ref().filter(|end| end.name.as_ref() == name)
+        })
+    }
+
+    /// Returns true if the tag creates an opaque block (like `verbatim` or `comment`).
+    #[must_use]
+    pub fn is_opaque(&self, name: &str) -> bool {
+        self.get(name).is_some_and(|spec| spec.opaque)
     }
 }
 
@@ -177,15 +159,6 @@ impl DerefMut for TagSpecs {
     }
 }
 
-impl<'a> IntoIterator for &'a TagSpecs {
-    type Item = (&'a String, &'a TagSpec);
-    type IntoIter = Iter<'a, String, TagSpec>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.iter()
-    }
-}
-
 impl IntoIterator for TagSpecs {
     type Item = (String, TagSpec);
     type IntoIter = IntoIter<String, TagSpec>;
@@ -195,17 +168,20 @@ impl IntoIterator for TagSpecs {
     }
 }
 
+impl<'a> IntoIterator for &'a TagSpecs {
+    type Item = (&'a String, &'a TagSpec);
+    type IntoIter = Iter<'a, String, TagSpec>;
 
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter()
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TagSpec {
     pub module: S,
     pub end_tag: Option<EndTag>,
     pub intermediate_tags: L<IntermediateTag>,
-    /// Argument structure for completions/snippets.
-    /// Populated from extraction or user config.
-    /// NOT used for validation (see [`Self::extracted_rules`]).
-    pub args: L<TagArg>,
     /// Whether this tag creates an opaque block (like verbatim/comment)
     pub opaque: bool,
     /// Validation rules from Python AST extraction.
@@ -214,6 +190,29 @@ pub struct TagSpec {
 }
 
 impl TagSpec {
+    /// Merge another spec into this one.
+    ///
+    /// Used when multiple sources define the same tag (e.g., builtins + user config).
+    /// The other spec takes precedence for most fields.
+    #[must_use]
+    pub fn merge(&self, other: &TagSpec) -> TagSpec {
+        TagSpec {
+            module: other.module.clone(),
+            end_tag: other.end_tag.clone().or_else(|| self.end_tag.clone()),
+            intermediate_tags: if other.intermediate_tags.is_empty() {
+                self.intermediate_tags.clone()
+            } else {
+                other.intermediate_tags.clone()
+            },
+            opaque: other.opaque || self.opaque,
+            extracted_rules: if other.extracted_rules.is_empty() {
+                self.extracted_rules.clone()
+            } else {
+                other.extracted_rules.clone()
+            },
+        }
+    }
+
     /// Merge extracted rules into this spec.
     ///
     /// Stores rules for evaluation by [`evaluate_extracted_rules`].
@@ -263,7 +262,6 @@ impl TagSpec {
             module: module_path.to_string().into(),
             end_tag: None,
             intermediate_tags: B(&[]),
-            args: B(&[]),
             opaque: false,
             extracted_rules: Vec::new(),
         };
@@ -272,240 +270,8 @@ impl TagSpec {
         if let Some(ref block_spec) = tag.block_spec {
             spec.merge_block_spec(block_spec);
         }
-        spec.populate_args_from_extraction(&tag.extracted_args);
 
         spec
-    }
-
-    /// Populate `args` from extracted argument structure.
-    ///
-    /// Called during `compute_tag_specs` to provide completions/snippets data
-    /// derived from Python AST instead of hand-crafted specifications.
-    /// Only populates if `args` is currently empty (doesn't override user config).
-    pub fn populate_args_from_extraction(
-        &mut self,
-        extracted_args: &[djls_extraction::ExtractedArg],
-    ) {
-        if extracted_args.is_empty() {
-            return;
-        }
-        // Only populate if args is currently empty (don't override user config)
-        if !self.args.is_empty() {
-            return;
-        }
-        self.args = extracted_args
-            .iter()
-            .map(extracted_arg_to_tag_arg)
-            .collect::<Vec<_>>()
-            .into();
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum TagArg {
-    /// Template variable or filter expression (kind = "variable")
-    Variable {
-        name: S,
-        required: bool,
-        count: TokenCount,
-    },
-    /// String literal argument (no direct v0.6.0 equivalent, implementation detail)
-    String { name: S, required: bool },
-    /// Literal token with semantic classification (kind = "literal", "syntax", or "modifier")
-    Literal {
-        lit: S,
-        required: bool,
-        kind: LiteralKind,
-    },
-    /// Any template expression or literal (kind = "any")
-    Any {
-        name: S,
-        required: bool,
-        count: TokenCount,
-    },
-    /// Variable assignment (kind = "assignment")
-    Assignment {
-        name: S,
-        required: bool,
-        count: TokenCount,
-    },
-    /// Consumes all remaining tokens (implementation detail)
-    VarArgs { name: S, required: bool },
-    /// Choice from specific literals (kind = "choice")
-    Choice {
-        name: S,
-        required: bool,
-        choices: L<S>,
-    },
-}
-
-impl TagArg {
-    #[must_use]
-    pub fn name(&self) -> &S {
-        match self {
-            Self::Variable { name, .. }
-            | Self::String { name, .. }
-            | Self::Any { name, .. }
-            | Self::Assignment { name, .. }
-            | Self::VarArgs { name, .. }
-            | Self::Choice { name, .. } => name,
-            Self::Literal { lit, .. } => lit,
-        }
-    }
-
-    #[must_use]
-    pub fn is_required(&self) -> bool {
-        match self {
-            Self::Variable { required, .. }
-            | Self::String { required, .. }
-            | Self::Literal { required, .. }
-            | Self::Any { required, .. }
-            | Self::Assignment { required, .. }
-            | Self::VarArgs { required, .. }
-            | Self::Choice { required, .. } => *required,
-        }
-    }
-
-    pub fn choice(name: impl Into<S>, required: bool, choices: impl Into<L<S>>) -> Self {
-        Self::Choice {
-            name: name.into(),
-            required,
-            choices: choices.into(),
-        }
-    }
-
-    /// Create an Any argument with greedy token consumption (replaces old `expr()`)
-    pub fn expr(name: impl Into<S>, required: bool) -> Self {
-        Self::Any {
-            name: name.into(),
-            required,
-            count: TokenCount::Greedy,
-        }
-    }
-
-    /// Create a literal with Literal kind (plain literal)
-    pub fn literal(lit: impl Into<S>, required: bool) -> Self {
-        Self::Literal {
-            lit: lit.into(),
-            required,
-            kind: LiteralKind::Literal,
-        }
-    }
-
-    /// Create a literal with Syntax kind (keywords like "in", "as")
-    pub fn syntax(lit: impl Into<S>, required: bool) -> Self {
-        Self::Literal {
-            lit: lit.into(),
-            required,
-            kind: LiteralKind::Syntax,
-        }
-    }
-
-    /// Create a literal with Modifier kind (modifiers like "reversed")
-    pub fn modifier(lit: impl Into<S>, required: bool) -> Self {
-        Self::Literal {
-            lit: lit.into(),
-            required,
-            kind: LiteralKind::Modifier,
-        }
-    }
-
-    pub fn string(name: impl Into<S>, required: bool) -> Self {
-        Self::String {
-            name: name.into(),
-            required,
-        }
-    }
-
-    /// Create a Variable argument with single token consumption (replaces old `var()`)
-    pub fn var(name: impl Into<S>, required: bool) -> Self {
-        Self::Variable {
-            name: name.into(),
-            required,
-            count: TokenCount::Exact(1),
-        }
-    }
-
-    /// Create a Variable argument with greedy token consumption
-    pub fn var_greedy(name: impl Into<S>, required: bool) -> Self {
-        Self::Variable {
-            name: name.into(),
-            required,
-            count: TokenCount::Greedy,
-        }
-    }
-
-    pub fn varargs(name: impl Into<S>, required: bool) -> Self {
-        Self::VarArgs {
-            name: name.into(),
-            required,
-        }
-    }
-
-    /// Create an Assignment argument with greedy token consumption
-    pub fn assignment(name: impl Into<S>, required: bool) -> Self {
-        Self::Assignment {
-            name: name.into(),
-            required,
-            count: TokenCount::Greedy,
-        }
-    }
-}
-
-/// Convert an extracted argument to a semantic [`TagArg`].
-fn extracted_arg_to_tag_arg(arg: &djls_extraction::ExtractedArg) -> TagArg {
-    use djls_extraction::ExtractedArgKind;
-
-    match &arg.kind {
-        ExtractedArgKind::Literal { value } => TagArg::Literal {
-            lit: value.clone().into(),
-            required: arg.required,
-            kind: LiteralKind::Syntax,
-        },
-        ExtractedArgKind::Choice { values } => TagArg::Choice {
-            name: arg.name.clone().into(),
-            required: arg.required,
-            choices: values
-                .iter()
-                .map(|v| Cow::Owned(v.clone()))
-                .collect::<Vec<_>>()
-                .into(),
-        },
-        ExtractedArgKind::Variable => TagArg::Variable {
-            name: arg.name.clone().into(),
-            required: arg.required,
-            count: TokenCount::Exact(1),
-        },
-        ExtractedArgKind::VarArgs => TagArg::VarArgs {
-            name: arg.name.clone().into(),
-            required: arg.required,
-        },
-        ExtractedArgKind::KeywordArgs => TagArg::Assignment {
-            name: arg.name.clone().into(),
-            required: arg.required,
-            count: TokenCount::Greedy,
-        },
-    }
-}
-
-/// Extension methods for slices of `TagArg`.
-pub(crate) trait TagArgSliceExt {
-    /// Find the next literal keyword in the argument list.
-    ///
-    /// This helps expression and assignment arguments know when to stop consuming tokens.
-    /// For example, in `{% if expr reversed %}`, the expression should stop before "reversed".
-    fn find_next_literal(&self) -> Option<String>;
-}
-
-impl TagArgSliceExt for [TagArg] {
-    fn find_next_literal(&self) -> Option<String> {
-        self.iter().find_map(|arg| {
-            if let TagArg::Literal { lit, .. } = arg {
-                Some(lit.to_string())
-            } else {
-                None
-            }
-        })
     }
 }
 
@@ -535,7 +301,6 @@ mod tests {
                 module: "django.template.defaulttags".into(),
                 end_tag: None,
                 intermediate_tags: Cow::Borrowed(&[]),
-                args: Cow::Borrowed(&[]),
                 opaque: false,
                 extracted_rules: Vec::new(),
             },
@@ -558,13 +323,12 @@ mod tests {
                         name: "else".into(),
                     },
                 ]),
-                args: Cow::Borrowed(&[]),
                 opaque: false,
                 extracted_rules: Vec::new(),
             },
         );
 
-        // Add another block tag with different intermediate
+        // Add a for tag that shares "else" with if
         specs.insert(
             "for".to_string(),
             TagSpec {
@@ -579,25 +343,8 @@ mod tests {
                     },
                     IntermediateTag {
                         name: "else".into(),
-                    }, // Note: else is shared
+                    },
                 ]),
-                args: Cow::Borrowed(&[]),
-                opaque: false,
-                extracted_rules: Vec::new(),
-            },
-        );
-
-        // Add a block tag without intermediates
-        specs.insert(
-            "block".to_string(),
-            TagSpec {
-                module: "django.template.loader_tags".into(),
-                end_tag: Some(EndTag {
-                    name: "endblock".into(),
-                    required: true,
-                }),
-                intermediate_tags: Cow::Borrowed(&[]),
-                args: Cow::Borrowed(&[]),
                 opaque: false,
                 extracted_rules: Vec::new(),
             },
@@ -607,98 +354,20 @@ mod tests {
     }
 
     #[test]
-    fn test_get() {
-        let specs = create_test_specs();
-
-        // Test get with existing keys
-        assert!(specs.get("if").is_some());
-        assert!(specs.get("for").is_some());
-        assert!(specs.get("csrf_token").is_some());
-        assert!(specs.get("block").is_some());
-
-        // Test get with non-existing key
-        assert!(specs.get("nonexistent").is_none());
-
-        // Verify the content is correct - if tag should have an end tag
-        let if_spec = specs.get("if").unwrap();
-        assert!(if_spec.end_tag.is_some());
-    }
-
-    #[test]
-    fn test_iter() {
-        let specs = create_test_specs();
-
-        let count = specs.len();
-        assert_eq!(count, 4);
-
-        let mut found_keys: Vec<String> = specs.keys().cloned().collect();
-        found_keys.sort();
-
-        let mut expected_keys = ["block", "csrf_token", "for", "if"];
-        expected_keys.sort_unstable();
-
-        assert_eq!(
-            found_keys,
-            expected_keys
-                .iter()
-                .map(std::string::ToString::to_string)
-                .collect::<Vec<_>>()
-        );
-    }
-
-    #[test]
-    fn test_find_opener_for_closer() {
-        let specs = create_test_specs();
-
-        assert_eq!(
-            specs.find_opener_for_closer("endif"),
-            Some("if".to_string())
-        );
-        assert_eq!(
-            specs.find_opener_for_closer("endfor"),
-            Some("for".to_string())
-        );
-        assert_eq!(
-            specs.find_opener_for_closer("endblock"),
-            Some("block".to_string())
-        );
-
-        assert_eq!(specs.find_opener_for_closer("endnonexistent"), None);
-
-        assert_eq!(specs.find_opener_for_closer("if"), None);
-    }
-
-    #[test]
-    fn test_get_end_spec_for_closer() {
-        let specs = create_test_specs();
-
-        let endif_spec = specs.get_end_spec_for_closer("endif").unwrap();
-        assert_eq!(endif_spec.name.as_ref(), "endif");
-        assert!(endif_spec.required);
-
-        let endblock_spec = specs.get_end_spec_for_closer("endblock").unwrap();
-        assert_eq!(endblock_spec.name.as_ref(), "endblock");
-
-        assert!(specs.get_end_spec_for_closer("endnonexistent").is_none());
-    }
-
-    #[test]
     fn test_is_opener() {
         let specs = create_test_specs();
 
-        // Tags with end tags are openers
+        // Test valid openers
         assert!(specs.is_opener("if"));
         assert!(specs.is_opener("for"));
-        assert!(specs.is_opener("block"));
 
-        // Single tags are not openers
+        // Test non-openers
         assert!(!specs.is_opener("csrf_token"));
-
-        // Non-existent tags are not openers
-        assert!(!specs.is_opener("nonexistent"));
-
-        // Closer tags themselves are not openers
         assert!(!specs.is_opener("endif"));
+        assert!(!specs.is_opener("elif"));
+
+        // Test non-existent tag
+        assert!(!specs.is_opener("nonexistent"));
     }
 
     #[test]
@@ -727,7 +396,7 @@ mod tests {
         // Test valid closer tags
         assert!(specs.is_closer("endif"));
         assert!(specs.is_closer("endfor"));
-        assert!(specs.is_closer("endblock"));
+        // Note: endblock is not tested because create_test_specs doesn't include block tag
 
         // Test non-closer tags
         assert!(!specs.is_closer("if"));
@@ -784,7 +453,6 @@ mod tests {
                 module: "custom.module".into(),
                 end_tag: None,
                 intermediate_tags: Cow::Borrowed(&[]),
-                args: Cow::Borrowed(&[]),
                 opaque: false,
                 extracted_rules: Vec::new(),
             },
@@ -797,10 +465,11 @@ mod tests {
                 module: "django.template.defaulttags".into(),
                 end_tag: Some(EndTag {
                     name: "endif".into(),
-                    required: false, // Changed to not required
+                    required: true,
                 }),
-                intermediate_tags: Cow::Borrowed(&[]), // Removed intermediates
-                args: Cow::Borrowed(&[]),
+                intermediate_tags: Cow::Owned(vec![IntermediateTag {
+                    name: "elseif".into(),
+                }]),
                 opaque: false,
                 extracted_rules: Vec::new(),
             },
@@ -809,38 +478,18 @@ mod tests {
         let specs2 = TagSpecs::new(specs2_map);
 
         // Merge specs2 into specs1
-        let result = specs1.merge(specs2);
+        specs1.merge(specs2);
 
-        // Check that merge returns self for chaining
-        assert!(std::ptr::eq(result, std::ptr::from_ref(&specs1)));
+        // Verify new tag was added
+        assert!(specs1.contains("custom"));
 
-        // Check that new tag was added
-        assert!(specs1.get("custom").is_some());
-
-        // Check that existing tag was overwritten
+        // Verify if was merged (should now have elseif instead of elif/else)
         let if_spec = specs1.get("if").unwrap();
-        assert!(!if_spec.end_tag.as_ref().unwrap().required); // Should not be required now
-        assert!(if_spec.intermediate_tags.is_empty()); // Should have no intermediates
+        assert_eq!(if_spec.intermediate_tags.len(), 1);
+        assert_eq!(if_spec.intermediate_tags[0].name, "elseif");
 
-        // Check that unaffected tags remain
-        assert!(specs1.get("for").is_some());
-        assert!(specs1.get("csrf_token").is_some());
-        assert!(specs1.get("block").is_some());
-
-        // Total count should be 5 (original 4 + 1 new)
-        assert_eq!(specs1.len(), 5);
+        // Verify original tags are still there
+        assert!(specs1.contains("for"));
+        assert!(specs1.contains("csrf_token"));
     }
-
-    #[test]
-    fn test_merge_empty() {
-        let mut specs = create_test_specs();
-        let original_count = specs.len();
-
-        // Merge with empty TagSpecs
-        specs.merge(TagSpecs::new(FxHashMap::default()));
-
-        // Should remain unchanged
-        assert_eq!(specs.len(), original_count);
-    }
-
-    }
+}

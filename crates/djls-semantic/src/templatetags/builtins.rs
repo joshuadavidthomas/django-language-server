@@ -24,7 +24,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                 required: true,
             }),
             intermediate_tags: B(&[]),
-            args: B(&[]),
+
             opaque: false,
             extracted_rules: Vec::new(),
         },
@@ -38,7 +38,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                 required: true,
             }),
             intermediate_tags: B(&[]),
-            args: B(&[]),
+
             opaque: false,
             extracted_rules: Vec::new(),
         },
@@ -49,7 +49,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             module: B(DEFAULTTAGS_MOD),
             end_tag: None,
             intermediate_tags: B(&[]),
-            args: B(&[]),
+
             opaque: false,
             extracted_rules: Vec::new(),
         },
@@ -60,7 +60,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             module: B(DEFAULTTAGS_MOD),
             end_tag: None,
             intermediate_tags: B(&[]),
-            args: B(&[]),
+
             opaque: false,
             extracted_rules: Vec::new(),
         },
@@ -71,7 +71,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             module: B(DEFAULTTAGS_MOD),
             end_tag: None,
             intermediate_tags: B(&[]),
-            args: B(&[]),
+
             opaque: false,
             extracted_rules: Vec::new(),
         },
@@ -85,7 +85,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                 required: true,
             }),
             intermediate_tags: B(&[]),
-            args: B(&[]),
+
             opaque: false,
             extracted_rules: Vec::new(),
         },
@@ -96,7 +96,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             module: B(DEFAULTTAGS_MOD),
             end_tag: None,
             intermediate_tags: B(&[]),
-            args: B(&[]),
+
             opaque: false,
             extracted_rules: Vec::new(),
         },
@@ -112,7 +112,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             intermediate_tags: B(&[IntermediateTag {
                 name: B("empty"),
             }]),
-            args: B(&[]),
+
             opaque: false,
             extracted_rules: Vec::new(),
         },
@@ -133,7 +133,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                     name: B("else"),
                 },
             ]),
-            args: B(&[]),
+
             opaque: false,
             extracted_rules: Vec::new(),
         },
@@ -149,7 +149,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             intermediate_tags: B(&[IntermediateTag {
                 name: B("else"),
             }]),
-            args: B(&[]),
+
             opaque: false,
             extracted_rules: Vec::new(),
         },
@@ -160,7 +160,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             module: B(DEFAULTTAGS_MOD),
             end_tag: None,
             intermediate_tags: B(&[]),
-            args: B(&[]),
+
             opaque: false,
             extracted_rules: Vec::new(),
         },
@@ -171,7 +171,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             module: B(DEFAULTTAGS_MOD),
             end_tag: None,
             intermediate_tags: B(&[]),
-            args: B(&[]),
+
             opaque: false,
             extracted_rules: Vec::new(),
         },
@@ -182,7 +182,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             module: B(DEFAULTTAGS_MOD),
             end_tag: None,
             intermediate_tags: B(&[]),
-            args: B(&[]),
+
             opaque: false,
             extracted_rules: Vec::new(),
         },
@@ -196,7 +196,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             module: B(DEFAULTTAGS_MOD),
             end_tag: None,
             intermediate_tags: B(&[]),
-            args: B(&[]),
+
             opaque: false,
             extracted_rules: Vec::new(),
         },
@@ -211,7 +211,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                 required: true,
             }),
             intermediate_tags: B(&[]),
-            args: B(&[]),
+
             opaque: false,
             extracted_rules: Vec::new(),
         },
@@ -222,7 +222,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             module: B(DEFAULTTAGS_MOD),
             end_tag: None,
             intermediate_tags: B(&[]),
-            args: B(&[]),
+
             opaque: false,
             extracted_rules: Vec::new(),
         },
@@ -233,7 +233,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             module: B(DEFAULTTAGS_MOD),
             end_tag: None,
             intermediate_tags: B(&[]),
-            args: B(&[]),
+
             opaque: false,
             extracted_rules: Vec::new(),
         },
@@ -247,7 +247,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                 required: true,
             }),
             intermediate_tags: B(&[]),
-            args: B(&[]),
+
             opaque: false,
             extracted_rules: Vec::new(),
         },
@@ -258,7 +258,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             module: B(DEFAULTTAGS_MOD),
             end_tag: None,
             intermediate_tags: B(&[]),
-            args: B(&[]),
+
             opaque: false,
             extracted_rules: Vec::new(),
         },
@@ -272,7 +272,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                 required: true,
             }),
             intermediate_tags: B(&[]),
-            args: B(&[]),
+
             opaque: false,
             extracted_rules: Vec::new(),
         },
@@ -290,7 +290,7 @@ static LOADER_TAGS_PAIRS: &[(&str, &TagSpec)] = &[
                 required: true,
             }),
             intermediate_tags: B(&[]),
-            args: B(&[]),
+
             opaque: false,
             extracted_rules: Vec::new(),
         },
@@ -301,7 +301,7 @@ static LOADER_TAGS_PAIRS: &[(&str, &TagSpec)] = &[
             module: B(MOD_LOADER_TAGS),
             end_tag: None,
             intermediate_tags: B(&[]),
-            args: B(&[]),
+
             opaque: false,
             extracted_rules: Vec::new(),
         },
@@ -312,7 +312,7 @@ static LOADER_TAGS_PAIRS: &[(&str, &TagSpec)] = &[
             module: B(MOD_LOADER_TAGS),
             end_tag: None,
             intermediate_tags: B(&[]),
-            args: B(&[]),
+
             opaque: false,
             extracted_rules: Vec::new(),
         },
@@ -329,7 +329,7 @@ static CACHE_PAIRS: &[(&str, &TagSpec)] = &[(
             required: true,
         }),
         intermediate_tags: B(&[]),
-        args: B(&[]),
+
         opaque: false,
         extracted_rules: Vec::new(),
     },
@@ -346,7 +346,7 @@ static I18N_PAIRS: &[(&str, &TagSpec)] = &[
                 required: true,
             }),
             intermediate_tags: B(BLOCKTRANS_INTERMEDIATE_TAGS),
-            args: B(&[]),
+
             opaque: false,
             extracted_rules: Vec::new(),
         },
@@ -360,7 +360,7 @@ static I18N_PAIRS: &[(&str, &TagSpec)] = &[
                 required: true,
             }),
             intermediate_tags: B(BLOCKTRANS_INTERMEDIATE_TAGS),
-            args: B(&[]),
+
             opaque: false,
             extracted_rules: Vec::new(),
         },
@@ -381,7 +381,6 @@ const TRANS_SPEC: TagSpec = TagSpec {
     module: B(I18N_MOD),
     end_tag: None,
     intermediate_tags: B(&[]),
-    args: B(&[]),
     opaque: false,
     extracted_rules: Vec::new(),
 };
@@ -396,7 +395,7 @@ static L10N_PAIRS: &[(&str, &TagSpec)] = &[(
             required: true,
         }),
         intermediate_tags: B(&[]),
-        args: B(&[]),
+
         opaque: false,
         extracted_rules: Vec::new(),
     },
@@ -412,7 +411,7 @@ static STATIC_PAIRS: &[(&str, &TagSpec)] = &[
             module: B(STATIC_MOD),
             end_tag: None,
             intermediate_tags: B(&[]),
-            args: B(&[]),
+
             opaque: false,
             extracted_rules: Vec::new(),
         },
@@ -431,7 +430,7 @@ static TZ_PAIRS: &[(&str, &TagSpec)] = &[
                 required: true,
             }),
             intermediate_tags: B(&[]),
-            args: B(&[]),
+
             opaque: false,
             extracted_rules: Vec::new(),
         },
@@ -445,7 +444,7 @@ static TZ_PAIRS: &[(&str, &TagSpec)] = &[
                 required: true,
             }),
             intermediate_tags: B(&[]),
-            args: B(&[]),
+
             opaque: false,
             extracted_rules: Vec::new(),
         },

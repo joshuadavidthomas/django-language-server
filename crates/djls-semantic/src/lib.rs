@@ -36,11 +36,9 @@ pub use semantic::build_semantic_forest;
 pub use rule_evaluation::evaluate_extracted_rules;
 pub use templatetags::django_builtin_specs;
 pub use templatetags::EndTag;
-pub use templatetags::LiteralKind;
-pub use templatetags::TagArg;
+pub use templatetags::IntermediateTag;
 pub use templatetags::TagSpec;
 pub use templatetags::TagSpecs;
-pub use templatetags::TokenCount;
 
 /// Validate a Django template node list and return validation errors.
 ///

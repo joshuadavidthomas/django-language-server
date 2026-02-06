@@ -535,7 +535,7 @@ pub fn validate_tag_scoping(
             let tag_specs = db.tag_specs();
             let has_spec = tag_specs.get(name).is_some()
                 || tag_specs.get_end_spec_for_closer(name).is_some()
-                || tag_specs.get_intermediate_spec(name).is_some();
+                || tag_specs.is_intermediate(name);
 
             let marker_span = span.expand(TagDelimiter::LENGTH_U32, TagDelimiter::LENGTH_U32);
 
