@@ -498,7 +498,7 @@ mod invalidation_tests {
 
         // Update inspector_inventory on the project
         let project = db.project.lock().unwrap().unwrap();
-        let new_inventory = Some(TemplateTags::new(vec![], HashMap::default(), vec![]));
+        let new_inventory = Some(TemplateTags::new(vec![], vec![], HashMap::default(), vec![]));
         project
             .set_inspector_inventory(&mut db)
             .to(new_inventory);

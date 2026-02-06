@@ -160,17 +160,17 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ### Phase 1: Inspector Filter Inventory
 
-- [ ] Add `TemplateFilter` dataclass to `queries.py` with same shape as `TemplateTag`: `name`, `provenance` (externally-tagged dict), `defining_module`, `doc`
-- [ ] Update `TemplateTagQueryData` to include `templatefilters: list[TemplateFilter]` field
-- [ ] In `get_installed_templatetags()`, iterate `library.filters.items()` for builtins (alongside `library.tags.items()`) and append `TemplateFilter` with `Builtin` provenance
-- [ ] In `get_installed_templatetags()`, iterate `library.filters.items()` for library entries and append `TemplateFilter` with `Library` provenance
-- [ ] Add Rust `TemplateFilter` struct in `crates/djls-project/src/django.rs` mirroring `TemplateTag` but for filters (same `TagProvenance`, same accessors: `name()`, `provenance()`, `defining_module()`, `is_builtin()`, `library_load_name()`)
-- [ ] Expand `TemplatetagsResponse` with `templatefilters: Vec<TemplateFilter>` field
-- [ ] Expand `TemplateTags` with `filters: Vec<TemplateFilter>` field and add `filters()` accessor returning `&[TemplateFilter]`
-- [ ] Update `TemplateTags::new()`, `TemplateTags::from_response()`, and the `templatetags` tracked query to pass through filters
-- [ ] Export `TemplateFilter` from `crates/djls-project/src/lib.rs`
-- [ ] Add unit tests: `TemplateFilter` deserialization, accessor methods, `TemplateTags` with filters round-trip
-- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Add `TemplateFilter` dataclass to `queries.py` with same shape as `TemplateTag`: `name`, `provenance` (externally-tagged dict), `defining_module`, `doc`
+- [x] Update `TemplateTagQueryData` to include `templatefilters: list[TemplateFilter]` field
+- [x] In `get_installed_templatetags()`, iterate `library.filters.items()` for builtins (alongside `library.tags.items()`) and append `TemplateFilter` with `Builtin` provenance
+- [x] In `get_installed_templatetags()`, iterate `library.filters.items()` for library entries and append `TemplateFilter` with `Library` provenance
+- [x] Add Rust `TemplateFilter` struct in `crates/djls-project/src/django.rs` mirroring `TemplateTag` but for filters (same `TagProvenance`, same accessors: `name()`, `provenance()`, `defining_module()`, `is_builtin()`, `library_load_name()`)
+- [x] Expand `TemplatetagsResponse` with `templatefilters: Vec<TemplateFilter>` field
+- [x] Expand `TemplateTags` with `filters: Vec<TemplateFilter>` field and add `filters()` accessor returning `&[TemplateFilter]`
+- [x] Update `TemplateTags::new()`, `TemplateTags::from_response()`, and the `templatetags` tracked query to pass through filters
+- [x] Export `TemplateFilter` from `crates/djls-project/src/lib.rs`
+- [x] Add unit tests: `TemplateFilter` deserialization, accessor methods, `TemplateTags` with filters round-trip
+- [x] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 2: Structured Filter Representation in Parser
 
