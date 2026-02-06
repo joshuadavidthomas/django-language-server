@@ -32,12 +32,16 @@ just lint                       # Run pre-commit hooks
 
 ## Key File Paths
 - **Inspector Python**: `crates/djls-project/inspector/queries.py` — tag/filter collection, `build.rs` rebuilds pyz on change
-- **Rust Django types**: `crates/djls-project/src/django.rs` — `TemplateTag`, `TemplateTags`, `TagProvenance` types and accessors
+- **Rust Django types**: `crates/djls-project/src/django.rs` — `TemplateTag`, `TemplateFilter`, `TemplateTags`, `TagProvenance` types and accessors
 - **Project Salsa input**: `crates/djls-project/src/project.rs` — `Project` struct with all Salsa input fields
 - **Database + queries**: `crates/djls-server/src/db.rs` — `DjangoDatabase`, update/refresh methods, tracked queries go here
 - **Semantic Db trait**: `crates/djls-semantic/src/db.rs` — `Db` (Salsa jar trait) and `SemanticDb` (runtime accessor trait for tag_specs, tag_index, diagnostics_config, inspector_inventory)
-- **Project lib.rs exports**: `crates/djls-project/src/lib.rs` — re-exports for `TagProvenance`, `TemplateTags`, inspector request/response types
-- **Completions**: `crates/djls-ide/src/completions.rs` — `generate_library_completions()` at ~line 526
+- **Project lib.rs exports**: `crates/djls-project/src/lib.rs` — re-exports for `TagProvenance`, `TemplateFilter`, `TemplateTags`, inspector request/response types
+- **Completions**: `crates/djls-ide/src/completions.rs` — `generate_library_completions()` at ~line 526, `TemplateCompletionContext` enum, `analyze_template_context()`
+- **Completion context detection**: `crates/djls-ide/src/context.rs` — `OffsetContext` enum with `Variable { filters: Vec<String> }` variant
+- **Node enum**: `crates/djls-templates/src/nodelist.rs` — `Node::Variable { var, filters: Vec<String>, span }`, `Node::Tag`, etc.
+- **Parser**: `crates/djls-templates/src/parser.rs` — `parse_variable()` at ~line 182, `TestNode` helper in test module
+- **NodeView (semantic)**: `crates/djls-semantic/src/blocks/tree.rs` — `NodeView::Variable` at ~line 332, mirrors `Node::Variable`
 - **Semantic templatetags module**: `crates/djls-semantic/src/templatetags.rs` (NOT `templatetags/mod.rs`)
 - **Semantic specs**: `crates/djls-semantic/src/templatetags/specs.rs` — `TagSpecs`, `TagIndex`, `django_builtin_specs()`
 - **Semantic builtins**: `crates/djls-semantic/src/templatetags/builtins.rs` — builtin tag spec definitions
@@ -45,6 +49,7 @@ just lint                       # Run pre-commit hooks
 - **Config types**: `crates/djls-conf/` — `TagSpecDef`, `DiagnosticsConfig`, `Settings`; `tagspecs.rs` for `TagSpecDef`
 - **Load resolution root**: `crates/djls-semantic/src/load_resolution.rs` — re-exports `LoadedLibraries`, `AvailableSymbols`, `validate_tag_scoping`, `compute_loaded_libraries`
 - **Load resolution submodules**: `crates/djls-semantic/src/load_resolution/load.rs` (parsing), `symbols.rs` (AvailableSymbols + TagAvailability), `validation.rs` (S108/S109/S110 diagnostics)
+- **Filter snapshots**: `crates/djls-templates/src/snapshots/` — `parse_django_variable_with_filter.snap`, `parse_filter_chains.snap` — currently flat strings, will become structured `Filter` objects
 
 ## Django Engine Internals (for inspector work)
 - `engine.builtins` — `list[str]` of module paths (e.g., `"django.template.defaulttags"`)
@@ -80,6 +85,15 @@ just lint                       # Run pre-commit hooks
 - **Completions depend on load scoping**: `generate_tag_name_completions` needs `LoadedLibraries` + inspector inventory to filter results by position. When inspector unavailable, show all tags as fallback.
 - **SemanticDb trait changes**: When adding methods to `SemanticDb`, update ALL test databases: `arguments.rs`, `blocks/tree.rs`, `semantic/forest.rs`, `load_resolution.rs`, `load_resolution/validation.rs`, `djls-bench/src/db.rs`, `djls-server/src/db.rs`
 - **`crate::Db` vs `SemanticDb`**: In `djls-semantic`, test databases implement `crate::Db` (Salsa jar trait). `SemanticDb` (runtime trait) is only implemented on `DjangoDatabase` in `djls-server` and `Db` in `djls-bench`. Don't confuse the two.
+
+## Cross-Cutting Type Changes
+- **When adding a new parallel type** (e.g., `TemplateFilter` mirroring `TemplateTag`): update Python dataclass, `queries.py` collection, Rust struct, response type, `TemplateTags` struct + `new()` + `from_response()`, tracked query, `lib.rs` re-exports. Easy to miss one step in the chain.
+- **`Node::Variable` filter changes cascade widely**: Changing `filters: Vec<String>` to a structured type requires updates in: `nodelist.rs` (Node enum), `parser.rs` (parse_variable + TestNode), `context.rs` (OffsetContext::Variable), `blocks/tree.rs` (NodeView::Variable), `completions.rs` (any filter handling), plus all insta snapshots. Run `cargo insta review` or `INSTA_UPDATE=1 cargo test` after.
+- **`TemplateFilter` shares `TagProvenance`**: Filters use the same `TagProvenance` enum as tags (Library/Builtin variants). Don't create a separate provenance type for filters.
+
+## Insta Snapshot Testing
+- After changing any serialized type (Node variants, TestNode, etc.), run `INSTA_UPDATE=1 cargo test -q` to auto-update snapshots, then `cargo insta review` to verify changes are correct
+- Snapshot files live in `crates/*/src/snapshots/` directories adjacent to the source
 
 ## Task Management
 Use `/dex` to break down complex work, track progress across sessions, and coordinate multi-step implementations.

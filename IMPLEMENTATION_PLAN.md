@@ -174,15 +174,15 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ### Phase 2: Structured Filter Representation in Parser
 
-- [ ] Define `Filter` struct in `crates/djls-templates/src/parser.rs` with `name: String`, `arg: Option<String>`, `span: Span` — handles simple filters (`title`), filters with args (`default:'nothing'`), colon inside quoted args (`default:'time:12:30'`)
-- [ ] Implement `parse_filter(raw: &str, base_offset: u32) -> Filter` helper that splits name from argument at first unquoted colon
-- [ ] Update `Node::Variable` from `filters: Vec<String>` to `filters: Vec<Filter>`
-- [ ] Update `parse_variable()` to produce `Vec<Filter>` with correct per-filter spans (each filter span is relative to the variable expression)
-- [ ] Update `TestNode::Variable` in test helpers to use `Vec<Filter>` or a simplified representation for snapshot compatibility
-- [ ] Update `NodeView::Variable` in `crates/djls-semantic/src/blocks/tree.rs` to use `Vec<Filter>`
-- [ ] Update all pattern matches on `Node::Variable { filters, .. }` in `crates/djls-semantic/src/blocks/builder.rs` if present
-- [ ] Update `OffsetContext::Variable` in `crates/djls-ide/src/context.rs` if it references filters
-- [ ] Run `cargo test -q` and update all `insta` snapshots that include filter data (`cargo insta review` or `INSTA_UPDATE=1`)
+- [ ] Define `Filter` struct in `crates/djls-templates/src/nodelist.rs` (alongside `Node` enum) with `name: String`, `arg: Option<String>`, `span: Span` — handles simple filters (`title`), filters with args (`default:'nothing'`), colon inside quoted args (`default:'time:12:30'`)
+- [ ] Implement `parse_filter(raw: &str, base_offset: u32) -> Filter` helper in `parser.rs` that splits name from argument at first unquoted colon
+- [ ] Update `Node::Variable` in `nodelist.rs` from `filters: Vec<String>` to `filters: Vec<Filter>`
+- [ ] Update `parse_variable()` in `parser.rs` (~line 182) to produce `Vec<Filter>` with correct per-filter spans (each filter span is relative to the variable expression)
+- [ ] Update `TestNode::Variable` in `parser.rs` test module to use `Vec<Filter>` or a simplified representation for snapshot compatibility
+- [ ] Update `NodeView::Variable` in `crates/djls-semantic/src/blocks/tree.rs` (~line 332) to use `Vec<Filter>`
+- [ ] `blocks/builder.rs` line 434 uses `Node::Variable { span, .. }` — no change needed (ignores filters via `..`)
+- [ ] Update `OffsetContext::Variable` in `crates/djls-ide/src/context.rs` (line 23) — has `filters: Vec<String>`, needs `Vec<Filter>`
+- [ ] Run `INSTA_UPDATE=1 cargo test -q` then `cargo insta review` — affected snapshots: `parse_django_variable_with_filter.snap`, `parse_filter_chains.snap`, `parse_django_variable.snap`
 - [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 3: Filter Completions
