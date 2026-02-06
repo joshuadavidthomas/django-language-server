@@ -412,7 +412,7 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ## M8 — Extracted Rule Evaluation
 
-**Status:** not started
+**Status:** in progress (Phases 1–2 complete)
 **Plan:** `.agents/plans/2026-02-06-m8-extracted-rule-evaluation.md`
 **Depends on:** M5, M6
 
