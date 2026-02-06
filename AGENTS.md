@@ -28,7 +28,16 @@ just lint                       # Run pre-commit hooks
 - `crates/djls-server/` - LSP server implementation  
 - `crates/djls-templates/` - Django template parser
 - `crates/djls-workspace/` - Workspace/document management
+- `crates/djls-extraction/` - Python AST analysis via Ruff parser (feature-gated)
 - **Module convention**: Uses `folder.rs` NOT `folder/mod.rs`. E.g. `templatetags.rs` + `templatetags/specs.rs`, NOT `templatetags/mod.rs`
+
+## Key File Paths — Extraction Crate (`djls-extraction`)
+- **Crate root**: `crates/djls-extraction/src/lib.rs` — public API, feature-gated re-exports, `extract_rules()` stub
+- **Types**: `crates/djls-extraction/src/types.rs` — `SymbolKey`, `ExtractionResult`, `TagRule`, `FilterArity`, `BlockTagSpec`, `ArgumentCountConstraint`, `KnownOptions`, `RequiredKeyword`
+- **Registration discovery**: `crates/djls-extraction/src/registry.rs` — `collect_registrations()`, `RegistrationInfo`, `RegistrationKind` (behind `parser` feature)
+- **Rule extraction**: `crates/djls-extraction/src/rules.rs` — `extract_tag_rule()`, compile function analysis, `extract_parse_bits_rule()` for simple/inclusion tags (behind `parser` feature)
+- **Context detection**: `crates/djls-extraction/src/context.rs` — `detect_split_var()` for finding `token.split_contents()` bindings (behind `parser` feature)
+- **Ruff AST node reference**: `target/cargo_home/git/checkouts/ruff-*/*/crates/ruff_python_ast/src/nodes.rs` — struct definitions for `StmtFunctionDef`, `Parameters`, `ParameterWithDefault`, etc. Use `find` to locate since checkout hash varies.
 
 ## Key File Paths
 - **Inspector Python**: `crates/djls-project/inspector/queries.py` — tag/filter collection, `build.rs` rebuilds pyz on change
@@ -93,16 +102,34 @@ just lint                       # Run pre-commit hooks
 - **Test failures from wrong assumptions about parser output**: Always parse a sample and inspect actual output before writing assertions. Especially: `Node::Tag.bits` excludes tag name, spans are byte offsets not line numbers, filter `Vec<Filter>` not `Vec<String>`.
 - **Salsa setter `.to()` repeatedly forgotten**: E0599 "no method named `to`" means Salsa version mismatch or missing import. Current API: `project.set_field(db).to(value)`.
 
+## Extraction Architecture Patterns
+- **Two-dispatch pattern for tag rules**: `extract_tag_rule()` dispatches based on `RegistrationKind` — `@register.tag` (compile function) goes to `extract_compile_function_rule()` which uses split_contents guard analysis; `@register.simple_tag` / `@register.inclusion_tag` goes to `extract_parse_bits_rule()` which uses function signature analysis (parameter count, defaults, `takes_context`).
+- **`collect_registrations()` → `extract_tag_rule()`**: Two-phase: first collect all registrations (name + kind + function ref), then extract rules per registration. Don't try to do both in one pass.
+- **Clone `func_name` early**: Ruff AST types own their strings. If you need `func.name` after moving or borrowing `func` elsewhere, clone it first. E0382 (use of moved value) is common otherwise.
+- **`rules.rs` is large (1300+ lines)**: If adding new extraction helpers, consider whether they belong in a separate module (e.g., block spec extraction could be `crates/djls-extraction/src/blocks.rs`).
+- **`extract_rules()` top-level API is still a stub**: It returns `ExtractionResult::default()`. Wiring `collect_registrations` + `extract_tag_rule` into it is a Phase 5+ task.
+
 ## Cross-Cutting Type Changes
 - **When adding a new parallel type** (e.g., `TemplateFilter` mirroring `TemplateTag`): update Python dataclass, `queries.py` collection, Rust struct, response type, `TemplateTags` struct + `new()` + `from_response()`, tracked query, `lib.rs` re-exports. Easy to miss one step in the chain.
 - **`Node::Variable` filter changes cascade widely**: Changing `filters: Vec<String>` to a structured type requires updates in: `nodelist.rs` (Node enum), `parser.rs` (parse_variable + TestNode), `context.rs` (OffsetContext::Variable), `blocks/tree.rs` (NodeView::Variable), `completions.rs` (any filter handling), plus all insta snapshots. Run `cargo insta review` or `INSTA_UPDATE=1 cargo test` after.
 - **`TemplateFilter` shares `TagProvenance`**: Filters use the same `TagProvenance` enum as tags (Library/Builtin variants). Don't create a separate provenance type for filters.
 
 ## Hot Files (heavily read/edited — know these well)
-- **`crates/djls-ide/src/completions.rs`** — integration point for tag, library, and filter completions; most-edited file across all sessions. Read before modifying any completion logic.
-- **`crates/djls-server/src/db.rs`** — Salsa database, tracked queries, `SemanticDb` impl, update/refresh methods. Second most-edited.
-- **`crates/djls-project/src/django.rs`** — `TemplateTag`, `TemplateFilter`, `TemplateTags`, `TagProvenance` — read before any type changes.
-- **`crates/djls-semantic/src/load_resolution/symbols.rs`** — `AvailableSymbols`, `TagAvailability`, `FilterAvailability` — complex position-aware logic.
+- **`crates/djls-ide/src/completions.rs`** — integration point for tag, library, and filter completions; most-edited file across all sessions (34 edits). Read before modifying any completion logic.
+- **`crates/djls-server/src/db.rs`** — Salsa database, tracked queries, `SemanticDb` impl, update/refresh methods (23 edits).
+- **`crates/djls-project/src/django.rs`** — `TemplateTag`, `TemplateFilter`, `TemplateTags`, `TagProvenance` (16 edits) — read before any type changes.
+- **`crates/djls-extraction/src/rules.rs`** — Rule extraction from compile functions and simple_tag signatures (15 edits, 1300+ lines). Read before adding extraction logic.
+- **`crates/djls-semantic/src/load_resolution/symbols.rs`** — `AvailableSymbols`, `TagAvailability`, `FilterAvailability` (19 edits) — complex position-aware logic.
+- **`crates/djls-project/src/project.rs`** — `Project` Salsa input struct — read before adding new fields.
+
+## Ruff Python AST Patterns (for `djls-extraction`)
+- **Parsing**: `ruff_python_parser::parse_module(source)` returns `Result<Parsed<ModModule>, ParseError>`. Call `.into_syntax()` to get the `ModModule` with `.body: Vec<Stmt>`.
+- **`StmtFunctionDef` is NOT `Deref`**: Access fields directly (`func.name`, `func.body`, `func.parameters`), do NOT try `*func`.
+- **Parameters have per-param defaults**: `ParameterWithDefault { parameter, default: Option<Box<Expr>> }`. There is NO top-level `defaults` field on `Parameters` (unlike Python's `ast.arguments`). Count defaults with `.iter().filter(|p| p.default.is_some()).count()`.
+- **`StmtWhile.test` is `Box<Expr>`**: Dereference with `&*while_stmt.test` when pattern matching.
+- **String matching**: Use `ExprStringLiteral` → `.value.to_str()` for string content. Use `ExprName` → `.id.as_str()` for identifiers.
+- **Feature gate `parser`**: Ruff parser deps only compile when `parser` feature is enabled. Types in `types.rs` are always available. Downstream crates needing only types use `djls-extraction = { workspace = true }` (no feature). Crates doing extraction use `djls-extraction = { workspace = true, features = ["parser"] }`.
+- **Ruff git dep pinned to SHA**: `0dfa810e9aad9a465596768b0211c31dd41d3e73` (Ruff 0.15.0). Both `ruff_python_parser` and `ruff_python_ast` must use the same SHA.
 
 ## Workspace Dependency Pattern
 - Third-party deps go in `[workspace.dependencies]` in root `Cargo.toml` (pinned versions), then crates reference them with `dep.workspace = true` in their `Cargo.toml`
