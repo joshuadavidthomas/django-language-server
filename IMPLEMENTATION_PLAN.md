@@ -341,10 +341,76 @@
 
 ## M6 - Rule Evaluation + Expression Validation
 
-**Status:** backlog
+**Status:** in-progress
 **Plan:** `.agents/plans/2026-02-05-m6-rule-evaluation.md` (overview), phases in `m6.1` through `m6.2`
 
-_Tasks to be expanded when M5 is complete._
+### Phase 1: Expression Validation Module
+
+**Goal:** Port Django's `smartif.py` Pratt parser to Rust for validating `{% if %}`/`{% elif %}` expression syntax.
+
+- [ ] Create `crates/djls-semantic/src/if_expression.rs` with `IfToken`, `Operator`, `IfExpressionParser` types
+- [ ] Implement operator precedence table matching Django's `smartif.py`: `or(6)`, `and(7)`, `not(8)`, `in(9)`, `not in(9)`, `is(10)`, `is not(10)`, `==(10)`, `!=(10)`, `>(10)`, `>=(10)`, `<(10)`, `<=(10)`
+- [ ] Implement two-word operator tokenization: `"not" + "in"` → `"not in"`, `"is" + "not"` → `"is not"`
+- [ ] Implement Pratt parser `expression(rbp)` with prefix (`not`) and infix operator handling
+- [ ] Implement `validate_if_expression(bits: &[String]) -> Option<String>` public API — returns error message or None
+- [ ] Handle error cases: operator at start position, missing RHS, unused trailing tokens, empty expression
+- [ ] Add unit tests: valid expressions (simple, compound, not, not-in, is-not), invalid expressions (and at start, missing RHS, trailing token, empty)
+- [ ] Register module in `crates/djls-semantic/src/lib.rs` and export `validate_if_expression`
+- [ ] Run `cargo build -q -p djls-semantic`, `cargo clippy -q -p djls-semantic --all-targets --all-features -- -D warnings`, `cargo test -q -p djls-semantic`
+
+### Phase 2: New Error Types (S114-S116)
+
+**Goal:** Add `ValidationError` variants and diagnostic code mappings for expression and filter arity errors.
+
+- [ ] Add `ExpressionSyntaxError { tag, message, span }` variant to `ValidationError` in `crates/djls-semantic/src/errors.rs`
+- [ ] Add `FilterMissingArgument { filter, span }` variant to `ValidationError`
+- [ ] Add `FilterUnexpectedArgument { filter, span }` variant to `ValidationError`
+- [ ] Add S114 (ExpressionSyntaxError), S115 (FilterMissingArgument), S116 (FilterUnexpectedArgument) diagnostic code mappings in `crates/djls-ide/src/diagnostics.rs`
+- [ ] Add span extraction for S114/S115/S116 in `DiagnosticError::span()` impl
+- [ ] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 3: Extend Db Trait for M6 Queries
+
+**Goal:** Add `filter_arity_specs()` and `opaque_tag_map()` methods to `djls-semantic::Db` trait and implement them in `djls-server`.
+
+- [ ] Add `FilterAritySpecs` struct (wraps `FxHashMap<SymbolKey, FilterArity>`) with `new()`, `get()`, `is_empty()` in `crates/djls-semantic/src/db.rs`
+- [ ] Add `OpaqueTagMap` type alias (`FxHashMap<String, String>`) in `crates/djls-semantic/src/db.rs`
+- [ ] Add `filter_arity_specs(&self) -> FilterAritySpecs` method to `Db` trait
+- [ ] Add `opaque_tag_map(&self) -> OpaqueTagMap` method to `Db` trait
+- [ ] Implement `#[salsa::tracked] fn compute_filter_arity_specs(db, project) -> FilterAritySpecs` in `crates/djls-server/src/db.rs` — collects from workspace + external extraction results
+- [ ] Implement `#[salsa::tracked] fn compute_opaque_tag_map(db, project) -> OpaqueTagMap` in `crates/djls-server/src/db.rs` — iterates `TagSpecs` for `opaque == true` entries with end tags
+- [ ] Implement `filter_arity_specs()` and `opaque_tag_map()` on `DjangoDatabase` in `crates/djls-server/src/db.rs`
+- [ ] Add `filter_arity_specs()` and `opaque_tag_map()` stubs to bench db (`crates/djls-bench/src/db.rs`) returning defaults
+- [ ] Add `filter_arity_specs()` and `opaque_tag_map()` stubs to all 3 test `TestDatabase` impls in `djls-semantic` (arguments.rs, blocks/tree.rs, semantic/forest.rs) returning defaults
+- [ ] Export `FilterAritySpecs` and `OpaqueTagMap` from `crates/djls-semantic/src/lib.rs`
+- [ ] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 4: Opaque Regions and Validation Pipeline Wiring
+
+**Goal:** Add opaque region detection, wire expression validation and filter arity validation into `validate_nodelist`.
+
+- [ ] Create `crates/djls-semantic/src/opaque.rs` with `OpaqueRegions` struct (holds `Vec<Span>`) and `is_opaque(span) -> bool` method
+- [ ] Implement `compute_opaque_regions(db, nodelist) -> OpaqueRegions` — scans nodelist for opener→closer pairs from `db.opaque_tag_map()`
+- [ ] Create `crates/djls-semantic/src/filter_arity.rs` with `validate_filter_arity(db, nodelist, opaque)` — iterates `Node::Variable` nodes, resolves filter symbols via `LoadState`, checks arity
+- [ ] Implement `resolve_filter_symbol(filter_name, position, loaded, db) -> Option<SymbolKey>` — handles builtin tiebreak (later in builtins list wins), library shadowing builtins, ambiguity returns None
+- [ ] Add `validate_if_expressions(db, nodelist, opaque)` function in `crates/djls-semantic/src/lib.rs` — iterates `Node::Tag` for `if`/`elif` names, calls `validate_if_expression(bits)`, emits S114
+- [ ] Update `validate_nodelist` to: compute opaque regions first, pass `&OpaqueRegions` to existing validation passes (tag arguments, tag scoping, filter scoping), call new `validate_if_expressions` and `validate_filter_arity`
+- [ ] Update existing validation functions (`validate_all_tag_arguments`, `validate_tag_scoping`, `validate_filter_scoping`) to accept and respect `&OpaqueRegions` parameter — skip nodes inside opaque regions
+- [ ] Register `opaque` and `filter_arity` modules in `crates/djls-semantic/src/lib.rs`
+- [ ] Export `OpaqueRegions`, `compute_opaque_regions`, `validate_filter_arity` from `crates/djls-semantic/src/lib.rs`
+- [ ] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 5: Testing
+
+**Goal:** Comprehensive tests for expression validation, filter arity, opaque regions, and no regressions.
+
+- [ ] Add expression parser unit tests in `if_expression.rs`: all operator combinations, complex chains (`x and y or not z`), comparison operators with not-in/is-not
+- [ ] Add opaque region unit tests in `opaque.rs`: basic containment, no opaque tags returns empty, nested opaque blocks, unclosed opaque block (no match)
+- [ ] Add filter arity integration tests: S115 for missing required arg, S116 for unexpected arg, Optional arity allows both, Unknown arity allows both
+- [ ] Add filter arity scoping tests: selective import resolves to correct arity, ambiguous library filters emit no arity error, library filter shadows builtin arity, builtin tiebreak (later module wins)
+- [ ] Add opaque region integration tests: no errors inside `{% verbatim %}...{% endverbatim %}`, errors after `{% endverbatim %}` still reported
+- [ ] Verify all existing S100-S113 tests still pass (no regressions)
+- [ ] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ---
 
