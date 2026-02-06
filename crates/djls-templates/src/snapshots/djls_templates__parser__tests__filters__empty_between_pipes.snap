@@ -4,15 +4,15 @@ expression: test_nodelist
 ---
 nodelist:
   - type: Variable
-    var: user.name
+    var: value
     filters:
-      - name: title
+      - name: filter
         span:
-          - 13
-          - 5
+          - 10
+          - 6
     span:
       - 2
-      - 17
+      - 15
     full_span:
       - 0
-      - 21
+      - 19

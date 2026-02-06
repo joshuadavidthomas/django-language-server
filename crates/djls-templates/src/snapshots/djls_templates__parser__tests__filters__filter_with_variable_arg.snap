@@ -7,21 +7,13 @@ nodelist:
     var: value
     filters:
       - name: default
-        arg: "'nothing'"
+        arg: other_var
         span:
           - 9
           - 17
-      - name: title
-        span:
-          - 27
-          - 5
-      - name: upper
-        span:
-          - 33
-          - 5
     span:
       - 2
-      - 37
+      - 25
     full_span:
       - 0
-      - 41
+      - 29

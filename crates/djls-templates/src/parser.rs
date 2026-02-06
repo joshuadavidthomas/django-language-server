@@ -2,6 +2,8 @@ use djls_source::Span;
 use serde::Serialize;
 use thiserror::Error;
 
+use crate::nodelist::Filter;
+use crate::nodelist::FilterArg;
 use crate::nodelist::Node;
 use crate::tokens::Token;
 
@@ -192,14 +194,16 @@ impl Parser {
             });
         };
 
-        let mut parts = content_ref.split('|');
+        let content_span = token.content_span_or_fallback();
+        let content_start = content_span.start();
 
-        let var = parts.next().ok_or(ParseError::EmptyTag)?.trim().to_string();
+        let (var, filters) = parse_variable_expression(content_ref, content_start)?;
 
-        let filters: Vec<String> = parts.map(|s| s.trim().to_string()).collect();
-        let span = token.content_span_or_fallback();
-
-        Ok(Node::Variable { var, filters, span })
+        Ok(Node::Variable {
+            var,
+            filters,
+            span: content_span,
+        })
     }
 
     #[inline]
@@ -252,6 +256,182 @@ impl Parser {
             self.consume()?;
         }
         Ok(())
+    }
+}
+
+/// Parse a variable expression like `value|default:'nothing'|title`.
+///
+/// Uses a single-pass quote-aware scanner to correctly handle:
+/// - `{{ x|default:"a|b" }}` — pipe inside quotes is NOT a filter separator
+/// - `{{ x|default:'value:with:colons' }}` — colons inside quotes are argument content
+/// - `{{ x | filter1 | filter2 }}` — whitespace around pipes
+/// - `{{x|filter}}` — no whitespace
+///
+/// Returns (`variable_name`, filters) with byte-accurate spans.
+fn parse_variable_expression(
+    content: &str,
+    content_start: u32,
+) -> Result<(String, Vec<Filter>), ParseError> {
+    let scanner = VariableScanner::new(content, content_start);
+    scanner.parse()
+}
+
+struct VariableScanner<'a> {
+    content: &'a str,
+    content_start: u32,
+    bytes: &'a [u8],
+    pos: usize,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum QuoteState {
+    None,
+    Single,
+    Double,
+}
+
+impl<'a> VariableScanner<'a> {
+    fn new(content: &'a str, content_start: u32) -> Self {
+        Self {
+            content,
+            content_start,
+            bytes: content.as_bytes(),
+            pos: 0,
+        }
+    }
+
+    fn parse(mut self) -> Result<(String, Vec<Filter>), ParseError> {
+        self.skip_whitespace();
+        let var_start = self.pos;
+
+        let var_end = self.scan_until_unquoted_pipe();
+        let var = self.content[var_start..var_end].trim().to_string();
+
+        if var.is_empty() {
+            return Err(ParseError::EmptyTag);
+        }
+
+        let mut filters = Vec::new();
+
+        while self.pos < self.bytes.len() {
+            debug_assert_eq!(self.bytes[self.pos], b'|');
+            self.pos += 1;
+
+            self.skip_whitespace();
+
+            if self.pos >= self.bytes.len() {
+                break;
+            }
+
+            if let Some(filter) = self.parse_single_filter() {
+                filters.push(filter);
+            }
+        }
+
+        Ok((var, filters))
+    }
+
+    fn parse_single_filter(&mut self) -> Option<Filter> {
+        let filter_byte_start = self.pos;
+
+        let name_start = self.pos;
+        while self.pos < self.bytes.len() {
+            let b = self.bytes[self.pos];
+            if b == b':' || b == b'|' || b.is_ascii_whitespace() {
+                break;
+            }
+            self.pos += 1;
+        }
+        let name = self.content[name_start..self.pos].to_string();
+
+        if name.is_empty() {
+            self.scan_until_unquoted_pipe();
+            return None;
+        }
+
+        self.skip_whitespace();
+
+        let arg = if self.pos < self.bytes.len() && self.bytes[self.pos] == b':' {
+            self.pos += 1;
+            let arg_raw_start = self.pos;
+
+            let arg_raw_end = self.scan_until_unquoted_pipe();
+            let arg_raw = &self.content[arg_raw_start..arg_raw_end];
+
+            let leading_ws = arg_raw.len() - arg_raw.trim_start().len();
+            let trailing_ws = arg_raw.len() - arg_raw.trim_end().len();
+            let arg_trimmed_start = arg_raw_start + leading_ws;
+            let arg_trimmed_end = arg_raw_end - trailing_ws;
+
+            let arg_value = arg_raw.trim().to_string();
+
+            if arg_value.is_empty() {
+                None
+            } else {
+                #[allow(clippy::cast_possible_truncation)]
+                let arg_span_start = self.content_start + arg_trimmed_start as u32;
+                #[allow(clippy::cast_possible_truncation)]
+                let arg_span_len = (arg_trimmed_end - arg_trimmed_start) as u32;
+
+                Some(FilterArg {
+                    value: arg_value,
+                    span: Span::new(arg_span_start, arg_span_len),
+                })
+            }
+        } else {
+            self.scan_until_unquoted_pipe();
+            None
+        };
+
+        let filter_byte_end = self.pos;
+        let trimmed_content = self.content[filter_byte_start..filter_byte_end].trim_end();
+        #[allow(clippy::cast_possible_truncation)]
+        let filter_start = self.content_start + filter_byte_start as u32;
+        #[allow(clippy::cast_possible_truncation)]
+        let filter_len = trimmed_content.len() as u32;
+        let filter_span = Span::new(filter_start, filter_len);
+
+        Some(Filter {
+            name,
+            arg,
+            span: filter_span,
+        })
+    }
+
+    fn scan_until_unquoted_pipe(&mut self) -> usize {
+        let mut quote_state = QuoteState::None;
+
+        while self.pos < self.bytes.len() {
+            let b = self.bytes[self.pos];
+
+            if quote_state != QuoteState::None && b == b'\\' {
+                self.pos += 1;
+                if self.pos < self.bytes.len() {
+                    self.pos += 1;
+                }
+                continue;
+            }
+
+            match (quote_state, b) {
+                (QuoteState::None, b'\'') => quote_state = QuoteState::Single,
+                (QuoteState::None, b'"') => quote_state = QuoteState::Double,
+                (QuoteState::Single, b'\'') | (QuoteState::Double, b'"') => {
+                    quote_state = QuoteState::None;
+                }
+                (QuoteState::None, b'|') => return self.pos,
+                _ => {}
+            }
+
+            self.pos += 1;
+        }
+
+        self.pos
+    }
+
+    fn skip_whitespace(&mut self) {
+        while self.pos < self.bytes.len() && self.bytes[self.pos].is_ascii_whitespace() {
+            self.pos += 1;
+        }
     }
 }
 
@@ -331,6 +511,14 @@ mod tests {
     }
 
     #[derive(Debug, Clone, PartialEq, Serialize)]
+    struct TestFilter {
+        name: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        arg: Option<String>,
+        span: (u32, u32),
+    }
+
+    #[derive(Debug, Clone, PartialEq, Serialize)]
     #[serde(tag = "type")]
     enum TestNode {
         Tag {
@@ -350,7 +538,7 @@ mod tests {
         },
         Variable {
             var: String,
-            filters: Vec<String>,
+            filters: Vec<TestFilter>,
             span: (u32, u32),
             full_span: (u32, u32),
         },
@@ -381,7 +569,14 @@ mod tests {
                 },
                 Node::Variable { var, filters, span } => TestNode::Variable {
                     var: var.clone(),
-                    filters: filters.clone(),
+                    filters: filters
+                        .iter()
+                        .map(|f| TestFilter {
+                            name: f.name.clone(),
+                            arg: f.arg.as_ref().map(|a| a.value.clone()),
+                            span: f.span.into(),
+                        })
+                        .collect(),
                     span: span.into(),
                     full_span: node.full_span().into(),
                 },
@@ -721,6 +916,138 @@ mod tests {
 </html>"#
                 .to_string();
             let nodelist = parse_test_template(&source);
+            let test_nodelist = convert_nodelist_for_testing(&nodelist);
+            insta::assert_yaml_snapshot!(test_nodelist);
+        }
+    }
+
+    mod filters {
+        use super::*;
+
+        #[test]
+        fn test_pipe_inside_double_quotes() {
+            let source = r#"{{ x|default:"a|b" }}"#;
+            let nodelist = parse_test_template(source);
+            let test_nodelist = convert_nodelist_for_testing(&nodelist);
+            insta::assert_yaml_snapshot!(test_nodelist);
+        }
+
+        #[test]
+        fn test_pipe_inside_single_quotes() {
+            let source = "{{ x|default:'a|b|c' }}";
+            let nodelist = parse_test_template(source);
+            let test_nodelist = convert_nodelist_for_testing(&nodelist);
+            insta::assert_yaml_snapshot!(test_nodelist);
+        }
+
+        #[test]
+        fn test_colon_inside_quotes() {
+            let source = r#"{{ x|date:"H:i:s" }}"#;
+            let nodelist = parse_test_template(source);
+            let test_nodelist = convert_nodelist_for_testing(&nodelist);
+            insta::assert_yaml_snapshot!(test_nodelist);
+        }
+
+        #[test]
+        fn test_whitespace_around_pipes() {
+            let source = "{{ value | filter1 | filter2 }}";
+            let nodelist = parse_test_template(source);
+            let test_nodelist = convert_nodelist_for_testing(&nodelist);
+            insta::assert_yaml_snapshot!(test_nodelist);
+        }
+
+        #[test]
+        fn test_no_whitespace() {
+            let source = "{{value|filter1|filter2}}";
+            let nodelist = parse_test_template(source);
+            let test_nodelist = convert_nodelist_for_testing(&nodelist);
+            insta::assert_yaml_snapshot!(test_nodelist);
+        }
+
+        #[test]
+        fn test_trailing_pipe() {
+            let source = "{{ value| }}";
+            let nodelist = parse_test_template(source);
+            let test_nodelist = convert_nodelist_for_testing(&nodelist);
+            insta::assert_yaml_snapshot!(test_nodelist);
+        }
+
+        #[test]
+        fn test_empty_between_pipes() {
+            let source = "{{ value||filter }}";
+            let nodelist = parse_test_template(source);
+            let test_nodelist = convert_nodelist_for_testing(&nodelist);
+            insta::assert_yaml_snapshot!(test_nodelist);
+        }
+
+        #[test]
+        fn test_filter_span_accuracy() {
+            let source = "{{ v|ab|cd:x }}";
+            let nodelist = parse_test_template(source);
+            let test_nodelist = convert_nodelist_for_testing(&nodelist);
+            insta::assert_yaml_snapshot!(test_nodelist);
+        }
+
+        #[test]
+        fn test_filter_with_variable_arg() {
+            let source = "{{ value|default:other_var }}";
+            let nodelist = parse_test_template(source);
+            let test_nodelist = convert_nodelist_for_testing(&nodelist);
+            insta::assert_yaml_snapshot!(test_nodelist);
+        }
+
+        #[test]
+        fn test_filter_with_numeric_arg() {
+            let source = "{{ value|truncatewords:30 }}";
+            let nodelist = parse_test_template(source);
+            let test_nodelist = convert_nodelist_for_testing(&nodelist);
+            insta::assert_yaml_snapshot!(test_nodelist);
+        }
+
+        #[test]
+        fn test_filter_arg_whitespace_after_colon() {
+            let source = "{{ x|default: 'value' }}";
+            let nodelist = parse_test_template(source);
+            let test_nodelist = convert_nodelist_for_testing(&nodelist);
+            insta::assert_yaml_snapshot!(test_nodelist);
+        }
+
+        #[test]
+        fn test_complex_chain() {
+            let source = r#"{{ value|default:"N/A"|title|truncatewords:5 }}"#;
+            let nodelist = parse_test_template(source);
+            let test_nodelist = convert_nodelist_for_testing(&nodelist);
+            insta::assert_yaml_snapshot!(test_nodelist);
+        }
+
+        #[test]
+        fn test_escaped_quote_in_double_quotes() {
+            let source = r#"{{ x|default:"say \"hello\"" }}"#;
+            let nodelist = parse_test_template(source);
+            let test_nodelist = convert_nodelist_for_testing(&nodelist);
+            insta::assert_yaml_snapshot!(test_nodelist);
+        }
+
+        #[test]
+        fn test_escaped_quote_in_single_quotes() {
+            let source = r"{{ x|default:'it\'s fine' }}";
+            let nodelist = parse_test_template(source);
+            let test_nodelist = convert_nodelist_for_testing(&nodelist);
+            insta::assert_yaml_snapshot!(test_nodelist);
+        }
+
+        #[test]
+        fn test_escaped_backslash() {
+            let source = r#"{{ x|default:"path\\to\\file" }}"#;
+            let nodelist = parse_test_template(source);
+            let test_nodelist = convert_nodelist_for_testing(&nodelist);
+            insta::assert_yaml_snapshot!(test_nodelist);
+        }
+
+        #[test]
+        fn test_escaped_pipe_in_quotes() {
+            let source = r#"{{ x|default:"a\""|upper }}"#;
+            let nodelist = parse_test_template(source);
             let test_nodelist = convert_nodelist_for_testing(&nodelist);
             insta::assert_yaml_snapshot!(test_nodelist);
         }

@@ -258,6 +258,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn test_block_tree_building() {
         let db = TestDatabase::new();
 
@@ -294,6 +295,14 @@ mod tests {
                 nodes: Vec<NodeView>,
             }
             #[derive(serde::Serialize)]
+            struct FilterView {
+                name: String,
+                #[serde(skip_serializing_if = "Option::is_none")]
+                arg: Option<String>,
+                span: Span,
+            }
+
+            #[derive(serde::Serialize)]
             #[serde(tag = "kind")]
             enum NodeView {
                 Tag {
@@ -303,7 +312,7 @@ mod tests {
                 },
                 Variable {
                     var: String,
-                    filters: Vec<String>,
+                    filters: Vec<FilterView>,
                     span: Span,
                 },
                 Comment {
@@ -331,7 +340,14 @@ mod tests {
                     },
                     Node::Variable { var, filters, span } => NodeView::Variable {
                         var: var.clone(),
-                        filters: filters.clone(),
+                        filters: filters
+                            .iter()
+                            .map(|f| FilterView {
+                                name: f.name.clone(),
+                                arg: f.arg.as_ref().map(|a| a.value.clone()),
+                                span: f.span,
+                            })
+                            .collect(),
                         span: *span,
                     },
                     Node::Comment { content, span } => NodeView::Comment {

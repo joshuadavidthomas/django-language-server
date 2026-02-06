@@ -4,24 +4,16 @@ expression: test_nodelist
 ---
 nodelist:
   - type: Variable
-    var: value
+    var: x
     filters:
       - name: default
-        arg: "'nothing'"
+        arg: "'a|b|c'"
         span:
-          - 9
-          - 17
-      - name: title
-        span:
-          - 27
           - 5
-      - name: upper
-        span:
-          - 33
-          - 5
+          - 15
     span:
       - 2
-      - 37
+      - 19
     full_span:
       - 0
-      - 41
+      - 23

@@ -1,6 +1,7 @@
 use djls_source::File;
 use djls_source::Offset;
 use djls_source::Span;
+use djls_templates::Filter;
 use djls_templates::parse_template;
 use djls_templates::Node;
 
@@ -22,7 +23,7 @@ pub(crate) enum OffsetContext {
     },
     Variable {
         name: String,
-        filters: Vec<String>,
+        filters: Vec<Filter>,
         span: Span,
     },
     Comment {
@@ -130,7 +131,11 @@ mod tests {
             },
             OffsetContext::Variable {
                 name: "user".to_string(),
-                filters: vec!["title".to_string()],
+                filters: vec![Filter {
+                    name: "title".to_string(),
+                    arg: None,
+                    span: Span::new(0, 5),
+                }],
                 span: Span::new(0, 10),
             },
             OffsetContext::Comment {

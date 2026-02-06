@@ -188,19 +188,19 @@
 
 **Goal:** Transform `filters: Vec<String>` → `Vec<Filter>` with name/arg/span in the parser, updating all downstream consumers.
 
-- [ ] Add `Filter` and `FilterArg` structs in `crates/djls-templates/src/nodelist.rs` with `name`, `arg`, `span` fields
-- [ ] Change `Node::Variable { filters: Vec<String> }` to `Node::Variable { filters: Vec<Filter> }` in `crates/djls-templates/src/nodelist.rs`
-- [ ] Implement quote-aware `VariableScanner` in `crates/djls-templates/src/parser.rs` — handles `|` inside quotes, escape sequences, whitespace
-- [ ] Rewrite `parse_variable()` to use `VariableScanner` producing `Vec<Filter>` with byte-accurate spans
-- [ ] Export `Filter` and `FilterArg` from `crates/djls-templates/src/lib.rs`
-- [ ] Update `NodeView::Variable` in `crates/djls-semantic/src/blocks/tree.rs` to use `Vec<djls_templates::Filter>`
-- [ ] Update pattern matches in `crates/djls-semantic/src/blocks/builder.rs`
-- [ ] Update `OffsetContext::Variable` in `crates/djls-ide/src/context.rs` to use `Vec<djls_templates::Filter>`
-- [ ] Update `TestNode::Variable` and `convert_nodelist_for_testing` in parser tests to serialize structured filters
-- [ ] Update all existing snapshot files affected by the filter format change
-- [ ] Add parser tests: pipe inside double quotes, pipe inside single quotes, colon inside quotes, whitespace around pipes, no whitespace, trailing pipe, empty between pipes, filter span accuracy, variable arg, numeric arg, complex chain
-- [ ] Add parser tests for escape sequences: escaped quote in double quotes, escaped quote in single quotes, escaped backslash, escaped pipe in quotes
-- [ ] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Add `Filter` and `FilterArg` structs in `crates/djls-templates/src/nodelist.rs` with `name`, `arg`, `span` fields
+- [x] Change `Node::Variable { filters: Vec<String> }` to `Node::Variable { filters: Vec<Filter> }` in `crates/djls-templates/src/nodelist.rs`
+- [x] Implement quote-aware `VariableScanner` in `crates/djls-templates/src/parser.rs` — handles `|` inside quotes, escape sequences, whitespace
+- [x] Rewrite `parse_variable()` to use `VariableScanner` producing `Vec<Filter>` with byte-accurate spans
+- [x] Export `Filter` and `FilterArg` from `crates/djls-templates/src/lib.rs`
+- [x] Update `NodeView::Variable` in `crates/djls-semantic/src/blocks/tree.rs` to use `Vec<djls_templates::Filter>`
+- [x] Update pattern matches in `crates/djls-semantic/src/blocks/builder.rs` (no change needed — uses `Node::Variable { span, .. }`)
+- [x] Update `OffsetContext::Variable` in `crates/djls-ide/src/context.rs` to use `Vec<djls_templates::Filter>`
+- [x] Update `TestNode::Variable` and `convert_nodelist_for_testing` in parser tests to serialize structured filters
+- [x] Update all existing snapshot files affected by the filter format change (4 snapshots updated)
+- [x] Add parser tests: pipe inside double quotes, pipe inside single quotes, colon inside quotes, whitespace around pipes, no whitespace, trailing pipe, empty between pipes, filter span accuracy, variable arg, numeric arg, complex chain
+- [x] Add parser tests for escape sequences: escaped quote in double quotes, escaped quote in single quotes, escaped backslash, escaped pipe in quotes
+- [x] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 3: Filter Completions
 
@@ -275,3 +275,5 @@ _Tasks to be expanded when M6 is complete._
 - M4: `InspectorInventory` replaces `TemplateTags` as the Project input field type. `TemplateTags` still exists but is only used by the legacy `templatetags` tracked query. All downstream code (completions, load resolution, semantic db trait) now uses `InspectorInventory`.
 - M4: `refresh_inspector()` now uses the unified `TemplateInventoryRequest` ("template_inventory" query) which returns both tags and filters in a single IPC round trip.
 - M4: Server completion handler reads from `db.inspector_inventory()` (SemanticDb trait method) instead of calling `djls_project::templatetags()` directly.
+- M4: `Node::Variable { filters }` changed from `Vec<String>` to `Vec<Filter>`. `Filter` has `name: String`, `arg: Option<FilterArg>`, `span: Span`. The `VariableScanner` is quote-aware — pipes inside `'...'` or `"..."` are not treated as filter separators.
+- M4: `blocks/builder.rs` only pattern-matches `Node::Variable { span, .. }` — no code change needed for the filter type change.

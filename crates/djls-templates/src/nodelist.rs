@@ -3,6 +3,34 @@ use djls_source::Span;
 use crate::parser::ParseError;
 use crate::tokens::TagDelimiter;
 
+/// A parsed filter in a variable expression.
+///
+/// Represents `|filter_name:arg` in `{{ var|filter_name:arg }}`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Filter {
+    pub name: String,
+    pub arg: Option<FilterArg>,
+    pub span: Span,
+}
+
+impl Filter {
+    /// Span of just the filter name.
+    #[must_use]
+    pub fn name_span(&self) -> Span {
+        self.span.with_length_usize_saturating(self.name.len())
+    }
+}
+
+/// A filter argument.
+///
+/// The value is stored as the raw string from the template, including quotes.
+/// E.g., for `|default:'nothing'`, the value is `'nothing'` (with quotes).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FilterArg {
+    pub value: String,
+    pub span: Span,
+}
+
 #[salsa::tracked(debug)]
 pub struct NodeList<'db> {
     #[tracked]
@@ -26,7 +54,7 @@ pub enum Node {
     },
     Variable {
         var: String,
-        filters: Vec<String>,
+        filters: Vec<Filter>,
         span: Span,
     },
     Error {
