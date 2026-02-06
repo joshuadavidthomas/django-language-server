@@ -163,6 +163,30 @@ Use `/dex` to break down complex work, track progress across sessions, and coord
 - NEVER look for worktree files in `worktrees/` without the full worktree name (e.g., NOT `worktrees/AGENTS.md`)
 - When running commands from worktree root, use relative paths without changing directory
 
+## Template Validation Architecture (M8+)
+
+### Extraction-Based Validation
+After M8, template tag validation uses **extracted rules from Python AST**, not hand-crafted `args`:
+
+- **Validation rules** come from `ExtractedRule` conditions mined by `djls-extraction` (Ruff AST)
+- **`TagSpec.args`** is used ONLY for completions/snippets (populated from extraction via `populate_args_from_extraction`)
+- **`builtins.rs`** contains only structural info (end tags, intermediates, module, opaque) — all `args` arrays are empty
+- **`validate_argument_order()`** is preserved ONLY for user-config-defined args (escape hatch), not used for builtins
+
+### Key Types
+- `ExtractedRule` in `djls-extraction` — validation conditions from Python source
+- `TagSpec.extracted_rules` — storage for extracted rules
+- `rule_evaluation::evaluate_extracted_rules()` — evaluates rules against template bits
+- S117 `ExtractedRuleViolation` — diagnostic from extracted rule violation
+
+### Index Offset Critical Detail
+Extraction indices INCLUDE the tag name (index 0 = tag name). Parser `bits` EXCLUDE the tag name.
+Evaluator adjusts: extraction index N → `bits[N-1]`.
+
+### MaxArgCount Semantics
+`MaxArgCount { max: 3 }` with message "at least four words" means error when `split_len <= 3`.
+The "max" is the THRESHOLD that triggers the error (from Django's `if len(bits) < 4` guard).
+
 ## Documentation Access Patterns
 - For `djls-templates` crate API questions, check documentation first:
   - `crates/djls-templates/README.md` for parser usage examples
