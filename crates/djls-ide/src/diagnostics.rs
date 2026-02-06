@@ -71,7 +71,9 @@ impl DiagnosticError for ValidationError {
             | ValidationError::UnknownFilter { span, .. }
             | ValidationError::UnloadedFilter { span, .. }
             | ValidationError::AmbiguousUnloadedFilter { span, .. }
-            | ValidationError::ExpressionSyntaxError { span, .. } => Some(span.into()),
+            | ValidationError::ExpressionSyntaxError { span, .. }
+            | ValidationError::FilterMissingArgument { span, .. }
+            | ValidationError::FilterUnexpectedArgument { span, .. } => Some(span.into()),
         }
     }
 
@@ -93,6 +95,8 @@ impl DiagnosticError for ValidationError {
             ValidationError::UnloadedFilter { .. } => "S112",
             ValidationError::AmbiguousUnloadedFilter { .. } => "S113",
             ValidationError::ExpressionSyntaxError { .. } => "S114",
+            ValidationError::FilterMissingArgument { .. } => "S115",
+            ValidationError::FilterUnexpectedArgument { .. } => "S116",
         }
     }
 }

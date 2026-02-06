@@ -516,6 +516,10 @@ mod tests {
         fn inspector_inventory(&self) -> Option<djls_project::TemplateTags> {
             None
         }
+
+        fn filter_arity_specs(&self) -> crate::filter_arity::FilterAritySpecs {
+            crate::filter_arity::FilterAritySpecs::new()
+        }
     }
 
     fn collect_expression_errors(db: &TestDatabase, source: &str) -> Vec<ValidationError> {

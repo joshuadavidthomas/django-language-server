@@ -64,6 +64,27 @@ pub fn compute_tag_index(db: &dyn SemanticDb, project: Project) -> TagIndex<'_> 
     TagIndex::from_tag_specs(db, &specs)
 }
 
+/// Compute `FilterAritySpecs` from a project's extraction results.
+///
+/// Reads `project.extracted_external_rules(db)` to establish Salsa dependencies.
+/// Merges all filter arity data from extraction results, with last-wins
+/// semantics for name collisions (matching Django's builtin ordering).
+#[salsa::tracked]
+pub fn compute_filter_arity_specs(
+    db: &dyn SemanticDb,
+    project: Project,
+) -> djls_semantic::FilterAritySpecs {
+    let extracted = project.extracted_external_rules(db);
+
+    let mut specs = djls_semantic::FilterAritySpecs::new();
+
+    if let Some(extraction) = extracted {
+        specs.merge_extraction_result(extraction);
+    }
+
+    specs
+}
+
 /// Extract validation rules from a Python registration module file.
 ///
 /// This tracked function depends on `file.source(db)`, so editing the file
@@ -534,6 +555,14 @@ impl SemanticDb for DjangoDatabase {
     fn inspector_inventory(&self) -> Option<TemplateTags> {
         self.project()
             .and_then(|project| project.inspector_inventory(self).clone())
+    }
+
+    fn filter_arity_specs(&self) -> djls_semantic::FilterAritySpecs {
+        if let Some(project) = self.project() {
+            compute_filter_arity_specs(self, project)
+        } else {
+            djls_semantic::FilterAritySpecs::new()
+        }
     }
 }
 

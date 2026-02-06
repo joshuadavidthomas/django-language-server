@@ -125,6 +125,10 @@ mod tests {
         fn inspector_inventory(&self) -> Option<djls_project::TemplateTags> {
             None
         }
+
+        fn filter_arity_specs(&self) -> crate::filter_arity::FilterAritySpecs {
+            crate::filter_arity::FilterAritySpecs::new()
+        }
     }
 
     fn parse_and_compute(db: &TestDatabase, source: &str) -> LoadedLibraries {

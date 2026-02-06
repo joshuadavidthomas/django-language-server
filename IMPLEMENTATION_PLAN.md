@@ -346,17 +346,17 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ### Phase 3: Filter Arity Validation
 
-- [ ] Create `FilterAritySpecs` type (map from filter name → `FilterArity`) in `crates/djls-semantic/src/`
-- [ ] Implement `compute_filter_arity_specs(db, project) -> FilterAritySpecs` tracked query: merge extraction results' `filter_arities` map, resolve builtin filters with "last wins" semantics
-- [ ] Add `filter_arity_specs()` accessor to `SemanticDb` trait and implement on `DjangoDatabase`
-- [ ] Add S115 (`FilterMissingArgument`) and S116 (`FilterUnexpectedArgument`) diagnostic codes
-- [ ] Implement `validate_filter_arity(db, nodelist)`: for each `Node::Variable` with filters, look up each filter's arity spec, compare against actual usage (has arg vs no arg)
-- [ ] Use load scoping to determine which library a filter comes from → key into extraction results via `SymbolKey`
-- [ ] Skip validation inside opaque regions, skip when inspector inventory unavailable
-- [ ] Wire `validate_filter_arity` into `validate_nodelist`
-- [ ] Update all test databases implementing `SemanticDb` to include `filter_arity_specs()` method
-- [ ] Tests: filter with required arg missing → S115, filter with unexpected arg → S116, optional arg (both ways) → no error, builtin filter "last wins" resolution, opaque region skipping, inspector unavailable → no diagnostics
-- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Create `FilterAritySpecs` type (map from filter name → `FilterArity`) in `crates/djls-semantic/src/`
+- [x] Implement `compute_filter_arity_specs(db, project) -> FilterAritySpecs` tracked query: merge extraction results' `filter_arities` map, resolve builtin filters with "last wins" semantics
+- [x] Add `filter_arity_specs()` accessor to `SemanticDb` trait and implement on `DjangoDatabase`
+- [x] Add S115 (`FilterMissingArgument`) and S116 (`FilterUnexpectedArgument`) diagnostic codes
+- [x] Implement `validate_filter_arity(db, nodelist)`: for each `Node::Variable` with filters, look up each filter's arity spec, compare against actual usage (has arg vs no arg)
+- [x] Use load scoping to determine which library a filter comes from → key into extraction results via `SymbolKey`
+- [x] Skip validation inside opaque regions, skip when inspector inventory unavailable
+- [x] Wire `validate_filter_arity` into `validate_nodelist`
+- [x] Update all test databases implementing `SemanticDb` to include `filter_arity_specs()` method
+- [x] Tests: filter with required arg missing → S115, filter with unexpected arg → S116, optional arg (both ways) → no error, builtin filter "last wins" resolution, opaque region skipping, inspector unavailable → no diagnostics
+- [x] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 4: Integration Tests
 

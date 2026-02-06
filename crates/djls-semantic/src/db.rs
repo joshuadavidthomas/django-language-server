@@ -5,6 +5,7 @@ use djls_templates::Db as TemplateDb;
 
 use crate::blocks::TagIndex;
 use crate::errors::ValidationError;
+use crate::filter_arity::FilterAritySpecs;
 use crate::templatetags::TagSpecs;
 
 #[salsa::db]
@@ -24,6 +25,12 @@ pub trait Db: TemplateDb {
     /// Returns `None` when the inspector is unavailable or hasn't been queried yet.
     /// When `None`, load-scoping diagnostics (S108/S109/S110) are suppressed entirely.
     fn inspector_inventory(&self) -> Option<TemplateTags>;
+
+    /// Get the filter arity specifications for filter argument validation.
+    ///
+    /// Built from extraction results. Returns empty specs when no extraction
+    /// data is available.
+    fn filter_arity_specs(&self) -> FilterAritySpecs;
 }
 
 #[salsa::accumulator]

@@ -2,6 +2,8 @@ mod arguments;
 mod blocks;
 mod db;
 mod errors;
+mod filter_arity;
+mod filter_validation;
 mod if_expression;
 mod load_resolution;
 mod opaque;
@@ -13,6 +15,8 @@ mod traits;
 
 use arguments::validate_all_tag_arguments;
 pub use blocks::build_block_tree;
+pub use filter_arity::FilterAritySpecs;
+use filter_validation::validate_filter_arity;
 use if_expression::validate_if_expressions;
 use opaque::compute_opaque_regions;
 pub use opaque::OpaqueRegions;
@@ -68,4 +72,5 @@ pub fn validate_nodelist(db: &dyn Db, nodelist: djls_templates::NodeList<'_>) {
     validate_tag_scoping(db, nodelist, &opaque_regions);
     validate_filter_scoping(db, nodelist, &opaque_regions);
     validate_if_expressions(db, nodelist, &opaque_regions);
+    validate_filter_arity(db, nodelist, &opaque_regions);
 }

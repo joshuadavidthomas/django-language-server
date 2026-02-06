@@ -424,6 +424,10 @@ mod tests {
         fn inspector_inventory(&self) -> Option<djls_project::TemplateTags> {
             None
         }
+
+        fn filter_arity_specs(&self) -> crate::filter_arity::FilterAritySpecs {
+            crate::filter_arity::FilterAritySpecs::new()
+        }
     }
 
     /// Test helper: Create a temporary `NodeList` with a single tag and validate it
@@ -479,6 +483,8 @@ mod tests {
                     err,
                     ValidationError::UnclosedTag { .. }
                         | ValidationError::ExpressionSyntaxError { .. }
+                        | ValidationError::FilterMissingArgument { .. }
+                        | ValidationError::FilterUnexpectedArgument { .. }
                 )
             })
             .collect()

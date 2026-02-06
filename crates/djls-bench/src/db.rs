@@ -93,4 +93,8 @@ impl SemanticDb for Db {
     fn inspector_inventory(&self) -> Option<djls_project::TemplateTags> {
         None
     }
+
+    fn filter_arity_specs(&self) -> djls_semantic::FilterAritySpecs {
+        djls_semantic::FilterAritySpecs::new()
+    }
 }
