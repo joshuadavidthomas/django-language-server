@@ -293,13 +293,13 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ### Phase 8: Small Fixture Golden Tests
 
-- [ ] Create inline Python source fixtures for registration discovery: all decorator styles, call-based registration, name keyword arg
-- [ ] Create inline fixtures for rule extraction: len checks, keyword position checks, option loop patterns
-- [ ] Create inline fixtures for block spec extraction: simple end-tag, intermediates, opaque blocks, ambiguous → None
-- [ ] Create inline fixtures for filter arity: no-arg, required-arg, optional-arg
-- [ ] Create inline fixtures for edge cases: no split_contents call, dynamic end-tags, multiple registrations
-- [ ] Use `insta` for snapshot testing where appropriate (no standalone test files — tests in `#[cfg(test)]` modules)
-- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Create inline Python source fixtures for registration discovery: all decorator styles, call-based registration, name keyword arg
+- [x] Create inline fixtures for rule extraction: len checks, keyword position checks, option loop patterns
+- [x] Create inline fixtures for block spec extraction: simple end-tag, intermediates, opaque blocks, ambiguous → None
+- [x] Create inline fixtures for filter arity: no-arg, required-arg, optional-arg
+- [x] Create inline fixtures for edge cases: no split_contents call, dynamic end-tags, multiple registrations
+- [x] Use `insta` for snapshot testing where appropriate (no standalone test files — tests in `#[cfg(test)]` modules)
+- [x] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 9: Corpus / Full-Source Extraction Tests
 

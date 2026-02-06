@@ -1,0 +1,12 @@
+---
+source: crates/djls-extraction/src/lib.rs
+expression: "snapshot(extract_rules(source, \"app.templatetags.custom\"))"
+---
+tag_rules:
+  "app.templatetags.custom::custom_tag":
+    arg_constraints:
+      - Exact: 3
+    required_keywords: []
+    known_options: ~
+filter_arities: {}
+block_specs: {}

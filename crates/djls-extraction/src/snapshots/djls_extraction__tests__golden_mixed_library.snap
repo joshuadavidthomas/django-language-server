@@ -1,0 +1,30 @@
+---
+source: crates/djls-extraction/src/lib.rs
+expression: "snapshot(extract_rules(source, \"app.templatetags.helpers\"))"
+---
+tag_rules:
+  "app.templatetags.helpers::csrf_token":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    known_options: ~
+  "app.templatetags.helpers::with":
+    arg_constraints:
+      - Min: 2
+    required_keywords: []
+    known_options: ~
+filter_arities:
+  "app.templatetags.helpers::add":
+    expects_arg: true
+    arg_optional: false
+  "app.templatetags.helpers::default_if_none":
+    expects_arg: true
+    arg_optional: true
+  "app.templatetags.helpers::length":
+    expects_arg: false
+    arg_optional: false
+block_specs:
+  "app.templatetags.helpers::with":
+    end_tag: endwith
+    intermediates: []
+    opaque: false

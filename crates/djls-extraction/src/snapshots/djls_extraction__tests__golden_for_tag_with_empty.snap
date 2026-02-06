@@ -1,0 +1,17 @@
+---
+source: crates/djls-extraction/src/lib.rs
+expression: "snapshot(extract_rules(source, \"django.template.defaulttags\"))"
+---
+tag_rules:
+  "django.template.defaulttags::for":
+    arg_constraints:
+      - Min: 4
+    required_keywords: []
+    known_options: ~
+filter_arities: {}
+block_specs:
+  "django.template.defaulttags::for":
+    end_tag: endfor
+    intermediates:
+      - empty
+    opaque: false

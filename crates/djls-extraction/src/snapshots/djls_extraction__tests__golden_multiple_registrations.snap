@@ -1,0 +1,24 @@
+---
+source: crates/djls-extraction/src/lib.rs
+expression: "snapshot(extract_rules(source, \"app.templatetags.mixed\"))"
+---
+tag_rules:
+  "app.templatetags.mixed::my_tag":
+    arg_constraints:
+      - Exact: 2
+    required_keywords: []
+    known_options: ~
+  "app.templatetags.mixed::simple_hello":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    known_options: ~
+filter_arities:
+  "app.templatetags.mixed::my_filter":
+    expects_arg: true
+    arg_optional: false
+  "app.templatetags.mixed::no_arg_filter":
+    expects_arg: false
+    arg_optional: false
+block_specs: {}

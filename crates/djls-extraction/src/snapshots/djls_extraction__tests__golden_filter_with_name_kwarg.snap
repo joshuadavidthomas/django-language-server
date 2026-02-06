@@ -1,0 +1,10 @@
+---
+source: crates/djls-extraction/src/lib.rs
+expression: "snapshot(extract_rules(source, \"app.templatetags.filters\"))"
+---
+tag_rules: {}
+filter_arities:
+  "app.templatetags.filters::cut":
+    expects_arg: true
+    arg_optional: false
+block_specs: {}
