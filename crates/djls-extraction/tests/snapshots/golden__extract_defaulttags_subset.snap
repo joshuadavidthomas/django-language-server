@@ -1,0 +1,63 @@
+---
+source: crates/djls-extraction/tests/golden.rs
+assertion_line: 8
+expression: result
+---
+tags:
+  - name: autoescape
+    decorator_kind: Tag
+    rules:
+      - condition:
+          ExactArgCount:
+            count: 2
+            negated: true
+        message: "'autoescape' tag requires exactly one argument."
+      - condition:
+          Opaque:
+            description: unrecognized comparison
+        message: "'autoescape' argument should be 'on' or 'off'"
+    block_spec:
+      end_tag: endautoescape
+      intermediate_tags: []
+      opaque: true
+  - name: if
+    decorator_kind: Tag
+    rules: []
+    block_spec:
+      end_tag: endif
+      intermediate_tags:
+        - name: elif
+          repeatable: false
+        - name: else
+          repeatable: false
+      opaque: false
+  - name: for
+    decorator_kind: Tag
+    rules:
+      - condition:
+          MaxArgCount:
+            max: 3
+        message: "'for' statements should have at least four words"
+      - condition:
+          LiteralAt:
+            index: 2
+            value: in
+            negated: true
+        message: "'for' statements should use 'for x in y'"
+    block_spec:
+      end_tag: endfor
+      intermediate_tags:
+        - name: empty
+          repeatable: false
+      opaque: false
+  - name: now
+    decorator_kind: SimpleTag
+    rules: []
+    block_spec: ~
+filters:
+  - name: title
+    arity: None
+  - name: default
+    arity: Optional
+  - name: truncatewords
+    arity: Required

@@ -322,10 +322,10 @@
 
 ### Phase 8: Small Fixture Golden Tests (Tier 1)
 
-- [ ] Create `crates/djls-extraction/tests/fixtures/defaulttags_subset.py` — subset of Django defaulttags with `args`/`parts` variable names
-- [ ] Create `crates/djls-extraction/tests/golden.rs` — golden snapshot test, autoescape `args` variable test, for tag `parts` variable test
-- [ ] Run `cargo test -q -p djls-extraction`, review snapshots with `cargo insta review`
-- [ ] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Create `crates/djls-extraction/tests/fixtures/defaulttags_subset.py` — subset of Django defaulttags with `args`/`parts` variable names
+- [x] Create `crates/djls-extraction/tests/golden.rs` — golden snapshot test, autoescape `args` variable test, for tag `parts` variable test, filter extraction test, block spec extraction test
+- [x] Run `cargo test -q -p djls-extraction`, review snapshots with `cargo insta review`
+- [x] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 9: Corpus / Full-Source Extraction Tests
 
