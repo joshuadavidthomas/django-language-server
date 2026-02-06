@@ -18,6 +18,7 @@ pub use errors::ValidationError;
 pub use load_resolution::LoadKind;
 pub use load_resolution::LoadStatement;
 pub use load_resolution::LoadedLibraries;
+pub use load_resolution::compute_loaded_libraries;
 pub use load_resolution::parse_load_bits;
 pub use primitives::Tag;
 pub use primitives::Template;

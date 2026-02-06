@@ -109,10 +109,10 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ### Phase 2: Compute LoadedLibraries from NodeList
 
-- [ ] Add `compute_loaded_libraries(db, file) → LoadedLibraries` — either as a tracked Salsa query or a standalone function that iterates all nodes in a file's nodelist, identifies `Node::Tag { name: "load" }`, parses each into a `LoadStatement`, returns ordered `LoadedLibraries`
-- [ ] Wire into the Salsa dependency graph so results are cached per file revision
-- [ ] Tests: given a nodelist with load tags at various positions, verify `LoadedLibraries` is correctly constructed and position queries return expected results
-- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Add `compute_loaded_libraries(db, nodelist) → LoadedLibraries` as a `#[salsa::tracked]` function that iterates all nodes in a nodelist, identifies `Node::Tag { name: "load" }`, parses each into a `LoadStatement`, returns ordered `LoadedLibraries`
+- [x] Wire into the Salsa dependency graph so results are cached per file revision (tracked function on NodeList, which depends on File revision)
+- [x] Tests: given a nodelist with load tags at various positions, verify `LoadedLibraries` is correctly constructed and position queries return expected results
+- [x] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 3: Available Symbols Query
 
@@ -193,3 +193,4 @@ _Tasks to be expanded when M6 is complete._
 - **M2 Phase 2 complete**: `set_settings` now delegates to `update_project_from_settings` + `refresh_inspector` when a project exists, keeping Salsa identity stable. No more `Project::new` recreation on config changes.
 - **M2 Phase 3**: `TagSpecs` needed `PartialEq` derive for Salsa tracked function return type memoization. Refactored `From<&Settings> for TagSpecs` to delegate to new `TagSpecs::from_config_def`. Added `TagIndex::from_tag_specs` to build index from explicit specs without going through `db.tag_specs()` trait method.
 - **M2 Phase 4**: Salsa's "backdate" optimization means `compute_tag_index` won't re-execute if `compute_tag_specs` returns the same value even after input changes. Tests must use `TagSpecDef` with actual tags to produce distinct `TagSpecs` output. Also, `Interpreter::discover(None)` reads real `$VIRTUAL_ENV` in non-test crates — test projects must match by using `Interpreter::discover()` rather than hardcoding `Auto`.
+- **M3 Phase 2**: `Node::Tag.bits` does NOT include the tag name — the parser separates `name` and `bits`. So for `{% load i18n %}`, `name == "load"` and `bits == ["i18n"]`. Fixed `parse_load_bits` to accept argument-only bits (no "load" prefix).

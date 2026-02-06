@@ -41,33 +41,30 @@ impl LoadStatement {
 
 /// Parse the `bits` from a `Node::Tag` where `name == "load"` into a `LoadKind`.
 ///
-/// Returns `None` if the bits are empty, don't start with `"load"`, or are
-/// otherwise malformed (e.g. `{% load from %}` with no symbols).
+/// The `bits` slice contains only the arguments to the load tag — the tag name
+/// "load" is NOT included (the parser separates it into `Node::Tag::name`).
+///
+/// Returns `None` if the bits are empty or malformed (e.g. `{% load from %}`
+/// with no symbols, or `{% load trans from %}` with no library).
 ///
 /// # Examples
 ///
-/// - `["load", "i18n"]` → `FullLoad { libraries: ["i18n"] }`
-/// - `["load", "i18n", "static"]` → `FullLoad { libraries: ["i18n", "static"] }`
-/// - `["load", "trans", "from", "i18n"]` → `SelectiveImport { symbols: ["trans"], library: "i18n" }`
-/// - `["load", "trans", "blocktrans", "from", "i18n"]` → `SelectiveImport { symbols: ["trans", "blocktrans"], library: "i18n" }`
+/// - `["i18n"]` → `FullLoad { libraries: ["i18n"] }`
+/// - `["i18n", "static"]` → `FullLoad { libraries: ["i18n", "static"] }`
+/// - `["trans", "from", "i18n"]` → `SelectiveImport { symbols: ["trans"], library: "i18n" }`
+/// - `["trans", "blocktrans", "from", "i18n"]` → `SelectiveImport { symbols: ["trans", "blocktrans"], library: "i18n" }`
 #[must_use]
 pub fn parse_load_bits(bits: &[String]) -> Option<LoadKind> {
-    // bits[0] is the tag name "load"
-    if bits.is_empty() || bits[0] != "load" {
+    if bits.is_empty() {
         return None;
     }
 
-    let payload = &bits[1..];
-    if payload.is_empty() {
-        return None;
-    }
-
-    let from_idx = payload.iter().position(|b| b == "from");
+    let from_idx = bits.iter().position(|b| b == "from");
 
     match from_idx {
         Some(idx) => {
-            let symbols: Vec<String> = payload[..idx].to_vec();
-            let rest = &payload[idx + 1..];
+            let symbols: Vec<String> = bits[..idx].to_vec();
+            let rest = &bits[idx + 1..];
 
             // Must have at least one symbol and exactly one library after "from"
             if symbols.is_empty() || rest.len() != 1 {
@@ -80,7 +77,7 @@ pub fn parse_load_bits(bits: &[String]) -> Option<LoadKind> {
             })
         }
         None => Some(LoadKind::FullLoad {
-            libraries: payload.to_vec(),
+            libraries: bits.to_vec(),
         }),
     }
 }
@@ -198,7 +195,7 @@ mod tests {
 
     #[test]
     fn parse_full_load_single() {
-        let result = parse_load_bits(&bits("load i18n"));
+        let result = parse_load_bits(&bits("i18n"));
         assert_eq!(
             result,
             Some(LoadKind::FullLoad {
@@ -209,7 +206,7 @@ mod tests {
 
     #[test]
     fn parse_full_load_multiple() {
-        let result = parse_load_bits(&bits("load i18n static"));
+        let result = parse_load_bits(&bits("i18n static"));
         assert_eq!(
             result,
             Some(LoadKind::FullLoad {
@@ -220,7 +217,7 @@ mod tests {
 
     #[test]
     fn parse_selective_import_single() {
-        let result = parse_load_bits(&bits("load trans from i18n"));
+        let result = parse_load_bits(&bits("trans from i18n"));
         assert_eq!(
             result,
             Some(LoadKind::SelectiveImport {
@@ -232,7 +229,7 @@ mod tests {
 
     #[test]
     fn parse_selective_import_multiple() {
-        let result = parse_load_bits(&bits("load trans blocktrans from i18n"));
+        let result = parse_load_bits(&bits("trans blocktrans from i18n"));
         assert_eq!(
             result,
             Some(LoadKind::SelectiveImport {
@@ -248,31 +245,21 @@ mod tests {
     }
 
     #[test]
-    fn parse_not_load_tag() {
-        assert_eq!(parse_load_bits(&bits("if condition")), None);
-    }
-
-    #[test]
-    fn parse_load_no_args() {
-        assert_eq!(parse_load_bits(&bits("load")), None);
-    }
-
-    #[test]
     fn parse_load_from_no_symbols() {
-        // {% load from i18n %} — no symbols before "from"
-        assert_eq!(parse_load_bits(&bits("load from i18n")), None);
+        // {% load from i18n %} — "from" at index 0 means no symbols before it
+        assert_eq!(parse_load_bits(&bits("from i18n")), None);
     }
 
     #[test]
     fn parse_load_from_no_library() {
         // {% load trans from %} — missing library after "from"
-        assert_eq!(parse_load_bits(&bits("load trans from")), None);
+        assert_eq!(parse_load_bits(&bits("trans from")), None);
     }
 
     #[test]
     fn parse_load_from_multiple_libraries() {
         // {% load trans from i18n static %} — too many tokens after "from"
-        assert_eq!(parse_load_bits(&bits("load trans from i18n static")), None);
+        assert_eq!(parse_load_bits(&bits("trans from i18n static")), None);
     }
 
     // --- LoadedLibraries tests ---
