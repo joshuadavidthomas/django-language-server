@@ -40,6 +40,7 @@ mod types;
 
 pub use error::ExtractionError;
 pub use types::BlockTagSpec;
+pub use types::ComparisonOp;
 pub use types::DecoratorKind;
 pub use types::ExtractedArg;
 pub use types::ExtractedArgKind;

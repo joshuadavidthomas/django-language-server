@@ -89,4 +89,11 @@ pub enum ValidationError {
         libraries: Vec<String>,
         span: Span,
     },
+
+    #[error("{message}")]
+    ExtractedRuleViolation {
+        tag: String,
+        message: String,
+        span: Span,
+    },
 }

@@ -963,18 +963,36 @@ Add `ExtractedArg` types and extract argument structure from Python AST. For `si
 
 ### Phase 2: Build Extracted Rule Evaluator in `djls-semantic`
 
-**Status:** 🔲 Not Started
+**Status:** ✅ Complete
 
-Build the function that evaluates `ExtractedRule` conditions against template tag bits. Follow the `filter_arity.rs` pattern.
+Build the function that evaluates `ExtractedRule` conditions against template tag bits.
 
-**Tasks:**
-- [ ] Create `rule_evaluation.rs` module with `evaluate_extracted_rules()` function
-- [ ] Handle all `RuleCondition` variants with correct index offset (N → bits[N-1])
-- [ ] Implement negation semantics (negated = error when condition NOT met)
-- [ ] Add `ExtractedRuleViolation` error variant (S117) in `errors.rs`
-- [ ] Add diagnostic code S117 in `diagnostics.rs`
-- [ ] Unit tests for each `RuleCondition` variant
-- [ ] Quality checks pass
+**Changes:**
+- Created `rule_evaluation.rs` module with `evaluate_extracted_rules()` function
+- Implemented all `RuleCondition` variant evaluations:
+  - `ExactArgCount` - with correct negation handling
+  - `ArgCountComparison` - all comparison operators (Lt, LtEq, Gt, GtEq)
+  - `MinArgCount` / `MaxArgCount` - for min/max bounds
+  - `LiteralAt` - position-based literal matching with index offset
+  - `ChoiceAt` - choice selection validation with index offset
+  - `ContainsLiteral` - membership checking
+  - `Opaque` - silently skipped (no validation)
+- Implemented correct index offset: extraction index N → bits[N-1]
+- Implemented negation semantics: `negated: true` = error when condition NOT met
+- Added `ExtractedRuleViolation` error variant (S117) in `errors.rs`
+- Added diagnostic code S117 in `diagnostics.rs`
+- Exported `ComparisonOp` from `djls-extraction` for use in semantic crate
+- Added comprehensive unit tests (16 tests covering all variants)
+
+**Quality Checks:**
+- [x] `cargo test -p djls-semantic rule_evaluation` passes (16 tests)
+- [x] `cargo test` passes (366 tests)
+- [x] `cargo clippy --all-targets --all-features -- -D warnings` passes
+
+**Discoveries:**
+- Used `is_some_and()` instead of `map_or(false, ...)` per clippy recommendation
+- Filter representation in test snapshots needed a `FilterView` wrapper to avoid serde issues
+- MaxArgCount semantics are inverted - `MaxArgCount{max:3}` means "error when split_len <= 3"
 
 ### Phase 3: Wire Evaluator into Validation Pipeline
 
