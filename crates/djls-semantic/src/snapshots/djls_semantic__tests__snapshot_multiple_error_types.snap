@@ -1,0 +1,30 @@
+---
+source: crates/djls-semantic/src/lib.rs
+expression: errors
+---
+- FilterUnexpectedArgument:
+    filter: title
+    span:
+      start: 9
+      length: 16
+- ExpressionSyntaxError:
+    tag: if
+    message: "Not expecting '==' in this position in if tag."
+    span:
+      start: 29
+      length: 18
+- FilterUnexpectedArgument:
+    filter: lower
+    span:
+      start: 70
+      length: 11
+- UnclosedTag:
+    tag: if
+    span:
+      start: 98
+      length: 12
+- FilterMissingArgument:
+    filter: truncatewords
+    span:
+      start: 137
+      length: 13

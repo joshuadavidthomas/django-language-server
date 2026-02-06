@@ -15,15 +15,13 @@ mod traits;
 
 use arguments::validate_all_tag_arguments;
 pub use blocks::build_block_tree;
-pub use filter_arity::FilterAritySpecs;
-use filter_validation::validate_filter_arity;
-use if_expression::validate_if_expressions;
-use opaque::compute_opaque_regions;
-pub use opaque::OpaqueRegions;
 pub use blocks::TagIndex;
 pub use db::Db;
 pub use db::ValidationErrorAccumulator;
 pub use errors::ValidationError;
+pub use filter_arity::FilterAritySpecs;
+use filter_validation::validate_filter_arity;
+use if_expression::validate_if_expressions;
 pub use load_resolution::compute_loaded_libraries;
 pub use load_resolution::parse_load_bits;
 pub use load_resolution::validate_filter_scoping;
@@ -34,6 +32,8 @@ pub use load_resolution::LoadKind;
 pub use load_resolution::LoadStatement;
 pub use load_resolution::LoadedLibraries;
 pub use load_resolution::TagAvailability;
+use opaque::compute_opaque_regions;
+pub use opaque::OpaqueRegions;
 pub use primitives::Tag;
 pub use primitives::Template;
 pub use primitives::TemplateName;
@@ -73,4 +73,595 @@ pub fn validate_nodelist(db: &dyn Db, nodelist: djls_templates::NodeList<'_>) {
     validate_filter_scoping(db, nodelist, &opaque_regions);
     validate_if_expressions(db, nodelist, &opaque_regions);
     validate_filter_arity(db, nodelist, &opaque_regions);
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+    use std::sync::Arc;
+    use std::sync::Mutex;
+
+    use camino::Utf8Path;
+    use camino::Utf8PathBuf;
+    use djls_extraction::FilterArity;
+    use djls_extraction::SymbolKey;
+    use djls_project::TemplateTags;
+    use djls_source::Db as SourceDb;
+    use djls_source::File;
+    use djls_templates::parse_template;
+    use djls_workspace::FileSystem;
+    use djls_workspace::InMemoryFileSystem;
+
+    use crate::blocks::TagIndex;
+    use crate::filter_arity::FilterAritySpecs;
+    use crate::templatetags::django_builtin_specs;
+    use crate::validate_nodelist;
+    use crate::TagSpecs;
+    use crate::ValidationError;
+    use crate::ValidationErrorAccumulator;
+
+    #[salsa::db]
+    #[derive(Clone)]
+    struct TestDatabase {
+        storage: salsa::Storage<Self>,
+        fs: Arc<Mutex<InMemoryFileSystem>>,
+        inventory: Option<TemplateTags>,
+        arity_specs: FilterAritySpecs,
+    }
+
+    impl TestDatabase {
+        fn with_inventory_and_arities(
+            inventory: TemplateTags,
+            arity_specs: FilterAritySpecs,
+        ) -> Self {
+            Self {
+                storage: salsa::Storage::default(),
+                fs: Arc::new(Mutex::new(InMemoryFileSystem::new())),
+                inventory: Some(inventory),
+                arity_specs,
+            }
+        }
+
+        fn add_file(&self, path: &str, content: &str) {
+            self.fs
+                .lock()
+                .unwrap()
+                .add_file(path.into(), content.to_string());
+        }
+    }
+
+    #[salsa::db]
+    impl salsa::Database for TestDatabase {}
+
+    #[salsa::db]
+    impl djls_source::Db for TestDatabase {
+        fn create_file(&self, path: &Utf8Path) -> File {
+            File::new(self, path.to_owned(), 0)
+        }
+
+        fn get_file(&self, _path: &Utf8Path) -> Option<File> {
+            None
+        }
+
+        fn read_file(&self, path: &Utf8Path) -> std::io::Result<String> {
+            self.fs.lock().unwrap().read_to_string(path)
+        }
+    }
+
+    #[salsa::db]
+    impl djls_templates::Db for TestDatabase {}
+
+    #[salsa::db]
+    impl crate::Db for TestDatabase {
+        fn tag_specs(&self) -> TagSpecs {
+            django_builtin_specs()
+        }
+
+        fn tag_index(&self) -> TagIndex<'_> {
+            TagIndex::from_specs(self)
+        }
+
+        fn template_dirs(&self) -> Option<Vec<Utf8PathBuf>> {
+            None
+        }
+
+        fn diagnostics_config(&self) -> djls_conf::DiagnosticsConfig {
+            djls_conf::DiagnosticsConfig::default()
+        }
+
+        fn inspector_inventory(&self) -> Option<TemplateTags> {
+            self.inventory.clone()
+        }
+
+        fn filter_arity_specs(&self) -> FilterAritySpecs {
+            self.arity_specs.clone()
+        }
+    }
+
+    fn builtin_tag_json(name: &str, module: &str) -> serde_json::Value {
+        serde_json::json!({
+            "name": name,
+            "provenance": {"builtin": {"module": module}},
+            "defining_module": module,
+            "doc": null,
+        })
+    }
+
+    fn builtin_filter_json(name: &str, module: &str) -> serde_json::Value {
+        serde_json::json!({
+            "name": name,
+            "provenance": {"builtin": {"module": module}},
+            "defining_module": module,
+            "doc": null,
+        })
+    }
+
+    fn library_tag_json(name: &str, load_name: &str, module: &str) -> serde_json::Value {
+        serde_json::json!({
+            "name": name,
+            "provenance": {"library": {"load_name": load_name, "module": module}},
+            "defining_module": module,
+            "doc": null,
+        })
+    }
+
+    fn make_inventory(
+        tags: &[serde_json::Value],
+        filters: &[serde_json::Value],
+        libraries: &HashMap<String, String>,
+        builtins: &[String],
+    ) -> TemplateTags {
+        let payload = serde_json::json!({
+            "tags": tags,
+            "filters": filters,
+            "libraries": libraries,
+            "builtins": builtins,
+        });
+        serde_json::from_value(payload).unwrap()
+    }
+
+    fn default_builtins_module() -> &'static str {
+        "django.template.defaulttags"
+    }
+
+    fn default_filters_module() -> &'static str {
+        "django.template.defaultfilters"
+    }
+
+    fn standard_inventory() -> TemplateTags {
+        let tags = vec![
+            builtin_tag_json("if", default_builtins_module()),
+            builtin_tag_json("for", default_builtins_module()),
+            builtin_tag_json("block", default_builtins_module()),
+            builtin_tag_json("verbatim", default_builtins_module()),
+            builtin_tag_json("comment", default_builtins_module()),
+            builtin_tag_json("load", default_builtins_module()),
+            builtin_tag_json("csrf_token", default_builtins_module()),
+            builtin_tag_json("with", default_builtins_module()),
+            library_tag_json("trans", "i18n", "django.templatetags.i18n"),
+        ];
+        let filters = vec![
+            builtin_filter_json("title", default_filters_module()),
+            builtin_filter_json("lower", default_filters_module()),
+            builtin_filter_json("default", default_filters_module()),
+            builtin_filter_json("truncatewords", default_filters_module()),
+            builtin_filter_json("date", default_filters_module()),
+        ];
+        let mut libraries = HashMap::new();
+        libraries.insert("i18n".to_string(), "django.templatetags.i18n".to_string());
+        let builtins = vec![
+            default_builtins_module().to_string(),
+            default_filters_module().to_string(),
+        ];
+        make_inventory(&tags, &filters, &libraries, &builtins)
+    }
+
+    fn standard_arities() -> FilterAritySpecs {
+        let mut specs = FilterAritySpecs::new();
+        specs.insert(
+            SymbolKey::filter(default_filters_module(), "title"),
+            FilterArity {
+                expects_arg: false,
+                arg_optional: false,
+            },
+        );
+        specs.insert(
+            SymbolKey::filter(default_filters_module(), "lower"),
+            FilterArity {
+                expects_arg: false,
+                arg_optional: false,
+            },
+        );
+        specs.insert(
+            SymbolKey::filter(default_filters_module(), "default"),
+            FilterArity {
+                expects_arg: true,
+                arg_optional: false,
+            },
+        );
+        specs.insert(
+            SymbolKey::filter(default_filters_module(), "truncatewords"),
+            FilterArity {
+                expects_arg: true,
+                arg_optional: false,
+            },
+        );
+        specs.insert(
+            SymbolKey::filter(default_filters_module(), "date"),
+            FilterArity {
+                expects_arg: true,
+                arg_optional: true,
+            },
+        );
+        specs
+    }
+
+    fn standard_db() -> TestDatabase {
+        TestDatabase::with_inventory_and_arities(standard_inventory(), standard_arities())
+    }
+
+    fn collect_all_errors(db: &TestDatabase, source: &str) -> Vec<ValidationError> {
+        let path = "test.html";
+        db.add_file(path, source);
+        let file = db.create_file(Utf8Path::new(path));
+        let nodelist = parse_template(db, file).expect("should parse");
+        validate_nodelist(db, nodelist);
+
+        validate_nodelist::accumulated::<ValidationErrorAccumulator>(db, nodelist)
+            .into_iter()
+            .map(|acc| acc.0.clone())
+            .collect()
+    }
+
+    fn error_span_start(e: &ValidationError) -> u32 {
+        match e {
+            ValidationError::ExpressionSyntaxError { span, .. }
+            | ValidationError::FilterMissingArgument { span, .. }
+            | ValidationError::FilterUnexpectedArgument { span, .. }
+            | ValidationError::UnloadedTag { span, .. }
+            | ValidationError::UnknownTag { span, .. }
+            | ValidationError::UnclosedTag { span, .. }
+            | ValidationError::OrphanedTag { span, .. }
+            | ValidationError::MissingRequiredArguments { span, .. }
+            | ValidationError::TooManyArguments { span, .. }
+            | ValidationError::MissingArgument { span, .. }
+            | ValidationError::InvalidLiteralArgument { span, .. }
+            | ValidationError::InvalidArgumentChoice { span, .. }
+            | ValidationError::AmbiguousUnloadedTag { span, .. }
+            | ValidationError::UnknownFilter { span, .. }
+            | ValidationError::UnloadedFilter { span, .. }
+            | ValidationError::AmbiguousUnloadedFilter { span, .. }
+            | ValidationError::UnmatchedBlockName { span, .. } => span.start(),
+            ValidationError::UnbalancedStructure { opening_span, .. } => opening_span.start(),
+        }
+    }
+
+    // ── Integration: Mixed diagnostics ─────────────────────────
+
+    #[test]
+    fn mixed_expression_and_filter_arity_errors() {
+        let db = standard_db();
+        let source = concat!(
+            "{% if and x %}bad expr{% endif %}\n",
+            "{{ value|truncatewords }}\n",
+            "{{ value|title:\"bad\" }}\n",
+        );
+        let errors = collect_all_errors(&db, source);
+
+        let expr_errors: Vec<_> = errors
+            .iter()
+            .filter(|e| matches!(e, ValidationError::ExpressionSyntaxError { .. }))
+            .collect();
+        let s115_errors: Vec<_> = errors
+            .iter()
+            .filter(|e| matches!(e, ValidationError::FilterMissingArgument { .. }))
+            .collect();
+        let s116_errors: Vec<_> = errors
+            .iter()
+            .filter(|e| matches!(e, ValidationError::FilterUnexpectedArgument { .. }))
+            .collect();
+
+        assert_eq!(
+            expr_errors.len(),
+            1,
+            "Expected 1 expression error, got: {expr_errors:?}"
+        );
+        assert_eq!(
+            s115_errors.len(),
+            1,
+            "Expected 1 FilterMissingArgument, got: {s115_errors:?}"
+        );
+        assert_eq!(
+            s116_errors.len(),
+            1,
+            "Expected 1 FilterUnexpectedArgument, got: {s116_errors:?}"
+        );
+    }
+
+    #[test]
+    fn opaque_region_suppresses_all_validation() {
+        let db = standard_db();
+        // Everything inside verbatim should be skipped
+        let source = concat!(
+            "{% verbatim %}\n",
+            "{% if and x %}bad expr{% endif %}\n",
+            "{{ value|truncatewords }}\n",
+            "{{ value|title:\"bad\" }}\n",
+            "{% endverbatim %}\n",
+        );
+        let errors = collect_all_errors(&db, source);
+
+        // Filter out structural errors (UnclosedTag etc) that come from the block tree
+        let validation_errors: Vec<_> = errors
+            .iter()
+            .filter(|e| {
+                matches!(
+                    e,
+                    ValidationError::ExpressionSyntaxError { .. }
+                        | ValidationError::FilterMissingArgument { .. }
+                        | ValidationError::FilterUnexpectedArgument { .. }
+                        | ValidationError::UnknownTag { .. }
+                        | ValidationError::UnloadedTag { .. }
+                        | ValidationError::UnknownFilter { .. }
+                        | ValidationError::UnloadedFilter { .. }
+                )
+            })
+            .collect();
+
+        assert!(
+            validation_errors.is_empty(),
+            "No expression/filter/scoping errors expected inside verbatim, got: {validation_errors:?}"
+        );
+    }
+
+    #[test]
+    fn errors_before_and_after_opaque_region() {
+        let db = standard_db();
+        let source = concat!(
+            "{{ value|truncatewords }}\n",
+            "{% verbatim %}{% if and x %}{% endverbatim %}\n",
+            "{{ value|title:\"bad\" }}\n",
+        );
+        let errors = collect_all_errors(&db, source);
+
+        let s115_errors: Vec<_> = errors
+            .iter()
+            .filter(|e| matches!(e, ValidationError::FilterMissingArgument { .. }))
+            .collect();
+        let s116_errors: Vec<_> = errors
+            .iter()
+            .filter(|e| matches!(e, ValidationError::FilterUnexpectedArgument { .. }))
+            .collect();
+        let expr_errors: Vec<_> = errors
+            .iter()
+            .filter(|e| matches!(e, ValidationError::ExpressionSyntaxError { .. }))
+            .collect();
+
+        assert_eq!(
+            s115_errors.len(),
+            1,
+            "Expected S115 before verbatim, got: {s115_errors:?}"
+        );
+        assert_eq!(
+            s116_errors.len(),
+            1,
+            "Expected S116 after verbatim, got: {s116_errors:?}"
+        );
+        assert!(
+            expr_errors.is_empty(),
+            "No expression errors expected (bad if is inside verbatim), got: {expr_errors:?}"
+        );
+    }
+
+    #[test]
+    fn comment_block_also_opaque() {
+        let db = standard_db();
+        let source = concat!(
+            "{% comment %}\n",
+            "{% if and x %}{% endif %}\n",
+            "{{ value|truncatewords }}\n",
+            "{% endcomment %}\n",
+        );
+        let errors = collect_all_errors(&db, source);
+
+        let validation_errors: Vec<_> = errors
+            .iter()
+            .filter(|e| {
+                matches!(
+                    e,
+                    ValidationError::ExpressionSyntaxError { .. }
+                        | ValidationError::FilterMissingArgument { .. }
+                        | ValidationError::FilterUnexpectedArgument { .. }
+                )
+            })
+            .collect();
+
+        assert!(
+            validation_errors.is_empty(),
+            "No errors expected inside comment block, got: {validation_errors:?}"
+        );
+    }
+
+    #[test]
+    fn unloaded_tag_and_filter_with_expression_error() {
+        let db = standard_db();
+        // trans requires {% load i18n %}, but it's not loaded
+        // Also has an expression error in an if tag
+        let source = concat!("{% if or x %}bad{% endif %}\n", "{% trans \"hello\" %}\n",);
+        let errors = collect_all_errors(&db, source);
+
+        let expr_errors: Vec<_> = errors
+            .iter()
+            .filter(|e| matches!(e, ValidationError::ExpressionSyntaxError { .. }))
+            .collect();
+        let scoping_errors: Vec<_> = errors
+            .iter()
+            .filter(|e| {
+                matches!(
+                    e,
+                    ValidationError::UnloadedTag { .. } | ValidationError::UnknownTag { .. }
+                )
+            })
+            .collect();
+
+        assert_eq!(
+            expr_errors.len(),
+            1,
+            "Expected 1 expression error, got: {expr_errors:?}"
+        );
+        assert_eq!(
+            scoping_errors.len(),
+            1,
+            "Expected 1 scoping error for trans, got: {scoping_errors:?}"
+        );
+        // Verify it's specifically an UnloadedTag for trans
+        assert!(
+            matches!(&scoping_errors[0], ValidationError::UnloadedTag { tag, library, .. }
+                if tag == "trans" && library == "i18n"),
+            "Expected UnloadedTag for trans/i18n, got: {:?}",
+            scoping_errors[0]
+        );
+    }
+
+    #[test]
+    fn loaded_library_tags_valid_with_filter_errors() {
+        let db = standard_db();
+        let source = concat!(
+            "{% load i18n %}\n",
+            "{% trans \"hello\" %}\n",
+            "{{ value|truncatewords }}\n",
+        );
+        let errors = collect_all_errors(&db, source);
+
+        let scoping_errors: Vec<_> = errors
+            .iter()
+            .filter(|e| {
+                matches!(
+                    e,
+                    ValidationError::UnloadedTag { .. } | ValidationError::UnknownTag { .. }
+                )
+            })
+            .collect();
+        let s115_errors: Vec<_> = errors
+            .iter()
+            .filter(|e| matches!(e, ValidationError::FilterMissingArgument { .. }))
+            .collect();
+
+        assert!(
+            scoping_errors.is_empty(),
+            "No scoping errors after load, got: {scoping_errors:?}"
+        );
+        assert_eq!(
+            s115_errors.len(),
+            1,
+            "Expected S115 for truncatewords, got: {s115_errors:?}"
+        );
+    }
+
+    // ── Snapshot tests for diagnostic output ───────────────────
+
+    #[test]
+    fn snapshot_mixed_diagnostics() {
+        let db = standard_db();
+        let source = concat!(
+            "{% if and x %}oops{% endif %}\n",
+            "{{ name|title:\"arg\" }}\n",
+            "{{ text|truncatewords }}\n",
+            "{% trans \"hello\" %}\n",
+        );
+        let mut errors = collect_all_errors(&db, source);
+        errors.sort_by_key(error_span_start);
+
+        insta::assert_yaml_snapshot!(errors);
+    }
+
+    #[test]
+    fn snapshot_clean_template_no_errors() {
+        let db = standard_db();
+        let source = concat!(
+            "{% if user.is_authenticated %}\n",
+            "  <h1>{{ user.name|title }}</h1>\n",
+            "  {{ user.joined|date:\"Y-m-d\" }}\n",
+            "{% endif %}\n",
+        );
+        let errors = collect_all_errors(&db, source);
+
+        let validation_errors: Vec<_> = errors
+            .iter()
+            .filter(|e| {
+                matches!(
+                    e,
+                    ValidationError::ExpressionSyntaxError { .. }
+                        | ValidationError::FilterMissingArgument { .. }
+                        | ValidationError::FilterUnexpectedArgument { .. }
+                        | ValidationError::UnknownTag { .. }
+                        | ValidationError::UnloadedTag { .. }
+                        | ValidationError::UnknownFilter { .. }
+                        | ValidationError::UnloadedFilter { .. }
+                )
+            })
+            .collect();
+
+        assert!(
+            validation_errors.is_empty(),
+            "Clean template should produce no validation errors, got: {validation_errors:?}"
+        );
+    }
+
+    #[test]
+    fn snapshot_complex_valid_template() {
+        let db = standard_db();
+        // A realistic Django admin-style template with various features
+        let source = concat!(
+            "{% load i18n %}\n",
+            "{% if user.is_staff and not user.is_superuser %}\n",
+            "  <p>{{ greeting|default:\"Hello\" }}</p>\n",
+            "  {% for item in items %}\n",
+            "    <li>{{ item.name|title }} - {{ item.date|date }}</li>\n",
+            "  {% endfor %}\n",
+            "  {% trans \"Welcome\" %}\n",
+            "{% endif %}\n",
+            "{% verbatim %}\n",
+            "  {{ raw_template_syntax }}\n",
+            "{% endverbatim %}\n",
+        );
+        let errors = collect_all_errors(&db, source);
+
+        let validation_errors: Vec<_> = errors
+            .iter()
+            .filter(|e| {
+                matches!(
+                    e,
+                    ValidationError::ExpressionSyntaxError { .. }
+                        | ValidationError::FilterMissingArgument { .. }
+                        | ValidationError::FilterUnexpectedArgument { .. }
+                        | ValidationError::UnknownTag { .. }
+                        | ValidationError::UnloadedTag { .. }
+                        | ValidationError::UnknownFilter { .. }
+                        | ValidationError::UnloadedFilter { .. }
+                )
+            })
+            .collect();
+
+        assert!(
+            validation_errors.is_empty(),
+            "Valid complex template should have no errors, got: {validation_errors:?}"
+        );
+    }
+
+    #[test]
+    fn snapshot_multiple_error_types() {
+        let db = standard_db();
+        let source = concat!(
+            "{{ value|title:\"unwanted\" }}\n",
+            "{% if == broken %}bad{% endif %}\n",
+            "{{ text|lower:\"arg\" }}\n",
+            "{% comment %}{% if and %}{% endcomment %}\n",
+            "{{ result|truncatewords }}\n",
+        );
+        let mut errors = collect_all_errors(&db, source);
+        errors.sort_by_key(error_span_start);
+
+        insta::assert_yaml_snapshot!(errors);
+    }
 }

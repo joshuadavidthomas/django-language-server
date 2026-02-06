@@ -547,7 +547,10 @@ def widthratio(parser, token):
         raise template.TemplateSyntaxError("widthratio takes three arguments")
     return WidthRatioNode(bits[1], bits[2], bits[3])
 "#;
-        insta::assert_yaml_snapshot!(snapshot(extract_rules(source, "django.template.defaulttags")));
+        insta::assert_yaml_snapshot!(snapshot(extract_rules(
+            source,
+            "django.template.defaulttags"
+        )));
     }
 
     #[test]
@@ -563,7 +566,10 @@ def cycle(parser, token):
         raise template.TemplateSyntaxError("'cycle' tag requires at least one argument")
     return CycleNode(args[1:])
 "#;
-        insta::assert_yaml_snapshot!(snapshot(extract_rules(source, "django.template.defaulttags")));
+        insta::assert_yaml_snapshot!(snapshot(extract_rules(
+            source,
+            "django.template.defaulttags"
+        )));
     }
 
     #[test]
@@ -579,7 +585,10 @@ def debug(parser, token):
         raise template.TemplateSyntaxError("'debug' tag takes no arguments")
     return DebugNode()
 "#;
-        insta::assert_yaml_snapshot!(snapshot(extract_rules(source, "django.template.defaulttags")));
+        insta::assert_yaml_snapshot!(snapshot(extract_rules(
+            source,
+            "django.template.defaulttags"
+        )));
     }
 
     #[test]
@@ -595,7 +604,10 @@ def firstof(parser, token):
         raise template.TemplateSyntaxError("'firstof' takes 1 to 3 arguments")
     return FirstOfNode(bits[1:])
 "#;
-        insta::assert_yaml_snapshot!(snapshot(extract_rules(source, "django.template.defaulttags")));
+        insta::assert_yaml_snapshot!(snapshot(extract_rules(
+            source,
+            "django.template.defaulttags"
+        )));
     }
 
     #[test]
@@ -615,7 +627,10 @@ def cycle(parser, token):
         raise template.TemplateSyntaxError("Second argument to 'cycle' must be 'as'")
     return CycleNode()
 "#;
-        insta::assert_yaml_snapshot!(snapshot(extract_rules(source, "django.template.defaulttags")));
+        insta::assert_yaml_snapshot!(snapshot(extract_rules(
+            source,
+            "django.template.defaulttags"
+        )));
     }
 
     #[test]
@@ -642,7 +657,10 @@ def do_include(parser, token):
             raise template.TemplateSyntaxError("Unknown option")
     return IncludeNode(bits[1])
 "#;
-        insta::assert_yaml_snapshot!(snapshot(extract_rules(source, "django.template.defaulttags")));
+        insta::assert_yaml_snapshot!(snapshot(extract_rules(
+            source,
+            "django.template.defaulttags"
+        )));
     }
 
     #[test]
@@ -678,7 +696,10 @@ def url(parser, token):
         raise template.TemplateSyntaxError("'url' takes at most three arguments")
     return URLNode(bits[1])
 "#;
-        insta::assert_yaml_snapshot!(snapshot(extract_rules(source, "django.template.defaulttags")));
+        insta::assert_yaml_snapshot!(snapshot(extract_rules(
+            source,
+            "django.template.defaulttags"
+        )));
     }
 
     // --- Block spec extraction fixtures ---
@@ -696,7 +717,10 @@ def do_block(parser, token):
     parser.delete_first_token()
     return BlockNode(bits[1], nodelist)
 "#;
-        insta::assert_yaml_snapshot!(snapshot(extract_rules(source, "django.template.loader_tags")));
+        insta::assert_yaml_snapshot!(snapshot(extract_rules(
+            source,
+            "django.template.loader_tags"
+        )));
     }
 
     #[test]
@@ -717,7 +741,10 @@ def do_if(parser, token):
         parser.delete_first_token()
     return IfNode(nodelist_true, nodelist_false)
 "#;
-        insta::assert_yaml_snapshot!(snapshot(extract_rules(source, "django.template.defaulttags")));
+        insta::assert_yaml_snapshot!(snapshot(extract_rules(
+            source,
+            "django.template.defaulttags"
+        )));
     }
 
     #[test]
@@ -734,7 +761,10 @@ def verbatim(parser, token):
     parser.skip_past("endverbatim")
     return VerbatimNode()
 "#;
-        insta::assert_yaml_snapshot!(snapshot(extract_rules(source, "django.template.defaulttags")));
+        insta::assert_yaml_snapshot!(snapshot(extract_rules(
+            source,
+            "django.template.defaulttags"
+        )));
     }
 
     #[test]
@@ -757,7 +787,10 @@ def do_for(parser, token):
         nodelist_empty = None
     return ForNode(bits, nodelist_loop, nodelist_empty)
 "#;
-        insta::assert_yaml_snapshot!(snapshot(extract_rules(source, "django.template.defaulttags")));
+        insta::assert_yaml_snapshot!(snapshot(extract_rules(
+            source,
+            "django.template.defaulttags"
+        )));
     }
 
     // --- Filter arity fixtures ---
@@ -772,7 +805,10 @@ register = template.Library()
 def title(value):
     return value.title()
 ";
-        insta::assert_yaml_snapshot!(snapshot(extract_rules(source, "django.template.defaultfilters")));
+        insta::assert_yaml_snapshot!(snapshot(extract_rules(
+            source,
+            "django.template.defaultfilters"
+        )));
     }
 
     #[test]
@@ -785,7 +821,10 @@ register = template.Library()
 def default(value, arg):
     return value or arg
 ";
-        insta::assert_yaml_snapshot!(snapshot(extract_rules(source, "django.template.defaultfilters")));
+        insta::assert_yaml_snapshot!(snapshot(extract_rules(
+            source,
+            "django.template.defaultfilters"
+        )));
     }
 
     #[test]
@@ -799,7 +838,10 @@ def truncatewords(value, arg=30):
     words = value.split()
     return " ".join(words[:arg])
 "#;
-        insta::assert_yaml_snapshot!(snapshot(extract_rules(source, "django.template.defaultfilters")));
+        insta::assert_yaml_snapshot!(snapshot(extract_rules(
+            source,
+            "django.template.defaultfilters"
+        )));
     }
 
     #[test]
@@ -831,7 +873,10 @@ def comment(parser, token):
     parser.skip_past("endcomment")
     return CommentNode()
 "#;
-        insta::assert_yaml_snapshot!(snapshot(extract_rules(source, "django.template.defaulttags")));
+        insta::assert_yaml_snapshot!(snapshot(extract_rules(
+            source,
+            "django.template.defaulttags"
+        )));
     }
 
     #[test]
@@ -847,7 +892,10 @@ def do_spaceless(parser, token):
     parser.delete_first_token()
     return SpacelessNode(nodelist)
 "#;
-        insta::assert_yaml_snapshot!(snapshot(extract_rules(source, "django.template.defaulttags")));
+        insta::assert_yaml_snapshot!(snapshot(extract_rules(
+            source,
+            "django.template.defaulttags"
+        )));
     }
 
     #[test]
@@ -994,11 +1042,7 @@ def breadcrumbs(items, separator="/"):
         let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         // Try venv at project root (../../.venv from crate dir)
         // Also try main repo root for worktree setups (../../../../.venv)
-        for venv_relative in &[
-            "../../.venv",
-            "../../../.venv",
-            "../../../../.venv",
-        ] {
+        for venv_relative in &["../../.venv", "../../../.venv", "../../../../.venv"] {
             let venv = manifest.join(venv_relative);
             if !venv.is_dir() {
                 continue;
@@ -1053,10 +1097,7 @@ def breadcrumbs(items, separator="/"):
         let mut start_idx = None;
         for (i, component) in components.iter().enumerate() {
             // Skip everything before and including the version-like directory
-            if component
-                .chars()
-                .next()
-                .is_some_and(|c| c.is_ascii_digit())
+            if component.chars().next().is_some_and(|c| c.is_ascii_digit())
                 && component.contains('.')
                 && !std::path::Path::new(component)
                     .extension()
@@ -1094,7 +1135,9 @@ def breadcrumbs(items, separator="/"):
         let mut files_with_registrations = 0;
 
         for file in &files {
-            let Ok(source) = std::fs::read_to_string(file) else { continue };
+            let Ok(source) = std::fs::read_to_string(file) else {
+                continue;
+            };
             let module_path = module_path_from_corpus_file(file);
             let result = extract_rules(&source, &module_path);
             total_files += 1;
@@ -1238,7 +1281,9 @@ def breadcrumbs(items, separator="/"):
 
             let files = collect_py_files(&version_dir);
             for file in &files {
-                let Ok(source) = std::fs::read_to_string(file) else { continue };
+                let Ok(source) = std::fs::read_to_string(file) else {
+                    continue;
+                };
                 let module_path = module_path_from_corpus_file(file);
                 // This should not panic for any Django version
                 let _ = extract_rules(&source, &module_path);
@@ -1281,7 +1326,9 @@ def breadcrumbs(items, separator="/"):
             }
 
             for file in &files {
-                let Ok(source) = std::fs::read_to_string(file) else { continue };
+                let Ok(source) = std::fs::read_to_string(file) else {
+                    continue;
+                };
                 let module_path = module_path_from_corpus_file(file);
                 let result = extract_rules(&source, &module_path);
                 total_registrations +=
@@ -1321,7 +1368,9 @@ def breadcrumbs(items, separator="/"):
             }
 
             for file in &files {
-                let Ok(source) = std::fs::read_to_string(file) else { continue };
+                let Ok(source) = std::fs::read_to_string(file) else {
+                    continue;
+                };
                 let module_path = module_path_from_corpus_file(file);
                 let _ = extract_rules(&source, &module_path);
             }

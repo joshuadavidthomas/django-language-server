@@ -728,8 +728,7 @@ mod tests {
     #[test]
     fn verbatim_block_content_skipped() {
         let db = TestDatabase::with_inventory(test_inventory());
-        let source =
-            "{% verbatim %}{% trans 'hello' %}{% endverbatim %}\n{% if True %}{% endif %}";
+        let source = "{% verbatim %}{% trans 'hello' %}{% endverbatim %}\n{% if True %}{% endif %}";
         let errors = collect_scoping_errors(&db, source);
 
         // trans inside verbatim should NOT trigger S109 (UnloadedTag)
@@ -760,7 +759,11 @@ mod tests {
         let errors = collect_scoping_errors(&db, source);
 
         // trans is a library tag not loaded — should get S109
-        assert_eq!(errors.len(), 1, "Expected S109 for unloaded trans. Got: {errors:?}");
+        assert_eq!(
+            errors.len(),
+            1,
+            "Expected S109 for unloaded trans. Got: {errors:?}"
+        );
         assert!(matches!(
             &errors[0],
             ValidationError::UnloadedTag { tag, .. } if tag == "trans"

@@ -590,10 +590,7 @@ mod tests {
     #[test]
     fn elif_validated() {
         let db = TestDatabase::new();
-        let errors = collect_expression_errors(
-            &db,
-            "{% if x %}a\n{% elif and y %}b\n{% endif %}",
-        );
+        let errors = collect_expression_errors(&db, "{% if x %}a\n{% elif and y %}b\n{% endif %}");
 
         assert_eq!(errors.len(), 1);
         assert!(
@@ -610,10 +607,7 @@ mod tests {
     #[test]
     fn valid_if_no_errors() {
         let db = TestDatabase::new();
-        let errors = collect_expression_errors(
-            &db,
-            "{% if x and not y or z in w %}a{% endif %}",
-        );
+        let errors = collect_expression_errors(&db, "{% if x and not y or z in w %}a{% endif %}");
 
         assert!(errors.is_empty(), "Expected no errors, got: {errors:?}");
     }
@@ -621,10 +615,8 @@ mod tests {
     #[test]
     fn opaque_region_skips_if_validation() {
         let db = TestDatabase::new();
-        let errors = collect_expression_errors(
-            &db,
-            "{% verbatim %}{% if and x %}{% endverbatim %}",
-        );
+        let errors =
+            collect_expression_errors(&db, "{% verbatim %}{% if and x %}{% endverbatim %}");
 
         assert!(
             errors.is_empty(),
@@ -651,10 +643,8 @@ mod tests {
     #[test]
     fn multiple_errors_in_template() {
         let db = TestDatabase::new();
-        let errors = collect_expression_errors(
-            &db,
-            "{% if and x %}a{% endif %}\n{% if or y %}b{% endif %}",
-        );
+        let errors =
+            collect_expression_errors(&db, "{% if and x %}a{% endif %}\n{% if or y %}b{% endif %}");
 
         assert_eq!(errors.len(), 2, "Expected 2 errors, got: {errors:?}");
     }

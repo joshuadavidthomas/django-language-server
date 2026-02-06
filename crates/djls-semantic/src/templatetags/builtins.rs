@@ -575,7 +575,7 @@ static CACHE_PAIRS: &[(&str, &TagSpec)] = &[(
                 required: false,
             },
         ]),
-            opaque: false,
+        opaque: false,
     },
 )];
 
@@ -699,7 +699,7 @@ static L10N_PAIRS: &[(&str, &TagSpec)] = &[(
             required: false,
             choices: B(&[B("on"), B("off")]),
         }]),
-            opaque: false,
+        opaque: false,
     },
 )];
 

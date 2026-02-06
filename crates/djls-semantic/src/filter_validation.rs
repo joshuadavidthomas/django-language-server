@@ -19,11 +19,7 @@ use crate::ValidationErrorAccumulator;
 /// - If the inspector inventory is `None`, all arity diagnostics are suppressed.
 /// - Nodes inside opaque regions are skipped.
 /// - Filters with no known arity spec are silently skipped (no false positives).
-pub fn validate_filter_arity(
-    db: &dyn Db,
-    nodelist: NodeList<'_>,
-    opaque_regions: &OpaqueRegions,
-) {
+pub fn validate_filter_arity(db: &dyn Db, nodelist: NodeList<'_>, opaque_regions: &OpaqueRegions) {
     if db.inspector_inventory().is_none() {
         return;
     }
@@ -189,9 +185,7 @@ mod tests {
         })
     }
 
-    fn make_inventory_with_filters(
-        filters: &[serde_json::Value],
-    ) -> TemplateTags {
+    fn make_inventory_with_filters(filters: &[serde_json::Value]) -> TemplateTags {
         let tags: Vec<serde_json::Value> = vec![
             serde_json::json!({
                 "name": "if",
@@ -431,9 +425,10 @@ mod tests {
 
     #[test]
     fn empty_arity_specs_no_diagnostics() {
-        let filters = vec![
-            builtin_filter_json("title", "django.template.defaultfilters"),
-        ];
+        let filters = vec![builtin_filter_json(
+            "title",
+            "django.template.defaultfilters",
+        )];
         let inventory = make_inventory_with_filters(&filters);
         let db = TestDatabase::with_inventory_and_arities(inventory, FilterAritySpecs::new());
         let errors = collect_arity_errors(&db, "{{ value|title:\"bad\" }}");

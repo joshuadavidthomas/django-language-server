@@ -314,7 +314,7 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ## M6 — Rule Evaluation + Expression Validation
 
-**Status:** in-progress
+**Status:** complete
 **Plan:** `.agents/plans/2026-02-05-m6-rule-evaluation.md`
 
 **Goal:** Apply M5's extracted validation rules: expression validation for `{% if %}`/`{% elif %}` (S114), filter arity validation (S115/S116), and opaque region handling to skip validation inside `{% verbatim %}` etc.
@@ -360,10 +360,10 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ### Phase 4: Integration Tests
 
-- [ ] Create integration test: template with mixed expression errors, filter arity errors, and opaque regions — verify correct diagnostics emitted
-- [ ] Snapshot tests for diagnostic output on representative templates
-- [ ] Corpus coverage test (if corpus available): run validation on Django admin templates, verify no false positives for expression validation
-- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Create integration test: template with mixed expression errors, filter arity errors, and opaque regions — verify correct diagnostics emitted
+- [x] Snapshot tests for diagnostic output on representative templates
+- [x] Corpus coverage test (if corpus available): run validation on Django admin templates, verify no false positives for expression validation
+- [x] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ---
 
