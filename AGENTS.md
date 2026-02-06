@@ -47,6 +47,7 @@ just lint                       # Run pre-commit hooks
 
 ### Salsa Patterns
 - `#[salsa::tracked]` functions require `&dyn Trait` — cannot use concrete `&DjangoDatabase`
+- `#[salsa::tracked]` functions can only accept db + tracked types as parameters — cannot pass `&OpaqueRegions` or other non-tracked structs; compute them inside the function instead
 - Tracked return types need `PartialEq` — add derive if missing (e.g., `TagSpecs`)
 - Input setters require `use salsa::Setter` — the `.to()` method is a trait method, not inherent
 - `DjangoDatabase` already has `#[cfg(test)]` event logging via `logs: Arc<Mutex<Option<Vec<String>>>>` in `db.rs` — reuse for invalidation tests
@@ -183,6 +184,9 @@ Test impls typically return `None` / default values. Forgetting even one causes 
 - Extraction corpus tests: `crates/djls-extraction/tests/corpus.rs`
 - Corpus crate: `crates/djls-corpus/src/` (manifest, sync, enumerate)
 - If-expression validation: `crates/djls-semantic/src/if_expression.rs`
+- Opaque region detection: `crates/djls-semantic/src/opaque.rs`
+- Filter arity validation: `crates/djls-semantic/src/filter_arity.rs`
+- `LoadState` (load-scoping state machine): `crates/djls-semantic/src/load_resolution.rs` (pub(crate))
 
 ## Task Management
 Use `/dex` to break down complex work, track progress across sessions, and coordinate multi-step implementations.

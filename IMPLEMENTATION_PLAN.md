@@ -389,16 +389,16 @@
 
 **Goal:** Add opaque region detection, wire expression validation and filter arity validation into `validate_nodelist`.
 
-- [ ] Create `crates/djls-semantic/src/opaque.rs` with `OpaqueRegions` struct (holds `Vec<Span>`) and `is_opaque(span) -> bool` method
-- [ ] Implement `compute_opaque_regions(db, nodelist) -> OpaqueRegions` — scans nodelist for opener→closer pairs from `db.opaque_tag_map()`
-- [ ] Create `crates/djls-semantic/src/filter_arity.rs` with `validate_filter_arity(db, nodelist, opaque)` — iterates `Node::Variable` nodes, resolves filter symbols via `LoadState`, checks arity
-- [ ] Implement `resolve_filter_symbol(filter_name, position, loaded, db) -> Option<SymbolKey>` — handles builtin tiebreak (later in builtins list wins), library shadowing builtins, ambiguity returns None
-- [ ] Add `validate_if_expressions(db, nodelist, opaque)` function in `crates/djls-semantic/src/lib.rs` — iterates `Node::Tag` for `if`/`elif` names, calls `validate_if_expression(bits)`, emits S114
-- [ ] Update `validate_nodelist` to: compute opaque regions first, pass `&OpaqueRegions` to existing validation passes (tag arguments, tag scoping, filter scoping), call new `validate_if_expressions` and `validate_filter_arity`
-- [ ] Update existing validation functions (`validate_all_tag_arguments`, `validate_tag_scoping`, `validate_filter_scoping`) to accept and respect `&OpaqueRegions` parameter — skip nodes inside opaque regions
-- [ ] Register `opaque` and `filter_arity` modules in `crates/djls-semantic/src/lib.rs`
-- [ ] Export `OpaqueRegions`, `compute_opaque_regions`, `validate_filter_arity` from `crates/djls-semantic/src/lib.rs`
-- [ ] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Create `crates/djls-semantic/src/opaque.rs` with `OpaqueRegions` struct (holds `Vec<Span>`) and `is_opaque(span) -> bool` method
+- [x] Implement `compute_opaque_regions(db, nodelist) -> OpaqueRegions` — scans nodelist for opener→closer pairs from `db.opaque_tag_map()`
+- [x] Create `crates/djls-semantic/src/filter_arity.rs` with `validate_filter_arity(db, nodelist)` — iterates `Node::Variable` nodes, resolves filter symbols via `LoadState`, checks arity
+- [x] Implement `resolve_filter_symbol(filter_name, position, loaded, db) -> Option<SymbolKey>` — handles builtin tiebreak (later in builtins list wins), library shadowing builtins, ambiguity returns None
+- [x] Add `validate_if_expressions(db, nodelist)` function in `crates/djls-semantic/src/lib.rs` — iterates `Node::Tag` for `if`/`elif` names, calls `validate_if_expression(bits)`, emits S114
+- [x] Update `validate_nodelist` to call new `validate_if_expressions` and `validate_filter_arity`
+- [x] Update existing validation functions (`validate_all_tag_arguments`, `validate_tag_scoping`, `validate_filter_scoping`) to compute and respect opaque regions — skip nodes inside opaque regions (each function computes `OpaqueRegions` internally since Salsa tracked functions can't accept non-tracked parameters)
+- [x] Register `opaque` and `filter_arity` modules in `crates/djls-semantic/src/lib.rs`
+- [x] Export `OpaqueRegions`, `compute_opaque_regions`, `validate_filter_arity` from `crates/djls-semantic/src/lib.rs`
+- [x] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 5: Testing
 
@@ -450,3 +450,6 @@ _Tasks to be expanded when M6 is complete._
 - M5.7: Salsa early cutoff: if `file.source(db)` returns the same value after revision bump, `extract_workspace_module_rules` correctly skips re-execution.
 - M5.9: `djls-corpus` crate uses `reqwest` (blocking + json), `flate2`, `tar` for downloading and extracting PyPI sdists and GitHub tarballs. No `zip` crate needed — all sources are `.tar.gz`.
 - M5.9: Corpus tests in `djls-extraction/tests/corpus.rs` skip gracefully when corpus is not synced — they check for corpus root existence and return early with a message.
+- M6: Salsa `#[salsa::tracked]` functions cannot accept non-tracked parameters like `&OpaqueRegions`. Each validation function (`validate_all_tag_arguments`, `validate_tag_scoping`, `validate_filter_scoping`, `validate_if_expressions`, `validate_filter_arity`) computes opaque regions internally via `compute_opaque_regions(db, nodelist)`.
+- M6: `LoadState` in `load_resolution.rs` changed from private to `pub(crate)` so `filter_arity.rs` can reuse the same load-scoping state machine for filter symbol resolution.
+- M6: The arguments test `test_expr_stops_at_literal` uses a contrived `{% if x > 0 reversed %}` which now triggers S114 (expression syntax error). The test filters out `ExpressionSyntaxError` to only check argument-spec validation.

@@ -190,13 +190,13 @@ impl AvailableSymbols {
 /// - `{% load trans from i18n %}` adds "trans" to selective\[i18n\]
 /// - `{% load i18n %}` adds "i18n" to fully\_loaded AND clears selective\[i18n\]
 #[derive(Debug, Clone, Default)]
-struct LoadState {
+pub(crate) struct LoadState {
     fully_loaded: FxHashSet<String>,
     selective: FxHashMap<String, FxHashSet<String>>,
 }
 
 impl LoadState {
-    fn process(&mut self, stmt: &LoadStatement) {
+    pub(crate) fn process(&mut self, stmt: &LoadStatement) {
         match &stmt.kind {
             LoadKind::Libraries(libs) => {
                 for lib in libs {
@@ -213,7 +213,7 @@ impl LoadState {
         }
     }
 
-    fn is_tag_available(&self, tag_name: &str, library: &str) -> bool {
+    pub(crate) fn is_tag_available(&self, tag_name: &str, library: &str) -> bool {
         if self.fully_loaded.contains(library) {
             return true;
         }
@@ -389,17 +389,23 @@ fn build_filter_inventory(
 /// Skips validation entirely when inspector inventory is unavailable.
 /// Iterates over `Node::Variable` nodes and checks each `Filter` against
 /// the inventory and load state, producing S111/S112/S113 diagnostics.
+///
+/// Nodes inside opaque regions (e.g., `{% verbatim %}`) are skipped.
 #[salsa::tracked]
 pub fn validate_filter_scoping(db: &dyn crate::Db, nodelist: djls_templates::NodeList<'_>) {
     let Some(inventory) = db.inspector_inventory() else {
         return;
     };
 
+    let opaque = crate::opaque::compute_opaque_regions(db, nodelist);
     let loaded = compute_loaded_libraries(db, nodelist);
     let filter_lookup = build_filter_inventory(&inventory);
 
     for node in nodelist.nodelist(db) {
-        if let Node::Variable { filters, .. } = node {
+        if let Node::Variable { filters, span, .. } = node {
+            if opaque.is_opaque(*span) {
+                continue;
+            }
             for filter in filters {
                 validate_single_filter(db, filter, &filter_lookup, &loaded, &inventory);
             }
@@ -456,18 +462,25 @@ fn validate_single_filter(
 /// Tags with structural specs (openers, closers, intermediates) are skipped
 /// since they are validated by block structure (S100-S103) and argument
 /// validation (S104-S107).
+///
+/// Nodes inside opaque regions (e.g., `{% verbatim %}`) are skipped.
 #[salsa::tracked]
 pub fn validate_tag_scoping(db: &dyn crate::Db, nodelist: djls_templates::NodeList<'_>) {
     let Some(inventory) = db.inspector_inventory() else {
         return;
     };
 
+    let opaque = crate::opaque::compute_opaque_regions(db, nodelist);
     let loaded = compute_loaded_libraries(db, nodelist);
     let tag_inventory = build_tag_inventory(&inventory);
     let tag_specs = db.tag_specs();
 
     for node in nodelist.nodelist(db) {
         if let Node::Tag { name, span, .. } = node {
+            if opaque.is_opaque(*span) {
+                continue;
+            }
+
             if name == "load" {
                 continue;
             }

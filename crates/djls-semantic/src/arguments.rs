@@ -15,12 +15,19 @@ use crate::ValidationErrorAccumulator;
 /// against its `TagSpec` definition. This is independent of block structure - we validate
 /// opening tags, closing tags, intermediate tags, and standalone tags all the same way.
 ///
+/// Nodes inside opaque regions (e.g., `{% verbatim %}`) are skipped.
+///
 /// # Parameters
 /// - `db`: The Salsa database containing tag specifications
 /// - `nodelist`: The parsed template `NodeList` containing all tags
 pub fn validate_all_tag_arguments(db: &dyn Db, nodelist: djls_templates::NodeList<'_>) {
+    let opaque = crate::opaque::compute_opaque_regions(db, nodelist);
+
     for node in nodelist.nodelist(db) {
         if let Node::Tag { name, bits, span } = node {
+            if opaque.is_opaque(*span) {
+                continue;
+            }
             let marker_span = span.expand(TagDelimiter::LENGTH_U32, TagDelimiter::LENGTH_U32);
             validate_tag_arguments(db, name, bits, marker_span);
         }
@@ -680,7 +687,13 @@ mod tests {
 
     #[test]
     fn test_expr_stops_at_literal() {
-        // {% if condition reversed %} - "reversed" should not be consumed by expr
+        // Tests that a greedy expression argument stops consuming tokens
+        // when it encounters the next literal keyword in the arg spec.
+        //
+        // Uses "if" tag with custom bits. Note: this is a contrived scenario
+        // (real {% if %} doesn't take "reversed"). The expression validation
+        // (S114) will flag "reversed" as unused, so we filter those out and
+        // only check for argument-spec errors.
         let bits = vec![
             "x".to_string(),
             ">".to_string(),
@@ -692,7 +705,10 @@ mod tests {
             TagArg::modifier("reversed", false),
         ];
 
-        let errors = check_validation_errors("if", &bits, &args);
+        let errors: Vec<_> = check_validation_errors("if", &bits, &args)
+            .into_iter()
+            .filter(|e| !matches!(e, ValidationError::ExpressionSyntaxError { .. }))
+            .collect();
         assert!(
             errors.is_empty(),
             "Expr should stop before literal keyword: {errors:?}"
