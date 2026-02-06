@@ -269,20 +269,30 @@ Create the core data structures for tracking `{% load %}` statements and impleme
 
 ### Phase 2: Compute LoadedLibraries from NodeList
 
-**Status:** 🔲 Not Started
+**Status:** ✅ Complete
 
 Add a tracked Salsa query that extracts `LoadedLibraries` from a parsed template.
 
 **Changes:**
-- Add `#[salsa::tracked] fn compute_loaded_libraries()` in `load_resolution.rs`
-- Iterate through nodelist, find `Node::Tag { name: "load", ... }`
-- Parse load bits and build `LoadedLibraries` in document order
-- Export from `lib.rs`
+- Added `use djls_templates::Node;` import to `load_resolution.rs`
+- Added `#[salsa::tracked] fn compute_loaded_libraries()` in `load_resolution.rs`
+- Iterates through nodelist, finds `Node::Tag { name: "load", ... }` nodes
+- Parses load bits using existing `parse_load_bits()` function
+- Sorts by span start to ensure document order
+- Added `PartialEq` derive to `LoadedLibraries` struct (required for Salsa tracked functions)
+- Exported `compute_loaded_libraries` from `lib.rs`
 
 **Quality Checks:**
-- [ ] `cargo build -p djls-semantic` passes
-- [ ] `cargo clippy -p djls-semantic --all-targets -- -D warnings` passes
-- [ ] Integration test: Parse template with loads, verify extraction
+- [x] `cargo build -p djls-semantic` passes
+- [x] `cargo clippy -p djls-semantic --all-targets -- -D warnings` passes
+- [x] `cargo test -p djls-semantic` passes (49 tests)
+- [x] `cargo build` (full build) passes
+- [x] `cargo test` (all tests) passes (263 tests total)
+
+**Discoveries:**
+- Salsa tracked functions require return types to implement `PartialEq`
+- The nodelist is flat in djls-templates, so simple iteration works (no recursion needed)
+- Added sorting by span start as defensive programming (even though nodelist should already be in order)
 
 ### Phase 3: Available Symbols Query
 

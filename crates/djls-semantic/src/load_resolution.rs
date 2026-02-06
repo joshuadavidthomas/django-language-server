@@ -4,6 +4,7 @@
 //! position-aware queries for which tags/filters are available.
 
 use djls_source::Span;
+use djls_templates::Node;
 use rustc_hash::FxHashSet;
 
 /// A parsed `{% load %}` statement.
@@ -30,7 +31,7 @@ pub enum LoadKind {
 }
 
 /// Collection of load statements in a template, ordered by position.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LoadedLibraries {
     /// Load statements in document order
     loads: Vec<LoadStatement>,
@@ -141,6 +142,47 @@ pub fn parse_load_bits(bits: &[String], span: Span) -> Option<LoadStatement> {
         span,
         kind: LoadKind::Libraries(libraries),
     })
+}
+
+/// Extract all `{% load %}` statements from a template.
+///
+/// This tracked function performs a traversal of the nodelist,
+/// collecting all load statements in document order. This is important because
+/// Django's parser processes tokens in order as it parses, so a `{% load %}`
+/// inside a block still affects global tag availability.
+///
+/// **IMPORTANT**: The nodelist in djls-templates is flat (no nested structure),
+/// but we must still process ALL nodes. If the parser ever changes to support
+/// nested structures, this function must be updated to traverse recursively.
+#[salsa::tracked]
+pub fn compute_loaded_libraries(
+    db: &dyn crate::Db,
+    nodelist: djls_templates::NodeList<'_>,
+) -> LoadedLibraries {
+    let mut loaded = LoadedLibraries::new();
+    let mut load_spans: Vec<(Span, LoadStatement)> = Vec::new();
+
+    // Collect all load statements with their spans
+    for node in nodelist.nodelist(db) {
+        if let Node::Tag { name, bits, span } = node {
+            if name == "load" {
+                if let Some(stmt) = parse_load_bits(bits, *span) {
+                    load_spans.push((*span, stmt));
+                }
+            }
+        }
+    }
+
+    // Sort by span start position to ensure document order
+    // (The nodelist should already be in order, but sort to be safe)
+    load_spans.sort_by_key(|(span, _)| span.start());
+
+    // Add to LoadedLibraries in order
+    for (_, stmt) in load_spans {
+        loaded.push(stmt);
+    }
+
+    loaded
 }
 
 #[cfg(test)]
