@@ -19,6 +19,8 @@ use ruff_python_ast::UnaryOp;
 use crate::context::detect_split_var;
 use crate::registry::RegistrationKind;
 use crate::types::ArgumentCountConstraint;
+use crate::types::ExtractedArg;
+use crate::types::ExtractedArgKind;
 use crate::types::KnownOptions;
 use crate::types::RequiredKeyword;
 use crate::types::TagRule;
@@ -43,6 +45,7 @@ pub fn extract_tag_rule(func: &StmtFunctionDef, kind: RegistrationKind) -> TagRu
             arg_constraints: Vec::new(),
             required_keywords: Vec::new(),
             known_options: None,
+            extracted_args: Vec::new(),
         },
     }
 }
@@ -71,10 +74,19 @@ fn extract_compile_function_rule(func: &StmtFunctionDef) -> TagRule {
         known_options = Some(opts);
     }
 
+    // Extract argument names from AST analysis (tuple unpacking, indexed access)
+    let extracted_args = extract_args_from_compile_function(
+        &func.body,
+        split_var.as_deref(),
+        &required_keywords,
+        &arg_constraints,
+    );
+
     TagRule {
         arg_constraints,
         required_keywords,
         known_options,
+        extracted_args,
     }
 }
 
@@ -109,17 +121,10 @@ fn extract_parse_bits_rule(func: &StmtFunctionDef, _kind: RegistrationKind) -> T
     let mut arg_constraints = Vec::new();
 
     if !has_varargs {
-        // Without *args, there's a maximum argument count
-        // parse_bits allows positional args + keyword args
-        // The total token count = 1 (tag name) + num_positional_args + kwarg_tokens
-        // For simplicity: min = required, max = total params (kwonly excluded from positional)
         if num_required > 0 {
-            // At minimum, need `num_required` positional args + 1 for tag name
             arg_constraints.push(ArgumentCountConstraint::Min(num_required + 1));
         }
         if !has_kwargs {
-            // Maximum: all positional params + 1 for tag name
-            // Keyword-only args use `key=value` syntax, each takes 1 token
             let max_positional = effective_params.len();
             let kwonly_count = params.kwonlyargs.len();
             arg_constraints.push(ArgumentCountConstraint::Max(
@@ -127,15 +132,262 @@ fn extract_parse_bits_rule(func: &StmtFunctionDef, _kind: RegistrationKind) -> T
             ));
         }
     } else if num_required > 0 {
-        // With *args but required params, just enforce minimum
         arg_constraints.push(ArgumentCountConstraint::Min(num_required + 1));
     }
+
+    // Extract argument structure from function parameters
+    let mut extracted_args = Vec::new();
+    for (i, param) in effective_params.iter().enumerate() {
+        let name = param.parameter.name.to_string();
+        let required = param.default.is_none();
+        extracted_args.push(ExtractedArg {
+            name,
+            required,
+            kind: ExtractedArgKind::Variable,
+            position: i,
+        });
+    }
+
+    // Add *args if present
+    if has_varargs {
+        if let Some(vararg) = &params.vararg {
+            extracted_args.push(ExtractedArg {
+                name: vararg.name.to_string(),
+                required: false,
+                kind: ExtractedArgKind::VarArgs,
+                position: effective_params.len(),
+            });
+        }
+    }
+
+    // Add keyword-only args
+    for (i, kwonly) in params.kwonlyargs.iter().enumerate() {
+        let name = kwonly.parameter.name.to_string();
+        let required = kwonly.default.is_none();
+        extracted_args.push(ExtractedArg {
+            name,
+            required,
+            kind: ExtractedArgKind::Keyword,
+            position: effective_params.len() + usize::from(has_varargs) + i,
+        });
+    }
+
+    // simple_tag/inclusion_tag auto-adds `as varname` support
+    let as_position = extracted_args.len();
+    extracted_args.push(ExtractedArg {
+        name: "as".to_string(),
+        required: false,
+        kind: ExtractedArgKind::Literal("as".to_string()),
+        position: as_position,
+    });
+    extracted_args.push(ExtractedArg {
+        name: "varname".to_string(),
+        required: false,
+        kind: ExtractedArgKind::Variable,
+        position: as_position + 1,
+    });
 
     TagRule {
         arg_constraints,
         required_keywords: Vec::new(),
         known_options: None,
+        extracted_args,
     }
+}
+
+/// Extract argument names from a manual `@register.tag` compile function.
+///
+/// Attempts to reconstruct argument structure from:
+/// 1. Tuple unpacking: `tag_name, item, _in, iterable = bits`
+/// 2. Indexed access: `format_string = bits[1]`
+/// 3. `RequiredKeyword` positions give literal positions
+/// 4. Falls back to generic `arg1`, `arg2` names
+fn extract_args_from_compile_function(
+    body: &[Stmt],
+    split_var: Option<&str>,
+    required_keywords: &[RequiredKeyword],
+    arg_constraints: &[ArgumentCountConstraint],
+) -> Vec<ExtractedArg> {
+    let mut args: Vec<ExtractedArg> = Vec::new();
+
+    // Try tuple unpacking first: `tag_name, item, _in, iterable = bits`
+    if let Some(names) = find_tuple_unpacking(body, split_var) {
+        // First element is always the tag name, skip it
+        for (i, name) in names.iter().enumerate().skip(1) {
+            let kind = find_keyword_kind_at(required_keywords, i)
+                .unwrap_or(ExtractedArgKind::Variable);
+
+            args.push(ExtractedArg {
+                name: name.clone(),
+                required: true,
+                kind,
+                position: i - 1, // 0-based, excluding tag name
+            });
+        }
+        return args;
+    }
+
+    // Try indexed access: `format_string = bits[1]`
+    let indexed = find_indexed_access(body, split_var);
+    if !indexed.is_empty() {
+        let max_index = indexed.iter().map(|(idx, _)| *idx).max().unwrap_or(0);
+        for pos in 1..=max_index {
+            if let Some(kind) = find_keyword_kind_at(required_keywords, pos) {
+                if let ExtractedArgKind::Literal(ref val) = kind {
+                    args.push(ExtractedArg {
+                        name: val.clone(),
+                        required: true,
+                        kind,
+                        position: pos - 1,
+                    });
+                }
+            } else if let Some((_, name)) = indexed.iter().find(|(idx, _)| *idx == pos) {
+                args.push(ExtractedArg {
+                    name: name.clone(),
+                    required: true,
+                    kind: ExtractedArgKind::Variable,
+                    position: pos - 1,
+                });
+            } else {
+                args.push(ExtractedArg {
+                    name: format!("arg{pos}"),
+                    required: true,
+                    kind: ExtractedArgKind::Variable,
+                    position: pos - 1,
+                });
+            }
+        }
+        return args;
+    }
+
+    // Fall back to generic names based on arg constraints
+    if let Some(count) = infer_arg_count(arg_constraints) {
+        // count includes tag name (split_contents indices), so args = count - 1
+        for pos in 1..count {
+            if let Some(kind) = find_keyword_kind_at(required_keywords, pos) {
+                if let ExtractedArgKind::Literal(ref val) = kind {
+                    args.push(ExtractedArg {
+                        name: val.clone(),
+                        required: true,
+                        kind,
+                        position: pos - 1,
+                    });
+                }
+            } else {
+                args.push(ExtractedArg {
+                    name: format!("arg{pos}"),
+                    required: true,
+                    kind: ExtractedArgKind::Variable,
+                    position: pos - 1,
+                });
+            }
+        }
+    }
+
+    args
+}
+
+/// Check if a `RequiredKeyword` exists at the given position, returning
+/// the `Literal` kind if so.
+fn find_keyword_kind_at(
+    required_keywords: &[RequiredKeyword],
+    position: usize,
+) -> Option<ExtractedArgKind> {
+    let pos_i64 = i64::try_from(position).ok()?;
+    required_keywords
+        .iter()
+        .find(|rk| rk.position == pos_i64)
+        .map(|rk| ExtractedArgKind::Literal(rk.value.clone()))
+}
+
+/// Find tuple unpacking of the split variable: `tag_name, x, y = bits`
+fn find_tuple_unpacking(body: &[Stmt], split_var: Option<&str>) -> Option<Vec<String>> {
+    for stmt in body {
+        if let Stmt::Assign(assign) = stmt {
+            // Check if RHS is the split variable
+            if !is_split_var_name_expr(&assign.value, split_var) {
+                continue;
+            }
+            // Check if LHS is a tuple
+            if assign.targets.len() == 1 {
+                if let Expr::Tuple(tuple) = &assign.targets[0] {
+                    let names: Vec<String> = tuple
+                        .elts
+                        .iter()
+                        .filter_map(|elt| {
+                            if let Expr::Name(ExprName { id, .. }) = elt {
+                                Some(id.to_string())
+                            } else if let Expr::Starred(_) = elt {
+                                // `*rest` — skip starred for tuple unpacking
+                                None
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+                    if names.len() >= 2 {
+                        return Some(names);
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Check if an expression is the split variable name (value position, not subscript).
+fn is_split_var_name_expr(expr: &Expr, split_var: Option<&str>) -> bool {
+    let Expr::Name(ExprName { id, .. }) = expr else {
+        return false;
+    };
+    let var_name = id.as_str();
+    if let Some(sv) = split_var {
+        return var_name == sv;
+    }
+    matches!(var_name, "bits" | "args" | "parts" | "tokens")
+}
+
+/// Find indexed access patterns: `name = bits[N]` → (N, name)
+fn find_indexed_access(body: &[Stmt], split_var: Option<&str>) -> Vec<(usize, String)> {
+    let mut results = Vec::new();
+    for stmt in body {
+        if let Stmt::Assign(assign) = stmt {
+            if assign.targets.len() != 1 {
+                continue;
+            }
+            let Expr::Name(ExprName { id: target_name, .. }) = &assign.targets[0] else {
+                continue;
+            };
+            if let Expr::Subscript(ExprSubscript { value, slice, .. }) = assign.value.as_ref() {
+                if is_split_var_name_expr(value, split_var) {
+                    if let Some(idx) = extract_int_constant(slice) {
+                        if idx > 0 {
+                            results.push((idx, target_name.to_string()));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    results
+}
+
+/// Infer the expected argument count from constraints.
+///
+/// Returns the exact count if determinable (for generating generic arg names).
+fn infer_arg_count(constraints: &[ArgumentCountConstraint]) -> Option<usize> {
+    for c in constraints {
+        if let ArgumentCountConstraint::Exact(n) = c {
+            return Some(*n);
+        }
+    }
+    // If only Min constraint, use that as a hint for minimum arg positions
+    for c in constraints {
+        if let ArgumentCountConstraint::Min(n) = c {
+            return Some(*n);
+        }
+    }
+    None
 }
 
 /// Check if a function's decorator includes `takes_context=True`.

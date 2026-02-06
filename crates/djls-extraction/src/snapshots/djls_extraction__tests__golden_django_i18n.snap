@@ -15,6 +15,7 @@ tag_rules:
         - asvar
       allow_duplicates: false
       rejects_unknown: true
+    extracted_args: []
   "django.templatetags.i18n::blocktranslate":
     arg_constraints: []
     required_keywords: []
@@ -27,6 +28,7 @@ tag_rules:
         - asvar
       allow_duplicates: false
       rejects_unknown: true
+    extracted_args: []
   "django.templatetags.i18n::get_available_languages":
     arg_constraints:
       - Exact: 3
@@ -34,6 +36,16 @@ tag_rules:
       - position: 1
         value: as
     known_options: ~
+    extracted_args:
+      - name: as
+        required: true
+        kind:
+          Literal: as
+        position: 0
+      - name: arg2
+        required: true
+        kind: Variable
+        position: 1
   "django.templatetags.i18n::get_current_language":
     arg_constraints:
       - Exact: 3
@@ -41,6 +53,16 @@ tag_rules:
       - position: 1
         value: as
     known_options: ~
+    extracted_args:
+      - name: as
+        required: true
+        kind:
+          Literal: as
+        position: 0
+      - name: arg2
+        required: true
+        kind: Variable
+        position: 1
   "django.templatetags.i18n::get_current_language_bidi":
     arg_constraints:
       - Exact: 3
@@ -48,6 +70,16 @@ tag_rules:
       - position: 1
         value: as
     known_options: ~
+    extracted_args:
+      - name: as
+        required: true
+        kind:
+          Literal: as
+        position: 0
+      - name: arg2
+        required: true
+        kind: Variable
+        position: 1
   "django.templatetags.i18n::get_language_info":
     arg_constraints:
       - Exact: 5
@@ -57,6 +89,25 @@ tag_rules:
       - position: 3
         value: as
     known_options: ~
+    extracted_args:
+      - name: for
+        required: true
+        kind:
+          Literal: for
+        position: 0
+      - name: arg2
+        required: true
+        kind: Variable
+        position: 1
+      - name: as
+        required: true
+        kind:
+          Literal: as
+        position: 2
+      - name: arg4
+        required: true
+        kind: Variable
+        position: 3
   "django.templatetags.i18n::get_language_info_list":
     arg_constraints:
       - Exact: 5
@@ -66,11 +117,35 @@ tag_rules:
       - position: 3
         value: as
     known_options: ~
+    extracted_args:
+      - name: for
+        required: true
+        kind:
+          Literal: for
+        position: 0
+      - name: arg2
+        required: true
+        kind: Variable
+        position: 1
+      - name: as
+        required: true
+        kind:
+          Literal: as
+        position: 2
+      - name: arg4
+        required: true
+        kind: Variable
+        position: 3
   "django.templatetags.i18n::language":
     arg_constraints:
       - Exact: 2
     required_keywords: []
     known_options: ~
+    extracted_args:
+      - name: arg1
+        required: true
+        kind: Variable
+        position: 0
   "django.templatetags.i18n::trans":
     arg_constraints:
       - Min: 2
@@ -82,6 +157,11 @@ tag_rules:
         - as
       allow_duplicates: false
       rejects_unknown: true
+    extracted_args:
+      - name: arg1
+        required: true
+        kind: Variable
+        position: 0
   "django.templatetags.i18n::translate":
     arg_constraints:
       - Min: 2
@@ -93,6 +173,11 @@ tag_rules:
         - as
       allow_duplicates: false
       rejects_unknown: true
+    extracted_args:
+      - name: arg1
+        required: true
+        kind: Variable
+        position: 0
 filter_arities:
   "django.templatetags.i18n::language_bidi":
     expects_arg: false

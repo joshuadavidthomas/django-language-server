@@ -11,5 +11,6 @@ tag_rules:
           - 4
     required_keywords: []
     known_options: ~
+    extracted_args: []
 filter_arities: {}
 block_specs: {}

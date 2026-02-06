@@ -137,28 +137,28 @@ pub fn validate_filter_scoping(
             let symbols =
                 AvailableSymbols::at_position(&loaded_libraries, &inventory, span.start());
 
-            match symbols.check_filter(filter.name()) {
+            match symbols.check_filter(&filter.name) {
                 FilterAvailability::Available => {}
                 FilterAvailability::Unknown => {
                     ValidationErrorAccumulator(ValidationError::UnknownFilter {
-                        filter: filter.name().to_string(),
-                        span: filter.span(),
+                        filter: filter.name.clone(),
+                        span: filter.span,
                     })
                     .accumulate(db);
                 }
                 FilterAvailability::Unloaded { library } => {
                     ValidationErrorAccumulator(ValidationError::UnloadedFilter {
-                        filter: filter.name().to_string(),
+                        filter: filter.name.clone(),
                         library,
-                        span: filter.span(),
+                        span: filter.span,
                     })
                     .accumulate(db);
                 }
                 FilterAvailability::AmbiguousUnloaded { libraries } => {
                     ValidationErrorAccumulator(ValidationError::AmbiguousUnloadedFilter {
-                        filter: filter.name().to_string(),
+                        filter: filter.name.clone(),
                         libraries,
-                        span: filter.span(),
+                        span: filter.span,
                     })
                     .accumulate(db);
                 }

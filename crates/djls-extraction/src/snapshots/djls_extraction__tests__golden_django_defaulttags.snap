@@ -8,6 +8,11 @@ tag_rules:
       - Exact: 2
     required_keywords: []
     known_options: ~
+    extracted_args:
+      - name: arg
+        required: true
+        kind: Variable
+        position: 0
   "django.template.defaulttags::cycle":
     arg_constraints:
       - Min: 2
@@ -15,21 +20,45 @@ tag_rules:
       - position: -1
         value: silent
     known_options: ~
+    extracted_args:
+      - name: arg1
+        required: true
+        kind: Variable
+        position: 0
   "django.template.defaulttags::for":
     arg_constraints:
       - Min: 4
     required_keywords: []
     known_options: ~
+    extracted_args:
+      - name: arg1
+        required: true
+        kind: Variable
+        position: 0
+      - name: arg2
+        required: true
+        kind: Variable
+        position: 1
+      - name: arg3
+        required: true
+        kind: Variable
+        position: 2
   "django.template.defaulttags::lorem":
     arg_constraints:
       - Exact: 1
     required_keywords: []
     known_options: ~
+    extracted_args: []
   "django.template.defaulttags::now":
     arg_constraints:
       - Exact: 2
     required_keywords: []
     known_options: ~
+    extracted_args:
+      - name: arg1
+        required: true
+        kind: Variable
+        position: 0
   "django.template.defaulttags::regroup":
     arg_constraints:
       - Exact: 6
@@ -39,21 +68,55 @@ tag_rules:
       - position: 4
         value: as
     known_options: ~
+    extracted_args:
+      - name: arg1
+        required: true
+        kind: Variable
+        position: 0
+      - name: by
+        required: true
+        kind:
+          Literal: by
+        position: 1
+      - name: arg3
+        required: true
+        kind: Variable
+        position: 2
+      - name: as
+        required: true
+        kind:
+          Literal: as
+        position: 3
+      - name: var_name
+        required: true
+        kind: Variable
+        position: 4
   "django.template.defaulttags::resetcycle":
     arg_constraints:
       - Max: 2
     required_keywords: []
     known_options: ~
+    extracted_args: []
   "django.template.defaulttags::templatetag":
     arg_constraints:
       - Exact: 2
     required_keywords: []
     known_options: ~
+    extracted_args:
+      - name: tag
+        required: true
+        kind: Variable
+        position: 0
   "django.template.defaulttags::url":
     arg_constraints:
       - Min: 2
     required_keywords: []
     known_options: ~
+    extracted_args:
+      - name: arg1
+        required: true
+        kind: Variable
+        position: 0
 filter_arities: {}
 block_specs:
   "django.template.defaulttags::autoescape":

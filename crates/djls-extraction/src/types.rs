@@ -74,6 +74,7 @@ pub struct TagRule {
     pub arg_constraints: Vec<ArgumentCountConstraint>,
     pub required_keywords: Vec<RequiredKeyword>,
     pub known_options: Option<KnownOptions>,
+    pub extracted_args: Vec<ExtractedArg>,
 }
 
 /// Constraint on the number of tokens in a tag's argument list.
@@ -127,6 +128,38 @@ pub struct BlockTagSpec {
     pub opaque: bool,
 }
 
+/// Argument structure extracted from a tag's registration.
+///
+/// Represents a single positional or keyword argument that a template tag
+/// accepts, derived from the Python function signature (for simple/inclusion
+/// tags) or from AST analysis of the compile function (for manual tags).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ExtractedArg {
+    /// Argument name (from parameter name or AST analysis, or generic `arg1`/`arg2`)
+    pub name: String,
+    /// Whether this argument is required (no default value)
+    pub required: bool,
+    /// The kind of argument
+    pub kind: ExtractedArgKind,
+    /// Zero-based position index in the argument list (excluding tag name)
+    pub position: usize,
+}
+
+/// The kind of an extracted argument.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum ExtractedArgKind {
+    /// A template variable or expression
+    Variable,
+    /// A literal keyword that must appear exactly as specified
+    Literal(String),
+    /// A choice between specific literal values
+    Choice(Vec<String>),
+    /// Consumes all remaining arguments (`*args`)
+    VarArgs,
+    /// A keyword argument (`**kwargs` or keyword-only)
+    Keyword,
+}
+
 /// Filter argument arity extracted from the filter function's signature.
 ///
 /// Django filters receive the value being filtered as their first argument.
@@ -174,6 +207,7 @@ mod tests {
                 arg_constraints: vec![ArgumentCountConstraint::Exact(3)],
                 required_keywords: vec![],
                 known_options: None,
+                extracted_args: vec![],
             },
         );
 
@@ -202,6 +236,7 @@ mod tests {
                 arg_constraints: vec![ArgumentCountConstraint::Exact(3)],
                 required_keywords: vec![],
                 known_options: None,
+                extracted_args: vec![],
             },
         );
 
@@ -212,6 +247,7 @@ mod tests {
                 arg_constraints: vec![ArgumentCountConstraint::Min(2)],
                 required_keywords: vec![],
                 known_options: None,
+                extracted_args: vec![],
             },
         );
 

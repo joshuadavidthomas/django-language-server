@@ -9,5 +9,10 @@ tag_rules:
       - Max: 4
     required_keywords: []
     known_options: ~
+    extracted_args:
+      - name: arg1
+        required: true
+        kind: Variable
+        position: 0
 filter_arities: {}
 block_specs: {}

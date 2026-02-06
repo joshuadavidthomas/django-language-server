@@ -8,5 +8,15 @@ tag_rules:
       - Max: 1
     required_keywords: []
     known_options: ~
+    extracted_args:
+      - name: as
+        required: false
+        kind:
+          Literal: as
+        position: 0
+      - name: varname
+        required: false
+        kind: Variable
+        position: 1
 filter_arities: {}
 block_specs: {}

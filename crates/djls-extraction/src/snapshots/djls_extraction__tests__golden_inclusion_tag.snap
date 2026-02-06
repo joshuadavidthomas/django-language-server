@@ -9,5 +9,19 @@ tag_rules:
       - Max: 2
     required_keywords: []
     known_options: ~
+    extracted_args:
+      - name: poll
+        required: true
+        kind: Variable
+        position: 0
+      - name: as
+        required: false
+        kind:
+          Literal: as
+        position: 1
+      - name: varname
+        required: false
+        kind: Variable
+        position: 2
 filter_arities: {}
 block_specs: {}

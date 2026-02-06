@@ -2,3 +2,4 @@
 .ralph-stats
 dist/
 target/
+target_local/

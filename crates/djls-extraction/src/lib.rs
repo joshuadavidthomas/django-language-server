@@ -33,6 +33,8 @@ pub use registry::RegistrationKind;
 pub use rules::extract_tag_rule;
 pub use types::ArgumentCountConstraint;
 pub use types::BlockTagSpec;
+pub use types::ExtractedArg;
+pub use types::ExtractedArgKind;
 pub use types::ExtractionResult;
 pub use types::FilterArity;
 pub use types::KnownOptions;

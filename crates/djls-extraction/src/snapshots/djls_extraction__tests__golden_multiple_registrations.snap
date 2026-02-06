@@ -8,12 +8,31 @@ tag_rules:
       - Exact: 2
     required_keywords: []
     known_options: ~
+    extracted_args:
+      - name: arg1
+        required: true
+        kind: Variable
+        position: 0
   "app.templatetags.mixed::simple_hello":
     arg_constraints:
       - Min: 2
       - Max: 2
     required_keywords: []
     known_options: ~
+    extracted_args:
+      - name: name
+        required: true
+        kind: Variable
+        position: 0
+      - name: as
+        required: false
+        kind:
+          Literal: as
+        position: 1
+      - name: varname
+        required: false
+        kind: Variable
+        position: 2
 filter_arities:
   "app.templatetags.mixed::my_filter":
     expects_arg: true

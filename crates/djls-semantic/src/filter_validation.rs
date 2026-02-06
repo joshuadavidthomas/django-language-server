@@ -39,24 +39,24 @@ pub fn validate_filter_arity(db: &dyn Db, nodelist: NodeList<'_>, opaque_regions
         }
 
         for filter in filters {
-            let Some(arity) = arity_specs.get(filter.name()) else {
+            let Some(arity) = arity_specs.get(&filter.name) else {
                 continue;
             };
 
-            let has_arg = filter.arg().is_some();
+            let has_arg = filter.arg.is_some();
 
             if arity.expects_arg && !arity.arg_optional && !has_arg {
                 // S115: required argument missing
                 ValidationErrorAccumulator(ValidationError::FilterMissingArgument {
-                    filter: filter.name().to_string(),
-                    span: filter.span(),
+                    filter: filter.name.clone(),
+                    span: filter.span,
                 })
                 .accumulate(db);
             } else if !arity.expects_arg && has_arg {
                 // S116: unexpected argument provided
                 ValidationErrorAccumulator(ValidationError::FilterUnexpectedArgument {
-                    filter: filter.name().to_string(),
-                    span: filter.span(),
+                    filter: filter.name.clone(),
+                    span: filter.span,
                 })
                 .accumulate(db);
             }
