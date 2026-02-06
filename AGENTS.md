@@ -28,6 +28,7 @@ just lint                       # Run pre-commit hooks
 - `crates/djls-server/` - LSP server implementation  
 - `crates/djls-templates/` - Django template parser
 - `crates/djls-workspace/` - Workspace/document management
+- **Module convention**: Uses `folder.rs` NOT `folder/mod.rs`. E.g. `templatetags.rs` + `templatetags/specs.rs`, NOT `templatetags/mod.rs`
 
 ## Key File Paths
 - **Inspector Python**: `crates/djls-project/inspector/queries.py` — tag/filter collection, `build.rs` rebuilds pyz on change
@@ -36,8 +37,11 @@ just lint                       # Run pre-commit hooks
 - **Database + queries**: `crates/djls-server/src/db.rs` — `DjangoDatabase`, update/refresh methods, tracked queries go here
 - **Project lib.rs exports**: `crates/djls-project/src/lib.rs` — re-exports for `TagProvenance`, `TemplateTags`, inspector request/response types
 - **Completions**: `crates/djls-ide/src/completions.rs` — `generate_library_completions()` at ~line 526
+- **Semantic templatetags module**: `crates/djls-semantic/src/templatetags.rs` (NOT `templatetags/mod.rs`)
 - **Semantic specs**: `crates/djls-semantic/src/templatetags/specs.rs` — `TagSpecs`, `TagIndex`, `django_builtin_specs()`
-- **Config types**: `crates/djls-conf/` — `TagSpecDef`, `DiagnosticsConfig`, `Settings`
+- **Semantic builtins**: `crates/djls-semantic/src/templatetags/builtins.rs` — builtin tag spec definitions
+- **Block grammar**: `crates/djls-semantic/src/blocks/grammar.rs` — block structure parsing (read 5x in sessions)
+- **Config types**: `crates/djls-conf/` — `TagSpecDef`, `DiagnosticsConfig`, `Settings`; `tagspecs.rs` for `TagSpecDef`
 
 ## Django Engine Internals (for inspector work)
 - `engine.builtins` — `list[str]` of module paths (e.g., `"django.template.defaulttags"`)
@@ -47,14 +51,15 @@ just lint                       # Run pre-commit hooks
 - Use `engine.libraries.items()` (not `.values()`) to preserve load-name keys
 
 ## Worktree Gotchas
-- **`target/` is tracked in this worktree** — the worktree `.gitignore` doesn't exclude it. Add `target/` to `.gitignore` before committing to avoid bloating diffs with build artifacts.
-- When running `git add -A`, be aware this will stage everything in `target/` if not gitignored.
+- **`target/` in `.gitignore`** — already added, but verify before `git add -A` that it's still excluded. Worktree `.gitignore` is separate from the main repo's.
 
 ## Salsa Patterns
 - **Setter API**: Salsa input setters use `.set_field(db).to(value)` — NOT `.set_field(db, value)`. The `.to()` call is required.
 - **Manual comparison before setting**: Always compare old vs new with `project.field(db) != &new_value` before calling `project.set_field(db).to(new_value)` — setters always invalidate, even if the value is the same.
 - **`#[returns(ref)]`**: Use on Salsa input fields that return owned types (String, Vec, HashMap, Option<T>) — Salsa returns `&T` from these fields.
 - **Project is the single source of truth**: Store config docs (`TagSpecDef`, `DiagnosticsConfig`) on `Project`, not derived artifacts (`TagSpecs`). Conversion happens in tracked queries.
+- **Tracked function return types need `PartialEq`**: Salsa uses equality to decide whether to propagate invalidation ("backdate" optimization). If a tracked function returns `TagSpecs`, `TagSpecs` must derive `PartialEq`.
+- **Backdate optimization in tests**: If `compute_tag_specs` returns the same value after an input change, downstream queries like `compute_tag_index` will NOT re-execute. Test invalidation cascades with inputs that produce *distinct* outputs.
 
 ## Clippy Rules
 - Return `&str` not `&String` from accessors — clippy flags this
@@ -62,6 +67,9 @@ just lint                       # Run pre-commit hooks
 - Merge match arms with identical bodies (`match_same_arms` lint)
 - Functions over 100 lines trigger `too_many_lines` — split or extract helpers
 - Methods added to `impl DjangoDatabase` that aren't called yet trigger `dead_code` — add `#[allow(dead_code)]` temporarily or wire up call sites in the same commit
+- Don't pass owned types by value when not consumed — use `&str` not `String`, `&[T]` not `Vec<T>` in function params (`needless_pass_by_value`)
+- Prefer `HashMap::default()` over `HashMap::new()` — clippy flags `HashMap::new()` as less clear
+- Don't use explicit lifetimes when they can be elided — `fn foo<'db>(&'db self)` → `fn foo(&self)` (`explicit_lifetimes_could_be_elided`)
 
 ## Task Management
 Use `/dex` to break down complex work, track progress across sessions, and coordinate multi-step implementations.
