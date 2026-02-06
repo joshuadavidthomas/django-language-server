@@ -240,16 +240,16 @@
 
 ### Phase 1: Create `djls-extraction` Crate with Ruff Parser
 
-- [ ] Choose a recent stable Ruff release tag, resolve to 40-char commit SHA
-- [ ] Add workspace dependencies in root `Cargo.toml`: `djls-extraction`, `ruff_python_parser`, `ruff_python_ast`, `ruff_text_size` (all pinned to SHA)
-- [ ] Create `crates/djls-extraction/` directory structure with all module files
-- [ ] Create `crates/djls-extraction/Cargo.toml` with Ruff parser deps + workspace deps (rustc-hash, serde, thiserror, tracing, insta)
-- [ ] Implement `crates/djls-extraction/src/types.rs` — `SymbolKey`, `ExtractionResult`, `ExtractedTag`, `ExtractedFilter`, `DecoratorKind`, `ExtractedRule`, `RuleCondition`, `ComparisonOp`, `BlockTagSpec`, `IntermediateTagSpec`, `FilterArity`
-- [ ] Implement `crates/djls-extraction/src/error.rs` — `ExtractionError` with `ParseError`, `UnsupportedSyntax`, `UnresolvedReference`
-- [ ] Implement `crates/djls-extraction/src/parser.rs` — `ParsedModule` wrapper around `ruff_python_parser::parse_module`
-- [ ] Create stub modules: `registry.rs`, `context.rs`, `rules.rs`, `structural.rs`, `filters.rs`, `patterns.rs` (empty or minimal)
-- [ ] Implement `crates/djls-extraction/src/lib.rs` — public API with `extract_rules()` calling parser→registry→rules→structural→filters
-- [ ] Run `cargo build -q -p djls-extraction`, `cargo clippy -q -p djls-extraction --all-targets --all-features -- -D warnings`
+- [x] Choose a recent stable Ruff release tag, resolve to 40-char commit SHA
+- [x] Add workspace dependencies in root `Cargo.toml`: `djls-extraction`, `ruff_python_parser`, `ruff_python_ast`, `ruff_text_size` (all pinned to SHA)
+- [x] Create `crates/djls-extraction/` directory structure with all module files
+- [x] Create `crates/djls-extraction/Cargo.toml` with Ruff parser deps + workspace deps (rustc-hash, serde, thiserror, tracing, insta)
+- [x] Implement `crates/djls-extraction/src/types.rs` — `SymbolKey`, `ExtractionResult`, `ExtractedTag`, `ExtractedFilter`, `DecoratorKind`, `ExtractedRule`, `RuleCondition`, `ComparisonOp`, `BlockTagSpec`, `IntermediateTagSpec`, `FilterArity`
+- [x] Implement `crates/djls-extraction/src/error.rs` — `ExtractionError` with `ParseError`, `UnsupportedSyntax`, `UnresolvedReference`
+- [x] Implement `crates/djls-extraction/src/parser.rs` — `ParsedModule` wrapper around `ruff_python_parser::parse_module`
+- [x] Create stub modules: `registry.rs`, `context.rs`, `rules.rs`, `structural.rs`, `filters.rs`, `patterns.rs` (empty or minimal)
+- [x] Implement `crates/djls-extraction/src/lib.rs` — public API with `extract_rules()` calling parser→registry→rules→structural→filters
+- [x] Run `cargo build -q -p djls-extraction`, `cargo clippy -q -p djls-extraction --all-targets --all-features -- -D warnings`
 
 ### Phase 2: Implement Registration Discovery
 
