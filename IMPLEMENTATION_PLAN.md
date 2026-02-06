@@ -807,9 +807,40 @@ Infer end-tags from control flow patterns (NO string heuristics like `starts_wit
 
 ### Phase 6: Implement Filter Arity Extraction
 
-**Status:** 🔲 Not Started
+**Status:** ✅ Complete
 
-Determine argument requirements for filters.
+Determine argument requirements for filters by analyzing function signatures.
+
+**Changes:**
+- Implemented `extract_filter_arity()` in `crates/djls-extraction/src/filters.rs`:
+  - Finds function definition matching `registration.function_name`
+  - Counts positional parameters (`posonlyargs.len() + args.len()`)
+  - Returns `FilterArity::None` for 0-1 params (no filter arguments)
+  - Returns `FilterArity::Required` for 2 params without default
+  - Returns `FilterArity::Optional` for 2 params with default
+  - Returns `FilterArity::Unknown` for `*args` or >2 params
+- Handles all positional parameter patterns:
+  - Two positional-only args
+  - One positional-only + one regular arg  
+  - Two regular args
+- Checks `ParameterWithDefault.default` field for default value detection
+- Added 3 comprehensive unit tests:
+  - `test_filter_no_arg`: No-arg filter like `title`
+  - `test_filter_required_arg`: Required arg like `truncatewords`
+  - `test_filter_optional_arg`: Optional arg like `default`
+
+**Quality Checks:**
+- [x] `cargo build -p djls-extraction` passes
+- [x] `cargo clippy -p djls-extraction --all-targets -- -D warnings` passes
+- [x] `cargo test -p djls-extraction filters` passes (3 tests)
+- [x] `cargo build` (full build) passes
+- [x] `cargo test` (all tests) passes (320 tests)
+- [x] `cargo clippy --all-targets --all-features -- -D warnings` passes
+
+**Discoveries:**
+- Ruff AST uses `ParameterWithDefault` struct which wraps `Parameter` with an optional `default: Option<Box<Expr>>`
+- No separate `defaults` vector like Python's standard AST - defaults are inline with each parameter
+- `vararg` check prevents misclassifying filters that use `*args` as having known arity
 
 ---
 
