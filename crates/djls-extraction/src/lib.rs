@@ -64,12 +64,12 @@ pub use types::SymbolKind;
 /// Module-to-path resolution is NOT this crate's responsibility.
 pub fn extract_rules(source: &str) -> Result<ExtractionResult, ExtractionError> {
     let parsed = parser::parse_module(source)?;
-    let registry = registry::find_registrations(&parsed)?;
+    let found = registry::find_registrations(&parsed)?;
 
     let mut tags = Vec::new();
     let mut filters = Vec::new();
 
-    for reg in &registry.tags {
+    for reg in &found.tags {
         // Build function context (detects split_var name, parser_var, token_var)
         let ctx = context::FunctionContext::from_registration(&parsed, reg);
 
@@ -84,7 +84,7 @@ pub fn extract_rules(source: &str) -> Result<ExtractionResult, ExtractionError> 
         });
     }
 
-    for reg in &registry.filters {
+    for reg in &found.filters {
         let arity = filters::extract_filter_arity(&parsed, reg)?;
 
         filters.push(ExtractedFilter {

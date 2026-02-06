@@ -16,7 +16,7 @@ This document tracks progress through the milestones for porting the Python `tem
 | M2 | Salsa Invalidation Plumbing | ✅ Complete | [`.agents/plans/2026-02-05-m2-salsa-invalidation-plumbing.md`](.agents/plans/2026-02-05-m2-salsa-invalidation-plumbing.md) |
 | M3 | `{% load %}` Scoping Infrastructure | ✅ Complete | [`.agents/plans/2026-02-05-m3-load-scoping.md`](.agents/plans/2026-02-05-m3-load-scoping.md) |
 | M4 | Filters Pipeline | ✅ Complete | [`.agents/plans/2026-02-05-m4-filters-pipeline.md`](.agents/plans/2026-02-05-m4-filters-pipeline.md) |
-| M5 | Rust Extraction Engine (`djls-extraction`) | 🔲 Not Started | [`.agents/plans/2026-02-05-m5-extraction-engine.md`](.agents/plans/2026-02-05-m5-extraction-engine.md) |
+| M5 | Rust Extraction Engine (`djls-extraction`) | 🔄 In Progress (Phase 2 Complete) | [`.agents/plans/2026-02-05-m5-extraction-engine.md`](.agents/plans/2026-02-05-m5-extraction-engine.md) |
 | M6 | Rule Evaluation + Expression Validation | 🔲 Not Started | [`.agents/plans/2026-02-05-m6-rule-evaluation.md`](.agents/plans/2026-02-05-m6-rule-evaluation.md) |
 | M7 | Documentation + Issue Reporting | 🔲 Not Started | [`.agents/plans/2026-02-05-m7-docs-and-issue-template.md`](.agents/plans/2026-02-05-m7-docs-and-issue-template.md) |
 
@@ -618,9 +618,48 @@ Create a new crate with a pure, testable API for Python source extraction. Pin R
 
 ### Phase 2: Implement Registration Discovery
 
-**Status:** 🔲 Not Started
+**Status:** ✅ Complete
 
 Find `@register.tag`, `@register.filter`, and related decorators in Python AST.
+
+**Changes:**
+- Extended `RegistrationInfo` struct in `registry.rs` with all required fields:
+  - `name`, `decorator_kind`, `function_name`, `offset`, `explicit_end_name`
+- Renamed `Registry` to `FoundRegistrations` for consistency with plan
+- Implemented `find_registrations()` with full decorator pattern matching:
+  - Bare decorators: `@register.tag`, `@register.simple_tag`, etc.
+  - Call decorators: `@register.tag("name")`, `@register.simple_block_tag(end_name="...")`
+  - Helper wrappers: `@register_simple_block_tag(...)` (pretix pattern)
+  - Filter decorators: `@register.filter`, `@register.filter("name")`
+- Implemented pattern recognition for `lib` and `library` aliases (common conventions)
+- Implemented `extract_name_from_call()` with `allow_positional` parameter:
+  - Handles `inclusion_tag` correctly (first arg is template, not tag name)
+  - Extracts `name="..."` keyword argument for all decorator types
+- Implemented `extract_end_name_from_call()` for `simple_block_tag` explicit end names
+- Added comprehensive test suite (17 tests):
+  - Bare decorators, named decorators, all tag types
+  - `simple_block_tag` with/without `end_name`
+  - Helper wrapper decorator recognition
+  - Filter decorators with various name specifications
+  - `lib`/`library` alias recognition
+  - Multiple decorators on same function
+  - Offset tracking for source positioning
+  - Non-register decorators properly ignored
+
+**Quality Checks:**
+- [x] `cargo build -p djls-extraction` passes
+- [x] `cargo clippy -p djls-extraction --all-targets -- -D warnings` passes
+- [x] `cargo test -p djls-extraction registry` passes (17 tests)
+- [x] `cargo build` (full build) passes
+- [x] `cargo test` (all tests) passes
+- [x] `cargo clippy --all-targets --all-features -- -D warnings` passes
+
+**Discoveries:**
+- Django's `inclusion_tag` decorator takes template filename as first positional arg, not tag name
+  - Fixed by adding `allow_positional` parameter to `extract_name_from_call()`
+  - Tag name must be specified via `name="..."` keyword for `inclusion_tag`
+- Helper wrappers like `@register_simple_block_tag` are standalone names (not `register.<method>`)
+- Ruff AST uses `Expr::StringLiteral` for string values (not `Constant` like older Python AST)
 
 ---
 
