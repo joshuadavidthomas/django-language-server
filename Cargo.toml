@@ -14,6 +14,7 @@ djls-source = { path = "crates/djls-source" }
 djls-templates = { path = "crates/djls-templates" }
 djls-extraction = { path = "crates/djls-extraction" }
 djls-workspace = { path = "crates/djls-workspace" }
+djls-corpus = { path = "crates/djls-corpus" }
 
 # core deps, pin exact versions
 salsa = "0.25.2"

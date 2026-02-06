@@ -13,9 +13,19 @@ ruff_python_parser = { workspace = true, optional = true }
 rustc-hash = { workspace = true }
 serde = { workspace = true }
 
+[[test]]
+name = "corpus"
+required-features = ["parser"]
+
+[[test]]
+name = "golden"
+required-features = ["parser"]
+
 [dev-dependencies]
+djls-corpus = { workspace = true }
 insta = { workspace = true }
 ruff_python_parser = { workspace = true }
+serde = { workspace = true }
 walkdir = { workspace = true }
 
 [lints]
