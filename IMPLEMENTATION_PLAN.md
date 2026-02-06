@@ -1075,21 +1075,70 @@ Remove types and code paths that are now unused.
 
 Port the prototype's corpus tests to Rust. Validate actual templates against extracted rules and assert zero false positives.
 
-**Discovery:** The `.corpus/` directory does not exist and there's no `corpus-sync` mechanism set up. Before implementing corpus tests, need to:
-- Set up corpus directory structure or git submodule
-- Implement `just corpus-sync` command
-- Verify corpus contains Django versions, third-party packages, and repo templates
+**Discovery:** The `.corpus/` directory exists at `template_linter/corpus/.corpus` but only contains `_sdists/` (empty). Need to implement the `just corpus-sync` mechanism to populate it.
 
 **Tasks:**
-- [ ] Set up `.corpus/` directory and sync mechanism
-- [ ] Create `corpus_templates.rs` integration test in `djls-server/tests/`
-- [ ] Implement `validate_template_file()` helper
-- [ ] Test Django shipped templates (4.2/5.1/5.2/6.0) - zero false positives
-- [ ] Test third-party packages (Wagtail, allauth, crispy-forms, etc.)
-- [ ] Test repo templates (Sentry, NetBox)
-- [ ] Test known-invalid templates produce expected errors
-- [ ] Add corpus validation to Justfile
+
+#### 6.1: Set up `.corpus/` directory and sync mechanism
+- [ ] Review Python prototype's corpus sync mechanism (`conftest.py`, corpus manifest)
+- [ ] Implement `just corpus-sync` command in Justfile
+- [ ] Download and extract Django 4.2/5.1/5.2/6.0 source packages
+- [ ] Download and extract third-party packages (Wagtail, allauth, crispy-forms, debug-toolbar, compressor)
+- [ ] Clone/setup repo templates (Sentry, NetBox, babybuddy, GeoNode)
+- [ ] Create corpus manifest JSON/YAML for version tracking
 - [ ] Quality checks pass
+
+#### 6.2: Create `corpus_templates.rs` integration test
+- [ ] Create `crates/djls-server/tests/corpus_templates.rs` file
+- [ ] Implement `corpus_root()` helper to locate corpus directory
+- [ ] Implement `find_templates()` to discover `.html`/`.txt` template files
+- [ ] Implement `build_specs_for_entry()` to extract rules from a corpus entry
+- [ ] Implement `validate_template_file()` helper function
+- [ ] Create test database helper for corpus tests
+- [ ] Quality checks pass
+
+#### 6.3: Test Django shipped templates
+- [ ] Implement `test_django_shipped_templates_zero_false_positives()`
+- [ ] Test Django 4.2 contrib/admin/templates
+- [ ] Test Django 5.1 contrib/admin/templates
+- [ ] Test Django 5.2 contrib/admin/templates
+- [ ] Test Django 6.0 contrib/admin/templates
+- [ ] Assert zero false positives on shipped templates
+- [ ] Quality checks pass
+
+#### 6.4: Test third-party package templates
+- [ ] Implement `test_third_party_templates_zero_false_positives()`
+- [ ] Test Wagtail templates against Wagtail + Django builtin rules
+- [ ] Test allauth templates against allauth + Django builtin rules
+- [ ] Test crispy-forms templates
+- [ ] Test debug-toolbar templates
+- [ ] Test compressor templates
+- [ ] Skip intentionally invalid templates (exclusion list)
+- [ ] Quality checks pass
+
+#### 6.5: Test repo templates
+- [ ] Implement `test_repo_templates_zero_false_positives()`
+- [ ] Test Sentry templates
+- [ ] Test NetBox templates
+- [ ] Test babybuddy templates
+- [ ] Test GeoNode templates (excluding AngularJS templates)
+- [ ] Quality checks pass
+
+#### 6.6: Test known-invalid templates
+- [ ] Implement `test_known_invalid_templates_caught()`
+- [ ] Create/identify templates with intentional errors
+- [ ] Assert validation catches the expected errors
+- [ ] Quality checks pass
+
+#### 6.7: Integration and documentation
+- [ ] Add `corpus-validate` command to Justfile
+- [ ] Document corpus test running in AGENTS.md or docs
+- [ ] Final quality checks: `cargo test -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`
+
+**Quality Checks (per sub-phase):**
+- [ ] `cargo build -q` passes
+- [ ] `cargo test -q` passes
+- [ ] `cargo clippy -q --all-targets --all-features -- -D warnings` passes
 
 ---
 
@@ -1219,6 +1268,55 @@ Remove 5 unreachable `ValidationError` variants (`MissingRequiredArguments`, `To
 **Status:** 🔲 Not Started
 
 Delete the tagspecs documentation page, update config docs to remove `tagspecs` as a config option, update the diagnostic codes table.
+
+**Tasks:**
+
+#### 4.1: Delete tagspecs documentation page
+- [ ] Delete `docs/configuration/tagspecs.md`
+- [ ] Verify file is no longer referenced anywhere
+- [ ] Quality checks pass
+
+#### 4.2: Update MkDocs navigation
+- [ ] Edit `.mkdocs.yml` and remove `tagspecs.md` from nav section
+- [ ] Verify no broken nav references
+- [ ] Quality checks pass
+
+#### 4.3: Update `docs/configuration/index.md`
+- [ ] Remove `### tagspecs` config section
+- [ ] Remove S104-S107 rows from diagnostic codes table
+- [ ] Rename "Block Structure (S100-S107)" to "Block Structure (S100-S103)"
+- [ ] Add S117 (`ExtractedRuleViolation`) to "Argument Validation" subsection
+- [ ] Add note: "Template tag validation is handled automatically by analyzing Python source"
+- [ ] Remove `diagnostics.severity` examples using S104-S107
+- [ ] Quality checks pass
+
+#### 4.4: Update `docs/template-validation.md`
+- [ ] Remove references to user-defined tagspecs
+- [ ] Remove S104-S107 diagnostic code references
+- [ ] Remove `args` configuration format documentation
+- [ ] Add note about Django's own error messages via AST extraction
+- [ ] Document S117 suppression via `diagnostics.severity.S117`
+- [ ] Quality checks pass
+
+#### 4.5: Update cross-references and links
+- [ ] Search docs for links to `tagspecs.md` and remove/redirect
+- [ ] Check `.github/ISSUE_TEMPLATE/` for tagspecs references
+- [ ] Update any README files referencing tagspecs
+- [ ] Quality checks pass
+
+#### 4.6: Verification and final checks
+- [ ] Run `just docs build` and verify no broken links
+- [ ] Verify no S104-S107 references in any docs
+- [ ] Verify no `[tagspecs]` config examples in docs
+- [ ] Review config docs for clarity
+- [ ] Review diagnostic codes table is accurate
+- [ ] Final quality checks: `just docs build`, `cargo test -q`
+
+**Quality Checks (per sub-phase):**
+- [ ] `cargo build -q` passes
+- [ ] `cargo test -q` passes
+- [ ] `cargo clippy -q --all-targets --all-features -- -D warnings` passes
+- [ ] Documentation builds without errors or warnings
 
 ---
 
