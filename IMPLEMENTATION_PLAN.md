@@ -209,10 +209,106 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ## M5 — Extraction Engine (`djls-extraction`)
 
-**Status:** backlog
+**Status:** in-progress
 **Plan:** `.agents/plans/2026-02-05-m5-extraction-engine.md`
 
-_Tasks to be expanded when M4 is complete._
+**Goal:** Implement Rust-side rule mining using Ruff AST to derive validation semantics (argument counts, block structure, option constraints) from Python template tag/filter registration modules. Enriches inspector inventory for M6 rule evaluation.
+
+**Key principles:** Python inspector = authoritative inventory; Rust = AST extraction; Salsa inputs stay minimal (`File` + `Project` only); extraction keyed by `SymbolKey` to avoid cross-library collisions.
+
+### Phase 1: Create `djls-extraction` Crate with Ruff Parser
+
+- [ ] Create `crates/djls-extraction/` directory with `Cargo.toml`, `src/lib.rs`
+- [ ] Add `ruff_python_parser` and `ruff_python_ast` as workspace-level git dependencies in root `Cargo.toml` (pin to specific SHA from a stable Ruff release, e.g., v0.9.x tag)
+- [ ] Add a Cargo feature gate `parser` in `djls-extraction/Cargo.toml` so downstream crates can depend on types-only without pulling in Ruff parser transitively
+- [ ] Define core types: `SymbolKey { registration_module: String, name: String, kind: SymbolKind }`, `SymbolKind` enum (`Tag`/`Filter`), `ExtractionResult` (map from `SymbolKey` to extracted rules), `TagRule` (argument validation), `FilterArity` (arg count info), `BlockTagSpec` (end_tag, intermediates, opaque)
+- [ ] Stub the public API: `extract_rules(source: &str) -> ExtractionResult` (behind `parser` feature)
+- [ ] Add `djls-extraction` to workspace members in root `Cargo.toml`
+- [ ] Write a smoke test: parse a trivial Python file with `ruff_python_parser` and verify no panics
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 2: Registration Discovery
+
+- [ ] Implement AST walker to find `@register.tag` / `@register.simple_tag` / `@register.inclusion_tag` / `@register.filter` decorators
+- [ ] Handle `register.tag("name", func)` call expression registration style
+- [ ] Extract registration name: from decorator keyword arg `name=`, explicit string positional arg, or decorated function name (in that priority order)
+- [ ] Build `RegistrationInfo` struct: `name`, `kind` (tag/simple_tag/inclusion_tag/filter), reference to the decorated/called function AST node
+- [ ] Implement `collect_registrations(source: &str) -> Vec<RegistrationInfo>`
+- [ ] Tests: decorator-based tag, simple_tag with `name=` kwarg, inclusion_tag, filter, call-style `register.tag("name", func)`, function name fallback, multiple registrations in one file
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 3: Function Context Detection
+
+- [ ] Implement `detect_split_var(func_body: &[Stmt]) -> Option<String>` that scans function body for `token.split_contents()` (or `parser.token.split_contents()` via `parser` parameter) call and returns the variable name it's bound to
+- [ ] Handle common patterns: `bits = token.split_contents()`, `args = token.split_contents()`, tuple unpacking `tag_name, *args = token.split_contents()`
+- [ ] Handle indirect access: function parameter `parser` → `parser.token.split_contents()` → same detection
+- [ ] Return `None` if no `split_contents()` call found (function doesn't use token-splitting)
+- [ ] Tests: `bits = token.split_contents()`, `args = token.split_contents()`, `parts = token.split_contents()`, tuple unpacking, no split_contents → None, split_contents via parser.token
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 4: Rule Extraction
+
+- [ ] Implement `RuleExtractor` that walks function body looking for `raise TemplateSyntaxError(...)` statements and extracts guard conditions
+- [ ] Extract token count checks: `if len(bits) < N`, `if len(bits) > N`, `if len(bits) != N`, `if len(bits) not in (...)` → `ArgumentCountConstraint`
+- [ ] Extract keyword position checks: `if bits[N] != "keyword"` → `RequiredKeyword { position, value }`
+- [ ] Extract option validation: while loops checking known option sets, duplicate detection → `KnownOptions { values, allow_duplicates }`
+- [ ] Handle `simple_tag`/`inclusion_tag` `takes_context` and `func` parameter analysis (from `parse_bits` signatures)
+- [ ] Use dynamically-detected split variable name (from Phase 3) for all comparisons — NOT hardcoded `bits`
+- [ ] Represent results as structured `TagRule { arg_constraints, required_keywords, known_options }`
+- [ ] Tests: len check patterns, keyword position patterns, option loops, simple_tag params, non-`bits` variable names, multiple raise statements in one function
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 5: Block Spec Extraction (Control-Flow Based)
+
+- [ ] Implement `extract_block_spec(func_body: &[Stmt]) -> Option<BlockTagSpec>` that finds `parser.parse((...))` calls with tuple arguments containing stop-token strings
+- [ ] Determine end-tag vs intermediate: if a stop-token leads to another `parser.parse()` call → intermediate; if it leads to return/node construction → terminal (end-tag)
+- [ ] Handle dynamic end-tag patterns like `f"end{tag_name}"` (best-effort extraction)
+- [ ] Detect opaque blocks: `parser.skip_past(...)` patterns → content should not be parsed
+- [ ] **Non-negotiable**: infer closers from control flow only — NEVER from `end*` string prefix matching
+- [ ] **Non-negotiable**: return `None` for `end_tag` when inference is ambiguous (multiple candidates, unclear control flow)
+- [ ] **Tie-breaker only**: `end{tag_name}` Django convention used ONLY to select among candidates already found via control flow, never invented from thin air
+- [ ] Tests: simple end-tag (`{% for %}...{% endfor %}`), intermediates (`{% if %}...{% else %}...{% endif %}`), opaque block (verbatim-like), non-conventional closer names found correctly, ambiguous → None, dynamic `f"end{name}"`, multiple parser.parse() chains
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 6: Filter Arity Extraction
+
+- [ ] Implement `extract_filter_arity(func_def: &StmtFunctionDef) -> FilterArity` that inspects function signature
+- [ ] Determine required arg count (exclude `self` and the value parameter — first positional after `self` if method, or first positional if function)
+- [ ] Detect optional arguments (has default value) → `FilterArity { expects_arg: bool, arg_optional: bool }`
+- [ ] Handle `@stringfilter` and `@register.filter(is_safe=True)` decorator kwargs (informational, not arity-changing)
+- [ ] Tests: no-arg filter (`{{ value|title }}`), required-arg filter (`{{ value|default:"nothing" }}`), optional-arg filter, method-style filters
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 7: Salsa Integration
+
+- [ ] Add `djls-extraction` dependency to `djls-server/Cargo.toml` with `parser` feature enabled
+- [ ] Add `djls-extraction` dependency (types-only, no `parser` feature) to `djls-project/Cargo.toml` if needed for `ExtractionResult` storage
+- [ ] Create tracked query `extract_module_rules(db, file: File) -> ExtractionResult` in `djls-server/src/db.rs` for workspace files
+- [ ] For external modules (site-packages): extract during `refresh_inspector()`, store on `Project.extracted_external_rules: Option<ExtractionResult>` field (new `#[returns(ref)]` field)
+- [ ] Implement module path → file path resolver using `sys_path` from Python environment; classify as workspace vs external based on project root
+- [ ] Update `compute_tag_specs` to merge extracted rules into tag specs — extraction enriches/overrides `builtins.rs` defaults
+- [ ] Ensure workspace extraction → tracked queries → automatic Salsa invalidation; external extraction → Project field → manual refresh invalidation
+- [ ] Tests: verify extraction result cached on second access, file edit triggers re-extraction, external rules stored on Project field, merged tag specs include extracted block specs
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 8: Small Fixture Golden Tests
+
+- [ ] Create inline Python source fixtures for registration discovery: all decorator styles, call-based registration, name keyword arg
+- [ ] Create inline fixtures for rule extraction: len checks, keyword position checks, option loop patterns
+- [ ] Create inline fixtures for block spec extraction: simple end-tag, intermediates, opaque blocks, ambiguous → None
+- [ ] Create inline fixtures for filter arity: no-arg, required-arg, optional-arg
+- [ ] Create inline fixtures for edge cases: no split_contents call, dynamic end-tags, multiple registrations
+- [ ] Use `insta` for snapshot testing where appropriate (no standalone test files — tests in `#[cfg(test)]` modules)
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 9: Corpus / Full-Source Extraction Tests
+
+- [ ] Create test infrastructure that can point at a synced corpus directory (from `template_linter/corpus/`)
+- [ ] Run extraction against all `templatetags/**/*.py` files in corpus
+- [ ] Verify: no panics across entire corpus, meaningful extraction yield (tag/filter counts)
+- [ ] Add golden snapshots for key Django modules (e.g., `defaulttags.py`, `i18n.py`, `static.py`)
+- [ ] Gate tests on corpus availability (auto-detect default location `../../template_linter/corpus/`, skip gracefully if not present)
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ---
 
