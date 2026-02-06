@@ -416,9 +416,74 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 **Plan:** `.agents/plans/2026-02-06-m8-extracted-rule-evaluation.md`
 **Depends on:** M5, M6
 
-**Goal:** Replace the old hand-crafted `args` validation system with extraction-derived rule evaluation. `ExtractedRule` conditions (already stored on `TagSpec.extracted_rules` by M5) become the primary validation path. Remove old `builtins.rs` hand-crafted `args`, wire extracted args into completions/snippets, and validate against real-world template corpora (Django, Wagtail, allauth, etc.) with zero false positives.
+**Goal:** Replace the old hand-crafted `args` validation system with extraction-derived rule evaluation. `TagRule` conditions (from `ExtractionResult.tag_rules`) become the primary validation path for argument checking. Remove hand-crafted `args` from `builtins.rs`, wire extraction-derived argument structure into completions/snippets, and validate against real-world template corpora with zero false positives.
 
-_Tasks to be expanded from plan file in a future planning iteration._
+**Key mapping (plan terminology → actual code):**
+- Plan says `ExtractedRule` → code has `TagRule` (in `djls-extraction/src/types.rs`)
+- Plan says `RuleCondition` → code has `ArgumentCountConstraint`, `RequiredKeyword`, `KnownOptions`
+- Plan says `TagSpec.extracted_rules` → no such field exists yet; `TagRule`s live in `ExtractionResult.tag_rules`
+- `merge_extraction_results` currently merges ONLY block specs — NOT tag rules or args
+
+### Phase 1: Argument Structure Extraction
+
+- [ ] Define `ExtractedArg` type in `djls-extraction/src/types.rs` with variants/fields for: name (String), required (bool), kind (Literal/Variable/Choice/VarArgs), default value (Option), position index
+- [ ] Add `extracted_args: Vec<ExtractedArg>` field to `TagRule` in `djls-extraction/src/types.rs`
+- [ ] Implement arg extraction for `simple_tag`/`inclusion_tag` in `extract_parse_bits_rule()` in `rules.rs`: inspect function parameters, handle `takes_context=True` (skip first param), detect `*args`/`**kwargs`, parameter defaults → optional vs required, append auto `as varname` args
+- [ ] Implement arg extraction for manual `@register.tag` in `extract_compile_function_rule()` in `rules.rs`: reconstruct from `RequiredKeyword` positions (literal args), tuple unpacking analysis (`tag_name, item, _in, iterable = bits`) for variable names, indexed access (`bits[1]`) for positional names, fall back to generic `arg1`/`arg2` when AST analysis can't determine names
+- [ ] Update golden test snapshots for extraction results to include `extracted_args`
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 2: Extracted Rule Evaluator
+
+- [ ] Create `crates/djls-semantic/src/rule_evaluation.rs` module
+- [ ] Implement evaluator for `ArgumentCountConstraint` variants: `Exact(N)` → error if `split_len != N`, `Min(N)` → error if `split_len < N`, `Max(N)` → error if `split_len > N`, `OneOf(set)` → error if `split_len not in set`. **Index offset**: extraction uses `split_contents()` indices (tag name at index 0), but parser `bits` excludes tag name — evaluator must account for this (+1 offset to split_len since bits doesn't include tag name)
+- [ ] Implement evaluator for `RequiredKeyword { position, value }`: check that `bits[position - 1]` (adjusted for tag name offset) equals `value`. Negative positions index from end. Skip check if position is out of bounds (tag too short — already caught by arg count constraint)
+- [ ] Implement evaluator for `KnownOptions { values, allow_duplicates, rejects_unknown }`: scan remaining bits for option-style arguments, validate against known set
+- [ ] Add `S117` diagnostic code (`ExtractedRuleViolation`) to `ValidationError` enum in `crates/djls-semantic/src/errors.rs` — carries a descriptive message derived from the rule context (e.g., "tag 'for' requires at least 4 arguments" or "'in' keyword expected at position 2")
+- [ ] Add `S117` to diagnostic system in `crates/djls-conf/` if needed
+- [ ] Implement `evaluate_tag_rules(tag_name: &str, bits: &[String], rules: &TagRule) -> Vec<ValidationError>` that runs all constraint checks and accumulates errors
+- [ ] Unit tests: each `ArgumentCountConstraint` variant individually, `RequiredKeyword` positive and negative positions, `KnownOptions` with unknown/duplicate values, index offset correctness (`bits` excludes tag name), empty rules → no errors
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 3: Wire Evaluator into Validation Pipeline
+
+- [ ] Add `TagRule` storage: either add `extracted_rules: Option<TagRule>` field to `TagSpec`, or pass `ExtractionResult` directly to validation functions. Decision: store on `TagSpec` for consistency (merging already happens in `merge_extraction_results`)
+- [ ] Extend `merge_extraction_results()` in `specs.rs` to also merge `tag_rules` from `ExtractionResult` into `TagSpec.extracted_rules`
+- [ ] Modify `validate_all_tag_arguments()` in `arguments.rs`: when `spec.extracted_rules` is `Some`, call `evaluate_tag_rules()` instead of `validate_args_against_spec()`. When `None`, fall back to `validate_args_against_spec()` only if `spec.args` is non-empty (user-config `args` escape hatch)
+- [ ] Remove hand-crafted `args:` values from ALL tag specs in `builtins.rs` — set to `Cow::Borrowed(&[])`. Keep block structure (end_tag, intermediates, module, opaque)
+- [ ] Remove `EndTag.args` and `IntermediateTag.args` values from builtins (set to empty) — extraction doesn't produce arg specs for closers/intermediates
+- [ ] Key regression test: `{% for item in items football %}` must still error, `{% for item in items %}` must still pass, `{% autoescape %}` must still error
+- [ ] Update test infrastructure (`check_validation_errors_with_db` etc.) to handle S117 variant
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 4: Wire Extracted Args into Completions/Snippets
+
+- [ ] Implement `ExtractedArg` → `TagArg` conversion function (in `specs.rs` or new helper)
+- [ ] Update `merge_extraction_results()` (or `compute_tag_specs`) to populate `TagSpec.args` from `extracted_args` when available — completions/snippets code reads `spec.args` unchanged
+- [ ] Verify completion tests still pass — source of `args` changed but consumer interface unchanged
+- [ ] Verify snippet tests still pass if any exist
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 5: Clean Up Dead Code
+
+- [ ] Remove `TagArgSliceExt` trait if only used by deleted `validate_argument_order` internals
+- [ ] Update doc comments on `TagSpec.args` to reflect new role (completions/snippets only, not validation — validation uses `extracted_rules`)
+- [ ] Clean up `builtins.rs` — remove all the hand-crafted arg definitions that are now empty, simplify tag spec construction
+- [ ] Remove any dead helper functions in `arguments.rs` that were only used by the old validation path (keep `validate_args_against_spec` for user-config escape hatch)
+- [ ] Keep `TagArg` enum and S104–S107 variants — still needed for user-config `args` in `djls.toml`
+- [ ] Update AGENTS.md with operational notes about M8 changes
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 6: Corpus Template Validation Tests
+
+- [ ] Create corpus template validation test infrastructure in `djls-server` or `djls-semantic` test module (NOT standalone test file — add to existing `#[cfg(test)]` module)
+- [ ] Implement `CorpusTestDatabase` (lightweight) that builds `TagSpecs` from extraction results rather than hand-crafted builtins
+- [ ] For each Django version in corpus (if synced): extract rules from that version's `defaulttags.py`/`defaultfilters.py`/etc., validate its shipped `contrib/admin` templates, assert zero false positives for argument validation
+- [ ] For each third-party package in corpus (Wagtail, allauth, crispy-forms, debug-toolbar, compressor): extract rules from package templatetags + Django builtins, validate templates, assert zero argument-validation false positives
+- [ ] Port prototype's template exclusion list (AngularJS templates, known-invalid upstream templates)
+- [ ] Gate all corpus tests on availability (skip gracefully when corpus not synced) using `find_corpus_dir()` / `find_django_source()` pattern from M5 Phase 9
+- [ ] Known-invalid templates produce expected errors (positive test cases)
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ---
 
