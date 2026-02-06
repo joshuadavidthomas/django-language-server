@@ -12,8 +12,8 @@ This document tracks progress through the milestones for porting the Python `tem
 
 | # | Milestone | Status | Plan File |
 |---|-----------|--------|-----------|
-| M1 | Payload Shape + `{% load %}` Library Name Fix | 🔲 In Progress | [`.agents/plans/2026-02-05-m1-payload-library-name-fix.md`](.agents/plans/2026-02-05-m1-payload-library-name-fix.md) |
-| M2 | Salsa Invalidation Plumbing | 📝 Ready | [`.agents/plans/2026-02-05-m2-salsa-invalidation-plumbing.md`](.agents/plans/2026-02-05-m2-salsa-invalidation-plumbing.md) |
+| M1 | Payload Shape + `{% load %}` Library Name Fix | ✅ Complete | [`.agents/plans/2026-02-05-m1-payload-library-name-fix.md`](.agents/plans/2026-02-05-m1-payload-library-name-fix.md) |
+| M2 | Salsa Invalidation Plumbing | ✅ Complete | [`.agents/plans/2026-02-05-m2-salsa-invalidation-plumbing.md`](.agents/plans/2026-02-05-m2-salsa-invalidation-plumbing.md) |
 | M3 | `{% load %}` Scoping Infrastructure | 🔲 Not Started | [`.agents/plans/2026-02-05-m3-load-scoping.md`](.agents/plans/2026-02-05-m3-load-scoping.md) |
 | M4 | Filters Pipeline | 🔲 Not Started | [`.agents/plans/2026-02-05-m4-filters-pipeline.md`](.agents/plans/2026-02-05-m4-filters-pipeline.md) |
 | M5 | Rust Extraction Engine (`djls-extraction`) | 🔲 Not Started | [`.agents/plans/2026-02-05-m5-extraction-engine.md`](.agents/plans/2026-02-05-m5-extraction-engine.md) |
@@ -108,7 +108,7 @@ Update completions to use library load-name and exclude builtins from `{% load %
 
 ## M2: Salsa Invalidation Plumbing
 
-**Status:** 📝 Ready
+**Status:** ✅ Complete (all 4 phases done)
 
 **Goal:** Prevent stale template diagnostics by making external data sources explicit Salsa inputs with an explicit refresh/update path.
 
@@ -203,24 +203,36 @@ Add `compute_tag_specs()` as a tracked query that reads only from Salsa-tracked 
 
 ### Phase 4: Invalidation Tests with Event Capture
 
-**Status:** 🔲 Not Started
+**Status:** ✅ Complete
 
 Write tests that capture Salsa events and verify invalidation using stable `ingredient_debug_name()` pattern.
 
-**Tasks:**
-- [ ] Add `EventLogger` test infrastructure with `was_executed()` helper
-- [ ] Add `TestDatabase` helper for creating test instances
-- [ ] Add test: `test_tag_specs_cached_on_repeated_access`
-- [ ] Add test: `test_tagspecs_change_invalidates`
-- [ ] Add test: `test_inspector_inventory_change_invalidates`
-- [ ] Add test: `test_same_value_no_invalidation`
-- [ ] Add test: `test_tag_index_depends_on_tag_specs`
-- [ ] Add test: `test_update_project_from_settings_compares`
+**Changes:**
+- Added `EventLogger` test infrastructure with `was_executed()` helper in `crates/djls-server/src/db.rs`
+  - Stores raw `salsa::Event` values in an `Arc<Mutex<Vec<_>>>`
+  - Checks `WillExecute` events and compares `db.ingredient_debug_name(database_key.ingredient_index())` to query name
+- Added `TestDatabase` helper for creating test instances with event logging
+  - `TestDatabase::new()` creates empty database with logger
+  - `TestDatabase::with_project()` creates database with initialized Project
+- Added 6 invalidation tests:
+  - `test_tag_specs_cached_on_repeated_access`: Verifies compute_tag_specs is cached after first access
+  - `test_tagspecs_change_invalidates`: Verifies changing tagspecs triggers recomputation
+  - `test_inspector_inventory_change_invalidates`: Verifies changing inspector inventory triggers recomputation
+  - `test_same_value_no_invalidation`: Verifies no recomputation when value unchanged (no setter called)
+  - `test_tag_index_depends_on_tag_specs`: Verifies tag_index properly depends on tag_specs
+  - `test_update_project_from_settings_compares`: Verifies manual comparison in update_project_from_settings prevents unnecessary invalidation
 
 **Quality Checks:**
-- [ ] `cargo test invalidation_tests` passes
-- [ ] `cargo test` (full suite) passes
-- [ ] `cargo clippy --all-targets -- -D warnings` passes
+- [x] `cargo test invalidation_tests` passes (6 tests)
+- [x] `cargo test -p djls-server` passes (33 tests)
+- [x] `cargo test` (full suite) passes (255 tests)
+- [x] `cargo clippy --all-targets -- -D warnings` passes
+
+**Discoveries:**
+- Salsa event logging requires a callback closure passed to `salsa::Storage::new()`
+- The `ingredient_debug_name()` method provides stable query identification (avoiding Debug output substring matching)
+- Test database helpers make Salsa tests much cleaner and more maintainable
+- `Interpreter::discover(None)` works for tests where we don't need actual Python environment detection
 
 ---
 

@@ -101,6 +101,97 @@ pub struct DjangoDatabase {
 }
 
 #[cfg(test)]
+mod test_infrastructure {
+    use super::*;
+    use std::sync::{Arc, Mutex};
+
+    /// Test logger that stores raw Salsa events for stable identification.
+    #[derive(Clone, Default)]
+    pub struct EventLogger {
+        events: Arc<Mutex<Vec<salsa::Event>>>,
+    }
+
+    impl EventLogger {
+        pub fn push(&self, event: salsa::Event) {
+            self.events.lock().unwrap().push(event);
+        }
+
+        pub fn take(&self) -> Vec<salsa::Event> {
+            std::mem::take(&mut *self.events.lock().unwrap())
+        }
+
+        pub fn clear(&self) {
+            self.events.lock().unwrap().clear();
+        }
+
+        /// Check if a query was executed by looking for a matching ingredient debug name
+        /// in `WillExecute` events.
+        pub fn was_executed(&self, db: &dyn salsa::Database, query_name: &str) -> bool {
+            self.events.lock().unwrap().iter().any(|event| match event.kind {
+                salsa::EventKind::WillExecute { database_key } => {
+                    db.ingredient_debug_name(database_key.ingredient_index()) == query_name
+                }
+                _ => false,
+            })
+        }
+    }
+
+    /// Test database with event logging (Salsa pattern)
+    pub struct TestDatabase {
+        pub db: DjangoDatabase,
+        pub logger: EventLogger,
+    }
+
+    impl TestDatabase {
+        pub fn new() -> Self {
+            let logger = EventLogger::default();
+            let db = Self::create_db_with_logger(&logger);
+            Self { db, logger }
+        }
+
+        pub fn with_project() -> Self {
+            let test_db = Self::new();
+            let settings = Settings::default();
+
+            // Create project directly (bypass bootstrap which needs real files)
+            let project = Project::new(
+                &test_db.db,
+                Utf8PathBuf::from("/test/project"),
+                Interpreter::discover(None),
+                Some("test.settings".to_string()),
+                vec![],
+                None,                           // inspector_inventory
+                settings.tagspecs().clone(),    // tagspecs
+                settings.diagnostics().clone(), // diagnostics
+            );
+            *test_db.db.project.lock().unwrap() = Some(project);
+
+            test_db
+        }
+
+        fn create_db_with_logger(logger: &EventLogger) -> DjangoDatabase {
+            use djls_workspace::InMemoryFileSystem;
+
+            DjangoDatabase {
+                fs: Arc::new(InMemoryFileSystem::new()),
+                files: Arc::new(FxDashMap::default()),
+                project: Arc::new(Mutex::new(None)),
+                settings: Arc::new(Mutex::new(Settings::default())),
+                inspector: Arc::new(Inspector::new()),
+                storage: salsa::Storage::new(Some(Box::new({
+                    let logger = logger.clone();
+                    move |event| {
+                        logger.push(event);
+                    }
+                }))),
+                #[cfg(test)]
+                logs: Arc::new(Mutex::new(None)),
+            }
+        }
+    }
+}
+
+#[cfg(test)]
 impl Default for DjangoDatabase {
     fn default() -> Self {
         use djls_workspace::InMemoryFileSystem;
@@ -156,7 +247,7 @@ impl DjangoDatabase {
         db
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     fn settings(&self) -> Settings {
         self.settings.lock().unwrap().clone()
     }
@@ -366,5 +457,168 @@ impl ProjectDb for DjangoDatabase {
 
     fn inspector(&self) -> Arc<Inspector> {
         self.inspector.clone()
+    }
+}
+
+#[cfg(test)]
+mod invalidation_tests {
+    use super::*;
+    use super::test_infrastructure::*;
+    use djls_project::TemplateTags;
+    use std::collections::HashMap;
+
+    #[test]
+    fn test_tag_specs_cached_on_repeated_access() {
+        let test = TestDatabase::with_project();
+
+        // First access - should execute query
+        let _specs1 = test.db.tag_specs();
+        assert!(
+            test.logger.was_executed(&test.db, "compute_tag_specs"),
+            "compute_tag_specs should execute on first access.\nLogs: {:?}",
+            test.logger.take()
+        );
+
+        test.logger.clear();
+
+        // Second access - should use cache (no WillExecute event)
+        let _specs2 = test.db.tag_specs();
+        assert!(
+            !test.logger.was_executed(&test.db, "compute_tag_specs"),
+            "compute_tag_specs should be cached on second access"
+        );
+    }
+
+    #[test]
+    fn test_tagspecs_change_invalidates() {
+        let mut test = TestDatabase::with_project();
+
+        // First access
+        let _specs1 = test.db.tag_specs();
+        test.logger.clear();
+
+        // Update tagspecs via Project setter
+        let project = test.db.project().expect("test project exists");
+        let mut new_tagspecs = project.tagspecs(&test.db).clone();
+        // Modify tagspecs (add a library)
+        new_tagspecs.libraries.push(djls_conf::TagLibraryDef {
+            module: "test.templatetags".to_string(),
+            requires_engine: None,
+            tags: vec![],
+            extra: None,
+        });
+
+        // Manual comparison shows change - set it
+        assert!(project.tagspecs(&test.db) != &new_tagspecs);
+        project.set_tagspecs(&mut test.db).to(new_tagspecs);
+
+        // Access again - should recompute
+        let _specs2 = test.db.tag_specs();
+        assert!(
+            test.logger.was_executed(&test.db, "compute_tag_specs"),
+            "compute_tag_specs should recompute after tagspecs change"
+        );
+    }
+
+    #[test]
+    fn test_inspector_inventory_change_invalidates() {
+        let mut test = TestDatabase::with_project();
+
+        // First access
+        let _specs1 = test.db.tag_specs();
+        test.logger.clear();
+
+        // Update inspector inventory
+        let project = test.db.project().expect("test project exists");
+        let new_inventory = TemplateTags::from_response(
+            HashMap::new(),
+            vec!["django.template.defaulttags".to_string()],
+            vec![],
+        );
+        project.set_inspector_inventory(&mut test.db).to(Some(new_inventory));
+
+        // Access again - should recompute
+        let _specs2 = test.db.tag_specs();
+        assert!(
+            test.logger.was_executed(&test.db, "compute_tag_specs"),
+            "compute_tag_specs should recompute after inventory change"
+        );
+    }
+
+    #[test]
+    fn test_same_value_no_invalidation() {
+        let test = TestDatabase::with_project();
+
+        // First access
+        let _specs1 = test.db.tag_specs();
+        test.logger.clear();
+
+        // "Update" with same value - should NOT call setter
+        let project = test.db.project().expect("test project exists");
+        let same_tagspecs = project.tagspecs(&test.db).clone();
+
+        // Manual comparison shows NO change - don't set
+        assert!(project.tagspecs(&test.db) == &same_tagspecs);
+        // Note: We don't call set_tagspecs because values are equal
+
+        // Access again - should NOT recompute
+        let _specs2 = test.db.tag_specs();
+        assert!(
+            !test.logger.was_executed(&test.db, "compute_tag_specs"),
+            "compute_tag_specs should NOT recompute when value unchanged"
+        );
+    }
+
+    #[test]
+    fn test_tag_index_depends_on_tag_specs() {
+        let mut test = TestDatabase::with_project();
+
+        // Access tag_index (triggers tag_specs)
+        let _index1 = test.db.tag_index();
+        assert!(
+            test.logger.was_executed(&test.db, "compute_tag_specs"),
+            "tag_index should trigger tag_specs"
+        );
+
+        test.logger.clear();
+
+        // Change tagspecs
+        let project = test.db.project().expect("test project exists");
+        let mut new_tagspecs = project.tagspecs(&test.db).clone();
+        new_tagspecs.libraries.push(djls_conf::TagLibraryDef {
+            module: "another.templatetags".to_string(),
+            requires_engine: None,
+            tags: vec![],
+            extra: None,
+        });
+        project.set_tagspecs(&mut test.db).to(new_tagspecs);
+
+        // Access tag_index - should recompute
+        let _index2 = test.db.tag_index();
+        assert!(
+            test.logger.was_executed(&test.db, "compute_tag_specs"),
+            "tag_index should recompute when tagspecs change"
+        );
+    }
+
+    #[test]
+    fn test_update_project_from_settings_compares() {
+        let mut test = TestDatabase::with_project();
+
+        // First access
+        let _specs1 = test.db.tag_specs();
+        test.logger.clear();
+
+        // Call update_project_from_settings with same settings
+        let project = test.db.project().expect("test project exists");
+        let settings = test.db.settings();
+        test.db.update_project_from_settings(project, &settings);
+
+        // Should NOT invalidate (manual comparison prevents setter calls)
+        let _specs2 = test.db.tag_specs();
+        assert!(
+            !test.logger.was_executed(&test.db, "compute_tag_specs"),
+            "update_project_from_settings should not invalidate when unchanged"
+        );
     }
 }
