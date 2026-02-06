@@ -29,5 +29,22 @@ just lint                       # Run pre-commit hooks
 - `crates/djls-templates/` - Django template parser
 - `crates/djls-workspace/` - Workspace/document management
 
+## Key File Paths
+- **Inspector Python**: `crates/djls-project/inspector/queries.py` — tag/filter collection, `build.rs` rebuilds pyz on change
+- **Rust Django types**: `crates/djls-project/src/django.rs` — `TemplateTag`, `TemplateTags`, Salsa queries
+- **Completions**: `crates/djls-ide/src/completions.rs` — `generate_library_completions()` at ~line 526
+- **M1 plan**: `.agents/plans/2026-02-05-m1-payload-library-name-fix.md`
+
+## Django Engine Internals (for inspector work)
+- `engine.builtins` — `list[str]` of module paths (e.g., `"django.template.defaulttags"`)
+- `engine.template_builtins` — `list[Library]` of loaded Library objects, **parallel to `engine.builtins`**
+- `engine.libraries` — `dict[str, str]` mapping load-name → module path (e.g., `{"static": "django.templatetags.static"}`)
+- Use `zip(engine.builtins, engine.template_builtins)` to pair module paths with Library objects
+- Use `engine.libraries.items()` (not `.values()`) to preserve load-name keys
+
+## Worktree Gotchas
+- **`target/` is tracked in this worktree** — the worktree `.gitignore` doesn't exclude it. Add `target/` to `.gitignore` before committing to avoid bloating diffs with build artifacts.
+- When running `git add -A`, be aware this will stage everything in `target/` if not gitignored.
+
 ## Task Management
 Use `/dex` to break down complex work, track progress across sessions, and coordinate multi-step implementations.
