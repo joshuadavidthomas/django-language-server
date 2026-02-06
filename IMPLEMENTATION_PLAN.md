@@ -314,10 +314,56 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ## M6 — Rule Evaluation + Expression Validation
 
-**Status:** backlog
+**Status:** in-progress
 **Plan:** `.agents/plans/2026-02-05-m6-rule-evaluation.md`
 
-_Tasks to be expanded when M5 is complete._
+**Goal:** Apply M5's extracted validation rules: expression validation for `{% if %}`/`{% elif %}` (S114), filter arity validation (S115/S116), and opaque region handling to skip validation inside `{% verbatim %}` etc.
+
+### Phase 1: Opaque Region Infrastructure
+
+- [ ] Add `opaque: bool` field to `TagSpec` in `crates/djls-semantic/src/templatetags/specs.rs`
+- [ ] Update `merge_extraction_results` to propagate `opaque` from `BlockTagSpec` to `TagSpec`
+- [ ] Update `From<(TagDef, String)> for TagSpec` to set `opaque: false` (config-defined tags are never opaque)
+- [ ] Update `django_builtin_specs()` to set `opaque: true` for `verbatim` and `comment` tags
+- [ ] Create `OpaqueRegions` type (sorted list of byte spans) with `is_opaque(position: u32) -> bool` method in `crates/djls-semantic/src/`
+- [ ] Implement `compute_opaque_regions(db, nodelist) -> OpaqueRegions`: walk block tree, find tags with `tag_spec.opaque == true`, record inner content spans
+- [ ] Wire `OpaqueRegions` check into `validate_nodelist` — skip argument and scoping validation for nodes inside opaque regions
+- [ ] Tests: verbatim block content skipped, comment block content skipped, non-opaque blocks validated normally, nested content after opaque block still validated
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 2: Expression Parser (Pratt Parser for `{% if %}`)
+
+- [ ] Create `crates/djls-semantic/src/if_expression.rs` module with Pratt parser ported from Python prototype (`template_linter/src/template_linter/template_syntax/if_expression.py`)
+- [ ] Implement tokenizer: split expression into operator tokens (`and`, `or`, `not`, `in`, `not in`, `is`, `is not`, `==`, `!=`, `<`, `>`, `<=`, `>=`) and operands (variables, literals — treated opaquely)
+- [ ] Implement Pratt parser with operator precedence: `or` < `and` < `not` (unary) < comparison (`in`, `not in`, `is`, `is not`, `==`, `!=`, `<`, `>`, `<=`, `>=`)
+- [ ] Detect expression syntax errors: operator in operand position, missing right operand, missing operator between operands, dangling unary operator, incomplete membership test (`not` without `in`)
+- [ ] Add S114 diagnostic code (`ExpressionSyntaxError`) to diagnostic system
+- [ ] Implement `validate_if_expressions(db, nodelist)`: for each `{% if %}` and `{% elif %}` tag, extract expression from bits and run parser; emit S114 on syntax error
+- [ ] Skip validation for nodes inside opaque regions (use `OpaqueRegions` from Phase 1)
+- [ ] Wire `validate_if_expressions` into `validate_nodelist` in `crates/djls-semantic/src/lib.rs`
+- [ ] Tests: valid expressions (all operator types, complex nesting), invalid expressions (`{% if and x %}`, `{% if x == %}`, `{% if x y %}`, `{% if not %}`), `{% elif %}` validated too, opaque region skipping
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 3: Filter Arity Validation
+
+- [ ] Create `FilterAritySpecs` type (map from filter name → `FilterArity`) in `crates/djls-semantic/src/`
+- [ ] Implement `compute_filter_arity_specs(db, project) -> FilterAritySpecs` tracked query: merge extraction results' `filter_arities` map, resolve builtin filters with "last wins" semantics
+- [ ] Add `filter_arity_specs()` accessor to `SemanticDb` trait and implement on `DjangoDatabase`
+- [ ] Add S115 (`FilterMissingArgument`) and S116 (`FilterUnexpectedArgument`) diagnostic codes
+- [ ] Implement `validate_filter_arity(db, nodelist)`: for each `Node::Variable` with filters, look up each filter's arity spec, compare against actual usage (has arg vs no arg)
+- [ ] Use load scoping to determine which library a filter comes from → key into extraction results via `SymbolKey`
+- [ ] Skip validation inside opaque regions, skip when inspector inventory unavailable
+- [ ] Wire `validate_filter_arity` into `validate_nodelist`
+- [ ] Update all test databases implementing `SemanticDb` to include `filter_arity_specs()` method
+- [ ] Tests: filter with required arg missing → S115, filter with unexpected arg → S116, optional arg (both ways) → no error, builtin filter "last wins" resolution, opaque region skipping, inspector unavailable → no diagnostics
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 4: Integration Tests
+
+- [ ] Create integration test: template with mixed expression errors, filter arity errors, and opaque regions — verify correct diagnostics emitted
+- [ ] Snapshot tests for diagnostic output on representative templates
+- [ ] Corpus coverage test (if corpus available): run validation on Django admin templates, verify no false positives for expression validation
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ---
 
