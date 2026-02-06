@@ -183,11 +183,11 @@ mod tests {
             end_tag: Some(EndTag {
                 name: "endblock".into(),
                 required: true,
-                args: vec![TagArg::var("name", false)].into(),
             }),
             intermediate_tags: Cow::Borrowed(&[]),
             args: vec![TagArg::var("name", true)].into(),
             opaque: false,
+            extracted_rules: Vec::new(),
         };
 
         let snippet = generate_snippet_for_tag_with_end("block", &spec);
@@ -203,7 +203,6 @@ mod tests {
             end_tag: Some(EndTag {
                 name: "endautoescape".into(),
                 required: true,
-                args: Cow::Borrowed(&[]),
             }),
             intermediate_tags: Cow::Borrowed(&[]),
             args: vec![TagArg::Choice {
@@ -213,6 +212,7 @@ mod tests {
             }]
             .into(),
             opaque: false,
+            extracted_rules: Vec::new(),
         };
 
         let snippet = generate_snippet_for_tag_with_end("autoescape", &spec);

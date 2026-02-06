@@ -25,7 +25,6 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             end_tag: Some(EndTag {
                 name: B("endautoescape"),
                 required: true,
-                args: B(&[]),
             }),
             intermediate_tags: B(&[]),
             args: B(&[TagArg::Choice {
@@ -34,6 +33,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                 choices: B(&[B("on"), B("off")]),
             }]),
             opaque: false,
+            extracted_rules: Vec::new(),
         },
     ),
     (
@@ -43,7 +43,6 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             end_tag: Some(EndTag {
                 name: B("endcomment"),
                 required: true,
-                args: B(&[]),
             }),
             intermediate_tags: B(&[]),
             args: B(&[TagArg::String {
@@ -51,6 +50,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                 required: false,
             }]),
             opaque: false,
+            extracted_rules: Vec::new(),
         },
     ),
     (
@@ -61,6 +61,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             intermediate_tags: B(&[]),
             args: B(&[]),
             opaque: false,
+            extracted_rules: Vec::new(),
         },
     ),
     (
@@ -91,6 +92,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                 },
             ]),
             opaque: false,
+            extracted_rules: Vec::new(),
         },
     ),
     (
@@ -101,6 +103,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             intermediate_tags: B(&[]),
             args: B(&[]),
             opaque: false,
+            extracted_rules: Vec::new(),
         },
     ),
     (
@@ -110,7 +113,6 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             end_tag: Some(EndTag {
                 name: B("endfilter"),
                 required: true,
-                args: B(&[]),
             }),
             intermediate_tags: B(&[]),
             args: B(&[TagArg::VarArgs {
@@ -118,6 +120,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                 required: true,
             }]),
             opaque: false,
+            extracted_rules: Vec::new(),
         },
     ),
     (
@@ -147,6 +150,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                 },
             ]),
             opaque: false,
+            extracted_rules: Vec::new(),
         },
     ),
     (
@@ -156,11 +160,9 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             end_tag: Some(EndTag {
                 name: B("endfor"),
                 required: true,
-                args: B(&[]),
             }),
             intermediate_tags: B(&[IntermediateTag {
                 name: B("empty"),
-                args: B(&[]),
             }]),
             args: B(&[
                 TagArg::Variable {
@@ -185,6 +187,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                 },
             ]),
             opaque: false,
+            extracted_rules: Vec::new(),
         },
     ),
     (
@@ -194,20 +197,13 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             end_tag: Some(EndTag {
                 name: B("endif"),
                 required: true,
-                args: B(&[]),
             }),
             intermediate_tags: B(&[
                 IntermediateTag {
                     name: B("elif"),
-                    args: B(&[TagArg::Any {
-                        name: B("condition"),
-                        required: true,
-                        count: TokenCount::Greedy,
-                    }]),
                 },
                 IntermediateTag {
                     name: B("else"),
-                    args: B(&[]),
                 },
             ]),
             args: B(&[TagArg::Any {
@@ -216,6 +212,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                 count: TokenCount::Greedy,
             }]),
             opaque: false,
+            extracted_rules: Vec::new(),
         },
     ),
     (
@@ -225,17 +222,16 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             end_tag: Some(EndTag {
                 name: B("endifchanged"),
                 required: true,
-                args: B(&[]),
             }),
             intermediate_tags: B(&[IntermediateTag {
                 name: B("else"),
-                args: B(&[]),
             }]),
             args: B(&[TagArg::VarArgs {
                 name: B("variables"),
                 required: false,
             }]),
             opaque: false,
+            extracted_rules: Vec::new(),
         },
     ),
     (
@@ -249,6 +245,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                 required: true,
             }]),
             opaque: false,
+            extracted_rules: Vec::new(),
         },
     ),
     (
@@ -275,6 +272,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                 },
             ]),
             opaque: false,
+            extracted_rules: Vec::new(),
         },
     ),
     (
@@ -300,6 +298,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                 },
             ]),
             opaque: false,
+            extracted_rules: Vec::new(),
         },
     ),
     // TODO: PARTIALDEF_SPEC, 6.0+
@@ -339,6 +338,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                 },
             ]),
             opaque: false,
+            extracted_rules: Vec::new(),
         },
     ),
     // TODO: RESETCYCLE_SPEC?
@@ -349,11 +349,11 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             end_tag: Some(EndTag {
                 name: B("endspaceless"),
                 required: true,
-                args: B(&[]),
             }),
             intermediate_tags: B(&[]),
             args: B(&[]),
             opaque: false,
+            extracted_rules: Vec::new(),
         },
     ),
     (
@@ -377,6 +377,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                 ]),
             }]),
             opaque: false,
+            extracted_rules: Vec::new(),
         },
     ),
     (
@@ -406,6 +407,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                 },
             ]),
             opaque: false,
+            extracted_rules: Vec::new(),
         },
     ),
     (
@@ -415,7 +417,6 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             end_tag: Some(EndTag {
                 name: B("endverbatim"),
                 required: true,
-                args: B(&[]),
             }),
             intermediate_tags: B(&[]),
             args: B(&[TagArg::String {
@@ -423,6 +424,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                 required: false,
             }]),
             opaque: false,
+            extracted_rules: Vec::new(),
         },
     ),
     (
@@ -459,6 +461,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                 },
             ]),
             opaque: false,
+            extracted_rules: Vec::new(),
         },
     ),
     (
@@ -468,7 +471,6 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             end_tag: Some(EndTag {
                 name: B("endwith"),
                 required: true,
-                args: B(&[]),
             }),
             intermediate_tags: B(&[]),
             args: B(&[TagArg::VarArgs {
@@ -476,6 +478,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                 required: true,
             }]),
             opaque: false,
+            extracted_rules: Vec::new(),
         },
     ),
 ];
@@ -489,11 +492,6 @@ static LOADER_TAGS_PAIRS: &[(&str, &TagSpec)] = &[
             end_tag: Some(EndTag {
                 name: B("endblock"),
                 required: true,
-                args: B(&[TagArg::Variable {
-                    name: B("name"),
-                    required: false,
-                    count: TokenCount::Exact(1),
-                }]),
             }),
             intermediate_tags: B(&[]),
             args: B(&[TagArg::Variable {
@@ -502,6 +500,7 @@ static LOADER_TAGS_PAIRS: &[(&str, &TagSpec)] = &[
                 count: TokenCount::Exact(1),
             }]),
             opaque: false,
+            extracted_rules: Vec::new(),
         },
     ),
     (
@@ -515,6 +514,7 @@ static LOADER_TAGS_PAIRS: &[(&str, &TagSpec)] = &[
                 required: true,
             }]),
             opaque: false,
+            extracted_rules: Vec::new(),
         },
     ),
     (
@@ -544,6 +544,7 @@ static LOADER_TAGS_PAIRS: &[(&str, &TagSpec)] = &[
                 },
             ]),
             opaque: false,
+            extracted_rules: Vec::new(),
         },
     ),
 ];
@@ -556,7 +557,6 @@ static CACHE_PAIRS: &[(&str, &TagSpec)] = &[(
         end_tag: Some(EndTag {
             name: B("endcache"),
             required: true,
-            args: B(&[]),
         }),
         intermediate_tags: B(&[]),
         args: B(&[
@@ -576,6 +576,7 @@ static CACHE_PAIRS: &[(&str, &TagSpec)] = &[(
             },
         ]),
         opaque: false,
+        extracted_rules: Vec::new(),
     },
 )];
 
@@ -588,11 +589,11 @@ static I18N_PAIRS: &[(&str, &TagSpec)] = &[
             end_tag: Some(EndTag {
                 name: B("endblocktrans"),
                 required: true,
-                args: B(&[]),
             }),
             intermediate_tags: B(BLOCKTRANS_INTERMEDIATE_TAGS),
             args: B(BLOCKTRANS_ARGS),
             opaque: false,
+            extracted_rules: Vec::new(),
         },
     ),
     (
@@ -602,11 +603,11 @@ static I18N_PAIRS: &[(&str, &TagSpec)] = &[
             end_tag: Some(EndTag {
                 name: B("endblocktranslate"),
                 required: true,
-                args: B(&[]),
             }),
             intermediate_tags: B(BLOCKTRANS_INTERMEDIATE_TAGS),
             args: B(BLOCKTRANS_ARGS),
             opaque: false,
+            extracted_rules: Vec::new(),
         },
     ),
     // TODO: GET_AVAILABLE_LANGAUGES_SPEC
@@ -620,11 +621,6 @@ static I18N_PAIRS: &[(&str, &TagSpec)] = &[
 ];
 const BLOCKTRANS_INTERMEDIATE_TAGS: &[IntermediateTag] = &[IntermediateTag {
     name: B("plural"),
-    args: B(&[TagArg::Variable {
-        name: B("count"),
-        required: false,
-        count: TokenCount::Exact(1),
-    }]),
 }];
 const BLOCKTRANS_ARGS: &[TagArg] = &[
     TagArg::String {
@@ -681,6 +677,7 @@ const TRANS_SPEC: TagSpec = TagSpec {
         },
     ]),
     opaque: false,
+    extracted_rules: Vec::new(),
 };
 
 const L10N_MOD: &str = "django.templatetags.l10n";
@@ -691,7 +688,6 @@ static L10N_PAIRS: &[(&str, &TagSpec)] = &[(
         end_tag: Some(EndTag {
             name: B("endlocalize"),
             required: true,
-            args: B(&[]),
         }),
         intermediate_tags: B(&[]),
         args: B(&[TagArg::Choice {
@@ -700,6 +696,7 @@ static L10N_PAIRS: &[(&str, &TagSpec)] = &[(
             choices: B(&[B("on"), B("off")]),
         }]),
         opaque: false,
+        extracted_rules: Vec::new(),
     },
 )];
 
@@ -718,6 +715,7 @@ static STATIC_PAIRS: &[(&str, &TagSpec)] = &[
                 required: true,
             }]),
             opaque: false,
+            extracted_rules: Vec::new(),
         },
     ),
 ];
@@ -732,7 +730,6 @@ static TZ_PAIRS: &[(&str, &TagSpec)] = &[
             end_tag: Some(EndTag {
                 name: B("endlocaltime"),
                 required: true,
-                args: B(&[]),
             }),
             intermediate_tags: B(&[]),
             args: B(&[TagArg::Choice {
@@ -741,6 +738,7 @@ static TZ_PAIRS: &[(&str, &TagSpec)] = &[
                 choices: B(&[B("on"), B("off")]),
             }]),
             opaque: false,
+            extracted_rules: Vec::new(),
         },
     ),
     (
@@ -750,7 +748,6 @@ static TZ_PAIRS: &[(&str, &TagSpec)] = &[
             end_tag: Some(EndTag {
                 name: B("endtimezone"),
                 required: true,
-                args: B(&[]),
             }),
             intermediate_tags: B(&[]),
             args: B(&[TagArg::Variable {
@@ -759,6 +756,7 @@ static TZ_PAIRS: &[(&str, &TagSpec)] = &[
                 count: TokenCount::Exact(1),
             }]),
             opaque: false,
+            extracted_rules: Vec::new(),
         },
     ),
 ];
@@ -915,9 +913,7 @@ mod tests {
 
         let end_tag = block_tag.end_tag.as_ref().unwrap();
         assert_eq!(end_tag.name.as_ref(), "endblock");
-        assert_eq!(end_tag.args.len(), 1);
-        assert_eq!(end_tag.args[0].name().as_ref(), "name");
-        assert!(!end_tag.args[0].is_required());
+        // EndTag no longer has args field - extraction provides this info differently
     }
 
     #[test]

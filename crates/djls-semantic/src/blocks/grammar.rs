@@ -126,16 +126,8 @@ impl<'db> TagIndex<'db> {
 
         for (name, spec) in specs {
             if let Some(end_tag) = &spec.end_tag {
-                let match_args = end_tag
-                    .args
-                    .iter()
-                    .enumerate()
-                    .map(|(i, arg)| MatchArgSpec {
-                        name: arg.name().as_ref().to_owned(),
-                        required: arg.is_required(),
-                        position: i,
-                    })
-                    .collect();
+                // EndTag no longer has args field - extraction provides this info differently
+                let match_args = Vec::new();
 
                 let meta = EndMeta {
                     required: end_tag.required,
