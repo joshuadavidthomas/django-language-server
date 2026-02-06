@@ -121,26 +121,24 @@ impl DjangoDatabase {
         self.settings.lock().unwrap().clone()
     }
 
-    /// Update the settings, potentially updating the project if `venv_path`, `django_settings_module`, or `pythonpath` changed
+    /// Update the settings, updating the existing project's fields via manual
+    /// comparison (Ruff/RA pattern) to avoid unnecessary Salsa invalidation.
+    ///
+    /// When a project exists, delegates to [`update_project_from_settings`] to
+    /// surgically update only the fields that changed, keeping project identity
+    /// stable. When no project exists, the settings are stored for future use.
     ///
     /// # Panics
     ///
     /// Panics if the settings mutex is poisoned (another thread panicked while holding the lock)
     pub fn set_settings(&mut self, settings: Settings) {
-        let project_needs_update = {
-            let old = self.settings();
-            old.venv_path() != settings.venv_path()
-                || old.django_settings_module() != settings.django_settings_module()
-                || old.pythonpath() != settings.pythonpath()
-        };
-
         *self.settings.lock().unwrap() = settings;
 
-        if project_needs_update {
-            if let Some(project) = self.project() {
-                let root = project.root(self).clone();
-                let settings = self.settings();
-                self.set_project(&root, &settings);
+        if self.project().is_some() {
+            let settings = self.settings();
+            let env_changed = self.update_project_from_settings(&settings);
+            if env_changed {
+                self.refresh_inspector();
             }
         }
     }

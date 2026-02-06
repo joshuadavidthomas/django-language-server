@@ -66,8 +66,8 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 - [x] Implement `update_project_from_settings(&mut self, settings: &Settings)` on `DjangoDatabase`: compare each field (`interpreter`, `django_settings_module`, `pythonpath`, `tagspecs`, `diagnostics`) against current `Project` values; only call setters when values differ. Track whether environment-related fields changed.
 - [x] Make `TemplatetagsRequest`, `TemplatetagsResponse` public (or add a `TemplateTags::from_response()` constructor) so `refresh_inspector` can construct inventory without going through tracked queries.
 - [x] Implement `refresh_inspector(&mut self)` on `DjangoDatabase`: query Python inspector directly (not through tracked functions), compare new inventory with `project.inspector_inventory(db)`, only call setter if changed.
-- [ ] Update `set_settings` to delegate to `update_project_from_settings` when a project exists, keeping project identity stable (no `Project::new` recreation).
-- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Update `set_settings` to delegate to `update_project_from_settings` when a project exists, keeping project identity stable (no `Project::new` recreation).
+- [x] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 3: Make tag_specs a Tracked Query
 
@@ -138,4 +138,4 @@ _Tasks to be expanded when M6 is complete._
 ## Discoveries / Notes
 
 - **`target/` tracked in worktree git**: Fixed — `.gitignore` now excludes `target/`.
-- **M2 Phase 2 remaining**: `set_settings` needs to delegate to `update_project_from_settings` when a project exists. The `update_project_from_settings` and `refresh_inspector` methods are implemented but `set_settings` still recreates the project instead of updating in place.
+- **M2 Phase 2 complete**: `set_settings` now delegates to `update_project_from_settings` + `refresh_inspector` when a project exists, keeping Salsa identity stable. No more `Project::new` recreation on config changes.
