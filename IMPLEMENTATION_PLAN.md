@@ -1,7 +1,7 @@
 # Template Validation Port: Implementation Plan
 
-**Date:** 2026-02-05  
-**Charter:** [`.agents/charter/2026-02-05-template-validation-port-charter.md`](.agents/charter/2026-02-05-template-validation-port-charter.md)  
+**Date:** 2026-02-05
+**Charter:** [`.agents/charter/2026-02-05-template-validation-port-charter.md`](.agents/charter/2026-02-05-template-validation-port-charter.md)
 **Roadmap:** [`.agents/ROADMAP.md`](.agents/ROADMAP.md)
 
 This document tracks progress through the milestones for porting the Python `template_linter/` prototype into Rust `django-language-server` (djls).
@@ -823,7 +823,7 @@ Determine argument requirements for filters by analyzing function signatures.
   - Returns `FilterArity::Unknown` for `*args` or >2 params
 - Handles all positional parameter patterns:
   - Two positional-only args
-  - One positional-only + one regular arg  
+  - One positional-only + one regular arg
   - Two regular args
 - Checks `ParameterWithDefault.default` field for default value detection
 - Added 3 comprehensive unit tests:

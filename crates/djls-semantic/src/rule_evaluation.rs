@@ -221,7 +221,7 @@ mod tests {
     use super::*;
     use djls_extraction::{ComparisonOp, RuleCondition};
 
-    
+
 
     #[test]
     fn test_exact_arg_count_negated_true() {
