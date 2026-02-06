@@ -416,10 +416,35 @@
 
 ## M7 - Documentation + Issue Reporting
 
-**Status:** backlog
+**Status:** in-progress
 **Plan:** `.agents/plans/2026-02-05-m7-docs-and-issue-template.md`
 
-_Tasks to be expanded when M6 is complete._
+### Phase 1: Create Template Validation Documentation Page
+
+- [ ] Create `docs/template-validation.md` with sections: How Validation Works (Inspector + Extraction), What djls Validates (table of S108-S116), Filter Arity Validation note, What djls Cannot Validate (runtime-only, dynamic tag behavior), Inspector Availability (healthy vs unavailable), Ambiguous Symbols explanation, Reporting Mismatches link, See Also links
+- [ ] Update `.mkdocs.yml` nav to add "Template Validation: template-validation.md" under Configuration section
+- [ ] Verify documentation builds: `just docs build` or equivalent mkdocs command
+
+### Phase 2: Update Diagnostic Codes Documentation
+
+- [ ] Add tip admonition with link to template-validation.md in `docs/configuration/index.md` (after opening paragraph, before "## Options")
+- [ ] Replace the "Available diagnostic codes" section in `docs/configuration/index.md` with expanded table format covering T-series (T100, T900, T901) and all S-series (S100-S116) grouped by category: Block Structure (S100-S107), Tag Scoping (S108-S110), Filter Scoping (S111-S113), Expression & Filter Arity (S114-S116) — each with Code, Error, Description, Typical Fix, and Suppression columns where appropriate
+- [ ] Verify documentation builds without errors
+
+### Phase 3: Create GitHub Issue Template Directory
+
+- [ ] Create `.github/ISSUE_TEMPLATE/config.yml` with `blank_issues_enabled: true` and contact links for documentation and discussions
+- [ ] Validate YAML syntax
+
+### Phase 4: Create Template Validation Mismatch Issue Form
+
+- [ ] Create `.github/ISSUE_TEMPLATE/template-validation-mismatch.yml` with form fields: mismatch type dropdown, template snippet, expected behavior, djls diagnostic, version info (djls, Django, Python), OS dropdown, inspector health dropdown, server logs, installed apps, tagspecs, additional context, and required checklist
+- [ ] Validate YAML syntax
+
+### Phase 5: Update TagSpecs Documentation
+
+- [ ] Add validation mismatch link in `docs/configuration/tagspecs.md` after the existing "open an issue" text — points to the new template-validation-mismatch issue form
+- [ ] Verify documentation builds without errors
 
 ---
 
