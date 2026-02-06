@@ -1,0 +1,21 @@
+[package]
+name = "djls-extraction"
+version = "0.0.0"
+edition = "2021"
+
+[features]
+parser = ["dep:ruff_python_parser"]
+
+[dependencies]
+ruff_python_ast = { workspace = true }
+ruff_python_parser = { workspace = true, optional = true }
+
+rustc-hash = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+insta = { workspace = true }
+ruff_python_parser = { workspace = true }
+
+[lints]
+workspace = true

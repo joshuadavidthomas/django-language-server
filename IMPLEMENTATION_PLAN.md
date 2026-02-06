@@ -218,14 +218,14 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ### Phase 1: Create `djls-extraction` Crate with Ruff Parser
 
-- [ ] Create `crates/djls-extraction/` directory with `Cargo.toml`, `src/lib.rs`
-- [ ] Add `ruff_python_parser` and `ruff_python_ast` as workspace-level git dependencies in root `Cargo.toml` (pin to specific SHA from a stable Ruff release, e.g., v0.9.x tag)
-- [ ] Add a Cargo feature gate `parser` in `djls-extraction/Cargo.toml` so downstream crates can depend on types-only without pulling in Ruff parser transitively
-- [ ] Define core types: `SymbolKey { registration_module: String, name: String, kind: SymbolKind }`, `SymbolKind` enum (`Tag`/`Filter`), `ExtractionResult` (map from `SymbolKey` to extracted rules), `TagRule` (argument validation), `FilterArity` (arg count info), `BlockTagSpec` (end_tag, intermediates, opaque)
-- [ ] Stub the public API: `extract_rules(source: &str) -> ExtractionResult` (behind `parser` feature)
-- [ ] Add `djls-extraction` to workspace members in root `Cargo.toml`
-- [ ] Write a smoke test: parse a trivial Python file with `ruff_python_parser` and verify no panics
-- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Create `crates/djls-extraction/` directory with `Cargo.toml`, `src/lib.rs`
+- [x] Add `ruff_python_parser` and `ruff_python_ast` as workspace-level git dependencies in root `Cargo.toml` (pin to specific SHA from a stable Ruff release, e.g., v0.9.x tag)
+- [x] Add a Cargo feature gate `parser` in `djls-extraction/Cargo.toml` so downstream crates can depend on types-only without pulling in Ruff parser transitively
+- [x] Define core types: `SymbolKey { registration_module: String, name: String, kind: SymbolKind }`, `SymbolKind` enum (`Tag`/`Filter`), `ExtractionResult` (map from `SymbolKey` to extracted rules), `TagRule` (argument validation), `FilterArity` (arg count info), `BlockTagSpec` (end_tag, intermediates, opaque)
+- [x] Stub the public API: `extract_rules(source: &str) -> ExtractionResult` (behind `parser` feature)
+- [x] Add `djls-extraction` to workspace members in root `Cargo.toml`
+- [x] Write a smoke test: parse a trivial Python file with `ruff_python_parser` and verify no panics
+- [x] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 2: Registration Discovery
 
@@ -338,3 +338,4 @@ _Tasks to be expanded when M6 is complete._
 - **M2 Phase 4**: Salsa's "backdate" optimization means `compute_tag_index` won't re-execute if `compute_tag_specs` returns the same value even after input changes. Tests must use `TagSpecDef` with actual tags to produce distinct `TagSpecs` output. Also, `Interpreter::discover(None)` reads real `$VIRTUAL_ENV` in non-test crates — test projects must match by using `Interpreter::discover()` rather than hardcoding `Auto`.
 - **M3 Phase 2**: `Node::Tag.bits` does NOT include the tag name — the parser separates `name` and `bits`. So for `{% load i18n %}`, `name == "load"` and `bits == ["i18n"]`. Fixed `parse_load_bits` to accept argument-only bits (no "load" prefix).
 - **M4 Phase 2**: `Node::Variable.filters` changed from `Vec<String>` to `Vec<Filter>`. `split_variable_expression()` handles quote-aware pipe splitting. `parse_filter()` splits name from arg at first unquoted colon. Affected: `nodelist.rs`, `parser.rs`, `blocks/tree.rs` (NodeView), `context.rs` (OffsetContext), 4 snapshots. `blocks/builder.rs` unaffected (uses `..` wildcard).
+- **M5 Phase 1**: Ruff 0.15.0 (SHA `0dfa810e9aad9a465596768b0211c31dd41d3e73`) used for `ruff_python_parser` and `ruff_python_ast`. API: `ruff_python_parser::parse_module(source)` returns `Result<Parsed<ModModule>, ParseError>`. Use `.into_syntax()` on parsed result to get the `ModModule` AST. Feature gate `parser` keeps ruff deps optional for types-only consumers.

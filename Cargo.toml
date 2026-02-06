@@ -12,6 +12,7 @@ djls-semantic = { path = "crates/djls-semantic" }
 djls-server = { path = "crates/djls-server" }
 djls-source = { path = "crates/djls-source" }
 djls-templates = { path = "crates/djls-templates" }
+djls-extraction = { path = "crates/djls-extraction" }
 djls-workspace = { path = "crates/djls-workspace" }
 
 # core deps, pin exact versions
@@ -38,6 +39,10 @@ tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "time"] }
 walkdir = "2.5"
 which = "8.0"
+
+# python ast parsing (ruff 0.15.0)
+ruff_python_ast = { git = "https://github.com/astral-sh/ruff.git", rev = "0dfa810e9aad9a465596768b0211c31dd41d3e73" }
+ruff_python_parser = { git = "https://github.com/astral-sh/ruff.git", rev = "0dfa810e9aad9a465596768b0211c31dd41d3e73" }
 
 # testing
 divan = { package = "codspeed-divan-compat", version = "4.0" }
