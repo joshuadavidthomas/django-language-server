@@ -512,15 +512,15 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ### Phase 2: Remove `TagArg` System and Old Validation Engine
 
-- [ ] Delete from `specs.rs`: `TokenCount` enum, `LiteralKind` enum, `TagArg` enum (all 7 variants + constructors), `TagArgSliceExt` trait and impl, `From<ExtractedArg> for TagArg` impl
-- [ ] Remove `args: L<TagArg>` field from `TagSpec`, `EndTag`, and `IntermediateTag` in `specs.rs` — update all constructors, `merge_block_spec`, and `merge_extraction_results`
-- [ ] Remove re-exports of `TagArg`, `TagArgSliceExt`, `LiteralKind`, `TokenCount` from `templatetags.rs` and `crates/djls-semantic/src/lib.rs`
-- [ ] Strip all `args:` lines from `builtins.rs` (including `BLOCKTRANS_ARGS` constant if present) — keep block structure (end_tag, intermediates, module, opaque)
-- [ ] Gut `arguments.rs`: delete `validate_args_against_spec` and `validate_argument_order` functions; simplify `validate_tag_arguments` to only dispatch to extracted rule evaluator (no fallback path)
-- [ ] Delete all tests in `arguments.rs` that construct `TagArg` specs — keep structural tests that use extracted rules
-- [ ] Update `completions.rs`: replace `TagArg`-based argument completion logic with `ExtractedArg`-based logic (read `spec.extracted_rules.extracted_args` directly instead of `spec.args`); update `TemplateCompletionContext::TagArgument` variant if needed
-- [ ] Update any snippet generation code that uses `TagArg`
-- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Delete from `specs.rs`: `TokenCount` enum, `LiteralKind` enum, `TagArg` enum (all 7 variants + constructors), `TagArgSliceExt` trait and impl, `From<ExtractedArg> for TagArg` impl
+- [x] Remove `args: L<TagArg>` field from `TagSpec`, `EndTag`, and `IntermediateTag` in `specs.rs` — update all constructors, `merge_block_spec`, and `merge_extraction_results`
+- [x] Remove re-exports of `TagArg`, `TagArgSliceExt`, `LiteralKind`, `TokenCount` from `templatetags.rs` and `crates/djls-semantic/src/lib.rs`
+- [x] Strip all `args:` lines from `builtins.rs` (including `BLOCKTRANS_ARGS` constant if present) — keep block structure (end_tag, intermediates, module, opaque)
+- [x] Gut `arguments.rs`: delete `validate_args_against_spec` and `validate_argument_order` functions; simplify `validate_tag_arguments` to only dispatch to extracted rule evaluator (no fallback path)
+- [x] Delete all tests in `arguments.rs` that construct `TagArg` specs — keep structural tests that use extracted rules
+- [x] Update `completions.rs`: replace `TagArg`-based argument completion logic with `ExtractedArg`-based logic (read `spec.extracted_rules.extracted_args` directly instead of `spec.args`); update `TemplateCompletionContext::TagArgument` variant if needed
+- [x] Update any snippet generation code that uses `TagArg`
+- [x] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 3: Remove Dead Error Variants and Diagnostic Codes
 

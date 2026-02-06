@@ -45,11 +45,8 @@ pub use resolution::TemplateReference;
 pub use semantic::build_semantic_forest;
 pub use templatetags::django_builtin_specs;
 pub use templatetags::EndTag;
-pub use templatetags::LiteralKind;
-pub use templatetags::TagArg;
 pub use templatetags::TagSpec;
 pub use templatetags::TagSpecs;
-pub use templatetags::TokenCount;
 
 /// Validate a Django template node list and return validation errors.
 ///
@@ -909,8 +906,8 @@ mod tests {
 
     /// Collect only argument-validation and expression-validation errors.
     ///
-    /// Filters to S104-S107 (old args validation), S114 (expression syntax),
-    /// S115-S116 (filter arity), and S117 (extracted rule violation).
+    /// Filters to S114 (expression syntax), S115-S116 (filter arity),
+    /// and S117 (extracted rule violation).
     /// Excludes structural errors (S101-S103), scoping errors (S108-S113).
     fn collect_validation_errors(db: &CorpusTestDatabase, source: &str, path: &str) -> Vec<ValidationError> {
         db.add_file(path, source);

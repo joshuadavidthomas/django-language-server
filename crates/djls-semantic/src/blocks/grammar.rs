@@ -20,15 +20,6 @@ pub struct TagIndex<'db> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EndMeta {
     required: bool,
-    match_args: Vec<MatchArgSpec>,
-}
-
-/// Specification for matching arguments between opener and closer
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct MatchArgSpec {
-    name: String,
-    required: bool,
-    position: usize,
 }
 
 impl<'db> TagIndex<'db> {
@@ -59,46 +50,14 @@ impl<'db> TagIndex<'db> {
         self,
         db: &'db dyn crate::Db,
         opener_name: &str,
-        opener_bits: &[String],
-        closer_bits: &[String],
+        _opener_bits: &[String],
+        _closer_bits: &[String],
     ) -> CloseValidation {
-        let Some(meta) = self.openers(db).get(opener_name) else {
+        if !self.openers(db).contains_key(opener_name) {
             return CloseValidation::NotABlock;
-        };
-
-        // No args to match? Simple close
-        if meta.match_args.is_empty() {
-            return CloseValidation::Valid;
         }
 
-        for match_arg in &meta.match_args {
-            let opener_val = extract_arg_value(opener_bits, match_arg.position);
-            let closer_val = extract_arg_value(closer_bits, match_arg.position);
-
-            match (opener_val, closer_val, match_arg.required) {
-                (Some(o), Some(c), _) if o != c => {
-                    return CloseValidation::ArgumentMismatch {
-                        arg: match_arg.name.clone(),
-                        expected: o,
-                        got: c,
-                    };
-                }
-                (Some(o), None, true) => {
-                    return CloseValidation::MissingRequiredArg {
-                        arg: match_arg.name.clone(),
-                        expected: o,
-                    };
-                }
-                (None, Some(c), _) if match_arg.required => {
-                    return CloseValidation::UnexpectedArg {
-                        arg: match_arg.name.clone(),
-                        got: c,
-                    };
-                }
-                _ => {}
-            }
-        }
-
+        // Closer argument matching removed — extraction handles validation
         CloseValidation::Valid
     }
 
@@ -130,20 +89,8 @@ impl<'db> TagIndex<'db> {
 
         for (name, spec) in specs {
             if let Some(end_tag) = &spec.end_tag {
-                let match_args = end_tag
-                    .args
-                    .iter()
-                    .enumerate()
-                    .map(|(i, arg)| MatchArgSpec {
-                        name: arg.name().as_ref().to_owned(),
-                        required: arg.is_required(),
-                        position: i,
-                    })
-                    .collect();
-
                 let meta = EndMeta {
                     required: end_tag.required,
-                    match_args,
                 };
 
                 // opener -> meta
@@ -181,25 +128,20 @@ pub enum TagClass {
 pub enum CloseValidation {
     Valid,
     NotABlock,
+    #[allow(dead_code)]
     ArgumentMismatch {
         arg: String,
         expected: String,
         got: String,
     },
+    #[allow(dead_code)]
     MissingRequiredArg {
         arg: String,
         expected: String,
     },
+    #[allow(dead_code)]
     UnexpectedArg {
         arg: String,
         got: String,
     },
-}
-
-fn extract_arg_value(bits: &[String], position: usize) -> Option<String> {
-    if position < bits.len() {
-        Some(bits[position].clone())
-    } else {
-        None
-    }
 }

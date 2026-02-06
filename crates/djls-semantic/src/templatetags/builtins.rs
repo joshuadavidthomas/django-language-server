@@ -2,8 +2,7 @@
 //!
 //! This module defines all the standard Django template tags as compile-time
 //! constants for block structure (end tags, intermediates, opaque). Argument
-//! validation is handled by extraction-derived rules (M8), not hand-crafted
-//! `args` — all `args` fields are empty here.
+//! validation is handled by extraction-derived rules (M8).
 
 use std::borrow::Cow::Borrowed as B;
 use std::sync::LazyLock;
@@ -24,10 +23,8 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             end_tag: Some(EndTag {
                 name: B("endautoescape"),
                 required: true,
-                args: B(&[]),
             }),
             intermediate_tags: B(&[]),
-            args: B(&[]),
             opaque: false,
             extracted_rules: None,
         },
@@ -39,10 +36,8 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             end_tag: Some(EndTag {
                 name: B("endcomment"),
                 required: true,
-                args: B(&[]),
             }),
             intermediate_tags: B(&[]),
-            args: B(&[]),
             opaque: true,
             extracted_rules: None,
         },
@@ -53,7 +48,6 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             module: B(DEFAULTTAGS_MOD),
             end_tag: None,
             intermediate_tags: B(&[]),
-            args: B(&[]),
             opaque: false,
             extracted_rules: None,
         },
@@ -64,7 +58,6 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             module: B(DEFAULTTAGS_MOD),
             end_tag: None,
             intermediate_tags: B(&[]),
-            args: B(&[]),
             opaque: false,
             extracted_rules: None,
         },
@@ -75,7 +68,6 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             module: B(DEFAULTTAGS_MOD),
             end_tag: None,
             intermediate_tags: B(&[]),
-            args: B(&[]),
             opaque: false,
             extracted_rules: None,
         },
@@ -87,10 +79,8 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             end_tag: Some(EndTag {
                 name: B("endfilter"),
                 required: true,
-                args: B(&[]),
             }),
             intermediate_tags: B(&[]),
-            args: B(&[]),
             opaque: false,
             extracted_rules: None,
         },
@@ -101,7 +91,6 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             module: B(DEFAULTTAGS_MOD),
             end_tag: None,
             intermediate_tags: B(&[]),
-            args: B(&[]),
             opaque: false,
             extracted_rules: None,
         },
@@ -113,13 +102,10 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             end_tag: Some(EndTag {
                 name: B("endfor"),
                 required: true,
-                args: B(&[]),
             }),
             intermediate_tags: B(&[IntermediateTag {
                 name: B("empty"),
-                args: B(&[]),
             }]),
-            args: B(&[]),
             opaque: false,
             extracted_rules: None,
         },
@@ -131,19 +117,15 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             end_tag: Some(EndTag {
                 name: B("endif"),
                 required: true,
-                args: B(&[]),
             }),
             intermediate_tags: B(&[
                 IntermediateTag {
                     name: B("elif"),
-                    args: B(&[]),
                 },
                 IntermediateTag {
                     name: B("else"),
-                    args: B(&[]),
                 },
             ]),
-            args: B(&[]),
             opaque: false,
             extracted_rules: None,
         },
@@ -155,13 +137,10 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             end_tag: Some(EndTag {
                 name: B("endifchanged"),
                 required: true,
-                args: B(&[]),
             }),
             intermediate_tags: B(&[IntermediateTag {
                 name: B("else"),
-                args: B(&[]),
             }]),
-            args: B(&[]),
             opaque: false,
             extracted_rules: None,
         },
@@ -172,7 +151,6 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             module: B(DEFAULTTAGS_MOD),
             end_tag: None,
             intermediate_tags: B(&[]),
-            args: B(&[]),
             opaque: false,
             extracted_rules: None,
         },
@@ -183,7 +161,6 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             module: B(DEFAULTTAGS_MOD),
             end_tag: None,
             intermediate_tags: B(&[]),
-            args: B(&[]),
             opaque: false,
             extracted_rules: None,
         },
@@ -194,7 +171,6 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             module: B(DEFAULTTAGS_MOD),
             end_tag: None,
             intermediate_tags: B(&[]),
-            args: B(&[]),
             opaque: false,
             extracted_rules: None,
         },
@@ -208,7 +184,6 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             module: B(DEFAULTTAGS_MOD),
             end_tag: None,
             intermediate_tags: B(&[]),
-            args: B(&[]),
             opaque: false,
             extracted_rules: None,
         },
@@ -221,10 +196,8 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             end_tag: Some(EndTag {
                 name: B("endspaceless"),
                 required: true,
-                args: B(&[]),
             }),
             intermediate_tags: B(&[]),
-            args: B(&[]),
             opaque: false,
             extracted_rules: None,
         },
@@ -235,7 +208,6 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             module: B(DEFAULTTAGS_MOD),
             end_tag: None,
             intermediate_tags: B(&[]),
-            args: B(&[]),
             opaque: false,
             extracted_rules: None,
         },
@@ -246,7 +218,6 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             module: B(DEFAULTTAGS_MOD),
             end_tag: None,
             intermediate_tags: B(&[]),
-            args: B(&[]),
             opaque: false,
             extracted_rules: None,
         },
@@ -258,10 +229,8 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             end_tag: Some(EndTag {
                 name: B("endverbatim"),
                 required: true,
-                args: B(&[]),
             }),
             intermediate_tags: B(&[]),
-            args: B(&[]),
             opaque: true,
             extracted_rules: None,
         },
@@ -272,7 +241,6 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             module: B(DEFAULTTAGS_MOD),
             end_tag: None,
             intermediate_tags: B(&[]),
-            args: B(&[]),
             opaque: false,
             extracted_rules: None,
         },
@@ -284,10 +252,8 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             end_tag: Some(EndTag {
                 name: B("endwith"),
                 required: true,
-                args: B(&[]),
             }),
             intermediate_tags: B(&[]),
-            args: B(&[]),
             opaque: false,
             extracted_rules: None,
         },
@@ -303,10 +269,8 @@ static LOADER_TAGS_PAIRS: &[(&str, &TagSpec)] = &[
             end_tag: Some(EndTag {
                 name: B("endblock"),
                 required: true,
-                args: B(&[]),
             }),
             intermediate_tags: B(&[]),
-            args: B(&[]),
             opaque: false,
             extracted_rules: None,
         },
@@ -317,7 +281,6 @@ static LOADER_TAGS_PAIRS: &[(&str, &TagSpec)] = &[
             module: B(MOD_LOADER_TAGS),
             end_tag: None,
             intermediate_tags: B(&[]),
-            args: B(&[]),
             opaque: false,
             extracted_rules: None,
         },
@@ -328,7 +291,6 @@ static LOADER_TAGS_PAIRS: &[(&str, &TagSpec)] = &[
             module: B(MOD_LOADER_TAGS),
             end_tag: None,
             intermediate_tags: B(&[]),
-            args: B(&[]),
             opaque: false,
             extracted_rules: None,
         },
@@ -343,10 +305,8 @@ static CACHE_PAIRS: &[(&str, &TagSpec)] = &[(
         end_tag: Some(EndTag {
             name: B("endcache"),
             required: true,
-            args: B(&[]),
         }),
         intermediate_tags: B(&[]),
-        args: B(&[]),
         opaque: false,
         extracted_rules: None,
     },
@@ -361,13 +321,10 @@ static I18N_PAIRS: &[(&str, &TagSpec)] = &[
             end_tag: Some(EndTag {
                 name: B("endblocktrans"),
                 required: true,
-                args: B(&[]),
             }),
             intermediate_tags: B(&[IntermediateTag {
                 name: B("plural"),
-                args: B(&[]),
             }]),
-            args: B(&[]),
             opaque: false,
             extracted_rules: None,
         },
@@ -379,13 +336,10 @@ static I18N_PAIRS: &[(&str, &TagSpec)] = &[
             end_tag: Some(EndTag {
                 name: B("endblocktranslate"),
                 required: true,
-                args: B(&[]),
             }),
             intermediate_tags: B(&[IntermediateTag {
                 name: B("plural"),
-                args: B(&[]),
             }]),
-            args: B(&[]),
             opaque: false,
             extracted_rules: None,
         },
@@ -403,7 +357,6 @@ const TRANS_SPEC: TagSpec = TagSpec {
     module: B(I18N_MOD),
     end_tag: None,
     intermediate_tags: B(&[]),
-    args: B(&[]),
     opaque: false,
     extracted_rules: None,
 };
@@ -416,10 +369,8 @@ static L10N_PAIRS: &[(&str, &TagSpec)] = &[(
         end_tag: Some(EndTag {
             name: B("endlocalize"),
             required: true,
-            args: B(&[]),
         }),
         intermediate_tags: B(&[]),
-        args: B(&[]),
         opaque: false,
         extracted_rules: None,
     },
@@ -435,7 +386,6 @@ static STATIC_PAIRS: &[(&str, &TagSpec)] = &[
             module: B(STATIC_MOD),
             end_tag: None,
             intermediate_tags: B(&[]),
-            args: B(&[]),
             opaque: false,
             extracted_rules: None,
         },
@@ -452,10 +402,8 @@ static TZ_PAIRS: &[(&str, &TagSpec)] = &[
             end_tag: Some(EndTag {
                 name: B("endlocaltime"),
                 required: true,
-                args: B(&[]),
             }),
             intermediate_tags: B(&[]),
-            args: B(&[]),
             opaque: false,
             extracted_rules: None,
         },
@@ -467,10 +415,8 @@ static TZ_PAIRS: &[(&str, &TagSpec)] = &[
             end_tag: Some(EndTag {
                 name: B("endtimezone"),
                 required: true,
-                args: B(&[]),
             }),
             intermediate_tags: B(&[]),
-            args: B(&[]),
             opaque: false,
             extracted_rules: None,
         },
@@ -512,14 +458,9 @@ mod tests {
     #[test]
     fn test_builtin_specs_non_empty() {
         let specs = django_builtin_specs();
-
-        // Verify we have specs loaded
         assert!(!specs.is_empty(), "Should have loaded at least one spec");
-
-        // Check a key tag is present as a smoke test
         assert!(specs.get("if").is_some(), "'if' tag should be present");
 
-        // Verify all tag names are non-empty
         for (name, _) in specs {
             assert!(!name.is_empty(), "Tag name should not be empty");
         }
@@ -529,7 +470,6 @@ mod tests {
     fn test_all_expected_tags_present() {
         let specs = django_builtin_specs();
 
-        // Block tags that should be present
         let expected_block_tags = [
             "autoescape",
             "block",
@@ -548,7 +488,6 @@ mod tests {
             "timezone",
         ];
 
-        // Single tags that should be present
         let expected_single_tags = [
             "csrf_token",
             "cycle",
@@ -576,19 +515,6 @@ mod tests {
 
         for tag in expected_single_tags {
             assert!(specs.get(tag).is_some(), "{tag} tag should be present");
-        }
-
-        // Tags that should NOT be present yet (future Django versions)
-        let missing_tags = [
-            "querystring", // Django 5.1+
-            "resetcycle",
-        ];
-
-        for tag in missing_tags {
-            assert!(
-                specs.get(tag).is_none(),
-                "{tag} tag should not be present yet"
-            );
         }
     }
 
@@ -632,14 +558,10 @@ mod tests {
     fn test_single_tag_structure() {
         let specs = django_builtin_specs();
 
-        // Test a single tag has no end tag or intermediates
-        let csrf_tag = specs
-            .get("csrf_token")
-            .expect("csrf_token tag should exist");
+        let csrf_tag = specs.get("csrf_token").expect("csrf_token tag should exist");
         assert!(csrf_tag.end_tag.is_none());
         assert!(csrf_tag.intermediate_tags.is_empty());
 
-        // Test extends tag has no end tag
         let extends_tag = specs.get("extends").expect("extends tag should exist");
         assert!(extends_tag.end_tag.is_none());
     }
@@ -651,17 +573,6 @@ mod tests {
             assert!(
                 spec.extracted_rules.is_none(),
                 "Builtin '{name}' should have no extracted_rules (populated by extraction)"
-            );
-        }
-    }
-
-    #[test]
-    fn test_builtins_have_empty_args() {
-        let specs = django_builtin_specs();
-        for (name, spec) in &specs {
-            assert!(
-                spec.args.is_empty(),
-                "Builtin '{name}' should have empty args (validation uses extracted_rules)"
             );
         }
     }
