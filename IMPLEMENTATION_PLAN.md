@@ -15,7 +15,7 @@ This document tracks progress through the milestones for porting the Python `tem
 | M1 | Payload Shape + `{% load %}` Library Name Fix | ✅ Complete | [`.agents/plans/2026-02-05-m1-payload-library-name-fix.md`](.agents/plans/2026-02-05-m1-payload-library-name-fix.md) |
 | M2 | Salsa Invalidation Plumbing | ✅ Complete | [`.agents/plans/2026-02-05-m2-salsa-invalidation-plumbing.md`](.agents/plans/2026-02-05-m2-salsa-invalidation-plumbing.md) |
 | M3 | `{% load %}` Scoping Infrastructure | ✅ Complete | [`.agents/plans/2026-02-05-m3-load-scoping.md`](.agents/plans/2026-02-05-m3-load-scoping.md) |
-| M4 | Filters Pipeline | 🔄 In Progress | [`.agents/plans/2026-02-05-m4-filters-pipeline.md`](.agents/plans/2026-02-05-m4-filters-pipeline.md) |
+| M4 | Filters Pipeline | ✅ Complete | [`.agents/plans/2026-02-05-m4-filters-pipeline.md`](.agents/plans/2026-02-05-m4-filters-pipeline.md) |
 | M5 | Rust Extraction Engine (`djls-extraction`) | 🔲 Not Started | [`.agents/plans/2026-02-05-m5-extraction-engine.md`](.agents/plans/2026-02-05-m5-extraction-engine.md) |
 | M6 | Rule Evaluation + Expression Validation | 🔲 Not Started | [`.agents/plans/2026-02-05-m6-rule-evaluation.md`](.agents/plans/2026-02-05-m6-rule-evaluation.md) |
 | M7 | Documentation + Issue Reporting | 🔲 Not Started | [`.agents/plans/2026-02-05-m7-docs-and-issue-template.md`](.agents/plans/2026-02-05-m7-docs-and-issue-template.md) |
@@ -537,25 +537,22 @@ Implement filter completions when user types `{{ variable|` or `{{ variable|part
 
 ### Phase 4: Filter Validation with Load Scoping
 
-**Status:** 🔲 Not Started
+**Status:** ✅ Complete
 
 Add validation that checks filters against the inventory and load state, producing diagnostics S111-S113.
 
 **Changes:**
-- Add `UnknownFilter`, `UnloadedLibraryFilter`, `AmbiguousUnloadedFilter` error variants
-- Add diagnostic codes S111, S112, S113 in diagnostics module
-- Add `AvailableFilters` struct with `has_filter()` method
-- Implement `available_filters_at()` using M3 state-machine approach
-- Add `FilterInventoryEntry` enum for collision handling
-- Add `build_filter_inventory()` to build lookup map
-- Implement `validate_filter_scoping()` tracked function
-- Add `validate_single_filter()` helper for per-filter validation
-- Wire into `validate_nodelist()` in semantic lib
+- Added `UnknownFilter`, `UnloadedLibraryFilter`, `AmbiguousUnloadedFilter` error variants in `errors.rs`
+- Added diagnostic codes S111, S112, S113 in `diagnostics.rs`
+- Added `FilterInventoryEntry` enum and `build_filter_inventory()` function in `load_resolution.rs`
+- Implemented `validate_filter_scoping()` tracked function with `validate_single_filter()` helper
+- Wired into `validate_nodelist()` in `lib.rs`
+- Added 5 comprehensive unit tests for filter availability
 
 **Quality Checks:**
-- [ ] `cargo build` passes
-- [ ] `cargo test` passes
-- [ ] `cargo clippy --all-targets -- -D warnings` passes
+- [x] `cargo build` passes
+- [x] `cargo test` passes (292 tests)
+- [x] `cargo clippy --all-targets -- -D warnings` passes
 - [ ] Manual: `{{ value|nonexistent }}` → S111 diagnostic
 - [ ] Manual: Unloaded library filter → S112 diagnostic
 - [ ] Manual: After `{% load %}`, S112 goes away

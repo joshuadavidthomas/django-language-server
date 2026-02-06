@@ -63,4 +63,7 @@ pub fn validate_nodelist(db: &dyn Db, nodelist: djls_templates::NodeList<'_>) {
 
     // Validate tag scoping (load requirements)
     load_resolution::validate_tag_scoping(db, nodelist);
+
+    // Validate filter scoping (load requirements)
+    load_resolution::validate_filter_scoping(db, nodelist);
 }

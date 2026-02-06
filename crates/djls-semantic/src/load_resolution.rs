@@ -402,6 +402,18 @@ enum TagInventoryEntry {
     Libraries(Vec<String>),
 }
 
+/// Entry for a filter in the inventory lookup.
+///
+/// Mirrors `TagInventoryEntry` for filter collision handling.
+#[derive(Debug, Clone)]
+#[cfg_attr(test, derive(PartialEq))]
+pub enum FilterInventoryEntry {
+    /// Filter is a builtin (always available)
+    Builtin,
+    /// Filter requires loading one of these libraries
+    Libraries(Vec<String>),
+}
+
 /// Build a lookup from tag name to inventory entry.
 ///
 /// **IMPORTANT**: This handles the case where multiple libraries define the
@@ -428,6 +440,40 @@ fn build_tag_inventory(inventory: &InspectorInventory) -> FxHashMap<String, TagI
                     }
                 } else {
                     result.insert(name, TagInventoryEntry::Libraries(vec![load_name.clone()]));
+                }
+            }
+        }
+    }
+
+    result
+}
+
+/// Build a lookup from filter name to inventory entry.
+///
+/// Mirrors `build_tag_inventory` for filter collision handling.
+pub fn build_filter_inventory(
+    inventory: &InspectorInventory,
+) -> FxHashMap<String, FilterInventoryEntry> {
+    let mut result: FxHashMap<String, FilterInventoryEntry> = FxHashMap::default();
+
+    for filter in inventory.filters() {
+        let name = filter.name().to_string();
+        match filter.provenance() {
+            FilterProvenance::Builtin { .. } => {
+                // Builtin takes precedence (always available)
+                result.insert(name, FilterInventoryEntry::Builtin);
+            }
+            FilterProvenance::Library { load_name, .. } => {
+                // Add library to list of candidates for this filter
+                if let Some(entry) = result.get_mut(&name) {
+                    // Don't override Builtin
+                    if let FilterInventoryEntry::Libraries(libs) = entry {
+                        if !libs.contains(load_name) {
+                            libs.push(load_name.clone());
+                        }
+                    }
+                } else {
+                    result.insert(name, FilterInventoryEntry::Libraries(vec![load_name.clone()]));
                 }
             }
         }
@@ -536,6 +582,97 @@ pub fn validate_tag_scoping(
                     // Django resolves at runtime based on load order)
                 }
             }
+        }
+    }
+}
+
+/// Validate that all filters in the template are either builtins or from loaded libraries.
+///
+/// This function:
+/// 1. Computes which libraries are loaded at each position
+/// 2. For each filter in variable expressions, checks if it's available at that position
+/// 3. Accumulates errors for unknown or unloaded filters
+///
+/// # Behavior
+/// - If inventory is None (inspector unavailable), skip validation entirely
+/// - Builtin filters are always valid
+/// - Library filters require their library to be loaded before use
+///
+/// # Collision Handling
+/// When multiple libraries define the same filter name:
+/// - If ONE of them is loaded, the filter is valid (Django resolves at runtime)
+/// - If NONE are loaded, emit S113 (`AmbiguousUnloadedFilter`) listing all candidates
+#[salsa::tracked]
+pub fn validate_filter_scoping(db: &dyn crate::Db, nodelist: djls_templates::NodeList<'_>) {
+    // Get inventory - if unavailable, skip validation
+    let Some(inventory) = db.inspector_inventory() else {
+        tracing::debug!("Inspector inventory unavailable, skipping filter scoping validation");
+        return;
+    };
+
+    // Compute load state
+    let loaded = compute_loaded_libraries(db, nodelist);
+
+    // Build lookup with collision handling
+    let filter_inventory = build_filter_inventory(inventory);
+
+    // Validate each variable node's filters
+    for node in nodelist.nodelist(db) {
+        if let Node::Variable { filters, .. } = node {
+            for filter in filters {
+                validate_single_filter(db, filter, &filter_inventory, &loaded, inventory);
+            }
+        }
+    }
+}
+
+/// Validate a single filter against the inventory and load state.
+fn validate_single_filter(
+    db: &dyn crate::Db,
+    filter: &djls_templates::Filter,
+    filter_lookup: &FxHashMap<String, FilterInventoryEntry>,
+    loaded: &LoadedLibraries,
+    inventory: &InspectorInventory,
+) {
+    let name = &filter.name;
+    let span = filter.name_span();
+
+    match filter_lookup.get(name) {
+        None => {
+            // Filter not in inventory at all
+            ValidationErrorAccumulator(ValidationError::UnknownFilter {
+                filter: name.clone(),
+                span,
+            })
+            .accumulate(db);
+        }
+        Some(FilterInventoryEntry::Builtin) => {
+            // Builtins always valid
+        }
+        Some(FilterInventoryEntry::Libraries(candidate_libs)) => {
+            let available = available_filters_at(loaded, inventory, filter.span.start());
+
+            if !available.has_filter(name) {
+                if candidate_libs.len() == 1 {
+                    // Single library - simple error message
+                    ValidationErrorAccumulator(ValidationError::UnloadedLibraryFilter {
+                        filter: name.clone(),
+                        library: candidate_libs[0].clone(),
+                        span,
+                    })
+                    .accumulate(db);
+                } else {
+                    // Multiple libraries define this filter - ambiguous
+                    ValidationErrorAccumulator(ValidationError::AmbiguousUnloadedFilter {
+                        filter: name.clone(),
+                        libraries: candidate_libs.clone(),
+                        span,
+                    })
+                    .accumulate(db);
+                }
+            }
+            // If available, the filter is valid (even with collisions,
+            // Django resolves at runtime based on load order)
         }
     }
 }
@@ -862,6 +999,182 @@ mod tests {
             let after = available_tags_at(&loaded, &inventory, 200);
             assert!(after.has_tag("trans"));
             assert!(after.has_tag("blocktrans"));
+        }
+    }
+
+    mod filter_availability_tests {
+        use super::*;
+
+        fn make_test_inventory_with_filters() -> InspectorInventory {
+            InspectorInventory::new(
+                std::collections::HashMap::from([
+                    ("i18n".to_string(), "django.templatetags.i18n".to_string()),
+                    ("humanize".to_string(), "django.contrib.humanize.templatetags.humanize".to_string()),
+                ]),
+                vec!["django.template.defaultfilters".to_string()],
+                vec![], // no tags
+                vec![
+                    // Builtin filters
+                    djls_project::TemplateFilter::new_builtin(
+                        "title",
+                        "django.template.defaultfilters",
+                        None,
+                    ),
+                    djls_project::TemplateFilter::new_builtin(
+                        "upper",
+                        "django.template.defaultfilters",
+                        None,
+                    ),
+                    djls_project::TemplateFilter::new_builtin(
+                        "default",
+                        "django.template.defaultfilters",
+                        None,
+                    ),
+                    // Library filters
+                    djls_project::TemplateFilter::new_library(
+                        "localize",
+                        "i18n",
+                        "django.templatetags.i18n",
+                        None,
+                    ),
+                    djls_project::TemplateFilter::new_library(
+                        "unlocalize",
+                        "i18n",
+                        "django.templatetags.i18n",
+                        None,
+                    ),
+                    djls_project::TemplateFilter::new_library(
+                        "intcomma",
+                        "humanize",
+                        "django.contrib.humanize.templatetags.humanize",
+                        None,
+                    ),
+                ],
+            )
+        }
+
+        #[test]
+        fn test_builtin_filters_always_available() {
+            let loaded = LoadedLibraries::new();
+            let inventory = make_test_inventory_with_filters();
+
+            let available = available_filters_at(&loaded, &inventory, 0);
+
+            assert!(available.has_filter("title"), "Builtin filters should always be available");
+            assert!(available.has_filter("upper"), "Builtin filters should always be available");
+            assert!(available.has_filter("default"), "Builtin filters should always be available");
+            assert!(
+                !available.has_filter("localize"),
+                "Library filters should NOT be available without load"
+            );
+        }
+
+        #[test]
+        fn test_library_filter_after_load() {
+            let mut loaded = LoadedLibraries::new();
+            loaded.push(LoadStatement {
+                span: Span::new(0, 15), // {% load i18n %}
+                kind: LoadKind::Libraries(vec!["i18n".to_string()]),
+            });
+            let inventory = make_test_inventory_with_filters();
+
+            // Before the load tag ends
+            let before = available_filters_at(&loaded, &inventory, 5);
+            assert!(
+                !before.has_filter("localize"),
+                "localize should not be available inside load tag"
+            );
+
+            // After the load tag
+            let after = available_filters_at(&loaded, &inventory, 20);
+            assert!(after.has_filter("localize"), "localize should be available after load");
+            assert!(
+                after.has_filter("unlocalize"),
+                "unlocalize should be available after load"
+            );
+            assert!(
+                !after.has_filter("intcomma"),
+                "intcomma should NOT be available (not loaded)"
+            );
+        }
+
+        #[test]
+        fn test_selective_filter_import() {
+            let mut loaded = LoadedLibraries::new();
+            loaded.push(LoadStatement {
+                span: Span::new(0, 35), // {% load localize from i18n %}
+                kind: LoadKind::Selective {
+                    symbols: vec!["localize".to_string()],
+                    library: "i18n".to_string(),
+                },
+            });
+            let inventory = make_test_inventory_with_filters();
+
+            let available = available_filters_at(&loaded, &inventory, 50);
+
+            assert!(
+                available.has_filter("localize"),
+                "localize should be available (selectively imported)"
+            );
+            assert!(
+                !available.has_filter("unlocalize"),
+                "unlocalize should NOT be available (not in selective import)"
+            );
+        }
+
+        #[test]
+        fn test_selective_then_full_load_filter() {
+            let mut loaded = LoadedLibraries::new();
+            // First: {% load localize from i18n %}
+            loaded.push(LoadStatement {
+                span: Span::new(0, 35),
+                kind: LoadKind::Selective {
+                    symbols: vec!["localize".to_string()],
+                    library: "i18n".to_string(),
+                },
+            });
+            // Later: {% load i18n %}
+            loaded.push(LoadStatement {
+                span: Span::new(100, 15),
+                kind: LoadKind::Libraries(vec!["i18n".to_string()]),
+            });
+            let inventory = make_test_inventory_with_filters();
+
+            // After selective, before full
+            let middle = available_filters_at(&loaded, &inventory, 50);
+            assert!(middle.has_filter("localize"));
+            assert!(!middle.has_filter("unlocalize"));
+
+            // After full load - THIS IS THE KEY TEST
+            let after = available_filters_at(&loaded, &inventory, 150);
+            assert!(after.has_filter("localize"), "localize still available after full load");
+            assert!(
+                after.has_filter("unlocalize"),
+                "unlocalize NOW available after full load"
+            );
+        }
+
+        #[test]
+        fn test_filter_inventory_entry_collision() {
+            let inventory = make_test_inventory_with_filters();
+            let lookup = build_filter_inventory(&inventory);
+
+            // Builtin filters should be Builtin entry
+            assert!(
+                matches!(lookup.get("title"), Some(FilterInventoryEntry::Builtin)),
+                "title should be Builtin"
+            );
+
+            // Library filters should be Libraries entry
+            assert!(
+                matches!(lookup.get("localize"), Some(FilterInventoryEntry::Libraries(_))),
+                "localize should be Libraries"
+            );
+
+            // Check the library name is correct
+            if let Some(FilterInventoryEntry::Libraries(libs)) = lookup.get("localize") {
+                assert!(libs.contains(&"i18n".to_string()));
+            }
         }
     }
 }
