@@ -3,7 +3,7 @@
 //! This module handles all LSP completion requests, analyzing cursor context
 //! and generating appropriate completion items for Django templates.
 
-use djls_project::TemplateTags;
+use djls_project::InspectorInventory;
 use djls_semantic::LoadedLibraries;
 use djls_semantic::TagArg;
 use djls_semantic::TagSpecs;
@@ -98,7 +98,7 @@ pub fn handle_completion(
     position: ls_types::Position,
     encoding: PositionEncoding,
     file_kind: FileKind,
-    template_tags: Option<&TemplateTags>,
+    inventory: Option<&InspectorInventory>,
     tag_specs: Option<&TagSpecs>,
     loaded_libraries: Option<&LoadedLibraries>,
     supports_snippets: bool,
@@ -124,7 +124,7 @@ pub fn handle_completion(
     // Generate completions based on available template tags
     generate_template_completions(
         &context,
-        template_tags,
+        inventory,
         tag_specs,
         loaded_libraries,
         cursor_byte_offset,
@@ -334,7 +334,7 @@ fn detect_closing_brace(suffix: &str) -> ClosingBrace {
 #[allow(clippy::too_many_arguments)]
 fn generate_template_completions(
     context: &TemplateCompletionContext,
-    template_tags: Option<&TemplateTags>,
+    inventory: Option<&InspectorInventory>,
     tag_specs: Option<&TagSpecs>,
     loaded_libraries: Option<&LoadedLibraries>,
     cursor_byte_offset: u32,
@@ -352,7 +352,7 @@ fn generate_template_completions(
             partial,
             *needs_space,
             closing,
-            template_tags,
+            inventory,
             tag_specs,
             loaded_libraries,
             cursor_byte_offset,
@@ -373,7 +373,7 @@ fn generate_template_completions(
             partial,
             parsed_args,
             closing,
-            template_tags,
+            inventory,
             tag_specs,
             supports_snippets,
         ),
@@ -381,7 +381,7 @@ fn generate_template_completions(
             generate_library_completions(
                 partial,
                 closing,
-                template_tags,
+                inventory,
                 loaded_libraries,
                 cursor_byte_offset,
             )
@@ -429,7 +429,7 @@ fn generate_tag_name_completions(
     partial: &str,
     needs_space: bool,
     closing: &ClosingBrace,
-    template_tags: Option<&TemplateTags>,
+    inventory: Option<&InspectorInventory>,
     tag_specs: Option<&TagSpecs>,
     loaded_libraries: Option<&LoadedLibraries>,
     cursor_byte_offset: u32,
@@ -438,14 +438,14 @@ fn generate_tag_name_completions(
     line_text: &str,
     cursor_offset: usize,
 ) -> Vec<ls_types::CompletionItem> {
-    let Some(tags) = template_tags else {
+    let Some(inv) = inventory else {
         return Vec::new();
     };
 
     // Compute available tags at cursor position when load info is present.
     // When load info is unavailable (None), show all tags as fallback.
     let available = loaded_libraries
-        .map(|loaded| djls_semantic::available_tags_at(loaded, tags, cursor_byte_offset));
+        .map(|loaded| djls_semantic::available_tags_at(loaded, inv, cursor_byte_offset));
 
     let mut completions = Vec::new();
 
@@ -494,7 +494,7 @@ fn generate_tag_name_completions(
         }
     }
 
-    for tag in tags.iter() {
+    for tag in inv.iter_tags() {
         if !tag.name().starts_with(partial) {
             continue;
         }
@@ -585,7 +585,7 @@ fn generate_argument_completions(
     partial: &str,
     _parsed_args: &[String],
     closing: &ClosingBrace,
-    _template_tags: Option<&TemplateTags>,
+    _inventory: Option<&InspectorInventory>,
     tag_specs: Option<&TagSpecs>,
     supports_snippets: bool,
 ) -> Vec<ls_types::CompletionItem> {
@@ -724,15 +724,15 @@ fn generate_argument_completions(
 fn generate_library_completions(
     partial: &str,
     closing: &ClosingBrace,
-    template_tags: Option<&TemplateTags>,
+    inventory: Option<&InspectorInventory>,
     loaded_libraries: Option<&LoadedLibraries>,
     cursor_byte_offset: u32,
 ) -> Vec<ls_types::CompletionItem> {
-    let Some(tags) = template_tags else {
+    let Some(inv) = inventory else {
         return Vec::new();
     };
 
-    let mut library_entries: Vec<_> = tags
+    let mut library_entries: Vec<_> = inv
         .libraries()
         .iter()
         .filter(|(load_name, _)| load_name.starts_with(partial))
@@ -1070,7 +1070,7 @@ mod tests {
             "django.templatetags.cache".to_string(),
         );
 
-        let tags = TemplateTags::new(
+        let tags = InspectorInventory::new(
             libraries,
             vec!["django.template.defaulttags".to_string()],
             vec![
@@ -1086,6 +1086,7 @@ mod tests {
                     None,
                 ),
             ],
+            vec![],
         );
 
         let completions =
@@ -1111,7 +1112,7 @@ mod tests {
             "django.templatetags.i18n".to_string(),
         );
 
-        let tags = TemplateTags::new(libraries, vec![], vec![]);
+        let tags = InspectorInventory::new(libraries, vec![], vec![], vec![]);
 
         let completions =
             generate_library_completions("st", &ClosingBrace::None, Some(&tags), None, 0);
@@ -1128,7 +1129,7 @@ mod tests {
             "django.templatetags.static".to_string(),
         );
 
-        let tags = TemplateTags::new(libraries, vec![], vec![]);
+        let tags = InspectorInventory::new(libraries, vec![], vec![], vec![]);
 
         let no_close =
             generate_library_completions("", &ClosingBrace::None, Some(&tags), None, 0);
@@ -1152,7 +1153,7 @@ mod tests {
         );
     }
 
-    fn make_test_tags() -> TemplateTags {
+    fn make_test_tags() -> InspectorInventory {
         let mut libraries = std::collections::HashMap::new();
         libraries.insert(
             "i18n".to_string(),
@@ -1163,7 +1164,7 @@ mod tests {
             "django.templatetags.static".to_string(),
         );
 
-        TemplateTags::new(
+        InspectorInventory::new(
             libraries,
             vec!["django.template.defaulttags".to_string()],
             vec![
@@ -1196,6 +1197,7 @@ mod tests {
                     None,
                 ),
             ],
+            vec![],
         )
     }
 
@@ -1376,7 +1378,7 @@ mod tests {
             "django.templatetags.cache".to_string(),
         );
 
-        let tags = TemplateTags::new(libraries, vec![], vec![]);
+        let tags = InspectorInventory::new(libraries, vec![], vec![], vec![]);
 
         let mut loaded = djls_semantic::LoadedLibraries::new();
         // {% load i18n %} at span 0..15
@@ -1426,7 +1428,7 @@ mod tests {
             "django.templatetags.i18n".to_string(),
         );
 
-        let tags = TemplateTags::new(libraries, vec![], vec![]);
+        let tags = InspectorInventory::new(libraries, vec![], vec![], vec![]);
 
         let completions = generate_library_completions(
             "",
@@ -1455,7 +1457,7 @@ mod tests {
             "django.templatetags.i18n".to_string(),
         );
 
-        let tags = TemplateTags::new(libraries, vec![], vec![]);
+        let tags = InspectorInventory::new(libraries, vec![], vec![], vec![]);
 
         let mut loaded = djls_semantic::LoadedLibraries::new();
         // {% load i18n %} at span 50..65

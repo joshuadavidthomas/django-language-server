@@ -252,7 +252,7 @@ mod tests {
             djls_conf::DiagnosticsConfig::default()
         }
 
-        fn inspector_inventory(&self) -> Option<djls_project::TemplateTags> {
+        fn inspector_inventory(&self) -> Option<djls_project::InspectorInventory> {
             None
         }
     }

@@ -1,5 +1,5 @@
+use djls_project::InspectorInventory;
 use djls_project::TagProvenance;
-use djls_project::TemplateTags;
 use djls_source::Span;
 use djls_templates::tokens::TagDelimiter;
 use djls_templates::Node;
@@ -236,7 +236,7 @@ impl LoadState {
 #[must_use]
 pub fn available_tags_at(
     loaded: &LoadedLibraries,
-    inventory: &TemplateTags,
+    inventory: &InspectorInventory,
     position: u32,
 ) -> AvailableSymbols {
     let mut available = AvailableSymbols::default();
@@ -248,14 +248,14 @@ pub fn available_tags_at(
         }
     }
 
-    for tag in inventory.iter() {
+    for tag in inventory.iter_tags() {
         match tag.provenance() {
             TagProvenance::Builtin { .. } => {
-                available.tags.insert(tag.name().clone());
+                available.tags.insert(tag.name().to_string());
             }
             TagProvenance::Library { load_name, .. } => {
                 if state.is_tag_available(tag.name(), load_name) {
-                    available.tags.insert(tag.name().clone());
+                    available.tags.insert(tag.name().to_string());
                 }
             }
         }
@@ -270,11 +270,11 @@ enum TagInventoryEntry {
     Libraries(Vec<String>),
 }
 
-fn build_tag_inventory(inventory: &TemplateTags) -> FxHashMap<String, TagInventoryEntry> {
+fn build_tag_inventory(inventory: &InspectorInventory) -> FxHashMap<String, TagInventoryEntry> {
     let mut result: FxHashMap<String, TagInventoryEntry> = FxHashMap::default();
 
-    for tag in inventory.iter() {
-        let name = tag.name().clone();
+    for tag in inventory.iter_tags() {
+        let name = tag.name().to_string();
         match tag.provenance() {
             TagProvenance::Builtin { .. } => {
                 result.insert(name, TagInventoryEntry::Builtin);
@@ -519,8 +519,8 @@ mod availability_tests {
 
     use super::*;
 
-    fn make_test_inventory() -> TemplateTags {
-        TemplateTags::new(
+    fn make_test_inventory() -> InspectorInventory {
+        InspectorInventory::new(
             HashMap::from([
                 ("i18n".to_string(), "django.templatetags.i18n".to_string()),
                 (
@@ -535,6 +535,7 @@ mod availability_tests {
                 TemplateTag::new_library("blocktrans", "i18n", "django.templatetags.i18n", None),
                 TemplateTag::new_library("static", "static", "django.templatetags.static", None),
             ],
+            vec![],
         )
     }
 

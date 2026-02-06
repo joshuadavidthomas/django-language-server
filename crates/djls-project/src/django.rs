@@ -88,6 +88,22 @@ impl InspectorRequest for TemplatetagsRequest {
     type Response = TemplatetagsResponse;
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TemplateInventoryRequest;
+
+#[derive(Deserialize)]
+pub struct TemplateInventoryResponse {
+    pub libraries: HashMap<String, String>,
+    pub builtins: Vec<String>,
+    pub templatetags: Vec<TemplateTag>,
+    pub templatefilters: Vec<TemplateFilter>,
+}
+
+impl InspectorRequest for TemplateInventoryRequest {
+    const NAME: &'static str = "template_inventory";
+    type Response = TemplateInventoryResponse;
+}
+
 /// Get template tags for the current project by querying the inspector.
 ///
 /// This is the primary Salsa-tracked entry point for templatetags.
@@ -101,6 +117,172 @@ pub fn templatetags(db: &dyn ProjectDb, _project: Project) -> Option<TemplateTag
         builtins: response.builtins,
         tags: response.templatetags,
     })
+}
+
+/// Provenance of a template filter — either from a loadable library or a builtin
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FilterProvenance {
+    /// Filter requires `{% load X %}` to use
+    Library {
+        load_name: String,
+        module: String,
+    },
+    /// Filter is always available (builtin)
+    Builtin {
+        module: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct TemplateFilter {
+    name: String,
+    provenance: FilterProvenance,
+    defining_module: String,
+    doc: Option<String>,
+}
+
+impl TemplateFilter {
+    /// Create a library filter (for testing)
+    #[must_use]
+    pub fn new_library(name: &str, load_name: &str, module: &str, doc: Option<&str>) -> Self {
+        Self {
+            name: name.to_string(),
+            provenance: FilterProvenance::Library {
+                load_name: load_name.to_string(),
+                module: module.to_string(),
+            },
+            defining_module: module.to_string(),
+            doc: doc.map(String::from),
+        }
+    }
+
+    /// Create a builtin filter (for testing)
+    #[must_use]
+    pub fn new_builtin(name: &str, module: &str, doc: Option<&str>) -> Self {
+        Self {
+            name: name.to_string(),
+            provenance: FilterProvenance::Builtin {
+                module: module.to_string(),
+            },
+            defining_module: module.to_string(),
+            doc: doc.map(String::from),
+        }
+    }
+
+    #[must_use]
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    #[must_use]
+    pub fn provenance(&self) -> &FilterProvenance {
+        &self.provenance
+    }
+
+    /// The Python module where the filter function is defined (`filter_func.__module__`)
+    #[must_use]
+    pub fn defining_module(&self) -> &str {
+        &self.defining_module
+    }
+
+    #[must_use]
+    pub fn doc(&self) -> Option<&str> {
+        self.doc.as_deref()
+    }
+
+    /// Returns the library load-name if this is a library filter, None for builtins.
+    #[must_use]
+    pub fn library_load_name(&self) -> Option<&str> {
+        match &self.provenance {
+            FilterProvenance::Library { load_name, .. } => Some(load_name),
+            FilterProvenance::Builtin { .. } => None,
+        }
+    }
+
+    /// Returns true if this filter is a builtin (always available without `{% load %}`)
+    #[must_use]
+    pub fn is_builtin(&self) -> bool {
+        matches!(self.provenance, FilterProvenance::Builtin { .. })
+    }
+
+    /// The Python module where this filter is registered (the library/builtin module).
+    #[must_use]
+    pub fn registration_module(&self) -> &str {
+        match &self.provenance {
+            FilterProvenance::Library { module, .. } | FilterProvenance::Builtin { module } => {
+                module
+            }
+        }
+    }
+}
+
+/// Combined inspector inventory (tags + filters) stored on Project.
+///
+/// This is a single snapshot to prevent split-brain between tag and filter data.
+/// Per M2 architecture, this is stored as a Project field (Salsa input), not
+/// computed by a tracked query calling the inspector.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct InspectorInventory {
+    libraries: HashMap<String, String>,
+    builtins: Vec<String>,
+    tags: Vec<TemplateTag>,
+    filters: Vec<TemplateFilter>,
+}
+
+impl InspectorInventory {
+    #[must_use]
+    pub fn new(
+        libraries: HashMap<String, String>,
+        builtins: Vec<String>,
+        tags: Vec<TemplateTag>,
+        filters: Vec<TemplateFilter>,
+    ) -> Self {
+        Self {
+            libraries,
+            builtins,
+            tags,
+            filters,
+        }
+    }
+
+    #[must_use]
+    pub fn tags(&self) -> &[TemplateTag] {
+        &self.tags
+    }
+
+    #[must_use]
+    pub fn filters(&self) -> &[TemplateFilter] {
+        &self.filters
+    }
+
+    #[must_use]
+    pub fn libraries(&self) -> &HashMap<String, String> {
+        &self.libraries
+    }
+
+    #[must_use]
+    pub fn builtins(&self) -> &[String] {
+        &self.builtins
+    }
+
+    #[must_use]
+    pub fn tag_count(&self) -> usize {
+        self.tags.len()
+    }
+
+    #[must_use]
+    pub fn filter_count(&self) -> usize {
+        self.filters.len()
+    }
+
+    pub fn iter_tags(&self) -> impl Iterator<Item = &TemplateTag> {
+        self.tags.iter()
+    }
+
+    pub fn iter_filters(&self) -> impl Iterator<Item = &TemplateFilter> {
+        self.filters.iter()
+    }
 }
 
 /// Provenance of a template tag — either from a loadable library or a builtin
@@ -364,5 +546,129 @@ mod tests {
         assert_eq!(builtin_tag.name(), "if");
         assert!(builtin_tag.is_builtin());
         assert_eq!(builtin_tag.doc(), None);
+    }
+
+    #[test]
+    fn test_template_filter_library_provenance() {
+        let filter = TemplateFilter::new_library(
+            "date",
+            "humanize",
+            "django.contrib.humanize.templatetags.humanize",
+            Some("Format a date"),
+        );
+        assert_eq!(filter.name(), "date");
+        assert_eq!(filter.library_load_name(), Some("humanize"));
+        assert!(!filter.is_builtin());
+        assert_eq!(
+            filter.registration_module(),
+            "django.contrib.humanize.templatetags.humanize"
+        );
+        assert_eq!(
+            filter.defining_module(),
+            "django.contrib.humanize.templatetags.humanize"
+        );
+        assert_eq!(filter.doc(), Some("Format a date"));
+    }
+
+    #[test]
+    fn test_template_filter_builtin_provenance() {
+        let filter = TemplateFilter::new_builtin(
+            "title",
+            "django.template.defaultfilters",
+            None,
+        );
+        assert_eq!(filter.name(), "title");
+        assert!(filter.is_builtin());
+        assert_eq!(filter.library_load_name(), None);
+        assert_eq!(filter.registration_module(), "django.template.defaultfilters");
+        assert_eq!(filter.doc(), None);
+    }
+
+    #[test]
+    fn test_template_filter_deserialization() {
+        let json = r#"{
+            "name": "date",
+            "provenance": {"library": {"load_name": "humanize", "module": "django.contrib.humanize.templatetags.humanize"}},
+            "defining_module": "django.contrib.humanize.templatetags.humanize",
+            "doc": "Format a date"
+        }"#;
+        let filter: TemplateFilter = serde_json::from_str(json).expect("Should deserialize");
+        assert_eq!(filter.name(), "date");
+        assert_eq!(filter.library_load_name(), Some("humanize"));
+        assert_eq!(filter.doc(), Some("Format a date"));
+    }
+
+    #[test]
+    fn test_template_filter_builtin_deserialization() {
+        let json = r#"{
+            "name": "title",
+            "provenance": {"builtin": {"module": "django.template.defaultfilters"}},
+            "defining_module": "django.template.defaultfilters",
+            "doc": null
+        }"#;
+        let filter: TemplateFilter = serde_json::from_str(json).expect("Should deserialize");
+        assert_eq!(filter.name(), "title");
+        assert!(filter.is_builtin());
+        assert_eq!(filter.library_load_name(), None);
+    }
+
+    #[test]
+    fn test_inspector_inventory() {
+        let mut libraries = HashMap::new();
+        libraries.insert(
+            "i18n".to_string(),
+            "django.templatetags.i18n".to_string(),
+        );
+
+        let inv = InspectorInventory::new(
+            libraries,
+            vec!["django.template.defaulttags".to_string()],
+            vec![
+                TemplateTag::new_builtin("if", "django.template.defaulttags", None),
+            ],
+            vec![
+                TemplateFilter::new_builtin("title", "django.template.defaultfilters", None),
+                TemplateFilter::new_library("localize", "l10n", "django.templatetags.l10n", None),
+            ],
+        );
+
+        assert_eq!(inv.tag_count(), 1);
+        assert_eq!(inv.filter_count(), 2);
+        assert_eq!(inv.libraries().len(), 1);
+        assert_eq!(inv.builtins().len(), 1);
+        assert!(inv.iter_tags().next().unwrap().is_builtin());
+        assert!(inv.iter_filters().next().unwrap().is_builtin());
+    }
+
+    #[test]
+    fn test_template_inventory_response_deserialization() {
+        let json = r#"{
+            "libraries": {"i18n": "django.templatetags.i18n"},
+            "builtins": ["django.template.defaulttags"],
+            "templatetags": [
+                {
+                    "name": "if",
+                    "provenance": {"builtin": {"module": "django.template.defaulttags"}},
+                    "defining_module": "django.template.defaulttags",
+                    "doc": null
+                }
+            ],
+            "templatefilters": [
+                {
+                    "name": "title",
+                    "provenance": {"builtin": {"module": "django.template.defaultfilters"}},
+                    "defining_module": "django.template.defaultfilters",
+                    "doc": "Convert to titlecase"
+                }
+            ]
+        }"#;
+        let resp: TemplateInventoryResponse =
+            serde_json::from_str(json).expect("Should deserialize");
+        assert_eq!(resp.libraries.len(), 1);
+        assert_eq!(resp.builtins.len(), 1);
+        assert_eq!(resp.templatetags.len(), 1);
+        assert_eq!(resp.templatefilters.len(), 1);
+        assert_eq!(resp.templatetags[0].name(), "if");
+        assert_eq!(resp.templatefilters[0].name(), "title");
     }
 }

@@ -11,6 +11,7 @@ try:
     from queries import get_installed_templatetags
     from queries import get_python_environment_info
     from queries import get_template_dirs
+    from queries import get_template_inventory
     from queries import initialize_django
 except ImportError:
     # Fall back to relative import (when running with python -m)
@@ -19,6 +20,7 @@ except ImportError:
     from .queries import get_installed_templatetags
     from .queries import get_python_environment_info
     from .queries import get_template_dirs
+    from .queries import get_template_inventory
     from .queries import initialize_django
 
 
@@ -84,6 +86,9 @@ def handle_request(request: dict[str, Any]) -> DjlsResponse:
 
         elif query == Query.TEMPLATETAGS:
             return DjlsResponse(ok=True, data=get_installed_templatetags())
+
+        elif query == Query.TEMPLATE_INVENTORY:
+            return DjlsResponse(ok=True, data=get_template_inventory())
 
         return DjlsResponse(ok=False, error=f"Unhandled query type: {query}")
 

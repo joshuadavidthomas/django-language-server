@@ -262,19 +262,7 @@ impl LanguageServer for DjangoLanguageServer {
                 let encoding = session.client_info().position_encoding();
                 let file_kind = FileKind::from(&path);
                 let db = session.db();
-                let template_tags = if let Some(project) = db.project() {
-                    tracing::debug!("Fetching templatetags for project");
-                    let tags = djls_project::templatetags(db, project);
-                    if let Some(ref t) = tags {
-                        tracing::debug!("Got {} templatetags", t.len());
-                    } else {
-                        tracing::warn!("No templatetags returned from project");
-                    }
-                    tags
-                } else {
-                    tracing::warn!("No project available for templatetags");
-                    None
-                };
+                let inventory = db.inspector_inventory();
                 let tag_specs = db.tag_specs();
                 let supports_snippets = session.client_info().supports_snippets();
 
@@ -289,7 +277,7 @@ impl LanguageServer for DjangoLanguageServer {
                     position,
                     encoding,
                     file_kind,
-                    template_tags.as_ref(),
+                    inventory.as_ref(),
                     Some(&tag_specs),
                     loaded_libraries.as_ref(),
                     supports_snippets,

@@ -162,27 +162,27 @@
 
 **Goal:** Add filter collection to Python inspector, create unified `InspectorInventory` type replacing `TemplateTags`, update Project input and refresh_inspector.
 
-- [ ] Add `TemplateFilter` dataclass in `crates/djls-project/inspector/queries.py` with `name`, `provenance`, `defining_module`, `doc` fields
-- [ ] Add `TemplateInventoryQueryData` dataclass with `libraries`, `builtins`, `templatetags`, `templatefilters` fields
-- [ ] Add `TEMPLATE_INVENTORY = "template_inventory"` to `Query` enum in `queries.py`
-- [ ] Implement `get_template_inventory()` — iterate both `library.tags` and `library.filters` for builtins and libraries, return unified payload
-- [ ] Wire `TEMPLATE_INVENTORY` query to `get_template_inventory()` in the query dispatch
-- [ ] Add `FilterProvenance` enum in `crates/djls-project/src/django.rs` (mirrors `TagProvenance`: `Library { load_name, module }` / `Builtin { module }`)
-- [ ] Add `TemplateFilter` struct in `crates/djls-project/src/django.rs` with accessors: `name()`, `provenance()`, `defining_module()`, `doc()`, `library_load_name()`, `is_builtin()`, `registration_module()`
-- [ ] Add `InspectorInventory` struct in `crates/djls-project/src/django.rs` with `libraries`, `builtins`, `tags`, `filters` fields and accessors
-- [ ] Add `TemplateInventoryRequest` / `TemplateInventoryResponse` types in `crates/djls-project/src/django.rs`
-- [ ] Change `Project.inspector_inventory` field type from `Option<TemplateTags>` to `Option<InspectorInventory>` in `crates/djls-project/src/project.rs`
-- [ ] Update `Project::bootstrap()` to pass `None` for the new type
-- [ ] Export `FilterProvenance`, `TemplateFilter`, `InspectorInventory`, `TemplateInventoryRequest`, `TemplateInventoryResponse` from `crates/djls-project/src/lib.rs`
-- [ ] Update `SemanticDb::inspector_inventory()` trait method return type to `Option<InspectorInventory>` in `crates/djls-semantic/src/db.rs`
-- [ ] Update `DjangoDatabase::inspector_inventory()` impl in `crates/djls-server/src/db.rs` to return `InspectorInventory`
-- [ ] Update `refresh_inspector()` in `crates/djls-server/src/db.rs` to use `TemplateInventoryRequest` and build `InspectorInventory`
-- [ ] Update `compute_tag_specs()` to read tags from `InspectorInventory` instead of `TemplateTags`
-- [ ] Update all test `inspector_inventory()` impls (bench db, 3 semantic test databases) to return `Option<InspectorInventory>`
-- [ ] Update all M3 code in `load_resolution.rs` that reads from `TemplateTags` to use `InspectorInventory` instead
-- [ ] Update completions code in `djls-ide` that passes tag inventory — adapt to unified `InspectorInventory`
-- [ ] Update server completion call site to pass `InspectorInventory`
-- [ ] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Add `TemplateFilter` dataclass in `crates/djls-project/inspector/queries.py` with `name`, `provenance`, `defining_module`, `doc` fields
+- [x] Add `TemplateInventoryQueryData` dataclass with `libraries`, `builtins`, `templatetags`, `templatefilters` fields
+- [x] Add `TEMPLATE_INVENTORY = "template_inventory"` to `Query` enum in `queries.py`
+- [x] Implement `get_template_inventory()` — iterate both `library.tags` and `library.filters` for builtins and libraries, return unified payload
+- [x] Wire `TEMPLATE_INVENTORY` query to `get_template_inventory()` in the query dispatch
+- [x] Add `FilterProvenance` enum in `crates/djls-project/src/django.rs` (mirrors `TagProvenance`: `Library { load_name, module }` / `Builtin { module }`)
+- [x] Add `TemplateFilter` struct in `crates/djls-project/src/django.rs` with accessors: `name()`, `provenance()`, `defining_module()`, `doc()`, `library_load_name()`, `is_builtin()`, `registration_module()`
+- [x] Add `InspectorInventory` struct in `crates/djls-project/src/django.rs` with `libraries`, `builtins`, `tags`, `filters` fields and accessors
+- [x] Add `TemplateInventoryRequest` / `TemplateInventoryResponse` types in `crates/djls-project/src/django.rs`
+- [x] Change `Project.inspector_inventory` field type from `Option<TemplateTags>` to `Option<InspectorInventory>` in `crates/djls-project/src/project.rs`
+- [x] Update `Project::bootstrap()` to pass `None` for the new type
+- [x] Export `FilterProvenance`, `TemplateFilter`, `InspectorInventory`, `TemplateInventoryRequest`, `TemplateInventoryResponse` from `crates/djls-project/src/lib.rs`
+- [x] Update `SemanticDb::inspector_inventory()` trait method return type to `Option<InspectorInventory>` in `crates/djls-semantic/src/db.rs`
+- [x] Update `DjangoDatabase::inspector_inventory()` impl in `crates/djls-server/src/db.rs` to return `InspectorInventory`
+- [x] Update `refresh_inspector()` in `crates/djls-server/src/db.rs` to use `TemplateInventoryRequest` and build `InspectorInventory`
+- [x] Update `compute_tag_specs()` to read tags from `InspectorInventory` instead of `TemplateTags`
+- [x] Update all test `inspector_inventory()` impls (bench db, 3 semantic test databases) to return `Option<InspectorInventory>`
+- [x] Update all M3 code in `load_resolution.rs` that reads from `TemplateTags` to use `InspectorInventory` instead
+- [x] Update completions code in `djls-ide` that passes tag inventory — adapt to unified `InspectorInventory`
+- [x] Update server completion call site to pass `InspectorInventory`
+- [x] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 2: Structured Filter Representation (Parser Breakpoint)
 
@@ -272,3 +272,6 @@ _Tasks to be expanded when M6 is complete._
 - M2: `set_settings` signature changed from `Settings` to `&Settings` — clippy flags needless pass by value. Updated callers in `session.rs` and `server.rs`.
 - M2: Exported `inspector_query` (re-export of `inspector::query`) from `djls-project` for direct inspector access outside tracked queries.
 - M2: Salsa `ingredient_debug_name()` returns the function name (e.g., `"compute_tag_specs"`) — use this in `WillExecute` event matching for stable invalidation tests (not Debug format strings).
+- M4: `InspectorInventory` replaces `TemplateTags` as the Project input field type. `TemplateTags` still exists but is only used by the legacy `templatetags` tracked query. All downstream code (completions, load resolution, semantic db trait) now uses `InspectorInventory`.
+- M4: `refresh_inspector()` now uses the unified `TemplateInventoryRequest` ("template_inventory" query) which returns both tags and filters in a single IPC round trip.
+- M4: Server completion handler reads from `db.inspector_inventory()` (SemanticDb trait method) instead of calling `djls_project::templatetags()` directly.

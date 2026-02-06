@@ -14,11 +14,11 @@ use salsa::Setter;
 use djls_project::inspector_query;
 use djls_project::template_dirs;
 use djls_project::Db as ProjectDb;
+use djls_project::InspectorInventory;
 use djls_project::Inspector;
 use djls_project::Interpreter;
 use djls_project::Project;
-use djls_project::TemplateTags;
-use djls_project::TemplatetagsRequest;
+use djls_project::TemplateInventoryRequest;
 use djls_semantic::django_builtin_specs;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::TagIndex;
@@ -225,7 +225,7 @@ impl DjangoDatabase {
     /// Refresh the inspector inventory by querying Python directly.
     ///
     /// This method:
-    /// 1. Queries the Python inspector (not through tracked functions)
+    /// 1. Queries the Python inspector via a single unified query (tags + filters)
     /// 2. Compares the new inventory with the current one
     /// 3. Updates `Project.inspector_inventory` only if changed
     ///
@@ -239,9 +239,14 @@ impl DjangoDatabase {
             return;
         };
 
-        let new_inventory: Option<TemplateTags> =
-            inspector_query(self, &TemplatetagsRequest).map(|response| {
-                TemplateTags::new(response.libraries, response.builtins, response.templatetags)
+        let new_inventory: Option<InspectorInventory> =
+            inspector_query(self, &TemplateInventoryRequest).map(|response| {
+                InspectorInventory::new(
+                    response.libraries,
+                    response.builtins,
+                    response.templatetags,
+                    response.templatefilters,
+                )
             });
 
         let current = project.inspector_inventory(self);
@@ -249,9 +254,11 @@ impl DjangoDatabase {
             tracing::trace!("Inspector inventory unchanged, skipping update");
         } else {
             tracing::debug!(
-                "Inspector inventory changed: {} -> {} tags",
-                current.as_ref().map_or(0, TemplateTags::len),
-                new_inventory.as_ref().map_or(0, TemplateTags::len)
+                "Inspector inventory changed: {} tags, {} filters -> {} tags, {} filters",
+                current.as_ref().map_or(0, InspectorInventory::tag_count),
+                current.as_ref().map_or(0, InspectorInventory::filter_count),
+                new_inventory.as_ref().map_or(0, InspectorInventory::tag_count),
+                new_inventory.as_ref().map_or(0, InspectorInventory::filter_count),
             );
             project
                 .set_inspector_inventory(self)
@@ -324,7 +331,7 @@ impl SemanticDb for DjangoDatabase {
         }
     }
 
-    fn inspector_inventory(&self) -> Option<TemplateTags> {
+    fn inspector_inventory(&self) -> Option<InspectorInventory> {
         self.project()
             .and_then(|project| project.inspector_inventory(self).clone())
     }
@@ -352,7 +359,7 @@ mod invalidation_tests {
     use djls_project::Inspector;
     use djls_project::Interpreter;
     use djls_project::Project;
-    use djls_project::TemplateTags;
+    use djls_project::InspectorInventory;
     use djls_semantic::Db as SemanticDb;
     use djls_source::FxDashMap;
     use djls_workspace::InMemoryFileSystem;
@@ -477,9 +484,10 @@ mod invalidation_tests {
         test.logger.clear();
 
         let project = test.db.project.lock().unwrap().expect("test project exists");
-        let new_inventory = TemplateTags::new(
+        let new_inventory = InspectorInventory::new(
             HashMap::new(),
             vec!["django.template.defaulttags".to_string()],
+            vec![],
             vec![],
         );
         project

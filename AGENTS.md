@@ -68,6 +68,12 @@ Test impls typically return `None` / default values. Forgetting even one causes 
 - `djls-semantic` test modules that use `djls_project` types need `djls-project` in `[dev-dependencies]` in `Cargo.toml`
 - Each test `TestDatabase` also needs `impl djls_source::Db` and `impl djls_templates::Db` — check existing test databases for the full trait hierarchy
 
+### Type Evolution
+- `InspectorInventory` replaces `TemplateTags` as the `Project.inspector_inventory` field type
+- `TemplateTags` still exists for the legacy `templatetags` tracked query but downstream code uses `InspectorInventory`
+- `InspectorInventory::new()` takes 4 args: `libraries`, `builtins`, `tags`, `filters`
+- `TemplateFilter` accessors return `&str` (not `&String` like `TemplateTag`) — this is the correct pattern per clippy
+
 ### File Locations (avoid repeated lookups)
 - Salsa database + tracked queries: `crates/djls-server/src/db.rs`
 - Project salsa input: `crates/djls-project/src/project.rs`
