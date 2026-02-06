@@ -92,10 +92,62 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ## M3 — `{% load %}` Scoping Infrastructure
 
-**Status:** backlog
+**Status:** in-progress
 **Plan:** `.agents/plans/2026-02-05-m3-load-scoping.md`
 
-_Tasks to be expanded when M2 is complete._
+**Goal:** Implement position-aware `{% load %}` scoping so diagnostics and completions respect which libraries are loaded at each position. Produces S108 (unknown tag), S109 (unloaded tag), S110 (ambiguous unloaded tag) diagnostics.
+
+### Phase 1: Load Statement Parsing and Data Structures
+
+- [ ] Create `crates/djls-semantic/src/load_resolution.rs` module
+- [ ] Define `LoadStatement` struct: `span` (byte range), `kind` enum distinguishing full load (list of library names) vs selective import (`{% load X from Y %}` — symbols + library name)
+- [ ] Define `LoadedLibraries` struct: ordered collection of `LoadStatement` values with a method `available_at(position) -> LoadState` that filters loads ending before the query position, applying the state-machine semantics (fully_loaded set + selective imports map)
+- [ ] Implement `parse_load_bits(bits: &[String]) -> Option<LoadStatement>` that parses tag bits from a `Node::Tag` with `name == "load"` — detects `from` keyword for selective imports vs full library loads
+- [ ] Export `load_resolution` module from `crates/djls-semantic/src/lib.rs`
+- [ ] Tests: full load (`{% load i18n %}`), multi-library load (`{% load i18n static %}`), selective import (`{% load trans from i18n %}`), multi-symbol selective (`{% load trans blocktrans from i18n %}`), empty/malformed load edge cases
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 2: Compute LoadedLibraries from NodeList
+
+- [ ] Add `compute_loaded_libraries(db, file) → LoadedLibraries` — either as a tracked Salsa query or a standalone function that iterates all nodes in a file's nodelist, identifies `Node::Tag { name: "load" }`, parses each into a `LoadStatement`, returns ordered `LoadedLibraries`
+- [ ] Wire into the Salsa dependency graph so results are cached per file revision
+- [ ] Tests: given a nodelist with load tags at various positions, verify `LoadedLibraries` is correctly constructed and position queries return expected results
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 3: Available Symbols Query
+
+- [ ] Define `AvailableSymbols` type representing the set of tags available at a given position, plus a mapping of unavailable-but-known tags to their required library/libraries
+- [ ] Implement query logic: start with all builtin tags (always available), add tags from fully-loaded libraries (load span < position), add selectively-imported symbols, handle selective→full load ordering
+- [ ] Handle tag-name collision: track ALL candidate libraries for each tag name from inspector inventory
+- [ ] Tests: tag before load (unavailable), tag after load (available), selective imports, full load overriding selective, multiple libraries for same tag name → multiple candidates, builtins always available regardless of position
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 4: Validation Integration — Unknown Tag Diagnostics
+
+- [ ] Add new error variants to diagnostic system: `S108` (UnknownTag), `S109` (UnloadedTag — requires specific library), `S110` (AmbiguousUnloadedTag — multiple candidate libraries)
+- [ ] Add diagnostic codes and messages for S108, S109, S110
+- [ ] Extend `SemanticDb` trait with `inspector_inventory()` accessor so validation can check inspector health
+- [ ] In tag validation, after checking TagSpecs (structural tags), check available symbols set — if tag not available, classify as S108/S109/S110 based on inspector knowledge
+- [ ] Guard: if `inspector_inventory` is `None`, skip all S108/S109/S110 diagnostics entirely
+- [ ] Structural tag exclusion: skip scoping checks for openers/closers/intermediates that have TagSpecs
+- [ ] Tests: unknown tag → S108, unloaded library tag → S109 with correct library name, tag in multiple libraries → S110, inspector unavailable → no scoping diagnostics, structural tags (endif, else) skip scoping checks
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 5: Completions Integration
+
+- [ ] Update `generate_tag_name_completions` to accept `LoadedLibraries` and inspector inventory as parameters
+- [ ] When inspector available: only show builtins + tags from loaded libraries at cursor position
+- [ ] When inspector unavailable: show all tags (fallback, no filtering)
+- [ ] Update call sites in the server to pass the new parameters
+- [ ] Tests: before any load only builtins appear, after `{% load i18n %}` i18n tags appear, selective load only shows imported symbols, inspector unavailable shows all tags
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 6: Library Completions Enhancement
+
+- [ ] Update `generate_library_completions` to check inspector availability — return empty when inspector unavailable
+- [ ] Verify library completions behavior when inspector is healthy (already done in M1, confirm no regressions)
+- [ ] Tests: library completions with healthy inspector show correct names, inspector unavailable returns empty list
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ---
 
