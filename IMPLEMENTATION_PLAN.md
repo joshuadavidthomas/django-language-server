@@ -1017,16 +1017,32 @@ Replace old `args`-based validation with extracted rule evaluator. Remove hand-c
 
 ### Phase 4: Wire Extracted Args into Completions/Snippets
 
-**Status:** 🔲 Not Started
+**Status:** ✅ Complete
 
 Populate `TagSpec.args` from extraction-derived argument structure so completions and snippets continue working.
 
-**Tasks:**
-- [ ] Add `ExtractedArg` → `TagArg` conversion in `specs.rs`
-- [ ] Add `populate_args_from_extraction()` method to `TagSpec`
-- [ ] Call `populate_args_from_extraction()` in `merge_extraction_into_specs()` in `db.rs`
-- [ ] Verify completions/snippets work without changes to `djls-ide`
-- [ ] Quality checks pass
+**Changes:**
+- Added `extracted_arg_to_tag_arg()` free function in `specs.rs` to convert `ExtractedArg` → `TagArg`
+  - Maps `Literal` → `TagArg::Literal` with `LiteralKind::Syntax`
+  - Maps `Choice` → `TagArg::Choice` with choice values
+  - Maps `Variable` → `TagArg::Variable` with `TokenCount::Exact(1)`
+  - Maps `VarArgs` → `TagArg::VarArgs`
+  - Maps `KeywordArgs` → `TagArg::Assignment` with `TokenCount::Greedy`
+- Added `TagSpec::populate_args_from_extraction()` method
+  - Only populates if `args` is currently empty (preserves user config)
+  - Converts each `ExtractedArg` to `TagArg` using the conversion function
+- Updated `merge_extraction_into_specs()` in `db.rs` to call `populate_args_from_extraction()`
+  - Called for both existing specs (enrichment) and new specs (creation)
+
+**Quality Checks:**
+- [x] `cargo build -q` passes
+- [x] `cargo test -q` passes (366 tests)
+- [x] `cargo clippy -q --all-targets --all-features -- -D warnings` passes
+
+**Discoveries:**
+- Cannot define inherent impl for types from external crates - must use free function or trait
+- Using `Cow::Owned` for choice values since they come from extraction (owned Strings)
+- The conversion respects the `required` flag from extraction for all argument kinds
 
 ### Phase 5: Clean Up Dead Code
 

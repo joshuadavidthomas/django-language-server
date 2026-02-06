@@ -317,8 +317,32 @@ impl TagSpec {
         if let Some(ref block_spec) = tag.block_spec {
             spec.merge_block_spec(block_spec);
         }
+        spec.populate_args_from_extraction(&tag.extracted_args);
 
         spec
+    }
+
+    /// Populate `args` from extracted argument structure.
+    ///
+    /// Called during `compute_tag_specs` to provide completions/snippets data
+    /// derived from Python AST instead of hand-crafted specifications.
+    /// Only populates if `args` is currently empty (doesn't override user config).
+    pub fn populate_args_from_extraction(
+        &mut self,
+        extracted_args: &[djls_extraction::ExtractedArg],
+    ) {
+        if extracted_args.is_empty() {
+            return;
+        }
+        // Only populate if args is currently empty (don't override user config)
+        if !self.args.is_empty() {
+            return;
+        }
+        self.args = extracted_args
+            .iter()
+            .map(extracted_arg_to_tag_arg)
+            .collect::<Vec<_>>()
+            .into();
     }
 }
 
@@ -513,6 +537,42 @@ impl TagArg {
             required,
             count: TokenCount::Greedy,
         }
+    }
+}
+
+/// Convert an extracted argument to a semantic [`TagArg`].
+fn extracted_arg_to_tag_arg(arg: &djls_extraction::ExtractedArg) -> TagArg {
+    use djls_extraction::ExtractedArgKind;
+
+    match &arg.kind {
+        ExtractedArgKind::Literal { value } => TagArg::Literal {
+            lit: value.clone().into(),
+            required: arg.required,
+            kind: LiteralKind::Syntax,
+        },
+        ExtractedArgKind::Choice { values } => TagArg::Choice {
+            name: arg.name.clone().into(),
+            required: arg.required,
+            choices: values
+                .iter()
+                .map(|v| Cow::Owned(v.clone()))
+                .collect::<Vec<_>>()
+                .into(),
+        },
+        ExtractedArgKind::Variable => TagArg::Variable {
+            name: arg.name.clone().into(),
+            required: arg.required,
+            count: TokenCount::Exact(1),
+        },
+        ExtractedArgKind::VarArgs => TagArg::VarArgs {
+            name: arg.name.clone().into(),
+            required: arg.required,
+        },
+        ExtractedArgKind::KeywordArgs => TagArg::Assignment {
+            name: arg.name.clone().into(),
+            required: arg.required,
+            count: TokenCount::Greedy,
+        },
     }
 }
 
