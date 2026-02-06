@@ -524,11 +524,11 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ### Phase 3: Remove Dead Error Variants and Diagnostic Codes
 
-- [ ] Delete from `errors.rs`: `MissingRequiredArguments` (S104), `TooManyArguments` (S105), `MissingArgument` (S104), `InvalidLiteralArgument` (S106), `InvalidArgumentChoice` (S107) variants
-- [ ] Remove corresponding span extraction arms and code mapping arms from `diagnostics.rs` (or wherever S-code mappings live)
-- [ ] Fix match exhaustiveness in any remaining files that match on `ValidationError`
-- [ ] Remove S104–S107 from `DiagnosticsConfig` default severity mapping if present
-- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Delete from `errors.rs`: `MissingRequiredArguments` (S104), `TooManyArguments` (S105), `MissingArgument` (S104), `InvalidLiteralArgument` (S106), `InvalidArgumentChoice` (S107) variants
+- [x] Remove corresponding span extraction arms and code mapping arms from `diagnostics.rs` (or wherever S-code mappings live)
+- [x] Fix match exhaustiveness in any remaining files that match on `ValidationError`
+- [x] Remove S104–S107 from `DiagnosticsConfig` default severity mapping if present — N/A, no hardcoded defaults for these codes
+- [x] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 4: Update Documentation
 

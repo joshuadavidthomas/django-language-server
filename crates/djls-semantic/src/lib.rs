@@ -321,11 +321,6 @@ mod tests {
             | ValidationError::UnknownTag { span, .. }
             | ValidationError::UnclosedTag { span, .. }
             | ValidationError::OrphanedTag { span, .. }
-            | ValidationError::MissingRequiredArguments { span, .. }
-            | ValidationError::TooManyArguments { span, .. }
-            | ValidationError::MissingArgument { span, .. }
-            | ValidationError::InvalidLiteralArgument { span, .. }
-            | ValidationError::InvalidArgumentChoice { span, .. }
             | ValidationError::AmbiguousUnloadedTag { span, .. }
             | ValidationError::UnknownFilter { span, .. }
             | ValidationError::UnloadedFilter { span, .. }
@@ -923,12 +918,7 @@ mod tests {
             .filter(|e| {
                 matches!(
                     e,
-                    ValidationError::MissingRequiredArguments { .. }
-                        | ValidationError::TooManyArguments { .. }
-                        | ValidationError::MissingArgument { .. }
-                        | ValidationError::InvalidLiteralArgument { .. }
-                        | ValidationError::InvalidArgumentChoice { .. }
-                        | ValidationError::ExpressionSyntaxError { .. }
+                    ValidationError::ExpressionSyntaxError { .. }
                         | ValidationError::FilterMissingArgument { .. }
                         | ValidationError::FilterUnexpectedArgument { .. }
                         | ValidationError::ExtractedRuleViolation { .. }
