@@ -84,9 +84,11 @@ Use `/dex` to break down complex work, track progress across sessions, and coord
   - `djls-semantic/src/blocks/tree.rs` (TestDatabase)
   - `djls-semantic/src/semantic/forest.rs` (TestDatabase)
   - `djls-bench/src/db.rs` (Db)
+- When changing fn signatures, update ALL callers immediately (E0061 wrong number of arguments)
+- Return `Option<&T>` from inventory accessors to avoid cloning in hot paths
 - Use `EventLogger` with `was_executed()` helper for Salsa invalidation tests
 - `Interpreter::discover(None)` works for tests that don't need real Python environment detection
-- When changing fn signatures, update ALL callers immediately (E0061 wrong number of arguments)
+- Test helper methods should be marked `#[cfg(test)]` to avoid "never used" warnings
 
 ## Documentation Style
 - Use backticks for all code items in doc comments (clippy: `doc_markdown`)
@@ -103,20 +105,34 @@ Use `/dex` to break down complex work, track progress across sessions, and coord
 - If edit fails with "2 occurrences", narrow the context to make the match unique
 - Prefer smaller, surgical edits over large replacements to avoid matching errors
 - Common files needing extra care: `djls-server/src/db.rs`, `djls-semantic/src/load_resolution.rs` (most edited files)
+- Before editing, read the target lines with `read --offset X --limit Y` to capture exact whitespace
+- When edits fail repeatedly, rewrite the entire file with `write` rather than fighting `edit`
 
 ## Clippy Patterns to Avoid
 - Functions with >7 arguments trigger `clippy::too_many_arguments` - consider struct bundling
 - Missing backticks in doc comments trigger `clippy::doc_markdown` - use ``[`Type`]`` not `['Type']`
 - Intra-doc links MUST use backticks: ``[`TagSpecs`]`` not `['TagSpecs']`
 - Template syntax in format strings: escape `{%` as `{{%` (e.g., `format!("{{% load {name} %}}")`)
+- Placeholder methods in phased implementation need `#[allow(dead_code)]` to silence "never used" warnings
 
 ## Common Compile Error Patterns
 - E0046 "not all trait items implemented": Add missing method to ALL test databases immediately
 - E0061 "wrong number of arguments": Update ALL callers when changing fn signatures
+- E0369 "binary operation cannot be applied": Add `PartialEq` impl for types used in comparisons
+- E0599 "not an iterator": Ruff's `ParseError` is a single error, NOT a Vec - don't call `.collect()`
 - E0603 "module is private": Use public re-exports from crate root, not internal modules (e.g., `djls_project::TemplatetagsResponse` not `djls_project::django::TemplatetagsResponse`)
 - E0433 "unresolved module": Add dependency to Cargo.toml with `workspace = true`
+
+## Ruff Parser Patterns
+- `parse_module()` returns `Result<Parsed<ModModule>, ParseError>` - single error, NOT a Vec
+- Use `parsed.ast()` to get `&ModModule` (not `Mod` enum variant)
+- String literals are `Expr::StringLiteral` (not `Constant` like older Python AST)
+- `ParseError` is NOT an iterator - cannot use `.collect()` on it
+- Boxed expressions in AST use `Box<Expr>` - call `.as_ref()` to access inner value
+- When extracting strings from AST, match on `Expr::StringLiteral(lit)` then access `lit.value`
 
 ## Navigation Reminders
 - This is a worktree - files like AGENTS.md are in the worktree root (`worktrees/detailed-kimi-k2.5/`), not the main repo root
 - Read files from the current worktree path, not parent directories
 - NEVER look for worktree files in `worktrees/` without the full worktree name (e.g., NOT `worktrees/AGENTS.md`)
+- When running commands from worktree root, use relative paths without changing directory
