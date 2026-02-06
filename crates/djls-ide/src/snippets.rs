@@ -183,7 +183,6 @@ mod tests {
             end_tag: Some(EndTag {
                 name: "endblock".into(),
                 required: true,
-                args: vec![TagArg::var("name", false)].into(),
             }),
             intermediate_tags: Cow::Borrowed(&[]),
             args: vec![TagArg::var("name", true)].into(),
@@ -204,7 +203,6 @@ mod tests {
             end_tag: Some(EndTag {
                 name: "endautoescape".into(),
                 required: true,
-                args: Cow::Borrowed(&[]),
             }),
             intermediate_tags: Cow::Borrowed(&[]),
             args: vec![TagArg::Choice {

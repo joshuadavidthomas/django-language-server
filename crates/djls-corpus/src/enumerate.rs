@@ -33,10 +33,7 @@ pub fn enumerate_extraction_files(corpus_root: &Path) -> Vec<PathBuf> {
         }
 
         // Skip __init__.py — rarely contains registrations
-        if path
-            .file_name()
-            .is_some_and(|n| n == "__init__.py")
-        {
+        if path.file_name().is_some_and(|n| n == "__init__.py") {
             continue;
         }
 
@@ -47,10 +44,7 @@ pub fn enumerate_extraction_files(corpus_root: &Path) -> Vec<PathBuf> {
         }
 
         // Pattern 2: Django core template modules
-        let file_name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("");
+        let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
         if path_str.contains("/template/")
             && matches!(
                 file_name,

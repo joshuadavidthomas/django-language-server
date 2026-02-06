@@ -13,21 +13,14 @@ fn test_autoescape_with_args_variable() {
     let source = include_str!("fixtures/defaulttags_subset.py");
     let result = extract_rules(source).unwrap();
 
-    let autoescape = result
-        .tags
-        .iter()
-        .find(|t| t.name == "autoescape")
-        .unwrap();
+    let autoescape = result.tags.iter().find(|t| t.name == "autoescape").unwrap();
 
     // Should extract rules despite using 'args' (not 'bits')
     assert!(!autoescape.rules.is_empty());
     assert!(autoescape.rules.iter().any(|r| {
         matches!(
             r.condition,
-            djls_extraction::RuleCondition::ExactArgCount {
-                count: 2,
-                ..
-            }
+            djls_extraction::RuleCondition::ExactArgCount { count: 2, .. }
         )
     }));
 }
@@ -65,18 +58,10 @@ fn test_filter_extraction() {
 
     assert_eq!(result.filters.len(), 3);
 
-    let title = result
-        .filters
-        .iter()
-        .find(|f| f.name == "title")
-        .unwrap();
+    let title = result.filters.iter().find(|f| f.name == "title").unwrap();
     assert_eq!(title.arity, djls_extraction::FilterArity::None);
 
-    let default = result
-        .filters
-        .iter()
-        .find(|f| f.name == "default")
-        .unwrap();
+    let default = result.filters.iter().find(|f| f.name == "default").unwrap();
     assert_eq!(default.arity, djls_extraction::FilterArity::Optional);
 
     let truncatewords = result
@@ -84,10 +69,7 @@ fn test_filter_extraction() {
         .iter()
         .find(|f| f.name == "truncatewords")
         .unwrap();
-    assert_eq!(
-        truncatewords.arity,
-        djls_extraction::FilterArity::Required
-    );
+    assert_eq!(truncatewords.arity, djls_extraction::FilterArity::Required);
 }
 
 #[test]
@@ -96,11 +78,7 @@ fn test_block_spec_extraction() {
     let result = extract_rules(source).unwrap();
 
     // autoescape: block tag with endautoescape
-    let autoescape = result
-        .tags
-        .iter()
-        .find(|t| t.name == "autoescape")
-        .unwrap();
+    let autoescape = result.tags.iter().find(|t| t.name == "autoescape").unwrap();
     let block = autoescape.block_spec.as_ref().unwrap();
     assert_eq!(block.end_tag.as_deref(), Some("endautoescape"));
     assert!(block.intermediate_tags.is_empty());

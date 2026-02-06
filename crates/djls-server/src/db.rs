@@ -11,15 +11,12 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_conf::Settings;
 use djls_extraction::ExtractionResult;
-use rustc_hash::FxHashMap;
-use rustc_hash::FxHashSet;
-use salsa::Setter;
 use djls_project::inspector_query;
 use djls_project::resolve_modules;
 use djls_project::template_dirs;
 use djls_project::Db as ProjectDb;
-use djls_project::InspectorInventory;
 use djls_project::Inspector;
+use djls_project::InspectorInventory;
 use djls_project::Interpreter;
 use djls_project::Project;
 use djls_project::TemplateInventoryRequest;
@@ -37,6 +34,9 @@ use djls_source::FxDashMap;
 use djls_templates::Db as TemplateDb;
 use djls_workspace::Db as WorkspaceDb;
 use djls_workspace::FileSystem;
+use rustc_hash::FxHashMap;
+use rustc_hash::FxHashSet;
+use salsa::Setter;
 
 /// Extract validation rules from a workspace Python module.
 ///
@@ -54,10 +54,7 @@ fn extract_workspace_module_rules(db: &dyn SemanticDb, file: File) -> Extraction
     match djls_extraction::extract_rules(source.as_str()) {
         Ok(result) => result,
         Err(e) => {
-            tracing::warn!(
-                "Extraction failed for {}: {e}",
-                file.path(db),
-            );
+            tracing::warn!("Extraction failed for {}: {e}", file.path(db),);
             ExtractionResult::default()
         }
     }
@@ -507,8 +504,11 @@ impl DjangoDatabase {
             module_paths.insert(filter.registration_module().to_string());
         }
 
-        let (_workspace, external_modules) =
-            resolve_modules(module_paths.iter().map(String::as_str), sys_path, project_root);
+        let (_workspace, external_modules) = resolve_modules(
+            module_paths.iter().map(String::as_str),
+            sys_path,
+            project_root,
+        );
 
         let mut results = FxHashMap::default();
 
@@ -642,9 +642,9 @@ mod invalidation_tests {
     use djls_conf::Settings;
     use djls_conf::TagLibraryDef;
     use djls_project::Inspector;
+    use djls_project::InspectorInventory;
     use djls_project::Interpreter;
     use djls_project::Project;
-    use djls_project::InspectorInventory;
     use djls_semantic::Db as SemanticDb;
     use djls_source::FxDashMap;
     use djls_workspace::InMemoryFileSystem;
@@ -746,7 +746,12 @@ mod invalidation_tests {
         let _specs1 = test.db.tag_specs();
         test.logger.clear();
 
-        let project = test.db.project.lock().unwrap().expect("test project exists");
+        let project = test
+            .db
+            .project
+            .lock()
+            .unwrap()
+            .expect("test project exists");
         let mut new_tagspecs = project.tagspecs(&test.db).clone();
         new_tagspecs.libraries.push(TagLibraryDef {
             module: "test.templatetags".to_string(),
@@ -770,7 +775,12 @@ mod invalidation_tests {
         let _specs1 = test.db.tag_specs();
         test.logger.clear();
 
-        let project = test.db.project.lock().unwrap().expect("test project exists");
+        let project = test
+            .db
+            .project
+            .lock()
+            .unwrap()
+            .expect("test project exists");
         let new_inventory = InspectorInventory::new(
             HashMap::new(),
             vec!["django.template.defaulttags".to_string()],
@@ -795,7 +805,12 @@ mod invalidation_tests {
         let _specs1 = test.db.tag_specs();
         test.logger.clear();
 
-        let project = test.db.project.lock().unwrap().expect("test project exists");
+        let project = test
+            .db
+            .project
+            .lock()
+            .unwrap()
+            .expect("test project exists");
         let same_tagspecs = project.tagspecs(&test.db).clone();
 
         // Manual comparison shows no change — don't call setter
@@ -820,7 +835,12 @@ mod invalidation_tests {
 
         test.logger.clear();
 
-        let project = test.db.project.lock().unwrap().expect("test project exists");
+        let project = test
+            .db
+            .project
+            .lock()
+            .unwrap()
+            .expect("test project exists");
         let mut new_tagspecs = project.tagspecs(&test.db).clone();
         new_tagspecs.libraries.push(TagLibraryDef {
             module: "another.templatetags".to_string(),
@@ -844,7 +864,12 @@ mod invalidation_tests {
         let _specs1 = test.db.tag_specs();
         test.logger.clear();
 
-        let project = test.db.project.lock().unwrap().expect("test project exists");
+        let project = test
+            .db
+            .project
+            .lock()
+            .unwrap()
+            .expect("test project exists");
 
         // Simulate setting extracted external rules
         let mut external_rules = rustc_hash::FxHashMap::default();
@@ -868,7 +893,12 @@ mod invalidation_tests {
         let mut test = TestDatabase::with_project();
 
         // Set some external rules initially
-        let project = test.db.project.lock().unwrap().expect("test project exists");
+        let project = test
+            .db
+            .project
+            .lock()
+            .unwrap()
+            .expect("test project exists");
         let mut external_rules = rustc_hash::FxHashMap::default();
         external_rules.insert(
             "django.templatetags.i18n".to_string(),
@@ -910,7 +940,8 @@ mod invalidation_tests {
         // Second call — should use cache since file revision unchanged
         let _result2 = super::extract_workspace_module_rules(&test.db, file);
         assert!(
-            !test.logger
+            !test
+                .logger
                 .was_executed(&test.db, "extract_workspace_module_rules"),
             "Should use cached result when file unchanged"
         );

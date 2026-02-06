@@ -121,20 +121,9 @@ impl<'db> TagIndex<'db> {
 
         for (name, spec) in db.tag_specs() {
             if let Some(end_tag) = &spec.end_tag {
-                let match_args = end_tag
-                    .args
-                    .iter()
-                    .enumerate()
-                    .map(|(i, arg)| MatchArgSpec {
-                        name: arg.name().as_ref().to_owned(),
-                        required: arg.is_required(),
-                        position: i,
-                    })
-                    .collect();
-
                 let meta = EndMeta {
                     required: end_tag.required,
-                    match_args,
+                    match_args: Vec::new(),
                 };
 
                 // opener -> meta

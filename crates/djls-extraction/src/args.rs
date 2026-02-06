@@ -18,14 +18,10 @@ pub fn extract_args(
     ctx: &FunctionContext,
 ) -> Vec<ExtractedArg> {
     match &registration.decorator_kind {
-        DecoratorKind::SimpleTag
-        | DecoratorKind::InclusionTag
-        | DecoratorKind::SimpleBlockTag => {
+        DecoratorKind::SimpleTag | DecoratorKind::InclusionTag | DecoratorKind::SimpleBlockTag => {
             extract_args_from_signature(parsed, registration)
         }
-        DecoratorKind::Tag
-        | DecoratorKind::HelperWrapper(_)
-        | DecoratorKind::Custom(_) => {
+        DecoratorKind::Tag | DecoratorKind::HelperWrapper(_) | DecoratorKind::Custom(_) => {
             reconstruct_args_from_rules_and_ast(parsed, registration, rules, ctx)
         }
     }
@@ -65,10 +61,7 @@ fn extract_args_from_signature(
     let params = &func_def.parameters;
     let mut args: Vec<ExtractedArg> = Vec::new();
 
-    let is_simple_block = matches!(
-        registration.decorator_kind,
-        DecoratorKind::SimpleBlockTag
-    );
+    let is_simple_block = matches!(registration.decorator_kind, DecoratorKind::SimpleBlockTag);
 
     let positional_params: Vec<_> = params
         .posonlyargs
@@ -77,8 +70,7 @@ fn extract_args_from_signature(
         .collect();
 
     let skip_first = takes_context && !positional_params.is_empty();
-    let skip_last = is_simple_block
-        && positional_params.len() > usize::from(skip_first);
+    let skip_last = is_simple_block && positional_params.len() > usize::from(skip_first);
 
     let start = usize::from(skip_first);
     let end = if skip_last {
@@ -125,10 +117,7 @@ fn extract_args_from_signature(
 }
 
 /// Check whether a registration decorator has `takes_context=True`.
-fn has_takes_context(
-    parsed: &ParsedModule,
-    registration: &RegistrationInfo,
-) -> bool {
+fn has_takes_context(parsed: &ParsedModule, registration: &RegistrationInfo) -> bool {
     let module = parsed.ast();
 
     let func_def = module.body.iter().find_map(|stmt| {
@@ -232,36 +221,30 @@ fn infer_arg_bounds(rules: &[ExtractedRule]) -> (Option<usize>, Option<usize>) {
                 // MaxArgCount{max:3} means error when len <= 3
                 // So minimum is max+1
                 let implied_min = max + 1;
-                min_args =
-                    Some(min_args.map_or(implied_min, |m: usize| m.max(implied_min)));
+                min_args = Some(min_args.map_or(implied_min, |m: usize| m.max(implied_min)));
             }
             RuleCondition::ArgCountComparison { count, op } => {
                 use crate::types::ComparisonOp;
                 match op {
                     ComparisonOp::Lt => {
                         // Error when len < count → min is count
-                        min_args =
-                            Some(min_args.map_or(*count, |m: usize| m.max(*count)));
+                        min_args = Some(min_args.map_or(*count, |m: usize| m.max(*count)));
                     }
                     ComparisonOp::LtEq => {
                         let implied = count + 1;
-                        min_args =
-                            Some(min_args.map_or(implied, |m: usize| m.max(implied)));
+                        min_args = Some(min_args.map_or(implied, |m: usize| m.max(implied)));
                     }
                     ComparisonOp::Gt => {
                         // Error when len > count → max is count
-                        max_args =
-                            Some(max_args.map_or(*count, |m: usize| m.min(*count)));
+                        max_args = Some(max_args.map_or(*count, |m: usize| m.min(*count)));
                     }
                     ComparisonOp::GtEq => {
                         let implied = count.saturating_sub(1);
-                        max_args =
-                            Some(max_args.map_or(implied, |m: usize| m.min(implied)));
+                        max_args = Some(max_args.map_or(implied, |m: usize| m.min(implied)));
                     }
                 }
             }
-            RuleCondition::LiteralAt { index, .. }
-            | RuleCondition::ChoiceAt { index, .. } => {
+            RuleCondition::LiteralAt { index, .. } | RuleCondition::ChoiceAt { index, .. } => {
                 // These imply at least index+1 args
                 let implied = index + 1;
                 min_args = Some(min_args.map_or(implied, |m: usize| m.max(implied)));
@@ -384,11 +367,7 @@ fn fill_slots_from_ast(
 }
 
 /// Recursively search for `name = split_var[N]` patterns in statements.
-fn find_indexed_access_in_stmt(
-    stmt: &Stmt,
-    split_var: &str,
-    slots: &mut [Option<ExtractedArg>],
-) {
+fn find_indexed_access_in_stmt(stmt: &Stmt, split_var: &str, slots: &mut [Option<ExtractedArg>]) {
     match stmt {
         Stmt::Assign(assign) => {
             if let Some(Expr::Name(target_name)) = assign.targets.first() {
@@ -396,13 +375,10 @@ fn find_indexed_access_in_stmt(
                     if is_name_expr(&sub.value, split_var) {
                         if let Some(idx) = extract_int_from_expr(&sub.slice) {
                             // Extraction index N → slot N-1
-                            if let Some(slot_idx) = idx
-                                .checked_sub(1)
-                                .and_then(|v| usize::try_from(v).ok())
+                            if let Some(slot_idx) =
+                                idx.checked_sub(1).and_then(|v| usize::try_from(v).ok())
                             {
-                                if slot_idx < slots.len()
-                                    && slots[slot_idx].is_none()
-                                {
+                                if slot_idx < slots.len() && slots[slot_idx].is_none() {
                                     slots[slot_idx] = Some(ExtractedArg {
                                         name: target_name.id.to_string(),
                                         kind: ExtractedArgKind::Variable,
@@ -644,13 +620,10 @@ def do_for(parser, token):
         assert!(!args.is_empty());
 
         // Position 1 (extraction index 2) should be literal "in"
-        let in_arg = args.iter().find(|a| {
-            matches!(&a.kind, ExtractedArgKind::Literal { value } if value == "in")
-        });
-        assert!(
-            in_arg.is_some(),
-            "Expected 'in' literal arg, got: {args:?}"
-        );
+        let in_arg = args
+            .iter()
+            .find(|a| matches!(&a.kind, ExtractedArgKind::Literal { value } if value == "in"));
+        assert!(in_arg.is_some(), "Expected 'in' literal arg, got: {args:?}");
     }
 
     #[test]

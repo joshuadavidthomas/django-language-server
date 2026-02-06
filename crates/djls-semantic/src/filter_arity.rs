@@ -85,10 +85,7 @@ fn resolve_filter_symbol(
 
         builtin_module.map(|m| SymbolKey::filter(m, filter_name))
     } else if library_candidates.len() == 1 {
-        Some(SymbolKey::filter(
-            library_candidates.remove(0),
-            filter_name,
-        ))
+        Some(SymbolKey::filter(library_candidates.remove(0), filter_name))
     } else {
         // Ambiguous: multiple loaded libraries define this filter.
         // M4's S113 handles diagnostics; we emit no arity errors.
@@ -117,7 +114,9 @@ pub fn validate_filter_arity(db: &dyn Db, nodelist: djls_templates::NodeList<'_>
 
     for node in nodelist.nodelist(db) {
         if let Node::Variable {
-            filters, span: var_span, ..
+            filters,
+            span: var_span,
+            ..
         } = node
         {
             if opaque.is_opaque(*var_span) {
@@ -142,12 +141,10 @@ pub fn validate_filter_arity(db: &dyn Db, nodelist: djls_templates::NodeList<'_>
                 match arity {
                     FilterArity::None => {
                         if filter.arg.is_some() {
-                            ValidationErrorAccumulator(
-                                ValidationError::FilterUnexpectedArgument {
-                                    filter: filter.name.clone(),
-                                    span: filter.span,
-                                },
-                            )
+                            ValidationErrorAccumulator(ValidationError::FilterUnexpectedArgument {
+                                filter: filter.name.clone(),
+                                span: filter.span,
+                            })
                             .accumulate(db);
                         }
                     }
@@ -201,10 +198,7 @@ mod tests {
     }
 
     impl TestDatabase {
-        fn new(
-            inventory: InspectorInventory,
-            arity_specs: FilterAritySpecs,
-        ) -> Self {
+        fn new(inventory: InspectorInventory, arity_specs: FilterAritySpecs) -> Self {
             Self {
                 storage: salsa::Storage::default(),
                 fs: Arc::new(Mutex::new(InMemoryFileSystem::new())),
@@ -301,8 +295,7 @@ mod tests {
             .add_file(path.to_owned(), content.to_string());
 
         let file = db.create_file(path);
-        let nodelist =
-            djls_templates::parse_template(db, file).expect("template should parse");
+        let nodelist = djls_templates::parse_template(db, file).expect("template should parse");
 
         // Use validate_nodelist (tracked) and filter to only S115/S116 errors
         crate::validate_nodelist::accumulated::<ValidationErrorAccumulator>(db, nodelist)
@@ -359,11 +352,8 @@ mod tests {
                 None,
             )],
         );
-        let arity = make_arity_specs(&[(
-            "django.template.defaultfilters",
-            "title",
-            FilterArity::None,
-        )]);
+        let arity =
+            make_arity_specs(&[("django.template.defaultfilters", "title", FilterArity::None)]);
         let db = TestDatabase::new(inventory, arity);
 
         let errors = parse_and_validate(&db, r#"{{ name|title:"unused" }}"#);
@@ -484,11 +474,8 @@ mod tests {
                 None,
             )],
         );
-        let arity = make_arity_specs(&[(
-            "django.template.defaultfilters",
-            "title",
-            FilterArity::None,
-        )]);
+        let arity =
+            make_arity_specs(&[("django.template.defaultfilters", "title", FilterArity::None)]);
         let db = TestDatabase::new(inventory, arity);
 
         let errors = parse_and_validate(&db, "{{ name|title }}");
@@ -500,10 +487,7 @@ mod tests {
     #[test]
     fn selective_import_resolves_correct_arity() {
         let inventory = InspectorInventory::new(
-            HashMap::from([(
-                "l10n".to_string(),
-                "django.templatetags.l10n".to_string(),
-            )]),
+            HashMap::from([("l10n".to_string(), "django.templatetags.l10n".to_string())]),
             vec![],
             vec![],
             vec![TemplateFilter::new_library(
@@ -513,11 +497,8 @@ mod tests {
                 None,
             )],
         );
-        let arity = make_arity_specs(&[(
-            "django.templatetags.l10n",
-            "localize",
-            FilterArity::None,
-        )]);
+        let arity =
+            make_arity_specs(&[("django.templatetags.l10n", "localize", FilterArity::None)]);
         let db = TestDatabase::new(inventory, arity);
 
         let errors = parse_and_validate(
@@ -541,18 +522,8 @@ mod tests {
             vec![],
             vec![],
             vec![
-                TemplateFilter::new_library(
-                    "myfilter",
-                    "lib_a",
-                    "myapp.templatetags.lib_a",
-                    None,
-                ),
-                TemplateFilter::new_library(
-                    "myfilter",
-                    "lib_b",
-                    "myapp.templatetags.lib_b",
-                    None,
-                ),
+                TemplateFilter::new_library("myfilter", "lib_a", "myapp.templatetags.lib_a", None),
+                TemplateFilter::new_library("myfilter", "lib_b", "myapp.templatetags.lib_b", None),
             ],
         );
         let arity = make_arity_specs(&[
@@ -566,10 +537,8 @@ mod tests {
         let db = TestDatabase::new(inventory, arity);
 
         // Both libraries loaded → ambiguous → no arity error
-        let errors = parse_and_validate(
-            &db,
-            "{% load lib_a %}{% load lib_b %}{{ value|myfilter }}",
-        );
+        let errors =
+            parse_and_validate(&db, "{% load lib_a %}{% load lib_b %}{{ value|myfilter }}");
         assert!(
             errors.is_empty(),
             "Ambiguous filters should not produce arity errors: {errors:?}"
@@ -587,11 +556,7 @@ mod tests {
             vec![],
             vec![
                 // Builtin "upper" with None arity
-                TemplateFilter::new_builtin(
-                    "upper",
-                    "django.template.defaultfilters",
-                    None,
-                ),
+                TemplateFilter::new_builtin("upper", "django.template.defaultfilters", None),
                 // Library "upper" with Required arity
                 TemplateFilter::new_library(
                     "upper",
@@ -602,11 +567,7 @@ mod tests {
             ],
         );
         let arity = make_arity_specs(&[
-            (
-                "django.template.defaultfilters",
-                "upper",
-                FilterArity::None,
-            ),
+            ("django.template.defaultfilters", "upper", FilterArity::None),
             (
                 "myapp.templatetags.custom_lib",
                 "upper",
@@ -616,10 +577,7 @@ mod tests {
         let db = TestDatabase::new(inventory, arity);
 
         // After loading custom_lib, the library's arity (Required) should apply
-        let errors = parse_and_validate(
-            &db,
-            "{% load custom_lib %}{{ name|upper }}",
-        );
+        let errors = parse_and_validate(&db, "{% load custom_lib %}{{ name|upper }}");
         assert_eq!(errors.len(), 1);
         assert!(matches!(
             &errors[0],
@@ -632,10 +590,7 @@ mod tests {
         // Two builtins define "escape" — later in builtins() wins
         let inventory = InspectorInventory::new(
             HashMap::new(),
-            vec![
-                "mod_a".to_string(),
-                "mod_b".to_string(),
-            ],
+            vec!["mod_a".to_string(), "mod_b".to_string()],
             vec![],
             vec![
                 TemplateFilter::new_builtin("escape", "mod_a", None),

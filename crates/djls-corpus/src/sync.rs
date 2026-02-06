@@ -66,9 +66,7 @@ pub fn sync_corpus(manifest: &Manifest, corpus_root: &Path) -> anyhow::Result<()
 }
 
 fn sync_package(package: &Package, packages_dir: &Path) -> anyhow::Result<()> {
-    let out_dir = packages_dir
-        .join(&package.name)
-        .join(&package.version);
+    let out_dir = packages_dir.join(&package.name).join(&package.version);
     let marker = out_dir.join(".complete");
 
     if marker.exists() {
@@ -108,11 +106,7 @@ fn sync_package(package: &Package, packages_dir: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn find_sdist_url(
-    json: &serde_json::Value,
-    name: &str,
-    version: &str,
-) -> anyhow::Result<String> {
+fn find_sdist_url(json: &serde_json::Value, name: &str, version: &str) -> anyhow::Result<String> {
     json["urls"]
         .as_array()
         .and_then(|urls| {

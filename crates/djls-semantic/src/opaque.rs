@@ -70,10 +70,7 @@ pub fn compute_opaque_regions(
                             let region_start = open_end;
                             let region_end = close_span.start();
                             if region_end > region_start {
-                                regions.push(Span::new(
-                                    region_start,
-                                    region_end - region_start,
-                                ));
+                                regions.push(Span::new(region_start, region_end - region_start));
                             }
                             i = j;
                             break;
@@ -127,7 +124,7 @@ mod tests {
         };
         // Starts before, ends inside — NOT fully contained
         assert!(!regions.is_opaque(Span::new(5, 10))); // [5, 15) — starts before 10
-        // Starts inside, ends after — NOT fully contained
+                                                       // Starts inside, ends after — NOT fully contained
         assert!(!regions.is_opaque(Span::new(25, 10))); // [25, 35) — ends after 30
     }
 

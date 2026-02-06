@@ -2,6 +2,10 @@
 //!
 //! This module defines all the standard Django template tags as compile-time
 //! constants, avoiding the need for runtime TOML parsing.
+//!
+//! Note: `args` fields are empty — argument validation is handled by extracted
+//! rules from the Python AST (see `rule_evaluation.rs`). The `args` field on
+//! `TagSpec` is populated from extraction for completions/snippets.
 
 use std::borrow::Cow::Borrowed as B;
 use std::sync::LazyLock;
@@ -10,11 +14,8 @@ use rustc_hash::FxHashMap;
 
 use super::specs::EndTag;
 use super::specs::IntermediateTag;
-use super::specs::LiteralKind;
-use super::specs::TagArg;
 use super::specs::TagSpec;
 use super::specs::TagSpecs;
-use super::specs::TokenCount;
 
 const DEFAULTTAGS_MOD: &str = "django.template.defaulttags";
 static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
@@ -25,14 +26,9 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             end_tag: Some(EndTag {
                 name: B("endautoescape"),
                 required: true,
-                args: B(&[]),
             }),
             intermediate_tags: B(&[]),
-            args: B(&[TagArg::Choice {
-                name: B("mode"),
-                required: true,
-                choices: B(&[B("on"), B("off")]),
-            }]),
+            args: B(&[]),
             opaque: false,
             extracted_rules: Vec::new(),
         },
@@ -44,13 +40,9 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             end_tag: Some(EndTag {
                 name: B("endcomment"),
                 required: true,
-                args: B(&[]),
             }),
             intermediate_tags: B(&[]),
-            args: B(&[TagArg::String {
-                name: B("note"),
-                required: false,
-            }]),
+            args: B(&[]),
             opaque: false,
             extracted_rules: Vec::new(),
         },
@@ -72,27 +64,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             module: B(DEFAULTTAGS_MOD),
             end_tag: None,
             intermediate_tags: B(&[]),
-            args: B(&[
-                TagArg::VarArgs {
-                    name: B("values"),
-                    required: true,
-                },
-                TagArg::Literal {
-                    lit: B("as"),
-                    required: false,
-                    kind: LiteralKind::Syntax,
-                },
-                TagArg::Variable {
-                    name: B("varname"),
-                    required: false,
-                    count: TokenCount::Exact(1),
-                },
-                TagArg::Literal {
-                    lit: B("silent"),
-                    required: false,
-                    kind: LiteralKind::Modifier,
-                },
-            ]),
+            args: B(&[]),
             opaque: false,
             extracted_rules: Vec::new(),
         },
@@ -115,13 +87,9 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             end_tag: Some(EndTag {
                 name: B("endfilter"),
                 required: true,
-                args: B(&[]),
             }),
             intermediate_tags: B(&[]),
-            args: B(&[TagArg::VarArgs {
-                name: B("filters"),
-                required: true,
-            }]),
+            args: B(&[]),
             opaque: false,
             extracted_rules: Vec::new(),
         },
@@ -132,26 +100,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             module: B(DEFAULTTAGS_MOD),
             end_tag: None,
             intermediate_tags: B(&[]),
-            args: B(&[
-                TagArg::VarArgs {
-                    name: B("variables"),
-                    required: true,
-                },
-                TagArg::String {
-                    name: B("fallback"),
-                    required: false,
-                },
-                TagArg::Literal {
-                    lit: B("as"),
-                    required: false,
-                    kind: LiteralKind::Syntax,
-                },
-                TagArg::Variable {
-                    name: B("varname"),
-                    required: false,
-                    count: TokenCount::Exact(1),
-                },
-            ]),
+            args: B(&[]),
             opaque: false,
             extracted_rules: Vec::new(),
         },
@@ -163,34 +112,9 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             end_tag: Some(EndTag {
                 name: B("endfor"),
                 required: true,
-                args: B(&[]),
             }),
-            intermediate_tags: B(&[IntermediateTag {
-                name: B("empty"),
-                args: B(&[]),
-            }]),
-            args: B(&[
-                TagArg::Variable {
-                    name: B("item"),
-                    required: true,
-                    count: TokenCount::Exact(1),
-                },
-                TagArg::Literal {
-                    lit: B("in"),
-                    required: true,
-                    kind: LiteralKind::Syntax,
-                },
-                TagArg::Variable {
-                    name: B("items"),
-                    required: true,
-                    count: TokenCount::Exact(1),
-                },
-                TagArg::Literal {
-                    lit: B("reversed"),
-                    required: false,
-                    kind: LiteralKind::Modifier,
-                },
-            ]),
+            intermediate_tags: B(&[IntermediateTag { name: B("empty") }]),
+            args: B(&[]),
             opaque: false,
             extracted_rules: Vec::new(),
         },
@@ -202,27 +126,12 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             end_tag: Some(EndTag {
                 name: B("endif"),
                 required: true,
-                args: B(&[]),
             }),
             intermediate_tags: B(&[
-                IntermediateTag {
-                    name: B("elif"),
-                    args: B(&[TagArg::Any {
-                        name: B("condition"),
-                        required: true,
-                        count: TokenCount::Greedy,
-                    }]),
-                },
-                IntermediateTag {
-                    name: B("else"),
-                    args: B(&[]),
-                },
+                IntermediateTag { name: B("elif") },
+                IntermediateTag { name: B("else") },
             ]),
-            args: B(&[TagArg::Any {
-                name: B("condition"),
-                required: true,
-                count: TokenCount::Greedy,
-            }]),
+            args: B(&[]),
             opaque: false,
             extracted_rules: Vec::new(),
         },
@@ -234,16 +143,9 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             end_tag: Some(EndTag {
                 name: B("endifchanged"),
                 required: true,
-                args: B(&[]),
             }),
-            intermediate_tags: B(&[IntermediateTag {
-                name: B("else"),
-                args: B(&[]),
-            }]),
-            args: B(&[TagArg::VarArgs {
-                name: B("variables"),
-                required: false,
-            }]),
+            intermediate_tags: B(&[IntermediateTag { name: B("else") }]),
+            args: B(&[]),
             opaque: false,
             extracted_rules: Vec::new(),
         },
@@ -254,10 +156,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             module: B(DEFAULTTAGS_MOD),
             end_tag: None,
             intermediate_tags: B(&[]),
-            args: B(&[TagArg::VarArgs {
-                name: B("libraries"),
-                required: true,
-            }]),
+            args: B(&[]),
             opaque: false,
             extracted_rules: Vec::new(),
         },
@@ -268,23 +167,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             module: B(DEFAULTTAGS_MOD),
             end_tag: None,
             intermediate_tags: B(&[]),
-            args: B(&[
-                TagArg::Variable {
-                    name: B("count"),
-                    required: false,
-                    count: TokenCount::Exact(1),
-                },
-                TagArg::Choice {
-                    name: B("method"),
-                    required: false,
-                    choices: B(&[B("w"), B("p"), B("b")]),
-                },
-                TagArg::Literal {
-                    lit: B("random"),
-                    required: false,
-                    kind: LiteralKind::Literal,
-                },
-            ]),
+            args: B(&[]),
             opaque: false,
             extracted_rules: Vec::new(),
         },
@@ -295,22 +178,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             module: B(DEFAULTTAGS_MOD),
             end_tag: None,
             intermediate_tags: B(&[]),
-            args: B(&[
-                TagArg::String {
-                    name: B("format_string"),
-                    required: true,
-                },
-                TagArg::Literal {
-                    lit: B("as"),
-                    required: false,
-                    kind: LiteralKind::Syntax,
-                },
-                TagArg::Variable {
-                    name: B("varname"),
-                    required: false,
-                    count: TokenCount::Exact(1),
-                },
-            ]),
+            args: B(&[]),
             opaque: false,
             extracted_rules: Vec::new(),
         },
@@ -324,33 +192,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             module: B(DEFAULTTAGS_MOD),
             end_tag: None,
             intermediate_tags: B(&[]),
-            args: B(&[
-                TagArg::Variable {
-                    name: B("target"),
-                    required: true,
-                    count: TokenCount::Exact(1),
-                },
-                TagArg::Literal {
-                    lit: B("by"),
-                    required: true,
-                    kind: LiteralKind::Syntax,
-                },
-                TagArg::Variable {
-                    name: B("attribute"),
-                    required: true,
-                    count: TokenCount::Exact(1),
-                },
-                TagArg::Literal {
-                    lit: B("as"),
-                    required: true,
-                    kind: LiteralKind::Syntax,
-                },
-                TagArg::Variable {
-                    name: B("grouped"),
-                    required: true,
-                    count: TokenCount::Exact(1),
-                },
-            ]),
+            args: B(&[]),
             opaque: false,
             extracted_rules: Vec::new(),
         },
@@ -363,7 +205,6 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             end_tag: Some(EndTag {
                 name: B("endspaceless"),
                 required: true,
-                args: B(&[]),
             }),
             intermediate_tags: B(&[]),
             args: B(&[]),
@@ -377,20 +218,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             module: B(DEFAULTTAGS_MOD),
             end_tag: None,
             intermediate_tags: B(&[]),
-            args: B(&[TagArg::Choice {
-                name: B("tagbit"),
-                required: true,
-                choices: B(&[
-                    B("openblock"),
-                    B("closeblock"),
-                    B("openvariable"),
-                    B("closevariable"),
-                    B("openbrace"),
-                    B("closebrace"),
-                    B("opencomment"),
-                    B("closecomment"),
-                ]),
-            }]),
+            args: B(&[]),
             opaque: false,
             extracted_rules: Vec::new(),
         },
@@ -401,26 +229,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             module: B(DEFAULTTAGS_MOD),
             end_tag: None,
             intermediate_tags: B(&[]),
-            args: B(&[
-                TagArg::String {
-                    name: B("view_name"),
-                    required: true,
-                },
-                TagArg::VarArgs {
-                    name: B("args"),
-                    required: false,
-                },
-                TagArg::Literal {
-                    lit: B("as"),
-                    required: false,
-                    kind: LiteralKind::Syntax,
-                },
-                TagArg::Variable {
-                    name: B("varname"),
-                    required: false,
-                    count: TokenCount::Exact(1),
-                },
-            ]),
+            args: B(&[]),
             opaque: false,
             extracted_rules: Vec::new(),
         },
@@ -432,13 +241,9 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             end_tag: Some(EndTag {
                 name: B("endverbatim"),
                 required: true,
-                args: B(&[]),
             }),
             intermediate_tags: B(&[]),
-            args: B(&[TagArg::String {
-                name: B("name"),
-                required: false,
-            }]),
+            args: B(&[]),
             opaque: false,
             extracted_rules: Vec::new(),
         },
@@ -449,33 +254,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             module: B(DEFAULTTAGS_MOD),
             end_tag: None,
             intermediate_tags: B(&[]),
-            args: B(&[
-                TagArg::Variable {
-                    name: B("this_value"),
-                    required: true,
-                    count: TokenCount::Exact(1),
-                },
-                TagArg::Variable {
-                    name: B("max_value"),
-                    required: true,
-                    count: TokenCount::Exact(1),
-                },
-                TagArg::Variable {
-                    name: B("max_width"),
-                    required: true,
-                    count: TokenCount::Exact(1),
-                },
-                TagArg::Literal {
-                    lit: B("as"),
-                    required: false,
-                    kind: LiteralKind::Syntax,
-                },
-                TagArg::Variable {
-                    name: B("varname"),
-                    required: false,
-                    count: TokenCount::Exact(1),
-                },
-            ]),
+            args: B(&[]),
             opaque: false,
             extracted_rules: Vec::new(),
         },
@@ -487,13 +266,9 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             end_tag: Some(EndTag {
                 name: B("endwith"),
                 required: true,
-                args: B(&[]),
             }),
             intermediate_tags: B(&[]),
-            args: B(&[TagArg::VarArgs {
-                name: B("assignments"),
-                required: true,
-            }]),
+            args: B(&[]),
             opaque: false,
             extracted_rules: Vec::new(),
         },
@@ -509,18 +284,9 @@ static LOADER_TAGS_PAIRS: &[(&str, &TagSpec)] = &[
             end_tag: Some(EndTag {
                 name: B("endblock"),
                 required: true,
-                args: B(&[TagArg::Variable {
-                    name: B("name"),
-                    required: false,
-                    count: TokenCount::Exact(1),
-                }]),
             }),
             intermediate_tags: B(&[]),
-            args: B(&[TagArg::Variable {
-                name: B("name"),
-                required: true,
-                count: TokenCount::Exact(1),
-            }]),
+            args: B(&[]),
             opaque: false,
             extracted_rules: Vec::new(),
         },
@@ -531,10 +297,7 @@ static LOADER_TAGS_PAIRS: &[(&str, &TagSpec)] = &[
             module: B(MOD_LOADER_TAGS),
             end_tag: None,
             intermediate_tags: B(&[]),
-            args: B(&[TagArg::String {
-                name: B("template"),
-                required: true,
-            }]),
+            args: B(&[]),
             opaque: false,
             extracted_rules: Vec::new(),
         },
@@ -545,26 +308,7 @@ static LOADER_TAGS_PAIRS: &[(&str, &TagSpec)] = &[
             module: B(MOD_LOADER_TAGS),
             end_tag: None,
             intermediate_tags: B(&[]),
-            args: B(&[
-                TagArg::String {
-                    name: B("template"),
-                    required: true,
-                },
-                TagArg::Literal {
-                    lit: B("with"),
-                    required: false,
-                    kind: LiteralKind::Syntax,
-                },
-                TagArg::VarArgs {
-                    name: B("context"),
-                    required: false,
-                },
-                TagArg::Literal {
-                    lit: B("only"),
-                    required: false,
-                    kind: LiteralKind::Modifier,
-                },
-            ]),
+            args: B(&[]),
             opaque: false,
             extracted_rules: Vec::new(),
         },
@@ -579,25 +323,9 @@ static CACHE_PAIRS: &[(&str, &TagSpec)] = &[(
         end_tag: Some(EndTag {
             name: B("endcache"),
             required: true,
-            args: B(&[]),
         }),
         intermediate_tags: B(&[]),
-        args: B(&[
-            TagArg::Variable {
-                name: B("timeout"),
-                required: true,
-                count: TokenCount::Exact(1),
-            },
-            TagArg::Variable {
-                name: B("cache_key"),
-                required: true,
-                count: TokenCount::Exact(1),
-            },
-            TagArg::VarArgs {
-                name: B("variables"),
-                required: false,
-            },
-        ]),
+        args: B(&[]),
         opaque: false,
         extracted_rules: Vec::new(),
     },
@@ -612,10 +340,9 @@ static I18N_PAIRS: &[(&str, &TagSpec)] = &[
             end_tag: Some(EndTag {
                 name: B("endblocktrans"),
                 required: true,
-                args: B(&[]),
             }),
             intermediate_tags: B(BLOCKTRANS_INTERMEDIATE_TAGS),
-            args: B(BLOCKTRANS_ARGS),
+            args: B(&[]),
             opaque: false,
             extracted_rules: Vec::new(),
         },
@@ -627,10 +354,9 @@ static I18N_PAIRS: &[(&str, &TagSpec)] = &[
             end_tag: Some(EndTag {
                 name: B("endblocktranslate"),
                 required: true,
-                args: B(&[]),
             }),
             intermediate_tags: B(BLOCKTRANS_INTERMEDIATE_TAGS),
-            args: B(BLOCKTRANS_ARGS),
+            args: B(&[]),
             opaque: false,
             extracted_rules: Vec::new(),
         },
@@ -644,68 +370,12 @@ static I18N_PAIRS: &[(&str, &TagSpec)] = &[
     ("trans", &TRANS_SPEC),
     ("translate", &TRANS_SPEC),
 ];
-const BLOCKTRANS_INTERMEDIATE_TAGS: &[IntermediateTag] = &[IntermediateTag {
-    name: B("plural"),
-    args: B(&[TagArg::Variable {
-        name: B("count"),
-        required: false,
-        count: TokenCount::Exact(1),
-    }]),
-}];
-const BLOCKTRANS_ARGS: &[TagArg] = &[
-    TagArg::String {
-        name: B("context"),
-        required: false,
-    },
-    TagArg::Literal {
-        lit: B("with"),
-        required: false,
-        kind: LiteralKind::Syntax,
-    },
-    TagArg::VarArgs {
-        name: B("assignments"),
-        required: false,
-    },
-    TagArg::Literal {
-        lit: B("asvar"),
-        required: false,
-        kind: LiteralKind::Literal,
-    },
-    TagArg::Variable {
-        name: B("varname"),
-        required: false,
-        count: TokenCount::Exact(1),
-    },
-];
+const BLOCKTRANS_INTERMEDIATE_TAGS: &[IntermediateTag] = &[IntermediateTag { name: B("plural") }];
 const TRANS_SPEC: TagSpec = TagSpec {
     module: B(I18N_MOD),
     end_tag: None,
     intermediate_tags: B(&[]),
-    args: B(&[
-        TagArg::String {
-            name: B("message"),
-            required: true,
-        },
-        TagArg::String {
-            name: B("context"),
-            required: false,
-        },
-        TagArg::Literal {
-            lit: B("as"),
-            required: false,
-            kind: LiteralKind::Syntax,
-        },
-        TagArg::Variable {
-            name: B("varname"),
-            required: false,
-            count: TokenCount::Exact(1),
-        },
-        TagArg::Literal {
-            lit: B("noop"),
-            required: false,
-            kind: LiteralKind::Literal,
-        },
-    ]),
+    args: B(&[]),
     opaque: false,
     extracted_rules: Vec::new(),
 };
@@ -718,14 +388,9 @@ static L10N_PAIRS: &[(&str, &TagSpec)] = &[(
         end_tag: Some(EndTag {
             name: B("endlocalize"),
             required: true,
-            args: B(&[]),
         }),
         intermediate_tags: B(&[]),
-        args: B(&[TagArg::Choice {
-            name: B("mode"),
-            required: false,
-            choices: B(&[B("on"), B("off")]),
-        }]),
+        args: B(&[]),
         opaque: false,
         extracted_rules: Vec::new(),
     },
@@ -741,10 +406,7 @@ static STATIC_PAIRS: &[(&str, &TagSpec)] = &[
             module: B(STATIC_MOD),
             end_tag: None,
             intermediate_tags: B(&[]),
-            args: B(&[TagArg::String {
-                name: B("path"),
-                required: true,
-            }]),
+            args: B(&[]),
             opaque: false,
             extracted_rules: Vec::new(),
         },
@@ -761,14 +423,9 @@ static TZ_PAIRS: &[(&str, &TagSpec)] = &[
             end_tag: Some(EndTag {
                 name: B("endlocaltime"),
                 required: true,
-                args: B(&[]),
             }),
             intermediate_tags: B(&[]),
-            args: B(&[TagArg::Choice {
-                name: B("mode"),
-                required: false,
-                choices: B(&[B("on"), B("off")]),
-            }]),
+            args: B(&[]),
             opaque: false,
             extracted_rules: Vec::new(),
         },
@@ -780,14 +437,9 @@ static TZ_PAIRS: &[(&str, &TagSpec)] = &[
             end_tag: Some(EndTag {
                 name: B("endtimezone"),
                 required: true,
-                args: B(&[]),
             }),
             intermediate_tags: B(&[]),
-            args: B(&[TagArg::Variable {
-                name: B("timezone"),
-                required: true,
-                count: TokenCount::Exact(1),
-            }]),
+            args: B(&[]),
             opaque: false,
             extracted_rules: Vec::new(),
         },
@@ -934,21 +586,15 @@ mod tests {
         let intermediates = &for_tag.intermediate_tags;
         assert_eq!(intermediates.len(), 1);
         assert_eq!(intermediates[0].name.as_ref(), "empty");
-
-        // Check args structure
-        assert!(!for_tag.args.is_empty(), "for tag should have arguments");
     }
 
     #[test]
-    fn test_block_tag_with_end_args() {
+    fn test_block_tag_structure() {
         let specs = django_builtin_specs();
         let block_tag = specs.get("block").expect("block tag should exist");
 
         let end_tag = block_tag.end_tag.as_ref().unwrap();
         assert_eq!(end_tag.name.as_ref(), "endblock");
-        assert_eq!(end_tag.args.len(), 1);
-        assert_eq!(end_tag.args[0].name().as_ref(), "name");
-        assert!(!end_tag.args[0].is_required());
     }
 
     #[test]
@@ -962,12 +608,8 @@ mod tests {
         assert!(csrf_tag.end_tag.is_none());
         assert!(csrf_tag.intermediate_tags.is_empty());
 
-        // Test extends tag with args
+        // Test extends tag
         let extends_tag = specs.get("extends").expect("extends tag should exist");
         assert!(extends_tag.end_tag.is_none());
-        assert!(
-            !extends_tag.args.is_empty(),
-            "extends tag should have arguments"
-        );
     }
 }

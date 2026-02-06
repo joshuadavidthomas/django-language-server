@@ -138,8 +138,11 @@ mod tests {
         let layout = setup_test_layout();
         let sys_path = vec![layout.project_root.clone()];
 
-        let result =
-            resolve_module("myproject.templatetags.custom", &sys_path, &layout.project_root);
+        let result = resolve_module(
+            "myproject.templatetags.custom",
+            &sys_path,
+            &layout.project_root,
+        );
 
         assert!(result.is_some());
         let resolved = result.unwrap();
@@ -152,8 +155,7 @@ mod tests {
         let layout = setup_test_layout();
         let sys_path = vec![layout.external_root.clone()];
 
-        let result =
-            resolve_module("django.templatetags.i18n", &sys_path, &layout.project_root);
+        let result = resolve_module("django.templatetags.i18n", &sys_path, &layout.project_root);
 
         assert!(result.is_some());
         let resolved = result.unwrap();
@@ -166,8 +168,7 @@ mod tests {
         let layout = setup_test_layout();
         let sys_path = vec![layout.project_root.clone()];
 
-        let result =
-            resolve_module("nonexistent.module", &sys_path, &layout.project_root);
+        let result = resolve_module("nonexistent.module", &sys_path, &layout.project_root);
         assert!(result.is_none());
     }
 
@@ -185,14 +186,12 @@ mod tests {
 
         // First in sys_path wins
         let sys_path = vec![dir1.clone(), dir2.clone()];
-        let result =
-            resolve_module("pkg.mod", &sys_path, &layout.project_root).unwrap();
+        let result = resolve_module("pkg.mod", &sys_path, &layout.project_root).unwrap();
         assert!(result.file_path.starts_with(&dir1));
 
         // Reverse order → different result
         let sys_path = vec![dir2.clone(), dir1.clone()];
-        let result =
-            resolve_module("pkg.mod", &sys_path, &layout.project_root).unwrap();
+        let result = resolve_module("pkg.mod", &sys_path, &layout.project_root).unwrap();
         assert!(result.file_path.starts_with(&dir2));
     }
 
@@ -218,10 +217,7 @@ mod tests {
     #[test]
     fn resolve_modules_partitions() {
         let layout = setup_test_layout();
-        let sys_path = vec![
-            layout.project_root.clone(),
-            layout.external_root.clone(),
-        ];
+        let sys_path = vec![layout.project_root.clone(), layout.external_root.clone()];
 
         let paths = [
             "myproject.templatetags.custom",

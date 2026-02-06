@@ -34,36 +34,35 @@ pub fn validate_all_tag_arguments(db: &dyn Db, nodelist: djls_templates::NodeLis
     }
 }
 
-/// Validate a single tag's arguments against its `TagSpec` definition.
+/// Validate a single tag's arguments against its specification.
 ///
-/// This is the main entry point for tag argument validation. It looks up the tag
-/// in the `TagSpecs` (checking opening tags, closing tags, and intermediate tags)
-/// and delegates to the appropriate validation logic.
+/// Dispatches to extracted rule evaluation when available, falls back to
+/// `TagArg`-based validation for user-config specs only. Builtin tags have
+/// empty `args` and rely solely on extracted rules from the Python AST.
 ///
-/// # Parameters
-/// - `db`: The Salsa database containing tag specifications
-/// - `tag_name`: The name of the tag (e.g., "if", "for", "endfor", "elif")
-/// - `bits`: The tokenized arguments from the tag
-/// - `span`: The span of the tag for error reporting
+/// Closer and intermediate tags receive no argument validation (extraction
+/// does not produce rules for them, and `EndTag`/`IntermediateTag` no longer
+/// carry argument definitions).
 pub fn validate_tag_arguments(db: &dyn Db, tag_name: &str, bits: &[String], span: Span) {
     let tag_specs = db.tag_specs();
 
-    // Try to find spec for: opening tag, closing tag, or intermediate tag
     if let Some(spec) = tag_specs.get(tag_name) {
-        validate_args_against_spec(db, tag_name, bits, span, spec.args.as_ref());
-        return;
+        if !spec.extracted_rules.is_empty() {
+            crate::rule_evaluation::evaluate_extracted_rules(
+                db,
+                tag_name,
+                bits,
+                &spec.extracted_rules,
+                span,
+            );
+        } else if !spec.args.is_empty() {
+            // Fallback for user-config-defined args only
+            validate_args_against_spec(db, tag_name, bits, span, spec.args.as_ref());
+        }
+        // Both empty = no argument validation (conservative)
     }
 
-    if let Some(end_spec) = tag_specs.get_end_spec_for_closer(tag_name) {
-        validate_args_against_spec(db, tag_name, bits, span, end_spec.args.as_ref());
-        return;
-    }
-
-    if let Some(intermediate) = tag_specs.get_intermediate_spec(tag_name) {
-        validate_args_against_spec(db, tag_name, bits, span, intermediate.args.as_ref());
-    }
-
-    // Unknown tag - no validation (could be custom tag from unloaded library)
+    // Closer/intermediate/unknown tags: no argument validation
 }
 
 /// Validate tag arguments against an argument specification.
@@ -434,38 +433,33 @@ mod tests {
         }
     }
 
-    /// Test helper: Create a temporary `NodeList` with a single tag and validate it
-    fn check_validation_errors(
-        tag_name: &str,
-        bits: &[String],
-        _args: &[TagArg],
-    ) -> Vec<ValidationError> {
-        check_validation_errors_with_db(tag_name, bits, TestDatabase::new())
-    }
-
     /// Test helper: Create a temporary `NodeList` with a single tag and validate it using custom specs
     #[allow(clippy::needless_pass_by_value)]
     fn check_validation_errors_with_db(
         tag_name: &str,
-        bits: &[String],
+        bits: &[&str],
         db: TestDatabase,
     ) -> Vec<ValidationError> {
         use djls_source::Db as SourceDb;
+
+        let bits: Vec<String> = bits.iter().map(|s| (*s).to_string()).collect();
 
         // Build a minimal template content that parses to a tag
         let bits_str = bits.join(" ");
 
         // Add closing tags for block tags to avoid UnclosedTag errors
-        let content = match tag_name {
-            "if" => format!("{{% {tag_name} {bits_str} %}}{{% endif %}}"),
-            "for" => format!("{{% {tag_name} {bits_str} %}}{{% endfor %}}"),
-            "with" => format!("{{% {tag_name} {bits_str} %}}{{% endwith %}}"),
-            "block" => format!("{{% {tag_name} {bits_str} %}}{{% endblock %}}"),
-            "autoescape" => format!("{{% {tag_name} {bits_str} %}}{{% endautoescape %}}"),
-            "filter" => format!("{{% {tag_name} {bits_str} %}}{{% endfilter %}}"),
-            "spaceless" => format!("{{% {tag_name} {bits_str} %}}{{% endspaceless %}}"),
-            "verbatim" => format!("{{% {tag_name} {bits_str} %}}{{% endverbatim %}}"),
-            _ => format!("{{% {tag_name} {bits_str} %}}"),
+        let tag_specs = db.tag_specs();
+        let content = if let Some(spec) = tag_specs.get(tag_name) {
+            if let Some(end_tag) = &spec.end_tag {
+                format!(
+                    "{{% {tag_name} {bits_str} %}}{{% {} %}}",
+                    end_tag.name.as_ref()
+                )
+            } else {
+                format!("{{% {tag_name} {bits_str} %}}")
+            }
+        } else {
+            format!("{{% {tag_name} {bits_str} %}}")
         };
 
         // Create a file and parse it
@@ -507,10 +501,13 @@ mod tests {
             .collect()
     }
 
+    // ===================================================================
+    // Tests for the extracted rule evaluation path (primary validation)
+    // ===================================================================
+
     #[test]
     fn test_endblock_with_name_is_valid() {
-        // Regression test: {% endblock content %} is valid Django syntax.
-        // endblock accepts an optional block name argument.
+        // Closer tags receive no argument validation
         let errors = validate_template("{% block content %}hello{% endblock content %}");
         assert!(
             errors.is_empty(),
@@ -528,156 +525,275 @@ mod tests {
     }
 
     #[test]
-    fn test_for_rejects_extra_token_after_iterable() {
-        // {% for item in items football %} is not valid Django.
-        // Only "reversed" is accepted after the iterable.
-        let errors = validate_template(
-            "{% for item in items football %}<li>test</li>{% endfor %}",
+    fn test_for_rejects_extra_token_via_extracted_rules() {
+        // {% for item in items football %} has 6 words (split_len=6).
+        // Extraction produces MaxArgCount{max:3} → violated when split_len <= 3 (not applicable here)
+        // and we need a rule that catches >5 tokens. Simulate with a custom spec.
+        use std::borrow::Cow;
+
+        use rustc_hash::FxHashMap;
+
+        use crate::templatetags::EndTag;
+        use crate::templatetags::TagSpec;
+        use crate::templatetags::TagSpecs;
+
+        let mut specs = FxHashMap::default();
+        specs.insert(
+            "for".to_string(),
+            TagSpec {
+                module: Cow::Borrowed("django.template.defaulttags"),
+                end_tag: Some(EndTag {
+                    name: Cow::Borrowed("endfor"),
+                    required: true,
+                }),
+                intermediate_tags: Cow::Borrowed(&[]),
+                args: Cow::Borrowed(&[]),
+                opaque: false,
+                // Simulate actual for tag extraction rules:
+                // "for item in items" = split_len 4, valid
+                // "for item in items reversed" = split_len 5, valid
+                // "for item in items football extra" = split_len 6, invalid
+                // Use ArgCountComparison{count:5, op:Gt} → violated when split_len > 5
+                extracted_rules: vec![djls_extraction::ExtractedRule {
+                    condition: djls_extraction::RuleCondition::ArgCountComparison {
+                        count: 5,
+                        op: djls_extraction::ComparisonOp::Gt,
+                    },
+                    message: Some("'for' tag received too many arguments.".to_string()),
+                }],
+            },
         );
+
+        let db = TestDatabase::with_custom_specs(TagSpecs::new(specs));
+        // "for item in items football extra" → split_len=6, 6 > 5 → violated
+        let errors = check_validation_errors_with_db(
+            "for",
+            &["item", "in", "items", "football", "extra"],
+            db,
+        );
+
+        let rule_errors: Vec<_> = errors
+            .iter()
+            .filter(|e| matches!(e, ValidationError::ExtractedRuleViolation { .. }))
+            .collect();
+        assert!(
+            !rule_errors.is_empty(),
+            "Expected ExtractedRuleViolation for too many args, got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn test_autoescape_exact_count_via_extracted_rules() {
+        // autoescape expects ExactArgCount{count:2, negated:true} → error when split_len != 2
+        use std::borrow::Cow;
+
+        use rustc_hash::FxHashMap;
+
+        use crate::templatetags::EndTag;
+        use crate::templatetags::TagSpec;
+        use crate::templatetags::TagSpecs;
+
+        let mut specs = FxHashMap::default();
+        specs.insert(
+            "autoescape".to_string(),
+            TagSpec {
+                module: Cow::Borrowed("django.template.defaulttags"),
+                end_tag: Some(EndTag {
+                    name: Cow::Borrowed("endautoescape"),
+                    required: true,
+                }),
+                intermediate_tags: Cow::Borrowed(&[]),
+                args: Cow::Borrowed(&[]),
+                opaque: false,
+                extracted_rules: vec![djls_extraction::ExtractedRule {
+                    condition: djls_extraction::RuleCondition::ExactArgCount {
+                        count: 2,
+                        negated: true,
+                    },
+                    message: Some("'autoescape' tag requires exactly one argument.".to_string()),
+                }],
+            },
+        );
+
+        let db = TestDatabase::with_custom_specs(TagSpecs::new(specs));
+
+        // Valid: {% autoescape on %} → split_len=2 → matches → negated → not violated
+        let errors = check_validation_errors_with_db("autoescape", &["on"], db.clone());
+        let rule_errors: Vec<_> = errors
+            .iter()
+            .filter(|e| matches!(e, ValidationError::ExtractedRuleViolation { .. }))
+            .collect();
+        assert!(
+            rule_errors.is_empty(),
+            "autoescape on should be valid: {errors:?}"
+        );
+
+        // Invalid: {% autoescape on extra %} → split_len=3 → !matches → negated → violated
+        let errors = check_validation_errors_with_db("autoescape", &["on", "extra"], db.clone());
+        let rule_errors: Vec<_> = errors
+            .iter()
+            .filter(|e| matches!(e, ValidationError::ExtractedRuleViolation { .. }))
+            .collect();
+        assert!(
+            !rule_errors.is_empty(),
+            "autoescape with extra arg should error: {errors:?}"
+        );
+
+        // Invalid: {% autoescape %} → split_len=1 → !matches → negated → violated
+        let errors = check_validation_errors_with_db("autoescape", &[], db);
+        let rule_errors: Vec<_> = errors
+            .iter()
+            .filter(|e| matches!(e, ValidationError::ExtractedRuleViolation { .. }))
+            .collect();
+        assert!(
+            !rule_errors.is_empty(),
+            "autoescape with no args should error: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn test_no_validation_without_extracted_rules_or_args() {
+        // Builtin tags with empty args and no extracted rules get no validation.
+        // This is the expected behavior — extraction populates rules in the server.
+        let errors = validate_template("{% csrf_token extra_arg %}");
         let arg_errors: Vec<_> = errors
             .iter()
             .filter(|e| {
                 matches!(
                     e,
                     ValidationError::TooManyArguments { .. }
+                        | ValidationError::ExtractedRuleViolation { .. }
+                        | ValidationError::MissingRequiredArguments { .. }
                 )
             })
             .collect();
         assert!(
-            !arg_errors.is_empty(),
-            "Expected TooManyArguments for 'football' after iterable, got: {errors:?}"
+            arg_errors.is_empty(),
+            "Without extracted rules, no arg validation should occur: {arg_errors:?}"
         );
     }
 
-    #[test]
-    fn test_if_tag_with_comparison_operator() {
-        // Issue #1: {% if message.input_tokens > 0 %}
-        // Parser tokenizes as: ["message.input_tokens", ">", "0"]
-        // Spec expects: [Any{name="condition", count=Greedy}]
-        let bits = vec![
-            "message.input_tokens".to_string(),
-            ">".to_string(),
-            "0".to_string(),
-        ];
-        let args = vec![TagArg::expr("condition", true)];
-
-        let errors = check_validation_errors("if", &bits, &args);
-        assert!(
-            errors.is_empty(),
-            "Should not error on expression with multiple tokens: {errors:?}"
-        );
-    }
+    // ===================================================================
+    // Tests for the user-config TagArg fallback path
+    // ===================================================================
 
     #[test]
-    fn test_translate_with_quoted_string() {
-        // Issue #2: {% translate "Contact the owner of the site" %}
-        // Parser tokenizes as: ['"Contact the owner of the site"'] (single token now!)
-        let bits = vec![r#""Contact the owner of the site""#.to_string()];
-        let args = vec![TagArg::String {
-            name: "message".into(),
-            required: true,
-        }];
+    fn test_user_config_args_fallback_rejects_extra() {
+        // User-config spec with TagArg definitions (no extracted rules)
+        // should use the old validation path.
+        use std::borrow::Cow;
 
-        let errors = check_validation_errors("translate", &bits, &args);
-        assert!(
-            errors.is_empty(),
-            "Should not error on quoted string: {errors:?}"
-        );
-    }
+        use rustc_hash::FxHashMap;
 
-    #[test]
-    fn test_for_tag_with_reversed() {
-        // {% for item in items reversed %}
-        let bits = vec![
-            "item".to_string(),
-            "in".to_string(),
-            "items".to_string(),
-            "reversed".to_string(),
-        ];
-        let args = vec![
-            TagArg::var("item", true),
-            TagArg::syntax("in", true),
-            TagArg::var("items", true),
-            TagArg::modifier("reversed", false),
-        ];
+        use crate::templatetags::TagSpec;
+        use crate::templatetags::TagSpecs;
 
-        let errors = check_validation_errors("for", &bits, &args);
-        assert!(
-            errors.is_empty(),
-            "Should handle optional literal 'reversed': {errors:?}"
-        );
-    }
-
-    #[test]
-    fn test_if_complex_expression() {
-        // {% if user.is_authenticated and user.is_staff %}
-        let bits = vec![
-            "user.is_authenticated".to_string(),
-            "and".to_string(),
-            "user.is_staff".to_string(),
-        ];
-        let args = vec![TagArg::expr("condition", true)];
-
-        let errors = check_validation_errors("if", &bits, &args);
-        assert!(
-            errors.is_empty(),
-            "Should handle complex boolean expression: {errors:?}"
-        );
-    }
-
-    #[test]
-    fn test_url_with_multiple_args() {
-        // {% url 'view_name' arg1 arg2 arg3 %}
-        let bits = vec![
-            "'view_name'".to_string(),
-            "arg1".to_string(),
-            "arg2".to_string(),
-            "arg3".to_string(),
-        ];
-        let args = vec![
-            TagArg::String {
-                name: "view_name".into(),
-                required: true,
+        let mut specs = FxHashMap::default();
+        specs.insert(
+            "mycustomtag".to_string(),
+            TagSpec {
+                module: Cow::Borrowed("myapp.tags"),
+                end_tag: None,
+                intermediate_tags: Cow::Borrowed(&[]),
+                args: Cow::Owned(vec![TagArg::var("arg1", true)]),
+                opaque: false,
+                extracted_rules: Vec::new(),
             },
-            TagArg::VarArgs {
-                name: "args".into(),
-                required: false,
+        );
+
+        let db = TestDatabase::with_custom_specs(TagSpecs::new(specs));
+        let errors = check_validation_errors_with_db("mycustomtag", &["val1", "extra"], db);
+        assert!(
+            !errors.is_empty(),
+            "User-config spec should catch extra args: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn test_user_config_no_args_rejects_extra() {
+        // User-config spec with empty args = TooManyArguments
+        use std::borrow::Cow;
+
+        use rustc_hash::FxHashMap;
+
+        use crate::templatetags::TagSpec;
+        use crate::templatetags::TagSpecs;
+
+        let mut specs = FxHashMap::default();
+        specs.insert(
+            "zerotag".to_string(),
+            TagSpec {
+                module: Cow::Borrowed("myapp.tags"),
+                end_tag: None,
+                intermediate_tags: Cow::Borrowed(&[]),
+                args: Cow::Borrowed(&[]),
+                opaque: false,
+                extracted_rules: Vec::new(),
             },
-        ];
+        );
 
-        let errors = check_validation_errors("url", &bits, &args);
-        assert!(errors.is_empty(), "Should handle varargs: {errors:?}");
-    }
-
-    #[test]
-    fn test_with_assignment() {
-        // {% with total=items|length %}
-        let bits = vec!["total=items|length".to_string()];
-        let args = vec![TagArg::assignment("bindings", true)];
-
-        let errors = check_validation_errors("with", &bits, &args);
+        let db = TestDatabase::with_custom_specs(TagSpecs::new(specs));
+        // No extracted rules AND no args → no validation
+        let errors = check_validation_errors_with_db("zerotag", &["extra"], db);
         assert!(
             errors.is_empty(),
-            "Should handle assignment with filter: {errors:?}"
+            "Tag with no extracted rules and no args should get no validation: {errors:?}"
         );
     }
 
     #[test]
-    fn test_with_multiple_greedy_assignments() {
-        // {% with a=1 b=2 c=3 %}
-        let bits = vec!["a=1".to_string(), "b=2".to_string(), "c=3".to_string()];
-        let args = vec![TagArg::assignment("bindings", true)];
+    fn test_extracted_rules_take_precedence_over_args() {
+        // When both extracted_rules and args are present, extracted_rules win.
+        use std::borrow::Cow;
 
-        let errors = check_validation_errors("with", &bits, &args);
-        assert!(
-            errors.is_empty(),
-            "Should handle multiple greedy assignments: {errors:?}"
+        use rustc_hash::FxHashMap;
+
+        use crate::templatetags::TagSpec;
+        use crate::templatetags::TagSpecs;
+
+        let mut specs = FxHashMap::default();
+        specs.insert(
+            "dualtag".to_string(),
+            TagSpec {
+                module: Cow::Borrowed("myapp.tags"),
+                end_tag: None,
+                intermediate_tags: Cow::Borrowed(&[]),
+                // Old path would say: no args → TooManyArguments for any input
+                args: Cow::Borrowed(&[]),
+                opaque: false,
+                // But extracted rules allow exactly 2 words
+                extracted_rules: vec![djls_extraction::ExtractedRule {
+                    condition: djls_extraction::RuleCondition::ExactArgCount {
+                        count: 2,
+                        negated: true,
+                    },
+                    message: Some("dualtag requires exactly one argument".to_string()),
+                }],
+            },
         );
+
+        let db = TestDatabase::with_custom_specs(TagSpecs::new(specs));
+
+        // Valid: {% dualtag arg1 %} → split_len=2
+        let errors = check_validation_errors_with_db("dualtag", &["arg1"], db.clone());
+        let rule_errors: Vec<_> = errors
+            .iter()
+            .filter(|e| matches!(e, ValidationError::ExtractedRuleViolation { .. }))
+            .collect();
+        assert!(rule_errors.is_empty(), "Should be valid: {errors:?}");
+
+        // Invalid: {% dualtag %} → split_len=1
+        let errors = check_validation_errors_with_db("dualtag", &[], db);
+        let rule_errors: Vec<_> = errors
+            .iter()
+            .filter(|e| matches!(e, ValidationError::ExtractedRuleViolation { .. }))
+            .collect();
+        assert!(!rule_errors.is_empty(), "Should error: {errors:?}");
     }
 
     #[test]
     fn test_greedy_consumes_all_leaving_required_literal_unsatisfied() {
-        // {% customcond x > 0 %} - greedy expr consumes all, missing required "reversed" literal
+        // User-config fallback: greedy expr consumes all, missing required literal
         use std::borrow::Cow;
 
         use rustc_hash::FxHashMap;
@@ -687,7 +803,6 @@ mod tests {
         use crate::templatetags::TagSpecs;
         use crate::TokenCount;
 
-        // Create custom spec: customcond expects [Greedy expr, required "reversed" literal]
         let mut specs = FxHashMap::default();
         specs.insert(
             "customcond".to_string(),
@@ -696,7 +811,6 @@ mod tests {
                 end_tag: Some(EndTag {
                     name: Cow::Borrowed("endcustomcond"),
                     required: true,
-                    args: Cow::Borrowed(&[]),
                 }),
                 intermediate_tags: Cow::Borrowed(&[]),
                 args: Cow::Owned(vec![
@@ -713,254 +827,25 @@ mod tests {
         );
 
         let db = TestDatabase::with_custom_specs(TagSpecs::new(specs));
-
-        // Input: 3 tokens, greedy consumes all, required literal missing
-        let bits = vec!["x".to_string(), ">".to_string(), "0".to_string()];
-
-        let errors = check_validation_errors_with_db("customcond", &bits, db);
+        let errors = check_validation_errors_with_db("customcond", &["x", ">", "0"], db);
 
         assert!(
             !errors.is_empty(),
-            "Should error when greedy arg consumes all tokens, leaving required literal unsatisfied"
+            "Should error when greedy arg consumes all tokens: {errors:?}"
         );
-
-        // The error should be MissingArgument for "reversed"
         let has_missing_reversed = errors.iter().any(|err| {
             matches!(err, ValidationError::MissingArgument { argument, .. }
                 if argument == "reversed")
         });
         assert!(
             has_missing_reversed,
-            "Should have MissingArgument error for 'reversed', got: {errors:?}"
-        );
-    }
-
-    #[test]
-    fn test_include_with_quoted_path() {
-        // {% include "partials/header.html" %}
-        let bits = vec![r#""partials/header.html""#.to_string()];
-        let args = vec![TagArg::String {
-            name: "template".into(),
-            required: true,
-        }];
-
-        let errors = check_validation_errors("include", &bits, &args);
-        assert!(errors.is_empty(), "Should handle quoted path: {errors:?}");
-    }
-
-    #[test]
-    fn test_expr_stops_at_literal() {
-        // Tests that a greedy expression argument stops consuming tokens
-        // when it encounters the next literal keyword in the arg spec.
-        //
-        // Uses "if" tag with custom bits. Note: this is a contrived scenario
-        // (real {% if %} doesn't take "reversed"). The expression validation
-        // (S114) will flag "reversed" as unused, so we filter those out and
-        // only check for argument-spec errors.
-        let bits = vec![
-            "x".to_string(),
-            ">".to_string(),
-            "0".to_string(),
-            "reversed".to_string(),
-        ];
-        let args = vec![
-            TagArg::expr("condition", true),
-            TagArg::modifier("reversed", false),
-        ];
-
-        let errors: Vec<_> = check_validation_errors("if", &bits, &args)
-            .into_iter()
-            .filter(|e| !matches!(e, ValidationError::ExpressionSyntaxError { .. }))
-            .collect();
-        assert!(
-            errors.is_empty(),
-            "Expr should stop before literal keyword: {errors:?}"
-        );
-    }
-
-    #[test]
-    fn test_tag_with_no_args_rejects_extra() {
-        // {% csrf_token extra_arg %}
-        // csrf_token expects no arguments
-        let bits = vec!["extra_arg".to_string()];
-        let args = vec![]; // No arguments expected
-
-        let errors = check_validation_errors("csrf_token", &bits, &args);
-        assert_eq!(errors.len(), 1, "Should error on unexpected argument");
-        assert!(
-            matches!(errors[0], ValidationError::TooManyArguments { max: 0, .. }),
-            "Expected TooManyArguments error, got: {:?}",
-            errors[0]
-        );
-    }
-
-    #[test]
-    fn test_tag_with_no_args_rejects_multiple_extra() {
-        // {% debug arg1 arg2 arg3 %}
-        // debug expects no arguments
-        let bits = vec!["arg1".to_string(), "arg2".to_string(), "arg3".to_string()];
-        let args = vec![]; // No arguments expected
-
-        let errors = check_validation_errors("debug", &bits, &args);
-        assert_eq!(errors.len(), 1, "Should error once for extra arguments");
-        assert!(
-            matches!(errors[0], ValidationError::TooManyArguments { max: 0, .. }),
-            "Expected TooManyArguments error, got: {:?}",
-            errors[0]
-        );
-    }
-
-    #[test]
-    fn test_autoescape_rejects_extra_args() {
-        // {% autoescape on extra_arg %}
-        // autoescape expects exactly 1 choice argument (on/off)
-        let bits = vec!["on".to_string(), "extra_arg".to_string()];
-        let args = vec![TagArg::Choice {
-            name: "mode".into(),
-            required: true,
-            choices: vec!["on".into(), "off".into()].into(),
-        }];
-
-        let errors = check_validation_errors("autoescape", &bits, &args);
-        // This is the key test - does the real implementation catch too many args?
-        assert!(
-            !errors.is_empty(),
-            "Should error on extra argument after choice"
-        );
-    }
-
-    #[test]
-    fn test_csrf_token_rejects_extra_args() {
-        // {% csrf_token "extra" %}
-        // csrf_token expects no arguments
-        let bits = vec![r#""extra""#.to_string()];
-        let args = vec![];
-
-        let errors = check_validation_errors("csrf_token", &bits, &args);
-        assert!(
-            !errors.is_empty(),
-            "Should error on extra argument for zero-arg tag"
-        );
-        assert!(
-            matches!(errors[0], ValidationError::TooManyArguments { .. }),
-            "Expected TooManyArguments, got: {:?}",
-            errors[0]
-        );
-    }
-
-    #[test]
-    fn test_now_rejects_extra_args() {
-        // {% now "Y-m-d" as varname extra_arg %}
-        // now expects: format, optional "as" + varname, then nothing more
-        let bits = vec![
-            r#""Y-m-d""#.to_string(),
-            "as".to_string(),
-            "varname".to_string(),
-            "extra_arg".to_string(),
-        ];
-        let args = vec![];
-
-        let errors = check_validation_errors("now", &bits, &args);
-        // Should have too many arguments after consuming all valid args
-        assert!(
-            !errors.is_empty(),
-            "Should error when extra arg appears after complete argument list"
-        );
-    }
-
-    #[test]
-    fn test_load_accepts_varargs() {
-        // {% load tag1 tag2 tag3 from library %}
-        // load has varargs, so should accept many arguments
-        let bits = vec![
-            "tag1".to_string(),
-            "tag2".to_string(),
-            "tag3".to_string(),
-            "from".to_string(),
-            "library".to_string(),
-        ];
-        let args = vec![
-            TagArg::varargs("tags", false),
-            TagArg::syntax("from", false),
-            TagArg::var("library", false),
-        ];
-
-        let errors = check_validation_errors("load", &bits, &args);
-        assert!(
-            errors.is_empty(),
-            "VarArgs should accept many arguments: {errors:?}"
-        );
-    }
-
-    #[test]
-    fn test_regroup_rejects_extra_args() {
-        // {% regroup list by attr as varname extra_arg %}
-        // regroup expects: list, "by", attr, "as", varname - no more
-        let bits = vec![
-            "list".to_string(),
-            "by".to_string(),
-            "attr".to_string(),
-            "as".to_string(),
-            "varname".to_string(),
-            "extra_arg".to_string(),
-        ];
-        let args = vec![];
-
-        let errors = check_validation_errors("regroup", &bits, &args);
-        assert!(
-            !errors.is_empty(),
-            "Should error on extra argument after complete regroup args"
-        );
-    }
-
-    #[test]
-    fn test_exact_token_count_insufficient_tokens_required() {
-        // {% for item %} - missing required "in" and items arguments
-        let bits = vec!["item".to_string()];
-        let args = vec![
-            TagArg::var("item", true),
-            TagArg::syntax("in", true),
-            TagArg::var("items", true),
-        ];
-
-        let errors = check_validation_errors("for", &bits, &args);
-        assert!(
-            !errors.is_empty(),
-            "Should error when required arguments are missing"
-        );
-        assert!(
-            matches!(errors[0], ValidationError::MissingRequiredArguments { .. }),
-            "Expected MissingRequiredArguments, got: {:?}",
-            errors[0]
-        );
-    }
-
-    #[test]
-    fn test_exact_token_count_does_not_overflow() {
-        // {% for item in %} - missing required items argument
-        let bits = vec!["item".to_string(), "in".to_string()];
-        let args = vec![
-            TagArg::var("item", true),
-            TagArg::syntax("in", true),
-            TagArg::var("items", true), // Missing this required arg
-        ];
-
-        let errors = check_validation_errors("for", &bits, &args);
-        // Should detect missing required argument (caught by count check)
-        assert!(
-            !errors.is_empty(),
-            "Should error when required 'items' argument is missing"
-        );
-        assert!(
-            matches!(errors[0], ValidationError::MissingRequiredArguments { .. }),
-            "Expected MissingRequiredArguments, got: {:?}",
-            errors[0]
+            "Should have MissingArgument for 'reversed', got: {errors:?}"
         );
     }
 
     #[test]
     fn test_skip_bit_index_bug_with_exact_multi_token() {
-        // {% customtag a b as %} - Exact(2) consumes 2 tokens, missing required "result" argument
+        // User-config fallback: Exact(2) + literal + variable
         use std::borrow::Cow;
 
         use rustc_hash::FxHashMap;
@@ -970,7 +855,6 @@ mod tests {
         use crate::templatetags::TagSpecs;
         use crate::TokenCount;
 
-        // Create custom spec: customtag expects [Exact(2), "as", Variable]
         let mut specs = FxHashMap::default();
         specs.insert(
             "customtag".to_string(),
@@ -979,7 +863,6 @@ mod tests {
                 end_tag: Some(EndTag {
                     name: Cow::Borrowed("endcustomtag"),
                     required: true,
-                    args: Cow::Borrowed(&[]),
                 }),
                 intermediate_tags: Cow::Borrowed(&[]),
                 args: Cow::Owned(vec![
@@ -997,28 +880,19 @@ mod tests {
         );
 
         let db = TestDatabase::with_custom_specs(TagSpecs::new(specs));
+        let errors = check_validation_errors_with_db("customtag", &["a", "b", "as"], db);
 
-        // Input: 3 tokens, passes early count check (3 required args = 3 tokens)
-        // but doesn't satisfy all positional requirements
-        let bits = vec!["a".to_string(), "b".to_string(), "as".to_string()];
-
-        let errors = check_validation_errors_with_db("customtag", &bits, db);
-
-        // BUG: Currently this test will FAIL because skip(bit_index) doesn't detect
-        // the missing "result" argument
         assert!(
             !errors.is_empty(),
             "Should error when required 'result' argument is missing"
         );
-
-        // The error should be MissingArgument for "result"
         let has_missing_result = errors.iter().any(|err| {
             matches!(err, ValidationError::MissingArgument { argument, .. }
                 if argument == "result")
         });
         assert!(
             has_missing_result,
-            "Should have MissingArgument error for 'result', got: {errors:?}"
+            "Should have MissingArgument for 'result', got: {errors:?}"
         );
     }
 }

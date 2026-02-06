@@ -65,12 +65,12 @@ pub fn extract_block_spec(
         }));
     }
 
-    let django_default_end =
-        if matches!(registration.decorator_kind, DecoratorKind::SimpleBlockTag) {
-            Some(format!("end{}", registration.function_name))
-        } else {
-            None
-        };
+    let django_default_end = if matches!(registration.decorator_kind, DecoratorKind::SimpleBlockTag)
+    {
+        Some(format!("end{}", registration.function_name))
+    } else {
+        None
+    };
 
     let module = parsed.ast();
 
@@ -108,8 +108,7 @@ pub fn extract_block_spec(
         return Ok(None);
     }
 
-    let end_tag =
-        infer_end_tag_from_control_flow(&parse_calls, &registration.name);
+    let end_tag = infer_end_tag_from_control_flow(&parse_calls, &registration.name);
 
     let mut all_stop_tags: Vec<String> = Vec::new();
     for stop_tags in &parse_calls {
@@ -150,10 +149,7 @@ pub fn extract_block_spec(
 /// 1. Singleton pattern: exactly one unique `parser.parse((<single>,))` call
 /// 2. Unique stop tag: only one stop tag mentioned across all parse calls
 /// 3. Django convention: `end{tag_name}` appears in stop-tag literals
-fn infer_end_tag_from_control_flow(
-    parse_calls: &[Vec<String>],
-    tag_name: &str,
-) -> Option<String> {
+fn infer_end_tag_from_control_flow(parse_calls: &[Vec<String>], tag_name: &str) -> Option<String> {
     let mut all_tags: Vec<&str> = Vec::new();
     for stop_tags in parse_calls {
         for tag in stop_tags {
@@ -449,10 +445,7 @@ def my_internal_func(context, nodelist):
         let tag = &result.tags[0];
 
         assert_eq!(tag.name, "customname");
-        assert_eq!(
-            tag.decorator_kind,
-            crate::DecoratorKind::SimpleBlockTag
-        );
+        assert_eq!(tag.decorator_kind, crate::DecoratorKind::SimpleBlockTag);
 
         let block_spec = tag.block_spec.as_ref().unwrap();
         assert_eq!(block_spec.end_tag, Some("endcustom".to_string()));

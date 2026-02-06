@@ -36,8 +36,7 @@ pub fn extract_filter_arity(
         0 | 1 => Ok(FilterArity::None),
         2 => {
             let last_arg = params.args.last();
-            let has_default =
-                last_arg.is_some_and(|arg| arg.default.is_some());
+            let has_default = last_arg.is_some_and(|arg| arg.default.is_some());
             if has_default {
                 Ok(FilterArity::Optional)
             } else {

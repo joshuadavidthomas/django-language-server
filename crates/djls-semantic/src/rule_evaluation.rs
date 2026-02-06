@@ -48,9 +48,10 @@ pub fn evaluate_extracted_rules(
         let violated = evaluate_condition(&rule.condition, bits, split_len);
 
         if violated {
-            let message = rule.message.clone().unwrap_or_else(|| {
-                format!("Tag '{tag_name}' argument violation")
-            });
+            let message = rule
+                .message
+                .clone()
+                .unwrap_or_else(|| format!("Tag '{tag_name}' argument violation"));
 
             ValidationErrorAccumulator(ValidationError::ExtractedRuleViolation {
                 tag: tag_name.to_string(),
@@ -65,15 +66,15 @@ pub fn evaluate_extracted_rules(
 /// Evaluate a single rule condition against the given bits.
 ///
 /// Returns `true` if the condition is violated (error should be emitted).
-fn evaluate_condition(
-    condition: &RuleCondition,
-    bits: &[String],
-    split_len: usize,
-) -> bool {
+fn evaluate_condition(condition: &RuleCondition, bits: &[String], split_len: usize) -> bool {
     match condition {
         RuleCondition::ExactArgCount { count, negated } => {
             let matches = split_len == *count;
-            if *negated { !matches } else { matches }
+            if *negated {
+                !matches
+            } else {
+                matches
+            }
         }
 
         RuleCondition::ArgCountComparison { count, op } => match op {
@@ -97,7 +98,11 @@ fn evaluate_condition(
                 return false;
             };
             let matches = bits.get(bits_index) == Some(value);
-            if *negated { !matches } else { matches }
+            if *negated {
+                !matches
+            } else {
+                matches
+            }
         }
 
         RuleCondition::ChoiceAt {
@@ -111,12 +116,20 @@ fn evaluate_condition(
             let matches = bits
                 .get(bits_index)
                 .is_some_and(|b| choices.iter().any(|c| c == b));
-            if *negated { !matches } else { matches }
+            if *negated {
+                !matches
+            } else {
+                matches
+            }
         }
 
         RuleCondition::ContainsLiteral { value, negated } => {
             let contains = bits.iter().any(|b| b == value);
-            if *negated { !contains } else { contains }
+            if *negated {
+                !contains
+            } else {
+                contains
+            }
         }
 
         RuleCondition::Opaque { .. } => false,
@@ -138,8 +151,8 @@ mod tests {
 
     #[test]
     fn exact_arg_count_negated_violated_when_not_matching() {
-        assert!(is_violated(&
-            RuleCondition::ExactArgCount {
+        assert!(is_violated(
+            &RuleCondition::ExactArgCount {
                 count: 2,
                 negated: true,
             },
@@ -149,8 +162,8 @@ mod tests {
 
     #[test]
     fn exact_arg_count_negated_not_violated_when_matching() {
-        assert!(!is_violated(&
-            RuleCondition::ExactArgCount {
+        assert!(!is_violated(
+            &RuleCondition::ExactArgCount {
                 count: 2,
                 negated: true,
             },
@@ -160,8 +173,8 @@ mod tests {
 
     #[test]
     fn exact_arg_count_not_negated_violated_when_matching() {
-        assert!(is_violated(&
-            RuleCondition::ExactArgCount {
+        assert!(is_violated(
+            &RuleCondition::ExactArgCount {
                 count: 2,
                 negated: false,
             },
@@ -174,16 +187,16 @@ mod tests {
     #[test]
     fn max_arg_count_violated_when_at_threshold() {
         // MaxArgCount{max:3} → violated when split_len <= 3
-        assert!(is_violated(&
-            RuleCondition::MaxArgCount { max: 3 },
+        assert!(is_violated(
+            &RuleCondition::MaxArgCount { max: 3 },
             &["item", "in"], // split_len=3, 3 <= 3 → violated
         ));
     }
 
     #[test]
     fn max_arg_count_not_violated_when_above_threshold() {
-        assert!(!is_violated(&
-            RuleCondition::MaxArgCount { max: 3 },
+        assert!(!is_violated(
+            &RuleCondition::MaxArgCount { max: 3 },
             &["item", "in", "items"], // split_len=4, 4 <= 3 is false
         ));
     }
@@ -192,16 +205,16 @@ mod tests {
 
     #[test]
     fn min_arg_count_violated_when_below() {
-        assert!(is_violated(&
-            RuleCondition::MinArgCount { min: 4 },
+        assert!(is_violated(
+            &RuleCondition::MinArgCount { min: 4 },
             &["a", "b"], // split_len=3, 3 < 4 → violated
         ));
     }
 
     #[test]
     fn min_arg_count_not_violated_at_minimum() {
-        assert!(!is_violated(&
-            RuleCondition::MinArgCount { min: 4 },
+        assert!(!is_violated(
+            &RuleCondition::MinArgCount { min: 4 },
             &["a", "b", "c"], // split_len=4, 4 < 4 is false
         ));
     }
@@ -210,8 +223,8 @@ mod tests {
 
     #[test]
     fn arg_count_comparison_gt_violated() {
-        assert!(is_violated(&
-            RuleCondition::ArgCountComparison {
+        assert!(is_violated(
+            &RuleCondition::ArgCountComparison {
                 count: 5,
                 op: ComparisonOp::Gt,
             },
@@ -221,8 +234,8 @@ mod tests {
 
     #[test]
     fn arg_count_comparison_gt_not_violated_when_equal() {
-        assert!(!is_violated(&
-            RuleCondition::ArgCountComparison {
+        assert!(!is_violated(
+            &RuleCondition::ArgCountComparison {
                 count: 5,
                 op: ComparisonOp::Gt,
             },
@@ -232,8 +245,8 @@ mod tests {
 
     #[test]
     fn arg_count_comparison_lt_violated() {
-        assert!(is_violated(&
-            RuleCondition::ArgCountComparison {
+        assert!(is_violated(
+            &RuleCondition::ArgCountComparison {
                 count: 3,
                 op: ComparisonOp::Lt,
             },
@@ -243,8 +256,8 @@ mod tests {
 
     #[test]
     fn arg_count_comparison_gteq_violated() {
-        assert!(is_violated(&
-            RuleCondition::ArgCountComparison {
+        assert!(is_violated(
+            &RuleCondition::ArgCountComparison {
                 count: 3,
                 op: ComparisonOp::GtEq,
             },
@@ -254,8 +267,8 @@ mod tests {
 
     #[test]
     fn arg_count_comparison_lteq_violated() {
-        assert!(is_violated(&
-            RuleCondition::ArgCountComparison {
+        assert!(is_violated(
+            &RuleCondition::ArgCountComparison {
                 count: 3,
                 op: ComparisonOp::LtEq,
             },
@@ -268,8 +281,8 @@ mod tests {
     #[test]
     fn literal_at_negated_violated_when_mismatch() {
         // extraction index 2 → bits[1]
-        assert!(is_violated(&
-            RuleCondition::LiteralAt {
+        assert!(is_violated(
+            &RuleCondition::LiteralAt {
                 index: 2,
                 value: "in".to_string(),
                 negated: true,
@@ -280,8 +293,8 @@ mod tests {
 
     #[test]
     fn literal_at_negated_not_violated_when_match() {
-        assert!(!is_violated(&
-            RuleCondition::LiteralAt {
+        assert!(!is_violated(
+            &RuleCondition::LiteralAt {
                 index: 2,
                 value: "in".to_string(),
                 negated: true,
@@ -292,8 +305,8 @@ mod tests {
 
     #[test]
     fn literal_at_not_negated_violated_when_match() {
-        assert!(is_violated(&
-            RuleCondition::LiteralAt {
+        assert!(is_violated(
+            &RuleCondition::LiteralAt {
                 index: 2,
                 value: "bad".to_string(),
                 negated: false,
@@ -304,8 +317,8 @@ mod tests {
 
     #[test]
     fn literal_at_index_zero_never_violated() {
-        assert!(!is_violated(&
-            RuleCondition::LiteralAt {
+        assert!(!is_violated(
+            &RuleCondition::LiteralAt {
                 index: 0,
                 value: "anything".to_string(),
                 negated: true,
@@ -318,8 +331,8 @@ mod tests {
 
     #[test]
     fn choice_at_negated_violated_when_not_in_choices() {
-        assert!(is_violated(&
-            RuleCondition::ChoiceAt {
+        assert!(is_violated(
+            &RuleCondition::ChoiceAt {
                 index: 1,
                 choices: vec!["on".to_string(), "off".to_string()],
                 negated: true,
@@ -330,8 +343,8 @@ mod tests {
 
     #[test]
     fn choice_at_negated_not_violated_when_in_choices() {
-        assert!(!is_violated(&
-            RuleCondition::ChoiceAt {
+        assert!(!is_violated(
+            &RuleCondition::ChoiceAt {
                 index: 1,
                 choices: vec!["on".to_string(), "off".to_string()],
                 negated: true,
@@ -344,8 +357,8 @@ mod tests {
 
     #[test]
     fn contains_literal_negated_violated_when_absent() {
-        assert!(is_violated(&
-            RuleCondition::ContainsLiteral {
+        assert!(is_violated(
+            &RuleCondition::ContainsLiteral {
                 value: "as".to_string(),
                 negated: true,
             },
@@ -355,8 +368,8 @@ mod tests {
 
     #[test]
     fn contains_literal_negated_not_violated_when_present() {
-        assert!(!is_violated(&
-            RuleCondition::ContainsLiteral {
+        assert!(!is_violated(
+            &RuleCondition::ContainsLiteral {
                 value: "as".to_string(),
                 negated: true,
             },
@@ -366,8 +379,8 @@ mod tests {
 
     #[test]
     fn contains_literal_not_negated_violated_when_present() {
-        assert!(is_violated(&
-            RuleCondition::ContainsLiteral {
+        assert!(is_violated(
+            &RuleCondition::ContainsLiteral {
                 value: "forbidden".to_string(),
                 negated: false,
             },
@@ -379,8 +392,8 @@ mod tests {
 
     #[test]
     fn opaque_never_violated() {
-        assert!(!is_violated(&
-            RuleCondition::Opaque {
+        assert!(!is_violated(
+            &RuleCondition::Opaque {
                 description: "unrecognized comparison".to_string(),
             },
             &[],
@@ -392,8 +405,8 @@ mod tests {
     #[test]
     fn out_of_bounds_index_negated_violated() {
         // bits[9] = None → matches=false, negated → violated
-        assert!(is_violated(&
-            RuleCondition::LiteralAt {
+        assert!(is_violated(
+            &RuleCondition::LiteralAt {
                 index: 10,
                 value: "missing".to_string(),
                 negated: true,
@@ -405,8 +418,8 @@ mod tests {
     #[test]
     fn out_of_bounds_index_not_negated_not_violated() {
         // bits[9] = None → matches=false, not negated → not violated
-        assert!(!is_violated(&
-            RuleCondition::LiteralAt {
+        assert!(!is_violated(
+            &RuleCondition::LiteralAt {
                 index: 10,
                 value: "missing".to_string(),
                 negated: false,

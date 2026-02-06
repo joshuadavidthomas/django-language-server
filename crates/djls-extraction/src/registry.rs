@@ -47,9 +47,7 @@ pub struct FoundRegistrations {
 
 /// Find all tag and filter registrations in a parsed Python module.
 #[allow(clippy::unnecessary_wraps)]
-pub fn find_registrations(
-    parsed: &ParsedModule,
-) -> Result<FoundRegistrations, ExtractionError> {
+pub fn find_registrations(parsed: &ParsedModule) -> Result<FoundRegistrations, ExtractionError> {
     let mut result = FoundRegistrations::default();
     let module = parsed.ast();
 
@@ -70,10 +68,7 @@ pub fn find_registrations(
     Ok(result)
 }
 
-fn analyze_tag_decorator(
-    decorator: &Decorator,
-    func_name: &str,
-) -> Option<RegistrationInfo> {
+fn analyze_tag_decorator(decorator: &Decorator, func_name: &str) -> Option<RegistrationInfo> {
     let expr = &decorator.expression;
 
     match expr {
@@ -102,19 +97,14 @@ fn analyze_tag_decorator(
             // `@register_simple_block_tag(...)`
             if let Expr::Name(name) = call.func.as_ref() {
                 if TAG_HELPER_DECORATORS.contains(&name.id.as_str()) {
-                    let helper_kind = DecoratorKind::HelperWrapper(
-                        name.id.to_string(),
-                    );
-                    let tag_name =
-                        extract_name_from_call(call, &helper_kind)
-                            .unwrap_or_else(|| func_name.to_string());
+                    let helper_kind = DecoratorKind::HelperWrapper(name.id.to_string());
+                    let tag_name = extract_name_from_call(call, &helper_kind)
+                        .unwrap_or_else(|| func_name.to_string());
                     let explicit_end_name = extract_end_name_from_call(call);
 
                     return Some(RegistrationInfo {
                         name: tag_name,
-                        decorator_kind: DecoratorKind::HelperWrapper(
-                            name.id.to_string(),
-                        ),
+                        decorator_kind: DecoratorKind::HelperWrapper(name.id.to_string()),
                         function_name: func_name.to_string(),
                         offset: decorator.range().start().to_usize(),
                         explicit_end_name,
@@ -134,15 +124,13 @@ fn analyze_tag_decorator(
                 return None;
             }
 
-            let name = extract_name_from_call(call, &kind)
-                .unwrap_or_else(|| func_name.to_string());
+            let name = extract_name_from_call(call, &kind).unwrap_or_else(|| func_name.to_string());
 
-            let explicit_end_name =
-                if matches!(kind, DecoratorKind::SimpleBlockTag) {
-                    extract_end_name_from_call(call)
-                } else {
-                    None
-                };
+            let explicit_end_name = if matches!(kind, DecoratorKind::SimpleBlockTag) {
+                extract_end_name_from_call(call)
+            } else {
+                None
+            };
 
             Some(RegistrationInfo {
                 name,
@@ -159,9 +147,7 @@ fn analyze_tag_decorator(
             if TAG_HELPER_DECORATORS.contains(&name.id.as_str()) {
                 return Some(RegistrationInfo {
                     name: func_name.to_string(),
-                    decorator_kind: DecoratorKind::HelperWrapper(
-                        name.id.to_string(),
-                    ),
+                    decorator_kind: DecoratorKind::HelperWrapper(name.id.to_string()),
                     function_name: func_name.to_string(),
                     offset: decorator.range().start().to_usize(),
                     explicit_end_name: None,
@@ -174,19 +160,14 @@ fn analyze_tag_decorator(
     }
 }
 
-fn analyze_filter_decorator(
-    decorator: &Decorator,
-    func_name: &str,
-) -> Option<RegistrationInfo> {
+fn analyze_filter_decorator(decorator: &Decorator, func_name: &str) -> Option<RegistrationInfo> {
     let is_filter = match &decorator.expression {
         Expr::Attribute(attr) => {
-            FILTER_DECORATORS.contains(&attr.attr.as_str())
-                && is_register_attribute(attr)
+            FILTER_DECORATORS.contains(&attr.attr.as_str()) && is_register_attribute(attr)
         }
         Expr::Call(call) => {
             if let Expr::Attribute(attr) = call.func.as_ref() {
-                FILTER_DECORATORS.contains(&attr.attr.as_str())
-                    && is_register_attribute(attr)
+                FILTER_DECORATORS.contains(&attr.attr.as_str()) && is_register_attribute(attr)
             } else {
                 false
             }
@@ -200,8 +181,7 @@ fn analyze_filter_decorator(
 
     let filter_kind = DecoratorKind::Tag;
     let name = if let Expr::Call(call) = &decorator.expression {
-        extract_name_from_call(call, &filter_kind)
-            .unwrap_or_else(|| func_name.to_string())
+        extract_name_from_call(call, &filter_kind).unwrap_or_else(|| func_name.to_string())
     } else {
         func_name.to_string()
     };
@@ -221,9 +201,7 @@ fn decorator_kind_from_name(name: &str) -> Option<DecoratorKind> {
         "simple_tag" => Some(DecoratorKind::SimpleTag),
         "inclusion_tag" => Some(DecoratorKind::InclusionTag),
         "simple_block_tag" => Some(DecoratorKind::SimpleBlockTag),
-        _ if TAG_DECORATORS.contains(&name) => {
-            Some(DecoratorKind::Custom(name.to_string()))
-        }
+        _ if TAG_DECORATORS.contains(&name) => Some(DecoratorKind::Custom(name.to_string())),
         _ => None,
     }
 }
@@ -237,10 +215,7 @@ fn is_register_attribute(attr: &ruff_python_ast::ExprAttribute) -> bool {
     match attr.value.as_ref() {
         Expr::Name(name) => {
             let n = name.id.as_str();
-            n == "register"
-                || n == "lib"
-                || n == "library"
-                || n.ends_with("register")
+            n == "register" || n == "lib" || n == "library" || n.ends_with("register")
         }
         // If the value is not a simple name (e.g., `foo.bar.tag`), allow it
         // rather than silently skipping — the decorator method name is the
@@ -262,14 +237,11 @@ fn extract_name_from_call(
 ) -> Option<String> {
     // Only `@register.tag` and `@register.filter` (and helper wrappers)
     // use the first positional string as the name.
-    let first_positional_is_name = matches!(
-        kind,
-        DecoratorKind::Tag | DecoratorKind::HelperWrapper(_)
-    );
+    let first_positional_is_name =
+        matches!(kind, DecoratorKind::Tag | DecoratorKind::HelperWrapper(_));
 
     if first_positional_is_name {
-        if let Some(Expr::StringLiteral(s)) = call.arguments.args.first()
-        {
+        if let Some(Expr::StringLiteral(s)) = call.arguments.args.first() {
             return Some(s.value.to_string());
         }
     }
@@ -290,9 +262,7 @@ fn extract_name_from_call(
 /// Extract `end_name` keyword argument from a decorator call.
 ///
 /// Handles: `@register.simple_block_tag(end_name="endmytag")`
-fn extract_end_name_from_call(
-    call: &ruff_python_ast::ExprCall,
-) -> Option<String> {
+fn extract_end_name_from_call(call: &ruff_python_ast::ExprCall) -> Option<String> {
     for kw in &call.arguments.keywords {
         if let Some(arg) = &kw.arg {
             if arg.as_str() == "end_name" {
@@ -324,10 +294,7 @@ def my_tag(parser, token):
         assert_eq!(regs.tags.len(), 1);
         assert_eq!(regs.tags[0].name, "my_tag");
         assert_eq!(regs.tags[0].function_name, "my_tag");
-        assert!(matches!(
-            regs.tags[0].decorator_kind,
-            DecoratorKind::Tag
-        ));
+        assert!(matches!(regs.tags[0].decorator_kind, DecoratorKind::Tag));
     }
 
     #[test]

@@ -484,13 +484,13 @@
 
 ### Phase 3: Wire Evaluator into Validation Pipeline
 
-- [ ] Update `validate_tag_arguments()` in `crates/djls-semantic/src/arguments.rs` to dispatch to extracted rule evaluator when `spec.extracted_rules` is non-empty
-- [ ] Keep `validate_args_against_spec`/`validate_argument_order` for user-config `TagArg`-only fallback
-- [ ] Strip hand-crafted `args:` values from all specs in `crates/djls-semantic/src/templatetags/builtins.rs` (set to `B(&[])`)
-- [ ] Remove `args` field from `EndTag` and `IntermediateTag` in `crates/djls-semantic/src/templatetags/specs.rs`
-- [ ] Simplify `merge_block_spec` without `EndTag.args`/`IntermediateTag.args`
-- [ ] Update existing argument tests to expect `ExtractedRuleViolation` instead of old error types
-- [ ] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Update `validate_tag_arguments()` in `crates/djls-semantic/src/arguments.rs` to dispatch to extracted rule evaluator when `spec.extracted_rules` is non-empty
+- [x] Keep `validate_args_against_spec`/`validate_argument_order` for user-config `TagArg`-only fallback
+- [x] Strip hand-crafted `args:` values from all specs in `crates/djls-semantic/src/templatetags/builtins.rs` (set to `B(&[])`)
+- [x] Remove `args` field from `EndTag` and `IntermediateTag` in `crates/djls-semantic/src/templatetags/specs.rs`
+- [x] Simplify `merge_block_spec` without `EndTag.args`/`IntermediateTag.args`
+- [x] Update existing argument tests to expect `ExtractedRuleViolation` instead of old error types
+- [x] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 4: Wire Extracted Args into Completions/Snippets
 
@@ -594,3 +594,6 @@
 - M6: Salsa `#[salsa::tracked]` functions cannot accept non-tracked parameters like `&OpaqueRegions`. Each validation function (`validate_all_tag_arguments`, `validate_tag_scoping`, `validate_filter_scoping`, `validate_if_expressions`, `validate_filter_arity`) computes opaque regions internally via `compute_opaque_regions(db, nodelist)`.
 - M6: `LoadState` in `load_resolution.rs` changed from private to `pub(crate)` so `filter_arity.rs` can reuse the same load-scoping state machine for filter symbol resolution.
 - M6: The arguments test `test_expr_stops_at_literal` uses a contrived `{% if x > 0 reversed %}` which now triggers S114 (expression syntax error). The test filters out `ExpressionSyntaxError` to only check argument-spec validation.
+- M8: `EndTag` and `IntermediateTag` no longer have `args` fields. Closer/intermediate tags receive no argument validation. The `validate_close` method in `TagIndex` always returns `Valid` (match_args is always empty).
+- M8: Builtin tag specs in `builtins.rs` have empty `args` — argument validation relies entirely on extracted rules populated by `compute_tag_specs` in the server. Tests using `django_builtin_specs()` directly will see no argument validation without providing extracted rules.
+- M8: `validate_tag_arguments` dispatch: extracted_rules (primary) → args (user-config fallback) → no validation (conservative). Both empty means no validation.

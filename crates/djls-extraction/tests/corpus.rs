@@ -75,10 +75,7 @@ fn enumerate_extraction_files(corpus_root: &Path) -> Vec<PathBuf> {
         }
 
         // Skip __init__.py — rarely contains registrations
-        if path
-            .file_name()
-            .is_some_and(|n| n == "__init__.py")
-        {
+        if path.file_name().is_some_and(|n| n == "__init__.py") {
             continue;
         }
 
@@ -89,10 +86,7 @@ fn enumerate_extraction_files(corpus_root: &Path) -> Vec<PathBuf> {
         }
 
         // Django core template modules
-        let file_name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("");
+        let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
         if path_str.contains("/template/")
             && matches!(
                 file_name,
@@ -168,9 +162,7 @@ fn test_corpus_extraction_no_panics() {
     eprintln!("\n=== Corpus Extraction Summary ===");
     eprintln!("Total files:      {}", files.len());
     eprintln!("Successful:       {success_count}");
-    eprintln!(
-        "Parse failures:   {parse_failure_count} (expected for unsupported syntax)"
-    );
+    eprintln!("Parse failures:   {parse_failure_count} (expected for unsupported syntax)");
     eprintln!("Errors:           {error_count}");
 
     assert!(
@@ -386,17 +378,13 @@ fn test_corpus_parity_with_python_prototype() {
 
     // Gate 2: Must explicitly opt-in
     if std::env::var("DJLS_PY_ORACLE").as_deref() != Ok("1") {
-        eprintln!(
-            "DJLS_PY_ORACLE not set — parity oracle is opt-in developer scaffolding"
-        );
+        eprintln!("DJLS_PY_ORACLE not set — parity oracle is opt-in developer scaffolding");
         return;
     }
 
     // Gate 3: Must provide prototype path
     let Ok(prototype_path_str) = std::env::var("DJLS_PY_ORACLE_PATH") else {
-        eprintln!(
-            "DJLS_PY_ORACLE_PATH not set — must point to Python prototype checkout"
-        );
+        eprintln!("DJLS_PY_ORACLE_PATH not set — must point to Python prototype checkout");
         return;
     };
     let prototype_path = PathBuf::from(prototype_path_str);
@@ -430,8 +418,8 @@ fn test_corpus_parity_with_python_prototype() {
     }
 
     // Test against Django's defaulttags.py
-    let django_version = std::env::var("DJLS_PY_ORACLE_DJANGO_VERSION")
-        .unwrap_or_else(|_| "5.2.11".to_string());
+    let django_version =
+        std::env::var("DJLS_PY_ORACLE_DJANGO_VERSION").unwrap_or_else(|_| "5.2.11".to_string());
 
     let test_file = corpus.join(format!(
         "packages/Django/{django_version}/django/template/defaulttags.py"
@@ -457,11 +445,7 @@ fn test_corpus_parity_with_python_prototype() {
     };
 
     // Compare
-    let mut rust_tags: Vec<&str> = rust_result
-        .tags
-        .iter()
-        .map(|t| t.name.as_str())
-        .collect();
+    let mut rust_tags: Vec<&str> = rust_result.tags.iter().map(|t| t.name.as_str()).collect();
     rust_tags.sort_unstable();
     let python_tags: Vec<&str> = python_result["tags"]
         .as_array()
@@ -497,10 +481,7 @@ fn test_corpus_parity_with_python_prototype() {
     }
 }
 
-fn run_python_oracle(
-    prototype_path: &Path,
-    test_file: &Path,
-) -> Option<serde_json::Value> {
+fn run_python_oracle(prototype_path: &Path, test_file: &Path) -> Option<serde_json::Value> {
     let python_output = std::process::Command::new("uv")
         .args([
             "run",

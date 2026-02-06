@@ -242,7 +242,6 @@ impl From<(djls_conf::TagDef, String)> for TagSpec {
                     Some(EndTag {
                         name: format!("end{}", tag_def.name).into(),
                         required: true,
-                        args: B(&[]),
                     })
                 })
             }
@@ -298,7 +297,6 @@ impl TagSpec {
                 self.end_tag = Some(EndTag {
                     name: end.clone().into(),
                     required: true,
-                    args: B(&[]),
                 });
             }
         }
@@ -309,7 +307,6 @@ impl TagSpec {
                 .iter()
                 .map(|it| IntermediateTag {
                     name: it.name.clone().into(),
-                    args: B(&[]),
                 })
                 .collect::<Vec<_>>()
                 .into();
@@ -318,10 +315,7 @@ impl TagSpec {
 
     /// Create a `TagSpec` from extraction results.
     #[must_use]
-    pub fn from_extraction(
-        module_path: &str,
-        tag: &djls_extraction::ExtractedTag,
-    ) -> Self {
+    pub fn from_extraction(module_path: &str, tag: &djls_extraction::ExtractedTag) -> Self {
         let mut spec = TagSpec {
             module: module_path.to_string().into(),
             end_tag: None,
@@ -579,7 +573,6 @@ impl From<djls_conf::TagArgDef> for TagArg {
 pub struct EndTag {
     pub name: S,
     pub required: bool,
-    pub args: L<TagArg>,
 }
 
 impl From<djls_conf::EndTagDef> for EndTag {
@@ -587,12 +580,6 @@ impl From<djls_conf::EndTagDef> for EndTag {
         EndTag {
             name: value.name.into(),
             required: value.required,
-            args: value
-                .args
-                .into_iter()
-                .map(Into::into)
-                .collect::<Vec<_>>()
-                .into(),
         }
     }
 }
@@ -600,19 +587,12 @@ impl From<djls_conf::EndTagDef> for EndTag {
 #[derive(Debug, Clone, PartialEq)]
 pub struct IntermediateTag {
     pub name: S,
-    pub args: L<TagArg>,
 }
 
 impl From<djls_conf::IntermediateTagDef> for IntermediateTag {
     fn from(value: djls_conf::IntermediateTagDef) -> Self {
         IntermediateTag {
             name: value.name.into(),
-            args: value
-                .args
-                .into_iter()
-                .map(Into::into)
-                .collect::<Vec<_>>()
-                .into(),
         }
     }
 }
@@ -650,16 +630,13 @@ mod tests {
                 end_tag: Some(EndTag {
                     name: "endif".into(),
                     required: true,
-                    args: Cow::Borrowed(&[]),
                 }),
                 intermediate_tags: Cow::Owned(vec![
                     IntermediateTag {
                         name: "elif".into(),
-                        args: Cow::Owned(vec![TagArg::expr("condition", true)]),
                     },
                     IntermediateTag {
                         name: "else".into(),
-                        args: Cow::Borrowed(&[]),
                     },
                 ]),
                 args: Cow::Borrowed(&[]),
@@ -676,16 +653,13 @@ mod tests {
                 end_tag: Some(EndTag {
                     name: "endfor".into(),
                     required: true,
-                    args: Cow::Borrowed(&[]),
                 }),
                 intermediate_tags: Cow::Owned(vec![
                     IntermediateTag {
                         name: "empty".into(),
-                        args: Cow::Borrowed(&[]),
                     },
                     IntermediateTag {
                         name: "else".into(),
-                        args: Cow::Borrowed(&[]),
                     }, // Note: else is shared
                 ]),
                 args: Cow::Borrowed(&[]),
@@ -702,11 +676,6 @@ mod tests {
                 end_tag: Some(EndTag {
                     name: "endblock".into(),
                     required: true,
-                    args: Cow::Owned(vec![TagArg::Variable {
-                        name: "name".into(),
-                        required: false,
-                        count: TokenCount::Exact(1),
-                    }]),
                 }),
                 intermediate_tags: Cow::Borrowed(&[]),
                 args: Cow::Borrowed(&[]),
@@ -787,12 +756,9 @@ mod tests {
         let endif_spec = specs.get_end_spec_for_closer("endif").unwrap();
         assert_eq!(endif_spec.name.as_ref(), "endif");
         assert!(endif_spec.required);
-        assert_eq!(endif_spec.args.len(), 0);
 
         let endblock_spec = specs.get_end_spec_for_closer("endblock").unwrap();
         assert_eq!(endblock_spec.name.as_ref(), "endblock");
-        assert_eq!(endblock_spec.args.len(), 1);
-        assert_eq!(endblock_spec.args[0].name().as_ref(), "name");
 
         assert!(specs.get_end_spec_for_closer("endnonexistent").is_none());
     }
@@ -913,7 +879,6 @@ mod tests {
                 end_tag: Some(EndTag {
                     name: "endif".into(),
                     required: false, // Changed to not required
-                    args: Cow::Borrowed(&[]),
                 }),
                 intermediate_tags: Cow::Borrowed(&[]), // Removed intermediates
                 args: Cow::Borrowed(&[]),
@@ -1019,7 +984,6 @@ mod tests {
         let end_tag = EndTag::from(end_tag_def);
         assert_eq!(end_tag.name.as_ref(), "endtest");
         assert!(!end_tag.required);
-        assert_eq!(end_tag.args.len(), 0);
 
         // Test IntermediateTagDef -> IntermediateTag conversion
         let intermediate_def = djls_conf::IntermediateTagDef {
@@ -1039,8 +1003,6 @@ mod tests {
         };
         let intermediate = IntermediateTag::from(intermediate_def);
         assert_eq!(intermediate.name.as_ref(), "elif");
-        assert_eq!(intermediate.args.len(), 1);
-        assert_eq!(intermediate.args[0].name().as_ref(), "condition");
 
         // Test full TagDef -> TagSpec conversion with module
         let tag_def = djls_conf::TagDef {
@@ -1070,7 +1032,6 @@ mod tests {
         assert_eq!(tagspec.end_tag.as_ref().unwrap().name.as_ref(), "endcustom");
         assert_eq!(tagspec.intermediate_tags.len(), 1);
         assert_eq!(tagspec.intermediate_tags[0].name.as_ref(), "branch");
-        assert_eq!(tagspec.intermediate_tags[0].args.len(), 0);
     }
 
     #[test]
@@ -1162,20 +1123,13 @@ required = false
     }
 
     #[test]
-    fn test_merge_block_spec_preserves_existing_end_tag_args() {
-        // Regression test: merge_block_spec must not overwrite an existing
-        // end_tag that already has argument definitions (e.g., endblock's
-        // optional name argument).
+    fn test_merge_block_spec_preserves_existing_end_tag() {
+        // Regression test: merge_block_spec must not overwrite an existing end_tag.
         let mut spec = TagSpec {
             module: "django.template.loader_tags".into(),
             end_tag: Some(EndTag {
                 name: "endblock".into(),
                 required: true,
-                args: Cow::Owned(vec![TagArg::Variable {
-                    name: "name".into(),
-                    required: false,
-                    count: TokenCount::Exact(1),
-                }]),
             }),
             intermediate_tags: Cow::Borrowed(&[]),
             args: Cow::Borrowed(&[]),
@@ -1191,14 +1145,9 @@ required = false
 
         spec.merge_block_spec(&extracted_block);
 
-        // The end_tag should still have its original args
+        // The end_tag should still exist
         let end = spec.end_tag.as_ref().expect("end_tag should exist");
-        assert_eq!(end.args.len(), 1, "endblock args should be preserved");
-        assert_eq!(
-            end.args[0].name().as_ref(),
-            "name",
-            "endblock 'name' arg should be preserved"
-        );
+        assert_eq!(end.name.as_ref(), "endblock");
     }
 
     #[test]
@@ -1208,16 +1157,13 @@ required = false
             end_tag: Some(EndTag {
                 name: "endif".into(),
                 required: true,
-                args: Cow::Borrowed(&[]),
             }),
             intermediate_tags: Cow::Owned(vec![
                 IntermediateTag {
                     name: "elif".into(),
-                    args: Cow::Owned(vec![TagArg::expr("condition", true)]),
                 },
                 IntermediateTag {
                     name: "else".into(),
-                    args: Cow::Borrowed(&[]),
                 },
             ]),
             args: Cow::Borrowed(&[]),
@@ -1242,13 +1188,8 @@ required = false
 
         spec.merge_block_spec(&extracted_block);
 
-        // Intermediate tags should retain original args, not be replaced with empty args
+        // Intermediate tags should be preserved (not replaced by extraction)
         assert_eq!(spec.intermediate_tags.len(), 2);
-        assert_eq!(
-            spec.intermediate_tags[0].args.len(),
-            1,
-            "elif args should be preserved"
-        );
     }
 
     #[test]

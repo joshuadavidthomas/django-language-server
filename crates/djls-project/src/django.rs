@@ -139,14 +139,9 @@ pub fn templatetags(db: &dyn ProjectDb, _project: Project) -> Option<TemplateTag
 #[serde(rename_all = "lowercase")]
 pub enum FilterProvenance {
     /// Filter requires `{% load X %}` to use
-    Library {
-        load_name: String,
-        module: String,
-    },
+    Library { load_name: String, module: String },
     /// Filter is always available (builtin)
-    Builtin {
-        module: String,
-    },
+    Builtin { module: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -305,14 +300,9 @@ impl InspectorInventory {
 #[serde(rename_all = "lowercase")]
 pub enum TagProvenance {
     /// Tag requires `{% load X %}` to use
-    Library {
-        load_name: String,
-        module: String,
-    },
+    Library { load_name: String, module: String },
     /// Tag is always available (builtin)
-    Builtin {
-        module: String,
-    },
+    Builtin { module: String },
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -520,10 +510,7 @@ mod tests {
             "static".to_string(),
             "django.templatetags.static".to_string(),
         );
-        libraries.insert(
-            "i18n".to_string(),
-            "django.templatetags.i18n".to_string(),
-        );
+        libraries.insert("i18n".to_string(), "django.templatetags.i18n".to_string());
 
         let tags = TemplateTags {
             libraries,
@@ -533,12 +520,7 @@ mod tests {
             ],
             tags: vec![
                 TemplateTag::new_builtin("if", "django.template.defaulttags", None),
-                TemplateTag::new_library(
-                    "static",
-                    "static",
-                    "django.templatetags.static",
-                    None,
-                ),
+                TemplateTag::new_library("static", "static", "django.templatetags.static", None),
             ],
         };
 
@@ -551,7 +533,12 @@ mod tests {
 
     #[test]
     fn test_template_tag_constructors() {
-        let lib_tag = TemplateTag::new_library("static", "static", "django.templatetags.static", Some("doc"));
+        let lib_tag = TemplateTag::new_library(
+            "static",
+            "static",
+            "django.templatetags.static",
+            Some("doc"),
+        );
         assert_eq!(lib_tag.name(), "static");
         assert_eq!(lib_tag.library_load_name(), Some("static"));
         assert!(!lib_tag.is_builtin());
@@ -587,15 +574,14 @@ mod tests {
 
     #[test]
     fn test_template_filter_builtin_provenance() {
-        let filter = TemplateFilter::new_builtin(
-            "title",
-            "django.template.defaultfilters",
-            None,
-        );
+        let filter = TemplateFilter::new_builtin("title", "django.template.defaultfilters", None);
         assert_eq!(filter.name(), "title");
         assert!(filter.is_builtin());
         assert_eq!(filter.library_load_name(), None);
-        assert_eq!(filter.registration_module(), "django.template.defaultfilters");
+        assert_eq!(
+            filter.registration_module(),
+            "django.template.defaultfilters"
+        );
         assert_eq!(filter.doc(), None);
     }
 
@@ -630,17 +616,16 @@ mod tests {
     #[test]
     fn test_inspector_inventory() {
         let mut libraries = HashMap::new();
-        libraries.insert(
-            "i18n".to_string(),
-            "django.templatetags.i18n".to_string(),
-        );
+        libraries.insert("i18n".to_string(), "django.templatetags.i18n".to_string());
 
         let inv = InspectorInventory::new(
             libraries,
             vec!["django.template.defaulttags".to_string()],
-            vec![
-                TemplateTag::new_builtin("if", "django.template.defaulttags", None),
-            ],
+            vec![TemplateTag::new_builtin(
+                "if",
+                "django.template.defaulttags",
+                None,
+            )],
             vec![
                 TemplateFilter::new_builtin("title", "django.template.defaultfilters", None),
                 TemplateFilter::new_library("localize", "l10n", "django.templatetags.l10n", None),

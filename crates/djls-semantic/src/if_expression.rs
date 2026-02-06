@@ -109,11 +109,7 @@ impl IfExpressionParser {
 
     fn advance(&mut self) {
         self.pos += 1;
-        self.current = self
-            .tokens
-            .get(self.pos)
-            .cloned()
-            .unwrap_or(IfToken::End);
+        self.current = self.tokens.get(self.pos).cloned().unwrap_or(IfToken::End);
     }
 
     fn parse(&mut self) -> Result<(), String> {
@@ -125,9 +121,7 @@ impl IfExpressionParser {
                 IfToken::Operator(op) => op.id.to_string(),
                 IfToken::End => unreachable!(),
             };
-            return Err(format!(
-                "Unused '{display}' at end of if expression."
-            ));
+            return Err(format!("Unused '{display}' at end of if expression."));
         }
         Ok(())
     }
@@ -283,19 +277,15 @@ mod tests {
 
     #[test]
     fn valid_complex_chain() {
-        assert!(
-            validate_if_expression(&bits(&["x", "and", "y", "or", "not", "z"])).is_none()
-        );
+        assert!(validate_if_expression(&bits(&["x", "and", "y", "or", "not", "z"])).is_none());
     }
 
     #[test]
     fn valid_comparison_chain() {
-        assert!(
-            validate_if_expression(&bits(&[
-                "x", "==", "y", "and", "a", "!=", "b", "or", "c", "in", "d"
-            ]))
-            .is_none()
-        );
+        assert!(validate_if_expression(&bits(&[
+            "x", "==", "y", "and", "a", "!=", "b", "or", "c", "in", "d"
+        ]))
+        .is_none());
     }
 
     // Invalid expressions
@@ -396,9 +386,7 @@ mod tests {
     #[test]
     fn valid_mixed_precedence() {
         // x and y or not z — tests mixed and/or/not precedence
-        assert!(
-            validate_if_expression(&bits(&["x", "and", "y", "or", "not", "z"])).is_none()
-        );
+        assert!(validate_if_expression(&bits(&["x", "and", "y", "or", "not", "z"])).is_none());
     }
 
     #[test]
@@ -410,30 +398,24 @@ mod tests {
     #[test]
     fn valid_not_with_comparison() {
         // not x == y
-        assert!(
-            validate_if_expression(&bits(&["not", "x", "==", "y"])).is_none()
-        );
+        assert!(validate_if_expression(&bits(&["not", "x", "==", "y"])).is_none());
     }
 
     #[test]
     fn valid_complex_and_or_not() {
         // a == b and c != d or not e
-        assert!(
-            validate_if_expression(&bits(&[
-                "a", "==", "b", "and", "c", "!=", "d", "or", "not", "e"
-            ]))
-            .is_none()
-        );
+        assert!(validate_if_expression(&bits(&[
+            "a", "==", "b", "and", "c", "!=", "d", "or", "not", "e"
+        ]))
+        .is_none());
     }
 
     #[test]
     fn valid_is_and_is_not_together() {
         // x is y and a is not b
         assert!(
-            validate_if_expression(&bits(&[
-                "x", "is", "y", "and", "a", "is", "not", "b"
-            ]))
-            .is_none()
+            validate_if_expression(&bits(&["x", "is", "y", "and", "a", "is", "not", "b"]))
+                .is_none()
         );
     }
 
@@ -441,31 +423,25 @@ mod tests {
     fn valid_in_and_not_in_together() {
         // x in y and a not in b
         assert!(
-            validate_if_expression(&bits(&[
-                "x", "in", "y", "and", "a", "not", "in", "b"
-            ]))
-            .is_none()
+            validate_if_expression(&bits(&["x", "in", "y", "and", "a", "not", "in", "b"]))
+                .is_none()
         );
     }
 
     #[test]
     fn valid_all_comparison_ops() {
         // a == b and c != d and e > f and g >= h and i < j and k <= l
-        assert!(
-            validate_if_expression(&bits(&[
-                "a", "==", "b", "and", "c", "!=", "d", "and", "e", ">", "f", "and", "g",
-                ">=", "h", "and", "i", "<", "j", "and", "k", "<=", "l"
-            ]))
-            .is_none()
-        );
+        assert!(validate_if_expression(&bits(&[
+            "a", "==", "b", "and", "c", "!=", "d", "and", "e", ">", "f", "and", "g", ">=", "h",
+            "and", "i", "<", "j", "and", "k", "<=", "l"
+        ]))
+        .is_none());
     }
 
     #[test]
     fn valid_not_before_in() {
         // not x in y — "not" is prefix, then "x in y" is infix
-        assert!(
-            validate_if_expression(&bits(&["not", "x", "in", "y"])).is_none()
-        );
+        assert!(validate_if_expression(&bits(&["not", "x", "in", "y"])).is_none());
     }
 
     // Additional invalid cases

@@ -182,7 +182,11 @@ fn calculate_byte_offset(
             _ => position.character as usize,
         };
 
-        byte_offset += line.chars().take(char_offset).map(char::len_utf8).sum::<usize>();
+        byte_offset += line
+            .chars()
+            .take(char_offset)
+            .map(char::len_utf8)
+            .sum::<usize>();
     }
 
     #[allow(clippy::cast_possible_truncation)]
@@ -343,10 +347,7 @@ fn analyze_template_context(line: &str, cursor_offset: usize) -> Option<Template
 /// Returns Some if cursor is after a `|` inside a variable expression.
 /// Handles nested cases by checking that the `{{` is not already closed
 /// by a `}}` before the pipe.
-fn analyze_variable_context(
-    prefix: &str,
-    suffix: &str,
-) -> Option<TemplateCompletionContext> {
+fn analyze_variable_context(prefix: &str, suffix: &str) -> Option<TemplateCompletionContext> {
     // Find the start of the variable expression
     let var_start = prefix.rfind("{{")?;
     let var_content = &prefix[var_start + 2..];
@@ -1193,24 +1194,14 @@ mod tests {
             "static".to_string(),
             "django.templatetags.static".to_string(),
         );
-        libraries.insert(
-            "i18n".to_string(),
-            "django.templatetags.i18n".to_string(),
-        );
-        libraries.insert(
-            "cache".to_string(),
-            "django.templatetags.cache".to_string(),
-        );
+        libraries.insert("i18n".to_string(), "django.templatetags.i18n".to_string());
+        libraries.insert("cache".to_string(), "django.templatetags.cache".to_string());
 
         let tags = InspectorInventory::new(
             libraries,
             vec!["django.template.defaulttags".to_string()],
             vec![
-                djls_project::TemplateTag::new_builtin(
-                    "if",
-                    "django.template.defaulttags",
-                    None,
-                ),
+                djls_project::TemplateTag::new_builtin("if", "django.template.defaulttags", None),
                 djls_project::TemplateTag::new_library(
                     "static",
                     "static",
@@ -1239,10 +1230,7 @@ mod tests {
             "static".to_string(),
             "django.templatetags.static".to_string(),
         );
-        libraries.insert(
-            "i18n".to_string(),
-            "django.templatetags.i18n".to_string(),
-        );
+        libraries.insert("i18n".to_string(), "django.templatetags.i18n".to_string());
 
         let tags = InspectorInventory::new(libraries, vec![], vec![], vec![]);
 
@@ -1263,34 +1251,20 @@ mod tests {
 
         let tags = InspectorInventory::new(libraries, vec![], vec![], vec![]);
 
-        let no_close =
-            generate_library_completions("", &ClosingBrace::None, Some(&tags), None, 0);
-        assert_eq!(
-            no_close[0].insert_text.as_deref(),
-            Some("static %}")
-        );
+        let no_close = generate_library_completions("", &ClosingBrace::None, Some(&tags), None, 0);
+        assert_eq!(no_close[0].insert_text.as_deref(), Some("static %}"));
 
         let partial =
             generate_library_completions("", &ClosingBrace::PartialClose, Some(&tags), None, 0);
-        assert_eq!(
-            partial[0].insert_text.as_deref(),
-            Some("static %")
-        );
+        assert_eq!(partial[0].insert_text.as_deref(), Some("static %"));
 
-        let full =
-            generate_library_completions("", &ClosingBrace::FullClose, Some(&tags), None, 0);
-        assert_eq!(
-            full[0].insert_text.as_deref(),
-            Some("static")
-        );
+        let full = generate_library_completions("", &ClosingBrace::FullClose, Some(&tags), None, 0);
+        assert_eq!(full[0].insert_text.as_deref(), Some("static"));
     }
 
     fn make_test_tags() -> InspectorInventory {
         let mut libraries = std::collections::HashMap::new();
-        libraries.insert(
-            "i18n".to_string(),
-            "django.templatetags.i18n".to_string(),
-        );
+        libraries.insert("i18n".to_string(), "django.templatetags.i18n".to_string());
         libraries.insert(
             "static".to_string(),
             "django.templatetags.static".to_string(),
@@ -1300,16 +1274,8 @@ mod tests {
             libraries,
             vec!["django.template.defaulttags".to_string()],
             vec![
-                djls_project::TemplateTag::new_builtin(
-                    "if",
-                    "django.template.defaulttags",
-                    None,
-                ),
-                djls_project::TemplateTag::new_builtin(
-                    "for",
-                    "django.template.defaulttags",
-                    None,
-                ),
+                djls_project::TemplateTag::new_builtin("if", "django.template.defaulttags", None),
+                djls_project::TemplateTag::new_builtin("for", "django.template.defaulttags", None),
                 djls_project::TemplateTag::new_library(
                     "trans",
                     "i18n",
@@ -1381,8 +1347,14 @@ mod tests {
         let labels: Vec<_> = completions.iter().map(|c| c.label.as_str()).collect();
         assert!(labels.contains(&"if"), "builtins should appear");
         assert!(labels.contains(&"for"), "builtins should appear");
-        assert!(!labels.contains(&"trans"), "library tags should not appear without load");
-        assert!(!labels.contains(&"static"), "library tags should not appear without load");
+        assert!(
+            !labels.contains(&"trans"),
+            "library tags should not appear without load"
+        );
+        assert!(
+            !labels.contains(&"static"),
+            "library tags should not appear without load"
+        );
     }
 
     #[test]
@@ -1415,9 +1387,18 @@ mod tests {
 
         let labels: Vec<_> = completions.iter().map(|c| c.label.as_str()).collect();
         assert!(labels.contains(&"if"), "builtins should appear");
-        assert!(labels.contains(&"trans"), "i18n tags should appear after load");
-        assert!(labels.contains(&"blocktrans"), "i18n tags should appear after load");
-        assert!(!labels.contains(&"static"), "static tags should not appear (not loaded)");
+        assert!(
+            labels.contains(&"trans"),
+            "i18n tags should appear after load"
+        );
+        assert!(
+            labels.contains(&"blocktrans"),
+            "i18n tags should appear after load"
+        );
+        assert!(
+            !labels.contains(&"static"),
+            "static tags should not appear (not loaded)"
+        );
     }
 
     #[test]
@@ -1450,7 +1431,10 @@ mod tests {
 
         let labels: Vec<_> = completions.iter().map(|c| c.label.as_str()).collect();
         assert!(labels.contains(&"if"), "builtins should appear");
-        assert!(!labels.contains(&"trans"), "i18n tags should NOT appear before load");
+        assert!(
+            !labels.contains(&"trans"),
+            "i18n tags should NOT appear before load"
+        );
     }
 
     #[test]
@@ -1486,8 +1470,14 @@ mod tests {
 
         let labels: Vec<_> = completions.iter().map(|c| c.label.as_str()).collect();
         assert!(labels.contains(&"if"), "builtins should appear");
-        assert!(labels.contains(&"trans"), "selectively imported trans should appear");
-        assert!(!labels.contains(&"blocktrans"), "non-imported blocktrans should NOT appear");
+        assert!(
+            labels.contains(&"trans"),
+            "selectively imported trans should appear"
+        );
+        assert!(
+            !labels.contains(&"blocktrans"),
+            "non-imported blocktrans should NOT appear"
+        );
     }
 
     #[test]
@@ -1501,14 +1491,8 @@ mod tests {
             "static".to_string(),
             "django.templatetags.static".to_string(),
         );
-        libraries.insert(
-            "i18n".to_string(),
-            "django.templatetags.i18n".to_string(),
-        );
-        libraries.insert(
-            "cache".to_string(),
-            "django.templatetags.cache".to_string(),
-        );
+        libraries.insert("i18n".to_string(), "django.templatetags.i18n".to_string());
+        libraries.insert("cache".to_string(), "django.templatetags.cache".to_string());
 
         let tags = InspectorInventory::new(libraries, vec![], vec![], vec![]);
 
@@ -1555,10 +1539,7 @@ mod tests {
             "static".to_string(),
             "django.templatetags.static".to_string(),
         );
-        libraries.insert(
-            "i18n".to_string(),
-            "django.templatetags.i18n".to_string(),
-        );
+        libraries.insert("i18n".to_string(), "django.templatetags.i18n".to_string());
 
         let tags = InspectorInventory::new(libraries, vec![], vec![], vec![]);
 
@@ -1584,10 +1565,7 @@ mod tests {
         use djls_source::Span;
 
         let mut libraries = std::collections::HashMap::new();
-        libraries.insert(
-            "i18n".to_string(),
-            "django.templatetags.i18n".to_string(),
-        );
+        libraries.insert("i18n".to_string(), "django.templatetags.i18n".to_string());
 
         let tags = InspectorInventory::new(libraries, vec![], vec![], vec![]);
 
@@ -1720,10 +1698,7 @@ mod tests {
 
     fn make_test_filters() -> InspectorInventory {
         let mut libraries = std::collections::HashMap::new();
-        libraries.insert(
-            "l10n".to_string(),
-            "django.templatetags.l10n".to_string(),
-        );
+        libraries.insert("l10n".to_string(), "django.templatetags.l10n".to_string());
         libraries.insert(
             "humanize".to_string(),
             "django.contrib.humanize.templatetags.humanize".to_string(),
@@ -1767,13 +1742,8 @@ mod tests {
 
     #[test]
     fn test_filter_completions_no_inventory_returns_empty() {
-        let completions = generate_filter_completions(
-            "",
-            &VariableClosingBrace::None,
-            None,
-            None,
-            0,
-        );
+        let completions =
+            generate_filter_completions("", &VariableClosingBrace::None, None, None, 0);
         assert!(completions.is_empty());
     }
 
@@ -1801,13 +1771,8 @@ mod tests {
     fn test_filter_completions_partial_match() {
         let inv = make_test_filters();
 
-        let completions = generate_filter_completions(
-            "def",
-            &VariableClosingBrace::None,
-            Some(&inv),
-            None,
-            0,
-        );
+        let completions =
+            generate_filter_completions("def", &VariableClosingBrace::None, Some(&inv), None, 0);
 
         assert_eq!(completions.len(), 1);
         assert_eq!(completions[0].label, "default");
@@ -1827,11 +1792,26 @@ mod tests {
         );
 
         let labels: Vec<_> = completions.iter().map(|c| c.label.as_str()).collect();
-        assert!(labels.contains(&"title"), "builtin filters should always appear");
-        assert!(labels.contains(&"upper"), "builtin filters should always appear");
-        assert!(labels.contains(&"default"), "builtin filters should always appear");
-        assert!(!labels.contains(&"localize"), "library filter should not appear without load");
-        assert!(!labels.contains(&"intcomma"), "library filter should not appear without load");
+        assert!(
+            labels.contains(&"title"),
+            "builtin filters should always appear"
+        );
+        assert!(
+            labels.contains(&"upper"),
+            "builtin filters should always appear"
+        );
+        assert!(
+            labels.contains(&"default"),
+            "builtin filters should always appear"
+        );
+        assert!(
+            !labels.contains(&"localize"),
+            "library filter should not appear without load"
+        );
+        assert!(
+            !labels.contains(&"intcomma"),
+            "library filter should not appear without load"
+        );
     }
 
     #[test]
@@ -1857,21 +1837,22 @@ mod tests {
 
         let labels: Vec<_> = completions.iter().map(|c| c.label.as_str()).collect();
         assert!(labels.contains(&"title"), "builtins always visible");
-        assert!(labels.contains(&"localize"), "l10n filter visible after load");
-        assert!(!labels.contains(&"intcomma"), "humanize filter not visible (not loaded)");
+        assert!(
+            labels.contains(&"localize"),
+            "l10n filter visible after load"
+        );
+        assert!(
+            !labels.contains(&"intcomma"),
+            "humanize filter not visible (not loaded)"
+        );
     }
 
     #[test]
     fn test_filter_completions_closing_brace_none() {
         let inv = make_test_filters();
 
-        let completions = generate_filter_completions(
-            "titl",
-            &VariableClosingBrace::None,
-            Some(&inv),
-            None,
-            0,
-        );
+        let completions =
+            generate_filter_completions("titl", &VariableClosingBrace::None, Some(&inv), None, 0);
 
         assert_eq!(completions.len(), 1);
         assert_eq!(completions[0].insert_text.as_deref(), Some("title }}"));
@@ -1897,13 +1878,8 @@ mod tests {
     fn test_filter_completions_closing_brace_full() {
         let inv = make_test_filters();
 
-        let completions = generate_filter_completions(
-            "titl",
-            &VariableClosingBrace::Full,
-            Some(&inv),
-            None,
-            0,
-        );
+        let completions =
+            generate_filter_completions("titl", &VariableClosingBrace::Full, Some(&inv), None, 0);
 
         assert_eq!(completions.len(), 1);
         assert_eq!(completions[0].insert_text.as_deref(), Some("title"));
@@ -1913,13 +1889,8 @@ mod tests {
     fn test_filter_completions_detail_builtin() {
         let inv = make_test_filters();
 
-        let completions = generate_filter_completions(
-            "titl",
-            &VariableClosingBrace::Full,
-            Some(&inv),
-            None,
-            0,
-        );
+        let completions =
+            generate_filter_completions("titl", &VariableClosingBrace::Full, Some(&inv), None, 0);
 
         assert_eq!(completions.len(), 1);
         assert_eq!(
@@ -1951,14 +1922,12 @@ mod tests {
     fn test_filter_completions_kind_is_function() {
         let inv = make_test_filters();
 
-        let completions = generate_filter_completions(
-            "titl",
-            &VariableClosingBrace::Full,
-            Some(&inv),
-            None,
-            0,
-        );
+        let completions =
+            generate_filter_completions("titl", &VariableClosingBrace::Full, Some(&inv), None, 0);
 
-        assert_eq!(completions[0].kind, Some(ls_types::CompletionItemKind::FUNCTION));
+        assert_eq!(
+            completions[0].kind,
+            Some(ls_types::CompletionItemKind::FUNCTION)
+        );
     }
 }

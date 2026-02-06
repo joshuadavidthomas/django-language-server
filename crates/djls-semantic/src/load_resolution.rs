@@ -739,7 +739,10 @@ mod availability_tests {
         );
 
         let after = available_tags_at(&loaded, &inventory, 20);
-        assert!(after.has_tag("trans"), "trans should be available after load");
+        assert!(
+            after.has_tag("trans"),
+            "trans should be available after load"
+        );
         assert!(
             after.has_tag("blocktrans"),
             "blocktrans should be available after load"
@@ -1086,7 +1089,10 @@ mod filter_validation_tests {
         use djls_source::Db as SourceDb;
 
         let path = Utf8Path::new("/test.html");
-        db.fs.lock().unwrap().add_file(path.to_owned(), content.to_string());
+        db.fs
+            .lock()
+            .unwrap()
+            .add_file(path.to_owned(), content.to_string());
 
         let file = db.create_file(path);
         let nodelist = djls_templates::parse_template(db, file).expect("template should parse");
@@ -1135,7 +1141,10 @@ mod filter_validation_tests {
         let db = TestDatabase::with_inventory(make_filter_inventory());
         let errors = parse_and_validate(&db, "{{ value|title }}");
 
-        assert!(errors.is_empty(), "Builtin filters should produce no errors");
+        assert!(
+            errors.is_empty(),
+            "Builtin filters should produce no errors"
+        );
     }
 
     #[test]
