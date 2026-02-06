@@ -448,6 +448,122 @@
 
 ---
 
+## M8 - Extracted Rule Evaluation
+
+**Status:** in progress
+**Plan:** `.agents/plans/2026-02-06-m8-extracted-rule-evaluation.md`
+
+### Phase 1: Argument Structure Extraction in `djls-extraction`
+
+- [ ] Add `ExtractedArg` and `ExtractedArgKind` types in `crates/djls-extraction/src/types.rs`
+- [ ] Add `extracted_args` field to `ExtractedTag` in `crates/djls-extraction/src/types.rs`
+- [ ] Create `crates/djls-extraction/src/args.rs` with `extract_args_from_signature()` for simple/inclusion/block tags
+- [ ] Implement `takes_context=True` detection from decorator kwargs
+- [ ] Implement `simple_block_tag` nodelist parameter skipping
+- [ ] Add `reconstruct_args_from_rules_and_ast()` for manual `@register.tag` functions
+- [ ] Implement tuple unpacking detection for variable naming
+- [ ] Implement indexed access detection for variable naming
+- [ ] Add `extract_args()` dispatch function based on `decorator_kind`
+- [ ] Wire argument extraction into `extract_rules()` orchestration in `crates/djls-extraction/src/lib.rs`
+- [ ] Update golden test snapshots to include `extracted_args`
+- [ ] Add unit tests: simple_tag signature, inclusion_tag with takes_context, manual tag reconstruction
+- [ ] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 2: Build Extracted Rule Evaluator in `djls-semantic`
+
+- [ ] Create `crates/djls-semantic/src/rule_evaluation.rs` with `evaluate_extracted_rules()` function
+- [ ] Implement evaluation for all `RuleCondition` variants: `ExactArgCount`, `ArgCountComparison`, `MinArgCount`, `MaxArgCount`, `LiteralAt`, `ChoiceAt`, `ContainsLiteral`, `Opaque`
+- [ ] Handle index offset: extraction index N → bits[N-1]
+- [ ] Handle negation semantics: `negated: true` = error when condition is NOT met
+- [ ] Add `ExtractedRuleViolation { tag, message, span }` variant to `ValidationError` in `crates/djls-semantic/src/errors.rs`
+- [ ] Add S117 diagnostic code mapping in `crates/djls-ide/src/diagnostics.rs`
+- [ ] Register `rule_evaluation` module in `crates/djls-semantic/src/lib.rs`
+- [ ] Add unit tests for each `RuleCondition` variant (both violated and not violated)
+- [ ] Add edge case tests: out-of-bounds index, empty rules, multiple rules accumulate all errors
+- [ ] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 3: Wire Evaluator into Validation Pipeline
+
+- [ ] Update `validate_tag_arguments()` in `crates/djls-semantic/src/arguments.rs` to dispatch to extracted rule evaluator when `spec.extracted_rules` is non-empty
+- [ ] Keep `validate_args_against_spec`/`validate_argument_order` for user-config `TagArg`-only fallback
+- [ ] Strip hand-crafted `args:` values from all specs in `crates/djls-semantic/src/templatetags/builtins.rs` (set to `B(&[])`)
+- [ ] Remove `args` field from `EndTag` and `IntermediateTag` in `crates/djls-semantic/src/templatetags/specs.rs`
+- [ ] Simplify `merge_block_spec` without `EndTag.args`/`IntermediateTag.args`
+- [ ] Update existing argument tests to expect `ExtractedRuleViolation` instead of old error types
+- [ ] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 4: Wire Extracted Args into Completions/Snippets
+
+- [ ] Add `TagSpec::populate_args_from_extraction()` method in `crates/djls-semantic/src/templatetags/specs.rs`
+- [ ] Implement `ExtractedArg` → `TagArg` conversion
+- [ ] Call `populate_args_from_extraction` in `merge_extraction_into_specs` in `crates/djls-server/src/db.rs`
+- [ ] Verify completion/snippet tests still pass with extraction-derived args
+- [ ] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 5: Clean Up Dead Code
+
+- [ ] Remove `TagArgSliceExt` trait from `crates/djls-semantic/src/templatetags/specs.rs`
+- [ ] Update `TagSpec` field documentation to reflect extraction-primary role
+- [ ] Verify user-config `args` path still works via `validate_args_against_spec` fallback
+- [ ] Clean up test fixtures that construct `TagArg` specs for builtin tags
+- [ ] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 6: Corpus Template Validation Tests
+
+- [ ] Create `crates/djls-server/tests/corpus_templates.rs` integration test
+- [ ] Implement `build_specs_for_entry()` — extract rules from corpus entry's templatetags
+- [ ] Implement `validate_template_file()` — parse template, run validation, collect errors
+- [ ] Test: Django shipped templates (4.2/5.1/5.2/6.0) zero false positives
+- [ ] Test: Third-party templates (Wagtail, allauth, crispy-forms, etc.) zero argument validation false positives
+- [ ] Test: Repo templates (Sentry, NetBox) zero argument validation false positives
+- [ ] Add template exclusion list for known-invalid upstream templates
+- [ ] Tests skip gracefully when corpus not synced
+- [ ] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+---
+
+## M9 - User Config TagSpec Simplification
+
+**Status:** backlog
+**Plan:** `.agents/plans/2026-02-06-m9-tagspec-simplification.md`
+
+### Phase 1: Remove TagSpecs Config System
+
+- [ ] Delete `crates/djls-conf/src/tagspecs.rs` and `crates/djls-conf/src/tagspecs/legacy.rs`
+- [ ] Remove `tagspecs` field from `Settings` in `crates/djls-conf/src/lib.rs`
+- [ ] Remove `tagspecs` field from `Project` salsa input in `crates/djls-project/src/project.rs`
+- [ ] Remove user-config merge layer (layer 4) from `compute_tag_specs` in `crates/djls-server/src/db.rs`
+- [ ] Remove `From<conf types>` conversions and `from_config_def` from `crates/djls-semantic/src/templatetags/specs.rs`
+- [ ] Remove tagspec-related tests from all crates
+- [ ] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 2: Remove `TagArg` System and Old Validation Engine
+
+- [ ] Delete `TagArg` enum, `TokenCount`, `LiteralKind`, `TagArgSliceExt` from `crates/djls-semantic/src/templatetags/specs.rs`
+- [ ] Remove `args` field from `TagSpec`, `EndTag`, `IntermediateTag`
+- [ ] Delete `validate_args_against_spec` and `validate_argument_order` from `crates/djls-semantic/src/arguments.rs`
+- [ ] Strip all `TagArg` references from `builtins.rs`, `completions.rs`, `snippets.rs`
+- [ ] Update all affected tests
+- [ ] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 3: Remove Dead Error Variants and Diagnostic Codes
+
+- [ ] Remove `MissingRequiredArguments`, `TooManyArguments`, `MissingArgument`, `InvalidLiteralArgument`, `InvalidArgumentChoice` from `ValidationError`
+- [ ] Remove S104-S107 diagnostic code mappings
+- [ ] Fix match exhaustiveness across all crates
+- [ ] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 4: Update Documentation
+
+- [ ] Delete `docs/configuration/tagspecs.md`
+- [ ] Update `.mkdocs.yml` nav to remove tagspecs page
+- [ ] Update `docs/configuration/index.md` — remove S104-S107, tagspecs config section
+- [ ] Update `docs/template-validation.md` — remove tagspec references
+- [ ] Verify docs build without errors
+- [ ] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+---
+
 ## Discoveries / Notes
 
 - M1: `TemplateTags` no longer implements `Deref<Target=Vec<TemplateTag>>`. Use `.iter()`, `.tags()`, `.len()`, `.is_empty()` instead.
