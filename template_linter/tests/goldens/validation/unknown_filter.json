@@ -1,8 +1,0 @@
-[
-  {
-    "line": 1,
-    "message": "Unknown filter 'this_filter_does_not_exist'",
-    "name": "filter:this_filter_does_not_exist",
-    "raw": "value|this_filter_does_not_exist"
-  }
-]
