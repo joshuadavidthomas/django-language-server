@@ -34,6 +34,12 @@ just lint                       # Run pre-commit hooks
 - `crates/djls-semantic/` - Tag specifications and semantic analysis
 - `crates/djls-project/inspector/` - Python inspector source files
 
+## High-Touch Files
+Files modified most frequently during template validation work:
+- `djls-server/src/db.rs` - Salsa database, tracked queries, Project input
+- `djls-semantic/src/load_resolution.rs` - Load scoping, available symbols, inventory
+- `djls-ide/src/completions.rs` - Completion handlers for tags, filters, libraries
+
 ## Struct Design Patterns
 - Remove `Deref` impl when a struct gains multiple fields - use explicit accessor methods instead
 - Use `#[must_use]` on pure accessor methods that return borrowed data
@@ -73,13 +79,14 @@ Use `/dex` to break down complex work, track progress across sessions, and coord
 - Use `db.ingredient_debug_name(index)` for stable query identification in tests (not Debug output substring matching)
 
 ## Test Database Patterns
-- When adding new methods to `Db` traits, implement immediately in ALL test databases:
+- When adding new methods to `Db` traits, implement immediately in ALL test databases (E0046):
   - `djls-semantic/src/arguments.rs` (TestDatabase)
   - `djls-semantic/src/blocks/tree.rs` (TestDatabase)
   - `djls-semantic/src/semantic/forest.rs` (TestDatabase)
   - `djls-bench/src/db.rs` (Db)
 - Use `EventLogger` with `was_executed()` helper for Salsa invalidation tests
 - `Interpreter::discover(None)` works for tests that don't need real Python environment detection
+- When changing fn signatures, update ALL callers immediately (E0061 wrong number of arguments)
 
 ## Documentation Style
 - Use backticks for all code items in doc comments (clippy: `doc_markdown`)
@@ -95,18 +102,21 @@ Use `/dex` to break down complex work, track progress across sessions, and coord
 - When modifying complex files, ALWAYS read the exact section first to ensure whitespace matches
 - If edit fails with "2 occurrences", narrow the context to make the match unique
 - Prefer smaller, surgical edits over large replacements to avoid matching errors
+- Common files needing extra care: `djls-server/src/db.rs`, `djls-semantic/src/load_resolution.rs` (most edited files)
 
 ## Clippy Patterns to Avoid
 - Functions with >7 arguments trigger `clippy::too_many_arguments` - consider struct bundling
-- Missing backticks in doc comments trigger `clippy::doc_markdown`
-- Quote-style intra-doc links `['Type']` trigger warnings - use backticks ``[`Type`]``
+- Missing backticks in doc comments trigger `clippy::doc_markdown` - use ``[`Type`]`` not `['Type']`
+- Intra-doc links MUST use backticks: ``[`TagSpecs`]`` not `['TagSpecs']`
+- Template syntax in format strings: escape `{%` as `{{%` (e.g., `format!("{{% load {name} %}}")`)
 
 ## Common Compile Error Patterns
 - E0046 "not all trait items implemented": Add missing method to ALL test databases immediately
 - E0061 "wrong number of arguments": Update ALL callers when changing fn signatures
-- E0603 "module is private": Use public re-exports from crate root, not internal modules
+- E0603 "module is private": Use public re-exports from crate root, not internal modules (e.g., `djls_project::TemplatetagsResponse` not `djls_project::django::TemplatetagsResponse`)
 - E0433 "unresolved module": Add dependency to Cargo.toml with `workspace = true`
 
 ## Navigation Reminders
 - This is a worktree - files like AGENTS.md are in the worktree root (`worktrees/detailed-kimi-k2.5/`), not the main repo root
 - Read files from the current worktree path, not parent directories
+- NEVER look for worktree files in `worktrees/` without the full worktree name (e.g., NOT `worktrees/AGENTS.md`)
