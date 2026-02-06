@@ -35,17 +35,24 @@ use salsa::Setter;
 /// This tracked function reads `project.inspector_inventory(db)` and
 /// `project.extracted_external_rules(db)` to establish Salsa dependencies.
 /// It starts with `django_builtin_specs()` and merges extraction results
-/// to enrich/override the handcoded defaults.
+/// from both workspace modules (via tracked queries) and external modules
+/// (from the Project field).
 ///
 /// Does NOT read from `Arc<Mutex<Settings>>`.
 #[salsa::tracked]
 pub fn compute_tag_specs(db: &dyn SemanticDb, project: Project) -> TagSpecs {
     let _inventory = project.inspector_inventory(db);
-    let extracted = project.extracted_external_rules(db);
 
     let mut specs = djls_semantic::django_builtin_specs();
 
-    if let Some(extraction) = extracted {
+    // Merge workspace extraction results (tracked, auto-invalidating on file change)
+    let workspace_results = collect_workspace_extraction_results(db, project);
+    for (_module_path, extraction) in &workspace_results {
+        specs.merge_extraction_results(extraction);
+    }
+
+    // Merge external extraction results (from Project field, updated by refresh_inspector)
+    for extraction in project.extracted_external_rules(db).values() {
         specs.merge_extraction_results(extraction);
     }
 
@@ -64,19 +71,24 @@ pub fn compute_tag_index(db: &dyn SemanticDb, project: Project) -> TagIndex<'_> 
 
 /// Compute `FilterAritySpecs` from a project's extraction results.
 ///
-/// Reads `project.extracted_external_rules(db)` to establish Salsa dependencies.
-/// Merges all filter arity data from extraction results, with last-wins
-/// semantics for name collisions (matching Django's builtin ordering).
+/// Merges filter arity data from both workspace (tracked) and external
+/// extraction results, with last-wins semantics for name collisions
+/// (matching Django's builtin ordering).
 #[salsa::tracked]
 pub fn compute_filter_arity_specs(
     db: &dyn SemanticDb,
     project: Project,
 ) -> djls_semantic::FilterAritySpecs {
-    let extracted = project.extracted_external_rules(db);
-
     let mut specs = djls_semantic::FilterAritySpecs::new();
 
-    if let Some(extraction) = extracted {
+    // Merge workspace extraction results (tracked)
+    let workspace_results = collect_workspace_extraction_results(db, project);
+    for (_module_path, extraction) in &workspace_results {
+        specs.merge_extraction_result(extraction);
+    }
+
+    // Merge external extraction results (from Project field)
+    for extraction in project.extracted_external_rules(db).values() {
         specs.merge_extraction_result(extraction);
     }
 
@@ -93,10 +105,67 @@ pub fn compute_filter_arity_specs(
 /// Callers must re-key with the actual dotted module path when merging
 /// results into `TagSpecs`.
 #[salsa::tracked]
-#[allow(dead_code)]
 pub fn extract_module_rules(db: &dyn SemanticDb, file: File) -> djls_extraction::ExtractionResult {
     let source = file.source(db);
     djls_extraction::extract_rules(source.as_str(), "")
+}
+
+/// Collect extracted rules from all workspace registration modules.
+///
+/// This tracked query:
+/// 1. Gets registration modules from inspector inventory
+/// 2. Resolves workspace modules to `File` inputs via `get_or_create_file`
+/// 3. Extracts rules from each (via tracked `extract_module_rules`)
+///
+/// External modules are handled separately (cached on `Project` field,
+/// updated by `refresh_inspector`). This function only processes workspace
+/// modules, giving them automatic Salsa invalidation when files change.
+#[salsa::tracked]
+fn collect_workspace_extraction_results(
+    db: &dyn SemanticDb,
+    project: Project,
+) -> Vec<(String, djls_extraction::ExtractionResult)> {
+    let inventory = project.inspector_inventory(db);
+    let interpreter = project.interpreter(db);
+    let root = project.root(db);
+    let pythonpath = project.pythonpath(db);
+
+    let Some(inventory) = inventory else {
+        return Vec::new();
+    };
+
+    let mut module_paths = rustc_hash::FxHashSet::<String>::default();
+    for tag in inventory.tags() {
+        module_paths.insert(tag.registration_module().to_string());
+    }
+    for filter in inventory.filters() {
+        let module = match filter.provenance() {
+            djls_project::TagProvenance::Library { module, .. }
+            | djls_project::TagProvenance::Builtin { module } => module.as_str(),
+        };
+        module_paths.insert(module.to_string());
+    }
+
+    let search_paths = build_search_paths(interpreter, root, pythonpath);
+
+    let (workspace_modules, _external) = djls_project::resolve_modules(
+        module_paths.iter().map(String::as_str),
+        &search_paths,
+        root,
+    );
+
+    let mut results = Vec::new();
+
+    for resolved in workspace_modules {
+        let file = db.get_or_create_file(&resolved.file_path);
+        let extraction = extract_module_rules(db, file);
+
+        if !extraction.is_empty() {
+            results.push((resolved.module_path, extraction));
+        }
+    }
+
+    results
 }
 
 /// Concrete Salsa database for the Django Language Server.
@@ -308,10 +377,13 @@ impl DjangoDatabase {
                 .to(new_inventory.clone());
         }
 
-        // Extract rules from external registration modules
+        // Extract rules from external registration modules only.
+        // Workspace modules are handled by `collect_workspace_extraction_results`
+        // which uses tracked Salsa queries for automatic invalidation on file change.
         let new_extraction = new_inventory
             .as_ref()
-            .map(|inv| extract_external_rules(inv, &interpreter, &root, &pythonpath));
+            .map(|inv| extract_external_rules(inv, &interpreter, &root, &pythonpath))
+            .unwrap_or_default();
 
         if project.extracted_external_rules(self) != &new_extraction {
             project
@@ -326,16 +398,20 @@ impl DjangoDatabase {
     }
 }
 
-/// Extract validation rules from all registration modules in the inventory.
+/// Extract validation rules from external registration modules in the inventory.
 ///
 /// Collects unique registration module paths from tags and filters,
-/// resolves each to a file path, reads the source, and runs extraction.
+/// resolves them, filters to external-only (site-packages, stdlib), reads
+/// the source, and runs extraction. Workspace modules are NOT extracted
+/// here — they use tracked Salsa queries via `collect_workspace_extraction_results`.
+///
+/// Returns a per-module map so that Salsa can detect per-module changes.
 fn extract_external_rules(
     inventory: &TemplateTags,
     interpreter: &Interpreter,
     root: &Utf8Path,
     pythonpath: &[String],
-) -> djls_extraction::ExtractionResult {
+) -> rustc_hash::FxHashMap<String, djls_extraction::ExtractionResult> {
     use rustc_hash::FxHashSet;
 
     let mut modules = FxHashSet::default();
@@ -352,31 +428,34 @@ fn extract_external_rules(
 
     let search_paths = build_search_paths(interpreter, root, pythonpath);
 
-    let mut result = djls_extraction::ExtractionResult::default();
+    let (_workspace, external_modules) = djls_project::resolve_modules(
+        modules.iter().map(String::as_str),
+        &search_paths,
+        root,
+    );
 
-    for module_path in &modules {
-        if let Some(resolved) =
-            djls_project::resolve_module(module_path, &search_paths, root)
-        {
-            match std::fs::read_to_string(resolved.file_path.as_std_path()) {
-                Ok(source) => {
-                    let module_result = djls_extraction::extract_rules(&source, module_path);
-                    result.merge(module_result);
-                }
-                Err(e) => {
-                    tracing::debug!(
-                        "Failed to read module file {}: {}",
-                        resolved.file_path,
-                        e
-                    );
+    let mut results = rustc_hash::FxHashMap::default();
+
+    for resolved in external_modules {
+        match std::fs::read_to_string(resolved.file_path.as_std_path()) {
+            Ok(source) => {
+                let module_result =
+                    djls_extraction::extract_rules(&source, &resolved.module_path);
+                if !module_result.is_empty() {
+                    results.insert(resolved.module_path, module_result);
                 }
             }
-        } else {
-            tracing::debug!("Could not resolve module path to file: {}", module_path);
+            Err(e) => {
+                tracing::debug!(
+                    "Failed to read module file {}: {}",
+                    resolved.file_path,
+                    e
+                );
+            }
         }
     }
 
-    result
+    results
 }
 
 #[salsa::db]
@@ -550,7 +629,7 @@ mod invalidation_tests {
             dsm,
             settings.pythonpath().to_vec(),
             None,
-            None,
+            rustc_hash::FxHashMap::default(),
             settings.diagnostics().clone(),
         );
         *db.project.lock().unwrap() = Some(project);
@@ -651,9 +730,11 @@ mod invalidation_tests {
                 opaque: false,
             },
         );
+        let mut external_rules = rustc_hash::FxHashMap::default();
+        external_rules.insert("test.module".to_string(), extraction);
         project
             .set_extracted_external_rules(&mut db)
-            .to(Some(extraction));
+            .to(external_rules);
 
         // Access tag_index — both compute_tag_specs and compute_tag_index should re-execute
         let _index = db.tag_index();
@@ -793,10 +874,10 @@ def my_filter(value, arg):
         let (mut db, _event_log) = test_db_with_project();
         let project = db.project.lock().unwrap().unwrap();
 
-        // Initially None
+        // Initially empty
         assert!(
-            project.extracted_external_rules(&db).is_none(),
-            "extracted_external_rules should be None initially"
+            project.extracted_external_rules(&db).is_empty(),
+            "extracted_external_rules should be empty initially"
         );
 
         // Set some extraction results
@@ -809,13 +890,15 @@ def my_filter(value, arg):
                 opaque: false,
             },
         );
+        let mut external_rules = rustc_hash::FxHashMap::default();
+        external_rules.insert("test.module".to_string(), extraction);
         project
             .set_extracted_external_rules(&mut db)
-            .to(Some(extraction.clone()));
+            .to(external_rules);
 
         let stored = project.extracted_external_rules(&db);
-        assert!(stored.is_some());
-        assert_eq!(stored.as_ref().unwrap().block_specs.len(), 1);
+        assert_eq!(stored.len(), 1);
+        assert_eq!(stored["test.module"].block_specs.len(), 1);
     }
 
     #[test]
@@ -837,9 +920,11 @@ def my_filter(value, arg):
                 opaque: false,
             },
         );
+        let mut external_rules = rustc_hash::FxHashMap::default();
+        external_rules.insert("test.module".to_string(), extraction);
         project
             .set_extracted_external_rules(&mut db)
-            .to(Some(extraction));
+            .to(external_rules);
 
         // Access tag_specs — should re-execute because extracted_external_rules changed
         let specs = db.tag_specs();

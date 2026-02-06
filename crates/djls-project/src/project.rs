@@ -3,6 +3,7 @@ use camino::Utf8PathBuf;
 use djls_conf::DiagnosticsConfig;
 use djls_conf::Settings;
 use djls_extraction::ExtractionResult;
+use rustc_hash::FxHashMap;
 
 use crate::db::Db as ProjectDb;
 use crate::django_available;
@@ -37,10 +38,12 @@ pub struct Project {
     /// Inspector inventory from Python subprocess (populated by `refresh_inspector`)
     #[returns(ref)]
     pub inspector_inventory: Option<TemplateTags>,
-    /// Extraction results from external modules (site-packages), populated by
-    /// `refresh_inspector`. Workspace files use tracked queries instead.
+    /// Extraction results from external modules (site-packages), keyed by
+    /// registration module path (e.g., `"django.templatetags.i18n"`).
+    /// Populated by `refresh_inspector`. Workspace files use tracked queries
+    /// via `collect_workspace_extraction_results` instead.
     #[returns(ref)]
-    pub extracted_external_rules: Option<ExtractionResult>,
+    pub extracted_external_rules: FxHashMap<String, ExtractionResult>,
     /// Diagnostic severity configuration
     #[returns(ref)]
     pub diagnostics: DiagnosticsConfig,
@@ -94,7 +97,7 @@ impl Project {
             resolved_django_settings_module,
             settings.pythonpath().to_vec(),
             None,
-            None,
+            FxHashMap::default(),
             settings.diagnostics().clone(),
         )
     }
