@@ -524,18 +524,18 @@
 
 ## M9 - User Config TagSpec Simplification
 
-**Status:** backlog
+**Status:** in progress
 **Plan:** `.agents/plans/2026-02-06-m9-tagspec-simplification.md`
 
 ### Phase 1: Remove TagSpecs Config System
 
-- [ ] Delete `crates/djls-conf/src/tagspecs.rs` and `crates/djls-conf/src/tagspecs/legacy.rs`
-- [ ] Remove `tagspecs` field from `Settings` in `crates/djls-conf/src/lib.rs`
-- [ ] Remove `tagspecs` field from `Project` salsa input in `crates/djls-project/src/project.rs`
-- [ ] Remove user-config merge layer (layer 4) from `compute_tag_specs` in `crates/djls-server/src/db.rs`
-- [ ] Remove `From<conf types>` conversions and `from_config_def` from `crates/djls-semantic/src/templatetags/specs.rs`
-- [ ] Remove tagspec-related tests from all crates
-- [ ] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Delete `crates/djls-conf/src/tagspecs.rs` and `crates/djls-conf/src/tagspecs/legacy.rs`
+- [x] Remove `tagspecs` field from `Settings` in `crates/djls-conf/src/lib.rs`
+- [x] Remove `tagspecs` field from `Project` salsa input in `crates/djls-project/src/project.rs`
+- [x] Remove user-config merge layer (layer 4) from `compute_tag_specs` in `crates/djls-server/src/db.rs`
+- [x] Remove `From<conf types>` conversions and `from_config_def` from `crates/djls-semantic/src/templatetags/specs.rs`
+- [x] Remove tagspec-related tests from all crates
+- [x] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 2: Remove `TagArg` System and Old Validation Engine
 

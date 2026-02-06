@@ -133,12 +133,10 @@ fn merge_extraction_into_specs(
 /// 1. Django builtin specs (compile-time constant)
 /// 2. Extracted rules from workspace modules (tracked queries)
 /// 3. Extracted rules from external modules (Project field)
-/// 4. User config overrides (`Project.tagspecs` field)
 ///
 /// Invalidation triggers:
 /// - Workspace Python file changes → via `extract_workspace_module_rules` dependency
 /// - External modules change → via `Project.extracted_external_rules`
-/// - User config changes → via `Project.tagspecs`
 #[salsa::tracked]
 fn compute_tag_specs(db: &dyn SemanticDb, project: Project) -> TagSpecs {
     let _inventory = project.inspector_inventory(db);
@@ -155,12 +153,6 @@ fn compute_tag_specs(db: &dyn SemanticDb, project: Project) -> TagSpecs {
     let external_results = project.extracted_external_rules(db);
     for (module_path, extraction) in external_results {
         merge_extraction_into_specs(&mut specs, module_path, extraction);
-    }
-
-    // Apply user config overrides (highest priority)
-    let user_specs = TagSpecs::from_config_def(project.tagspecs(db));
-    if !user_specs.is_empty() {
-        specs.merge(user_specs);
     }
 
     tracing::trace!("Computed tag specs: {} tags total", specs.len());
@@ -371,12 +363,6 @@ impl DjangoDatabase {
         if project.pythonpath(self) != &new_pp {
             project.set_pythonpath(self).to(new_pp);
             env_changed = true;
-        }
-
-        let new_tagspecs = settings.tagspecs().clone();
-        if project.tagspecs(self) != &new_tagspecs {
-            tracing::debug!("Tagspecs config changed, updating Project");
-            project.set_tagspecs(self).to(new_tagspecs);
         }
 
         let new_diagnostics = settings.diagnostics().clone();
@@ -641,7 +627,6 @@ mod invalidation_tests {
 
     use camino::Utf8PathBuf;
     use djls_conf::Settings;
-    use djls_conf::TagLibraryDef;
     use djls_project::Inspector;
     use djls_project::InspectorInventory;
     use djls_project::Interpreter;
@@ -710,7 +695,6 @@ mod invalidation_tests {
                 Some("test.settings".to_string()),
                 vec![],
                 None,
-                settings.tagspecs().clone(),
                 settings.diagnostics().clone(),
                 Vec::new(),
                 rustc_hash::FxHashMap::default(),
@@ -737,35 +721,6 @@ mod invalidation_tests {
         assert!(
             !test.logger.was_executed(&test.db, "compute_tag_specs"),
             "compute_tag_specs should be cached on second access"
-        );
-    }
-
-    #[test]
-    fn tagspecs_change_invalidates() {
-        let mut test = TestDatabase::with_project();
-
-        let _specs1 = test.db.tag_specs();
-        test.logger.clear();
-
-        let project = test
-            .db
-            .project
-            .lock()
-            .unwrap()
-            .expect("test project exists");
-        let mut new_tagspecs = project.tagspecs(&test.db).clone();
-        new_tagspecs.libraries.push(TagLibraryDef {
-            module: "test.templatetags".to_string(),
-            requires_engine: None,
-            tags: vec![],
-            extra: None,
-        });
-        project.set_tagspecs(&mut test.db).to(new_tagspecs);
-
-        let _specs2 = test.db.tag_specs();
-        assert!(
-            test.logger.was_executed(&test.db, "compute_tag_specs"),
-            "compute_tag_specs should recompute after tagspecs change"
         );
     }
 
@@ -806,17 +761,7 @@ mod invalidation_tests {
         let _specs1 = test.db.tag_specs();
         test.logger.clear();
 
-        let project = test
-            .db
-            .project
-            .lock()
-            .unwrap()
-            .expect("test project exists");
-        let same_tagspecs = project.tagspecs(&test.db).clone();
-
-        // Manual comparison shows no change — don't call setter
-        assert!(project.tagspecs(&test.db) == &same_tagspecs);
-
+        // Without calling any setters, tag_specs should use cache
         let _specs2 = test.db.tag_specs();
         assert!(
             !test.logger.was_executed(&test.db, "compute_tag_specs"),
@@ -842,19 +787,21 @@ mod invalidation_tests {
             .lock()
             .unwrap()
             .expect("test project exists");
-        let mut new_tagspecs = project.tagspecs(&test.db).clone();
-        new_tagspecs.libraries.push(TagLibraryDef {
-            module: "another.templatetags".to_string(),
-            requires_engine: None,
-            tags: vec![],
-            extra: None,
-        });
-        project.set_tagspecs(&mut test.db).to(new_tagspecs);
+
+        // Trigger invalidation via external extraction rules change
+        let mut external_rules = rustc_hash::FxHashMap::default();
+        external_rules.insert(
+            "another.templatetags".to_string(),
+            djls_extraction::ExtractionResult::default(),
+        );
+        project
+            .set_extracted_external_rules(&mut test.db)
+            .to(external_rules);
 
         let _index2 = test.db.tag_index();
         assert!(
             test.logger.was_executed(&test.db, "compute_tag_specs"),
-            "tag_index should recompute when tagspecs change"
+            "tag_index should recompute when extraction rules change"
         );
     }
 

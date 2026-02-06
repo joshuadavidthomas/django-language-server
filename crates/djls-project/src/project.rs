@@ -1,7 +1,6 @@
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_conf::DiagnosticsConfig;
-use djls_conf::TagSpecDef;
 use djls_extraction::ExtractionResult;
 use rustc_hash::FxHashMap;
 
@@ -20,7 +19,6 @@ use crate::Interpreter;
 ///
 /// Key invariants:
 /// - Project id is stable once created (updates via setters, not new instances)
-/// - Stores config documents (TagSpecDef), not derived artifacts (TagSpecs)
 /// - All fields use djls-conf types to avoid layering violations
 #[salsa::input]
 #[derive(Debug)]
@@ -41,10 +39,6 @@ pub struct Project {
     /// None if inspector hasn't been queried yet or failed.
     #[returns(ref)]
     pub inspector_inventory: Option<InspectorInventory>,
-    /// Tag specifications config document.
-    /// This is the raw config (TagSpecDef), NOT the derived TagSpecs.
-    #[returns(ref)]
-    pub tagspecs: TagSpecDef,
     /// Diagnostic severity overrides.
     #[returns(ref)]
     pub diagnostics: DiagnosticsConfig,
@@ -113,7 +107,6 @@ impl Project {
             resolved_django_settings_module,
             pythonpath.to_vec(),
             None,
-            settings.tagspecs().clone(),
             settings.diagnostics().clone(),
             Vec::new(),
             FxHashMap::default(),
