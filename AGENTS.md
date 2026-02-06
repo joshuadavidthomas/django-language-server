@@ -35,10 +35,13 @@ just lint                       # Run pre-commit hooks
 - `crates/djls-project/inspector/` - Python inspector source files
 
 ## High-Touch Files
-Files modified most frequently during template validation work:
-- `djls-server/src/db.rs` - Salsa database, tracked queries, Project input
-- `djls-semantic/src/load_resolution.rs` - Load scoping, available symbols, inventory
+Files modified most frequently during template validation work (30+ edits in recent sessions):
+- `djls-server/src/db.rs` - Salsa database, tracked queries, Project input, event logging
+- `djls-semantic/src/load_resolution.rs` - Load scoping, available symbols, inventory, filter inventory
 - `djls-ide/src/completions.rs` - Completion handlers for tags, filters, libraries
+- `djls-semantic/src/arguments.rs` - Tag argument validation, test database impls
+- `src/templatetags/builtins.rs` - Builtin tag specifications (now mostly empty `args` after M8)
+- `src/templatetags/specs.rs` - TagSpec construction and merging
 
 These files require extra care with `edit` tool due to complex indentation and frequent modifications.
 
@@ -115,10 +118,14 @@ Use `/dex` to break down complex work, track progress across sessions, and coord
 - The `edit` tool requires EXACT text match including all whitespace, newlines, and indentation
 - When modifying complex files, ALWAYS read the exact section first to ensure whitespace matches
 - If edit fails with "2 occurrences", narrow the context to make the match unique
-- Prefer smaller, surgical edits over large replacements to avoid matching errors
-- Common files needing extra care: `djls-server/src/db.rs`, `djls-semantic/src/load_resolution.rs` (most edited files)
-- Before editing, read the target lines with `read --offset X --limit Y` to capture exact whitespace
-- When edits fail repeatedly, rewrite the entire file with `write` rather than fighting `edit`
+- **Prefer smaller, surgical edits** over large replacements to avoid matching errors
+- Common files needing extra care (high failure rate due to complex indentation):
+  - `djls-server/src/db.rs` - Salsa database with complex nested structs
+  - `djls-semantic/src/load_resolution.rs` - Load scoping with complex match arms
+  - `djls-ide/src/completions.rs` - Completion handlers with long parameter lists
+- **Before editing complex files**, read the target lines with `read --offset X --limit Y` to capture exact whitespace
+- **When edits fail repeatedly**, rewrite the entire file with `write` rather than fighting `edit`
+- For files edited 30+ times in recent sessions, expect indentation edge cases
 
 ## Clippy Patterns to Avoid
 - Functions with >7 arguments trigger `clippy::too_many_arguments` - consider struct bundling
@@ -127,6 +134,9 @@ Use `/dex` to break down complex work, track progress across sessions, and coord
 - Template syntax in format strings: escape `{%` as `{{%` (e.g., `format!("{{% load {name} %}}")`)
 - Placeholder methods in phased implementation need `#[allow(dead_code)]` to silence "never used" warnings
 - Use inline format args: `format!("{var}")` not `format!("{}", var)` (`clippy::uninlined_format_args`)
+- `cargo fix` with uncommitted changes requires `--allow-dirty` flag
+- Manual `Option::map` implementations trigger `clippy::manual_map` - use `.map()` instead
+- Casting to `u32` from `usize` triggers `clippy::cast_possible_truncation` - add `#[allow(...)]` when safe
 
 ## Common Compile Error Patterns
 - **E0046** "not all trait items implemented": Add missing method to **ALL** test databases immediately:
@@ -139,6 +149,7 @@ Use `/dex` to break down complex work, track progress across sessions, and coord
 - **E0599** "not an iterator": Ruff's `ParseError` is a single error, NOT a Vec - don't call `.collect()` on it
 - **E0603** "module is private": Use public re-exports from crate root, not internal modules (e.g., `djls_project::TemplatetagsResponse` not `djls_project::django::TemplatetagsResponse`)
 - **E0433** "unresolved module": Add dependency to Cargo.toml with `workspace = true`
+- **E0308** "mismatched types": Check for `&String` vs `&str` mismatches, especially in accessor returns
 
 ## Common Compile Error Patterns
 - E0046 "not all trait items implemented": Add missing method to ALL test databases immediately
@@ -156,12 +167,16 @@ Use `/dex` to break down complex work, track progress across sessions, and coord
 - Boxed expressions in AST use `Box<Expr>` - call `.as_ref()` to access inner value
 - When extracting strings from AST, match on `Expr::StringLiteral(lit)` then access `lit.value`
 - Ruff parser is pinned to specific SHA in workspace Cargo.toml - check `ruff_python_parser` dep for version
+- Function parameters use `ParameterWithDefault` struct - defaults are inline, not a separate vector
+- Raise statements wrap exception in `Box<Expr>` - use `.as_ref()` to access the raised value
 
 ## Navigation Reminders
 - This is a worktree - files like AGENTS.md are in the worktree root (`worktrees/detailed-kimi-k2.5/`), not the main repo root
 - Read files from the current worktree path, not parent directories
 - NEVER look for worktree files in `worktrees/` without the full worktree name (e.g., NOT `worktrees/AGENTS.md`)
 - When running commands from worktree root, use relative paths without changing directory
+- Plan files are in `.agents/plans/` subdirectory, not at worktree root
+- Charter and roadmap are in `.agents/` subdirectory
 
 ## Template Validation Architecture (M8+)
 

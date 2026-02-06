@@ -19,7 +19,7 @@ This document tracks progress through the milestones for porting the Python `tem
 | M5 | Rust Extraction Engine (`djls-extraction`) | ✅ Complete | [`.agents/plans/2026-02-05-m5-extraction-engine.md`](.agents/plans/2026-02-05-m5-extraction-engine.md) |
 | M6 | Rule Evaluation + Expression Validation | ✅ Complete (partial - see M8) | [`.agents/plans/2026-02-05-m6-rule-evaluation.md`](.agents/plans/2026-02-05-m6-rule-evaluation.md) |
 | M7 | Documentation + Issue Reporting | ✅ Complete | [`.agents/plans/2026-02-05-m7-docs-and-issue-template.md`](.agents/plans/2026-02-05-m7-docs-and-issue-template.md) |
-| M8 | Extracted Rule Evaluation | 📝 Ready | [`.agents/plans/2026-02-06-m8-extracted-rule-evaluation.md`](.agents/plans/2026-02-06-m8-extracted-rule-evaluation.md) |
+| M8 | Extracted Rule Evaluation | 🔄 In Progress (Phases 1-5 Complete, Phase 6 Pending) | [`.agents/plans/2026-02-06-m8-extracted-rule-evaluation.md`](.agents/plans/2026-02-06-m8-extracted-rule-evaluation.md) |
 | M9 | User Config Tagspec Simplification | 📝 Ready | [`.agents/plans/2026-02-06-m9-tagspec-simplification.md`](.agents/plans/2026-02-06-m9-tagspec-simplification.md) |
 
 **Legend:**
@@ -902,13 +902,15 @@ The M6 plan originally deferred ExtractedRule evaluation, creating a dual-system
 
 ## M8: Extracted Rule Evaluation
 
-**Status:** 📝 Ready
+**Status:** 🔄 In Progress (Phases 1-5 Complete, Phase 6 Pending)
 
 **Goal:** Build the evaluator that applies `ExtractedRule` conditions to template tag arguments, extract argument structure from Python AST, remove old hand-crafted `args`-based validation, and prove the system works via corpus-scale template validation tests.
 
 **Plan:** [`.agents/plans/2026-02-06-m8-extracted-rule-evaluation.md`](.agents/plans/2026-02-06-m8-extracted-rule-evaluation.md)
 
 This milestone closes the gap identified in the M6 post-mortem: extraction rules are computed but never read. After M8, the old `builtins.rs` args and `validate_argument_order()` are replaced entirely.
+
+**Note:** Phase 6 (Corpus Template Validation Tests) is pending - requires `.corpus/` directory setup which does not yet exist.
 
 ### Phase 1: Argument Structure Extraction in `djls-extraction`
 
