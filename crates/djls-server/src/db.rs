@@ -148,19 +148,17 @@ fn collect_workspace_extraction_results(
 
     let search_paths = build_search_paths(interpreter, root, pythonpath);
 
-    let (workspace_modules, _external) = djls_project::resolve_modules(
-        module_paths.iter().map(String::as_str),
-        &search_paths,
-        root,
-    );
+    let (workspace_modules, _external) =
+        djls_project::resolve_modules(module_paths.iter().map(String::as_str), &search_paths, root);
 
     let mut results = Vec::new();
 
     for resolved in workspace_modules {
         let file = db.get_or_create_file(&resolved.file_path);
-        let extraction = extract_module_rules(db, file);
+        let mut extraction = extract_module_rules(db, file);
 
         if !extraction.is_empty() {
+            extraction.rekey_module(&resolved.module_path);
             results.push((resolved.module_path, extraction));
         }
     }
@@ -428,29 +426,21 @@ fn extract_external_rules(
 
     let search_paths = build_search_paths(interpreter, root, pythonpath);
 
-    let (_workspace, external_modules) = djls_project::resolve_modules(
-        modules.iter().map(String::as_str),
-        &search_paths,
-        root,
-    );
+    let (_workspace, external_modules) =
+        djls_project::resolve_modules(modules.iter().map(String::as_str), &search_paths, root);
 
     let mut results = rustc_hash::FxHashMap::default();
 
     for resolved in external_modules {
         match std::fs::read_to_string(resolved.file_path.as_std_path()) {
             Ok(source) => {
-                let module_result =
-                    djls_extraction::extract_rules(&source, &resolved.module_path);
+                let module_result = djls_extraction::extract_rules(&source, &resolved.module_path);
                 if !module_result.is_empty() {
                     results.insert(resolved.module_path, module_result);
                 }
             }
             Err(e) => {
-                tracing::debug!(
-                    "Failed to read module file {}: {}",
-                    resolved.file_path,
-                    e
-                );
+                tracing::debug!("Failed to read module file {}: {}", resolved.file_path, e);
             }
         }
     }
@@ -951,5 +941,4 @@ def my_filter(value, arg):
             "endcustomblock"
         );
     }
-
 }

@@ -136,10 +136,9 @@ pub fn build_search_paths(
 /// Find the site-packages directory for the given interpreter.
 #[must_use]
 pub fn find_site_packages(interpreter: &Interpreter, root: &Utf8Path) -> Option<Utf8PathBuf> {
-    let venv_path = match interpreter {
-        Interpreter::VenvPath(path) => Some(Utf8PathBuf::from(path)),
+    match interpreter {
+        Interpreter::VenvPath(path) => find_site_packages_in_venv(Utf8Path::new(path)),
         Interpreter::Auto => {
-            // Check common venv directories
             for dir in &[".venv", "venv", "env", ".env"] {
                 let candidate = root.join(dir);
                 if candidate.is_dir() {
@@ -149,9 +148,7 @@ pub fn find_site_packages(interpreter: &Interpreter, root: &Utf8Path) -> Option<
             None
         }
         Interpreter::InterpreterPath(_) => None,
-    };
-
-    venv_path.as_deref().and_then(find_site_packages_in_venv)
+    }
 }
 
 /// Find site-packages within a specific venv directory.

@@ -20,7 +20,7 @@ fn corpus_sync() {
     let manifest_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("manifest.toml");
     let manifest =
         djls_corpus::manifest::Manifest::load(&manifest_path).expect("Failed to load manifest");
-    let corpus_root = Path::new(env!("CARGO_MANIFEST_DIR")).join(".corpus");
+    let corpus_root = Path::new(env!("CARGO_MANIFEST_DIR")).join(&manifest.corpus.root_dir);
 
     eprintln!("Syncing corpus to {}...", corpus_root.display());
     djls_corpus::sync::sync_corpus(&manifest, &corpus_root).expect("Failed to sync corpus");
@@ -28,7 +28,10 @@ fn corpus_sync() {
 }
 
 fn corpus_clean() {
-    let corpus_root = Path::new(env!("CARGO_MANIFEST_DIR")).join(".corpus");
+    let manifest_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("manifest.toml");
+    let manifest =
+        djls_corpus::manifest::Manifest::load(&manifest_path).expect("Failed to load manifest");
+    let corpus_root = Path::new(env!("CARGO_MANIFEST_DIR")).join(&manifest.corpus.root_dir);
     if corpus_root.exists() {
         std::fs::remove_dir_all(&corpus_root).expect("Failed to remove corpus");
         eprintln!("Corpus cleaned");

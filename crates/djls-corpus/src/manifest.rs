@@ -4,7 +4,6 @@ use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
 pub struct Manifest {
-    #[allow(dead_code)]
     pub corpus: CorpusConfig,
     #[serde(default, rename = "package")]
     pub packages: Vec<Package>,

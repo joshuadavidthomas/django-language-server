@@ -28,23 +28,8 @@ use djls_extraction::SymbolKey;
 use djls_extraction::TagRule;
 use serde::Serialize;
 
-/// Get corpus root from environment, or use default if it exists.
 fn corpus_root() -> Option<PathBuf> {
-    if let Ok(path) = std::env::var("DJLS_CORPUS_ROOT") {
-        let p = PathBuf::from(path);
-        if p.exists() {
-            return Some(p);
-        }
-    }
-
-    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let workspace_root = manifest_dir.parent().and_then(|p| p.parent())?;
-    let default = workspace_root.join("crates/djls-corpus/.corpus");
-    if default.exists() {
-        return Some(default);
-    }
-
-    None
+    djls_corpus::find_corpus_root(env!("CARGO_MANIFEST_DIR"))
 }
 
 /// Get the latest Django version directory.
@@ -97,7 +82,11 @@ fn snapshot(result: ExtractionResult) -> SortedExtractionResult {
 }
 
 /// Extract from a real Django source file in the corpus.
-fn extract_django_module(root: &Path, relative: &str, module_path: &str) -> Option<ExtractionResult> {
+fn extract_django_module(
+    root: &Path,
+    relative: &str,
+    module_path: &str,
+) -> Option<ExtractionResult> {
     let django_dir = latest_django_dir(root)?;
     let path = django_dir.join(relative);
     if !path.exists() {
@@ -118,8 +107,12 @@ fn test_defaulttags_full_snapshot() {
         return;
     };
 
-    let result = extract_django_module(&root, "django/template/defaulttags.py", "django.template.defaulttags")
-        .expect("defaulttags.py should be extractable");
+    let result = extract_django_module(
+        &root,
+        "django/template/defaulttags.py",
+        "django.template.defaulttags",
+    )
+    .expect("defaulttags.py should be extractable");
 
     insta::assert_yaml_snapshot!("defaulttags_full", snapshot(result));
 }
@@ -130,7 +123,12 @@ fn test_defaulttags_tag_count() {
         return;
     };
 
-    let result = extract_django_module(&root, "django/template/defaulttags.py", "django.template.defaulttags").unwrap();
+    let result = extract_django_module(
+        &root,
+        "django/template/defaulttags.py",
+        "django.template.defaulttags",
+    )
+    .unwrap();
 
     let mut tag_names: Vec<&str> = result.tag_rules.keys().map(|k| k.name.as_str()).collect();
     tag_names.sort_unstable();
@@ -149,9 +147,16 @@ fn test_defaulttags_for_tag_rules() {
         return;
     };
 
-    let result = extract_django_module(&root, "django/template/defaulttags.py", "django.template.defaulttags").unwrap();
+    let result = extract_django_module(
+        &root,
+        "django/template/defaulttags.py",
+        "django.template.defaulttags",
+    )
+    .unwrap();
     let for_key = SymbolKey::tag("django.template.defaulttags", "for");
-    let for_rule = result.tag_rules.get(&for_key)
+    let for_rule = result
+        .tag_rules
+        .get(&for_key)
         .expect("for tag should have extracted rules");
 
     eprintln!("for tag constraints ({}):", for_rule.arg_constraints.len());
@@ -161,12 +166,17 @@ fn test_defaulttags_for_tag_rules() {
 
     // Real Django for tag has: len(bits) < 4 → Min(4) constraint
     assert!(
-        for_rule.arg_constraints.iter().any(|c| matches!(c, ArgumentCountConstraint::Min(4))),
+        for_rule
+            .arg_constraints
+            .iter()
+            .any(|c| matches!(c, ArgumentCountConstraint::Min(4))),
         "for tag should have Min(4) constraint from `len(bits) < 4`"
     );
 
     // Block spec
-    let for_block = result.block_specs.get(&for_key)
+    let for_block = result
+        .block_specs
+        .get(&for_key)
         .expect("for tag should have block spec");
     assert_eq!(for_block.end_tag.as_deref(), Some("endfor"));
     assert!(
@@ -181,15 +191,28 @@ fn test_defaulttags_if_tag() {
         return;
     };
 
-    let result = extract_django_module(&root, "django/template/defaulttags.py", "django.template.defaulttags").unwrap();
+    let result = extract_django_module(
+        &root,
+        "django/template/defaulttags.py",
+        "django.template.defaulttags",
+    )
+    .unwrap();
 
     // Block spec: endif, intermediates elif/else
     let if_key = SymbolKey::tag("django.template.defaulttags", "if");
-    let block = result.block_specs.get(&if_key)
+    let block = result
+        .block_specs
+        .get(&if_key)
         .expect("if tag should have block spec");
     assert_eq!(block.end_tag.as_deref(), Some("endif"));
-    assert!(block.intermediates.contains(&"elif".to_string()), "should have elif");
-    assert!(block.intermediates.contains(&"else".to_string()), "should have else");
+    assert!(
+        block.intermediates.contains(&"elif".to_string()),
+        "should have elif"
+    );
+    assert!(
+        block.intermediates.contains(&"else".to_string()),
+        "should have else"
+    );
 }
 
 #[test]
@@ -198,9 +221,16 @@ fn test_defaulttags_url_tag_rules() {
         return;
     };
 
-    let result = extract_django_module(&root, "django/template/defaulttags.py", "django.template.defaulttags").unwrap();
+    let result = extract_django_module(
+        &root,
+        "django/template/defaulttags.py",
+        "django.template.defaulttags",
+    )
+    .unwrap();
     let url_key = SymbolKey::tag("django.template.defaulttags", "url");
-    let url_rule = result.tag_rules.get(&url_key)
+    let url_rule = result
+        .tag_rules
+        .get(&url_key)
         .expect("url tag should have extracted rules");
 
     eprintln!("url tag constraints ({}):", url_rule.arg_constraints.len());
@@ -210,7 +240,10 @@ fn test_defaulttags_url_tag_rules() {
 
     // Real Django url tag: if len(bits) < 2 → Min(2) constraint
     assert!(
-        url_rule.arg_constraints.iter().any(|c| matches!(c, ArgumentCountConstraint::Min(2))),
+        url_rule
+            .arg_constraints
+            .iter()
+            .any(|c| matches!(c, ArgumentCountConstraint::Min(2))),
         "url tag should have Min(2) constraint from `len(bits) < 2`"
     );
 }
@@ -221,9 +254,16 @@ fn test_defaulttags_with_tag() {
         return;
     };
 
-    let result = extract_django_module(&root, "django/template/defaulttags.py", "django.template.defaulttags").unwrap();
+    let result = extract_django_module(
+        &root,
+        "django/template/defaulttags.py",
+        "django.template.defaulttags",
+    )
+    .unwrap();
     let with_key = SymbolKey::tag("django.template.defaulttags", "with");
-    let block = result.block_specs.get(&with_key)
+    let block = result
+        .block_specs
+        .get(&with_key)
         .expect("with tag should have block spec");
     assert_eq!(block.end_tag.as_deref(), Some("endwith"));
 }
@@ -239,8 +279,12 @@ fn test_defaultfilters_full_snapshot() {
         return;
     };
 
-    let result = extract_django_module(&root, "django/template/defaultfilters.py", "django.template.defaultfilters")
-        .expect("defaultfilters.py should be extractable");
+    let result = extract_django_module(
+        &root,
+        "django/template/defaultfilters.py",
+        "django.template.defaultfilters",
+    )
+    .expect("defaultfilters.py should be extractable");
 
     eprintln!(
         "defaultfilters.py: {} tag rules, {} filters",
@@ -257,14 +301,27 @@ fn test_defaultfilters_filter_count() {
         return;
     };
 
-    let result = extract_django_module(&root, "django/template/defaultfilters.py", "django.template.defaultfilters").unwrap();
+    let result = extract_django_module(
+        &root,
+        "django/template/defaultfilters.py",
+        "django.template.defaultfilters",
+    )
+    .unwrap();
 
-    let mut filter_names: Vec<&str> = result.filter_arities.keys().map(|k| k.name.as_str()).collect();
+    let mut filter_names: Vec<&str> = result
+        .filter_arities
+        .keys()
+        .map(|k| k.name.as_str())
+        .collect();
     filter_names.sort_unstable();
 
     eprintln!("defaultfilters.py filters ({}):", filter_names.len());
     for name in &filter_names {
-        let key = result.filter_arities.keys().find(|k| k.name == *name).unwrap();
+        let key = result
+            .filter_arities
+            .keys()
+            .find(|k| k.name == *name)
+            .unwrap();
         let arity = &result.filter_arities[key];
         eprintln!("  {name}: {arity:?}");
     }
@@ -288,8 +345,12 @@ fn test_loader_tags_full_snapshot() {
         return;
     };
 
-    let result = extract_django_module(&root, "django/template/loader_tags.py", "django.template.loader_tags")
-        .expect("loader_tags.py should be extractable");
+    let result = extract_django_module(
+        &root,
+        "django/template/loader_tags.py",
+        "django.template.loader_tags",
+    )
+    .expect("loader_tags.py should be extractable");
 
     insta::assert_yaml_snapshot!("loader_tags_full", snapshot(result));
 }
@@ -300,9 +361,16 @@ fn test_loader_tags_block_tag() {
         return;
     };
 
-    let result = extract_django_module(&root, "django/template/loader_tags.py", "django.template.loader_tags").unwrap();
+    let result = extract_django_module(
+        &root,
+        "django/template/loader_tags.py",
+        "django.template.loader_tags",
+    )
+    .unwrap();
     let block_key = SymbolKey::tag("django.template.loader_tags", "block");
-    let block = result.block_specs.get(&block_key)
+    let block = result
+        .block_specs
+        .get(&block_key)
         .expect("block tag should have block spec");
     assert_eq!(block.end_tag.as_deref(), Some("endblock"));
 }
@@ -432,14 +500,20 @@ fn test_for_tag_rules_across_django_versions() {
         let for_key = SymbolKey::tag("django.template.defaulttags", "for");
 
         if let Some(for_rule) = result.tag_rules.get(&for_key) {
-            eprintln!("Django {version} for tag: {} constraints", for_rule.arg_constraints.len());
+            eprintln!(
+                "Django {version} for tag: {} constraints",
+                for_rule.arg_constraints.len()
+            );
             for constraint in &for_rule.arg_constraints {
                 eprintln!("  {constraint:?}");
             }
 
             // Every Django version should have the min-args rule
             assert!(
-                for_rule.arg_constraints.iter().any(|c| matches!(c, ArgumentCountConstraint::Min(4))),
+                for_rule
+                    .arg_constraints
+                    .iter()
+                    .any(|c| matches!(c, ArgumentCountConstraint::Min(4))),
                 "Django {version}: for tag missing Min(4) constraint"
             );
         } else {

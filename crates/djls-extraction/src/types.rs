@@ -62,6 +62,28 @@ impl ExtractionResult {
         self.filter_arities.extend(other.filter_arities);
         self.block_specs.extend(other.block_specs);
     }
+
+    /// Replace the `registration_module` in all `SymbolKey`s.
+    ///
+    /// Used when extraction was performed without a known module path
+    /// (e.g., from a Salsa tracked function that only has a `File` input),
+    /// and the caller needs to stamp in the correct module path afterwards.
+    pub fn rekey_module(&mut self, module_path: &str) {
+        fn rekey_map<V>(map: &mut FxHashMap<SymbolKey, V>, module_path: &str) {
+            let entries: Vec<(SymbolKey, V)> = map
+                .drain()
+                .map(|(mut k, v)| {
+                    k.registration_module = module_path.to_string();
+                    (k, v)
+                })
+                .collect();
+            map.extend(entries);
+        }
+
+        rekey_map(&mut self.tag_rules, module_path);
+        rekey_map(&mut self.filter_arities, module_path);
+        rekey_map(&mut self.block_specs, module_path);
+    }
 }
 
 /// Validation rules extracted from a tag's compile function.

@@ -28,69 +28,14 @@ use std::path::PathBuf;
 use djls_extraction::extract_rules;
 use djls_extraction::ExtractionResult;
 
-/// Get corpus root from environment, or use default if it exists.
 fn corpus_root() -> Option<PathBuf> {
-    // Explicit env var takes precedence
-    if let Ok(path) = std::env::var("DJLS_CORPUS_ROOT") {
-        let p = PathBuf::from(path);
-        if p.exists() {
-            return Some(p);
-        }
-    }
-
-    // Try default location relative to workspace root
-    // CARGO_MANIFEST_DIR points to crates/djls-extraction
-    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let workspace_root = manifest_dir.parent().and_then(|p| p.parent())?;
-    let default = workspace_root.join("crates/djls-corpus/.corpus");
-    if default.exists() {
-        return Some(default);
-    }
-
-    None
-}
-
-/// Derive a module path from a file path within the corpus.
-///
-/// E.g., `.corpus/packages/Django/6.0.2/django/template/defaulttags.py`
-/// → `"django.template.defaulttags"`
-fn module_path_from_file(file: &Path) -> String {
-    let components: Vec<&str> = file
-        .components()
-        .filter_map(|c| {
-            if let std::path::Component::Normal(s) = c {
-                s.to_str()
-            } else {
-                None
-            }
-        })
-        .collect();
-
-    // Find the first Python-package-looking component after the version directory.
-    let mut start_idx = None;
-    for (i, component) in components.iter().enumerate() {
-        if component.chars().next().is_some_and(|c| c.is_ascii_digit())
-            && component.contains('.')
-            && !Path::new(component)
-                .extension()
-                .is_some_and(|ext| ext.eq_ignore_ascii_case("py"))
-        {
-            start_idx = Some(i + 1);
-        }
-    }
-
-    let start = start_idx.unwrap_or(0);
-    let parts: Vec<&str> = components[start..]
-        .iter()
-        .map(|s| s.strip_suffix(".py").unwrap_or(s))
-        .collect();
-    parts.join(".")
+    djls_corpus::find_corpus_root(env!("CARGO_MANIFEST_DIR"))
 }
 
 /// Run extraction on a single file, returning the result if successful.
 fn extract_file(path: &Path) -> Option<ExtractionResult> {
     let source = std::fs::read_to_string(path).ok()?;
-    let module_path = module_path_from_file(path);
+    let module_path = djls_corpus::module_path_from_file(path);
     let result = extract_rules(&source, &module_path);
     Some(result)
 }
