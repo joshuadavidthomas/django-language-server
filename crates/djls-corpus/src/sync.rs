@@ -1,8 +1,9 @@
 //! Download and extract corpus packages/repos.
 //!
-//! Extracts only files relevant to extraction testing:
+//! Extracts files relevant to extraction testing and template validation:
 //! - `**/templatetags/**/*.py`
 //! - `**/template/defaulttags.py`, `defaultfilters.py`, `loader_tags.py`
+//! - `**/templates/**/*.html`, `**/templates/**/*.txt` (Django templates)
 
 use std::io::Read;
 use std::path::Path;
@@ -11,33 +12,39 @@ use crate::manifest::Manifest;
 use crate::manifest::Package;
 use crate::manifest::Repo;
 
-/// Whether a file path is relevant for extraction testing.
-fn is_extraction_relevant(path: &str) -> bool {
-    if !Path::new(path)
-        .extension()
-        .is_some_and(|ext| ext.eq_ignore_ascii_case("py"))
-    {
-        return false;
-    }
+/// Whether a file path is relevant for corpus testing (extraction + template validation).
+fn is_corpus_relevant(path: &str) -> bool {
     if path.contains("__pycache__") {
         return false;
     }
 
-    // templatetags directories
-    if path.contains("/templatetags/") {
-        return true;
-    }
+    let ext = Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase);
 
-    // Django core template modules
-    if path.contains("/template/") {
-        let file_name = path.rsplit('/').next().unwrap_or("");
-        return matches!(
-            file_name,
-            "defaulttags.py" | "defaultfilters.py" | "loader_tags.py"
-        );
+    match ext.as_deref() {
+        Some("py") => {
+            // templatetags directories
+            if path.contains("/templatetags/") {
+                return true;
+            }
+            // Django core template modules
+            if path.contains("/template/") {
+                let file_name = path.rsplit('/').next().unwrap_or("");
+                return matches!(
+                    file_name,
+                    "defaulttags.py" | "defaultfilters.py" | "loader_tags.py"
+                );
+            }
+            false
+        }
+        Some("html" | "txt") => {
+            // Django template files inside templates/ directories
+            path.contains("/templates/")
+        }
+        _ => false,
     }
-
-    false
 }
 
 pub fn sync_corpus(manifest: &Manifest, corpus_root: &Path) -> anyhow::Result<()> {
@@ -138,7 +145,7 @@ fn extract_tarball(url: &str, out_dir: &Path) -> anyhow::Result<()> {
             .split_once('/')
             .map_or(entry_path.as_str(), |x| x.1);
 
-        if !is_extraction_relevant(relative) {
+        if !is_corpus_relevant(relative) {
             continue;
         }
 

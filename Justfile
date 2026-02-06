@@ -47,6 +47,10 @@ testall *ARGS:
 corpus-sync:
     cargo run -p djls-corpus -- sync
 
+# Run corpus template validation tests (requires corpus-sync first)
+corpus-validate:
+    cargo test -p djls-server --test corpus_templates -- --nocapture
+
 # Remove synced corpus data
 corpus-clean:
     cargo run -p djls-corpus -- clean

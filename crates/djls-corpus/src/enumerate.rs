@@ -1,4 +1,4 @@
-//! Find extraction-relevant Python files in the corpus.
+//! Find extraction-relevant Python files and template files in the corpus.
 
 use std::path::Path;
 use std::path::PathBuf;
@@ -51,6 +51,42 @@ pub fn enumerate_extraction_files(corpus_root: &Path) -> Vec<PathBuf> {
                 "defaulttags.py" | "defaultfilters.py" | "loader_tags.py"
             )
         {
+            files.push(path.to_path_buf());
+        }
+    }
+
+    files.sort();
+    files.dedup();
+    files
+}
+
+/// Find all Django template files (`.html`, `.txt`) in a directory tree.
+///
+/// Matches files inside `**/templates/` directories.
+#[must_use]
+pub fn enumerate_template_files(root: &Path) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+
+    for entry in WalkDir::new(root)
+        .into_iter()
+        .filter_map(Result::ok)
+        .filter(|e| e.file_type().is_file())
+    {
+        let path = entry.path();
+        let path_str = path.to_string_lossy();
+
+        // Must be inside a templates/ directory
+        if !path_str.contains("/templates/") {
+            continue;
+        }
+
+        // Must be .html or .txt
+        let is_template = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("html") || ext.eq_ignore_ascii_case("txt"));
+
+        if is_template {
             files.push(path.to_path_buf());
         }
     }

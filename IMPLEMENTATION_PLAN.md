@@ -450,7 +450,7 @@
 
 ## M8 - Extracted Rule Evaluation
 
-**Status:** in progress
+**Status:** complete
 **Plan:** `.agents/plans/2026-02-06-m8-extracted-rule-evaluation.md`
 
 ### Phase 1: Argument Structure Extraction in `djls-extraction`
@@ -510,15 +510,15 @@
 
 ### Phase 6: Corpus Template Validation Tests
 
-- [ ] Create `crates/djls-server/tests/corpus_templates.rs` integration test
-- [ ] Implement `build_specs_for_entry()` — extract rules from corpus entry's templatetags
-- [ ] Implement `validate_template_file()` — parse template, run validation, collect errors
-- [ ] Test: Django shipped templates (4.2/5.1/5.2/6.0) zero false positives
-- [ ] Test: Third-party templates (Wagtail, allauth, crispy-forms, etc.) zero argument validation false positives
-- [ ] Test: Repo templates (Sentry, NetBox) zero argument validation false positives
-- [ ] Add template exclusion list for known-invalid upstream templates
-- [ ] Tests skip gracefully when corpus not synced
-- [ ] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Create `crates/djls-server/tests/corpus_templates.rs` integration test
+- [x] Implement `build_specs_for_entry()` — extract rules from corpus entry's templatetags
+- [x] Implement `validate_template_file()` — parse template, run validation, collect errors
+- [x] Test: Django shipped templates (4.2/5.1/5.2/6.0) zero false positives
+- [x] Test: Third-party templates (Wagtail, allauth, crispy-forms, etc.) zero argument validation false positives
+- [x] Test: Repo templates (Sentry, NetBox) zero argument validation false positives
+- [x] Add template exclusion list for known-invalid upstream templates
+- [x] Tests skip gracefully when corpus not synced
+- [x] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ---
 
@@ -597,3 +597,6 @@
 - M8: `EndTag` and `IntermediateTag` no longer have `args` fields. Closer/intermediate tags receive no argument validation. The `validate_close` method in `TagIndex` always returns `Valid` (match_args is always empty).
 - M8: Builtin tag specs in `builtins.rs` have empty `args` — argument validation relies entirely on extracted rules populated by `compute_tag_specs` in the server. Tests using `django_builtin_specs()` directly will see no argument validation without providing extracted rules.
 - M8: `validate_tag_arguments` dispatch: extracted_rules (primary) → args (user-config fallback) → no validation (conservative). Both empty means no validation.
+- M8: Corpus sync (`djls-corpus`) now also extracts template files (`.html`, `.txt` inside `**/templates/` directories) in addition to Python extraction files. Existing corpus data needs re-sync (`just corpus-clean && just corpus-sync`) to include templates.
+- M8: `enumerate_template_files(root)` in `djls-corpus::enumerate` finds all `.html`/`.txt` files under `**/templates/` directories.
+- M8: Corpus template validation tests in `crates/djls-server/tests/corpus_templates.rs` use a lightweight `CorpusTestDatabase` that implements `djls_semantic::Db` with custom `TagSpecs` — no need for the full `DjangoDatabase`.

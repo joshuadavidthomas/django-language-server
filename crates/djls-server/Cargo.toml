@@ -31,7 +31,9 @@ tracing-subscriber = { workspace = true }
 toml = { workspace = true }
 
 [dev-dependencies]
+djls-corpus = { workspace = true }
 tempfile = { workspace = true }
+walkdir = { workspace = true }
 
 [lints]
 workspace = true
