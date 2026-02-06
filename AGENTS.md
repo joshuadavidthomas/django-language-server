@@ -43,16 +43,32 @@ just lint                       # Run pre-commit hooks
 ## Task Management
 Use `/dex` to break down complex work, track progress across sessions, and coordinate multi-step implementations.
 
+## Code Editing
+- `edit` tool requires exact text match including all whitespace and newlines
+- When modifying complex files, read the exact section first to ensure whitespace matches
+- Prefer smaller, surgical edits over large replacements to avoid matching errors
+
 ## Completion Implementation Notes
 - Library completions (`{% load %}`) use `tags.libraries()` HashMap, not all tags - builtins are excluded
 - Sort completion items alphabetically for deterministic test results
 - Use `filter_text` for completion items to improve matching behavior
 - Detail text format: `from {module} ({% load {name} %})` for library tags, `builtin from {module}` for builtins
 
+## TagIndex Construction
+- `TagIndex::from_specs()` takes 2 parameters: `db: &'dyn crate::Db` and `specs: &TagSpecs`
+- When calling from tracked functions, pass specs explicitly rather than querying internally
+- Required signature in all implementations (db.rs, test impls, bench db)
+
 ## Project Bootstrap
 - `Project::bootstrap()` takes 6 arguments: `db`, `root`, `venv_path`, `django_settings_module`, `pythonpath`, AND `settings` — when adding new Project fields, update all callers (e.g., `djls-server/src/db.rs:144`)
+
+## Module Visibility
+- The `djls-project` crate has private modules that are re-exported at crate root
+- Import from `djls_project::` directly, not from internal module paths (e.g., `djls_project::django::TemplatetagsResponse` is private, use `djls_project::TemplatetagsResponse`)
 
 ## Salsa Tracked Functions
 - Return types must implement `PartialEq` (Salsa requirement for memoization)
 - Salsa tracked functions should use `&dyn SemanticDb` (not `&dyn salsa::Database`) for proper trait bounds
 - To establish proper Salsa dependencies, pass data as parameters rather than querying internally — e.g., `TagIndex::from_specs(db, &specs)` instead of having `from_specs` call `db.tag_specs()` internally
+- Types containing `FxHashMap` require manual `PartialEq` impl for Salsa tracked function returns (auto-derive fails)
+- Import `salsa::Setter` trait to use `.to()` method on Salsa input setters
