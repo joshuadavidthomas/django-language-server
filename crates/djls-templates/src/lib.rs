@@ -20,7 +20,6 @@
 //! - [`nodelist`]: Node list definitions and structure
 //! - [`db`]: Salsa database integration for incremental computation
 //! - [`validation`]: Validation rules using the visitor pattern
-//! - [`tagspecs`]: Django tag specifications for validation
 //!
 //! ## Adding New Validation Rules
 //!

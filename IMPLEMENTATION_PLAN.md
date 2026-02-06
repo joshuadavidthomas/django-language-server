@@ -1265,9 +1265,13 @@ Remove 5 unreachable `ValidationError` variants (`MissingRequiredArguments`, `To
 
 ### Phase 4: Update Documentation
 
-**Status:** 🔲 Not Started
+**Status:** ✅ Complete
 
 Delete the tagspecs documentation page, update config docs to remove `tagspecs` as a config option, update the diagnostic codes table.
+
+**Changes:**
+- Fixed remaining code comment references to S104-S107 in `load_resolution.rs` (updated to S117)
+- Removed obsolete `tagspecs` module reference from `djls-templates/src/lib.rs` doc comments
 
 **Tasks:**
 
@@ -1313,10 +1317,10 @@ Delete the tagspecs documentation page, update config docs to remove `tagspecs` 
 - [x] Final quality checks: `just docs build`, `cargo test -q`
 
 **Quality Checks (per sub-phase):**
-- [ ] `cargo build -q` passes
-- [ ] `cargo test -q` passes
-- [ ] `cargo clippy -q --all-targets --all-features -- -D warnings` passes
-- [ ] Documentation builds without errors or warnings
+- [x] `cargo build -q` passes
+- [x] `cargo test -q` passes
+- [x] `cargo clippy -q --all-targets --all-features -- -D warnings` passes
+- [x] No S104-S107 references remaining in codebase
 
 ---
 

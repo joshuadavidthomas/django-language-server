@@ -501,7 +501,7 @@ pub fn build_filter_inventory(
 ///
 /// # `TagSpecs` Interaction
 /// Tags with structural specs (openers, closers, intermediates) are skipped:
-/// - They're validated by block structure (S100-S103) and argument validation (S104-S107)
+/// - They're validated by block structure (S100-S103) and argument validation (S117)
 /// - This prevents emitting S108 for "endif" when inspector doesn't list it
 /// - Closers like "endif" derive from opener spec, not inventory
 #[salsa::tracked]
@@ -531,7 +531,7 @@ pub fn validate_tag_scoping(
 
             // Skip tags that have structural meaning via TagSpecs
             // These are validated by block structure validation (S100-S103) and
-            // argument validation (S104-S107), not by load scoping.
+            // argument validation (S117), not by load scoping.
             let tag_specs = db.tag_specs();
             let has_spec = tag_specs.get(name).is_some()
                 || tag_specs.get_end_spec_for_closer(name).is_some()
