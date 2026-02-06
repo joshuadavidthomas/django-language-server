@@ -87,13 +87,13 @@ pub fn template_dirs(db: &dyn ProjectDb, _project: Project) -> Option<TemplateDi
 type TemplateDirs = Vec<Utf8PathBuf>;
 
 #[derive(Serialize)]
-struct TemplatetagsRequest;
+pub struct TemplatetagsRequest;
 
 #[derive(Deserialize)]
-struct TemplatetagsResponse {
-    templatetags: Vec<TemplateTag>,
-    libraries: HashMap<String, String>,
-    builtins: Vec<String>,
+pub struct TemplatetagsResponse {
+    pub templatetags: Vec<TemplateTag>,
+    pub libraries: HashMap<String, String>,
+    pub builtins: Vec<String>,
 }
 
 impl InspectorRequest for TemplatetagsRequest {
@@ -124,6 +124,29 @@ pub struct TemplateTags {
 }
 
 impl TemplateTags {
+    #[must_use]
+    pub fn new(
+        tags: Vec<TemplateTag>,
+        libraries: HashMap<String, String>,
+        builtins: Vec<String>,
+    ) -> Self {
+        Self {
+            tags,
+            libraries,
+            builtins,
+        }
+    }
+
+    /// Construct a `TemplateTags` from a raw inspector response.
+    #[must_use]
+    pub fn from_response(response: TemplatetagsResponse) -> Self {
+        Self {
+            tags: response.templatetags,
+            libraries: response.libraries,
+            builtins: response.builtins,
+        }
+    }
+
     #[must_use]
     pub fn tags(&self) -> &[TemplateTag] {
         &self.tags
