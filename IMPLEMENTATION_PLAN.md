@@ -135,12 +135,12 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ### Phase 5: Completions Integration
 
-- [ ] Update `generate_tag_name_completions` to accept `LoadedLibraries` and inspector inventory as parameters
-- [ ] When inspector available: only show builtins + tags from loaded libraries at cursor position
-- [ ] When inspector unavailable: show all tags (fallback, no filtering)
-- [ ] Update call sites in the server to pass the new parameters
-- [ ] Tests: before any load only builtins appear, after `{% load i18n %}` i18n tags appear, selective load only shows imported symbols, inspector unavailable shows all tags
-- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Update `generate_tag_name_completions` to accept `LoadedLibraries` and inspector inventory as parameters
+- [x] When inspector available: only show builtins + tags from loaded libraries at cursor position
+- [x] When inspector unavailable: show all tags (fallback, no filtering)
+- [x] Update call sites in the server to pass the new parameters
+- [x] Tests: before any load only builtins appear, after `{% load i18n %}` i18n tags appear, selective load only shows imported symbols, inspector unavailable shows all tags
+- [x] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 6: Library Completions Enhancement
 

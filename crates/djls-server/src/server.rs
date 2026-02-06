@@ -278,6 +278,39 @@ impl LanguageServer for DjangoLanguageServer {
                 let tag_specs = db.tag_specs();
                 let supports_snippets = session.client_info().supports_snippets();
 
+                // Compute position-aware available symbols for load-scoped completions.
+                // Only computed when inspector inventory is available and file is a template.
+                let available_symbols = if file_kind == FileKind::Template {
+                    let inventory = db.inspector_inventory();
+                    if let Some(ref inv) = inventory {
+                        let file = db.get_or_create_file(&path);
+                        let nodelist = djls_templates::parse_template(db, file);
+                        nodelist.map(|nl| {
+                            let loaded =
+                                djls_semantic::compute_loaded_libraries(db, nl);
+                            let line_index = file.line_index(db);
+                            let source_text = file.source(db);
+                            let byte_offset = line_index.offset(
+                                source_text.as_str(),
+                                djls_source::LineCol::new(
+                                    position.line,
+                                    position.character,
+                                ),
+                                encoding,
+                            );
+                            djls_semantic::AvailableSymbols::at_position(
+                                &loaded,
+                                inv,
+                                byte_offset.get(),
+                            )
+                        })
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
                 let completions = djls_ide::handle_completion(
                     &document,
                     position,
@@ -285,6 +318,7 @@ impl LanguageServer for DjangoLanguageServer {
                     file_kind,
                     template_tags.as_ref(),
                     Some(&tag_specs),
+                    available_symbols.as_ref(),
                     supports_snippets,
                 );
 

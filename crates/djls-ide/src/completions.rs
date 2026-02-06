@@ -4,6 +4,7 @@
 //! and generating appropriate completion items for Django templates.
 
 use djls_project::TemplateTags;
+use djls_semantic::AvailableSymbols;
 use djls_semantic::TagArg;
 use djls_semantic::TagSpecs;
 use djls_source::FileKind;
@@ -91,6 +92,7 @@ pub struct LineInfo {
 
 /// Main entry point for handling completion requests
 #[must_use]
+#[allow(clippy::too_many_arguments)]
 pub fn handle_completion(
     document: &TextDocument,
     position: ls_types::Position,
@@ -98,6 +100,7 @@ pub fn handle_completion(
     file_kind: FileKind,
     template_tags: Option<&TemplateTags>,
     tag_specs: Option<&TagSpecs>,
+    available_symbols: Option<&AvailableSymbols>,
     supports_snippets: bool,
 ) -> Vec<ls_types::CompletionItem> {
     // Only handle template files
@@ -120,6 +123,7 @@ pub fn handle_completion(
         &context,
         template_tags,
         tag_specs,
+        available_symbols,
         supports_snippets,
         position,
         &line_info.text,
@@ -280,10 +284,12 @@ fn detect_closing_brace(suffix: &str) -> ClosingBrace {
 }
 
 /// Generate Django template tag completion items based on context
+#[allow(clippy::too_many_arguments)]
 fn generate_template_completions(
     context: &TemplateCompletionContext,
     template_tags: Option<&TemplateTags>,
     tag_specs: Option<&TagSpecs>,
+    available_symbols: Option<&AvailableSymbols>,
     supports_snippets: bool,
     position: ls_types::Position,
     line_text: &str,
@@ -300,6 +306,7 @@ fn generate_template_completions(
             closing,
             template_tags,
             tag_specs,
+            available_symbols,
             supports_snippets,
             position,
             line_text,
@@ -362,6 +369,10 @@ fn calculate_replacement_range(
 }
 
 /// Generate completions for tag names
+///
+/// When `available_symbols` is `Some`, only tags that are available at the cursor
+/// position (builtins + tags from loaded libraries) are shown. When `None` (inspector
+/// unavailable), all tags from `template_tags` are shown as a fallback.
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 fn generate_tag_name_completions(
     partial: &str,
@@ -369,6 +380,7 @@ fn generate_tag_name_completions(
     closing: &ClosingBrace,
     template_tags: Option<&TemplateTags>,
     tag_specs: Option<&TagSpecs>,
+    available_symbols: Option<&AvailableSymbols>,
     supports_snippets: bool,
     position: ls_types::Position,
     line_text: &str,
@@ -426,6 +438,15 @@ fn generate_tag_name_completions(
     }
 
     for tag in tags.iter() {
+        // When available_symbols is provided (inspector healthy), only show tags
+        // that are available at the cursor position (builtins + loaded library tags).
+        // When None (inspector unavailable), show all tags as fallback.
+        if let Some(symbols) = available_symbols {
+            if !symbols.available_tags().contains(tag.name()) {
+                continue;
+            }
+        }
+
         if tag.name().starts_with(partial) {
             // Try to get snippet from TagSpecs if available and client supports snippets
             let (insert_text, insert_format) = if supports_snippets {
@@ -1001,6 +1022,7 @@ mod tests {
             &context,
             None,
             None,
+            None,
             false,
             ls_types::Position::new(0, 0),
             "",
@@ -1115,5 +1137,262 @@ mod tests {
                 closing: ClosingBrace::FullClose,
             }
         );
+    }
+
+    // Helper to build AvailableSymbols for testing load-scoped completions
+    fn build_available_symbols(
+        inventory: &TemplateTags,
+        loaded_libs: &djls_semantic::LoadedLibraries,
+        position: u32,
+    ) -> AvailableSymbols {
+        AvailableSymbols::at_position(loaded_libs, inventory, position)
+    }
+
+    fn make_load_statement(
+        span: (u32, u32),
+        kind: djls_semantic::LoadKind,
+    ) -> djls_semantic::LoadStatement {
+        djls_semantic::LoadStatement::new(
+            djls_source::Span::new(span.0, span.1),
+            kind,
+        )
+    }
+
+    fn build_test_inventory() -> TemplateTags {
+        let mut libraries = HashMap::new();
+        libraries.insert(
+            "i18n".to_string(),
+            "django.templatetags.i18n".to_string(),
+        );
+        libraries.insert(
+            "static".to_string(),
+            "django.templatetags.static".to_string(),
+        );
+
+        let builtins = vec![
+            "django.template.defaulttags".to_string(),
+            "django.template.defaultfilters".to_string(),
+        ];
+
+        let tags = vec![
+            serde_json::json!({
+                "name": "if",
+                "provenance": {"builtin": {"module": "django.template.defaulttags"}},
+                "defining_module": "django.template.defaulttags",
+                "doc": null,
+            }),
+            serde_json::json!({
+                "name": "for",
+                "provenance": {"builtin": {"module": "django.template.defaulttags"}},
+                "defining_module": "django.template.defaulttags",
+                "doc": null,
+            }),
+            serde_json::json!({
+                "name": "block",
+                "provenance": {"builtin": {"module": "django.template.defaulttags"}},
+                "defining_module": "django.template.defaulttags",
+                "doc": null,
+            }),
+            serde_json::json!({
+                "name": "trans",
+                "provenance": {"library": {"load_name": "i18n", "module": "django.templatetags.i18n"}},
+                "defining_module": "django.templatetags.i18n",
+                "doc": null,
+            }),
+            serde_json::json!({
+                "name": "blocktrans",
+                "provenance": {"library": {"load_name": "i18n", "module": "django.templatetags.i18n"}},
+                "defining_module": "django.templatetags.i18n",
+                "doc": null,
+            }),
+            serde_json::json!({
+                "name": "get_static_prefix",
+                "provenance": {"library": {"load_name": "static", "module": "django.templatetags.static"}},
+                "defining_module": "django.templatetags.static",
+                "doc": null,
+            }),
+        ];
+
+        let payload = serde_json::json!({
+            "tags": tags,
+            "libraries": libraries,
+            "builtins": builtins,
+        });
+
+        serde_json::from_value(payload).unwrap()
+    }
+
+    #[test]
+    fn test_tag_completions_before_any_load_only_builtins() {
+        let inventory = build_test_inventory();
+        let loaded = djls_semantic::LoadedLibraries::new(vec![make_load_statement(
+            (100, 20),
+            djls_semantic::LoadKind::FullLoad {
+                libraries: vec!["i18n".into()],
+            },
+        )]);
+
+        // Position 10 = before any load
+        let symbols = build_available_symbols(&inventory, &loaded, 10);
+
+        let completions = generate_tag_name_completions(
+            "",
+            false,
+            &ClosingBrace::None,
+            Some(&inventory),
+            None,
+            Some(&symbols),
+            false,
+            ls_types::Position::new(0, 0),
+            "{% ",
+            3,
+        );
+
+        let labels: Vec<&str> = completions.iter().map(|c| c.label.as_str()).collect();
+        // Builtins should be present
+        assert!(labels.contains(&"if"));
+        assert!(labels.contains(&"for"));
+        assert!(labels.contains(&"block"));
+        // Library tags should NOT be present (not loaded yet)
+        assert!(!labels.contains(&"trans"));
+        assert!(!labels.contains(&"blocktrans"));
+        assert!(!labels.contains(&"get_static_prefix"));
+    }
+
+    #[test]
+    fn test_tag_completions_after_load_shows_library_tags() {
+        let inventory = build_test_inventory();
+        let loaded = djls_semantic::LoadedLibraries::new(vec![make_load_statement(
+            (10, 20),
+            djls_semantic::LoadKind::FullLoad {
+                libraries: vec!["i18n".into()],
+            },
+        )]);
+
+        // Position 100 = after load
+        let symbols = build_available_symbols(&inventory, &loaded, 100);
+
+        let completions = generate_tag_name_completions(
+            "",
+            false,
+            &ClosingBrace::None,
+            Some(&inventory),
+            None,
+            Some(&symbols),
+            false,
+            ls_types::Position::new(0, 0),
+            "{% ",
+            3,
+        );
+
+        let labels: Vec<&str> = completions.iter().map(|c| c.label.as_str()).collect();
+        // Builtins present
+        assert!(labels.contains(&"if"));
+        assert!(labels.contains(&"for"));
+        // i18n tags present (loaded)
+        assert!(labels.contains(&"trans"));
+        assert!(labels.contains(&"blocktrans"));
+        // static tags NOT present (not loaded)
+        assert!(!labels.contains(&"get_static_prefix"));
+    }
+
+    #[test]
+    fn test_tag_completions_selective_import_only_imported_symbols() {
+        let inventory = build_test_inventory();
+        let loaded = djls_semantic::LoadedLibraries::new(vec![make_load_statement(
+            (10, 30),
+            djls_semantic::LoadKind::SelectiveImport {
+                symbols: vec!["trans".into()],
+                library: "i18n".into(),
+            },
+        )]);
+
+        // Position 100 = after selective load
+        let symbols = build_available_symbols(&inventory, &loaded, 100);
+
+        let completions = generate_tag_name_completions(
+            "",
+            false,
+            &ClosingBrace::None,
+            Some(&inventory),
+            None,
+            Some(&symbols),
+            false,
+            ls_types::Position::new(0, 0),
+            "{% ",
+            3,
+        );
+
+        let labels: Vec<&str> = completions.iter().map(|c| c.label.as_str()).collect();
+        // trans selectively imported → present
+        assert!(labels.contains(&"trans"));
+        // blocktrans NOT imported → absent
+        assert!(!labels.contains(&"blocktrans"));
+        // builtins always present
+        assert!(labels.contains(&"if"));
+    }
+
+    #[test]
+    fn test_tag_completions_inspector_unavailable_shows_all_tags() {
+        let inventory = build_test_inventory();
+
+        // No available_symbols = inspector unavailable → show all tags
+        let completions = generate_tag_name_completions(
+            "",
+            false,
+            &ClosingBrace::None,
+            Some(&inventory),
+            None,
+            None, // no available symbols
+            false,
+            ls_types::Position::new(0, 0),
+            "{% ",
+            3,
+        );
+
+        let labels: Vec<&str> = completions.iter().map(|c| c.label.as_str()).collect();
+        // ALL tags shown (fallback behavior)
+        assert!(labels.contains(&"if"));
+        assert!(labels.contains(&"for"));
+        assert!(labels.contains(&"block"));
+        assert!(labels.contains(&"trans"));
+        assert!(labels.contains(&"blocktrans"));
+        assert!(labels.contains(&"get_static_prefix"));
+    }
+
+    #[test]
+    fn test_tag_completions_partial_filtering_with_scoping() {
+        let inventory = build_test_inventory();
+        let loaded = djls_semantic::LoadedLibraries::new(vec![make_load_statement(
+            (10, 20),
+            djls_semantic::LoadKind::FullLoad {
+                libraries: vec!["i18n".into()],
+            },
+        )]);
+
+        // Position 100 = after load, partial = "bl"
+        let symbols = build_available_symbols(&inventory, &loaded, 100);
+
+        let completions = generate_tag_name_completions(
+            "bl",
+            false,
+            &ClosingBrace::None,
+            Some(&inventory),
+            None,
+            Some(&symbols),
+            false,
+            ls_types::Position::new(0, 0),
+            "{% bl",
+            5,
+        );
+
+        let labels: Vec<&str> = completions.iter().map(|c| c.label.as_str()).collect();
+        // "block" (builtin, starts with "bl") → present
+        assert!(labels.contains(&"block"));
+        // "blocktrans" (i18n loaded, starts with "bl") → present
+        assert!(labels.contains(&"blocktrans"));
+        // "if", "for", "trans" don't start with "bl" → absent
+        assert!(!labels.contains(&"if"));
+        assert!(!labels.contains(&"trans"));
     }
 }
