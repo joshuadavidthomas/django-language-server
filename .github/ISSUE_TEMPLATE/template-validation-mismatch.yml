@@ -166,24 +166,6 @@ body:
       required: false
 
   - type: textarea
-    id: tagspecs
-    attributes:
-      label: Custom TagSpecs
-      description: |
-        If you have custom tagspecs defined, include them here.
-        This helps determine if the issue is in djls core or custom configuration.
-      placeholder: |
-        [tagspecs]
-        version = "0.6.0"
-
-        [[tagspecs.libraries]]
-        module = "myapp.templatetags.custom"
-        ...
-      render: toml
-    validations:
-      required: false
-
-  - type: textarea
     id: additional-context
     attributes:
       label: Additional Context

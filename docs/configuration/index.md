@@ -83,13 +83,13 @@ Map diagnostic codes or prefixes to severity levels. Supports:
 |------|-------|-------------|
 | `T100` | Parser error | Syntax issues in templates (unclosed tags, malformed expressions) |
 | `T900` | IO error | File read/write issues |
-| `T901` | Configuration error | Invalid tagspecs or configuration |
+| `T901` | Configuration error | Invalid configuration |
 
 **Semantic Validation Errors (S-series):**
 
 Semantic errors are grouped by validation category. Some errors depend on [inspector availability](../template-validation.md#inspector-availability) and may be suppressed when the inspector cannot query your Django project.
 
-##### Block Structure (S100-S107)
+##### Block Structure (S100-S103)
 
 These errors detect structural issues in template block tags.
 
@@ -99,10 +99,6 @@ These errors detect structural issues in template block tags.
 | `S101` | Unbalanced structure | Mismatched block tags | Fix tag nesting order |
 | `S102` | Orphaned tag | Intermediate tag without parent block | Move `{% else %}` inside `{% if %}` block |
 | `S103` | Unmatched block name | End tag name doesn't match opening | Fix `{% endblock name %}` to match `{% block name %}` |
-| `S104` | Missing required arguments | Tag requires arguments not provided | Add required arguments per tag documentation |
-| `S105` | Too many arguments | Tag given more arguments than expected | Remove extra arguments |
-| `S106` | Invalid literal argument | Argument value not recognized | Use valid literal value |
-| `S107` | Invalid argument choice | Argument not in allowed choices | Use one of the allowed values |
 
 ##### Tag Scoping (S108-S110)
 
@@ -110,7 +106,7 @@ These errors validate `{% load %}` requirements for template tags. They depend o
 
 | Code | Error | Description | Typical Fix | Suppression |
 |------|-------|-------------|-------------|-------------|
-| `S108` | Unknown tag | Tag not in Django's registry | Check spelling, install library, or define [TagSpec](tagspecs.md) | Suppressed when inspector unavailable |
+| `S108` | Unknown tag | Tag not in Django's registry | Check spelling or install the library | Suppressed when inspector unavailable |
 | `S109` | Unloaded library tag | Tag requires `{% load %}` | Add `{% load library_name %}` before usage | Suppressed when inspector unavailable |
 | `S110` | Ambiguous unloaded tag | Tag exists in multiple libraries | Load one of the listed libraries | Suppressed when inspector unavailable |
 
@@ -124,19 +120,20 @@ These errors validate `{% load %}` requirements for template filters. They depen
 | `S112` | Unloaded library filter | Filter requires `{% load %}` | Add `{% load library_name %}` before usage | Suppressed when inspector unavailable |
 | `S113` | Ambiguous unloaded filter | Filter exists in multiple libraries | Load one of the listed libraries | Suppressed when inspector unavailable |
 
-##### Expression & Filter Arity (S114-S116)
+##### Expression & Filter Arity (S114-S117)
 
-These errors validate expression syntax and filter argument requirements.
+These errors validate expression syntax, filter argument requirements, and extracted tag argument rules.
 
 | Code | Error | Description | Typical Fix | Suppression |
 |------|-------|-------------|-------------|-------------|
 | `S114` | Expression syntax error | Invalid `{% if %}` expression | Fix operator/operand syntax | Never suppressed |
 | `S115` | Filter missing argument | Filter requires an argument | Add argument: `{{ x\|filter:arg }}` | Suppressed when inspector unavailable or arity unknown |
 | `S116` | Filter unexpected argument | Filter doesn't accept arguments | Remove argument: `{{ x\|filter }}` | Suppressed when inspector unavailable or arity unknown |
+| `S117` | Extracted rule violation | Tag arguments don't match rules extracted from Python source | Fix arguments per tag documentation | Suppressed when extraction unavailable |
 
-!!! note "Filter Arity Extraction"
+!!! note "Extraction-Based Validation"
 
-    S115 and S116 depend on djls extracting filter arity (argument requirements) from Python source. If extraction fails or the filter's signature is ambiguous, these diagnostics are skipped rather than guessing. This is expected behavior, not a bug.
+    S115-S117 depend on djls extracting validation rules from Python source code. If extraction fails or the tag/filter's implementation uses patterns djls can't analyze, these diagnostics are skipped rather than guessing. This is expected behavior, not a bug. Use `diagnostics.severity.S117 = "off"` to suppress argument validation if needed.
 
 #### Examples
 
@@ -204,20 +201,6 @@ S100 = "off"       # Override: S100 is off
 - Gradual adoption: Downgrade to `"warning"` or `"hint"` during migration
 - Focus attention: Disable entire categories with prefix patterns
 - Fine-tune experience: Mix prefix patterns with specific overrides
-
-### `tagspecs`
-
-**Default:** Empty (no custom tagspecs)
-
-Define custom template tag specifications for tags not included in Django's built-in or popular third-party libraries.
-
-!!! warning "Deprecation Warning"
-
-    The v0.4.0 flat `[[tagspecs]]` format is deprecated and will be removed in v6.2.0.
-
-    Please migrate to the [v0.6.0 hierarchical format](./tagspecs.md#migration-from-v040).
-
-See the [TagSpecs documentation](./tagspecs.md) for detailed schema and examples.
 
 ## Methods
 

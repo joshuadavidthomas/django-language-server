@@ -37,8 +37,7 @@ This extraction is **best-effort** — djls can only extract rules from patterns
 | Unloaded library filters | `{{ x\|localize }}` without `{% load l10n %}` | S112 |
 | Unclosed blocks | `{% if x %}` without `{% endif %}` | S100 |
 | Mismatched blocks | `{% if x %}{% endfor %}` | S101 |
-| Missing arguments | `{% cycle %}` (requires values) | S104 |
-| Invalid arguments | `{% for x in %}` (missing iterable) | S105 |
+| Argument rule violations | `{% for x in %}` (missing iterable) | S117 |
 | Expression syntax | `{% if and x %}` | S114 |
 | Filter arity | `{{ x\|truncatewords }}` (requires argument) | S115, S116 |
 
@@ -124,4 +123,3 @@ Include:
 ## See Also
 
 - [Diagnostic Codes](configuration/index.md#available-diagnostic-codes) — Full list of validation errors
-- [TagSpecs](configuration/tagspecs.md) — Define custom tag specifications

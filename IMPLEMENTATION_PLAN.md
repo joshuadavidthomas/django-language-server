@@ -524,7 +524,7 @@
 
 ## M9 - User Config TagSpec Simplification
 
-**Status:** in progress
+**Status:** complete
 **Plan:** `.agents/plans/2026-02-06-m9-tagspec-simplification.md`
 
 ### Phase 1: Remove TagSpecs Config System
@@ -555,12 +555,14 @@
 
 ### Phase 4: Update Documentation
 
-- [ ] Delete `docs/configuration/tagspecs.md`
-- [ ] Update `.mkdocs.yml` nav to remove tagspecs page
-- [ ] Update `docs/configuration/index.md` — remove S104-S107, tagspecs config section
-- [ ] Update `docs/template-validation.md` — remove tagspec references
-- [ ] Verify docs build without errors
-- [ ] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Delete `docs/configuration/tagspecs.md`
+- [x] Update `.mkdocs.yml` nav to remove tagspecs page
+- [x] Update `docs/configuration/index.md` — remove S104-S107, tagspecs config section, add S117
+- [x] Update `docs/template-validation.md` — remove tagspec references, update S104/S105 to S117
+- [x] Update `.github/ISSUE_TEMPLATE/template-validation-mismatch.yml` — remove tagspecs field
+- [x] Update `docs/changelog.md` — fix broken tagspecs.md link
+- [x] Verify docs build without errors
+- [x] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ---
 
