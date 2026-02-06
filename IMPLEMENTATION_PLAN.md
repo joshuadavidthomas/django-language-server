@@ -253,13 +253,13 @@
 
 ### Phase 2: Implement Registration Discovery
 
-- [ ] Implement `crates/djls-extraction/src/registry.rs` — `RegistrationInfo`, `FoundRegistrations`, `find_registrations()`, decorator analysis for `@register.tag`, `@register.simple_tag`, `@register.inclusion_tag`, `@register.simple_block_tag`, `@register.filter`
-- [ ] Handle bare decorators (`@register.tag`), call decorators (`@register.tag("name")`), keyword name (`name="custom"`)
-- [ ] Handle `simple_block_tag` `end_name` keyword extraction
-- [ ] Handle helper/wrapper decorators (e.g., `@register_simple_block_tag`)
-- [ ] Add `is_register_attribute()` to accept `register`, `lib`, `library`, `*register` names
-- [ ] Add unit tests: bare decorator, decorator with name, simple_block_tag kind, simple_block_tag with end_name, helper wrapper decorator
-- [ ] Run `cargo build -q -p djls-extraction`, `cargo clippy -q -p djls-extraction --all-targets --all-features -- -D warnings`, `cargo test -q -p djls-extraction`
+- [x] Implement `crates/djls-extraction/src/registry.rs` — `RegistrationInfo`, `FoundRegistrations`, `find_registrations()`, decorator analysis for `@register.tag`, `@register.simple_tag`, `@register.inclusion_tag`, `@register.simple_block_tag`, `@register.filter`
+- [x] Handle bare decorators (`@register.tag`), call decorators (`@register.tag("name")`), keyword name (`name="custom"`)
+- [x] Handle `simple_block_tag` `end_name` keyword extraction
+- [x] Handle helper/wrapper decorators (e.g., `@register_simple_block_tag`)
+- [x] Add `is_register_attribute()` to accept `register`, `lib`, `library`, `*register` names
+- [x] Add unit tests: bare decorator, decorator with name, simple_block_tag kind, simple_block_tag with end_name, helper wrapper decorator
+- [x] Run `cargo build -q -p djls-extraction`, `cargo clippy -q -p djls-extraction --all-targets --all-features -- -D warnings`, `cargo test -q -p djls-extraction`
 
 ### Phase 3: Implement Function Context Detection
 
@@ -372,3 +372,5 @@ _Tasks to be expanded when M6 is complete._
 - M4: Server completion handler reads from `db.inspector_inventory()` (SemanticDb trait method) instead of calling `djls_project::templatetags()` directly.
 - M4: `Node::Variable { filters }` changed from `Vec<String>` to `Vec<Filter>`. `Filter` has `name: String`, `arg: Option<FilterArg>`, `span: Span`. The `VariableScanner` is quote-aware — pipes inside `'...'` or `"..."` are not treated as filter separators.
 - M4: `blocks/builder.rs` only pattern-matches `Node::Variable { span, .. }` — no code change needed for the filter type change.
+- M5: `extract_name_from_call` must be decorator-kind-aware: only `@register.tag("name")` and `@register.filter("name")` use first positional arg as the tag/filter name. For `inclusion_tag`, the first positional is the template path; for `simple_tag`/`simple_block_tag`, there's no positional name. All types support `name="custom"` keyword.
+- M5: `RegistrationInfo` fields `function_name`, `offset`, `explicit_end_name` are not yet consumed by downstream stubs (context, rules, structural, filters) — `#[allow(dead_code)]` on the struct until those phases implement.

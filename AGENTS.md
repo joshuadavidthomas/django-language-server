@@ -105,6 +105,8 @@ Test impls typically return `None` / default values. Forgetting even one causes 
 - Ruff crates pinned to tag 0.9.10 (SHA `0dfa810e9aad9a465596768b0211c31dd41d3e73`) in root `Cargo.toml`
 - Use `ruff_python_parser`, `ruff_python_ast`, `ruff_text_size` as workspace deps
 - `ParsedModule` in `crates/djls-extraction/src/parser.rs` wraps `ruff_python_parser::parse_module`
+- `ParsedModule::ast()` returns `&ModModule` directly (not `Mod` enum) — iterate `module.body` for statements
+- `extract_name_from_call` is decorator-kind-aware: only `Tag` and `HelperWrapper` use first positional string as name; `inclusion_tag`/`simple_tag`/`simple_block_tag` only support `name=` keyword
 
 ### File Locations (avoid repeated lookups)
 - Salsa database + tracked queries: `crates/djls-server/src/db.rs`
