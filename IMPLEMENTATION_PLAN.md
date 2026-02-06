@@ -487,15 +487,57 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ---
 
-## M9 — User Config TagSpec Simplification
+## M9 — Remove User Config TagSpecs
 
-**Status:** not started (backlog)
+**Status:** in progress
 **Plan:** `.agents/plans/2026-02-06-m9-tagspec-simplification.md`
 **Depends on:** M8
 
-**Goal:** Evaluate and simplify the user-facing `djls.toml` tagspec `args` configuration now that extraction handles the majority of validation. Decide whether to simplify to a basic ignore/override mechanism or keep the current `TagArg` format. Clean up any remaining dead code from M8.
+**Goal:** Remove the entire user-config `[tagspecs]` system from `djls.toml`. After M8, Python AST extraction handles all tag validation — the tagspec config types, `TagArg` enum, old validation engine, and S104–S107 error codes are dead weight. Users suppress false positives via `diagnostics.severity.S117 = "off"`.
 
-_Tasks to be expanded from plan file in a future planning iteration._
+### Phase 1: Remove TagSpecs Config System
+
+- [ ] Delete `crates/djls-conf/src/tagspecs.rs` and `crates/djls-conf/src/tagspecs/legacy.rs` — removes all config types (`TagSpecDef`, `TagLibraryDef`, `TagDef`, `EndTagDef`, `IntermediateTagDef`, `TagTypeDef`, `PositionDef`, `TagArgDef`, `ArgKindDef`, `ArgTypeDef`, and legacy equivalents)
+- [ ] Remove `pub mod tagspecs` and all tagspec re-exports from `crates/djls-conf/src/lib.rs`
+- [ ] Remove `tagspecs` field from `Settings` struct, remove `deserialize_tagspecs` function, remove `Settings::tagspecs()` accessor, remove tagspec override logic in `Settings`
+- [ ] Delete all tagspec-related tests in `crates/djls-conf/src/lib.rs`
+- [ ] Remove `tagspecs: TagSpecDef` field from `Project` salsa input in `crates/djls-project/src/project.rs` — update `Project::new()` and `Project::bootstrap()` signatures (one fewer argument)
+- [ ] Update all call sites of `Project::new` / `Project::bootstrap` in `crates/djls-server/src/db.rs` to remove tagspecs argument
+- [ ] In `compute_tag_specs` in `db.rs`, remove the user-config merge layer (layer 4 that reads `project.tagspecs(db)` and calls `TagSpecs::from_config_def`)
+- [ ] In `update_project_from_settings`, remove the tagspec diff/set logic
+- [ ] Delete `TagSpecs::from_config_def()` and all `From<conf types>` impls in `crates/djls-semantic/src/templatetags/specs.rs` (`From<(TagDef, String)> for TagSpec`, `From<EndTagDef> for EndTag`, `From<IntermediateTagDef> for IntermediateTag`, `From<TagArgDef> for TagArg`)
+- [ ] Delete tests that use conf types in specs.rs
+- [ ] Update invalidation tests in `db.rs`: remove `tagspecs_change_invalidates` test, update `tag_index_invalidation` if it uses `set_tagspecs`
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 2: Remove `TagArg` System and Old Validation Engine
+
+- [ ] Delete from `specs.rs`: `TokenCount` enum, `LiteralKind` enum, `TagArg` enum (all 7 variants + constructors), `TagArgSliceExt` trait and impl, `From<ExtractedArg> for TagArg` impl
+- [ ] Remove `args: L<TagArg>` field from `TagSpec`, `EndTag`, and `IntermediateTag` in `specs.rs` — update all constructors, `merge_block_spec`, and `merge_extraction_results`
+- [ ] Remove re-exports of `TagArg`, `TagArgSliceExt`, `LiteralKind`, `TokenCount` from `templatetags.rs` and `crates/djls-semantic/src/lib.rs`
+- [ ] Strip all `args:` lines from `builtins.rs` (including `BLOCKTRANS_ARGS` constant if present) — keep block structure (end_tag, intermediates, module, opaque)
+- [ ] Gut `arguments.rs`: delete `validate_args_against_spec` and `validate_argument_order` functions; simplify `validate_tag_arguments` to only dispatch to extracted rule evaluator (no fallback path)
+- [ ] Delete all tests in `arguments.rs` that construct `TagArg` specs — keep structural tests that use extracted rules
+- [ ] Update `completions.rs`: replace `TagArg`-based argument completion logic with `ExtractedArg`-based logic (read `spec.extracted_rules.extracted_args` directly instead of `spec.args`); update `TemplateCompletionContext::TagArgument` variant if needed
+- [ ] Update any snippet generation code that uses `TagArg`
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 3: Remove Dead Error Variants and Diagnostic Codes
+
+- [ ] Delete from `errors.rs`: `MissingRequiredArguments` (S104), `TooManyArguments` (S105), `MissingArgument` (S104), `InvalidLiteralArgument` (S106), `InvalidArgumentChoice` (S107) variants
+- [ ] Remove corresponding span extraction arms and code mapping arms from `diagnostics.rs` (or wherever S-code mappings live)
+- [ ] Fix match exhaustiveness in any remaining files that match on `ValidationError`
+- [ ] Remove S104–S107 from `DiagnosticsConfig` default severity mapping if present
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 4: Update Documentation
+
+- [ ] Delete `docs/configuration/tagspecs.md`
+- [ ] Remove tagspecs entry from `.mkdocs.yml` nav
+- [ ] In `docs/configuration/index.md`: remove `[tagspecs]` config section, remove S104–S107 from diagnostic codes table, rename "Block Structure (S100-S107)" section header to "Block Structure (S100-S103)"
+- [ ] Add note in config docs that template tag validation is handled automatically by Python AST extraction
+- [ ] Update `docs/template-validation.md` to remove tagspec references, note argument validation uses Django's own error messages via extraction
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ---
 
