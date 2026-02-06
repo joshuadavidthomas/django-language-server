@@ -60,7 +60,7 @@ impl TagType {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct TagSpecs(FxHashMap<String, TagSpec>);
 
 impl TagSpecs {
@@ -147,6 +147,30 @@ impl TagSpecs {
         parents
     }
 
+    /// Build `TagSpecs` from a `TagSpecDef` config document, merging with builtins.
+    ///
+    /// Starts with `django_builtin_specs()`, converts user-defined specs from
+    /// the config document, and merges them (user specs take precedence).
+    #[must_use]
+    pub fn from_config_def(tagspec_def: &djls_conf::TagSpecDef) -> Self {
+        let mut specs = crate::templatetags::django_builtin_specs();
+
+        let mut user_specs = FxHashMap::default();
+        for library in &tagspec_def.libraries {
+            for tag_def in &library.tags {
+                let name = tag_def.name.clone();
+                let tagspec: TagSpec = (tag_def.clone(), library.module.clone()).into();
+                user_specs.insert(name, tagspec);
+            }
+        }
+
+        if !user_specs.is_empty() {
+            specs.merge(TagSpecs::new(user_specs));
+        }
+
+        specs
+    }
+
     /// Merge another `TagSpecs` into this one, with the other taking precedence
     pub fn merge(&mut self, other: TagSpecs) -> &mut Self {
         self.0.extend(other.0);
@@ -188,27 +212,7 @@ impl IntoIterator for TagSpecs {
 
 impl From<&djls_conf::Settings> for TagSpecs {
     fn from(settings: &djls_conf::Settings) -> Self {
-        // Start with built-in specs
-        let mut specs = crate::templatetags::django_builtin_specs();
-
-        // Convert and merge user-defined tagspecs from all libraries
-        let mut user_specs = FxHashMap::default();
-        let tagspec_doc = settings.tagspecs();
-
-        for library in &tagspec_doc.libraries {
-            for tag_def in &library.tags {
-                let name = tag_def.name.clone();
-                let tagspec: TagSpec = (tag_def.clone(), library.module.clone()).into();
-                user_specs.insert(name, tagspec);
-            }
-        }
-
-        // Merge user specs into built-in specs (user specs override built-ins)
-        if !user_specs.is_empty() {
-            specs.merge(TagSpecs::new(user_specs));
-        }
-
-        specs
+        TagSpecs::from_config_def(settings.tagspecs())
     }
 }
 

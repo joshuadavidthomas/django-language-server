@@ -115,11 +115,20 @@ impl<'db> TagIndex<'db> {
     }
     #[must_use]
     pub fn from_specs(db: &'db dyn crate::Db) -> Self {
+        Self::from_tag_specs(db, &db.tag_specs())
+    }
+
+    /// Build a `TagIndex` from an explicit `TagSpecs` value.
+    ///
+    /// This is used by tracked queries that compute `TagSpecs` first and then
+    /// need to build the index without going through `db.tag_specs()`.
+    #[must_use]
+    pub fn from_tag_specs(db: &'db dyn crate::Db, specs: &crate::TagSpecs) -> Self {
         let mut openers = FxHashMap::default();
         let mut closers = FxHashMap::default();
         let mut intermediate_to_openers: FxHashMap<String, Vec<String>> = FxHashMap::default();
 
-        for (name, spec) in db.tag_specs() {
+        for (name, spec) in specs {
             if let Some(end_tag) = &spec.end_tag {
                 let match_args = end_tag
                     .args
