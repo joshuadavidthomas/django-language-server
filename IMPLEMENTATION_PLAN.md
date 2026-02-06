@@ -187,13 +187,13 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ### Phase 3: Filter Completions
 
-- [ ] Update `analyze_template_context()` in `crates/djls-ide/src/completions.rs` to detect `{{ var|` context — cursor after pipe inside variable expression, extract partial filter name
-- [ ] Implement `generate_filter_completions()` that shows builtin filters always + library filters only if their library is loaded at cursor position (reuse M3 `LoadedLibraries`)
-- [ ] When inspector unavailable, show all known filters as fallback (consistent with tag completion behavior)
-- [ ] Wire `TemplateCompletionContext::Filter { partial }` case to call `generate_filter_completions()`
-- [ ] Sort results alphabetically for deterministic ordering
-- [ ] Tests: `{{ value|` context detected, partial prefix filtering (`{{ value|def`), builtins always appear, library filters excluded when not loaded, inspector unavailable shows all, selective import only shows imported filter symbols
-- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Update `analyze_template_context()` in `crates/djls-ide/src/completions.rs` to detect `{{ var|` context — cursor after pipe inside variable expression, extract partial filter name
+- [x] Implement `generate_filter_completions()` that shows builtin filters always + library filters only if their library is loaded at cursor position (reuse M3 `LoadedLibraries`)
+- [x] When inspector unavailable, show all known filters as fallback (consistent with tag completion behavior)
+- [x] Wire `TemplateCompletionContext::Filter { partial }` case to call `generate_filter_completions()`
+- [x] Sort results alphabetically for deterministic ordering
+- [x] Tests: `{{ value|` context detected, partial prefix filtering (`{{ value|def`), builtins always appear, library filters excluded when not loaded, inspector unavailable shows all, selective import only shows imported filter symbols
+- [x] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 4: Filter Validation with Load Scoping
 

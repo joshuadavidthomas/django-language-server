@@ -34,6 +34,8 @@ pub struct AvailableSymbols {
     available: BTreeSet<String>,
     /// Tag names → set of candidate libraries. Only populated for tags NOT in `available`.
     candidates: BTreeMap<String, BTreeSet<String>>,
+    /// The load state at this position, retained for filter availability queries.
+    load_state: LoadState,
 }
 
 impl AvailableSymbols {
@@ -89,6 +91,7 @@ impl AvailableSymbols {
         Self {
             available,
             candidates,
+            load_state: load_state.clone(),
         }
     }
 
@@ -126,6 +129,25 @@ impl AvailableSymbols {
     #[must_use]
     pub fn unavailable_candidates(&self) -> &BTreeMap<String, BTreeSet<String>> {
         &self.candidates
+    }
+
+    /// Check whether a library is fully loaded at this position.
+    ///
+    /// Used by filter completions to determine if a library's filters should
+    /// be shown. A library is considered loaded if it appears in a
+    /// `{% load lib %}` statement before the cursor position.
+    #[must_use]
+    pub fn is_library_loaded(&self, library: &str) -> bool {
+        self.load_state.is_fully_loaded(library)
+    }
+
+    /// Check whether a specific symbol from a library is available at this position.
+    ///
+    /// Returns true if the library is fully loaded, or if the symbol was
+    /// selectively imported via `{% load sym from lib %}`.
+    #[must_use]
+    pub fn is_symbol_imported(&self, library: &str, symbol: &str) -> bool {
+        self.load_state.is_symbol_available(library, symbol)
     }
 }
 
