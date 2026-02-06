@@ -548,10 +548,10 @@
 
 ### Phase 3: Remove Dead Error Variants and Diagnostic Codes
 
-- [ ] Remove `MissingRequiredArguments`, `TooManyArguments`, `MissingArgument`, `InvalidLiteralArgument`, `InvalidArgumentChoice` from `ValidationError`
-- [ ] Remove S104-S107 diagnostic code mappings
-- [ ] Fix match exhaustiveness across all crates
-- [ ] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Remove `MissingRequiredArguments`, `TooManyArguments`, `MissingArgument`, `InvalidLiteralArgument`, `InvalidArgumentChoice` from `ValidationError`
+- [x] Remove S104-S107 diagnostic code mappings
+- [x] Fix match exhaustiveness across all crates
+- [x] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 4: Update Documentation
 

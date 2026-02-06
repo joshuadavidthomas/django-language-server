@@ -228,15 +228,7 @@ fn validate_template(content: &str, specs: &TagSpecs) -> Vec<ValidationError> {
 /// Check if a validation error is an argument validation error (the kind
 /// that could be a false positive from extracted rules).
 fn is_argument_validation_error(err: &ValidationError) -> bool {
-    matches!(
-        err,
-        ValidationError::ExtractedRuleViolation { .. }
-            | ValidationError::MissingRequiredArguments { .. }
-            | ValidationError::TooManyArguments { .. }
-            | ValidationError::MissingArgument { .. }
-            | ValidationError::InvalidLiteralArgument { .. }
-            | ValidationError::InvalidArgumentChoice { .. }
-    )
+    matches!(err, ValidationError::ExtractedRuleViolation { .. })
 }
 
 /// Find the latest Django version directory in the corpus.
