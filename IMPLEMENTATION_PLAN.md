@@ -34,6 +34,8 @@ This document tracks progress through the milestones for porting the Python `tem
 
 **Plan:** [`.agents/plans/2026-02-05-m1-payload-library-name-fix.md`](.agents/plans/2026-02-05-m1-payload-library-name-fix.md)
 
+**Overall Status:** ✅ Complete (all 3 phases done)
+
 ### Phase 1: Python Inspector Payload Changes
 
 **Status:** ✅ Complete
@@ -56,40 +58,51 @@ Update the inspector to return library information with proper provenance distin
 
 ### Phase 2: Rust Type Updates
 
-**Status:** 🔲 Not Started
+**Status:** ✅ Complete
 
 Update Rust types to deserialize the new payload structure with `TagProvenance` enum and top-level registry data.
 
 **Changes:**
-- Add `TagProvenance` enum in `crates/djls-project/src/django.rs`
-- Update `TemplateTag` struct with new fields and accessors
-- Expand `TemplateTags` to hold `libraries`, `builtins`, `tags`
-- Update Salsa query to convert response to new structure
-- Update `lib.rs` exports
-- Update/add tests
+- Added `TagProvenance` enum with `Library { load_name, module }` and `Builtin { module }` variants
+- Updated `TemplateTag` struct with `provenance`, `defining_module` fields; added `library_load_name()`, `is_builtin()`, `registration_module()` accessors
+- Expanded `TemplateTags` to hold `libraries: HashMap<String, String>`, `builtins: Vec<String>`, `tags: Vec<TemplateTag>`; removed `Deref` impl, added `tags()`, `libraries()`, `builtins()` accessors
+- Updated `templatetags()` Salsa query to construct new `TemplateTags` structure from response
+- Exported `TagProvenance` and `TemplateTag` in `lib.rs`
+- Added 5 new tests for provenance, deserialization, registry data, and constructors
+- Updated `generate_library_completions()` to use `tags.libraries()` with alphabetical sorting
+- Updated tag detail generation to show `from ... ({% load X %})` for library tags and `builtin from ...` for builtins
 
 **Quality Checks:**
-- [ ] `cargo build -p djls-project` passes
-- [ ] `cargo clippy -p djls-project --all-targets -- -D warnings` passes
-- [ ] `cargo test -p djls-project` passes
+- [x] `cargo build -p djls-project` passes
+- [x] `cargo clippy -p djls-project --all-targets -- -D warnings` passes
+- [x] `cargo test -p djls-project` passes
+
+**Discoveries:**
+- The `Deref` implementation on `TemplateTags` had to be removed because the struct now has multiple fields; use `.iter()` or `.tags()` instead
+- Using inline format args (`format!("{module_path}")`) required by clippy
 
 ### Phase 3: Completions Fix
 
-**Status:** 🔲 Not Started
+**Status:** ✅ Complete
 
 Update completions to use library load-name and exclude builtins from `{% load %}` completions.
 
 **Changes:**
-- Update `generate_library_completions()` to use `TemplateTags.libraries()` with deterministic ordering
-- Update `generate_tag_name_completions()` detail to show library info
-- Verify iteration works with new `TemplateTags` API
+- Rewrote `generate_library_completions()` to use `tags.libraries()` with alphabetical sorting for deterministic ordering
+- Changed completion labels to show load names (`static`, `i18n`) instead of module paths (`django.templatetags.static`)
+- Updated detail text to show `from {module} ({% load {name} %})` for library tags, `builtin from {module}` for builtins
+- Updated `generate_tag_name_completions()` to use new `tag.defining_module()` and `tag.library_load_name()` accessors
 
 **Quality Checks:**
-- [ ] `cargo build -p djls-ide` passes
-- [ ] `cargo clippy -p djls-ide --all-targets -- -D warnings` passes
-- [ ] `cargo test -p djls-ide` passes
-- [ ] `cargo build` (full build) passes
-- [ ] `cargo test` (all tests) passes
+- [x] `cargo build -p djls-ide` passes
+- [x] `cargo clippy -p djls-ide --all-targets -- -D warnings` passes
+- [x] `cargo test -p djls-ide` passes
+- [x] `cargo build` (full build) passes
+- [x] `cargo test` (all tests) passes
+
+**Discoveries:**
+- Library completions are now properly filtered to exclude builtins (they're not in `libraries()` map)
+- Deterministic ordering (alphabetical) ensures consistent test results
 
 ---
 

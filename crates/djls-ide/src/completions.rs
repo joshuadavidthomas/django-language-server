@@ -485,7 +485,11 @@ fn generate_tag_name_completions(
             let completion_item = ls_types::CompletionItem {
                 label: tag.name().clone(),
                 kind: Some(kind),
-                detail: Some(format!("from {}", tag.module())),
+                detail: Some(if let Some(lib) = tag.library_load_name() {
+                    format!("from {} ({{% load {} %}})", tag.defining_module(), lib)
+                } else {
+                    format!("builtin from {}", tag.defining_module())
+                }),
                 documentation: tag
                     .doc()
                     .map(|doc| ls_types::Documentation::String(doc.clone())),
@@ -658,35 +662,35 @@ fn generate_library_completions(
         return Vec::new();
     };
 
-    // Get unique library names
-    let mut libraries = std::collections::HashSet::new();
-    for tag in tags.iter() {
-        libraries.insert(tag.module());
-    }
+    // Collect and sort library names for deterministic ordering
+    let mut library_entries: Vec<_> = tags
+        .libraries()
+        .iter()
+        .filter(|(load_name, _)| load_name.starts_with(partial))
+        .collect();
+    library_entries.sort_by_key(|(load_name, _)| load_name.as_str());
 
     let mut completions = Vec::new();
 
-    for library in libraries {
-        if library.starts_with(partial) {
-            let mut insert_text = library.clone();
+    for (load_name, module_path) in library_entries {
+        let mut insert_text = load_name.clone();
 
-            // Add closing if needed
-            match closing {
-                ClosingBrace::None => insert_text.push_str(" %}"),
-                ClosingBrace::PartialClose => insert_text.push_str(" %"),
-                ClosingBrace::FullClose => {} // No closing needed
-            }
-
-            completions.push(ls_types::CompletionItem {
-                label: library.clone(),
-                kind: Some(ls_types::CompletionItemKind::MODULE),
-                detail: Some("Django template library".to_string()),
-                insert_text: Some(insert_text),
-                insert_text_format: Some(ls_types::InsertTextFormat::PLAIN_TEXT),
-                filter_text: Some(library.clone()),
-                ..Default::default()
-            });
+        // Add closing if needed
+        match closing {
+            ClosingBrace::None => insert_text.push_str(" %}"),
+            ClosingBrace::PartialClose => insert_text.push_str(" %"),
+            ClosingBrace::FullClose => {} // No closing needed
         }
+
+        completions.push(ls_types::CompletionItem {
+            label: load_name.clone(),
+            kind: Some(ls_types::CompletionItemKind::MODULE),
+            detail: Some(format!("Django template library ({module_path})")),
+            insert_text: Some(insert_text),
+            insert_text_format: Some(ls_types::InsertTextFormat::PLAIN_TEXT),
+            filter_text: Some(load_name.clone()),
+            ..Default::default()
+        });
     }
 
     completions
