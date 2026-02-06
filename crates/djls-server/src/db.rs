@@ -13,7 +13,9 @@ use djls_conf::Settings;
 use djls_project::template_dirs;
 use djls_project::Db as ProjectDb;
 use djls_project::Inspector;
+use djls_project::Interpreter;
 use djls_project::Project;
+use djls_project::TemplateTags;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::TagIndex;
 use djls_semantic::TagSpecs;
@@ -23,6 +25,7 @@ use djls_source::FxDashMap;
 use djls_templates::Db as TemplateDb;
 use djls_workspace::Db as WorkspaceDb;
 use djls_workspace::FileSystem;
+use salsa::Setter;
 
 /// Concrete Salsa database for the Django Language Server.
 ///
@@ -116,40 +119,134 @@ impl DjangoDatabase {
         self.settings.lock().unwrap().clone()
     }
 
-    /// Update the settings, potentially updating the project if `venv_path`, `django_settings_module`, or `pythonpath` changed
+    /// Update the settings and propagate changes to the Project.
+    ///
+    /// This method delegates to `update_project_from_settings()` to ensure
+    /// manual comparison is performed before calling Salsa setters.
     ///
     /// # Panics
     ///
     /// Panics if the settings mutex is poisoned (another thread panicked while holding the lock)
-    pub fn set_settings(&mut self, settings: Settings) {
-        let project_needs_update = {
-            let old = self.settings();
-            old.venv_path() != settings.venv_path()
-                || old.django_settings_module() != settings.django_settings_module()
-                || old.pythonpath() != settings.pythonpath()
-        };
+    pub fn set_settings(&mut self, settings: &Settings) {
+        // Store new settings in mutex (still needed for non-Project uses)
+        *self.settings.lock().unwrap() = settings.clone();
 
-        *self.settings.lock().unwrap() = settings;
-
-        if project_needs_update {
-            if let Some(project) = self.project() {
-                let root = project.root(self).clone();
-                let settings = self.settings();
-                self.set_project(&root, &settings);
-            }
+        if let Some(project) = self.project() {
+            // Update Project fields with comparison
+            self.update_project_from_settings(project, settings);
         }
     }
 
+    /// Initialize or update the project.
+    ///
+    /// If no project exists, creates one. If project exists, updates
+    /// fields via setters ONLY when values actually changed (Ruff/RA style).
     fn set_project(&mut self, root: &Utf8Path, settings: &Settings) {
-        let project = Project::bootstrap(
-            self,
-            root,
-            settings.venv_path(),
-            settings.django_settings_module(),
-            settings.pythonpath(),
-            settings,
-        );
-        *self.project.lock().unwrap() = Some(project);
+        if self.project().is_some() {
+            // Project exists - update via setters with manual comparison
+            if let Some(project) = self.project() {
+                self.update_project_from_settings(project, settings);
+            }
+        } else {
+            // No project yet - create one
+            let project = Project::bootstrap(
+                self,
+                root,
+                settings.venv_path(),
+                settings.django_settings_module(),
+                settings.pythonpath(),
+                settings,
+            );
+            *self.project.lock().unwrap() = Some(project);
+
+            // Refresh inspector after project creation
+            self.refresh_inspector();
+        }
+    }
+
+    /// Update Project fields from settings, comparing before setting.
+    ///
+    /// Only calls Salsa setters when values actually changed.
+    /// This is the Ruff/RA pattern to avoid unnecessary invalidation.
+    fn update_project_from_settings(&mut self, project: Project, settings: &Settings) {
+        let mut env_changed = false;
+
+        // Check and update interpreter
+        let new_interpreter = Interpreter::discover(settings.venv_path());
+        if project.interpreter(self) != &new_interpreter {
+            project.set_interpreter(self).to(new_interpreter);
+            env_changed = true;
+        }
+
+        // Check and update django_settings_module
+        let new_dsm = settings.django_settings_module().map(String::from);
+        if project.django_settings_module(self) != &new_dsm {
+            project.set_django_settings_module(self).to(new_dsm);
+            env_changed = true;
+        }
+
+        // Check and update pythonpath
+        let new_pp = settings.pythonpath().to_vec();
+        if project.pythonpath(self) != &new_pp {
+            project.set_pythonpath(self).to(new_pp);
+            env_changed = true;
+        }
+
+        // Check and update tagspecs (config doc, not TagSpecs!)
+        let new_tagspecs = settings.tagspecs().clone();
+        if project.tagspecs(self) != &new_tagspecs {
+            tracing::debug!("Tagspecs config changed, updating Project");
+            project.set_tagspecs(self).to(new_tagspecs);
+        }
+
+        // Check and update diagnostics
+        let new_diagnostics = settings.diagnostics().clone();
+        if project.diagnostics(self) != &new_diagnostics {
+            tracing::debug!("Diagnostics config changed, updating Project");
+            project.set_diagnostics(self).to(new_diagnostics);
+        }
+
+        // Refresh inspector if environment changed
+        if env_changed {
+            tracing::debug!("Python environment changed, refreshing inspector");
+            self.refresh_inspector();
+        }
+    }
+
+    /// Refresh the inspector inventory by querying Python.
+    ///
+    /// This method:
+    /// 1. Queries the Python inspector via the tracked `templatetags` function
+    /// 2. Compares new inventory with current
+    /// 3. Updates `Project.inspector_inventory` ONLY if changed
+    ///
+    /// Call this when:
+    /// - Project is first initialized
+    /// - Python environment changes (venv, PYTHONPATH)
+    /// - User explicitly requests refresh (e.g., after pip install)
+    pub fn refresh_inspector(&mut self) {
+        use djls_project::templatetags;
+
+        let Some(project) = self.project() else {
+            tracing::warn!("Cannot refresh inspector: no project set");
+            return;
+        };
+
+        // Query templatetags through the tracked function
+        let new_inventory = templatetags(self, project);
+
+        // Compare before setting (Ruff/RA style)
+        let current = project.inspector_inventory(self);
+        if current == &new_inventory {
+            tracing::trace!("Inspector inventory unchanged, skipping update");
+        } else {
+            tracing::debug!(
+                "Inspector inventory changed: {} -> {} tags",
+                current.as_ref().map_or(0, TemplateTags::len),
+                new_inventory.as_ref().map_or(0, TemplateTags::len)
+            );
+            project.set_inspector_inventory(self).to(new_inventory);
+        }
     }
 }
 

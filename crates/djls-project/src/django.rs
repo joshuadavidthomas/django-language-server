@@ -74,10 +74,10 @@ pub fn template_dirs(db: &dyn ProjectDb, _project: Project) -> Option<TemplateDi
 type TemplateDirs = Vec<Utf8PathBuf>;
 
 #[derive(Serialize)]
-struct TemplatetagsRequest;
+pub struct TemplatetagsRequest;
 
 #[derive(Deserialize)]
-struct TemplatetagsResponse {
+pub struct TemplatetagsResponse {
     /// Load-name → module path mapping (from engine.libraries)
     libraries: HashMap<String, String>,
     /// Ordered builtin module paths (from engine.builtins)
@@ -138,6 +138,20 @@ impl TemplateTags {
     /// Create a new `TemplateTags` (primarily for testing)
     #[must_use]
     pub fn new(
+        libraries: HashMap<String, String>,
+        builtins: Vec<String>,
+        tags: Vec<TemplateTag>,
+    ) -> Self {
+        Self {
+            libraries,
+            builtins,
+            tags,
+        }
+    }
+
+    /// Construct from inspector response data (M1 payload shape).
+    #[must_use]
+    pub fn from_response(
         libraries: HashMap<String, String>,
         builtins: Vec<String>,
         tags: Vec<TemplateTag>,

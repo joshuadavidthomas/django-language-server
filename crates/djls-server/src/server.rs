@@ -403,7 +403,7 @@ impl LanguageServer for DjangoLanguageServer {
                     Some(session.client_info().config_overrides().clone()),
                 ) {
                     Ok(new_settings) => {
-                        session.set_settings(new_settings);
+                        session.set_settings(&new_settings);
                     }
                     Err(e) => {
                         tracing::error!("Error loading settings: {}", e);

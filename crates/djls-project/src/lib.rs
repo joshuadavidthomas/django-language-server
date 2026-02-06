@@ -11,6 +11,8 @@ pub use django::templatetags;
 pub use django::TagProvenance;
 pub use django::TemplateTag;
 pub use django::TemplateTags;
+pub use django::TemplatetagsRequest;
+pub use django::TemplatetagsResponse;
 pub use inspector::Inspector;
 pub use project::Project;
 pub use python::Interpreter;

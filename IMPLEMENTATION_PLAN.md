@@ -134,22 +134,33 @@ Add new fields to the existing `Project` Salsa input using only types from `djls
 
 ### Phase 2: Add Project Update APIs with Manual Comparison
 
-**Status:** 🔲 Not Started
+**Status:** ✅ Complete
 
 Add methods to `DjangoDatabase` that update Project fields **only when values actually change** (Ruff/RA style).
 
-**Tasks:**
-- [ ] Add `PartialEq` to `TemplateTags`, `TemplateTag`, `TagProvenance` for comparison
-- [ ] Export `TemplatetagsRequest` and `TemplatetagsResponse` from `djls-project`
-- [ ] Add `TemplateTags::from_response()` constructor
-- [ ] Update `set_project()` to only create Project if none exists; use setters for updates
-- [ ] Add `update_project_from_settings()` with manual comparison for each field
-- [ ] Add `refresh_inspector()` that queries Python directly and compares before setting
-- [ ] Update `set_settings()` to delegate to `update_project_from_settings()`
+**Changes:**
+- Added `PartialEq` to `TemplateTags`, `TemplateTag`, `TagProvenance` (already had it, verified)
+- Exported `TemplatetagsRequest` and `TemplatetagsResponse` from `djls-project` (made public in `django.rs`, exported in `lib.rs`)
+- Added `TemplateTags::from_response()` constructor in `django.rs`
+- Updated `set_project()` to only create Project if none exists; use setters with manual comparison for updates
+- Added `update_project_from_settings()` with manual comparison for each field (interpreter, django_settings_module, pythonpath, tagspecs, diagnostics)
+- Added `refresh_inspector()` that queries Python via `templatetags()` tracked function and compares before setting
+- Updated `set_settings()` to delegate to `update_project_from_settings()` with `&Settings` parameter
+- Added `salsa::Setter` import for setter `.to()` method
+- Updated `session.rs` and `server.rs` callers to pass `&Settings` reference
 
 **Quality Checks:**
-- [ ] `cargo build -p djls-server` passes
-- [ ] `cargo clippy -p djls-server --all-targets -- -D warnings` passes
+- [x] `cargo build -p djls-server` passes
+- [x] `cargo clippy -p djls-server --all-targets -- -D warnings` passes
+- [x] `cargo test -p djls-server` passes (27 tests)
+- [x] `cargo build` (full build) passes
+- [x] `cargo test` (all tests) passes (220 tests)
+- [x] `cargo clippy --all-targets --all-features -- -D warnings` passes
+
+**Discoveries:**
+- Salsa setters require importing `salsa::Setter` trait to use `.to()` method
+- The private `inspector` module can be accessed via the public `templatetags` tracked function instead
+- Need to update all callers when changing function signatures from owned to reference types
 
 ### Phase 3: Make tag_specs a Tracked Query
 
