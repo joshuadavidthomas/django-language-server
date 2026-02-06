@@ -45,7 +45,7 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ## M2 — Salsa Invalidation Plumbing
 
-**Status:** in-progress
+**Status:** complete
 **Plan:** `.agents/plans/2026-02-05-m2-salsa-invalidation-plumbing.md`
 
 **Goal:** Eliminate stale template diagnostics by making external data sources explicit Salsa-visible fields within the existing `Project` input. Maintain exactly 2 Salsa inputs (`File` + `Project`).
@@ -80,13 +80,13 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ### Phase 4: Invalidation Tests with Event Capture
 
-- [ ] Build test infrastructure in `crates/djls-server/src/db.rs` (in `#[cfg(test)]` module): `EventLogger` that stores `salsa::Event` values, `was_executed(db, query_name)` helper using `db.ingredient_debug_name(database_key.ingredient_index())`.
-- [ ] Test: `tag_specs()` cached on repeated access — second call has no `WillExecute` event for `compute_tag_specs`.
-- [ ] Test: updating `project.tagspecs` via setter → `compute_tag_specs` re-executes.
-- [ ] Test: updating `project.inspector_inventory` via setter → `compute_tag_specs` re-executes.
-- [ ] Test: same value = no invalidation — manual comparison prevents setter call, cache preserved.
-- [ ] Test: tag index depends on tag specs — changing tagspecs causes both `compute_tag_specs` and `compute_tag_index` to re-execute.
-- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Build test infrastructure in `crates/djls-server/src/db.rs` (in `#[cfg(test)]` module): `EventLog` that stores `salsa::Event` values, `was_executed(db, query_name)` helper using `db.ingredient_debug_name(database_key.ingredient_index())`.
+- [x] Test: `tag_specs()` cached on repeated access — second call has no `WillExecute` event for `compute_tag_specs`.
+- [x] Test: updating `project.tagspecs` via setter → `compute_tag_specs` re-executes.
+- [x] Test: updating `project.inspector_inventory` via setter → `compute_tag_specs` re-executes.
+- [x] Test: same value = no invalidation — manual comparison prevents setter call, cache preserved.
+- [x] Test: tag index depends on tag specs — changing tagspecs causes both `compute_tag_specs` and `compute_tag_index` to re-execute.
+- [x] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ---
 
@@ -140,3 +140,4 @@ _Tasks to be expanded when M6 is complete._
 - **`target/` tracked in worktree git**: Fixed — `.gitignore` now excludes `target/`.
 - **M2 Phase 2 complete**: `set_settings` now delegates to `update_project_from_settings` + `refresh_inspector` when a project exists, keeping Salsa identity stable. No more `Project::new` recreation on config changes.
 - **M2 Phase 3**: `TagSpecs` needed `PartialEq` derive for Salsa tracked function return type memoization. Refactored `From<&Settings> for TagSpecs` to delegate to new `TagSpecs::from_config_def`. Added `TagIndex::from_tag_specs` to build index from explicit specs without going through `db.tag_specs()` trait method.
+- **M2 Phase 4**: Salsa's "backdate" optimization means `compute_tag_index` won't re-execute if `compute_tag_specs` returns the same value even after input changes. Tests must use `TagSpecDef` with actual tags to produce distinct `TagSpecs` output. Also, `Interpreter::discover(None)` reads real `$VIRTUAL_ENV` in non-test crates — test projects must match by using `Interpreter::discover()` rather than hardcoding `Auto`.

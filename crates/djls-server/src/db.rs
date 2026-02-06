@@ -347,3 +347,263 @@ impl ProjectDb for DjangoDatabase {
         self.inspector.clone()
     }
 }
+
+#[cfg(test)]
+mod invalidation_tests {
+    use std::collections::HashMap;
+    use std::sync::Arc;
+    use std::sync::Mutex;
+
+    use djls_conf::Settings;
+    use djls_conf::TagSpecDef;
+    use djls_project::Interpreter;
+    use djls_project::Project;
+    use djls_project::TemplateTags;
+    use djls_semantic::Db as SemanticDb;
+    use djls_source::FxDashMap;
+    use djls_workspace::InMemoryFileSystem;
+    use salsa::Database;
+    use salsa::Setter;
+
+    use super::DjangoDatabase;
+
+    /// Captured Salsa events for test assertions.
+    #[derive(Clone, Default)]
+    struct EventLog {
+        events: Arc<Mutex<Vec<salsa::Event>>>,
+    }
+
+    impl EventLog {
+        fn take(&self) -> Vec<salsa::Event> {
+            std::mem::take(&mut *self.events.lock().unwrap())
+        }
+    }
+
+    /// Check whether a tracked query with the given name was executed
+    /// (i.e., had a `WillExecute` event) in the captured events.
+    fn was_executed(db: &DjangoDatabase, events: &[salsa::Event], query_name: &str) -> bool {
+        events.iter().any(|event| match &event.kind {
+            salsa::EventKind::WillExecute { database_key } => {
+                let name = db.ingredient_debug_name(database_key.ingredient_index());
+                name.contains(query_name)
+            }
+            _ => false,
+        })
+    }
+
+    /// Create a test database with event logging and a pre-configured project.
+    ///
+    /// Uses `Interpreter::discover(None)` to match what `update_project_from_settings`
+    /// produces, avoiding spurious interpreter mismatches from `$VIRTUAL_ENV`.
+    fn test_db_with_project() -> (DjangoDatabase, EventLog) {
+        let event_log = EventLog::default();
+        let settings = Settings::default();
+
+        let db = DjangoDatabase {
+            fs: Arc::new(InMemoryFileSystem::new()),
+            files: Arc::new(FxDashMap::default()),
+            project: Arc::new(Mutex::new(None)),
+            settings: Arc::new(Mutex::new(settings.clone())),
+            inspector: Arc::new(djls_project::Inspector::new()),
+            storage: salsa::Storage::new(Some(Box::new({
+                let log = event_log.clone();
+                move |event| {
+                    log.events.lock().unwrap().push(event);
+                }
+            }))),
+            logs: Arc::new(Mutex::new(None)),
+        };
+
+        let interpreter = Interpreter::discover(settings.venv_path());
+        let dsm = settings
+            .django_settings_module()
+            .map(String::from)
+            .or_else(|| {
+                std::env::var("DJANGO_SETTINGS_MODULE")
+                    .ok()
+                    .filter(|s| !s.is_empty())
+            });
+
+        let project = Project::new(
+            &db,
+            "/test/project".into(),
+            interpreter,
+            dsm,
+            settings.pythonpath().to_vec(),
+            None,
+            settings.tagspecs().clone(),
+            settings.diagnostics().clone(),
+        );
+        *db.project.lock().unwrap() = Some(project);
+
+        (db, event_log)
+    }
+
+    #[test]
+    fn tag_specs_cached_on_repeated_access() {
+        let (db, event_log) = test_db_with_project();
+
+        // First call — should execute compute_tag_specs
+        let _specs1 = db.tag_specs();
+        let events = event_log.take();
+        assert!(
+            was_executed(&db, &events, "compute_tag_specs"),
+            "compute_tag_specs should execute on first call"
+        );
+
+        // Second call — should be cached, no WillExecute
+        let _specs2 = db.tag_specs();
+        let events = event_log.take();
+        assert!(
+            !was_executed(&db, &events, "compute_tag_specs"),
+            "compute_tag_specs should NOT re-execute on second call (cached)"
+        );
+    }
+
+    #[test]
+    fn tagspecs_change_invalidates_compute_tag_specs() {
+        let (mut db, event_log) = test_db_with_project();
+
+        // Prime the cache
+        let _specs = db.tag_specs();
+        event_log.take();
+
+        // Update tagspecs on the project with a real tag
+        let project = db.project.lock().unwrap().unwrap();
+        project
+            .set_tagspecs(&mut db)
+            .to(tagspec_with_custom_tag("newtag"));
+
+        // Access again — should re-execute
+        let _specs = db.tag_specs();
+        let events = event_log.take();
+        assert!(
+            was_executed(&db, &events, "compute_tag_specs"),
+            "compute_tag_specs should re-execute after tagspecs change"
+        );
+    }
+
+    #[test]
+    fn inspector_inventory_change_invalidates_compute_tag_specs() {
+        let (mut db, event_log) = test_db_with_project();
+
+        // Prime the cache
+        let _specs = db.tag_specs();
+        event_log.take();
+
+        // Update inspector_inventory on the project
+        let project = db.project.lock().unwrap().unwrap();
+        let new_inventory = Some(TemplateTags::new(vec![], HashMap::default(), vec![]));
+        project
+            .set_inspector_inventory(&mut db)
+            .to(new_inventory);
+
+        // Access again — should re-execute
+        let _specs = db.tag_specs();
+        let events = event_log.take();
+        assert!(
+            was_executed(&db, &events, "compute_tag_specs"),
+            "compute_tag_specs should re-execute after inspector_inventory change"
+        );
+    }
+
+    #[test]
+    fn same_value_no_invalidation() {
+        let (db, event_log) = test_db_with_project();
+
+        // Prime the cache
+        let _specs = db.tag_specs();
+        event_log.take();
+
+        // "Update" tagspecs with an identical value — manual comparison
+        // in update_project_from_settings prevents the setter call
+        let project = db.project.lock().unwrap().unwrap();
+        let current = project.tagspecs(&db).clone();
+
+        // Simulate manual comparison: value is the same, so we don't call the setter
+        assert_eq!(project.tagspecs(&db), &current);
+        // No setter called — cache should be preserved
+
+        let _specs = db.tag_specs();
+        let events = event_log.take();
+        assert!(
+            !was_executed(&db, &events, "compute_tag_specs"),
+            "compute_tag_specs should NOT re-execute when value is unchanged"
+        );
+    }
+
+    /// Build a `TagSpecDef` containing a custom standalone tag, causing
+    /// `TagSpecs::from_config_def` to produce a different result from the default.
+    fn tagspec_with_custom_tag(tag_name: &str) -> TagSpecDef {
+        TagSpecDef {
+            version: "0.6.0".to_string(),
+            engine: "django".to_string(),
+            requires_engine: None,
+            extends: vec![],
+            libraries: vec![djls_conf::TagLibraryDef {
+                module: "test.custom".to_string(),
+                requires_engine: None,
+                tags: vec![djls_conf::TagDef {
+                    name: tag_name.to_string(),
+                    tag_type: djls_conf::TagTypeDef::Standalone,
+                    end: None,
+                    intermediates: vec![],
+                    args: vec![],
+                    extra: None,
+                }],
+                extra: None,
+            }],
+            extra: None,
+        }
+    }
+
+    #[test]
+    fn tag_index_depends_on_tag_specs() {
+        let (mut db, event_log) = test_db_with_project();
+
+        // Prime both caches
+        let _specs = db.tag_specs();
+        let _index = db.tag_index();
+        event_log.take();
+
+        // Change tagspecs with an actual tag so the computed TagSpecs differ
+        let project = db.project.lock().unwrap().unwrap();
+        project
+            .set_tagspecs(&mut db)
+            .to(tagspec_with_custom_tag("mytag"));
+
+        // Access tag_index — both compute_tag_specs and compute_tag_index should re-execute
+        let _index = db.tag_index();
+        let events = event_log.take();
+        assert!(
+            was_executed(&db, &events, "compute_tag_specs"),
+            "compute_tag_specs should re-execute after tagspecs change"
+        );
+        assert!(
+            was_executed(&db, &events, "compute_tag_index"),
+            "compute_tag_index should re-execute when tag specs produced different output"
+        );
+    }
+
+    #[test]
+    fn update_project_from_settings_unchanged_no_invalidation() {
+        let (mut db, event_log) = test_db_with_project();
+
+        // Prime the cache
+        let _specs = db.tag_specs();
+        event_log.take();
+
+        // Call update_project_from_settings with default settings (same as project was created with)
+        let settings = Settings::default();
+        let env_changed = db.update_project_from_settings(&settings);
+        assert!(!env_changed, "env should not have changed with default settings");
+
+        // Access tag_specs — should still be cached
+        let _specs = db.tag_specs();
+        let events = event_log.take();
+        assert!(
+            !was_executed(&db, &events, "compute_tag_specs"),
+            "compute_tag_specs should NOT re-execute when settings are unchanged"
+        );
+    }
+}
