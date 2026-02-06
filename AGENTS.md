@@ -113,6 +113,7 @@ Test impls typically return `None` / default values. Forgetting even one causes 
 - `extract_name_from_call` is decorator-kind-aware: only `Tag` and `HelperWrapper` use first positional string as name; `inclusion_tag`/`simple_tag`/`simple_block_tag` only support `name=` keyword
 - `simple_block_tag` has a special `end_name` keyword arg for custom closer names — always check decorator kwargs before applying convention fallback
 - Ruff AST `Expr::StringLiteral` contains `.value.to_str()` for string extraction — `.as_str()` is NOT available on all string types
+- Ruff AST `Parameters` has no `defaults` field — defaults are inline on each `ParameterWithDefault` as `default: Option<Box<Expr>>`. Check `arg.default.is_some()` not `params.defaults.is_empty()`
 
 ### Extraction Crate Patterns
 - Each module has inline `#[cfg(test)] mod tests` — NOT separate test files

@@ -294,10 +294,10 @@
 
 ### Phase 6: Implement Filter Arity Extraction
 
-- [ ] Implement `crates/djls-extraction/src/filters.rs` — `extract_filter_arity()` from function parameter count and defaults
-- [ ] Handle: 0-1 params → None, 2 params no default → Required, 2 params with default → Optional, vararg → Unknown
-- [ ] Add unit tests: no arg filter, required arg filter, optional arg filter
-- [ ] Run `cargo build -q -p djls-extraction`, `cargo clippy -q -p djls-extraction --all-targets --all-features -- -D warnings`, `cargo test -q -p djls-extraction`
+- [x] Implement `crates/djls-extraction/src/filters.rs` — `extract_filter_arity()` from function parameter count and defaults
+- [x] Handle: 0-1 params → None, 2 params no default → Required, 2 params with default → Optional, vararg → Unknown
+- [x] Add unit tests: no arg filter, required arg filter, optional arg filter
+- [x] Run `cargo build -q -p djls-extraction`, `cargo clippy -q -p djls-extraction --all-targets --all-features -- -D warnings`, `cargo test -q -p djls-extraction`
 
 ### Phase 7: Salsa Integration
 
@@ -374,3 +374,4 @@ _Tasks to be expanded when M6 is complete._
 - M4: `blocks/builder.rs` only pattern-matches `Node::Variable { span, .. }` — no code change needed for the filter type change.
 - M5: `extract_name_from_call` must be decorator-kind-aware: only `@register.tag("name")` and `@register.filter("name")` use first positional arg as the tag/filter name. For `inclusion_tag`, the first positional is the template path; for `simple_tag`/`simple_block_tag`, there's no positional name. All types support `name="custom"` keyword.
 - M5: `RegistrationInfo` fields `function_name`, `offset`, `explicit_end_name` are not yet consumed by downstream stubs (context, rules, structural, filters) — `#[allow(dead_code)]` on the struct until those phases implement.
+- M5: Ruff AST `Parameters` has no `defaults` field — defaults are inline on each `ParameterWithDefault` as `default: Option<Box<Expr>>`. Check `arg.default.is_some()` instead of `params.defaults.is_empty()`.
