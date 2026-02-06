@@ -25,6 +25,8 @@ use djls_project::Project;
 use djls_project::TemplateInventoryRequest;
 use djls_semantic::django_builtin_specs;
 use djls_semantic::Db as SemanticDb;
+use djls_semantic::FilterAritySpecs;
+use djls_semantic::OpaqueTagMap;
 use djls_semantic::TagIndex;
 use djls_semantic::TagSpec;
 use djls_semantic::TagSpecs;
@@ -175,6 +177,57 @@ fn compute_tag_specs(db: &dyn SemanticDb, project: Project) -> TagSpecs {
 fn compute_tag_index(db: &dyn SemanticDb, project: Project) -> TagIndex<'_> {
     let _specs = compute_tag_specs(db, project);
     TagIndex::from_specs(db)
+}
+
+/// Compute filter arity specs from extraction results.
+///
+/// Keyed by `SymbolKey` (`registration_module` + name + Filter kind) for
+/// collision-safe lookup when multiple libraries define the same filter name.
+#[salsa::tracked]
+fn compute_filter_arity_specs(db: &dyn SemanticDb, project: Project) -> FilterAritySpecs {
+    use djls_extraction::SymbolKey;
+
+    let mut specs = FxHashMap::default();
+
+    // Workspace extraction results (tracked queries)
+    let workspace_results = collect_workspace_extraction_results(db, project);
+    for (module_path, extraction) in &workspace_results {
+        for filter in &extraction.filters {
+            let key = SymbolKey::filter(module_path.clone(), filter.name.clone());
+            specs.entry(key).or_insert(filter.arity.clone());
+        }
+    }
+
+    // External extraction results (from Project field)
+    let external_results = project.extracted_external_rules(db);
+    for (module_path, extraction) in external_results {
+        for filter in &extraction.filters {
+            let key = SymbolKey::filter(module_path.clone(), filter.name.clone());
+            specs.entry(key).or_insert(filter.arity.clone());
+        }
+    }
+
+    FilterAritySpecs::new(specs)
+}
+
+/// Compute opaque tag map from `TagSpecs`.
+///
+/// Returns opener → closer mapping for tags where `opaque == true`.
+/// Used by M6 opaque region detection to skip validation inside opaque blocks.
+#[salsa::tracked]
+fn compute_opaque_tag_map(db: &dyn SemanticDb, project: Project) -> OpaqueTagMap {
+    let tag_specs = compute_tag_specs(db, project);
+    let mut map = OpaqueTagMap::default();
+
+    for (tag_name, spec) in &tag_specs {
+        if spec.opaque {
+            if let Some(ref end_tag) = spec.end_tag {
+                map.insert(tag_name.clone(), end_tag.name.to_string());
+            }
+        }
+    }
+
+    map
 }
 
 /// Concrete Salsa database for the Django Language Server.
@@ -549,6 +602,22 @@ impl SemanticDb for DjangoDatabase {
     fn inspector_inventory(&self) -> Option<InspectorInventory> {
         self.project()
             .and_then(|project| project.inspector_inventory(self).clone())
+    }
+
+    fn filter_arity_specs(&self) -> FilterAritySpecs {
+        if let Some(project) = self.project() {
+            compute_filter_arity_specs(self, project)
+        } else {
+            FilterAritySpecs::default()
+        }
+    }
+
+    fn opaque_tag_map(&self) -> OpaqueTagMap {
+        if let Some(project) = self.project() {
+            compute_opaque_tag_map(self, project)
+        } else {
+            OpaqueTagMap::default()
+        }
     }
 }
 

@@ -14,6 +14,8 @@ use arguments::validate_all_tag_arguments;
 pub use blocks::build_block_tree;
 pub use blocks::TagIndex;
 pub use db::Db;
+pub use db::FilterAritySpecs;
+pub use db::OpaqueTagMap;
 pub use db::ValidationErrorAccumulator;
 pub use errors::ValidationError;
 pub use if_expression::validate_if_expression;

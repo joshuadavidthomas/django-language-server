@@ -373,17 +373,17 @@
 
 **Goal:** Add `filter_arity_specs()` and `opaque_tag_map()` methods to `djls-semantic::Db` trait and implement them in `djls-server`.
 
-- [ ] Add `FilterAritySpecs` struct (wraps `FxHashMap<SymbolKey, FilterArity>`) with `new()`, `get()`, `is_empty()` in `crates/djls-semantic/src/db.rs`
-- [ ] Add `OpaqueTagMap` type alias (`FxHashMap<String, String>`) in `crates/djls-semantic/src/db.rs`
-- [ ] Add `filter_arity_specs(&self) -> FilterAritySpecs` method to `Db` trait
-- [ ] Add `opaque_tag_map(&self) -> OpaqueTagMap` method to `Db` trait
-- [ ] Implement `#[salsa::tracked] fn compute_filter_arity_specs(db, project) -> FilterAritySpecs` in `crates/djls-server/src/db.rs` — collects from workspace + external extraction results
-- [ ] Implement `#[salsa::tracked] fn compute_opaque_tag_map(db, project) -> OpaqueTagMap` in `crates/djls-server/src/db.rs` — iterates `TagSpecs` for `opaque == true` entries with end tags
-- [ ] Implement `filter_arity_specs()` and `opaque_tag_map()` on `DjangoDatabase` in `crates/djls-server/src/db.rs`
-- [ ] Add `filter_arity_specs()` and `opaque_tag_map()` stubs to bench db (`crates/djls-bench/src/db.rs`) returning defaults
-- [ ] Add `filter_arity_specs()` and `opaque_tag_map()` stubs to all 3 test `TestDatabase` impls in `djls-semantic` (arguments.rs, blocks/tree.rs, semantic/forest.rs) returning defaults
-- [ ] Export `FilterAritySpecs` and `OpaqueTagMap` from `crates/djls-semantic/src/lib.rs`
-- [ ] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Add `FilterAritySpecs` struct (wraps `FxHashMap<SymbolKey, FilterArity>`) with `new()`, `get()`, `is_empty()` in `crates/djls-semantic/src/db.rs`
+- [x] Add `OpaqueTagMap` type alias (`FxHashMap<String, String>`) in `crates/djls-semantic/src/db.rs`
+- [x] Add `filter_arity_specs(&self) -> FilterAritySpecs` method to `Db` trait
+- [x] Add `opaque_tag_map(&self) -> OpaqueTagMap` method to `Db` trait
+- [x] Implement `#[salsa::tracked] fn compute_filter_arity_specs(db, project) -> FilterAritySpecs` in `crates/djls-server/src/db.rs` — collects from workspace + external extraction results
+- [x] Implement `#[salsa::tracked] fn compute_opaque_tag_map(db, project) -> OpaqueTagMap` in `crates/djls-server/src/db.rs` — iterates `TagSpecs` for `opaque == true` entries with end tags
+- [x] Implement `filter_arity_specs()` and `opaque_tag_map()` on `DjangoDatabase` in `crates/djls-server/src/db.rs`
+- [x] Add `filter_arity_specs()` and `opaque_tag_map()` stubs to bench db (`crates/djls-bench/src/db.rs`) returning defaults
+- [x] Add `filter_arity_specs()` and `opaque_tag_map()` stubs to all 4 test `TestDatabase` impls in `djls-semantic` (arguments.rs, blocks/tree.rs, semantic/forest.rs, load_resolution.rs) returning defaults
+- [x] Export `FilterAritySpecs` and `OpaqueTagMap` from `crates/djls-semantic/src/lib.rs`
+- [x] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 4: Opaque Regions and Validation Pipeline Wiring
 

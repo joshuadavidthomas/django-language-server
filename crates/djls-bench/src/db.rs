@@ -93,4 +93,12 @@ impl SemanticDb for Db {
     fn inspector_inventory(&self) -> Option<djls_project::InspectorInventory> {
         None
     }
+
+    fn filter_arity_specs(&self) -> djls_semantic::FilterAritySpecs {
+        djls_semantic::FilterAritySpecs::default()
+    }
+
+    fn opaque_tag_map(&self) -> djls_semantic::OpaqueTagMap {
+        djls_semantic::OpaqueTagMap::default()
+    }
 }

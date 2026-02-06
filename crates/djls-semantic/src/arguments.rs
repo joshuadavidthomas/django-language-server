@@ -417,6 +417,14 @@ mod tests {
         fn inspector_inventory(&self) -> Option<djls_project::InspectorInventory> {
             None
         }
+
+        fn filter_arity_specs(&self) -> crate::db::FilterAritySpecs {
+            crate::db::FilterAritySpecs::default()
+        }
+
+        fn opaque_tag_map(&self) -> crate::db::OpaqueTagMap {
+            crate::db::OpaqueTagMap::default()
+        }
     }
 
     /// Test helper: Create a temporary `NodeList` with a single tag and validate it

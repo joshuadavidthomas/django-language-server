@@ -1013,6 +1013,14 @@ mod filter_validation_tests {
         fn inspector_inventory(&self) -> Option<djls_project::InspectorInventory> {
             self.inventory.clone()
         }
+
+        fn filter_arity_specs(&self) -> crate::db::FilterAritySpecs {
+            crate::db::FilterAritySpecs::default()
+        }
+
+        fn opaque_tag_map(&self) -> crate::db::OpaqueTagMap {
+            crate::db::OpaqueTagMap::default()
+        }
     }
 
     fn make_filter_inventory() -> InspectorInventory {

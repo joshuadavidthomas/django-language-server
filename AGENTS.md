@@ -65,12 +65,13 @@ just lint                       # Run pre-commit hooks
 - `djls-extraction` public API: `extract_rules(source) -> ExtractionResult` orchestrates parse→registry→context→rules→structural→filters
 
 ### Trait Impls — Update ALL Locations When Changing Traits
-Adding a method to `djls-semantic`'s `crate::Db` trait requires updating **6 impl blocks**:
+Adding a method to `djls-semantic`'s `crate::Db` trait requires updating **7 impl blocks**:
 1. `crates/djls-server/src/db.rs` — `impl SemanticDb for DjangoDatabase`
 2. `crates/djls-bench/src/db.rs` — `impl SemanticDb for Db`
 3. `crates/djls-semantic/src/arguments.rs` — `impl crate::Db for TestDatabase` (in `#[cfg(test)]`)
 4. `crates/djls-semantic/src/blocks/tree.rs` — `impl crate::Db for TestDatabase` (in `#[cfg(test)]`)
 5. `crates/djls-semantic/src/semantic/forest.rs` — `impl crate::Db for TestDatabase` (in `#[cfg(test)]`)
+6. `crates/djls-semantic/src/load_resolution.rs` — `impl crate::Db for TestDatabase` (in `#[cfg(test)]`)
 Test impls typically return `None` / default values. Forgetting even one causes `error[E0046]`.
 
 ### Test Dependencies
