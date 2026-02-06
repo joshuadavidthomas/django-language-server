@@ -14,7 +14,7 @@ This document tracks progress through the milestones for porting the Python `tem
 |---|-----------|--------|-----------|
 | M1 | Payload Shape + `{% load %}` Library Name Fix | ✅ Complete | [`.agents/plans/2026-02-05-m1-payload-library-name-fix.md`](.agents/plans/2026-02-05-m1-payload-library-name-fix.md) |
 | M2 | Salsa Invalidation Plumbing | ✅ Complete | [`.agents/plans/2026-02-05-m2-salsa-invalidation-plumbing.md`](.agents/plans/2026-02-05-m2-salsa-invalidation-plumbing.md) |
-| M3 | `{% load %}` Scoping Infrastructure | 🔲 Not Started | [`.agents/plans/2026-02-05-m3-load-scoping.md`](.agents/plans/2026-02-05-m3-load-scoping.md) |
+| M3 | `{% load %}` Scoping Infrastructure | 📝 Ready | [`.agents/plans/2026-02-05-m3-load-scoping.md`](.agents/plans/2026-02-05-m3-load-scoping.md) |
 | M4 | Filters Pipeline | 🔲 Not Started | [`.agents/plans/2026-02-05-m4-filters-pipeline.md`](.agents/plans/2026-02-05-m4-filters-pipeline.md) |
 | M5 | Rust Extraction Engine (`djls-extraction`) | 🔲 Not Started | [`.agents/plans/2026-02-05-m5-extraction-engine.md`](.agents/plans/2026-02-05-m5-extraction-engine.md) |
 | M6 | Rule Evaluation + Expression Validation | 🔲 Not Started | [`.agents/plans/2026-02-05-m6-rule-evaluation.md`](.agents/plans/2026-02-05-m6-rule-evaluation.md) |
@@ -238,13 +238,131 @@ Write tests that capture Salsa events and verify invalidation using stable `ingr
 
 ## M3: `{% load %}` Scoping Infrastructure
 
-**Status:** 🔲 Not Started
+**Status:** 📝 Ready
 
 **Goal:** Position-aware `{% load %}` scoping for tags and filters in diagnostics + completions.
 
 **Plan:** [`.agents/plans/2026-02-05-m3-load-scoping.md`](.agents/plans/2026-02-05-m3-load-scoping.md)
 
-### Tasks (TBD - will expand when M2 complete)
+**Overall Status:** 🔲 Not Started
+
+### Phase 1: Load Statement Parsing and Data Structures
+
+**Status:** 🔲 Not Started
+
+Create the core data structures for tracking `{% load %}` statements and implement parsing of `{% load %}` bits into structured form.
+
+**Changes:**
+- Create `crates/djls-semantic/src/load_resolution.rs` with:
+  - `LoadStatement` struct with span and `LoadKind`
+  - `LoadKind` enum (`Libraries(Vec<String>)` or `Selective { symbols, library }`)
+  - `LoadedLibraries` struct for ordered load statement collection
+  - `parse_load_bits()` function to parse load tag bits
+- Export new types from `crates/djls-semantic/src/lib.rs`
+
+**Quality Checks:**
+- [ ] `cargo build -p djls-semantic` passes
+- [ ] `cargo clippy -p djls-semantic --all-targets -- -D warnings` passes
+- [ ] `cargo test -p djls-semantic load_resolution` passes
+
+### Phase 2: Compute LoadedLibraries from NodeList
+
+**Status:** 🔲 Not Started
+
+Add a tracked Salsa query that extracts `LoadedLibraries` from a parsed template.
+
+**Changes:**
+- Add `#[salsa::tracked] fn compute_loaded_libraries()` in `load_resolution.rs`
+- Iterate through nodelist, find `Node::Tag { name: "load", ... }`
+- Parse load bits and build `LoadedLibraries` in document order
+- Export from `lib.rs`
+
+**Quality Checks:**
+- [ ] `cargo build -p djls-semantic` passes
+- [ ] `cargo clippy -p djls-semantic --all-targets -- -D warnings` passes
+- [ ] Integration test: Parse template with loads, verify extraction
+
+### Phase 3: Available Symbols Query
+
+**Status:** 🔲 Not Started
+
+Add a query that combines inspector inventory with load state to determine what tags are available at a given position.
+
+**Changes:**
+- Add `AvailableSymbols` struct with `tags: FxHashSet<String>`
+- Add `LoadState` struct with `fully_loaded` and `selective` HashMaps for state-machine approach
+- Add `available_tags_at()` function using state-machine to process loads in order
+- Handle selective import then full load correctly (full load clears selective)
+- Add comprehensive unit tests for all scoping scenarios
+
+**Quality Checks:**
+- [ ] `cargo build -p djls-semantic` passes
+- [ ] `cargo test -p djls-semantic` passes (all unit tests)
+- [ ] `cargo clippy -p djls-semantic --all-targets -- -D warnings` passes
+
+### Phase 4: Validation Integration - Unknown Tag Diagnostics
+
+**Status:** 🔲 Not Started
+
+Integrate load scoping into tag validation to produce diagnostics for unknown tags and unloaded library tags.
+
+**Changes:**
+- Add new error variants in `errors.rs`: `UnknownTag`, `UnloadedLibraryTag`, `AmbiguousUnloadedTag`
+- Add diagnostic codes S108, S109, S110 in `diagnostics.rs`
+- Add `inspector_inventory()` method to `Db` trait and implement in `DjangoDatabase`
+- Add `validate_tag_scoping()` tracked function with collision handling
+- Skip tags with structural specs (openers/closers/intermediates)
+- Wire into `validate_nodelist()` in `lib.rs`
+
+**Quality Checks:**
+- [ ] `cargo build` passes
+- [ ] `cargo test` passes
+- [ ] `cargo clippy --all-targets -- -D warnings` passes
+- [ ] Manual: Template with `{% trans %}` without `{% load i18n %}` → S109
+- [ ] Manual: Add `{% load i18n %}` → no diagnostic
+- [ ] Manual: Unknown tag `{% nonexistent %}` → S108
+
+### Phase 5: Completions Integration
+
+**Status:** 🔲 Not Started
+
+Update completions to filter tags based on load state at cursor position.
+
+**Changes:**
+- Update `generate_tag_name_completions()` signature with `loaded_libraries` and `cursor_byte_offset`
+- Filter completions by availability at cursor position
+- Add `calculate_byte_offset()` helper to convert LSP Position → byte offset
+- Update `handle_completion()` and `generate_template_completions()` signatures
+- Update server call site in `server.rs` to pass loaded libraries
+- When inspector unavailable (None), show all tags as fallback
+
+**Quality Checks:**
+- [ ] `cargo build` passes
+- [ ] `cargo test` passes
+- [ ] `cargo clippy --all-targets -- -D warnings` passes
+- [ ] Manual: Without `{% load %}`, only builtins in completions
+- [ ] Manual: After `{% load i18n %}`, i18n tags appear AFTER the load
+- [ ] Manual: Cursor BEFORE `{% load i18n %}` → i18n tags NOT shown
+- [ ] Manual: `{% load trans from i18n %}` → only `trans`, not other i18n tags
+
+### Phase 6: Library Completions Enhancement
+
+**Status:** 🔲 Not Started
+
+Update `{% load %}` completions to show available libraries and handle completion behavior correctly.
+
+**Changes:**
+- Update `generate_library_completions()` to accept `loaded_libraries` and `cursor_byte_offset`
+- Filter to show libraries NOT yet loaded (or deprioritize already-loaded)
+- Add sort_text to deprioritize already-loaded libraries
+- Mark already-loaded libraries as deprecated (strikethrough in editors)
+- Update call site in `generate_template_completions()`
+
+**Quality Checks:**
+- [ ] `cargo build` passes
+- [ ] `cargo test` passes
+- [ ] Manual: `{% load %}` completions show all available libraries
+- [ ] Manual: Already-loaded libraries are deprioritized/marked
 
 ---
 
