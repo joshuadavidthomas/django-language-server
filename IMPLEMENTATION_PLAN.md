@@ -438,8 +438,8 @@
 
 ### Phase 4: Create Template Validation Mismatch Issue Form
 
-- [ ] Create `.github/ISSUE_TEMPLATE/template-validation-mismatch.yml` with form fields: mismatch type dropdown, template snippet, expected behavior, djls diagnostic, version info (djls, Django, Python), OS dropdown, inspector health dropdown, server logs, installed apps, tagspecs, additional context, and required checklist
-- [ ] Validate YAML syntax
+- [x] Create `.github/ISSUE_TEMPLATE/template-validation-mismatch.yml` with form fields: mismatch type dropdown, template snippet, expected behavior, djls diagnostic, version info (djls, Django, Python), OS dropdown, inspector health dropdown, server logs, installed apps, tagspecs, additional context, and required checklist
+- [x] Validate YAML syntax
 
 ### Phase 5: Update TagSpecs Documentation
 

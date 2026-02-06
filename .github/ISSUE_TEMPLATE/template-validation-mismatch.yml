@@ -1,0 +1,209 @@
+name: Template Validation Mismatch
+description: Report a difference between djls validation and Django runtime behavior
+title: "[Validation] "
+labels: ["validation", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Template Validation Mismatch Report
+
+        Use this form to report cases where djls produces a diagnostic that Django doesn't raise at runtime (false positive), or where Django raises an error that djls doesn't catch (false negative).
+
+        **Before submitting**, please:
+        - Check inspector health: enable `debug = true` in config and review server startup logs
+        - Verify the issue reproduces with the latest djls version
+        - Search existing issues for duplicates
+
+  - type: dropdown
+    id: mismatch-type
+    attributes:
+      label: Mismatch Type
+      description: What kind of validation mismatch are you reporting?
+      options:
+        - "False Positive: djls reports error, Django renders fine"
+        - "False Negative: Django raises error, djls reports nothing"
+        - "Wrong Diagnostic: djls reports wrong error code or message"
+    validations:
+      required: true
+
+  - type: input
+    id: template-path
+    attributes:
+      label: Template File Path
+      description: |
+        Path to the template file (relative to project root), if relevant.
+        Helps triage in multi-app or monorepo projects.
+      placeholder: "myapp/templates/myapp/widget.html"
+    validations:
+      required: false
+
+  - type: textarea
+    id: template-snippet
+    attributes:
+      label: Template Snippet
+      description: |
+        Minimal template code that reproduces the issue.
+        Please reduce to the smallest snippet that demonstrates the problem.
+      placeholder: |
+        {% load i18n %}
+        {% trans "Hello" as greeting %}
+        {{ greeting }}
+      render: django
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: Expected Behavior
+      description: What should happen? Include Django's actual behavior if relevant.
+      placeholder: |
+        Django renders this template successfully.
+        The `{% trans ... as var %}` syntax is valid and assigns to `greeting`.
+    validations:
+      required: true
+
+  - type: textarea
+    id: djls-diagnostic
+    attributes:
+      label: djls Diagnostic
+      description: |
+        What diagnostic does djls produce? Include the full message and code.
+        If djls produces no diagnostic but should, describe what's missing.
+      placeholder: |
+        S105: Too many arguments for tag 'trans'
+
+        Or: No diagnostic produced (expected S109 for unloaded library)
+    validations:
+      required: true
+
+  - type: input
+    id: djls-version
+    attributes:
+      label: djls Version
+      description: Output of `djls --version`
+      placeholder: "djls 6.0.0"
+    validations:
+      required: true
+
+  - type: input
+    id: django-version
+    attributes:
+      label: Django Version
+      description: Output of `python -c "import django; print(django.VERSION)"`
+      placeholder: "(5, 2, 0, 'final', 0)"
+    validations:
+      required: true
+
+  - type: input
+    id: python-version
+    attributes:
+      label: Python Version
+      description: Output of `python --version`
+      placeholder: "Python 3.12.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating System
+      options:
+        - Linux
+        - macOS
+        - Windows
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: inspector-health
+    attributes:
+      label: Inspector Health
+      description: |
+        Check server startup logs (with `debug = true` in config) for inspector status.
+        Inspector health affects which diagnostics are produced.
+      options:
+        - "Healthy: Inspector initialized successfully (tags/filters loaded)"
+        - "Unhealthy: Inspector failed (include logs below)"
+        - "Unknown: Haven't checked logs"
+    validations:
+      required: true
+
+  - type: textarea
+    id: server-logs
+    attributes:
+      label: Server Logs (Inspector Initialization)
+      description: |
+        With `debug = true` in your config, include the server startup logs
+        around inspector/Django initialization. This helps diagnose inspector issues.
+      placeholder: |
+        [DEBUG] Starting Django Language Server...
+        [DEBUG] Python environment: /path/to/venv
+        [DEBUG] Django settings: myproject.settings
+        [DEBUG] Inspector: querying template tags...
+        [DEBUG] Found 42 tags, 35 filters
+        ...
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: installed-apps
+    attributes:
+      label: Relevant Installed Apps
+      description: |
+        If the issue involves third-party template tags, list the relevant installed apps
+        and any custom templatetags modules.
+      placeholder: |
+        INSTALLED_APPS = [
+            'django.contrib.admin',
+            'crispy_forms',
+            'myapp',  # has templatetags/myapp_tags.py
+        ]
+    validations:
+      required: false
+
+  - type: textarea
+    id: tagspecs
+    attributes:
+      label: Custom TagSpecs
+      description: |
+        If you have custom tagspecs defined, include them here.
+        This helps determine if the issue is in djls core or custom configuration.
+      placeholder: |
+        [tagspecs]
+        version = "0.6.0"
+
+        [[tagspecs.libraries]]
+        module = "myapp.templatetags.custom"
+        ...
+      render: toml
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional Context
+      description: |
+        Any other information that might help diagnose the issue:
+        - Editor/client being used
+        - Steps to reproduce
+        - Workarounds you've tried
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      description: Please confirm the following
+      options:
+        - label: I have reduced the template to a minimal reproducing example
+          required: true
+        - label: I have verified this issue with the latest djls version
+          required: true
+        - label: I have searched existing issues for duplicates
+          required: true
