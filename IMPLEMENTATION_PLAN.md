@@ -229,13 +229,13 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ### Phase 2: Registration Discovery
 
-- [ ] Implement AST walker to find `@register.tag` / `@register.simple_tag` / `@register.inclusion_tag` / `@register.filter` decorators
-- [ ] Handle `register.tag("name", func)` call expression registration style
-- [ ] Extract registration name: from decorator keyword arg `name=`, explicit string positional arg, or decorated function name (in that priority order)
-- [ ] Build `RegistrationInfo` struct: `name`, `kind` (tag/simple_tag/inclusion_tag/filter), reference to the decorated/called function AST node
-- [ ] Implement `collect_registrations(source: &str) -> Vec<RegistrationInfo>`
-- [ ] Tests: decorator-based tag, simple_tag with `name=` kwarg, inclusion_tag, filter, call-style `register.tag("name", func)`, function name fallback, multiple registrations in one file
-- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Implement AST walker to find `@register.tag` / `@register.simple_tag` / `@register.inclusion_tag` / `@register.filter` decorators
+- [x] Handle `register.tag("name", func)` call expression registration style
+- [x] Extract registration name: from decorator keyword arg `name=`, explicit string positional arg, or decorated function name (in that priority order)
+- [x] Build `RegistrationInfo` struct: `name`, `kind` (tag/simple_tag/inclusion_tag/filter), reference to the decorated/called function AST node
+- [x] Implement `collect_registrations(source: &str) -> Vec<RegistrationInfo>`
+- [x] Tests: decorator-based tag, simple_tag with `name=` kwarg, inclusion_tag, filter, call-style `register.tag("name", func)`, function name fallback, multiple registrations in one file
+- [x] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 3: Function Context Detection
 
