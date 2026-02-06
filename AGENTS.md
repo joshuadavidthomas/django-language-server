@@ -63,7 +63,15 @@ just lint                       # Run pre-commit hooks
 - **Opaque regions**: `crates/djls-semantic/src/opaque.rs` — `OpaqueRegions` type, `compute_opaque_regions()` — byte-span based check for `verbatim`/`comment` block interiors
 - **If-expression parser**: `crates/djls-semantic/src/if_expression.rs` — Pratt parser for `{% if %}`/`{% elif %}` expression validation (S114)
 - **Validation errors**: `crates/djls-semantic/src/errors.rs` — `ValidationError` enum with all diagnostic variants (S101–S114+)
+- **Filter arity specs**: `crates/djls-semantic/src/filter_arity.rs` — `FilterAritySpecs` type, `compute_filter_arity_specs` tracked query, `validate_filter_arity` (S115/S116)
 - **Filter snapshots**: `crates/djls-templates/src/snapshots/` — `parse_django_variable_with_filter.snap`, `parse_filter_chains.snap` — structured `Filter` objects with name/arg/span
+
+## Documentation File Paths
+- **MkDocs config**: `.mkdocs.yml` — nav structure, theme config, markdown extensions
+- **Diagnostic codes docs**: `docs/configuration/index.md` — S101–S116 descriptions, severity config
+- **TagSpecs docs**: `docs/configuration/tagspecs.md` — custom tag spec configuration
+- **Template validation overview**: `docs/template-validation.md` — how validation works, inspector + extraction architecture
+- **GitHub issue templates**: `.github/ISSUE_TEMPLATE/` — not yet created, needed for M7 Phase 3
 
 ## Django Engine Internals (for inspector work)
 - `engine.builtins` — `list[str]` of module paths (e.g., `"django.template.defaulttags"`)
@@ -94,6 +102,7 @@ just lint                       # Run pre-commit hooks
 - Don't pass owned types by value when not consumed — use `&str` not `String`, `&[T]` not `Vec<T>` in function params (`needless_pass_by_value`)
 - Prefer `HashMap::default()` over `HashMap::new()` — clippy flags `HashMap::new()` as less clear
 - Don't use explicit lifetimes when they can be elided — `fn foo<'db>(&'db self)` → `fn foo(&self)` (`explicit_lifetimes_could_be_elided`)
+- Unused imports after refactoring — `cargo clippy --fix` can auto-remove, or clean up manually before committing
 - **Scoping exclusions**: Only skip closers/intermediates for load scoping checks — openers like `trans` have TagSpecs (for argument validation) BUT still need scoping because they're library tags. `django_builtin_specs()` includes ALL Django tags, not just builtins.
 - **Diagnostic codes**: S108 = unknown tag (not in any library), S109 = unloaded tag (known library, not loaded), S110 = ambiguous unloaded tag (multiple candidate libraries). All three are guarded by `inspector_inventory.is_some()`.
 - **Completions depend on load scoping**: `generate_tag_name_completions` needs `LoadedLibraries` + inspector inventory to filter results by position. When inspector unavailable, show all tags as fallback.
@@ -115,14 +124,14 @@ just lint                       # Run pre-commit hooks
 - **`collect_registrations()` → `extract_tag_rule()`**: Two-phase: first collect all registrations (name + kind + function ref), then extract rules per registration. Don't try to do both in one pass.
 - **Clone `func_name` early**: Ruff AST types own their strings. If you need `func.name` after moving or borrowing `func` elsewhere, clone it first. E0382 (use of moved value) is common otherwise.
 - **`rules.rs` is large (1300+ lines)**: If adding new extraction helpers, consider whether they belong in a separate module (e.g., block spec extraction could be `crates/djls-extraction/src/blocks.rs`).
-- **`extract_rules()` top-level API is still a stub**: It returns `ExtractionResult::default()`. Wiring `collect_registrations` + `extract_tag_rule` into it is a Phase 5+ task.
+- **`extract_rules()` is fully wired**: Parses source → `collect_registrations_from_body` → finds func defs → dispatches to `extract_tag_rule` / `extract_block_spec` / `extract_filter_arity` per registration. Takes `module_path` param for `SymbolKey` keying.
 
 ## Validation Architecture Patterns
 - **`validate_nodelist` is the orchestrator**: All validation passes are called from `crates/djls-semantic/src/lib.rs` `validate_nodelist()`. New validators wire in here.
 - **Validation function signature pattern**: `validate_*(db: &dyn crate::Db, nodelist: &NodeList, opaque_regions: &OpaqueRegions, ...) -> Vec<ValidationError>`. Always accept `&OpaqueRegions` and skip nodes inside opaque spans.
 - **Block tree root structure**: Root-level blocks have NO `BranchKind::Opener` — the container IS the root, containing only `BranchKind::Segment` children. `Opener` branches only appear for nested blocks (added to parent's segment). To find opaque blocks, check `Segment` branches whose tag has `opaque: true`.
 - **Opaque region flow**: `compute_opaque_regions(db, nodelist)` → `OpaqueRegions` → passed to each validator. The opaque check is `opaque_regions.is_opaque(node_span_start)`.
-- **Diagnostic codes so far**: S101–S107 (argument validation), S108–S110 (tag scoping), S111–S113 (filter scoping), S114 (expression syntax). Next: S115/S116 (filter arity).
+- **Diagnostic codes**: S101–S107 (argument validation), S108–S110 (tag scoping), S111–S113 (filter scoping), S114 (expression syntax), S115–S116 (filter arity).
 
 ## Cross-Cutting Type Changes
 - **When adding a new parallel type** (e.g., `TemplateFilter` mirroring `TemplateTag`): update Python dataclass, `queries.py` collection, Rust struct, response type, `TemplateTags` struct + `new()` + `from_response()`, tracked query, `lib.rs` re-exports. Easy to miss one step in the chain.
