@@ -28,6 +28,13 @@ just lint                       # Run pre-commit hooks
 - `crates/djls-server/` - LSP server implementation  
 - `crates/djls-templates/` - Django template parser
 - `crates/djls-workspace/` - Workspace/document management
+- `crates/djls-extraction/` - Python AST extraction for tag/filter validation rules (uses Ruff parser)
+- `crates/djls-ide/` - Completions, diagnostics, and IDE features
+- `crates/djls-semantic/` - Semantic analysis, load resolution, validation
+- `crates/djls-project/` - Project/inspector types, Salsa inputs, Python IPC
+- `crates/djls-conf/` - Settings and configuration types
+- `crates/djls-source/` - Source file abstractions
+- `crates/djls-bench/` - Benchmarks
 
 ## Operational Notes
 
@@ -54,6 +61,8 @@ just lint                       # Run pre-commit hooks
 - This project uses `foo.rs` + `foo/` sibling pattern — NEVER `foo/mod.rs`
 - `djls-semantic` templatetags module: `src/templatetags.rs` (re-exports) + `src/templatetags/` dir (contains `specs.rs`, `builtins.rs`)
 - `djls-conf` tagspec types have `PartialEq` but NOT `Eq` — `serde_json::Value` in `extra` field prevents `Eq`
+- `djls-extraction` is flat module layout: `src/lib.rs` + `src/{types,error,parser,registry,context,rules,structural,filters,patterns}.rs`
+- `djls-extraction` public API: `extract_rules(source) -> ExtractionResult` orchestrates parse→registry→context→rules→structural→filters
 
 ### Trait Impls — Update ALL Locations When Changing Traits
 Adding a method to `djls-semantic`'s `crate::Db` trait requires updating **6 impl blocks**:
@@ -73,20 +82,29 @@ Test impls typically return `None` / default values. Forgetting even one causes 
 - `TemplateTags` still exists for the legacy `templatetags` tracked query — do NOT remove yet, but do NOT use for new features
 - `InspectorInventory::new()` takes 4 args: `libraries`, `builtins`, `tags`, `filters`
 - `TemplateFilter` accessors return `&str` (not `&String` like `TemplateTag`) — this is the correct pattern per clippy
-- `Node::Variable { var, filters, span }` currently has `filters: Vec<String>` — M4.2 will change to `Vec<Filter>` with structured name/arg/span
+- `Node::Variable { var, filters, span }` has `filters: Vec<Filter>` — `Filter` has `name: String`, `arg: Option<FilterArg>`, `span: Span`. `FilterArg` has `value: String`, `span: Span`
+- Parser's `VariableScanner` is quote-aware — pipes/colons inside `'...'` or `"..."` are not treated as delimiters
 - `refresh_inspector()` uses `TemplateInventoryRequest` ("template_inventory" query) — single IPC round trip for tags + filters
 
 ### Clippy Patterns
 - Use inline format variables: `format!("{var}")` not `format!("{}", var)` — clippy flags `uninlined_format_args`
 - `usize as u32` casts require `#[allow(clippy::cast_possible_truncation)]` block — see `calculate_byte_offset` in completions.rs
 - `#[must_use]` NOT required on methods returning `impl Iterator` — only on pure accessors/constructors
+- Functions must not exceed 100 lines — clippy flags `too_many_lines`. Extract helpers to stay under the limit
+- Doc comments must use backticks around code/identifiers — clippy flags `doc_markdown` (e.g., write `\`split_contents\`` not `split_contents`)
+- Stub structs with fields not yet used need `#[allow(dead_code)]` — common when scaffolding crates phase-by-phase
 
 ### Validation Architecture
 - Validation errors (enum variants): `crates/djls-semantic/src/errors.rs` (`ValidationError`)
 - Diagnostic code mapping: `crates/djls-ide/src/diagnostics.rs` (maps `ValidationError` variants → S-codes)
 - New validation passes are wired into `validate_nodelist()` in `crates/djls-semantic/src/lib.rs`
-- Existing codes: S101-S107 (structural), S108 (UnknownTag), S109 (UnloadedLibraryTag), S110 (AmbiguousUnloadedTag)
-- Next available codes for filters: S111, S112, S113
+- Existing codes: S101-S107 (structural), S108 (UnknownTag), S109 (UnloadedLibraryTag), S110 (AmbiguousUnloadedTag), S111 (UnknownFilter), S112 (UnloadedLibraryFilter), S113 (AmbiguousUnloadedFilter)
+- Next available diagnostic code: S114
+
+### Ruff Parser Dependencies
+- Ruff crates pinned to tag 0.9.10 (SHA `0dfa810e9aad9a465596768b0211c31dd41d3e73`) in root `Cargo.toml`
+- Use `ruff_python_parser`, `ruff_python_ast`, `ruff_text_size` as workspace deps
+- `ParsedModule` in `crates/djls-extraction/src/parser.rs` wraps `ruff_python_parser::parse_module`
 
 ### File Locations (avoid repeated lookups)
 - Salsa database + tracked queries: `crates/djls-server/src/db.rs`
@@ -94,17 +112,19 @@ Test impls typically return `None` / default values. Forgetting even one causes 
 - TemplateTags, TagProvenance, InspectorInventory, FilterProvenance, TemplateFilter: `crates/djls-project/src/django.rs`
 - Tag specs + `from_config_def`: `crates/djls-semantic/src/templatetags/specs.rs`
 - Django builtins specs: `crates/djls-semantic/src/templatetags/builtins.rs`
-- Completions (tag names, library names, filter names): `crates/djls-ide/src/completions.rs` (most-edited file — 31 edits across sessions)
+- Completions (tag names, library names, filter names): `crates/djls-ide/src/completions.rs` (most-edited file — 38 edits across sessions)
 - Semantic Db trait: `crates/djls-semantic/src/db.rs`
-- Load resolution + tag scoping validation: `crates/djls-semantic/src/load_resolution.rs`
+- Load resolution + tag/filter scoping validation: `crates/djls-semantic/src/load_resolution.rs`
 - Validation error types: `crates/djls-semantic/src/errors.rs`
 - Diagnostic code mapping: `crates/djls-ide/src/diagnostics.rs`
 - Inspector Python queries: `crates/djls-project/inspector/queries.py`
 - Session/server wiring: `crates/djls-server/src/session.rs`, `crates/djls-server/src/server.rs`
 - Settings/config types: `crates/djls-conf/src/`
 - Template parser: `crates/djls-templates/src/parser.rs`
-- Node types (Variable, Tag, etc.): `crates/djls-templates/src/nodelist.rs`
+- Node types (Variable, Tag, Filter, FilterArg, etc.): `crates/djls-templates/src/nodelist.rs`
 - Parser snapshots: `crates/djls-templates/src/snapshots/`
+- Extraction crate types: `crates/djls-extraction/src/types.rs`
+- Extraction crate stubs: `crates/djls-extraction/src/{registry,context,rules,structural,filters,patterns}.rs`
 
 ## Task Management
 Use `/dex` to break down complex work, track progress across sessions, and coordinate multi-step implementations.
