@@ -283,14 +283,14 @@
 
 ### Phase 5: Implement Block Spec Extraction (Control-Flow Based)
 
-- [ ] Implement `crates/djls-extraction/src/structural.rs` — `extract_block_spec()` with three inference strategies: singleton pattern, unique stop tag, Django convention fallback
-- [ ] Handle explicit `end_name` from decorator (highest priority)
-- [ ] Handle `simple_block_tag` Django semantic default (`end{function_name}`)
-- [ ] Implement `collect_parse_calls()` — recurse into if/while/for/try to find `parser.parse((...))` calls
-- [ ] Implement `infer_end_tag_from_control_flow()` — singleton → unique → convention → None
-- [ ] Detect opaque blocks (no compile_filter, no intermediates)
-- [ ] Add unit tests: singleton closer (if→endif), single stop tag, non-conventional closer, for with empty, no block spec for simple_tag, simple_block_tag with/without end_name, helper wrapper, ambiguous returns None, convention fallback, convention not invented, convention blocked by ambiguity
-- [ ] Run `cargo build -q -p djls-extraction`, `cargo clippy -q -p djls-extraction --all-targets --all-features -- -D warnings`, `cargo test -q -p djls-extraction`
+- [x] Implement `crates/djls-extraction/src/structural.rs` — `extract_block_spec()` with three inference strategies: singleton pattern, unique stop tag, Django convention fallback
+- [x] Handle explicit `end_name` from decorator (highest priority)
+- [x] Handle `simple_block_tag` Django semantic default (`end{function_name}`)
+- [x] Implement `collect_parse_calls()` — recurse into if/while/for/try to find `parser.parse((...))` calls
+- [x] Implement `infer_end_tag_from_control_flow()` — singleton → unique → convention → None
+- [x] Detect opaque blocks (no compile_filter, no intermediates)
+- [x] Add unit tests: singleton closer (if→endif), single stop tag, non-conventional closer, for with empty, no block spec for simple_tag, simple_block_tag with/without end_name, helper wrapper, ambiguous returns None, convention fallback, convention not invented, convention blocked by ambiguity
+- [x] Run `cargo build -q -p djls-extraction`, `cargo clippy -q -p djls-extraction --all-targets --all-features -- -D warnings`, `cargo test -q -p djls-extraction`
 
 ### Phase 6: Implement Filter Arity Extraction
 
