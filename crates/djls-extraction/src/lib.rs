@@ -1,6 +1,8 @@
 mod types;
 
 #[cfg(feature = "parser")]
+mod context;
+#[cfg(feature = "parser")]
 mod registry;
 
 pub use types::ArgumentCountConstraint;
@@ -13,6 +15,8 @@ pub use types::SymbolKey;
 pub use types::SymbolKind;
 pub use types::TagRule;
 
+#[cfg(feature = "parser")]
+pub use context::detect_split_var;
 #[cfg(feature = "parser")]
 pub use registry::RegistrationInfo;
 #[cfg(feature = "parser")]

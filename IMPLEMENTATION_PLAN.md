@@ -239,12 +239,12 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ### Phase 3: Function Context Detection
 
-- [ ] Implement `detect_split_var(func_body: &[Stmt]) -> Option<String>` that scans function body for `token.split_contents()` (or `parser.token.split_contents()` via `parser` parameter) call and returns the variable name it's bound to
-- [ ] Handle common patterns: `bits = token.split_contents()`, `args = token.split_contents()`, tuple unpacking `tag_name, *args = token.split_contents()`
-- [ ] Handle indirect access: function parameter `parser` → `parser.token.split_contents()` → same detection
-- [ ] Return `None` if no `split_contents()` call found (function doesn't use token-splitting)
-- [ ] Tests: `bits = token.split_contents()`, `args = token.split_contents()`, `parts = token.split_contents()`, tuple unpacking, no split_contents → None, split_contents via parser.token
-- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Implement `detect_split_var(func_body: &[Stmt]) -> Option<String>` that scans function body for `token.split_contents()` (or `parser.token.split_contents()` via `parser` parameter) call and returns the variable name it's bound to
+- [x] Handle common patterns: `bits = token.split_contents()`, `args = token.split_contents()`, tuple unpacking `tag_name, *args = token.split_contents()`
+- [x] Handle indirect access: function parameter `parser` → `parser.token.split_contents()` → same detection
+- [x] Return `None` if no `split_contents()` call found (function doesn't use token-splitting)
+- [x] Tests: `bits = token.split_contents()`, `args = token.split_contents()`, `parts = token.split_contents()`, tuple unpacking, no split_contents → None, split_contents via parser.token
+- [x] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 4: Rule Extraction
 
