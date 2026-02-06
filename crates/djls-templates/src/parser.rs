@@ -202,9 +202,7 @@ impl Parser {
         let var = var_raw.trim().to_string();
 
         let filters: Vec<Filter> = parts
-            .map(|(raw, offset_in_content)| {
-                parse_filter(raw, base_offset + offset_in_content)
-            })
+            .map(|(raw, offset_in_content)| parse_filter(raw, base_offset + offset_in_content))
             .collect();
 
         Ok(Node::Variable { var, filters, span })

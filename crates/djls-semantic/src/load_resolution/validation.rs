@@ -1,16 +1,15 @@
+use djls_templates::tokens::TagDelimiter;
 use djls_templates::Node;
 use djls_templates::NodeList;
-use djls_templates::tokens::TagDelimiter;
 use salsa::Accumulator;
-
-use crate::Db;
-use crate::ValidationError;
-use crate::ValidationErrorAccumulator;
 
 use super::compute_loaded_libraries;
 use super::symbols::AvailableSymbols;
 use super::symbols::FilterAvailability;
 use super::symbols::TagAvailability;
+use crate::Db;
+use crate::ValidationError;
+use crate::ValidationErrorAccumulator;
 
 /// Validate tag scoping for all tags in a template.
 ///
@@ -170,9 +169,9 @@ mod tests {
     use crate::blocks::TagIndex;
     use crate::templatetags::django_builtin_specs;
     use crate::validate_nodelist;
+    use crate::TagSpecs;
     use crate::ValidationError;
     use crate::ValidationErrorAccumulator;
-    use crate::TagSpecs;
 
     #[salsa::db]
     #[derive(Clone)]
@@ -322,10 +321,7 @@ mod tests {
         ];
 
         let mut libraries = HashMap::new();
-        libraries.insert(
-            "i18n".to_string(),
-            "django.templatetags.i18n".to_string(),
-        );
+        libraries.insert("i18n".to_string(), "django.templatetags.i18n".to_string());
         libraries.insert(
             "static".to_string(),
             "django.templatetags.static".to_string(),
@@ -432,10 +428,8 @@ mod tests {
     fn structural_tags_skip_scoping_checks() {
         let db = TestDatabase::with_inventory(test_inventory());
         // endif, else, elif are structural — they shouldn't produce S108
-        let errors = collect_scoping_errors(
-            &db,
-            "{% if True %}{% elif False %}{% else %}{% endif %}",
-        );
+        let errors =
+            collect_scoping_errors(&db, "{% if True %}{% elif False %}{% else %}{% endif %}");
 
         assert!(
             errors.is_empty(),
@@ -471,7 +465,8 @@ mod tests {
     #[test]
     fn selective_import_makes_only_imported_symbol_available() {
         let db = TestDatabase::with_inventory(test_inventory());
-        let source = "{% load trans from i18n %}\n{% trans 'hello' %}\n{% blocktrans %}{% endblocktrans %}";
+        let source =
+            "{% load trans from i18n %}\n{% trans 'hello' %}\n{% blocktrans %}{% endblocktrans %}";
         let errors = collect_scoping_errors(&db, source);
 
         // trans should be available, blocktrans should NOT (only selectively imported trans)
@@ -544,15 +539,20 @@ mod tests {
             builtin_filter_json("title", "django.template.defaultfilters"),
             builtin_filter_json("lower", "django.template.defaultfilters"),
             builtin_filter_json("default", "django.template.defaultfilters"),
-            library_filter_json("apnumber", "humanize", "django.contrib.humanize.templatetags.humanize"),
-            library_filter_json("intcomma", "humanize", "django.contrib.humanize.templatetags.humanize"),
+            library_filter_json(
+                "apnumber",
+                "humanize",
+                "django.contrib.humanize.templatetags.humanize",
+            ),
+            library_filter_json(
+                "intcomma",
+                "humanize",
+                "django.contrib.humanize.templatetags.humanize",
+            ),
         ];
 
         let mut libraries = HashMap::new();
-        libraries.insert(
-            "i18n".to_string(),
-            "django.templatetags.i18n".to_string(),
-        );
+        libraries.insert("i18n".to_string(), "django.templatetags.i18n".to_string());
         libraries.insert(
             "static".to_string(),
             "django.templatetags.static".to_string(),
@@ -653,8 +653,7 @@ mod tests {
     #[test]
     fn inspector_unavailable_no_filter_diagnostics() {
         let db = TestDatabase::new();
-        let errors =
-            collect_filter_scoping_errors(&db, "{{ value|nonexistent }}{{ x|apnumber }}");
+        let errors = collect_filter_scoping_errors(&db, "{{ value|nonexistent }}{{ x|apnumber }}");
 
         assert!(
             errors.is_empty(),

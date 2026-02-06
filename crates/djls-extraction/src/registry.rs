@@ -98,9 +98,7 @@ fn collect_from_decorated_function(
 
     for decorator in &func_def.decorator_list {
         // Try tag decorator
-        if let Some((name, kind)) =
-            tag_name_from_decorator(&decorator.expression, func_name)
-        {
+        if let Some((name, kind)) = tag_name_from_decorator(&decorator.expression, func_name) {
             registrations.push(RegistrationInfo {
                 name,
                 kind,

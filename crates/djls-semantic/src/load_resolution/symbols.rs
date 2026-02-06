@@ -99,8 +99,7 @@ impl AvailableSymbols {
                 continue;
             };
             let is_available = libs.iter().any(|lib| {
-                load_state.is_fully_loaded(lib)
-                    || load_state.is_symbol_available(lib, &tag_name)
+                load_state.is_fully_loaded(lib) || load_state.is_symbol_available(lib, &tag_name)
             });
             if is_available {
                 available.insert(tag_name.clone());
@@ -133,8 +132,7 @@ impl AvailableSymbols {
                 continue;
             };
             let is_available = libs.iter().any(|lib| {
-                load_state.is_fully_loaded(lib)
-                    || load_state.is_symbol_available(lib, &filter_name)
+                load_state.is_fully_loaded(lib) || load_state.is_symbol_available(lib, &filter_name)
             });
             if is_available {
                 available_filters.insert(filter_name.clone());
@@ -166,9 +164,7 @@ impl AvailableSymbols {
                 [single] => TagAvailability::Unloaded {
                     library: single.clone(),
                 },
-                _ => TagAvailability::AmbiguousUnloaded {
-                    libraries: sorted,
-                },
+                _ => TagAvailability::AmbiguousUnloaded { libraries: sorted },
             };
         }
 
@@ -190,9 +186,7 @@ impl AvailableSymbols {
                 [single] => FilterAvailability::Unloaded {
                     library: single.clone(),
                 },
-                _ => FilterAvailability::AmbiguousUnloaded {
-                    libraries: sorted,
-                },
+                _ => FilterAvailability::AmbiguousUnloaded { libraries: sorted },
             };
         }
 
@@ -316,10 +310,7 @@ mod tests {
         ];
 
         let mut libraries = HashMap::new();
-        libraries.insert(
-            "i18n".to_string(),
-            "django.templatetags.i18n".to_string(),
-        );
+        libraries.insert("i18n".to_string(), "django.templatetags.i18n".to_string());
         libraries.insert(
             "static".to_string(),
             "django.templatetags.static".to_string(),
@@ -455,14 +446,8 @@ mod tests {
         ];
 
         let mut libraries = HashMap::new();
-        libraries.insert(
-            "lib_a".to_string(),
-            "app.templatetags.lib_a".to_string(),
-        );
-        libraries.insert(
-            "lib_b".to_string(),
-            "app.templatetags.lib_b".to_string(),
-        );
+        libraries.insert("lib_a".to_string(), "app.templatetags.lib_a".to_string());
+        libraries.insert("lib_b".to_string(), "app.templatetags.lib_b".to_string());
 
         let inventory = make_inventory(&tags, &libraries, &[]);
         let loaded = LoadedLibraries::new(vec![]);
@@ -485,14 +470,8 @@ mod tests {
         ];
 
         let mut libraries = HashMap::new();
-        libraries.insert(
-            "lib_a".to_string(),
-            "app.templatetags.lib_a".to_string(),
-        );
-        libraries.insert(
-            "lib_b".to_string(),
-            "app.templatetags.lib_b".to_string(),
-        );
+        libraries.insert("lib_a".to_string(), "app.templatetags.lib_a".to_string());
+        libraries.insert("lib_b".to_string(), "app.templatetags.lib_b".to_string());
 
         let inventory = make_inventory(&tags, &libraries, &[]);
 
@@ -632,14 +611,8 @@ mod tests {
         ];
 
         let mut libraries = HashMap::new();
-        libraries.insert(
-            "lib_a".to_string(),
-            "app.templatetags.lib_a".to_string(),
-        );
-        libraries.insert(
-            "lib_b".to_string(),
-            "app.templatetags.lib_b".to_string(),
-        );
+        libraries.insert("lib_a".to_string(), "app.templatetags.lib_a".to_string());
+        libraries.insert("lib_b".to_string(), "app.templatetags.lib_b".to_string());
 
         let inventory = make_inventory(&tags, &libraries, &[]);
 
@@ -661,14 +634,20 @@ mod tests {
     // --- Filter availability tests ---
 
     fn test_inventory_with_filters() -> TemplateTags {
-        let tags = vec![
-            builtin_tag_json("if", "django.template.defaulttags"),
-        ];
+        let tags = vec![builtin_tag_json("if", "django.template.defaulttags")];
         let filters = vec![
             builtin_filter_json("title", "django.template.defaultfilters"),
             builtin_filter_json("lower", "django.template.defaultfilters"),
-            library_filter_json("apnumber", "humanize", "django.contrib.humanize.templatetags.humanize"),
-            library_filter_json("intcomma", "humanize", "django.contrib.humanize.templatetags.humanize"),
+            library_filter_json(
+                "apnumber",
+                "humanize",
+                "django.contrib.humanize.templatetags.humanize",
+            ),
+            library_filter_json(
+                "intcomma",
+                "humanize",
+                "django.contrib.humanize.templatetags.humanize",
+            ),
         ];
 
         let mut libraries = HashMap::new();

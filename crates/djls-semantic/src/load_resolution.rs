@@ -4,18 +4,17 @@ mod validation;
 
 use djls_templates::Node;
 use djls_templates::NodeList;
-
-use crate::db::Db;
-
+pub use load::parse_load_bits;
 pub use load::LoadKind;
 pub use load::LoadStatement;
 pub use load::LoadedLibraries;
-pub use load::parse_load_bits;
 pub use symbols::AvailableSymbols;
 pub use symbols::FilterAvailability;
 pub use symbols::TagAvailability;
 pub use validation::validate_filter_scoping;
 pub use validation::validate_tag_scoping;
+
+use crate::db::Db;
 
 /// Compute the [`LoadedLibraries`] for a parsed template's node list.
 ///
@@ -56,11 +55,10 @@ mod tests {
     use djls_workspace::FileSystem;
     use djls_workspace::InMemoryFileSystem;
 
+    use super::*;
     use crate::blocks::TagIndex;
     use crate::templatetags::django_builtin_specs;
     use crate::TagSpecs;
-
-    use super::*;
 
     #[salsa::db]
     #[derive(Clone)]

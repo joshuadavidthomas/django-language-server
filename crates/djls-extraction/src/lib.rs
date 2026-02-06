@@ -4,7 +4,19 @@ mod types;
 mod context;
 #[cfg(feature = "parser")]
 mod registry;
+#[cfg(feature = "parser")]
+mod rules;
 
+#[cfg(feature = "parser")]
+pub use context::detect_split_var;
+#[cfg(feature = "parser")]
+pub use registry::collect_registrations;
+#[cfg(feature = "parser")]
+pub use registry::RegistrationInfo;
+#[cfg(feature = "parser")]
+pub use registry::RegistrationKind;
+#[cfg(feature = "parser")]
+pub use rules::extract_tag_rule;
 pub use types::ArgumentCountConstraint;
 pub use types::BlockTagSpec;
 pub use types::ExtractionResult;
@@ -14,15 +26,6 @@ pub use types::RequiredKeyword;
 pub use types::SymbolKey;
 pub use types::SymbolKind;
 pub use types::TagRule;
-
-#[cfg(feature = "parser")]
-pub use context::detect_split_var;
-#[cfg(feature = "parser")]
-pub use registry::RegistrationInfo;
-#[cfg(feature = "parser")]
-pub use registry::RegistrationKind;
-#[cfg(feature = "parser")]
-pub use registry::collect_registrations;
 
 /// Extract validation rules from a Python registration module source.
 ///

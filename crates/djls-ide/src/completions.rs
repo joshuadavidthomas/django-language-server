@@ -757,13 +757,10 @@ fn generate_library_completions(
                 ClosingBrace::FullClose => {} // No closing needed
             }
 
-            let detail = tags
-                .libraries()
-                .get(load_name.as_str())
-                .map_or_else(
-                    || "Django template library".to_string(),
-                    |module| format!("Django template library ({module})"),
-                );
+            let detail = tags.libraries().get(load_name.as_str()).map_or_else(
+                || "Django template library".to_string(),
+                |module| format!("Django template library ({module})"),
+            );
 
             completions.push(ls_types::CompletionItem {
                 label: load_name.to_string(),
@@ -806,8 +803,7 @@ fn generate_filter_completions(
             } else if let Some(lib) = filter.library_load_name() {
                 // Check if the filter's library is fully loaded, or if the
                 // filter was selectively imported via {% load name from lib %}
-                symbols.is_library_loaded(lib)
-                    || symbols.is_symbol_imported(lib, filter.name())
+                symbols.is_library_loaded(lib) || symbols.is_symbol_imported(lib, filter.name())
             } else {
                 false
             };
@@ -1319,18 +1315,12 @@ mod tests {
         span: (u32, u32),
         kind: djls_semantic::LoadKind,
     ) -> djls_semantic::LoadStatement {
-        djls_semantic::LoadStatement::new(
-            djls_source::Span::new(span.0, span.1),
-            kind,
-        )
+        djls_semantic::LoadStatement::new(djls_source::Span::new(span.0, span.1), kind)
     }
 
     fn build_test_inventory() -> TemplateTags {
         let mut libraries = HashMap::new();
-        libraries.insert(
-            "i18n".to_string(),
-            "django.templatetags.i18n".to_string(),
-        );
+        libraries.insert("i18n".to_string(), "django.templatetags.i18n".to_string());
         libraries.insert(
             "static".to_string(),
             "django.templatetags.static".to_string(),
@@ -1566,14 +1556,12 @@ mod tests {
     // --- Filter completion tests ---
 
     fn build_test_filter_inventory() -> TemplateTags {
-        let tags = vec![
-            serde_json::json!({
-                "name": "if",
-                "provenance": {"builtin": {"module": "django.template.defaulttags"}},
-                "defining_module": "django.template.defaulttags",
-                "doc": null,
-            }),
-        ];
+        let tags = vec![serde_json::json!({
+            "name": "if",
+            "provenance": {"builtin": {"module": "django.template.defaulttags"}},
+            "defining_module": "django.template.defaulttags",
+            "doc": null,
+        })];
 
         let filters = vec![
             serde_json::json!({
@@ -1619,10 +1607,7 @@ mod tests {
             "humanize".to_string(),
             "django.contrib.humanize.templatetags.humanize".to_string(),
         );
-        libraries.insert(
-            "l10n".to_string(),
-            "django.templatetags.l10n".to_string(),
-        );
+        libraries.insert("l10n".to_string(), "django.templatetags.l10n".to_string());
 
         let builtins = vec![
             "django.template.defaulttags".to_string(),
@@ -1722,7 +1707,10 @@ mod tests {
 
         // The last unquoted pipe is at position 8, so partial is `default:"a|b"`
         // This is a valid filter context — cursor is after the pipe
-        assert!(matches!(context, Some(TemplateCompletionContext::Filter { .. })));
+        assert!(matches!(
+            context,
+            Some(TemplateCompletionContext::Filter { .. })
+        ));
     }
 
     #[test]
@@ -1841,7 +1829,10 @@ mod tests {
         let labels: Vec<&str> = completions.iter().map(|c| c.label.as_str()).collect();
         let mut sorted = labels.clone();
         sorted.sort_unstable();
-        assert_eq!(labels, sorted, "Filter completions should be alphabetically sorted");
+        assert_eq!(
+            labels, sorted,
+            "Filter completions should be alphabetically sorted"
+        );
     }
 
     #[test]

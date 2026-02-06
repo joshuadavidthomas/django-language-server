@@ -286,16 +286,12 @@ impl LanguageServer for DjangoLanguageServer {
                         let file = db.get_or_create_file(&path);
                         let nodelist = djls_templates::parse_template(db, file);
                         nodelist.map(|nl| {
-                            let loaded =
-                                djls_semantic::compute_loaded_libraries(db, nl);
+                            let loaded = djls_semantic::compute_loaded_libraries(db, nl);
                             let line_index = file.line_index(db);
                             let source_text = file.source(db);
                             let byte_offset = line_index.offset(
                                 source_text.as_str(),
-                                djls_source::LineCol::new(
-                                    position.line,
-                                    position.character,
-                                ),
+                                djls_source::LineCol::new(position.line, position.character),
                                 encoding,
                             );
                             djls_semantic::AvailableSymbols::at_position(

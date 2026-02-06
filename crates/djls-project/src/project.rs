@@ -47,11 +47,7 @@ pub struct Project {
 }
 
 impl Project {
-    pub fn bootstrap(
-        db: &dyn ProjectDb,
-        root: &Utf8Path,
-        settings: &Settings,
-    ) -> Project {
+    pub fn bootstrap(db: &dyn ProjectDb, root: &Utf8Path, settings: &Settings) -> Project {
         let interpreter = Interpreter::discover(settings.venv_path());
 
         let resolved_django_settings_module = settings

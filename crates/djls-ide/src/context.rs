@@ -1,8 +1,8 @@
 use djls_source::File;
 use djls_source::Offset;
 use djls_source::Span;
-use djls_templates::Filter;
 use djls_templates::parse_template;
+use djls_templates::Filter;
 use djls_templates::Node;
 
 #[allow(dead_code)]
@@ -131,11 +131,7 @@ mod tests {
             },
             OffsetContext::Variable {
                 name: "user".to_string(),
-                filters: vec![Filter::new(
-                    "title".to_string(),
-                    None,
-                    Span::new(0, 5),
-                )],
+                filters: vec![Filter::new("title".to_string(), None, Span::new(0, 5))],
                 span: Span::new(0, 10),
             },
             OffsetContext::Comment {

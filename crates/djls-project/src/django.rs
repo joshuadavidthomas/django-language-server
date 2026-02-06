@@ -13,13 +13,8 @@ use crate::Project;
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TagProvenance {
-    Library {
-        load_name: String,
-        module: String,
-    },
-    Builtin {
-        module: String,
-    },
+    Library { load_name: String, module: String },
+    Builtin { module: String },
 }
 
 #[derive(Serialize)]
@@ -359,10 +354,7 @@ mod tests {
         let tag: TemplateTag = serde_json::from_str(json).unwrap();
         assert_eq!(tag.name(), "block");
         assert_eq!(tag.defining_module(), "django.template.loader_tags");
-        assert_eq!(
-            tag.registration_module(),
-            "django.template.defaulttags"
-        );
+        assert_eq!(tag.registration_module(), "django.template.defaulttags");
         assert!(tag.is_builtin());
         assert_eq!(tag.library_load_name(), None);
         assert_eq!(tag.doc(), Some("Define a block"));
@@ -385,14 +377,15 @@ mod tests {
 
     #[test]
     fn test_template_tag_builtin_accessors() {
-        let tag = builtin_tag("if", "django.template.defaulttags", "django.template.defaulttags");
+        let tag = builtin_tag(
+            "if",
+            "django.template.defaulttags",
+            "django.template.defaulttags",
+        );
         assert_eq!(tag.name(), "if");
         assert!(tag.is_builtin());
         assert_eq!(tag.library_load_name(), None);
-        assert_eq!(
-            tag.registration_module(),
-            "django.template.defaulttags"
-        );
+        assert_eq!(tag.registration_module(), "django.template.defaulttags");
     }
 
     #[test]
@@ -406,7 +399,11 @@ mod tests {
 
         let tags = TemplateTags {
             tags: vec![
-                builtin_tag("if", "django.template.defaulttags", "django.template.defaulttags"),
+                builtin_tag(
+                    "if",
+                    "django.template.defaulttags",
+                    "django.template.defaulttags",
+                ),
                 library_tag(
                     "get_static_prefix",
                     "static",

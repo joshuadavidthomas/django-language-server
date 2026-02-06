@@ -248,15 +248,15 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ### Phase 4: Rule Extraction
 
-- [ ] Implement `RuleExtractor` that walks function body looking for `raise TemplateSyntaxError(...)` statements and extracts guard conditions
-- [ ] Extract token count checks: `if len(bits) < N`, `if len(bits) > N`, `if len(bits) != N`, `if len(bits) not in (...)` → `ArgumentCountConstraint`
-- [ ] Extract keyword position checks: `if bits[N] != "keyword"` → `RequiredKeyword { position, value }`
-- [ ] Extract option validation: while loops checking known option sets, duplicate detection → `KnownOptions { values, allow_duplicates }`
-- [ ] Handle `simple_tag`/`inclusion_tag` `takes_context` and `func` parameter analysis (from `parse_bits` signatures)
-- [ ] Use dynamically-detected split variable name (from Phase 3) for all comparisons — NOT hardcoded `bits`
-- [ ] Represent results as structured `TagRule { arg_constraints, required_keywords, known_options }`
-- [ ] Tests: len check patterns, keyword position patterns, option loops, simple_tag params, non-`bits` variable names, multiple raise statements in one function
-- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Implement `RuleExtractor` that walks function body looking for `raise TemplateSyntaxError(...)` statements and extracts guard conditions
+- [x] Extract token count checks: `if len(bits) < N`, `if len(bits) > N`, `if len(bits) != N`, `if len(bits) not in (...)` → `ArgumentCountConstraint`
+- [x] Extract keyword position checks: `if bits[N] != "keyword"` → `RequiredKeyword { position, value }`
+- [x] Extract option validation: while loops checking known option sets, duplicate detection → `KnownOptions { values, allow_duplicates }`
+- [x] Handle `simple_tag`/`inclusion_tag` `takes_context` and `func` parameter analysis (from `parse_bits` signatures)
+- [x] Use dynamically-detected split variable name (from Phase 3) for all comparisons — NOT hardcoded `bits`
+- [x] Represent results as structured `TagRule { arg_constraints, required_keywords, known_options }`
+- [x] Tests: len check patterns, keyword position patterns, option loops, simple_tag params, non-`bits` variable names, multiple raise statements in one function
+- [x] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 5: Block Spec Extraction (Control-Flow Based)
 
@@ -339,3 +339,4 @@ _Tasks to be expanded when M6 is complete._
 - **M3 Phase 2**: `Node::Tag.bits` does NOT include the tag name — the parser separates `name` and `bits`. So for `{% load i18n %}`, `name == "load"` and `bits == ["i18n"]`. Fixed `parse_load_bits` to accept argument-only bits (no "load" prefix).
 - **M4 Phase 2**: `Node::Variable.filters` changed from `Vec<String>` to `Vec<Filter>`. `split_variable_expression()` handles quote-aware pipe splitting. `parse_filter()` splits name from arg at first unquoted colon. Affected: `nodelist.rs`, `parser.rs`, `blocks/tree.rs` (NodeView), `context.rs` (OffsetContext), 4 snapshots. `blocks/builder.rs` unaffected (uses `..` wildcard).
 - **M5 Phase 1**: Ruff 0.15.0 (SHA `0dfa810e9aad9a465596768b0211c31dd41d3e73`) used for `ruff_python_parser` and `ruff_python_ast`. API: `ruff_python_parser::parse_module(source)` returns `Result<Parsed<ModModule>, ParseError>`. Use `.into_syntax()` on parsed result to get the `ModModule` AST. Feature gate `parser` keeps ruff deps optional for types-only consumers.
+- **M5 Phase 4**: Ruff's `Parameters` struct does NOT have a `defaults` field like Python's `ast.arguments`. Instead, defaults are per-parameter: `ParameterWithDefault { parameter, default: Option<Box<Expr>> }`. Also `StmtWhile.test` is `Box<Expr>` so dereference with `&*while_stmt.test` when pattern matching. `extract_tag_rule()` dispatches to `extract_compile_function_rule()` for `@register.tag` (uses split_contents guards) vs `extract_parse_bits_rule()` for `@register.simple_tag` / `@register.inclusion_tag` (uses function signature analysis).

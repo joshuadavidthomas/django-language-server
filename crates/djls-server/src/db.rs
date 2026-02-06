@@ -9,7 +9,6 @@ use std::sync::Mutex;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
-use salsa::Setter;
 use djls_conf::Settings;
 use djls_project::template_dirs;
 use djls_project::Db as ProjectDb;
@@ -28,6 +27,7 @@ use djls_source::FxDashMap;
 use djls_templates::Db as TemplateDb;
 use djls_workspace::Db as WorkspaceDb;
 use djls_workspace::FileSystem;
+use salsa::Setter;
 
 /// Compute `TagSpecs` from a project's config document and inspector inventory.
 ///
@@ -236,16 +236,16 @@ impl DjangoDatabase {
         let dsm = project.django_settings_module(self).clone();
         let pythonpath = project.pythonpath(self).clone();
 
-        let new_inventory = match self.inspector.query::<TemplatetagsRequest, TemplatetagsResponse>(
-            &interpreter,
-            &root,
-            dsm.as_deref(),
-            &pythonpath,
-            &TemplatetagsRequest,
-        ) {
-            Ok(response) if response.ok => {
-                response.data.map(TemplateTags::from_response)
-            }
+        let new_inventory = match self
+            .inspector
+            .query::<TemplatetagsRequest, TemplatetagsResponse>(
+                &interpreter,
+                &root,
+                dsm.as_deref(),
+                &pythonpath,
+                &TemplatetagsRequest,
+            ) {
+            Ok(response) if response.ok => response.data.map(TemplateTags::from_response),
             Ok(response) => {
                 tracing::warn!(
                     "refresh_inspector: inspector returned ok=false, error={:?}",
@@ -260,9 +260,7 @@ impl DjangoDatabase {
         };
 
         if project.inspector_inventory(self) != &new_inventory {
-            project
-                .set_inspector_inventory(self)
-                .to(new_inventory);
+            project.set_inspector_inventory(self).to(new_inventory);
         }
     }
 
@@ -498,10 +496,13 @@ mod invalidation_tests {
 
         // Update inspector_inventory on the project
         let project = db.project.lock().unwrap().unwrap();
-        let new_inventory = Some(TemplateTags::new(vec![], vec![], HashMap::default(), vec![]));
-        project
-            .set_inspector_inventory(&mut db)
-            .to(new_inventory);
+        let new_inventory = Some(TemplateTags::new(
+            vec![],
+            vec![],
+            HashMap::default(),
+            vec![],
+        ));
+        project.set_inspector_inventory(&mut db).to(new_inventory);
 
         // Access again — should re-execute
         let _specs = db.tag_specs();
@@ -601,7 +602,10 @@ mod invalidation_tests {
         // Call update_project_from_settings with default settings (same as project was created with)
         let settings = Settings::default();
         let env_changed = db.update_project_from_settings(&settings);
-        assert!(!env_changed, "env should not have changed with default settings");
+        assert!(
+            !env_changed,
+            "env should not have changed with default settings"
+        );
 
         // Access tag_specs — should still be cached
         let _specs = db.tag_specs();
