@@ -427,9 +427,9 @@
 
 ### Phase 2: Update Diagnostic Codes Documentation
 
-- [ ] Add tip admonition with link to template-validation.md in `docs/configuration/index.md` (after opening paragraph, before "## Options")
-- [ ] Replace the "Available diagnostic codes" section in `docs/configuration/index.md` with expanded table format covering T-series (T100, T900, T901) and all S-series (S100-S116) grouped by category: Block Structure (S100-S107), Tag Scoping (S108-S110), Filter Scoping (S111-S113), Expression & Filter Arity (S114-S116) — each with Code, Error, Description, Typical Fix, and Suppression columns where appropriate
-- [ ] Verify documentation builds without errors
+- [x] Add tip admonition with link to template-validation.md in `docs/configuration/index.md` (after opening paragraph, before "## Options")
+- [x] Replace the "Available diagnostic codes" section in `docs/configuration/index.md` with expanded table format covering T-series (T100, T900, T901) and all S-series (S100-S116) grouped by category: Block Structure (S100-S107), Tag Scoping (S108-S110), Filter Scoping (S111-S113), Expression & Filter Arity (S114-S116) — each with Code, Error, Description, Typical Fix, and Suppression columns where appropriate
+- [x] Verify documentation builds without errors
 
 ### Phase 3: Create GitHub Issue Template Directory
 

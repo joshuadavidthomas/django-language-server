@@ -4,6 +4,10 @@ Django Language Server auto-detects your project configuration in most cases. It
 
 **Most users don't need any configuration.** The settings below are for edge cases like non-standard virtual environment locations, editors that don't pass environment variables, or custom template tag definitions.
 
+!!! tip "Understanding Template Validation"
+
+    For details on how djls validates templates, what it can and cannot detect, and how inspector availability affects diagnostics, see [Template Validation](../template-validation.md).
+
 ## Options
 
 ### `django_settings_module`
@@ -74,19 +78,65 @@ Map diagnostic codes or prefixes to severity levels. Supports:
 #### Available diagnostic codes
 
 **Template Errors (T-series):**
-- `T100` - Parser errors (syntax issues in templates)
-- `T900` - IO errors (file read/write issues)
-- `T901` - Configuration errors (invalid tagspecs)
+
+| Code | Error | Description |
+|------|-------|-------------|
+| `T100` | Parser error | Syntax issues in templates (unclosed tags, malformed expressions) |
+| `T900` | IO error | File read/write issues |
+| `T901` | Configuration error | Invalid tagspecs or configuration |
 
 **Semantic Validation Errors (S-series):**
-- `S100` - Unclosed tag (missing end tag)
-- `S101` - Unbalanced structure (mismatched block tags)
-- `S102` - Orphaned tag (intermediate tag without parent)
-- `S103` - Unmatched block name (e.g., `{% endblock foo %}` doesn't match `{% block bar %}`)
-- `S104` - Missing required arguments
-- `S105` - Too many arguments
-- `S106` - Invalid literal argument
-- `S107` - Invalid argument choice
+
+Semantic errors are grouped by validation category. Some errors depend on [inspector availability](../template-validation.md#inspector-availability) and may be suppressed when the inspector cannot query your Django project.
+
+##### Block Structure (S100-S107)
+
+These errors detect structural issues in template block tags.
+
+| Code | Error | Description | Typical Fix |
+|------|-------|-------------|-------------|
+| `S100` | Unclosed tag | Block tag missing its end tag | Add `{% endif %}`, `{% endfor %}`, etc. |
+| `S101` | Unbalanced structure | Mismatched block tags | Fix tag nesting order |
+| `S102` | Orphaned tag | Intermediate tag without parent block | Move `{% else %}` inside `{% if %}` block |
+| `S103` | Unmatched block name | End tag name doesn't match opening | Fix `{% endblock name %}` to match `{% block name %}` |
+| `S104` | Missing required arguments | Tag requires arguments not provided | Add required arguments per tag documentation |
+| `S105` | Too many arguments | Tag given more arguments than expected | Remove extra arguments |
+| `S106` | Invalid literal argument | Argument value not recognized | Use valid literal value |
+| `S107` | Invalid argument choice | Argument not in allowed choices | Use one of the allowed values |
+
+##### Tag Scoping (S108-S110)
+
+These errors validate `{% load %}` requirements for template tags. They depend on inspector availability.
+
+| Code | Error | Description | Typical Fix | Suppression |
+|------|-------|-------------|-------------|-------------|
+| `S108` | Unknown tag | Tag not in Django's registry | Check spelling, install library, or define [TagSpec](tagspecs.md) | Suppressed when inspector unavailable |
+| `S109` | Unloaded library tag | Tag requires `{% load %}` | Add `{% load library_name %}` before usage | Suppressed when inspector unavailable |
+| `S110` | Ambiguous unloaded tag | Tag exists in multiple libraries | Load one of the listed libraries | Suppressed when inspector unavailable |
+
+##### Filter Scoping (S111-S113)
+
+These errors validate `{% load %}` requirements for template filters. They depend on inspector availability.
+
+| Code | Error | Description | Typical Fix | Suppression |
+|------|-------|-------------|-------------|-------------|
+| `S111` | Unknown filter | Filter not in Django's registry | Check spelling, install library | Suppressed when inspector unavailable |
+| `S112` | Unloaded library filter | Filter requires `{% load %}` | Add `{% load library_name %}` before usage | Suppressed when inspector unavailable |
+| `S113` | Ambiguous unloaded filter | Filter exists in multiple libraries | Load one of the listed libraries | Suppressed when inspector unavailable |
+
+##### Expression & Filter Arity (S114-S116)
+
+These errors validate expression syntax and filter argument requirements.
+
+| Code | Error | Description | Typical Fix | Suppression |
+|------|-------|-------------|-------------|-------------|
+| `S114` | Expression syntax error | Invalid `{% if %}` expression | Fix operator/operand syntax | Never suppressed |
+| `S115` | Filter missing argument | Filter requires an argument | Add argument: `{{ x\|filter:arg }}` | Suppressed when inspector unavailable or arity unknown |
+| `S116` | Filter unexpected argument | Filter doesn't accept arguments | Remove argument: `{{ x\|filter }}` | Suppressed when inspector unavailable or arity unknown |
+
+!!! note "Filter Arity Extraction"
+
+    S115 and S116 depend on djls extracting filter arity (argument requirements) from Python source. If extraction fails or the filter's signature is ambiguous, these diagnostics are skipped rather than guessing. This is expected behavior, not a bug.
 
 #### Examples
 
