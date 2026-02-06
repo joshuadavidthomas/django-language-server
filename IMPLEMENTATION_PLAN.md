@@ -494,11 +494,11 @@
 
 ### Phase 4: Wire Extracted Args into Completions/Snippets
 
-- [ ] Add `TagSpec::populate_args_from_extraction()` method in `crates/djls-semantic/src/templatetags/specs.rs`
-- [ ] Implement `ExtractedArg` → `TagArg` conversion
-- [ ] Call `populate_args_from_extraction` in `merge_extraction_into_specs` in `crates/djls-server/src/db.rs`
-- [ ] Verify completion/snippet tests still pass with extraction-derived args
-- [ ] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Add `TagSpec::populate_args_from_extraction()` method in `crates/djls-semantic/src/templatetags/specs.rs`
+- [x] Implement `ExtractedArg` → `TagArg` conversion
+- [x] Call `populate_args_from_extraction` in `merge_extraction_into_specs` in `crates/djls-server/src/db.rs`
+- [x] Verify completion/snippet tests still pass with extraction-derived args
+- [x] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 5: Clean Up Dead Code
 

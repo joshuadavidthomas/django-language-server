@@ -313,6 +313,25 @@ impl TagSpec {
         }
     }
 
+    /// Populate `args` from extracted argument structure.
+    ///
+    /// Called during `compute_tag_specs` to provide completions/snippets data
+    /// derived from Python AST instead of hand-crafted specifications.
+    /// Only populates if `args` is currently empty (don't override user config).
+    pub fn populate_args_from_extraction(
+        &mut self,
+        extracted_args: &[djls_extraction::ExtractedArg],
+    ) {
+        if extracted_args.is_empty() || !self.args.is_empty() {
+            return;
+        }
+        self.args = extracted_args
+            .iter()
+            .map(extracted_arg_to_tag_arg)
+            .collect::<Vec<_>>()
+            .into();
+    }
+
     /// Create a `TagSpec` from extraction results.
     #[must_use]
     pub fn from_extraction(module_path: &str, tag: &djls_extraction::ExtractedTag) -> Self {
@@ -329,8 +348,44 @@ impl TagSpec {
         if let Some(ref block_spec) = tag.block_spec {
             spec.merge_block_spec(block_spec);
         }
+        spec.populate_args_from_extraction(&tag.extracted_args);
 
         spec
+    }
+}
+
+/// Convert an `ExtractedArg` to a `TagArg` for completions/snippets.
+#[must_use]
+fn extracted_arg_to_tag_arg(ea: &djls_extraction::ExtractedArg) -> TagArg {
+    match &ea.kind {
+        djls_extraction::ExtractedArgKind::Literal { value } => TagArg::Literal {
+            lit: value.clone().into(),
+            required: ea.required,
+            kind: LiteralKind::Syntax,
+        },
+        djls_extraction::ExtractedArgKind::Choice { values } => TagArg::Choice {
+            name: ea.name.clone().into(),
+            required: ea.required,
+            choices: values
+                .iter()
+                .map(|v| Cow::Owned(v.clone()))
+                .collect::<Vec<_>>()
+                .into(),
+        },
+        djls_extraction::ExtractedArgKind::Variable => TagArg::Variable {
+            name: ea.name.clone().into(),
+            required: ea.required,
+            count: TokenCount::Exact(1),
+        },
+        djls_extraction::ExtractedArgKind::VarArgs => TagArg::VarArgs {
+            name: ea.name.clone().into(),
+            required: ea.required,
+        },
+        djls_extraction::ExtractedArgKind::KeywordArgs => TagArg::Assignment {
+            name: ea.name.clone().into(),
+            required: ea.required,
+            count: TokenCount::Greedy,
+        },
     }
 }
 
