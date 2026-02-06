@@ -7,8 +7,8 @@ use crate::db::Db as ProjectDb;
 use crate::django_available;
 use crate::template_dirs;
 use crate::templatetags;
+use crate::InspectorInventory;
 use crate::Interpreter;
-use crate::TemplateTags;
 
 /// Complete project configuration as a Salsa input.
 ///
@@ -35,12 +35,13 @@ pub struct Project {
     /// Additional Python import paths (PYTHONPATH entries)
     #[returns(ref)]
     pub pythonpath: Vec<String>,
-    /// Runtime inventory from Python inspector (M1 payload shape).
-    /// Contains: libraries mapping, ordered builtins, tag inventory with provenance.
+    /// Runtime inventory from Python inspector (M4+ unified payload).
+    /// Contains: libraries mapping, ordered builtins, tag inventory with provenance,
+    /// filter inventory with provenance.
     /// None if inspector hasn't been queried yet or failed.
     /// Updated via `DjangoDatabase::refresh_inspector()`.
     #[returns(ref)]
-    pub inspector_inventory: Option<TemplateTags>,
+    pub inspector_inventory: Option<InspectorInventory>,
     /// Tag specifications config document.
     /// This is the raw config (TagSpecDef), NOT the derived TagSpecs.
     /// compute_tag_specs() converts this to TagSpecs and merges with builtins.

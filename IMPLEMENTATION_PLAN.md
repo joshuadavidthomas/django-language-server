@@ -427,29 +427,43 @@ Update `{% load %}` completions to show available libraries and handle completio
 
 ### Phase 1: Inspector Filter Inventory (via Project Field)
 
-**Status:** 🔲 Not Started
+**Status:** ✅ Complete
 
 Add filter collection to the Python inspector and store it on `Project` alongside the tag inventory using the unified `template_inventory` query pattern.
 
 **Changes:**
-- Add `TemplateFilter` dataclass to Python inspector with `name`, `provenance`, `defining_module`, `doc` fields
-- Add `TemplateInventoryQueryData` for unified tags + filters response
-- Add `get_template_inventory()` function that returns tags + filters + registry in one query
-- Add `FilterProvenance` enum in Rust (Library/Builtin variants)
-- Add `TemplateFilter` struct with accessors matching `TemplateTag` pattern
-- Create `InspectorInventory` unified type (tags + filters + libraries + builtins)
-- Update `Project` field from `Option<TemplateTags>` to `Option<InspectorInventory>`
-- Add `TemplateInventoryRequest`/`Response` types
-- Update `refresh_inspector()` to use single unified query (one IPC round trip)
-- Update downstream consumers to use unified inventory
+- Added `TemplateFilter` dataclass to Python inspector with `name`, `provenance`, `defining_module`, `doc` fields
+- Added `TEMPLATE_INVENTORY` query to `Query` enum in Python
+- Added `TemplateInventoryQueryData` for unified tags + filters response
+- Added `get_template_inventory()` function that returns tags + filters + registry in one query (collects both `library.tags` AND `library.filters`)
+- Added `FilterProvenance` enum in Rust with `Library { load_name, module }` and `Builtin { module }` variants
+- Added `TemplateFilter` struct with accessors matching `TemplateTag` pattern: `name()`, `provenance()`, `defining_module()`, `doc()`, `library_load_name()`, `is_builtin()`, `registration_module()`
+- Added `TemplateFilter::new_library()` and `TemplateFilter::new_builtin()` constructors for testing
+- Created `InspectorInventory` unified type (tags + filters + libraries + builtins) with `#[must_use]` on `new()`
+- Updated `Project` field from `Option<TemplateTags>` to `Option<InspectorInventory>`
+- Added `TemplateInventoryRequest`/`Response` types with `InspectorRequest` impl
+- Exported new types in `djls-project/src/lib.rs`: `query`, `FilterProvenance`, `TemplateFilter`, `InspectorInventory`, `TemplateInventoryRequest`, `TemplateInventoryResponse`
+- Updated `refresh_inspector()` in `db.rs` to use single unified query (`query(self, &TemplateInventoryRequest)`) instead of tracked `templatetags()` function
+- Updated `SemanticDb::inspector_inventory()` signature from `Option<TemplateTags>` to `Option<&InspectorInventory>`
+- Updated all test databases (djls-semantic, djls-bench, djls-server) to use new signature
+- Updated `djls-ide` completions to use `InspectorInventory` instead of `TemplateTags`
+- Updated `server.rs` to use `db.inspector_inventory()` directly instead of calling `templatetags()` tracked function
 
 **Quality Checks:**
-- [ ] `cargo build -p djls-project` passes
-- [ ] `cargo clippy -p djls-project --all-targets -- -D warnings` passes
-- [ ] `cargo test -p djls-project` passes
-- [ ] Manual: `template_inventory` query returns both tags AND filters
-- [ ] Manual: Builtin filters have `Builtin` provenance
-- [ ] Manual: Library filters have `Library { load_name, ... }` provenance
+- [x] `cargo build -p djls-project` passes
+- [x] `cargo clippy -p djls-project --all-targets -- -D warnings` passes
+- [x] `cargo test -p djls-project` passes (29 tests)
+- [x] `cargo build` (full build) passes
+- [x] `cargo clippy --all-targets --all-features -- -D warnings` passes
+- [x] `cargo test` (all tests) passes (269 tests)
+
+**Discoveries:**
+- The unified `template_inventory` query replaces the legacy `templatetags` query for M4+ - one IPC round trip returns everything needed for tag/filter validation
+- `InspectorInventory` is a single snapshot type that prevents split-brain between tag and filter data
+- The `query` function from `inspector` module needed to be exported in `lib.rs` for use in `refresh_inspector()`
+- `TemplateTag::name()` returns `&str` (not `&String`), so test code needs `.to_string()` instead of `.clone()`
+- All downstream consumers (completions, validation) need to use `inventory.tags()` instead of `inventory.iter()`
+- The `available_tags_at()` and `build_tag_inventory()` functions in `load_resolution.rs` were updated to take `&InspectorInventory` instead of `&TemplateTags`
 
 ### Phase 2: Structured Filter Representation (BREAKPOINT)
 

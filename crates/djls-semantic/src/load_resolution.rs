@@ -5,8 +5,8 @@
 
 use crate::errors::ValidationError;
 use crate::ValidationErrorAccumulator;
+use djls_project::InspectorInventory;
 use djls_project::TagProvenance;
-use djls_project::TemplateTags;
 use djls_source::Span;
 use djls_templates::tokens::TagDelimiter;
 use djls_templates::Node;
@@ -278,7 +278,7 @@ impl LoadState {
 ///
 /// # Arguments
 /// * `loaded` - The `LoadedLibraries` computed from the template
-/// * `inventory` - The `TemplateTags` from inspector (M1 shape)
+/// * `inventory` - The `InspectorInventory` from inspector (M4+ unified shape)
 /// * `position` - The byte offset to check availability at
 ///
 /// # Returns
@@ -286,7 +286,7 @@ impl LoadState {
 #[must_use]
 pub fn available_tags_at(
     loaded: &LoadedLibraries,
-    inventory: &TemplateTags,
+    inventory: &InspectorInventory,
     position: u32,
 ) -> AvailableSymbols {
     let mut available = AvailableSymbols::default();
@@ -302,15 +302,15 @@ pub fn available_tags_at(
     }
 
     // Determine available tags
-    for tag in inventory.iter() {
+    for tag in inventory.tags() {
         match tag.provenance() {
             TagProvenance::Builtin { .. } => {
                 // Builtins are always available
-                available.tags.insert(tag.name().clone());
+                available.tags.insert(tag.name().to_string());
             }
             TagProvenance::Library { load_name, .. } => {
                 if state.is_tag_available(tag.name(), load_name) {
-                    available.tags.insert(tag.name().clone());
+                    available.tags.insert(tag.name().to_string());
                 }
             }
         }
@@ -336,11 +336,11 @@ enum TagInventoryEntry {
 /// **IMPORTANT**: This handles the case where multiple libraries define the
 /// same tag name by collecting ALL candidate libraries, not just the first one.
 /// This is essential for correct error messages.
-fn build_tag_inventory(inventory: &TemplateTags) -> FxHashMap<String, TagInventoryEntry> {
+fn build_tag_inventory(inventory: &InspectorInventory) -> FxHashMap<String, TagInventoryEntry> {
     let mut result: FxHashMap<String, TagInventoryEntry> = FxHashMap::default();
 
-    for tag in inventory.iter() {
-        let name = tag.name().clone();
+    for tag in inventory.tags() {
+        let name = tag.name().to_string();
         match tag.provenance() {
             TagProvenance::Builtin { .. } => {
                 // Builtin takes precedence (always available)
@@ -402,7 +402,7 @@ pub fn validate_tag_scoping(
     let loaded = compute_loaded_libraries(db, nodelist);
 
     // Build lookup with collision handling
-    let tag_inventory = build_tag_inventory(&inventory);
+    let tag_inventory = build_tag_inventory(inventory);
 
     // Validate each tag
     for node in nodelist.nodelist(db) {
@@ -438,7 +438,7 @@ pub fn validate_tag_scoping(
                 }
                 Some(TagInventoryEntry::Libraries(candidate_libs)) => {
                     // Check if tag is available at this position
-                    let available = available_tags_at(&loaded, &inventory, span.start());
+                    let available = available_tags_at(&loaded, inventory, span.start());
 
                     if !available.has_tag(name) {
                         // Tag not available - emit appropriate error
@@ -596,8 +596,8 @@ mod tests {
     mod availability_tests {
         use super::*;
 
-        fn make_test_inventory() -> TemplateTags {
-            TemplateTags::new(
+        fn make_test_inventory() -> InspectorInventory {
+            InspectorInventory::new(
                 std::collections::HashMap::from([
                     ("i18n".to_string(), "django.templatetags.i18n".to_string()),
                     ("static".to_string(), "django.templatetags.static".to_string()),
@@ -630,6 +630,7 @@ mod tests {
                         None,
                     ),
                 ],
+                vec![], // no filters
             )
         }
 

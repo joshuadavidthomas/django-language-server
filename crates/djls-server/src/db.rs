@@ -10,12 +10,14 @@ use std::sync::Mutex;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_conf::Settings;
+use djls_project::query;
 use djls_project::template_dirs;
 use djls_project::Db as ProjectDb;
 use djls_project::Inspector;
+use djls_project::InspectorInventory;
 use djls_project::Interpreter;
 use djls_project::Project;
-use djls_project::TemplateTags;
+use djls_project::TemplateInventoryRequest;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::TagIndex;
 use djls_semantic::TagSpecs;
@@ -348,8 +350,9 @@ impl DjangoDatabase {
 
     /// Refresh the inspector inventory by querying Python.
     ///
-    /// This method:
-    /// 1. Queries the Python inspector via the tracked `templatetags` function
+    /// This method (per M2/M4 architecture):
+    /// 1. Queries Python ONCE via `inspector::query()` with `TemplateInventoryRequest`
+    ///    (Single round trip - returns tags + filters + libraries + builtins)
     /// 2. Compares new inventory with current
     /// 3. Updates `Project.inspector_inventory` ONLY if changed
     ///
@@ -358,15 +361,14 @@ impl DjangoDatabase {
     /// - Python environment changes (venv, PYTHONPATH)
     /// - User explicitly requests refresh (e.g., after pip install)
     pub fn refresh_inspector(&mut self) {
-        use djls_project::templatetags;
-
         let Some(project) = self.project() else {
             tracing::warn!("Cannot refresh inspector: no project set");
             return;
         };
 
-        // Query templatetags through the tracked function
-        let new_inventory = templatetags(self, project);
+        // Single query returning unified inventory (tags + filters)
+        let new_inventory = query(self, &TemplateInventoryRequest)
+            .map(InspectorInventory::from_response);
 
         // Compare before setting (Ruff/RA style)
         let current = project.inspector_inventory(self);
@@ -374,9 +376,11 @@ impl DjangoDatabase {
             tracing::trace!("Inspector inventory unchanged, skipping update");
         } else {
             tracing::debug!(
-                "Inspector inventory changed: {} -> {} tags",
-                current.as_ref().map_or(0, TemplateTags::len),
-                new_inventory.as_ref().map_or(0, TemplateTags::len)
+                "Inspector inventory changed: {} tags, {} filters -> {} tags, {} filters",
+                current.as_ref().map_or(0, InspectorInventory::tag_count),
+                current.as_ref().map_or(0, InspectorInventory::filter_count),
+                new_inventory.as_ref().map_or(0, InspectorInventory::tag_count),
+                new_inventory.as_ref().map_or(0, InspectorInventory::filter_count)
             );
             project.set_inspector_inventory(self).to(new_inventory);
         }
@@ -448,9 +452,9 @@ impl SemanticDb for DjangoDatabase {
         }
     }
 
-    fn inspector_inventory(&self) -> Option<TemplateTags> {
+    fn inspector_inventory(&self) -> Option<&InspectorInventory> {
         self.project()
-            .and_then(|project| project.inspector_inventory(self).clone())
+            .and_then(|project| project.inspector_inventory(self).as_ref())
     }
 }
 
@@ -469,7 +473,6 @@ impl ProjectDb for DjangoDatabase {
 mod invalidation_tests {
     use super::*;
     use super::test_infrastructure::*;
-    use djls_project::TemplateTags;
     use std::collections::HashMap;
 
     #[test]
@@ -527,6 +530,8 @@ mod invalidation_tests {
 
     #[test]
     fn test_inspector_inventory_change_invalidates() {
+        use djls_project::InspectorInventory;
+
         let mut test = TestDatabase::with_project();
 
         // First access
@@ -535,10 +540,11 @@ mod invalidation_tests {
 
         // Update inspector inventory
         let project = test.db.project().expect("test project exists");
-        let new_inventory = TemplateTags::from_response(
+        let new_inventory = InspectorInventory::new(
             HashMap::new(),
             vec!["django.template.defaulttags".to_string()],
-            vec![],
+            vec![], // no tags
+            vec![], // no filters
         );
         project.set_inspector_inventory(&mut test.db).to(Some(new_inventory));
 

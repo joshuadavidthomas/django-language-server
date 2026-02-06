@@ -1,6 +1,6 @@
 use camino::Utf8PathBuf;
 use djls_conf::DiagnosticsConfig;
-use djls_project::TemplateTags;
+use djls_project::InspectorInventory;
 use djls_templates::Db as TemplateDb;
 
 use crate::blocks::TagIndex;
@@ -21,7 +21,7 @@ pub trait Db: TemplateDb {
 
     /// Get the inspector inventory for load scoping validation.
     /// Returns None if inspector is unavailable.
-    fn inspector_inventory(&self) -> Option<TemplateTags>;
+    fn inspector_inventory(&self) -> Option<&InspectorInventory>;
 }
 
 #[salsa::accumulator]
