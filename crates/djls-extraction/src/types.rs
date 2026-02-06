@@ -60,6 +60,38 @@ pub struct ExtractedTag {
     pub rules: Vec<ExtractedRule>,
     /// Block structure (end tag, intermediates) if any
     pub block_spec: Option<BlockTagSpec>,
+    /// Extracted argument structure for completions/snippets
+    pub extracted_args: Vec<ExtractedArg>,
+}
+
+/// Extracted argument specification for a template tag.
+///
+/// Derived from Python AST — either directly from function parameters
+/// (`simple_tag`/`inclusion_tag`) or reconstructed from `ExtractedRule`
+/// conditions and AST patterns (manual `@register.tag`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ExtractedArg {
+    /// Argument name (from parameter name or reconstructed)
+    pub name: String,
+    /// Kind of argument
+    pub kind: ExtractedArgKind,
+    /// Whether this argument is required
+    pub required: bool,
+}
+
+/// Kind of extracted argument.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum ExtractedArgKind {
+    /// Fixed literal keyword (e.g., "in", "as")
+    Literal { value: String },
+    /// Choice from specific values (e.g., "on"/"off")
+    Choice { values: Vec<String> },
+    /// Positional variable/expression
+    Variable,
+    /// Variable number of positional arguments
+    VarArgs,
+    /// Keyword arguments (**kwargs)
+    KeywordArgs,
 }
 
 /// Kind of tag registration decorator.

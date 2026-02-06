@@ -912,18 +912,54 @@ This milestone closes the gap identified in the M6 post-mortem: extraction rules
 
 ### Phase 1: Argument Structure Extraction in `djls-extraction`
 
-**Status:** 🔲 Not Started
+**Status:** ✅ Complete
 
 Add `ExtractedArg` types and extract argument structure from Python AST. For `simple_tag`/`inclusion_tag`/`simple_block_tag`, derive from function signature. For manual `@register.tag`, reconstruct from `ExtractedRule` conditions + AST analysis.
 
-**Tasks:**
-- [ ] Add `ExtractedArg` and `ExtractedArgKind` types to `types.rs`
-- [ ] Add `extracted_args` field to `ExtractedTag`
-- [ ] Create `args.rs` module with `extract_args_from_signature()` for simple/inclusion/block tags
-- [ ] Implement `reconstruct_args_from_rules_and_ast()` for manual tags
-- [ ] Wire into `extract_rules()` orchestration in `lib.rs`
-- [ ] Update golden tests to include `extracted_args`
-- [ ] Quality checks pass
+**Changes:**
+- Added `ExtractedArg` and `ExtractedArgKind` types to `types.rs`:
+  - `ExtractedArg` with `name`, `kind`, and `required` fields
+  - `ExtractedArgKind` enum with `Literal`, `Choice`, `Variable`, `VarArgs`, `KeywordArgs` variants
+- Added `extracted_args: Vec<ExtractedArg>` field to `ExtractedTag`
+- Created `args.rs` module with argument extraction logic:
+  - `extract_args()` - main entry point that dispatches based on decorator kind
+  - `extract_args_from_signature()` for `simple_tag`/`inclusion_tag`/`simple_block_tag`
+    - Handles `takes_context=True` by skipping first "context" parameter
+    - For `simple_block_tag`, always skips context and nodelist parameters
+    - Maps function parameters to `ExtractedArg` with correct `required` status based on defaults
+    - Handles `*args` → `VarArgs` and `**kwargs` → `KeywordArgs`
+    - Appends optional `as varname` for `simple_tag`/`inclusion_tag` (Django feature)
+  - `reconstruct_args_from_rules_and_ast()` for manual `@register.tag`
+    - Determines arg count from rules (`ExactArgCount`, `MinArgCount`, `MaxArgCount`, `LiteralAt`, `ChoiceAt`)
+    - Fills known positions from `LiteralAt` and `ChoiceAt` rules
+    - Attempts to fill variable names from AST patterns (tuple unpacking, indexed access)
+    - Falls back to generic names (`arg1`, `arg2`, etc.) for unknown positions
+    - Determines required/optional from `MinArgCount` rules
+- Wired into `extract_rules()` orchestration in `lib.rs`
+- Added 9 comprehensive unit tests covering:
+  - `simple_tag` signature extraction with required and optional params
+  - `simple_tag` with `takes_context=True` (skips context param)
+  - `inclusion_tag` signature extraction
+  - `simple_block_tag` skipping nodelist (no args case)
+  - `simple_block_tag` with intermediate params
+  - Manual tag reconstruction from rules (`for` tag pattern)
+  - Manual tag with `ChoiceAt` rules (`autoescape` tag pattern)
+  - `*args` and `**kwargs` handling
+
+**Quality Checks:**
+- [x] `cargo build -p djls-extraction` passes
+- [x] `cargo clippy -p djls-extraction --all-targets -- -D warnings` passes
+- [x] `cargo test -p djls-extraction args` passes (9 new tests)
+- [x] `cargo test -p djls-extraction` passes (54 tests total)
+- [x] `cargo build` (full build) passes
+- [x] `cargo test` (all tests) passes
+- [x] `cargo clippy --all-targets --all-features -- -D warnings` passes
+
+**Discoveries:**
+- `simple_block_tag` always receives `context` and `nodelist` parameters from Django, regardless of explicit `takes_context` setting
+- For `simple_block_tag`, the last parameter is always `nodelist` and should be excluded from template-facing args
+- Ruff AST uses `Number::Int` enum variant for integers, requiring pattern match before calling `as_u64()`
+- Boxed expressions in AST (like `sub.value` and `sub.slice`) require `.as_ref()` to match against
 
 ### Phase 2: Build Extracted Rule Evaluator in `djls-semantic`
 
