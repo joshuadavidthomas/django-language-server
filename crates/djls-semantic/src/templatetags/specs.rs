@@ -320,13 +320,29 @@ impl From<&djls_conf::Settings> for TagSpecs {
     }
 }
 
+/// Specification for a Django template tag's structure and validation rules.
+///
+/// Argument validation is primarily handled by `extracted_rules` (derived from
+/// Python AST extraction). The `args` field is used for completions/snippets
+/// and as a fallback validation path for user-configured specs in `djls.toml`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TagSpec {
     pub module: S,
     pub end_tag: Option<EndTag>,
     pub intermediate_tags: L<IntermediateTag>,
+    /// Argument definitions used for completions/snippets and user-config validation.
+    ///
+    /// For builtin tags, populated from extraction-derived `ExtractedArg` values.
+    /// For user-configured tags (via `djls.toml`), populated from `TagArgDef` config.
+    /// When `extracted_rules` is `Some`, argument *validation* uses those rules
+    /// instead — `args` is only used by the completion/snippet system.
     pub args: L<TagArg>,
     pub opaque: bool,
+    /// Extraction-derived validation rules from Python AST analysis.
+    ///
+    /// When present, these are the primary validation path for argument checking
+    /// (S117 diagnostics). When absent, falls back to `args`-based validation
+    /// only if `args` is non-empty (user-config escape hatch).
     pub extracted_rules: Option<djls_extraction::TagRule>,
 }
 
@@ -641,10 +657,13 @@ impl From<djls_extraction::ExtractedArg> for TagArg {
     }
 }
 
+/// Specification for a closing tag (e.g., `{% endfor %}`, `{% endblock %}`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct EndTag {
     pub name: S,
     pub required: bool,
+    /// Argument definitions for completions/snippets only (user-config escape hatch).
+    /// Builtin closing tags have empty args — extraction handles validation via the opener's rules.
     pub args: L<TagArg>,
 }
 
@@ -663,9 +682,12 @@ impl From<djls_conf::EndTagDef> for EndTag {
     }
 }
 
+/// Specification for an intermediate tag (e.g., `{% else %}`, `{% elif %}`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct IntermediateTag {
     pub name: S,
+    /// Argument definitions for completions/snippets only (user-config escape hatch).
+    /// Builtin intermediate tags have empty args — extraction handles validation via the opener's rules.
     pub args: L<TagArg>,
 }
 

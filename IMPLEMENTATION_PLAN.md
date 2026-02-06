@@ -466,13 +466,13 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ### Phase 5: Clean Up Dead Code
 
-- [ ] Remove `TagArgSliceExt` trait if only used by deleted `validate_argument_order` internals
-- [ ] Update doc comments on `TagSpec.args` to reflect new role (completions/snippets only, not validation — validation uses `extracted_rules`)
-- [ ] Clean up `builtins.rs` — remove all the hand-crafted arg definitions that are now empty, simplify tag spec construction
-- [ ] Remove any dead helper functions in `arguments.rs` that were only used by the old validation path (keep `validate_args_against_spec` for user-config escape hatch)
-- [ ] Keep `TagArg` enum and S104–S107 variants — still needed for user-config `args` in `djls.toml`
-- [ ] Update AGENTS.md with operational notes about M8 changes
-- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Remove `TagArgSliceExt` trait if only used by deleted `validate_argument_order` internals — KEPT: still used by `validate_argument_order` (user-config escape hatch)
+- [x] Update doc comments on `TagSpec.args` to reflect new role (completions/snippets only, not validation — validation uses `extracted_rules`)
+- [x] Clean up `builtins.rs` — remove all the hand-crafted arg definitions that are now empty, simplify tag spec construction — ALREADY DONE in Phase 3 (all args empty, doc comment updated)
+- [x] Remove any dead helper functions in `arguments.rs` that were only used by the old validation path (keep `validate_args_against_spec` for user-config escape hatch) — NO dead functions found; all remaining functions serve the user-config escape hatch
+- [x] Keep `TagArg` enum and S104–S107 variants — still needed for user-config `args` in `djls.toml`
+- [x] Update AGENTS.md with operational notes about M8 changes
+- [x] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 6: Corpus Template Validation Tests
 

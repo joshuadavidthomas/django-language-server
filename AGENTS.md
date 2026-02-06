@@ -143,6 +143,8 @@ just lint                       # Run pre-commit hooks
 - **Block tree root structure**: Root-level blocks have NO `BranchKind::Opener` — the container IS the root, containing only `BranchKind::Segment` children. `Opener` branches only appear for nested blocks (added to parent's segment). To find opaque blocks, check `Segment` branches whose tag has `opaque: true`.
 - **Opaque region flow**: `compute_opaque_regions(db, nodelist)` → `OpaqueRegions` → passed to each validator. The opaque check is `opaque_regions.is_opaque(node_span_start)`.
 - **Diagnostic codes**: S101–S107 (argument validation), S108–S110 (tag scoping), S111–S113 (filter scoping), S114 (expression syntax), S115–S116 (filter arity), S117 (extracted rule violation).
+- **Argument validation dual path**: `TagSpec.extracted_rules` (from Python AST extraction) is primary. Falls back to `TagSpec.args`-based validation ONLY for user-config specs in `djls.toml` (escape hatch). Builtins with no extracted rules skip argument validation entirely.
+- **`TagSpec.args` role after M8**: Used for completions/snippets (populated from `ExtractedArg` conversion). NOT used for validation when `extracted_rules` is present. User-config `args` in `djls.toml` still trigger the old `validate_argument_order` path.
 
 ## Cross-Cutting Type Changes
 - **When adding a new parallel type** (e.g., `TemplateFilter` mirroring `TemplateTag`): update Python dataclass, `queries.py` collection, Rust struct, response type, `TemplateTags` struct + `new()` + `from_response()`, tracked query, `lib.rs` re-exports. Easy to miss one step in the chain.
