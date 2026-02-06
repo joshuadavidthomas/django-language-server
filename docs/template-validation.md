@@ -29,7 +29,7 @@ Together, the inspector tells djls *what exists* and extraction tells djls *how 
 
 ## What djls Validates
 
-### Block Structure (S100–S107)
+### Block Structure (S100–S103)
 
 Validates that block tags are properly opened, closed, and nested:
 
@@ -37,10 +37,6 @@ Validates that block tags are properly opened, closed, and nested:
 - **S101** — Unbalanced structure (mismatched block tags)
 - **S102** — Orphaned tag (intermediate tag like `{% else %}` without a parent `{% if %}`)
 - **S103** — Unmatched block name (e.g., `{% endblock foo %}` doesn't match `{% block bar %}`)
-- **S104** — Missing required arguments
-- **S105** — Too many arguments
-- **S106** — Invalid literal argument
-- **S107** — Invalid argument choice
 
 ### Tag Scoping (S108–S110)
 
@@ -71,6 +67,14 @@ Validates that filters are called with the correct number of arguments:
 - **S115** — Filter requires an argument but none was provided (e.g., `{{ value|default }}` instead of `{{ value|default:"fallback" }}`)
 - **S116** — Filter does not accept an argument but one was provided (e.g., `{{ value|title:"arg" }}`)
 
+### Tag Argument Validation (S117)
+
+Validates that template tags are called with the correct arguments, based on rules extracted from Python source code:
+
+- **S117** — Tag argument rule violation (e.g., `{% for item %}` missing `in` keyword, `{% cycle %}` with no arguments)
+
+These rules are derived automatically by analyzing Django's template tag implementations via static AST analysis. The extraction engine reads `split_contents()` guard conditions, function signatures, and keyword position checks directly from Python source code — no manual configuration needed.
+
 ## What djls Cannot Validate
 
 Django templates are deeply dynamic — many things can only be checked at runtime:
@@ -94,7 +98,8 @@ When the inspector is **unavailable** (Django init failed, Python not configured
 
 - **S108–S113 are suppressed** — Without knowing which tags/filters exist, djls cannot determine if something is unknown or just unloaded
 - **S115–S116 are suppressed** — Filter arity rules come from extraction, which depends on knowing the source modules
-- **S100–S107 still work** — Block structure validation uses built-in tag specs and any [custom tagspecs](./configuration/tagspecs.md) you've defined
+- **S117 is suppressed** — Tag argument rules come from extraction, which depends on the inspector discovering tag source modules
+- **S100–S103 still work** — Block structure validation uses built-in tag specs
 - **S114 still works** — Expression syntax validation is purely structural
 - **Completions show all known tags** — Without library scoping, all tags are offered as a fallback
 
@@ -130,4 +135,4 @@ If djls reports an error for a template that works correctly in Django (or misse
 - What Django does vs what djls reports
 - Your `djls.toml` configuration (if any)
 
-As a workaround, you can use [custom tagspecs](./configuration/tagspecs.md) to define the correct behavior for tags that djls doesn't handle correctly, or [disable specific diagnostics](./configuration/index.md#diagnostics) via severity configuration.
+As a workaround, you can [disable specific diagnostics](./configuration/index.md#diagnostics) via severity configuration (e.g., `S117 = "off"` to suppress tag argument validation errors).

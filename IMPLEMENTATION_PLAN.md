@@ -532,12 +532,12 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ### Phase 4: Update Documentation
 
-- [ ] Delete `docs/configuration/tagspecs.md`
-- [ ] Remove tagspecs entry from `.mkdocs.yml` nav
-- [ ] In `docs/configuration/index.md`: remove `[tagspecs]` config section, remove S104–S107 from diagnostic codes table, rename "Block Structure (S100-S107)" section header to "Block Structure (S100-S103)"
-- [ ] Add note in config docs that template tag validation is handled automatically by Python AST extraction
-- [ ] Update `docs/template-validation.md` to remove tagspec references, note argument validation uses Django's own error messages via extraction
-- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Delete `docs/configuration/tagspecs.md`
+- [x] Remove tagspecs entry from `.mkdocs.yml` nav
+- [x] In `docs/configuration/index.md`: remove `[tagspecs]` config section, remove S104–S107 from diagnostic codes table, rename "Block Structure (S100-S107)" section header to "Block Structure (S100-S103)"
+- [x] Add note in config docs that template tag validation is handled automatically by Python AST extraction
+- [x] Update `docs/template-validation.md` to remove tagspec references, note argument validation uses Django's own error messages via extraction
+- [x] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ---
 
