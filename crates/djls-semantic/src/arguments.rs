@@ -486,6 +486,69 @@ mod tests {
             .collect()
     }
 
+    fn validate_template(content: &str) -> Vec<ValidationError> {
+        use djls_source::Db as SourceDb;
+
+        let db = TestDatabase::new();
+        let path = camino::Utf8Path::new("/test.html");
+        db.fs
+            .lock()
+            .unwrap()
+            .add_file(path.to_owned(), content.to_string());
+
+        let file = db.create_file(path);
+        let nodelist = djls_templates::parse_template(&db, file).expect("Failed to parse template");
+
+        crate::validate_nodelist(&db, nodelist);
+
+        crate::validate_nodelist::accumulated::<ValidationErrorAccumulator>(&db, nodelist)
+            .into_iter()
+            .map(|acc| acc.0.clone())
+            .collect()
+    }
+
+    #[test]
+    fn test_endblock_with_name_is_valid() {
+        // Regression test: {% endblock content %} is valid Django syntax.
+        // endblock accepts an optional block name argument.
+        let errors = validate_template("{% block content %}hello{% endblock content %}");
+        assert!(
+            errors.is_empty(),
+            "{{% endblock content %}} should be valid, got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn test_endblock_without_name_is_valid() {
+        let errors = validate_template("{% block content %}hello{% endblock %}");
+        assert!(
+            errors.is_empty(),
+            "{{% endblock %}} should be valid, got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn test_for_rejects_extra_token_after_iterable() {
+        // {% for item in items football %} is not valid Django.
+        // Only "reversed" is accepted after the iterable.
+        let errors = validate_template(
+            "{% for item in items football %}<li>test</li>{% endfor %}",
+        );
+        let arg_errors: Vec<_> = errors
+            .iter()
+            .filter(|e| {
+                matches!(
+                    e,
+                    ValidationError::TooManyArguments { .. }
+                )
+            })
+            .collect();
+        assert!(
+            !arg_errors.is_empty(),
+            "Expected TooManyArguments for 'football' after iterable, got: {errors:?}"
+        );
+    }
+
     #[test]
     fn test_if_tag_with_comparison_operator() {
         // Issue #1: {% if message.input_tokens > 0 %}

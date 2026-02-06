@@ -293,15 +293,17 @@ impl TagSpec {
     pub fn merge_block_spec(&mut self, block: &djls_extraction::BlockTagSpec) {
         self.opaque = block.opaque;
 
-        if let Some(ref end) = block.end_tag {
-            self.end_tag = Some(EndTag {
-                name: end.clone().into(),
-                required: true,
-                args: B(&[]),
-            });
+        if self.end_tag.is_none() {
+            if let Some(ref end) = block.end_tag {
+                self.end_tag = Some(EndTag {
+                    name: end.clone().into(),
+                    required: true,
+                    args: B(&[]),
+                });
+            }
         }
 
-        if !block.intermediate_tags.is_empty() {
+        if self.intermediate_tags.is_empty() && !block.intermediate_tags.is_empty() {
             self.intermediate_tags = block
                 .intermediate_tags
                 .iter()
@@ -1157,5 +1159,125 @@ required = false
         // Note: The built-in if tag has intermediate tags, but the override doesn't specify them
         // The override completely replaces the built-in
         assert!(if_tag.intermediate_tags.is_empty());
+    }
+
+    #[test]
+    fn test_merge_block_spec_preserves_existing_end_tag_args() {
+        // Regression test: merge_block_spec must not overwrite an existing
+        // end_tag that already has argument definitions (e.g., endblock's
+        // optional name argument).
+        let mut spec = TagSpec {
+            module: "django.template.loader_tags".into(),
+            end_tag: Some(EndTag {
+                name: "endblock".into(),
+                required: true,
+                args: Cow::Owned(vec![TagArg::Variable {
+                    name: "name".into(),
+                    required: false,
+                    count: TokenCount::Exact(1),
+                }]),
+            }),
+            intermediate_tags: Cow::Borrowed(&[]),
+            args: Cow::Borrowed(&[]),
+            opaque: false,
+            extracted_rules: Vec::new(),
+        };
+
+        let extracted_block = djls_extraction::BlockTagSpec {
+            end_tag: Some("endblock".to_string()),
+            intermediate_tags: vec![],
+            opaque: false,
+        };
+
+        spec.merge_block_spec(&extracted_block);
+
+        // The end_tag should still have its original args
+        let end = spec.end_tag.as_ref().expect("end_tag should exist");
+        assert_eq!(end.args.len(), 1, "endblock args should be preserved");
+        assert_eq!(
+            end.args[0].name().as_ref(),
+            "name",
+            "endblock 'name' arg should be preserved"
+        );
+    }
+
+    #[test]
+    fn test_merge_block_spec_preserves_existing_intermediate_tags() {
+        let mut spec = TagSpec {
+            module: "django.template.defaulttags".into(),
+            end_tag: Some(EndTag {
+                name: "endif".into(),
+                required: true,
+                args: Cow::Borrowed(&[]),
+            }),
+            intermediate_tags: Cow::Owned(vec![
+                IntermediateTag {
+                    name: "elif".into(),
+                    args: Cow::Owned(vec![TagArg::expr("condition", true)]),
+                },
+                IntermediateTag {
+                    name: "else".into(),
+                    args: Cow::Borrowed(&[]),
+                },
+            ]),
+            args: Cow::Borrowed(&[]),
+            opaque: false,
+            extracted_rules: Vec::new(),
+        };
+
+        let extracted_block = djls_extraction::BlockTagSpec {
+            end_tag: Some("endif".to_string()),
+            intermediate_tags: vec![
+                djls_extraction::IntermediateTagSpec {
+                    name: "elif".to_string(),
+                    repeatable: true,
+                },
+                djls_extraction::IntermediateTagSpec {
+                    name: "else".to_string(),
+                    repeatable: false,
+                },
+            ],
+            opaque: false,
+        };
+
+        spec.merge_block_spec(&extracted_block);
+
+        // Intermediate tags should retain original args, not be replaced with empty args
+        assert_eq!(spec.intermediate_tags.len(), 2);
+        assert_eq!(
+            spec.intermediate_tags[0].args.len(),
+            1,
+            "elif args should be preserved"
+        );
+    }
+
+    #[test]
+    fn test_merge_block_spec_populates_when_empty() {
+        // When no end_tag or intermediates exist, extraction data should populate them
+        let mut spec = TagSpec {
+            module: "myapp.tags".into(),
+            end_tag: None,
+            intermediate_tags: Cow::Borrowed(&[]),
+            args: Cow::Borrowed(&[]),
+            opaque: false,
+            extracted_rules: Vec::new(),
+        };
+
+        let extracted_block = djls_extraction::BlockTagSpec {
+            end_tag: Some("endcustom".to_string()),
+            intermediate_tags: vec![djls_extraction::IntermediateTagSpec {
+                name: "otherwise".to_string(),
+                repeatable: false,
+            }],
+            opaque: true,
+        };
+
+        spec.merge_block_spec(&extracted_block);
+
+        assert!(spec.opaque);
+        let end = spec.end_tag.as_ref().expect("end_tag should be set");
+        assert_eq!(end.name.as_ref(), "endcustom");
+        assert_eq!(spec.intermediate_tags.len(), 1);
+        assert_eq!(spec.intermediate_tags[0].name.as_ref(), "otherwise");
     }
 }
