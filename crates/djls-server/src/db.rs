@@ -9,10 +9,12 @@ use std::sync::Mutex;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
+use salsa::Setter;
 use djls_conf::Settings;
 use djls_project::template_dirs;
 use djls_project::Db as ProjectDb;
 use djls_project::Inspector;
+use djls_project::Interpreter;
 use djls_project::Project;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::TagIndex;
@@ -138,6 +140,57 @@ impl DjangoDatabase {
                 self.set_project(&root, &settings);
             }
         }
+    }
+
+    /// Update an existing project's fields from new settings, only calling
+    /// Salsa setters when values actually change (Ruff/RA pattern).
+    ///
+    /// Returns `true` if environment-related fields changed (`interpreter`,
+    /// `django_settings_module`, `pythonpath`), indicating the inspector should
+    /// be refreshed.
+    pub fn update_project_from_settings(&mut self, settings: &Settings) -> bool {
+        let Some(project) = self.project() else {
+            return false;
+        };
+
+        let mut env_changed = false;
+
+        let new_interpreter = Interpreter::discover(settings.venv_path());
+        if project.interpreter(self) != &new_interpreter {
+            project.set_interpreter(self).to(new_interpreter);
+            env_changed = true;
+        }
+
+        let new_dsm = settings
+            .django_settings_module()
+            .map(String::from)
+            .or_else(|| {
+                std::env::var("DJANGO_SETTINGS_MODULE")
+                    .ok()
+                    .filter(|s| !s.is_empty())
+            });
+        if project.django_settings_module(self) != &new_dsm {
+            project.set_django_settings_module(self).to(new_dsm);
+            env_changed = true;
+        }
+
+        let new_pythonpath = settings.pythonpath().to_vec();
+        if project.pythonpath(self) != &new_pythonpath {
+            project.set_pythonpath(self).to(new_pythonpath);
+            env_changed = true;
+        }
+
+        let new_tagspecs = settings.tagspecs().clone();
+        if project.tagspecs(self) != &new_tagspecs {
+            project.set_tagspecs(self).to(new_tagspecs);
+        }
+
+        let new_diagnostics = settings.diagnostics().clone();
+        if project.diagnostics(self) != &new_diagnostics {
+            project.set_diagnostics(self).to(new_diagnostics);
+        }
+
+        env_changed
     }
 
     fn set_project(&mut self, root: &Utf8Path, settings: &Settings) {
