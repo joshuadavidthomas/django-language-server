@@ -226,10 +226,14 @@ pub struct TagSpec {
     pub module: S,
     pub end_tag: Option<EndTag>,
     pub intermediate_tags: L<IntermediateTag>,
+    /// Argument structure for completions/snippets.
+    /// Populated from extraction (`populate_args_from_extraction`) or user config.
+    /// NOT used for validation — see `extracted_rules` for the validation path.
     pub args: L<TagArg>,
     /// Whether this is an opaque block (like verbatim/comment — no inner parsing)
     pub opaque: bool,
-    /// Extracted validation rules from Python AST analysis (populated by M5 extraction)
+    /// Validation rules from Python AST extraction.
+    /// Evaluated by `rule_evaluation::evaluate_extracted_rules`.
     pub extracted_rules: Vec<djls_extraction::ExtractedRule>,
 }
 
@@ -540,26 +544,7 @@ impl TagArg {
     }
 }
 
-/// Extension methods for slices of `TagArg`.
-pub(crate) trait TagArgSliceExt {
-    /// Find the next literal keyword in the argument list.
-    ///
-    /// This helps expression and assignment arguments know when to stop consuming tokens.
-    /// For example, in `{% if expr reversed %}`, the expression should stop before "reversed".
-    fn find_next_literal(&self) -> Option<String>;
-}
 
-impl TagArgSliceExt for [TagArg] {
-    fn find_next_literal(&self) -> Option<String> {
-        self.iter().find_map(|arg| {
-            if let TagArg::Literal { lit, .. } = arg {
-                Some(lit.to_string())
-            } else {
-                None
-            }
-        })
-    }
-}
 
 impl From<djls_conf::TagArgDef> for TagArg {
     fn from(value: djls_conf::TagArgDef) -> Self {

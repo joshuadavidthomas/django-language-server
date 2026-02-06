@@ -4,7 +4,6 @@ use djls_templates::Node;
 use salsa::Accumulator;
 
 use crate::templatetags::TagArg;
-use crate::templatetags::TagArgSliceExt;
 use crate::Db;
 use crate::ValidationError;
 use crate::ValidationErrorAccumulator;
@@ -132,6 +131,16 @@ fn validate_args_against_spec(
 ///
 /// Instead, we walk through arguments and track how many tokens each consumes,
 /// then check if there are leftovers.
+fn find_next_literal(args: &[TagArg]) -> Option<String> {
+    args.iter().find_map(|arg| {
+        if let TagArg::Literal { lit, .. } = arg {
+            Some(lit.to_string())
+        } else {
+            None
+        }
+    })
+}
+
 #[allow(clippy::too_many_lines)]
 fn validate_argument_order(
     db: &dyn Db,
@@ -234,10 +243,10 @@ fn validate_argument_order(
                     crate::templatetags::TokenCount::Greedy => {
                         // Greedy: consume tokens until next literal or end
                         let start_index = bit_index;
-                        let next_literal = args[arg_index + 1..].find_next_literal();
+                        let next_lit = find_next_literal(&args[arg_index + 1..]);
 
                         while bit_index < bits.len() {
-                            if let Some(ref lit) = next_literal {
+                            if let Some(ref lit) = next_lit {
                                 if bits[bit_index] == *lit {
                                     break; // Stop before the literal
                                 }
@@ -247,7 +256,7 @@ fn validate_argument_order(
 
                         // Ensure we consumed at least one token
                         if bit_index == start_index {
-                            let is_next_literal = next_literal
+                            let is_next_literal = next_lit
                                 .as_ref()
                                 .is_some_and(|lit| bits.get(bit_index) == Some(lit));
                             if !is_next_literal {
@@ -283,10 +292,10 @@ fn validate_argument_order(
                         bit_index += n;
                     }
                     crate::templatetags::TokenCount::Greedy => {
-                        let next_literal = args[arg_index + 1..].find_next_literal();
+                        let next_lit = find_next_literal(&args[arg_index + 1..]);
 
                         while bit_index < bits.len() {
-                            if let Some(ref lit) = next_literal {
+                            if let Some(ref lit) = next_lit {
                                 if bits[bit_index] == *lit {
                                     break;
                                 }

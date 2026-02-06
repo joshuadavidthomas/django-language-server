@@ -502,11 +502,11 @@
 
 ### Phase 5: Clean Up Dead Code
 
-- [ ] Remove `TagArgSliceExt` trait from `crates/djls-semantic/src/templatetags/specs.rs`
-- [ ] Update `TagSpec` field documentation to reflect extraction-primary role
-- [ ] Verify user-config `args` path still works via `validate_args_against_spec` fallback
-- [ ] Clean up test fixtures that construct `TagArg` specs for builtin tags
-- [ ] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Remove `TagArgSliceExt` trait from `crates/djls-semantic/src/templatetags/specs.rs`
+- [x] Update `TagSpec` field documentation to reflect extraction-primary role
+- [x] Verify user-config `args` path still works via `validate_args_against_spec` fallback
+- [x] Clean up test fixtures that construct `TagArg` specs for builtin tags
+- [x] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 6: Corpus Template Validation Tests
 
