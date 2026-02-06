@@ -335,6 +335,11 @@ impl SemanticDb for DjangoDatabase {
             djls_conf::DiagnosticsConfig::default()
         }
     }
+
+    fn inspector_inventory(&self) -> Option<TemplateTags> {
+        self.project()
+            .and_then(|project| project.inspector_inventory(self).clone())
+    }
 }
 
 #[salsa::db]

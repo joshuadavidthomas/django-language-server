@@ -22,6 +22,7 @@ pub use load_resolution::LoadedLibraries;
 pub use load_resolution::TagAvailability;
 pub use load_resolution::compute_loaded_libraries;
 pub use load_resolution::parse_load_bits;
+pub use load_resolution::validate_tag_scoping;
 pub use primitives::Tag;
 pub use primitives::Template;
 pub use primitives::TemplateName;
@@ -56,4 +57,5 @@ pub fn validate_nodelist(db: &dyn Db, nodelist: djls_templates::NodeList<'_>) {
     let block_tree = build_block_tree(db, nodelist);
     let _forest = build_semantic_forest(db, block_tree, nodelist);
     validate_all_tag_arguments(db, nodelist);
+    validate_tag_scoping(db, nodelist);
 }

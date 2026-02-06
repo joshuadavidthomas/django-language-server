@@ -53,4 +53,21 @@ pub enum ValidationError {
         value: String,
         span: Span,
     },
+
+    #[error("Unknown tag '{tag}'")]
+    UnknownTag { tag: String, span: Span },
+
+    #[error("Tag '{tag}' requires {{% load {library} %}}")]
+    UnloadedTag {
+        tag: String,
+        library: String,
+        span: Span,
+    },
+
+    #[error("Tag '{tag}' is defined in multiple libraries: {libraries:?}")]
+    AmbiguousUnloadedTag {
+        tag: String,
+        libraries: Vec<String>,
+        span: Span,
+    },
 }

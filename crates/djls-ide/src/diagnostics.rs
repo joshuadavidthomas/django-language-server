@@ -64,7 +64,10 @@ impl DiagnosticError for ValidationError {
             | ValidationError::TooManyArguments { span, .. }
             | ValidationError::MissingArgument { span, .. }
             | ValidationError::InvalidLiteralArgument { span, .. }
-            | ValidationError::InvalidArgumentChoice { span, .. } => Some(span.into()),
+            | ValidationError::InvalidArgumentChoice { span, .. }
+            | ValidationError::UnknownTag { span, .. }
+            | ValidationError::UnloadedTag { span, .. }
+            | ValidationError::AmbiguousUnloadedTag { span, .. } => Some(span.into()),
         }
     }
 
@@ -79,6 +82,9 @@ impl DiagnosticError for ValidationError {
             ValidationError::TooManyArguments { .. } => "S105",
             ValidationError::InvalidLiteralArgument { .. } => "S106",
             ValidationError::InvalidArgumentChoice { .. } => "S107",
+            ValidationError::UnknownTag { .. } => "S108",
+            ValidationError::UnloadedTag { .. } => "S109",
+            ValidationError::AmbiguousUnloadedTag { .. } => "S110",
         }
     }
 }

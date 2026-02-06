@@ -89,4 +89,8 @@ impl SemanticDb for Db {
     fn diagnostics_config(&self) -> djls_conf::DiagnosticsConfig {
         djls_conf::DiagnosticsConfig::default()
     }
+
+    fn inspector_inventory(&self) -> Option<djls_project::TemplateTags> {
+        None
+    }
 }

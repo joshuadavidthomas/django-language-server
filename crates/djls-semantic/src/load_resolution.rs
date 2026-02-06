@@ -1,5 +1,6 @@
 mod load;
 mod symbols;
+mod validation;
 
 use djls_templates::Node;
 use djls_templates::NodeList;
@@ -12,6 +13,7 @@ pub use load::LoadedLibraries;
 pub use load::parse_load_bits;
 pub use symbols::AvailableSymbols;
 pub use symbols::TagAvailability;
+pub use validation::validate_tag_scoping;
 
 /// Compute the [`LoadedLibraries`] for a parsed template's node list.
 ///
@@ -118,6 +120,10 @@ mod tests {
 
         fn diagnostics_config(&self) -> djls_conf::DiagnosticsConfig {
             djls_conf::DiagnosticsConfig::default()
+        }
+
+        fn inspector_inventory(&self) -> Option<djls_project::TemplateTags> {
+            None
         }
     }
 

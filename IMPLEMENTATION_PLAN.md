@@ -124,14 +124,14 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ### Phase 4: Validation Integration — Unknown Tag Diagnostics
 
-- [ ] Add new error variants to diagnostic system: `S108` (UnknownTag), `S109` (UnloadedTag — requires specific library), `S110` (AmbiguousUnloadedTag — multiple candidate libraries)
-- [ ] Add diagnostic codes and messages for S108, S109, S110
-- [ ] Extend `SemanticDb` trait with `inspector_inventory()` accessor so validation can check inspector health
-- [ ] In tag validation, after checking TagSpecs (structural tags), check available symbols set — if tag not available, classify as S108/S109/S110 based on inspector knowledge
-- [ ] Guard: if `inspector_inventory` is `None`, skip all S108/S109/S110 diagnostics entirely
-- [ ] Structural tag exclusion: skip scoping checks for openers/closers/intermediates that have TagSpecs
-- [ ] Tests: unknown tag → S108, unloaded library tag → S109 with correct library name, tag in multiple libraries → S110, inspector unavailable → no scoping diagnostics, structural tags (endif, else) skip scoping checks
-- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Add new error variants to diagnostic system: `S108` (UnknownTag), `S109` (UnloadedTag — requires specific library), `S110` (AmbiguousUnloadedTag — multiple candidate libraries)
+- [x] Add diagnostic codes and messages for S108, S109, S110
+- [x] Extend `SemanticDb` trait with `inspector_inventory()` accessor so validation can check inspector health
+- [x] In tag validation, after checking TagSpecs (structural tags), check available symbols set — if tag not available, classify as S108/S109/S110 based on inspector knowledge
+- [x] Guard: if `inspector_inventory` is `None`, skip all S108/S109/S110 diagnostics entirely
+- [x] Structural tag exclusion: skip scoping checks for closers/intermediates (not openers — library openers like `trans` still need scoping)
+- [x] Tests: unknown tag → S108, unloaded library tag → S109 with correct library name, tag in multiple libraries → S110, inspector unavailable → no scoping diagnostics, structural tags (endif, else) skip scoping checks, builtin tags always available, selective imports, tag before/after load
+- [x] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 5: Completions Integration
 
