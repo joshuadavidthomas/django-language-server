@@ -2,7 +2,6 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_conf::DiagnosticsConfig;
 use djls_conf::Settings;
-use djls_conf::TagSpecDef;
 use djls_extraction::ExtractionResult;
 
 use crate::db::Db as ProjectDb;
@@ -18,9 +17,8 @@ use crate::TemplateTags;
 /// which Python environment to use (interpreter), Django-specific configuration,
 /// and external data sources that drive semantic analysis.
 ///
-/// Config documents (`TagSpecDef`, `DiagnosticsConfig`) are stored here rather than
-/// derived artifacts (`TagSpecs`), keeping the input layer thin. Tracked queries in
-/// `djls-server` convert these into semantic types.
+/// `DiagnosticsConfig` is stored here as a config document. Tracked queries in
+/// `djls-server` convert extraction results into semantic types (`TagSpecs`).
 #[salsa::input]
 #[derive(Debug)]
 pub struct Project {
@@ -43,9 +41,6 @@ pub struct Project {
     /// `refresh_inspector`. Workspace files use tracked queries instead.
     #[returns(ref)]
     pub extracted_external_rules: Option<ExtractionResult>,
-    /// Tag specification config document (converted to `TagSpecs` by tracked queries)
-    #[returns(ref)]
-    pub tagspecs: TagSpecDef,
     /// Diagnostic severity configuration
     #[returns(ref)]
     pub diagnostics: DiagnosticsConfig,
@@ -100,7 +95,6 @@ impl Project {
             settings.pythonpath().to_vec(),
             None,
             None,
-            settings.tagspecs().clone(),
             settings.diagnostics().clone(),
         )
     }
