@@ -1,6 +1,5 @@
 ---
 source: crates/djls-extraction/tests/golden.rs
-assertion_line: 8
 expression: result
 ---
 tags:
@@ -20,6 +19,10 @@ tags:
       end_tag: endautoescape
       intermediate_tags: []
       opaque: true
+    extracted_args:
+      - name: arg
+        kind: Variable
+        required: true
   - name: if
     decorator_kind: Tag
     rules: []
@@ -31,6 +34,7 @@ tags:
         - name: else
           repeatable: false
       opaque: false
+    extracted_args: []
   - name: for
     decorator_kind: Tag
     rules:
@@ -50,10 +54,26 @@ tags:
         - name: empty
           repeatable: false
       opaque: false
+    extracted_args:
+      - name: arg1
+        kind: Variable
+        required: true
+      - name: in
+        kind:
+          Literal:
+            value: in
+        required: true
+      - name: arg3
+        kind: Variable
+        required: true
   - name: now
     decorator_kind: SimpleTag
     rules: []
     block_spec: ~
+    extracted_args:
+      - name: format_string
+        kind: Variable
+        required: true
 filters:
   - name: title
     arity: None

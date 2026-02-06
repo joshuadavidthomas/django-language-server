@@ -18,6 +18,8 @@
 //!    - If ambiguous, we emit `None` rather than guess
 
 #[cfg(feature = "parser")]
+mod args;
+#[cfg(feature = "parser")]
 mod context;
 mod error;
 #[cfg(feature = "parser")]
@@ -40,6 +42,8 @@ pub use types::ComparisonOp;
 pub use types::DecoratorKind;
 pub use types::ExtractedFilter;
 pub use types::ExtractedRule;
+pub use types::ExtractedArg;
+pub use types::ExtractedArgKind;
 pub use types::ExtractedTag;
 pub use types::ExtractionResult;
 pub use types::FilterArity;
@@ -67,11 +71,14 @@ pub fn extract_rules(source: &str) -> Result<ExtractionResult, ExtractionError> 
         let rules = rules::extract_tag_rules(&parsed, reg, &ctx)?;
         let block_spec = structural::extract_block_spec(&parsed, reg, &ctx)?;
 
+        let extracted_args = args::extract_args(&parsed, reg, &rules, &ctx);
+
         tags.push(types::ExtractedTag {
             name: reg.name.clone(),
             decorator_kind: reg.decorator_kind.clone(),
             rules,
             block_spec,
+            extracted_args,
         });
     }
 

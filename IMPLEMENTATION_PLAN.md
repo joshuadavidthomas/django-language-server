@@ -455,19 +455,19 @@
 
 ### Phase 1: Argument Structure Extraction in `djls-extraction`
 
-- [ ] Add `ExtractedArg` and `ExtractedArgKind` types in `crates/djls-extraction/src/types.rs`
-- [ ] Add `extracted_args` field to `ExtractedTag` in `crates/djls-extraction/src/types.rs`
-- [ ] Create `crates/djls-extraction/src/args.rs` with `extract_args_from_signature()` for simple/inclusion/block tags
-- [ ] Implement `takes_context=True` detection from decorator kwargs
-- [ ] Implement `simple_block_tag` nodelist parameter skipping
-- [ ] Add `reconstruct_args_from_rules_and_ast()` for manual `@register.tag` functions
-- [ ] Implement tuple unpacking detection for variable naming
-- [ ] Implement indexed access detection for variable naming
-- [ ] Add `extract_args()` dispatch function based on `decorator_kind`
-- [ ] Wire argument extraction into `extract_rules()` orchestration in `crates/djls-extraction/src/lib.rs`
-- [ ] Update golden test snapshots to include `extracted_args`
-- [ ] Add unit tests: simple_tag signature, inclusion_tag with takes_context, manual tag reconstruction
-- [ ] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Add `ExtractedArg` and `ExtractedArgKind` types in `crates/djls-extraction/src/types.rs`
+- [x] Add `extracted_args` field to `ExtractedTag` in `crates/djls-extraction/src/types.rs`
+- [x] Create `crates/djls-extraction/src/args.rs` with `extract_args_from_signature()` for simple/inclusion/block tags
+- [x] Implement `takes_context=True` detection from decorator kwargs
+- [x] Implement `simple_block_tag` nodelist parameter skipping
+- [x] Add `reconstruct_args_from_rules_and_ast()` for manual `@register.tag` functions
+- [x] Implement tuple unpacking detection for variable naming
+- [x] Implement indexed access detection for variable naming
+- [x] Add `extract_args()` dispatch function based on `decorator_kind`
+- [x] Wire argument extraction into `extract_rules()` orchestration in `crates/djls-extraction/src/lib.rs`
+- [x] Update golden test snapshots to include `extracted_args`
+- [x] Add unit tests: simple_tag signature, inclusion_tag with takes_context, manual tag reconstruction
+- [x] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 2: Build Extracted Rule Evaluator in `djls-semantic`
 
