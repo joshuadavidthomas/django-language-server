@@ -210,6 +210,8 @@ Here are the key changes:
 
 If you encounter issues during migration, please [open an issue](https://github.com/joshuadavidthomas/django-language-server/issues) with your tagspec configuration.
 
+If you believe djls template validation is incorrect compared to Django runtime behavior (false positives or false negatives), please use the [Template Validation Mismatch](https://github.com/joshuadavidthomas/django-language-server/issues/new?template=template-validation-mismatch.yml) form.
+
 ### Argument type mapping
 
 

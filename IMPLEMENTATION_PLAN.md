@@ -416,7 +416,7 @@
 
 ## M7 - Documentation + Issue Reporting
 
-**Status:** in-progress
+**Status:** complete
 **Plan:** `.agents/plans/2026-02-05-m7-docs-and-issue-template.md`
 
 ### Phase 1: Create Template Validation Documentation Page
@@ -443,8 +443,8 @@
 
 ### Phase 5: Update TagSpecs Documentation
 
-- [ ] Add validation mismatch link in `docs/configuration/tagspecs.md` after the existing "open an issue" text — points to the new template-validation-mismatch issue form
-- [ ] Verify documentation builds without errors
+- [x] Add validation mismatch link in `docs/configuration/tagspecs.md` after the existing "open an issue" text — points to the new template-validation-mismatch issue form
+- [x] Verify documentation builds without errors
 
 ---
 
