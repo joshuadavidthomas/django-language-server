@@ -90,6 +90,8 @@ def get_template_dirs() -> TemplateDirsQueryData:
 @dataclass
 class TemplateTagQueryData:
     templatetags: list[TemplateTag]
+    libraries: dict[str, str]
+    builtins: list[str]
 
 
 @dataclass
@@ -133,7 +135,11 @@ def get_installed_templatetags() -> TemplateTagQueryData:
                     )
                 )
 
-    return TemplateTagQueryData(templatetags=templatetags)
+    return TemplateTagQueryData(
+        templatetags=templatetags,
+        libraries={},
+        builtins=[],
+    )
 
 
 QueryData = PythonEnvironmentQueryData | TemplateDirsQueryData | TemplateTagQueryData
