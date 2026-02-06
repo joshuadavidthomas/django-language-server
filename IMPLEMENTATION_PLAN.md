@@ -20,7 +20,7 @@ This document tracks progress through the milestones for porting the Python `tem
 | M6 | Rule Evaluation + Expression Validation | ✅ Complete (partial - see M8) | [`.agents/plans/2026-02-05-m6-rule-evaluation.md`](.agents/plans/2026-02-05-m6-rule-evaluation.md) |
 | M7 | Documentation + Issue Reporting | ✅ Complete | [`.agents/plans/2026-02-05-m7-docs-and-issue-template.md`](.agents/plans/2026-02-05-m7-docs-and-issue-template.md) |
 | M8 | Extracted Rule Evaluation | 📝 Ready | [`.agents/plans/2026-02-06-m8-extracted-rule-evaluation.md`](.agents/plans/2026-02-06-m8-extracted-rule-evaluation.md) |
-| M9 | User Config Tagspec Simplification | 🔲 Backlog | [`.agents/plans/2026-02-06-m9-tagspec-simplification.md`](.agents/plans/2026-02-06-m9-tagspec-simplification.md) |
+| M9 | User Config Tagspec Simplification | 📝 Ready | [`.agents/plans/2026-02-06-m9-tagspec-simplification.md`](.agents/plans/2026-02-06-m9-tagspec-simplification.md) |
 
 **Legend:**
 - 🔲 Not Started / Backlog
@@ -1031,6 +1031,40 @@ Port the prototype's corpus tests to Rust. Validate actual templates against ext
 - [ ] Test known-invalid templates produce expected errors
 - [ ] Add corpus validation to Justfile
 - [ ] Quality checks pass
+
+---
+
+## M9: User Config Tagspec Simplification
+
+**Goal:** Remove the entire user-config `tagspecs` system — the TOML schema, config types, legacy format support, and `TagArg`-based validation engine. Python AST extraction replaces everything.
+
+**Plan:** [`.agents/plans/2026-02-06-m9-tagspec-simplification.md`](.agents/plans/2026-02-06-m9-tagspec-simplification.md)
+
+**Overall Status:** 🔲 Not Started
+
+### Phase 1: Remove TagSpecs Config System
+
+**Status:** 🔲 Not Started
+
+Delete the entire tagspecs module from `djls-conf`, remove the `tagspecs` field from `Settings` and `Project`, remove the user-config merge layer from `compute_tag_specs`.
+
+### Phase 2: Remove `TagArg` System and Old Validation Engine
+
+**Status:** 🔲 Not Started
+
+Delete the `TagArg` enum and associated types, remove the `args` field from `TagSpec`/`EndTag`/`IntermediateTag`, delete `validate_args_against_spec` and `validate_argument_order`, strip ~500 lines from `builtins.rs`.
+
+### Phase 3: Remove Dead Error Variants and Diagnostic Codes
+
+**Status:** 🔲 Not Started
+
+Remove 5 unreachable `ValidationError` variants (`MissingRequiredArguments`, `TooManyArguments`, `MissingArgument`, `InvalidLiteralArgument`, `InvalidArgumentChoice`) and their S104-S107 diagnostic codes.
+
+### Phase 4: Update Documentation
+
+**Status:** 🔲 Not Started
+
+Delete the tagspecs documentation page, update config docs to remove `tagspecs` as a config option, update the diagnostic codes table.
 
 ---
 
