@@ -45,10 +45,48 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ## M2 — Salsa Invalidation Plumbing
 
-**Status:** backlog
+**Status:** in-progress
 **Plan:** `.agents/plans/2026-02-05-m2-salsa-invalidation-plumbing.md`
 
-_Tasks to be expanded when M1 is complete._
+**Goal:** Eliminate stale template diagnostics by making external data sources explicit Salsa-visible fields within the existing `Project` input. Maintain exactly 2 Salsa inputs (`File` + `Project`).
+
+### Phase 1: Extend Project Input with djls-conf Types
+
+- [ ] Derive `PartialEq` on `DiagnosticsConfig` (it already has it — verify). Verify `TagSpecDef` has `PartialEq` (it already derives it — confirm no blockers). Do NOT add `Eq` — `TagSpecDef` contains `serde_json::Value` in `extra` fields which lacks `Eq`.
+- [ ] Add `Eq` to `DiagnosticsConfig` if not present (its `HashMap<String, DiagnosticSeverity>` supports `Eq`).
+- [ ] Add three new fields to `Project` (`#[salsa::input]` in `crates/djls-project/src/project.rs`): `inspector_inventory: Option<TemplateTags>` (with `#[returns(ref)]`), `tagspecs: TagSpecDef` (with `#[returns(ref)]`), `diagnostics: DiagnosticsConfig` (with `#[returns(ref)]`).
+- [ ] Add `djls-conf` dependency to `djls-project/Cargo.toml` if not already present (check — it's already there for `Settings`).
+- [ ] Update `Project::bootstrap` to accept `&Settings` and initialize the three new fields: `inspector_inventory` as `None`, `tagspecs` from `settings.tagspecs().clone()`, `diagnostics` from `settings.diagnostics().clone()`.
+- [ ] Update all call sites of `Project::new` and `Project::bootstrap` in `crates/djls-server/src/db.rs` to pass the new fields.
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 2: Add Project Update APIs with Manual Comparison
+
+- [ ] Add `PartialEq` derive to `Interpreter` (`crates/djls-project/src/python.rs`) if not already present, to support comparison in update methods.
+- [ ] Implement `update_project_from_settings(&mut self, settings: &Settings)` on `DjangoDatabase`: compare each field (`interpreter`, `django_settings_module`, `pythonpath`, `tagspecs`, `diagnostics`) against current `Project` values; only call setters when values differ. Track whether environment-related fields changed.
+- [ ] Make `TemplatetagsRequest`, `TemplatetagsResponse` public (or add a `TemplateTags::from_response()` constructor) so `refresh_inspector` can construct inventory without going through tracked queries.
+- [ ] Implement `refresh_inspector(&mut self)` on `DjangoDatabase`: query Python inspector directly (not through tracked functions), compare new inventory with `project.inspector_inventory(db)`, only call setter if changed.
+- [ ] Update `set_settings` to delegate to `update_project_from_settings` when a project exists, keeping project identity stable (no `Project::new` recreation).
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 3: Make tag_specs a Tracked Query
+
+- [ ] Add `TagSpecs::from_config_def(tagspec_def: &TagSpecDef) -> TagSpecs` method on `TagSpecs` in `crates/djls-semantic/src/templatetags/specs.rs` — reuse existing `From<(TagDef, String)> for TagSpec` conversion logic. Starts with `django_builtin_specs()`, merges user specs from `TagSpecDef`.
+- [ ] Add `compute_tag_specs(db: &dyn SemanticDb, project: Project) -> TagSpecs` as a `#[salsa::tracked]` function in `crates/djls-server/src/db.rs`. Reads `project.tagspecs(db)` and `project.inspector_inventory(db)` to establish Salsa dependencies. Does NOT read `Arc<Mutex<Settings>>`.
+- [ ] Add `compute_tag_index(db: &dyn SemanticDb, project: Project) -> TagIndex` as a `#[salsa::tracked]` function depending on `compute_tag_specs`. Provides automatic invalidation cascade.
+- [ ] Update `SemanticDb` implementation on `DjangoDatabase`: `tag_specs()` delegates to `compute_tag_specs` when project exists, falls back to `django_builtin_specs()`. `tag_index()` delegates to `compute_tag_index`. `diagnostics_config()` reads from `project.diagnostics(db)`.
+- [ ] Remove `Arc<Mutex<Settings>>` reads from any tracked query path (the `settings` field may remain for `set_settings` / `update_project_from_settings` only, not for tracked queries).
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 4: Invalidation Tests with Event Capture
+
+- [ ] Build test infrastructure in `crates/djls-server/src/db.rs` (in `#[cfg(test)]` module): `EventLogger` that stores `salsa::Event` values, `was_executed(db, query_name)` helper using `db.ingredient_debug_name(database_key.ingredient_index())`.
+- [ ] Test: `tag_specs()` cached on repeated access — second call has no `WillExecute` event for `compute_tag_specs`.
+- [ ] Test: updating `project.tagspecs` via setter → `compute_tag_specs` re-executes.
+- [ ] Test: updating `project.inspector_inventory` via setter → `compute_tag_specs` re-executes.
+- [ ] Test: same value = no invalidation — manual comparison prevents setter call, cache preserved.
+- [ ] Test: tag index depends on tag specs — changing tagspecs causes both `compute_tag_specs` and `compute_tag_index` to re-execute.
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ---
 
