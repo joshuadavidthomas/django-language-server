@@ -5,7 +5,7 @@
 cargo build -q                      # Build all crates
 cargo clippy -q --all-targets --all-features --fix -- -D warnings  # Lint with fixes
 cargo +nightly fmt              # Format code (requires nightly)
-cargo test -q                      # Run all tests  
+cargo test -q                      # Run all tests
 cargo test test_name            # Run single test by name
 cargo test -p crate_name        # Test specific crate
 just test                       # Run tests via nox (with Django matrix)
@@ -25,7 +25,7 @@ just lint                       # Run pre-commit hooks
 
 ## Project Structure
 - `crates/djls/` - Main CLI binary and PyO3 interface
-- `crates/djls-server/` - LSP server implementation  
+- `crates/djls-server/` - LSP server implementation
 - `crates/djls-templates/` - Django template parser
 - `crates/djls-workspace/` - Workspace/document management
 - `crates/djls-extraction/` - Python AST analysis via Ruff parser (feature-gated)
