@@ -17,13 +17,20 @@
 //!    - Singleton `parser.parse((<single>,))` calls indicate the closer
 //!    - If ambiguous, we emit `None` rather than guess
 
+#[cfg(feature = "parser")]
 mod context;
 mod error;
+#[cfg(feature = "parser")]
 mod filters;
+#[cfg(feature = "parser")]
 mod parser;
+#[cfg(feature = "parser")]
 mod patterns;
+#[cfg(feature = "parser")]
 mod registry;
+#[cfg(feature = "parser")]
 mod rules;
+#[cfg(feature = "parser")]
 mod structural;
 mod types;
 
@@ -45,6 +52,9 @@ pub use types::SymbolKind;
 ///
 /// This is a pure function: source text in, extraction result out.
 /// Module-to-path resolution is NOT this crate's responsibility.
+///
+/// Only available when the `parser` feature is enabled.
+#[cfg(feature = "parser")]
 pub fn extract_rules(source: &str) -> Result<ExtractionResult, ExtractionError> {
     let parsed = parser::parse_module(source)?;
     let registrations = registry::find_registrations(&parsed)?;

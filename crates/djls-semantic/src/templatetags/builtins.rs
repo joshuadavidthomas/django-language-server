@@ -33,6 +33,8 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                 required: true,
                 choices: B(&[B("on"), B("off")]),
             }]),
+            opaque: false,
+            extracted_rules: Vec::new(),
         },
     ),
     (
@@ -49,6 +51,8 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                 name: B("note"),
                 required: false,
             }]),
+            opaque: false,
+            extracted_rules: Vec::new(),
         },
     ),
     (
@@ -58,6 +62,8 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             end_tag: None,
             intermediate_tags: B(&[]),
             args: B(&[]),
+            opaque: false,
+            extracted_rules: Vec::new(),
         },
     ),
     (
@@ -87,6 +93,8 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                     kind: LiteralKind::Modifier,
                 },
             ]),
+            opaque: false,
+            extracted_rules: Vec::new(),
         },
     ),
     (
@@ -96,6 +104,8 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             end_tag: None,
             intermediate_tags: B(&[]),
             args: B(&[]),
+            opaque: false,
+            extracted_rules: Vec::new(),
         },
     ),
     (
@@ -112,6 +122,8 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                 name: B("filters"),
                 required: true,
             }]),
+            opaque: false,
+            extracted_rules: Vec::new(),
         },
     ),
     (
@@ -140,6 +152,8 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                     count: TokenCount::Exact(1),
                 },
             ]),
+            opaque: false,
+            extracted_rules: Vec::new(),
         },
     ),
     (
@@ -177,6 +191,8 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                     kind: LiteralKind::Modifier,
                 },
             ]),
+            opaque: false,
+            extracted_rules: Vec::new(),
         },
     ),
     (
@@ -207,6 +223,8 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                 required: true,
                 count: TokenCount::Greedy,
             }]),
+            opaque: false,
+            extracted_rules: Vec::new(),
         },
     ),
     (
@@ -226,6 +244,8 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                 name: B("variables"),
                 required: false,
             }]),
+            opaque: false,
+            extracted_rules: Vec::new(),
         },
     ),
     (
@@ -238,6 +258,8 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                 name: B("libraries"),
                 required: true,
             }]),
+            opaque: false,
+            extracted_rules: Vec::new(),
         },
     ),
     (
@@ -263,6 +285,8 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                     kind: LiteralKind::Literal,
                 },
             ]),
+            opaque: false,
+            extracted_rules: Vec::new(),
         },
     ),
     (
@@ -287,6 +311,8 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                     count: TokenCount::Exact(1),
                 },
             ]),
+            opaque: false,
+            extracted_rules: Vec::new(),
         },
     ),
     // TODO: PARTIALDEF_SPEC, 6.0+
@@ -325,6 +351,8 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                     count: TokenCount::Exact(1),
                 },
             ]),
+            opaque: false,
+            extracted_rules: Vec::new(),
         },
     ),
     // TODO: RESETCYCLE_SPEC?
@@ -339,6 +367,8 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             }),
             intermediate_tags: B(&[]),
             args: B(&[]),
+            opaque: false,
+            extracted_rules: Vec::new(),
         },
     ),
     (
@@ -361,6 +391,8 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                     B("closecomment"),
                 ]),
             }]),
+            opaque: false,
+            extracted_rules: Vec::new(),
         },
     ),
     (
@@ -389,6 +421,8 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                     count: TokenCount::Exact(1),
                 },
             ]),
+            opaque: false,
+            extracted_rules: Vec::new(),
         },
     ),
     (
@@ -405,6 +439,8 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                 name: B("name"),
                 required: false,
             }]),
+            opaque: false,
+            extracted_rules: Vec::new(),
         },
     ),
     (
@@ -440,6 +476,8 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                     count: TokenCount::Exact(1),
                 },
             ]),
+            opaque: false,
+            extracted_rules: Vec::new(),
         },
     ),
     (
@@ -456,6 +494,8 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                 name: B("assignments"),
                 required: true,
             }]),
+            opaque: false,
+            extracted_rules: Vec::new(),
         },
     ),
 ];
@@ -481,6 +521,8 @@ static LOADER_TAGS_PAIRS: &[(&str, &TagSpec)] = &[
                 required: true,
                 count: TokenCount::Exact(1),
             }]),
+            opaque: false,
+            extracted_rules: Vec::new(),
         },
     ),
     (
@@ -493,6 +535,8 @@ static LOADER_TAGS_PAIRS: &[(&str, &TagSpec)] = &[
                 name: B("template"),
                 required: true,
             }]),
+            opaque: false,
+            extracted_rules: Vec::new(),
         },
     ),
     (
@@ -521,6 +565,8 @@ static LOADER_TAGS_PAIRS: &[(&str, &TagSpec)] = &[
                     kind: LiteralKind::Modifier,
                 },
             ]),
+            opaque: false,
+            extracted_rules: Vec::new(),
         },
     ),
 ];
@@ -552,6 +598,8 @@ static CACHE_PAIRS: &[(&str, &TagSpec)] = &[(
                 required: false,
             },
         ]),
+        opaque: false,
+        extracted_rules: Vec::new(),
     },
 )];
 
@@ -568,6 +616,8 @@ static I18N_PAIRS: &[(&str, &TagSpec)] = &[
             }),
             intermediate_tags: B(BLOCKTRANS_INTERMEDIATE_TAGS),
             args: B(BLOCKTRANS_ARGS),
+            opaque: false,
+            extracted_rules: Vec::new(),
         },
     ),
     (
@@ -581,6 +631,8 @@ static I18N_PAIRS: &[(&str, &TagSpec)] = &[
             }),
             intermediate_tags: B(BLOCKTRANS_INTERMEDIATE_TAGS),
             args: B(BLOCKTRANS_ARGS),
+            opaque: false,
+            extracted_rules: Vec::new(),
         },
     ),
     // TODO: GET_AVAILABLE_LANGAUGES_SPEC
@@ -654,6 +706,8 @@ const TRANS_SPEC: TagSpec = TagSpec {
             kind: LiteralKind::Literal,
         },
     ]),
+    opaque: false,
+    extracted_rules: Vec::new(),
 };
 
 const L10N_MOD: &str = "django.templatetags.l10n";
@@ -672,6 +726,8 @@ static L10N_PAIRS: &[(&str, &TagSpec)] = &[(
             required: false,
             choices: B(&[B("on"), B("off")]),
         }]),
+        opaque: false,
+        extracted_rules: Vec::new(),
     },
 )];
 
@@ -689,6 +745,8 @@ static STATIC_PAIRS: &[(&str, &TagSpec)] = &[
                 name: B("path"),
                 required: true,
             }]),
+            opaque: false,
+            extracted_rules: Vec::new(),
         },
     ),
 ];
@@ -711,6 +769,8 @@ static TZ_PAIRS: &[(&str, &TagSpec)] = &[
                 required: false,
                 choices: B(&[B("on"), B("off")]),
             }]),
+            opaque: false,
+            extracted_rules: Vec::new(),
         },
     ),
     (
@@ -728,6 +788,8 @@ static TZ_PAIRS: &[(&str, &TagSpec)] = &[
                 required: true,
                 count: TokenCount::Exact(1),
             }]),
+            opaque: false,
+            extracted_rules: Vec::new(),
         },
     ),
 ];

@@ -301,22 +301,24 @@
 
 ### Phase 7: Salsa Integration
 
-- [ ] Add `parser` Cargo feature to `djls-extraction` — gate parsing behind feature, types always available
-- [ ] Add `djls-extraction` dependency to `djls-project` (without `parser` feature — types only)
-- [ ] Add `djls-extraction` dependency to `djls-server` (with `parser` feature)
-- [ ] Add `sys_path: Vec<Utf8PathBuf>` and `extracted_external_rules: FxHashMap<String, ExtractionResult>` fields to `Project` salsa input
-- [ ] Create `crates/djls-project/src/resolve.rs` — `resolve_module()`, `resolve_modules()`, `ModuleLocation`, `ResolvedModule`
-- [ ] Export resolve types from `crates/djls-project/src/lib.rs`
-- [ ] Add `#[salsa::tracked] fn extract_workspace_module_rules(db, file) -> ExtractionResult` in `djls-server/src/db.rs`
-- [ ] Add `#[salsa::tracked] fn collect_workspace_extraction_results(db, project) -> Vec<(String, ExtractionResult)>` in `djls-server/src/db.rs`
-- [ ] Update `refresh_inspector()` to: query sys_path, refresh inventory, extract external module rules
-- [ ] Update `compute_tag_specs()` to merge workspace + external extraction results + user overrides
-- [ ] Add `opaque: bool` and `extracted_rules: Vec<ExtractedRule>` fields to `TagSpec` in `djls-semantic`
-- [ ] Implement `TagSpec::merge_extracted_rules()`, `TagSpec::merge_block_spec()`, `TagSpec::from_extraction()`
-- [ ] Update all `Project::new()` call sites with new fields (`sys_path: Vec::new()`, `extracted_external_rules: FxHashMap::default()`)
-- [ ] Add module resolution unit tests with tempdir
-- [ ] Add invalidation tests: workspace file change triggers re-extraction, cached when unchanged, external rules not auto-invalidated, compute_tag_specs depends on workspace extraction
-- [ ] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Add `parser` Cargo feature to `djls-extraction` — gate parsing behind feature, types always available
+- [x] Add `djls-extraction` dependency to `djls-project` (without `parser` feature — types only)
+- [x] Add `djls-extraction` dependency to `djls-server` (with `parser` feature)
+- [x] Add `sys_path: Vec<Utf8PathBuf>` and `extracted_external_rules: FxHashMap<String, ExtractionResult>` fields to `Project` salsa input
+- [x] Create `crates/djls-project/src/resolve.rs` — `resolve_module()`, `resolve_modules()`, `ModuleLocation`, `ResolvedModule`
+- [x] Export resolve types from `crates/djls-project/src/lib.rs`
+- [x] Add `#[salsa::tracked] fn extract_workspace_module_rules(db, file) -> ExtractionResult` in `djls-server/src/db.rs`
+- [x] Add `#[salsa::tracked] fn collect_workspace_extraction_results(db, project) -> Vec<(String, ExtractionResult)>` in `djls-server/src/db.rs`
+- [x] Update `refresh_inspector()` to: query sys_path, refresh inventory, extract external module rules
+- [x] Update `compute_tag_specs()` to merge workspace + external extraction results + user overrides
+- [x] Add `opaque: bool` and `extracted_rules: Vec<ExtractedRule>` fields to `TagSpec` in `djls-semantic`
+- [x] Implement `TagSpec::merge_extracted_rules()`, `TagSpec::merge_block_spec()`, `TagSpec::from_extraction()`
+- [x] Update all `Project::new()` call sites with new fields (`sys_path: Vec::new()`, `extracted_external_rules: FxHashMap::default()`)
+- [x] Add module resolution unit tests with tempdir
+- [x] Add `PythonEnvRequest`/`PythonEnvResponse` types in `djls-project` for `sys_path` query
+- [x] Add `djls-extraction` dependency to `djls-semantic` (types only, for `TagSpec` fields)
+- [x] Add invalidation tests: external rules change triggers recompute, external rules stable without setter, workspace extraction cached for unchanged file, revision bump triggers re-evaluation
+- [x] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 8: Small Fixture Golden Tests (Tier 1)
 
@@ -375,3 +377,8 @@ _Tasks to be expanded when M6 is complete._
 - M5: `extract_name_from_call` must be decorator-kind-aware: only `@register.tag("name")` and `@register.filter("name")` use first positional arg as the tag/filter name. For `inclusion_tag`, the first positional is the template path; for `simple_tag`/`simple_block_tag`, there's no positional name. All types support `name="custom"` keyword.
 - M5: `RegistrationInfo` fields `function_name`, `offset`, `explicit_end_name` are not yet consumed by downstream stubs (context, rules, structural, filters) — `#[allow(dead_code)]` on the struct until those phases implement.
 - M5: Ruff AST `Parameters` has no `defaults` field — defaults are inline on each `ParameterWithDefault` as `default: Option<Box<Expr>>`. Check `arg.default.is_some()` instead of `params.defaults.is_empty()`.
+- M5.7: `djls-extraction` parser feature gating: Ruff parser deps are optional, types (`ExtractionResult`, etc.) always available. `djls-project` uses `default-features = false`, `djls-server` uses default (parser enabled).
+- M5.7: `Vec::new()` IS const-stable — used in static `TagSpec` definitions for `extracted_rules` field with no issues.
+- M5.7: Module resolution tests must use separate temp dirs for workspace vs external paths — everything under the same temp dir gets classified as Workspace.
+- M5.7: `InMemoryFileSystem` only has `add_file(&mut self, ...)` — can't write through `Arc<dyn FileSystem>`. Extraction invalidation tests use Salsa input setters instead of filesystem writes.
+- M5.7: Salsa early cutoff: if `file.source(db)` returns the same value after revision bump, `extract_workspace_module_rules` correctly skips re-execution.

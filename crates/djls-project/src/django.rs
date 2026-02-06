@@ -104,6 +104,21 @@ impl InspectorRequest for TemplateInventoryRequest {
     type Response = TemplateInventoryResponse;
 }
 
+/// Request for Python environment info (including `sys.path`).
+#[derive(Debug, Clone, Serialize)]
+pub struct PythonEnvRequest;
+
+/// Response from the `python_env` query.
+#[derive(Debug, Clone, Deserialize)]
+pub struct PythonEnvResponse {
+    pub sys_path: Vec<String>,
+}
+
+impl InspectorRequest for PythonEnvRequest {
+    const NAME: &'static str = "python_env";
+    type Response = PythonEnvResponse;
+}
+
 /// Get template tags for the current project by querying the inspector.
 ///
 /// This is the primary Salsa-tracked entry point for templatetags.

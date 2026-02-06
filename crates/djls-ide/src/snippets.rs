@@ -187,6 +187,8 @@ mod tests {
             }),
             intermediate_tags: Cow::Borrowed(&[]),
             args: vec![TagArg::var("name", true)].into(),
+            opaque: false,
+            extracted_rules: Vec::new(),
         };
 
         let snippet = generate_snippet_for_tag_with_end("block", &spec);
@@ -211,6 +213,8 @@ mod tests {
                 choices: vec!["on".into(), "off".into()].into(),
             }]
             .into(),
+            opaque: false,
+            extracted_rules: Vec::new(),
         };
 
         let snippet = generate_snippet_for_tag_with_end("autoescape", &spec);

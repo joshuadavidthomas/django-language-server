@@ -629,6 +629,8 @@ mod tests {
                     },
                     TagArg::modifier("reversed", true),
                 ]),
+                opaque: false,
+                extracted_rules: Vec::new(),
             },
         );
 
@@ -902,6 +904,8 @@ mod tests {
                     TagArg::syntax("as", true),
                     TagArg::var("result", true),
                 ]),
+                opaque: false,
+                extracted_rules: Vec::new(),
             },
         );
 

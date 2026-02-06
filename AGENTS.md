@@ -105,6 +105,15 @@ Test impls typically return `None` / default values. Forgetting even one causes 
 - Existing codes: S101-S107 (structural), S108 (UnknownTag), S109 (UnloadedLibraryTag), S110 (AmbiguousUnloadedTag), S111 (UnknownFilter), S112 (UnloadedLibraryFilter), S113 (AmbiguousUnloadedFilter)
 - Next available diagnostic code: S114
 
+### Extraction Feature Gating
+- `djls-extraction` has `parser` feature (default on): gates Ruff parser deps and `extract_rules()` function
+- `djls-project` depends on `djls-extraction` with `default-features = false` (types only)
+- `djls-server` depends on `djls-extraction` with default features (parser enabled)
+- `djls-semantic` depends on `djls-extraction` with `default-features = false` (types only, for `TagSpec` fields)
+- `Project` salsa input now has `sys_path: Vec<Utf8PathBuf>` and `extracted_external_rules: FxHashMap<String, ExtractionResult>` fields
+- `TagSpec` now has `opaque: bool` and `extracted_rules: Vec<ExtractedRule>` — set to `false`/`Vec::new()` in all static builtins
+- `PythonEnvRequest`/`PythonEnvResponse` in `djls-project` for `sys_path` query
+
 ### Ruff Parser Dependencies
 - Ruff crates pinned to tag 0.9.10 (SHA `0dfa810e9aad9a465596768b0211c31dd41d3e73`) in root `Cargo.toml`
 - Use `ruff_python_parser`, `ruff_python_ast`, `ruff_text_size` as workspace deps

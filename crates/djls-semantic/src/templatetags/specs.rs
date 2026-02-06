@@ -227,6 +227,10 @@ pub struct TagSpec {
     pub end_tag: Option<EndTag>,
     pub intermediate_tags: L<IntermediateTag>,
     pub args: L<TagArg>,
+    /// Whether this is an opaque block (like verbatim/comment — no inner parsing)
+    pub opaque: bool,
+    /// Extracted validation rules from Python AST analysis (populated by M5 extraction)
+    pub extracted_rules: Vec<djls_extraction::ExtractedRule>,
 }
 
 impl From<(djls_conf::TagDef, String)> for TagSpec {
@@ -267,7 +271,70 @@ impl From<(djls_conf::TagDef, String)> for TagSpec {
                 .map(Into::into)
                 .collect::<Vec<_>>()
                 .into(),
+            opaque: false,
+            extracted_rules: Vec::new(),
         }
+    }
+}
+
+impl TagSpec {
+    /// Merge extracted validation rules into this spec.
+    ///
+    /// Only populates if not already set (first source wins).
+    pub fn merge_extracted_rules(&mut self, rules: &[djls_extraction::ExtractedRule]) {
+        if self.extracted_rules.is_empty() {
+            self.extracted_rules.extend_from_slice(rules);
+        }
+    }
+
+    /// Merge an extracted block spec into this spec.
+    ///
+    /// Persists end tag, intermediate tags, and opaque flag from extraction.
+    pub fn merge_block_spec(&mut self, block: &djls_extraction::BlockTagSpec) {
+        self.opaque = block.opaque;
+
+        if let Some(ref end) = block.end_tag {
+            self.end_tag = Some(EndTag {
+                name: end.clone().into(),
+                required: true,
+                args: B(&[]),
+            });
+        }
+
+        if !block.intermediate_tags.is_empty() {
+            self.intermediate_tags = block
+                .intermediate_tags
+                .iter()
+                .map(|it| IntermediateTag {
+                    name: it.name.clone().into(),
+                    args: B(&[]),
+                })
+                .collect::<Vec<_>>()
+                .into();
+        }
+    }
+
+    /// Create a `TagSpec` from extraction results.
+    #[must_use]
+    pub fn from_extraction(
+        module_path: &str,
+        tag: &djls_extraction::ExtractedTag,
+    ) -> Self {
+        let mut spec = TagSpec {
+            module: module_path.to_string().into(),
+            end_tag: None,
+            intermediate_tags: B(&[]),
+            args: B(&[]),
+            opaque: false,
+            extracted_rules: Vec::new(),
+        };
+
+        spec.merge_extracted_rules(&tag.rules);
+        if let Some(ref block_spec) = tag.block_spec {
+            spec.merge_block_spec(block_spec);
+        }
+
+        spec
     }
 }
 
@@ -568,6 +635,8 @@ mod tests {
                 end_tag: None,
                 intermediate_tags: Cow::Borrowed(&[]),
                 args: Cow::Borrowed(&[]),
+                opaque: false,
+                extracted_rules: Vec::new(),
             },
         );
 
@@ -592,6 +661,8 @@ mod tests {
                     },
                 ]),
                 args: Cow::Borrowed(&[]),
+                opaque: false,
+                extracted_rules: Vec::new(),
             },
         );
 
@@ -616,6 +687,8 @@ mod tests {
                     }, // Note: else is shared
                 ]),
                 args: Cow::Borrowed(&[]),
+                opaque: false,
+                extracted_rules: Vec::new(),
             },
         );
 
@@ -635,6 +708,8 @@ mod tests {
                 }),
                 intermediate_tags: Cow::Borrowed(&[]),
                 args: Cow::Borrowed(&[]),
+                opaque: false,
+                extracted_rules: Vec::new(),
             },
         );
 
@@ -823,6 +898,8 @@ mod tests {
                 end_tag: None,
                 intermediate_tags: Cow::Borrowed(&[]),
                 args: Cow::Borrowed(&[]),
+                opaque: false,
+                extracted_rules: Vec::new(),
             },
         );
 
@@ -838,6 +915,8 @@ mod tests {
                 }),
                 intermediate_tags: Cow::Borrowed(&[]), // Removed intermediates
                 args: Cow::Borrowed(&[]),
+                opaque: false,
+                extracted_rules: Vec::new(),
             },
         );
 

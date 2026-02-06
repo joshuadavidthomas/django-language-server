@@ -2,6 +2,8 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_conf::DiagnosticsConfig;
 use djls_conf::TagSpecDef;
+use djls_extraction::ExtractionResult;
+use rustc_hash::FxHashMap;
 
 use crate::db::Db as ProjectDb;
 use crate::django_available;
@@ -46,6 +48,15 @@ pub struct Project {
     /// Diagnostic severity overrides.
     #[returns(ref)]
     pub diagnostics: DiagnosticsConfig,
+    /// Python `sys.path` from interpreter (for module resolution).
+    /// Updated via `refresh_inspector()`.
+    #[returns(ref)]
+    pub sys_path: Vec<Utf8PathBuf>,
+    /// Extracted rules from external modules (site-packages).
+    /// Keyed by registration module path (e.g., `"django.templatetags.i18n"`).
+    /// Updated via `refresh_inspector()` — NOT automatically invalidated.
+    #[returns(ref)]
+    pub extracted_external_rules: FxHashMap<String, ExtractionResult>,
 }
 
 impl Project {
@@ -104,6 +115,8 @@ impl Project {
             None,
             settings.tagspecs().clone(),
             settings.diagnostics().clone(),
+            Vec::new(),
+            FxHashMap::default(),
         )
     }
 
