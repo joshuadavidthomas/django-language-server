@@ -18,9 +18,16 @@ use crate::ValidationErrorAccumulator;
 /// # Parameters
 /// - `db`: The Salsa database containing tag specifications
 /// - `nodelist`: The parsed template `NodeList` containing all tags
-pub fn validate_all_tag_arguments(db: &dyn Db, nodelist: djls_templates::NodeList<'_>) {
+pub fn validate_all_tag_arguments(
+    db: &dyn Db,
+    nodelist: djls_templates::NodeList<'_>,
+    opaque_regions: &crate::OpaqueRegions,
+) {
     for node in nodelist.nodelist(db) {
         if let Node::Tag { name, bits, span } = node {
+            if opaque_regions.is_opaque(span.start()) {
+                continue;
+            }
             let marker_span = span.expand(TagDelimiter::LENGTH_U32, TagDelimiter::LENGTH_U32);
             validate_tag_arguments(db, name, bits, marker_span);
         }
@@ -629,6 +636,7 @@ mod tests {
                     },
                     TagArg::modifier("reversed", true),
                 ]),
+                opaque: false,
             },
         );
 
@@ -902,6 +910,7 @@ mod tests {
                     TagArg::syntax("as", true),
                     TagArg::var("result", true),
                 ]),
+                opaque: false,
             },
         );
 

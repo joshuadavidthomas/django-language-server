@@ -24,7 +24,11 @@ use crate::ValidationErrorAccumulator;
 /// - If the inspector inventory is `None`, all scoping diagnostics are suppressed.
 /// - Structural tags (openers, closers, intermediates with `TagSpec`s) are skipped.
 /// - The `load` tag itself is skipped (it's a builtin that defines scoping).
-pub fn validate_tag_scoping(db: &dyn Db, nodelist: NodeList<'_>) {
+pub fn validate_tag_scoping(
+    db: &dyn Db,
+    nodelist: NodeList<'_>,
+    opaque_regions: &crate::OpaqueRegions,
+) {
     let Some(inventory) = db.inspector_inventory() else {
         return;
     };
@@ -36,6 +40,10 @@ pub fn validate_tag_scoping(db: &dyn Db, nodelist: NodeList<'_>) {
         let Node::Tag { name, span, .. } = node else {
             continue;
         };
+
+        if opaque_regions.is_opaque(span.start()) {
+            continue;
+        }
 
         // Skip the "load" tag itself — it defines scoping, not a user-visible tag
         if name == "load" {
@@ -105,7 +113,11 @@ fn is_closer_or_intermediate(name: &str, tag_specs: &crate::TagSpecs) -> bool {
 ///
 /// **Guards:**
 /// - If the inspector inventory is `None`, all filter scoping diagnostics are suppressed.
-pub fn validate_filter_scoping(db: &dyn Db, nodelist: NodeList<'_>) {
+pub fn validate_filter_scoping(
+    db: &dyn Db,
+    nodelist: NodeList<'_>,
+    opaque_regions: &crate::OpaqueRegions,
+) {
     let Some(inventory) = db.inspector_inventory() else {
         return;
     };
@@ -116,6 +128,10 @@ pub fn validate_filter_scoping(db: &dyn Db, nodelist: NodeList<'_>) {
         let Node::Variable { filters, span, .. } = node else {
             continue;
         };
+
+        if opaque_regions.is_opaque(span.start()) {
+            continue;
+        }
 
         for filter in filters {
             let symbols =
@@ -315,6 +331,8 @@ mod tests {
             builtin_tag_json("for", "django.template.defaulttags"),
             builtin_tag_json("block", "django.template.loader_tags"),
             builtin_tag_json("csrf_token", "django.template.defaulttags"),
+            builtin_tag_json("verbatim", "django.template.defaulttags"),
+            builtin_tag_json("comment", "django.template.defaulttags"),
             library_tag_json("trans", "i18n", "django.templatetags.i18n"),
             library_tag_json("blocktrans", "i18n", "django.templatetags.i18n"),
             library_tag_json("static", "static", "django.templatetags.static"),
@@ -531,6 +549,8 @@ mod tests {
             builtin_tag_json("for", "django.template.defaulttags"),
             builtin_tag_json("block", "django.template.loader_tags"),
             builtin_tag_json("csrf_token", "django.template.defaulttags"),
+            builtin_tag_json("verbatim", "django.template.defaulttags"),
+            builtin_tag_json("comment", "django.template.defaulttags"),
             library_tag_json("trans", "i18n", "django.templatetags.i18n"),
             library_tag_json("static", "static", "django.templatetags.static"),
         ];
@@ -696,6 +716,81 @@ mod tests {
             ),
             "Selectively-unimported filter should produce UnloadedFilter, got: {:?}",
             errors[0]
+        );
+    }
+
+    // ── Opaque region tests ────────────────────────────────────
+
+    #[test]
+    fn verbatim_block_content_skipped() {
+        let db = TestDatabase::with_inventory(test_inventory());
+        let source =
+            "{% verbatim %}{% trans 'hello' %}{% endverbatim %}\n{% if True %}{% endif %}";
+        let errors = collect_scoping_errors(&db, source);
+
+        // trans inside verbatim should NOT trigger S109 (UnloadedTag)
+        // if/endif are builtins and should validate fine
+        assert!(
+            errors.is_empty(),
+            "Expected no errors — content inside verbatim should be skipped. Got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn comment_block_content_skipped() {
+        let db = TestDatabase::with_inventory(test_inventory());
+        let source = "{% comment %}{% trans 'hello' %}{% endcomment %}";
+        let errors = collect_scoping_errors(&db, source);
+
+        assert!(
+            errors.is_empty(),
+            "Expected no errors — content inside comment should be skipped. Got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn non_opaque_blocks_validated_normally() {
+        let db = TestDatabase::with_inventory(test_inventory());
+        // trans inside if block (non-opaque) should still be validated
+        let source = "{% if True %}{% trans 'hello' %}{% endif %}";
+        let errors = collect_scoping_errors(&db, source);
+
+        // trans is a library tag not loaded — should get S109
+        assert_eq!(errors.len(), 1, "Expected S109 for unloaded trans. Got: {errors:?}");
+        assert!(matches!(
+            &errors[0],
+            ValidationError::UnloadedTag { tag, .. } if tag == "trans"
+        ));
+    }
+
+    #[test]
+    fn content_after_opaque_block_still_validated() {
+        let db = TestDatabase::with_inventory(test_inventory());
+        let source = "{% verbatim %}{% trans 'skip' %}{% endverbatim %}{% trans 'check' %}";
+        let errors = collect_scoping_errors(&db, source);
+
+        // First trans inside verbatim: skipped
+        // Second trans after verbatim: should get S109
+        assert_eq!(
+            errors.len(),
+            1,
+            "Expected 1 error for trans after verbatim. Got: {errors:?}"
+        );
+        assert!(matches!(
+            &errors[0],
+            ValidationError::UnloadedTag { tag, .. } if tag == "trans"
+        ));
+    }
+
+    #[test]
+    fn filter_inside_verbatim_skipped() {
+        let db = TestDatabase::with_inventory(test_inventory_with_filters());
+        let source = "{% verbatim %}{{ value|intcomma }}{% endverbatim %}";
+        let errors = collect_filter_scoping_errors(&db, source);
+
+        assert!(
+            errors.is_empty(),
+            "Expected no errors — filter inside verbatim should be skipped. Got: {errors:?}"
         );
     }
 }

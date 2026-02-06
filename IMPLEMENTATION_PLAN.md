@@ -321,15 +321,15 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ### Phase 1: Opaque Region Infrastructure
 
-- [ ] Add `opaque: bool` field to `TagSpec` in `crates/djls-semantic/src/templatetags/specs.rs`
-- [ ] Update `merge_extraction_results` to propagate `opaque` from `BlockTagSpec` to `TagSpec`
-- [ ] Update `From<(TagDef, String)> for TagSpec` to set `opaque: false` (config-defined tags are never opaque)
-- [ ] Update `django_builtin_specs()` to set `opaque: true` for `verbatim` and `comment` tags
-- [ ] Create `OpaqueRegions` type (sorted list of byte spans) with `is_opaque(position: u32) -> bool` method in `crates/djls-semantic/src/`
-- [ ] Implement `compute_opaque_regions(db, nodelist) -> OpaqueRegions`: walk block tree, find tags with `tag_spec.opaque == true`, record inner content spans
-- [ ] Wire `OpaqueRegions` check into `validate_nodelist` — skip argument and scoping validation for nodes inside opaque regions
-- [ ] Tests: verbatim block content skipped, comment block content skipped, non-opaque blocks validated normally, nested content after opaque block still validated
-- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Add `opaque: bool` field to `TagSpec` in `crates/djls-semantic/src/templatetags/specs.rs`
+- [x] Update `merge_extraction_results` to propagate `opaque` from `BlockTagSpec` to `TagSpec`
+- [x] Update `From<(TagDef, String)> for TagSpec` to set `opaque: false` (config-defined tags are never opaque)
+- [x] Update `django_builtin_specs()` to set `opaque: true` for `verbatim` and `comment` tags
+- [x] Create `OpaqueRegions` type (sorted list of byte spans) with `is_opaque(position: u32) -> bool` method in `crates/djls-semantic/src/`
+- [x] Implement `compute_opaque_regions(db, nodelist) -> OpaqueRegions`: walk block tree, find tags with `tag_spec.opaque == true`, record inner content spans
+- [x] Wire `OpaqueRegions` check into `validate_nodelist` — skip argument and scoping validation for nodes inside opaque regions
+- [x] Tests: verbatim block content skipped, comment block content skipped, non-opaque blocks validated normally, nested content after opaque block still validated
+- [x] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 2: Expression Parser (Pratt Parser for `{% if %}`)
 
@@ -388,4 +388,5 @@ _Tasks to be expanded when M6 is complete._
 - **M5 Phase 4**: Ruff's `Parameters` struct does NOT have a `defaults` field like Python's `ast.arguments`. Instead, defaults are per-parameter: `ParameterWithDefault { parameter, default: Option<Box<Expr>> }`. Also `StmtWhile.test` is `Box<Expr>` so dereference with `&*while_stmt.test` when pattern matching. `extract_tag_rule()` dispatches to `extract_compile_function_rule()` for `@register.tag` (uses split_contents guards) vs `extract_parse_bits_rule()` for `@register.simple_tag` / `@register.inclusion_tag` (uses function signature analysis).
 - **M5 Phase 5**: Block spec extraction in `blocks.rs`. Classification strategy: (1) Collect all `parser.parse((...))` stop-tokens, (2) Use control flow (if/elif/else/while branches) to classify — tokens leading to another `parser.parse()` → intermediate, others → end-tag. (3) Tokens not classified as intermediate default to end-tag candidates. (4) `end*` convention used ONLY as tie-breaker for single-call multi-token ambiguity. Also handles `parser.skip_past("endverbatim")` → opaque block, and `parser.parse((f"end{tag_name}",))` → dynamic end-tag (returns `end_tag: None`). Ruff's `FStringValue` uses `.iter()` not `.parts()` to iterate over `FStringPart` values. `ExceptHandler::ExceptHandler` is irrefutable — use `let` not `if let`. `startswith` pattern (`while token.contents.startswith("elif"):`) needed dedicated detection separate from `==` comparison detection.
 - **M5 Phase 9**: Corpus tests gated on availability via runtime detection (`find_corpus_dir()` checks `DJLS_CORPUS_PATH` env var + relative paths from crate). Django golden snapshots use `find_django_source()` which checks `DJANGO_SOURCE_PATH` + venv at project root and main repo root (for worktree setups). Corpus `.corpus/` directories exist but `templatetags/*.py` files are empty — sync script needs to be run. Golden Django snapshots created from `.venv/lib/python3.13/site-packages/django/` — `defaulttags.py` (tag rules + block specs), `defaultfilters.py` (43 filter arities), `i18n.py` (trans/blocktrans with option loops), `static.py` (empty — compile functions use classmethod delegation pattern not caught by current extraction).
+- **M6 Phase 1**: Block tree structure: root-level blocks have NO `BranchKind::Opener` — the container IS the root, containing only `BranchKind::Segment` children. `Opener` branches only appear for nested blocks (added to parent's segment). To find opaque blocks, check `Segment` branches whose tag has `opaque: true`, not just `Opener` branches. Validation functions (`validate_all_tag_arguments`, `validate_tag_scoping`, `validate_filter_scoping`) now accept `&OpaqueRegions` parameter and skip nodes inside opaque spans. Test inventories needed `verbatim` and `comment` added as builtins to avoid spurious S108 errors.
 - **M5 Phase 7**: Salsa integration adds `Project.extracted_external_rules: Option<ExtractionResult>` field. `compute_tag_specs` reads this field and calls `TagSpecs::merge_extraction_results()` to enrich builtins with extracted block specs. `extract_rules()` wired up from stub to full pipeline: parse → `collect_registrations_from_body` → `find func def by name` → `extract_tag_rule` / `extract_block_spec` / `extract_filter_arity` per registration. Takes `module_path` param for `SymbolKey` keying. `extract_module_rules` tracked query takes only `File` (uses empty module_path — callers re-key when merging). Module path resolver: `resolve_module_to_file()` searches project root + PYTHONPATH + site-packages (derived from venv path). Salsa backdate optimization confirmed: if source content doesn't change across revisions, `extract_module_rules` won't re-execute.

@@ -212,6 +212,8 @@ impl TagSpecs {
                             .collect(),
                     );
                 }
+                // Propagate opaque flag from extraction
+                spec.opaque = block_spec.opaque;
             } else {
                 // Tag not yet in specs — create a new entry from extraction
                 let end_tag = block_spec.end_tag.as_ref().map(|name| EndTag {
@@ -234,6 +236,7 @@ impl TagSpecs {
                         end_tag,
                         intermediate_tags: std::borrow::Cow::Owned(intermediate_tags),
                         args: std::borrow::Cow::Borrowed(&[]),
+                        opaque: block_spec.opaque,
                     },
                 );
             }
@@ -286,6 +289,7 @@ pub struct TagSpec {
     pub end_tag: Option<EndTag>,
     pub intermediate_tags: L<IntermediateTag>,
     pub args: L<TagArg>,
+    pub opaque: bool,
 }
 
 impl From<(djls_conf::TagDef, String)> for TagSpec {
@@ -326,6 +330,7 @@ impl From<(djls_conf::TagDef, String)> for TagSpec {
                 .map(Into::into)
                 .collect::<Vec<_>>()
                 .into(),
+            opaque: false,
         }
     }
 }
@@ -627,6 +632,7 @@ mod tests {
                 end_tag: None,
                 intermediate_tags: Cow::Borrowed(&[]),
                 args: Cow::Borrowed(&[]),
+                opaque: false,
             },
         );
 
@@ -651,6 +657,7 @@ mod tests {
                     },
                 ]),
                 args: Cow::Borrowed(&[]),
+                opaque: false,
             },
         );
 
@@ -675,6 +682,7 @@ mod tests {
                     }, // Note: else is shared
                 ]),
                 args: Cow::Borrowed(&[]),
+                opaque: false,
             },
         );
 
@@ -694,6 +702,7 @@ mod tests {
                 }),
                 intermediate_tags: Cow::Borrowed(&[]),
                 args: Cow::Borrowed(&[]),
+                opaque: false,
             },
         );
 
@@ -882,6 +891,7 @@ mod tests {
                 end_tag: None,
                 intermediate_tags: Cow::Borrowed(&[]),
                 args: Cow::Borrowed(&[]),
+                opaque: false,
             },
         );
 
@@ -897,6 +907,7 @@ mod tests {
                 }),
                 intermediate_tags: Cow::Borrowed(&[]), // Removed intermediates
                 args: Cow::Borrowed(&[]),
+                opaque: false,
             },
         );
 

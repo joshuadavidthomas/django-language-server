@@ -33,6 +33,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                 required: true,
                 choices: B(&[B("on"), B("off")]),
             }]),
+            opaque: false,
         },
     ),
     (
@@ -49,6 +50,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                 name: B("note"),
                 required: false,
             }]),
+            opaque: true,
         },
     ),
     (
@@ -58,6 +60,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             end_tag: None,
             intermediate_tags: B(&[]),
             args: B(&[]),
+            opaque: false,
         },
     ),
     (
@@ -87,6 +90,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                     kind: LiteralKind::Modifier,
                 },
             ]),
+            opaque: false,
         },
     ),
     (
@@ -96,6 +100,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             end_tag: None,
             intermediate_tags: B(&[]),
             args: B(&[]),
+            opaque: false,
         },
     ),
     (
@@ -112,6 +117,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                 name: B("filters"),
                 required: true,
             }]),
+            opaque: false,
         },
     ),
     (
@@ -140,6 +146,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                     count: TokenCount::Exact(1),
                 },
             ]),
+            opaque: false,
         },
     ),
     (
@@ -177,6 +184,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                     kind: LiteralKind::Modifier,
                 },
             ]),
+            opaque: false,
         },
     ),
     (
@@ -207,6 +215,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                 required: true,
                 count: TokenCount::Greedy,
             }]),
+            opaque: false,
         },
     ),
     (
@@ -226,6 +235,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                 name: B("variables"),
                 required: false,
             }]),
+            opaque: false,
         },
     ),
     (
@@ -238,6 +248,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                 name: B("libraries"),
                 required: true,
             }]),
+            opaque: false,
         },
     ),
     (
@@ -263,6 +274,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                     kind: LiteralKind::Literal,
                 },
             ]),
+            opaque: false,
         },
     ),
     (
@@ -287,6 +299,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                     count: TokenCount::Exact(1),
                 },
             ]),
+            opaque: false,
         },
     ),
     // TODO: PARTIALDEF_SPEC, 6.0+
@@ -325,6 +338,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                     count: TokenCount::Exact(1),
                 },
             ]),
+            opaque: false,
         },
     ),
     // TODO: RESETCYCLE_SPEC?
@@ -339,6 +353,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
             }),
             intermediate_tags: B(&[]),
             args: B(&[]),
+            opaque: false,
         },
     ),
     (
@@ -361,6 +376,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                     B("closecomment"),
                 ]),
             }]),
+            opaque: false,
         },
     ),
     (
@@ -389,6 +405,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                     count: TokenCount::Exact(1),
                 },
             ]),
+            opaque: false,
         },
     ),
     (
@@ -405,6 +422,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                 name: B("name"),
                 required: false,
             }]),
+            opaque: true,
         },
     ),
     (
@@ -440,6 +458,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                     count: TokenCount::Exact(1),
                 },
             ]),
+            opaque: false,
         },
     ),
     (
@@ -456,6 +475,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                 name: B("assignments"),
                 required: true,
             }]),
+            opaque: false,
         },
     ),
 ];
@@ -481,6 +501,7 @@ static LOADER_TAGS_PAIRS: &[(&str, &TagSpec)] = &[
                 required: true,
                 count: TokenCount::Exact(1),
             }]),
+            opaque: false,
         },
     ),
     (
@@ -493,6 +514,7 @@ static LOADER_TAGS_PAIRS: &[(&str, &TagSpec)] = &[
                 name: B("template"),
                 required: true,
             }]),
+            opaque: false,
         },
     ),
     (
@@ -521,6 +543,7 @@ static LOADER_TAGS_PAIRS: &[(&str, &TagSpec)] = &[
                     kind: LiteralKind::Modifier,
                 },
             ]),
+            opaque: false,
         },
     ),
 ];
@@ -552,6 +575,7 @@ static CACHE_PAIRS: &[(&str, &TagSpec)] = &[(
                 required: false,
             },
         ]),
+            opaque: false,
     },
 )];
 
@@ -568,6 +592,7 @@ static I18N_PAIRS: &[(&str, &TagSpec)] = &[
             }),
             intermediate_tags: B(BLOCKTRANS_INTERMEDIATE_TAGS),
             args: B(BLOCKTRANS_ARGS),
+            opaque: false,
         },
     ),
     (
@@ -581,6 +606,7 @@ static I18N_PAIRS: &[(&str, &TagSpec)] = &[
             }),
             intermediate_tags: B(BLOCKTRANS_INTERMEDIATE_TAGS),
             args: B(BLOCKTRANS_ARGS),
+            opaque: false,
         },
     ),
     // TODO: GET_AVAILABLE_LANGAUGES_SPEC
@@ -654,6 +680,7 @@ const TRANS_SPEC: TagSpec = TagSpec {
             kind: LiteralKind::Literal,
         },
     ]),
+    opaque: false,
 };
 
 const L10N_MOD: &str = "django.templatetags.l10n";
@@ -672,6 +699,7 @@ static L10N_PAIRS: &[(&str, &TagSpec)] = &[(
             required: false,
             choices: B(&[B("on"), B("off")]),
         }]),
+            opaque: false,
     },
 )];
 
@@ -689,6 +717,7 @@ static STATIC_PAIRS: &[(&str, &TagSpec)] = &[
                 name: B("path"),
                 required: true,
             }]),
+            opaque: false,
         },
     ),
 ];
@@ -711,6 +740,7 @@ static TZ_PAIRS: &[(&str, &TagSpec)] = &[
                 required: false,
                 choices: B(&[B("on"), B("off")]),
             }]),
+            opaque: false,
         },
     ),
     (
@@ -728,6 +758,7 @@ static TZ_PAIRS: &[(&str, &TagSpec)] = &[
                 required: true,
                 count: TokenCount::Exact(1),
             }]),
+            opaque: false,
         },
     ),
 ];

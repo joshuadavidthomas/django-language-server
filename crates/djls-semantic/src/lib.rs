@@ -3,6 +3,7 @@ mod blocks;
 mod db;
 mod errors;
 mod load_resolution;
+mod opaque;
 mod primitives;
 mod resolution;
 mod semantic;
@@ -11,6 +12,8 @@ mod traits;
 
 use arguments::validate_all_tag_arguments;
 pub use blocks::build_block_tree;
+use opaque::compute_opaque_regions;
+pub use opaque::OpaqueRegions;
 pub use blocks::TagIndex;
 pub use db::Db;
 pub use db::ValidationErrorAccumulator;
@@ -58,7 +61,8 @@ pub fn validate_nodelist(db: &dyn Db, nodelist: djls_templates::NodeList<'_>) {
 
     let block_tree = build_block_tree(db, nodelist);
     let _forest = build_semantic_forest(db, block_tree, nodelist);
-    validate_all_tag_arguments(db, nodelist);
-    validate_tag_scoping(db, nodelist);
-    validate_filter_scoping(db, nodelist);
+    let opaque_regions = compute_opaque_regions(db, nodelist);
+    validate_all_tag_arguments(db, nodelist, &opaque_regions);
+    validate_tag_scoping(db, nodelist, &opaque_regions);
+    validate_filter_scoping(db, nodelist, &opaque_regions);
 }
