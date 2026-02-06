@@ -5,6 +5,8 @@ mod blocks;
 #[cfg(feature = "parser")]
 mod context;
 #[cfg(feature = "parser")]
+mod filters;
+#[cfg(feature = "parser")]
 mod registry;
 #[cfg(feature = "parser")]
 mod rules;
@@ -13,6 +15,12 @@ mod rules;
 pub use blocks::extract_block_spec;
 #[cfg(feature = "parser")]
 pub use context::detect_split_var;
+#[cfg(feature = "parser")]
+pub use filters::extract_filter_arity;
+#[cfg(feature = "parser")]
+pub use filters::has_is_safe;
+#[cfg(feature = "parser")]
+pub use filters::has_stringfilter_decorator;
 #[cfg(feature = "parser")]
 pub use registry::collect_registrations;
 #[cfg(feature = "parser")]

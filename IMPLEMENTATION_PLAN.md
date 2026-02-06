@@ -272,12 +272,12 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ### Phase 6: Filter Arity Extraction
 
-- [ ] Implement `extract_filter_arity(func_def: &StmtFunctionDef) -> FilterArity` that inspects function signature
-- [ ] Determine required arg count (exclude `self` and the value parameter — first positional after `self` if method, or first positional if function)
-- [ ] Detect optional arguments (has default value) → `FilterArity { expects_arg: bool, arg_optional: bool }`
-- [ ] Handle `@stringfilter` and `@register.filter(is_safe=True)` decorator kwargs (informational, not arity-changing)
-- [ ] Tests: no-arg filter (`{{ value|title }}`), required-arg filter (`{{ value|default:"nothing" }}`), optional-arg filter, method-style filters
-- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Implement `extract_filter_arity(func_def: &StmtFunctionDef) -> FilterArity` that inspects function signature
+- [x] Determine required arg count (exclude `self` and the value parameter — first positional after `self` if method, or first positional if function)
+- [x] Detect optional arguments (has default value) → `FilterArity { expects_arg: bool, arg_optional: bool }`
+- [x] Handle `@stringfilter` and `@register.filter(is_safe=True)` decorator kwargs (informational, not arity-changing)
+- [x] Tests: no-arg filter (`{{ value|title }}`), required-arg filter (`{{ value|default:"nothing" }}`), optional-arg filter, method-style filters
+- [x] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 7: Salsa Integration
 
