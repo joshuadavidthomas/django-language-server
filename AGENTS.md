@@ -44,9 +44,7 @@ just lint                       # Run pre-commit hooks
 Use `/dex` to break down complex work, track progress across sessions, and coordinate multi-step implementations.
 
 ## Code Editing
-- `edit` tool requires exact text match including all whitespace and newlines
-- When modifying complex files, read the exact section first to ensure whitespace matches
-- Prefer smaller, surgical edits over large replacements to avoid matching errors
+- See "Edit Tool Patterns" section below for detailed guidance
 
 ## Completion Implementation Notes
 - Library completions (`{% load %}`) use `tags.libraries()` HashMap, not all tags - builtins are excluded
@@ -85,9 +83,30 @@ Use `/dex` to break down complex work, track progress across sessions, and coord
 
 ## Documentation Style
 - Use backticks for all code items in doc comments (clippy: `doc_markdown`)
-- Intra-doc links must use backticks: ``[`TagSpecs`]`` not `['TagSpecs']`
+- Intra-doc links must use backticks: ``[`TagSpecs`]`` not `['TagSpecs']` (clippy flags quote-style links)
 - Mark test-only methods with `#[cfg(test)]` to avoid "never used" warnings
 
 ## Dependency Management
 - When using `djls_project::` types in a new crate, add `djls-project = { workspace = true }` to Cargo.toml
 - When new crate uses both `djls-semantic` and `djls-project`, add both dependencies
+
+## Edit Tool Patterns
+- The `edit` tool requires EXACT text match including all whitespace, newlines, and indentation
+- When modifying complex files, ALWAYS read the exact section first to ensure whitespace matches
+- If edit fails with "2 occurrences", narrow the context to make the match unique
+- Prefer smaller, surgical edits over large replacements to avoid matching errors
+
+## Clippy Patterns to Avoid
+- Functions with >7 arguments trigger `clippy::too_many_arguments` - consider struct bundling
+- Missing backticks in doc comments trigger `clippy::doc_markdown`
+- Quote-style intra-doc links `['Type']` trigger warnings - use backticks ``[`Type`]``
+
+## Common Compile Error Patterns
+- E0046 "not all trait items implemented": Add missing method to ALL test databases immediately
+- E0061 "wrong number of arguments": Update ALL callers when changing fn signatures
+- E0603 "module is private": Use public re-exports from crate root, not internal modules
+- E0433 "unresolved module": Add dependency to Cargo.toml with `workspace = true`
+
+## Navigation Reminders
+- This is a worktree - files like AGENTS.md are in the worktree root (`worktrees/detailed-kimi-k2.5/`), not the main repo root
+- Read files from the current worktree path, not parent directories
