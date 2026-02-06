@@ -95,7 +95,8 @@ class TemplateTagQueryData:
 @dataclass
 class TemplateTag:
     name: str
-    module: str
+    provenance: dict[str, dict[str, str]]
+    defining_module: str
     doc: str | None
 
 
