@@ -5,7 +5,7 @@
 - [x] **Phase 1**: Corpus Crate — copy `djls-corpus`, add workspace deps, port corpus extraction tests, adapt `extract_rules` calls
 - [x] **Phase 2**: Module Resolution — copy `resolve.rs` to `djls-project`, move `build_search_paths`/`find_site_packages`, export types
 - [x] **Phase 3**: Workspace/External Partitioning — update `Project` salsa input, add `collect_workspace_extraction_results`, update compute queries and `refresh_inspector`
-- [ ] **Phase 4**: Corpus Template Validation Tests — port integration tests from `djls-server/tests/corpus_templates.rs`
+- [x] **Phase 4**: Corpus Template Validation Tests — port integration tests from `djls-server/tests/corpus_templates.rs`
 - [ ] **Phase 5**: AGENTS.md Refresh — update with new file locations, updated field docs, operational notes
 
 ## Notes
@@ -54,3 +54,20 @@
 - **`refresh_inspector` updated** — `unwrap_or_default()` for the extraction result instead of wrapping in `Option`
 - No `sys_path` field added to Project — search paths derived at call sites from `interpreter`/`root`/`pythonpath` via `build_search_paths()`
 - Key difference from detailed-opus: no `FileKind` check needed (intent-opus `File` doesn't have kinds), and `extract_rules()` takes 2 args (source, module_path)
+
+### Phase 4
+- Created `crates/djls-server/tests/corpus_templates.rs` with 3 integration tests:
+  - `test_django_shipped_templates_zero_false_positives` — validates Django's own templates against extracted rules
+  - `test_third_party_templates_zero_arg_false_positives` — validates third-party package templates
+  - `test_repo_templates_zero_arg_false_positives` — validates repo templates (Sentry, NetBox)
+- Adapted from detailed-opus with key differences:
+  - `CorpusTestDatabase` takes `(TagSpecs, FilterAritySpecs)` — intent-opus needs both for filter arity validation
+  - No `OpaqueTagMap` method needed — intent-opus computes `OpaqueRegions` inside `validate_nodelist`
+  - `extract_rules(source, module_path)` — two args (intent-opus API)
+  - `TagSpecs::merge_extraction_results(&ExtractionResult)` — direct merge (no `merge_extracted_rules` per-tag)
+  - Uses `FilterAritySpecs::merge_extraction_result()` to populate filter arity specs
+  - Template files use `.html` fake path for `parse_template` (requires `FileKind::Template`)
+  - Filters validation errors to S114/S115/S116/S117 (argument validation false positives)
+- Added dev-dependencies to `djls-server/Cargo.toml`: `djls-corpus`, `djls-extraction`, `djls-semantic`, etc., plus `salsa` and `walkdir`
+- Tests skip gracefully when corpus not synced (check dir existence, return early with eprintln message)
+- Run with: `cargo test -p djls-server --test corpus_templates -- --nocapture`

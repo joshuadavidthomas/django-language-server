@@ -31,7 +31,17 @@ tracing-subscriber = { workspace = true }
 toml = { workspace = true }
 
 [dev-dependencies]
+djls-conf = { workspace = true }
+djls-corpus = { workspace = true }
+djls-extraction = { workspace = true, features = ["parser"] }
+djls-project = { workspace = true }
+djls-semantic = { workspace = true }
+djls-source = { workspace = true }
+djls-templates = { workspace = true }
+djls-workspace = { workspace = true }
+salsa = { workspace = true }
 tempfile = { workspace = true }
+walkdir = { workspace = true }
 
 [lints]
 workspace = true

@@ -723,6 +723,7 @@ dependencies = [
  "camino",
  "dashmap",
  "djls-conf",
+ "djls-corpus",
  "djls-extraction",
  "djls-ide",
  "djls-project",
@@ -742,6 +743,7 @@ dependencies = [
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
+ "walkdir",
 ]
 
 [[package]]
