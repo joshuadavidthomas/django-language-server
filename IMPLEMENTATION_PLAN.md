@@ -17,8 +17,8 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 - [x] Update `TemplateTag` dataclass to add `provenance` (externally-tagged dict) and `defining_module` fields
 - [x] Update `TemplateTagQueryData` to add top-level `libraries: dict[str, str]` and `builtins: list[str]`
 - [x] Rewrite `get_installed_templatetags()` to iterate `engine.template_builtins` with `Builtin` provenance
-- [ ] Rewrite `get_installed_templatetags()` to iterate `engine.libraries.items()` preserving load-name keys with `Library` provenance
-- [ ] Verify `cargo build -q` passes (build.rs rebuilds pyz)
+- [x] Rewrite `get_installed_templatetags()` to iterate `engine.libraries.items()` preserving load-name keys with `Library` provenance
+- [x] Verify `cargo build -q` passes (build.rs rebuilds pyz)
 
 ### Phase 2: Rust Type Updates
 

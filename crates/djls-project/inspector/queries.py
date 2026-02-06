@@ -134,19 +134,34 @@ def get_installed_templatetags() -> TemplateTagQueryData:
                     )
                 )
 
-    for lib_module in engine.libraries.values():
-        library = import_library(lib_module)
+    # Collect library tags: engine.libraries maps load-name -> module path.
+    # Use .items() to preserve the load-name key for each library.
+    lib_registry: dict[str, str] = {}
+    for load_name, lib_module in engine.libraries.items():
+        lib_registry[load_name] = lib_module
+        try:
+            library = import_library(lib_module)
+        except Exception:
+            continue
         if library and library.tags:
             for tag_name, tag_func in library.tags.items():
                 templatetags.append(
                     TemplateTag(
-                        name=tag_name, module=tag_func.__module__, doc=tag_func.__doc__
+                        name=tag_name,
+                        provenance={
+                            "library": {
+                                "load_name": load_name,
+                                "module": lib_module,
+                            }
+                        },
+                        defining_module=tag_func.__module__,
+                        doc=tag_func.__doc__,
                     )
                 )
 
     return TemplateTagQueryData(
         templatetags=templatetags,
-        libraries={},
+        libraries=lib_registry,
         builtins=builtin_modules,
     )
 
