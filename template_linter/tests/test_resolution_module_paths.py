@@ -45,4 +45,3 @@ def test_build_runtime_environment_does_not_import_packages(tmp_path: Path) -> N
     )
     assert idx.libraries == {}
     assert builtins_bundle.rules == {}
-

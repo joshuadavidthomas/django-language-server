@@ -90,4 +90,3 @@ def test_known_invalid_sentry_onboarding_template_fails_strict(
         e.tag.name == "onboarding_link" and "Unknown tag 'onboarding_link'" in e.message
         for e in errors
     ), "Expected the template to fail due to `{% onboarding_link %}` being an unknown tag."
-

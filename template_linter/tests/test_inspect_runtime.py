@@ -30,4 +30,3 @@ def test_inspect_engine_matches_default_engine() -> None:
     # A couple of stable defaults (these are Django's standard loadable libs).
     assert out.libraries["static"] == "django.templatetags.static"
     assert out.libraries["i18n"] == "django.templatetags.i18n"
-

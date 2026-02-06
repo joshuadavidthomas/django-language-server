@@ -30,4 +30,3 @@ def test_build_runtime_environment_resolves_modules_from_extra_sys_path(
 
     assert not builtins.rules
     assert idx.candidates("foo")
-

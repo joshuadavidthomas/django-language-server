@@ -83,7 +83,7 @@ flowchart TB
         ExternalExt["project.extracted_external_rules(db)"]
         WorkspaceExt --> ComputeSpecs
         ExternalExt --> ComputeSpecs
-        
+
         subgraph ComputeSpecs["Tracked Queries"]
             TagSpecs["compute_tag_specs(db, project) → TagSpecs (with opaque)"]
             AritySpecs["compute_filter_arity_specs(db, project) → FilterAritySpecs"]
@@ -103,7 +103,7 @@ flowchart TB
         direction TB
         OpaqueRegions["compute_opaque_regions(db, nodelist) → OpaqueRegions"]
         IfValidation["validate_if_expressions(db, nodelist, opaque)"]
-        
+
         subgraph ArityValidation["validate_filter_arity(db, nodelist, opaque)"]
             direction TB
             BuildState["build_load_state_at() → LoadState (M3/M4 pattern)"]
@@ -111,13 +111,13 @@ flowchart TB
             LibraryCheck["state.is_tag_available() for library filters"]
             BuiltinTiebreak["builtin tie-break: last in builtins() wins"]
             ArityLookup["filter_arity_specs.get(key)"]
-            
+
             BuildState --> ResolveSymbol
             ResolveSymbol --> LibraryCheck
             ResolveSymbol --> BuiltinTiebreak
             ResolveSymbol --> ArityLookup
         end
-        
+
         OpaqueRegions --> IfValidation
         OpaqueRegions --> ArityValidation
     end

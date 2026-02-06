@@ -28,4 +28,3 @@ def test_implicit_block_prevents_else_misattribution() -> None:
     ]
     errors = _validate_block_structure(tags, specs)
     assert errors == []
-

@@ -22,4 +22,3 @@ def apply_legacy_unrestricted_tag_stubs(
     for name in LEGACY_UNRESTRICTED_TAGS:
         rules.setdefault(name, TagValidation(tag_name=name, unrestricted=True))
     return rules
-

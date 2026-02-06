@@ -10,4 +10,3 @@ def test_django_bundle_includes_legacy_ifequal_stubs(django_root: Path) -> None:
     for name in ("ifequal", "ifnotequal", "endifequal", "endifnotequal"):
         assert name in bundle.rules
         assert bundle.rules[name].unrestricted is True
-

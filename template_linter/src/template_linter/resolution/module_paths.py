@@ -65,4 +65,3 @@ def resolve_module_to_path(
         if pkg_init.exists() and pkg_init.is_file():
             return pkg_init
     return None
-

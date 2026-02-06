@@ -34,7 +34,7 @@ After M7:
    - What djls validates vs what Django validates at runtime
    - Inspector inventory vs Rust extraction (high-level)
    - "Inspector unavailable" behavior and its effects
-   
+
 2. **Updated diagnostic codes** in `docs/configuration/index.md`:
    - S100-S116 grouped by milestone bands
    - Each code with meaning, typical fix, and suppression rules
@@ -493,7 +493,7 @@ body:
         If djls produces no diagnostic but should, describe what's missing.
       placeholder: |
         S105: Too many arguments for tag 'trans'
-        
+
         Or: No diagnostic produced (expected S109 for unloaded library)
     validations:
       required: true
@@ -556,7 +556,7 @@ body:
     attributes:
       label: Server Logs (Inspector Initialization)
       description: |
-        With `debug = true` in your config, include the server startup logs 
+        With `debug = true` in your config, include the server startup logs
         around inspector/Django initialization. This helps diagnose inspector issues.
       placeholder: |
         [DEBUG] Starting Django Language Server...
@@ -595,7 +595,7 @@ body:
       placeholder: |
         [tagspecs]
         version = "0.6.0"
-        
+
         [[tagspecs.libraries]]
         module = "myapp.templatetags.custom"
         ...
