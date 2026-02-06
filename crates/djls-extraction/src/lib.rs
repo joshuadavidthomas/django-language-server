@@ -1,12 +1,16 @@
 mod types;
 
 #[cfg(feature = "parser")]
+mod blocks;
+#[cfg(feature = "parser")]
 mod context;
 #[cfg(feature = "parser")]
 mod registry;
 #[cfg(feature = "parser")]
 mod rules;
 
+#[cfg(feature = "parser")]
+pub use blocks::extract_block_spec;
 #[cfg(feature = "parser")]
 pub use context::detect_split_var;
 #[cfg(feature = "parser")]

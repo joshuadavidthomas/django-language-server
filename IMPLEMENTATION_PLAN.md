@@ -260,15 +260,15 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ### Phase 5: Block Spec Extraction (Control-Flow Based)
 
-- [ ] Implement `extract_block_spec(func_body: &[Stmt]) -> Option<BlockTagSpec>` that finds `parser.parse((...))` calls with tuple arguments containing stop-token strings
-- [ ] Determine end-tag vs intermediate: if a stop-token leads to another `parser.parse()` call → intermediate; if it leads to return/node construction → terminal (end-tag)
-- [ ] Handle dynamic end-tag patterns like `f"end{tag_name}"` (best-effort extraction)
-- [ ] Detect opaque blocks: `parser.skip_past(...)` patterns → content should not be parsed
-- [ ] **Non-negotiable**: infer closers from control flow only — NEVER from `end*` string prefix matching
-- [ ] **Non-negotiable**: return `None` for `end_tag` when inference is ambiguous (multiple candidates, unclear control flow)
-- [ ] **Tie-breaker only**: `end{tag_name}` Django convention used ONLY to select among candidates already found via control flow, never invented from thin air
-- [ ] Tests: simple end-tag (`{% for %}...{% endfor %}`), intermediates (`{% if %}...{% else %}...{% endif %}`), opaque block (verbatim-like), non-conventional closer names found correctly, ambiguous → None, dynamic `f"end{name}"`, multiple parser.parse() chains
-- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Implement `extract_block_spec(func_body: &[Stmt]) -> Option<BlockTagSpec>` that finds `parser.parse((...))` calls with tuple arguments containing stop-token strings
+- [x] Determine end-tag vs intermediate: if a stop-token leads to another `parser.parse()` call → intermediate; if it leads to return/node construction → terminal (end-tag)
+- [x] Handle dynamic end-tag patterns like `f"end{tag_name}"` (best-effort extraction)
+- [x] Detect opaque blocks: `parser.skip_past(...)` patterns → content should not be parsed
+- [x] **Non-negotiable**: infer closers from control flow only — NEVER from `end*` string prefix matching
+- [x] **Non-negotiable**: return `None` for `end_tag` when inference is ambiguous (multiple candidates, unclear control flow)
+- [x] **Tie-breaker only**: `end{tag_name}` Django convention used ONLY to select among candidates already found via control flow, never invented from thin air
+- [x] Tests: simple end-tag (`{% for %}...{% endfor %}`), intermediates (`{% if %}...{% else %}...{% endif %}`), opaque block (verbatim-like), non-conventional closer names found correctly, ambiguous → None, dynamic `f"end{name}"`, multiple parser.parse() chains
+- [x] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 6: Filter Arity Extraction
 
@@ -340,3 +340,4 @@ _Tasks to be expanded when M6 is complete._
 - **M4 Phase 2**: `Node::Variable.filters` changed from `Vec<String>` to `Vec<Filter>`. `split_variable_expression()` handles quote-aware pipe splitting. `parse_filter()` splits name from arg at first unquoted colon. Affected: `nodelist.rs`, `parser.rs`, `blocks/tree.rs` (NodeView), `context.rs` (OffsetContext), 4 snapshots. `blocks/builder.rs` unaffected (uses `..` wildcard).
 - **M5 Phase 1**: Ruff 0.15.0 (SHA `0dfa810e9aad9a465596768b0211c31dd41d3e73`) used for `ruff_python_parser` and `ruff_python_ast`. API: `ruff_python_parser::parse_module(source)` returns `Result<Parsed<ModModule>, ParseError>`. Use `.into_syntax()` on parsed result to get the `ModModule` AST. Feature gate `parser` keeps ruff deps optional for types-only consumers.
 - **M5 Phase 4**: Ruff's `Parameters` struct does NOT have a `defaults` field like Python's `ast.arguments`. Instead, defaults are per-parameter: `ParameterWithDefault { parameter, default: Option<Box<Expr>> }`. Also `StmtWhile.test` is `Box<Expr>` so dereference with `&*while_stmt.test` when pattern matching. `extract_tag_rule()` dispatches to `extract_compile_function_rule()` for `@register.tag` (uses split_contents guards) vs `extract_parse_bits_rule()` for `@register.simple_tag` / `@register.inclusion_tag` (uses function signature analysis).
+- **M5 Phase 5**: Block spec extraction in `blocks.rs`. Classification strategy: (1) Collect all `parser.parse((...))` stop-tokens, (2) Use control flow (if/elif/else/while branches) to classify — tokens leading to another `parser.parse()` → intermediate, others → end-tag. (3) Tokens not classified as intermediate default to end-tag candidates. (4) `end*` convention used ONLY as tie-breaker for single-call multi-token ambiguity. Also handles `parser.skip_past("endverbatim")` → opaque block, and `parser.parse((f"end{tag_name}",))` → dynamic end-tag (returns `end_tag: None`). Ruff's `FStringValue` uses `.iter()` not `.parts()` to iterate over `FStringPart` values. `ExceptHandler::ExceptHandler` is irrefutable — use `let` not `if let`. `startswith` pattern (`while token.contents.startswith("elif"):`) needed dedicated detection separate from `==` comparison detection.
