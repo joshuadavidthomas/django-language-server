@@ -241,7 +241,8 @@ mod tests {
         }
 
         fn tag_index(&self) -> TagIndex<'_> {
-            TagIndex::from_specs(self)
+            let specs = self.tag_specs();
+            TagIndex::from_specs(self, &specs)
         }
 
         fn template_dirs(&self) -> Option<Vec<Utf8PathBuf>> {

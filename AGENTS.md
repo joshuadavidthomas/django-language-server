@@ -51,3 +51,8 @@ Use `/dex` to break down complex work, track progress across sessions, and coord
 
 ## Project Bootstrap
 - `Project::bootstrap()` takes 6 arguments: `db`, `root`, `venv_path`, `django_settings_module`, `pythonpath`, AND `settings` — when adding new Project fields, update all callers (e.g., `djls-server/src/db.rs:144`)
+
+## Salsa Tracked Functions
+- Return types must implement `PartialEq` (Salsa requirement for memoization)
+- Salsa tracked functions should use `&dyn SemanticDb` (not `&dyn salsa::Database`) for proper trait bounds
+- To establish proper Salsa dependencies, pass data as parameters rather than querying internally — e.g., `TagIndex::from_specs(db, &specs)` instead of having `from_specs` call `db.tag_specs()` internally

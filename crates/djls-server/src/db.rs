@@ -19,6 +19,7 @@ use djls_project::TemplateTags;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::TagIndex;
 use djls_semantic::TagSpecs;
+use djls_semantic::django_builtin_specs;
 use djls_source::Db as SourceDb;
 use djls_source::File;
 use djls_source::FxDashMap;
@@ -26,6 +27,46 @@ use djls_templates::Db as TemplateDb;
 use djls_workspace::Db as WorkspaceDb;
 use djls_workspace::FileSystem;
 use salsa::Setter;
+
+/// Compute tag specifications from all sources.
+///
+/// This tracked query:
+/// 1. Reads `Project.inspector_inventory` and `Project.tagspecs` (Salsa dependencies)
+/// 2. Starts with `django_builtin_specs()` (compile-time constant)
+/// 3. Converts `Project.tagspecs` (`TagSpecDef`) → `TagSpecs` and merges
+///
+/// **IMPORTANT**: This function does NOT read from `Arc<Mutex<Settings>>`.
+/// All config must come through Project fields.
+#[salsa::tracked]
+pub fn compute_tag_specs(db: &dyn SemanticDb, project: Project) -> TagSpecs {
+    // Read Salsa-tracked fields to establish dependencies
+    let _inventory = project.inspector_inventory(db);
+    let tagspecs_def = project.tagspecs(db);
+
+    // Start with Django builtins (compile-time constant)
+    let mut specs = django_builtin_specs();
+
+    // TODO (M3+): Merge inspector inventory for load scoping
+    // if let Some(tags) = _inventory {
+    //     specs.merge_from_inventory(&tags);
+    // }
+
+    // Convert config doc to TagSpecs and merge
+    // This does NOT include builtins - that's why we start with django_builtin_specs()
+    let user_specs = TagSpecs::from_config_def(tagspecs_def);
+    specs.merge(user_specs);
+
+    tracing::trace!("Computed tag specs: {} tags", specs.len());
+
+    specs
+}
+
+/// Build the tag index from computed tag specs.
+#[salsa::tracked]
+pub fn compute_tag_index(db: &dyn SemanticDb, project: Project) -> TagIndex<'_> {
+    let specs = compute_tag_specs(db, project);
+    TagIndex::from_specs(db, &specs)
+}
 
 /// Concrete Salsa database for the Django Language Server.
 ///
@@ -115,6 +156,7 @@ impl DjangoDatabase {
         db
     }
 
+    #[allow(dead_code)]
     fn settings(&self) -> Settings {
         self.settings.lock().unwrap().clone()
     }
@@ -283,11 +325,20 @@ impl TemplateDb for DjangoDatabase {}
 #[salsa::db]
 impl SemanticDb for DjangoDatabase {
     fn tag_specs(&self) -> TagSpecs {
-        TagSpecs::from(&self.settings())
+        if let Some(project) = self.project() {
+            compute_tag_specs(self, project)
+        } else {
+            django_builtin_specs()
+        }
     }
 
     fn tag_index(&self) -> TagIndex<'_> {
-        TagIndex::from_specs(self)
+        if let Some(project) = self.project() {
+            compute_tag_index(self, project)
+        } else {
+            let specs = django_builtin_specs();
+            TagIndex::from_specs(self, &specs)
+        }
     }
 
     fn template_dirs(&self) -> Option<Vec<Utf8PathBuf>> {
@@ -299,7 +350,11 @@ impl SemanticDb for DjangoDatabase {
     }
 
     fn diagnostics_config(&self) -> djls_conf::DiagnosticsConfig {
-        self.settings().diagnostics().clone()
+        if let Some(project) = self.project() {
+            project.diagnostics(self).clone()
+        } else {
+            djls_conf::DiagnosticsConfig::default()
+        }
     }
 }
 

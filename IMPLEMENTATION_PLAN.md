@@ -164,20 +164,42 @@ Add methods to `DjangoDatabase` that update Project fields **only when values ac
 
 ### Phase 3: Make tag_specs a Tracked Query
 
-**Status:** 🔲 Not Started
+**Status:** ✅ Complete
 
 Add `compute_tag_specs()` as a tracked query that reads only from Salsa-tracked Project fields.
 
-**Tasks:**
-- [ ] Add `TagSpecs::from_config_def()` conversion method in `djls-semantic`
-- [ ] Add `#[salsa::tracked] fn compute_tag_specs()` in `djls-server/src/db.rs`
-- [ ] Add `#[salsa::tracked] fn compute_tag_index()` in `djls-server/src/db.rs`
-- [ ] Update `SemanticDb` implementation to delegate to tracked queries
+**Changes:**
+- Added `TagSpecs::from_config_def()` conversion method in `crates/djls-semantic/src/templatetags/specs.rs`
+  - Converts `TagSpecDef` config document to `TagSpecs` semantic artifact
+  - Uses existing `(TagDef, String) -> TagSpec` conversion logic
+- Added `#[salsa::tracked] fn compute_tag_specs()` in `crates/djls-server/src/db.rs`
+  - Reads `project.inspector_inventory(db)` and `project.tagspecs(db)` to establish Salsa dependencies
+  - Starts with `django_builtin_specs()` compile-time constant
+  - Merges user specs from config via `TagSpecs::from_config_def()`
+- Added `#[salsa::tracked] fn compute_tag_index()` in `crates/djls-server/src/db.rs`
+  - Depends on `compute_tag_specs()` for automatic invalidation cascade
+  - Updated `TagIndex::from_specs()` to accept specs as parameter (not call `db.tag_specs()`)
+- Updated `SemanticDb` implementation to delegate to tracked queries
+  - `tag_specs()` now calls `compute_tag_specs(self, project)` when project exists
+  - `tag_index()` now calls `compute_tag_index(self, project)` when project exists
+  - Falls back to builtins when no project
+- Added `PartialEq` impl for `TagSpecs` (required for Salsa tracked function returns)
+- Updated all callers of `TagIndex::from_specs()` to pass specs parameter:
+  - `djls-server/src/db.rs` (compute_tag_index)
+  - `djls-bench/src/db.rs` (SemanticDb impl)
+  - `djls-semantic/src/arguments.rs` (test impl)
+  - `djls-semantic/src/blocks/tree.rs` (test impl)
+  - `djls-semantic/src/semantic/forest.rs` (test impl)
 
 **Quality Checks:**
-- [ ] `cargo build` passes
-- [ ] `cargo clippy --all-targets -- -D warnings` passes
-- [ ] `cargo test` passes
+- [x] `cargo build` passes
+- [x] `cargo clippy --all-targets -- -D warnings` passes
+- [x] `cargo test` passes (220 tests)
+
+**Discoveries:**
+- Salsa tracked functions require return types to implement `PartialEq`
+- `TagIndex::from_specs()` needed signature change to accept specs as parameter rather than querying db internally - this allows tracked queries to properly establish Salsa dependencies
+- `FxHashMap` doesn't have built-in `PartialEq`, so manual implementation required for `TagSpecs`
 
 ### Phase 4: Invalidation Tests with Event Capture
 

@@ -63,6 +63,15 @@ impl TagType {
 #[derive(Clone, Debug, Default)]
 pub struct TagSpecs(FxHashMap<String, TagSpec>);
 
+impl PartialEq for TagSpecs {
+    fn eq(&self, other: &Self) -> bool {
+        if self.0.len() != other.0.len() {
+            return false;
+        }
+        self.0.iter().all(|(k, v)| other.0.get(k) == Some(v))
+    }
+}
+
 impl TagSpecs {
     #[must_use]
     pub fn new(specs: FxHashMap<String, TagSpec>) -> Self {
@@ -183,6 +192,27 @@ impl IntoIterator for TagSpecs {
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
+    }
+}
+
+impl TagSpecs {
+    /// Convert config document (`TagSpecDef`) to semantic `TagSpecs`.
+    ///
+    /// This is used by `compute_tag_specs()` to convert the Project's
+    /// config document into the derived semantic artifact.
+    #[must_use]
+    pub fn from_config_def(def: &djls_conf::TagSpecDef) -> Self {
+        let mut user_specs = FxHashMap::default();
+
+        for library in &def.libraries {
+            for tag_def in &library.tags {
+                let name = tag_def.name.clone();
+                let tagspec: TagSpec = (tag_def.clone(), library.module.clone()).into();
+                user_specs.insert(name, tagspec);
+            }
+        }
+
+        TagSpecs::new(user_specs)
     }
 }
 

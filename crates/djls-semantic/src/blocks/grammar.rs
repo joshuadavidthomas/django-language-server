@@ -113,13 +113,18 @@ impl<'db> TagIndex<'db> {
             .get(inter_name)
             .is_some_and(|openers| openers.iter().any(|o| o == opener_name))
     }
+
+    /// Build `TagIndex` from `TagSpecs`.
+    ///
+    /// This method takes specs as a parameter rather than calling `db.tag_specs()`
+    /// to allow tracked queries to properly establish Salsa dependencies.
     #[must_use]
-    pub fn from_specs(db: &'db dyn crate::Db) -> Self {
+    pub fn from_specs(db: &'db dyn crate::Db, specs: &crate::TagSpecs) -> Self {
         let mut openers = FxHashMap::default();
         let mut closers = FxHashMap::default();
         let mut intermediate_to_openers: FxHashMap<String, Vec<String>> = FxHashMap::default();
 
-        for (name, spec) in db.tag_specs() {
+        for (name, spec) in specs {
             if let Some(end_tag) = &spec.end_tag {
                 let match_args = end_tag
                     .args
