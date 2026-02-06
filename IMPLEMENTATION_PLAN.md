@@ -155,10 +155,81 @@
 
 ## M4 - Filters Pipeline
 
-**Status:** backlog
+**Status:** in-progress
 **Plan:** `.agents/plans/2026-02-05-m4-filters-pipeline.md` (overview), phases in `m4.1` through `m4.4`
 
-_Tasks to be expanded when M3 is complete._
+### Phase 1: Inspector Filter Inventory and Unified Types
+
+**Goal:** Add filter collection to Python inspector, create unified `InspectorInventory` type replacing `TemplateTags`, update Project input and refresh_inspector.
+
+- [ ] Add `TemplateFilter` dataclass in `crates/djls-project/inspector/queries.py` with `name`, `provenance`, `defining_module`, `doc` fields
+- [ ] Add `TemplateInventoryQueryData` dataclass with `libraries`, `builtins`, `templatetags`, `templatefilters` fields
+- [ ] Add `TEMPLATE_INVENTORY = "template_inventory"` to `Query` enum in `queries.py`
+- [ ] Implement `get_template_inventory()` — iterate both `library.tags` and `library.filters` for builtins and libraries, return unified payload
+- [ ] Wire `TEMPLATE_INVENTORY` query to `get_template_inventory()` in the query dispatch
+- [ ] Add `FilterProvenance` enum in `crates/djls-project/src/django.rs` (mirrors `TagProvenance`: `Library { load_name, module }` / `Builtin { module }`)
+- [ ] Add `TemplateFilter` struct in `crates/djls-project/src/django.rs` with accessors: `name()`, `provenance()`, `defining_module()`, `doc()`, `library_load_name()`, `is_builtin()`, `registration_module()`
+- [ ] Add `InspectorInventory` struct in `crates/djls-project/src/django.rs` with `libraries`, `builtins`, `tags`, `filters` fields and accessors
+- [ ] Add `TemplateInventoryRequest` / `TemplateInventoryResponse` types in `crates/djls-project/src/django.rs`
+- [ ] Change `Project.inspector_inventory` field type from `Option<TemplateTags>` to `Option<InspectorInventory>` in `crates/djls-project/src/project.rs`
+- [ ] Update `Project::bootstrap()` to pass `None` for the new type
+- [ ] Export `FilterProvenance`, `TemplateFilter`, `InspectorInventory`, `TemplateInventoryRequest`, `TemplateInventoryResponse` from `crates/djls-project/src/lib.rs`
+- [ ] Update `SemanticDb::inspector_inventory()` trait method return type to `Option<InspectorInventory>` in `crates/djls-semantic/src/db.rs`
+- [ ] Update `DjangoDatabase::inspector_inventory()` impl in `crates/djls-server/src/db.rs` to return `InspectorInventory`
+- [ ] Update `refresh_inspector()` in `crates/djls-server/src/db.rs` to use `TemplateInventoryRequest` and build `InspectorInventory`
+- [ ] Update `compute_tag_specs()` to read tags from `InspectorInventory` instead of `TemplateTags`
+- [ ] Update all test `inspector_inventory()` impls (bench db, 3 semantic test databases) to return `Option<InspectorInventory>`
+- [ ] Update all M3 code in `load_resolution.rs` that reads from `TemplateTags` to use `InspectorInventory` instead
+- [ ] Update completions code in `djls-ide` that passes tag inventory — adapt to unified `InspectorInventory`
+- [ ] Update server completion call site to pass `InspectorInventory`
+- [ ] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 2: Structured Filter Representation (Parser Breakpoint)
+
+**Goal:** Transform `filters: Vec<String>` → `Vec<Filter>` with name/arg/span in the parser, updating all downstream consumers.
+
+- [ ] Add `Filter` and `FilterArg` structs in `crates/djls-templates/src/nodelist.rs` with `name`, `arg`, `span` fields
+- [ ] Change `Node::Variable { filters: Vec<String> }` to `Node::Variable { filters: Vec<Filter> }` in `crates/djls-templates/src/nodelist.rs`
+- [ ] Implement quote-aware `VariableScanner` in `crates/djls-templates/src/parser.rs` — handles `|` inside quotes, escape sequences, whitespace
+- [ ] Rewrite `parse_variable()` to use `VariableScanner` producing `Vec<Filter>` with byte-accurate spans
+- [ ] Export `Filter` and `FilterArg` from `crates/djls-templates/src/lib.rs`
+- [ ] Update `NodeView::Variable` in `crates/djls-semantic/src/blocks/tree.rs` to use `Vec<djls_templates::Filter>`
+- [ ] Update pattern matches in `crates/djls-semantic/src/blocks/builder.rs`
+- [ ] Update `OffsetContext::Variable` in `crates/djls-ide/src/context.rs` to use `Vec<djls_templates::Filter>`
+- [ ] Update `TestNode::Variable` and `convert_nodelist_for_testing` in parser tests to serialize structured filters
+- [ ] Update all existing snapshot files affected by the filter format change
+- [ ] Add parser tests: pipe inside double quotes, pipe inside single quotes, colon inside quotes, whitespace around pipes, no whitespace, trailing pipe, empty between pipes, filter span accuracy, variable arg, numeric arg, complex chain
+- [ ] Add parser tests for escape sequences: escaped quote in double quotes, escaped quote in single quotes, escaped backslash, escaped pipe in quotes
+- [ ] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 3: Filter Completions
+
+**Goal:** Show filter completions in `{{ var|` context, scoped by `{% load %}` state.
+
+- [ ] Add `VariableClosingBrace` enum to `crates/djls-ide/src/completions.rs` (`None`/`Partial`/`Full`)
+- [ ] Update `TemplateCompletionContext::Filter` variant to include `partial: String` and `closing: VariableClosingBrace`
+- [ ] Implement `analyze_variable_context(prefix) -> Option<TemplateCompletionContext>` — detect `{{ var|` pattern, extract partial filter name
+- [ ] Wire `analyze_variable_context` into `analyze_template_context` (check variable context before tag context)
+- [ ] Add `AvailableFilters` struct and `available_filters_at()` function in `crates/djls-semantic/src/load_resolution.rs` — reuses `LoadState` from M3
+- [ ] Export `AvailableFilters` and `available_filters_at` from `crates/djls-semantic/src/lib.rs`
+- [ ] Implement `generate_filter_completions()` in `crates/djls-ide/src/completions.rs` — filters by partial match and availability, adds closing braces
+- [ ] Update `handle_completion` signature to accept `Option<&InspectorInventory>` (unified type for both tags and filters)
+- [ ] Wire `generate_filter_completions` into the `Filter` match arm
+- [ ] Update server completion call site in `crates/djls-server/src/server.rs` to pass inventory and load info for filters
+- [ ] Add completion tests: filter context detection after pipe, partial filter name, builtin filters always visible, scoped filters require load
+- [ ] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 4: Filter Validation with Load Scoping
+
+**Goal:** Add S111/S112/S113 diagnostics for unknown/unloaded/ambiguous filters.
+
+- [ ] Add `UnknownFilter { filter, span }`, `UnloadedLibraryFilter { filter, library, span }`, `AmbiguousUnloadedFilter { filter, libraries, span }` variants to `ValidationError` in `crates/djls-semantic/src/errors.rs`
+- [ ] Add S111/S112/S113 diagnostic codes in `crates/djls-ide/src/diagnostics.rs`
+- [ ] Add `FilterInventoryEntry` enum and `build_filter_inventory()` helper in `crates/djls-semantic/src/load_resolution.rs`
+- [ ] Implement `validate_filter_scoping(db, nodelist)` — iterates `Node::Variable` nodes, checks each `Filter` against inventory and load state
+- [ ] Wire `validate_filter_scoping` into `validate_nodelist` in `crates/djls-semantic/src/lib.rs` (after `validate_tag_scoping`)
+- [ ] Add validation tests: unknown filter produces S111, unloaded library filter produces S112, ambiguous filter produces S113, builtin filter always valid, filter valid after load
+- [ ] Run `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ---
 
