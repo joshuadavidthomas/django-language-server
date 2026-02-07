@@ -33,6 +33,7 @@ just lint                        # Run pre-commit hooks
 - `crates/djls-ide/` - Completions, diagnostics, snippets
 - `crates/djls-semantic/` - Semantic analysis, validation, load resolution
 - `crates/djls-project/` - Project/inspector types, Salsa inputs, module resolution
+- `crates/djls-source/` - Source DB, File type, path utilities, LSP protocol conversions
 - `crates/djls-conf/` - Settings and diagnostics configuration
 - `crates/djls-corpus/` - Corpus syncing for integration tests
 
@@ -50,6 +51,13 @@ just lint                        # Run pre-commit hooks
 - **`ValidationError` is exhaustive**: When adding/removing variants, update `errors.rs`, `diagnostics.rs` (S-code mapping), and test helpers. Grep: `grep -rn "ValidationError" crates/ --include="*.rs"`.
 - **`SemanticDb` trait**: When adding methods, update impls in `djls-server/src/db.rs` and `djls-bench/src/db.rs`.
 - **`crate::Db` in `djls-semantic`**: When adding methods, update ALL test databases (~10 files). E0046 if you miss one. Grep: `grep -rn "impl crate::Db" crates/djls-semantic/ --include="*.rs"`.
+
+## Ruff AST API (djls-extraction)
+- **Parse**: `ruff_python_parser::parse_module(source)` → `.into_syntax()` for `ModModule` AST
+- **Parameters**: No top-level `defaults` field — defaults are per-parameter: `ParameterWithDefault { parameter, default: Option<Box<Expr>> }`
+- **Box fields**: `StmtWhile.test`, `StmtIf.test` etc. are `Box<Expr>` — dereference with `&*` for pattern matching
+- **FString**: `FStringValue` uses `.iter()` not `.parts()` for `FStringPart` iteration
+- **ExceptHandler**: `ExceptHandler::ExceptHandler` is irrefutable — use `let` not `if let`
 
 ## Task Management
 Use `/dex` to break down complex work, track progress across sessions, and coordinate multi-step implementations.
