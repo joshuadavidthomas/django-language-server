@@ -8,7 +8,11 @@ tag_rules:
       - Max: 2
     required_keywords: []
     known_options: ~
-    extracted_args: []
+    extracted_args:
+      - name: arg1
+        required: true
+        kind: Variable
+        position: 0
 filter_arities:
   "django.templatetags.l10n::localize":
     expects_arg: false

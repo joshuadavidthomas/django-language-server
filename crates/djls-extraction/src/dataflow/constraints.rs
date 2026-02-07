@@ -34,52 +34,27 @@ pub struct Constraints {
     pub required_keywords: Vec<RequiredKeyword>,
 }
 
-/// Extract constraints from a list of statements.
+/// Extract constraints from a single if-statement using the current env state.
 ///
-/// Finds `if condition: raise TemplateSyntaxError(...)` patterns and
-/// interprets the condition against the abstract environment.
-pub fn extract_constraints(stmts: &[Stmt], env: &Env) -> Constraints {
-    let mut constraints = Constraints::default();
-    extract_from_body(stmts, env, &mut constraints);
-    constraints
-}
-
-fn extract_from_body(stmts: &[Stmt], env: &Env, constraints: &mut Constraints) {
-    for stmt in stmts {
-        match stmt {
-            Stmt::If(if_stmt) => {
-                extract_from_if(if_stmt, env, constraints);
-            }
-            Stmt::Match(match_stmt) => {
-                if let Some((arg_constraints, keywords)) =
-                    super::eval::extract_match_constraints(match_stmt, env)
-                {
-                    constraints.arg_constraints.extend(arg_constraints);
-                    constraints.required_keywords.extend(keywords);
-                }
-            }
-            _ => {}
-        }
-    }
-}
-
-fn extract_from_if(if_stmt: &StmtIf, env: &Env, constraints: &mut Constraints) {
+/// Called inline during statement processing so that constraints see the env
+/// as it exists at the point in the code where the if-statement appears,
+/// not the final env state after the entire function body has been processed.
+pub fn extract_from_if_inline(if_stmt: &StmtIf, env: &Env, constraints: &mut Constraints) {
     if body_raises_template_syntax_error(&if_stmt.body) {
         eval_condition(&if_stmt.test, env, constraints);
     }
 
-    // Recurse into body for nested if-statements
-    extract_from_body(&if_stmt.body, env, constraints);
-
-    // Recurse into elif/else clauses
+    // Process elif/else clauses at this point too
     for clause in &if_stmt.elif_else_clauses {
         if body_raises_template_syntax_error(&clause.body) {
             if let Some(test) = &clause.test {
                 eval_condition(test, env, constraints);
             }
         }
-        extract_from_body(&clause.body, env, constraints);
     }
+
+    // NOTE: We do NOT recurse into nested if-statements here — that's handled
+    // by the caller (process_statements) as it walks into the body/clauses.
 }
 
 /// Evaluate a condition expression as a constraint.
@@ -428,9 +403,10 @@ mod tests {
             call_depth: 0,
             cache: &mut cache,
             known_options: None,
+            constraints: Constraints::default(),
         };
         process_statements(&func.body, &mut env, &mut ctx);
-        extract_constraints(&func.body, &env)
+        ctx.constraints
     }
 
     #[test]

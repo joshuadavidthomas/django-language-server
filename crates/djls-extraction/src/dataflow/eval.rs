@@ -41,6 +41,7 @@ pub struct AnalysisContext<'a> {
     pub call_depth: usize,
     pub cache: &'a mut HelperCache,
     pub known_options: Option<KnownOptions>,
+    pub constraints: super::constraints::Constraints,
 }
 
 /// Evaluate a Python expression against the abstract environment.
@@ -401,6 +402,7 @@ fn process_statement(stmt: &Stmt, env: &mut Env, ctx: &mut AnalysisContext<'_>) 
         }
 
         Stmt::If(stmt_if) => {
+            super::constraints::extract_from_if_inline(stmt_if, env, &mut ctx.constraints);
             process_statements(&stmt_if.body, env, ctx);
             for clause in &stmt_if.elif_else_clauses {
                 process_statements(&clause.body, env, ctx);
@@ -443,7 +445,14 @@ fn process_statement(stmt: &Stmt, env: &mut Env, ctx: &mut AnalysisContext<'_>) 
         }
 
         Stmt::Match(match_stmt) => {
-            // Process match bodies for env updates, and extract constraints
+            // Extract constraints at the point in code where the match appears
+            if let Some((arg_constraints, keywords)) =
+                extract_match_constraints(match_stmt, env)
+            {
+                ctx.constraints.arg_constraints.extend(arg_constraints);
+                ctx.constraints.required_keywords.extend(keywords);
+            }
+            // Process match bodies for env updates
             for case in &match_stmt.cases {
                 process_statements(&case.body, env, ctx);
             }
@@ -1126,6 +1135,7 @@ mod tests {
             call_depth: 0,
             cache: &mut cache,
             known_options: None,
+            constraints: crate::dataflow::constraints::Constraints::default(),
         };
         process_statements(&func.body, &mut env, &mut ctx);
         env

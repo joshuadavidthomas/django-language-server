@@ -97,10 +97,19 @@ pub fn extract_rules(source: &str, module_path: &str) -> ExtractionResult {
             | RegistrationKind::InclusionTag
             | RegistrationKind::SimpleBlockTag => {
                 if let Some(func) = func_def {
-                    let tag_rule = rules::extract_tag_rule(func, reg.kind, &func_defs);
+                    let tag_rule = match reg.kind {
+                        RegistrationKind::SimpleTag | RegistrationKind::InclusionTag => {
+                            signature::extract_parse_bits_rule(func)
+                        }
+                        RegistrationKind::Tag | RegistrationKind::SimpleBlockTag => {
+                            dataflow::analyze_compile_function(func, &func_defs)
+                        }
+                        RegistrationKind::Filter => unreachable!(),
+                    };
                     if !tag_rule.arg_constraints.is_empty()
                         || !tag_rule.required_keywords.is_empty()
                         || tag_rule.known_options.is_some()
+                        || !tag_rule.extracted_args.is_empty()
                     {
                         result.tag_rules.insert(key.clone(), tag_rule);
                     }

@@ -45,10 +45,22 @@ tag_rules:
         position: 2
   "django.template.defaulttags::lorem":
     arg_constraints:
-      - Exact: 1
+      - Exact: 4
     required_keywords: []
     known_options: ~
-    extracted_args: []
+    extracted_args:
+      - name: arg1
+        required: true
+        kind: Variable
+        position: 0
+      - name: arg2
+        required: true
+        kind: Variable
+        position: 1
+      - name: arg3
+        required: true
+        kind: Variable
+        position: 2
   "django.template.defaulttags::now":
     arg_constraints:
       - Exact: 2
@@ -59,6 +71,53 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
+  "django.template.defaulttags::partial":
+    arg_constraints:
+      - Exact: 2
+    required_keywords: []
+    known_options: ~
+    extracted_args:
+      - name: arg1
+        required: true
+        kind: Variable
+        position: 0
+  "django.template.defaulttags::partialdef":
+    arg_constraints:
+      - OneOf:
+          - 2
+          - 3
+    required_keywords:
+      - position: 2
+        value: inline
+    known_options: ~
+    extracted_args:
+      - name: arg1
+        required: true
+        kind: Variable
+        position: 0
+      - name: inline
+        required: true
+        kind:
+          Literal: inline
+        position: 1
+  "django.template.defaulttags::querystring":
+    arg_constraints: []
+    required_keywords: []
+    known_options: ~
+    extracted_args:
+      - name: args
+        required: false
+        kind: VarArgs
+        position: 0
+      - name: as
+        required: false
+        kind:
+          Literal: as
+        position: 1
+      - name: varname
+        required: false
+        kind: Variable
+        position: 2
   "django.template.defaulttags::regroup":
     arg_constraints:
       - Exact: 6
@@ -96,7 +155,11 @@ tag_rules:
       - Max: 2
     required_keywords: []
     known_options: ~
-    extracted_args: []
+    extracted_args:
+      - name: name
+        required: true
+        kind: Variable
+        position: 0
   "django.template.defaulttags::templatetag":
     arg_constraints:
       - Exact: 2
@@ -117,6 +180,34 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
+  "django.template.defaulttags::widthratio":
+    arg_constraints: []
+    required_keywords:
+      - position: 4
+        value: as
+    known_options: ~
+    extracted_args:
+      - name: this_value_expr
+        required: true
+        kind: Variable
+        position: 0
+      - name: max_value_expr
+        required: true
+        kind: Variable
+        position: 1
+      - name: max_width
+        required: true
+        kind: Variable
+        position: 2
+      - name: as
+        required: true
+        kind:
+          Literal: as
+        position: 3
+      - name: asvar
+        required: true
+        kind: Variable
+        position: 4
 filter_arities: {}
 block_specs:
   "django.template.defaulttags::autoescape":

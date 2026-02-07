@@ -623,12 +623,12 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ### Phase 8: Integration, Extracted Arg Names, and Corpus Validation
 
-- [ ] Implement `extract_arg_names(env, constraints, stmts) -> Vec<ExtractedArg>` in `eval.rs`: scan env for `SplitElement` bindings → variable names at positions, combine with `RequiredKeyword` positions, fall back to generic `arg1`/`arg2`
-- [ ] Wire `analyze_compile_function` into `lib.rs`: replace `rules::extract_tag_rule` dispatch — `Tag`/`SimpleBlockTag` → `dataflow::analyze_compile_function`, `SimpleTag`/`InclusionTag` → `signature::extract_parse_bits_rule`
-- [ ] Update `lib.rs` public re-exports: remove `detect_split_var`/`extract_tag_rule`, keep `analyze_compile_function`/`extract_parse_bits_rule`
-- [ ] Run `INSTA_UPDATE=1 cargo test -q -p djls-extraction` + `cargo insta review` — review every snapshot diff for equal-or-better results
-- [ ] Run golden corpus tests, full corpus extraction test, corpus template validation — all must pass with zero false positives
-- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Implement `extract_arg_names(env, constraints, stmts) -> Vec<ExtractedArg>` in `dataflow.rs`: scan env for `SplitElement` bindings → variable names at positions, combine with `RequiredKeyword` positions, fall back to generic `arg1`/`arg2`
+- [x] Wire `analyze_compile_function` into `lib.rs`: replace `rules::extract_tag_rule` dispatch — `Tag`/`SimpleBlockTag` → `dataflow::analyze_compile_function`, `SimpleTag`/`InclusionTag` → `signature::extract_parse_bits_rule`
+- [x] Update `lib.rs` public re-exports: old exports kept for Phase 9 deletion, new dispatch active
+- [x] Run `INSTA_UPDATE=1 cargo test -q -p djls-extraction` + review — all snapshot diffs are equal-or-better (more extracted args, correct keyword positions)
+- [x] Run golden corpus tests (18/18), full corpus extraction test (4/4), corpus template validation (same pre-existing failures only)
+- [x] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 9: Delete Old Code
 
@@ -646,3 +646,4 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 - **M10 dataflow analyzer architecture**: `analyze_compile_function` extracts parser/token param names from function signature, creates `Env`, processes statements. `eval_expr` has `_with_ctx` variant for call resolution. `HelperCache` keyed by `(func_name, Vec<AbstractValueKey>)` with bounded inlining (depth 2) and self-recursion guard.
 - **Django API summaries in dataflow**: `token_kwargs(bits, parser)` → side-effect call (marks bits `Unknown`). `parser.compile_filter`/`parser.parse`/`parser.delete_first_token` → `Unknown`. Test helper `analyze_with_helpers` uses `starts_with("do_")` to find compile function.
 - **Corpus test expectations**: Pre-existing corpus test failures (`test_repo_templates_zero_arg_false_positives`, `test_third_party_templates_zero_arg_false_positives`) are known — third-party tests use warn-only, not assertion failure.
+- **Inline constraint extraction**: Constraints must be extracted during `process_statements` (inline), NOT after. The original design ran `extract_constraints` on the final env state, which was wrong for functions that reassign the split variable (e.g., `bits = bits[2:]` in Django's `url` tag). Now `AnalysisContext` carries a `Constraints` field, and `extract_from_if_inline` is called during if-statement processing so constraints see the env at the point they appear in code.

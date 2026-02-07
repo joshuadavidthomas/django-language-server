@@ -25,7 +25,11 @@ tag_rules:
       - Max: 2
     required_keywords: []
     known_options: ~
-    extracted_args: []
+    extracted_args:
+      - name: arg1
+        required: true
+        kind: Variable
+        position: 0
   "django.templatetags.tz::timezone":
     arg_constraints:
       - Exact: 2
