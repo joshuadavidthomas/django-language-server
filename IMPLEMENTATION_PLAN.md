@@ -543,14 +543,101 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ## M10 — Dataflow Analyzer (Replace Pattern-Matching Extraction)
 
-**Status:** planning
+**Status:** ready
 **Plan:** `.agents/plans/2026-02-06-m10-dataflow-analyzer.md`
 **Depends on:** M5, M8
 **Design doc:** `docs/dev/extraction-dataflow-analyzer.md`
 
 **Goal:** Replace the ad-hoc pattern matching in `context.rs` + `rules.rs` (~2190 lines) with a domain-specific abstract interpreter that tracks `token` and `parser` through compile functions. Handles Django 6.0 `match` statements, helper function delegation, and all corpus patterns from a unified framework.
 
-_Tasks to be expanded when this milestone is next._
+**What's replaced:** `context.rs` (572 lines — `detect_split_var`, `token_delegated_to_helper`) + `rules.rs` (1618 lines — `extract_compile_function_rule`, `extract_parse_bits_rule`, `extract_args_from_compile_function`, `extract_option_loop`)
+
+**What stays unchanged:** `registry.rs`, `blocks.rs`, `filters.rs`, `types.rs`, `lib.rs` (public API)
+
+**What's new:** `dataflow/` module (domain types, eval, constraints, calls) + `signature.rs` (extracted from `rules.rs`)
+
+### Phase 1: Module Structure, Domain Types, and Basic Environment
+
+- [ ] Create `crates/djls-extraction/src/signature.rs` — move `extract_parse_bits_rule` and helpers (`has_takes_context`, `is_true_constant`) from `rules.rs`, along with their tests
+- [ ] Create `crates/djls-extraction/src/dataflow.rs` parent module with `analyze_compile_function` stub (returns empty `TagRule`)
+- [ ] Create `crates/djls-extraction/src/dataflow/domain.rs` — `AbstractValue` enum (`Unknown`, `Token`, `Parser`, `SplitResult`, `SplitElement`, `SplitLength`, `Int`, `Str`, `Tuple`, `List`), `Index` enum (`Forward(usize)`, `Backward(usize)`), `Env` struct (HashMap bindings, `for_compile_function`, `get`, `set`, `mutate`)
+- [ ] Create stub files: `dataflow/eval.rs`, `dataflow/constraints.rs`, `dataflow/calls.rs`
+- [ ] Register new modules in `lib.rs` with `#[cfg(feature = "parser")]` gates, add public re-exports
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 2: Expression Evaluation and Statement Processing
+
+- [ ] Implement `eval_expr(expr, env) -> AbstractValue` in `dataflow/eval.rs`: handle Name lookup, int/string literals, `token.split_contents()` → `SplitResult`, `token.contents.split()` → `SplitResult`, `len(x)` → `SplitLength`, subscript `x[N]` → `SplitElement`, slice `x[N:]` → offset-adjusted `SplitResult`, `list(x)` passthrough, tuple literals
+- [ ] Implement `process_statements(stmts, env, ctx)` in `dataflow/eval.rs`: simple assignment, tuple unpack, star unpack (`tag_name, *rest = bits`), if/elif/else recursion, for/try/with recursion (while/match skipped for now)
+- [ ] Define `AnalysisContext` struct bundling `module_funcs`, `caller_name`, `call_depth`, `cache` (cache unused until Phase 5)
+- [ ] Wire `analyze_compile_function` to extract parser/token param names from function signature, create `Env`, call `process_statements`
+- [ ] Tests: env initialization, split_contents binding, subscript/negative subscript, slice, slice with existing offset, len(), list() wrapping, star unpack, tuple unpack, contents.split(None, 1), unknown variable
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 3: Constraint Extraction from If/Raise
+
+- [ ] Implement `Constraints` struct and `extract_constraints(stmts, env) -> Constraints` in `dataflow/constraints.rs`
+- [ ] Implement `eval_condition(expr, env, constraints)` for condition → constraint mapping: `len(sr) < N` → `Min(N + base_offset)`, `len(sr) > N` → `Max`, `len(sr) != N` → `Exact`, `<=`/`>=` variants, reversed comparisons (`N < len(sr)`), `not in` → `OneOf`, `elem != "kw"` → `RequiredKeyword`
+- [ ] Handle compound conditions: `or` → extract from both, `and` → extract keywords only (discard length), negated range `not (A <= len(sr) <= B)` → Min + Max
+- [ ] Detect `raise TemplateSyntaxError(...)` in if-bodies (reuse pattern from `rules.rs`)
+- [ ] Recurse into nested if/elif/else to find nested if-raise patterns
+- [ ] Wire constraints into `analyze_compile_function` → populate `TagRule.arg_constraints` and `TagRule.required_keywords`
+- [ ] Tests: each comparison operator, reversed comparisons, RequiredKeyword with forward/backward index, compound or/and, negated range, `not in`, offset adjustment after slice, multiple raises, nested if-raise, elif raise, non-TemplateSyntaxError ignored, end-to-end `regroup` pattern
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 4: Side Effects (pop, mutation)
+
+- [ ] Extend `SplitResult` and `SplitLength` with `pops_from_end: usize` field, update all construction sites
+- [ ] Handle `bits.pop(0)` in `process_statements`: increment `base_offset`, optionally assign popped element as `SplitElement(Forward(old_offset))`
+- [ ] Handle `bits.pop()` in `process_statements`: increment `pops_from_end`, optionally assign as `SplitElement(Backward(0))`
+- [ ] Update constraint offset formula in `constraints.rs`: `Min(N + base_offset + pops_from_end)`, etc.
+- [ ] Tests: pop(0) offset, pop(0) with assignment, pop() from end, multiple pops, offset-adjusted constraint after pop, end-pop-adjusted constraint
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 5: Intra-Module Function Calls
+
+- [ ] Implement `HelperCache` in `dataflow/calls.rs` with `AbstractValueKey` for hashable cache keys
+- [ ] Implement `resolve_call(callee_name, args, module_funcs, caller_name, call_depth, cache) -> AbstractValue`: check cache, find callee in module_funcs, create env with parameter bindings, process callee body, extract return value, cache result
+- [ ] Add depth limit (`MAX_CALL_DEPTH = 2`) and self-recursion guard
+- [ ] Add hardcoded external summaries: `token_kwargs(bits, parser)` → Unknown + mark bits Unknown, `parser.compile_filter(expr)` → Unknown, `parser.parse(tags)` → Unknown
+- [ ] Wire into `eval_expr`: on Call expression, check Django API calls, then try module-local resolution
+- [ ] Thread `HelperCache` through `AnalysisContext`
+- [ ] Tests: simple helper returning split_contents, tuple return destructuring, allauth `parse_tag` pattern (no constraints), depth limit, self-recursion, helper not found, token_kwargs, parser.compile_filter, cache hit (same args), cache miss (different args)
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 6: While-Loop Option Parsing
+
+- [ ] Implement `try_extract_option_loop(while_stmt, env) -> Option<KnownOptions>` in `eval.rs`: detect `while remaining:` where remaining is SplitResult-derived, find `option = var.pop(0)`, scan if/elif/else for option value checks, detect `else: raise` → `rejects_unknown`, detect duplicate detection → `allow_duplicates`
+- [ ] Wire into `process_statements` for `Stmt::While`
+- [ ] Wire `KnownOptions` into `analyze_compile_function` → populate `TagRule.known_options`
+- [ ] Tests: basic option loop, duplicate detection, no else raise, Django `do_include` pattern, translate tag pattern
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 7: Match Statement Support (Python 3.10+)
+
+- [ ] Implement `extract_match_constraints(match_stmt, env) -> Option<(Vec<ArgumentCountConstraint>, Vec<RequiredKeyword>)>` in `eval.rs`: check subject is SplitResult, analyze `PatternMatchSequence` patterns for length and literal positions, separate error cases (body raises) from valid cases, derive constraints from union of valid case shapes
+- [ ] Handle pattern types: `PatternMatchValue` (literal at position), `PatternMatchAs` (capture/wildcard), `PatternMatchStar` (variable length)
+- [ ] Wire into `process_statements` for `Stmt::Match`
+- [ ] Tests: Django 6.0 `partialdef` pattern → `Min(2)` + `Max(3)`, `partial` pattern → `Exact(2)`, match on non-SplitResult → no constraints, star pattern, multiple valid lengths
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 8: Integration, Extracted Arg Names, and Corpus Validation
+
+- [ ] Implement `extract_arg_names(env, constraints, stmts) -> Vec<ExtractedArg>` in `eval.rs`: scan env for `SplitElement` bindings → variable names at positions, combine with `RequiredKeyword` positions, fall back to generic `arg1`/`arg2`
+- [ ] Wire `analyze_compile_function` into `lib.rs`: replace `rules::extract_tag_rule` dispatch — `Tag`/`SimpleBlockTag` → `dataflow::analyze_compile_function`, `SimpleTag`/`InclusionTag` → `signature::extract_parse_bits_rule`
+- [ ] Update `lib.rs` public re-exports: remove `detect_split_var`/`extract_tag_rule`, keep `analyze_compile_function`/`extract_parse_bits_rule`
+- [ ] Run `INSTA_UPDATE=1 cargo test -q -p djls-extraction` + `cargo insta review` — review every snapshot diff for equal-or-better results
+- [ ] Run golden corpus tests, full corpus extraction test, corpus template validation — all must pass with zero false positives
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 9: Delete Old Code
+
+- [ ] Delete `crates/djls-extraction/src/context.rs` and `crates/djls-extraction/src/rules.rs`
+- [ ] Remove `mod context` and `mod rules` declarations from `lib.rs`, remove their re-exports
+- [ ] Clean up orphaned snapshot files: `cargo insta test --delete-unreferenced-snapshots -p djls-extraction`
+- [ ] Verify no external consumers of deleted APIs: `grep -rn "detect_split_var\|token_delegated_to_helper\|extract_compile_function_rule" crates/`
+- [ ] Run `cargo +nightly fmt`
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ---
 
