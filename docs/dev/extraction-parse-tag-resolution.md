@@ -60,7 +60,7 @@ tag_name, args, kwargs = parse_tag(token, parser)
 
 1. Detect that `parse_tag` is called with `token` as an argument
 2. Find the `parse_tag` function definition in the same module
-3. Analyze `parse_tag`'s body to find `split_contents()` 
+3. Analyze `parse_tag`'s body to find `split_contents()`
 4. Track that the return value maps back through the helper
 
 This is essentially **intra-module call resolution**: follow one level of
