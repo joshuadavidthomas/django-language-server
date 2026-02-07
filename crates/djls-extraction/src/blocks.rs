@@ -682,16 +682,7 @@ fn extract_skip_past_token(expr: &Expr, parser_var: &str) -> Option<String> {
 }
 
 fn has_dynamic_end_in_body(body: &[Stmt], parser_var: &str) -> bool {
-    for stmt in body {
-        if has_dynamic_end_in_stmt(stmt, parser_var) {
-            return true;
-        }
-    }
-    false
-}
-
-fn has_dynamic_end_in_stmt(stmt: &Stmt, parser_var: &str) -> bool {
-    match stmt {
+    body.iter().any(|stmt| match stmt {
         Stmt::Expr(expr_stmt) => is_dynamic_end_parse_call(&expr_stmt.value, parser_var),
         Stmt::Assign(StmtAssign { value, .. }) => is_dynamic_end_parse_call(value, parser_var),
         Stmt::If(if_stmt) => {
@@ -706,12 +697,9 @@ fn has_dynamic_end_in_stmt(stmt: &Stmt, parser_var: &str) -> bool {
         }
         Stmt::Return(StmtReturn {
             value: Some(val), ..
-        }) => {
-            // Return a node constructor that may contain parser.parse(f"end{...}")
-            is_dynamic_end_parse_call(val, parser_var)
-        }
+        }) => is_dynamic_end_parse_call(val, parser_var),
         _ => false,
-    }
+    })
 }
 
 /// Check if an expression is `parser.parse((f"end{...}",))`.
