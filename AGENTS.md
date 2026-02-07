@@ -49,7 +49,7 @@ just lint                        # Run pre-commit hooks
 - **Extraction feature gate**: `djls-extraction` has a `parser` feature gating Ruff deps. Types in `types.rs` are always available. Crates doing extraction use `features = ["parser"]`; crates needing only types use default features off.
 - **`ValidationError` is exhaustive**: When adding/removing variants, update `errors.rs`, `diagnostics.rs` (S-code mapping), and test helpers. Grep: `grep -rn "ValidationError" crates/ --include="*.rs"`.
 - **`SemanticDb` trait**: When adding methods, update impls in `djls-server/src/db.rs` and `djls-bench/src/db.rs`.
-- **`crate::Db` in `djls-semantic`**: When adding methods, update ALL test databases (~9 files). E0046 if you miss one. Grep: `grep -rn "impl crate::Db" crates/djls-semantic/ --include="*.rs"`.
+- **`crate::Db` in `djls-semantic`**: When adding methods, update ALL test databases (~10 files). E0046 if you miss one. Grep: `grep -rn "impl crate::Db" crates/djls-semantic/ --include="*.rs"`.
 
 ## Task Management
 Use `/dex` to break down complex work, track progress across sessions, and coordinate multi-step implementations.
