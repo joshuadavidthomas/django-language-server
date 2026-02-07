@@ -246,48 +246,6 @@ impl<'db> BlockTreeBuilder<'db> {
                     span,
                 });
             }
-            CloseValidation::ArgumentMismatch { expected, got, .. } => {
-                let name = if got.is_empty() { expected } else { got };
-                self.ops.push(TreeOp::AccumulateDiagnostic(
-                    ValidationError::UnmatchedBlockName {
-                        name,
-                        span: marker_span,
-                    },
-                ));
-                self.ops
-                    .push(TreeOp::AccumulateDiagnostic(ValidationError::UnclosedTag {
-                        tag: frame.opener_name.clone(),
-                        span: frame.opener_span,
-                    }));
-                self.stack.push(frame); // Restore frame
-            }
-            CloseValidation::MissingRequiredArg { expected, .. } => {
-                let expected_closing = format!("{} {}", frame.opener_name, expected);
-                self.ops.push(TreeOp::AccumulateDiagnostic(
-                    ValidationError::UnbalancedStructure {
-                        opening_tag: frame.opener_name.clone(),
-                        expected_closing,
-                        opening_span: frame.opener_span,
-                        closing_span: Some(marker_span),
-                    },
-                ));
-                self.stack.push(frame);
-            }
-            CloseValidation::UnexpectedArg { arg, got } => {
-                let name = if got.is_empty() { arg } else { got };
-                self.ops.push(TreeOp::AccumulateDiagnostic(
-                    ValidationError::UnmatchedBlockName {
-                        name,
-                        span: marker_span,
-                    },
-                ));
-                self.ops
-                    .push(TreeOp::AccumulateDiagnostic(ValidationError::UnclosedTag {
-                        tag: frame.opener_name.clone(),
-                        span: frame.opener_span,
-                    }));
-                self.stack.push(frame);
-            }
             CloseValidation::NotABlock => {
                 self.ops.push(TreeOp::AccumulateDiagnostic(
                     ValidationError::UnbalancedStructure {

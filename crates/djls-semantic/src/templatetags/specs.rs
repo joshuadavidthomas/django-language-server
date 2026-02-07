@@ -9,30 +9,6 @@ use rustc_hash::FxHashMap;
 pub type S<T = str> = Cow<'static, T>;
 pub type L<T> = Cow<'static, [T]>;
 
-#[allow(dead_code)]
-pub enum TagType {
-    Opener,
-    Intermediate,
-    Closer,
-    Standalone,
-}
-
-#[allow(dead_code)]
-impl TagType {
-    #[must_use]
-    pub fn for_name(name: &str, tag_specs: &TagSpecs) -> TagType {
-        if tag_specs.is_opener(name) {
-            TagType::Opener
-        } else if tag_specs.is_closer(name) {
-            TagType::Closer
-        } else if tag_specs.is_intermediate(name) {
-            TagType::Intermediate
-        } else {
-            TagType::Standalone
-        }
-    }
-}
-
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct TagSpecs(FxHashMap<String, TagSpec>);
 

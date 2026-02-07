@@ -305,7 +305,7 @@ fn find_tuple_unpacking(body: &[Stmt], split_var: Option<&str>) -> Option<Vec<St
     for stmt in body {
         if let Stmt::Assign(assign) = stmt {
             // Check if RHS is the split variable
-            if !is_split_var_name_expr(&assign.value, split_var) {
+            if !is_split_var_name(&assign.value, split_var) {
                 continue;
             }
             // Check if LHS is a tuple
@@ -335,8 +335,8 @@ fn find_tuple_unpacking(body: &[Stmt], split_var: Option<&str>) -> Option<Vec<St
     None
 }
 
-/// Check if an expression is the split variable name (value position, not subscript).
-fn is_split_var_name_expr(expr: &Expr, split_var: Option<&str>) -> bool {
+/// Check if an expression is the split variable name.
+fn is_split_var_name(expr: &Expr, split_var: Option<&str>) -> bool {
     let Expr::Name(ExprName { id, .. }) = expr else {
         return false;
     };
@@ -359,7 +359,7 @@ fn find_indexed_access(body: &[Stmt], split_var: Option<&str>) -> Vec<(usize, St
                 continue;
             };
             if let Expr::Subscript(ExprSubscript { value, slice, .. }) = assign.value.as_ref() {
-                if is_split_var_name_expr(value, split_var) {
+                if is_split_var_name(value, split_var) {
                     if let Some(idx) = extract_int_constant(slice) {
                         if idx > 0 {
                             results.push((idx, target_name.to_string()));
@@ -515,7 +515,7 @@ fn extract_from_compare(
     let left = &compare.left;
 
     // len(var) comparisons
-    if let Some(_var_name) = is_len_call_on(left, split_var) {
+    if is_len_call_on(left, split_var).is_some() {
         if let Some(n) = extract_int_constant(comparator) {
             let constraint = match op {
                 // `len(bits) == N` in error guard means error when equal → valid when != N
@@ -729,19 +729,6 @@ fn is_len_call_on<'a>(expr: &'a Expr, split_var: Option<&str>) -> Option<&'a str
     None
 }
 
-/// Check if an expression is the split variable name.
-fn is_split_var_name(expr: &Expr, split_var: Option<&str>) -> bool {
-    let Expr::Name(ExprName { id, .. }) = expr else {
-        return false;
-    };
-    let var_name = id.as_str();
-
-    if let Some(sv) = split_var {
-        return var_name == sv;
-    }
-
-    matches!(var_name, "bits" | "args" | "parts" | "tokens")
-}
 
 /// Extract an integer constant from an expression.
 fn extract_int_constant(expr: &Expr) -> Option<usize> {

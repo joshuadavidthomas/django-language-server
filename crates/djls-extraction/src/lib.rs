@@ -18,8 +18,6 @@ pub use context::detect_split_var;
 #[cfg(feature = "parser")]
 pub use filters::extract_filter_arity;
 #[cfg(feature = "parser")]
-pub use registry::collect_registrations;
-#[cfg(feature = "parser")]
 pub use registry::collect_registrations_from_body;
 #[cfg(feature = "parser")]
 pub use registry::RegistrationInfo;

@@ -61,17 +61,6 @@ impl<'db> TagIndex<'db> {
         CloseValidation::Valid
     }
 
-    #[allow(dead_code)] // TODO: is this still needed?
-    pub fn is_valid_intermediate(
-        self,
-        db: &'db dyn crate::Db,
-        inter_name: &str,
-        opener_name: &str,
-    ) -> bool {
-        self.intermediate_to_openers(db)
-            .get(inter_name)
-            .is_some_and(|openers| openers.iter().any(|o| o == opener_name))
-    }
     #[must_use]
     pub fn from_specs(db: &'db dyn crate::Db) -> Self {
         Self::from_tag_specs(db, &db.tag_specs())
@@ -128,20 +117,4 @@ pub enum TagClass {
 pub enum CloseValidation {
     Valid,
     NotABlock,
-    #[allow(dead_code)]
-    ArgumentMismatch {
-        arg: String,
-        expected: String,
-        got: String,
-    },
-    #[allow(dead_code)]
-    MissingRequiredArg {
-        arg: String,
-        expected: String,
-    },
-    #[allow(dead_code)]
-    UnexpectedArg {
-        arg: String,
-        got: String,
-    },
 }

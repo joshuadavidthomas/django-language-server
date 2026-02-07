@@ -43,24 +43,6 @@ impl RegistrationKind {
     }
 }
 
-/// Collect all tag and filter registrations from a Python module source.
-///
-/// Walks the AST looking for:
-/// - `@register.tag` / `@register.simple_tag` / `@register.inclusion_tag` /
-///   `@register.filter` decorators on function definitions
-/// - `register.tag("name", func)` / `register.filter("name", func)` call
-///   expressions as standalone statements
-#[must_use]
-pub fn collect_registrations(source: &str) -> Vec<RegistrationInfo> {
-    let Ok(parsed) = ruff_python_parser::parse_module(source) else {
-        return Vec::new();
-    };
-    let module = parsed.into_syntax();
-    let mut registrations = Vec::new();
-    collect_from_body(&module.body, &mut registrations);
-    registrations
-}
-
 /// Collect registrations from a pre-parsed module body.
 ///
 /// This avoids re-parsing the source when the caller already has the AST.
@@ -383,6 +365,12 @@ fn callable_name(expr: &Expr) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn collect_registrations(source: &str) -> Vec<RegistrationInfo> {
+        let parsed = ruff_python_parser::parse_module(source).expect("valid Python");
+        let module = parsed.into_syntax();
+        collect_registrations_from_body(&module.body)
+    }
 
     #[test]
     fn decorator_bare_tag() {
