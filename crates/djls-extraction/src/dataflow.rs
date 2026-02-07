@@ -40,12 +40,11 @@ pub fn analyze_compile_function(
 
     eval::process_statements(&func.body, &mut env, &mut ctx);
 
-    // Constraint extraction will be added in Phase 3
-    let _ = &env;
+    let c = constraints::extract_constraints(&func.body, &env);
 
     TagRule {
-        arg_constraints: Vec::new(),
-        required_keywords: Vec::new(),
+        arg_constraints: c.arg_constraints,
+        required_keywords: c.required_keywords,
         known_options: None,
         extracted_args: Vec::new(),
     }

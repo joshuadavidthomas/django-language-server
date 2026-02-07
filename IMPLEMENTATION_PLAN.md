@@ -576,14 +576,14 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ### Phase 3: Constraint Extraction from If/Raise
 
-- [ ] Implement `Constraints` struct and `extract_constraints(stmts, env) -> Constraints` in `dataflow/constraints.rs`
-- [ ] Implement `eval_condition(expr, env, constraints)` for condition → constraint mapping: `len(sr) < N` → `Min(N + base_offset)`, `len(sr) > N` → `Max`, `len(sr) != N` → `Exact`, `<=`/`>=` variants, reversed comparisons (`N < len(sr)`), `not in` → `OneOf`, `elem != "kw"` → `RequiredKeyword`
-- [ ] Handle compound conditions: `or` → extract from both, `and` → extract keywords only (discard length), negated range `not (A <= len(sr) <= B)` → Min + Max
-- [ ] Detect `raise TemplateSyntaxError(...)` in if-bodies (reuse pattern from `rules.rs`)
-- [ ] Recurse into nested if/elif/else to find nested if-raise patterns
-- [ ] Wire constraints into `analyze_compile_function` → populate `TagRule.arg_constraints` and `TagRule.required_keywords`
-- [ ] Tests: each comparison operator, reversed comparisons, RequiredKeyword with forward/backward index, compound or/and, negated range, `not in`, offset adjustment after slice, multiple raises, nested if-raise, elif raise, non-TemplateSyntaxError ignored, end-to-end `regroup` pattern
-- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Implement `Constraints` struct and `extract_constraints(stmts, env) -> Constraints` in `dataflow/constraints.rs`
+- [x] Implement `eval_condition(expr, env, constraints)` for condition → constraint mapping: `len(sr) < N` → `Min(N + base_offset)`, `len(sr) > N` → `Max`, `len(sr) != N` → `Exact`, `<=`/`>=` variants, reversed comparisons (`N < len(sr)`), `not in` → `OneOf`, `elem != "kw"` → `RequiredKeyword`
+- [x] Handle compound conditions: `or` → extract from both, `and` → extract keywords only (discard length), negated range `not (A <= len(sr) <= B)` → Min + Max
+- [x] Detect `raise TemplateSyntaxError(...)` in if-bodies (reuse pattern from `rules.rs`)
+- [x] Recurse into nested if/elif/else to find nested if-raise patterns
+- [x] Wire constraints into `analyze_compile_function` → populate `TagRule.arg_constraints` and `TagRule.required_keywords`
+- [x] Tests: each comparison operator, reversed comparisons, RequiredKeyword with forward/backward index, compound or/and, negated range, `not in`, offset adjustment after slice, multiple raises, nested if-raise, elif raise, non-TemplateSyntaxError ignored, end-to-end `regroup` pattern
+- [x] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 4: Side Effects (pop, mutation)
 
