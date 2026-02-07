@@ -241,7 +241,7 @@ fn tag_registration_from_call(
     let kind = tag_decorator_kind(attr.as_str())?;
 
     let name_override = kw_name_from(&call.arguments.keywords);
-    let func_name = kw_func_name(&call.arguments.keywords);
+    let func_name = kw_callable_name(&call.arguments.keywords, &["compile_function", "func"]);
 
     let args = &call.arguments.args;
 
@@ -287,7 +287,7 @@ fn filter_registration_from_call(call: &ExprCall) -> Option<(String, Option<Stri
     }
 
     let name_override = kw_name_from(&call.arguments.keywords);
-    let func_name = kw_func_name_filter(&call.arguments.keywords);
+    let func_name = kw_callable_name(&call.arguments.keywords, &["filter_func", "func"]);
 
     let args = &call.arguments.args;
 
@@ -346,24 +346,11 @@ fn kw_constant_str(keywords: &[Keyword], name: &str) -> Option<String> {
     None
 }
 
-/// Extract the `compile_function=` or `func=` keyword argument name (for tag calls).
-fn kw_func_name(keywords: &[Keyword]) -> Option<String> {
+/// Extract a callable name from keyword arguments by checking the given keyword names.
+fn kw_callable_name(keywords: &[Keyword], kwarg_names: &[&str]) -> Option<String> {
     for kw in keywords {
         let Some(arg) = &kw.arg else { continue };
-        if arg.as_str() == "compile_function" || arg.as_str() == "func" {
-            if let Expr::Name(ExprName { id, .. }) = &kw.value {
-                return Some(id.to_string());
-            }
-        }
-    }
-    None
-}
-
-/// Extract the `filter_func=` or `func=` keyword argument name (for filter calls).
-fn kw_func_name_filter(keywords: &[Keyword]) -> Option<String> {
-    for kw in keywords {
-        let Some(arg) = &kw.arg else { continue };
-        if arg.as_str() == "filter_func" || arg.as_str() == "func" {
+        if kwarg_names.contains(&arg.as_str()) {
             if let Expr::Name(ExprName { id, .. }) = &kw.value {
                 return Some(id.to_string());
             }

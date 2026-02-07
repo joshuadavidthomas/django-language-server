@@ -30,8 +30,18 @@ pub fn extract_block_spec(func: &StmtFunctionDef) -> Option<BlockTagSpec> {
     let parser_var = detect_parser_var(func)?;
 
     // Check for opaque block patterns first: parser.skip_past("endtag")
-    if let Some(spec) = extract_skip_past_spec(func, &parser_var) {
-        return Some(spec);
+    let skip_past_tokens = collect_skip_past_tokens(&func.body, &parser_var);
+    if !skip_past_tokens.is_empty() {
+        let end_tag = if skip_past_tokens.len() == 1 {
+            Some(skip_past_tokens[0].clone())
+        } else {
+            None
+        };
+        return Some(BlockTagSpec {
+            end_tag,
+            intermediates: Vec::new(),
+            opaque: true,
+        });
     }
 
     // Collect all stop-tokens from parser.parse((...)) calls
@@ -39,7 +49,15 @@ pub fn extract_block_spec(func: &StmtFunctionDef) -> Option<BlockTagSpec> {
 
     if parse_calls.is_empty() {
         // Try dynamic end-tag patterns: parser.parse((f"end{tag_name}",))
-        return extract_dynamic_end_spec(func, &parser_var);
+        return if has_dynamic_end_in_body(&func.body, &parser_var) {
+            Some(BlockTagSpec {
+                end_tag: None,
+                intermediates: Vec::new(),
+                opaque: false,
+            })
+        } else {
+            None
+        };
     }
 
     // Classify tokens as intermediate vs terminal using control flow analysis
@@ -71,46 +89,41 @@ fn collect_parser_parse_calls(body: &[Stmt], parser_var: &str) -> Vec<ParseCallI
 
 fn collect_parse_calls_recursive(body: &[Stmt], parser_var: &str, calls: &mut Vec<ParseCallInfo>) {
     for stmt in body {
-        // Check for direct expression statements or assignments containing parser.parse(...)
-        visit_stmt_for_parse_calls(stmt, parser_var, calls);
-    }
-}
-
-fn visit_stmt_for_parse_calls(stmt: &Stmt, parser_var: &str, calls: &mut Vec<ParseCallInfo>) {
-    match stmt {
-        Stmt::Expr(expr_stmt) => {
-            if let Some(info) = extract_parse_call_info(&expr_stmt.value, parser_var) {
-                calls.push(info);
+        match stmt {
+            Stmt::Expr(expr_stmt) => {
+                if let Some(info) = extract_parse_call_info(&expr_stmt.value, parser_var) {
+                    calls.push(info);
+                }
             }
-        }
-        Stmt::Assign(StmtAssign { value, .. }) => {
-            if let Some(info) = extract_parse_call_info(value, parser_var) {
-                calls.push(info);
+            Stmt::Assign(StmtAssign { value, .. }) => {
+                if let Some(info) = extract_parse_call_info(value, parser_var) {
+                    calls.push(info);
+                }
             }
-        }
-        Stmt::If(if_stmt) => {
-            collect_parse_calls_recursive(&if_stmt.body, parser_var, calls);
-            for clause in &if_stmt.elif_else_clauses {
-                collect_parse_calls_recursive(&clause.body, parser_var, calls);
+            Stmt::If(if_stmt) => {
+                collect_parse_calls_recursive(&if_stmt.body, parser_var, calls);
+                for clause in &if_stmt.elif_else_clauses {
+                    collect_parse_calls_recursive(&clause.body, parser_var, calls);
+                }
             }
-        }
-        Stmt::For(for_stmt) => {
-            collect_parse_calls_recursive(&for_stmt.body, parser_var, calls);
-        }
-        Stmt::While(while_stmt) => {
-            collect_parse_calls_recursive(&while_stmt.body, parser_var, calls);
-        }
-        Stmt::Try(try_stmt) => {
-            collect_parse_calls_recursive(&try_stmt.body, parser_var, calls);
-            for handler in &try_stmt.handlers {
-                let ruff_python_ast::ExceptHandler::ExceptHandler(h) = handler;
-                collect_parse_calls_recursive(&h.body, parser_var, calls);
+            Stmt::For(for_stmt) => {
+                collect_parse_calls_recursive(&for_stmt.body, parser_var, calls);
             }
+            Stmt::While(while_stmt) => {
+                collect_parse_calls_recursive(&while_stmt.body, parser_var, calls);
+            }
+            Stmt::Try(try_stmt) => {
+                collect_parse_calls_recursive(&try_stmt.body, parser_var, calls);
+                for handler in &try_stmt.handlers {
+                    let ruff_python_ast::ExceptHandler::ExceptHandler(h) = handler;
+                    collect_parse_calls_recursive(&h.body, parser_var, calls);
+                }
+            }
+            Stmt::With(with_stmt) => {
+                collect_parse_calls_recursive(&with_stmt.body, parser_var, calls);
+            }
+            _ => {}
         }
-        Stmt::With(with_stmt) => {
-            collect_parse_calls_recursive(&with_stmt.body, parser_var, calls);
-        }
-        _ => {}
     }
 }
 
@@ -620,75 +633,47 @@ fn body_has_parse_call(body: &[Stmt], parser_var: &str) -> bool {
     false
 }
 
-/// Extract opaque block spec from `parser.skip_past("endtag")` patterns.
-fn extract_skip_past_spec(func: &StmtFunctionDef, parser_var: &str) -> Option<BlockTagSpec> {
-    let end_tags = collect_skip_past_tokens(&func.body, parser_var);
-    if end_tags.is_empty() {
-        return None;
-    }
-
-    // For skip_past, there's typically a single end-tag
-    let end_tag = if end_tags.len() == 1 {
-        Some(end_tags[0].clone())
-    } else {
-        // Multiple skip_past targets — ambiguous
-        None
-    };
-
-    Some(BlockTagSpec {
-        end_tag,
-        intermediates: Vec::new(),
-        opaque: true,
-    })
-}
-
 /// Collect all `parser.skip_past("token")` calls in a function body.
 fn collect_skip_past_tokens(body: &[Stmt], parser_var: &str) -> Vec<String> {
     let mut tokens = Vec::new();
-    for stmt in body {
-        collect_skip_past_in_stmt(stmt, parser_var, &mut tokens);
-    }
+    collect_skip_past_recursive(body, parser_var, &mut tokens);
     tokens
 }
 
-fn collect_skip_past_in_stmt(stmt: &Stmt, parser_var: &str, tokens: &mut Vec<String>) {
-    match stmt {
-        Stmt::Expr(expr_stmt) => {
-            if let Some(t) = extract_skip_past_token(&expr_stmt.value, parser_var) {
-                if !tokens.contains(&t) {
-                    tokens.push(t);
-                }
-            }
-        }
-        Stmt::Assign(StmtAssign { value, .. }) => {
-            if let Some(t) = extract_skip_past_token(value, parser_var) {
-                if !tokens.contains(&t) {
-                    tokens.push(t);
-                }
-            }
-        }
-        Stmt::If(if_stmt) => {
-            collect_skip_past_tokens_in_body(&if_stmt.body, parser_var, tokens);
-            for clause in &if_stmt.elif_else_clauses {
-                collect_skip_past_tokens_in_body(&clause.body, parser_var, tokens);
-            }
-        }
-        Stmt::For(for_stmt) => {
-            collect_skip_past_tokens_in_body(&for_stmt.body, parser_var, tokens);
-        }
-        Stmt::While(while_stmt) => {
-            collect_skip_past_tokens_in_body(&while_stmt.body, parser_var, tokens);
-        }
-        Stmt::Try(try_stmt) => {
-            collect_skip_past_tokens_in_body(&try_stmt.body, parser_var, tokens);
-        }
-        _ => {}
-    }
-}
-
-fn collect_skip_past_tokens_in_body(body: &[Stmt], parser_var: &str, tokens: &mut Vec<String>) {
+fn collect_skip_past_recursive(body: &[Stmt], parser_var: &str, tokens: &mut Vec<String>) {
     for stmt in body {
-        collect_skip_past_in_stmt(stmt, parser_var, tokens);
+        match stmt {
+            Stmt::Expr(expr_stmt) => {
+                if let Some(t) = extract_skip_past_token(&expr_stmt.value, parser_var) {
+                    if !tokens.contains(&t) {
+                        tokens.push(t);
+                    }
+                }
+            }
+            Stmt::Assign(StmtAssign { value, .. }) => {
+                if let Some(t) = extract_skip_past_token(value, parser_var) {
+                    if !tokens.contains(&t) {
+                        tokens.push(t);
+                    }
+                }
+            }
+            Stmt::If(if_stmt) => {
+                collect_skip_past_recursive(&if_stmt.body, parser_var, tokens);
+                for clause in &if_stmt.elif_else_clauses {
+                    collect_skip_past_recursive(&clause.body, parser_var, tokens);
+                }
+            }
+            Stmt::For(for_stmt) => {
+                collect_skip_past_recursive(&for_stmt.body, parser_var, tokens);
+            }
+            Stmt::While(while_stmt) => {
+                collect_skip_past_recursive(&while_stmt.body, parser_var, tokens);
+            }
+            Stmt::Try(try_stmt) => {
+                collect_skip_past_recursive(&try_stmt.body, parser_var, tokens);
+            }
+            _ => {}
+        }
     }
 }
 
@@ -716,28 +701,6 @@ fn extract_skip_past_token(expr: &Expr, parser_var: &str) -> Option<String> {
         return None;
     }
     get_string_constant(&arguments.args[0])
-}
-
-/// Extract block spec from dynamic end-tag patterns like `parser.parse((f"end{tag_name}",))`.
-///
-/// Returns a `BlockTagSpec` with `end_tag = None` because the actual end-tag name
-/// depends on runtime values. The caller can use convention-based resolution
-/// (e.g., `end{start_tag}`) as a tie-breaker when the tag's registration name is known.
-fn extract_dynamic_end_spec(func: &StmtFunctionDef, parser_var: &str) -> Option<BlockTagSpec> {
-    if has_dynamic_end_parse(func, parser_var) {
-        Some(BlockTagSpec {
-            end_tag: None,
-            intermediates: Vec::new(),
-            opaque: false,
-        })
-    } else {
-        None
-    }
-}
-
-/// Check if a function contains `parser.parse((f"end{...}",))`.
-fn has_dynamic_end_parse(func: &StmtFunctionDef, parser_var: &str) -> bool {
-    has_dynamic_end_in_body(&func.body, parser_var)
 }
 
 fn has_dynamic_end_in_body(body: &[Stmt], parser_var: &str) -> bool {

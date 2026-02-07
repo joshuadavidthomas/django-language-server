@@ -36,7 +36,7 @@ use crate::types::TagRule;
 pub fn extract_tag_rule(func: &StmtFunctionDef, kind: RegistrationKind) -> TagRule {
     match kind {
         RegistrationKind::SimpleTag | RegistrationKind::InclusionTag => {
-            extract_parse_bits_rule(func, kind)
+            extract_parse_bits_rule(func)
         }
         RegistrationKind::Tag | RegistrationKind::SimpleBlockTag => {
             extract_compile_function_rule(func)
@@ -70,7 +70,7 @@ fn extract_compile_function_rule(func: &StmtFunctionDef) -> TagRule {
     );
 
     // Look for while-loop option parsing
-    if let Some(opts) = extract_option_loop(&func.body, split_var.as_deref()) {
+    if let Some(opts) = extract_option_loop(&func.body) {
         known_options = Some(opts);
     }
 
@@ -95,7 +95,7 @@ fn extract_compile_function_rule(func: &StmtFunctionDef) -> TagRule {
 /// These tags use Django's `parse_bits` for argument validation, so we derive
 /// constraints from the function signature (required params, optional params,
 /// *args, **kwargs).
-fn extract_parse_bits_rule(func: &StmtFunctionDef, _kind: RegistrationKind) -> TagRule {
+fn extract_parse_bits_rule(func: &StmtFunctionDef) -> TagRule {
     let params = &func.parameters;
 
     // Determine if `takes_context` is enabled (from decorator)
@@ -850,10 +850,10 @@ fn is_template_syntax_error_call(expr: &Expr) -> bool {
 ///     else:
 ///         raise TemplateSyntaxError(...)
 /// ```
-fn extract_option_loop(body: &[Stmt], split_var: Option<&str>) -> Option<KnownOptions> {
+fn extract_option_loop(body: &[Stmt]) -> Option<KnownOptions> {
     for stmt in body {
         if let Stmt::While(while_stmt) = stmt {
-            if let Some(opts) = extract_from_while(while_stmt, split_var) {
+            if let Some(opts) = extract_from_while(while_stmt) {
                 return Some(opts);
             }
         }
@@ -862,7 +862,7 @@ fn extract_option_loop(body: &[Stmt], split_var: Option<&str>) -> Option<KnownOp
 }
 
 /// Extract options from a while loop.
-fn extract_from_while(while_stmt: &StmtWhile, _split_var: Option<&str>) -> Option<KnownOptions> {
+fn extract_from_while(while_stmt: &StmtWhile) -> Option<KnownOptions> {
     // The loop variable should be a name (e.g., `remaining_bits`, `bits`, `args`)
     let Expr::Name(ExprName { id: loop_var, .. }) = &*while_stmt.test else {
         return None;

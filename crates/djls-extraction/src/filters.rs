@@ -1,6 +1,3 @@
-use ruff_python_ast::Expr;
-use ruff_python_ast::ExprAttribute;
-use ruff_python_ast::ExprCall;
 use ruff_python_ast::StmtFunctionDef;
 
 use crate::types::FilterArity;
@@ -64,46 +61,6 @@ pub fn extract_filter_arity(func: &StmtFunctionDef) -> FilterArity {
         expects_arg: true,
         arg_optional: all_have_defaults,
     }
-}
-
-/// Check if a filter function has the `@stringfilter` decorator.
-///
-/// This is informational — `@stringfilter` doesn't change arity, it just
-/// coerces the input value to a string before passing it to the filter.
-#[must_use]
-pub fn has_stringfilter_decorator(func: &StmtFunctionDef) -> bool {
-    for decorator in &func.decorator_list {
-        match &decorator.expression {
-            Expr::Name(name) if name.id.as_str() == "stringfilter" => return true,
-            Expr::Attribute(ExprAttribute { attr, .. }) if attr.as_str() == "stringfilter" => {
-                return true;
-            }
-            _ => {}
-        }
-    }
-    false
-}
-
-/// Check if a filter's decorator includes `is_safe=True`.
-///
-/// This is informational — `is_safe` doesn't change arity, it tells Django's
-/// auto-escaping system that the filter's output is safe HTML.
-#[must_use]
-pub fn has_is_safe(func: &StmtFunctionDef) -> bool {
-    for decorator in &func.decorator_list {
-        if let Expr::Call(ExprCall { arguments, .. }) = &decorator.expression {
-            for kw in &arguments.keywords {
-                if let Some(arg) = &kw.arg {
-                    if arg.as_str() == "is_safe" {
-                        if let Expr::BooleanLiteral(lit) = &kw.value {
-                            return lit.value;
-                        }
-                    }
-                }
-            }
-        }
-    }
-    false
 }
 
 #[cfg(test)]
@@ -335,65 +292,6 @@ def my_filter(value, arg1, arg2="b"):
         assert!(arity.expects_arg);
         // Not all extra params have defaults → not optional
         assert!(!arity.arg_optional);
-    }
-
-    // =========================================================================
-    // Decorator metadata (informational)
-    // =========================================================================
-
-    #[test]
-    fn stringfilter_decorator() {
-        let source = r"
-@stringfilter
-def title(value):
-    return value.title()
-";
-        let func = parse_function(source);
-        assert!(has_stringfilter_decorator(&func));
-    }
-
-    #[test]
-    fn no_stringfilter_decorator() {
-        let source = r"
-@register.filter
-def add(value, arg):
-    return value + arg
-";
-        let func = parse_function(source);
-        assert!(!has_stringfilter_decorator(&func));
-    }
-
-    #[test]
-    fn is_safe_true() {
-        let source = r"
-@register.filter(is_safe=True)
-def my_filter(value):
-    return value
-";
-        let func = parse_function(source);
-        assert!(has_is_safe(&func));
-    }
-
-    #[test]
-    fn is_safe_false() {
-        let source = r"
-@register.filter(is_safe=False)
-def my_filter(value):
-    return value
-";
-        let func = parse_function(source);
-        assert!(!has_is_safe(&func));
-    }
-
-    #[test]
-    fn no_is_safe() {
-        let source = r"
-@register.filter
-def my_filter(value):
-    return value
-";
-        let func = parse_function(source);
-        assert!(!has_is_safe(&func));
     }
 
     // =========================================================================

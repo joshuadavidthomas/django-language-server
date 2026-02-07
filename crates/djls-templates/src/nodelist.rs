@@ -28,21 +28,6 @@ impl Filter {
     pub fn new(name: String, arg: Option<String>, span: Span) -> Self {
         Self { name, arg, span }
     }
-
-    #[must_use]
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
-    #[must_use]
-    pub fn arg(&self) -> Option<&str> {
-        self.arg.as_deref()
-    }
-
-    #[must_use]
-    pub fn span(&self) -> Span {
-        self.span
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
