@@ -5,16 +5,22 @@ mod blocks;
 #[cfg(feature = "parser")]
 mod context;
 #[cfg(feature = "parser")]
+mod dataflow;
+#[cfg(feature = "parser")]
 mod filters;
 #[cfg(feature = "parser")]
 mod registry;
 #[cfg(feature = "parser")]
 mod rules;
+#[cfg(feature = "parser")]
+mod signature;
 
 #[cfg(feature = "parser")]
 pub use blocks::extract_block_spec;
 #[cfg(feature = "parser")]
 pub use context::detect_split_var;
+#[cfg(feature = "parser")]
+pub use dataflow::analyze_compile_function;
 #[cfg(feature = "parser")]
 pub use filters::extract_filter_arity;
 #[cfg(feature = "parser")]
@@ -25,6 +31,8 @@ pub use registry::RegistrationInfo;
 pub use registry::RegistrationKind;
 #[cfg(feature = "parser")]
 pub use rules::extract_tag_rule;
+#[cfg(feature = "parser")]
+pub use signature::extract_parse_bits_rule;
 pub use types::ArgumentCountConstraint;
 pub use types::BlockTagSpec;
 pub use types::ExtractedArg;

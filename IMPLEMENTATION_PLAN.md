@@ -558,12 +558,12 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ### Phase 1: Module Structure, Domain Types, and Basic Environment
 
-- [ ] Create `crates/djls-extraction/src/signature.rs` — move `extract_parse_bits_rule` and helpers (`has_takes_context`, `is_true_constant`) from `rules.rs`, along with their tests
-- [ ] Create `crates/djls-extraction/src/dataflow.rs` parent module with `analyze_compile_function` stub (returns empty `TagRule`)
-- [ ] Create `crates/djls-extraction/src/dataflow/domain.rs` — `AbstractValue` enum (`Unknown`, `Token`, `Parser`, `SplitResult`, `SplitElement`, `SplitLength`, `Int`, `Str`, `Tuple`, `List`), `Index` enum (`Forward(usize)`, `Backward(usize)`), `Env` struct (HashMap bindings, `for_compile_function`, `get`, `set`, `mutate`)
-- [ ] Create stub files: `dataflow/eval.rs`, `dataflow/constraints.rs`, `dataflow/calls.rs`
-- [ ] Register new modules in `lib.rs` with `#[cfg(feature = "parser")]` gates, add public re-exports
-- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Create `crates/djls-extraction/src/signature.rs` — move `extract_parse_bits_rule` and helpers (`has_takes_context`, `is_true_constant`) from `rules.rs`, along with their tests
+- [x] Create `crates/djls-extraction/src/dataflow.rs` parent module with `analyze_compile_function` stub (returns empty `TagRule`)
+- [x] Create `crates/djls-extraction/src/dataflow/domain.rs` — `AbstractValue` enum (`Unknown`, `Token`, `Parser`, `SplitResult`, `SplitElement`, `SplitLength`, `Int`, `Str`, `Tuple`, `List`), `Index` enum (`Forward(usize)`, `Backward(usize)`), `Env` struct (HashMap bindings, `for_compile_function`, `get`, `set`, `mutate`)
+- [x] Create stub files: `dataflow/eval.rs`, `dataflow/constraints.rs`, `dataflow/calls.rs`
+- [x] Register new modules in `lib.rs` with `#[cfg(feature = "parser")]` gates, add public re-exports
+- [x] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 2: Expression Evaluation and Statement Processing
 
