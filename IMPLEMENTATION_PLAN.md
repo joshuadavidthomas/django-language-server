@@ -567,12 +567,12 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ### Phase 2: Expression Evaluation and Statement Processing
 
-- [ ] Implement `eval_expr(expr, env) -> AbstractValue` in `dataflow/eval.rs`: handle Name lookup, int/string literals, `token.split_contents()` → `SplitResult`, `token.contents.split()` → `SplitResult`, `len(x)` → `SplitLength`, subscript `x[N]` → `SplitElement`, slice `x[N:]` → offset-adjusted `SplitResult`, `list(x)` passthrough, tuple literals
-- [ ] Implement `process_statements(stmts, env, ctx)` in `dataflow/eval.rs`: simple assignment, tuple unpack, star unpack (`tag_name, *rest = bits`), if/elif/else recursion, for/try/with recursion (while/match skipped for now)
-- [ ] Define `AnalysisContext` struct bundling `module_funcs`, `caller_name`, `call_depth`, `cache` (cache unused until Phase 5)
-- [ ] Wire `analyze_compile_function` to extract parser/token param names from function signature, create `Env`, call `process_statements`
-- [ ] Tests: env initialization, split_contents binding, subscript/negative subscript, slice, slice with existing offset, len(), list() wrapping, star unpack, tuple unpack, contents.split(None, 1), unknown variable
-- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Implement `eval_expr(expr, env) -> AbstractValue` in `dataflow/eval.rs`: handle Name lookup, int/string literals, `token.split_contents()` → `SplitResult`, `token.contents.split()` → `SplitResult`, `len(x)` → `SplitLength`, subscript `x[N]` → `SplitElement`, slice `x[N:]` → offset-adjusted `SplitResult`, `list(x)` passthrough, tuple literals
+- [x] Implement `process_statements(stmts, env, ctx)` in `dataflow/eval.rs`: simple assignment, tuple unpack, star unpack (`tag_name, *rest = bits`), if/elif/else recursion, for/try/with recursion (while/match skipped for now)
+- [x] Define `AnalysisContext` struct bundling `module_funcs`, `caller_name`, `call_depth`, `cache` (cache unused until Phase 5)
+- [x] Wire `analyze_compile_function` to extract parser/token param names from function signature, create `Env`, call `process_statements`
+- [x] Tests: env initialization, split_contents binding, subscript/negative subscript, slice, slice with existing offset, len(), list() wrapping, star unpack, tuple unpack, contents.split(None, 1), unknown variable
+- [x] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 3: Constraint Extraction from If/Raise
 
