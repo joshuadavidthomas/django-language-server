@@ -50,7 +50,6 @@ impl RegistrationKind {
 ///   `@register.filter` decorators on function definitions
 /// - `register.tag("name", func)` / `register.filter("name", func)` call
 ///   expressions as standalone statements
-#[cfg(feature = "parser")]
 #[must_use]
 pub fn collect_registrations(source: &str) -> Vec<RegistrationInfo> {
     let Ok(parsed) = ruff_python_parser::parse_module(source) else {
@@ -65,7 +64,6 @@ pub fn collect_registrations(source: &str) -> Vec<RegistrationInfo> {
 /// Collect registrations from a pre-parsed module body.
 ///
 /// This avoids re-parsing the source when the caller already has the AST.
-#[cfg(feature = "parser")]
 #[must_use]
 pub fn collect_registrations_from_body(body: &[Stmt]) -> Vec<RegistrationInfo> {
     let mut registrations = Vec::new();
@@ -73,7 +71,6 @@ pub fn collect_registrations_from_body(body: &[Stmt]) -> Vec<RegistrationInfo> {
     registrations
 }
 
-#[cfg(feature = "parser")]
 fn collect_from_body(body: &[Stmt], registrations: &mut Vec<RegistrationInfo>) {
     for stmt in body {
         match stmt {
@@ -100,7 +97,6 @@ fn collect_from_body(body: &[Stmt], registrations: &mut Vec<RegistrationInfo>) {
 /// - `@register.simple_tag(name="alias")`
 /// - `@register.tag("name")`
 /// - `@register.filter`
-#[cfg(feature = "parser")]
 fn collect_from_decorated_function(
     func_def: &StmtFunctionDef,
     registrations: &mut Vec<RegistrationInfo>,
