@@ -607,11 +607,11 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ### Phase 6: While-Loop Option Parsing
 
-- [ ] Implement `try_extract_option_loop(while_stmt, env) -> Option<KnownOptions>` in `eval.rs`: detect `while remaining:` where remaining is SplitResult-derived, find `option = var.pop(0)`, scan if/elif/else for option value checks, detect `else: raise` → `rejects_unknown`, detect duplicate detection → `allow_duplicates`
-- [ ] Wire into `process_statements` for `Stmt::While`
-- [ ] Wire `KnownOptions` into `analyze_compile_function` → populate `TagRule.known_options`
-- [ ] Tests: basic option loop, duplicate detection, no else raise, Django `do_include` pattern, translate tag pattern
-- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Implement `try_extract_option_loop(while_stmt, env) -> Option<KnownOptions>` in `eval.rs`: detect `while remaining:` where remaining is SplitResult-derived, find `option = var.pop(0)`, scan if/elif/else for option value checks, detect `else: raise` → `rejects_unknown`, detect duplicate detection → `allow_duplicates`
+- [x] Wire into `process_statements` for `Stmt::While`
+- [x] Wire `KnownOptions` into `analyze_compile_function` → populate `TagRule.known_options`
+- [x] Tests: basic option loop, duplicate detection, no else raise, Django `do_include` pattern, translate tag pattern
+- [x] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 7: Match Statement Support (Python 3.10+)
 

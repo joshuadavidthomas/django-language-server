@@ -416,6 +416,7 @@ mod tests {
             caller_name: func.name.as_str(),
             call_depth: 0,
             cache: &mut cache,
+            known_options: None,
         };
         process_statements(&func.body, &mut env, &mut ctx);
         extract_constraints(&func.body, &env)

@@ -1,9 +1,11 @@
 //! Expression evaluation and statement processing for the dataflow analyzer.
 
 use ruff_python_ast::Arguments;
+use ruff_python_ast::CmpOp;
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprAttribute;
 use ruff_python_ast::ExprCall;
+use ruff_python_ast::ExprCompare;
 use ruff_python_ast::ExprName;
 use ruff_python_ast::ExprNumberLiteral;
 use ruff_python_ast::ExprSlice;
@@ -14,11 +16,14 @@ use ruff_python_ast::Number;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtAssign;
 use ruff_python_ast::StmtFunctionDef;
+use ruff_python_ast::StmtIf;
+use ruff_python_ast::StmtWhile;
 use super::calls::HelperCache;
 use super::calls::resolve_call;
 use super::domain::AbstractValue;
 use super::domain::Env;
 use super::domain::Index;
+use crate::types::KnownOptions;
 
 /// Context for the dataflow analysis, threading through shared state.
 pub struct AnalysisContext<'a> {
@@ -26,6 +31,7 @@ pub struct AnalysisContext<'a> {
     pub caller_name: &'a str,
     pub call_depth: usize,
     pub cache: &'a mut HelperCache,
+    pub known_options: Option<KnownOptions>,
 }
 
 /// Evaluate a Python expression against the abstract environment.
@@ -420,7 +426,13 @@ fn process_statement(stmt: &Stmt, env: &mut Env, ctx: &mut AnalysisContext<'_>) 
             }
         }
 
-        // While loops (option parsing) — Phase 6
+        Stmt::While(while_stmt) => {
+            // Try to extract option loop pattern; result stored in ctx
+            if let Some(opts) = try_extract_option_loop(while_stmt, env) {
+                ctx.known_options = Some(opts);
+            }
+        }
+
         // Match statements — Phase 7
         _ => {}
     }
@@ -597,6 +609,223 @@ fn process_tuple_unpack(targets: &[Expr], value: &AbstractValue, env: &mut Env) 
     }
 }
 
+/// Try to extract a `KnownOptions` from a `while remaining:` option-parsing loop.
+///
+/// Detects the pattern:
+/// ```python
+/// while remaining:
+///     option = remaining.pop(0)
+///     if option == "with":
+///         ...
+///     elif option == "only":
+///         ...
+///     else:
+///         raise TemplateSyntaxError("unknown option")
+/// ```
+fn try_extract_option_loop(while_stmt: &StmtWhile, env: &Env) -> Option<KnownOptions> {
+    // The loop test must be a simple name that resolves to SplitResult (or derivative)
+    let Expr::Name(ExprName { id: loop_var, .. }) = &*while_stmt.test else {
+        return None;
+    };
+    let loop_value = env.get(loop_var.as_str());
+    if !matches!(loop_value, AbstractValue::SplitResult { .. } | AbstractValue::Unknown) {
+        return None;
+    }
+
+    // Look for `option = loop_var.pop(0)` in the body
+    let option_var = find_option_pop_var(&while_stmt.body, loop_var.as_str())?;
+
+    // Scan if/elif/else chains for option value checks
+    let mut values = Vec::new();
+    let mut rejects_unknown = false;
+    let mut allow_duplicates = true;
+
+    for stmt in &while_stmt.body {
+        if let Stmt::If(if_stmt) = stmt {
+            extract_option_checks(
+                if_stmt,
+                &option_var,
+                &mut values,
+                &mut rejects_unknown,
+                &mut allow_duplicates,
+            );
+        }
+    }
+
+    if values.is_empty() {
+        return None;
+    }
+
+    Some(KnownOptions {
+        values,
+        allow_duplicates,
+        rejects_unknown,
+    })
+}
+
+/// Find the variable assigned from `loop_var.pop(0)` in a while-loop body.
+fn find_option_pop_var(body: &[Stmt], loop_var: &str) -> Option<String> {
+    for stmt in body {
+        if let Stmt::Assign(assign) = stmt {
+            if assign.targets.len() == 1 {
+                if let Expr::Name(ExprName { id, .. }) = &assign.targets[0] {
+                    if is_pop_zero_call(&assign.value, loop_var) {
+                        return Some(id.to_string());
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Check if an expression is `var.pop(0)`.
+fn is_pop_zero_call(expr: &Expr, var_name: &str) -> bool {
+    let Expr::Call(ExprCall {
+        func, arguments, ..
+    }) = expr
+    else {
+        return false;
+    };
+    let Expr::Attribute(ExprAttribute {
+        attr, value: obj, ..
+    }) = func.as_ref()
+    else {
+        return false;
+    };
+    if attr.as_str() != "pop" {
+        return false;
+    }
+    let Expr::Name(ExprName { id, .. }) = obj.as_ref() else {
+        return false;
+    };
+    if id.as_str() != var_name {
+        return false;
+    }
+    if arguments.args.len() != 1 {
+        return false;
+    }
+    expr_as_positive_usize(&arguments.args[0]) == Some(0)
+}
+
+/// Extract option names from if/elif/else chains checking the option variable.
+fn extract_option_checks(
+    if_stmt: &StmtIf,
+    option_var: &str,
+    values: &mut Vec<String>,
+    rejects_unknown: &mut bool,
+    allow_duplicates: &mut bool,
+) {
+    // Check for duplicate detection: `if option in seen_options`
+    if is_duplicate_check(&if_stmt.test, option_var) {
+        *allow_duplicates = false;
+    } else if let Some(opt_name) = extract_option_equality(&if_stmt.test, option_var) {
+        if !values.contains(&opt_name) {
+            values.push(opt_name);
+        }
+    }
+
+    // Process elif/else clauses
+    for clause in &if_stmt.elif_else_clauses {
+        if let Some(test) = &clause.test {
+            if is_duplicate_check(test, option_var) {
+                *allow_duplicates = false;
+            } else if let Some(opt_name) = extract_option_equality(test, option_var) {
+                if !values.contains(&opt_name) {
+                    values.push(opt_name);
+                }
+            }
+        } else {
+            // else branch — if it raises TemplateSyntaxError, unknown options are rejected
+            if option_body_raises_template_syntax_error(&clause.body) {
+                *rejects_unknown = true;
+            }
+        }
+    }
+}
+
+/// Check if a condition is `option in seen_set` (duplicate detection).
+fn is_duplicate_check(test: &Expr, option_var: &str) -> bool {
+    let Expr::Compare(ExprCompare {
+        left,
+        ops,
+        comparators,
+        ..
+    }) = test
+    else {
+        return false;
+    };
+    if ops.len() != 1 || comparators.len() != 1 {
+        return false;
+    }
+    if !matches!(ops[0], CmpOp::In) {
+        return false;
+    }
+    let Expr::Name(ExprName { id, .. }) = left.as_ref() else {
+        return false;
+    };
+    if id.as_str() != option_var {
+        return false;
+    }
+    matches!(comparators[0], Expr::Name(_))
+}
+
+/// Extract option name from `option == "name"`.
+fn extract_option_equality(test: &Expr, option_var: &str) -> Option<String> {
+    let Expr::Compare(ExprCompare {
+        left,
+        ops,
+        comparators,
+        ..
+    }) = test
+    else {
+        return None;
+    };
+    if ops.len() != 1 || comparators.len() != 1 {
+        return None;
+    }
+    if !matches!(ops[0], CmpOp::Eq) {
+        return None;
+    }
+    let Expr::Name(ExprName { id, .. }) = left.as_ref() else {
+        return None;
+    };
+    if id.as_str() != option_var {
+        return None;
+    }
+    if let Expr::StringLiteral(ExprStringLiteral { value, .. }) = &comparators[0] {
+        return Some(value.to_str().to_string());
+    }
+    None
+}
+
+/// Check if a body contains `raise TemplateSyntaxError(...)`.
+fn option_body_raises_template_syntax_error(body: &[Stmt]) -> bool {
+    use ruff_python_ast::ExprAttribute as Attr;
+    use ruff_python_ast::StmtRaise;
+
+    for stmt in body {
+        if let Stmt::Raise(StmtRaise { exc: Some(exc), .. }) = stmt {
+            if let Expr::Call(ExprCall { func, .. }) = exc.as_ref() {
+                match func.as_ref() {
+                    Expr::Name(ExprName { id, .. }) => {
+                        if id.as_str() == "TemplateSyntaxError" {
+                            return true;
+                        }
+                    }
+                    Expr::Attribute(Attr { attr, .. }) => {
+                        if attr.as_str() == "TemplateSyntaxError" {
+                            return true;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use ruff_python_ast::Stmt;
@@ -634,6 +863,7 @@ mod tests {
             caller_name: "test",
             call_depth: 0,
             cache: &mut cache,
+            known_options: None,
         };
         process_statements(&func.body, &mut env, &mut ctx);
         env
@@ -1134,5 +1364,134 @@ def do_tag(parser, token):
                 pops_from_end: 2
             }
         );
+    }
+
+    fn analyze(source: &str) -> crate::types::TagRule {
+        let parsed = parse_module(source).expect("valid Python");
+        let module = parsed.into_syntax();
+        let func = module
+            .body
+            .into_iter()
+            .find_map(|s| {
+                if let Stmt::FunctionDef(f) = s {
+                    Some(f)
+                } else {
+                    None
+                }
+            })
+            .expect("no function found");
+        crate::dataflow::analyze_compile_function(&func, &[])
+    }
+
+    #[test]
+    fn option_loop_basic() {
+        let rule = analyze(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    remaining_bits = bits[2:]
+    while remaining_bits:
+        option = remaining_bits.pop(0)
+        if option == "with":
+            pass
+        elif option == "only":
+            pass
+        else:
+            raise TemplateSyntaxError("unknown option")
+"#,
+        );
+        let opts = rule.known_options.expect("should have known_options");
+        assert_eq!(opts.values, vec!["with".to_string(), "only".to_string()]);
+        assert!(opts.rejects_unknown);
+        assert!(opts.allow_duplicates);
+    }
+
+    #[test]
+    fn option_loop_with_duplicate_check() {
+        let rule = analyze(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    remaining_bits = bits[2:]
+    seen = set()
+    while remaining_bits:
+        option = remaining_bits.pop(0)
+        if option in seen:
+            raise TemplateSyntaxError("duplicate option")
+        elif option == "silent":
+            pass
+        elif option == "cache":
+            pass
+        else:
+            raise TemplateSyntaxError("unknown option")
+"#,
+        );
+        let opts = rule.known_options.expect("should have known_options");
+        assert_eq!(
+            opts.values,
+            vec!["silent".to_string(), "cache".to_string()]
+        );
+        assert!(opts.rejects_unknown);
+        assert!(!opts.allow_duplicates);
+    }
+
+    #[test]
+    fn option_loop_allows_unknown() {
+        let rule = analyze(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    remaining = bits[1:]
+    while remaining:
+        option = remaining.pop(0)
+        if option == "noescape":
+            pass
+        elif option == "trimmed":
+            pass
+"#,
+        );
+        let opts = rule.known_options.expect("should have known_options");
+        assert_eq!(
+            opts.values,
+            vec!["noescape".to_string(), "trimmed".to_string()]
+        );
+        assert!(!opts.rejects_unknown);
+        assert!(opts.allow_duplicates);
+    }
+
+    #[test]
+    fn option_loop_include_pattern() {
+        let rule = analyze(
+            r#"
+def do_include(parser, token):
+    bits = token.split_contents()
+    options = {}
+    remaining_bits = bits[2:]
+    while remaining_bits:
+        option = remaining_bits.pop(0)
+        if option == "with":
+            value = remaining_bits.pop(0)
+        elif option == "only":
+            options["only"] = True
+        else:
+            raise TemplateSyntaxError("unknown option")
+"#,
+        );
+        let opts = rule.known_options.expect("should have known_options");
+        assert_eq!(opts.values, vec!["with".to_string(), "only".to_string()]);
+        assert!(opts.rejects_unknown);
+    }
+
+    #[test]
+    fn no_option_loop_returns_none() {
+        let rule = analyze(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    if len(bits) != 3:
+        raise TemplateSyntaxError("err")
+"#,
+        );
+        assert!(rule.known_options.is_none());
     }
 }

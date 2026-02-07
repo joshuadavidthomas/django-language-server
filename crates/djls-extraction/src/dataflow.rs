@@ -52,6 +52,7 @@ pub fn analyze_compile_function_with_cache(
         caller_name: func.name.as_str(),
         call_depth: 0,
         cache,
+        known_options: None,
     };
 
     eval::process_statements(&func.body, &mut env, &mut ctx);
@@ -61,7 +62,7 @@ pub fn analyze_compile_function_with_cache(
     TagRule {
         arg_constraints: c.arg_constraints,
         required_keywords: c.required_keywords,
-        known_options: None,
+        known_options: ctx.known_options,
         extracted_args: Vec::new(),
     }
 }
