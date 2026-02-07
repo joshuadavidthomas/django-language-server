@@ -393,6 +393,7 @@ impl DjangoDatabase {
     fn set_project(&mut self, root: &Utf8Path, settings: &Settings) {
         let project = Project::bootstrap(self, root, settings);
         *self.project.lock().unwrap() = Some(project);
+        self.refresh_inspector();
     }
 }
 
