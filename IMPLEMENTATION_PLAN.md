@@ -615,11 +615,11 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ### Phase 7: Match Statement Support (Python 3.10+)
 
-- [ ] Implement `extract_match_constraints(match_stmt, env) -> Option<(Vec<ArgumentCountConstraint>, Vec<RequiredKeyword>)>` in `eval.rs`: check subject is SplitResult, analyze `PatternMatchSequence` patterns for length and literal positions, separate error cases (body raises) from valid cases, derive constraints from union of valid case shapes
-- [ ] Handle pattern types: `PatternMatchValue` (literal at position), `PatternMatchAs` (capture/wildcard), `PatternMatchStar` (variable length)
-- [ ] Wire into `process_statements` for `Stmt::Match`
-- [ ] Tests: Django 6.0 `partialdef` pattern → `Min(2)` + `Max(3)`, `partial` pattern → `Exact(2)`, match on non-SplitResult → no constraints, star pattern, multiple valid lengths
-- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Implement `extract_match_constraints(match_stmt, env) -> Option<(Vec<ArgumentCountConstraint>, Vec<RequiredKeyword>)>` in `eval.rs`: check subject is SplitResult, analyze `PatternMatchSequence` patterns for length and literal positions, separate error cases (body raises) from valid cases, derive constraints from union of valid case shapes
+- [x] Handle pattern types: `PatternMatchValue` (literal at position), `PatternMatchAs` (capture/wildcard), `PatternMatchStar` (variable length)
+- [x] Wire into `process_statements` for `Stmt::Match` and `extract_from_body` in `constraints.rs`
+- [x] Tests: Django 6.0 `partialdef` pattern → `OneOf([2, 3])`, `partial` pattern → `Exact(2)`, match on non-SplitResult → no constraints, star pattern → `Min(1)`, multiple valid lengths → `OneOf([2, 4])`, all-error cases → no constraints, env updates propagate through match bodies
+- [x] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 8: Integration, Extracted Arg Names, and Corpus Validation
 

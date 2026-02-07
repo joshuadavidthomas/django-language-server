@@ -12,18 +12,27 @@ use ruff_python_ast::ExprSlice;
 use ruff_python_ast::ExprStringLiteral;
 use ruff_python_ast::ExprSubscript;
 use ruff_python_ast::ExprTuple;
+use ruff_python_ast::MatchCase;
 use ruff_python_ast::Number;
+use ruff_python_ast::Pattern;
+use ruff_python_ast::PatternMatchAs;
+use ruff_python_ast::PatternMatchSequence;
+
+use ruff_python_ast::PatternMatchValue;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtAssign;
 use ruff_python_ast::StmtFunctionDef;
 use ruff_python_ast::StmtIf;
+use ruff_python_ast::StmtMatch;
 use ruff_python_ast::StmtWhile;
 use super::calls::HelperCache;
 use super::calls::resolve_call;
 use super::domain::AbstractValue;
 use super::domain::Env;
 use super::domain::Index;
+use crate::types::ArgumentCountConstraint;
 use crate::types::KnownOptions;
+use crate::types::RequiredKeyword;
 
 /// Context for the dataflow analysis, threading through shared state.
 pub struct AnalysisContext<'a> {
@@ -433,7 +442,13 @@ fn process_statement(stmt: &Stmt, env: &mut Env, ctx: &mut AnalysisContext<'_>) 
             }
         }
 
-        // Match statements — Phase 7
+        Stmt::Match(match_stmt) => {
+            // Process match bodies for env updates, and extract constraints
+            for case in &match_stmt.cases {
+                process_statements(&case.body, env, ctx);
+            }
+        }
+
         _ => {}
     }
 }
@@ -737,7 +752,7 @@ fn extract_option_checks(
             }
         } else {
             // else branch — if it raises TemplateSyntaxError, unknown options are rejected
-            if option_body_raises_template_syntax_error(&clause.body) {
+            if option_loop_body_raises(&clause.body) {
                 *rejects_unknown = true;
             }
         }
@@ -800,27 +815,274 @@ fn extract_option_equality(test: &Expr, option_var: &str) -> Option<String> {
 }
 
 /// Check if a body contains `raise TemplateSyntaxError(...)`.
-fn option_body_raises_template_syntax_error(body: &[Stmt]) -> bool {
-    use ruff_python_ast::ExprAttribute as Attr;
+/// Simpler raise check for option loop else-bodies (no recursion into if branches).
+fn option_loop_body_raises(body: &[Stmt]) -> bool {
     use ruff_python_ast::StmtRaise;
 
     for stmt in body {
         if let Stmt::Raise(StmtRaise { exc: Some(exc), .. }) = stmt {
             if let Expr::Call(ExprCall { func, .. }) = exc.as_ref() {
                 match func.as_ref() {
-                    Expr::Name(ExprName { id, .. }) => {
-                        if id.as_str() == "TemplateSyntaxError" {
-                            return true;
-                        }
+                    Expr::Name(ExprName { id, .. }) if id.as_str() == "TemplateSyntaxError" => {
+                        return true;
                     }
-                    Expr::Attribute(Attr { attr, .. }) => {
-                        if attr.as_str() == "TemplateSyntaxError" {
-                            return true;
-                        }
+                    Expr::Attribute(ExprAttribute { attr, .. })
+                        if attr.as_str() == "TemplateSyntaxError" =>
+                    {
+                        return true;
                     }
                     _ => {}
                 }
             }
+        }
+    }
+    false
+}
+
+/// Extract argument constraints from a match statement whose subject is a `SplitResult`.
+///
+/// Analyzes `match token.split_contents(): case ...:` patterns from Django 6.0+.
+/// Collects valid case shapes (cases whose body does NOT raise `TemplateSyntaxError`)
+/// and derives argument count constraints and required keywords from them.
+pub fn extract_match_constraints(
+    match_stmt: &StmtMatch,
+    env: &Env,
+) -> Option<(Vec<ArgumentCountConstraint>, Vec<RequiredKeyword>)> {
+    let subject = eval_expr(&match_stmt.subject, env);
+    if !matches!(subject, AbstractValue::SplitResult { .. }) {
+        return None;
+    }
+
+    let mut valid_lengths: Vec<usize> = Vec::new();
+    let mut has_variable_length = false;
+    let mut min_variable_length: Option<usize> = None;
+
+    for case in &match_stmt.cases {
+        let is_error = body_raises_template_syntax_error(&case.body);
+        if is_error {
+            continue;
+        }
+
+        match analyze_case_pattern(&case.pattern) {
+            PatternShape::Fixed(len) => {
+                if !valid_lengths.contains(&len) {
+                    valid_lengths.push(len);
+                }
+            }
+            PatternShape::Variable { min_len } => {
+                has_variable_length = true;
+                match min_variable_length {
+                    Some(current) if min_len < current => min_variable_length = Some(min_len),
+                    None => min_variable_length = Some(min_len),
+                    _ => {}
+                }
+            }
+            PatternShape::Wildcard => {
+                // Wildcard/irrefutable pattern — no length constraint from this case
+                has_variable_length = true;
+                if min_variable_length.is_none() {
+                    min_variable_length = Some(0);
+                }
+            }
+            PatternShape::Unknown => {}
+        }
+    }
+
+    if valid_lengths.is_empty() && !has_variable_length {
+        return None;
+    }
+
+    let mut constraints = Vec::new();
+
+    if has_variable_length {
+        // Variable-length patterns: only Min constraint from the shortest
+        if let Some(min) = min_variable_length {
+            let fixed_min = valid_lengths.iter().copied().min();
+            let overall_min = match fixed_min {
+                Some(fm) if fm < min => fm,
+                _ => min,
+            };
+            if overall_min > 0 {
+                constraints.push(ArgumentCountConstraint::Min(overall_min));
+            }
+        }
+    } else {
+        // Only fixed-length patterns
+        valid_lengths.sort_unstable();
+        if valid_lengths.len() == 1 {
+            constraints.push(ArgumentCountConstraint::Exact(valid_lengths[0]));
+        } else {
+            // Check if contiguous range → Min + Max
+            let min = valid_lengths[0];
+            let max = valid_lengths[valid_lengths.len() - 1];
+            let is_contiguous = max - min + 1 == valid_lengths.len();
+            if is_contiguous && valid_lengths.len() > 2 {
+                constraints.push(ArgumentCountConstraint::Min(min));
+                constraints.push(ArgumentCountConstraint::Max(max));
+            } else {
+                constraints.push(ArgumentCountConstraint::OneOf(valid_lengths));
+            }
+        }
+    }
+
+    // Extract required keywords from valid cases
+    let keywords = extract_keywords_from_valid_cases(&match_stmt.cases);
+
+    Some((constraints, keywords))
+}
+
+/// Shape determined from analyzing a match case pattern.
+enum PatternShape {
+    /// Fixed number of elements (from `PatternMatchSequence` without star)
+    Fixed(usize),
+    /// Variable number of elements (from `PatternMatchSequence` with star)
+    Variable { min_len: usize },
+    /// Wildcard/irrefutable pattern (`case _:` or `case x:`)
+    Wildcard,
+    /// Unrecognized pattern
+    Unknown,
+}
+
+/// Analyze a case pattern to determine its shape.
+fn analyze_case_pattern(pattern: &Pattern) -> PatternShape {
+    match pattern {
+        Pattern::MatchSequence(PatternMatchSequence { patterns, .. }) => {
+            let has_star = patterns
+                .iter()
+                .any(|p| matches!(p, Pattern::MatchStar(_)));
+            if has_star {
+                // Count non-star elements for minimum length
+                let fixed_count = patterns
+                    .iter()
+                    .filter(|p| !matches!(p, Pattern::MatchStar(_)))
+                    .count();
+                PatternShape::Variable {
+                    min_len: fixed_count,
+                }
+            } else {
+                PatternShape::Fixed(patterns.len())
+            }
+        }
+        // `case _:` or `case x:` — wildcard/capture, matches anything
+        Pattern::MatchAs(PatternMatchAs {
+            pattern: None, ..
+        }) => PatternShape::Wildcard,
+        // `case pattern as x:` — delegate to inner pattern
+        Pattern::MatchAs(PatternMatchAs {
+            pattern: Some(inner),
+            ..
+        }) => analyze_case_pattern(inner),
+        _ => PatternShape::Unknown,
+    }
+}
+
+/// Extract required keyword literals from valid (non-error) match cases.
+///
+/// When ALL valid cases of the same length agree on a literal at a specific position,
+/// that position has a required keyword.
+fn extract_keywords_from_valid_cases(cases: &[MatchCase]) -> Vec<RequiredKeyword> {
+    // Collect fixed-length valid cases grouped by length
+    let mut by_length: std::collections::HashMap<usize, Vec<Vec<Option<String>>>> =
+        std::collections::HashMap::new();
+
+    for case in cases {
+        if body_raises_template_syntax_error(&case.body) {
+            continue;
+        }
+        if let Pattern::MatchSequence(PatternMatchSequence { patterns, .. }) = &case.pattern {
+            if patterns
+                .iter()
+                .any(|p| matches!(p, Pattern::MatchStar(_)))
+            {
+                continue; // Skip variable-length patterns for keyword extraction
+            }
+            let literals: Vec<Option<String>> = patterns.iter().map(pattern_literal).collect();
+            by_length
+                .entry(patterns.len())
+                .or_default()
+                .push(literals);
+        }
+    }
+
+    let mut keywords = Vec::new();
+    for cases_at_len in by_length.values() {
+        if cases_at_len.is_empty() {
+            continue;
+        }
+        let num_positions = cases_at_len[0].len();
+        for pos in 0..num_positions {
+            // Check if ALL cases agree on the same literal at this position
+            let first_literal = &cases_at_len[0][pos];
+            if let Some(lit) = first_literal {
+                if cases_at_len
+                    .iter()
+                    .all(|c| c.get(pos).and_then(|v| v.as_ref()) == Some(lit))
+                {
+                    // Skip position 0 — that's the tag name, not a user argument
+                    if pos > 0 {
+                        #[allow(clippy::cast_possible_wrap)]
+                        keywords.push(RequiredKeyword {
+                            position: pos as i64,
+                            value: lit.clone(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    keywords
+}
+
+/// Extract a string literal from a pattern element, if it is one.
+fn pattern_literal(pattern: &Pattern) -> Option<String> {
+    match pattern {
+        Pattern::MatchValue(PatternMatchValue { value, .. }) => {
+            if let Expr::StringLiteral(ExprStringLiteral { value: s, .. }) = value.as_ref() {
+                Some(s.to_str().to_string())
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Check if a body contains `raise TemplateSyntaxError(...)`.
+fn body_raises_template_syntax_error(body: &[Stmt]) -> bool {
+    use ruff_python_ast::StmtRaise;
+
+    for stmt in body {
+        match stmt {
+            Stmt::Raise(StmtRaise { exc: Some(exc), .. }) => {
+                if let Expr::Call(ExprCall { func, .. }) = exc.as_ref() {
+                    match func.as_ref() {
+                        Expr::Name(ExprName { id, .. }) => {
+                            if id.as_str() == "TemplateSyntaxError" {
+                                return true;
+                            }
+                        }
+                        Expr::Attribute(ExprAttribute { attr, .. }) => {
+                            if attr.as_str() == "TemplateSyntaxError" {
+                                return true;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            Stmt::If(if_stmt) => {
+                // Check all branches — if any branch unconditionally raises, count it
+                if body_raises_template_syntax_error(&if_stmt.body) {
+                    return true;
+                }
+                for clause in &if_stmt.elif_else_clauses {
+                    if body_raises_template_syntax_error(&clause.body) {
+                        return true;
+                    }
+                }
+            }
+            _ => {}
         }
     }
     false
@@ -1493,5 +1755,145 @@ def do_tag(parser, token):
 "#,
         );
         assert!(rule.known_options.is_none());
+    }
+
+    #[test]
+    fn match_partialdef_pattern() {
+        let rule = analyze(
+            r#"
+def partialdef_func(parser, token):
+    match token.split_contents():
+        case "partialdef", partial_name, "inline":
+            inline = True
+        case "partialdef", partial_name, _:
+            raise TemplateSyntaxError("bad")
+        case "partialdef", partial_name:
+            inline = False
+        case ["partialdef"]:
+            raise TemplateSyntaxError("bad")
+        case _:
+            raise TemplateSyntaxError("bad")
+"#,
+        );
+        assert!(
+            rule.arg_constraints
+                .contains(&ArgumentCountConstraint::OneOf(vec![2, 3])),
+            "expected OneOf([2, 3]), got {:?}",
+            rule.arg_constraints
+        );
+    }
+
+    #[test]
+    fn match_partial_exact() {
+        let rule = analyze(
+            r#"
+def partial_func(parser, token):
+    match token.split_contents():
+        case "partial", partial_name:
+            pass
+        case _:
+            raise TemplateSyntaxError("bad")
+"#,
+        );
+        assert!(
+            rule.arg_constraints
+                .contains(&ArgumentCountConstraint::Exact(2)),
+            "expected Exact(2), got {:?}",
+            rule.arg_constraints
+        );
+    }
+
+    #[test]
+    fn match_non_split_result_no_constraints() {
+        let rule = analyze(
+            r#"
+def do_tag(parser, token):
+    x = something()
+    match x:
+        case "a":
+            pass
+        case _:
+            raise TemplateSyntaxError("bad")
+"#,
+        );
+        assert!(
+            rule.arg_constraints.is_empty(),
+            "non-SplitResult match should produce no constraints"
+        );
+    }
+
+    #[test]
+    fn match_star_pattern_variable_length() {
+        let rule = analyze(
+            r#"
+def do_tag(parser, token):
+    match token.split_contents():
+        case "tag", *rest:
+            pass
+        case _:
+            raise TemplateSyntaxError("bad")
+"#,
+        );
+        assert!(
+            rule.arg_constraints
+                .contains(&ArgumentCountConstraint::Min(1)),
+            "expected Min(1), got {:?}",
+            rule.arg_constraints
+        );
+    }
+
+    #[test]
+    fn match_multiple_valid_lengths() {
+        let rule = analyze(
+            r#"
+def do_tag(parser, token):
+    match token.split_contents():
+        case "tag", a:
+            pass
+        case "tag", a, b, c:
+            pass
+        case _:
+            raise TemplateSyntaxError("bad")
+"#,
+        );
+        assert!(
+            rule.arg_constraints
+                .contains(&ArgumentCountConstraint::OneOf(vec![2, 4])),
+            "expected OneOf([2, 4]), got {:?}",
+            rule.arg_constraints
+        );
+    }
+
+    #[test]
+    fn match_all_error_cases_no_constraints() {
+        let rule = analyze(
+            r#"
+def do_tag(parser, token):
+    match token.split_contents():
+        case "tag":
+            raise TemplateSyntaxError("bad")
+        case _:
+            raise TemplateSyntaxError("bad")
+"#,
+        );
+        assert!(
+            rule.arg_constraints.is_empty(),
+            "all-error match should produce no constraints, got {:?}",
+            rule.arg_constraints
+        );
+    }
+
+    #[test]
+    fn match_env_updates_propagate() {
+        let env = eval_body(
+            r#"
+def do_tag(parser, token):
+    match token.split_contents():
+        case "tag", name:
+            result = name
+"#,
+        );
+        // The match body should have processed assignments
+        assert_eq!(env.get("result"), &AbstractValue::Unknown);
     }
 }

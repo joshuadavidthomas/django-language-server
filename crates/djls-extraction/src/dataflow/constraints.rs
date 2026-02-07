@@ -46,8 +46,19 @@ pub fn extract_constraints(stmts: &[Stmt], env: &Env) -> Constraints {
 
 fn extract_from_body(stmts: &[Stmt], env: &Env, constraints: &mut Constraints) {
     for stmt in stmts {
-        if let Stmt::If(if_stmt) = stmt {
-            extract_from_if(if_stmt, env, constraints);
+        match stmt {
+            Stmt::If(if_stmt) => {
+                extract_from_if(if_stmt, env, constraints);
+            }
+            Stmt::Match(match_stmt) => {
+                if let Some((arg_constraints, keywords)) =
+                    super::eval::extract_match_constraints(match_stmt, env)
+                {
+                    constraints.arg_constraints.extend(arg_constraints);
+                    constraints.required_keywords.extend(keywords);
+                }
+            }
+            _ => {}
         }
     }
 }
