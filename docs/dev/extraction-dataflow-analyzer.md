@@ -95,6 +95,167 @@ The scope is single-module — helper functions (like allauth's `parse_tag`)
 are always defined in the same file as the compile function that calls
 them.
 
+## Theoretical foundations
+
+What we're building is not novel — it's textbook compiler infrastructure
+applied to a tiny domain. The techniques involved are well-understood
+and decades old. This section maps the established concepts to our
+specific problem.
+
+### Static analysis and AST parsing
+
+Static analysis examines source code without executing it to infer
+properties or detect issues. The code is first parsed into an Abstract
+Syntax Tree (AST), which represents the code's structure. From the AST,
+analyzers build intermediate representations like control-flow graphs
+or call graphs. The key property: static analysis explores all possible
+paths in theory, rather than a single run of the program.
+
+We already do this — Ruff's Python parser produces the AST, and we walk
+it to extract information. The dataflow analyzer simply does this walk
+more systematically.
+
+### Data flow analysis
+
+Data flow analysis tracks how information (values, definitions of
+variables) moves through a program. It answers questions like "Where
+did this value come from?" and "What values can this variable hold at
+this point?" Classic forward data flow analyses include:
+
+- **Reaching definitions**: for each point in the program, which
+  assignments to a variable might still be in effect?
+- **Constant propagation**: can we determine a variable's value
+  statically?
+- **Live variable analysis**: is a variable's value used before being
+  overwritten?
+
+The general approach: set up equations for how each statement transforms
+data flow facts, then iteratively solve to a fixpoint (no more changes).
+
+Our analyzer is a forward data flow analysis. The "facts" are the
+`AbstractValue` bindings in the `Env`. Each statement transforms the env
+(e.g., `bits = token.split_contents()` binds `bits` to
+`SplitResult { base_offset: 0 }`). We don't need fixpoint iteration
+because compile functions are essentially straight-line code with a few
+branches — no loops that require convergence. The while-loop option
+parsing is handled as a special pattern, not as general iteration.
+
+### Abstract interpretation
+
+Abstract interpretation is a framework where actual runtime values are
+mapped to abstract values, and the program is symbolically "executed"
+on these abstract values to see what states are possible. Instead of
+tracking concrete values (which is impossible statically — we don't know
+what arguments a template will pass), we track abstract properties of
+values.
+
+Our `AbstractValue` enum is exactly this:
+
+| Concrete runtime value | Abstract value |
+|------------------------|----------------|
+| `<Token object>` | `Token` |
+| `["for", "x", "in", "items"]` | `SplitResult { base_offset: 0 }` |
+| `["x", "in", "items"]` (after pop) | `SplitResult { base_offset: 1 }` |
+| `"in"` (element at index 2) | `SplitElement { index: Forward(2) }` |
+| `4` (length of the list) | `SplitLength { base_offset: 0 }` |
+| Anything we can't track | `Unknown` |
+
+The abstract domain is deliberately tiny — about 10 value types. This is
+the advantage of a domain-specific analyzer over a general-purpose tool:
+we only model what matters for template tag argument validation.
+
+### Taint analysis framing
+
+The cleanest mental model for our analyzer is **taint analysis**. In
+taint analysis, certain values are marked as "tainted" (carrying
+interesting data from a known source), and the analyzer tracks where
+tainted values flow through the program.
+
+In our case:
+
+- **Source**: `token` parameter (and specifically `token.split_contents()`)
+- **Taint propagation**: assignments, slicing, indexing, function
+  call/return, tuple unpacking — any operation that transforms or moves
+  the split result
+- **Sink**: `if condition: raise TemplateSyntaxError(...)` — this is
+  where we extract meaning from the tainted values
+
+Everything between source and sink is tracking the taint. When we see
+`len(bits) < 4` guarding a raise, we check: is `bits` tainted (derived
+from `split_contents()`)? If yes, we can interpret the constraint. If
+`bits` is `Unknown` (untainted / lost tracking), we emit nothing.
+
+This framing also clarifies the failure mode: if the taint is "lost"
+(a value passes through an operation we don't model), the constraint
+simply isn't extracted. No false positive, just a missing diagnostic.
+Silence is always better than noise in a language server.
+
+### Interprocedural analysis
+
+Intraprocedural analysis examines a single function in isolation.
+Interprocedural analysis extends this across function boundaries —
+tracking data as it flows through calls between functions.
+
+The fundamental structure is the **call graph**: each node is a function,
+and an edge from f to g means f calls g. Using the call graph, the
+analyzer propagates information from callers to callees and back.
+
+Two approaches:
+
+- **Context-insensitive**: analyze each function once, produce a single
+  summary of its behavior, use that summary everywhere it's called.
+  Efficient but imprecise if a function is used differently by different
+  callers.
+
+- **Context-sensitive**: distinguish between different call sites.
+  Simulate calling the same function with different inputs separately.
+  More precise, more complex.
+
+Our analyzer is **context-sensitive by construction** — we analyze each
+helper function with the caller's actual abstract values bound to its
+parameters. When `do_element` calls `parse_tag(token, parser)`, we
+analyze `parse_tag` with `token → Token` bound to its first parameter.
+This is the natural approach for one-level resolution.
+
+We limit interprocedural analysis to **one level** — compile function →
+helper. The corpus shows no deeper chains. This keeps the analysis
+simple while handling all observed real-world patterns.
+
+**Function summaries** (caching a helper's analysis result) are a
+natural optimization if the same helper is called by multiple compile
+functions. Not needed initially but straightforward to add.
+
+### What we explicitly don't need
+
+These are techniques from the general static analysis literature that
+are irrelevant or overkill for our constrained domain:
+
+- **Full CFG construction**: our "walk statements top-to-bottom" suffices
+  because compile functions don't have complex control flow (no goto,
+  no exceptions as control flow, no coroutines).
+
+- **Fixpoint iteration**: not needed because we don't analyze general
+  loops. Compile functions use while-loops only for option parsing
+  (handled as a special pattern) and for-loops for iteration over
+  arguments (the loop body doesn't modify the tracked list).
+
+- **Alias / points-to analysis**: irrelevant. We know exactly what
+  `token` is. There's no dynamic dispatch, no polymorphism, no
+  first-class functions in the paths we care about.
+
+- **Sound / complete analysis**: we're deliberately unsound. We return
+  `Unknown` for anything we can't track, which means we may miss some
+  valid constraints (false negatives). This is the right trade for a
+  language server — a sound analysis would over-approximate and
+  potentially flag valid code. We want the opposite: only flag things
+  we're *certain* about. No false positive is always better than a
+  wrong diagnostic.
+
+- **General type inference**: we don't need to infer the types of
+  arbitrary Python expressions. We know the types of the inputs
+  (`Token`, `Parser`) and the methods on those types. Everything else
+  is either derived from those (tracked) or unknown (untracked).
+
 ## Corpus survey: how compile functions use `token`
 
 Every pattern below is drawn from the corpus (Django 4.2–6.0, allauth,
