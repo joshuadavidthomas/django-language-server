@@ -489,7 +489,7 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ## M9 — Remove User Config TagSpecs
 
-**Status:** in progress
+**Status:** complete
 **Plan:** `.agents/plans/2026-02-06-m9-tagspec-simplification.md`
 **Depends on:** M8
 
@@ -538,6 +538,19 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 - [x] Add note in config docs that template tag validation is handled automatically by Python AST extraction
 - [x] Update `docs/template-validation.md` to remove tagspec references, note argument validation uses Django's own error messages via extraction
 - [x] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+---
+
+## M10 — Dataflow Analyzer (Replace Pattern-Matching Extraction)
+
+**Status:** planning
+**Plan:** `.agents/plans/2026-02-06-m10-dataflow-analyzer.md`
+**Depends on:** M5, M8
+**Design doc:** `docs/dev/extraction-dataflow-analyzer.md`
+
+**Goal:** Replace the ad-hoc pattern matching in `context.rs` + `rules.rs` (~2190 lines) with a domain-specific abstract interpreter that tracks `token` and `parser` through compile functions. Handles Django 6.0 `match` statements, helper function delegation, and all corpus patterns from a unified framework.
+
+_Tasks to be expanded when this milestone is next._
 
 ---
 
