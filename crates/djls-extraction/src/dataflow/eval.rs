@@ -14,21 +14,34 @@ use ruff_python_ast::Number;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtAssign;
 use ruff_python_ast::StmtFunctionDef;
-
+use super::calls::HelperCache;
+use super::calls::resolve_call;
 use super::domain::AbstractValue;
 use super::domain::Env;
 use super::domain::Index;
 
 /// Context for the dataflow analysis, threading through shared state.
-#[allow(dead_code)]
 pub struct AnalysisContext<'a> {
     pub module_funcs: &'a [&'a StmtFunctionDef],
     pub caller_name: &'a str,
     pub call_depth: usize,
+    pub cache: &'a mut HelperCache,
 }
 
 /// Evaluate a Python expression against the abstract environment.
+///
+/// When `ctx` is provided, function calls can be resolved to module-local
+/// helpers via bounded inlining.
 pub fn eval_expr(expr: &Expr, env: &Env) -> AbstractValue {
+    eval_expr_with_ctx(expr, env, None)
+}
+
+/// Evaluate a Python expression with optional analysis context for call resolution.
+fn eval_expr_with_ctx(
+    expr: &Expr,
+    env: &Env,
+    ctx: Option<&mut AnalysisContext<'_>>,
+) -> AbstractValue {
     match expr {
         Expr::Name(ExprName { id, .. }) => env.get(id.as_str()).clone(),
 
@@ -47,7 +60,7 @@ pub fn eval_expr(expr: &Expr, env: &Env) -> AbstractValue {
             AbstractValue::Tuple(elts.iter().map(|e| eval_expr(e, env)).collect())
         }
 
-        Expr::Call(call) => eval_call(call, env),
+        Expr::Call(call) => eval_call_with_ctx(call, env, ctx),
 
         Expr::Subscript(ExprSubscript { value, slice, .. }) => {
             let base = eval_expr(value, env);
@@ -58,8 +71,12 @@ pub fn eval_expr(expr: &Expr, env: &Env) -> AbstractValue {
     }
 }
 
-/// Evaluate a function/method call expression.
-fn eval_call(call: &ExprCall, env: &Env) -> AbstractValue {
+/// Evaluate a function/method call expression with optional context.
+fn eval_call_with_ctx(
+    call: &ExprCall,
+    env: &Env,
+    mut ctx: Option<&mut AnalysisContext<'_>>,
+) -> AbstractValue {
     if let Expr::Attribute(ExprAttribute { value, attr, .. }) = call.func.as_ref() {
         let obj = eval_expr(value, env);
         let method = attr.as_str();
@@ -110,14 +127,27 @@ fn eval_call(call: &ExprCall, env: &Env) -> AbstractValue {
             }
         }
 
+        // Hardcoded external summaries for parser methods
+        if matches!(obj, AbstractValue::Parser) {
+            match method {
+                "compile_filter" | "parse" | "delete_first_token" => {
+                    return AbstractValue::Unknown;
+                }
+                _ => {}
+            }
+        }
+
         return AbstractValue::Unknown;
     }
 
     // Builtin calls: len(), list()
     if let Expr::Name(ExprName { id, .. }) = call.func.as_ref() {
+        let name = id.as_str();
+
+        // len() and list() with single argument
         if let Some(arg) = call.arguments.args.first() {
             let val = eval_expr(arg, env);
-            match id.as_str() {
+            match name {
                 "len" => {
                     if let AbstractValue::SplitResult {
                         base_offset,
@@ -137,6 +167,19 @@ fn eval_call(call: &ExprCall, env: &Env) -> AbstractValue {
                 }
                 _ => {}
             }
+        }
+
+        // Hardcoded external summary: token_kwargs(bits, parser)
+        // Mutates bits → mark it Unknown, return Unknown
+        if name == "token_kwargs" {
+            return AbstractValue::Unknown;
+        }
+
+        // Try module-local function resolution
+        if let Some(ctx) = ctx.as_mut() {
+            let args: Vec<AbstractValue> =
+                call.arguments.args.iter().map(|a| eval_expr(a, env)).collect();
+            return resolve_call(name, &args, ctx);
         }
     }
 
@@ -322,15 +365,20 @@ pub fn process_statements(stmts: &[Stmt], env: &mut Env, ctx: &mut AnalysisConte
 fn process_statement(stmt: &Stmt, env: &mut Env, ctx: &mut AnalysisContext<'_>) {
     match stmt {
         Stmt::Assign(StmtAssign { targets, value, .. }) => {
+            // Check for token_kwargs side effect: marks the bits arg as Unknown
+            if let Some(var_name) = try_extract_token_kwargs_call(value) {
+                env.set(var_name, AbstractValue::Unknown);
+            }
+
             // Check if RHS is a pop call that needs side effects
             if let Some(pop_info) = try_extract_pop_call(value) {
-                let rhs = eval_expr(value, env);
+                let rhs = eval_expr_with_ctx(value, env, Some(ctx));
                 apply_pop_mutation(env, &pop_info);
                 if targets.len() == 1 {
                     process_assignment_target(&targets[0], &rhs, env);
                 }
             } else {
-                let rhs = eval_expr(value, env);
+                let rhs = eval_expr_with_ctx(value, env, Some(ctx));
                 if targets.len() == 1 {
                     process_assignment_target(&targets[0], &rhs, env);
                 }
@@ -366,6 +414,9 @@ fn process_statement(stmt: &Stmt, env: &mut Env, ctx: &mut AnalysisContext<'_>) 
         Stmt::Expr(stmt_expr) => {
             if let Some(pop_info) = try_extract_pop_call(&stmt_expr.value) {
                 apply_pop_mutation(env, &pop_info);
+            }
+            if let Some(var_name) = try_extract_token_kwargs_call(&stmt_expr.value) {
+                env.set(var_name, AbstractValue::Unknown);
             }
         }
 
@@ -408,6 +459,25 @@ fn try_extract_pop_call(expr: &Expr) -> Option<PopInfo> {
         var_name: id.to_string(),
         from_front,
     })
+}
+
+/// Try to detect `token_kwargs(bits, parser)` calls and return the first
+/// argument name so we can mark it as Unknown (`token_kwargs` mutates bits).
+fn try_extract_token_kwargs_call(expr: &Expr) -> Option<String> {
+    let Expr::Call(call) = expr else {
+        return None;
+    };
+    let Expr::Name(ExprName { id, .. }) = call.func.as_ref() else {
+        return None;
+    };
+    if id.as_str() != "token_kwargs" {
+        return None;
+    }
+    // First argument is the bits variable that gets mutated
+    if let Some(Expr::Name(ExprName { id: arg_name, .. })) = call.arguments.args.first() {
+        return Some(arg_name.to_string());
+    }
+    None
 }
 
 /// Apply the mutation side effect of a pop call to the environment.
@@ -545,14 +615,6 @@ mod tests {
         panic!("no function definition found in source");
     }
 
-    fn make_ctx() -> AnalysisContext<'static> {
-        AnalysisContext {
-            module_funcs: &[],
-            caller_name: "test",
-            call_depth: 0,
-        }
-    }
-
     fn eval_body(source: &str) -> Env {
         let func = parse_function(source);
         let parser_param = func
@@ -566,7 +628,13 @@ mod tests {
             .get(1)
             .map_or("token", |p| p.parameter.name.as_str());
         let mut env = Env::for_compile_function(parser_param, token_param);
-        let mut ctx = make_ctx();
+        let mut cache = crate::dataflow::HelperCache::new();
+        let mut ctx = AnalysisContext {
+            module_funcs: &[],
+            caller_name: "test",
+            call_depth: 0,
+            cache: &mut cache,
+        };
         process_statements(&func.body, &mut env, &mut ctx);
         env
     }

@@ -596,14 +596,14 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ### Phase 5: Intra-Module Function Calls
 
-- [ ] Implement `HelperCache` in `dataflow/calls.rs` with `AbstractValueKey` for hashable cache keys
-- [ ] Implement `resolve_call(callee_name, args, module_funcs, caller_name, call_depth, cache) -> AbstractValue`: check cache, find callee in module_funcs, create env with parameter bindings, process callee body, extract return value, cache result
-- [ ] Add depth limit (`MAX_CALL_DEPTH = 2`) and self-recursion guard
-- [ ] Add hardcoded external summaries: `token_kwargs(bits, parser)` → Unknown + mark bits Unknown, `parser.compile_filter(expr)` → Unknown, `parser.parse(tags)` → Unknown
-- [ ] Wire into `eval_expr`: on Call expression, check Django API calls, then try module-local resolution
-- [ ] Thread `HelperCache` through `AnalysisContext`
-- [ ] Tests: simple helper returning split_contents, tuple return destructuring, allauth `parse_tag` pattern (no constraints), depth limit, self-recursion, helper not found, token_kwargs, parser.compile_filter, cache hit (same args), cache miss (different args)
-- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Implement `HelperCache` in `dataflow/calls.rs` with `AbstractValueKey` for hashable cache keys
+- [x] Implement `resolve_call(callee_name, args, module_funcs, caller_name, call_depth, cache) -> AbstractValue`: check cache, find callee in module_funcs, create env with parameter bindings, process callee body, extract return value, cache result
+- [x] Add depth limit (`MAX_CALL_DEPTH = 2`) and self-recursion guard
+- [x] Add hardcoded external summaries: `token_kwargs(bits, parser)` → Unknown + mark bits Unknown, `parser.compile_filter(expr)` → Unknown, `parser.parse(tags)` → Unknown
+- [x] Wire into `eval_expr`: on Call expression, check Django API calls, then try module-local resolution
+- [x] Thread `HelperCache` through `AnalysisContext`
+- [x] Tests: simple helper returning split_contents, tuple return destructuring, allauth `parse_tag` pattern (no constraints), depth limit, self-recursion, helper not found, token_kwargs, parser.compile_filter, cache hit (same args), cache miss (different args)
+- [x] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 6: While-Loop Option Parsing
 
@@ -661,3 +661,4 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 - **M8 Phase 4**: `From<ExtractedArg> for TagArg` conversion added to `specs.rs`. Mapping: `Variable`/`Keyword` → `TagArg::Variable` (Exact(1)), `Literal(s)` → `TagArg::Literal` (Syntax kind), `Choice(opts)` → `TagArg::Choice`, `VarArgs` → `TagArg::VarArgs`. `merge_extraction_results()` now converts `tag_rule.extracted_args` to `Vec<TagArg>` and populates `spec.args` — only when extraction has non-empty args (preserves existing user-config args when extraction yields nothing). Completions/snippets code reads `spec.args` unchanged — source changed from hand-crafted to extraction-derived.
 - **M8 Phase 6**: Corpus template validation tests added to `djls-semantic/src/lib.rs` test module. `CorpusTestDatabase` uses extraction-derived `TagSpecs` with no inspector inventory (scoping diagnostics suppressed). Tests extract rules from all Django source modules (defaulttags, defaultfilters, i18n, static, l10n, tz, contrib/admin templatetags) and validate 113 Django shipped templates with zero false positives. Jinja2 templates (`/jinja2/` paths) and static directory templates excluded from validation. Corpus-dependent tests (Django versions, third-party packages/repos) skip gracefully when corpus not synced. Third-party entries use warn-only (no assertion failure) since extraction coverage is partial. `djls-extraction` with `parser` feature added as dev-dependency to `djls-semantic` to enable extraction in tests.
 - **M9 Phase 1**: Clean deletion of 1633 lines. Key approach: delete the config module entirely first (`tagspecs.rs`, `tagspecs/legacy.rs`), then fix all compile errors cascading outward (conf → project → server → semantic). Invalidation tests that depended on `set_tagspecs` needed rewriting: `tag_index_depends_on_tag_specs` now uses extraction results, `same_value_no_invalidation` now uses `diagnostics` field instead. `serde_json` and `tracing` deps removed from `djls-conf` (were only needed for tagspec deserialization). `compute_tag_specs` simplified from 4 layers to 2: `django_builtin_specs()` + extraction merge.
+- **M10 Phase 5**: Intra-module function calls. `HelperCache` keyed by `(func_name, Vec<AbstractValueKey>)` where `AbstractValueKey` is a hashable representation of `AbstractValue`. `resolve_call` does bounded inlining (depth 2), self-recursion guard, and cache lookup. `eval_expr` now has a `_with_ctx` variant that passes `AnalysisContext` for call resolution. `token_kwargs(bits, parser)` is handled as a side-effect call — marks the bits argument as `Unknown` in the env. `parser.compile_filter`/`parser.parse`/`parser.delete_first_token` return `Unknown`. Test helper `analyze_with_helpers` uses `starts_with("do_")` to find the main compile function. Pre-existing corpus test failures (`test_repo_templates_zero_arg_false_positives`, `test_third_party_templates_zero_arg_false_positives`) confirmed unrelated to M10 changes.

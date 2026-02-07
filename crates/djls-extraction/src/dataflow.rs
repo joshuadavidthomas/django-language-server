@@ -1,12 +1,13 @@
-mod calls;
+pub(crate) mod calls;
 mod constraints;
 pub(crate) mod domain;
-mod eval;
+pub(crate) mod eval;
 
 use ruff_python_ast::StmtFunctionDef;
 
 use crate::types::TagRule;
 
+pub use calls::HelperCache;
 
 /// Analyze a compile function using dataflow analysis to extract argument constraints.
 ///
@@ -20,6 +21,20 @@ use crate::types::TagRule;
 pub fn analyze_compile_function(
     func: &StmtFunctionDef,
     module_funcs: &[&StmtFunctionDef],
+) -> TagRule {
+    let mut cache = HelperCache::new();
+    analyze_compile_function_with_cache(func, module_funcs, &mut cache)
+}
+
+/// Analyze a compile function with an existing helper cache.
+///
+/// When analyzing multiple compile functions in the same module, passing
+/// a shared cache avoids re-analyzing helpers called by multiple functions.
+#[must_use]
+pub fn analyze_compile_function_with_cache(
+    func: &StmtFunctionDef,
+    module_funcs: &[&StmtFunctionDef],
+    cache: &mut HelperCache,
 ) -> TagRule {
     let params = &func.parameters;
     let parser_param = params
@@ -36,6 +51,7 @@ pub fn analyze_compile_function(
         module_funcs,
         caller_name: func.name.as_str(),
         call_depth: 0,
+        cache,
     };
 
     eval::process_statements(&func.body, &mut env, &mut ctx);
