@@ -66,7 +66,10 @@ fn eval_call(call: &ExprCall, env: &Env) -> AbstractValue {
 
         // token.split_contents()
         if matches!((&obj, method), (AbstractValue::Token, "split_contents")) {
-            return AbstractValue::SplitResult { base_offset: 0 };
+            return AbstractValue::SplitResult {
+                base_offset: 0,
+                pops_from_end: 0,
+            };
         }
 
         // parser.token.split_contents()
@@ -79,9 +82,17 @@ fn eval_call(call: &ExprCall, env: &Env) -> AbstractValue {
             {
                 let inner_obj = eval_expr(inner_value, env);
                 if matches!(inner_obj, AbstractValue::Parser) && inner_attr.as_str() == "token" {
-                    return AbstractValue::SplitResult { base_offset: 0 };
+                    return AbstractValue::SplitResult {
+                        base_offset: 0,
+                        pops_from_end: 0,
+                    };
                 }
             }
+        }
+
+        // bits.pop(0) or bits.pop()
+        if method == "pop" && matches!(obj, AbstractValue::SplitResult { .. }) {
+            return eval_pop_return(&obj, &call.arguments);
         }
 
         // token.contents.split(...)
@@ -108,8 +119,15 @@ fn eval_call(call: &ExprCall, env: &Env) -> AbstractValue {
             let val = eval_expr(arg, env);
             match id.as_str() {
                 "len" => {
-                    if let AbstractValue::SplitResult { base_offset } = val {
-                        return AbstractValue::SplitLength { base_offset };
+                    if let AbstractValue::SplitResult {
+                        base_offset,
+                        pops_from_end,
+                    } = val
+                    {
+                        return AbstractValue::SplitLength {
+                            base_offset,
+                            pops_from_end,
+                        };
                     }
                 }
                 "list" => {
@@ -128,7 +146,10 @@ fn eval_call(call: &ExprCall, env: &Env) -> AbstractValue {
 /// Handle `token.contents.split(...)` patterns.
 fn eval_contents_split(args: &Arguments) -> AbstractValue {
     if args.args.is_empty() {
-        return AbstractValue::SplitResult { base_offset: 0 };
+        return AbstractValue::SplitResult {
+            base_offset: 0,
+            pops_from_end: 0,
+        };
     }
 
     // token.contents.split(None, 1) → Tuple of [SplitElement(Forward(0)), Unknown]
@@ -143,7 +164,40 @@ fn eval_contents_split(args: &Arguments) -> AbstractValue {
         }
     }
 
-    AbstractValue::SplitResult { base_offset: 0 }
+    AbstractValue::SplitResult {
+        base_offset: 0,
+        pops_from_end: 0,
+    }
+}
+
+/// Evaluate the return value of `split_result.pop(0)` or `split_result.pop()`.
+///
+/// This only computes the return value — the mutation of the split result
+/// is handled in `process_pop_statement`.
+fn eval_pop_return(obj: &AbstractValue, args: &Arguments) -> AbstractValue {
+    let AbstractValue::SplitResult {
+        base_offset,
+        pops_from_end,
+    } = obj
+    else {
+        return AbstractValue::Unknown;
+    };
+
+    if let Some(arg) = args.args.first() {
+        // bits.pop(0) — return element at base_offset
+        if let Some(0) = expr_as_positive_usize(arg) {
+            return AbstractValue::SplitElement {
+                index: Index::Forward(*base_offset),
+            };
+        }
+    } else {
+        // bits.pop() — return last element (before pop)
+        return AbstractValue::SplitElement {
+            index: Index::Backward(*pops_from_end + 1),
+        };
+    }
+
+    AbstractValue::Unknown
 }
 
 /// Convert an i64 to an `AbstractValue` index element based on sign.
@@ -162,7 +216,7 @@ fn i64_to_index_element(n: i64, base_offset: usize) -> AbstractValue {
 
 /// Evaluate subscript access on an abstract value.
 fn eval_subscript(base: &AbstractValue, slice: &Expr, env: &Env) -> AbstractValue {
-    let AbstractValue::SplitResult { base_offset } = base else {
+    let AbstractValue::SplitResult { base_offset, .. } = base else {
         return AbstractValue::Unknown;
     };
 
@@ -202,12 +256,18 @@ fn eval_subscript(base: &AbstractValue, slice: &Expr, env: &Env) -> AbstractValu
                 return AbstractValue::Unknown;
             }
 
+            let pops = if let AbstractValue::SplitResult { pops_from_end, .. } = base {
+                *pops_from_end
+            } else {
+                0
+            };
             match (lower.as_deref(), upper.as_deref()) {
                 // bits[N:] — slice from N onwards
                 (Some(lower_expr), None) => {
                     if let Some(n) = expr_as_positive_usize(lower_expr) {
                         return AbstractValue::SplitResult {
                             base_offset: base_offset + n,
+                            pops_from_end: pops,
                         };
                     }
                     AbstractValue::Unknown
@@ -215,6 +275,7 @@ fn eval_subscript(base: &AbstractValue, slice: &Expr, env: &Env) -> AbstractValu
                 // bits[:N], bits[:-N], or bits[:] — truncation, preserve offset
                 (None, _) => AbstractValue::SplitResult {
                     base_offset: *base_offset,
+                    pops_from_end: pops,
                 },
                 _ => AbstractValue::Unknown,
             }
@@ -261,9 +322,18 @@ pub fn process_statements(stmts: &[Stmt], env: &mut Env, ctx: &mut AnalysisConte
 fn process_statement(stmt: &Stmt, env: &mut Env, ctx: &mut AnalysisContext<'_>) {
     match stmt {
         Stmt::Assign(StmtAssign { targets, value, .. }) => {
-            let rhs = eval_expr(value, env);
-            if targets.len() == 1 {
-                process_assignment_target(&targets[0], &rhs, env);
+            // Check if RHS is a pop call that needs side effects
+            if let Some(pop_info) = try_extract_pop_call(value) {
+                let rhs = eval_expr(value, env);
+                apply_pop_mutation(env, &pop_info);
+                if targets.len() == 1 {
+                    process_assignment_target(&targets[0], &rhs, env);
+                }
+            } else {
+                let rhs = eval_expr(value, env);
+                if targets.len() == 1 {
+                    process_assignment_target(&targets[0], &rhs, env);
+                }
             }
         }
 
@@ -292,11 +362,69 @@ fn process_statement(stmt: &Stmt, env: &mut Env, ctx: &mut AnalysisContext<'_>) 
             process_statements(&stmt_with.body, env, ctx);
         }
 
-        // Expression statements (side effects like bits.pop(0)) — Phase 4
+        // Expression statement: handle side effects like bits.pop(0)
+        Stmt::Expr(stmt_expr) => {
+            if let Some(pop_info) = try_extract_pop_call(&stmt_expr.value) {
+                apply_pop_mutation(env, &pop_info);
+            }
+        }
+
         // While loops (option parsing) — Phase 6
         // Match statements — Phase 7
         _ => {}
     }
+}
+
+/// Info about a `bits.pop(...)` call for mutation tracking.
+struct PopInfo {
+    /// The variable name being popped from (e.g., "bits")
+    var_name: String,
+    /// Whether this is `pop(0)` (from front) or `pop()` (from end)
+    from_front: bool,
+}
+
+/// Try to extract pop call info from an expression, without evaluating it.
+fn try_extract_pop_call(expr: &Expr) -> Option<PopInfo> {
+    let Expr::Call(call) = expr else {
+        return None;
+    };
+    let Expr::Attribute(ExprAttribute { value, attr, .. }) = call.func.as_ref() else {
+        return None;
+    };
+    if attr.as_str() != "pop" {
+        return None;
+    }
+    let Expr::Name(ExprName { id, .. }) = value.as_ref() else {
+        return None;
+    };
+
+    let from_front = if let Some(arg) = call.arguments.args.first() {
+        expr_as_positive_usize(arg) == Some(0)
+    } else {
+        false
+    };
+
+    Some(PopInfo {
+        var_name: id.to_string(),
+        from_front,
+    })
+}
+
+/// Apply the mutation side effect of a pop call to the environment.
+fn apply_pop_mutation(env: &mut Env, pop_info: &PopInfo) {
+    env.mutate(&pop_info.var_name, |v| {
+        if let AbstractValue::SplitResult {
+            base_offset,
+            pops_from_end,
+        } = v
+        {
+            if pop_info.from_front {
+                *base_offset += 1;
+            } else {
+                *pops_from_end += 1;
+            }
+        }
+    });
 }
 
 /// Process an assignment target with the evaluated RHS value.
@@ -324,8 +452,12 @@ fn process_tuple_unpack(targets: &[Expr], value: &AbstractValue, env: &mut Env) 
             }
         }
 
-        AbstractValue::SplitResult { base_offset } => {
+        AbstractValue::SplitResult {
+            base_offset,
+            pops_from_end,
+        } => {
             let base_offset = *base_offset;
+            let pops_from_end = *pops_from_end;
 
             // Find starred target index
             let star_index = targets
@@ -352,6 +484,7 @@ fn process_tuple_unpack(targets: &[Expr], value: &AbstractValue, env: &mut Env) 
                             id.to_string(),
                             AbstractValue::SplitResult {
                                 base_offset: base_offset + si,
+                                pops_from_end,
                             },
                         );
                     }
@@ -461,7 +594,7 @@ def do_tag(parser, token):
         );
         assert_eq!(
             env.get("bits"),
-            &AbstractValue::SplitResult { base_offset: 0 }
+            &AbstractValue::SplitResult { base_offset: 0, pops_from_end: 0 }
         );
     }
 
@@ -475,7 +608,7 @@ def do_tag(parser, token):
         );
         assert_eq!(
             env.get("args"),
-            &AbstractValue::SplitResult { base_offset: 0 }
+            &AbstractValue::SplitResult { base_offset: 0, pops_from_end: 0 }
         );
     }
 
@@ -489,7 +622,7 @@ def do_tag(parser, token):
         );
         assert_eq!(
             env.get("bits"),
-            &AbstractValue::SplitResult { base_offset: 0 }
+            &AbstractValue::SplitResult { base_offset: 0, pops_from_end: 0 }
         );
     }
 
@@ -545,7 +678,7 @@ def do_tag(parser, token):
         );
         assert_eq!(
             env.get("rest"),
-            &AbstractValue::SplitResult { base_offset: 1 }
+            &AbstractValue::SplitResult { base_offset: 1, pops_from_end: 0 }
         );
     }
 
@@ -561,11 +694,11 @@ def do_tag(parser, token):
         );
         assert_eq!(
             env.get("rest"),
-            &AbstractValue::SplitResult { base_offset: 2 }
+            &AbstractValue::SplitResult { base_offset: 2, pops_from_end: 0 }
         );
         assert_eq!(
             env.get("more"),
-            &AbstractValue::SplitResult { base_offset: 3 }
+            &AbstractValue::SplitResult { base_offset: 3, pops_from_end: 0 }
         );
     }
 
@@ -580,7 +713,7 @@ def do_tag(parser, token):
         );
         assert_eq!(
             env.get("n"),
-            &AbstractValue::SplitLength { base_offset: 0 }
+            &AbstractValue::SplitLength { base_offset: 0, pops_from_end: 0 }
         );
     }
 
@@ -595,7 +728,7 @@ def do_tag(parser, token):
         );
         assert_eq!(
             env.get("bits"),
-            &AbstractValue::SplitResult { base_offset: 0 }
+            &AbstractValue::SplitResult { base_offset: 0, pops_from_end: 0 }
         );
     }
 
@@ -615,7 +748,7 @@ def do_tag(parser, token):
         );
         assert_eq!(
             env.get("rest"),
-            &AbstractValue::SplitResult { base_offset: 1 }
+            &AbstractValue::SplitResult { base_offset: 1, pops_from_end: 0 }
         );
     }
 
@@ -724,7 +857,7 @@ def do_tag(parser, token):
         );
         assert_eq!(
             env.get("rest"),
-            &AbstractValue::SplitResult { base_offset: 1 }
+            &AbstractValue::SplitResult { base_offset: 1, pops_from_end: 0 }
         );
     }
 
@@ -762,7 +895,7 @@ def do_tag(parser, token):
         );
         assert_eq!(
             env.get("truncated"),
-            &AbstractValue::SplitResult { base_offset: 1 }
+            &AbstractValue::SplitResult { base_offset: 1, pops_from_end: 0 }
         );
     }
 
@@ -782,12 +915,155 @@ def do_tag(parser, token):
         );
         assert_eq!(
             env.get("middle"),
-            &AbstractValue::SplitResult { base_offset: 1 }
+            &AbstractValue::SplitResult { base_offset: 1, pops_from_end: 0 }
         );
         assert_eq!(
             env.get("last"),
             &AbstractValue::SplitElement {
                 index: Index::Backward(1)
+            }
+        );
+    }
+
+    #[test]
+    fn pop_0_offset() {
+        let env = eval_body(
+            r"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    bits.pop(0)
+",
+        );
+        assert_eq!(
+            env.get("bits"),
+            &AbstractValue::SplitResult {
+                base_offset: 1,
+                pops_from_end: 0
+            }
+        );
+    }
+
+    #[test]
+    fn pop_0_with_assignment() {
+        let env = eval_body(
+            r"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    tag_name = bits.pop(0)
+",
+        );
+        assert_eq!(
+            env.get("tag_name"),
+            &AbstractValue::SplitElement {
+                index: Index::Forward(0)
+            }
+        );
+        assert_eq!(
+            env.get("bits"),
+            &AbstractValue::SplitResult {
+                base_offset: 1,
+                pops_from_end: 0
+            }
+        );
+    }
+
+    #[test]
+    fn pop_from_end() {
+        let env = eval_body(
+            r"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    bits.pop()
+",
+        );
+        assert_eq!(
+            env.get("bits"),
+            &AbstractValue::SplitResult {
+                base_offset: 0,
+                pops_from_end: 1
+            }
+        );
+    }
+
+    #[test]
+    fn pop_from_end_with_assignment() {
+        let env = eval_body(
+            r"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    last = bits.pop()
+",
+        );
+        assert_eq!(
+            env.get("last"),
+            &AbstractValue::SplitElement {
+                index: Index::Backward(1)
+            }
+        );
+        assert_eq!(
+            env.get("bits"),
+            &AbstractValue::SplitResult {
+                base_offset: 0,
+                pops_from_end: 1
+            }
+        );
+    }
+
+    #[test]
+    fn multiple_pops() {
+        let env = eval_body(
+            r"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    bits.pop(0)
+    bits.pop()
+    bits.pop()
+",
+        );
+        assert_eq!(
+            env.get("bits"),
+            &AbstractValue::SplitResult {
+                base_offset: 1,
+                pops_from_end: 2
+            }
+        );
+    }
+
+    #[test]
+    fn len_after_pop() {
+        let env = eval_body(
+            r"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    bits.pop(0)
+    n = len(bits)
+",
+        );
+        assert_eq!(
+            env.get("n"),
+            &AbstractValue::SplitLength {
+                base_offset: 1,
+                pops_from_end: 0
+            }
+        );
+    }
+
+    #[test]
+    fn len_after_end_pop() {
+        let env = eval_body(
+            r"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    bits.pop()
+    bits.pop()
+    n = len(bits)
+",
+        );
+        assert_eq!(
+            env.get("n"),
+            &AbstractValue::SplitLength {
+                base_offset: 0,
+                pops_from_end: 2
             }
         );
     }

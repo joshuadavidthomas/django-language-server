@@ -145,9 +145,13 @@ fn eval_compare(compare: &ExprCompare, env: &Env, constraints: &mut Constraints)
     let right_val = eval_expr(comparator, env);
 
     // len(split_result) vs integer
-    if let AbstractValue::SplitLength { base_offset } = &left_val {
+    if let AbstractValue::SplitLength {
+        base_offset,
+        pops_from_end,
+    } = &left_val
+    {
         if let Some(n) = expr_as_usize(comparator) {
-            let offset = *base_offset;
+            let offset = *base_offset + *pops_from_end;
             let constraint = match op {
                 CmpOp::NotEq => Some(ArgumentCountConstraint::Exact(n + offset)),
                 CmpOp::Lt => Some(ArgumentCountConstraint::Min(n + offset)),
@@ -165,7 +169,7 @@ fn eval_compare(compare: &ExprCompare, env: &Env, constraints: &mut Constraints)
         // `len(bits) not in (2, 3, 4)` → valid counts are {2+offset, 3+offset, 4+offset}
         if matches!(op, CmpOp::NotIn) {
             if let Some(values) = extract_int_collection(comparator) {
-                let offset = *base_offset;
+                let offset = *base_offset + *pops_from_end;
                 constraints
                     .arg_constraints
                     .push(ArgumentCountConstraint::OneOf(
@@ -178,9 +182,13 @@ fn eval_compare(compare: &ExprCompare, env: &Env, constraints: &mut Constraints)
     }
 
     // Reversed: integer vs len(split_result), e.g. `4 < len(bits)`
-    if let AbstractValue::SplitLength { base_offset } = &right_val {
+    if let AbstractValue::SplitLength {
+        base_offset,
+        pops_from_end,
+    } = &right_val
+    {
         if let Some(n) = expr_as_usize(left) {
-            let offset = *base_offset;
+            let offset = *base_offset + *pops_from_end;
             let constraint = match op {
                 CmpOp::Lt => Some(ArgumentCountConstraint::Max(n + offset)),
                 CmpOp::LtE if n > 0 => Some(ArgumentCountConstraint::Max(n - 1 + offset)),
@@ -231,12 +239,17 @@ fn eval_negated_compare(compare: &ExprCompare, env: &Env, constraints: &mut Cons
     // Simple negation: `not len(bits) == 3` → Exact(3)
     if compare.ops.len() == 1 && compare.comparators.len() == 1 {
         let left_val = eval_expr(&compare.left, env);
-        if let AbstractValue::SplitLength { base_offset } = left_val {
+        if let AbstractValue::SplitLength {
+            base_offset,
+            pops_from_end,
+        } = left_val
+        {
             if let Some(n) = expr_as_usize(&compare.comparators[0]) {
+                let offset = base_offset + pops_from_end;
                 let constraint = match &compare.ops[0] {
-                    CmpOp::Eq => Some(ArgumentCountConstraint::Exact(n + base_offset)),
-                    CmpOp::Lt if n > 0 => Some(ArgumentCountConstraint::Max(n - 1 + base_offset)),
-                    CmpOp::Gt => Some(ArgumentCountConstraint::Min(n + 1 + base_offset)),
+                    CmpOp::Eq => Some(ArgumentCountConstraint::Exact(n + offset)),
+                    CmpOp::Lt if n > 0 => Some(ArgumentCountConstraint::Max(n - 1 + offset)),
+                    CmpOp::Gt => Some(ArgumentCountConstraint::Min(n + 1 + offset)),
                     _ => None,
                 };
                 if let Some(c) = constraint {
@@ -258,9 +271,14 @@ fn eval_range_constraint(
     }
 
     let middle = eval_expr(&compare.comparators[0], env);
-    let AbstractValue::SplitLength { base_offset } = middle else {
+    let AbstractValue::SplitLength {
+        base_offset,
+        pops_from_end,
+    } = middle
+    else {
         return None;
     };
+    let base_offset = base_offset + pops_from_end;
 
     let lower = expr_as_usize(&compare.left)?;
     let upper = expr_as_usize(&compare.comparators[1])?;
@@ -768,6 +786,68 @@ def do_tag(parser, token):
 "#,
         );
         // rest has base_offset=1, so Min(2+1) = Min(3)
+        assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Min(3)]);
+    }
+
+    #[test]
+    fn pop_0_offset_adjusted_constraint() {
+        let c = extract_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    bits.pop(0)
+    if len(bits) < 3:
+        raise TemplateSyntaxError("err")
+"#,
+        );
+        // len(bits) < 3 where bits has base_offset=1 → Min(3+1) = Min(4)
+        assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Min(4)]);
+    }
+
+    #[test]
+    fn end_pop_adjusted_constraint() {
+        let c = extract_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    bits.pop()
+    bits.pop()
+    if len(bits) != 1:
+        raise TemplateSyntaxError("err")
+"#,
+        );
+        // len(bits) != 1 where bits has pops_from_end=2 → Exact(1+0+2) = Exact(3)
+        assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Exact(3)]);
+    }
+
+    #[test]
+    fn combined_pop_front_and_end() {
+        let c = extract_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    bits.pop(0)
+    bits.pop()
+    if len(bits) < 2:
+        raise TemplateSyntaxError("err")
+"#,
+        );
+        // base_offset=1, pops_from_end=1 → Min(2+1+1) = Min(4)
+        assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Min(4)]);
+    }
+
+    #[test]
+    fn pop_0_with_assignment_then_constraint() {
+        let c = extract_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    tag_name = bits.pop(0)
+    if len(bits) < 2:
+        raise TemplateSyntaxError("err")
+"#,
+        );
+        // After pop(0): base_offset=1 → Min(2+1) = Min(3)
         assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Min(3)]);
     }
 }

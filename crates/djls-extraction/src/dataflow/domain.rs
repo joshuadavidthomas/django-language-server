@@ -30,16 +30,20 @@ pub enum AbstractValue {
     /// Result of `token.split_contents()` or `token.contents.split()`.
     /// `base_offset` tracks mutations: after `bits.pop(0)`, offset becomes 1.
     /// After `bits = bits[2:]`, offset becomes 2.
+    /// `pops_from_end` tracks `bits.pop()` calls (removing from the end).
     SplitResult {
         base_offset: usize,
+        pops_from_end: usize,
     },
     /// Single element from a split result: `bits[N]` or `bits[-N]`
     SplitElement {
         index: Index,
     },
-    /// `len(split_result)` — carries the `base_offset` for constraint adjustment
+    /// `len(split_result)` — carries offsets for constraint adjustment.
+    /// The effective original length = `measured_len + base_offset + pops_from_end`.
     SplitLength {
         base_offset: usize,
+        pops_from_end: usize,
     },
     /// Integer constant
     Int(i64),
@@ -130,17 +134,23 @@ mod tests {
         let mut env = Env::default();
         env.set(
             "bits".to_string(),
-            AbstractValue::SplitResult { base_offset: 0 },
+            AbstractValue::SplitResult {
+                base_offset: 0,
+                pops_from_end: 0,
+            },
         );
         let mutated = env.mutate("bits", |v| {
-            if let AbstractValue::SplitResult { base_offset } = v {
+            if let AbstractValue::SplitResult { base_offset, .. } = v {
                 *base_offset += 1;
             }
         });
         assert!(mutated);
         assert_eq!(
             env.get("bits"),
-            &AbstractValue::SplitResult { base_offset: 1 }
+            &AbstractValue::SplitResult {
+                base_offset: 1,
+                pops_from_end: 0
+            }
         );
     }
 

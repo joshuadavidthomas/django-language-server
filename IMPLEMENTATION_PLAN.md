@@ -587,12 +587,12 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ### Phase 4: Side Effects (pop, mutation)
 
-- [ ] Extend `SplitResult` and `SplitLength` with `pops_from_end: usize` field, update all construction sites
-- [ ] Handle `bits.pop(0)` in `process_statements`: increment `base_offset`, optionally assign popped element as `SplitElement(Forward(old_offset))`
-- [ ] Handle `bits.pop()` in `process_statements`: increment `pops_from_end`, optionally assign as `SplitElement(Backward(0))`
-- [ ] Update constraint offset formula in `constraints.rs`: `Min(N + base_offset + pops_from_end)`, etc.
-- [ ] Tests: pop(0) offset, pop(0) with assignment, pop() from end, multiple pops, offset-adjusted constraint after pop, end-pop-adjusted constraint
-- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Extend `SplitResult` and `SplitLength` with `pops_from_end: usize` field, update all construction sites
+- [x] Handle `bits.pop(0)` in `process_statements`: increment `base_offset`, optionally assign popped element as `SplitElement(Forward(old_offset))`
+- [x] Handle `bits.pop()` in `process_statements`: increment `pops_from_end`, optionally assign as `SplitElement(Backward(0))`
+- [x] Update constraint offset formula in `constraints.rs`: `Min(N + base_offset + pops_from_end)`, etc.
+- [x] Tests: pop(0) offset, pop(0) with assignment, pop() from end, multiple pops, offset-adjusted constraint after pop, end-pop-adjusted constraint
+- [x] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 5: Intra-Module Function Calls
 
