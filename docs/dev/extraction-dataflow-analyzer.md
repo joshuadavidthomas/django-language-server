@@ -200,30 +200,101 @@ The fundamental structure is the **call graph**: each node is a function,
 and an edge from f to g means f calls g. Using the call graph, the
 analyzer propagates information from callers to callees and back.
 
-Two approaches:
+The foundational framework comes from **Sharir and Pnueli (1981)**, who
+defined two approaches that remain the basis of all modern work:
 
-- **Context-insensitive**: analyze each function once, produce a single
-  summary of its behavior, use that summary everywhere it's called.
-  Efficient but imprecise if a function is used differently by different
-  callers.
+**The call-string approach** distinguishes calling contexts by
+maintaining a string of the last *k* call sites visited. With k=0 you
+get context-insensitive analysis (fast but imprecise — all callers'
+arguments are merged). With k=1 you distinguish immediate callers.
+The cost is **O(n^k) distinct contexts** in the worst case — exponential
+in the depth of call chains tracked.
 
-- **Context-sensitive**: distinguish between different call sites.
-  Simulate calling the same function with different inputs separately.
-  More precise, more complex.
+**The functional approach** computes a *summary function* for each
+procedure — a mapping from input abstract states to output abstract
+states. When a function is called, the analyzer applies the summary
+rather than re-analyzing the body. Two calls with identical abstract
+inputs share one analysis regardless of call site. This avoids the
+exponential blowup while achieving equivalent precision for distributive
+dataflow frameworks. Facebook's **Infer** uses this approach at scale.
 
-Our analyzer is **context-sensitive by construction** — we analyze each
-helper function with the caller's actual abstract values bound to its
-parameters. When `do_element` calls `parse_tag(token, parser)`, we
-analyze `parse_tag` with `token → Token` bound to its first parameter.
-This is the natural approach for one-level resolution.
+For our specific problem, there is a simpler option: **bounded inlining**.
+At each call site, virtually expand the callee's body (substituting
+formal parameters with actual arguments) and analyze the combined code.
+With a depth limit of 2–3, this covers most practical helper-function
+chains. **Jedi** (the Python IDE analysis engine) uses exactly this
+approach with a `per_function_recursion_limit = 2`. The tradeoff is
+exponential worst-case blowup with deep call chains, but for template
+tag analysis — where helper chains are typically 1 level deep — this is
+more than sufficient.
 
-We limit interprocedural analysis to **one level** — compile function →
-helper. The corpus shows no deeper chains. This keeps the analysis
-simple while handling all observed real-world patterns.
+Our analyzer uses **bounded inlining with depth 2**. When `do_element`
+calls `parse_tag(token, parser)`, we analyze `parse_tag` with the
+caller's actual abstract values bound to its parameters. This is
+context-sensitive by construction — each call site gets its own analysis
+with its own input values.
 
-**Function summaries** (caching a helper's analysis result) are a
-natural optimization if the same helper is called by multiple compile
-functions. Not needed initially but straightforward to add.
+**Function summaries via Salsa** are the natural optimization path.
+Rather than re-analyzing a helper every time it's called, we cache the
+result: given these abstract input values, this function produces this
+abstract return value. Salsa's incremental computation framework makes
+this especially powerful — when a helper function's source changes, only
+the summary for that function is recomputed, and downstream compile
+functions that call it are automatically re-evaluated. When the helper
+hasn't changed, the cached summary is reused at zero cost. This turns
+the O(n^k) worst case into amortized near-constant cost for unchanged
+code.
+
+### Complexity, caching, and Salsa integration
+
+The analysis runs at extraction time — when Python source files change,
+not at template validation time. But even at extraction time, we want
+it to be fast and incremental.
+
+**Why Salsa matters here**: the extraction pipeline is already built on
+Salsa's incremental computation framework. Python source files are Salsa
+inputs. Extraction results are Salsa tracked query outputs. When a file
+changes, Salsa recomputes only the affected queries.
+
+The dataflow analyzer fits naturally into this:
+
+1. **Per-function analysis as a tracked query**: analyzing a single
+   function's body is a pure function of (function AST, module function
+   list). This is a natural Salsa tracked query. Results are cached and
+   only recomputed when the function's source changes.
+
+2. **Helper summaries as tracked queries**: the analysis of a helper
+   function (given abstract inputs → abstract return value) is also a
+   pure function that Salsa can cache. When multiple compile functions
+   call the same helper, the helper is analyzed once.
+
+3. **Incremental revalidation**: when a user edits a helper function,
+   Salsa invalidates the helper's summary and any compile function
+   analysis that depends on it. Only those are recomputed — everything
+   else is cached.
+
+Without Salsa, the worst case for depth-2 bounded inlining is
+O(n² · m) where n is the number of compile functions and m is the
+average function size. With Salsa's memoization, the amortized cost
+per edit is O(m) — just re-analyzing the changed function and its
+direct dependents.
+
+**Pre-built summaries for Django APIs**: certain functions are called
+frequently but defined outside the module — `token_kwargs`,
+`parser.compile_filter`, `parser.parse`, etc. Rather than trying to
+analyze Django's own source, we provide manual summaries:
+
+| Function | Summary |
+|----------|---------|
+| `token.split_contents()` | Returns `SplitResult { base_offset: 0 }` |
+| `token.contents.split()` | Returns `SplitResult { base_offset: 0 }` |
+| `parser.parse(tags)` | Returns `Unknown` (NodeList — not tracked) |
+| `parser.compile_filter(expr)` | Returns `Unknown` (FilterExpression) |
+| `token_kwargs(bits, parser)` | Consumes from bits → bits becomes `Unknown` |
+| `parser.delete_first_token()` | No effect on tracked values |
+
+These summaries are hardcoded, not discovered. They represent our
+knowledge of Django's template compilation API.
 
 ### What we explicitly don't need
 
@@ -801,13 +872,17 @@ compatibility.
 ### Performance
 
 The analyzer runs at extraction time (when Python source files change),
-not at template validation time. Extraction results are cached via Salsa.
-Performance is not critical but should be reasonable — analyzing a module
-with 30 compile functions should take < 100ms.
+not at template validation time. Extraction results are cached via Salsa
+(see "Complexity, caching, and Salsa integration" above). Performance
+is not critical but should be reasonable — analyzing a module with 30
+compile functions should take < 100ms on first run, and near-zero on
+subsequent runs when the source hasn't changed.
 
 The analyzer processes each function independently (no interprocedural
-analysis beyond one-level helper resolution). This is inherently
-parallelizable if needed.
+analysis beyond bounded-depth helper resolution). This is inherently
+parallelizable if needed. Salsa's memoization ensures that the
+amortized cost per edit is proportional to the changed function and its
+direct dependents, not the entire module.
 
 ## Relationship to existing code
 
@@ -841,6 +916,92 @@ functions" layer. Everything above and below stays:
               │    snippets, diagnostics)    │
               └──────────────────────────────┘
 ```
+
+## Prior art and references
+
+### Foundational papers
+
+The techniques behind our analyzer are well-established. Key references,
+in suggested reading order:
+
+- **Cousot & Cousot, "Abstract Interpretation: A Unified Lattice Model
+  for Static Analysis of Programs by Construction or Approximation of
+  Fixpoints" (POPL 1977)** — the foundational framework for abstract
+  interpretation. Defines how to safely approximate program behavior
+  using abstract domains connected to concrete semantics via Galois
+  connections. Our `AbstractValue` domain is a direct application of
+  this framework.
+
+- **Sharir & Pnueli, "Two Approaches to Interprocedural Data Flow
+  Analysis" (1981)** — defines the call-string and functional approaches
+  to interprocedural analysis. Our bounded inlining is a pragmatic
+  variant of the call-string approach with k=2. The functional approach
+  (computing summaries per function) maps to our Salsa-cached helper
+  analysis.
+
+- **Reps, Horwitz & Sagiv, "Precise Interprocedural Dataflow Analysis
+  via Graph Reachability" (POPL 1995)** — the IFDS algorithm. Converts
+  interprocedural dataflow into graph reachability with O(E·D³)
+  complexity. We don't need IFDS (our domain is too simple and our
+  call depth too shallow), but it's the benchmark for precise
+  interprocedural analysis. Over 1,000 citations.
+
+- **Møller & Schwartzbach, *Static Program Analysis* (free at
+  cs.au.dk/~amoeller/spa/)** — the most accessible practical textbook.
+  Chapters 1–6 cover lattice theory and monotone frameworks. Chapter 9
+  covers interprocedural analysis including call-strings, the functional
+  approach, and IFDS/IDE. Accompanying Scala implementation at
+  github.com/cs-au-dk/TIP.
+
+- **Monat, Ouadjaout & Miné, "Static Type Analysis by Abstract
+  Interpretation of Python Programs" (ECOOP 2020)** — state of the art
+  for applying abstract interpretation to Python. Handles dynamic
+  typing, introspection, and dynamic attribute addition within the
+  MOPSA framework. Demonstrates that sound Python analysis is feasible.
+
+### Existing tools and their relevance
+
+| Tool | Approach | Relevance to us |
+|------|----------|-----------------|
+| **Pysa** (Meta) | Iterative summary-based interprocedural taint analysis built on Pyre | Closest existing tool to what we're building. Implements the functional approach with taint lattices. Analyzes Instagram at scale. |
+| **Jedi** | Demand-driven inference with bounded inlining (depth 2) | Direct precedent for our approach. Proves bounded inlining is practical for Python IDE tooling. |
+| **Pytype** (Google) | Abstract interpretation on bytecode | Most theoretically interesting Python type checker. Uses a typegraph (enhanced CFG with variable-to-type bindings). Being sunset after Python 3.12. |
+| **Pyright** (Microsoft) | Bidirectional type inference with call-site return type inference | Most aggressive inference of any Python type checker. Its lazy/JIT evaluation is similar to Salsa's demand-driven computation. |
+| **mypy** | Declaration-based, multi-pass | Does NOT analyze function bodies to determine parameter usage. Cannot synthesize structural requirements from code patterns. Not relevant to our approach. |
+| **CodeQL** (GitHub) | Declarative queries over interprocedural dataflow | Most powerful general option. `DataFlow::Global` and `TaintTracking::Global` solve our exact problem but require a proprietary query language and database. Overkill for our domain. |
+| **PyCG** (ICSE 2021) | Python call graph generation | ~95% precision/recall for Python call graphs. Relevant if we ever need cross-module analysis. |
+| **Scalpel** (Monash) | SSA, CFG, type inference, alias analysis for Python | Builds on PyCG. Provides the building blocks for custom interprocedural work. |
+
+### Key insight from the literature
+
+No current Python type checker **automatically synthesizes structural
+types from usage**. None will analyze a function body, observe that it
+calls `t.split_contents()`, and conclude "parameter t must have a
+`split_contents()` method." Python's `Protocol` type (PEP 544) can
+express this declaratively, but the inference must be manual.
+
+What we're building — inferring *how* a function uses its parameters and
+what constraints that implies — is a gap in the existing tooling. We're
+not building a general type checker; we're building a domain-specific
+analyzer that fills this specific gap for Django template tags.
+
+### The pragmatic philosophy
+
+The conclusion from the research is clear: **we don't need the general
+solution**. Django template tag analysis is a narrow domain where:
+
+- Call chains are shallow (1–2 levels in the corpus)
+- Objects have stable, known interfaces (`Token`, `Parser`)
+- The set of interesting operations is small and known in advance
+- The abstract domain is finite (no widening needed)
+
+A demand-driven analyzer starting from `@register.tag` entry points,
+following argument flow through 2 levels of helper calls via bounded
+inlining, with pre-built summaries for Django's APIs, will handle the
+practical cases. The deeper theory (IFDS, fixpoint iteration, heap
+abstraction) is available if we ever need to scale beyond this.
+
+Build the simple version first. The theory is there when we need it.
 
 ## Success criteria
 
