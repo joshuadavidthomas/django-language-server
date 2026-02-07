@@ -390,23 +390,21 @@ fn classify_in_body(
         }
 
         // Check sequential pattern: parse() call followed by if-check
-        if is_parse_call_stmt(stmt, parser_var) {
+        let has_parse_call = match stmt {
+            Stmt::Expr(expr_stmt) => {
+                extract_parse_call_info(&expr_stmt.value, parser_var).is_some()
+            }
+            Stmt::Assign(StmtAssign { value, .. }) => {
+                extract_parse_call_info(value, parser_var).is_some()
+            }
+            _ => false,
+        };
+        if has_parse_call {
             // Look ahead for an if-statement checking the token
             if let Some(Stmt::If(if_stmt)) = body.get(i + 1).or_else(|| body.get(i + 2)) {
                 classify_from_if_chain(if_stmt, parser_var, all_tokens, intermediates, end_tags);
             }
         }
-    }
-}
-
-/// Check if a statement contains a `parser.parse(...)` call.
-fn is_parse_call_stmt(stmt: &Stmt, parser_var: &str) -> bool {
-    match stmt {
-        Stmt::Expr(expr_stmt) => extract_parse_call_info(&expr_stmt.value, parser_var).is_some(),
-        Stmt::Assign(StmtAssign { value, .. }) => {
-            extract_parse_call_info(value, parser_var).is_some()
-        }
-        _ => false,
     }
 }
 
