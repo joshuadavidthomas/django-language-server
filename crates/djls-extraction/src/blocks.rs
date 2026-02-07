@@ -30,7 +30,8 @@ pub fn extract_block_spec(func: &StmtFunctionDef) -> Option<BlockTagSpec> {
     let parser_var = detect_parser_var(func)?;
 
     // Check for opaque block patterns first: parser.skip_past("endtag")
-    let skip_past_tokens = collect_skip_past_tokens(&func.body, &parser_var);
+    let mut skip_past_tokens = Vec::new();
+    collect_skip_past_tokens(&func.body, &parser_var, &mut skip_past_tokens);
     if !skip_past_tokens.is_empty() {
         let end_tag = if skip_past_tokens.len() == 1 {
             Some(skip_past_tokens[0].clone())
@@ -45,7 +46,8 @@ pub fn extract_block_spec(func: &StmtFunctionDef) -> Option<BlockTagSpec> {
     }
 
     // Collect all stop-tokens from parser.parse((...)) calls
-    let parse_calls = collect_parser_parse_calls(&func.body, &parser_var);
+    let mut parse_calls = Vec::new();
+    collect_parser_parse_calls(&func.body, &parser_var, &mut parse_calls);
 
     if parse_calls.is_empty() {
         // Try dynamic end-tag patterns: parser.parse((f"end{tag_name}",))
@@ -80,14 +82,8 @@ struct ParseCallInfo {
     stop_tokens: Vec<String>,
 }
 
-/// Collect all `parser.parse((...))` calls in a function body (recursively).
-fn collect_parser_parse_calls(body: &[Stmt], parser_var: &str) -> Vec<ParseCallInfo> {
-    let mut calls = Vec::new();
-    collect_parse_calls_recursive(body, parser_var, &mut calls);
-    calls
-}
-
-fn collect_parse_calls_recursive(body: &[Stmt], parser_var: &str, calls: &mut Vec<ParseCallInfo>) {
+/// Collect all `parser.parse((...))` calls in a statement body (recursively).
+fn collect_parser_parse_calls(body: &[Stmt], parser_var: &str, calls: &mut Vec<ParseCallInfo>) {
     for stmt in body {
         match stmt {
             Stmt::Expr(expr_stmt) => {
@@ -101,26 +97,26 @@ fn collect_parse_calls_recursive(body: &[Stmt], parser_var: &str, calls: &mut Ve
                 }
             }
             Stmt::If(if_stmt) => {
-                collect_parse_calls_recursive(&if_stmt.body, parser_var, calls);
+                collect_parser_parse_calls(&if_stmt.body, parser_var, calls);
                 for clause in &if_stmt.elif_else_clauses {
-                    collect_parse_calls_recursive(&clause.body, parser_var, calls);
+                    collect_parser_parse_calls(&clause.body, parser_var, calls);
                 }
             }
             Stmt::For(for_stmt) => {
-                collect_parse_calls_recursive(&for_stmt.body, parser_var, calls);
+                collect_parser_parse_calls(&for_stmt.body, parser_var, calls);
             }
             Stmt::While(while_stmt) => {
-                collect_parse_calls_recursive(&while_stmt.body, parser_var, calls);
+                collect_parser_parse_calls(&while_stmt.body, parser_var, calls);
             }
             Stmt::Try(try_stmt) => {
-                collect_parse_calls_recursive(&try_stmt.body, parser_var, calls);
+                collect_parser_parse_calls(&try_stmt.body, parser_var, calls);
                 for handler in &try_stmt.handlers {
                     let ruff_python_ast::ExceptHandler::ExceptHandler(h) = handler;
-                    collect_parse_calls_recursive(&h.body, parser_var, calls);
+                    collect_parser_parse_calls(&h.body, parser_var, calls);
                 }
             }
             Stmt::With(with_stmt) => {
-                collect_parse_calls_recursive(&with_stmt.body, parser_var, calls);
+                collect_parser_parse_calls(&with_stmt.body, parser_var, calls);
             }
             _ => {}
         }
@@ -633,14 +629,8 @@ fn body_has_parse_call(body: &[Stmt], parser_var: &str) -> bool {
     false
 }
 
-/// Collect all `parser.skip_past("token")` calls in a function body.
-fn collect_skip_past_tokens(body: &[Stmt], parser_var: &str) -> Vec<String> {
-    let mut tokens = Vec::new();
-    collect_skip_past_recursive(body, parser_var, &mut tokens);
-    tokens
-}
-
-fn collect_skip_past_recursive(body: &[Stmt], parser_var: &str, tokens: &mut Vec<String>) {
+/// Collect all `parser.skip_past("token")` calls in a statement body (recursively).
+fn collect_skip_past_tokens(body: &[Stmt], parser_var: &str, tokens: &mut Vec<String>) {
     for stmt in body {
         match stmt {
             Stmt::Expr(expr_stmt) => {
@@ -658,19 +648,19 @@ fn collect_skip_past_recursive(body: &[Stmt], parser_var: &str, tokens: &mut Vec
                 }
             }
             Stmt::If(if_stmt) => {
-                collect_skip_past_recursive(&if_stmt.body, parser_var, tokens);
+                collect_skip_past_tokens(&if_stmt.body, parser_var, tokens);
                 for clause in &if_stmt.elif_else_clauses {
-                    collect_skip_past_recursive(&clause.body, parser_var, tokens);
+                    collect_skip_past_tokens(&clause.body, parser_var, tokens);
                 }
             }
             Stmt::For(for_stmt) => {
-                collect_skip_past_recursive(&for_stmt.body, parser_var, tokens);
+                collect_skip_past_tokens(&for_stmt.body, parser_var, tokens);
             }
             Stmt::While(while_stmt) => {
-                collect_skip_past_recursive(&while_stmt.body, parser_var, tokens);
+                collect_skip_past_tokens(&while_stmt.body, parser_var, tokens);
             }
             Stmt::Try(try_stmt) => {
-                collect_skip_past_recursive(&try_stmt.body, parser_var, tokens);
+                collect_skip_past_tokens(&try_stmt.body, parser_var, tokens);
             }
             _ => {}
         }
