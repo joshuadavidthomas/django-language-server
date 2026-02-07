@@ -27,7 +27,11 @@ use crate::types::BlockTagSpec;
 /// Returns `None` when no block structure is detected or inference is ambiguous.
 #[must_use]
 pub fn extract_block_spec(func: &StmtFunctionDef) -> Option<BlockTagSpec> {
-    let parser_var = detect_parser_var(func)?;
+    let parser_var = func
+        .parameters
+        .args
+        .first()
+        .map(|p| p.parameter.name.to_string())?;
 
     // Check for opaque block patterns first: parser.skip_past("endtag")
     let mut skip_past_tokens = Vec::new();
@@ -64,15 +68,6 @@ pub fn extract_block_spec(func: &StmtFunctionDef) -> Option<BlockTagSpec> {
 
     // Classify tokens as intermediate vs terminal using control flow analysis
     classify_stop_tokens(&func.body, &parser_var, &parse_calls)
-}
-
-/// Detect the parser variable name from function parameters.
-///
-/// Django compile functions take `(parser, token)` as arguments.
-/// The parser is always the first parameter.
-fn detect_parser_var(func: &StmtFunctionDef) -> Option<String> {
-    let params = &func.parameters;
-    params.args.first().map(|p| p.parameter.name.to_string())
 }
 
 /// Information about a single `parser.parse((...))` call site.
