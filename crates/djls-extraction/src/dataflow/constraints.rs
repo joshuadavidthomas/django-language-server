@@ -366,8 +366,8 @@ mod tests {
     use super::*;
     use crate::dataflow::calls::HelperCache;
     use crate::dataflow::domain::Env;
-    use crate::dataflow::eval::AnalysisContext;
     use crate::dataflow::eval::process_statements;
+    use crate::dataflow::eval::AnalysisContext;
 
     fn extract_from_source(source: &str) -> Constraints {
         let parsed = parse_module(source).expect("valid Python");

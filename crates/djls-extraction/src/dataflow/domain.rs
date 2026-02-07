@@ -36,9 +36,7 @@ pub enum AbstractValue {
         pops_from_end: usize,
     },
     /// Single element from a split result: `bits[N]` or `bits[-N]`
-    SplitElement {
-        index: Index,
-    },
+    SplitElement { index: Index },
     /// `len(split_result)` — carries offsets for constraint adjustment.
     /// The effective original length = `measured_len + base_offset + pops_from_end`.
     SplitLength {

@@ -6,8 +6,8 @@ use ruff_python_ast::Stmt;
 
 use super::domain::AbstractValue;
 use super::domain::Env;
-use super::eval::AnalysisContext;
 use super::eval::process_statements;
+use super::eval::AnalysisContext;
 
 /// Maximum call inlining depth. Beyond this, calls return Unknown.
 const MAX_CALL_DEPTH: usize = 2;
@@ -60,9 +60,7 @@ impl From<&AbstractValue> for AbstractValueKey {
                 base_offset: *base_offset,
                 pops_from_end: *pops_from_end,
             },
-            AbstractValue::SplitElement { index } => {
-                AbstractValueKey::SplitElement(index.clone())
-            }
+            AbstractValue::SplitElement { index } => AbstractValueKey::SplitElement(index.clone()),
             AbstractValue::SplitLength {
                 base_offset,
                 pops_from_end,
@@ -218,12 +216,9 @@ fn collect_returns(stmts: &[Stmt], env: &Env, returns: &mut Vec<AbstractValue>) 
     for stmt in stmts {
         match stmt {
             Stmt::Return(ret) => {
-                let value = ret
-                    .value
-                    .as_deref()
-                    .map_or(AbstractValue::Unknown, |expr| {
-                        super::eval::eval_expr(expr, env)
-                    });
+                let value = ret.value.as_deref().map_or(AbstractValue::Unknown, |expr| {
+                    super::eval::eval_expr(expr, env)
+                });
                 returns.push(value);
             }
             Stmt::If(if_stmt) => {
@@ -495,10 +490,7 @@ def do_tag(parser, token):
         let funcs = parse_module_funcs(source);
         let func_refs: Vec<&StmtFunctionDef> = funcs.iter().collect();
 
-        let main_func = funcs
-            .iter()
-            .find(|f| f.name.as_str() == "do_tag")
-            .unwrap();
+        let main_func = funcs.iter().find(|f| f.name.as_str() == "do_tag").unwrap();
 
         let mut env = Env::for_compile_function("parser", "token");
         let mut cache = HelperCache::new();

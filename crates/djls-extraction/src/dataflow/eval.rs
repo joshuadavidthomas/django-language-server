@@ -17,7 +17,6 @@ use ruff_python_ast::Number;
 use ruff_python_ast::Pattern;
 use ruff_python_ast::PatternMatchAs;
 use ruff_python_ast::PatternMatchSequence;
-
 use ruff_python_ast::PatternMatchValue;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtAssign;
@@ -25,8 +24,9 @@ use ruff_python_ast::StmtFunctionDef;
 use ruff_python_ast::StmtIf;
 use ruff_python_ast::StmtMatch;
 use ruff_python_ast::StmtWhile;
-use super::calls::HelperCache;
+
 use super::calls::resolve_call;
+use super::calls::HelperCache;
 use super::domain::AbstractValue;
 use super::domain::Env;
 use super::domain::Index;
@@ -193,8 +193,12 @@ fn eval_call_with_ctx(
 
         // Try module-local function resolution
         if let Some(ctx) = ctx.as_mut() {
-            let args: Vec<AbstractValue> =
-                call.arguments.args.iter().map(|a| eval_expr(a, env)).collect();
+            let args: Vec<AbstractValue> = call
+                .arguments
+                .args
+                .iter()
+                .map(|a| eval_expr(a, env))
+                .collect();
             return resolve_call(name, &args, ctx);
         }
     }
@@ -284,11 +288,9 @@ fn eval_subscript(base: &AbstractValue, slice: &Expr, env: &Env) -> AbstractValu
         Expr::NumberLiteral(ExprNumberLiteral {
             value: Number::Int(int_val),
             ..
-        }) => int_val
-            .as_i64()
-            .map_or(AbstractValue::Unknown, |n| {
-                i64_to_index_element(n, *base_offset)
-            }),
+        }) => int_val.as_i64().map_or(AbstractValue::Unknown, |n| {
+            i64_to_index_element(n, *base_offset)
+        }),
 
         // bits[unary -N]
         Expr::UnaryOp(unary) if matches!(unary.op, ruff_python_ast::UnaryOp::USub) => {
@@ -446,9 +448,7 @@ fn process_statement(stmt: &Stmt, env: &mut Env, ctx: &mut AnalysisContext<'_>) 
 
         Stmt::Match(match_stmt) => {
             // Extract constraints at the point in code where the match appears
-            if let Some((arg_constraints, keywords)) =
-                extract_match_constraints(match_stmt, env)
-            {
+            if let Some((arg_constraints, keywords)) = extract_match_constraints(match_stmt, env) {
                 ctx.constraints.arg_constraints.extend(arg_constraints);
                 ctx.constraints.required_keywords.extend(keywords);
             }
@@ -566,9 +566,7 @@ fn process_tuple_unpack(targets: &[Expr], value: &AbstractValue, env: &mut Env) 
             let pops_from_end = *pops_from_end;
 
             // Find starred target index
-            let star_index = targets
-                .iter()
-                .position(|t| matches!(t, Expr::Starred(_)));
+            let star_index = targets.iter().position(|t| matches!(t, Expr::Starred(_)));
 
             if let Some(si) = star_index {
                 // Elements before the star
@@ -652,7 +650,10 @@ fn try_extract_option_loop(while_stmt: &StmtWhile, env: &Env) -> Option<KnownOpt
         return None;
     };
     let loop_value = env.get(loop_var.as_str());
-    if !matches!(loop_value, AbstractValue::SplitResult { .. } | AbstractValue::Unknown) {
+    if !matches!(
+        loop_value,
+        AbstractValue::SplitResult { .. } | AbstractValue::Unknown
+    ) {
         return None;
     }
 
@@ -956,9 +957,7 @@ enum PatternShape {
 fn analyze_case_pattern(pattern: &Pattern) -> PatternShape {
     match pattern {
         Pattern::MatchSequence(PatternMatchSequence { patterns, .. }) => {
-            let has_star = patterns
-                .iter()
-                .any(|p| matches!(p, Pattern::MatchStar(_)));
+            let has_star = patterns.iter().any(|p| matches!(p, Pattern::MatchStar(_)));
             if has_star {
                 // Count non-star elements for minimum length
                 let fixed_count = patterns
@@ -973,9 +972,7 @@ fn analyze_case_pattern(pattern: &Pattern) -> PatternShape {
             }
         }
         // `case _:` or `case x:` — wildcard/capture, matches anything
-        Pattern::MatchAs(PatternMatchAs {
-            pattern: None, ..
-        }) => PatternShape::Wildcard,
+        Pattern::MatchAs(PatternMatchAs { pattern: None, .. }) => PatternShape::Wildcard,
         // `case pattern as x:` — delegate to inner pattern
         Pattern::MatchAs(PatternMatchAs {
             pattern: Some(inner),
@@ -999,17 +996,11 @@ fn extract_keywords_from_valid_cases(cases: &[MatchCase]) -> Vec<RequiredKeyword
             continue;
         }
         if let Pattern::MatchSequence(PatternMatchSequence { patterns, .. }) = &case.pattern {
-            if patterns
-                .iter()
-                .any(|p| matches!(p, Pattern::MatchStar(_)))
-            {
+            if patterns.iter().any(|p| matches!(p, Pattern::MatchStar(_))) {
                 continue; // Skip variable-length patterns for keyword extraction
             }
             let literals: Vec<Option<String>> = patterns.iter().map(pattern_literal).collect();
-            by_length
-                .entry(patterns.len())
-                .or_default()
-                .push(literals);
+            by_length.entry(patterns.len()).or_default().push(literals);
         }
     }
 
@@ -1164,7 +1155,10 @@ def do_tag(parser, token):
         );
         assert_eq!(
             env.get("bits"),
-            &AbstractValue::SplitResult { base_offset: 0, pops_from_end: 0 }
+            &AbstractValue::SplitResult {
+                base_offset: 0,
+                pops_from_end: 0
+            }
         );
     }
 
@@ -1178,7 +1172,10 @@ def do_tag(parser, token):
         );
         assert_eq!(
             env.get("args"),
-            &AbstractValue::SplitResult { base_offset: 0, pops_from_end: 0 }
+            &AbstractValue::SplitResult {
+                base_offset: 0,
+                pops_from_end: 0
+            }
         );
     }
 
@@ -1192,7 +1189,10 @@ def do_tag(parser, token):
         );
         assert_eq!(
             env.get("bits"),
-            &AbstractValue::SplitResult { base_offset: 0, pops_from_end: 0 }
+            &AbstractValue::SplitResult {
+                base_offset: 0,
+                pops_from_end: 0
+            }
         );
     }
 
@@ -1248,7 +1248,10 @@ def do_tag(parser, token):
         );
         assert_eq!(
             env.get("rest"),
-            &AbstractValue::SplitResult { base_offset: 1, pops_from_end: 0 }
+            &AbstractValue::SplitResult {
+                base_offset: 1,
+                pops_from_end: 0
+            }
         );
     }
 
@@ -1264,11 +1267,17 @@ def do_tag(parser, token):
         );
         assert_eq!(
             env.get("rest"),
-            &AbstractValue::SplitResult { base_offset: 2, pops_from_end: 0 }
+            &AbstractValue::SplitResult {
+                base_offset: 2,
+                pops_from_end: 0
+            }
         );
         assert_eq!(
             env.get("more"),
-            &AbstractValue::SplitResult { base_offset: 3, pops_from_end: 0 }
+            &AbstractValue::SplitResult {
+                base_offset: 3,
+                pops_from_end: 0
+            }
         );
     }
 
@@ -1283,7 +1292,10 @@ def do_tag(parser, token):
         );
         assert_eq!(
             env.get("n"),
-            &AbstractValue::SplitLength { base_offset: 0, pops_from_end: 0 }
+            &AbstractValue::SplitLength {
+                base_offset: 0,
+                pops_from_end: 0
+            }
         );
     }
 
@@ -1298,7 +1310,10 @@ def do_tag(parser, token):
         );
         assert_eq!(
             env.get("bits"),
-            &AbstractValue::SplitResult { base_offset: 0, pops_from_end: 0 }
+            &AbstractValue::SplitResult {
+                base_offset: 0,
+                pops_from_end: 0
+            }
         );
     }
 
@@ -1318,7 +1333,10 @@ def do_tag(parser, token):
         );
         assert_eq!(
             env.get("rest"),
-            &AbstractValue::SplitResult { base_offset: 1, pops_from_end: 0 }
+            &AbstractValue::SplitResult {
+                base_offset: 1,
+                pops_from_end: 0
+            }
         );
     }
 
@@ -1427,7 +1445,10 @@ def do_tag(parser, token):
         );
         assert_eq!(
             env.get("rest"),
-            &AbstractValue::SplitResult { base_offset: 1, pops_from_end: 0 }
+            &AbstractValue::SplitResult {
+                base_offset: 1,
+                pops_from_end: 0
+            }
         );
     }
 
@@ -1465,7 +1486,10 @@ def do_tag(parser, token):
         );
         assert_eq!(
             env.get("truncated"),
-            &AbstractValue::SplitResult { base_offset: 1, pops_from_end: 0 }
+            &AbstractValue::SplitResult {
+                base_offset: 1,
+                pops_from_end: 0
+            }
         );
     }
 
@@ -1485,7 +1509,10 @@ def do_tag(parser, token):
         );
         assert_eq!(
             env.get("middle"),
-            &AbstractValue::SplitResult { base_offset: 1, pops_from_end: 0 }
+            &AbstractValue::SplitResult {
+                base_offset: 1,
+                pops_from_end: 0
+            }
         );
         assert_eq!(
             env.get("last"),
@@ -1699,10 +1726,7 @@ def do_tag(parser, token):
 "#,
         );
         let opts = rule.known_options.expect("should have known_options");
-        assert_eq!(
-            opts.values,
-            vec!["silent".to_string(), "cache".to_string()]
-        );
+        assert_eq!(opts.values, vec!["silent".to_string(), "cache".to_string()]);
         assert!(opts.rejects_unknown);
         assert!(!opts.allow_duplicates);
     }

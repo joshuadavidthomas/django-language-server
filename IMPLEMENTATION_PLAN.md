@@ -543,7 +543,7 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ## M10 — Dataflow Analyzer (Replace Pattern-Matching Extraction)
 
-**Status:** ready
+**Status:** complete
 **Plan:** `.agents/plans/2026-02-06-m10-dataflow-analyzer.md`
 **Depends on:** M5, M8
 **Design doc:** `docs/dev/extraction-dataflow-analyzer.md`
@@ -632,12 +632,12 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ### Phase 9: Delete Old Code
 
-- [ ] Delete `crates/djls-extraction/src/context.rs` and `crates/djls-extraction/src/rules.rs`
-- [ ] Remove `mod context` and `mod rules` declarations from `lib.rs`, remove their re-exports
-- [ ] Clean up orphaned snapshot files: `cargo insta test --delete-unreferenced-snapshots -p djls-extraction`
-- [ ] Verify no external consumers of deleted APIs: `grep -rn "detect_split_var\|token_delegated_to_helper\|extract_compile_function_rule" crates/`
-- [ ] Run `cargo +nightly fmt`
-- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Delete `crates/djls-extraction/src/context.rs` and `crates/djls-extraction/src/rules.rs`
+- [x] Remove `mod context` and `mod rules` declarations from `lib.rs`, remove their re-exports
+- [x] Clean up orphaned snapshot files: `cargo insta test --delete-unreferenced-snapshots -p djls-extraction`
+- [x] Verify no external consumers of deleted APIs: `grep -rn "detect_split_var\|token_delegated_to_helper\|extract_compile_function_rule" crates/`
+- [x] Run `cargo +nightly fmt`
+- [x] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ---
 

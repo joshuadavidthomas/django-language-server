@@ -3,6 +3,7 @@ pub(crate) mod constraints;
 pub(crate) mod domain;
 pub(crate) mod eval;
 
+pub use calls::HelperCache;
 use ruff_python_ast::StmtFunctionDef;
 
 use crate::types::ArgumentCountConstraint;
@@ -10,8 +11,6 @@ use crate::types::ExtractedArg;
 use crate::types::ExtractedArgKind;
 use crate::types::RequiredKeyword;
 use crate::types::TagRule;
-
-pub use calls::HelperCache;
 
 /// Analyze a compile function using dataflow analysis to extract argument constraints.
 ///
@@ -121,7 +120,9 @@ fn extract_arg_names(
         .unwrap_or(0);
     let max_from_constraints = infer_max_position(arg_constraints);
 
-    let max_pos = max_from_env.max(max_from_keywords).max(max_from_constraints);
+    let max_pos = max_from_env
+        .max(max_from_keywords)
+        .max(max_from_constraints);
 
     if max_pos == 0 {
         return Vec::new();
