@@ -91,12 +91,8 @@ fn evaluate_arg_constraint(
                 )
             }
             ArgumentCountConstraint::OneOf(values) => {
-                let arg_counts: Vec<String> =
-                    values.iter().map(|v| (v - 1).to_string()).collect();
-                format!(
-                    "'{tag_name}' takes {} argument(s)",
-                    arg_counts.join(" or ")
-                )
+                let arg_counts: Vec<String> = values.iter().map(|v| (v - 1).to_string()).collect();
+                format!("'{tag_name}' takes {} argument(s)", arg_counts.join(" or "))
             }
         };
 
@@ -431,10 +427,7 @@ mod tests {
         };
         let bits = make_bits(&["item", "in", "items"]);
         let errors = evaluate_tag_rules("for", &bits, &rule, make_span());
-        assert!(
-            errors.is_empty(),
-            "Position 0 (tag name) should be skipped"
-        );
+        assert!(errors.is_empty(), "Position 0 (tag name) should be skipped");
     }
 
     // --- KnownOptions tests ---

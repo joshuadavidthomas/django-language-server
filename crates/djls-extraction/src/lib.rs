@@ -89,7 +89,7 @@ pub fn extract_rules(source: &str, module_path: &str) -> ExtractionResult {
             | RegistrationKind::InclusionTag
             | RegistrationKind::SimpleBlockTag => {
                 if let Some(func) = func_def {
-                    let tag_rule = rules::extract_tag_rule(func, reg.kind);
+                    let tag_rule = rules::extract_tag_rule(func, reg.kind, &func_defs);
                     if !tag_rule.arg_constraints.is_empty()
                         || !tag_rule.required_keywords.is_empty()
                         || tag_rule.known_options.is_some()
@@ -990,5 +990,4 @@ def breadcrumbs(items, separator="/"):
 "#;
         insta::assert_yaml_snapshot!(snapshot(extract_rules(source, "app.templatetags.nav")));
     }
-
 }

@@ -237,9 +237,10 @@ fn tag_registration_from_call(
         if let Some(name) = name_override {
             return Some((name, kind, fn_name));
         }
-        // Fallback: use the callable name as the registration name
-        if let Expr::Name(ExprName { id, .. }) = &args[0] {
-            return Some((id.to_string(), kind, Some(id.to_string())));
+        // Fallback: use the callable name as the registration name.
+        // Handles both simple names (`do_for`) and attribute callables (`ForNode.handle`).
+        if let Some(name) = callable_name(&args[0]) {
+            return Some((name.clone(), kind, Some(name)));
         }
     }
 
@@ -282,8 +283,10 @@ fn filter_registration_from_call(call: &ExprCall) -> Option<(String, Option<Stri
         if let Some(name) = name_override {
             return Some((name, fn_name));
         }
-        if let Expr::Name(ExprName { id, .. }) = &args[0] {
-            return Some((id.to_string(), Some(id.to_string())));
+        // Fallback: use the callable name as the registration name.
+        // Handles both simple names (`my_func`) and attribute callables (`MyClass.method`).
+        if let Some(name) = callable_name(&args[0]) {
+            return Some((name.clone(), Some(name)));
         }
     }
 

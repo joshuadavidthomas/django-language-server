@@ -70,6 +70,7 @@ impl ExtractionResult {
     /// and the caller needs to stamp in the correct module path afterwards.
     pub fn rekey_module(&mut self, module_path: &str) {
         fn rekey_map<V>(map: &mut FxHashMap<SymbolKey, V>, module_path: &str) {
+            let original_len = map.len();
             let entries: Vec<(SymbolKey, V)> = map
                 .drain()
                 .map(|(mut k, v)| {
@@ -78,6 +79,11 @@ impl ExtractionResult {
                 })
                 .collect();
             map.extend(entries);
+            debug_assert_eq!(
+                map.len(),
+                original_len,
+                "rekey_module produced duplicate keys for module '{module_path}' — data was lost"
+            );
         }
 
         rekey_map(&mut self.tag_rules, module_path);

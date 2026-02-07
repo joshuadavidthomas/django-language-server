@@ -7,9 +7,9 @@ mod filter_validation;
 mod if_expression;
 mod load_resolution;
 mod opaque;
-pub mod rule_evaluation;
 mod primitives;
 mod resolution;
+pub mod rule_evaluation;
 mod semantic;
 mod templatetags;
 mod traits;
@@ -722,30 +722,15 @@ mod tests {
     /// Extract rules from a Django source tree and build `TagSpecs`.
     fn build_extraction_specs(django_root: &std::path::Path) -> TagSpecs {
         let modules = [
-            (
-                "template/defaulttags.py",
-                "django.template.defaulttags",
-            ),
+            ("template/defaulttags.py", "django.template.defaulttags"),
             (
                 "template/defaultfilters.py",
                 "django.template.defaultfilters",
             ),
-            (
-                "templatetags/i18n.py",
-                "django.templatetags.i18n",
-            ),
-            (
-                "templatetags/static.py",
-                "django.templatetags.static",
-            ),
-            (
-                "templatetags/l10n.py",
-                "django.templatetags.l10n",
-            ),
-            (
-                "templatetags/tz.py",
-                "django.templatetags.tz",
-            ),
+            ("templatetags/i18n.py", "django.templatetags.i18n"),
+            ("templatetags/static.py", "django.templatetags.static"),
+            ("templatetags/l10n.py", "django.templatetags.l10n"),
+            ("templatetags/tz.py", "django.templatetags.tz"),
             (
                 "contrib/admin/templatetags/admin_list.py",
                 "django.contrib.admin.templatetags.admin_list",
@@ -779,30 +764,16 @@ mod tests {
     }
 
     /// Build `FilterAritySpecs` from extraction results.
-    fn build_extraction_arities(
-        django_root: &std::path::Path,
-    ) -> FilterAritySpecs {
+    fn build_extraction_arities(django_root: &std::path::Path) -> FilterAritySpecs {
         let modules = [
             (
                 "template/defaultfilters.py",
                 "django.template.defaultfilters",
             ),
-            (
-                "templatetags/i18n.py",
-                "django.templatetags.i18n",
-            ),
-            (
-                "templatetags/static.py",
-                "django.templatetags.static",
-            ),
-            (
-                "templatetags/l10n.py",
-                "django.templatetags.l10n",
-            ),
-            (
-                "templatetags/tz.py",
-                "django.templatetags.tz",
-            ),
+            ("templatetags/i18n.py", "django.templatetags.i18n"),
+            ("templatetags/static.py", "django.templatetags.static"),
+            ("templatetags/l10n.py", "django.templatetags.l10n"),
+            ("templatetags/tz.py", "django.templatetags.tz"),
         ];
 
         let mut arities = FilterAritySpecs::new();
@@ -904,7 +875,11 @@ mod tests {
     /// Filters to S114 (expression syntax), S115-S116 (filter arity),
     /// and S117 (extracted rule violation).
     /// Excludes structural errors (S101-S103), scoping errors (S108-S113).
-    fn collect_validation_errors(db: &CorpusTestDatabase, source: &str, path: &str) -> Vec<ValidationError> {
+    fn collect_validation_errors(
+        db: &CorpusTestDatabase,
+        source: &str,
+        path: &str,
+    ) -> Vec<ValidationError> {
         db.add_file(path, source);
         let file = db.create_file(Utf8Path::new(path));
         let Some(nodelist) = parse_template(db, file) else {
@@ -1044,7 +1019,11 @@ mod tests {
 
         let mut versions_tested = 0;
 
-        for entry in std::fs::read_dir(&django_dir).into_iter().flatten().flatten() {
+        for entry in std::fs::read_dir(&django_dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+        {
             let version_dir = entry.path();
             if !version_dir.is_dir() {
                 continue;
@@ -1141,7 +1120,11 @@ mod tests {
         // Test packages
         let packages_dir = corpus.join("packages");
         if packages_dir.is_dir() {
-            for package_entry in std::fs::read_dir(&packages_dir).into_iter().flatten().flatten() {
+            for package_entry in std::fs::read_dir(&packages_dir)
+                .into_iter()
+                .flatten()
+                .flatten()
+            {
                 let package_name = package_entry.file_name().to_string_lossy().to_string();
                 if package_name == "Django" {
                     continue; // Tested separately
@@ -1160,7 +1143,11 @@ mod tests {
         // Test repos
         let repos_dir = corpus.join("repos");
         if repos_dir.is_dir() {
-            for repo_entry in std::fs::read_dir(&repos_dir).into_iter().flatten().flatten() {
+            for repo_entry in std::fs::read_dir(&repos_dir)
+                .into_iter()
+                .flatten()
+                .flatten()
+            {
                 let repo_name = repo_entry.file_name().to_string_lossy().to_string();
                 test_corpus_entry(
                     &repo_entry.path(),
@@ -1188,22 +1175,21 @@ mod tests {
         entries_tested: &mut usize,
     ) {
         // Find all version subdirectories or treat entry_root itself
-        let version_dirs: Vec<std::path::PathBuf> = if let Ok(entries) =
-            std::fs::read_dir(entry_root)
-        {
-            let dirs: Vec<_> = entries
-                .flatten()
-                .filter(|e| e.path().is_dir())
-                .map(|e| e.path())
-                .collect();
-            if dirs.is_empty() {
-                vec![entry_root.to_path_buf()]
+        let version_dirs: Vec<std::path::PathBuf> =
+            if let Ok(entries) = std::fs::read_dir(entry_root) {
+                let dirs: Vec<_> = entries
+                    .flatten()
+                    .filter(|e| e.path().is_dir())
+                    .map(|e| e.path())
+                    .collect();
+                if dirs.is_empty() {
+                    vec![entry_root.to_path_buf()]
+                } else {
+                    dirs
+                }
             } else {
-                dirs
-            }
-        } else {
-            return;
-        };
+                return;
+            };
 
         for version_dir in &version_dirs {
             // Collect templates
@@ -1311,22 +1297,16 @@ mod tests {
         let db = CorpusTestDatabase::new(specs, arities);
 
         // for tag with wrong number of args
-        let errors = collect_validation_errors(
-            &db,
-            "{% for %}content{% endfor %}",
-            "invalid_for.html",
-        );
+        let errors =
+            collect_validation_errors(&db, "{% for %}content{% endfor %}", "invalid_for.html");
         assert!(
             !errors.is_empty(),
             "Expected errors for {{% for %}} with no args"
         );
 
         // if expression syntax error
-        let errors = collect_validation_errors(
-            &db,
-            "{% if and x %}content{% endif %}",
-            "invalid_if.html",
-        );
+        let errors =
+            collect_validation_errors(&db, "{% if and x %}content{% endif %}", "invalid_if.html");
         let expr_errors: Vec<_> = errors
             .iter()
             .filter(|e| matches!(e, ValidationError::ExpressionSyntaxError { .. }))

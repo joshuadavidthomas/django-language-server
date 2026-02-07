@@ -1,3 +1,4 @@
+use ruff_python_ast::BoolOp;
 use ruff_python_ast::CmpOp;
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprAttribute;
@@ -17,6 +18,7 @@ use ruff_python_ast::StmtWhile;
 use ruff_python_ast::UnaryOp;
 
 use crate::context::detect_split_var;
+use crate::context::token_delegated_to_helper;
 use crate::registry::RegistrationKind;
 use crate::types::ArgumentCountConstraint;
 use crate::types::ExtractedArg;
@@ -32,14 +34,22 @@ use crate::types::TagRule;
 ///
 /// Uses the dynamically-detected split variable name (from `detect_split_var`)
 /// to interpret comparisons like `len(bits) < 4` — never hardcodes `bits`.
+///
+/// `module_funcs` provides all function definitions in the same module, used
+/// to resolve helper functions that the compile function may delegate to
+/// (e.g., `parse_tag(token, parser)` calling `token.split_contents()` internally).
 #[must_use]
-pub fn extract_tag_rule(func: &StmtFunctionDef, kind: RegistrationKind) -> TagRule {
+pub fn extract_tag_rule(
+    func: &StmtFunctionDef,
+    kind: RegistrationKind,
+    module_funcs: &[&StmtFunctionDef],
+) -> TagRule {
     match kind {
         RegistrationKind::SimpleTag | RegistrationKind::InclusionTag => {
             extract_parse_bits_rule(func)
         }
         RegistrationKind::Tag | RegistrationKind::SimpleBlockTag => {
-            extract_compile_function_rule(func)
+            extract_compile_function_rule(func, module_funcs)
         }
         RegistrationKind::Filter => TagRule {
             arg_constraints: Vec::new(),
@@ -54,8 +64,25 @@ pub fn extract_tag_rule(func: &StmtFunctionDef, kind: RegistrationKind) -> TagRu
 ///
 /// Scans for `raise TemplateSyntaxError(...)` guarded by conditions on the
 /// split-contents variable.
-fn extract_compile_function_rule(func: &StmtFunctionDef) -> TagRule {
+fn extract_compile_function_rule(
+    func: &StmtFunctionDef,
+    module_funcs: &[&StmtFunctionDef],
+) -> TagRule {
     let split_var = detect_split_var(func);
+
+    // If no direct split_var is found, check if token is delegated to a
+    // helper function that calls split_contents() internally. In that case,
+    // the compile function's variables (e.g., `args`, `kwargs`) have
+    // transformed semantics and can't be interpreted with split_contents()
+    // index rules. Skip constraint extraction to avoid false positives.
+    if split_var.is_none() && token_delegated_to_helper(func, module_funcs) {
+        return TagRule {
+            arg_constraints: Vec::new(),
+            required_keywords: Vec::new(),
+            known_options: None,
+            extracted_args: Vec::new(),
+        };
+    }
 
     let mut arg_constraints = Vec::new();
     let mut required_keywords = Vec::new();
@@ -214,8 +241,8 @@ fn extract_args_from_compile_function(
     if let Some(names) = find_tuple_unpacking(body, split_var) {
         // First element is always the tag name, skip it
         for (i, name) in names.iter().enumerate().skip(1) {
-            let kind = find_keyword_kind_at(required_keywords, i)
-                .unwrap_or(ExtractedArgKind::Variable);
+            let kind =
+                find_keyword_kind_at(required_keywords, i).unwrap_or(ExtractedArgKind::Variable);
 
             args.push(ExtractedArg {
                 name: name.clone(),
@@ -355,7 +382,10 @@ fn find_indexed_access(body: &[Stmt], split_var: Option<&str>) -> Vec<(usize, St
             if assign.targets.len() != 1 {
                 continue;
             }
-            let Expr::Name(ExprName { id: target_name, .. }) = &assign.targets[0] else {
+            let Expr::Name(ExprName {
+                id: target_name, ..
+            }) = &assign.targets[0]
+            else {
                 continue;
             };
             if let Expr::Subscript(ExprSubscript { value, slice, .. }) = assign.value.as_ref() {
@@ -462,10 +492,31 @@ fn extract_from_condition(
     required_keywords: &mut Vec<RequiredKeyword>,
 ) {
     match condition {
-        // Compound: `len(bits) != 3 or bits[1] != "as"`
-        Expr::BoolOp(ExprBoolOp { values, .. }) => {
+        // `or`: `len(bits) != 3 or bits[1] != "as"`
+        // Error when either is true → valid requires NOT(A) AND NOT(B)
+        // → each sub-condition is an independent constraint.
+        Expr::BoolOp(ExprBoolOp {
+            op: BoolOp::Or,
+            values,
+            ..
+        }) => {
             for value in values {
                 extract_from_condition(value, split_var, arg_constraints, required_keywords);
+            }
+        }
+        // `and`: `len(tokens) > 1 and tokens[1] != "as"` (guard pattern)
+        // Error when both true → valid when either is false. The length
+        // check is typically a guard protecting an index access, not a real
+        // constraint. Extract keywords (useful for completions) but discard
+        // length constraints (they're protective, not prescriptive).
+        Expr::BoolOp(ExprBoolOp {
+            op: BoolOp::And,
+            values,
+            ..
+        }) => {
+            let mut discarded = Vec::new();
+            for value in values {
+                extract_from_condition(value, split_var, &mut discarded, required_keywords);
             }
         }
         // Comparison: `len(bits) < 4` or `bits[2] != "as"`
@@ -518,9 +569,8 @@ fn extract_from_compare(
     if is_len_call_on(left, split_var).is_some() {
         if let Some(n) = extract_int_constant(comparator) {
             let constraint = match op {
-                // `len(bits) == N` in error guard means error when equal → valid when != N
-                // But since it's error condition, we record what the tag REQUIRES
-                CmpOp::Eq | CmpOp::NotEq => Some(ArgumentCountConstraint::Exact(n)),
+                // `len(bits) != N` → error when len != N → valid when len == N
+                CmpOp::NotEq => Some(ArgumentCountConstraint::Exact(n)),
                 // `len(bits) < N` → error when len < N → needs at least N
                 CmpOp::Lt => Some(ArgumentCountConstraint::Min(n)),
                 // `len(bits) <= N` → error when len <= N → needs at least N+1
@@ -529,6 +579,9 @@ fn extract_from_compare(
                 CmpOp::Gt => Some(ArgumentCountConstraint::Max(n)),
                 // `len(bits) >= N` → error when len >= N → needs at most N-1
                 CmpOp::GtE if n > 0 => Some(ArgumentCountConstraint::Max(n - 1)),
+                // `len(bits) == N` → error when len IS N → valid when len != N
+                // We can't express "not exactly N" as a constraint, skip.
+                // CmpOp::Eq and all other operators fall through here.
                 _ => None,
             };
             if let Some(c) = constraint {
@@ -545,13 +598,8 @@ fn extract_from_compare(
             }
         }
 
-        // `len(bits) in (2, 3)` in error guard is unusual but handle it
-        if matches!(op, CmpOp::In) {
-            if let Some(values) = extract_int_collection(comparator) {
-                arg_constraints.push(ArgumentCountConstraint::OneOf(values));
-                return;
-            }
-        }
+        // `len(bits) in (2, 3)` → error when IN set → valid when NOT in set
+        // We can't express "not in set" as a constraint, skip
         return;
     }
 
@@ -728,7 +776,6 @@ fn is_len_call_on<'a>(expr: &'a Expr, split_var: Option<&str>) -> Option<&'a str
 
     None
 }
-
 
 /// Extract an integer constant from an expression.
 fn extract_int_constant(expr: &Expr) -> Option<usize> {
@@ -1042,7 +1089,7 @@ def do_tag(parser, token):
         raise TemplateSyntaxError('too few args')
 ";
         let func = parse_function(source);
-        let rule = extract_tag_rule(&func, RegistrationKind::Tag);
+        let rule = extract_tag_rule(&func, RegistrationKind::Tag, &[]);
         assert_eq!(rule.arg_constraints, vec![ArgumentCountConstraint::Min(2)]);
     }
 
@@ -1055,7 +1102,7 @@ def do_tag(parser, token):
         raise TemplateSyntaxError('too few args')
 ";
         let func = parse_function(source);
-        let rule = extract_tag_rule(&func, RegistrationKind::Tag);
+        let rule = extract_tag_rule(&func, RegistrationKind::Tag, &[]);
         assert_eq!(rule.arg_constraints, vec![ArgumentCountConstraint::Min(2)]);
     }
 
@@ -1068,7 +1115,7 @@ def do_tag(parser, token):
         raise TemplateSyntaxError('too many args')
 ";
         let func = parse_function(source);
-        let rule = extract_tag_rule(&func, RegistrationKind::Tag);
+        let rule = extract_tag_rule(&func, RegistrationKind::Tag, &[]);
         assert_eq!(rule.arg_constraints, vec![ArgumentCountConstraint::Max(4)]);
     }
 
@@ -1081,7 +1128,7 @@ def do_tag(parser, token):
         raise TemplateSyntaxError('too many args')
 ";
         let func = parse_function(source);
-        let rule = extract_tag_rule(&func, RegistrationKind::Tag);
+        let rule = extract_tag_rule(&func, RegistrationKind::Tag, &[]);
         assert_eq!(rule.arg_constraints, vec![ArgumentCountConstraint::Max(4)]);
     }
 
@@ -1094,7 +1141,7 @@ def do_tag(parser, token):
         raise TemplateSyntaxError('exactly 3 args required')
 ";
         let func = parse_function(source);
-        let rule = extract_tag_rule(&func, RegistrationKind::Tag);
+        let rule = extract_tag_rule(&func, RegistrationKind::Tag, &[]);
         assert_eq!(
             rule.arg_constraints,
             vec![ArgumentCountConstraint::Exact(3)]
@@ -1110,7 +1157,7 @@ def do_tag(parser, token):
         raise TemplateSyntaxError('2, 3, or 4 args')
 ";
         let func = parse_function(source);
-        let rule = extract_tag_rule(&func, RegistrationKind::Tag);
+        let rule = extract_tag_rule(&func, RegistrationKind::Tag, &[]);
         assert_eq!(
             rule.arg_constraints,
             vec![ArgumentCountConstraint::OneOf(vec![2, 3, 4])]
@@ -1126,7 +1173,7 @@ def do_tag(parser, token):
         raise TemplateSyntaxError('2 to 4 args')
 ";
         let func = parse_function(source);
-        let rule = extract_tag_rule(&func, RegistrationKind::Tag);
+        let rule = extract_tag_rule(&func, RegistrationKind::Tag, &[]);
         assert_eq!(
             rule.arg_constraints,
             vec![
@@ -1149,7 +1196,7 @@ def do_tag(parser, token):
         raise TemplateSyntaxError('second arg must be "as"')
 "#;
         let func = parse_function(source);
-        let rule = extract_tag_rule(&func, RegistrationKind::Tag);
+        let rule = extract_tag_rule(&func, RegistrationKind::Tag, &[]);
         assert_eq!(
             rule.required_keywords,
             vec![RequiredKeyword {
@@ -1169,7 +1216,7 @@ def do_tag(parser, token):
         raise TemplateSyntaxError('invalid keyword')
 "#;
         let func = parse_function(source);
-        let rule = extract_tag_rule(&func, RegistrationKind::Tag);
+        let rule = extract_tag_rule(&func, RegistrationKind::Tag, &[]);
         assert_eq!(
             rule.required_keywords,
             vec![RequiredKeyword {
@@ -1192,7 +1239,7 @@ def do_tag(parser, token):
         raise TemplateSyntaxError('expected: tag as name')
 "#;
         let func = parse_function(source);
-        let rule = extract_tag_rule(&func, RegistrationKind::Tag);
+        let rule = extract_tag_rule(&func, RegistrationKind::Tag, &[]);
         assert_eq!(
             rule.arg_constraints,
             vec![ArgumentCountConstraint::Exact(3)]
@@ -1219,7 +1266,7 @@ def do_tag(parser, token):
         raise TemplateSyntaxError('too few')
 ";
         let func = parse_function(source);
-        let rule = extract_tag_rule(&func, RegistrationKind::Tag);
+        let rule = extract_tag_rule(&func, RegistrationKind::Tag, &[]);
         assert_eq!(rule.arg_constraints, vec![ArgumentCountConstraint::Min(3)]);
     }
 
@@ -1232,7 +1279,7 @@ def do_tag(parser, token):
         raise TemplateSyntaxError('exactly 2')
 ";
         let func = parse_function(source);
-        let rule = extract_tag_rule(&func, RegistrationKind::Tag);
+        let rule = extract_tag_rule(&func, RegistrationKind::Tag, &[]);
         assert_eq!(
             rule.arg_constraints,
             vec![ArgumentCountConstraint::Exact(2)]
@@ -1248,7 +1295,7 @@ def do_tag(parser, token):
         raise TemplateSyntaxError('too few')
 ";
         let func = parse_function(source);
-        let rule = extract_tag_rule(&func, RegistrationKind::Tag);
+        let rule = extract_tag_rule(&func, RegistrationKind::Tag, &[]);
         // Should still extract because detect_split_var returns "my_tokens"
         assert_eq!(rule.arg_constraints, vec![ArgumentCountConstraint::Min(2)]);
     }
@@ -1273,7 +1320,7 @@ def do_tag(parser, token):
             raise TemplateSyntaxError("unknown option")
 "#;
         let func = parse_function(source);
-        let rule = extract_tag_rule(&func, RegistrationKind::Tag);
+        let rule = extract_tag_rule(&func, RegistrationKind::Tag, &[]);
         let opts = rule.known_options.expect("should have known_options");
         assert_eq!(opts.values, vec!["with".to_string(), "only".to_string()]);
         assert!(opts.rejects_unknown);
@@ -1298,7 +1345,7 @@ def do_tag(parser, token):
             raise TemplateSyntaxError("unknown option")
 "#;
         let func = parse_function(source);
-        let rule = extract_tag_rule(&func, RegistrationKind::Tag);
+        let rule = extract_tag_rule(&func, RegistrationKind::Tag, &[]);
         let opts = rule.known_options.expect("should have known_options");
         assert_eq!(opts.values, vec!["silent".to_string(), "cache".to_string()]);
         assert!(opts.rejects_unknown);
@@ -1319,7 +1366,7 @@ def do_tag(parser, token):
             pass
 "#;
         let func = parse_function(source);
-        let rule = extract_tag_rule(&func, RegistrationKind::Tag);
+        let rule = extract_tag_rule(&func, RegistrationKind::Tag, &[]);
         let opts = rule.known_options.expect("should have known_options");
         assert_eq!(
             opts.values,
@@ -1341,7 +1388,7 @@ def now():
     return datetime.now()
 ";
         let func = parse_function(source);
-        let rule = extract_tag_rule(&func, RegistrationKind::SimpleTag);
+        let rule = extract_tag_rule(&func, RegistrationKind::SimpleTag, &[]);
         // No required params, no varargs
         assert!(rule
             .arg_constraints
@@ -1357,7 +1404,7 @@ def greeting(name, title):
     return f'Hello {title} {name}'
 ";
         let func = parse_function(source);
-        let rule = extract_tag_rule(&func, RegistrationKind::SimpleTag);
+        let rule = extract_tag_rule(&func, RegistrationKind::SimpleTag, &[]);
         assert!(rule
             .arg_constraints
             .contains(&ArgumentCountConstraint::Min(3)));
@@ -1371,7 +1418,7 @@ def greeting(name, title="Mr"):
     return f'Hello {title} {name}'
 "#;
         let func = parse_function(source);
-        let rule = extract_tag_rule(&func, RegistrationKind::SimpleTag);
+        let rule = extract_tag_rule(&func, RegistrationKind::SimpleTag, &[]);
         // 1 required param (name) + tag name = Min(2)
         assert!(rule
             .arg_constraints
@@ -1386,7 +1433,7 @@ def concat(*args):
     return ''.join(str(a) for a in args)
 ";
         let func = parse_function(source);
-        let rule = extract_tag_rule(&func, RegistrationKind::SimpleTag);
+        let rule = extract_tag_rule(&func, RegistrationKind::SimpleTag, &[]);
         // With *args, no max constraint
         assert!(!rule
             .arg_constraints
@@ -1402,7 +1449,7 @@ def show_user(context, name):
     return f'{context} {name}'
 ";
         let func = parse_function(source);
-        let rule = extract_tag_rule(&func, RegistrationKind::SimpleTag);
+        let rule = extract_tag_rule(&func, RegistrationKind::SimpleTag, &[]);
         // `context` is skipped, only `name` is required → Min(2)
         assert!(rule
             .arg_constraints
@@ -1426,7 +1473,7 @@ def do_tag(parser, token):
         raise TemplateSyntaxError('missing as')
 "#;
         let func = parse_function(source);
-        let rule = extract_tag_rule(&func, RegistrationKind::Tag);
+        let rule = extract_tag_rule(&func, RegistrationKind::Tag, &[]);
         assert_eq!(
             rule.arg_constraints,
             vec![
@@ -1455,7 +1502,7 @@ def do_tag(parser, token):
     return SomeNode(name)
 ";
         let func = parse_function(source);
-        let rule = extract_tag_rule(&func, RegistrationKind::Tag);
+        let rule = extract_tag_rule(&func, RegistrationKind::Tag, &[]);
         assert!(rule.arg_constraints.is_empty());
         assert!(rule.required_keywords.is_empty());
         assert!(rule.known_options.is_none());
@@ -1469,7 +1516,7 @@ def do_tag(parser, token):
     return SomeNode(bits)
 ";
         let func = parse_function(source);
-        let rule = extract_tag_rule(&func, RegistrationKind::Tag);
+        let rule = extract_tag_rule(&func, RegistrationKind::Tag, &[]);
         assert!(rule.arg_constraints.is_empty());
         assert!(rule.required_keywords.is_empty());
     }
@@ -1483,7 +1530,7 @@ def do_tag(parser, token):
         raise ValueError('not a TemplateSyntaxError')
 ";
         let func = parse_function(source);
-        let rule = extract_tag_rule(&func, RegistrationKind::Tag);
+        let rule = extract_tag_rule(&func, RegistrationKind::Tag, &[]);
         // Should NOT extract — the raise is not TemplateSyntaxError
         assert!(rule.arg_constraints.is_empty());
     }
@@ -1497,7 +1544,7 @@ def do_tag(parser, token):
         raise template.TemplateSyntaxError('error')
 ";
         let func = parse_function(source);
-        let rule = extract_tag_rule(&func, RegistrationKind::Tag);
+        let rule = extract_tag_rule(&func, RegistrationKind::Tag, &[]);
         assert_eq!(rule.arg_constraints, vec![ArgumentCountConstraint::Min(2)]);
     }
 
@@ -1508,7 +1555,7 @@ def my_filter(value, arg):
     return value.replace(arg, '')
 ";
         let func = parse_function(source);
-        let rule = extract_tag_rule(&func, RegistrationKind::Filter);
+        let rule = extract_tag_rule(&func, RegistrationKind::Filter, &[]);
         assert!(rule.arg_constraints.is_empty());
         assert!(rule.required_keywords.is_empty());
         assert!(rule.known_options.is_none());
@@ -1523,7 +1570,7 @@ def do_tag(parser, token):
         raise TemplateSyntaxError('too many args')
 ";
         let func = parse_function(source);
-        let rule = extract_tag_rule(&func, RegistrationKind::Tag);
+        let rule = extract_tag_rule(&func, RegistrationKind::Tag, &[]);
         // `4 < len(bits)` → error when len > 4 → Max(4)
         assert_eq!(rule.arg_constraints, vec![ArgumentCountConstraint::Max(4)]);
     }
@@ -1538,7 +1585,7 @@ def do_tag(parser, token):
             raise TemplateSyntaxError('expected as')
 "#;
         let func = parse_function(source);
-        let rule = extract_tag_rule(&func, RegistrationKind::Tag);
+        let rule = extract_tag_rule(&func, RegistrationKind::Tag, &[]);
         assert_eq!(
             rule.required_keywords,
             vec![RequiredKeyword {
@@ -1559,7 +1606,7 @@ def do_tag(parser, token):
         raise TemplateSyntaxError('too many')
 ";
         let func = parse_function(source);
-        let rule = extract_tag_rule(&func, RegistrationKind::Tag);
+        let rule = extract_tag_rule(&func, RegistrationKind::Tag, &[]);
         assert_eq!(
             rule.arg_constraints,
             vec![

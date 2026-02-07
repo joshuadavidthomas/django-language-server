@@ -1,7 +1,22 @@
-//! Corpus management for Django template extraction testing.
+//! Corpus of real-world Django projects for grounding tests in reality.
 //!
-//! Provides tools for syncing, managing, and enumerating a corpus of
-//! Python packages and repositories for testing extraction rules.
+//! This crate is the **single source of truth** for real Python source code
+//! and Django templates used across the test suite. It syncs pinned versions
+//! of Django, popular third-party packages, and open-source project repos,
+//! then provides helpers to enumerate and locate files within them.
+//!
+//! **All tests that analyze Python source (extraction rules, registrations,
+//! filter arities, block specs) should use corpus files, not fabricated
+//! snippets.** Template parser tests may use synthetic templates since
+//! that's what users type, but extraction tests must be grounded in code
+//! that real projects actually ship.
+//!
+//! # Consumers
+//!
+//! - `djls-extraction` — golden tests: extract rules from real templatetag
+//!   modules and snapshot the results
+//! - `djls-server` — integration tests: parse real templates, validate
+//!   against extracted rules, assert zero false positives
 
 use std::path::Path;
 use std::path::PathBuf;

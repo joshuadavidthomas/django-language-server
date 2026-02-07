@@ -1,0 +1,23 @@
+---
+source: crates/djls-extraction/tests/golden.rs
+expression: snapshot(result)
+---
+tag_rules:
+  "django.templatetags.l10n::localize":
+    arg_constraints:
+      - Max: 2
+    required_keywords: []
+    known_options: ~
+    extracted_args: []
+filter_arities:
+  "django.templatetags.l10n::localize":
+    expects_arg: false
+    arg_optional: false
+  "django.templatetags.l10n::unlocalize":
+    expects_arg: false
+    arg_optional: false
+block_specs:
+  "django.templatetags.l10n::localize":
+    end_tag: endlocalize
+    intermediates: []
+    opaque: false

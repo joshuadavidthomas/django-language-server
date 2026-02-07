@@ -103,9 +103,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                 name: B("endfor"),
                 required: true,
             }),
-            intermediate_tags: B(&[IntermediateTag {
-                name: B("empty"),
-            }]),
+            intermediate_tags: B(&[IntermediateTag { name: B("empty") }]),
             opaque: false,
             extracted_rules: None,
         },
@@ -119,12 +117,8 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                 required: true,
             }),
             intermediate_tags: B(&[
-                IntermediateTag {
-                    name: B("elif"),
-                },
-                IntermediateTag {
-                    name: B("else"),
-                },
+                IntermediateTag { name: B("elif") },
+                IntermediateTag { name: B("else") },
             ]),
             opaque: false,
             extracted_rules: None,
@@ -138,9 +132,7 @@ static DEFAULTTAGS_PAIRS: &[(&str, &TagSpec)] = &[
                 name: B("endifchanged"),
                 required: true,
             }),
-            intermediate_tags: B(&[IntermediateTag {
-                name: B("else"),
-            }]),
+            intermediate_tags: B(&[IntermediateTag { name: B("else") }]),
             opaque: false,
             extracted_rules: None,
         },
@@ -322,9 +314,7 @@ static I18N_PAIRS: &[(&str, &TagSpec)] = &[
                 name: B("endblocktrans"),
                 required: true,
             }),
-            intermediate_tags: B(&[IntermediateTag {
-                name: B("plural"),
-            }]),
+            intermediate_tags: B(&[IntermediateTag { name: B("plural") }]),
             opaque: false,
             extracted_rules: None,
         },
@@ -337,9 +327,7 @@ static I18N_PAIRS: &[(&str, &TagSpec)] = &[
                 name: B("endblocktranslate"),
                 required: true,
             }),
-            intermediate_tags: B(&[IntermediateTag {
-                name: B("plural"),
-            }]),
+            intermediate_tags: B(&[IntermediateTag { name: B("plural") }]),
             opaque: false,
             extracted_rules: None,
         },
@@ -558,7 +546,9 @@ mod tests {
     fn test_single_tag_structure() {
         let specs = django_builtin_specs();
 
-        let csrf_tag = specs.get("csrf_token").expect("csrf_token tag should exist");
+        let csrf_tag = specs
+            .get("csrf_token")
+            .expect("csrf_token tag should exist");
         assert!(csrf_tag.end_tag.is_none());
         assert!(csrf_tag.intermediate_tags.is_empty());
 

@@ -228,7 +228,10 @@ mod tests {
         // Valid: no args → split_len=1 → Exact(1) passes
         let bits: Vec<String> = vec![];
         let errors = check_validation_errors_with_db("csrf_token", &bits, db.clone());
-        assert!(errors.is_empty(), "No args should pass Exact(1): {errors:?}");
+        assert!(
+            errors.is_empty(),
+            "No args should pass Exact(1): {errors:?}"
+        );
 
         // Invalid: 1 arg → split_len=2 → Exact(1) fails
         let db2 = TestDatabase::with_custom_specs(db.tag_specs());
@@ -296,11 +299,7 @@ mod tests {
 
         // Valid: {% for item in items %} → split_len=4 >= 4
         let db2 = TestDatabase::with_custom_specs(db.tag_specs());
-        let bits = vec![
-            "item".to_string(),
-            "in".to_string(),
-            "items".to_string(),
-        ];
+        let bits = vec!["item".to_string(), "in".to_string(), "items".to_string()];
         let errors = check_validation_errors_with_db("for", &bits, db2);
         assert!(
             errors.is_empty(),
@@ -350,11 +349,7 @@ mod tests {
         let db = TestDatabase::with_custom_specs(TagSpecs::new(specs));
 
         // Invalid: {% for item at items %} → "in" expected at position 2
-        let bits = vec![
-            "item".to_string(),
-            "at".to_string(),
-            "items".to_string(),
-        ];
+        let bits = vec!["item".to_string(), "at".to_string(), "items".to_string()];
         let errors = check_validation_errors_with_db("for", &bits, db);
         assert!(
             !errors.is_empty(),
@@ -404,11 +399,7 @@ mod tests {
         let db = TestDatabase::with_custom_specs(TagSpecs::new(specs));
 
         // Valid: {% for item in items %} → split_len=4
-        let bits = vec![
-            "item".to_string(),
-            "in".to_string(),
-            "items".to_string(),
-        ];
+        let bits = vec!["item".to_string(), "in".to_string(), "items".to_string()];
         let errors = check_validation_errors_with_db("for", &bits, db.clone());
         assert!(errors.is_empty(), "Valid for tag should pass: {errors:?}");
 

@@ -1,0 +1,118 @@
+---
+source: crates/djls-extraction/tests/golden.rs
+expression: snapshot(combined)
+---
+tag_rules:
+  "allauth::get_providers":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    known_options: ~
+    extracted_args:
+      - name: as
+        required: false
+        kind:
+          Literal: as
+        position: 0
+      - name: varname
+        required: false
+        kind: Variable
+        position: 1
+  "allauth::get_social_accounts":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    known_options: ~
+    extracted_args:
+      - name: user
+        required: true
+        kind: Variable
+        position: 0
+      - name: as
+        required: false
+        kind:
+          Literal: as
+        position: 1
+      - name: varname
+        required: false
+        kind: Variable
+        position: 2
+  "allauth::provider_login_url":
+    arg_constraints:
+      - Min: 2
+    required_keywords: []
+    known_options: ~
+    extracted_args:
+      - name: provider
+        required: true
+        kind: Variable
+        position: 0
+      - name: as
+        required: false
+        kind:
+          Literal: as
+        position: 1
+      - name: varname
+        required: false
+        kind: Variable
+        position: 2
+  "allauth::providers_media_js":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    known_options: ~
+    extracted_args:
+      - name: as
+        required: false
+        kind:
+          Literal: as
+        position: 0
+      - name: varname
+        required: false
+        kind: Variable
+        position: 1
+  "allauth::setvar":
+    arg_constraints:
+      - Exact: 2
+    required_keywords: []
+    known_options: ~
+    extracted_args:
+      - name: arg1
+        required: true
+        kind: Variable
+        position: 0
+  "allauth::user_display":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    known_options: ~
+    extracted_args:
+      - name: user
+        required: true
+        kind: Variable
+        position: 0
+      - name: as
+        required: false
+        kind:
+          Literal: as
+        position: 1
+      - name: varname
+        required: false
+        kind: Variable
+        position: 2
+filter_arities: {}
+block_specs:
+  "allauth::element":
+    end_tag: endelement
+    intermediates: []
+    opaque: false
+  "allauth::setvar":
+    end_tag: endsetvar
+    intermediates: []
+    opaque: false
+  "allauth::slot":
+    end_tag: endslot
+    intermediates: []
+    opaque: false

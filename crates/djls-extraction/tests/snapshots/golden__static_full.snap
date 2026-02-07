@@ -1,0 +1,7 @@
+---
+source: crates/djls-extraction/tests/golden.rs
+expression: snapshot(result)
+---
+tag_rules: {}
+filter_arities: {}
+block_specs: {}

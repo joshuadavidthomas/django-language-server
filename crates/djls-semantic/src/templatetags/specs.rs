@@ -373,9 +373,18 @@ mod tests {
     fn test_find_opener_for_closer() {
         let specs = create_test_specs();
 
-        assert_eq!(specs.find_opener_for_closer("endif"), Some("if".to_string()));
-        assert_eq!(specs.find_opener_for_closer("endfor"), Some("for".to_string()));
-        assert_eq!(specs.find_opener_for_closer("endblock"), Some("block".to_string()));
+        assert_eq!(
+            specs.find_opener_for_closer("endif"),
+            Some("if".to_string())
+        );
+        assert_eq!(
+            specs.find_opener_for_closer("endfor"),
+            Some("for".to_string())
+        );
+        assert_eq!(
+            specs.find_opener_for_closer("endblock"),
+            Some("block".to_string())
+        );
         assert_eq!(specs.find_opener_for_closer("endnonexistent"), None);
         assert_eq!(specs.find_opener_for_closer("if"), None);
     }
@@ -450,7 +459,10 @@ mod tests {
         assert!(empty_parents.contains(&"for".to_string()));
 
         assert_eq!(specs.get_parent_tags_for_intermediate("if").len(), 0);
-        assert_eq!(specs.get_parent_tags_for_intermediate("nonexistent").len(), 0);
+        assert_eq!(
+            specs.get_parent_tags_for_intermediate("nonexistent").len(),
+            0
+        );
     }
 
     #[test]
@@ -516,11 +528,7 @@ mod tests {
             djls_extraction::SymbolKey::tag("django.template.defaulttags", "if"),
             djls_extraction::BlockTagSpec {
                 end_tag: Some("endif".to_string()),
-                intermediates: vec![
-                    "elif".to_string(),
-                    "else".to_string(),
-                    "elseif".to_string(),
-                ],
+                intermediates: vec!["elif".to_string(), "else".to_string(), "elseif".to_string()],
                 opaque: false,
             },
         );
@@ -555,7 +563,10 @@ mod tests {
 
         assert_eq!(specs.len(), original_count + 1);
         let myblock = specs.get("myblock").unwrap();
-        assert_eq!(myblock.end_tag.as_ref().unwrap().name.as_ref(), "endmyblock");
+        assert_eq!(
+            myblock.end_tag.as_ref().unwrap().name.as_ref(),
+            "endmyblock"
+        );
         assert_eq!(myblock.intermediate_tags.len(), 1);
         assert_eq!(myblock.intermediate_tags[0].name.as_ref(), "mymiddle");
         assert_eq!(myblock.module.as_ref(), "myapp.templatetags.custom");

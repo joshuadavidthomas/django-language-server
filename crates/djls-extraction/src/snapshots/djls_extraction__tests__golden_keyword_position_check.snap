@@ -6,7 +6,6 @@ tag_rules:
   "django.template.defaulttags::cycle":
     arg_constraints:
       - Min: 2
-      - Max: 3
     required_keywords:
       - position: 2
         value: as

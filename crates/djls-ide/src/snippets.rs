@@ -25,9 +25,7 @@ pub fn generate_snippet_from_args(args: &[ExtractedArg]) -> String {
                 // At this point, we know it's required (optional literals were skipped above)
                 value.clone()
             }
-            ExtractedArgKind::Variable
-            | ExtractedArgKind::Keyword
-            | ExtractedArgKind::VarArgs => {
+            ExtractedArgKind::Variable | ExtractedArgKind::Keyword | ExtractedArgKind::VarArgs => {
                 let result = format!("${{{}:{}}}", placeholder_index, arg.name);
                 placeholder_index += 1;
                 result

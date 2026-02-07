@@ -131,6 +131,9 @@ fn find_sdist_url(json: &serde_json::Value, name: &str, version: &str) -> anyhow
 
 fn extract_tarball(url: &str, out_dir: &Path) -> anyhow::Result<()> {
     let resp = reqwest::blocking::get(url)?;
+    if !resp.status().is_success() {
+        anyhow::bail!("HTTP {} fetching tarball from {}", resp.status(), url);
+    }
     let gz = flate2::read::GzDecoder::new(resp);
     let mut archive = tar::Archive::new(gz);
 
@@ -147,6 +150,14 @@ fn extract_tarball(url: &str, out_dir: &Path) -> anyhow::Result<()> {
 
         if !is_corpus_relevant(relative) {
             continue;
+        }
+
+        // Reject paths containing ".." to prevent directory traversal attacks
+        if Path::new(relative)
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+        {
+            anyhow::bail!("Path traversal detected in tarball entry: {entry_path}");
         }
 
         let dest = out_dir.join(relative);
@@ -171,7 +182,11 @@ fn sync_repo(repo: &Repo, repos_dir: &Path) -> anyhow::Result<()> {
         return Ok(());
     }
 
-    eprintln!("  [sync] {} @ {}", repo.name, &repo.git_ref[..12]);
+    eprintln!(
+        "  [sync] {} @ {}",
+        repo.name,
+        repo.git_ref.get(..12).unwrap_or(&repo.git_ref)
+    );
 
     // Download tarball from GitHub
     let tarball_url = format!(

@@ -305,16 +305,31 @@ fn analyze_variable_context(prefix: &str, var_start: usize) -> Option<TemplateCo
 
 /// Find the position of the last pipe character (`|`) that is not inside quotes.
 ///
+/// Handles escaped quotes (e.g., `\"` or `\'`) by counting consecutive
+/// preceding backslashes — a quote is only a real delimiter when preceded
+/// by an even number of backslashes.
+///
 /// Returns `None` if no unquoted pipe is found.
 fn find_last_unquoted_pipe(s: &str) -> Option<usize> {
     let mut last_pipe = None;
     let mut in_single_quote = false;
     let mut in_double_quote = false;
+    let bytes = s.as_bytes();
 
     for (i, ch) in s.char_indices() {
         match ch {
-            '\'' if !in_double_quote => in_single_quote = !in_single_quote,
-            '"' if !in_single_quote => in_double_quote = !in_double_quote,
+            '\'' if !in_double_quote => {
+                let num_backslashes = bytes[..i].iter().rev().take_while(|&&b| b == b'\\').count();
+                if num_backslashes % 2 == 0 {
+                    in_single_quote = !in_single_quote;
+                }
+            }
+            '"' if !in_single_quote => {
+                let num_backslashes = bytes[..i].iter().rev().take_while(|&&b| b == b'\\').count();
+                if num_backslashes % 2 == 0 {
+                    in_double_quote = !in_double_quote;
+                }
+            }
             '|' if !in_single_quote && !in_double_quote => last_pipe = Some(i),
             _ => {}
         }
@@ -629,7 +644,8 @@ fn generate_argument_completions(
                 let mut insert_text = value.clone();
 
                 match closing {
-                    ClosingBrace::PartialClose | ClosingBrace::None => insert_text.push_str(" %}"),
+                    ClosingBrace::None => insert_text.push_str(" %}"),
+                    ClosingBrace::PartialClose => insert_text.push_str(" %"),
                     ClosingBrace::FullClose => {}
                 }
 
