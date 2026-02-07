@@ -481,7 +481,7 @@ fn extract_token_check(expr: &Expr, known_tokens: &[String]) -> Option<String> {
             // Check both sides for string constant matching known tokens
             if is_token_contents_expr(left) {
                 if let Some(s) = get_string_constant(right) {
-                    let cmd = first_word(&s);
+                    let cmd = s.split_whitespace().next().unwrap_or("").to_string();
                     if known_tokens.contains(&cmd) {
                         return Some(cmd);
                     }
@@ -489,7 +489,7 @@ fn extract_token_check(expr: &Expr, known_tokens: &[String]) -> Option<String> {
             }
             if is_token_contents_expr(right) {
                 if let Some(s) = get_string_constant(left) {
-                    let cmd = first_word(&s);
+                    let cmd = s.split_whitespace().next().unwrap_or("").to_string();
                     if known_tokens.contains(&cmd) {
                         return Some(cmd);
                     }
@@ -526,7 +526,7 @@ fn extract_startswith_check(expr: &Expr, known_tokens: &[String]) -> Option<Stri
         return None;
     }
     let s = get_string_constant(&arguments.args[0])?;
-    let cmd = first_word(&s);
+    let cmd = s.split_whitespace().next().unwrap_or("").to_string();
     if known_tokens.contains(&cmd) {
         Some(cmd)
     } else {
@@ -565,11 +565,6 @@ fn get_string_constant(expr: &Expr) -> Option<String> {
         return Some(value.to_str().to_string());
     }
     None
-}
-
-/// Get the first word from a string.
-fn first_word(s: &str) -> String {
-    s.split_whitespace().next().unwrap_or("").to_string()
 }
 
 /// Check if a statement body contains a `parser.parse(...)` call.
