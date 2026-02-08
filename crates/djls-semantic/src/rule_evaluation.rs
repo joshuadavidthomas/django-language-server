@@ -7,6 +7,137 @@ use djls_source::Span;
 
 use crate::ValidationError;
 
+trait Constraint {
+    fn validate(&self, tag_name: &str, bits: &[String], span: Span) -> Option<ValidationError>;
+}
+
+/// Resolve a `split_contents()` position to a `bits` index.
+///
+/// `split_contents()` includes the tag name at index 0, so positive positions
+/// are offset by 1. Negative positions index from the end, which maps directly
+/// since the end of `bits` is the same as the end of `split_contents()`.
+///
+/// Returns `None` if the position is out of bounds or refers to the tag name
+/// (position 0) — the argument count constraint should catch those cases.
+fn resolve_position_index(position: i64, bits_len: usize) -> Option<usize> {
+    let bits_index = if position >= 0 {
+        let idx = usize::try_from(position).ok()?;
+        if idx == 0 {
+            return None;
+        }
+        idx - 1
+    } else {
+        let abs_pos = usize::try_from(position.unsigned_abs()).ok()?;
+        if abs_pos > bits_len {
+            return None;
+        }
+        bits_len - abs_pos
+    };
+
+    if bits_index >= bits_len {
+        None
+    } else {
+        Some(bits_index)
+    }
+}
+
+/// Constraints express the conditions from Django source that raise
+/// `TemplateSyntaxError`. The extraction captures what makes the tag **valid**:
+/// - `Exact(N)`: valid when `split_len == N`
+/// - `Min(N)`: valid when `split_len >= N`
+/// - `Max(N)`: valid when `split_len <= N`
+/// - `OneOf(set)`: valid when `split_len in set`
+impl Constraint for ArgumentCountConstraint {
+    fn validate(&self, tag_name: &str, bits: &[String], span: Span) -> Option<ValidationError> {
+        let split_len = bits.len() + 1;
+
+        let violated = match self {
+            ArgumentCountConstraint::Exact(n) => split_len != *n,
+            ArgumentCountConstraint::Min(n) => split_len < *n,
+            ArgumentCountConstraint::Max(n) => split_len > *n,
+            ArgumentCountConstraint::OneOf(values) => !values.contains(&split_len),
+        };
+
+        if violated {
+            let message = match self {
+                ArgumentCountConstraint::Exact(n) => {
+                    let expected_args = n.saturating_sub(1);
+                    let actual_args = split_len.saturating_sub(1);
+                    format!(
+                        "'{tag_name}' takes exactly {expected_args} argument{}, {actual_args} given",
+                        if expected_args == 1 { "" } else { "s" }
+                    )
+                }
+                ArgumentCountConstraint::Min(n) => {
+                    let min_args = n.saturating_sub(1);
+                    format!(
+                        "'{tag_name}' requires at least {min_args} argument{}",
+                        if min_args == 1 { "" } else { "s" }
+                    )
+                }
+                ArgumentCountConstraint::Max(n) => {
+                    let max_args = n.saturating_sub(1);
+                    format!(
+                        "'{tag_name}' accepts at most {max_args} argument{}",
+                        if max_args == 1 { "" } else { "s" }
+                    )
+                }
+                ArgumentCountConstraint::OneOf(values) => {
+                    let arg_counts: Vec<String> = values
+                        .iter()
+                        .map(|v| v.saturating_sub(1).to_string())
+                        .collect();
+                    format!("'{tag_name}' takes {} argument(s)", arg_counts.join(" or "))
+                }
+            };
+
+            Some(ValidationError::ExtractedRuleViolation {
+                tag: tag_name.to_string(),
+                message,
+                span,
+            })
+        } else {
+            None
+        }
+    }
+}
+
+impl Constraint for RequiredKeyword {
+    fn validate(&self, tag_name: &str, bits: &[String], span: Span) -> Option<ValidationError> {
+        let bits_index = resolve_position_index(self.position, bits.len())?;
+
+        if bits[bits_index] == self.value {
+            None
+        } else {
+            Some(ValidationError::ExtractedRuleViolation {
+                tag: tag_name.to_string(),
+                message: format!(
+                    "'{tag_name}' expected '{}' at position {}",
+                    self.value, self.position
+                ),
+                span,
+            })
+        }
+    }
+}
+
+impl Constraint for ChoiceAt {
+    fn validate(&self, tag_name: &str, bits: &[String], span: Span) -> Option<ValidationError> {
+        let bits_index = resolve_position_index(self.position, bits.len())?;
+
+        if self.values.iter().any(|v| v == &bits[bits_index]) {
+            None
+        } else {
+            let choices = self.values.join("', '");
+            Some(ValidationError::ExtractedRuleViolation {
+                tag: tag_name.to_string(),
+                message: format!("'{tag_name}' argument must be one of '{choices}'"),
+                span,
+            })
+        }
+    }
+}
+
 /// Evaluate extracted tag rules against template tag arguments.
 ///
 /// `bits` is the tag's argument list as produced by the parser, which
@@ -33,25 +164,16 @@ pub fn evaluate_tag_rules(
         bits
     };
 
-    // split_contents() length = bits.len() + 1 (tag name at index 0)
-    let split_len = effective_bits.len() + 1;
-
     for constraint in &rules.arg_constraints {
-        if let Some(error) = evaluate_arg_constraint(tag_name, split_len, constraint, span) {
-            errors.push(error);
-        }
+        errors.extend(constraint.validate(tag_name, effective_bits, span));
     }
 
     for keyword in &rules.required_keywords {
-        if let Some(error) = evaluate_required_keyword(tag_name, effective_bits, keyword, span) {
-            errors.push(error);
-        }
+        errors.extend(keyword.validate(tag_name, effective_bits, span));
     }
 
     for choice in &rules.choice_at_constraints {
-        if let Some(error) = evaluate_choice_at(tag_name, effective_bits, choice, span) {
-            errors.push(error);
-        }
+        errors.extend(choice.validate(tag_name, effective_bits, span));
     }
 
     if let Some(options) = &rules.known_options {
@@ -64,167 +186,6 @@ pub fn evaluate_tag_rules(
     }
 
     errors
-}
-
-/// Evaluate an argument count constraint.
-///
-/// Constraints express the conditions from Django source that raise
-/// `TemplateSyntaxError`. The extraction captures what makes the tag **valid**:
-/// - `Exact(N)`: valid when `split_len == N`
-/// - `Min(N)`: valid when `split_len >= N`
-/// - `Max(N)`: valid when `split_len <= N`
-/// - `OneOf(set)`: valid when `split_len in set`
-fn evaluate_arg_constraint(
-    tag_name: &str,
-    split_len: usize,
-    constraint: &ArgumentCountConstraint,
-    span: Span,
-) -> Option<ValidationError> {
-    let violated = match constraint {
-        ArgumentCountConstraint::Exact(n) => split_len != *n,
-        ArgumentCountConstraint::Min(n) => split_len < *n,
-        ArgumentCountConstraint::Max(n) => split_len > *n,
-        ArgumentCountConstraint::OneOf(values) => !values.contains(&split_len),
-    };
-
-    if violated {
-        let message = match constraint {
-            ArgumentCountConstraint::Exact(n) => {
-                // n includes tag name, so actual arg count = n - 1
-                let expected_args = n.saturating_sub(1);
-                let actual_args = split_len.saturating_sub(1);
-                format!(
-                    "'{tag_name}' takes exactly {expected_args} argument{}, {actual_args} given",
-                    if expected_args == 1 { "" } else { "s" }
-                )
-            }
-            ArgumentCountConstraint::Min(n) => {
-                let min_args = n.saturating_sub(1);
-                format!(
-                    "'{tag_name}' requires at least {min_args} argument{}",
-                    if min_args == 1 { "" } else { "s" }
-                )
-            }
-            ArgumentCountConstraint::Max(n) => {
-                let max_args = n.saturating_sub(1);
-                format!(
-                    "'{tag_name}' accepts at most {max_args} argument{}",
-                    if max_args == 1 { "" } else { "s" }
-                )
-            }
-            ArgumentCountConstraint::OneOf(values) => {
-                let arg_counts: Vec<String> = values
-                    .iter()
-                    .map(|v| v.saturating_sub(1).to_string())
-                    .collect();
-                format!("'{tag_name}' takes {} argument(s)", arg_counts.join(" or "))
-            }
-        };
-
-        Some(ValidationError::ExtractedRuleViolation {
-            tag: tag_name.to_string(),
-            message,
-            span,
-        })
-    } else {
-        None
-    }
-}
-
-/// Evaluate a required keyword constraint.
-///
-/// `RequiredKeyword.position` uses `split_contents()` indexing (tag name at 0).
-/// Positive positions index from the start, negative from the end.
-/// If the position is out of bounds (tag too short), we skip — the argument
-/// count constraint should catch that case.
-fn evaluate_required_keyword(
-    tag_name: &str,
-    bits: &[String],
-    keyword: &RequiredKeyword,
-    span: Span,
-) -> Option<ValidationError> {
-    let bits_index = if keyword.position >= 0 {
-        // Adjust from split_contents index to bits index (subtract 1 for tag name)
-        let Ok(idx) = usize::try_from(keyword.position) else {
-            return None;
-        };
-        if idx == 0 {
-            return None; // Position 0 is the tag name itself, skip
-        }
-        idx - 1
-    } else {
-        // Negative indexing from end — maps directly since the end is the same
-        let Ok(abs_pos) = usize::try_from(keyword.position.unsigned_abs()) else {
-            return None;
-        };
-        if abs_pos > bits.len() {
-            return None; // Out of bounds, skip
-        }
-        bits.len() - abs_pos
-    };
-
-    if bits_index >= bits.len() {
-        return None; // Out of bounds — arg count constraint should catch this
-    }
-
-    if bits[bits_index] == keyword.value {
-        None
-    } else {
-        Some(ValidationError::ExtractedRuleViolation {
-            tag: tag_name.to_string(),
-            message: format!(
-                "'{tag_name}' expected '{}' at position {}",
-                keyword.value, keyword.position
-            ),
-            span,
-        })
-    }
-}
-
-/// Evaluate a choice-at-position constraint.
-///
-/// `ChoiceAt.position` uses `split_contents()` indexing (tag name at 0).
-/// Positive positions index from the start, negative from the end.
-/// If the position is out of bounds, we skip — the argument count constraint
-/// should catch that case.
-fn evaluate_choice_at(
-    tag_name: &str,
-    bits: &[String],
-    choice: &ChoiceAt,
-    span: Span,
-) -> Option<ValidationError> {
-    let bits_index = if choice.position >= 0 {
-        let Ok(idx) = usize::try_from(choice.position) else {
-            return None;
-        };
-        if idx == 0 {
-            return None;
-        }
-        idx - 1
-    } else {
-        let Ok(abs_pos) = usize::try_from(choice.position.unsigned_abs()) else {
-            return None;
-        };
-        if abs_pos > bits.len() {
-            return None;
-        }
-        bits.len() - abs_pos
-    };
-
-    if bits_index >= bits.len() {
-        return None;
-    }
-
-    if choice.values.iter().any(|v| v == &bits[bits_index]) {
-        None
-    } else {
-        let choices = choice.values.join("', '");
-        Some(ValidationError::ExtractedRuleViolation {
-            tag: tag_name.to_string(),
-            message: format!("'{tag_name}' argument must be one of '{choices}'"),
-            span,
-        })
-    }
 }
 
 /// Evaluate known options constraints.
