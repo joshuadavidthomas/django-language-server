@@ -643,13 +643,97 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ## M11 — Environment-Aware Tag/Filter Resolution
 
-**Status:** backlog
-**Plan:** `.agents/plans/YYYY-MM-DD-m11-environment-aware-resolution.md` (not yet created)
+**Status:** planning
+**Plan:** (derived from roadmap — no separate plan file)
 **Depends on:** M3/M4 (load scoping), M5 (extraction crate with Ruff parser)
 
 **Goal:** Distinguish three layers of tag/filter availability: not in Python environment (S108/S111), in environment but not in `INSTALLED_APPS` (new diagnostic), and in `INSTALLED_APPS` but not loaded (S109/S112). Also validate `{% load %}` library names against inspector inventory.
 
-*(Tasks to be expanded when this milestone is next up for implementation.)*
+**Three-layer resolution model:**
+```
+Python Environment  →  Django Configuration  →  Template Load  →  Available
+(pip install)          (INSTALLED_APPS)          ({% load %})
+```
+
+| Layer | Failure | Diagnostic | Fix |
+|---|---|---|---|
+| Not in environment | Package not installed | S108/S111 UnknownTag/Filter | `pip install ...` |
+| In env, not in INSTALLED_APPS | App not activated | **New S118/S119** | Add app to `INSTALLED_APPS` |
+| In INSTALLED_APPS, not loaded | No `{% load %}` | S109/S112 UnloadedTag/Filter | Add `{% load X %}` |
+
+### Phase 1: `{% load %}` Library Name Validation (Quick Win — No Environment Scan)
+
+- [ ] Add `S120` diagnostic code (`UnknownLibrary`) to `ValidationError` in `crates/djls-semantic/src/errors.rs` with message "Unknown template tag library '{name}'"
+- [ ] Add `S121` diagnostic code (`AmbiguousUnknownLibrary`) — reserved for Phase 4 when environment scan can distinguish "unknown" from "not in INSTALLED_APPS"
+- [ ] Add S120 to diagnostic system in `crates/djls-conf/src/diagnostics.rs`
+- [ ] Implement `validate_load_libraries()` in `crates/djls-semantic/src/load_resolution/validation.rs`: for each `Node::Tag { name: "load" }`, parse bits to get library names (full load) or the `from` library (selective), check each against `TemplateTags.libraries()` keys
+- [ ] Guard: skip when `inspector_inventory` is `None`
+- [ ] Handle selective imports: `{% load trans from i18n %}` → validate `i18n` is a known library
+- [ ] Wire `validate_load_libraries` into `validate_nodelist` in `crates/djls-semantic/src/lib.rs`
+- [ ] Tests: known library valid, unknown library → S120, selective import with known library valid, selective import with unknown library → S120, inspector unavailable → no diagnostics, multiple libraries in one load (`{% load i18n static %}`) — each validated independently
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 2: Environment Scanner — File Discovery
+
+- [ ] Create `crates/djls-extraction/src/environment.rs` module (behind `parser` feature gate)
+- [ ] Define `EnvironmentLibrary` struct: `load_name: String`, `app_module: String`, `module_path: PathBuf`, `source_path: PathBuf`
+- [ ] Define `EnvironmentInventory` struct: map from load_name → `Vec<EnvironmentLibrary>` (Vec because name collisions across packages are possible), with accessors `libraries()`, `has_library(name)`, `libraries_for_name(name)`
+- [ ] Implement `scan_environment(sys_paths: &[PathBuf]) -> EnvironmentInventory`: glob each sys_path entry for `*/templatetags/*.py`, skip `__init__.py` and `__pycache__`, derive `load_name` from filename stem, derive `app_module` from parent directory structure (e.g., `django/contrib/humanize/templatetags/humanize.py` → app `django.contrib.humanize`)
+- [ ] Handle edge cases: `templatetags/` without `__init__.py` (skip — not a valid Python package), symlinks, namespace packages
+- [ ] Export types from `crates/djls-extraction/src/lib.rs`
+- [ ] Tests: scan with mock directory structure, name collision detection, `__init__.py` filtering, empty directory handling
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 3: Environment Scanner — Symbol-Level Extraction
+
+- [ ] Extend `EnvironmentLibrary` with `tags: Vec<String>` and `filters: Vec<String>` fields
+- [ ] Implement `scan_environment_with_symbols(sys_paths: &[PathBuf]) -> EnvironmentInventory`: for each discovered `templatetags/*.py`, parse with `ruff_python_parser::parse_module`, call `collect_registrations_from_body` (existing M5 function), separate into tags/filters by `RegistrationKind`
+- [ ] Handle parse failures gracefully: if Ruff can't parse a file, still include the library at library-level (empty tags/filters lists) — don't skip entirely
+- [ ] Define `EnvironmentSymbol` struct: `name: String`, `library_load_name: String`, `app_module: String` — for reverse lookup ("which library provides tag X?")
+- [ ] Add `tags_by_name()` and `filters_by_name()` methods on `EnvironmentInventory` returning `HashMap<String, Vec<EnvironmentSymbol>>` for quick reverse lookup
+- [ ] Tests: extract registrations from real-ish templatetag files, parse failure → library still discovered, symbol-level reverse lookup works
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 4: Salsa Integration — Store Environment Inventory on Project
+
+- [ ] Add `environment_inventory: Option<EnvironmentInventory>` field to `Project` input in `crates/djls-project/src/project.rs` with `#[returns(ref)]`
+- [ ] Add `djls-extraction` dependency to `djls-project/Cargo.toml` for `EnvironmentInventory` type (types-only, no `parser` feature) — or define a separate types module if needed to avoid pulling in extraction types
+- [ ] Derive `PartialEq` + `Eq` on `EnvironmentInventory`, `EnvironmentLibrary`, `EnvironmentSymbol`
+- [ ] Initialize `environment_inventory` as `None` in `Project::bootstrap`
+- [ ] Implement environment scan in `refresh_inspector()` on `DjangoDatabase`: after inspector query completes, run `scan_environment_with_symbols` using `pythonpath` + interpreter's `sys.path`, compare with current value, set only if changed
+- [ ] Add `environment_inventory()` accessor to `SemanticDb` trait and implement on `DjangoDatabase`
+- [ ] Update all test databases implementing `SemanticDb` to include `environment_inventory()` method
+- [ ] Tests: environment inventory stored on Project, refresh updates inventory, same value → no Salsa invalidation
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 5: Three-Layer Resolution — Tags and Filters
+
+- [ ] Add `S118` diagnostic code (`TagNotInInstalledApps`) to `ValidationError`: "Tag '{name}' requires '{app}' in INSTALLED_APPS" — carries tag name, app module, and load name
+- [ ] Add `S119` diagnostic code (`FilterNotInInstalledApps`) to `ValidationError`: "Filter '{name}' requires '{app}' in INSTALLED_APPS"
+- [ ] Add S118, S119 to diagnostic system in `crates/djls-conf/`
+- [ ] Update `validate_tag_scoping()` in `load_resolution/validation.rs`: when a tag is currently classified as S108 (UnknownTag), check `environment_inventory` — if found there, reclassify as S118 (TagNotInInstalledApps) with the app module info
+- [ ] Update `validate_filter_scoping()` similarly: S111 → S119 when filter found in environment inventory
+- [ ] Handle ambiguity: tag/filter found in multiple environment libraries from different apps → include all candidates in diagnostic message
+- [ ] Guard: when `environment_inventory` is `None`, fall through to existing S108/S111 behavior (no regression)
+- [ ] Tests: tag in environment but not INSTALLED_APPS → S118 with correct app name, filter in environment but not INSTALLED_APPS → S119, tag truly unknown (not in environment) → S108 unchanged, environment unavailable → S108/S111 unchanged, tag in multiple environment packages → S118 with multiple candidates
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 6: Three-Layer Resolution — `{% load %}` Libraries
+
+- [ ] Repurpose `S121` diagnostic code (`LibraryNotInInstalledApps`): "Template tag library '{name}' requires '{app}' in INSTALLED_APPS"
+- [ ] Update `validate_load_libraries()` (from Phase 1): when a library is not in inspector's `libraries()`, check `environment_inventory.has_library(name)` — if found, emit S121 instead of S120
+- [ ] Include the app module in the S121 diagnostic message so users know exactly what to add
+- [ ] Handle ambiguity: library name exists in multiple apps in environment → include all candidates
+- [ ] Tests: library in environment but not INSTALLED_APPS → S121 with app name, library truly unknown → S120, environment unavailable → S120, ambiguous library name across apps → S121 with candidates
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 7: Documentation and Integration Tests
+
+- [ ] Update `docs/template-validation.md` with three-layer resolution explanation
+- [ ] Add S118–S121 to diagnostic codes documentation in `docs/configuration/index.md`
+- [ ] Integration test: template with tags/filters from all three layers — verify correct diagnostic codes emitted for each layer
+- [ ] Update `.github/ISSUE_TEMPLATE/template-validation-mismatch.yml` if needed for new diagnostic codes
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ---
 
