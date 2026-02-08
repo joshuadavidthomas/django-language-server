@@ -30,10 +30,8 @@
 use camino::Utf8Component;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
+use walkdir::WalkDir;
 
-pub use crate::enumerate::CorpusFileKind;
-
-pub mod enumerate;
 pub mod manifest;
 pub mod sync;
 
@@ -105,19 +103,90 @@ impl Corpus {
     /// All extraction target files in the entire corpus.
     #[must_use]
     pub fn extraction_targets(&self) -> Vec<Utf8PathBuf> {
-        enumerate::enumerate_files(&self.root, CorpusFileKind::ExtractionTarget)
+        self.extraction_targets_in(&self.root)
+    }
+
+    /// Extraction target files under a specific directory.
+    ///
+    /// Matches `**/templatetags/**/*.py` (excluding `__init__.py`)
+    /// and `**/template/{defaulttags,defaultfilters,loader_tags}.py`.
+    #[must_use]
+    pub fn extraction_targets_in(&self, dir: &Utf8Path) -> Vec<Utf8PathBuf> {
+        let mut files = Vec::new();
+
+        for entry in WalkDir::new(dir.as_std_path())
+            .into_iter()
+            .filter_map(Result::ok)
+            .filter(|e| e.file_type().is_file())
+        {
+            let Some(path) = Utf8Path::from_path(entry.path()) else {
+                continue;
+            };
+            let path_str = path.as_str();
+
+            if path_str.contains("__pycache__") {
+                continue;
+            }
+
+            let is_py = path.extension().is_some_and(|ext| ext == "py");
+            if is_py
+                && path.file_name() != Some("__init__.py")
+                && (path_str.contains("/templatetags/") || is_core_template_module(path))
+            {
+                files.push(path.to_owned());
+            }
+        }
+
+        files.sort();
+        files
     }
 
     /// All template files in the entire corpus.
     #[must_use]
     pub fn templates(&self) -> Vec<Utf8PathBuf> {
-        enumerate::enumerate_files(&self.root, CorpusFileKind::Template)
+        self.templates_in(&self.root)
     }
 
-    /// Enumerate files of a given kind under a specific directory.
+    /// Template files under a specific directory.
+    ///
+    /// Matches `**/templates/**/*.html` and `**/templates/**/*.txt`.
+    /// Excludes files inside `docs/`, `tests/`, `jinja2/`, and `static/`
+    /// directories.
     #[must_use]
-    pub fn enumerate_files(&self, dir: &Utf8Path, kind: CorpusFileKind) -> Vec<Utf8PathBuf> {
-        enumerate::enumerate_files(dir, kind)
+    pub fn templates_in(&self, dir: &Utf8Path) -> Vec<Utf8PathBuf> {
+        let mut files = Vec::new();
+
+        for entry in WalkDir::new(dir.as_std_path())
+            .into_iter()
+            .filter_map(Result::ok)
+            .filter(|e| e.file_type().is_file())
+        {
+            let Some(path) = Utf8Path::from_path(entry.path()) else {
+                continue;
+            };
+            let path_str = path.as_str();
+
+            if path_str.contains("__pycache__") {
+                continue;
+            }
+
+            let is_template = path.extension().is_some_and(|ext| {
+                ext.eq_ignore_ascii_case("html") || ext.eq_ignore_ascii_case("txt")
+            });
+
+            if is_template
+                && path_str.contains("/templates/")
+                && !path_str.contains("/docs/")
+                && !path_str.contains("/tests/")
+                && !path_str.contains("/jinja2/")
+                && !path_str.contains("/static/")
+            {
+                files.push(path.to_owned());
+            }
+        }
+
+        files.sort();
+        files
     }
 
     /// Extract rules from a single Python file in the corpus.
@@ -136,7 +205,7 @@ impl Corpus {
     #[cfg(feature = "extraction")]
     #[must_use]
     pub fn extract_dir(&self, dir: &Utf8Path) -> djls_extraction::ExtractionResult {
-        let files = enumerate::enumerate_files(dir, CorpusFileKind::ExtractionTarget);
+        let files = self.extraction_targets_in(dir);
         let mut combined = djls_extraction::ExtractionResult::default();
         for path in &files {
             if let Some(result) = self.extract_file(path) {
@@ -145,6 +214,14 @@ impl Corpus {
         }
         combined
     }
+}
+
+fn is_core_template_module(path: &Utf8Path) -> bool {
+    path.as_str().contains("/template/")
+        && matches!(
+            path.file_name(),
+            Some("defaulttags.py" | "defaultfilters.py" | "loader_tags.py")
+        )
 }
 
 /// Collect subdirectories that have been fully synced (contain a `.complete` marker).

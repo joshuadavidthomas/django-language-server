@@ -10,7 +10,6 @@ use std::time::Duration;
 
 use camino::Utf8Path;
 
-use crate::enumerate;
 use crate::manifest::Manifest;
 use crate::manifest::Package;
 use crate::manifest::Repo;
@@ -23,22 +22,30 @@ fn http_client() -> anyhow::Result<reqwest::blocking::Client> {
 
 /// Whether a file path is relevant for corpus download.
 ///
-/// This is the union of all [`enumerate::CorpusFileKind`] predicates — it decides
-/// what to extract from tarballs during sync. The enumerate functions apply
-/// stricter filtering (e.g. excluding `__init__.py`, `docs/`, `tests/`).
+/// This is the union of all extraction-target and template predicates — it
+/// decides what to extract from tarballs during sync. The `Corpus` methods
+/// apply stricter filtering (e.g. excluding `__init__.py`, `docs/`, `tests/`).
 fn is_download_relevant(path: &str) -> bool {
-    if enumerate::in_pycache(path) {
+    if path.contains("__pycache__") {
         return false;
     }
 
     let utf8 = Utf8Path::new(path);
 
-    if enumerate::has_py_extension(utf8) {
-        return enumerate::in_templatetags_dir(path) || enumerate::is_core_template_module(utf8);
+    if utf8.extension().is_some_and(|ext| ext == "py") {
+        return path.contains("/templatetags/")
+            || (path.contains("/template/")
+                && matches!(
+                    utf8.file_name(),
+                    Some("defaulttags.py" | "defaultfilters.py" | "loader_tags.py")
+                ));
     }
 
-    if enumerate::has_template_extension(utf8) {
-        return enumerate::in_templates_dir(path);
+    if utf8
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("html") || ext.eq_ignore_ascii_case("txt"))
+    {
+        return path.contains("/templates/");
     }
 
     false

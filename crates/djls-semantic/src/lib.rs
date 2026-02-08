@@ -828,7 +828,6 @@ mod tests {
     // Run `cargo run -p djls-corpus -- sync` to populate it.
 
     use djls_corpus::Corpus;
-    use djls_corpus::CorpusFileKind;
 
     /// A test database using extraction-derived `TagSpecs`.
     ///
@@ -920,7 +919,7 @@ mod tests {
         specs: &mut TagSpecs,
         arities: &mut FilterAritySpecs,
     ) {
-        let extraction_files = corpus.enumerate_files(dir, CorpusFileKind::ExtractionTarget);
+        let extraction_files = corpus.extraction_targets_in(dir);
         for file_path in &extraction_files {
             if let Some(result) = corpus.extract_file(file_path) {
                 arities.merge_extraction_result(&result);
@@ -1014,7 +1013,7 @@ mod tests {
         specs: &TagSpecs,
         arities: &FilterAritySpecs,
     ) -> Vec<FailureEntry> {
-        let templates = corpus.enumerate_files(dir, CorpusFileKind::Template);
+        let templates = corpus.templates_in(dir);
         let mut failures = Vec::new();
 
         for template_path in &templates {
@@ -1053,7 +1052,7 @@ mod tests {
             let version = version_dir.file_name().unwrap();
 
             let (specs, arities) = build_specs_from_extraction(&corpus, version_dir);
-            let templates = corpus.enumerate_files(version_dir, CorpusFileKind::Template);
+            let templates = corpus.templates_in(version_dir);
 
             if templates.is_empty() {
                 eprintln!(
@@ -1116,7 +1115,7 @@ mod tests {
                     version_dir,
                     latest_django.as_deref(),
                 );
-                let templates = corpus.enumerate_files(version_dir, CorpusFileKind::Template);
+                let templates = corpus.templates_in(version_dir);
 
                 if templates.is_empty() {
                     continue;
@@ -1172,7 +1171,7 @@ mod tests {
             for ref_dir in &corpus.synced_dirs(&repo_relative) {
                 let (specs, arities) =
                     build_specs_with_django_builtins(&corpus, ref_dir, latest_django.as_deref());
-                let templates = corpus.enumerate_files(ref_dir, CorpusFileKind::Template);
+                let templates = corpus.templates_in(ref_dir);
 
                 if templates.is_empty() {
                     continue;

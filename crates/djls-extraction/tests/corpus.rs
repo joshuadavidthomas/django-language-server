@@ -28,7 +28,6 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_corpus::module_path_from_file;
 use djls_corpus::Corpus;
-use djls_corpus::CorpusFileKind;
 use djls_extraction::extract_rules;
 use djls_extraction::ArgumentCountConstraint;
 use djls_extraction::BlockTagSpec;
@@ -217,7 +216,7 @@ fn test_django_core_modules_snapshots() {
         return;
     };
 
-    let files = corpus.enumerate_files(&django_dir, CorpusFileKind::ExtractionTarget);
+    let files = corpus.extraction_targets_in(&django_dir);
     assert!(!files.is_empty(), "Django should have extraction targets");
 
     for path in &files {
