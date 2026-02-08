@@ -8,6 +8,7 @@ tag_rules:
       - Min: 2
       - Max: 3
     required_keywords: []
+    choice_at_constraints: []
     known_options: ~
     extracted_args:
       - name: name

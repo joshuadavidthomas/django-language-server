@@ -37,6 +37,7 @@ pub use registry::RegistrationKind;
 pub use signature::extract_parse_bits_rule;
 pub use types::ArgumentCountConstraint;
 pub use types::BlockTagSpec;
+pub use types::ChoiceAt;
 pub use types::ExtractedArg;
 pub use types::ExtractedArgKind;
 pub use types::ExtractionResult;

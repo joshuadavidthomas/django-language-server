@@ -25,13 +25,16 @@ use super::domain::Index;
 use super::eval::eval_expr;
 use super::eval::expr_as_positive_usize;
 use crate::types::ArgumentCountConstraint;
+use crate::types::ChoiceAt;
 use crate::types::RequiredKeyword;
 
 /// Collected constraints from analyzing a function body.
 #[derive(Debug, Default)]
+#[allow(clippy::struct_field_names)]
 pub struct Constraints {
     pub arg_constraints: Vec<ArgumentCountConstraint>,
     pub required_keywords: Vec<RequiredKeyword>,
+    pub choice_at_constraints: Vec<ChoiceAt>,
 }
 
 /// Extract constraints from a single if-statement using the current env state.
@@ -197,6 +200,18 @@ fn eval_compare(compare: &ExprCompare, env: &Env, constraints: &mut Constraints)
                 position,
                 value: keyword,
             });
+            return;
+        }
+
+        // SplitElement not in ("a", "b") → ChoiceAt constraint
+        if matches!(op, CmpOp::NotIn) {
+            if let Some(values) = extract_string_collection(comparator) {
+                let position = index_to_i64(index);
+                constraints.choice_at_constraints.push(ChoiceAt {
+                    position,
+                    values,
+                });
+            }
         }
         return;
     }
@@ -304,6 +319,23 @@ fn extract_string_value(expr: &Expr) -> Option<String> {
         return Some(value.to_str().to_string());
     }
     None
+}
+
+fn extract_string_collection(expr: &Expr) -> Option<Vec<String>> {
+    let elements = match expr {
+        Expr::Tuple(t) => &t.elts,
+        Expr::List(l) => &l.elts,
+        Expr::Set(s) => &s.elts,
+        _ => return None,
+    };
+    let mut values = Vec::new();
+    for elt in elements {
+        values.push(extract_string_value(elt)?);
+    }
+    if values.is_empty() {
+        return None;
+    }
+    Some(values)
 }
 
 fn extract_int_collection(expr: &Expr) -> Option<Vec<usize>> {
@@ -823,5 +855,106 @@ def do_tag(parser, token):
         );
         // After pop(0): base_offset=1 → Min(2+1) = Min(3)
         assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Min(3)]);
+    }
+
+    #[test]
+    fn choice_at_not_in_tuple() {
+        let c = extract_from_source(
+            r#"
+def do_tag(parser, token):
+    args = token.split_contents()
+    if args[1] not in ("on", "off"):
+        raise TemplateSyntaxError("err")
+"#,
+        );
+        assert!(c.arg_constraints.is_empty());
+        assert!(c.required_keywords.is_empty());
+        assert_eq!(
+            c.choice_at_constraints,
+            vec![ChoiceAt {
+                position: 1,
+                values: vec!["on".to_string(), "off".to_string()]
+            }]
+        );
+    }
+
+    #[test]
+    fn choice_at_autoescape_pattern() {
+        let c = extract_from_source(
+            r#"
+def do_tag(parser, token):
+    args = token.split_contents()
+    if len(args) != 2:
+        raise TemplateSyntaxError("err")
+    arg = args[1]
+    if arg not in ("on", "off"):
+        raise TemplateSyntaxError("err")
+"#,
+        );
+        assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Exact(2)]);
+        assert_eq!(
+            c.choice_at_constraints,
+            vec![ChoiceAt {
+                position: 1,
+                values: vec!["on".to_string(), "off".to_string()]
+            }]
+        );
+    }
+
+    #[test]
+    fn choice_at_with_list() {
+        let c = extract_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    if bits[1] not in ["open", "close", "block"]:
+        raise TemplateSyntaxError("err")
+"#,
+        );
+        assert_eq!(
+            c.choice_at_constraints,
+            vec![ChoiceAt {
+                position: 1,
+                values: vec![
+                    "open".to_string(),
+                    "close".to_string(),
+                    "block".to_string()
+                ]
+            }]
+        );
+    }
+
+    #[test]
+    fn choice_at_negative_index() {
+        let c = extract_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    if bits[-1] not in ("yes", "no"):
+        raise TemplateSyntaxError("err")
+"#,
+        );
+        assert_eq!(
+            c.choice_at_constraints,
+            vec![ChoiceAt {
+                position: -1,
+                values: vec!["yes".to_string(), "no".to_string()]
+            }]
+        );
+    }
+
+    #[test]
+    fn no_choice_at_for_single_string() {
+        // Single string comparison → RequiredKeyword, NOT ChoiceAt
+        let c = extract_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    if bits[1] != "as":
+        raise TemplateSyntaxError("err")
+"#,
+        );
+        assert!(c.choice_at_constraints.is_empty());
+        assert_eq!(c.required_keywords.len(), 1);
     }
 }

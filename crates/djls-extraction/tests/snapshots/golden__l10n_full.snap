@@ -7,6 +7,11 @@ tag_rules:
     arg_constraints:
       - Max: 2
     required_keywords: []
+    choice_at_constraints:
+      - position: 1
+        values:
+          - "on"
+          - "off"
     known_options: ~
     extracted_args:
       - name: arg1

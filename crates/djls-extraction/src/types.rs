@@ -101,6 +101,7 @@ impl ExtractionResult {
 pub struct TagRule {
     pub arg_constraints: Vec<ArgumentCountConstraint>,
     pub required_keywords: Vec<RequiredKeyword>,
+    pub choice_at_constraints: Vec<ChoiceAt>,
     pub known_options: Option<KnownOptions>,
     pub extracted_args: Vec<ExtractedArg>,
     /// Whether this tag supports Django's `{% tag args... as varname %}` syntax.
@@ -132,6 +133,16 @@ pub enum ArgumentCountConstraint {
 pub struct RequiredKeyword {
     pub position: i64,
     pub value: String,
+}
+
+/// A constraint that a specific position must hold one of a fixed set of values.
+///
+/// For example, `{% autoescape on %}` requires `args[1]` to be `"on"` or `"off"`.
+/// Extracted from patterns like `if arg not in ("on", "off"): raise TemplateSyntaxError(...)`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChoiceAt {
+    pub position: i64,
+    pub values: Vec<String>,
 }
 
 /// Constraints on option-style arguments parsed in a while loop.

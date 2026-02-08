@@ -9,6 +9,7 @@ tag_rules:
     required_keywords:
       - position: 2
         value: as
+    choice_at_constraints: []
     known_options: ~
     extracted_args:
       - name: arg1

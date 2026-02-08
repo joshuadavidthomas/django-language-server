@@ -7,6 +7,7 @@ tag_rules:
     arg_constraints:
       - Max: 1
     required_keywords: []
+    choice_at_constraints: []
     known_options: ~
     extracted_args: []
     supports_as_var: true
@@ -15,6 +16,7 @@ tag_rules:
       - Min: 2
       - Max: 2
     required_keywords: []
+    choice_at_constraints: []
     known_options: ~
     extracted_args:
       - name: user
@@ -26,6 +28,7 @@ tag_rules:
     arg_constraints:
       - Min: 2
     required_keywords: []
+    choice_at_constraints: []
     known_options: ~
     extracted_args:
       - name: provider
@@ -37,6 +40,7 @@ tag_rules:
     arg_constraints:
       - Max: 1
     required_keywords: []
+    choice_at_constraints: []
     known_options: ~
     extracted_args: []
     supports_as_var: true
@@ -44,6 +48,7 @@ tag_rules:
     arg_constraints:
       - Exact: 2
     required_keywords: []
+    choice_at_constraints: []
     known_options: ~
     extracted_args:
       - name: arg1
@@ -56,6 +61,7 @@ tag_rules:
       - Min: 2
       - Max: 2
     required_keywords: []
+    choice_at_constraints: []
     known_options: ~
     extracted_args:
       - name: user

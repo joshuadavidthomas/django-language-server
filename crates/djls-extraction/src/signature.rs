@@ -90,6 +90,7 @@ pub fn extract_parse_bits_rule(func: &StmtFunctionDef, is_simple_tag: bool) -> T
     TagRule {
         arg_constraints,
         required_keywords: Vec::new(),
+        choice_at_constraints: Vec::new(),
         known_options: None,
         extracted_args,
         supports_as_var: is_simple_tag,

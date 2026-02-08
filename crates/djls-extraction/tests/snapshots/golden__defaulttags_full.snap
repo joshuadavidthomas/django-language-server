@@ -7,6 +7,11 @@ tag_rules:
     arg_constraints:
       - Exact: 2
     required_keywords: []
+    choice_at_constraints:
+      - position: 1
+        values:
+          - "on"
+          - "off"
     known_options: ~
     extracted_args:
       - name: arg
@@ -18,6 +23,7 @@ tag_rules:
     arg_constraints:
       - Min: 2
     required_keywords: []
+    choice_at_constraints: []
     known_options: ~
     extracted_args:
       - name: arg1
@@ -29,6 +35,7 @@ tag_rules:
     arg_constraints:
       - Min: 4
     required_keywords: []
+    choice_at_constraints: []
     known_options: ~
     extracted_args:
       - name: arg1
@@ -48,6 +55,7 @@ tag_rules:
     arg_constraints:
       - Exact: 4
     required_keywords: []
+    choice_at_constraints: []
     known_options: ~
     extracted_args:
       - name: arg1
@@ -67,6 +75,7 @@ tag_rules:
     arg_constraints:
       - Exact: 2
     required_keywords: []
+    choice_at_constraints: []
     known_options: ~
     extracted_args:
       - name: arg1
@@ -78,6 +87,7 @@ tag_rules:
     arg_constraints:
       - Exact: 2
     required_keywords: []
+    choice_at_constraints: []
     known_options: ~
     extracted_args:
       - name: arg1
@@ -93,6 +103,7 @@ tag_rules:
     required_keywords:
       - position: 2
         value: inline
+    choice_at_constraints: []
     known_options: ~
     extracted_args:
       - name: arg1
@@ -108,6 +119,7 @@ tag_rules:
   "django.template.defaulttags::querystring":
     arg_constraints: []
     required_keywords: []
+    choice_at_constraints: []
     known_options: ~
     extracted_args:
       - name: args
@@ -123,6 +135,7 @@ tag_rules:
         value: by
       - position: 4
         value: as
+    choice_at_constraints: []
     known_options: ~
     extracted_args:
       - name: arg1
@@ -152,6 +165,7 @@ tag_rules:
     arg_constraints:
       - Max: 2
     required_keywords: []
+    choice_at_constraints: []
     known_options: ~
     extracted_args:
       - name: name
@@ -163,6 +177,7 @@ tag_rules:
     arg_constraints:
       - Exact: 2
     required_keywords: []
+    choice_at_constraints: []
     known_options: ~
     extracted_args:
       - name: tag
@@ -174,6 +189,7 @@ tag_rules:
     arg_constraints:
       - Min: 2
     required_keywords: []
+    choice_at_constraints: []
     known_options: ~
     extracted_args:
       - name: arg1
@@ -186,6 +202,7 @@ tag_rules:
     required_keywords:
       - position: 4
         value: as
+    choice_at_constraints: []
     known_options: ~
     extracted_args:
       - name: this_value_expr

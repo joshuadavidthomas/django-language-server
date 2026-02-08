@@ -6,6 +6,7 @@ tag_rules:
   "django.templatetags.i18n::blocktrans":
     arg_constraints: []
     required_keywords: []
+    choice_at_constraints: []
     known_options:
       values:
         - with
@@ -20,6 +21,7 @@ tag_rules:
   "django.templatetags.i18n::blocktranslate":
     arg_constraints: []
     required_keywords: []
+    choice_at_constraints: []
     known_options:
       values:
         - with
@@ -37,6 +39,7 @@ tag_rules:
     required_keywords:
       - position: 1
         value: as
+    choice_at_constraints: []
     known_options: ~
     extracted_args:
       - name: as
@@ -55,6 +58,7 @@ tag_rules:
     required_keywords:
       - position: 1
         value: as
+    choice_at_constraints: []
     known_options: ~
     extracted_args:
       - name: as
@@ -73,6 +77,7 @@ tag_rules:
     required_keywords:
       - position: 1
         value: as
+    choice_at_constraints: []
     known_options: ~
     extracted_args:
       - name: as
@@ -93,6 +98,7 @@ tag_rules:
         value: for
       - position: 3
         value: as
+    choice_at_constraints: []
     known_options: ~
     extracted_args:
       - name: for
@@ -122,6 +128,7 @@ tag_rules:
         value: for
       - position: 3
         value: as
+    choice_at_constraints: []
     known_options: ~
     extracted_args:
       - name: for
@@ -147,6 +154,7 @@ tag_rules:
     arg_constraints:
       - Exact: 2
     required_keywords: []
+    choice_at_constraints: []
     known_options: ~
     extracted_args:
       - name: arg1
@@ -158,6 +166,7 @@ tag_rules:
     arg_constraints:
       - Min: 2
     required_keywords: []
+    choice_at_constraints: []
     known_options:
       values:
         - noop
@@ -175,6 +184,7 @@ tag_rules:
     arg_constraints:
       - Min: 2
     required_keywords: []
+    choice_at_constraints: []
     known_options:
       values:
         - noop

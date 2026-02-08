@@ -70,6 +70,7 @@ pub fn analyze_compile_function_with_cache(
     TagRule {
         arg_constraints: ctx.constraints.arg_constraints,
         required_keywords: ctx.constraints.required_keywords,
+        choice_at_constraints: ctx.constraints.choice_at_constraints,
         known_options: ctx.known_options,
         extracted_args,
         supports_as_var: false,

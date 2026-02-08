@@ -1,4 +1,5 @@
 use djls_extraction::ArgumentCountConstraint;
+use djls_extraction::ChoiceAt;
 use djls_extraction::KnownOptions;
 use djls_extraction::RequiredKeyword;
 use djls_extraction::TagRule;
@@ -43,6 +44,12 @@ pub fn evaluate_tag_rules(
 
     for keyword in &rules.required_keywords {
         if let Some(error) = evaluate_required_keyword(tag_name, effective_bits, keyword, span) {
+            errors.push(error);
+        }
+    }
+
+    for choice in &rules.choice_at_constraints {
+        if let Some(error) = evaluate_choice_at(tag_name, effective_bits, choice, span) {
             errors.push(error);
         }
     }
@@ -166,6 +173,52 @@ fn evaluate_required_keyword(
                 "'{tag_name}' expected '{}' at position {}",
                 keyword.value, keyword.position
             ),
+            span,
+        })
+    }
+}
+
+/// Evaluate a choice-at-position constraint.
+///
+/// `ChoiceAt.position` uses `split_contents()` indexing (tag name at 0).
+/// Positive positions index from the start, negative from the end.
+/// If the position is out of bounds, we skip — the argument count constraint
+/// should catch that case.
+fn evaluate_choice_at(
+    tag_name: &str,
+    bits: &[String],
+    choice: &ChoiceAt,
+    span: Span,
+) -> Option<ValidationError> {
+    let bits_index = if choice.position >= 0 {
+        let Ok(idx) = usize::try_from(choice.position) else {
+            return None;
+        };
+        if idx == 0 {
+            return None;
+        }
+        idx - 1
+    } else {
+        let Ok(abs_pos) = usize::try_from(choice.position.unsigned_abs()) else {
+            return None;
+        };
+        if abs_pos > bits.len() {
+            return None;
+        }
+        bits.len() - abs_pos
+    };
+
+    if bits_index >= bits.len() {
+        return None;
+    }
+
+    if choice.values.iter().any(|v| v == &bits[bits_index]) {
+        None
+    } else {
+        let choices = choice.values.join("', '");
+        Some(ValidationError::ExtractedRuleViolation {
+            tag: tag_name.to_string(),
+            message: format!("'{tag_name}' argument must be one of '{choices}'"),
             span,
         })
     }
@@ -619,5 +672,90 @@ mod tests {
             1,
             "Non-simple_tag should not strip `as varname`"
         );
+    }
+
+    // --- ChoiceAt tests ---
+
+    #[test]
+    fn choice_at_passes_when_valid() {
+        let rule = TagRule {
+            choice_at_constraints: vec![ChoiceAt {
+                position: 1,
+                values: vec!["on".to_string(), "off".to_string()],
+            }],
+            ..empty_rule()
+        };
+        let bits = make_bits(&["on"]);
+        let errors = evaluate_tag_rules("autoescape", &bits, &rule, make_span());
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn choice_at_fails_when_invalid() {
+        let rule = TagRule {
+            choice_at_constraints: vec![ChoiceAt {
+                position: 1,
+                values: vec!["on".to_string(), "off".to_string()],
+            }],
+            ..empty_rule()
+        };
+        let bits = make_bits(&["unknown"]);
+        let errors = evaluate_tag_rules("autoescape", &bits, &rule, make_span());
+        assert_eq!(errors.len(), 1);
+        assert!(matches!(
+            &errors[0],
+            ValidationError::ExtractedRuleViolation { message, .. }
+            if message.contains("'on', 'off'")
+        ));
+    }
+
+    #[test]
+    fn choice_at_negative_position() {
+        let rule = TagRule {
+            choice_at_constraints: vec![ChoiceAt {
+                position: -1,
+                values: vec!["yes".to_string(), "no".to_string()],
+            }],
+            ..empty_rule()
+        };
+        // bits[-1] = "yes"
+        let bits = make_bits(&["something", "yes"]);
+        let errors = evaluate_tag_rules("mytag", &bits, &rule, make_span());
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn choice_at_out_of_bounds_skipped() {
+        let rule = TagRule {
+            choice_at_constraints: vec![ChoiceAt {
+                position: 5,
+                values: vec!["a".to_string()],
+            }],
+            ..empty_rule()
+        };
+        let bits = make_bits(&["x"]);
+        let errors = evaluate_tag_rules("mytag", &bits, &rule, make_span());
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn choice_at_combined_with_arg_count() {
+        let rule = TagRule {
+            arg_constraints: vec![ArgumentCountConstraint::Exact(2)],
+            choice_at_constraints: vec![ChoiceAt {
+                position: 1,
+                values: vec!["on".to_string(), "off".to_string()],
+            }],
+            ..empty_rule()
+        };
+        // Correct count, wrong value
+        let bits = make_bits(&["bad"]);
+        let errors = evaluate_tag_rules("autoescape", &bits, &rule, make_span());
+        assert_eq!(errors.len(), 1); // Only choice violation, count is correct
+        assert!(matches!(
+            &errors[0],
+            ValidationError::ExtractedRuleViolation { message, .. }
+            if message.contains("must be one of")
+        ));
     }
 }

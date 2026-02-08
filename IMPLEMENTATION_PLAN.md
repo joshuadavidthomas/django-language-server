@@ -790,11 +790,11 @@ Python Environment  →  Django Configuration  →  Template Load  →  Availabl
 
 ### Phase 1: `ChoiceAt` Constraint Type
 
-- [ ] Add `ChoiceAt { position: i64, values: Vec<String> }` variant to constraint types in `crates/djls-extraction/src/types.rs`
-- [ ] Implement constraint extraction for `SplitElement not in (tuple_of_strings)` and `SplitElement in (tuple_of_strings)` patterns in `crates/djls-extraction/src/dataflow/constraints.rs`
-- [ ] Add `ChoiceAt` evaluator in `crates/djls-semantic/src/rule_evaluation.rs` — check that `bits[position]` is one of `values`
-- [ ] Add appropriate diagnostic handling for `ChoiceAt` violations (reuse S117 `ExtractedRuleViolation`)
-- [ ] Tests: `autoescape` tag (`not in ("on", "off")` → `ChoiceAt`), `templatetag` tag (`not in templatetag_names`), constraint extraction from `if arg not in (...)` pattern, evaluator positive/negative cases
+- [x] Add `ChoiceAt { position: i64, values: Vec<String> }` variant to constraint types in `crates/djls-extraction/src/types.rs`
+- [x] Implement constraint extraction for `SplitElement not in (tuple_of_strings)` and `SplitElement in (tuple_of_strings)` patterns in `crates/djls-extraction/src/dataflow/constraints.rs`
+- [x] Add `ChoiceAt` evaluator in `crates/djls-semantic/src/rule_evaluation.rs` — check that `bits[position]` is one of `values`
+- [x] Add appropriate diagnostic handling for `ChoiceAt` violations (reuse S117 `ExtractedRuleViolation`)
+- [x] Tests: `autoescape` tag (`not in ("on", "off")` → `ChoiceAt`), `templatetag` tag (`not in templatetag_names`), constraint extraction from `if arg not in (...)` pattern, evaluator positive/negative cases
 - [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 2: `blocktrans`/`blocktranslate` Block Spec Extraction

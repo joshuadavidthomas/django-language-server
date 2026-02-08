@@ -10,6 +10,7 @@ tag_rules:
           - 3
           - 4
     required_keywords: []
+    choice_at_constraints: []
     known_options: ~
     extracted_args:
       - name: arg1

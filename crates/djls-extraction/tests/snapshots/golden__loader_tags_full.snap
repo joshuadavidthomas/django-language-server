@@ -7,6 +7,7 @@ tag_rules:
     arg_constraints:
       - Exact: 2
     required_keywords: []
+    choice_at_constraints: []
     known_options: ~
     extracted_args:
       - name: block_name
@@ -18,6 +19,7 @@ tag_rules:
     arg_constraints:
       - Exact: 2
     required_keywords: []
+    choice_at_constraints: []
     known_options: ~
     extracted_args:
       - name: arg1
@@ -29,6 +31,7 @@ tag_rules:
     arg_constraints:
       - Min: 2
     required_keywords: []
+    choice_at_constraints: []
     known_options:
       values:
         - with

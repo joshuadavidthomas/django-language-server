@@ -9,6 +9,7 @@ tag_rules:
     required_keywords:
       - position: 1
         value: as
+    choice_at_constraints: []
     known_options: ~
     extracted_args:
       - name: as
@@ -25,6 +26,11 @@ tag_rules:
     arg_constraints:
       - Max: 2
     required_keywords: []
+    choice_at_constraints:
+      - position: 1
+        values:
+          - "on"
+          - "off"
     known_options: ~
     extracted_args:
       - name: arg1
@@ -36,6 +42,7 @@ tag_rules:
     arg_constraints:
       - Exact: 2
     required_keywords: []
+    choice_at_constraints: []
     known_options: ~
     extracted_args:
       - name: arg1
