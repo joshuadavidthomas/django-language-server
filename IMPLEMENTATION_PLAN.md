@@ -739,7 +739,7 @@ Python Environment  →  Django Configuration  →  Template Load  →  Availabl
 
 ## M12 — `{% extends %}` Structural Validation
 
-**Status:** ready
+**Status:** complete
 **Plan:** `.agents/plans/2026-02-07-m12-extends-structural-validation.md`
 **Depends on:** None
 
@@ -774,9 +774,9 @@ Python Environment  →  Django Configuration  →  Template Load  →  Availabl
 
 ### Phase 4: Documentation
 
-- [ ] Add S122 and S123 to `docs/configuration/index.md` diagnostic codes table
-- [ ] Mention extends validation in `docs/template-validation.md`
-- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Add S122 and S123 to `docs/configuration/index.md` diagnostic codes table
+- [x] Mention extends validation in `docs/template-validation.md`
+- [x] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ---
 

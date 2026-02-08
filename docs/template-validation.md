@@ -99,6 +99,13 @@ Validates that `{% load %}` library names refer to known template tag libraries:
 - **S120** — Unknown library (not found in the inspector inventory or the Python environment)
 - **S121** — Library not in `INSTALLED_APPS` (the library exists in an installed package, but its Django app isn't activated)
 
+### Extends Validation (S122–S123)
+
+Validates structural rules for `{% extends %}`:
+
+- **S122** — `{% extends %}` must be the first tag in the template. Text and `{# comments #}` are allowed before it, but no other tags (`{% load %}`, etc.) or variables (`{{ foo }}`) may appear first. This matches Django's parse-time enforcement.
+- **S123** — `{% extends %}` cannot appear more than once in a template.
+
 ### Expression Syntax (S114)
 
 Validates operator usage in `{% if %}` and `{% elif %}` expressions:

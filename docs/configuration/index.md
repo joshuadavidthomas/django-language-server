@@ -114,6 +114,11 @@ Map diagnostic codes or prefixes to severity levels. Supports:
 - `S120` - Unknown template tag library (not found in inspector or environment)
 - `S121` - Library not in `INSTALLED_APPS` (installed package, but Django app not activated)
 
+*Extends Validation:*
+
+- `S122` - `{% extends %}` must be the first tag in the template (no tags or variables before it)
+- `S123` - `{% extends %}` cannot appear more than once in a template
+
 !!! note "Automatic Validation"
 
     Template tag validation rules (argument counts, required keywords, block structure) are derived automatically from Python source code via static AST analysis. No manual configuration is needed — djls reads Django's own template tag implementations to understand their requirements.
