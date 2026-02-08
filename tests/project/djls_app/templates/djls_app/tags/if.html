@@ -54,10 +54,10 @@
 {# ✗ S114: empty expression #}
 {% if %}{% endif %}
 
-{# ✗ S100: unclosed if #}
-{% if unclosed %}
-  <p>Never closed.</p>
-
 {# ✗ S102: orphaned else and elif #}
 {% else %}
 {% elif orphaned %}
+
+{# ✗ S100: unclosed if #}
+{% if unclosed %}
+  <p>Never closed.</p>
