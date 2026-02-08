@@ -70,6 +70,8 @@ impl DiagnosticError for ValidationError {
             | ValidationError::FilterMissingArgument { span, .. }
             | ValidationError::FilterUnexpectedArgument { span, .. }
             | ValidationError::ExtractedRuleViolation { span, .. }
+            | ValidationError::TagNotInInstalledApps { span, .. }
+            | ValidationError::FilterNotInInstalledApps { span, .. }
             | ValidationError::UnknownLibrary { span, .. }
             | ValidationError::AmbiguousUnknownLibrary { span, .. } => Some(span.into()),
         }
@@ -91,6 +93,8 @@ impl DiagnosticError for ValidationError {
             ValidationError::FilterMissingArgument { .. } => "S115",
             ValidationError::FilterUnexpectedArgument { .. } => "S116",
             ValidationError::ExtractedRuleViolation { .. } => "S117",
+            ValidationError::TagNotInInstalledApps { .. } => "S118",
+            ValidationError::FilterNotInInstalledApps { .. } => "S119",
             ValidationError::UnknownLibrary { .. } => "S120",
             ValidationError::AmbiguousUnknownLibrary { .. } => "S121",
         }

@@ -83,6 +83,22 @@ pub enum ValidationError {
         span: Span,
     },
 
+    #[error("Tag '{tag}' requires '{app}' in INSTALLED_APPS")]
+    TagNotInInstalledApps {
+        tag: String,
+        app: String,
+        load_name: String,
+        span: Span,
+    },
+
+    #[error("Filter '{filter}' requires '{app}' in INSTALLED_APPS")]
+    FilterNotInInstalledApps {
+        filter: String,
+        app: String,
+        load_name: String,
+        span: Span,
+    },
+
     #[error("Unknown template tag library '{name}'")]
     UnknownLibrary { name: String, span: Span },
 

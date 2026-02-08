@@ -333,6 +333,8 @@ mod tests {
             | ValidationError::AmbiguousUnloadedFilter { span, .. }
             | ValidationError::UnmatchedBlockName { span, .. }
             | ValidationError::ExtractedRuleViolation { span, .. }
+            | ValidationError::TagNotInInstalledApps { span, .. }
+            | ValidationError::FilterNotInInstalledApps { span, .. }
             | ValidationError::UnknownLibrary { span, .. }
             | ValidationError::AmbiguousUnknownLibrary { span, .. } => span.start(),
             ValidationError::UnbalancedStructure { opening_span, .. } => opening_span.start(),

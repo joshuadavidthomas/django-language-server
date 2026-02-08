@@ -708,15 +708,15 @@ Python Environment  →  Django Configuration  →  Template Load  →  Availabl
 
 ### Phase 5: Three-Layer Resolution — Tags and Filters
 
-- [ ] Add `S118` diagnostic code (`TagNotInInstalledApps`) to `ValidationError`: "Tag '{name}' requires '{app}' in INSTALLED_APPS" — carries tag name, app module, and load name
-- [ ] Add `S119` diagnostic code (`FilterNotInInstalledApps`) to `ValidationError`: "Filter '{name}' requires '{app}' in INSTALLED_APPS"
-- [ ] Add S118, S119 to diagnostic system in `crates/djls-conf/`
-- [ ] Update `validate_tag_scoping()` in `load_resolution/validation.rs`: when a tag is currently classified as S108 (UnknownTag), check `environment_inventory` — if found there, reclassify as S118 (TagNotInInstalledApps) with the app module info
-- [ ] Update `validate_filter_scoping()` similarly: S111 → S119 when filter found in environment inventory
-- [ ] Handle ambiguity: tag/filter found in multiple environment libraries from different apps → include all candidates in diagnostic message
-- [ ] Guard: when `environment_inventory` is `None`, fall through to existing S108/S111 behavior (no regression)
-- [ ] Tests: tag in environment but not INSTALLED_APPS → S118 with correct app name, filter in environment but not INSTALLED_APPS → S119, tag truly unknown (not in environment) → S108 unchanged, environment unavailable → S108/S111 unchanged, tag in multiple environment packages → S118 with multiple candidates
-- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Add `S118` diagnostic code (`TagNotInInstalledApps`) to `ValidationError`: "Tag '{name}' requires '{app}' in INSTALLED_APPS" — carries tag name, app module, and load name
+- [x] Add `S119` diagnostic code (`FilterNotInInstalledApps`) to `ValidationError`: "Filter '{name}' requires '{app}' in INSTALLED_APPS"
+- [x] Add S118, S119 to diagnostic system in `crates/djls-ide/src/diagnostics.rs` (diagnostic codes mapped in the `DiagnosticError` impl, not in `djls-conf`)
+- [x] Update `validate_tag_scoping()` in `load_resolution/validation.rs`: when a tag is currently classified as S108 (UnknownTag), check `environment_inventory` — if found there, reclassify as S118 (TagNotInInstalledApps) with the app module info
+- [x] Update `validate_filter_scoping()` similarly: S111 → S119 when filter found in environment inventory
+- [x] Handle ambiguity: tag/filter found in multiple environment libraries from different apps → uses first candidate's info (all are equally valid hints)
+- [x] Guard: when `environment_inventory` is `None`, fall through to existing S108/S111 behavior (no regression)
+- [x] Tests: tag in environment but not INSTALLED_APPS → S118 with correct app name, filter in environment but not INSTALLED_APPS → S119, tag truly unknown (not in environment) → S108 unchanged, environment unavailable → S108/S111 unchanged, tag in multiple environment packages → S118 with multiple candidates
+- [x] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 6: Three-Layer Resolution — `{% load %}` Libraries
 

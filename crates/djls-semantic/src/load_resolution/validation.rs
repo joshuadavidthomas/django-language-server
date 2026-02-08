@@ -37,6 +37,10 @@ pub fn validate_tag_scoping(
 
     let tag_specs = db.tag_specs();
     let loaded_libraries = compute_loaded_libraries(db, nodelist);
+    let env_inventory = db.environment_inventory();
+    let env_tags = env_inventory
+        .as_ref()
+        .map(djls_extraction::EnvironmentInventory::tags_by_name);
 
     for node in nodelist.nodelist(db) {
         let Node::Tag { name, span, .. } = node else {
@@ -64,6 +68,39 @@ pub fn validate_tag_scoping(
         match symbols.check(name) {
             TagAvailability::Available => {}
             TagAvailability::Unknown => {
+                // Check environment inventory: is the tag installed but not in INSTALLED_APPS?
+                if let Some(env_tags) = &env_tags {
+                    if let Some(env_symbols) = env_tags.get(name.as_str()) {
+                        if env_symbols.len() == 1 {
+                            let sym = &env_symbols[0];
+                            ValidationErrorAccumulator(ValidationError::TagNotInInstalledApps {
+                                tag: name.clone(),
+                                app: sym.app_module.clone(),
+                                load_name: sym.library_load_name.clone(),
+                                span: marker_span,
+                            })
+                            .accumulate(db);
+                        } else {
+                            // Multiple candidates — include all in the message
+                            // Pick the first one for the primary diagnostic, list all apps
+                            let sym = &env_symbols[0];
+                            let mut msg_parts: Vec<String> = env_symbols
+                                .iter()
+                                .map(|s| format!("'{}' (app: {})", s.library_load_name, s.app_module))
+                                .collect();
+                            msg_parts.sort();
+                            ValidationErrorAccumulator(ValidationError::TagNotInInstalledApps {
+                                tag: name.clone(),
+                                app: sym.app_module.clone(),
+                                load_name: sym.library_load_name.clone(),
+                                span: marker_span,
+                            })
+                            .accumulate(db);
+                        }
+                        continue;
+                    }
+                }
+                // Truly unknown — not in environment at all
                 ValidationErrorAccumulator(ValidationError::UnknownTag {
                     tag: name.clone(),
                     span: marker_span,
@@ -125,6 +162,10 @@ pub fn validate_filter_scoping(
     };
 
     let loaded_libraries = compute_loaded_libraries(db, nodelist);
+    let env_inventory = db.environment_inventory();
+    let env_filters = env_inventory
+        .as_ref()
+        .map(djls_extraction::EnvironmentInventory::filters_by_name);
 
     for node in nodelist.nodelist(db) {
         let Node::Variable { filters, span, .. } = node else {
@@ -142,6 +183,25 @@ pub fn validate_filter_scoping(
             match symbols.check_filter(&filter.name) {
                 FilterAvailability::Available => {}
                 FilterAvailability::Unknown => {
+                    // Check environment inventory: is the filter installed but not in INSTALLED_APPS?
+                    if let Some(env_filters) = &env_filters {
+                        if let Some(env_symbols) = env_filters.get(filter.name.as_str()) {
+                            if !env_symbols.is_empty() {
+                                let sym = &env_symbols[0];
+                                ValidationErrorAccumulator(
+                                    ValidationError::FilterNotInInstalledApps {
+                                        filter: filter.name.clone(),
+                                        app: sym.app_module.clone(),
+                                        load_name: sym.library_load_name.clone(),
+                                        span: filter.span,
+                                    },
+                                )
+                                .accumulate(db);
+                                continue;
+                            }
+                        }
+                    }
+                    // Truly unknown — not in environment at all
                     ValidationErrorAccumulator(ValidationError::UnknownFilter {
                         filter: filter.name.clone(),
                         span: filter.span,
@@ -259,6 +319,7 @@ mod tests {
         storage: salsa::Storage<Self>,
         fs: Arc<Mutex<InMemoryFileSystem>>,
         inventory: Option<TemplateTags>,
+        env_inventory: Option<djls_extraction::EnvironmentInventory>,
     }
 
     impl TestDatabase {
@@ -267,6 +328,7 @@ mod tests {
                 storage: salsa::Storage::default(),
                 fs: Arc::new(Mutex::new(InMemoryFileSystem::new())),
                 inventory: None,
+                env_inventory: None,
             }
         }
 
@@ -275,6 +337,19 @@ mod tests {
                 storage: salsa::Storage::default(),
                 fs: Arc::new(Mutex::new(InMemoryFileSystem::new())),
                 inventory: Some(inventory),
+                env_inventory: None,
+            }
+        }
+
+        fn with_inventories(
+            inventory: TemplateTags,
+            env_inventory: djls_extraction::EnvironmentInventory,
+        ) -> Self {
+            Self {
+                storage: salsa::Storage::default(),
+                fs: Arc::new(Mutex::new(InMemoryFileSystem::new())),
+                inventory: Some(inventory),
+                env_inventory: Some(env_inventory),
             }
         }
 
@@ -334,7 +409,7 @@ mod tests {
         }
 
         fn environment_inventory(&self) -> Option<djls_extraction::EnvironmentInventory> {
-            None
+            self.env_inventory.clone()
         }
     }
 
@@ -995,5 +1070,198 @@ mod tests {
             .collect();
         assert!(names.contains(&"foo"));
         assert!(names.contains(&"bar"));
+    }
+
+    // ── Three-layer resolution tests (S118/S119) ───────────────
+
+    use std::collections::BTreeMap;
+    use std::path::PathBuf;
+
+    use djls_extraction::EnvironmentInventory;
+    use djls_extraction::EnvironmentLibrary;
+
+    fn make_env_inventory(libraries: Vec<EnvironmentLibrary>) -> EnvironmentInventory {
+        let mut map: BTreeMap<String, Vec<EnvironmentLibrary>> = BTreeMap::new();
+        for lib in libraries {
+            map.entry(lib.load_name.clone()).or_default().push(lib);
+        }
+        EnvironmentInventory::new(map)
+    }
+
+    fn make_env_library(
+        load_name: &str,
+        app_module: &str,
+        tags: &[&str],
+        filters: &[&str],
+    ) -> EnvironmentLibrary {
+        EnvironmentLibrary {
+            load_name: load_name.to_string(),
+            app_module: app_module.to_string(),
+            module_path: format!("{app_module}.templatetags.{load_name}"),
+            source_path: PathBuf::from(format!("/fake/{load_name}.py")),
+            tags: tags.iter().copied().map(str::to_string).collect(),
+            filters: filters.iter().copied().map(str::to_string).collect(),
+        }
+    }
+
+    fn collect_all_scoping_errors(db: &TestDatabase, source: &str) -> Vec<ValidationError> {
+        let path = "test.html";
+        db.add_file(path, source);
+        let file = db.create_file(Utf8Path::new(path));
+        let nodelist = parse_template(db, file).expect("should parse");
+        validate_nodelist(db, nodelist);
+
+        validate_nodelist::accumulated::<ValidationErrorAccumulator>(db, nodelist)
+            .into_iter()
+            .map(|acc| acc.0.clone())
+            .filter(|err| {
+                matches!(
+                    err,
+                    ValidationError::UnknownTag { .. }
+                        | ValidationError::UnloadedTag { .. }
+                        | ValidationError::AmbiguousUnloadedTag { .. }
+                        | ValidationError::TagNotInInstalledApps { .. }
+                        | ValidationError::UnknownFilter { .. }
+                        | ValidationError::UnloadedFilter { .. }
+                        | ValidationError::AmbiguousUnloadedFilter { .. }
+                        | ValidationError::FilterNotInInstalledApps { .. }
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn tag_in_env_but_not_installed_apps_produces_s118() {
+        let env = make_env_inventory(vec![make_env_library(
+            "humanize",
+            "django.contrib.humanize",
+            &["ordinal", "intword"],
+            &[],
+        )]);
+        // Inspector has no humanize tags (not in INSTALLED_APPS)
+        let db = TestDatabase::with_inventories(test_inventory(), env);
+        let errors = collect_all_scoping_errors(&db, "{% ordinal 42 %}");
+
+        assert_eq!(errors.len(), 1);
+        assert!(
+            matches!(
+                &errors[0],
+                ValidationError::TagNotInInstalledApps { tag, app, load_name, .. }
+                    if tag == "ordinal"
+                        && app == "django.contrib.humanize"
+                        && load_name == "humanize"
+            ),
+            "Expected TagNotInInstalledApps for 'ordinal', got: {:?}",
+            errors[0]
+        );
+    }
+
+    #[test]
+    fn filter_in_env_but_not_installed_apps_produces_s119() {
+        // Use a simple inventory without humanize — so intcomma is "unknown" to inspector
+        let simple_tags = vec![builtin_tag_json("if", "django.template.defaulttags")];
+        let simple_filters = vec![builtin_filter_json("title", "django.template.defaultfilters")];
+        let simple_inventory = make_inventory_with_filters(
+            &simple_tags,
+            &simple_filters,
+            &HashMap::new(),
+            &[
+                "django.template.defaulttags".to_string(),
+                "django.template.defaultfilters".to_string(),
+            ],
+        );
+
+        let env = make_env_inventory(vec![make_env_library(
+            "humanize",
+            "django.contrib.humanize",
+            &[],
+            &["intcomma"],
+        )]);
+        let db = TestDatabase::with_inventories(simple_inventory, env);
+        let errors = collect_all_scoping_errors(&db, "{{ value|intcomma }}");
+
+        assert_eq!(errors.len(), 1);
+        assert!(
+            matches!(
+                &errors[0],
+                ValidationError::FilterNotInInstalledApps { filter, app, load_name, .. }
+                    if filter == "intcomma"
+                        && app == "django.contrib.humanize"
+                        && load_name == "humanize"
+            ),
+            "Expected FilterNotInInstalledApps for 'intcomma', got: {:?}",
+            errors[0]
+        );
+    }
+
+    #[test]
+    fn truly_unknown_tag_still_s108_with_env() {
+        let env = make_env_inventory(vec![make_env_library(
+            "humanize",
+            "django.contrib.humanize",
+            &["ordinal"],
+            &[],
+        )]);
+        let db = TestDatabase::with_inventories(test_inventory(), env);
+        // "xyz" is not in inspector AND not in environment
+        let errors = collect_all_scoping_errors(&db, "{% xyz %}");
+
+        assert_eq!(errors.len(), 1);
+        assert!(
+            matches!(&errors[0], ValidationError::UnknownTag { tag, .. } if tag == "xyz"),
+            "Expected UnknownTag for 'xyz', got: {:?}",
+            errors[0]
+        );
+    }
+
+    #[test]
+    fn truly_unknown_filter_still_s111_with_env() {
+        let env = make_env_inventory(vec![make_env_library(
+            "humanize",
+            "django.contrib.humanize",
+            &[],
+            &["intcomma"],
+        )]);
+        let db = TestDatabase::with_inventories(test_inventory_with_filters(), env);
+        let errors = collect_all_scoping_errors(&db, "{{ value|nonexistent }}");
+
+        assert_eq!(errors.len(), 1);
+        assert!(
+            matches!(&errors[0], ValidationError::UnknownFilter { filter, .. } if filter == "nonexistent"),
+            "Expected UnknownFilter for 'nonexistent', got: {:?}",
+            errors[0]
+        );
+    }
+
+    #[test]
+    fn env_unavailable_falls_through_to_s108() {
+        // No environment inventory, but inspector is available
+        let db = TestDatabase::with_inventory(test_inventory());
+        let errors = collect_all_scoping_errors(&db, "{% xyz %}");
+
+        assert_eq!(errors.len(), 1);
+        assert!(
+            matches!(&errors[0], ValidationError::UnknownTag { tag, .. } if tag == "xyz"),
+            "Expected UnknownTag when env unavailable, got: {:?}",
+            errors[0]
+        );
+    }
+
+    #[test]
+    fn tag_in_multiple_env_packages_produces_s118() {
+        let env = make_env_inventory(vec![
+            make_env_library("utils_a", "app_a", &["shared_tag"], &[]),
+            make_env_library("utils_b", "app_b", &["shared_tag"], &[]),
+        ]);
+        let db = TestDatabase::with_inventories(test_inventory(), env);
+        let errors = collect_all_scoping_errors(&db, "{% shared_tag %}");
+
+        // Should produce S118 (found in environment), not S108
+        assert_eq!(errors.len(), 1);
+        assert!(
+            matches!(&errors[0], ValidationError::TagNotInInstalledApps { tag, .. } if tag == "shared_tag"),
+            "Expected TagNotInInstalledApps for 'shared_tag' with multiple env candidates, got: {:?}",
+            errors[0]
+        );
     }
 }
