@@ -762,15 +762,15 @@ Python Environment  →  Django Configuration  →  Template Load  →  Availabl
 
 ### Phase 3: Tests
 
-- [ ] Test: `{% extends "base.html" %}` as first tag → no errors
-- [ ] Test: text/whitespace before extends → no errors (`Node::Text` allowed)
-- [ ] Test: `{# comment #}` before extends → no errors (`Node::Comment` allowed)
-- [ ] Test: no extends at all → no errors
-- [ ] Test: `{% load static %}{% extends "base.html" %}` → S122
-- [ ] Test: `{{ variable }}{% extends "base.html" %}` → S122
-- [ ] Test: `{% extends "base.html" %}...{% extends "other.html" %}` → S123
-- [ ] Test: `{% load static %}{% extends "a.html" %}{% extends "b.html" %}` → S122 + S123
-- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Test: `{% extends "base.html" %}` as first tag → no errors
+- [x] Test: text/whitespace before extends → no errors (`Node::Text` allowed)
+- [x] Test: `{# comment #}` before extends → no errors (`Node::Comment` allowed)
+- [x] Test: no extends at all → no errors
+- [x] Test: `{% load static %}{% extends "base.html" %}` → S122
+- [x] Test: `{{ variable }}{% extends "base.html" %}` → S122
+- [x] Test: `{% extends "base.html" %}...{% extends "other.html" %}` → S123
+- [x] Test: `{% load static %}{% extends "a.html" %}{% extends "b.html" %}` → S122 + S123
+- [x] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 4: Documentation
 

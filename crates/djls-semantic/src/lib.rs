@@ -675,6 +675,152 @@ mod tests {
         insta::assert_yaml_snapshot!(errors);
     }
 
+    // ── Extends validation (S122, S123) ───────────────────────
+
+    #[test]
+    fn extends_as_first_tag_no_errors() {
+        let db = standard_db();
+        let source = r#"{% extends "base.html" %}"#;
+        let errors = collect_all_errors(&db, source);
+        let extends_errors: Vec<_> = errors
+            .iter()
+            .filter(|e| {
+                matches!(
+                    e,
+                    ValidationError::ExtendsMustBeFirst { .. }
+                        | ValidationError::MultipleExtends { .. }
+                )
+            })
+            .collect();
+        assert!(
+            extends_errors.is_empty(),
+            "No extends errors expected, got: {extends_errors:?}"
+        );
+    }
+
+    #[test]
+    fn text_whitespace_before_extends_no_errors() {
+        let db = standard_db();
+        let source = "  \n\n  {% extends \"base.html\" %}";
+        let errors = collect_all_errors(&db, source);
+        let extends_errors: Vec<_> = errors
+            .iter()
+            .filter(|e| {
+                matches!(
+                    e,
+                    ValidationError::ExtendsMustBeFirst { .. }
+                        | ValidationError::MultipleExtends { .. }
+                )
+            })
+            .collect();
+        assert!(
+            extends_errors.is_empty(),
+            "Text/whitespace before extends should be fine, got: {extends_errors:?}"
+        );
+    }
+
+    #[test]
+    fn comment_before_extends_no_errors() {
+        let db = standard_db();
+        let source = "{# this is a comment #}{% extends \"base.html\" %}";
+        let errors = collect_all_errors(&db, source);
+        let extends_errors: Vec<_> = errors
+            .iter()
+            .filter(|e| {
+                matches!(
+                    e,
+                    ValidationError::ExtendsMustBeFirst { .. }
+                        | ValidationError::MultipleExtends { .. }
+                )
+            })
+            .collect();
+        assert!(
+            extends_errors.is_empty(),
+            "Comment before extends should be fine, got: {extends_errors:?}"
+        );
+    }
+
+    #[test]
+    fn no_extends_at_all_no_errors() {
+        let db = standard_db();
+        let source = "{% if user %}hello{% endif %}";
+        let errors = collect_all_errors(&db, source);
+        let extends_errors: Vec<_> = errors
+            .iter()
+            .filter(|e| {
+                matches!(
+                    e,
+                    ValidationError::ExtendsMustBeFirst { .. }
+                        | ValidationError::MultipleExtends { .. }
+                )
+            })
+            .collect();
+        assert!(
+            extends_errors.is_empty(),
+            "No extends = no extends errors, got: {extends_errors:?}"
+        );
+    }
+
+    #[test]
+    fn tag_before_extends_s122() {
+        let db = standard_db();
+        let source = "{% load i18n %}{% extends \"base.html\" %}";
+        let errors = collect_all_errors(&db, source);
+        let s122: Vec<_> = errors
+            .iter()
+            .filter(|e| matches!(e, ValidationError::ExtendsMustBeFirst { .. }))
+            .collect();
+        assert_eq!(s122.len(), 1, "Expected S122, got: {s122:?}");
+    }
+
+    #[test]
+    fn variable_before_extends_s122() {
+        let db = standard_db();
+        let source = "{{ variable }}{% extends \"base.html\" %}";
+        let errors = collect_all_errors(&db, source);
+        let s122: Vec<_> = errors
+            .iter()
+            .filter(|e| matches!(e, ValidationError::ExtendsMustBeFirst { .. }))
+            .collect();
+        assert_eq!(s122.len(), 1, "Expected S122, got: {s122:?}");
+    }
+
+    #[test]
+    fn multiple_extends_s123() {
+        let db = standard_db();
+        let source = r#"{% extends "base.html" %}{% extends "other.html" %}"#;
+        let errors = collect_all_errors(&db, source);
+        let s123: Vec<_> = errors
+            .iter()
+            .filter(|e| matches!(e, ValidationError::MultipleExtends { .. }))
+            .collect();
+        assert_eq!(s123.len(), 1, "Expected S123, got: {s123:?}");
+        // First extends should NOT produce S122
+        let s122: Vec<_> = errors
+            .iter()
+            .filter(|e| matches!(e, ValidationError::ExtendsMustBeFirst { .. }))
+            .collect();
+        assert!(s122.is_empty(), "First extends is valid, got: {s122:?}");
+    }
+
+    #[test]
+    fn tag_before_extends_and_multiple_extends_s122_and_s123() {
+        let db = standard_db();
+        let source =
+            r#"{% load i18n %}{% extends "a.html" %}{% extends "b.html" %}"#;
+        let errors = collect_all_errors(&db, source);
+        let s122: Vec<_> = errors
+            .iter()
+            .filter(|e| matches!(e, ValidationError::ExtendsMustBeFirst { .. }))
+            .collect();
+        let s123: Vec<_> = errors
+            .iter()
+            .filter(|e| matches!(e, ValidationError::MultipleExtends { .. }))
+            .collect();
+        assert_eq!(s122.len(), 1, "Expected S122, got: {s122:?}");
+        assert_eq!(s123.len(), 1, "Expected S123, got: {s123:?}");
+    }
+
     // =====================================================================
     // Corpus / template validation tests
     // =====================================================================
