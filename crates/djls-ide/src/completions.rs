@@ -684,8 +684,9 @@ fn generate_argument_completions(
                 let mut insert_text = value.clone();
 
                 match closing {
-                    ClosingBrace::None => insert_text.push_str(" %}"),
-                    ClosingBrace::PartialClose => insert_text.push_str(" %"),
+                    ClosingBrace::PartialClose | ClosingBrace::None => {
+                        insert_text.push_str(" %}");
+                    }
                     ClosingBrace::FullClose => {}
                 }
 
@@ -705,8 +706,9 @@ fn generate_argument_completions(
                     let mut insert_text = option.clone();
 
                     match closing {
-                        ClosingBrace::None => insert_text.push_str(" %}"),
-                        ClosingBrace::PartialClose => insert_text.push_str(" %"),
+                        ClosingBrace::PartialClose | ClosingBrace::None => {
+                            insert_text.push_str(" %}");
+                        }
                         ClosingBrace::FullClose => {}
                     }
 
@@ -746,8 +748,9 @@ fn generate_argument_completions(
             let mut insert_text = remaining_snippet;
 
             match closing {
-                ClosingBrace::None => insert_text.push_str(" %}"),
-                ClosingBrace::PartialClose => insert_text.push_str(" %"),
+                ClosingBrace::PartialClose | ClosingBrace::None => {
+                    insert_text.push_str(" %}");
+                }
                 ClosingBrace::FullClose => {}
             }
 
@@ -796,9 +799,10 @@ fn generate_library_completions(
 
             // Add closing if needed
             match closing {
-                ClosingBrace::None => insert_text.push_str(" %}"),
-                ClosingBrace::PartialClose => insert_text.push_str(" %"),
-                ClosingBrace::FullClose => {} // No closing needed
+                ClosingBrace::PartialClose | ClosingBrace::None => {
+                    insert_text.push_str(" %}");
+                }
+                ClosingBrace::FullClose => {}
             }
 
             let detail = tags.libraries().get(load_name.as_str()).map_or_else(
@@ -1952,6 +1956,193 @@ mod tests {
             TemplateCompletionContext::Filter {
                 partial: String::new(),
             }
+        );
+    }
+
+    fn build_test_tag_specs_with_args() -> TagSpecs {
+        use std::borrow::Cow;
+
+        use djls_extraction::ExtractedArg;
+        use djls_extraction::ExtractedArgKind;
+        use djls_extraction::TagRule;
+
+        let mut specs = TagSpecs::default();
+
+        specs.insert(
+            "autoescape".to_string(),
+            djls_semantic::TagSpec {
+                module: Cow::Borrowed("django.template.defaulttags"),
+                end_tag: Some(djls_semantic::EndTag {
+                    name: Cow::Borrowed("endautoescape"),
+                    required: true,
+                }),
+                intermediate_tags: Cow::Borrowed(&[]),
+                opaque: false,
+                extracted_rules: Some(TagRule {
+                    extracted_args: vec![ExtractedArg {
+                        name: "setting".to_string(),
+                        required: true,
+                        kind: ExtractedArgKind::Choice(vec!["on".to_string(), "off".to_string()]),
+                        position: 0,
+                    }],
+                    ..Default::default()
+                }),
+            },
+        );
+
+        specs.insert(
+            "cycle".to_string(),
+            djls_semantic::TagSpec {
+                module: Cow::Borrowed("django.template.defaulttags"),
+                end_tag: None,
+                intermediate_tags: Cow::Borrowed(&[]),
+                opaque: false,
+                extracted_rules: Some(TagRule {
+                    extracted_args: vec![
+                        ExtractedArg {
+                            name: "value1".to_string(),
+                            required: true,
+                            kind: ExtractedArgKind::Variable,
+                            position: 0,
+                        },
+                        ExtractedArg {
+                            name: "as".to_string(),
+                            required: false,
+                            kind: ExtractedArgKind::Literal("as".to_string()),
+                            position: 1,
+                        },
+                    ],
+                    ..Default::default()
+                }),
+            },
+        );
+
+        specs
+    }
+
+    #[test]
+    fn test_library_completions_partial_close_includes_closing_brace() {
+        let mut libraries = HashMap::new();
+        libraries.insert("i18n".to_string(), "django.templatetags.i18n".to_string());
+
+        let tags = build_template_tags(&libraries, &[]);
+
+        let completions =
+            generate_library_completions("i18n", &ClosingBrace::PartialClose, Some(&tags));
+
+        assert_eq!(completions.len(), 1);
+        let insert = completions[0].insert_text.as_deref().unwrap();
+        assert!(
+            insert.ends_with(" %}"),
+            "PartialClose should append ' %}}' but got: {insert:?}"
+        );
+    }
+
+    #[test]
+    fn test_library_completions_none_close_includes_closing_brace() {
+        let mut libraries = HashMap::new();
+        libraries.insert("i18n".to_string(), "django.templatetags.i18n".to_string());
+
+        let tags = build_template_tags(&libraries, &[]);
+
+        let completions = generate_library_completions("i18n", &ClosingBrace::None, Some(&tags));
+
+        assert_eq!(completions.len(), 1);
+        let insert = completions[0].insert_text.as_deref().unwrap();
+        assert!(
+            insert.ends_with(" %}"),
+            "None should append ' %}}' but got: {insert:?}"
+        );
+    }
+
+    #[test]
+    fn test_library_completions_full_close_no_closing_appended() {
+        let mut libraries = HashMap::new();
+        libraries.insert("i18n".to_string(), "django.templatetags.i18n".to_string());
+
+        let tags = build_template_tags(&libraries, &[]);
+
+        let completions =
+            generate_library_completions("i18n", &ClosingBrace::FullClose, Some(&tags));
+
+        assert_eq!(completions.len(), 1);
+        let insert = completions[0].insert_text.as_deref().unwrap();
+        assert_eq!(insert, "i18n", "FullClose should not append closing");
+    }
+
+    #[test]
+    fn test_argument_completions_choice_partial_close_includes_closing_brace() {
+        let specs = build_test_tag_specs_with_args();
+
+        let completions = generate_argument_completions(
+            "autoescape",
+            0,
+            "o",
+            &ClosingBrace::PartialClose,
+            Some(&specs),
+            false,
+        );
+
+        assert!(
+            !completions.is_empty(),
+            "Should have completions for 'o' prefix"
+        );
+        for c in &completions {
+            let insert = c.insert_text.as_deref().unwrap();
+            assert!(
+                insert.ends_with(" %}"),
+                "Choice completion with PartialClose should end with ' %}}' but got: {insert:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_argument_completions_literal_partial_close_includes_closing_brace() {
+        let specs = build_test_tag_specs_with_args();
+
+        let completions = generate_argument_completions(
+            "cycle",
+            1,
+            "as",
+            &ClosingBrace::PartialClose,
+            Some(&specs),
+            false,
+        );
+
+        assert!(
+            !completions.is_empty(),
+            "Should have completions for 'as' literal"
+        );
+        for c in &completions {
+            let insert = c.insert_text.as_deref().unwrap();
+            assert!(
+                insert.ends_with(" %}"),
+                "Literal completion with PartialClose should end with ' %}}' but got: {insert:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_argument_completions_snippet_partial_close_includes_closing_brace() {
+        let specs = build_test_tag_specs_with_args();
+
+        let completions = generate_argument_completions(
+            "autoescape",
+            0,
+            "",
+            &ClosingBrace::PartialClose,
+            Some(&specs),
+            true,
+        );
+
+        let snippet = completions
+            .iter()
+            .find(|c| c.kind == Some(ls_types::CompletionItemKind::SNIPPET));
+        assert!(snippet.is_some(), "Should have a snippet completion");
+        let insert = snippet.unwrap().insert_text.as_deref().unwrap();
+        assert!(
+            insert.ends_with(" %}"),
+            "Snippet completion with PartialClose should end with ' %}}' but got: {insert:?}"
         );
     }
 }

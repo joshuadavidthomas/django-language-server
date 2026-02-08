@@ -3,7 +3,7 @@
 ## ✅ ACCEPT — Fix These
 
 ### 1. `completions.rs:688,709,750,800` — PartialClose appends `" %"` instead of `" %}"`
-- **Status**: TODO
+- **Status**: DONE
 - **Severity**: Medium (user-facing bug)
 - **File**: `crates/djls-ide/src/completions.rs`
 - **Fix**: Four match arms for `ClosingBrace::PartialClose` append `" %"` instead of `" %}"`. The replacement range (from `calculate_replacement_range`) extends past the auto-paired `}`, consuming it. But the insert text doesn't re-add it, leaving the user with `{% tag argument %` (missing closing `}`). The correct behavior is shown at line 906 in `build_plain_insert_for_tag`, which handles `PartialClose | None` together and appends `" %}"` with the comment "Include full closing since we're replacing the auto-paired }". Fix all four locations (688, 709, 750, 800) to append `" %}"`.
