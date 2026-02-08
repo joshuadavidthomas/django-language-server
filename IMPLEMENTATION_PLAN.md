@@ -686,13 +686,13 @@ Python Environment  →  Django Configuration  →  Template Load  →  Availabl
 
 ### Phase 3: Environment Scanner — Symbol-Level Extraction
 
-- [ ] Extend `EnvironmentLibrary` with `tags: Vec<String>` and `filters: Vec<String>` fields
-- [ ] Implement `scan_environment_with_symbols(sys_paths: &[PathBuf]) -> EnvironmentInventory`: for each discovered `templatetags/*.py`, parse with `ruff_python_parser::parse_module`, call `collect_registrations_from_body` (existing M5 function), separate into tags/filters by `RegistrationKind`
-- [ ] Handle parse failures gracefully: if Ruff can't parse a file, still include the library at library-level (empty tags/filters lists) — don't skip entirely
-- [ ] Define `EnvironmentSymbol` struct: `name: String`, `library_load_name: String`, `app_module: String` — for reverse lookup ("which library provides tag X?")
-- [ ] Add `tags_by_name()` and `filters_by_name()` methods on `EnvironmentInventory` returning `HashMap<String, Vec<EnvironmentSymbol>>` for quick reverse lookup
-- [ ] Tests: extract registrations from real-ish templatetag files, parse failure → library still discovered, symbol-level reverse lookup works
-- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Extend `EnvironmentLibrary` with `tags: Vec<String>` and `filters: Vec<String>` fields
+- [x] Implement `scan_environment_with_symbols(sys_paths: &[PathBuf]) -> EnvironmentInventory`: for each discovered `templatetags/*.py`, parse with `ruff_python_parser::parse_module`, call `collect_registrations_from_body` (existing M5 function), separate into tags/filters by `RegistrationKind`
+- [x] Handle parse failures gracefully: if Ruff can't parse a file, still include the library at library-level (empty tags/filters lists) — don't skip entirely
+- [x] Define `EnvironmentSymbol` struct: `name: String`, `library_load_name: String`, `app_module: String` — for reverse lookup ("which library provides tag X?")
+- [x] Add `tags_by_name()` and `filters_by_name()` methods on `EnvironmentInventory` returning `HashMap<String, Vec<EnvironmentSymbol>>` for quick reverse lookup
+- [x] Tests: extract registrations from real-ish templatetag files, parse failure → library still discovered, symbol-level reverse lookup works
+- [x] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 4: Salsa Integration — Store Environment Inventory on Project
 

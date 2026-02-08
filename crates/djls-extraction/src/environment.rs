@@ -1,9 +1,12 @@
 use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
 
 use serde::Deserialize;
 use serde::Serialize;
+
+use crate::registry::collect_registrations_from_body;
 
 /// A template tag library discovered in the Python environment by scanning
 /// `templatetags/` directories across `sys.path`.
@@ -19,6 +22,21 @@ pub struct EnvironmentLibrary {
     pub module_path: String,
     /// Absolute path to the `templatetags/*.py` source file.
     pub source_path: PathBuf,
+    /// Tag names registered in this library (empty if parse failed).
+    pub tags: Vec<String>,
+    /// Filter names registered in this library (empty if parse failed).
+    pub filters: Vec<String>,
+}
+
+/// A symbol (tag or filter) found in the environment, with its source library info.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EnvironmentSymbol {
+    /// The tag or filter name.
+    pub name: String,
+    /// The load name of the library providing this symbol.
+    pub library_load_name: String,
+    /// The app module that must be in `INSTALLED_APPS`.
+    pub app_module: String,
 }
 
 /// Inventory of all template tag libraries discovered in the Python environment.
@@ -66,6 +84,46 @@ impl EnvironmentInventory {
     pub fn is_empty(&self) -> bool {
         self.libraries.is_empty()
     }
+
+    /// Reverse lookup: for each tag name, list all environment libraries providing it.
+    #[must_use]
+    pub fn tags_by_name(&self) -> HashMap<String, Vec<EnvironmentSymbol>> {
+        let mut map: HashMap<String, Vec<EnvironmentSymbol>> = HashMap::new();
+        for libs in self.libraries.values() {
+            for lib in libs {
+                for tag_name in &lib.tags {
+                    map.entry(tag_name.clone())
+                        .or_default()
+                        .push(EnvironmentSymbol {
+                            name: tag_name.clone(),
+                            library_load_name: lib.load_name.clone(),
+                            app_module: lib.app_module.clone(),
+                        });
+                }
+            }
+        }
+        map
+    }
+
+    /// Reverse lookup: for each filter name, list all environment libraries providing it.
+    #[must_use]
+    pub fn filters_by_name(&self) -> HashMap<String, Vec<EnvironmentSymbol>> {
+        let mut map: HashMap<String, Vec<EnvironmentSymbol>> = HashMap::new();
+        for libs in self.libraries.values() {
+            for lib in libs {
+                for filter_name in &lib.filters {
+                    map.entry(filter_name.clone())
+                        .or_default()
+                        .push(EnvironmentSymbol {
+                            name: filter_name.clone(),
+                            library_load_name: lib.load_name.clone(),
+                            app_module: lib.app_module.clone(),
+                        });
+                }
+            }
+        }
+        map
+    }
 }
 
 /// Scan Python environment paths to discover all template tag libraries.
@@ -73,6 +131,9 @@ impl EnvironmentInventory {
 /// Globs each `sys_path` entry for `*/templatetags/*.py`, skipping `__init__.py`
 /// and `__pycache__` directories. Derives `load_name` from filename stem and
 /// `app_module` from parent directory structure.
+///
+/// This is a library-level scan only — `tags` and `filters` are empty.
+/// Use [`scan_environment_with_symbols`] for symbol-level extraction.
 #[must_use]
 pub fn scan_environment(sys_paths: &[PathBuf]) -> EnvironmentInventory {
     let mut libraries: BTreeMap<String, Vec<EnvironmentLibrary>> = BTreeMap::new();
@@ -81,7 +142,26 @@ pub fn scan_environment(sys_paths: &[PathBuf]) -> EnvironmentInventory {
         if !sys_path.is_dir() {
             continue;
         }
-        scan_sys_path_entry(sys_path, &mut libraries);
+        scan_sys_path_entry(sys_path, false, &mut libraries);
+    }
+
+    EnvironmentInventory { libraries }
+}
+
+/// Scan Python environment paths and extract symbol-level information.
+///
+/// Like [`scan_environment`], but also parses each `templatetags/*.py` file
+/// with Ruff to extract tag and filter registration names. If a file fails
+/// to parse, the library is still included with empty `tags`/`filters`.
+#[must_use]
+pub fn scan_environment_with_symbols(sys_paths: &[PathBuf]) -> EnvironmentInventory {
+    let mut libraries: BTreeMap<String, Vec<EnvironmentLibrary>> = BTreeMap::new();
+
+    for sys_path in sys_paths {
+        if !sys_path.is_dir() {
+            continue;
+        }
+        scan_sys_path_entry(sys_path, true, &mut libraries);
     }
 
     EnvironmentInventory { libraries }
@@ -89,6 +169,7 @@ pub fn scan_environment(sys_paths: &[PathBuf]) -> EnvironmentInventory {
 
 fn scan_sys_path_entry(
     sys_path: &Path,
+    extract_symbols: bool,
     libraries: &mut BTreeMap<String, Vec<EnvironmentLibrary>>,
 ) {
     let Ok(top_entries) = std::fs::read_dir(sys_path) else {
@@ -100,20 +181,21 @@ fn scan_sys_path_entry(
         if !path.is_dir() {
             continue;
         }
-        scan_package_tree(&path, sys_path, libraries);
+        scan_package_tree(&path, sys_path, extract_symbols, libraries);
     }
 }
 
 fn scan_package_tree(
     dir: &Path,
     sys_path: &Path,
+    extract_symbols: bool,
     libraries: &mut BTreeMap<String, Vec<EnvironmentLibrary>>,
 ) {
     let templatetags_dir = dir.join("templatetags");
     if templatetags_dir.is_dir() {
         let init_file = templatetags_dir.join("__init__.py");
         if init_file.exists() {
-            scan_templatetags_dir(&templatetags_dir, sys_path, libraries);
+            scan_templatetags_dir(&templatetags_dir, sys_path, extract_symbols, libraries);
         }
     }
 
@@ -138,7 +220,7 @@ fn scan_package_tree(
         // Only recurse into directories that look like Python packages
         let init = path.join("__init__.py");
         if init.exists() {
-            scan_package_tree(&path, sys_path, libraries);
+            scan_package_tree(&path, sys_path, extract_symbols, libraries);
         }
     }
 }
@@ -146,6 +228,7 @@ fn scan_package_tree(
 fn scan_templatetags_dir(
     templatetags_dir: &Path,
     sys_path: &Path,
+    extract_symbols: bool,
     libraries: &mut BTreeMap<String, Vec<EnvironmentLibrary>>,
 ) {
     let Ok(entries) = std::fs::read_dir(templatetags_dir) else {
@@ -192,15 +275,54 @@ fn scan_templatetags_dir(
                 .unwrap_or(path.clone())
         };
 
+        let (tags, filters) = if extract_symbols {
+            extract_symbols_from_file(&abs_path)
+        } else {
+            (Vec::new(), Vec::new())
+        };
+
         let lib = EnvironmentLibrary {
             load_name: load_name.clone(),
             app_module,
             module_path,
             source_path: abs_path,
+            tags,
+            filters,
         };
 
         libraries.entry(load_name).or_default().push(lib);
     }
+}
+
+fn extract_symbols_from_file(path: &Path) -> (Vec<String>, Vec<String>) {
+    let Ok(source) = std::fs::read_to_string(path) else {
+        return (Vec::new(), Vec::new());
+    };
+
+    let Ok(parsed) = ruff_python_parser::parse_module(&source) else {
+        // Parse failure — still include library, just with empty symbols
+        return (Vec::new(), Vec::new());
+    };
+
+    let module = parsed.into_syntax();
+    let registrations = collect_registrations_from_body(&module.body);
+
+    let mut tags = Vec::new();
+    let mut filters = Vec::new();
+
+    for reg in registrations {
+        match reg.kind.symbol_kind() {
+            crate::SymbolKind::Tag => tags.push(reg.name),
+            crate::SymbolKind::Filter => filters.push(reg.name),
+        }
+    }
+
+    tags.sort();
+    tags.dedup();
+    filters.sort();
+    filters.dedup();
+
+    (tags, filters)
 }
 
 fn pathdiff(target: &Path, base: &Path) -> Option<PathBuf> {
@@ -247,7 +369,7 @@ mod tests {
             for tag_file in *tag_files {
                 std::fs::write(
                     templatetags_dir.join(format!("{tag_file}.py")),
-                    "# templatetag module",
+                    "# templatetag module\n",
                 )
                 .unwrap();
             }
@@ -399,5 +521,195 @@ mod tests {
         let inventory = scan_environment(&[root.to_path_buf()]);
         assert_eq!(inventory.len(), 1);
         assert!(inventory.has_library("tags"));
+    }
+
+    fn create_templatetags_with_source(
+        root: &Path,
+        package_path: &str,
+        files: &[(&str, &str)],
+    ) {
+        let parts: Vec<&str> = package_path.split('/').collect();
+        let mut current = root.to_path_buf();
+        for part in &parts {
+            current.push(part);
+            std::fs::create_dir_all(&current).unwrap();
+            std::fs::write(current.join("__init__.py"), "").unwrap();
+        }
+        let templatetags_dir = current.join("templatetags");
+        std::fs::create_dir_all(&templatetags_dir).unwrap();
+        std::fs::write(templatetags_dir.join("__init__.py"), "").unwrap();
+        for (name, source) in files {
+            std::fs::write(
+                templatetags_dir.join(format!("{name}.py")),
+                source,
+            )
+            .unwrap();
+        }
+    }
+
+    #[test]
+    fn scan_with_symbols_extracts_registrations() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+
+        create_templatetags_with_source(
+            root,
+            "myapp",
+            &[("custom", r#"
+from django import template
+register = template.Library()
+
+@register.simple_tag
+def hello():
+    return "Hello!"
+
+@register.filter
+def lower(value):
+    return value.lower()
+
+@register.filter
+def upper(value):
+    return value.upper()
+"#)],
+        );
+
+        let inventory = scan_environment_with_symbols(&[root.to_path_buf()]);
+        let libs = inventory.libraries_for_name("custom");
+        assert_eq!(libs.len(), 1);
+        assert_eq!(libs[0].tags, vec!["hello"]);
+        assert_eq!(libs[0].filters, vec!["lower", "upper"]);
+    }
+
+    #[test]
+    fn scan_with_symbols_parse_failure_still_discovers_library() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+
+        create_templatetags_with_source(
+            root,
+            "myapp",
+            &[("broken", "def {invalid python syntax")],
+        );
+
+        let inventory = scan_environment_with_symbols(&[root.to_path_buf()]);
+        assert!(inventory.has_library("broken"));
+        let libs = inventory.libraries_for_name("broken");
+        assert_eq!(libs.len(), 1);
+        assert!(libs[0].tags.is_empty());
+        assert!(libs[0].filters.is_empty());
+    }
+
+    #[test]
+    fn scan_with_symbols_reverse_lookup_tags() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+
+        create_templatetags_with_source(
+            root,
+            "django/contrib/humanize",
+            &[("humanize", r"
+from django import template
+register = template.Library()
+
+@register.filter
+def intcomma(value):
+    return str(value)
+
+@register.filter
+def naturaltime(value):
+    return str(value)
+
+@register.simple_tag
+def show_metric(name):
+    return name
+")],
+        );
+
+        let inventory = scan_environment_with_symbols(&[root.to_path_buf()]);
+        let tags_map = inventory.tags_by_name();
+        let filters_map = inventory.filters_by_name();
+
+        assert!(tags_map.contains_key("show_metric"));
+        let tag_syms = &tags_map["show_metric"];
+        assert_eq!(tag_syms.len(), 1);
+        assert_eq!(tag_syms[0].library_load_name, "humanize");
+        assert_eq!(tag_syms[0].app_module, "django.contrib.humanize");
+
+        assert!(filters_map.contains_key("intcomma"));
+        assert!(filters_map.contains_key("naturaltime"));
+        let filter_syms = &filters_map["intcomma"];
+        assert_eq!(filter_syms.len(), 1);
+        assert_eq!(filter_syms[0].library_load_name, "humanize");
+    }
+
+    #[test]
+    fn scan_with_symbols_reverse_lookup_collision() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+
+        let tag_source = r#"
+from django import template
+register = template.Library()
+
+@register.simple_tag
+def render_widget():
+    return ""
+"#;
+
+        create_templatetags_with_source(root, "pkg_a", &[("widgets", tag_source)]);
+        create_templatetags_with_source(root, "pkg_b", &[("widgets", tag_source)]);
+
+        let inventory = scan_environment_with_symbols(&[root.to_path_buf()]);
+        let tags_map = inventory.tags_by_name();
+
+        let syms = &tags_map["render_widget"];
+        assert_eq!(syms.len(), 2);
+        let apps: Vec<&str> = syms.iter().map(|s| s.app_module.as_str()).collect();
+        assert!(apps.contains(&"pkg_a"));
+        assert!(apps.contains(&"pkg_b"));
+    }
+
+    #[test]
+    fn scan_without_symbols_has_empty_tags_filters() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+
+        create_templatetags_with_source(
+            root,
+            "myapp",
+            &[("custom", r#"
+from django import template
+register = template.Library()
+
+@register.simple_tag
+def hello():
+    return "Hello!"
+"#)],
+        );
+
+        // scan_environment (without symbols) should have empty tags/filters
+        let inventory = scan_environment(&[root.to_path_buf()]);
+        let libs = inventory.libraries_for_name("custom");
+        assert_eq!(libs.len(), 1);
+        assert!(libs[0].tags.is_empty());
+        assert!(libs[0].filters.is_empty());
+    }
+
+    #[test]
+    fn scan_with_symbols_no_registrations() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = tmp.path();
+
+        create_templatetags_with_source(
+            root,
+            "myapp",
+            &[("utils", "def helper():\n    pass\n")],
+        );
+
+        let inventory = scan_environment_with_symbols(&[root.to_path_buf()]);
+        assert!(inventory.has_library("utils"));
+        let libs = inventory.libraries_for_name("utils");
+        assert!(libs[0].tags.is_empty());
+        assert!(libs[0].filters.is_empty());
     }
 }

@@ -18,9 +18,13 @@ pub use blocks::extract_block_spec;
 #[cfg(feature = "parser")]
 pub use environment::scan_environment;
 #[cfg(feature = "parser")]
+pub use environment::scan_environment_with_symbols;
+#[cfg(feature = "parser")]
 pub use environment::EnvironmentInventory;
 #[cfg(feature = "parser")]
 pub use environment::EnvironmentLibrary;
+#[cfg(feature = "parser")]
+pub use environment::EnvironmentSymbol;
 #[cfg(feature = "parser")]
 pub use dataflow::analyze_compile_function;
 #[cfg(feature = "parser")]
