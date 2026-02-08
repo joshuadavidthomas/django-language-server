@@ -7,7 +7,15 @@ use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtExpr;
 use ruff_python_ast::StmtFunctionDef;
 
+use crate::blocks;
+use crate::dataflow;
+use crate::dataflow::HelperCache;
 use crate::ext::ExprExt;
+use crate::filters;
+use crate::signature;
+use crate::types::BlockTagSpec;
+use crate::types::FilterArity;
+use crate::types::TagRule;
 use crate::SymbolKind;
 
 /// Decorator helper names on `django.template.Library` that register filters.
@@ -31,6 +39,15 @@ pub enum RegistrationKind {
     Filter,
 }
 
+/// Output of [`RegistrationKind::extract`], distinguishing filter vs tag results.
+pub enum ExtractionOutput {
+    Filter(FilterArity),
+    Tag {
+        rule: Option<TagRule>,
+        block_spec: Option<BlockTagSpec>,
+    },
+}
+
 impl RegistrationKind {
     #[must_use]
     pub fn symbol_kind(self) -> SymbolKind {
@@ -39,6 +56,37 @@ impl RegistrationKind {
                 SymbolKind::Tag
             }
             Self::Filter => SymbolKind::Filter,
+        }
+    }
+
+    /// Run the appropriate extraction for this registration kind.
+    ///
+    /// For filters, extracts argument arity from the function signature.
+    /// For tag variants, extracts validation rules (via signature analysis or
+    /// dataflow analysis) and block structure.
+    #[must_use]
+    pub fn extract(
+        self,
+        func: &StmtFunctionDef,
+        func_defs: &[&StmtFunctionDef],
+        helper_cache: &mut HelperCache,
+    ) -> ExtractionOutput {
+        match self {
+            Self::Filter => ExtractionOutput::Filter(filters::extract_filter_arity(func)),
+            Self::SimpleTag | Self::InclusionTag => {
+                let is_simple_tag = matches!(self, Self::SimpleTag);
+                let rule = signature::extract_parse_bits_rule(func, is_simple_tag);
+                let rule = rule.has_content().then_some(rule);
+                let block_spec = blocks::extract_block_spec(func);
+                ExtractionOutput::Tag { rule, block_spec }
+            }
+            Self::Tag | Self::SimpleBlockTag => {
+                let rule =
+                    dataflow::analyze_compile_function_with_cache(func, func_defs, helper_cache);
+                let rule = rule.has_content().then_some(rule);
+                let block_spec = blocks::extract_block_spec(func);
+                ExtractionOutput::Tag { rule, block_spec }
+            }
         }
     }
 }

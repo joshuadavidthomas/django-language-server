@@ -113,6 +113,18 @@ pub struct TagRule {
     pub supports_as_var: bool,
 }
 
+impl TagRule {
+    /// Returns `true` if this rule contains any meaningful constraints or arguments.
+    #[must_use]
+    pub fn has_content(&self) -> bool {
+        !self.arg_constraints.is_empty()
+            || !self.required_keywords.is_empty()
+            || !self.choice_at_constraints.is_empty()
+            || self.known_options.is_some()
+            || !self.extracted_args.is_empty()
+    }
+}
+
 /// Constraint on the number of tokens in a tag's argument list.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ArgumentCountConstraint {

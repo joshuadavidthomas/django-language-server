@@ -30,6 +30,8 @@ pub use filters::extract_filter_arity;
 #[cfg(feature = "parser")]
 pub use registry::collect_registrations_from_body;
 #[cfg(feature = "parser")]
+pub use registry::ExtractionOutput;
+#[cfg(feature = "parser")]
 pub use registry::RegistrationInfo;
 #[cfg(feature = "parser")]
 pub use registry::RegistrationKind;
@@ -77,10 +79,13 @@ pub fn extract_rules(source: &str, module_path: &str) -> ExtractionResult {
     let mut helper_cache = dataflow::HelperCache::new();
 
     for reg in &registrations {
-        let func_def = reg
+        let Some(func) = reg
             .func_name
             .as_deref()
-            .and_then(|name| func_defs.iter().find(|f| f.name.as_str() == name).copied());
+            .and_then(|name| func_defs.iter().find(|f| f.name.as_str() == name).copied())
+        else {
+            continue;
+        };
 
         let key = SymbolKey {
             registration_module: module_path.to_string(),
@@ -88,48 +93,19 @@ pub fn extract_rules(source: &str, module_path: &str) -> ExtractionResult {
             kind: reg.kind.symbol_kind(),
         };
 
-        match reg.kind {
-            RegistrationKind::Filter => {
-                if let Some(func) = func_def {
-                    result
-                        .filter_arities
-                        .insert(key, filters::extract_filter_arity(func));
-                }
+        match reg.kind.extract(func, &func_defs, &mut helper_cache) {
+            ExtractionOutput::Filter(arity) => {
+                result.filter_arities.insert(key, arity);
             }
-            RegistrationKind::Tag
-            | RegistrationKind::SimpleTag
-            | RegistrationKind::InclusionTag
-            | RegistrationKind::SimpleBlockTag => {
-                if let Some(func) = func_def {
-                    let tag_rule = match reg.kind {
-                        RegistrationKind::SimpleTag | RegistrationKind::InclusionTag => {
-                            let is_simple_tag = matches!(reg.kind, RegistrationKind::SimpleTag);
-                            signature::extract_parse_bits_rule(func, is_simple_tag)
-                        }
-                        RegistrationKind::Tag | RegistrationKind::SimpleBlockTag => {
-                            dataflow::analyze_compile_function_with_cache(
-                                func,
-                                &func_defs,
-                                &mut helper_cache,
-                            )
-                        }
-                        RegistrationKind::Filter => unreachable!(),
-                    };
-                    if !tag_rule.arg_constraints.is_empty()
-                        || !tag_rule.required_keywords.is_empty()
-                        || !tag_rule.choice_at_constraints.is_empty()
-                        || tag_rule.known_options.is_some()
-                        || !tag_rule.extracted_args.is_empty()
-                    {
-                        result.tag_rules.insert(key.clone(), tag_rule);
+            ExtractionOutput::Tag { rule, block_spec } => {
+                if let Some(rule) = rule {
+                    result.tag_rules.insert(key.clone(), rule);
+                }
+                if let Some(mut block_spec) = block_spec {
+                    if block_spec.end_tag.is_none() {
+                        block_spec.end_tag = Some(format!("end{}", key.name));
                     }
-
-                    if let Some(mut block_spec) = blocks::extract_block_spec(func) {
-                        if block_spec.end_tag.is_none() {
-                            block_spec.end_tag = Some(format!("end{}", key.name));
-                        }
-                        result.block_specs.insert(key, block_spec);
-                    }
+                    result.block_specs.insert(key, block_spec);
                 }
             }
         }
