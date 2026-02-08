@@ -739,13 +739,43 @@ Python Environment  →  Django Configuration  →  Template Load  →  Availabl
 
 ## M12 — `{% extends %}` Structural Validation
 
-**Status:** backlog
-**Plan:** `.agents/plans/YYYY-MM-DD-m12-extends-structural-validation.md` (not yet created)
+**Status:** ready
+**Plan:** `.agents/plans/2026-02-07-m12-extends-structural-validation.md`
 **Depends on:** None
 
 **Goal:** Validate that `{% extends %}` is the first tag in a template (no tags or variables before it) and appears at most once. Both are parse-time Django rules that can be checked from the `NodeList`.
 
-*(Tasks to be expanded when this milestone is next up for implementation.)*
+### Phase 1: Add Error Variants and Diagnostic Codes
+
+- [ ] Add `ExtendsMustBeFirst` variant to `ValidationError` in `crates/djls-semantic/src/errors.rs` with `span: Span`
+- [ ] Add `MultipleExtends` variant to `ValidationError` in `crates/djls-semantic/src/errors.rs` with `span: Span` (span of the second `{% extends %}`)
+- [ ] Add S122 and S123 diagnostic code mappings in `crates/djls-ide/src/diagnostics.rs`
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 2: Implement Validation Logic
+
+- [ ] Create `crates/djls-semantic/src/extends.rs` with `validate_extends(db, nodelist)` function: walk `NodeList` once tracking `contains_nontext` (bool) and `first_extends_span` (Option<Span>); emit `ExtendsMustBeFirst` (S122) when extends appears after a tag/variable, emit `MultipleExtends` (S123) when a second extends is found
+- [ ] Register `mod extends` in `crates/djls-semantic/src/lib.rs`
+- [ ] Wire `validate_extends` into `validate_nodelist` alongside other validation passes (no opaque region check needed — extends is a top-level structural concern)
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 3: Tests
+
+- [ ] Test: `{% extends "base.html" %}` as first tag → no errors
+- [ ] Test: text/whitespace before extends → no errors (`Node::Text` allowed)
+- [ ] Test: `{# comment #}` before extends → no errors (`Node::Comment` allowed)
+- [ ] Test: no extends at all → no errors
+- [ ] Test: `{% load static %}{% extends "base.html" %}` → S122
+- [ ] Test: `{{ variable }}{% extends "base.html" %}` → S122
+- [ ] Test: `{% extends "base.html" %}...{% extends "other.html" %}` → S123
+- [ ] Test: `{% load static %}{% extends "a.html" %}{% extends "b.html" %}` → S122 + S123
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 4: Documentation
+
+- [ ] Add S122 and S123 to `docs/configuration/index.md` diagnostic codes table
+- [ ] Mention extends validation in `docs/template-validation.md`
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ---
 
