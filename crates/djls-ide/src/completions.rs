@@ -143,8 +143,9 @@ fn get_line_info(
     // so we must produce a byte offset, not a char count.
     //
     // LSP encodings:
-    //   - UTF-16 (default, VS Code): `position.character` is UTF-16 code units
-    //   - UTF-8: `position.character` is already byte offset
+    //   - UTF-16 (default, VS Code): `position.character` counts UTF-16 code units
+    //   - UTF-32: `position.character` counts Unicode scalar values (codepoints)
+    //   - UTF-8: `position.character` is already a byte offset
     let cursor_byte_offset = match encoding {
         PositionEncoding::Utf16 => {
             let utf16_pos = position.character as usize;
@@ -160,7 +161,19 @@ fn get_line_info(
             }
             byte_offset
         }
-        _ => position.character as usize,
+        PositionEncoding::Utf32 => {
+            let char_pos = position.character as usize;
+            let mut byte_offset = 0;
+
+            for (i, ch) in line_text.chars().enumerate() {
+                if i >= char_pos {
+                    break;
+                }
+                byte_offset += ch.len_utf8();
+            }
+            byte_offset
+        }
+        PositionEncoding::Utf8 => position.character as usize,
     };
 
     let clamped_offset = cursor_byte_offset.min(line_text.len());
@@ -376,15 +389,13 @@ fn generate_template_completions(
             tag,
             position,
             partial,
-            parsed_args,
             closing,
+            ..
         } => generate_argument_completions(
             tag,
             *position,
             partial,
-            parsed_args,
             closing,
-            template_tags,
             tag_specs,
             supports_snippets,
         ),
@@ -416,7 +427,7 @@ fn calculate_replacement_range(
     if matches!(closing, ClosingBrace::PartialClose) {
         // Include the auto-paired } in the replacement range
         // Check if there's a } immediately after cursor
-        if line_text.len() > cursor_offset && &line_text[cursor_offset..=cursor_offset] == "}" {
+        if line_text.as_bytes().get(cursor_offset) == Some(&b'}') {
             end_col += 1;
         }
     }
@@ -599,9 +610,7 @@ fn generate_argument_completions(
     tag: &str,
     position: usize,
     partial: &str,
-    _parsed_args: &[String],
     closing: &ClosingBrace,
-    _template_tags: Option<&TemplateTags>,
     tag_specs: Option<&TagSpecs>,
     supports_snippets: bool,
 ) -> Vec<ls_types::CompletionItem> {
