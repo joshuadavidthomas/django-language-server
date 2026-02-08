@@ -157,14 +157,14 @@ impl AvailableSymbols {
         }
 
         if let Some(libs) = self.candidates.get(tag_name) {
-            let mut sorted: Vec<String> = libs.iter().cloned().collect();
-            sorted.sort();
-            return match sorted.as_slice() {
+            // BTreeSet iterates in sorted order, so no explicit sort needed
+            let libs: Vec<String> = libs.iter().cloned().collect();
+            return match libs.as_slice() {
                 [] => TagAvailability::Unknown,
                 [single] => TagAvailability::Unloaded {
                     library: single.clone(),
                 },
-                _ => TagAvailability::AmbiguousUnloaded { libraries: sorted },
+                _ => TagAvailability::AmbiguousUnloaded { libraries: libs },
             };
         }
 
@@ -179,14 +179,14 @@ impl AvailableSymbols {
         }
 
         if let Some(libs) = self.filter_candidates.get(filter_name) {
-            let mut sorted: Vec<String> = libs.iter().cloned().collect();
-            sorted.sort();
-            return match sorted.as_slice() {
+            // BTreeSet iterates in sorted order, so no explicit sort needed
+            let libs: Vec<String> = libs.iter().cloned().collect();
+            return match libs.as_slice() {
                 [] => FilterAvailability::Unknown,
                 [single] => FilterAvailability::Unloaded {
                     library: single.clone(),
                 },
-                _ => FilterAvailability::AmbiguousUnloaded { libraries: sorted },
+                _ => FilterAvailability::AmbiguousUnloaded { libraries: libs },
             };
         }
 

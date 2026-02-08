@@ -91,29 +91,30 @@ fn evaluate_arg_constraint(
         let message = match constraint {
             ArgumentCountConstraint::Exact(n) => {
                 // n includes tag name, so actual arg count = n - 1
-                let expected_args = n - 1;
-                let actual_args = split_len - 1;
+                let expected_args = n.saturating_sub(1);
+                let actual_args = split_len.saturating_sub(1);
                 format!(
                     "'{tag_name}' takes exactly {expected_args} argument{}, {actual_args} given",
                     if expected_args == 1 { "" } else { "s" }
                 )
             }
             ArgumentCountConstraint::Min(n) => {
-                let min_args = n - 1;
+                let min_args = n.saturating_sub(1);
                 format!(
                     "'{tag_name}' requires at least {min_args} argument{}",
                     if min_args == 1 { "" } else { "s" }
                 )
             }
             ArgumentCountConstraint::Max(n) => {
-                let max_args = n - 1;
+                let max_args = n.saturating_sub(1);
                 format!(
                     "'{tag_name}' accepts at most {max_args} argument{}",
                     if max_args == 1 { "" } else { "s" }
                 )
             }
             ArgumentCountConstraint::OneOf(values) => {
-                let arg_counts: Vec<String> = values.iter().map(|v| (v - 1).to_string()).collect();
+                let arg_counts: Vec<String> =
+                    values.iter().map(|v| v.saturating_sub(1).to_string()).collect();
                 format!("'{tag_name}' takes {} argument(s)", arg_counts.join(" or "))
             }
         };

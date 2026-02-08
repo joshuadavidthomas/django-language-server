@@ -34,7 +34,6 @@ pub enum ClosingBrace {
 /// Distinguishes between different completion contexts to provide
 /// appropriate suggestions based on cursor position.
 #[derive(Debug, Clone, PartialEq)]
-#[allow(dead_code)]
 pub enum TemplateCompletionContext {
     /// Completing a tag name after {%
     TagName {
@@ -65,20 +64,11 @@ pub enum TemplateCompletionContext {
         /// What closing characters are present
         closing: ClosingBrace,
     },
-    /// TODO: Future - completing filters after |
+    /// Completing filters after |
     Filter {
         /// Partial filter name typed so far
         partial: String,
     },
-    /// TODO: Future - completing variables after {{
-    Variable {
-        /// Partial variable name typed so far
-        partial: String,
-        /// What closing characters are present
-        closing: ClosingBrace,
-    },
-    /// No template context found
-    None,
 }
 
 /// Information about a line of text and cursor position within it
@@ -86,7 +76,7 @@ pub enum TemplateCompletionContext {
 pub struct LineInfo {
     /// The complete line text
     pub text: String,
-    /// The cursor offset within the line (in characters)
+    /// The cursor byte offset within the line (safe for `line[..offset]` slicing)
     pub cursor_offset: usize,
 }
 
@@ -147,17 +137,18 @@ fn get_line_info(
 
     let line_text = lines[line_index].to_string();
 
-    // Convert LSP position to character index for Vec<char> operations.
+    // Convert LSP position to a byte offset within the line.
     //
-    // LSP default encoding is UTF-16 (emoji = 2 units), but we need
-    // character counts (emoji = 1 char) to index into chars[..offset].
+    // All downstream consumers do byte-based string slicing (`line[..offset]`),
+    // so we must produce a byte offset, not a char count.
     //
-    // Example:
-    //   "h€llo" cursor after € → UTF-16: 2, chars: 2 ✓, bytes: 4 ✗
-    let cursor_offset_in_line = match encoding {
+    // LSP encodings:
+    //   - UTF-16 (default, VS Code): `position.character` is UTF-16 code units
+    //   - UTF-8: `position.character` is already byte offset
+    let cursor_byte_offset = match encoding {
         PositionEncoding::Utf16 => {
             let utf16_pos = position.character as usize;
-            let mut char_offset = 0; // Count chars, not bytes
+            let mut byte_offset = 0;
             let mut utf16_offset = 0;
 
             for ch in line_text.chars() {
@@ -165,16 +156,18 @@ fn get_line_info(
                     break;
                 }
                 utf16_offset += ch.len_utf16();
-                char_offset += 1;
+                byte_offset += ch.len_utf8();
             }
-            char_offset
+            byte_offset
         }
         _ => position.character as usize,
     };
 
+    let clamped_offset = cursor_byte_offset.min(line_text.len());
+
     Some(LineInfo {
         text: line_text,
-        cursor_offset: cursor_offset_in_line.min(lines[line_index].chars().count()),
+        cursor_offset: clamped_offset,
     })
 }
 
@@ -400,10 +393,6 @@ fn generate_template_completions(
         }
         TemplateCompletionContext::Filter { partial } => {
             generate_filter_completions(partial, template_tags, available_symbols)
-        }
-        TemplateCompletionContext::Variable { .. } | TemplateCompletionContext::None => {
-            // Not implemented yet
-            Vec::new()
         }
     }
 }

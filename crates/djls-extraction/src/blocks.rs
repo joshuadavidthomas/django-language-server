@@ -1043,15 +1043,6 @@ fn has_dynamic_end_tag_format(body: &[Stmt]) -> bool {
         }
     }
 
-    // Also check top-level assignments for `end_tag_name = "end%s" % bits[0]`
-    for stmt in body {
-        if let Stmt::Assign(StmtAssign { value, .. }) = stmt {
-            if is_end_format_expr(value) {
-                return true;
-            }
-        }
-    }
-
     false
 }
 
