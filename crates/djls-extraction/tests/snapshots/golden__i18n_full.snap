@@ -213,12 +213,12 @@ filter_arities:
     arg_optional: false
 block_specs:
   "django.templatetags.i18n::blocktrans":
-    end_tag: ~
+    end_tag: endblocktrans
     intermediates:
       - plural
     opaque: false
   "django.templatetags.i18n::blocktranslate":
-    end_tag: ~
+    end_tag: endblocktranslate
     intermediates:
       - plural
     opaque: false

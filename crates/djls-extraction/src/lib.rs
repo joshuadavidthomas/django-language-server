@@ -123,7 +123,10 @@ pub fn extract_rules(source: &str, module_path: &str) -> ExtractionResult {
                         result.tag_rules.insert(key.clone(), tag_rule);
                     }
 
-                    if let Some(block_spec) = blocks::extract_block_spec(func) {
+                    if let Some(mut block_spec) = blocks::extract_block_spec(func) {
+                        if block_spec.end_tag.is_none() {
+                            block_spec.end_tag = Some(format!("end{}", key.name));
+                        }
                         result.block_specs.insert(key, block_spec);
                     }
                 }

@@ -6,6 +6,6 @@ tag_rules: {}
 filter_arities: {}
 block_specs:
   "django.template.defaulttags::spaceless":
-    end_tag: ~
+    end_tag: endspaceless
     intermediates: []
     opaque: false
