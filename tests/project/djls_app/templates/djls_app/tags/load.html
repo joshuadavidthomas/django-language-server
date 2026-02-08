@@ -7,6 +7,9 @@
 {% load static i18n %}
 
 {# ✓ valid: selective import #}
+{% load trans from i18n %}
+
+{# ✗ S109 (with runtime): library doesn't exist #}
 {% load static from staticfiles %}
 
 {# ✗ S109 (with runtime): library doesn't exist #}

@@ -7,10 +7,17 @@
 
 use std::io::Read;
 use std::path::Path;
+use std::time::Duration;
 
 use crate::manifest::Manifest;
 use crate::manifest::Package;
 use crate::manifest::Repo;
+
+fn http_client() -> anyhow::Result<reqwest::blocking::Client> {
+    Ok(reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(300))
+        .build()?)
+}
 
 /// Whether a file path is relevant for corpus testing (extraction + template validation).
 fn is_corpus_relevant(path: &str) -> bool {
@@ -91,7 +98,8 @@ fn sync_package(package: &Package, packages_dir: &Path) -> anyhow::Result<()> {
         "https://pypi.org/pypi/{}/{}/json",
         package.name, package.version
     );
-    let resp = reqwest::blocking::get(&url)?;
+    let client = http_client()?;
+    let resp = client.get(&url).send()?;
     if !resp.status().is_success() {
         anyhow::bail!(
             "PyPI returned {} for {}-{}",
@@ -130,7 +138,8 @@ fn find_sdist_url(json: &serde_json::Value, name: &str, version: &str) -> anyhow
 }
 
 fn extract_tarball(url: &str, out_dir: &Path) -> anyhow::Result<()> {
-    let resp = reqwest::blocking::get(url)?;
+    let client = http_client()?;
+    let resp = client.get(url).send()?;
     if !resp.status().is_success() {
         anyhow::bail!("HTTP {} fetching tarball from {}", resp.status(), url);
     }

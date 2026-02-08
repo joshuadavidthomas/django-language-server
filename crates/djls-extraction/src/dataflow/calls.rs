@@ -229,6 +229,11 @@ fn collect_returns(stmts: &[Stmt], env: &Env, returns: &mut Vec<AbstractValue>) 
             }
             Stmt::For(for_stmt) => {
                 collect_returns(&for_stmt.body, env, returns);
+                collect_returns(&for_stmt.orelse, env, returns);
+            }
+            Stmt::While(while_stmt) => {
+                collect_returns(&while_stmt.body, env, returns);
+                collect_returns(&while_stmt.orelse, env, returns);
             }
             Stmt::Try(try_stmt) => {
                 collect_returns(&try_stmt.body, env, returns);
@@ -237,6 +242,7 @@ fn collect_returns(stmts: &[Stmt], env: &Env, returns: &mut Vec<AbstractValue>) 
                     collect_returns(&h.body, env, returns);
                 }
                 collect_returns(&try_stmt.orelse, env, returns);
+                collect_returns(&try_stmt.finalbody, env, returns);
             }
             Stmt::With(with_stmt) => {
                 collect_returns(&with_stmt.body, env, returns);

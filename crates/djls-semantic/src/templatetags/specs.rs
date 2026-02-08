@@ -125,8 +125,10 @@ impl TagSpecs {
                     });
                 }
                 // Override intermediates from extraction
-                if !block_spec.intermediates.is_empty() {
-                    spec.intermediate_tags = std::borrow::Cow::Owned(
+                spec.intermediate_tags = if block_spec.intermediates.is_empty() {
+                    std::borrow::Cow::Borrowed(&[])
+                } else {
+                    std::borrow::Cow::Owned(
                         block_spec
                             .intermediates
                             .iter()
@@ -134,8 +136,8 @@ impl TagSpecs {
                                 name: name.clone().into(),
                             })
                             .collect(),
-                    );
-                }
+                    )
+                };
                 // Propagate opaque flag from extraction
                 spec.opaque = block_spec.opaque;
             } else {

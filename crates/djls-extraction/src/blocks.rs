@@ -5,8 +5,8 @@ use ruff_python_ast::ExprCall;
 use ruff_python_ast::ExprFString;
 use ruff_python_ast::ExprName;
 use ruff_python_ast::ExprStringLiteral;
-use ruff_python_ast::FStringElement;
 use ruff_python_ast::FStringPart;
+use ruff_python_ast::InterpolatedStringElement;
 use ruff_python_ast::Operator;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtAssign;
@@ -763,12 +763,12 @@ fn is_end_fstring(expr: &Expr) -> bool {
 
                 for element in &fstr.elements {
                     match element {
-                        FStringElement::Literal(lit) => {
+                        InterpolatedStringElement::Literal(lit) => {
                             if lit.value.starts_with("end") {
                                 has_end_prefix = true;
                             }
                         }
-                        FStringElement::Expression(_) => {
+                        InterpolatedStringElement::Interpolation(_) => {
                             has_interpolation = true;
                         }
                     }

@@ -750,7 +750,7 @@ fn generate_library_completions(
 
     for load_name in library_names {
         if load_name.starts_with(partial) {
-            let mut insert_text = load_name.to_string();
+            let mut insert_text = load_name.clone();
 
             // Add closing if needed
             match closing {
@@ -765,12 +765,12 @@ fn generate_library_completions(
             );
 
             completions.push(ls_types::CompletionItem {
-                label: load_name.to_string(),
+                label: load_name.clone(),
                 kind: Some(ls_types::CompletionItemKind::MODULE),
                 detail: Some(detail),
                 insert_text: Some(insert_text),
                 insert_text_format: Some(ls_types::InsertTextFormat::PLAIN_TEXT),
-                filter_text: Some(load_name.to_string()),
+                filter_text: Some(load_name.clone()),
                 ..Default::default()
             });
         }
