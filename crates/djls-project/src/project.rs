@@ -58,43 +58,7 @@ pub struct Project {
 impl Project {
     pub fn bootstrap(db: &dyn ProjectDb, root: &Utf8Path, settings: &Settings) -> Project {
         let interpreter = Interpreter::discover(settings.venv_path());
-
-        let resolved_django_settings_module = settings
-            .django_settings_module()
-            .map(String::from)
-            .or_else(|| {
-                // Check environment variable if not configured
-                std::env::var("DJANGO_SETTINGS_MODULE")
-                    .ok()
-                    .filter(|s| !s.is_empty())
-            })
-            .or_else(|| {
-                // Auto-detect from project structure
-                if root.join("manage.py").exists() {
-                    // Look for common settings modules
-                    for candidate in &["settings", "config.settings", "project.settings"] {
-                        let parts: Vec<&str> = candidate.split('.').collect();
-                        let mut path = root.to_path_buf();
-                        for part in &parts[..parts.len() - 1] {
-                            path = path.join(part);
-                        }
-                        if let Some(last) = parts.last() {
-                            path = path.join(format!("{last}.py"));
-                        }
-
-                        if path.exists() {
-                            tracing::info!("Auto-detected Django settings module: {}", candidate);
-                            return Some((*candidate).to_string());
-                        }
-                    }
-                    tracing::warn!(
-                        "manage.py found but could not auto-detect Django settings module"
-                    );
-                } else {
-                    tracing::debug!("No manage.py found, skipping Django settings auto-detection");
-                }
-                None
-            });
+        let resolved_django_settings_module = resolve_django_settings(root, settings);
 
         Project::new(
             db,
@@ -114,4 +78,42 @@ impl Project {
         let _ = templatetags(db, self);
         let _ = template_dirs(db, self);
     }
+}
+
+fn resolve_django_settings(root: &Utf8Path, settings: &Settings) -> Option<String> {
+    settings
+        .django_settings_module()
+        .map(String::from)
+        .or_else(|| {
+            std::env::var("DJANGO_SETTINGS_MODULE")
+                .ok()
+                .filter(|s| !s.is_empty())
+        })
+        .or_else(|| auto_detect_settings_module(root))
+}
+
+fn auto_detect_settings_module(root: &Utf8Path) -> Option<String> {
+    if !root.join("manage.py").exists() {
+        tracing::debug!("No manage.py found, skipping Django settings auto-detection");
+        return None;
+    }
+
+    for candidate in &["settings", "config.settings", "project.settings"] {
+        let parts: Vec<&str> = candidate.split('.').collect();
+        let mut path = root.to_path_buf();
+        for part in &parts[..parts.len() - 1] {
+            path = path.join(part);
+        }
+        if let Some(last) = parts.last() {
+            path = path.join(format!("{last}.py"));
+        }
+
+        if path.exists() {
+            tracing::info!("Auto-detected Django settings module: {}", candidate);
+            return Some((*candidate).to_string());
+        }
+    }
+
+    tracing::warn!("manage.py found but could not auto-detect Django settings module");
+    None
 }
