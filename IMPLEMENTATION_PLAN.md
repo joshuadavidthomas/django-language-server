@@ -782,13 +782,47 @@ Python Environment  →  Django Configuration  →  Template Load  →  Availabl
 
 ## M13 — Complete Extraction Coverage + Remove `builtins.rs`
 
-**Status:** backlog
+**Status:** ready
 **Plan:** `.agents/plans/YYYY-MM-DD-m13-extraction-completeness.md` (not yet created)
 **Depends on:** M10 (dataflow analyzer)
 
 **Goal:** Extend extraction to handle `blocktrans`/`blocktranslate` block specs (parser.next_token() loops) and value-in-set constraints (`ChoiceAt`). Remove `builtins.rs` entirely — `compute_tag_specs` populates purely from extraction results.
 
-*(Tasks to be expanded when this milestone is next up for implementation.)*
+### Phase 1: `ChoiceAt` Constraint Type
+
+- [ ] Add `ChoiceAt { position: i64, values: Vec<String> }` variant to constraint types in `crates/djls-extraction/src/types.rs`
+- [ ] Implement constraint extraction for `SplitElement not in (tuple_of_strings)` and `SplitElement in (tuple_of_strings)` patterns in `crates/djls-extraction/src/dataflow/constraints.rs`
+- [ ] Add `ChoiceAt` evaluator in `crates/djls-semantic/src/rule_evaluation.rs` — check that `bits[position]` is one of `values`
+- [ ] Add appropriate diagnostic handling for `ChoiceAt` violations (reuse S117 `ExtractedRuleViolation`)
+- [ ] Tests: `autoescape` tag (`not in ("on", "off")` → `ChoiceAt`), `templatetag` tag (`not in templatetag_names`), constraint extraction from `if arg not in (...)` pattern, evaluator positive/negative cases
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 2: `blocktrans`/`blocktranslate` Block Spec Extraction
+
+- [ ] Extend the dataflow analyzer to handle `parser.next_token()` loop patterns — detect token consumption loops that determine end tags and intermediates
+- [ ] Handle `while parser.tokens:` → `token = parser.next_token()` → string comparison patterns to identify end-tag names
+- [ ] Handle `plural` intermediate detection in `blocktrans` source
+- [ ] Handle dynamic end-tag patterns like `end_tag_name = "end%s" % bits[0]` in token loop context
+- [ ] Tests: `blocktrans` extracts `endblocktrans` end-tag and `plural` intermediate, `blocktranslate` similarly, non-token-loop functions unchanged
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 3: Remove `builtins.rs`
+
+- [ ] Update `compute_tag_specs` in `crates/djls-server/src/db.rs` to start from empty `TagSpecs` instead of `django_builtin_specs()`
+- [ ] Verify extraction produces all necessary block specs that `builtins.rs` currently provides (end tags, intermediates, opaque flags, module mappings)
+- [ ] Delete `crates/djls-semantic/src/templatetags/builtins.rs`
+- [ ] Remove `mod builtins` and `django_builtin_specs` re-exports from `crates/djls-semantic/src/templatetags.rs` and `crates/djls-semantic/src/lib.rs`
+- [ ] Update fallback path in `SemanticDb::tag_specs()` (when no project exists) — return empty `TagSpecs` or handle differently
+- [ ] Update all test databases that call `django_builtin_specs()` to use extraction-based specs or minimal test specs
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 4: Corpus Validation
+
+- [ ] Run full corpus extraction tests — verify `blocktrans`/`blocktranslate` block specs now extracted correctly
+- [ ] Run corpus template validation tests — verify zero false positives with extraction-only specs (no `builtins.rs` fallback)
+- [ ] Verify `autoescape` and `templatetag` `ChoiceAt` constraints work against real templates
+- [ ] Update any golden snapshots affected by new constraint types
+- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ---
 
