@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::ops::Deref;
 
 use camino::Utf8PathBuf;
 use serde::Deserialize;
@@ -15,6 +14,30 @@ use crate::Project;
 pub enum TagProvenance {
     Library { load_name: String, module: String },
     Builtin { module: String },
+}
+
+pub trait TemplateSymbol {
+    fn name(&self) -> &str;
+    fn provenance(&self) -> &TagProvenance;
+    fn defining_module(&self) -> &str;
+    fn doc(&self) -> Option<&str>;
+
+    fn library_load_name(&self) -> Option<&str> {
+        match self.provenance() {
+            TagProvenance::Library { load_name, .. } => Some(load_name),
+            TagProvenance::Builtin { .. } => None,
+        }
+    }
+
+    fn is_builtin(&self) -> bool {
+        matches!(self.provenance(), TagProvenance::Builtin { .. })
+    }
+
+    fn registration_module(&self) -> &str {
+        match self.provenance() {
+            TagProvenance::Library { module, .. } | TagProvenance::Builtin { module } => module,
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -89,37 +112,20 @@ pub struct TemplateFilter {
     doc: Option<String>,
 }
 
-impl TemplateFilter {
-    #[must_use]
-    pub fn name(&self) -> &str {
+impl TemplateSymbol for TemplateFilter {
+    fn name(&self) -> &str {
         &self.name
     }
 
-    #[must_use]
-    pub fn provenance(&self) -> &TagProvenance {
+    fn provenance(&self) -> &TagProvenance {
         &self.provenance
     }
 
-    #[must_use]
-    pub fn defining_module(&self) -> &str {
+    fn defining_module(&self) -> &str {
         &self.defining_module
     }
 
-    #[must_use]
-    pub fn library_load_name(&self) -> Option<&str> {
-        match &self.provenance {
-            TagProvenance::Library { load_name, .. } => Some(load_name),
-            TagProvenance::Builtin { .. } => None,
-        }
-    }
-
-    #[must_use]
-    pub fn is_builtin(&self) -> bool {
-        matches!(self.provenance, TagProvenance::Builtin { .. })
-    }
-
-    #[must_use]
-    pub fn doc(&self) -> Option<&str> {
+    fn doc(&self) -> Option<&str> {
         self.doc.as_deref()
     }
 }
@@ -232,14 +238,6 @@ impl TemplateTags {
     }
 }
 
-impl Deref for TemplateTags {
-    type Target = Vec<TemplateTag>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.tags
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct TemplateTag {
     name: String,
@@ -248,44 +246,20 @@ pub struct TemplateTag {
     doc: Option<String>,
 }
 
-impl TemplateTag {
-    #[must_use]
-    pub fn name(&self) -> &str {
+impl TemplateSymbol for TemplateTag {
+    fn name(&self) -> &str {
         &self.name
     }
 
-    #[must_use]
-    pub fn provenance(&self) -> &TagProvenance {
+    fn provenance(&self) -> &TagProvenance {
         &self.provenance
     }
 
-    #[must_use]
-    pub fn defining_module(&self) -> &str {
+    fn defining_module(&self) -> &str {
         &self.defining_module
     }
 
-    #[must_use]
-    pub fn registration_module(&self) -> &str {
-        match &self.provenance {
-            TagProvenance::Library { module, .. } | TagProvenance::Builtin { module } => module,
-        }
-    }
-
-    #[must_use]
-    pub fn library_load_name(&self) -> Option<&str> {
-        match &self.provenance {
-            TagProvenance::Library { load_name, .. } => Some(load_name),
-            TagProvenance::Builtin { .. } => None,
-        }
-    }
-
-    #[must_use]
-    pub fn is_builtin(&self) -> bool {
-        matches!(self.provenance, TagProvenance::Builtin { .. })
-    }
-
-    #[must_use]
-    pub fn doc(&self) -> Option<&str> {
+    fn doc(&self) -> Option<&str> {
         self.doc.as_deref()
     }
 }
@@ -431,7 +405,7 @@ mod tests {
     }
 
     #[test]
-    fn test_template_tags_deref() {
+    fn test_template_tags_accessors() {
         let tags = TemplateTags {
             tags: vec![
                 builtin_tag("tag1", "module1", "module1"),
@@ -442,8 +416,8 @@ mod tests {
             builtins: vec![],
         };
         assert_eq!(tags.len(), 2);
-        assert_eq!(tags[0].name(), "tag1");
-        assert_eq!(tags[1].name(), "tag2");
+        assert_eq!(tags.tags()[0].name(), "tag1");
+        assert_eq!(tags.tags()[1].name(), "tag2");
     }
 
     #[test]
@@ -495,6 +469,36 @@ mod tests {
         assert!(filter.is_builtin());
         assert_eq!(filter.library_load_name(), None);
         assert_eq!(filter.doc(), Some("Convert a string to lowercase."));
+    }
+
+    #[test]
+    fn test_template_filter_registration_module() {
+        let builtin_filter = TemplateFilter {
+            name: "lower".to_string(),
+            provenance: TagProvenance::Builtin {
+                module: "django.template.defaultfilters".to_string(),
+            },
+            defining_module: "django.template.defaultfilters".to_string(),
+            doc: None,
+        };
+        assert_eq!(
+            builtin_filter.registration_module(),
+            "django.template.defaultfilters"
+        );
+
+        let library_filter = TemplateFilter {
+            name: "intcomma".to_string(),
+            provenance: TagProvenance::Library {
+                load_name: "humanize".to_string(),
+                module: "django.contrib.humanize.templatetags.humanize".to_string(),
+            },
+            defining_module: "django.contrib.humanize.templatetags.humanize".to_string(),
+            doc: None,
+        };
+        assert_eq!(
+            library_filter.registration_module(),
+            "django.contrib.humanize.templatetags.humanize"
+        );
     }
 
     #[test]

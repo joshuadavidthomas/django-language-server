@@ -172,7 +172,6 @@ impl Corpus {
         files.sort();
         files
     }
-
 }
 
 /// Collect subdirectories that have been fully synced (contain a `.complete` marker).

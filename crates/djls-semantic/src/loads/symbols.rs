@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 
 use djls_project::TagProvenance;
+use djls_project::TemplateSymbol;
 use djls_project::TemplateTags;
 
 use super::load::LoadState;

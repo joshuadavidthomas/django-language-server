@@ -11,6 +11,7 @@ pub use django::template_dirs;
 pub use django::templatetags;
 pub use django::TagProvenance;
 pub use django::TemplateFilter;
+pub use django::TemplateSymbol;
 pub use django::TemplateTag;
 pub use django::TemplateTags;
 pub use django::TemplatetagsRequest;

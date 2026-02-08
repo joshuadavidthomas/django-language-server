@@ -4,6 +4,7 @@
 //! and generating appropriate completion items for Django templates.
 
 use djls_extraction::ExtractedArgKind;
+use djls_project::TemplateSymbol;
 use djls_project::TemplateTags;
 use djls_semantic::AvailableSymbols;
 use djls_semantic::TagSpecs;

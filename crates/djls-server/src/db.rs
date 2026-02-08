@@ -16,6 +16,7 @@ use djls_project::Db as ProjectDb;
 use djls_project::Inspector;
 use djls_project::Interpreter;
 use djls_project::Project;
+use djls_project::TemplateSymbol;
 use djls_project::TemplateTags;
 use djls_project::TemplatetagsRequest;
 use djls_project::TemplatetagsResponse;
@@ -139,11 +140,7 @@ fn collect_workspace_extraction_results(
         module_paths.insert(tag.registration_module().to_string());
     }
     for filter in inventory.filters() {
-        let module = match filter.provenance() {
-            djls_project::TagProvenance::Library { module, .. }
-            | djls_project::TagProvenance::Builtin { module } => module.as_str(),
-        };
-        module_paths.insert(module.to_string());
+        module_paths.insert(filter.registration_module().to_string());
     }
 
     let search_paths = build_search_paths(interpreter, root, pythonpath);
@@ -434,11 +431,7 @@ fn extract_external_rules(
         modules.insert(tag.registration_module().to_string());
     }
     for filter in inventory.filters() {
-        let module = match filter.provenance() {
-            djls_project::TagProvenance::Library { module, .. }
-            | djls_project::TagProvenance::Builtin { module } => module.as_str(),
-        };
-        modules.insert(module.to_string());
+        modules.insert(filter.registration_module().to_string());
     }
 
     let search_paths = build_search_paths(interpreter, root, pythonpath);
