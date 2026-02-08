@@ -15,34 +15,29 @@ pub fn validate_all_tag_arguments(
     nodelist: djls_templates::NodeList<'_>,
     opaque_regions: &crate::OpaqueRegions,
 ) {
+    let tag_specs = db.tag_specs();
+
     for node in nodelist.nodelist(db) {
         if let Node::Tag { name, bits, span } = node {
             if opaque_regions.is_opaque(span.start()) {
                 continue;
             }
+
+            // Only opener specs can have extracted rules.
+            // Closers and intermediates don't appear as keys in TagSpecs.
+            let Some(spec) = tag_specs.get(name) else {
+                continue;
+            };
+            let Some(rules) = &spec.extracted_rules else {
+                continue;
+            };
+
             let marker_span = span.expand(TagDelimiter::LENGTH_U32, TagDelimiter::LENGTH_U32);
-            validate_tag_arguments(db, name, bits, marker_span);
-        }
-    }
-}
-
-/// Validate a single tag's arguments against extraction-derived rules.
-///
-/// Looks up the tag in `TagSpecs` and dispatches to the rule evaluator
-/// when `extracted_rules` is present. Tags without rules are skipped.
-fn validate_tag_arguments(db: &dyn Db, tag_name: &str, bits: &[String], span: djls_source::Span) {
-    let tag_specs = db.tag_specs();
-
-    // Only opener specs can have extracted rules
-    if let Some(spec) = tag_specs.get(tag_name) {
-        if let Some(rules) = &spec.extracted_rules {
-            for error in evaluate_tag_rules(tag_name, bits, rules, span) {
+            for error in evaluate_tag_rules(name, bits, rules, marker_span) {
                 ValidationErrorAccumulator(error).accumulate(db);
             }
         }
     }
-
-    // Closers and intermediates have no extracted rules — nothing to validate
 }
 
 #[cfg(test)]

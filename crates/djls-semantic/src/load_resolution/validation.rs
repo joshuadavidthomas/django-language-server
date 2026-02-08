@@ -158,29 +158,24 @@ pub fn validate_filter_scoping(
             continue;
         }
 
-        for filter in filters {
-            let symbols =
-                AvailableSymbols::at_position(&loaded_libraries, &inventory, span.start());
+        let symbols = AvailableSymbols::at_position(&loaded_libraries, &inventory, span.start());
 
+        for filter in filters {
             match symbols.check_filter(&filter.name) {
                 FilterAvailability::Available => {}
                 FilterAvailability::Unknown => {
                     // Check environment inventory: is the filter installed but not in INSTALLED_APPS?
                     if let Some(env_filters) = &env_filters {
                         if let Some(env_symbols) = env_filters.get(filter.name.as_str()) {
-                            if !env_symbols.is_empty() {
-                                let sym = &env_symbols[0];
-                                ValidationErrorAccumulator(
-                                    ValidationError::FilterNotInInstalledApps {
-                                        filter: filter.name.clone(),
-                                        app: sym.app_module.clone(),
-                                        load_name: sym.library_load_name.clone(),
-                                        span: filter.span,
-                                    },
-                                )
-                                .accumulate(db);
-                                continue;
-                            }
+                            let sym = &env_symbols[0];
+                            ValidationErrorAccumulator(ValidationError::FilterNotInInstalledApps {
+                                filter: filter.name.clone(),
+                                app: sym.app_module.clone(),
+                                load_name: sym.library_load_name.clone(),
+                                span: filter.span,
+                            })
+                            .accumulate(db);
+                            continue;
                         }
                     }
                     // Truly unknown — not in environment at all
