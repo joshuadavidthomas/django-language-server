@@ -16,10 +16,6 @@ struct Cli {
     /// Path to manifest file
     #[arg(long)]
     manifest: Option<Utf8PathBuf>,
-
-    /// Override corpus root directory
-    #[arg(long)]
-    root: Option<Utf8PathBuf>,
 }
 
 #[derive(Subcommand)]
@@ -39,7 +35,6 @@ fn main() {
     }
 }
 
-/// Load the manifest and compute the validated corpus root path.
 fn load_config(cli: &Cli) -> (Manifest, Utf8PathBuf) {
     let manifest_dir = Utf8Path::new(env!("CARGO_MANIFEST_DIR"));
 
@@ -49,10 +44,7 @@ fn load_config(cli: &Cli) -> (Manifest, Utf8PathBuf) {
         .unwrap_or_else(|| manifest_dir.join("manifest.toml"));
     let manifest = Manifest::load(&manifest_path).expect("Failed to load manifest");
 
-    let corpus_root = cli
-        .root
-        .clone()
-        .unwrap_or_else(|| validated_corpus_root(&manifest));
+    let corpus_root = validated_corpus_root(&manifest);
 
     (manifest, corpus_root)
 }

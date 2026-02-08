@@ -37,38 +37,20 @@ pub mod sync;
 
 /// A validated corpus root directory.
 ///
-/// Constructed via [`Corpus::discover`] or [`Corpus::from_path`], which
-/// validate that the directory exists. Once constructed, the root path
-/// is trusted for the lifetime of the value.
+/// Constructed via [`Corpus::discover`], which validates that the
+/// directory exists. Once constructed, the root path is trusted for
+/// the lifetime of the value.
 pub struct Corpus {
     root: Utf8PathBuf,
 }
 
 impl Corpus {
-    /// Discover corpus from `DJLS_CORPUS_ROOT` env var or default location.
+    /// Discover the corpus at its fixed location in the workspace.
     ///
-    /// Returns `None` if no corpus directory exists.
+    /// Returns `None` if the corpus has not been synced.
     #[must_use]
     pub fn discover() -> Option<Self> {
-        if let Ok(path) = std::env::var("DJLS_CORPUS_ROOT") {
-            let p = Utf8PathBuf::from(path);
-            if p.as_std_path().exists() {
-                return Some(Self { root: p });
-            }
-        }
-
-        let workspace_root = Utf8Path::new(env!("CARGO_WORKSPACE_DIR"));
-        let default = workspace_root.join("crates/djls-corpus/.corpus");
-        if default.as_std_path().exists() {
-            return Some(Self { root: default });
-        }
-
-        None
-    }
-
-    /// Construct from a known path, validating it exists.
-    #[must_use]
-    pub fn from_path(root: Utf8PathBuf) -> Option<Self> {
+        let root = Utf8Path::new(env!("CARGO_WORKSPACE_DIR")).join("crates/djls-corpus/.corpus");
         if root.as_std_path().exists() {
             Some(Self { root })
         } else {
