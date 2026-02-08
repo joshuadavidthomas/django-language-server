@@ -4,6 +4,7 @@ use thiserror::Error;
 
 use crate::nodelist::Filter;
 use crate::nodelist::Node;
+use crate::quotes::QuoteTracker;
 use crate::tokens::Token;
 
 pub struct Parser {
@@ -95,26 +96,15 @@ impl Parser {
     fn parse_tag_args(content: &str) -> Result<(String, Vec<String>), ParseError> {
         let mut pieces = Vec::with_capacity((content.len() / 8).clamp(2, 8));
         let mut start = None;
-        let mut quote: Option<char> = None;
-        let mut escape = false;
+        let mut quotes = QuoteTracker::new();
         for (idx, ch) in content.char_indices() {
             if start.is_none() && !ch.is_whitespace() {
                 start = Some(idx);
             }
-            if escape {
-                escape = false;
-                continue;
-            }
-            match ch {
-                '\\' if quote.is_some() => escape = true,
-                '"' | '\'' if quote == Some(ch) => quote = None,
-                '"' | '\'' if quote.is_none() => quote = Some(ch),
-                c if quote.is_none() && c.is_whitespace() => {
-                    if let Some(s) = start.take() {
-                        pieces.push(content[s..idx].to_owned());
-                    }
+            if quotes.process(ch, true) && ch.is_whitespace() {
+                if let Some(s) = start.take() {
+                    pieces.push(content[s..idx].to_owned());
                 }
-                _ => {}
             }
         }
         if let Some(s) = start {
@@ -273,17 +263,12 @@ fn usize_to_u32(val: usize) -> u32 {
 fn split_variable_expression(content: &str) -> impl Iterator<Item = (&str, u32)> {
     let mut segments = Vec::new();
     let mut start = 0;
-    let mut quote: Option<char> = None;
+    let mut quotes = QuoteTracker::new();
 
     for (idx, ch) in content.char_indices() {
-        match ch {
-            '\'' | '"' if quote == Some(ch) => quote = None,
-            '\'' | '"' if quote.is_none() => quote = Some(ch),
-            '|' if quote.is_none() => {
-                segments.push((&content[start..idx], usize_to_u32(start)));
-                start = idx + 1; // skip the pipe
-            }
-            _ => {}
+        if quotes.process(ch, false) && ch == '|' {
+            segments.push((&content[start..idx], usize_to_u32(start)));
+            start = idx + 1;
         }
     }
     segments.push((&content[start..], usize_to_u32(start)));
@@ -299,19 +284,13 @@ fn parse_filter(raw: &str, base_offset: u32) -> Filter {
 
     let filter_offset = base_offset + usize_to_u32(trimmed_start);
 
-    // Split name from argument at the first colon that is NOT inside quotes
-    let mut quote: Option<char> = None;
+    let mut quotes = QuoteTracker::new();
     let mut colon_pos = None;
 
     for (idx, ch) in trimmed.char_indices() {
-        match ch {
-            '\'' | '"' if quote == Some(ch) => quote = None,
-            '\'' | '"' if quote.is_none() => quote = Some(ch),
-            ':' if quote.is_none() => {
-                colon_pos = Some(idx);
-                break;
-            }
-            _ => {}
+        if quotes.process(ch, false) && ch == ':' {
+            colon_pos = Some(idx);
+            break;
         }
     }
 

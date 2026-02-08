@@ -50,6 +50,7 @@ mod error;
 mod lexer;
 pub mod nodelist;
 mod parser;
+mod quotes;
 pub mod tokens;
 
 pub use db::Db;
