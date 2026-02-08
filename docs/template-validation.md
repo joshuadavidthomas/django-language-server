@@ -4,7 +4,7 @@ Django Language Server validates your Django templates as you write them, catchi
 
 ## How It Works
 
-Template validation relies on two systems working together:
+Template validation relies on three systems working together:
 
 ### Inspector
 
@@ -14,7 +14,16 @@ The **inspector** is a Python process that introspects your running Django proje
 - Which libraries they belong to (builtins vs third-party)
 - Which library load-name maps to which module
 
-This gives djls an accurate picture of your project's template tag ecosystem — the same tags Django would see at runtime.
+This gives djls an accurate picture of your project's template tag ecosystem — the same tags Django would see at runtime. The inspector reflects your `INSTALLED_APPS` configuration, so it only reports tags and filters from apps that are actually activated.
+
+### Environment Scanner
+
+The **environment scanner** examines your Python environment (site-packages and `sys.path`) to discover all template tag libraries that are *installed* — regardless of whether their Django app is in `INSTALLED_APPS`. It does this by:
+
+1. Finding all `templatetags/*.py` files across your Python path
+2. Parsing each file with static AST analysis to identify tag and filter registrations
+
+This allows djls to distinguish between tags that are truly unknown (package not installed) and tags that exist in your environment but aren't activated in your Django configuration.
 
 ### Extraction
 
@@ -25,7 +34,34 @@ The **extraction engine** analyzes Python source code (using static AST analysis
 - **Filter arity** — whether a filter expects an argument (e.g., `{{ value|default:"nothing" }}`)
 - **Expression syntax** — valid operator usage in `{% if %}` / `{% elif %}` expressions
 
-Together, the inspector tells djls *what exists* and extraction tells djls *how to validate usage*.
+Together, the inspector tells djls *what's active in your project*, the environment scanner tells djls *what's installed*, and extraction tells djls *how to validate usage*.
+
+## Three-Layer Resolution
+
+A template tag or filter must pass through three layers before it's available in a template:
+
+```
+Python Environment  →  Django Configuration  →  Template Load  →  Available
+(pip install)          (INSTALLED_APPS)          ({% load %})
+```
+
+Each layer has a different failure mode and a different fix:
+
+| Layer | Failure | Diagnostic | Fix |
+|---|---|---|---|
+| Not in environment | Package not installed | S108/S111 (Unknown) | `pip install <package>` |
+| In environment, not in `INSTALLED_APPS` | App not activated | S118/S119 (Not in INSTALLED_APPS) | Add app to `INSTALLED_APPS` |
+| In `INSTALLED_APPS`, not loaded | No `{% load %}` | S109/S112 (Unloaded) | Add `{% load <library> %}` |
+
+The same three-layer model applies to `{% load %}` library names themselves:
+
+| Layer | Failure | Diagnostic | Fix |
+|---|---|---|---|
+| Library not in environment | Package not installed | S120 (Unknown library) | `pip install <package>` |
+| Library in environment, not in `INSTALLED_APPS` | App not activated | S121 (Library not in INSTALLED_APPS) | Add app to `INSTALLED_APPS` |
+| Library in `INSTALLED_APPS` | Valid load | No diagnostic | — |
+
+This layered approach gives you actionable diagnostics — instead of a generic "unknown tag" error, djls tells you exactly what to do to fix it.
 
 ## What djls Validates
 
@@ -38,21 +74,30 @@ Validates that block tags are properly opened, closed, and nested:
 - **S102** — Orphaned tag (intermediate tag like `{% else %}` without a parent `{% if %}`)
 - **S103** — Unmatched block name (e.g., `{% endblock foo %}` doesn't match `{% block bar %}`)
 
-### Tag Scoping (S108–S110)
+### Tag Scoping (S108–S110, S118)
 
-Validates that template tags are available at their point of use, respecting `{% load %}` statements:
+Validates that template tags are available at their point of use, using [three-layer resolution](#three-layer-resolution):
 
-- **S108** — Unknown tag (not defined in any known library)
+- **S108** — Unknown tag (not found in any known library or in the Python environment)
 - **S109** — Unloaded tag (defined in a library that hasn't been loaded via `{% load %}`)
 - **S110** — Ambiguous unloaded tag (defined in multiple libraries — load the correct one to resolve)
+- **S118** — Tag not in `INSTALLED_APPS` (the tag exists in an installed package, but its Django app isn't activated)
 
-### Filter Scoping (S111–S113)
+### Filter Scoping (S111–S113, S119)
 
-Validates that template filters are available at their point of use, with the same load-scoping rules as tags:
+Validates that template filters are available at their point of use, with the same three-layer resolution as tags:
 
-- **S111** — Unknown filter (not defined in any known library)
+- **S111** — Unknown filter (not found in any known library or in the Python environment)
 - **S112** — Unloaded filter (defined in a library that hasn't been loaded)
 - **S113** — Ambiguous unloaded filter (defined in multiple libraries)
+- **S119** — Filter not in `INSTALLED_APPS` (the filter exists in an installed package, but its Django app isn't activated)
+
+### Library Validation (S120–S121)
+
+Validates that `{% load %}` library names refer to known template tag libraries:
+
+- **S120** — Unknown library (not found in the inspector inventory or the Python environment)
+- **S121** — Library not in `INSTALLED_APPS` (the library exists in an installed package, but its Django app isn't activated)
 
 ### Expression Syntax (S114)
 
@@ -91,12 +136,12 @@ The inspector requires a working Django environment (correct `DJANGO_SETTINGS_MO
 
 When the inspector is **healthy**:
 
-- Full validation is active — all S108–S116 diagnostics are emitted
+- Full validation is active — all S108–S121 diagnostics are emitted
 - Completions are scoped to loaded libraries at cursor position
 
 When the inspector is **unavailable** (Django init failed, Python not configured, etc.):
 
-- **S108–S113 are suppressed** — Without knowing which tags/filters exist, djls cannot determine if something is unknown or just unloaded
+- **S108–S113, S118–S121 are suppressed** — Without knowing which tags/filters exist, djls cannot determine if something is unknown, unloaded, or not in `INSTALLED_APPS`
 - **S115–S116 are suppressed** — Filter arity rules come from extraction, which depends on knowing the source modules
 - **S117 is suppressed** — Tag argument rules come from extraction, which depends on the inspector discovering tag source modules
 - **S100–S103 still work** — Block structure validation uses built-in tag specs
@@ -111,10 +156,11 @@ All diagnostics default to error severity. You can adjust or disable them in you
 
 ```toml
 [diagnostics.severity]
-# Disable all scoping diagnostics
+# Disable all scoping diagnostics (tags, filters, libraries)
 "S108" = "off"
 "S109" = "off"
 "S110" = "off"
+"S118" = "off"
 
 # Downgrade filter arity checks to warnings
 "S115" = "warning"
@@ -122,6 +168,7 @@ All diagnostics default to error severity. You can adjust or disable them in you
 
 # Or use prefix matching to control groups
 "S11" = "warning"   # All S110-S119 as warnings
+"S12" = "warning"   # All S120-S121 as warnings
 ```
 
 See the [Configuration](./configuration/index.md#diagnostics) page for full details on severity configuration.

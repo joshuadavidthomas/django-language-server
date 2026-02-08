@@ -729,8 +729,8 @@ Python Environment  →  Django Configuration  →  Template Load  →  Availabl
 
 ### Phase 7: Documentation and Integration Tests
 
-- [ ] Update `docs/template-validation.md` with three-layer resolution explanation
-- [ ] Add S118–S121 to diagnostic codes documentation in `docs/configuration/index.md`
+- [x] Update `docs/template-validation.md` with three-layer resolution explanation
+- [x] Add S118–S121 to diagnostic codes documentation in `docs/configuration/index.md`
 - [ ] Integration test: template with tags/filters from all three layers — verify correct diagnostic codes emitted for each layer
 - [ ] Update `.github/ISSUE_TEMPLATE/template-validation-mismatch.yml` if needed for new diagnostic codes
 - [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`

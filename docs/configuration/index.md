@@ -87,13 +87,13 @@ Map diagnostic codes or prefixes to severity levels. Supports:
 
 *Tag Scoping (requires [inspector](../template-validation.md#inspector-availability)):*
 
-- `S108` - Unknown tag (not defined in any known library)
+- `S108` - Unknown tag (not found in any known library or in the Python environment)
 - `S109` - Unloaded tag (requires `{% load %}` for a specific library)
 - `S110` - Ambiguous unloaded tag (defined in multiple libraries)
 
 *Filter Scoping (requires [inspector](../template-validation.md#inspector-availability)):*
 
-- `S111` - Unknown filter (not defined in any known library)
+- `S111` - Unknown filter (not found in any known library or in the Python environment)
 - `S112` - Unloaded filter (requires `{% load %}` for a specific library)
 - `S113` - Ambiguous unloaded filter (defined in multiple libraries)
 
@@ -106,6 +106,13 @@ Map diagnostic codes or prefixes to severity levels. Supports:
 *Tag Argument Validation:*
 
 - `S117` - Tag argument rule violation (e.g., wrong number of arguments, missing required keyword)
+
+*Environment-Aware Resolution (requires [inspector](../template-validation.md#inspector-availability) and [environment scanner](../template-validation.md#environment-scanner)):*
+
+- `S118` - Tag not in `INSTALLED_APPS` (installed package, but Django app not activated)
+- `S119` - Filter not in `INSTALLED_APPS` (installed package, but Django app not activated)
+- `S120` - Unknown template tag library (not found in inspector or environment)
+- `S121` - Library not in `INSTALLED_APPS` (installed package, but Django app not activated)
 
 !!! note "Automatic Validation"
 
