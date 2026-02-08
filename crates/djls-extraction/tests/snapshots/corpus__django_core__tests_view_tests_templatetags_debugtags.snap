@@ -1,0 +1,15 @@
+---
+source: crates/djls-extraction/tests/corpus.rs
+expression: snapshot(result)
+---
+tag_rules:
+  "tests.view_tests.templatetags.debugtags::go_boom":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    supports_as_var: true
+filter_arities: {}
+block_specs: {}

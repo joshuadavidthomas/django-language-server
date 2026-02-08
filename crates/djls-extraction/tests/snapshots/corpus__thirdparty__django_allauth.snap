@@ -1,17 +1,9 @@
 ---
-source: crates/djls-extraction/tests/golden.rs
+source: crates/djls-extraction/tests/corpus.rs
 expression: snapshot(combined)
 ---
 tag_rules:
-  "allauth::get_providers":
-    arg_constraints:
-      - Max: 1
-    required_keywords: []
-    choice_at_constraints: []
-    known_options: ~
-    extracted_args: []
-    supports_as_var: true
-  "allauth::get_social_accounts":
+  "allauth.account.templatetags.account::user_display":
     arg_constraints:
       - Min: 2
       - Max: 2
@@ -24,7 +16,28 @@ tag_rules:
         kind: Variable
         position: 0
     supports_as_var: true
-  "allauth::provider_login_url":
+  "allauth.socialaccount.templatetags.socialaccount::get_providers":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    supports_as_var: true
+  "allauth.socialaccount.templatetags.socialaccount::get_social_accounts":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: user
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: true
+  "allauth.socialaccount.templatetags.socialaccount::provider_login_url":
     arg_constraints:
       - Min: 2
     required_keywords: []
@@ -36,7 +49,7 @@ tag_rules:
         kind: Variable
         position: 0
     supports_as_var: true
-  "allauth::providers_media_js":
+  "allauth.socialaccount.templatetags.socialaccount::providers_media_js":
     arg_constraints:
       - Max: 1
     required_keywords: []
@@ -44,7 +57,7 @@ tag_rules:
     known_options: ~
     extracted_args: []
     supports_as_var: true
-  "allauth::setvar":
+  "allauth.templatetags.allauth::setvar":
     arg_constraints:
       - Exact: 2
     required_keywords: []
@@ -56,30 +69,17 @@ tag_rules:
         kind: Variable
         position: 0
     supports_as_var: false
-  "allauth::user_display":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
-    required_keywords: []
-    choice_at_constraints: []
-    known_options: ~
-    extracted_args:
-      - name: user
-        required: true
-        kind: Variable
-        position: 0
-    supports_as_var: true
 filter_arities: {}
 block_specs:
-  "allauth::element":
+  "allauth.templatetags.allauth::element":
     end_tag: endelement
     intermediates: []
     opaque: false
-  "allauth::setvar":
+  "allauth.templatetags.allauth::setvar":
     end_tag: endsetvar
     intermediates: []
     opaque: false
-  "allauth::slot":
+  "allauth.templatetags.allauth::slot":
     end_tag: endslot
     intermediates: []
     opaque: false

@@ -1,5 +1,5 @@
 ---
-source: crates/djls-extraction/tests/golden.rs
+source: crates/djls-extraction/tests/corpus.rs
 expression: snapshot(result)
 ---
 tag_rules:

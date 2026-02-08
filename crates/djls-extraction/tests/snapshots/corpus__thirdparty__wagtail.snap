@@ -1,9 +1,9 @@
 ---
-source: crates/djls-extraction/tests/golden.rs
+source: crates/djls-extraction/tests/corpus.rs
 expression: snapshot(combined)
 ---
 tag_rules:
-  "wagtail::absolute_static":
+  "wagtail.admin.templatetags.wagtailadmin_tags::absolute_static":
     arg_constraints:
       - Min: 2
       - Max: 2
@@ -16,7 +16,7 @@ tag_rules:
         kind: Variable
         position: 0
     supports_as_var: true
-  "wagtail::admin_edit_url":
+  "wagtail.admin.templatetags.wagtailadmin_tags::admin_edit_url":
     arg_constraints:
       - Min: 2
       - Max: 3
@@ -33,7 +33,7 @@ tag_rules:
         kind: Variable
         position: 1
     supports_as_var: true
-  "wagtail::admin_theme_classname":
+  "wagtail.admin.templatetags.wagtailadmin_tags::admin_theme_classname":
     arg_constraints:
       - Max: 1
     required_keywords: []
@@ -41,7 +41,7 @@ tag_rules:
     known_options: ~
     extracted_args: []
     supports_as_var: true
-  "wagtail::admin_theme_color_scheme":
+  "wagtail.admin.templatetags.wagtailadmin_tags::admin_theme_color_scheme":
     arg_constraints:
       - Max: 1
     required_keywords: []
@@ -49,7 +49,7 @@ tag_rules:
     known_options: ~
     extracted_args: []
     supports_as_var: true
-  "wagtail::admin_url_name":
+  "wagtail.admin.templatetags.wagtailadmin_tags::admin_url_name":
     arg_constraints:
       - Min: 3
       - Max: 3
@@ -66,7 +66,7 @@ tag_rules:
         kind: Variable
         position: 1
     supports_as_var: true
-  "wagtail::allow_unicode_slugs":
+  "wagtail.admin.templatetags.wagtailadmin_tags::allow_unicode_slugs":
     arg_constraints:
       - Max: 1
     required_keywords: []
@@ -74,7 +74,7 @@ tag_rules:
     known_options: ~
     extracted_args: []
     supports_as_var: true
-  "wagtail::avatar":
+  "wagtail.admin.templatetags.wagtailadmin_tags::avatar":
     arg_constraints:
       - Max: 7
     required_keywords: []
@@ -106,7 +106,7 @@ tag_rules:
         kind: Variable
         position: 5
     supports_as_var: false
-  "wagtail::avatar_url":
+  "wagtail.admin.templatetags.wagtailadmin_tags::avatar_url":
     arg_constraints:
       - Min: 2
       - Max: 4
@@ -127,7 +127,7 @@ tag_rules:
         kind: Variable
         position: 2
     supports_as_var: true
-  "wagtail::base_url_setting":
+  "wagtail.admin.templatetags.wagtailadmin_tags::base_url_setting":
     arg_constraints:
       - Max: 2
     required_keywords: []
@@ -139,7 +139,7 @@ tag_rules:
         kind: Variable
         position: 0
     supports_as_var: true
-  "wagtail::breadcrumbs":
+  "wagtail.admin.templatetags.wagtailadmin_tags::breadcrumbs":
     arg_constraints:
       - Min: 2
       - Max: 5
@@ -164,7 +164,7 @@ tag_rules:
         kind: Variable
         position: 3
     supports_as_var: false
-  "wagtail::build_absolute_url":
+  "wagtail.admin.templatetags.wagtailadmin_tags::build_absolute_url":
     arg_constraints:
       - Min: 2
       - Max: 2
@@ -177,7 +177,7 @@ tag_rules:
         kind: Variable
         position: 0
     supports_as_var: true
-  "wagtail::bulk_action_choices":
+  "wagtail.admin.templatetags.wagtailadmin_tags::bulk_action_choices":
     arg_constraints:
       - Min: 3
       - Max: 3
@@ -194,70 +194,7 @@ tag_rules:
         kind: Variable
         position: 1
     supports_as_var: false
-  "wagtail::cell_classname":
-    arg_constraints:
-      - Min: 3
-      - Max: 4
-    required_keywords: []
-    choice_at_constraints: []
-    known_options: ~
-    extracted_args:
-      - name: row_index
-        required: true
-        kind: Variable
-        position: 0
-      - name: col_index
-        required: true
-        kind: Variable
-        position: 1
-      - name: table_header
-        required: false
-        kind: Variable
-        position: 2
-    supports_as_var: true
-  "wagtail::cell_hidden":
-    arg_constraints:
-      - Min: 3
-      - Max: 4
-    required_keywords: []
-    choice_at_constraints: []
-    known_options: ~
-    extracted_args:
-      - name: row_index
-        required: true
-        kind: Variable
-        position: 0
-      - name: col_index
-        required: true
-        kind: Variable
-        position: 1
-      - name: table_header
-        required: false
-        kind: Variable
-        position: 2
-    supports_as_var: true
-  "wagtail::cell_span":
-    arg_constraints:
-      - Min: 3
-      - Max: 4
-    required_keywords: []
-    choice_at_constraints: []
-    known_options: ~
-    extracted_args:
-      - name: row_index
-        required: true
-        kind: Variable
-        position: 0
-      - name: col_index
-        required: true
-        kind: Variable
-        position: 1
-      - name: table_header
-        required: false
-        kind: Variable
-        position: 2
-    supports_as_var: true
-  "wagtail::classnames":
+  "wagtail.admin.templatetags.wagtailadmin_tags::classnames":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -268,7 +205,7 @@ tag_rules:
         kind: VarArgs
         position: 0
     supports_as_var: true
-  "wagtail::dialog_toggle":
+  "wagtail.admin.templatetags.wagtailadmin_tags::dialog_toggle":
     arg_constraints:
       - Min: 2
       - Max: 4
@@ -289,37 +226,7 @@ tag_rules:
         kind: Variable
         position: 2
     supports_as_var: false
-  "wagtail::embed":
-    arg_constraints:
-      - Min: 2
-      - Max: 3
-    required_keywords: []
-    choice_at_constraints: []
-    known_options: ~
-    extracted_args:
-      - name: url
-        required: true
-        kind: Variable
-        position: 0
-      - name: max_width
-        required: false
-        kind: Variable
-        position: 1
-    supports_as_var: true
-  "wagtail::format_permissions":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
-    required_keywords: []
-    choice_at_constraints: []
-    known_options: ~
-    extracted_args:
-      - name: permission_bound_field
-        required: true
-        kind: Variable
-        position: 0
-    supports_as_var: false
-  "wagtail::formattedfield":
+  "wagtail.admin.templatetags.wagtailadmin_tags::formattedfield":
     arg_constraints:
       - Max: 15
     required_keywords: []
@@ -383,7 +290,7 @@ tag_rules:
         kind: Variable
         position: 13
     supports_as_var: false
-  "wagtail::formattedfieldfromcontext":
+  "wagtail.admin.templatetags.wagtailadmin_tags::formattedfieldfromcontext":
     arg_constraints:
       - Max: 1
     required_keywords: []
@@ -391,24 +298,7 @@ tag_rules:
     known_options: ~
     extracted_args: []
     supports_as_var: false
-  "wagtail::fullpageurl":
-    arg_constraints:
-      - Min: 2
-      - Max: 3
-    required_keywords: []
-    choice_at_constraints: []
-    known_options: ~
-    extracted_args:
-      - name: page
-        required: true
-        kind: Variable
-        position: 0
-      - name: fallback
-        required: false
-        kind: Variable
-        position: 1
-    supports_as_var: true
-  "wagtail::get_comments_enabled":
+  "wagtail.admin.templatetags.wagtailadmin_tags::get_comments_enabled":
     arg_constraints:
       - Max: 1
     required_keywords: []
@@ -416,20 +306,7 @@ tag_rules:
     known_options: ~
     extracted_args: []
     supports_as_var: true
-  "wagtail::get_search_promotions":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
-    required_keywords: []
-    choice_at_constraints: []
-    known_options: ~
-    extracted_args:
-      - name: search_query
-        required: true
-        kind: Variable
-        position: 0
-    supports_as_var: true
-  "wagtail::hook_output":
+  "wagtail.admin.templatetags.wagtailadmin_tags::hook_output":
     arg_constraints:
       - Min: 2
       - Max: 2
@@ -442,7 +319,7 @@ tag_rules:
         kind: Variable
         position: 0
     supports_as_var: true
-  "wagtail::human_readable_date":
+  "wagtail.admin.templatetags.wagtailadmin_tags::human_readable_date":
     arg_constraints:
       - Min: 2
       - Max: 4
@@ -463,7 +340,7 @@ tag_rules:
         kind: Variable
         position: 2
     supports_as_var: false
-  "wagtail::i18n_enabled":
+  "wagtail.admin.templatetags.wagtailadmin_tags::i18n_enabled":
     arg_constraints:
       - Max: 1
     required_keywords: []
@@ -471,7 +348,7 @@ tag_rules:
     known_options: ~
     extracted_args: []
     supports_as_var: true
-  "wagtail::icon":
+  "wagtail.admin.templatetags.wagtailadmin_tags::icon":
     arg_constraints:
       - Max: 5
     required_keywords: []
@@ -495,39 +372,7 @@ tag_rules:
         kind: Variable
         position: 3
     supports_as_var: false
-  "wagtail::image_url":
-    arg_constraints:
-      - Min: 3
-      - Max: 4
-    required_keywords: []
-    choice_at_constraints: []
-    known_options: ~
-    extracted_args:
-      - name: image
-        required: true
-        kind: Variable
-        position: 0
-      - name: filter_spec
-        required: true
-        kind: Variable
-        position: 1
-      - name: viewname
-        required: false
-        kind: Variable
-        position: 2
-    supports_as_var: true
-  "wagtail::include_block":
-    arg_constraints: []
-    required_keywords: []
-    choice_at_constraints: []
-    known_options: ~
-    extracted_args:
-      - name: block_var_token
-        required: true
-        kind: Variable
-        position: 0
-    supports_as_var: false
-  "wagtail::is_page":
+  "wagtail.admin.templatetags.wagtailadmin_tags::is_page":
     arg_constraints:
       - Min: 2
       - Max: 2
@@ -540,7 +385,7 @@ tag_rules:
         kind: Variable
         position: 0
     supports_as_var: true
-  "wagtail::keyboard_shortcuts_dialog":
+  "wagtail.admin.templatetags.wagtailadmin_tags::keyboard_shortcuts_dialog":
     arg_constraints:
       - Max: 1
     required_keywords: []
@@ -548,7 +393,7 @@ tag_rules:
     known_options: ~
     extracted_args: []
     supports_as_var: false
-  "wagtail::latest_str":
+  "wagtail.admin.templatetags.wagtailadmin_tags::latest_str":
     arg_constraints:
       - Min: 2
       - Max: 2
@@ -561,7 +406,7 @@ tag_rules:
         kind: Variable
         position: 0
     supports_as_var: true
-  "wagtail::locale_label_from_id":
+  "wagtail.admin.templatetags.wagtailadmin_tags::locale_label_from_id":
     arg_constraints:
       - Min: 2
       - Max: 2
@@ -574,7 +419,7 @@ tag_rules:
         kind: Variable
         position: 0
     supports_as_var: true
-  "wagtail::message_level_tag":
+  "wagtail.admin.templatetags.wagtailadmin_tags::message_level_tag":
     arg_constraints:
       - Min: 2
       - Max: 2
@@ -587,7 +432,7 @@ tag_rules:
         kind: Variable
         position: 0
     supports_as_var: true
-  "wagtail::message_tags":
+  "wagtail.admin.templatetags.wagtailadmin_tags::message_tags":
     arg_constraints:
       - Min: 2
       - Max: 2
@@ -600,7 +445,7 @@ tag_rules:
         kind: Variable
         position: 0
     supports_as_var: true
-  "wagtail::page_breadcrumbs":
+  "wagtail.admin.templatetags.wagtailadmin_tags::page_breadcrumbs":
     arg_constraints:
       - Min: 3
       - Max: 10
@@ -645,7 +490,7 @@ tag_rules:
         kind: Variable
         position: 8
     supports_as_var: false
-  "wagtail::page_header_buttons":
+  "wagtail.admin.templatetags.wagtailadmin_tags::page_header_buttons":
     arg_constraints:
       - Min: 4
       - Max: 4
@@ -666,7 +511,7 @@ tag_rules:
         kind: Variable
         position: 2
     supports_as_var: false
-  "wagtail::page_listing_buttons":
+  "wagtail.admin.templatetags.wagtailadmin_tags::page_listing_buttons":
     arg_constraints:
       - Min: 3
       - Max: 4
@@ -687,7 +532,7 @@ tag_rules:
         kind: Variable
         position: 2
     supports_as_var: false
-  "wagtail::page_permissions":
+  "wagtail.admin.templatetags.wagtailadmin_tags::page_permissions":
     arg_constraints:
       - Min: 2
       - Max: 2
@@ -700,24 +545,7 @@ tag_rules:
         kind: Variable
         position: 0
     supports_as_var: true
-  "wagtail::pageurl":
-    arg_constraints:
-      - Min: 2
-      - Max: 3
-    required_keywords: []
-    choice_at_constraints: []
-    known_options: ~
-    extracted_args:
-      - name: page
-        required: true
-        kind: Variable
-        position: 0
-      - name: fallback
-        required: false
-        kind: Variable
-        position: 1
-    supports_as_var: true
-  "wagtail::paginate":
+  "wagtail.admin.templatetags.wagtailadmin_tags::paginate":
     arg_constraints:
       - Min: 2
       - Max: 5
@@ -742,7 +570,7 @@ tag_rules:
         kind: Variable
         position: 3
     supports_as_var: false
-  "wagtail::pagination_querystring":
+  "wagtail.admin.templatetags.wagtailadmin_tags::pagination_querystring":
     arg_constraints:
       - Min: 2
       - Max: 3
@@ -759,7 +587,7 @@ tag_rules:
         kind: Variable
         position: 1
     supports_as_var: true
-  "wagtail::resolve_url":
+  "wagtail.admin.templatetags.wagtailadmin_tags::resolve_url":
     arg_constraints:
       - Min: 2
       - Max: 2
@@ -772,27 +600,7 @@ tag_rules:
         kind: Variable
         position: 0
     supports_as_var: true
-  "wagtail::routablepageurl":
-    arg_constraints:
-      - Min: 3
-    required_keywords: []
-    choice_at_constraints: []
-    known_options: ~
-    extracted_args:
-      - name: page
-        required: true
-        kind: Variable
-        position: 0
-      - name: url_name
-        required: true
-        kind: Variable
-        position: 1
-      - name: args
-        required: false
-        kind: VarArgs
-        position: 2
-    supports_as_var: true
-  "wagtail::search_other":
+  "wagtail.admin.templatetags.wagtailadmin_tags::search_other":
     arg_constraints:
       - Max: 2
     required_keywords: []
@@ -804,7 +612,7 @@ tag_rules:
         kind: Variable
         position: 0
     supports_as_var: false
-  "wagtail::sidebar_collapsed":
+  "wagtail.admin.templatetags.wagtailadmin_tags::sidebar_collapsed":
     arg_constraints:
       - Max: 1
     required_keywords: []
@@ -812,7 +620,7 @@ tag_rules:
     known_options: ~
     extracted_args: []
     supports_as_var: true
-  "wagtail::sidebar_props":
+  "wagtail.admin.templatetags.wagtailadmin_tags::sidebar_props":
     arg_constraints:
       - Max: 1
     required_keywords: []
@@ -820,20 +628,7 @@ tag_rules:
     known_options: ~
     extracted_args: []
     supports_as_var: true
-  "wagtail::slugurl":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
-    required_keywords: []
-    choice_at_constraints: []
-    known_options: ~
-    extracted_args:
-      - name: slug
-        required: true
-        kind: Variable
-        position: 0
-    supports_as_var: true
-  "wagtail::status":
+  "wagtail.admin.templatetags.wagtailadmin_tags::status":
     arg_constraints:
       - Max: 7
     required_keywords: []
@@ -865,7 +660,7 @@ tag_rules:
         kind: Variable
         position: 5
     supports_as_var: false
-  "wagtail::test_collection_is_public":
+  "wagtail.admin.templatetags.wagtailadmin_tags::test_collection_is_public":
     arg_constraints:
       - Min: 2
       - Max: 2
@@ -878,7 +673,7 @@ tag_rules:
         kind: Variable
         position: 0
     supports_as_var: true
-  "wagtail::test_page_is_public":
+  "wagtail.admin.templatetags.wagtailadmin_tags::test_page_is_public":
     arg_constraints:
       - Min: 2
       - Max: 2
@@ -891,7 +686,7 @@ tag_rules:
         kind: Variable
         position: 0
     supports_as_var: true
-  "wagtail::timesince_last_update":
+  "wagtail.admin.templatetags.wagtailadmin_tags::timesince_last_update":
     arg_constraints:
       - Min: 2
       - Max: 5
@@ -916,7 +711,7 @@ tag_rules:
         kind: Variable
         position: 3
     supports_as_var: true
-  "wagtail::versioned_static":
+  "wagtail.admin.templatetags.wagtailadmin_tags::versioned_static":
     arg_constraints:
       - Min: 2
       - Max: 2
@@ -929,7 +724,7 @@ tag_rules:
         kind: Variable
         position: 0
     supports_as_var: true
-  "wagtail::wagtail_config":
+  "wagtail.admin.templatetags.wagtailadmin_tags::wagtail_config":
     arg_constraints:
       - Max: 1
     required_keywords: []
@@ -937,67 +732,7 @@ tag_rules:
     known_options: ~
     extracted_args: []
     supports_as_var: true
-  "wagtail::wagtail_documentation_path":
-    arg_constraints:
-      - Max: 1
-    required_keywords: []
-    choice_at_constraints: []
-    known_options: ~
-    extracted_args: []
-    supports_as_var: true
-  "wagtail::wagtail_feature_release_editor_guide_link":
-    arg_constraints:
-      - Max: 1
-    required_keywords: []
-    choice_at_constraints: []
-    known_options: ~
-    extracted_args: []
-    supports_as_var: true
-  "wagtail::wagtail_feature_release_whats_new_link":
-    arg_constraints:
-      - Max: 1
-    required_keywords: []
-    choice_at_constraints: []
-    known_options: ~
-    extracted_args: []
-    supports_as_var: true
-  "wagtail::wagtail_release_notes_path":
-    arg_constraints:
-      - Max: 1
-    required_keywords: []
-    choice_at_constraints: []
-    known_options: ~
-    extracted_args: []
-    supports_as_var: true
-  "wagtail::wagtail_site":
-    arg_constraints:
-      - Max: 1
-    required_keywords: []
-    choice_at_constraints: []
-    known_options: ~
-    extracted_args: []
-    supports_as_var: true
-  "wagtail::wagtail_version":
-    arg_constraints:
-      - Max: 1
-    required_keywords: []
-    choice_at_constraints: []
-    known_options: ~
-    extracted_args: []
-    supports_as_var: true
-  "wagtail::wagtailuserbar":
-    arg_constraints:
-      - Max: 2
-    required_keywords: []
-    choice_at_constraints: []
-    known_options: ~
-    extracted_args:
-      - name: position
-        required: false
-        kind: Variable
-        position: 0
-    supports_as_var: true
-  "wagtail::workflow_status_with_date":
+  "wagtail.admin.templatetags.wagtailadmin_tags::workflow_status_with_date":
     arg_constraints:
       - Min: 2
       - Max: 2
@@ -1010,45 +745,310 @@ tag_rules:
         kind: Variable
         position: 0
     supports_as_var: true
+  "wagtail.admin.templatetags.wagtailuserbar::wagtailuserbar":
+    arg_constraints:
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: position
+        required: false
+        kind: Variable
+        position: 0
+    supports_as_var: true
+  "wagtail.contrib.routable_page.templatetags.wagtailroutablepage_tags::routablepageurl":
+    arg_constraints:
+      - Min: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: page
+        required: true
+        kind: Variable
+        position: 0
+      - name: url_name
+        required: true
+        kind: Variable
+        position: 1
+      - name: args
+        required: false
+        kind: VarArgs
+        position: 2
+    supports_as_var: true
+  "wagtail.contrib.search_promotions.templatetags.wagtailsearchpromotions_tags::get_search_promotions":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: search_query
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: true
+  "wagtail.contrib.table_block.templatetags.table_block_tags::cell_classname":
+    arg_constraints:
+      - Min: 3
+      - Max: 4
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: row_index
+        required: true
+        kind: Variable
+        position: 0
+      - name: col_index
+        required: true
+        kind: Variable
+        position: 1
+      - name: table_header
+        required: false
+        kind: Variable
+        position: 2
+    supports_as_var: true
+  "wagtail.contrib.table_block.templatetags.table_block_tags::cell_hidden":
+    arg_constraints:
+      - Min: 3
+      - Max: 4
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: row_index
+        required: true
+        kind: Variable
+        position: 0
+      - name: col_index
+        required: true
+        kind: Variable
+        position: 1
+      - name: table_header
+        required: false
+        kind: Variable
+        position: 2
+    supports_as_var: true
+  "wagtail.contrib.table_block.templatetags.table_block_tags::cell_span":
+    arg_constraints:
+      - Min: 3
+      - Max: 4
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: row_index
+        required: true
+        kind: Variable
+        position: 0
+      - name: col_index
+        required: true
+        kind: Variable
+        position: 1
+      - name: table_header
+        required: false
+        kind: Variable
+        position: 2
+    supports_as_var: true
+  "wagtail.embeds.templatetags.wagtailembeds_tags::embed":
+    arg_constraints:
+      - Min: 2
+      - Max: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: url
+        required: true
+        kind: Variable
+        position: 0
+      - name: max_width
+        required: false
+        kind: Variable
+        position: 1
+    supports_as_var: true
+  "wagtail.images.templatetags.wagtailimages_tags::image_url":
+    arg_constraints:
+      - Min: 3
+      - Max: 4
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: image
+        required: true
+        kind: Variable
+        position: 0
+      - name: filter_spec
+        required: true
+        kind: Variable
+        position: 1
+      - name: viewname
+        required: false
+        kind: Variable
+        position: 2
+    supports_as_var: true
+  "wagtail.templatetags.wagtailcore_tags::fullpageurl":
+    arg_constraints:
+      - Min: 2
+      - Max: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: page
+        required: true
+        kind: Variable
+        position: 0
+      - name: fallback
+        required: false
+        kind: Variable
+        position: 1
+    supports_as_var: true
+  "wagtail.templatetags.wagtailcore_tags::include_block":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: block_var_token
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: false
+  "wagtail.templatetags.wagtailcore_tags::pageurl":
+    arg_constraints:
+      - Min: 2
+      - Max: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: page
+        required: true
+        kind: Variable
+        position: 0
+      - name: fallback
+        required: false
+        kind: Variable
+        position: 1
+    supports_as_var: true
+  "wagtail.templatetags.wagtailcore_tags::slugurl":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: slug
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: true
+  "wagtail.templatetags.wagtailcore_tags::wagtail_documentation_path":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    supports_as_var: true
+  "wagtail.templatetags.wagtailcore_tags::wagtail_feature_release_editor_guide_link":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    supports_as_var: true
+  "wagtail.templatetags.wagtailcore_tags::wagtail_feature_release_whats_new_link":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    supports_as_var: true
+  "wagtail.templatetags.wagtailcore_tags::wagtail_release_notes_path":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    supports_as_var: true
+  "wagtail.templatetags.wagtailcore_tags::wagtail_site":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    supports_as_var: true
+  "wagtail.templatetags.wagtailcore_tags::wagtail_version":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    supports_as_var: true
+  "wagtail.users.templatetags.wagtailusers_tags::format_permissions":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: permission_bound_field
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: false
 filter_arities:
-  "wagtail::abs":
+  "wagtail.admin.templatetags.wagtailadmin_tags::abs":
     expects_arg: false
     arg_optional: false
-  "wagtail::admin_urlquote":
+  "wagtail.admin.templatetags.wagtailadmin_tags::admin_urlquote":
     expects_arg: false
     arg_optional: false
-  "wagtail::cautious_slugify":
+  "wagtail.admin.templatetags.wagtailadmin_tags::cautious_slugify":
     expects_arg: false
     arg_optional: false
-  "wagtail::ellipsistrim":
+  "wagtail.admin.templatetags.wagtailadmin_tags::ellipsistrim":
     expects_arg: true
     arg_optional: false
-  "wagtail::fieldtype":
+  "wagtail.admin.templatetags.wagtailadmin_tags::fieldtype":
     expects_arg: false
     arg_optional: false
-  "wagtail::format_content_type":
+  "wagtail.admin.templatetags.wagtailadmin_tags::format_content_type":
     expects_arg: false
     arg_optional: false
-  "wagtail::has_unrendered_errors":
+  "wagtail.admin.templatetags.wagtailadmin_tags::has_unrendered_errors":
     expects_arg: false
     arg_optional: false
-  "wagtail::render_with_errors":
+  "wagtail.admin.templatetags.wagtailadmin_tags::render_with_errors":
     expects_arg: false
     arg_optional: false
-  "wagtail::richtext":
+  "wagtail.admin.templatetags.wagtailadmin_tags::timesince_simple":
     expects_arg: false
     arg_optional: false
-  "wagtail::timesince_simple":
+  "wagtail.admin.templatetags.wagtailadmin_tags::user_display_name":
     expects_arg: false
     arg_optional: false
-  "wagtail::user_display_name":
+  "wagtail.admin.templatetags.wagtailadmin_tags::widgettype":
     expects_arg: false
     arg_optional: false
-  "wagtail::widgettype":
+  "wagtail.templatetags.wagtailcore_tags::richtext":
     expects_arg: false
     arg_optional: false
 block_specs:
-  "wagtail::fragment":
+  "wagtail.admin.templatetags.wagtailadmin_tags::fragment":
     end_tag: endfragment
     intermediates: []
     opaque: false

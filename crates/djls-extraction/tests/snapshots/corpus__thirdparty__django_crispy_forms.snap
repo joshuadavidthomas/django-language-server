@@ -1,0 +1,81 @@
+---
+source: crates/djls-extraction/tests/corpus.rs
+expression: snapshot(combined)
+---
+tag_rules:
+  "crispy_forms.templatetags.crispy_forms_field::crispy_addon":
+    arg_constraints:
+      - Min: 2
+      - Max: 5
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: field
+        required: true
+        kind: Variable
+        position: 0
+      - name: append
+        required: false
+        kind: Variable
+        position: 1
+      - name: prepend
+        required: false
+        kind: Variable
+        position: 2
+      - name: form_show_labels
+        required: false
+        kind: Variable
+        position: 3
+    supports_as_var: true
+filter_arities:
+  "crispy_forms.templatetags.crispy_forms_field::classes":
+    expects_arg: false
+    arg_optional: false
+  "crispy_forms.templatetags.crispy_forms_field::css_class":
+    expects_arg: false
+    arg_optional: false
+  "crispy_forms.templatetags.crispy_forms_field::is_checkbox":
+    expects_arg: false
+    arg_optional: false
+  "crispy_forms.templatetags.crispy_forms_field::is_checkboxselectmultiple":
+    expects_arg: false
+    arg_optional: false
+  "crispy_forms.templatetags.crispy_forms_field::is_clearable_file":
+    expects_arg: false
+    arg_optional: false
+  "crispy_forms.templatetags.crispy_forms_field::is_file":
+    expects_arg: false
+    arg_optional: false
+  "crispy_forms.templatetags.crispy_forms_field::is_multivalue":
+    expects_arg: false
+    arg_optional: false
+  "crispy_forms.templatetags.crispy_forms_field::is_password":
+    expects_arg: false
+    arg_optional: false
+  "crispy_forms.templatetags.crispy_forms_field::is_radioselect":
+    expects_arg: false
+    arg_optional: false
+  "crispy_forms.templatetags.crispy_forms_field::is_select":
+    expects_arg: false
+    arg_optional: false
+  "crispy_forms.templatetags.crispy_forms_filters::as_crispy_errors":
+    expects_arg: true
+    arg_optional: true
+  "crispy_forms.templatetags.crispy_forms_filters::as_crispy_field":
+    expects_arg: true
+    arg_optional: true
+  "crispy_forms.templatetags.crispy_forms_filters::crispy":
+    expects_arg: true
+    arg_optional: true
+  "crispy_forms.templatetags.crispy_forms_filters::flatatt":
+    expects_arg: false
+    arg_optional: false
+  "crispy_forms.templatetags.crispy_forms_filters::optgroups":
+    expects_arg: false
+    arg_optional: false
+block_specs:
+  "crispy_forms.templatetags.crispy_forms_utils::specialspaceless":
+    end_tag: endspecialspaceless
+    intermediates: []
+    opaque: false

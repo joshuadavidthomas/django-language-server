@@ -17,12 +17,9 @@ serde = { workspace = true }
 name = "corpus"
 required-features = ["parser"]
 
-[[test]]
-name = "golden"
-required-features = ["parser"]
-
 [dev-dependencies]
-djls-corpus = { workspace = true }
+camino = { workspace = true }
+djls-corpus = { workspace = true, features = ["extraction"] }
 insta = { workspace = true }
 ruff_python_parser = { workspace = true }
 serde = { workspace = true }
