@@ -4,9 +4,11 @@ use djls_templates::NodeList;
 use salsa::Accumulator;
 
 use super::compute_loaded_libraries;
+use super::parse_load_bits;
 use super::symbols::AvailableSymbols;
 use super::symbols::FilterAvailability;
 use super::symbols::TagAvailability;
+use super::LoadKind;
 use crate::Db;
 use crate::ValidationError;
 use crate::ValidationErrorAccumulator;
@@ -162,6 +164,68 @@ pub fn validate_filter_scoping(
                     })
                     .accumulate(db);
                 }
+            }
+        }
+    }
+}
+
+/// Validate `{% load %}` library names against the inspector inventory.
+///
+/// For each `{% load %}` tag, checks that all referenced library names
+/// exist in the inspector's `libraries()` map, producing:
+///
+/// - **S120** (`UnknownLibrary`): library name is not known to the inspector
+///
+/// Handles both full loads (`{% load i18n %}`) and selective imports
+/// (`{% load trans from i18n %}` — validates `i18n`).
+///
+/// **Guards:**
+/// - If the inspector inventory is `None`, all library diagnostics are suppressed.
+pub fn validate_load_libraries(
+    db: &dyn Db,
+    nodelist: NodeList<'_>,
+    opaque_regions: &crate::OpaqueRegions,
+) {
+    let Some(inventory) = db.inspector_inventory() else {
+        return;
+    };
+
+    let known_libraries = inventory.libraries();
+
+    for node in nodelist.nodelist(db) {
+        let Node::Tag {
+            name, bits, span, ..
+        } = node
+        else {
+            continue;
+        };
+
+        if name != "load" {
+            continue;
+        }
+
+        if opaque_regions.is_opaque(span.start()) {
+            continue;
+        }
+
+        let Some(kind) = parse_load_bits(bits) else {
+            continue;
+        };
+
+        let marker_span = span.expand(TagDelimiter::LENGTH_U32, TagDelimiter::LENGTH_U32);
+
+        let libraries_to_check: Vec<&str> = match &kind {
+            LoadKind::FullLoad { libraries } => libraries.iter().map(String::as_str).collect(),
+            LoadKind::SelectiveImport { library, .. } => vec![library.as_str()],
+        };
+
+        for lib_name in libraries_to_check {
+            if !known_libraries.contains_key(lib_name) {
+                ValidationErrorAccumulator(ValidationError::UnknownLibrary {
+                    name: lib_name.to_string(),
+                    span: marker_span,
+                })
+                .accumulate(db);
             }
         }
     }
@@ -799,5 +863,133 @@ mod tests {
             errors.is_empty(),
             "Expected no errors — filter inside verbatim should be skipped. Got: {errors:?}"
         );
+    }
+
+    // ── Library name validation tests (S120) ───────────────────
+
+    fn collect_library_errors(db: &TestDatabase, source: &str) -> Vec<ValidationError> {
+        let path = "test.html";
+        db.add_file(path, source);
+        let file = db.create_file(Utf8Path::new(path));
+        let nodelist = parse_template(db, file).expect("should parse");
+        validate_nodelist(db, nodelist);
+
+        validate_nodelist::accumulated::<ValidationErrorAccumulator>(db, nodelist)
+            .into_iter()
+            .map(|acc| acc.0.clone())
+            .filter(|err| {
+                matches!(
+                    err,
+                    ValidationError::UnknownLibrary { .. }
+                        | ValidationError::AmbiguousUnknownLibrary { .. }
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn known_library_valid() {
+        let db = TestDatabase::with_inventory(test_inventory());
+        let errors = collect_library_errors(&db, "{% load i18n %}");
+
+        assert!(
+            errors.is_empty(),
+            "Known library should not produce error, got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn unknown_library_produces_s120() {
+        let db = TestDatabase::with_inventory(test_inventory());
+        let errors = collect_library_errors(&db, "{% load fdsafdsafdsafdsa %}");
+
+        assert_eq!(errors.len(), 1);
+        assert!(
+            matches!(
+                &errors[0],
+                ValidationError::UnknownLibrary { name, .. }
+                    if name == "fdsafdsafdsafdsa"
+            ),
+            "Expected UnknownLibrary for 'fdsafdsafdsafdsa', got: {:?}",
+            errors[0]
+        );
+    }
+
+    #[test]
+    fn selective_import_known_library_valid() {
+        let db = TestDatabase::with_inventory(test_inventory());
+        let errors = collect_library_errors(&db, "{% load trans from i18n %}");
+
+        assert!(
+            errors.is_empty(),
+            "Selective import from known library should not produce error, got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn selective_import_unknown_library_produces_s120() {
+        let db = TestDatabase::with_inventory(test_inventory());
+        let errors = collect_library_errors(&db, "{% load foo from nonexistent %}");
+
+        assert_eq!(errors.len(), 1);
+        assert!(
+            matches!(
+                &errors[0],
+                ValidationError::UnknownLibrary { name, .. }
+                    if name == "nonexistent"
+            ),
+            "Expected UnknownLibrary for 'nonexistent', got: {:?}",
+            errors[0]
+        );
+    }
+
+    #[test]
+    fn inspector_unavailable_no_library_diagnostics() {
+        let db = TestDatabase::new();
+        let errors = collect_library_errors(&db, "{% load nonexistent %}");
+
+        assert!(
+            errors.is_empty(),
+            "No library diagnostics when inspector unavailable, got: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn multi_library_load_each_validated() {
+        let db = TestDatabase::with_inventory(test_inventory());
+        // i18n is known, nonexistent is not
+        let errors = collect_library_errors(&db, "{% load i18n nonexistent %}");
+
+        assert_eq!(errors.len(), 1);
+        assert!(
+            matches!(
+                &errors[0],
+                ValidationError::UnknownLibrary { name, .. }
+                    if name == "nonexistent"
+            ),
+            "Expected UnknownLibrary for 'nonexistent' in multi-load, got: {:?}",
+            errors[0]
+        );
+    }
+
+    #[test]
+    fn multi_library_load_both_unknown() {
+        let db = TestDatabase::with_inventory(test_inventory());
+        let errors = collect_library_errors(&db, "{% load foo bar %}");
+
+        assert_eq!(
+            errors.len(),
+            2,
+            "Expected 2 UnknownLibrary errors, got: {errors:?}"
+        );
+        let names: Vec<&str> = errors
+            .iter()
+            .filter_map(|e| match e {
+                ValidationError::UnknownLibrary { name, .. } => Some(name.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert!(names.contains(&"foo"));
+        assert!(names.contains(&"bar"));
     }
 }

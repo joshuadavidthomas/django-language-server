@@ -12,6 +12,7 @@ pub use symbols::AvailableSymbols;
 pub use symbols::FilterAvailability;
 pub use symbols::TagAvailability;
 pub use validation::validate_filter_scoping;
+pub use validation::validate_load_libraries;
 pub use validation::validate_tag_scoping;
 
 use crate::db::Db;

@@ -26,6 +26,7 @@ use if_expression::validate_if_expressions;
 pub use load_resolution::compute_loaded_libraries;
 pub use load_resolution::parse_load_bits;
 pub use load_resolution::validate_filter_scoping;
+pub use load_resolution::validate_load_libraries;
 pub use load_resolution::validate_tag_scoping;
 pub use load_resolution::AvailableSymbols;
 pub use load_resolution::FilterAvailability;
@@ -69,6 +70,7 @@ pub fn validate_nodelist(db: &dyn Db, nodelist: djls_templates::NodeList<'_>) {
     validate_all_tag_arguments(db, nodelist, &opaque_regions);
     validate_tag_scoping(db, nodelist, &opaque_regions);
     validate_filter_scoping(db, nodelist, &opaque_regions);
+    validate_load_libraries(db, nodelist, &opaque_regions);
     validate_if_expressions(db, nodelist, &opaque_regions);
     validate_filter_arity(db, nodelist, &opaque_regions);
 }
@@ -326,7 +328,9 @@ mod tests {
             | ValidationError::UnloadedFilter { span, .. }
             | ValidationError::AmbiguousUnloadedFilter { span, .. }
             | ValidationError::UnmatchedBlockName { span, .. }
-            | ValidationError::ExtractedRuleViolation { span, .. } => span.start(),
+            | ValidationError::ExtractedRuleViolation { span, .. }
+            | ValidationError::UnknownLibrary { span, .. }
+            | ValidationError::AmbiguousUnknownLibrary { span, .. } => span.start(),
             ValidationError::UnbalancedStructure { opening_span, .. } => opening_span.start(),
         }
     }

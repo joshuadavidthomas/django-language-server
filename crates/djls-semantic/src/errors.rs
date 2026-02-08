@@ -82,4 +82,14 @@ pub enum ValidationError {
         message: String,
         span: Span,
     },
+
+    #[error("Unknown template tag library '{name}'")]
+    UnknownLibrary { name: String, span: Span },
+
+    #[error("Template tag library '{name}' could not be resolved")]
+    AmbiguousUnknownLibrary {
+        name: String,
+        candidates: Vec<String>,
+        span: Span,
+    },
 }

@@ -663,15 +663,15 @@ Python Environment  →  Django Configuration  →  Template Load  →  Availabl
 
 ### Phase 1: `{% load %}` Library Name Validation (Quick Win — No Environment Scan)
 
-- [ ] Add `S120` diagnostic code (`UnknownLibrary`) to `ValidationError` in `crates/djls-semantic/src/errors.rs` with message "Unknown template tag library '{name}'"
-- [ ] Add `S121` diagnostic code (`AmbiguousUnknownLibrary`) — reserved for Phase 4 when environment scan can distinguish "unknown" from "not in INSTALLED_APPS"
-- [ ] Add S120 to diagnostic system in `crates/djls-conf/src/diagnostics.rs`
-- [ ] Implement `validate_load_libraries()` in `crates/djls-semantic/src/load_resolution/validation.rs`: for each `Node::Tag { name: "load" }`, parse bits to get library names (full load) or the `from` library (selective), check each against `TemplateTags.libraries()` keys
-- [ ] Guard: skip when `inspector_inventory` is `None`
-- [ ] Handle selective imports: `{% load trans from i18n %}` → validate `i18n` is a known library
-- [ ] Wire `validate_load_libraries` into `validate_nodelist` in `crates/djls-semantic/src/lib.rs`
-- [ ] Tests: known library valid, unknown library → S120, selective import with known library valid, selective import with unknown library → S120, inspector unavailable → no diagnostics, multiple libraries in one load (`{% load i18n static %}`) — each validated independently
-- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Add `S120` diagnostic code (`UnknownLibrary`) to `ValidationError` in `crates/djls-semantic/src/errors.rs` with message "Unknown template tag library '{name}'"
+- [x] Add `S121` diagnostic code (`AmbiguousUnknownLibrary`) — reserved for Phase 4 when environment scan can distinguish "unknown" from "not in INSTALLED_APPS"
+- [x] Add S120 to diagnostic system in `crates/djls-conf/src/diagnostics.rs`
+- [x] Implement `validate_load_libraries()` in `crates/djls-semantic/src/load_resolution/validation.rs`: for each `Node::Tag { name: "load" }`, parse bits to get library names (full load) or the `from` library (selective), check each against `TemplateTags.libraries()` keys
+- [x] Guard: skip when `inspector_inventory` is `None`
+- [x] Handle selective imports: `{% load trans from i18n %}` → validate `i18n` is a known library
+- [x] Wire `validate_load_libraries` into `validate_nodelist` in `crates/djls-semantic/src/lib.rs`
+- [x] Tests: known library valid, unknown library → S120, selective import with known library valid, selective import with unknown library → S120, inspector unavailable → no diagnostics, multiple libraries in one load (`{% load i18n static %}`) — each validated independently
+- [x] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 2: Environment Scanner — File Discovery
 
