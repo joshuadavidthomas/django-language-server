@@ -82,6 +82,14 @@ pub fn analyze_compile_function_with_cache(
 /// Scans env bindings for `SplitElement` values to reconstruct positional
 /// argument names. Combines with `RequiredKeyword` positions for literal args.
 /// Falls back to generic `arg1`/`arg2` names.
+///
+/// This assumes all `SplitElement` values in the env represent genuine
+/// positional tag arguments. The assumption holds because Django template
+/// tag compilation functions use top-level tuple unpacking or indexed
+/// access for argument extraction — not loop-based pop patterns. The one
+/// exception (option loops like `while remaining: option = remaining.pop(0)`)
+/// is handled by skipping body processing in the While arm of
+/// `process_statement`, so the loop variable never enters the env.
 fn extract_arg_names(
     env: &domain::Env,
     required_keywords: &[RequiredKeyword],

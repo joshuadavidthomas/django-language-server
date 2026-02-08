@@ -870,4 +870,87 @@ def do_tag(parser, token):
         // The match body should have processed assignments
         assert_eq!(env.get("result"), &AbstractValue::Unknown);
     }
+
+    #[test]
+    fn while_body_assignments_propagate() {
+        // Non-option while loop: body should be processed for env updates
+        let env = eval_body(
+            r"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    remaining = bits[1:]
+    while some_condition:
+        val = remaining.pop(0)
+",
+        );
+        // The pop(0) assignment inside the while body should be processed
+        assert_eq!(
+            env.get("val"),
+            &AbstractValue::SplitElement {
+                index: Index::Forward(1)
+            }
+        );
+        // The pop(0) side effect should also mutate `remaining`
+        assert_eq!(
+            env.get("remaining"),
+            &AbstractValue::SplitResult {
+                base_offset: 2,
+                pops_from_end: 0
+            }
+        );
+    }
+
+    #[test]
+    fn while_body_pop_side_effects() {
+        // Non-option while loop: pop side effects should be tracked
+        let env = eval_body(
+            r"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    remaining = bits[2:]
+    while some_condition:
+        remaining.pop(0)
+",
+        );
+        // The pop(0) inside the while body should mutate `remaining`
+        assert_eq!(
+            env.get("remaining"),
+            &AbstractValue::SplitResult {
+                base_offset: 3,
+                pops_from_end: 0
+            }
+        );
+    }
+
+    #[test]
+    fn while_option_loop_skips_body_processing() {
+        // Option loop pattern: body should NOT be processed to avoid
+        // the loop variable appearing as a false positional argument
+        let env = eval_body(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    remaining = bits[2:]
+    while remaining:
+        option = remaining.pop(0)
+        if option == "with":
+            pass
+        elif option == "only":
+            pass
+        else:
+            raise TemplateSyntaxError("unknown")
+"#,
+        );
+        // `option` should NOT have a SplitElement value since the
+        // option loop body is not processed (to avoid false positives)
+        assert_eq!(env.get("option"), &AbstractValue::Unknown);
+        // `remaining` should keep its pre-loop value
+        assert_eq!(
+            env.get("remaining"),
+            &AbstractValue::SplitResult {
+                base_offset: 2,
+                pops_from_end: 0
+            }
+        );
+    }
 }

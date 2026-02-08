@@ -108,9 +108,15 @@ fn process_statement(stmt: &Stmt, env: &mut Env, ctx: &mut AnalysisContext<'_>) 
         }
 
         Stmt::While(while_stmt) => {
-            // Try to extract option loop pattern; result stored in ctx
             if let Some(opts) = try_extract_option_loop(while_stmt, env) {
+                // Option loop fully analyzed by extraction; skip body processing
+                // to avoid false positives (loop variables like `option` would
+                // appear as positional args).
                 ctx.known_options = Some(opts);
+            } else {
+                // Non-option while loop: process body for assignments and
+                // side effects (e.g. pop mutations, nested constraints).
+                process_statements(&while_stmt.body, env, ctx);
             }
         }
 

@@ -18,7 +18,7 @@
 </details>
 
 ### 2. `statements.rs:110-115` — While arm never processes loop body
-- **Status**: TODO
+- **Status**: DONE
 - **Severity**: High (missed analysis)
 - **File**: `crates/djls-extraction/src/dataflow/eval/statements.rs`
 - **Fix**: The `While` arm only calls `try_extract_option_loop` and never calls `process_statements` on `while_stmt.body`. The `Match` arm right below it shows the correct pattern. Assignments and side-effects inside while loops are silently ignored. Should add `process_statements(&while_stmt.body, env, ctx)` after the option-loop extraction.
