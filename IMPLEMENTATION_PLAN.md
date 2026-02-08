@@ -675,14 +675,14 @@ Python Environment  →  Django Configuration  →  Template Load  →  Availabl
 
 ### Phase 2: Environment Scanner — File Discovery
 
-- [ ] Create `crates/djls-extraction/src/environment.rs` module (behind `parser` feature gate)
-- [ ] Define `EnvironmentLibrary` struct: `load_name: String`, `app_module: String`, `module_path: PathBuf`, `source_path: PathBuf`
-- [ ] Define `EnvironmentInventory` struct: map from load_name → `Vec<EnvironmentLibrary>` (Vec because name collisions across packages are possible), with accessors `libraries()`, `has_library(name)`, `libraries_for_name(name)`
-- [ ] Implement `scan_environment(sys_paths: &[PathBuf]) -> EnvironmentInventory`: glob each sys_path entry for `*/templatetags/*.py`, skip `__init__.py` and `__pycache__`, derive `load_name` from filename stem, derive `app_module` from parent directory structure (e.g., `django/contrib/humanize/templatetags/humanize.py` → app `django.contrib.humanize`)
-- [ ] Handle edge cases: `templatetags/` without `__init__.py` (skip — not a valid Python package), symlinks, namespace packages
-- [ ] Export types from `crates/djls-extraction/src/lib.rs`
-- [ ] Tests: scan with mock directory structure, name collision detection, `__init__.py` filtering, empty directory handling
-- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Create `crates/djls-extraction/src/environment.rs` module (behind `parser` feature gate)
+- [x] Define `EnvironmentLibrary` struct: `load_name: String`, `app_module: String`, `module_path: PathBuf`, `source_path: PathBuf`
+- [x] Define `EnvironmentInventory` struct: map from load_name → `Vec<EnvironmentLibrary>` (Vec because name collisions across packages are possible), with accessors `libraries()`, `has_library(name)`, `libraries_for_name(name)`
+- [x] Implement `scan_environment(sys_paths: &[PathBuf]) -> EnvironmentInventory`: glob each sys_path entry for `*/templatetags/*.py`, skip `__init__.py` and `__pycache__`, derive `load_name` from filename stem, derive `app_module` from parent directory structure (e.g., `django/contrib/humanize/templatetags/humanize.py` → app `django.contrib.humanize`)
+- [x] Handle edge cases: `templatetags/` without `__init__.py` (skip — not a valid Python package), symlinks, namespace packages
+- [x] Export types from `crates/djls-extraction/src/lib.rs`
+- [x] Tests: scan with mock directory structure, name collision detection, `__init__.py` filtering, empty directory handling
+- [x] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 3: Environment Scanner — Symbol-Level Extraction
 

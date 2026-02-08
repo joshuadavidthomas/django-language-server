@@ -3,6 +3,8 @@ mod types;
 #[cfg(feature = "parser")]
 mod blocks;
 #[cfg(feature = "parser")]
+mod environment;
+#[cfg(feature = "parser")]
 mod dataflow;
 #[cfg(feature = "parser")]
 mod filters;
@@ -13,6 +15,12 @@ mod signature;
 
 #[cfg(feature = "parser")]
 pub use blocks::extract_block_spec;
+#[cfg(feature = "parser")]
+pub use environment::scan_environment;
+#[cfg(feature = "parser")]
+pub use environment::EnvironmentInventory;
+#[cfg(feature = "parser")]
+pub use environment::EnvironmentLibrary;
 #[cfg(feature = "parser")]
 pub use dataflow::analyze_compile_function;
 #[cfg(feature = "parser")]

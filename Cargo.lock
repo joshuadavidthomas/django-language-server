@@ -653,6 +653,7 @@ dependencies = [
  "ruff_python_parser",
  "rustc-hash",
  "serde",
+ "tempfile",
  "walkdir",
 ]
 
