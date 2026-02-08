@@ -22,33 +22,17 @@
 //! DJLS_CORPUS_ROOT=/path/to/corpus cargo test -p djls-extraction --test corpus
 //! ```
 
-use std::path::Path;
-use std::path::PathBuf;
-
-use djls_extraction::extract_rules;
-use djls_extraction::ExtractionResult;
-
-fn corpus_root() -> Option<PathBuf> {
-    djls_corpus::find_corpus_root(env!("CARGO_MANIFEST_DIR"))
-}
-
-/// Run extraction on a single file, returning the result if successful.
-fn extract_file(path: &Path) -> Option<ExtractionResult> {
-    let source = std::fs::read_to_string(path).ok()?;
-    let module_path = djls_corpus::module_path_from_file(path);
-    let result = extract_rules(&source, &module_path);
-    Some(result)
-}
+use djls_corpus::Corpus;
 
 #[test]
 fn test_corpus_extraction_no_panics() {
-    let Some(root) = corpus_root() else {
+    let Some(corpus) = Corpus::discover() else {
         eprintln!("Corpus not available (run `cargo run -p djls-corpus -- sync` first)");
         eprintln!("Or set DJLS_CORPUS_ROOT to corpus location");
         return;
     };
 
-    let files = djls_corpus::enumerate::enumerate_extraction_files(&root);
+    let files = corpus.extraction_targets();
     assert!(
         !files.is_empty(),
         "Corpus should contain extraction targets"
@@ -58,7 +42,7 @@ fn test_corpus_extraction_no_panics() {
     let mut empty_count = 0;
 
     for path in &files {
-        if let Some(result) = extract_file(path) {
+        if let Some(result) = corpus.extract_file(path) {
             if result.is_empty() {
                 empty_count += 1;
             } else {
@@ -75,11 +59,11 @@ fn test_corpus_extraction_no_panics() {
 
 #[test]
 fn test_corpus_extraction_yields_results() {
-    let Some(root) = corpus_root() else {
+    let Some(corpus) = Corpus::discover() else {
         return;
     };
 
-    let files = djls_corpus::enumerate::enumerate_extraction_files(&root);
+    let files = corpus.extraction_targets();
 
     let mut tags_found = 0;
     let mut filters_found = 0;
@@ -87,7 +71,7 @@ fn test_corpus_extraction_yields_results() {
     let mut files_with_registrations = 0;
 
     for path in &files {
-        if let Some(result) = extract_file(path) {
+        if let Some(result) = corpus.extract_file(path) {
             if !result.is_empty() {
                 files_with_registrations += 1;
                 tags_found += result.tag_rules.len();
@@ -115,28 +99,17 @@ fn test_corpus_extraction_yields_results() {
 
 #[test]
 fn test_corpus_django_versions_golden() {
-    let Some(root) = corpus_root() else {
+    let Some(corpus) = Corpus::discover() else {
         return;
     };
 
-    let django_packages = root.join("packages/Django");
-    if !django_packages.exists() {
+    let django_packages = corpus.root().join("packages/Django");
+    if !django_packages.as_std_path().exists() {
         eprintln!("Django packages not in corpus, skipping");
         return;
     }
 
-    let mut django_dirs: Vec<_> = std::fs::read_dir(&django_packages)
-        .into_iter()
-        .flatten()
-        .filter_map(Result::ok)
-        .map(|e| e.path())
-        .filter(|p| {
-            let name = p.file_name().unwrap().to_string_lossy();
-            name.chars().filter(|c| *c == '.').count() >= 2
-        })
-        .collect();
-
-    django_dirs.sort();
+    let django_dirs = corpus.synced_dirs("packages/Django");
 
     if django_dirs.is_empty() {
         eprintln!("No Django version dirs found, skipping");
@@ -147,16 +120,12 @@ fn test_corpus_django_versions_golden() {
         std::collections::BTreeMap::new();
 
     for django_dir in &django_dirs {
-        let version = django_dir
-            .file_name()
-            .unwrap()
-            .to_string_lossy()
-            .to_string();
+        let version = django_dir.file_name().unwrap().to_string();
         let defaulttags = django_dir.join("django/template/defaulttags.py");
 
-        if defaulttags.exists() {
-            let source = std::fs::read_to_string(&defaulttags).unwrap();
-            let result = extract_rules(&source, "django.template.defaulttags");
+        if defaulttags.as_std_path().exists() {
+            let source = std::fs::read_to_string(defaulttags.as_std_path()).unwrap();
+            let result = djls_extraction::extract_rules(&source, "django.template.defaulttags");
 
             let mut tag_names: Vec<String> =
                 result.tag_rules.keys().map(|k| k.name.clone()).collect();
@@ -189,18 +158,18 @@ struct VersionSummary {
 
 #[test]
 fn test_corpus_unsupported_patterns_summary() {
-    let Some(root) = corpus_root() else {
+    let Some(corpus) = Corpus::discover() else {
         return;
     };
 
-    let files = djls_corpus::enumerate::enumerate_extraction_files(&root);
+    let files = corpus.extraction_targets();
 
     let mut total_tags = 0;
     let mut total_with_rules = 0;
     let mut total_with_block_spec = 0;
 
     for path in &files {
-        if let Some(result) = extract_file(path) {
+        if let Some(result) = corpus.extract_file(path) {
             total_tags += result.tag_rules.len() + result.block_specs.len();
             total_with_rules += result.tag_rules.len();
             total_with_block_spec += result.block_specs.len();

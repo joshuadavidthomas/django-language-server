@@ -16,9 +16,9 @@
 //! If the corpus is not available, tests skip gracefully.
 
 use std::collections::BTreeMap;
-use std::path::Path;
-use std::path::PathBuf;
 
+use djls_corpus::enumerate::FileKind;
+use djls_corpus::Corpus;
 use djls_extraction::extract_rules;
 use djls_extraction::ArgumentCountConstraint;
 use djls_extraction::BlockTagSpec;
@@ -27,24 +27,6 @@ use djls_extraction::FilterArity;
 use djls_extraction::SymbolKey;
 use djls_extraction::TagRule;
 use serde::Serialize;
-
-fn corpus_root() -> Option<PathBuf> {
-    djls_corpus::find_corpus_root(env!("CARGO_MANIFEST_DIR"))
-}
-
-/// Get the latest Django version directory.
-fn latest_django_dir(root: &Path) -> Option<PathBuf> {
-    let django_dir = root.join("packages/Django");
-    let mut versions: Vec<PathBuf> = std::fs::read_dir(&django_dir)
-        .ok()?
-        .filter_map(Result::ok)
-        .filter(|e| e.file_type().ok().is_some_and(|ft| ft.is_dir()))
-        .map(|e| e.path())
-        .filter(|p| p.join(".complete").exists())
-        .collect();
-    versions.sort();
-    versions.last().cloned()
-}
 
 /// A deterministically-ordered version of `ExtractionResult` for snapshot testing.
 #[derive(Debug, Serialize)]
@@ -83,16 +65,16 @@ fn snapshot(result: ExtractionResult) -> SortedExtractionResult {
 
 /// Extract from a real Django source file in the corpus.
 fn extract_django_module(
-    root: &Path,
+    corpus: &Corpus,
     relative: &str,
     module_path: &str,
 ) -> Option<ExtractionResult> {
-    let django_dir = latest_django_dir(root)?;
+    let django_dir = corpus.latest_django()?;
     let path = django_dir.join(relative);
-    if !path.exists() {
+    if !path.as_std_path().exists() {
         return None;
     }
-    let source = std::fs::read_to_string(&path).ok()?;
+    let source = std::fs::read_to_string(path.as_std_path()).ok()?;
     Some(extract_rules(&source, module_path))
 }
 
@@ -100,13 +82,13 @@ fn extract_django_module(
 
 #[test]
 fn test_defaulttags_full_snapshot() {
-    let Some(root) = corpus_root() else {
+    let Some(corpus) = Corpus::discover() else {
         eprintln!("Corpus not available. Run `cargo run -p djls-corpus -- sync`.");
         return;
     };
 
     let result = extract_django_module(
-        &root,
+        &corpus,
         "django/template/defaulttags.py",
         "django.template.defaulttags",
     )
@@ -117,12 +99,12 @@ fn test_defaulttags_full_snapshot() {
 
 #[test]
 fn test_defaulttags_tag_count() {
-    let Some(root) = corpus_root() else {
+    let Some(corpus) = Corpus::discover() else {
         return;
     };
 
     let result = extract_django_module(
-        &root,
+        &corpus,
         "django/template/defaulttags.py",
         "django.template.defaulttags",
     )
@@ -141,12 +123,12 @@ fn test_defaulttags_tag_count() {
 
 #[test]
 fn test_defaulttags_for_tag_rules() {
-    let Some(root) = corpus_root() else {
+    let Some(corpus) = Corpus::discover() else {
         return;
     };
 
     let result = extract_django_module(
-        &root,
+        &corpus,
         "django/template/defaulttags.py",
         "django.template.defaulttags",
     )
@@ -185,12 +167,12 @@ fn test_defaulttags_for_tag_rules() {
 
 #[test]
 fn test_defaulttags_if_tag() {
-    let Some(root) = corpus_root() else {
+    let Some(corpus) = Corpus::discover() else {
         return;
     };
 
     let result = extract_django_module(
-        &root,
+        &corpus,
         "django/template/defaulttags.py",
         "django.template.defaulttags",
     )
@@ -215,12 +197,12 @@ fn test_defaulttags_if_tag() {
 
 #[test]
 fn test_defaulttags_url_tag_rules() {
-    let Some(root) = corpus_root() else {
+    let Some(corpus) = Corpus::discover() else {
         return;
     };
 
     let result = extract_django_module(
-        &root,
+        &corpus,
         "django/template/defaulttags.py",
         "django.template.defaulttags",
     )
@@ -248,12 +230,12 @@ fn test_defaulttags_url_tag_rules() {
 
 #[test]
 fn test_defaulttags_with_tag() {
-    let Some(root) = corpus_root() else {
+    let Some(corpus) = Corpus::discover() else {
         return;
     };
 
     let result = extract_django_module(
-        &root,
+        &corpus,
         "django/template/defaulttags.py",
         "django.template.defaulttags",
     )
@@ -270,13 +252,13 @@ fn test_defaulttags_with_tag() {
 
 #[test]
 fn test_defaultfilters_full_snapshot() {
-    let Some(root) = corpus_root() else {
+    let Some(corpus) = Corpus::discover() else {
         eprintln!("Corpus not available. Run `cargo run -p djls-corpus -- sync`.");
         return;
     };
 
     let result = extract_django_module(
-        &root,
+        &corpus,
         "django/template/defaultfilters.py",
         "django.template.defaultfilters",
     )
@@ -293,12 +275,12 @@ fn test_defaultfilters_full_snapshot() {
 
 #[test]
 fn test_defaultfilters_filter_count() {
-    let Some(root) = corpus_root() else {
+    let Some(corpus) = Corpus::discover() else {
         return;
     };
 
     let result = extract_django_module(
-        &root,
+        &corpus,
         "django/template/defaultfilters.py",
         "django.template.defaultfilters",
     )
@@ -334,13 +316,13 @@ fn test_defaultfilters_filter_count() {
 
 #[test]
 fn test_loader_tags_full_snapshot() {
-    let Some(root) = corpus_root() else {
+    let Some(corpus) = Corpus::discover() else {
         eprintln!("Corpus not available. Run `cargo run -p djls-corpus -- sync`.");
         return;
     };
 
     let result = extract_django_module(
-        &root,
+        &corpus,
         "django/template/loader_tags.py",
         "django.template.loader_tags",
     )
@@ -351,12 +333,12 @@ fn test_loader_tags_full_snapshot() {
 
 #[test]
 fn test_loader_tags_block_tag() {
-    let Some(root) = corpus_root() else {
+    let Some(corpus) = Corpus::discover() else {
         return;
     };
 
     let result = extract_django_module(
-        &root,
+        &corpus,
         "django/template/loader_tags.py",
         "django.template.loader_tags",
     )
@@ -373,85 +355,85 @@ fn test_loader_tags_block_tag() {
 
 #[test]
 fn test_i18n_full_snapshot() {
-    let Some(root) = corpus_root() else {
+    let Some(corpus) = Corpus::discover() else {
         return;
     };
-    let django_dir = latest_django_dir(&root).unwrap();
+    let django_dir = corpus.latest_django().unwrap();
     let path = django_dir.join("django/templatetags/i18n.py");
-    if !path.exists() {
+    if !path.as_std_path().exists() {
         eprintln!("i18n.py not found");
         return;
     }
 
-    let source = std::fs::read_to_string(&path).unwrap();
+    let source = std::fs::read_to_string(path.as_std_path()).unwrap();
     let result = extract_rules(&source, "django.templatetags.i18n");
     insta::assert_yaml_snapshot!("i18n_full", snapshot(result));
 }
 
 #[test]
 fn test_static_full_snapshot() {
-    let Some(root) = corpus_root() else {
+    let Some(corpus) = Corpus::discover() else {
         return;
     };
-    let django_dir = latest_django_dir(&root).unwrap();
+    let django_dir = corpus.latest_django().unwrap();
     let path = django_dir.join("django/templatetags/static.py");
-    if !path.exists() {
+    if !path.as_std_path().exists() {
         eprintln!("static.py not found");
         return;
     }
 
-    let source = std::fs::read_to_string(&path).unwrap();
+    let source = std::fs::read_to_string(path.as_std_path()).unwrap();
     let result = extract_rules(&source, "django.templatetags.static");
     insta::assert_yaml_snapshot!("static_full", snapshot(result));
 }
 
 #[test]
 fn test_cache_full_snapshot() {
-    let Some(root) = corpus_root() else {
+    let Some(corpus) = Corpus::discover() else {
         return;
     };
-    let django_dir = latest_django_dir(&root).unwrap();
+    let django_dir = corpus.latest_django().unwrap();
     let path = django_dir.join("django/templatetags/cache.py");
-    if !path.exists() {
+    if !path.as_std_path().exists() {
         eprintln!("cache.py not found");
         return;
     }
 
-    let source = std::fs::read_to_string(&path).unwrap();
+    let source = std::fs::read_to_string(path.as_std_path()).unwrap();
     let result = extract_rules(&source, "django.templatetags.cache");
     insta::assert_yaml_snapshot!("cache_full", snapshot(result));
 }
 
 #[test]
 fn test_l10n_full_snapshot() {
-    let Some(root) = corpus_root() else {
+    let Some(corpus) = Corpus::discover() else {
         return;
     };
-    let django_dir = latest_django_dir(&root).unwrap();
+    let django_dir = corpus.latest_django().unwrap();
     let path = django_dir.join("django/templatetags/l10n.py");
-    if !path.exists() {
+    if !path.as_std_path().exists() {
         eprintln!("l10n.py not found");
         return;
     }
 
-    let source = std::fs::read_to_string(&path).unwrap();
+    let source = std::fs::read_to_string(path.as_std_path()).unwrap();
     let result = extract_rules(&source, "django.templatetags.l10n");
     insta::assert_yaml_snapshot!("l10n_full", snapshot(result));
 }
 
 #[test]
 fn test_tz_full_snapshot() {
-    let Some(root) = corpus_root() else {
+    let Some(corpus) = Corpus::discover() else {
         return;
     };
-    let django_dir = latest_django_dir(&root).unwrap();
+    let django_dir = corpus.latest_django().unwrap();
     let path = django_dir.join("django/templatetags/tz.py");
-    if !path.exists() {
+    if !path.as_std_path().exists() {
         eprintln!("tz.py not found");
         return;
     }
 
-    let source = std::fs::read_to_string(&path).unwrap();
+    let source = std::fs::read_to_string(path.as_std_path()).unwrap();
     let result = extract_rules(&source, "django.templatetags.tz");
     insta::assert_yaml_snapshot!("tz_full", snapshot(result));
 }
@@ -460,32 +442,25 @@ fn test_tz_full_snapshot() {
 
 #[test]
 fn test_for_tag_rules_across_django_versions() {
-    let Some(root) = corpus_root() else {
+    let Some(corpus) = Corpus::discover() else {
         return;
     };
 
-    let django_packages = root.join("packages/Django");
-    if !django_packages.exists() {
+    let django_packages = corpus.root().join("packages/Django");
+    if !django_packages.as_std_path().exists() {
         return;
     }
 
-    let mut version_dirs: Vec<PathBuf> = std::fs::read_dir(&django_packages)
-        .unwrap()
-        .filter_map(Result::ok)
-        .filter(|e| e.file_type().ok().is_some_and(|ft| ft.is_dir()))
-        .map(|e| e.path())
-        .filter(|p| p.join(".complete").exists())
-        .collect();
-    version_dirs.sort();
+    let version_dirs = corpus.synced_dirs("packages/Django");
 
     for version_dir in &version_dirs {
-        let version = version_dir.file_name().unwrap().to_string_lossy();
+        let version = version_dir.file_name().unwrap();
         let defaulttags = version_dir.join("django/template/defaulttags.py");
-        if !defaulttags.exists() {
+        if !defaulttags.as_std_path().exists() {
             continue;
         }
 
-        let source = std::fs::read_to_string(&defaulttags).unwrap();
+        let source = std::fs::read_to_string(defaulttags.as_std_path()).unwrap();
         let result = extract_rules(&source, "django.template.defaulttags");
         let for_key = SymbolKey::tag("django.template.defaulttags", "for");
 
@@ -516,21 +491,21 @@ fn test_for_tag_rules_across_django_versions() {
 
 #[test]
 fn test_wagtail_extraction_snapshot() {
-    let Some(root) = corpus_root() else {
+    let Some(corpus) = Corpus::discover() else {
         return;
     };
 
-    let wagtail_dir = root.join("packages/wagtail");
-    if !wagtail_dir.exists() {
+    let wagtail_dir = corpus.root().join("packages/wagtail");
+    if !wagtail_dir.as_std_path().exists() {
         eprintln!("wagtail not in corpus");
         return;
     }
 
     let mut combined = ExtractionResult::default();
-    let extraction_files = djls_corpus::enumerate::enumerate_extraction_files(&wagtail_dir);
+    let extraction_files = corpus.enumerate_files(&wagtail_dir, FileKind::ExtractionTarget);
 
     for path in &extraction_files {
-        let source = std::fs::read_to_string(path).unwrap_or_default();
+        let source = std::fs::read_to_string(path.as_std_path()).unwrap_or_default();
         let result = extract_rules(&source, "wagtail");
         combined.merge(result);
     }
@@ -548,21 +523,21 @@ fn test_wagtail_extraction_snapshot() {
 
 #[test]
 fn test_allauth_extraction_snapshot() {
-    let Some(root) = corpus_root() else {
+    let Some(corpus) = Corpus::discover() else {
         return;
     };
 
-    let allauth_dir = root.join("packages/django-allauth");
-    if !allauth_dir.exists() {
+    let allauth_dir = corpus.root().join("packages/django-allauth");
+    if !allauth_dir.as_std_path().exists() {
         eprintln!("django-allauth not in corpus");
         return;
     }
 
     let mut combined = ExtractionResult::default();
-    let extraction_files = djls_corpus::enumerate::enumerate_extraction_files(&allauth_dir);
+    let extraction_files = corpus.enumerate_files(&allauth_dir, FileKind::ExtractionTarget);
 
     for path in &extraction_files {
-        let source = std::fs::read_to_string(path).unwrap_or_default();
+        let source = std::fs::read_to_string(path.as_std_path()).unwrap_or_default();
         let result = extract_rules(&source, "allauth");
         combined.merge(result);
     }

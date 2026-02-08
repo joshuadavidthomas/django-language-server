@@ -835,12 +835,9 @@ mod tests {
             }
         }
 
-        let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        for venv_relative in &["../../.venv", "../../../.venv", "../../../../.venv"] {
-            let venv = manifest.join(venv_relative);
-            if !venv.is_dir() {
-                continue;
-            }
+        let workspace = std::path::Path::new(env!("CARGO_WORKSPACE_DIR"));
+        let venv = workspace.join(".venv");
+        if venv.is_dir() {
             if let Ok(entries) = std::fs::read_dir(venv.join("lib")) {
                 for entry in entries.flatten() {
                     let site_packages = entry.path().join("site-packages/django");
@@ -848,28 +845,6 @@ mod tests {
                         return Some(site_packages);
                     }
                 }
-            }
-        }
-        None
-    }
-
-    /// Locate the corpus directory.
-    fn find_corpus_dir() -> Option<std::path::PathBuf> {
-        if let Ok(path) = std::env::var("DJLS_CORPUS_PATH") {
-            let p = std::path::PathBuf::from(path);
-            if p.is_dir() {
-                return Some(p);
-            }
-        }
-
-        let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        for candidate in &[
-            "../../template_linter/.corpus",
-            "../../../template_linter/.corpus",
-        ] {
-            let p = manifest.join(candidate);
-            if p.is_dir() {
-                return Some(p);
             }
         }
         None
@@ -1166,12 +1141,12 @@ mod tests {
 
     #[test]
     fn corpus_django_versions_templates_zero_false_positives() {
-        let Some(corpus) = find_corpus_dir() else {
+        let Some(corpus) = djls_corpus::Corpus::discover() else {
             eprintln!("SKIP: corpus not found (set DJLS_CORPUS_PATH or sync corpus)");
             return;
         };
 
-        let django_dir = corpus.join("packages/Django");
+        let django_dir = corpus.root().join("packages/Django");
         if !django_dir.is_dir() {
             eprintln!("SKIP: Django not found in corpus");
             return;
@@ -1257,7 +1232,7 @@ mod tests {
 
     #[test]
     fn corpus_third_party_templates_zero_false_positives() {
-        let Some(corpus) = find_corpus_dir() else {
+        let Some(corpus) = djls_corpus::Corpus::discover() else {
             eprintln!("SKIP: corpus not found");
             return;
         };
@@ -1278,7 +1253,7 @@ mod tests {
         let mut entries_tested = 0;
 
         // Test packages
-        let packages_dir = corpus.join("packages");
+        let packages_dir = corpus.root().join("packages");
         if packages_dir.is_dir() {
             for package_entry in std::fs::read_dir(&packages_dir)
                 .into_iter()
@@ -1301,7 +1276,7 @@ mod tests {
         }
 
         // Test repos
-        let repos_dir = corpus.join("repos");
+        let repos_dir = corpus.root().join("repos");
         if repos_dir.is_dir() {
             for repo_entry in std::fs::read_dir(&repos_dir)
                 .into_iter()

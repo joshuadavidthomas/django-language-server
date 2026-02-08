@@ -14,17 +14,13 @@
 //! ```
 
 use std::fmt::Write as _;
-use std::path::Path;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
-use djls_corpus::enumerate::enumerate_extraction_files;
-use djls_corpus::enumerate::enumerate_template_files;
-use djls_extraction::extract_rules;
-use djls_extraction::ExtractionResult;
+use djls_corpus::enumerate::FileKind;
+use djls_corpus::Corpus;
 use djls_semantic::FilterAritySpecs;
 use djls_semantic::TagSpecs;
 use djls_semantic::ValidationError;
@@ -32,10 +28,6 @@ use djls_semantic::ValidationErrorAccumulator;
 use djls_source::File;
 use djls_workspace::FileSystem;
 use djls_workspace::InMemoryFileSystem;
-
-// ---------------------------------------------------------------------------
-// Test database (minimal `Db` impl for validation)
-// ---------------------------------------------------------------------------
 
 #[salsa::db]
 #[derive(Clone)]
@@ -104,7 +96,6 @@ impl djls_semantic::Db for CorpusTestDatabase {
     }
 
     fn inspector_inventory(&self) -> Option<djls_project::TemplateTags> {
-        // No inspector — scoping diagnostics (S108-S113) suppressed
         None
     }
 
@@ -117,59 +108,49 @@ impl djls_semantic::Db for CorpusTestDatabase {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-fn corpus_root() -> Option<PathBuf> {
-    djls_corpus::find_corpus_root(env!("CARGO_MANIFEST_DIR"))
-}
-
-/// Extract rules from a Python file and return the result.
-fn extract_file(path: &Path) -> Option<ExtractionResult> {
-    let source = std::fs::read_to_string(path).ok()?;
-    let module_path = djls_corpus::module_path_from_file(path);
-    let result = extract_rules(&source, &module_path);
-    if result.is_empty() {
-        return None;
-    }
-    Some(result)
-}
-
-/// Build `TagSpecs` and `FilterAritySpecs` from extraction of all templatetag
-/// modules in a directory, starting from Django builtin specs.
-fn build_specs_from_extraction(entry_dir: &Path) -> (TagSpecs, FilterAritySpecs) {
-    let mut specs = TagSpecs::default();
-    let mut arities = FilterAritySpecs::new();
-    extract_and_merge(entry_dir, &mut specs, &mut arities);
-    (specs, arities)
-}
-
 /// Extract rules from all Python files in a directory and merge into specs.
-fn extract_and_merge(dir: &Path, specs: &mut TagSpecs, arities: &mut FilterAritySpecs) {
-    let extraction_files = enumerate_extraction_files(dir);
+fn extract_and_merge(
+    corpus: &Corpus,
+    dir: &Utf8Path,
+    specs: &mut TagSpecs,
+    arities: &mut FilterAritySpecs,
+) {
+    let extraction_files = corpus.enumerate_files(dir, FileKind::ExtractionTarget);
     for file_path in &extraction_files {
-        if let Some(result) = extract_file(file_path) {
+        if let Some(result) = corpus.extract_file(file_path) {
             arities.merge_extraction_result(&result);
             specs.merge_extraction_results(&result);
         }
     }
 }
 
+/// Build `TagSpecs` and `FilterAritySpecs` from extraction of all templatetag
+/// modules in a directory.
+fn build_specs_from_extraction(
+    corpus: &Corpus,
+    entry_dir: &Utf8Path,
+) -> (TagSpecs, FilterAritySpecs) {
+    let mut specs = TagSpecs::default();
+    let mut arities = FilterAritySpecs::new();
+    extract_and_merge(corpus, entry_dir, &mut specs, &mut arities);
+    (specs, arities)
+}
+
 /// Build `TagSpecs` for a third-party package, including Django builtins
 /// extracted from the matching Django version (or latest available).
 fn build_specs_with_django_builtins(
-    entry_dir: &Path,
-    django_dir: Option<&Path>,
+    corpus: &Corpus,
+    entry_dir: &Utf8Path,
+    django_dir: Option<&Utf8Path>,
 ) -> (TagSpecs, FilterAritySpecs) {
     let mut specs = TagSpecs::default();
     let mut arities = FilterAritySpecs::new();
 
     if let Some(django) = django_dir {
-        extract_and_merge(django, &mut specs, &mut arities);
+        extract_and_merge(corpus, django, &mut specs, &mut arities);
     }
 
-    extract_and_merge(entry_dir, &mut specs, &mut arities);
+    extract_and_merge(corpus, entry_dir, &mut specs, &mut arities);
     (specs, arities)
 }
 
@@ -184,7 +165,6 @@ fn validate_template(
 
     let db = CorpusTestDatabase::new(specs.clone(), arities.clone());
 
-    // Use .html path so FileKind::Template is detected by the parser.
     let path = "corpus_test.html";
     db.add_file(path, content);
     let file = db.create_file(Utf8Path::new(path));
@@ -202,8 +182,6 @@ fn validate_template(
         .collect()
 }
 
-/// Check if a validation error is an argument validation error (the kind
-/// that could be a false positive from extracted rules).
 fn is_argument_validation_error(err: &ValidationError) -> bool {
     matches!(
         err,
@@ -214,26 +192,15 @@ fn is_argument_validation_error(err: &ValidationError) -> bool {
     )
 }
 
-/// Find the latest Django version directory in the corpus.
-fn find_latest_django_dir(corpus_root: &Path) -> Option<PathBuf> {
-    let django_dir = corpus_root.join("packages/Django");
-    if !django_dir.exists() {
-        return None;
-    }
-
-    let versions = synced_version_dirs(&django_dir);
-    versions.last().cloned()
-}
-
 struct FailureEntry {
-    path: PathBuf,
+    path: Utf8PathBuf,
     errors: Vec<String>,
 }
 
 fn format_failures(failures: &[FailureEntry]) -> String {
     let mut out = String::new();
     for f in failures.iter().take(20) {
-        let _ = writeln!(out, "  {}:", f.path.display());
+        let _ = writeln!(out, "  {}:", f.path);
         for err in &f.errors {
             let _ = writeln!(out, "    - {err}");
         }
@@ -244,36 +211,18 @@ fn format_failures(failures: &[FailureEntry]) -> String {
     out
 }
 
-/// Collect version directories that have been fully synced.
-fn synced_version_dirs(parent: &Path) -> Vec<PathBuf> {
-    let Ok(entries) = std::fs::read_dir(parent) else {
-        return Vec::new();
-    };
-
-    let mut dirs: Vec<PathBuf> = entries
-        .filter_map(Result::ok)
-        .filter(|e| e.file_type().ok().is_some_and(|ft| ft.is_dir()))
-        .map(|e| e.path())
-        .filter(|p| p.join(".complete").exists())
-        .collect();
-
-    dirs.sort();
-    dirs
-}
-
 /// Run validation on all templates in a directory against given specs.
-///
-/// Returns failures (only argument validation errors).
 fn validate_templates_in_dir(
-    dir: &Path,
+    corpus: &Corpus,
+    dir: &Utf8Path,
     specs: &TagSpecs,
     arities: &FilterAritySpecs,
 ) -> Vec<FailureEntry> {
-    let templates = enumerate_template_files(dir);
+    let templates = corpus.enumerate_files(dir, FileKind::Template);
     let mut failures = Vec::new();
 
     for template_path in &templates {
-        let Ok(content) = std::fs::read_to_string(template_path) else {
+        let Ok(content) = std::fs::read_to_string(template_path.as_std_path()) else {
             continue;
         };
 
@@ -291,30 +240,26 @@ fn validate_templates_in_dir(
     failures
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 /// Django shipped templates (contrib/admin, forms, etc.) should produce
 /// zero false positives when validated against Django's own extracted rules.
 #[test]
 fn test_django_shipped_templates_zero_false_positives() {
-    let Some(root) = corpus_root() else {
+    let Some(corpus) = Corpus::discover() else {
         eprintln!("Corpus not available. Run `cargo run -p djls-corpus -- sync`.");
         return;
     };
 
-    let django_packages = root.join("packages/Django");
-    if !django_packages.exists() {
+    let django_packages = corpus.root().join("packages/Django");
+    if !django_packages.as_std_path().exists() {
         eprintln!("No Django packages in corpus.");
         return;
     }
 
-    for version_dir in &synced_version_dirs(&django_packages) {
-        let version = version_dir.file_name().unwrap().to_string_lossy();
+    for version_dir in &corpus.synced_dirs("packages/Django") {
+        let version = version_dir.file_name().unwrap();
 
-        let (specs, arities) = build_specs_from_extraction(version_dir);
-        let templates = enumerate_template_files(version_dir);
+        let (specs, arities) = build_specs_from_extraction(&corpus, version_dir);
+        let templates = corpus.enumerate_files(version_dir, FileKind::Template);
 
         if templates.is_empty() {
             eprintln!(
@@ -324,7 +269,7 @@ fn test_django_shipped_templates_zero_false_positives() {
             continue;
         }
 
-        let failures = validate_templates_in_dir(version_dir, &specs, &arities);
+        let failures = validate_templates_in_dir(&corpus, version_dir, &specs, &arities);
 
         assert!(
             failures.is_empty(),
@@ -346,47 +291,44 @@ fn test_django_shipped_templates_zero_false_positives() {
 /// plus Django builtins.
 #[test]
 fn test_third_party_templates_zero_arg_false_positives() {
-    let Some(root) = corpus_root() else {
+    let Some(corpus) = Corpus::discover() else {
         eprintln!("Corpus not available. Run `cargo run -p djls-corpus -- sync`.");
         return;
     };
 
-    let packages_dir = root.join("packages");
-    if !packages_dir.exists() {
+    let packages_dir = corpus.root().join("packages");
+    if !packages_dir.as_std_path().exists() {
         eprintln!("No packages directory in corpus.");
         return;
     }
 
-    let latest_django = find_latest_django_dir(&root);
+    let latest_django = corpus.latest_django();
 
-    let mut entry_dirs: Vec<PathBuf> = std::fs::read_dir(&packages_dir)
+    let mut entry_dirs: Vec<Utf8PathBuf> = std::fs::read_dir(packages_dir.as_std_path())
         .unwrap()
         .filter_map(Result::ok)
         .filter(|e| e.file_type().ok().is_some_and(|ft| ft.is_dir()))
-        .map(|e| e.path())
-        .filter(|p| {
-            p.file_name()
-                .and_then(|n| n.to_str())
-                .is_some_and(|n| n != "Django")
-        })
+        .filter_map(|e| Utf8PathBuf::from_path_buf(e.path()).ok())
+        .filter(|p| p.file_name().is_some_and(|n| n != "Django"))
         .collect();
     entry_dirs.sort();
 
     for pkg_dir in &entry_dirs {
-        let pkg_name = pkg_dir.file_name().unwrap().to_string_lossy();
+        let pkg_name = pkg_dir.file_name().unwrap();
+        let pkg_relative = format!("packages/{pkg_name}");
 
-        for version_dir in &synced_version_dirs(pkg_dir) {
-            let version = version_dir.file_name().unwrap().to_string_lossy();
+        for version_dir in &corpus.synced_dirs(&pkg_relative) {
+            let version = version_dir.file_name().unwrap();
 
             let (specs, arities) =
-                build_specs_with_django_builtins(version_dir, latest_django.as_deref());
-            let templates = enumerate_template_files(version_dir);
+                build_specs_with_django_builtins(&corpus, version_dir, latest_django.as_deref());
+            let templates = corpus.enumerate_files(version_dir, FileKind::Template);
 
             if templates.is_empty() {
                 continue;
             }
 
-            let failures = validate_templates_in_dir(version_dir, &specs, &arities);
+            let failures = validate_templates_in_dir(&corpus, version_dir, &specs, &arities);
 
             assert!(
                 failures.is_empty(),
@@ -407,43 +349,44 @@ fn test_third_party_templates_zero_arg_false_positives() {
 /// false positives.
 #[test]
 fn test_repo_templates_zero_arg_false_positives() {
-    let Some(root) = corpus_root() else {
+    let Some(corpus) = Corpus::discover() else {
         eprintln!("Corpus not available. Run `cargo run -p djls-corpus -- sync`.");
         return;
     };
 
-    let repos_dir = root.join("repos");
-    if !repos_dir.exists() {
+    let repos_dir = corpus.root().join("repos");
+    if !repos_dir.as_std_path().exists() {
         eprintln!("No repos directory in corpus.");
         return;
     }
 
-    let latest_django = find_latest_django_dir(&root);
+    let latest_django = corpus.latest_django();
 
-    let Ok(repo_entries) = std::fs::read_dir(&repos_dir) else {
+    let Ok(repo_entries) = std::fs::read_dir(repos_dir.as_std_path()) else {
         return;
     };
 
-    let mut repo_dirs: Vec<PathBuf> = repo_entries
+    let mut repo_dirs: Vec<Utf8PathBuf> = repo_entries
         .filter_map(Result::ok)
         .filter(|e| e.file_type().ok().is_some_and(|ft| ft.is_dir()))
-        .map(|e| e.path())
+        .filter_map(|e| Utf8PathBuf::from_path_buf(e.path()).ok())
         .collect();
     repo_dirs.sort();
 
     for repo_dir in &repo_dirs {
-        let repo_name = repo_dir.file_name().unwrap().to_string_lossy();
+        let repo_name = repo_dir.file_name().unwrap();
+        let repo_relative = format!("repos/{repo_name}");
 
-        for ref_dir in &synced_version_dirs(repo_dir) {
+        for ref_dir in &corpus.synced_dirs(&repo_relative) {
             let (specs, arities) =
-                build_specs_with_django_builtins(ref_dir, latest_django.as_deref());
-            let templates = enumerate_template_files(ref_dir);
+                build_specs_with_django_builtins(&corpus, ref_dir, latest_django.as_deref());
+            let templates = corpus.enumerate_files(ref_dir, FileKind::Template);
 
             if templates.is_empty() {
                 continue;
             }
 
-            let failures = validate_templates_in_dir(ref_dir, &specs, &arities);
+            let failures = validate_templates_in_dir(&corpus, ref_dir, &specs, &arities);
 
             assert!(
                 failures.is_empty(),
