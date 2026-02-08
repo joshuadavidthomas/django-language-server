@@ -316,20 +316,23 @@ impl DjangoDatabase {
         env_changed
     }
 
-    /// Query the Python inspector directly and update the project's inventory
-    /// and extraction results if they differ from the current values.
+    /// Refresh all inspector-derived data: inventory, external rules, and environment.
     ///
     /// This is a side-effect operation that bypasses Salsa tracked functions,
-    /// querying the inspector subprocess directly and only calling the Salsa
-    /// setter when the inventory has actually changed (Ruff/RA pattern).
-    ///
-    /// After updating the inventory, also extracts validation rules from the
-    /// registration modules found in the inventory (external modules only;
-    /// workspace files use tracked queries for automatic invalidation).
+    /// querying the inspector subprocess directly and only calling Salsa
+    /// setters when values have actually changed (Ruff/RA pattern).
     pub fn refresh_inspector(&mut self) {
-        let Some(project) = self.project() else {
-            return;
-        };
+        let new_inventory = self.query_inspector();
+        self.extract_external_rules(new_inventory.as_ref());
+        self.scan_environment();
+    }
+
+    /// Query the Python inspector subprocess and update the project's
+    /// template tag inventory if the result differs from the current value.
+    ///
+    /// Returns the new inventory for use by downstream refresh operations.
+    fn query_inspector(&mut self) -> Option<TemplateTags> {
+        let project = self.project()?;
 
         let interpreter = project.interpreter(self).clone();
         let root = project.root(self).clone();
@@ -348,13 +351,13 @@ impl DjangoDatabase {
             Ok(response) if response.ok => response.data.map(TemplateTags::from_response),
             Ok(response) => {
                 tracing::warn!(
-                    "refresh_inspector: inspector returned ok=false, error={:?}",
+                    "query_inspector: inspector returned ok=false, error={:?}",
                     response.error
                 );
                 None
             }
             Err(e) => {
-                tracing::error!("refresh_inspector: inspector query failed: {}", e);
+                tracing::error!("query_inspector: inspector query failed: {}", e);
                 None
             }
         };
@@ -365,11 +368,24 @@ impl DjangoDatabase {
                 .to(new_inventory.clone());
         }
 
-        // Extract rules from external registration modules only.
-        // Workspace modules are handled by `collect_workspace_extraction_results`
-        // which uses tracked Salsa queries for automatic invalidation on file change.
-        let new_extraction = new_inventory
-            .as_ref()
+        new_inventory
+    }
+
+    /// Extract validation rules from external (non-workspace) registration modules
+    /// and update the project's extracted rules if they differ.
+    ///
+    /// Workspace modules are handled separately by `collect_workspace_extraction_results`
+    /// which uses tracked Salsa queries for automatic invalidation on file change.
+    fn extract_external_rules(&mut self, inventory: Option<&TemplateTags>) {
+        let Some(project) = self.project() else {
+            return;
+        };
+
+        let interpreter = project.interpreter(self).clone();
+        let root = project.root(self).clone();
+        let pythonpath = project.pythonpath(self).clone();
+
+        let new_extraction = inventory
             .map(|inv| {
                 let modules = inv.registration_modules();
                 djls_project::extract_external_rules(&modules, &interpreter, &root, &pythonpath)
@@ -381,10 +397,22 @@ impl DjangoDatabase {
                 .set_extracted_external_rules(self)
                 .to(new_extraction);
         }
+    }
 
-        // Scan the Python environment for all templatetag libraries.
-        // This is a superset of the inspector inventory — it includes libraries
-        // from apps not in INSTALLED_APPS.
+    /// Scan the Python environment for all templatetag libraries and update
+    /// the project's environment inventory if the result differs.
+    ///
+    /// This discovers libraries beyond those in `INSTALLED_APPS`, providing
+    /// completions and diagnostics for libraries available but not loaded.
+    fn scan_environment(&mut self) {
+        let Some(project) = self.project() else {
+            return;
+        };
+
+        let interpreter = project.interpreter(self).clone();
+        let root = project.root(self).clone();
+        let pythonpath = project.pythonpath(self).clone();
+
         let search_paths = build_search_paths(&interpreter, &root, &pythonpath);
         let std_paths: Vec<std::path::PathBuf> = search_paths
             .iter()
