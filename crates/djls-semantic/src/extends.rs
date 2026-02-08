@@ -1,7 +1,6 @@
-use salsa::Accumulator;
-
 use djls_templates::Node;
 use djls_templates::NodeList;
+use salsa::Accumulator;
 
 use crate::Db;
 use crate::ValidationError;

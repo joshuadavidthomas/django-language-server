@@ -111,9 +111,7 @@ mod tests {
     #[salsa::db]
     impl crate::Db for TestDatabase {
         fn tag_specs(&self) -> crate::templatetags::TagSpecs {
-            self.custom_specs
-                .clone()
-                .unwrap_or_else(test_tag_specs)
+            self.custom_specs.clone().unwrap_or_else(test_tag_specs)
         }
 
         fn tag_index(&self) -> TagIndex<'_> {

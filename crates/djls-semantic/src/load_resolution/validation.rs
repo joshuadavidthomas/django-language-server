@@ -71,32 +71,14 @@ pub fn validate_tag_scoping(
                 // Check environment inventory: is the tag installed but not in INSTALLED_APPS?
                 if let Some(env_tags) = &env_tags {
                     if let Some(env_symbols) = env_tags.get(name.as_str()) {
-                        if env_symbols.len() == 1 {
-                            let sym = &env_symbols[0];
-                            ValidationErrorAccumulator(ValidationError::TagNotInInstalledApps {
-                                tag: name.clone(),
-                                app: sym.app_module.clone(),
-                                load_name: sym.library_load_name.clone(),
-                                span: marker_span,
-                            })
-                            .accumulate(db);
-                        } else {
-                            // Multiple candidates — include all in the message
-                            // Pick the first one for the primary diagnostic, list all apps
-                            let sym = &env_symbols[0];
-                            let mut msg_parts: Vec<String> = env_symbols
-                                .iter()
-                                .map(|s| format!("'{}' (app: {})", s.library_load_name, s.app_module))
-                                .collect();
-                            msg_parts.sort();
-                            ValidationErrorAccumulator(ValidationError::TagNotInInstalledApps {
-                                tag: name.clone(),
-                                app: sym.app_module.clone(),
-                                load_name: sym.library_load_name.clone(),
-                                span: marker_span,
-                            })
-                            .accumulate(db);
-                        }
+                        let sym = &env_symbols[0];
+                        ValidationErrorAccumulator(ValidationError::TagNotInInstalledApps {
+                            tag: name.clone(),
+                            app: sym.app_module.clone(),
+                            load_name: sym.library_load_name.clone(),
+                            span: marker_span,
+                        })
+                        .accumulate(db);
                         continue;
                     }
                 }
@@ -290,10 +272,8 @@ pub fn validate_load_libraries(
             if let Some(ref env) = env_inventory {
                 if env.has_library(lib_name) {
                     let env_libs = env.libraries_for_name(lib_name);
-                    let candidates: Vec<String> = env_libs
-                        .iter()
-                        .map(|lib| lib.app_module.clone())
-                        .collect();
+                    let candidates: Vec<String> =
+                        env_libs.iter().map(|lib| lib.app_module.clone()).collect();
                     let app = candidates.first().cloned().unwrap_or_default();
                     ValidationErrorAccumulator(ValidationError::LibraryNotInInstalledApps {
                         name: lib_name.to_string(),
@@ -1184,7 +1164,10 @@ mod tests {
     fn filter_in_env_but_not_installed_apps_produces_s119() {
         // Use a simple inventory without humanize — so intcomma is "unknown" to inspector
         let simple_tags = vec![builtin_tag_json("if", "django.template.defaulttags")];
-        let simple_filters = vec![builtin_filter_json("title", "django.template.defaultfilters")];
+        let simple_filters = vec![builtin_filter_json(
+            "title",
+            "django.template.defaultfilters",
+        )];
         let simple_inventory = make_inventory_with_filters(
             &simple_tags,
             &simple_filters,
@@ -1395,7 +1378,11 @@ mod tests {
                 name, candidates, ..
             } => {
                 assert_eq!(name, "utils");
-                assert_eq!(candidates.len(), 2, "Expected 2 candidates, got: {candidates:?}");
+                assert_eq!(
+                    candidates.len(),
+                    2,
+                    "Expected 2 candidates, got: {candidates:?}"
+                );
                 assert!(candidates.contains(&"app_a".to_string()));
                 assert!(candidates.contains(&"app_b".to_string()));
             }
@@ -1430,7 +1417,10 @@ mod tests {
                     if name == "xyz"
             )
         });
-        assert!(has_s121, "Expected LibraryNotInInstalledApps for 'humanize'");
+        assert!(
+            has_s121,
+            "Expected LibraryNotInInstalledApps for 'humanize'"
+        );
         assert!(has_s120, "Expected UnknownLibrary for 'xyz'");
     }
 

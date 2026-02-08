@@ -117,6 +117,7 @@ pub fn extract_rules(source: &str, module_path: &str) -> ExtractionResult {
                     };
                     if !tag_rule.arg_constraints.is_empty()
                         || !tag_rule.required_keywords.is_empty()
+                        || !tag_rule.choice_at_constraints.is_empty()
                         || tag_rule.known_options.is_some()
                         || !tag_rule.extracted_args.is_empty()
                     {

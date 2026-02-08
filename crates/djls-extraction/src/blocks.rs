@@ -1059,7 +1059,9 @@ fn has_dynamic_end_tag_format(body: &[Stmt]) -> bool {
 fn is_end_format_expr(expr: &Expr) -> bool {
     // `"end%s" % bits[0]`
     if let Expr::BinOp(ExprBinOp {
-        left, op: Operator::Mod, ..
+        left,
+        op: Operator::Mod,
+        ..
     }) = expr
     {
         if let Some(s) = get_string_constant(left) {

@@ -207,10 +207,9 @@ fn eval_compare(compare: &ExprCompare, env: &Env, constraints: &mut Constraints)
         if matches!(op, CmpOp::NotIn) {
             if let Some(values) = extract_string_collection(comparator) {
                 let position = index_to_i64(index);
-                constraints.choice_at_constraints.push(ChoiceAt {
-                    position,
-                    values,
-                });
+                constraints
+                    .choice_at_constraints
+                    .push(ChoiceAt { position, values });
             }
         }
         return;
@@ -298,8 +297,12 @@ fn eval_range_constraint(compare: &ExprCompare, env: &Env) -> Option<Vec<Argumen
     let max_val = if matches!(op2, CmpOp::LtE) {
         upper
     } else {
-        upper - 1
+        upper.checked_sub(1)?
     };
+
+    if min_val > max_val {
+        return None;
+    }
 
     Some(vec![
         ArgumentCountConstraint::Min(min_val + base_offset),
@@ -915,11 +918,7 @@ def do_tag(parser, token):
             c.choice_at_constraints,
             vec![ChoiceAt {
                 position: 1,
-                values: vec![
-                    "open".to_string(),
-                    "close".to_string(),
-                    "block".to_string()
-                ]
+                values: vec!["open".to_string(), "close".to_string(), "block".to_string()]
             }]
         );
     }

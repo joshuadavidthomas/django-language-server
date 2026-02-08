@@ -299,7 +299,10 @@ pub(crate) fn test_tag_specs() -> TagSpecs {
     let im = |name: &'static str| IntermediateTag { name: B(name) };
 
     // defaulttags
-    specs.insert("autoescape".into(), block(dt, "endautoescape", vec![], false));
+    specs.insert(
+        "autoescape".into(),
+        block(dt, "endautoescape", vec![], false),
+    );
     specs.insert("comment".into(), block(dt, "endcomment", vec![], true));
     specs.insert("csrf_token".into(), simple(dt));
     specs.insert("cycle".into(), simple(dt));

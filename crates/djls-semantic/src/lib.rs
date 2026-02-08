@@ -16,12 +16,12 @@ mod templatetags;
 mod traits;
 
 use arguments::validate_all_tag_arguments;
-use extends::validate_extends;
 pub use blocks::build_block_tree;
 pub use blocks::TagIndex;
 pub use db::Db;
 pub use db::ValidationErrorAccumulator;
 pub use errors::ValidationError;
+use extends::validate_extends;
 pub use filter_arity::FilterAritySpecs;
 use filter_validation::validate_filter_arity;
 use if_expression::validate_if_expressions;
@@ -805,8 +805,7 @@ mod tests {
     #[test]
     fn tag_before_extends_and_multiple_extends_s122_and_s123() {
         let db = standard_db();
-        let source =
-            r#"{% load i18n %}{% extends "a.html" %}{% extends "b.html" %}"#;
+        let source = r#"{% load i18n %}{% extends "a.html" %}{% extends "b.html" %}"#;
         let errors = collect_all_errors(&db, source);
         let s122: Vec<_> = errors
             .iter()
