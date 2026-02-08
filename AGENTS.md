@@ -35,6 +35,7 @@ just lint                        # Run pre-commit hooks
 - `crates/djls-project/` - Project/inspector types, Salsa inputs, module resolution
 - `crates/djls-source/` - Source DB, File type, path utilities, LSP protocol conversions
 - `crates/djls-conf/` - Settings and diagnostics configuration
+- `crates/djls-bench/` - Benchmark database (implements `SemanticDb`)
 - `crates/djls-corpus/` - Corpus syncing for integration tests
 
 ## Salsa Patterns
