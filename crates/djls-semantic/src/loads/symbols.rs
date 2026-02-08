@@ -200,6 +200,12 @@ impl AvailableSymbols {
         &self.available
     }
 
+    /// Returns the set of available filter names.
+    #[must_use]
+    pub fn available_filters(&self) -> &BTreeSet<String> {
+        &self.available_filters
+    }
+
     /// Returns the mapping of unavailable tag names to their candidate libraries.
     #[must_use]
     pub fn unavailable_candidates(&self) -> &BTreeMap<String, BTreeSet<String>> {

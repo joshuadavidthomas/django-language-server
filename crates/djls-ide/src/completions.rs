@@ -4,7 +4,9 @@
 //! and generating appropriate completion items for Django templates.
 
 use djls_extraction::ExtractedArgKind;
+use djls_project::TemplateFilter;
 use djls_project::TemplateSymbol;
+use djls_project::TemplateTag;
 use djls_project::TemplateTags;
 use djls_semantic::AvailableSymbols;
 use djls_semantic::TagSpecs;
@@ -15,6 +17,56 @@ use tower_lsp_server::ls_types;
 
 use crate::snippets::generate_partial_snippet;
 use crate::snippets::generate_snippet_for_tag_with_end;
+
+/// A template symbol that can generate LSP completion items.
+///
+/// Implemented for both `TemplateTag` and `TemplateFilter` to unify
+/// availability checking, completion kind, and detail string generation.
+trait CompletableSymbol: TemplateSymbol {
+    fn is_available(&self, symbols: &AvailableSymbols) -> bool;
+    fn completion_kind(&self) -> ls_types::CompletionItemKind;
+    fn completion_detail(&self) -> String;
+}
+
+impl CompletableSymbol for TemplateTag {
+    fn is_available(&self, symbols: &AvailableSymbols) -> bool {
+        symbols.available_tags().contains(self.name())
+    }
+
+    fn completion_kind(&self) -> ls_types::CompletionItemKind {
+        ls_types::CompletionItemKind::KEYWORD
+    }
+
+    fn completion_detail(&self) -> String {
+        if self.is_builtin() {
+            format!("builtin from {}", self.registration_module())
+        } else if let Some(load_name) = self.library_load_name() {
+            format!("{{% load {load_name} %}}")
+        } else {
+            format!("from {}", self.registration_module())
+        }
+    }
+}
+
+impl CompletableSymbol for TemplateFilter {
+    fn is_available(&self, symbols: &AvailableSymbols) -> bool {
+        symbols.available_filters().contains(self.name())
+    }
+
+    fn completion_kind(&self) -> ls_types::CompletionItemKind {
+        ls_types::CompletionItemKind::FUNCTION
+    }
+
+    fn completion_detail(&self) -> String {
+        if self.is_builtin() {
+            "builtin filter".to_string()
+        } else if let Some(load_name) = self.library_load_name() {
+            format!("{{% load {load_name} %}}")
+        } else {
+            "filter".to_string()
+        }
+    }
+}
 
 /// Tracks what closing characters are needed to complete a template tag.
 ///
@@ -507,11 +559,8 @@ fn generate_tag_name_completions(
     }
 
     for tag in tags.iter() {
-        // When available_symbols is provided (inspector healthy), only show tags
-        // that are available at the cursor position (builtins + loaded library tags).
-        // When None (inspector unavailable), show all tags as fallback.
         if let Some(symbols) = available_symbols {
-            if !symbols.available_tags().contains(tag.name()) {
+            if !tag.is_available(symbols) {
                 continue;
             }
         }
@@ -568,24 +617,16 @@ fn generate_tag_name_completions(
                 build_plain_insert_for_tag(tag.name(), needs_space, closing)
             };
 
-            // Create completion item
-            // Use SNIPPET kind when we're inserting a snippet, KEYWORD otherwise
             let kind = if matches!(insert_format, ls_types::InsertTextFormat::SNIPPET) {
                 ls_types::CompletionItemKind::SNIPPET
             } else {
-                ls_types::CompletionItemKind::KEYWORD
+                tag.completion_kind()
             };
 
             let completion_item = ls_types::CompletionItem {
                 label: tag.name().to_string(),
                 kind: Some(kind),
-                detail: Some(if tag.is_builtin() {
-                    format!("builtin from {}", tag.registration_module())
-                } else if let Some(load_name) = tag.library_load_name() {
-                    format!("{{% load {load_name} %}}")
-                } else {
-                    format!("from {}", tag.registration_module())
-                }),
+                detail: Some(tag.completion_detail()),
                 documentation: tag
                     .doc()
                     .map(|doc| ls_types::Documentation::String(doc.to_string())),
@@ -780,6 +821,53 @@ fn generate_library_completions(
     completions
 }
 
+/// Generate completion items from any collection of `CompletableSymbol`s.
+///
+/// Handles the common pattern: filter by availability → filter by prefix →
+/// build `CompletionItem` with kind/detail/documentation → sort → deduplicate.
+///
+/// When `available_symbols` is `Some` (inspector healthy), only symbols that are
+/// available at the cursor position (builtins + loaded library symbols) are shown.
+/// When `None` (inspector unavailable), all symbols are shown as a fallback.
+fn generate_completions<S: CompletableSymbol>(
+    symbols: &[S],
+    partial: &str,
+    available_symbols: Option<&AvailableSymbols>,
+) -> Vec<ls_types::CompletionItem> {
+    let mut completions = Vec::new();
+
+    for symbol in symbols {
+        if let Some(avail) = available_symbols {
+            if !symbol.is_available(avail) {
+                continue;
+            }
+        }
+
+        if !symbol.name().starts_with(partial) {
+            continue;
+        }
+
+        completions.push(ls_types::CompletionItem {
+            label: symbol.name().to_string(),
+            kind: Some(symbol.completion_kind()),
+            detail: Some(symbol.completion_detail()),
+            documentation: symbol
+                .doc()
+                .map(|doc| ls_types::Documentation::String(doc.to_string())),
+            insert_text: Some(symbol.name().to_string()),
+            insert_text_format: Some(ls_types::InsertTextFormat::PLAIN_TEXT),
+            filter_text: Some(symbol.name().to_string()),
+            sort_text: Some(format!("1_{}", symbol.name())),
+            ..Default::default()
+        });
+    }
+
+    completions.sort_by(|a, b| a.label.cmp(&b.label));
+    completions.dedup_by(|a, b| a.label == b.label);
+
+    completions
+}
+
 /// Generate completions for filter names in `{{ var|filter }}` context.
 ///
 /// When `available_symbols` is `Some` (inspector healthy), only shows builtin filters
@@ -794,58 +882,7 @@ fn generate_filter_completions(
         return Vec::new();
     };
 
-    let mut completions = Vec::new();
-
-    for filter in tags.filters() {
-        // When available_symbols is provided (inspector healthy), only show filters
-        // that are available at the cursor position (builtins + loaded library filters).
-        // When None (inspector unavailable), show all filters as fallback.
-        if let Some(symbols) = available_symbols {
-            let is_available = if filter.is_builtin() {
-                true
-            } else if let Some(lib) = filter.library_load_name() {
-                // Check if the filter's library is fully loaded, or if the
-                // filter was selectively imported via {% load name from lib %}
-                symbols.is_library_loaded(lib) || symbols.is_symbol_imported(lib, filter.name())
-            } else {
-                false
-            };
-            if !is_available {
-                continue;
-            }
-        }
-
-        if filter.name().starts_with(partial) {
-            let detail = if filter.is_builtin() {
-                "builtin filter".to_string()
-            } else if let Some(load_name) = filter.library_load_name() {
-                format!("{{% load {load_name} %}}")
-            } else {
-                "filter".to_string()
-            };
-
-            completions.push(ls_types::CompletionItem {
-                label: filter.name().to_string(),
-                kind: Some(ls_types::CompletionItemKind::FUNCTION),
-                detail: Some(detail),
-                documentation: filter
-                    .doc()
-                    .map(|doc| ls_types::Documentation::String(doc.to_string())),
-                insert_text: Some(filter.name().to_string()),
-                insert_text_format: Some(ls_types::InsertTextFormat::PLAIN_TEXT),
-                filter_text: Some(filter.name().to_string()),
-                sort_text: Some(format!("1_{}", filter.name())),
-                ..Default::default()
-            });
-        }
-    }
-
-    // Sort alphabetically for deterministic ordering
-    completions.sort_by(|a, b| a.label.cmp(&b.label));
-    // Deduplicate by label (a filter name may appear from both builtin and library)
-    completions.dedup_by(|a, b| a.label == b.label);
-
-    completions
+    generate_completions(tags.filters(), partial, available_symbols)
 }
 
 /// Build plain insert text without snippets for tag names
