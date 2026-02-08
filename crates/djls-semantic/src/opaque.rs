@@ -323,7 +323,27 @@ mod tests {
         let db = TestDatabase::new();
         let source = "{% verbatim %}opaque{% endverbatim %}after";
         let regions = compute_regions(&db, source);
-        // "after" starts at position 36
-        assert!(!regions.is_opaque(36));
+        // "after" starts at position 37 (past the closing "}" of endverbatim at 36)
+        assert!(!regions.is_opaque(37));
+    }
+
+    #[test]
+    fn test_verbatim_opaque_boundaries() {
+        let db = TestDatabase::new();
+        // "{% verbatim %}" = 0..14, "opaque" = 14..20, "{% endverbatim %}" = 20..37
+        let source = "{% verbatim %}opaque{% endverbatim %}";
+        let regions = compute_regions(&db, source);
+
+        // The opener tag itself is NOT opaque
+        assert!(!regions.is_opaque(0), "start of opener tag");
+        assert!(!regions.is_opaque(13), "end of opener tag");
+
+        // Content between the tags IS opaque
+        assert!(regions.is_opaque(14), "first byte of opaque content");
+        assert!(regions.is_opaque(19), "last byte of opaque content");
+
+        // The closer tag is NOT opaque
+        assert!(!regions.is_opaque(20), "start of closer tag");
+        assert!(!regions.is_opaque(35), "end of closer tag");
     }
 }

@@ -78,7 +78,7 @@
 </details>
 
 ### 6. `opaque.rs:321-328` — Off-by-one in test comment and assertion
-- **Status**: TODO
+- **Status**: DONE
 - **Severity**: Low (test imprecision)
 - **File**: `crates/djls-semantic/src/opaque.rs`
 - **Fix**: Counting positions: `{% verbatim %}` = 0–13, `opaque` = 14–19, `{% endverbatim %}` = 20–36, `after` = starts at **37**. Comment says position 36, assertion checks 36. Position 36 (closing `}` of endverbatim) is also not opaque, so the test passes—but it's testing the tag, not "after" as intended. Fix comment and assertion to use 37.
