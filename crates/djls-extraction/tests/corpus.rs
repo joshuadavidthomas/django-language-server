@@ -26,9 +26,9 @@ use std::collections::BTreeMap;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
-use djls_corpus::enumerate::FileKind;
 use djls_corpus::module_path_from_file;
 use djls_corpus::Corpus;
+use djls_corpus::FileKind;
 use djls_extraction::extract_rules;
 use djls_extraction::ArgumentCountConstraint;
 use djls_extraction::BlockTagSpec;

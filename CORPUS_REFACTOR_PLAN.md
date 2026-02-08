@@ -212,7 +212,7 @@ The `pub(crate)` predicate helpers (`in_pycache`, `has_py_extension`, etc.) stay
 | 2 | Merge extraction tests, migrate to `Corpus` | ✅ Done |
 | 3 | Consolidate semantic/server tests, kill venv path | ✅ Done |
 | 4 | Clap CLI | ✅ Done |
-| 5 | Enumerate cleanup | 🔲 Not started |
+| 5 | Enumerate cleanup | ✅ Done |
 
 Build and test after each step. Run `cargo insta test --accept --unreferenced delete` after steps that change snapshot names.
 

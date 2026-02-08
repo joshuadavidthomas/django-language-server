@@ -31,7 +31,7 @@ use camino::Utf8Component;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 
-use crate::enumerate::FileKind;
+pub use crate::enumerate::FileKind;
 
 pub mod enumerate;
 pub mod manifest;

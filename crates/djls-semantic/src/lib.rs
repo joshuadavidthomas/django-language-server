@@ -827,8 +827,8 @@ mod tests {
     // All tests skip gracefully when the corpus is unavailable.
     // Run `cargo run -p djls-corpus -- sync` to populate it.
 
-    use djls_corpus::enumerate::FileKind;
     use djls_corpus::Corpus;
+    use djls_corpus::FileKind;
 
     /// A test database using extraction-derived `TagSpecs`.
     ///
