@@ -6,7 +6,7 @@ use walkdir::WalkDir;
 
 /// What kind of corpus files to enumerate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FileKind {
+pub enum CorpusFileKind {
     /// Python modules containing templatetag/filter registrations.
     ///
     /// Matches `**/templatetags/**/*.py` (excluding `__init__.py`)
@@ -23,7 +23,7 @@ pub enum FileKind {
 
 /// Enumerate corpus files of a given kind under a directory.
 #[must_use]
-pub fn enumerate_files(root: &Utf8Path, kind: FileKind) -> Vec<Utf8PathBuf> {
+pub fn enumerate_files(root: &Utf8Path, kind: CorpusFileKind) -> Vec<Utf8PathBuf> {
     let mut files = Vec::new();
 
     for entry in WalkDir::new(root.as_std_path())
@@ -41,12 +41,12 @@ pub fn enumerate_files(root: &Utf8Path, kind: FileKind) -> Vec<Utf8PathBuf> {
         }
 
         let matches = match kind {
-            FileKind::ExtractionTarget => {
+            CorpusFileKind::ExtractionTarget => {
                 has_py_extension(path)
                     && path.file_name() != Some("__init__.py")
                     && (in_templatetags_dir(path_str) || is_core_template_module(path))
             }
-            FileKind::Template => {
+            CorpusFileKind::Template => {
                 has_template_extension(path)
                     && in_templates_dir(path_str)
                     && !path_str.contains("/docs/")

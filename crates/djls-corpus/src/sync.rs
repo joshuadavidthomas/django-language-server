@@ -23,7 +23,7 @@ fn http_client() -> anyhow::Result<reqwest::blocking::Client> {
 
 /// Whether a file path is relevant for corpus download.
 ///
-/// This is the union of all [`enumerate::FileKind`] predicates — it decides
+/// This is the union of all [`enumerate::CorpusFileKind`] predicates — it decides
 /// what to extract from tarballs during sync. The enumerate functions apply
 /// stricter filtering (e.g. excluding `__init__.py`, `docs/`, `tests/`).
 fn is_download_relevant(path: &str) -> bool {

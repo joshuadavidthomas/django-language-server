@@ -31,7 +31,7 @@ use camino::Utf8Component;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 
-pub use crate::enumerate::FileKind;
+pub use crate::enumerate::CorpusFileKind;
 
 pub mod enumerate;
 pub mod manifest;
@@ -105,18 +105,18 @@ impl Corpus {
     /// All extraction target files in the entire corpus.
     #[must_use]
     pub fn extraction_targets(&self) -> Vec<Utf8PathBuf> {
-        enumerate::enumerate_files(&self.root, FileKind::ExtractionTarget)
+        enumerate::enumerate_files(&self.root, CorpusFileKind::ExtractionTarget)
     }
 
     /// All template files in the entire corpus.
     #[must_use]
     pub fn templates(&self) -> Vec<Utf8PathBuf> {
-        enumerate::enumerate_files(&self.root, FileKind::Template)
+        enumerate::enumerate_files(&self.root, CorpusFileKind::Template)
     }
 
     /// Enumerate files of a given kind under a specific directory.
     #[must_use]
-    pub fn enumerate_files(&self, dir: &Utf8Path, kind: FileKind) -> Vec<Utf8PathBuf> {
+    pub fn enumerate_files(&self, dir: &Utf8Path, kind: CorpusFileKind) -> Vec<Utf8PathBuf> {
         enumerate::enumerate_files(dir, kind)
     }
 
@@ -136,7 +136,7 @@ impl Corpus {
     #[cfg(feature = "extraction")]
     #[must_use]
     pub fn extract_dir(&self, dir: &Utf8Path) -> djls_extraction::ExtractionResult {
-        let files = enumerate::enumerate_files(dir, FileKind::ExtractionTarget);
+        let files = enumerate::enumerate_files(dir, CorpusFileKind::ExtractionTarget);
         let mut combined = djls_extraction::ExtractionResult::default();
         for path in &files {
             if let Some(result) = self.extract_file(path) {
