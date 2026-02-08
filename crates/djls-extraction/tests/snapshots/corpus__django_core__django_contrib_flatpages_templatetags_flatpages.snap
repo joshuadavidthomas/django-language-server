@@ -1,0 +1,18 @@
+---
+source: crates/djls-extraction/tests/corpus.rs
+expression: snapshot(result)
+---
+tag_rules:
+  "django.contrib.flatpages.templatetags.flatpages::get_flatpages":
+    arg_constraints: []
+    required_keywords:
+      - position: -2
+        value: as
+      - position: -4
+        value: for
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    supports_as_var: false
+filter_arities: {}
+block_specs: {}

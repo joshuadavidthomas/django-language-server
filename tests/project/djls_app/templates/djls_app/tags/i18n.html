@@ -1,0 +1,37 @@
+{# i18n tags — trans, translate, blocktrans, blocktranslate #}
+
+{# ✗ S109: 'trans' requires {% load i18n %} #}
+{% trans "Before load" %}
+
+{% load i18n %}
+
+{# ✓ valid: trans (short form) #}
+{% trans "Hello" %}
+
+{# ✓ valid: trans with as #}
+{% trans "Hello" as greeting %}
+
+{# ✓ valid: translate (long form, same as trans) #}
+{% translate "Hello" %}
+
+{# ✓ valid: blocktrans #}
+{% blocktrans %}Hello, {{ name }}!{% endblocktrans %}
+
+{# ✓ valid: blocktrans with count for pluralization #}
+{% blocktrans count counter=items|length %}
+  There is {{ counter }} item.
+{% plural %}
+  There are {{ counter }} items.
+{% endblocktrans %}
+
+{# ✓ valid: blocktranslate (long form, same as blocktrans) #}
+{% blocktranslate %}Hello, {{ name }}!{% endblocktranslate %}
+
+{# ✓ valid: blocktranslate with with #}
+{% blocktranslate with name=user.get_full_name %}
+  Hello, {{ name }}!
+{% endblocktranslate %}
+
+{# ✗ S100: unclosed blocktrans #}
+{% blocktrans %}
+  Never closed.

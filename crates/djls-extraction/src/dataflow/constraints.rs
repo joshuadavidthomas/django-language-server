@@ -1,0 +1,959 @@
+//! Constraint extraction from if/raise conditions.
+//!
+//! Finds `if condition: raise TemplateSyntaxError(...)` patterns and
+//! interprets the condition against the abstract environment to produce
+//! `ArgumentCountConstraint` and `RequiredKeyword` values.
+
+use ruff_python_ast::BoolOp;
+use ruff_python_ast::CmpOp;
+use ruff_python_ast::Expr;
+use ruff_python_ast::ExprAttribute;
+use ruff_python_ast::ExprBoolOp;
+use ruff_python_ast::ExprCall;
+use ruff_python_ast::ExprCompare;
+use ruff_python_ast::ExprName;
+use ruff_python_ast::ExprStringLiteral;
+use ruff_python_ast::ExprUnaryOp;
+use ruff_python_ast::Stmt;
+use ruff_python_ast::StmtIf;
+use ruff_python_ast::StmtRaise;
+use ruff_python_ast::UnaryOp;
+
+use super::domain::AbstractValue;
+use super::domain::Env;
+use super::domain::Index;
+use super::eval::eval_expr;
+use super::eval::expr_as_positive_usize;
+use crate::types::ArgumentCountConstraint;
+use crate::types::ChoiceAt;
+use crate::types::RequiredKeyword;
+
+/// Collected constraints from analyzing a function body.
+#[derive(Debug, Default)]
+#[allow(clippy::struct_field_names)]
+pub struct Constraints {
+    pub arg_constraints: Vec<ArgumentCountConstraint>,
+    pub required_keywords: Vec<RequiredKeyword>,
+    pub choice_at_constraints: Vec<ChoiceAt>,
+}
+
+/// Extract constraints from a single if-statement using the current env state.
+///
+/// Called inline during statement processing so that constraints see the env
+/// as it exists at the point in the code where the if-statement appears,
+/// not the final env state after the entire function body has been processed.
+pub fn extract_from_if_inline(if_stmt: &StmtIf, env: &Env, constraints: &mut Constraints) {
+    if body_raises_template_syntax_error(&if_stmt.body) {
+        eval_condition(&if_stmt.test, env, constraints);
+    }
+
+    // Process elif/else clauses at this point too
+    for clause in &if_stmt.elif_else_clauses {
+        if body_raises_template_syntax_error(&clause.body) {
+            if let Some(test) = &clause.test {
+                eval_condition(test, env, constraints);
+            }
+        }
+    }
+
+    // NOTE: We do NOT recurse into nested if-statements here — that's handled
+    // by the caller (process_statements) as it walks into the body/clauses.
+}
+
+/// Evaluate a condition expression as a constraint.
+///
+/// The condition guards a `raise TemplateSyntaxError(...)`, so it describes
+/// when the code errors. Constraints capture what's valid (the negation).
+fn eval_condition(expr: &Expr, env: &Env, constraints: &mut Constraints) {
+    match expr {
+        // `or`: error when either side is true → each is an independent constraint
+        Expr::BoolOp(ExprBoolOp {
+            op: BoolOp::Or,
+            values,
+            ..
+        }) => {
+            for value in values {
+                eval_condition(value, env, constraints);
+            }
+        }
+
+        // `and`: error when both true → length constraints are protective guards,
+        // discard them but keep keyword constraints
+        Expr::BoolOp(ExprBoolOp {
+            op: BoolOp::And,
+            values,
+            ..
+        }) => {
+            for value in values {
+                let mut sub = Constraints::default();
+                eval_condition(value, env, &mut sub);
+                // arg_constraints intentionally dropped — under `and`, each
+                // constraint alone is insufficient to guarantee the error
+                constraints.required_keywords.extend(sub.required_keywords);
+            }
+        }
+
+        // Comparison: `len(bits) < 4` or `bits[2] != "as"`
+        Expr::Compare(compare) => {
+            eval_compare(compare, env, constraints);
+        }
+
+        // Negation: `not (2 <= len(bits) <= 4)` or `not len(bits) == 3`
+        Expr::UnaryOp(ExprUnaryOp {
+            op: UnaryOp::Not,
+            operand,
+            ..
+        }) => {
+            if let Expr::Compare(compare) = operand.as_ref() {
+                eval_negated_compare(compare, env, constraints);
+            }
+        }
+
+        _ => {}
+    }
+}
+
+fn eval_compare(compare: &ExprCompare, env: &Env, constraints: &mut Constraints) {
+    if compare.ops.is_empty() || compare.comparators.is_empty() {
+        return;
+    }
+
+    // Skip chained comparisons (e.g., `2 <= len(bits) <= 4`). The only
+    // meaningful chained comparison in error guards is the negated form
+    // (`not (2 <= len(bits) <= 4)`), handled by eval_negated_compare.
+    // Processing only the first pair of a chain produces wrong constraints.
+    if compare.ops.len() > 1 {
+        return;
+    }
+
+    let op = &compare.ops[0];
+    let left = &compare.left;
+    let comparator = &compare.comparators[0];
+
+    let left_val = eval_expr(left, env);
+    let right_val = eval_expr(comparator, env);
+
+    // len(split_result) vs integer
+    if let AbstractValue::SplitLength {
+        base_offset,
+        pops_from_end,
+    } = &left_val
+    {
+        if let Some(n) = expr_as_positive_usize(comparator) {
+            let offset = *base_offset + *pops_from_end;
+            let constraint = match op {
+                CmpOp::NotEq => Some(ArgumentCountConstraint::Exact(n + offset)),
+                CmpOp::Lt => Some(ArgumentCountConstraint::Min(n + offset)),
+                CmpOp::LtE => Some(ArgumentCountConstraint::Min(n + 1 + offset)),
+                CmpOp::Gt => Some(ArgumentCountConstraint::Max(n + offset)),
+                CmpOp::GtE if n > 0 => Some(ArgumentCountConstraint::Max(n - 1 + offset)),
+                _ => None,
+            };
+            if let Some(c) = constraint {
+                constraints.arg_constraints.push(c);
+            }
+            return;
+        }
+
+        // `len(bits) not in (2, 3, 4)` → valid counts are {2+offset, 3+offset, 4+offset}
+        if matches!(op, CmpOp::NotIn) {
+            if let Some(values) = extract_int_collection(comparator) {
+                let offset = *base_offset + *pops_from_end;
+                constraints
+                    .arg_constraints
+                    .push(ArgumentCountConstraint::OneOf(
+                        values.into_iter().map(|v| v + offset).collect(),
+                    ));
+                return;
+            }
+        }
+        return;
+    }
+
+    // Reversed: integer vs len(split_result), e.g. `4 < len(bits)`
+    if let AbstractValue::SplitLength {
+        base_offset,
+        pops_from_end,
+    } = &right_val
+    {
+        if let Some(n) = expr_as_positive_usize(left) {
+            let offset = *base_offset + *pops_from_end;
+            let constraint = match op {
+                CmpOp::Lt => Some(ArgumentCountConstraint::Max(n + offset)),
+                CmpOp::LtE if n > 0 => Some(ArgumentCountConstraint::Max(n - 1 + offset)),
+                CmpOp::Gt => Some(ArgumentCountConstraint::Min(n + offset)),
+                CmpOp::GtE => Some(ArgumentCountConstraint::Min(n + 1 + offset)),
+                _ => None,
+            };
+            if let Some(c) = constraint {
+                constraints.arg_constraints.push(c);
+            }
+        }
+        return;
+    }
+
+    // SplitElement vs string: `bits[N] != "keyword"`
+    if let AbstractValue::SplitElement { index } = &left_val {
+        if let Some(keyword) = extract_string_value(comparator) {
+            let position = index_to_i64(index);
+            constraints.required_keywords.push(RequiredKeyword {
+                position,
+                value: keyword,
+            });
+            return;
+        }
+
+        // SplitElement not in ("a", "b") → ChoiceAt constraint
+        if matches!(op, CmpOp::NotIn) {
+            if let Some(values) = extract_string_collection(comparator) {
+                let position = index_to_i64(index);
+                constraints
+                    .choice_at_constraints
+                    .push(ChoiceAt { position, values });
+            }
+        }
+        return;
+    }
+
+    // Reversed: string vs SplitElement: `"keyword" != bits[N]`
+    if let AbstractValue::SplitElement { index } = &right_val {
+        if let Some(keyword) = extract_string_value(left) {
+            let position = index_to_i64(index);
+            constraints.required_keywords.push(RequiredKeyword {
+                position,
+                value: keyword,
+            });
+        }
+    }
+}
+
+fn eval_negated_compare(compare: &ExprCompare, env: &Env, constraints: &mut Constraints) {
+    // Range: `not (2 <= len(bits) <= 4)` → valid range is min..=max
+    if compare.ops.len() == 2 && compare.comparators.len() == 2 {
+        if let Some(range_constraints) = eval_range_constraint(compare, env) {
+            constraints.arg_constraints.extend(range_constraints);
+            return;
+        }
+    }
+
+    // Simple negation: `not len(bits) == 3` → Exact(3)
+    if compare.ops.len() == 1 && compare.comparators.len() == 1 {
+        let left_val = eval_expr(&compare.left, env);
+        if let AbstractValue::SplitLength {
+            base_offset,
+            pops_from_end,
+        } = left_val
+        {
+            if let Some(n) = expr_as_positive_usize(&compare.comparators[0]) {
+                let offset = base_offset + pops_from_end;
+                let constraint = match &compare.ops[0] {
+                    CmpOp::Eq => Some(ArgumentCountConstraint::Exact(n + offset)),
+                    CmpOp::Lt if n > 0 => Some(ArgumentCountConstraint::Max(n - 1 + offset)),
+                    CmpOp::Gt => Some(ArgumentCountConstraint::Min(n + 1 + offset)),
+                    _ => None,
+                };
+                if let Some(c) = constraint {
+                    constraints.arg_constraints.push(c);
+                }
+            }
+        }
+    }
+}
+
+/// Extract range constraint from negated `not (CONST <=/<  len(var) <=/<  CONST)`.
+///
+/// Only valid in negated context: `not (2 <= len(bits) <= 4)` means "error when
+/// NOT in [2,4]", so the valid range IS [2,4] → `Min(2), Max(4)`.
+fn eval_range_constraint(compare: &ExprCompare, env: &Env) -> Option<Vec<ArgumentCountConstraint>> {
+    if compare.ops.len() != 2 || compare.comparators.len() != 2 {
+        return None;
+    }
+
+    let middle = eval_expr(&compare.comparators[0], env);
+    let AbstractValue::SplitLength {
+        base_offset,
+        pops_from_end,
+    } = middle
+    else {
+        return None;
+    };
+    let base_offset = base_offset + pops_from_end;
+
+    let lower = expr_as_positive_usize(&compare.left)?;
+    let upper = expr_as_positive_usize(&compare.comparators[1])?;
+
+    let op1 = &compare.ops[0];
+    let op2 = &compare.ops[1];
+
+    if !matches!(op1, CmpOp::Lt | CmpOp::LtE) || !matches!(op2, CmpOp::Lt | CmpOp::LtE) {
+        return None;
+    }
+
+    let min_val = if matches!(op1, CmpOp::LtE) {
+        lower
+    } else {
+        lower + 1
+    };
+    let max_val = if matches!(op2, CmpOp::LtE) {
+        upper
+    } else {
+        upper.checked_sub(1)?
+    };
+
+    if min_val > max_val {
+        return None;
+    }
+
+    Some(vec![
+        ArgumentCountConstraint::Min(min_val + base_offset),
+        ArgumentCountConstraint::Max(max_val + base_offset),
+    ])
+}
+
+fn index_to_i64(index: &Index) -> i64 {
+    match index {
+        Index::Forward(n) => i64::try_from(*n).unwrap_or(0),
+        Index::Backward(n) => -(i64::try_from(*n).unwrap_or(0)),
+    }
+}
+
+fn extract_string_value(expr: &Expr) -> Option<String> {
+    if let Expr::StringLiteral(ExprStringLiteral { value, .. }) = expr {
+        return Some(value.to_str().to_string());
+    }
+    None
+}
+
+fn extract_string_collection(expr: &Expr) -> Option<Vec<String>> {
+    let elements = match expr {
+        Expr::Tuple(t) => &t.elts,
+        Expr::List(l) => &l.elts,
+        Expr::Set(s) => &s.elts,
+        _ => return None,
+    };
+    let mut values = Vec::new();
+    for elt in elements {
+        values.push(extract_string_value(elt)?);
+    }
+    if values.is_empty() {
+        return None;
+    }
+    Some(values)
+}
+
+fn extract_int_collection(expr: &Expr) -> Option<Vec<usize>> {
+    let elements = match expr {
+        Expr::Tuple(t) => &t.elts,
+        Expr::List(l) => &l.elts,
+        Expr::Set(s) => &s.elts,
+        _ => return None,
+    };
+    let mut values = Vec::new();
+    for elt in elements {
+        values.push(expr_as_positive_usize(elt)?);
+    }
+    Some(values)
+}
+
+pub(super) fn body_raises_template_syntax_error(body: &[Stmt]) -> bool {
+    for stmt in body {
+        if let Stmt::Raise(StmtRaise { exc: Some(exc), .. }) = stmt {
+            if is_template_syntax_error_call(exc) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+pub(super) fn is_template_syntax_error_call(expr: &Expr) -> bool {
+    let Expr::Call(ExprCall { func, .. }) = expr else {
+        return false;
+    };
+    match func.as_ref() {
+        Expr::Name(ExprName { id, .. }) => id.as_str() == "TemplateSyntaxError",
+        Expr::Attribute(ExprAttribute { attr, .. }) => attr.as_str() == "TemplateSyntaxError",
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ruff_python_parser::parse_module;
+
+    use super::*;
+    use crate::dataflow::calls::HelperCache;
+    use crate::dataflow::domain::Env;
+    use crate::dataflow::eval::process_statements;
+    use crate::dataflow::eval::AnalysisContext;
+
+    fn extract_from_source(source: &str) -> Constraints {
+        let parsed = parse_module(source).expect("valid Python");
+        let module = parsed.into_syntax();
+        let func = module
+            .body
+            .into_iter()
+            .find_map(|s| {
+                if let Stmt::FunctionDef(f) = s {
+                    Some(f)
+                } else {
+                    None
+                }
+            })
+            .expect("no function found");
+
+        let parser_param = func
+            .parameters
+            .args
+            .first()
+            .map_or("parser", |p| p.parameter.name.as_str());
+        let token_param = func
+            .parameters
+            .args
+            .get(1)
+            .map_or("token", |p| p.parameter.name.as_str());
+
+        let mut env = Env::for_compile_function(parser_param, token_param);
+        let mut cache = HelperCache::new();
+        let mut ctx = AnalysisContext {
+            module_funcs: &[],
+            caller_name: func.name.as_str(),
+            call_depth: 0,
+            cache: &mut cache,
+            known_options: None,
+            constraints: Constraints::default(),
+        };
+        process_statements(&func.body, &mut env, &mut ctx);
+        ctx.constraints
+    }
+
+    #[test]
+    fn len_lt() {
+        let c = extract_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    if len(bits) < 2:
+        raise TemplateSyntaxError("err")
+"#,
+        );
+        assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Min(2)]);
+    }
+
+    #[test]
+    fn len_ne() {
+        let c = extract_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    if len(bits) != 4:
+        raise TemplateSyntaxError("err")
+"#,
+        );
+        assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Exact(4)]);
+    }
+
+    #[test]
+    fn len_gt() {
+        let c = extract_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    if len(bits) > 5:
+        raise TemplateSyntaxError("err")
+"#,
+        );
+        assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Max(5)]);
+    }
+
+    #[test]
+    fn len_le() {
+        let c = extract_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    if len(bits) <= 1:
+        raise TemplateSyntaxError("err")
+"#,
+        );
+        assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Min(2)]);
+    }
+
+    #[test]
+    fn len_ge() {
+        let c = extract_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    if len(bits) >= 5:
+        raise TemplateSyntaxError("err")
+"#,
+        );
+        assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Max(4)]);
+    }
+
+    #[test]
+    fn reversed_lt() {
+        let c = extract_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    if 4 < len(bits):
+        raise TemplateSyntaxError("err")
+"#,
+        );
+        assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Max(4)]);
+    }
+
+    #[test]
+    fn reversed_gt() {
+        let c = extract_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    if 4 > len(bits):
+        raise TemplateSyntaxError("err")
+"#,
+        );
+        assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Min(4)]);
+    }
+
+    #[test]
+    fn required_keyword_ne() {
+        let c = extract_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    if bits[2] != "as":
+        raise TemplateSyntaxError("err")
+"#,
+        );
+        assert!(c.arg_constraints.is_empty());
+        assert_eq!(
+            c.required_keywords,
+            vec![RequiredKeyword {
+                position: 2,
+                value: "as".to_string()
+            }]
+        );
+    }
+
+    #[test]
+    fn required_keyword_backward() {
+        let c = extract_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    if bits[-1] != "silent":
+        raise TemplateSyntaxError("err")
+"#,
+        );
+        assert_eq!(
+            c.required_keywords,
+            vec![RequiredKeyword {
+                position: -1,
+                value: "silent".to_string()
+            }]
+        );
+    }
+
+    #[test]
+    fn compound_or() {
+        let c = extract_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    if len(bits) != 3 or bits[1] != "as":
+        raise TemplateSyntaxError("err")
+"#,
+        );
+        assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Exact(3)]);
+        assert_eq!(
+            c.required_keywords,
+            vec![RequiredKeyword {
+                position: 1,
+                value: "as".to_string()
+            }]
+        );
+    }
+
+    #[test]
+    fn compound_and_discards_length() {
+        let c = extract_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    if len(bits) > 3 and bits[2] != "as":
+        raise TemplateSyntaxError("err")
+"#,
+        );
+        // Length discarded under `and`, only keyword kept
+        assert!(c.arg_constraints.is_empty());
+        assert_eq!(
+            c.required_keywords,
+            vec![RequiredKeyword {
+                position: 2,
+                value: "as".to_string()
+            }]
+        );
+    }
+
+    #[test]
+    fn negated_range() {
+        let c = extract_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    if not (2 <= len(bits) <= 4):
+        raise TemplateSyntaxError("err")
+"#,
+        );
+        assert_eq!(
+            c.arg_constraints,
+            vec![
+                ArgumentCountConstraint::Min(2),
+                ArgumentCountConstraint::Max(4)
+            ]
+        );
+    }
+
+    #[test]
+    fn len_not_in() {
+        let c = extract_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    if len(bits) not in (2, 3, 4):
+        raise TemplateSyntaxError("err")
+"#,
+        );
+        assert_eq!(
+            c.arg_constraints,
+            vec![ArgumentCountConstraint::OneOf(vec![2, 3, 4])]
+        );
+    }
+
+    #[test]
+    fn offset_adjustment_after_slice() {
+        let c = extract_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    bits = bits[1:]
+    if len(bits) < 3:
+        raise TemplateSyntaxError("err")
+"#,
+        );
+        // len(bits) < 3 with base_offset=1 → Min(3+1) = Min(4)
+        assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Min(4)]);
+    }
+
+    #[test]
+    fn multiple_raises() {
+        let c = extract_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    if len(bits) < 2:
+        raise TemplateSyntaxError("too few")
+    if len(bits) > 5:
+        raise TemplateSyntaxError("too many")
+"#,
+        );
+        assert_eq!(
+            c.arg_constraints,
+            vec![
+                ArgumentCountConstraint::Min(2),
+                ArgumentCountConstraint::Max(5)
+            ]
+        );
+    }
+
+    #[test]
+    fn nested_if_raise() {
+        let c = extract_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    if len(bits) >= 3:
+        if bits[2] != "as":
+            raise TemplateSyntaxError("err")
+"#,
+        );
+        assert_eq!(
+            c.required_keywords,
+            vec![RequiredKeyword {
+                position: 2,
+                value: "as".to_string()
+            }]
+        );
+    }
+
+    #[test]
+    fn elif_raise() {
+        let c = extract_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    if len(bits) < 2:
+        raise TemplateSyntaxError("too few")
+    elif len(bits) > 4:
+        raise TemplateSyntaxError("too many")
+"#,
+        );
+        assert_eq!(
+            c.arg_constraints,
+            vec![
+                ArgumentCountConstraint::Min(2),
+                ArgumentCountConstraint::Max(4)
+            ]
+        );
+    }
+
+    #[test]
+    fn non_template_syntax_error_ignored() {
+        let c = extract_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    if len(bits) < 2:
+        raise ValueError("not a template error")
+"#,
+        );
+        assert!(c.arg_constraints.is_empty());
+    }
+
+    #[test]
+    fn regroup_pattern_end_to_end() {
+        let c = extract_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    if len(bits) != 6:
+        raise TemplateSyntaxError("err")
+    if bits[2] != "by":
+        raise TemplateSyntaxError("err")
+    if bits[4] != "as":
+        raise TemplateSyntaxError("err")
+"#,
+        );
+        assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Exact(6)]);
+        assert_eq!(
+            c.required_keywords,
+            vec![
+                RequiredKeyword {
+                    position: 2,
+                    value: "by".to_string()
+                },
+                RequiredKeyword {
+                    position: 4,
+                    value: "as".to_string()
+                }
+            ]
+        );
+    }
+
+    #[test]
+    fn unknown_variable_produces_no_constraint() {
+        let c = extract_from_source(
+            r#"
+def do_tag(parser, token):
+    if len(unknown_var) < 2:
+        raise TemplateSyntaxError("err")
+"#,
+        );
+        assert!(c.arg_constraints.is_empty());
+    }
+
+    #[test]
+    fn keyword_from_reversed_comparison() {
+        let c = extract_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    if "as" != bits[2]:
+        raise TemplateSyntaxError("err")
+"#,
+        );
+        assert_eq!(
+            c.required_keywords,
+            vec![RequiredKeyword {
+                position: 2,
+                value: "as".to_string()
+            }]
+        );
+    }
+
+    #[test]
+    fn star_unpack_then_constraint() {
+        let c = extract_from_source(
+            r#"
+def do_tag(parser, token):
+    tag_name, *rest = token.split_contents()
+    if len(rest) < 2:
+        raise TemplateSyntaxError("err")
+"#,
+        );
+        // rest has base_offset=1, so Min(2+1) = Min(3)
+        assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Min(3)]);
+    }
+
+    #[test]
+    fn pop_0_offset_adjusted_constraint() {
+        let c = extract_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    bits.pop(0)
+    if len(bits) < 3:
+        raise TemplateSyntaxError("err")
+"#,
+        );
+        // len(bits) < 3 where bits has base_offset=1 → Min(3+1) = Min(4)
+        assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Min(4)]);
+    }
+
+    #[test]
+    fn end_pop_adjusted_constraint() {
+        let c = extract_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    bits.pop()
+    bits.pop()
+    if len(bits) != 1:
+        raise TemplateSyntaxError("err")
+"#,
+        );
+        // len(bits) != 1 where bits has pops_from_end=2 → Exact(1+0+2) = Exact(3)
+        assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Exact(3)]);
+    }
+
+    #[test]
+    fn combined_pop_front_and_end() {
+        let c = extract_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    bits.pop(0)
+    bits.pop()
+    if len(bits) < 2:
+        raise TemplateSyntaxError("err")
+"#,
+        );
+        // base_offset=1, pops_from_end=1 → Min(2+1+1) = Min(4)
+        assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Min(4)]);
+    }
+
+    #[test]
+    fn pop_0_with_assignment_then_constraint() {
+        let c = extract_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    tag_name = bits.pop(0)
+    if len(bits) < 2:
+        raise TemplateSyntaxError("err")
+"#,
+        );
+        // After pop(0): base_offset=1 → Min(2+1) = Min(3)
+        assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Min(3)]);
+    }
+
+    #[test]
+    fn choice_at_not_in_tuple() {
+        let c = extract_from_source(
+            r#"
+def do_tag(parser, token):
+    args = token.split_contents()
+    if args[1] not in ("on", "off"):
+        raise TemplateSyntaxError("err")
+"#,
+        );
+        assert!(c.arg_constraints.is_empty());
+        assert!(c.required_keywords.is_empty());
+        assert_eq!(
+            c.choice_at_constraints,
+            vec![ChoiceAt {
+                position: 1,
+                values: vec!["on".to_string(), "off".to_string()]
+            }]
+        );
+    }
+
+    #[test]
+    fn choice_at_autoescape_pattern() {
+        let c = extract_from_source(
+            r#"
+def do_tag(parser, token):
+    args = token.split_contents()
+    if len(args) != 2:
+        raise TemplateSyntaxError("err")
+    arg = args[1]
+    if arg not in ("on", "off"):
+        raise TemplateSyntaxError("err")
+"#,
+        );
+        assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Exact(2)]);
+        assert_eq!(
+            c.choice_at_constraints,
+            vec![ChoiceAt {
+                position: 1,
+                values: vec!["on".to_string(), "off".to_string()]
+            }]
+        );
+    }
+
+    #[test]
+    fn choice_at_with_list() {
+        let c = extract_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    if bits[1] not in ["open", "close", "block"]:
+        raise TemplateSyntaxError("err")
+"#,
+        );
+        assert_eq!(
+            c.choice_at_constraints,
+            vec![ChoiceAt {
+                position: 1,
+                values: vec!["open".to_string(), "close".to_string(), "block".to_string()]
+            }]
+        );
+    }
+
+    #[test]
+    fn choice_at_negative_index() {
+        let c = extract_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    if bits[-1] not in ("yes", "no"):
+        raise TemplateSyntaxError("err")
+"#,
+        );
+        assert_eq!(
+            c.choice_at_constraints,
+            vec![ChoiceAt {
+                position: -1,
+                values: vec!["yes".to_string(), "no".to_string()]
+            }]
+        );
+    }
+
+    #[test]
+    fn no_choice_at_for_single_string() {
+        // Single string comparison → RequiredKeyword, NOT ChoiceAt
+        let c = extract_from_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    if bits[1] != "as":
+        raise TemplateSyntaxError("err")
+"#,
+        );
+        assert!(c.choice_at_constraints.is_empty());
+        assert_eq!(c.required_keywords.len(), 1);
+    }
+}

@@ -1,0 +1,33 @@
+{# Structural diagnostics — always available, no Python runtime needed #}
+
+{# ── S100: UnclosedTag ── #}
+{% if unclosed %}
+  <p>This if is never closed.</p>
+
+
+{# ── S101: UnbalancedStructure ── #}
+{# A closing tag with no matching opener on the stack. #}
+{% endfor %}
+
+
+{# ── S102: OrphanedTag ── #}
+{# Intermediate tags with no parent block. #}
+{% else %}
+{% elif orphaned %}
+{% empty %}
+{% plural %}
+
+
+{# ── S103: UnmatchedBlockName ── #}
+{% block sidebar %}
+  <nav>Sidebar</nav>
+{% endblock wrong_name %}
+
+
+{# ── S114: ExpressionSyntaxError ── #}
+{% if and %}{% endif %}
+{% if x or %}{% endif %}
+{% if not %}{% endif %}
+{% if x y %}{% endif %}
+{% if or x %}{% endif %}
+{% if %}{% endif %}

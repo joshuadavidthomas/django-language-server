@@ -1,0 +1,22 @@
+{# regroup — Exact(6), required keywords: 'by' at position 2, 'as' at position 4 #}
+
+{# ✓ valid #}
+{% regroup items by category as grouped %}
+
+{# ✗ S117: no arguments (split_len=1, need 6) #}
+{% regroup %}
+
+{# ✗ S117: too few arguments #}
+{% regroup items %}
+{% regroup items by %}
+{% regroup items by category %}
+{% regroup items by category as %}
+
+{# ✗ S117: too many arguments (split_len=7, need 6) #}
+{% regroup items by category as grouped extra %}
+
+{# ✗ S117: wrong keyword at position 2 (expected 'by') #}
+{% regroup items WRONG category as grouped %}
+
+{# ✗ S117: wrong keyword at position 4 (expected 'as') #}
+{% regroup items by category WRONG grouped %}

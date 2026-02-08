@@ -1,0 +1,15 @@
+{# now — Exact(2): requires exactly one argument (format string) #}
+
+{# ✓ valid: format string #}
+{% now "Y-m-d" %}
+{% now "jS F Y H:i" %}
+
+{# NOTE: {% now "Y" as year %} is also valid (4 tokens) but the
+   extraction sees Exact(2) from the primary code path. The "as"
+   form is handled by a separate branch in Django's source. #}
+
+{# ✗ S117: no arguments (split_len=1, need 2) #}
+{% now %}
+
+{# ✗ S117: too many arguments (split_len=3, need 2) #}
+{% now "Y" "m" %}

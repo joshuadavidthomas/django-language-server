@@ -187,7 +187,7 @@ mod tests {
     use crate::blocks::grammar::TagIndex;
     use crate::blocks::snapshot::BlockTreeSnapshot;
     use crate::build_block_tree;
-    use crate::templatetags::django_builtin_specs;
+    use crate::templatetags::test_tag_specs;
     use crate::TagSpecs;
 
     #[salsa::db]
@@ -237,7 +237,7 @@ mod tests {
     #[salsa::db]
     impl crate::Db for TestDatabase {
         fn tag_specs(&self) -> TagSpecs {
-            django_builtin_specs()
+            test_tag_specs()
         }
 
         fn tag_index(&self) -> TagIndex<'_> {
@@ -250,6 +250,18 @@ mod tests {
 
         fn diagnostics_config(&self) -> djls_conf::DiagnosticsConfig {
             djls_conf::DiagnosticsConfig::default()
+        }
+
+        fn inspector_inventory(&self) -> Option<djls_project::TemplateTags> {
+            None
+        }
+
+        fn filter_arity_specs(&self) -> crate::filters::arity::FilterAritySpecs {
+            crate::filters::arity::FilterAritySpecs::new()
+        }
+
+        fn environment_inventory(&self) -> Option<djls_extraction::EnvironmentInventory> {
+            None
         }
     }
 
@@ -299,7 +311,7 @@ mod tests {
                 },
                 Variable {
                     var: String,
-                    filters: Vec<String>,
+                    filters: Vec<djls_templates::Filter>,
                     span: Span,
                 },
                 Comment {
@@ -352,5 +364,32 @@ mod tests {
         insta::assert_yaml_snapshot!("nodelist", nodelist_view);
         let block_tree = build_block_tree(&db, nodelist);
         insta::assert_yaml_snapshot!("blocktree", BlockTreeSnapshot::from_tree(block_tree, &db));
+    }
+
+    #[test]
+    fn test_endblock_name_mismatch() {
+        let db = TestDatabase::new();
+
+        let source = r"
+{% block content %}
+    <p>Hello</p>
+{% endblock fdsaf %}
+";
+
+        db.add_file("test.html", source);
+        let file = File::new(&db, "test.html".into(), 0);
+        let nodelist = parse_template(&db, file).expect("should parse");
+        let errors =
+            build_block_tree::accumulated::<crate::ValidationErrorAccumulator>(&db, nodelist);
+        assert_eq!(errors.len(), 1);
+        assert!(
+            matches!(
+                &errors[0].0,
+                crate::ValidationError::UnmatchedBlockName { expected, got, .. }
+                    if expected == "content" && got == "fdsaf"
+            ),
+            "Expected UnmatchedBlockName, got: {:?}",
+            errors[0].0
+        );
     }
 }

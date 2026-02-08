@@ -1,0 +1,24 @@
+{# ifchanged — block tag, no argument validation #}
+
+{# ✓ valid: check rendered output #}
+{% for item in items %}
+  {% ifchanged %}
+    {{ item.category }}
+  {% endifchanged %}
+{% endfor %}
+
+{# ✓ valid: check specific variables #}
+{% for item in items %}
+  {% ifchanged item.category %}
+    <h2>{{ item.category }}</h2>
+  {% endifchanged %}
+{% endfor %}
+
+{# ✓ valid: with else #}
+{% for item in items %}
+  {% ifchanged item.category %}
+    <h2>{{ item.category }}</h2>
+  {% else %}
+    <hr>
+  {% endifchanged %}
+{% endfor %}

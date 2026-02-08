@@ -1,0 +1,12 @@
+{# spaceless — block tag, no argument validation #}
+
+{# ✓ valid #}
+{% spaceless %}
+  <p>
+    <a href="/">Home</a>
+  </p>
+{% endspaceless %}
+
+{# ✗ S100: unclosed spaceless #}
+{% spaceless %}
+  <p>Never closed.</p>

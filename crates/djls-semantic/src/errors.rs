@@ -22,35 +22,97 @@ pub enum ValidationError {
         closing_span: Option<Span>,
     },
 
-    #[error("endblock '{name}' does not match any open block")]
-    UnmatchedBlockName { name: String, span: Span },
-
-    #[error("Tag '{tag}' requires at least {min} argument{}", if *.min == 1 { "" } else { "s" })]
-    MissingRequiredArguments { tag: String, min: usize, span: Span },
-
-    #[error("Tag '{tag}' accepts at most {max} argument{}", if *.max == 1 { "" } else { "s" })]
-    TooManyArguments { tag: String, max: usize, span: Span },
-
-    #[error("Tag '{tag}' is missing required argument '{argument}'")]
-    MissingArgument {
-        tag: String,
-        argument: String,
-        span: Span,
-    },
-
-    #[error("Tag '{tag}' expects literal '{expected}'")]
-    InvalidLiteralArgument {
-        tag: String,
+    #[error("'{got}' does not match '{expected}'")]
+    UnmatchedBlockName {
         expected: String,
+        got: String,
         span: Span,
     },
 
-    #[error("Tag '{tag}' argument '{argument}' must be one of {choices:?}")]
-    InvalidArgumentChoice {
+    #[error("Unknown tag '{tag}'")]
+    UnknownTag { tag: String, span: Span },
+
+    #[error("Tag '{tag}' requires {{% load {library} %}}")]
+    UnloadedTag {
         tag: String,
-        argument: String,
-        choices: Vec<String>,
-        value: String,
+        library: String,
         span: Span,
     },
+
+    #[error("Tag '{tag}' is defined in multiple libraries: {libraries:?}")]
+    AmbiguousUnloadedTag {
+        tag: String,
+        libraries: Vec<String>,
+        span: Span,
+    },
+
+    #[error("Unknown filter '{filter}'")]
+    UnknownFilter { filter: String, span: Span },
+
+    #[error("Filter '{filter}' requires {{% load {library} %}}")]
+    UnloadedFilter {
+        filter: String,
+        library: String,
+        span: Span,
+    },
+
+    #[error("Filter '{filter}' is defined in multiple libraries: {libraries:?}")]
+    AmbiguousUnloadedFilter {
+        filter: String,
+        libraries: Vec<String>,
+        span: Span,
+    },
+
+    #[error("{message}")]
+    ExpressionSyntaxError {
+        tag: String,
+        message: String,
+        span: Span,
+    },
+
+    #[error("Filter '{filter}' requires an argument")]
+    FilterMissingArgument { filter: String, span: Span },
+
+    #[error("Filter '{filter}' does not accept an argument")]
+    FilterUnexpectedArgument { filter: String, span: Span },
+
+    #[error("{message}")]
+    ExtractedRuleViolation {
+        tag: String,
+        message: String,
+        span: Span,
+    },
+
+    #[error("Tag '{tag}' requires '{app}' in INSTALLED_APPS")]
+    TagNotInInstalledApps {
+        tag: String,
+        app: String,
+        load_name: String,
+        span: Span,
+    },
+
+    #[error("Filter '{filter}' requires '{app}' in INSTALLED_APPS")]
+    FilterNotInInstalledApps {
+        filter: String,
+        app: String,
+        load_name: String,
+        span: Span,
+    },
+
+    #[error("Unknown template tag library '{name}'")]
+    UnknownLibrary { name: String, span: Span },
+
+    #[error("Template tag library '{name}' requires '{app}' in INSTALLED_APPS")]
+    LibraryNotInInstalledApps {
+        name: String,
+        app: String,
+        candidates: Vec<String>,
+        span: Span,
+    },
+
+    #[error("'{{% extends %}}' must be the first tag in the template")]
+    ExtendsMustBeFirst { span: Span },
+
+    #[error("'{{% extends %}}' cannot appear more than once in the same template")]
+    MultipleExtends { span: Span },
 }

@@ -45,8 +45,15 @@ nodelist:
   - type: Variable
     var: user.name
     filters:
-      - title
-      - "default:'Guest'"
+      - name: title
+        span:
+          - 574
+          - 5
+      - name: default
+        arg: "'Guest'"
+        span:
+          - 580
+          - 15
     span:
       - 563
       - 33

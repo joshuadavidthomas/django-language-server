@@ -1,0 +1,13 @@
+---
+source: crates/djls-extraction/src/lib.rs
+expression: "snapshot(extract_rules(source, \"django.template.defaulttags\"))"
+---
+tag_rules: {}
+filter_arities: {}
+block_specs:
+  "django.template.defaulttags::if":
+    end_tag: endif
+    intermediates:
+      - elif
+      - else
+    opaque: false

@@ -1,0 +1,17 @@
+{# cycle — Min(2): requires at least one value argument #}
+
+{# ✓ valid: anonymous cycle with multiple values #}
+{% cycle "row1" "row2" %}
+{% cycle "a" "b" "c" %}
+
+{# ✓ valid: cycle with variables #}
+{% cycle var1 var2 var3 %}
+
+{# ✓ valid: named cycle declaration #}
+{% cycle "row1" "row2" as rowcolors %}
+
+{# ✓ valid: silent named cycle #}
+{% cycle "row1" "row2" "row3" as rowcolors silent %}
+
+{# ✗ S117: no arguments (split_len=1, need ≥2) #}
+{% cycle %}

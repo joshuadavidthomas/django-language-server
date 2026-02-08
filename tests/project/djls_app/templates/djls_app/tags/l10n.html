@@ -1,0 +1,22 @@
+{# localize — block tag, requires {% load l10n %} #}
+
+{# ✗ S109: 'localize' requires {% load l10n %} #}
+{% localize on %}
+  {{ value }}
+{% endlocalize %}
+
+{% load l10n %}
+
+{# ✓ valid: enable localization #}
+{% localize on %}
+  {{ value }}
+{% endlocalize %}
+
+{# ✓ valid: disable localization #}
+{% localize off %}
+  {{ value }}
+{% endlocalize %}
+
+{# ✗ S100: unclosed localize #}
+{% localize on %}
+  <p>Never closed.</p>

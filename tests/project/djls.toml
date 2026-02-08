@@ -1,0 +1,1 @@
+django_settings_module = "djls_test.settings"

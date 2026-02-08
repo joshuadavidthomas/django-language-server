@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 djls-conf = { workspace = true }
+djls-extraction = { workspace = true }
 djls-project = { workspace = true }
 djls-semantic = { workspace = true }
 djls-source = { workspace = true }
@@ -15,6 +16,9 @@ camino = { workspace = true }
 salsa = { workspace = true }
 tower-lsp-server = { workspace = true }
 tracing = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
 
 [lints]
 workspace = true

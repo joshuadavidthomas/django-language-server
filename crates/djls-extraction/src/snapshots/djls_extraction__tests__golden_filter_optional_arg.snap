@@ -1,0 +1,10 @@
+---
+source: crates/djls-extraction/src/lib.rs
+expression: "snapshot(extract_rules(source, \"django.template.defaultfilters\"))"
+---
+tag_rules: {}
+filter_arities:
+  "django.template.defaultfilters::truncatewords":
+    expects_arg: true
+    arg_optional: true
+block_specs: {}

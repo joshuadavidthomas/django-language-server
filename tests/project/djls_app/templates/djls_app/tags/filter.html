@@ -1,0 +1,15 @@
+{# filter — block tag, no extraction rules for argument count #}
+
+{# ✓ valid #}
+{% filter lower %}
+  THIS WILL BE LOWERCASED
+{% endfilter %}
+
+{# ✓ valid: chained filters #}
+{% filter lower|truncatewords:5 %}
+  This is some text that will be lowered and truncated.
+{% endfilter %}
+
+{# ✗ S100: unclosed filter #}
+{% filter upper %}
+  Never closed.

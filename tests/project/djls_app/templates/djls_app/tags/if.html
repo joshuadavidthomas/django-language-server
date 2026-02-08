@@ -1,0 +1,63 @@
+{# if — S114 expression syntax validation #}
+
+{# ✓ valid: simple condition #}
+{% if user.is_authenticated %}
+  <p>Welcome!</p>
+{% endif %}
+
+{# ✓ valid: with elif and else #}
+{% if user.is_superuser %}
+  <p>Admin</p>
+{% elif user.is_staff %}
+  <p>Staff</p>
+{% else %}
+  <p>User</p>
+{% endif %}
+
+{# ✓ valid: boolean operators #}
+{% if x and y %}{% endif %}
+{% if x or y %}{% endif %}
+{% if not x %}{% endif %}
+
+{# ✓ valid: comparison operators #}
+{% if x == y %}{% endif %}
+{% if x != y %}{% endif %}
+{% if x > y %}{% endif %}
+{% if x >= y %}{% endif %}
+{% if x < y %}{% endif %}
+{% if x <= y %}{% endif %}
+{% if x in items %}{% endif %}
+{% if x not in items %}{% endif %}
+{% if x is None %}{% endif %}
+{% if x is not None %}{% endif %}
+
+{# ✓ valid: filters in conditions #}
+{% if items|length > 0 %}{% endif %}
+
+{# ✓ valid: grouping #}
+{% if x or y and z %}{% endif %}
+
+{# ✗ S114: operator in operand position #}
+{% if and %}{% endif %}
+{% if or x %}{% endif %}
+
+{# ✗ S114: missing right operand #}
+{% if x or %}{% endif %}
+{% if x and %}{% endif %}
+
+{# ✗ S114: dangling unary operator #}
+{% if not %}{% endif %}
+
+{# ✗ S114: missing operator between operands #}
+{% if x y %}{% endif %}
+
+{# ✗ S114: empty expression #}
+{% if %}{% endif %}
+
+{# ✗ S102: orphaned else and elif #}
+{% else %}
+{% elif orphaned %}
+
+{# ✗ S100: unclosed if #}
+{% if unclosed %}
+  <p>Never closed.</p>

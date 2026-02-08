@@ -1,0 +1,26 @@
+---
+source: crates/djls-semantic/src/lib.rs
+expression: errors
+---
+- ExpressionSyntaxError:
+    tag: if
+    message: "Not expecting 'and' in this position in if tag."
+    span:
+      start: 0
+      length: 14
+- FilterUnexpectedArgument:
+    filter: title
+    span:
+      start: 38
+      length: 11
+- FilterMissingArgument:
+    filter: truncatewords
+    span:
+      start: 61
+      length: 13
+- UnloadedTag:
+    tag: trans
+    library: i18n
+    span:
+      start: 78
+      length: 19

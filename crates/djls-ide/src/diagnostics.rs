@@ -60,11 +60,22 @@ impl DiagnosticError for ValidationError {
             ValidationError::UnclosedTag { span, .. }
             | ValidationError::OrphanedTag { span, .. }
             | ValidationError::UnmatchedBlockName { span, .. }
-            | ValidationError::MissingRequiredArguments { span, .. }
-            | ValidationError::TooManyArguments { span, .. }
-            | ValidationError::MissingArgument { span, .. }
-            | ValidationError::InvalidLiteralArgument { span, .. }
-            | ValidationError::InvalidArgumentChoice { span, .. } => Some(span.into()),
+            | ValidationError::UnknownTag { span, .. }
+            | ValidationError::UnloadedTag { span, .. }
+            | ValidationError::AmbiguousUnloadedTag { span, .. }
+            | ValidationError::UnknownFilter { span, .. }
+            | ValidationError::UnloadedFilter { span, .. }
+            | ValidationError::AmbiguousUnloadedFilter { span, .. }
+            | ValidationError::ExpressionSyntaxError { span, .. }
+            | ValidationError::FilterMissingArgument { span, .. }
+            | ValidationError::FilterUnexpectedArgument { span, .. }
+            | ValidationError::ExtractedRuleViolation { span, .. }
+            | ValidationError::TagNotInInstalledApps { span, .. }
+            | ValidationError::FilterNotInInstalledApps { span, .. }
+            | ValidationError::UnknownLibrary { span, .. }
+            | ValidationError::LibraryNotInInstalledApps { span, .. }
+            | ValidationError::ExtendsMustBeFirst { span, .. }
+            | ValidationError::MultipleExtends { span, .. } => Some(span.into()),
         }
     }
 
@@ -74,11 +85,22 @@ impl DiagnosticError for ValidationError {
             ValidationError::UnbalancedStructure { .. } => "S101",
             ValidationError::OrphanedTag { .. } => "S102",
             ValidationError::UnmatchedBlockName { .. } => "S103",
-            ValidationError::MissingRequiredArguments { .. }
-            | ValidationError::MissingArgument { .. } => "S104",
-            ValidationError::TooManyArguments { .. } => "S105",
-            ValidationError::InvalidLiteralArgument { .. } => "S106",
-            ValidationError::InvalidArgumentChoice { .. } => "S107",
+            ValidationError::UnknownTag { .. } => "S108",
+            ValidationError::UnloadedTag { .. } => "S109",
+            ValidationError::AmbiguousUnloadedTag { .. } => "S110",
+            ValidationError::UnknownFilter { .. } => "S111",
+            ValidationError::UnloadedFilter { .. } => "S112",
+            ValidationError::AmbiguousUnloadedFilter { .. } => "S113",
+            ValidationError::ExpressionSyntaxError { .. } => "S114",
+            ValidationError::FilterMissingArgument { .. } => "S115",
+            ValidationError::FilterUnexpectedArgument { .. } => "S116",
+            ValidationError::ExtractedRuleViolation { .. } => "S117",
+            ValidationError::TagNotInInstalledApps { .. } => "S118",
+            ValidationError::FilterNotInInstalledApps { .. } => "S119",
+            ValidationError::UnknownLibrary { .. } => "S120",
+            ValidationError::LibraryNotInInstalledApps { .. } => "S121",
+            ValidationError::ExtendsMustBeFirst { .. } => "S122",
+            ValidationError::MultipleExtends { .. } => "S123",
         }
     }
 }

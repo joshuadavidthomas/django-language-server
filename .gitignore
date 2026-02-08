@@ -196,3 +196,8 @@ trace.json
 
 # lsp-devtools db
 djls.db
+
+# djls
+.corpus/
+.pi-sessions/
+target_local/

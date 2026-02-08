@@ -1,0 +1,42 @@
+{# Scoping diagnostics — requires Python runtime (inspector inventory) #}
+{# Load resolution is position-aware: {% load %} only affects what comes AFTER it. #}
+
+
+{# ── S108: UnknownTag ── #}
+{# A tag that doesn't exist anywhere. #}
+{% completelymadetuptag %}
+
+
+{# ── S109: UnloadedTag ── #}
+{# ✗ 'static' exists but its library isn't loaded yet #}
+{% static "before.css" %}
+
+{% load static %}
+
+{# ✓ now it's loaded — no error #}
+{% static "after.css" %}
+
+
+{# ── S111: UnknownFilter ── #}
+{# A filter that doesn't exist anywhere. #}
+{{ value|completelymadetupfilter }}
+
+
+{# ── S112: UnloadedFilter ── #}
+{# 'intcomma' is from 'humanize' (django.contrib.humanize must be in INSTALLED_APPS) #}
+{# ✗ not loaded yet #}
+{{ value|intcomma }}
+
+{% load humanize %}
+
+{# ✓ now it's loaded — no error #}
+{{ value|intcomma }}
+
+
+{# ── S115: FilterMissingArgument ── #}
+{# 'default' requires an argument: {{ value|default:"fallback" }} #}
+{{ value|default }}
+
+{# ── S116: FilterUnexpectedArgument ── #}
+{# 'upper' does not accept an argument #}
+{{ value|upper:"arg" }}

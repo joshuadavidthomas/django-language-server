@@ -1,0 +1,22 @@
+{# cache — block tag, requires {% load cache %} #}
+
+{# ✗ S109: 'cache' requires {% load cache %} #}
+{% cache 500 before_load %}
+  <p>Before load.</p>
+{% endcache %}
+
+{% load cache %}
+
+{# ✓ valid: cache for 500 seconds with a key #}
+{% cache 500 sidebar %}
+  <nav>Expensive sidebar</nav>
+{% endcache %}
+
+{# ✓ valid: with variable fragment name #}
+{% cache 500 sidebar request.user.username %}
+  <nav>User-specific sidebar</nav>
+{% endcache %}
+
+{# ✗ S100: unclosed cache #}
+{% cache 500 broken %}
+  <p>Never closed.</p>

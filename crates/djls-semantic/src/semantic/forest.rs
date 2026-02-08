@@ -227,7 +227,7 @@ mod tests {
     use super::*;
     use crate::blocks::build_block_tree;
     use crate::build_semantic_forest;
-    use crate::templatetags::django_builtin_specs;
+    use crate::templatetags::test_tag_specs;
     use crate::TagIndex;
 
     #[salsa::db]
@@ -277,7 +277,7 @@ mod tests {
     #[salsa::db]
     impl crate::Db for TestDatabase {
         fn tag_specs(&self) -> crate::templatetags::TagSpecs {
-            django_builtin_specs()
+            test_tag_specs()
         }
 
         fn tag_index(&self) -> TagIndex<'_> {
@@ -290,6 +290,18 @@ mod tests {
 
         fn diagnostics_config(&self) -> djls_conf::DiagnosticsConfig {
             djls_conf::DiagnosticsConfig::default()
+        }
+
+        fn inspector_inventory(&self) -> Option<djls_project::TemplateTags> {
+            None
+        }
+
+        fn filter_arity_specs(&self) -> crate::filters::arity::FilterAritySpecs {
+            crate::filters::arity::FilterAritySpecs::new()
+        }
+
+        fn environment_inventory(&self) -> Option<djls_extraction::EnvironmentInventory> {
+            None
         }
     }
 

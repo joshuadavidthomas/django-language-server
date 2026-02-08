@@ -8,7 +8,9 @@ pub use grammar::TagIndex;
 pub(crate) use tree::BlockId;
 pub(crate) use tree::BlockNode;
 pub(crate) use tree::BlockTree;
+pub(crate) use tree::Blocks;
 pub(crate) use tree::BranchKind;
+pub(crate) use tree::Region;
 
 use crate::db::Db;
 use crate::traits::SemanticModel;

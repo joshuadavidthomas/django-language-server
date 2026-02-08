@@ -1,0 +1,20 @@
+{# block — structural tag, validated by block tree builder #}
+
+{# ✓ valid #}
+{% block content %}
+  <p>Hello</p>
+{% endblock %}
+
+{# ✓ valid: endblock with matching name #}
+{% block sidebar %}
+  <nav>Links</nav>
+{% endblock sidebar %}
+
+{# ✗ S103: endblock name doesn't match block name #}
+{% block header %}
+  <h1>Title</h1>
+{% endblock footer %}
+
+{# ✗ S100: unclosed block #}
+{% block dangling %}
+  <p>Never closed.</p>

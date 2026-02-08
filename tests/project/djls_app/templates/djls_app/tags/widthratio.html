@@ -1,0 +1,11 @@
+{# widthratio — required keyword 'as' at position 4 #}
+{# Django accepts 4 tokens (basic) or 6 tokens (with "as varname") #}
+
+{# ✓ valid: basic form (3 arguments) #}
+{% widthratio this_value max_value max_width %}
+
+{# ✓ valid: with as variable form (5 arguments) #}
+{% widthratio this_value max_value max_width as ratio %}
+
+{# ✗ S117: wrong keyword at position 4 (expected 'as') #}
+{% widthratio this_value max_value max_width WRONG ratio %}

@@ -30,7 +30,7 @@ pub enum DiagnosticSeverity {
 /// "T" = "off"     # Disable all template errors
 /// T100 = "hint"   # But show parser errors as hints (specific overrides prefix)
 /// ```
-#[derive(Debug, Clone, PartialEq, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Default)]
 pub struct DiagnosticsConfig {
     /// Map of diagnostic codes/prefixes to severity levels.
     /// Supports:

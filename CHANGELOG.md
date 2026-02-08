@@ -18,6 +18,18 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ## [Unreleased]
 
+### Changed
+
+- Bumped Rust toolchain from 1.90 to 1.91.
+- Upgraded ruff Python AST dependencies from 0.9.10 to 0.15.0.
+
+### Fixed
+
+- Added HTTP request timeouts to corpus sync to prevent indefinite hangs.
+- Fixed `collect_returns` missing return statements in `for`/`while` `else` blocks and `try`/`finally` blocks.
+- Fixed stale intermediate tags persisting when extraction yields an empty intermediates list.
+- Fixed `load.html` test fixture incorrectly marking removed `staticfiles` library as valid.
+
 ## [6.0.0]
 
 ### Changed

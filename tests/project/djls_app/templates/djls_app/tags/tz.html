@@ -1,0 +1,25 @@
+{% load tz %}
+{# timezone tags — localtime, timezone #}
+
+{# ✓ valid: localtime on/off #}
+{% localtime on %}
+  {{ value }}
+{% endlocaltime %}
+
+{% localtime off %}
+  {{ value }}
+{% endlocaltime %}
+
+{# ✓ valid: timezone with zone name #}
+{% timezone "Europe/Paris" %}
+  {{ value }}
+{% endtimezone %}
+
+{# ✓ valid: timezone with variable #}
+{% timezone user_tz %}
+  {{ value }}
+{% endtimezone %}
+
+{# ✗ S100: unclosed timezone #}
+{% timezone "UTC" %}
+  <p>Never closed.</p>
