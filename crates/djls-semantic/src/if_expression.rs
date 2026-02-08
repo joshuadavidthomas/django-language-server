@@ -446,7 +446,7 @@ mod tests {
     use djls_workspace::InMemoryFileSystem;
 
     use crate::blocks::TagIndex;
-    use crate::templatetags::django_builtin_specs;
+    use crate::templatetags::test_tag_specs;
     use crate::validate_nodelist;
     use crate::TagSpecs;
     use crate::ValidationErrorAccumulator;
@@ -498,7 +498,7 @@ mod tests {
     #[salsa::db]
     impl crate::Db for TestDatabase {
         fn tag_specs(&self) -> TagSpecs {
-            django_builtin_specs()
+            test_tag_specs()
         }
 
         fn tag_index(&self) -> TagIndex<'_> {

@@ -30,20 +30,20 @@ use djls_workspace::Db as WorkspaceDb;
 use djls_workspace::FileSystem;
 use salsa::Setter;
 
-/// Compute `TagSpecs` from builtin specs and extraction results.
+/// Compute `TagSpecs` from extraction results.
 ///
 /// This tracked function reads `project.inspector_inventory(db)` and
 /// `project.extracted_external_rules(db)` to establish Salsa dependencies.
-/// It starts with `django_builtin_specs()` and merges extraction results
-/// from both workspace modules (via tracked queries) and external modules
-/// (from the Project field).
+/// It starts from empty specs and populates purely from extraction results
+/// (both workspace modules via tracked queries and external modules from
+/// the Project field).
 ///
 /// Does NOT read from `Arc<Mutex<Settings>>`.
 #[salsa::tracked]
 pub fn compute_tag_specs(db: &dyn SemanticDb, project: Project) -> TagSpecs {
     let _inventory = project.inspector_inventory(db);
 
-    let mut specs = djls_semantic::django_builtin_specs();
+    let mut specs = TagSpecs::default();
 
     // Merge workspace extraction results (tracked, auto-invalidating on file change)
     let workspace_results = collect_workspace_extraction_results(db, project);
@@ -501,7 +501,7 @@ impl SemanticDb for DjangoDatabase {
         if let Some(project) = self.project() {
             compute_tag_specs(self, project)
         } else {
-            djls_semantic::django_builtin_specs()
+            TagSpecs::default()
         }
     }
 

@@ -46,7 +46,6 @@ pub use resolution::resolve_template;
 pub use resolution::ResolveResult;
 pub use resolution::TemplateReference;
 pub use semantic::build_semantic_forest;
-pub use templatetags::django_builtin_specs;
 pub use templatetags::EndTag;
 pub use templatetags::TagSpec;
 pub use templatetags::TagSpecs;
@@ -98,7 +97,7 @@ mod tests {
 
     use crate::blocks::TagIndex;
     use crate::filter_arity::FilterAritySpecs;
-    use crate::templatetags::django_builtin_specs;
+    use crate::templatetags::test_tag_specs;
     use crate::validate_nodelist;
     use crate::TagSpecs;
     use crate::ValidationError;
@@ -158,7 +157,7 @@ mod tests {
     #[salsa::db]
     impl crate::Db for TestDatabase {
         fn tag_specs(&self) -> TagSpecs {
-            django_builtin_specs()
+            test_tag_specs()
         }
 
         fn tag_index(&self) -> TagIndex<'_> {
@@ -919,7 +918,7 @@ mod tests {
             }
         }
 
-        let mut specs = django_builtin_specs();
+        let mut specs = TagSpecs::default();
         specs.merge_extraction_results(&combined);
         specs
     }
@@ -1272,7 +1271,7 @@ mod tests {
         let base_specs = if let Some(ref root) = django_root {
             build_extraction_specs(root)
         } else {
-            django_builtin_specs()
+            TagSpecs::default()
         };
         let base_arities = if let Some(ref root) = django_root {
             build_extraction_arities(root)
@@ -1452,7 +1451,7 @@ mod tests {
         let specs = if let Some(ref root) = django_root {
             build_extraction_specs(root)
         } else {
-            django_builtin_specs()
+            TagSpecs::default()
         };
         let arities = if let Some(ref root) = django_root {
             build_extraction_arities(root)

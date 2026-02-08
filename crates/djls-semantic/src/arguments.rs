@@ -57,7 +57,7 @@ mod tests {
     use djls_workspace::InMemoryFileSystem;
 
     use super::*;
-    use crate::templatetags::django_builtin_specs;
+    use crate::templatetags::test_tag_specs;
     use crate::TagIndex;
     use crate::ValidationError;
 
@@ -113,7 +113,7 @@ mod tests {
         fn tag_specs(&self) -> crate::templatetags::TagSpecs {
             self.custom_specs
                 .clone()
-                .unwrap_or_else(django_builtin_specs)
+                .unwrap_or_else(test_tag_specs)
         }
 
         fn tag_index(&self) -> TagIndex<'_> {

@@ -808,13 +808,13 @@ Python Environment  →  Django Configuration  →  Template Load  →  Availabl
 
 ### Phase 3: Remove `builtins.rs`
 
-- [ ] Update `compute_tag_specs` in `crates/djls-server/src/db.rs` to start from empty `TagSpecs` instead of `django_builtin_specs()`
-- [ ] Verify extraction produces all necessary block specs that `builtins.rs` currently provides (end tags, intermediates, opaque flags, module mappings)
-- [ ] Delete `crates/djls-semantic/src/templatetags/builtins.rs`
-- [ ] Remove `mod builtins` and `django_builtin_specs` re-exports from `crates/djls-semantic/src/templatetags.rs` and `crates/djls-semantic/src/lib.rs`
-- [ ] Update fallback path in `SemanticDb::tag_specs()` (when no project exists) — return empty `TagSpecs` or handle differently
-- [ ] Update all test databases that call `django_builtin_specs()` to use extraction-based specs or minimal test specs
-- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Update `compute_tag_specs` in `crates/djls-server/src/db.rs` to start from empty `TagSpecs` instead of `django_builtin_specs()` — already done in prior iteration
+- [x] Verify extraction produces all necessary block specs that `builtins.rs` currently provides (end tags, intermediates, opaque flags, module mappings)
+- [x] Delete `crates/djls-semantic/src/templatetags/builtins.rs`
+- [x] Remove `mod builtins` and `django_builtin_specs` re-exports from `crates/djls-semantic/src/templatetags.rs` and `crates/djls-semantic/src/lib.rs` — already done in prior iteration
+- [x] Update fallback path in `SemanticDb::tag_specs()` (when no project exists) — returns `TagSpecs::default()` (already done in prior iteration)
+- [x] Update all test databases that call `django_builtin_specs()` to use `test_tag_specs()` (semantic crate tests) or `TagSpecs::default()` (bench, corpus tests)
+- [x] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 4: Corpus Validation
 

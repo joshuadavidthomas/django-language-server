@@ -253,6 +253,112 @@ pub struct IntermediateTag {
     pub name: S,
 }
 
+/// Returns minimal Django tag specs for use in test databases.
+///
+/// Provides block structure (end tags, intermediates, opaque flags) for
+/// standard Django tags. Does NOT include extracted rules — tests that
+/// need argument validation should construct specs with `extracted_rules`
+/// explicitly or use extraction on Python source.
+#[cfg(test)]
+#[allow(clippy::similar_names)]
+pub(crate) fn test_tag_specs() -> TagSpecs {
+    use std::borrow::Cow::Borrowed as B;
+
+    let dt = "django.template.defaulttags";
+    let lt = "django.template.loader_tags";
+    let i18n = "django.templatetags.i18n";
+    let cache = "django.templatetags.cache";
+    let l10n = "django.templatetags.l10n";
+    let tz = "django.templatetags.tz";
+    let st = "django.templatetags.static";
+
+    let mut specs = FxHashMap::default();
+
+    let simple = |module: &'static str| TagSpec {
+        module: B(module),
+        end_tag: None,
+        intermediate_tags: B(&[]),
+        opaque: false,
+        extracted_rules: None,
+    };
+
+    let block = |module: &'static str,
+                 end: &'static str,
+                 intermediates: Vec<IntermediateTag>,
+                 opaque: bool| TagSpec {
+        module: B(module),
+        end_tag: Some(EndTag {
+            name: B(end),
+            required: true,
+        }),
+        intermediate_tags: Cow::Owned(intermediates),
+        opaque,
+        extracted_rules: None,
+    };
+
+    let im = |name: &'static str| IntermediateTag { name: B(name) };
+
+    // defaulttags
+    specs.insert("autoescape".into(), block(dt, "endautoescape", vec![], false));
+    specs.insert("comment".into(), block(dt, "endcomment", vec![], true));
+    specs.insert("csrf_token".into(), simple(dt));
+    specs.insert("cycle".into(), simple(dt));
+    specs.insert("debug".into(), simple(dt));
+    specs.insert("filter".into(), block(dt, "endfilter", vec![], false));
+    specs.insert("firstof".into(), simple(dt));
+    specs.insert("for".into(), block(dt, "endfor", vec![im("empty")], false));
+    specs.insert(
+        "if".into(),
+        block(dt, "endif", vec![im("elif"), im("else")], false),
+    );
+    specs.insert(
+        "ifchanged".into(),
+        block(dt, "endifchanged", vec![im("else")], false),
+    );
+    specs.insert("load".into(), simple(dt));
+    specs.insert("lorem".into(), simple(dt));
+    specs.insert("now".into(), simple(dt));
+    specs.insert("regroup".into(), simple(dt));
+    specs.insert("spaceless".into(), block(dt, "endspaceless", vec![], false));
+    specs.insert("templatetag".into(), simple(dt));
+    specs.insert("url".into(), simple(dt));
+    specs.insert("verbatim".into(), block(dt, "endverbatim", vec![], true));
+    specs.insert("widthratio".into(), simple(dt));
+    specs.insert("with".into(), block(dt, "endwith", vec![], false));
+
+    // loader_tags
+    specs.insert("block".into(), block(lt, "endblock", vec![], false));
+    specs.insert("extends".into(), simple(lt));
+    specs.insert("include".into(), simple(lt));
+
+    // i18n
+    specs.insert(
+        "blocktrans".into(),
+        block(i18n, "endblocktrans", vec![im("plural")], false),
+    );
+    specs.insert(
+        "blocktranslate".into(),
+        block(i18n, "endblocktranslate", vec![im("plural")], false),
+    );
+    specs.insert("trans".into(), simple(i18n));
+    specs.insert("translate".into(), simple(i18n));
+
+    // cache
+    specs.insert("cache".into(), block(cache, "endcache", vec![], false));
+
+    // l10n
+    specs.insert("localize".into(), block(l10n, "endlocalize", vec![], false));
+
+    // static
+    specs.insert("static".into(), simple(st));
+
+    // tz
+    specs.insert("localtime".into(), block(tz, "endlocaltime", vec![], false));
+    specs.insert("timezone".into(), block(tz, "endtimezone", vec![], false));
+
+    TagSpecs::new(specs)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

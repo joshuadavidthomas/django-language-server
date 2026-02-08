@@ -25,7 +25,6 @@ use djls_corpus::enumerate::enumerate_extraction_files;
 use djls_corpus::enumerate::enumerate_template_files;
 use djls_extraction::extract_rules;
 use djls_extraction::ExtractionResult;
-use djls_semantic::django_builtin_specs;
 use djls_semantic::FilterAritySpecs;
 use djls_semantic::TagSpecs;
 use djls_semantic::ValidationError;
@@ -140,7 +139,7 @@ fn extract_file(path: &Path) -> Option<ExtractionResult> {
 /// Build `TagSpecs` and `FilterAritySpecs` from extraction of all templatetag
 /// modules in a directory, starting from Django builtin specs.
 fn build_specs_from_extraction(entry_dir: &Path) -> (TagSpecs, FilterAritySpecs) {
-    let mut specs = django_builtin_specs();
+    let mut specs = TagSpecs::default();
     let mut arities = FilterAritySpecs::new();
     extract_and_merge(entry_dir, &mut specs, &mut arities);
     (specs, arities)
@@ -163,7 +162,7 @@ fn build_specs_with_django_builtins(
     entry_dir: &Path,
     django_dir: Option<&Path>,
 ) -> (TagSpecs, FilterAritySpecs) {
-    let mut specs = django_builtin_specs();
+    let mut specs = TagSpecs::default();
     let mut arities = FilterAritySpecs::new();
 
     if let Some(django) = django_dir {
