@@ -641,6 +641,42 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ---
 
+## M11 — Environment-Aware Tag/Filter Resolution
+
+**Status:** backlog
+**Plan:** `.agents/plans/YYYY-MM-DD-m11-environment-aware-resolution.md` (not yet created)
+**Depends on:** M3/M4 (load scoping), M5 (extraction crate with Ruff parser)
+
+**Goal:** Distinguish three layers of tag/filter availability: not in Python environment (S108/S111), in environment but not in `INSTALLED_APPS` (new diagnostic), and in `INSTALLED_APPS` but not loaded (S109/S112). Also validate `{% load %}` library names against inspector inventory.
+
+*(Tasks to be expanded when this milestone is next up for implementation.)*
+
+---
+
+## M12 — `{% extends %}` Structural Validation
+
+**Status:** backlog
+**Plan:** `.agents/plans/YYYY-MM-DD-m12-extends-structural-validation.md` (not yet created)
+**Depends on:** None
+
+**Goal:** Validate that `{% extends %}` is the first tag in a template (no tags or variables before it) and appears at most once. Both are parse-time Django rules that can be checked from the `NodeList`.
+
+*(Tasks to be expanded when this milestone is next up for implementation.)*
+
+---
+
+## M13 — Complete Extraction Coverage + Remove `builtins.rs`
+
+**Status:** backlog
+**Plan:** `.agents/plans/YYYY-MM-DD-m13-extraction-completeness.md` (not yet created)
+**Depends on:** M10 (dataflow analyzer)
+
+**Goal:** Extend extraction to handle `blocktrans`/`blocktranslate` block specs (parser.next_token() loops) and value-in-set constraints (`ChoiceAt`). Remove `builtins.rs` entirely — `compute_tag_specs` populates purely from extraction results.
+
+*(Tasks to be expanded when this milestone is next up for implementation.)*
+
+---
+
 ## Discoveries / Notes
 
 - **M10 dataflow analyzer architecture**: `analyze_compile_function` extracts parser/token param names from function signature, creates `Env`, processes statements. `eval_expr` has `_with_ctx` variant for call resolution. `HelperCache` keyed by `(func_name, Vec<AbstractValueKey>)` with bounded inlining (depth 2) and self-recursion guard.

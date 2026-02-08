@@ -14,3 +14,6 @@
 
 {# ✗ S117: too many arguments (split_len=4, need 2) #}
 {% autoescape on off extra %}{% endautoescape %}
+
+{# should error because args must be on or off? but doesn't? #}
+{% autoescape unknown %}{% endautoescape %}
