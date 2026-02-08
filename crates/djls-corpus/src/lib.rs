@@ -32,6 +32,8 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use walkdir::WalkDir;
 
+pub mod archive;
+pub mod filter;
 pub mod manifest;
 pub mod sync;
 
@@ -113,7 +115,7 @@ impl Corpus {
             let is_py = path.extension().is_some_and(|ext| ext == "py");
             if is_py
                 && path.file_name() != Some("__init__.py")
-                && (path_str.contains("/templatetags/") || is_core_template_module(path))
+                && (path_str.contains("/templatetags/") || filter::is_core_template_module(path))
             {
                 files.push(path.to_owned());
             }
@@ -171,39 +173,6 @@ impl Corpus {
         files
     }
 
-    /// Extract rules from a single Python file in the corpus.
-    ///
-    /// Reads the file, derives its module path from the corpus layout,
-    /// and runs extraction. Returns `None` if the file cannot be read.
-    #[cfg(feature = "extraction")]
-    #[must_use]
-    pub fn extract_file(&self, path: &Utf8Path) -> Option<djls_extraction::ExtractionResult> {
-        let source = std::fs::read_to_string(path.as_std_path()).ok()?;
-        let module_path = module_path_from_file(path);
-        Some(djls_extraction::extract_rules(&source, &module_path))
-    }
-
-    /// Extract and merge all extraction targets under a directory.
-    #[cfg(feature = "extraction")]
-    #[must_use]
-    pub fn extract_dir(&self, dir: &Utf8Path) -> djls_extraction::ExtractionResult {
-        let files = self.extraction_targets_in(dir);
-        let mut combined = djls_extraction::ExtractionResult::default();
-        for path in &files {
-            if let Some(result) = self.extract_file(path) {
-                combined.merge(result);
-            }
-        }
-        combined
-    }
-}
-
-fn is_core_template_module(path: &Utf8Path) -> bool {
-    path.as_str().contains("/template/")
-        && matches!(
-            path.file_name(),
-            Some("defaulttags.py" | "defaultfilters.py" | "loader_tags.py")
-        )
 }
 
 /// Collect subdirectories that have been fully synced (contain a `.complete` marker).

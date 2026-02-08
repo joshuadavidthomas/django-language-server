@@ -19,7 +19,7 @@ required-features = ["parser"]
 
 [dev-dependencies]
 camino = { workspace = true }
-djls-corpus = { workspace = true, features = ["extraction"] }
+djls-corpus = { workspace = true }
 insta = { workspace = true }
 ruff_python_parser = { workspace = true }
 serde = { workspace = true }

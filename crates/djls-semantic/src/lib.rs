@@ -827,6 +827,7 @@ mod tests {
     // All tests skip gracefully when the corpus is unavailable.
     // Run `cargo run -p djls-corpus -- sync` to populate it.
 
+    use djls_corpus::module_path_from_file;
     use djls_corpus::Corpus;
 
     /// A test database using extraction-derived `TagSpecs`.
@@ -919,12 +920,14 @@ mod tests {
         specs: &mut TagSpecs,
         arities: &mut FilterAritySpecs,
     ) {
-        let extraction_files = corpus.extraction_targets_in(dir);
-        for file_path in &extraction_files {
-            if let Some(result) = corpus.extract_file(file_path) {
-                arities.merge_extraction_result(&result);
-                specs.merge_extraction_results(&result);
-            }
+        for file_path in &corpus.extraction_targets_in(dir) {
+            let Ok(source) = std::fs::read_to_string(file_path.as_std_path()) else {
+                continue;
+            };
+            let module_path = module_path_from_file(file_path);
+            let result = djls_extraction::extract_rules(&source, &module_path);
+            arities.merge_extraction_result(&result);
+            specs.merge_extraction_results(&result);
         }
     }
 

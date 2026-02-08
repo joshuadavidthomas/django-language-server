@@ -20,7 +20,7 @@ tracing = { workspace = true }
 walkdir = { workspace = true }
 
 [dev-dependencies]
-djls-corpus = { workspace = true, features = ["extraction"] }
+djls-corpus = { workspace = true }
 djls-extraction = { workspace = true, features = ["parser"] }
 insta = { workspace = true }
 serde_json = { workspace = true }
