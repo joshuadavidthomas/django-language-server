@@ -4,7 +4,6 @@ use ruff_python_ast::ExprBinOp;
 use ruff_python_ast::ExprCall;
 use ruff_python_ast::ExprFString;
 use ruff_python_ast::ExprName;
-use ruff_python_ast::ExprStringLiteral;
 use ruff_python_ast::FStringPart;
 use ruff_python_ast::InterpolatedStringElement;
 use ruff_python_ast::Operator;
@@ -15,6 +14,7 @@ use ruff_python_ast::StmtFunctionDef;
 use ruff_python_ast::StmtIf;
 use ruff_python_ast::StmtReturn;
 
+use crate::ext::ExprExt;
 use crate::types::BlockTagSpec;
 
 /// Extract a block spec from a tag's compile function.
@@ -189,26 +189,23 @@ fn is_parser_receiver(expr: &Expr, parser_var: &str) -> bool {
 /// - Variable references resolved from known constant assignments nearby
 fn extract_string_sequence(expr: &Expr) -> Vec<String> {
     match expr {
-        Expr::Tuple(t) => t.elts.iter().filter_map(extract_string_value).collect(),
-        Expr::List(l) => l.elts.iter().filter_map(extract_string_value).collect(),
-        Expr::Set(s) => s.elts.iter().filter_map(extract_string_value).collect(),
+        Expr::Tuple(t) => t
+            .elts
+            .iter()
+            .filter_map(ExprExt::string_literal_first_word)
+            .collect(),
+        Expr::List(l) => l
+            .elts
+            .iter()
+            .filter_map(ExprExt::string_literal_first_word)
+            .collect(),
+        Expr::Set(s) => s
+            .elts
+            .iter()
+            .filter_map(ExprExt::string_literal_first_word)
+            .collect(),
         _ => Vec::new(),
     }
-}
-
-/// Extract a string value from a single expression.
-fn extract_string_value(expr: &Expr) -> Option<String> {
-    if let Expr::StringLiteral(ExprStringLiteral { value, .. }) = expr {
-        let s = value.to_str();
-        // Django's Parser.parse() compares against `command = token.contents.split()[0]`,
-        // so only the first word of a stop-token string matters.
-        let cmd = s.split_whitespace().next().unwrap_or("");
-        if cmd.is_empty() {
-            return None;
-        }
-        return Some(cmd.to_string());
-    }
-    None
 }
 
 /// Classify stop-tokens into end-tags and intermediates using control flow analysis.
@@ -487,7 +484,7 @@ fn extract_token_check(expr: &Expr, known_tokens: &[String]) -> Option<String> {
 
             // Check both sides for string constant matching known tokens
             if is_token_contents_expr(left) {
-                if let Some(s) = get_string_constant(right) {
+                if let Some(s) = right.string_literal() {
                     let cmd = s.split_whitespace().next().unwrap_or("").to_string();
                     if known_tokens.contains(&cmd) {
                         return Some(cmd);
@@ -495,7 +492,7 @@ fn extract_token_check(expr: &Expr, known_tokens: &[String]) -> Option<String> {
                 }
             }
             if is_token_contents_expr(right) {
-                if let Some(s) = get_string_constant(left) {
+                if let Some(s) = left.string_literal() {
                     let cmd = s.split_whitespace().next().unwrap_or("").to_string();
                     if known_tokens.contains(&cmd) {
                         return Some(cmd);
@@ -532,7 +529,7 @@ fn extract_startswith_check(expr: &Expr, known_tokens: &[String]) -> Option<Stri
     if arguments.args.is_empty() {
         return None;
     }
-    let s = get_string_constant(&arguments.args[0])?;
+    let s = arguments.args[0].string_literal()?;
     let cmd = s.split_whitespace().next().unwrap_or("").to_string();
     if known_tokens.contains(&cmd) {
         Some(cmd)
@@ -564,14 +561,6 @@ fn is_token_contents_expr(expr: &Expr) -> bool {
         Expr::Subscript(sub) => is_token_contents_expr(&sub.value),
         _ => false,
     }
-}
-
-/// Extract a string constant from an expression.
-fn get_string_constant(expr: &Expr) -> Option<String> {
-    if let Expr::StringLiteral(ExprStringLiteral { value, .. }) = expr {
-        return Some(value.to_str().to_string());
-    }
-    None
 }
 
 /// Check if a statement body contains a `parser.parse(...)` call.
@@ -685,7 +674,7 @@ fn extract_skip_past_token(expr: &Expr, parser_var: &str) -> Option<String> {
     if arguments.args.is_empty() {
         return None;
     }
-    get_string_constant(&arguments.args[0])
+    arguments.args[0].string_literal()
 }
 
 fn has_dynamic_end_in_body(body: &[Stmt], parser_var: &str) -> bool {
@@ -998,12 +987,12 @@ fn extract_comparisons_from_expr(expr: &Expr, comparisons: &mut Vec<String>) {
             )
         {
             if is_token_contents_expr(left) || is_token_contents_expr(right) {
-                if let Some(s) = get_string_constant(left) {
+                if let Some(s) = left.string_literal() {
                     if !comparisons.contains(&s) {
                         comparisons.push(s);
                     }
                 }
-                if let Some(s) = get_string_constant(right) {
+                if let Some(s) = right.string_literal() {
                     if !comparisons.contains(&s) {
                         comparisons.push(s);
                     }
@@ -1055,7 +1044,7 @@ fn is_end_format_expr(expr: &Expr) -> bool {
         ..
     }) = expr
     {
-        if let Some(s) = get_string_constant(left) {
+        if let Some(s) = left.string_literal() {
             if s.starts_with("end") && s.contains('%') {
                 return true;
             }

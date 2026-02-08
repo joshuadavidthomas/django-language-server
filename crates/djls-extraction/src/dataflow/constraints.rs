@@ -12,7 +12,6 @@ use ruff_python_ast::ExprBoolOp;
 use ruff_python_ast::ExprCall;
 use ruff_python_ast::ExprCompare;
 use ruff_python_ast::ExprName;
-use ruff_python_ast::ExprStringLiteral;
 use ruff_python_ast::ExprUnaryOp;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtIf;
@@ -23,7 +22,7 @@ use super::domain::AbstractValue;
 use super::domain::Env;
 use super::domain::Index;
 use super::eval::eval_expr;
-use super::eval::expr_as_positive_usize;
+use crate::ext::ExprExt;
 use crate::types::ArgumentCountConstraint;
 use crate::types::ChoiceAt;
 use crate::types::RequiredKeyword;
@@ -139,7 +138,7 @@ fn eval_compare(compare: &ExprCompare, env: &Env, constraints: &mut Constraints)
         pops_from_end,
     } = &left_val
     {
-        if let Some(n) = expr_as_positive_usize(comparator) {
+        if let Some(n) = comparator.positive_integer() {
             let offset = *base_offset + *pops_from_end;
             let constraint = match op {
                 CmpOp::NotEq => Some(ArgumentCountConstraint::Exact(n + offset)),
@@ -157,7 +156,7 @@ fn eval_compare(compare: &ExprCompare, env: &Env, constraints: &mut Constraints)
 
         // `len(bits) not in (2, 3, 4)` → valid counts are {2+offset, 3+offset, 4+offset}
         if matches!(op, CmpOp::NotIn) {
-            if let Some(values) = extract_int_collection(comparator) {
+            if let Some(values) = comparator.collection_map(ExprExt::positive_integer) {
                 let offset = *base_offset + *pops_from_end;
                 constraints
                     .arg_constraints
@@ -176,7 +175,7 @@ fn eval_compare(compare: &ExprCompare, env: &Env, constraints: &mut Constraints)
         pops_from_end,
     } = &right_val
     {
-        if let Some(n) = expr_as_positive_usize(left) {
+        if let Some(n) = left.positive_integer() {
             let offset = *base_offset + *pops_from_end;
             let constraint = match op {
                 CmpOp::Lt => Some(ArgumentCountConstraint::Max(n + offset)),
@@ -194,7 +193,7 @@ fn eval_compare(compare: &ExprCompare, env: &Env, constraints: &mut Constraints)
 
     // SplitElement vs string: `bits[N] != "keyword"`
     if let AbstractValue::SplitElement { index } = &left_val {
-        if let Some(keyword) = extract_string_value(comparator) {
+        if let Some(keyword) = comparator.string_literal() {
             let position = index_to_i64(index);
             constraints.required_keywords.push(RequiredKeyword {
                 position,
@@ -205,11 +204,13 @@ fn eval_compare(compare: &ExprCompare, env: &Env, constraints: &mut Constraints)
 
         // SplitElement not in ("a", "b") → ChoiceAt constraint
         if matches!(op, CmpOp::NotIn) {
-            if let Some(values) = extract_string_collection(comparator) {
-                let position = index_to_i64(index);
-                constraints
-                    .choice_at_constraints
-                    .push(ChoiceAt { position, values });
+            if let Some(values) = comparator.collection_map(ExprExt::string_literal) {
+                if !values.is_empty() {
+                    let position = index_to_i64(index);
+                    constraints
+                        .choice_at_constraints
+                        .push(ChoiceAt { position, values });
+                }
             }
         }
         return;
@@ -217,7 +218,7 @@ fn eval_compare(compare: &ExprCompare, env: &Env, constraints: &mut Constraints)
 
     // Reversed: string vs SplitElement: `"keyword" != bits[N]`
     if let AbstractValue::SplitElement { index } = &right_val {
-        if let Some(keyword) = extract_string_value(left) {
+        if let Some(keyword) = left.string_literal() {
             let position = index_to_i64(index);
             constraints.required_keywords.push(RequiredKeyword {
                 position,
@@ -244,7 +245,7 @@ fn eval_negated_compare(compare: &ExprCompare, env: &Env, constraints: &mut Cons
             pops_from_end,
         } = left_val
         {
-            if let Some(n) = expr_as_positive_usize(&compare.comparators[0]) {
+            if let Some(n) = compare.comparators[0].positive_integer() {
                 let offset = base_offset + pops_from_end;
                 let constraint = match &compare.ops[0] {
                     CmpOp::Eq => Some(ArgumentCountConstraint::Exact(n + offset)),
@@ -279,8 +280,8 @@ fn eval_range_constraint(compare: &ExprCompare, env: &Env) -> Option<Vec<Argumen
     };
     let base_offset = base_offset + pops_from_end;
 
-    let lower = expr_as_positive_usize(&compare.left)?;
-    let upper = expr_as_positive_usize(&compare.comparators[1])?;
+    let lower = compare.left.positive_integer()?;
+    let upper = compare.comparators[1].positive_integer()?;
 
     let op1 = &compare.ops[0];
     let op2 = &compare.ops[1];
@@ -315,44 +316,6 @@ fn index_to_i64(index: &Index) -> i64 {
         Index::Forward(n) => i64::try_from(*n).unwrap_or(0),
         Index::Backward(n) => -(i64::try_from(*n).unwrap_or(0)),
     }
-}
-
-fn extract_string_value(expr: &Expr) -> Option<String> {
-    if let Expr::StringLiteral(ExprStringLiteral { value, .. }) = expr {
-        return Some(value.to_str().to_string());
-    }
-    None
-}
-
-fn extract_string_collection(expr: &Expr) -> Option<Vec<String>> {
-    let elements = match expr {
-        Expr::Tuple(t) => &t.elts,
-        Expr::List(l) => &l.elts,
-        Expr::Set(s) => &s.elts,
-        _ => return None,
-    };
-    let mut values = Vec::new();
-    for elt in elements {
-        values.push(extract_string_value(elt)?);
-    }
-    if values.is_empty() {
-        return None;
-    }
-    Some(values)
-}
-
-fn extract_int_collection(expr: &Expr) -> Option<Vec<usize>> {
-    let elements = match expr {
-        Expr::Tuple(t) => &t.elts,
-        Expr::List(l) => &l.elts,
-        Expr::Set(s) => &s.elts,
-        _ => return None,
-    };
-    let mut values = Vec::new();
-    for elt in elements {
-        values.push(expr_as_positive_usize(elt)?);
-    }
-    Some(values)
 }
 
 pub(super) fn body_raises_template_syntax_error(body: &[Stmt]) -> bool {

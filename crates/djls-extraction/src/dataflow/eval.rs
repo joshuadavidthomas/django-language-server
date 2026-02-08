@@ -31,6 +31,7 @@ use super::calls::HelperCache;
 use super::domain::AbstractValue;
 use super::domain::Env;
 use super::domain::Index;
+use crate::ext::ExprExt;
 use crate::types::ArgumentCountConstraint;
 use crate::types::KnownOptions;
 use crate::types::RequiredKeyword;
@@ -249,7 +250,7 @@ fn eval_pop_return(obj: &AbstractValue, args: &Arguments) -> AbstractValue {
 
     if let Some(arg) = args.args.first() {
         // bits.pop(0) — return element at base_offset
-        if let Some(0) = expr_as_positive_usize(arg) {
+        if let Some(0) = arg.positive_integer() {
             return AbstractValue::SplitElement {
                 index: Index::Forward(*base_offset),
             };
@@ -326,7 +327,7 @@ fn eval_subscript(base: &AbstractValue, slice: &Expr, env: &Env) -> AbstractValu
             match (lower.as_deref(), upper.as_deref()) {
                 // bits[N:] — slice from N onwards
                 (Some(lower_expr), None) => {
-                    if let Some(n) = expr_as_positive_usize(lower_expr) {
+                    if let Some(n) = lower_expr.positive_integer() {
                         return AbstractValue::SplitResult {
                             base_offset: base_offset + n,
                             pops_from_end: pops,
@@ -355,22 +356,6 @@ fn eval_subscript(base: &AbstractValue, slice: &Expr, env: &Env) -> AbstractValu
 
         _ => AbstractValue::Unknown,
     }
-}
-
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-pub(super) fn expr_as_positive_usize(expr: &Expr) -> Option<usize> {
-    if let Expr::NumberLiteral(ExprNumberLiteral {
-        value: Number::Int(int_val),
-        ..
-    }) = expr
-    {
-        if let Some(n) = int_val.as_i64() {
-            if n >= 0 {
-                return Some(n as usize);
-            }
-        }
-    }
-    None
 }
 
 /// Process a list of statements, updating the environment.
@@ -507,7 +492,7 @@ fn try_extract_pop_call(expr: &Expr) -> Option<PopInfo> {
     };
 
     let from_front = if let Some(arg) = call.arguments.args.first() {
-        expr_as_positive_usize(arg) == Some(0)
+        arg.positive_integer() == Some(0)
     } else {
         false
     };

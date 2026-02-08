@@ -2,6 +2,7 @@ use ruff_python_ast::Expr;
 use ruff_python_ast::ExprCall;
 use ruff_python_ast::StmtFunctionDef;
 
+use crate::ext::ExprExt;
 use crate::types::ArgumentCountConstraint;
 use crate::types::ExtractedArg;
 use crate::types::ExtractedArgKind;
@@ -103,7 +104,7 @@ fn has_takes_context(func: &StmtFunctionDef) -> bool {
         if let Expr::Call(ExprCall { arguments, .. }) = &decorator.expression {
             for kw in &arguments.keywords {
                 if let Some(arg) = &kw.arg {
-                    if arg.as_str() == "takes_context" && is_true_constant(&kw.value) {
+                    if arg.as_str() == "takes_context" && kw.value.is_true_literal() {
                         return true;
                     }
                 }
@@ -111,14 +112,6 @@ fn has_takes_context(func: &StmtFunctionDef) -> bool {
         }
     }
     false
-}
-
-/// Check if an expression is a boolean `True` constant.
-fn is_true_constant(expr: &Expr) -> bool {
-    matches!(
-        expr,
-        Expr::BooleanLiteral(lit) if lit.value
-    )
 }
 
 #[cfg(test)]

@@ -2,12 +2,12 @@ use ruff_python_ast::Expr;
 use ruff_python_ast::ExprAttribute;
 use ruff_python_ast::ExprCall;
 use ruff_python_ast::ExprName;
-use ruff_python_ast::ExprStringLiteral;
 use ruff_python_ast::Keyword;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtExpr;
 use ruff_python_ast::StmtFunctionDef;
 
+use crate::ext::ExprExt;
 use crate::SymbolKind;
 
 /// Decorator helper names on `django.template.Library` that register filters.
@@ -225,7 +225,7 @@ fn tag_registration_from_call(
 
     if args.len() >= 2 {
         // `register.tag("name", func)` — first arg is string name, second is callable
-        if let Some(name) = expr_string_value(&args[0]) {
+        if let Some(name) = args[0].string_literal() {
             let fn_name = callable_name(&args[1]).or(func_name);
             return Some((name_override.unwrap_or(name), kind, fn_name));
         }
@@ -272,7 +272,7 @@ fn filter_registration_from_call(call: &ExprCall) -> Option<(String, Option<Stri
 
     if args.len() >= 2 {
         // `register.filter("name", func)`
-        if let Some(name) = expr_string_value(&args[0]) {
+        if let Some(name) = args[0].string_literal() {
             let fn_name = callable_name(&args[1]).or(func_name);
             return Some((name_override.unwrap_or(name), fn_name));
         }
@@ -320,7 +320,7 @@ fn kw_constant_str(keywords: &[Keyword], name: &str) -> Option<String> {
         if arg.as_str() != name {
             continue;
         }
-        if let Some(s) = expr_string_value(&kw.value) {
+        if let Some(s) = kw.value.string_literal() {
             return Some(s);
         }
     }
@@ -340,17 +340,9 @@ fn kw_callable_name(keywords: &[Keyword], kwarg_names: &[&str]) -> Option<String
     None
 }
 
-/// Extract a string value from an expression (string literal only).
-fn expr_string_value(expr: &Expr) -> Option<String> {
-    if let Expr::StringLiteral(ExprStringLiteral { value, .. }) = expr {
-        return Some(value.to_str().to_string());
-    }
-    None
-}
-
 /// Extract the first positional argument's string value.
 fn first_string_arg(args: &[Expr]) -> Option<String> {
-    args.first().and_then(expr_string_value)
+    args.first().and_then(ExprExt::string_literal)
 }
 
 /// Best-effort callable name extraction for debugging / registration mapping.

@@ -6,6 +6,8 @@ mod blocks;
 #[cfg(feature = "parser")]
 mod dataflow;
 #[cfg(feature = "parser")]
+mod ext;
+#[cfg(feature = "parser")]
 mod filters;
 #[cfg(feature = "parser")]
 mod registry;
