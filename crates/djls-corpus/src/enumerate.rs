@@ -1,111 +1,96 @@
 //! Find extraction-relevant Python files and template files in the corpus.
 
-use std::path::Path;
-use std::path::PathBuf;
-
+use camino::Utf8Path;
+use camino::Utf8PathBuf;
 use walkdir::WalkDir;
 
-/// Find all Python files relevant to extraction in the corpus.
-///
-/// Matches:
-/// - `**/templatetags/**/*.py` (excluding `__init__.py` and `__pycache__`)
-/// - `**/template/defaulttags.py`, `defaultfilters.py`, `loader_tags.py`
+/// What kind of corpus files to enumerate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FileKind {
+    /// Python modules containing templatetag/filter registrations.
+    ///
+    /// Matches `**/templatetags/**/*.py` (excluding `__init__.py`)
+    /// and `**/template/{defaulttags,defaultfilters,loader_tags}.py`.
+    ExtractionTarget,
+
+    /// Django template files (`.html`, `.txt`) inside `**/templates/`.
+    ///
+    /// Excludes files inside `docs/`, `tests/`, `jinja2/`, and `static/`
+    /// directories. Jinja2 templates use different syntax, and `static/`
+    /// directories may contain `AngularJS` or other non-Django templates.
+    Template,
+}
+
+/// Enumerate corpus files of a given kind under a directory.
 #[must_use]
-pub fn enumerate_extraction_files(corpus_root: &Path) -> Vec<PathBuf> {
+pub fn enumerate_files(root: &Utf8Path, kind: FileKind) -> Vec<Utf8PathBuf> {
     let mut files = Vec::new();
 
-    for entry in WalkDir::new(corpus_root)
+    for entry in WalkDir::new(root.as_std_path())
         .into_iter()
         .filter_map(Result::ok)
         .filter(|e| e.file_type().is_file())
     {
-        let path = entry.path();
-        let path_str = path.to_string_lossy();
+        let Some(path) = Utf8Path::from_path(entry.path()) else {
+            continue;
+        };
+        let path_str = path.as_str();
 
-        // Skip __pycache__
-        if path_str.contains("__pycache__") {
+        if in_pycache(path_str) {
             continue;
         }
 
-        // Must be a .py file
-        if path.extension().is_none_or(|ext| ext != "py") {
-            continue;
-        }
+        let matches = match kind {
+            FileKind::ExtractionTarget => {
+                has_py_extension(path)
+                    && path.file_name() != Some("__init__.py")
+                    && (in_templatetags_dir(path_str) || is_core_template_module(path))
+            }
+            FileKind::Template => {
+                has_template_extension(path)
+                    && in_templates_dir(path_str)
+                    && !path_str.contains("/docs/")
+                    && !path_str.contains("/tests/")
+                    && !path_str.contains("/jinja2/")
+                    && !path_str.contains("/static/")
+            }
+        };
 
-        // Skip __init__.py — rarely contains registrations
-        if path.file_name().is_some_and(|n| n == "__init__.py") {
-            continue;
-        }
-
-        // Pattern 1: **/templatetags/**/*.py
-        if path_str.contains("/templatetags/") {
-            files.push(path.to_path_buf());
-            continue;
-        }
-
-        // Pattern 2: Django core template modules
-        let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-        if path_str.contains("/template/")
-            && matches!(
-                file_name,
-                "defaulttags.py" | "defaultfilters.py" | "loader_tags.py"
-            )
-        {
-            files.push(path.to_path_buf());
+        if matches {
+            files.push(path.to_owned());
         }
     }
 
     files.sort();
-    files.dedup();
     files
 }
 
-/// Find all Django template files (`.html`, `.txt`) in a directory tree.
-///
-/// Matches files inside `**/templates/` directories.
-/// Excludes files inside `docs/` and `tests/` directories (documentation
-/// examples and intentionally invalid test templates).
-#[must_use]
-pub fn enumerate_template_files(root: &Path) -> Vec<PathBuf> {
-    let mut files = Vec::new();
+pub(crate) fn in_pycache(path_str: &str) -> bool {
+    path_str.contains("__pycache__")
+}
 
-    for entry in WalkDir::new(root)
-        .into_iter()
-        .filter_map(Result::ok)
-        .filter(|e| e.file_type().is_file())
-    {
-        let path = entry.path();
-        let path_str = path.to_string_lossy();
+pub(crate) fn has_py_extension(path: &Utf8Path) -> bool {
+    path.extension().is_some_and(|ext| ext == "py")
+}
 
-        // Must be inside a templates/ directory
-        if !path_str.contains("/templates/") {
-            continue;
-        }
+pub(crate) fn has_template_extension(path: &Utf8Path) -> bool {
+    path.extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("html") || ext.eq_ignore_ascii_case("txt"))
+}
 
-        // Skip documentation directories — contain template-like examples
-        // that aren't valid standalone templates (e.g., Django's builtins.txt)
-        if path_str.contains("/docs/") {
-            continue;
-        }
+pub(crate) fn in_templatetags_dir(path_str: &str) -> bool {
+    path_str.contains("/templatetags/")
+}
 
-        // Skip test directories — may contain intentionally invalid templates
-        // (e.g., Django's template_error.html for testing error handling)
-        if path_str.contains("/tests/") {
-            continue;
-        }
+pub(crate) fn is_core_template_module(path: &Utf8Path) -> bool {
+    let path_str = path.as_str();
+    path_str.contains("/template/")
+        && matches!(
+            path.file_name(),
+            Some("defaulttags.py" | "defaultfilters.py" | "loader_tags.py")
+        )
+}
 
-        // Must be .html or .txt
-        let is_template = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .is_some_and(|ext| ext.eq_ignore_ascii_case("html") || ext.eq_ignore_ascii_case("txt"));
-
-        if is_template {
-            files.push(path.to_path_buf());
-        }
-    }
-
-    files.sort();
-    files.dedup();
-    files
+pub(crate) fn in_templates_dir(path_str: &str) -> bool {
+    path_str.contains("/templates/")
 }

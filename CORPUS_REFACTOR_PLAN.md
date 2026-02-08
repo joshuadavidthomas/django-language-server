@@ -210,7 +210,7 @@ The `pub(crate)` predicate helpers (`in_pycache`, `has_py_extension`, etc.) stay
 |------|-------------|--------|
 | 1 | `Corpus` struct + methods | ✅ Done |
 | 2 | Merge extraction tests, migrate to `Corpus` | ✅ Done |
-| 3 | Consolidate semantic/server tests, kill venv path | 🔲 Not started |
+| 3 | Consolidate semantic/server tests, kill venv path | ✅ Done |
 | 4 | Clap CLI | 🔲 Not started |
 | 5 | Enumerate cleanup | 🔲 Not started |
 
