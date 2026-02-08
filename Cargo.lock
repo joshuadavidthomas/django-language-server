@@ -607,6 +607,7 @@ dependencies = [
  "camino",
  "codspeed-divan-compat",
  "djls-conf",
+ "djls-extraction",
  "djls-project",
  "djls-semantic",
  "djls-source",

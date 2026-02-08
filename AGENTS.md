@@ -48,7 +48,7 @@ just lint                        # Run pre-commit hooks
 - **Parser `Node::Tag.bits` excludes tag name**: `{% load i18n %}` → `name: "load"`, `bits: ["i18n"]`. Functions processing `bits` work with arguments only.
 - **Workspace deps**: Third-party deps go in `[workspace.dependencies]` in root `Cargo.toml`, crates reference with `dep.workspace = true`.
 - **Insta snapshots**: After changing serialized types, run `INSTA_UPDATE=1 cargo test -q` then `cargo insta review`.
-- **Extraction feature gate**: `djls-extraction` has a `parser` feature gating Ruff deps. Types in `types.rs` are always available. Crates doing extraction use `features = ["parser"]`; crates needing only types use default features off.
+- **Extraction feature gate**: `djls-extraction` has a `parser` feature gating Ruff deps. Types in `types.rs` and `environment_types.rs` are always available. Crates doing extraction use `features = ["parser"]`; crates needing only types use default features off. Environment scan functions (`scan_environment`, `scan_environment_with_symbols`) require the `parser` feature; environment types (`EnvironmentInventory`, `EnvironmentLibrary`, `EnvironmentSymbol`) are always available.
 - **`ValidationError` is exhaustive**: When adding/removing variants, update `errors.rs`, `diagnostics.rs` (S-code mapping), and test helpers. Grep: `grep -rn "ValidationError" crates/ --include="*.rs"`.
 - **`SemanticDb` trait**: When adding methods, update impls in `djls-server/src/db.rs` and `djls-bench/src/db.rs`.
 - **`crate::Db` in `djls-semantic`**: When adding methods, update ALL test databases (~10 files). E0046 if you miss one. Grep: `grep -rn "impl crate::Db" crates/djls-semantic/ --include="*.rs"`.

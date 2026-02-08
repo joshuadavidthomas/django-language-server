@@ -553,9 +553,9 @@ fn condition_involves_element_check(expr: &Expr, env: &Env) -> bool {
                 .iter()
                 .any(|c| matches!(eval_expr(c, env), AbstractValue::SplitElement { .. }))
         }
-        Expr::BoolOp(ExprBoolOp { values, .. }) => {
-            values.iter().any(|v| condition_involves_element_check(v, env))
-        }
+        Expr::BoolOp(ExprBoolOp { values, .. }) => values
+            .iter()
+            .any(|v| condition_involves_element_check(v, env)),
         Expr::UnaryOp(unary) => condition_involves_element_check(&unary.operand, env),
         _ => false,
     }

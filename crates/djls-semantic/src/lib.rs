@@ -177,6 +177,10 @@ mod tests {
         fn filter_arity_specs(&self) -> FilterAritySpecs {
             self.arity_specs.clone()
         }
+
+        fn environment_inventory(&self) -> Option<djls_extraction::EnvironmentInventory> {
+            None
+        }
     }
 
     fn builtin_tag_json(name: &str, module: &str) -> serde_json::Value {
@@ -871,6 +875,10 @@ mod tests {
 
         fn filter_arity_specs(&self) -> FilterAritySpecs {
             self.arity_specs.clone()
+        }
+
+        fn environment_inventory(&self) -> Option<djls_extraction::EnvironmentInventory> {
+            None
         }
     }
 

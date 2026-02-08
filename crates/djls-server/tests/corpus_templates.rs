@@ -112,6 +112,10 @@ impl djls_semantic::Db for CorpusTestDatabase {
     fn filter_arity_specs(&self) -> FilterAritySpecs {
         self.arity_specs.clone()
     }
+
+    fn environment_inventory(&self) -> Option<djls_extraction::EnvironmentInventory> {
+        None
+    }
 }
 
 // ---------------------------------------------------------------------------

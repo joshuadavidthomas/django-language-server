@@ -135,6 +135,10 @@ mod tests {
         fn filter_arity_specs(&self) -> crate::filter_arity::FilterAritySpecs {
             crate::filter_arity::FilterAritySpecs::new()
         }
+
+        fn environment_inventory(&self) -> Option<djls_extraction::EnvironmentInventory> {
+            None
+        }
     }
 
     /// Test helper: Create a temporary `NodeList` with a single tag and validate it using custom specs

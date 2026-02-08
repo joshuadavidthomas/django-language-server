@@ -15,6 +15,7 @@ pub use django::TemplateTag;
 pub use django::TemplateTags;
 pub use django::TemplatetagsRequest;
 pub use django::TemplatetagsResponse;
+pub use djls_extraction::EnvironmentInventory;
 pub use djls_extraction::ExtractionResult;
 pub use inspector::Inspector;
 pub use inspector::InspectorRequest;

@@ -1,5 +1,6 @@
 use camino::Utf8PathBuf;
 use djls_conf::DiagnosticsConfig;
+use djls_extraction::EnvironmentInventory;
 use djls_project::TemplateTags;
 use djls_templates::Db as TemplateDb;
 
@@ -31,6 +32,12 @@ pub trait Db: TemplateDb {
     /// Built from extraction results. Returns empty specs when no extraction
     /// data is available.
     fn filter_arity_specs(&self) -> FilterAritySpecs;
+
+    /// Get the environment inventory from scanning `sys.path` for templatetag modules.
+    ///
+    /// Returns `None` when the environment hasn't been scanned yet.
+    /// Used for three-layer resolution (environment → `INSTALLED_APPS` → load).
+    fn environment_inventory(&self) -> Option<EnvironmentInventory>;
 }
 
 #[salsa::accumulator]

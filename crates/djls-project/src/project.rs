@@ -2,6 +2,7 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_conf::DiagnosticsConfig;
 use djls_conf::Settings;
+use djls_extraction::EnvironmentInventory;
 use djls_extraction::ExtractionResult;
 use rustc_hash::FxHashMap;
 
@@ -44,6 +45,11 @@ pub struct Project {
     /// via `collect_workspace_extraction_results` instead.
     #[returns(ref)]
     pub extracted_external_rules: FxHashMap<String, ExtractionResult>,
+    /// Environment inventory from scanning `sys.path` for `templatetags/` modules.
+    /// Populated by `refresh_inspector`. A superset of the inspector inventory —
+    /// includes libraries from apps not in `INSTALLED_APPS`.
+    #[returns(ref)]
+    pub environment_inventory: Option<EnvironmentInventory>,
     /// Diagnostic severity configuration
     #[returns(ref)]
     pub diagnostics: DiagnosticsConfig,
@@ -98,6 +104,7 @@ impl Project {
             settings.pythonpath().to_vec(),
             None,
             FxHashMap::default(),
+            None,
             settings.diagnostics().clone(),
         )
     }

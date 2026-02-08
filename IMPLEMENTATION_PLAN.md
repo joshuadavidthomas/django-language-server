@@ -696,15 +696,15 @@ Python Environment  →  Django Configuration  →  Template Load  →  Availabl
 
 ### Phase 4: Salsa Integration — Store Environment Inventory on Project
 
-- [ ] Add `environment_inventory: Option<EnvironmentInventory>` field to `Project` input in `crates/djls-project/src/project.rs` with `#[returns(ref)]`
-- [ ] Add `djls-extraction` dependency to `djls-project/Cargo.toml` for `EnvironmentInventory` type (types-only, no `parser` feature) — or define a separate types module if needed to avoid pulling in extraction types
-- [ ] Derive `PartialEq` + `Eq` on `EnvironmentInventory`, `EnvironmentLibrary`, `EnvironmentSymbol`
-- [ ] Initialize `environment_inventory` as `None` in `Project::bootstrap`
-- [ ] Implement environment scan in `refresh_inspector()` on `DjangoDatabase`: after inspector query completes, run `scan_environment_with_symbols` using `pythonpath` + interpreter's `sys.path`, compare with current value, set only if changed
-- [ ] Add `environment_inventory()` accessor to `SemanticDb` trait and implement on `DjangoDatabase`
-- [ ] Update all test databases implementing `SemanticDb` to include `environment_inventory()` method
-- [ ] Tests: environment inventory stored on Project, refresh updates inventory, same value → no Salsa invalidation
-- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Add `environment_inventory: Option<EnvironmentInventory>` field to `Project` input in `crates/djls-project/src/project.rs` with `#[returns(ref)]`
+- [x] Add `djls-extraction` dependency to `djls-project/Cargo.toml` for `EnvironmentInventory` type (types-only, no `parser` feature) — or define a separate types module if needed to avoid pulling in extraction types
+- [x] Derive `PartialEq` + `Eq` on `EnvironmentInventory`, `EnvironmentLibrary`, `EnvironmentSymbol`
+- [x] Initialize `environment_inventory` as `None` in `Project::bootstrap`
+- [x] Implement environment scan in `refresh_inspector()` on `DjangoDatabase`: after inspector query completes, run `scan_environment_with_symbols` using `pythonpath` + interpreter's `sys.path`, compare with current value, set only if changed
+- [x] Add `environment_inventory()` accessor to `SemanticDb` trait and implement on `DjangoDatabase`
+- [x] Update all test databases implementing `SemanticDb` to include `environment_inventory()` method
+- [x] Tests: environment inventory stored on Project, refresh updates inventory, same value → no Salsa invalidation
+- [x] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 5: Three-Layer Resolution — Tags and Filters
 

@@ -388,6 +388,22 @@ impl DjangoDatabase {
                 .set_extracted_external_rules(self)
                 .to(new_extraction);
         }
+
+        // Scan the Python environment for all templatetag libraries.
+        // This is a superset of the inspector inventory — it includes libraries
+        // from apps not in INSTALLED_APPS.
+        let search_paths = build_search_paths(&interpreter, &root, &pythonpath);
+        let std_paths: Vec<std::path::PathBuf> = search_paths
+            .iter()
+            .map(|p| std::path::PathBuf::from(p.as_str()))
+            .collect();
+        let new_env_inventory = Some(djls_extraction::scan_environment_with_symbols(&std_paths));
+
+        if project.environment_inventory(self) != &new_env_inventory {
+            project
+                .set_environment_inventory(self)
+                .to(new_env_inventory);
+        }
     }
 
     fn set_project(&mut self, root: &Utf8Path, settings: &Settings) {
@@ -525,6 +541,11 @@ impl SemanticDb for DjangoDatabase {
             djls_semantic::FilterAritySpecs::new()
         }
     }
+
+    fn environment_inventory(&self) -> Option<djls_extraction::EnvironmentInventory> {
+        self.project()
+            .and_then(|project| project.environment_inventory(self).clone())
+    }
 }
 
 #[salsa::db]
@@ -621,6 +642,7 @@ mod invalidation_tests {
             settings.pythonpath().to_vec(),
             None,
             rustc_hash::FxHashMap::default(),
+            None,
             settings.diagnostics().clone(),
         );
         *db.project.lock().unwrap() = Some(project);
@@ -890,6 +912,76 @@ def my_filter(value, arg):
         let stored = project.extracted_external_rules(&db);
         assert_eq!(stored.len(), 1);
         assert_eq!(stored["test.module"].block_specs.len(), 1);
+    }
+
+    #[test]
+    fn environment_inventory_stored_on_project() {
+        let (db, _event_log) = test_db_with_project();
+
+        // Initially None
+        let project = db.project.lock().unwrap().unwrap();
+        assert!(
+            project.environment_inventory(&db).is_none(),
+            "environment inventory should initially be None"
+        );
+    }
+
+    #[test]
+    fn environment_inventory_setter_updates_value() {
+        let (mut db, _event_log) = test_db_with_project();
+
+        let project = db.project.lock().unwrap().unwrap();
+
+        // Set a non-empty environment inventory
+        let mut libraries = std::collections::BTreeMap::new();
+        libraries.insert(
+            "humanize".to_string(),
+            vec![djls_extraction::EnvironmentLibrary {
+                load_name: "humanize".to_string(),
+                app_module: "django.contrib.humanize".to_string(),
+                module_path: "django.contrib.humanize.templatetags.humanize".to_string(),
+                source_path: std::path::PathBuf::from(
+                    "/site-packages/django/contrib/humanize/templatetags/humanize.py",
+                ),
+                tags: vec![],
+                filters: vec!["intcomma".to_string(), "intword".to_string()],
+            }],
+        );
+        let inventory = djls_extraction::EnvironmentInventory::new(libraries);
+        project
+            .set_environment_inventory(&mut db)
+            .to(Some(inventory.clone()));
+
+        // Verify it's set
+        let stored = project.environment_inventory(&db);
+        assert!(stored.is_some());
+        assert!(stored.as_ref().unwrap().has_library("humanize"));
+    }
+
+    #[test]
+    fn environment_inventory_same_value_no_invalidation() {
+        let (mut db, event_log) = test_db_with_project();
+
+        // Prime tag_specs cache
+        let _specs = db.tag_specs();
+        event_log.take();
+
+        let project = db.project.lock().unwrap().unwrap();
+
+        // Setting None when already None should not trigger invalidation
+        // (manual comparison prevents setter call)
+        let current = project.environment_inventory(&db).clone();
+        if project.environment_inventory(&db) != &current {
+            project.set_environment_inventory(&mut db).to(current);
+        }
+
+        // tag_specs should NOT re-execute
+        let _specs = db.tag_specs();
+        let events = event_log.take();
+        assert!(
+            !was_executed(&db, &events, "compute_tag_specs"),
+            "compute_tag_specs should not re-execute when environment_inventory unchanged"
+        );
     }
 
     #[test]
