@@ -17,9 +17,12 @@ pub fn sha256_hex(data: &[u8]) -> String {
 }
 
 /// Verify that `data` matches the expected SHA256 hex digest.
+///
+/// Comparison is case-insensitive so that uppercase hex digests
+/// (e.g. from external manifests) match our lowercase output.
 pub fn verify_sha256(data: &[u8], expected: &str, label: &str) -> anyhow::Result<()> {
     let actual = sha256_hex(data);
-    if actual != expected {
+    if !actual.eq_ignore_ascii_case(expected) {
         anyhow::bail!("SHA256 mismatch for {label}\n  expected: {expected}\n  actual:   {actual}");
     }
     Ok(())
@@ -242,6 +245,55 @@ mod tests {
         assert!(
             err.contains("Refusing to extract link entry"),
             "error should mention link rejection, got: {err}"
+        );
+    }
+
+    #[test]
+    fn verify_sha256_accepts_lowercase_hex() {
+        let data = b"hello world";
+        let hash = sha256_hex(data);
+        verify_sha256(data, &hash, "test").unwrap();
+    }
+
+    #[test]
+    fn verify_sha256_accepts_uppercase_hex() {
+        let data = b"hello world";
+        let hash = sha256_hex(data).to_ascii_uppercase();
+        verify_sha256(data, &hash, "test").unwrap();
+    }
+
+    #[test]
+    fn verify_sha256_accepts_mixed_case_hex() {
+        let data = b"hello world";
+        let hash = sha256_hex(data);
+        // Mix case: uppercase odd-indexed chars
+        let mixed: String = hash
+            .chars()
+            .enumerate()
+            .map(|(i, c)| {
+                if i % 2 == 1 {
+                    c.to_ascii_uppercase()
+                } else {
+                    c
+                }
+            })
+            .collect();
+        verify_sha256(data, &mixed, "test").unwrap();
+    }
+
+    #[test]
+    fn verify_sha256_rejects_wrong_hash() {
+        let data = b"hello world";
+        let result = verify_sha256(
+            data,
+            "0000000000000000000000000000000000000000000000000000000000000000",
+            "test",
+        );
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("SHA256 mismatch"),
+            "expected mismatch error, got: {err}"
         );
     }
 

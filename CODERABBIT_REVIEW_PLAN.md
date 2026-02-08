@@ -95,7 +95,7 @@
 ## 🟡 ACCEPT WITH CAVEATS — Worth Doing, But Scope the Fix
 
 ### 7. `archive.rs:20-24` — SHA256 case-sensitivity in `verify_sha256`
-- **Status**: TODO
+- **Status**: DONE
 - **Severity**: Low (defensive fix)
 - **File**: `crates/djls-corpus/src/archive.rs`
 - **Fix**: `sha256_hex` outputs lowercase via `{:x}`. If the expected hash comes from an external source in uppercase, comparison fails. In practice this depends on where manifests come from. A one-line `.to_ascii_lowercase()` on `expected` is cheap insurance.
