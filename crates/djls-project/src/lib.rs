@@ -24,6 +24,7 @@ pub use inspector::InspectorResponse;
 pub use project::Project;
 pub use python::Interpreter;
 pub use resolve::build_search_paths;
+pub use resolve::extract_external_rules;
 pub use resolve::find_site_packages;
 pub use resolve::resolve_module;
 pub use resolve::resolve_modules;

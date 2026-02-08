@@ -16,7 +16,6 @@ use djls_project::Db as ProjectDb;
 use djls_project::Inspector;
 use djls_project::Interpreter;
 use djls_project::Project;
-use djls_project::TemplateSymbol;
 use djls_project::TemplateTags;
 use djls_project::TemplatetagsRequest;
 use djls_project::TemplatetagsResponse;
@@ -135,13 +134,7 @@ fn collect_workspace_extraction_results(
         return Vec::new();
     };
 
-    let mut module_paths = rustc_hash::FxHashSet::<String>::default();
-    for tag in inventory.tags() {
-        module_paths.insert(tag.registration_module().to_string());
-    }
-    for filter in inventory.filters() {
-        module_paths.insert(filter.registration_module().to_string());
-    }
+    let module_paths = inventory.registration_modules();
 
     let search_paths = build_search_paths(interpreter, root, pythonpath);
 
@@ -377,7 +370,10 @@ impl DjangoDatabase {
         // which uses tracked Salsa queries for automatic invalidation on file change.
         let new_extraction = new_inventory
             .as_ref()
-            .map(|inv| extract_external_rules(inv, &interpreter, &root, &pythonpath))
+            .map(|inv| {
+                let modules = inv.registration_modules();
+                djls_project::extract_external_rules(&modules, &interpreter, &root, &pythonpath)
+            })
             .unwrap_or_default();
 
         if project.extracted_external_rules(self) != &new_extraction {
@@ -408,54 +404,6 @@ impl DjangoDatabase {
         *self.project.lock().unwrap() = Some(project);
         self.refresh_inspector();
     }
-}
-
-/// Extract validation rules from external registration modules in the inventory.
-///
-/// Collects unique registration module paths from tags and filters,
-/// resolves them, filters to external-only (site-packages, stdlib), reads
-/// the source, and runs extraction. Workspace modules are NOT extracted
-/// here — they use tracked Salsa queries via `collect_workspace_extraction_results`.
-///
-/// Returns a per-module map so that Salsa can detect per-module changes.
-fn extract_external_rules(
-    inventory: &TemplateTags,
-    interpreter: &Interpreter,
-    root: &Utf8Path,
-    pythonpath: &[String],
-) -> rustc_hash::FxHashMap<String, djls_extraction::ExtractionResult> {
-    use rustc_hash::FxHashSet;
-
-    let mut modules = FxHashSet::default();
-    for tag in inventory.tags() {
-        modules.insert(tag.registration_module().to_string());
-    }
-    for filter in inventory.filters() {
-        modules.insert(filter.registration_module().to_string());
-    }
-
-    let search_paths = build_search_paths(interpreter, root, pythonpath);
-
-    let (_workspace, external_modules) =
-        djls_project::resolve_modules(modules.iter().map(String::as_str), &search_paths, root);
-
-    let mut results = rustc_hash::FxHashMap::default();
-
-    for resolved in external_modules {
-        match std::fs::read_to_string(resolved.file_path.as_std_path()) {
-            Ok(source) => {
-                let module_result = djls_extraction::extract_rules(&source, &resolved.module_path);
-                if !module_result.is_empty() {
-                    results.insert(resolved.module_path, module_result);
-                }
-            }
-            Err(e) => {
-                tracing::debug!("Failed to read module file {}: {}", resolved.file_path, e);
-            }
-        }
-    }
-
-    results
 }
 
 #[salsa::db]

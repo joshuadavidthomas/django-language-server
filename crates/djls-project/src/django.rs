@@ -223,6 +223,19 @@ impl TemplateTags {
         &self.builtins
     }
 
+    /// Collect unique registration module paths from all tags and filters.
+    #[must_use]
+    pub fn registration_modules(&self) -> rustc_hash::FxHashSet<String> {
+        let mut modules = rustc_hash::FxHashSet::default();
+        for tag in &self.tags {
+            modules.insert(tag.registration_module().to_string());
+        }
+        for filter in &self.filters {
+            modules.insert(filter.registration_module().to_string());
+        }
+        modules
+    }
+
     pub fn iter(&self) -> impl Iterator<Item = &TemplateTag> {
         self.tags.iter()
     }

@@ -182,6 +182,43 @@ fn find_site_packages_in_venv(venv: &Utf8Path) -> Option<Utf8PathBuf> {
     None
 }
 
+/// Extract validation rules from external (non-workspace) registration modules.
+///
+/// Resolves the given module paths, filters to external-only, reads each
+/// source file from disk, and runs extraction. Returns a per-module map.
+///
+/// Workspace modules should NOT be extracted this way — they use tracked
+/// Salsa queries for automatic invalidation on file change.
+pub fn extract_external_rules(
+    modules: &std::collections::HashSet<String, impl std::hash::BuildHasher>,
+    interpreter: &Interpreter,
+    root: &Utf8Path,
+    pythonpath: &[String],
+) -> rustc_hash::FxHashMap<String, djls_extraction::ExtractionResult> {
+    let search_paths = build_search_paths(interpreter, root, pythonpath);
+
+    let (_workspace, external_modules) =
+        resolve_modules(modules.iter().map(String::as_str), &search_paths, root);
+
+    let mut results = rustc_hash::FxHashMap::default();
+
+    for resolved in external_modules {
+        match std::fs::read_to_string(resolved.file_path.as_std_path()) {
+            Ok(source) => {
+                let module_result = djls_extraction::extract_rules(&source, &resolved.module_path);
+                if !module_result.is_empty() {
+                    results.insert(resolved.module_path, module_result);
+                }
+            }
+            Err(e) => {
+                tracing::debug!("Failed to read module file {}: {}", resolved.file_path, e);
+            }
+        }
+    }
+
+    results
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
