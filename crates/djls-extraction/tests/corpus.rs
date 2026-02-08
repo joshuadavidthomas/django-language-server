@@ -1,8 +1,8 @@
 //! Corpus extraction snapshot tests.
 //!
-//! Golden tests that extract rules from real Django and third-party Python
-//! source and snapshot the results. Catch regressions in extraction output
-//! across the entire corpus.
+//! Uses `insta::glob!` for per-file snapshot granularity — each extraction
+//! target in the corpus gets its own snapshot file. When a snapshot changes,
+//! `cargo insta review` shows exactly which file's extraction output differs.
 //!
 //! # Running
 //!
@@ -12,17 +12,16 @@
 //! # Sync the corpus:
 //! cargo run -p djls-corpus -- sync
 //!
-//! # Run corpus tests:
+//! # Run all corpus tests:
 //! cargo test -p djls-extraction --test corpus -- --nocapture
 //!
 //! # Update snapshots after intentional changes:
-//! cargo insta test --accept --unreferenced delete
+//! INSTA_UPDATE=1 cargo test -p djls-extraction --test corpus
 //! ```
 
 use std::collections::BTreeMap;
 
 use camino::Utf8Path;
-use camino::Utf8PathBuf;
 use djls_corpus::module_path_from_file;
 use djls_corpus::Corpus;
 use djls_extraction::extract_rules;
@@ -67,89 +66,59 @@ fn snapshot(result: ExtractionResult) -> SortedExtractionResult {
     result.into()
 }
 
-fn sorted_subdirs(dir: &Utf8Path) -> Vec<Utf8PathBuf> {
-    let Ok(entries) = std::fs::read_dir(dir.as_std_path()) else {
-        return Vec::new();
-    };
-    let mut dirs: Vec<Utf8PathBuf> = entries
-        .filter_map(Result::ok)
-        .filter(|e| e.file_type().ok().is_some_and(|ft| ft.is_dir()))
-        .filter_map(|e| Utf8PathBuf::from_path_buf(e.path()).ok())
-        .collect();
-    dirs.sort();
-    dirs
+fn is_extraction_target(path: &Utf8Path) -> bool {
+    let path_str = path.as_str();
+    if path_str.contains("__pycache__") {
+        return false;
+    }
+    let is_py = path.extension().is_some_and(|ext| ext == "py");
+    if !is_py {
+        return false;
+    }
+    if path.file_name() == Some("__init__.py") {
+        return false;
+    }
+    path_str.contains("/templatetags/")
+        || (path_str.contains("/template/")
+            && matches!(
+                path.file_name(),
+                Some("defaulttags.py" | "defaultfilters.py" | "loader_tags.py")
+            ))
+}
+
+fn snapshot_dir() -> insta::internals::SettingsBindDropGuard {
+    let mut settings = insta::Settings::clone_current();
+    settings.set_snapshot_path(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/snapshots"));
+    settings.bind_to_scope()
 }
 
 #[test]
-fn test_django_core_modules_snapshots() {
+fn extraction_snapshots() {
     let Some(corpus) = Corpus::discover() else {
         eprintln!("Corpus not available. Run `cargo run -p djls-corpus -- sync`.");
         return;
     };
-
-    let Some(django_dir) = corpus.latest_django() else {
-        eprintln!("No Django in corpus");
+    if corpus.extraction_targets().is_empty() {
+        eprintln!("No extraction targets in corpus.");
         return;
-    };
+    }
 
-    let files = corpus.extraction_targets_in(&django_dir);
-    assert!(!files.is_empty(), "Django should have extraction targets");
-
-    for path in &files {
+    insta::glob!(corpus.root().as_str(), "**/*.py", |path| {
+        let path = Utf8Path::from_path(path).unwrap();
+        if !is_extraction_target(path) {
+            return;
+        }
+        let _guard = snapshot_dir();
+        let source = std::fs::read_to_string(path).unwrap();
         let module_path = module_path_from_file(path);
-        let result = corpus
-            .extract_file(path)
-            .expect("extraction should succeed");
-        let snap_name = format!("django_core__{}", module_path.replace('.', "_"));
-        insta::assert_yaml_snapshot!(snap_name, snapshot(result));
-    }
-}
-
-#[test]
-fn test_third_party_packages_snapshots() {
-    let Some(corpus) = Corpus::discover() else {
-        eprintln!("Corpus not available. Run `cargo run -p djls-corpus -- sync`.");
-        return;
-    };
-
-    let mut entries: Vec<(String, Utf8PathBuf)> = Vec::new();
-
-    let packages_dir = corpus.root().join("packages");
-    if packages_dir.as_std_path().exists() {
-        for name_dir in sorted_subdirs(&packages_dir) {
-            let name = name_dir.file_name().unwrap().to_string();
-            if name == "Django" {
-                continue;
-            }
-            let synced = corpus.synced_dirs(&format!("packages/{name}"));
-            if let Some(latest) = synced.last() {
-                entries.push((name, latest.clone()));
-            }
-        }
-    }
-
-    let repos_dir = corpus.root().join("repos");
-    if repos_dir.as_std_path().exists() {
-        for name_dir in sorted_subdirs(&repos_dir) {
-            let name = name_dir.file_name().unwrap().to_string();
-            let synced = corpus.synced_dirs(&format!("repos/{name}"));
-            if let Some(latest) = synced.last() {
-                entries.push((name, latest.clone()));
-            }
-        }
-    }
-
-    assert!(!entries.is_empty(), "Should have non-Django corpus entries");
-
-    for (name, dir) in &entries {
-        let combined = corpus.extract_dir(dir);
-        let snap_name = format!("thirdparty__{}", name.replace('-', "_").to_lowercase());
-        insta::assert_yaml_snapshot!(snap_name, snapshot(combined));
-    }
+        let result = extract_rules(&source, &module_path);
+        insta::assert_yaml_snapshot!(snapshot(result));
+    });
 }
 
 #[test]
 fn test_django_versions_extraction() {
+    let _guard = snapshot_dir();
     let Some(corpus) = Corpus::discover() else {
         return;
     };
@@ -161,7 +130,6 @@ fn test_django_versions_extraction() {
     }
 
     let django_dirs = corpus.synced_dirs("packages/Django");
-
     if django_dirs.is_empty() {
         eprintln!("No Django version dirs found, skipping");
         return;

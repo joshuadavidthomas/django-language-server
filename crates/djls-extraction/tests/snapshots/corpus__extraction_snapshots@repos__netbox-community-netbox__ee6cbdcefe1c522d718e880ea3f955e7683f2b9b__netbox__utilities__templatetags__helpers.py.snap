@@ -1,0 +1,140 @@
+---
+source: crates/djls-extraction/tests/corpus.rs
+expression: snapshot(result)
+input_file: crates/djls-corpus/.corpus/repos/netbox-community-netbox/ee6cbdcefe1c522d718e880ea3f955e7683f2b9b/netbox/utilities/templatetags/helpers.py
+---
+tag_rules:
+  "netbox.utilities.templatetags.helpers::action_url":
+    arg_constraints:
+      - Min: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: arg1
+        required: true
+        kind: Variable
+        position: 0
+      - name: arg2
+        required: true
+        kind: Variable
+        position: 1
+    supports_as_var: false
+  "netbox.utilities.templatetags.helpers::applied_filters":
+    arg_constraints:
+      - Min: 4
+      - Max: 4
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: model
+        required: true
+        kind: Variable
+        position: 0
+      - name: form
+        required: true
+        kind: Variable
+        position: 1
+      - name: query_params
+        required: true
+        kind: Variable
+        position: 2
+    supports_as_var: false
+  "netbox.utilities.templatetags.helpers::querystring":
+    arg_constraints:
+      - Min: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: request
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: true
+  "netbox.utilities.templatetags.helpers::table_config_form":
+    arg_constraints:
+      - Min: 2
+      - Max: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: table
+        required: true
+        kind: Variable
+        position: 0
+      - name: table_name
+        required: false
+        kind: Variable
+        position: 1
+    supports_as_var: false
+  "netbox.utilities.templatetags.helpers::utilization_graph":
+    arg_constraints:
+      - Min: 2
+      - Max: 4
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: utilization
+        required: true
+        kind: Variable
+        position: 0
+      - name: warning_threshold
+        required: false
+        kind: Variable
+        position: 1
+      - name: danger_threshold
+        required: false
+        kind: Variable
+        position: 2
+    supports_as_var: false
+filter_arities:
+  "netbox.utilities.templatetags.helpers::as_range":
+    expects_arg: false
+    arg_optional: false
+  "netbox.utilities.templatetags.helpers::divide":
+    expects_arg: true
+    arg_optional: false
+  "netbox.utilities.templatetags.helpers::get_item":
+    expects_arg: true
+    arg_optional: false
+  "netbox.utilities.templatetags.helpers::get_key":
+    expects_arg: true
+    arg_optional: false
+  "netbox.utilities.templatetags.helpers::humanize_disk_megabytes":
+    expects_arg: false
+    arg_optional: false
+  "netbox.utilities.templatetags.helpers::humanize_ram_megabytes":
+    expects_arg: false
+    arg_optional: false
+  "netbox.utilities.templatetags.helpers::humanize_speed":
+    expects_arg: false
+    arg_optional: false
+  "netbox.utilities.templatetags.helpers::icon_from_status":
+    expects_arg: false
+    arg_optional: false
+  "netbox.utilities.templatetags.helpers::kg_to_pounds":
+    expects_arg: false
+    arg_optional: false
+  "netbox.utilities.templatetags.helpers::meters_to_feet":
+    expects_arg: false
+    arg_optional: false
+  "netbox.utilities.templatetags.helpers::percentage":
+    expects_arg: true
+    arg_optional: false
+  "netbox.utilities.templatetags.helpers::startswith":
+    expects_arg: true
+    arg_optional: false
+  "netbox.utilities.templatetags.helpers::status_from_tag":
+    expects_arg: false
+    arg_optional: false
+  "netbox.utilities.templatetags.helpers::validated_viewname":
+    expects_arg: true
+    arg_optional: false
+  "netbox.utilities.templatetags.helpers::viewname":
+    expects_arg: true
+    arg_optional: false
+block_specs: {}

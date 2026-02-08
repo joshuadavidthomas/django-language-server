@@ -1,0 +1,64 @@
+---
+source: crates/djls-extraction/tests/corpus.rs
+expression: snapshot(result)
+input_file: crates/djls-corpus/.corpus/repos/getsentry-sentry/f96e0f2de81f9d5b95614393be420f3107604220/src/sentry/templatetags/sentry_api.py
+---
+tag_rules:
+  "src.sentry.templatetags.sentry_api::convert_to_json":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: obj
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: true
+  "src.sentry.templatetags.sentry_api::get_recipient_context":
+    arg_constraints:
+      - Min: 2
+      - Max: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: request
+        required: true
+        kind: Variable
+        position: 0
+      - name: escape
+        required: false
+        kind: Variable
+        position: 1
+    supports_as_var: true
+  "src.sentry.templatetags.sentry_api::serialize":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: obj
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: true
+  "src.sentry.templatetags.sentry_api::serialize_detailed_org":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: obj
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: true
+filter_arities: {}
+block_specs: {}

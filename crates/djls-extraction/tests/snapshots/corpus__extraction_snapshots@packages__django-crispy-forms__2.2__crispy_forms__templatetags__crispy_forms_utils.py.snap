@@ -1,0 +1,12 @@
+---
+source: crates/djls-extraction/tests/corpus.rs
+expression: snapshot(result)
+input_file: crates/djls-corpus/.corpus/packages/django-crispy-forms/2.2/crispy_forms/templatetags/crispy_forms_utils.py
+---
+tag_rules: {}
+filter_arities: {}
+block_specs:
+  "crispy_forms.templatetags.crispy_forms_utils::specialspaceless":
+    end_tag: endspecialspaceless
+    intermediates: []
+    opaque: false

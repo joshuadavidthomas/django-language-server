@@ -1,0 +1,28 @@
+---
+source: crates/djls-extraction/tests/corpus.rs
+expression: snapshot(result)
+input_file: crates/djls-corpus/.corpus/packages/Django/4.2.28/django/templatetags/cache.py
+---
+tag_rules:
+  "django.templatetags.cache::cache":
+    arg_constraints:
+      - Min: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: arg1
+        required: true
+        kind: Variable
+        position: 0
+      - name: arg2
+        required: true
+        kind: Variable
+        position: 1
+    supports_as_var: false
+filter_arities: {}
+block_specs:
+  "django.templatetags.cache::cache":
+    end_tag: endcache
+    intermediates: []
+    opaque: false

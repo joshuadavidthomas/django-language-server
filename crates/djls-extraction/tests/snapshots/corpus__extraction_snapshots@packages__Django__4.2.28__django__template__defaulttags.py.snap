@@ -1,0 +1,228 @@
+---
+source: crates/djls-extraction/tests/corpus.rs
+expression: snapshot(result)
+input_file: crates/djls-corpus/.corpus/packages/Django/4.2.28/django/template/defaulttags.py
+---
+tag_rules:
+  "django.template.defaulttags::autoescape":
+    arg_constraints:
+      - Exact: 2
+    required_keywords: []
+    choice_at_constraints:
+      - position: 1
+        values:
+          - "on"
+          - "off"
+    known_options: ~
+    extracted_args:
+      - name: arg
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: false
+  "django.template.defaulttags::cycle":
+    arg_constraints:
+      - Min: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: arg1
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: false
+  "django.template.defaulttags::for":
+    arg_constraints:
+      - Min: 4
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: arg1
+        required: true
+        kind: Variable
+        position: 0
+      - name: arg2
+        required: true
+        kind: Variable
+        position: 1
+      - name: arg3
+        required: true
+        kind: Variable
+        position: 2
+    supports_as_var: false
+  "django.template.defaulttags::lorem":
+    arg_constraints:
+      - Exact: 4
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: arg1
+        required: true
+        kind: Variable
+        position: 0
+      - name: arg2
+        required: true
+        kind: Variable
+        position: 1
+      - name: arg3
+        required: true
+        kind: Variable
+        position: 2
+    supports_as_var: false
+  "django.template.defaulttags::now":
+    arg_constraints:
+      - Exact: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: arg1
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: false
+  "django.template.defaulttags::regroup":
+    arg_constraints:
+      - Exact: 6
+    required_keywords:
+      - position: 2
+        value: by
+      - position: 4
+        value: as
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: arg1
+        required: true
+        kind: Variable
+        position: 0
+      - name: by
+        required: true
+        kind:
+          Literal: by
+        position: 1
+      - name: arg3
+        required: true
+        kind: Variable
+        position: 2
+      - name: as
+        required: true
+        kind:
+          Literal: as
+        position: 3
+      - name: var_name
+        required: true
+        kind: Variable
+        position: 4
+    supports_as_var: false
+  "django.template.defaulttags::resetcycle":
+    arg_constraints:
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: name
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: false
+  "django.template.defaulttags::templatetag":
+    arg_constraints:
+      - Exact: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: tag
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: false
+  "django.template.defaulttags::url":
+    arg_constraints:
+      - Min: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: arg1
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: false
+  "django.template.defaulttags::widthratio":
+    arg_constraints: []
+    required_keywords:
+      - position: 4
+        value: as
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: this_value_expr
+        required: true
+        kind: Variable
+        position: 0
+      - name: max_value_expr
+        required: true
+        kind: Variable
+        position: 1
+      - name: max_width
+        required: true
+        kind: Variable
+        position: 2
+      - name: as
+        required: true
+        kind:
+          Literal: as
+        position: 3
+      - name: asvar
+        required: true
+        kind: Variable
+        position: 4
+    supports_as_var: false
+filter_arities: {}
+block_specs:
+  "django.template.defaulttags::autoescape":
+    end_tag: endautoescape
+    intermediates: []
+    opaque: false
+  "django.template.defaulttags::comment":
+    end_tag: endcomment
+    intermediates: []
+    opaque: true
+  "django.template.defaulttags::filter":
+    end_tag: endfilter
+    intermediates: []
+    opaque: false
+  "django.template.defaulttags::for":
+    end_tag: endfor
+    intermediates:
+      - empty
+    opaque: false
+  "django.template.defaulttags::if":
+    end_tag: endif
+    intermediates:
+      - elif
+      - else
+    opaque: false
+  "django.template.defaulttags::ifchanged":
+    end_tag: endifchanged
+    intermediates:
+      - else
+    opaque: false
+  "django.template.defaulttags::spaceless":
+    end_tag: endspaceless
+    intermediates: []
+    opaque: false
+  "django.template.defaulttags::verbatim":
+    end_tag: endverbatim
+    intermediates: []
+    opaque: false
+  "django.template.defaulttags::with":
+    end_tag: endwith
+    intermediates: []
+    opaque: false
