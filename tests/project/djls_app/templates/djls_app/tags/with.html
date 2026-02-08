@@ -1,0 +1,20 @@
+{# with — no extraction rules (uses token_kwargs, too dynamic for extraction) #}
+
+{# ✓ valid: keyword assignment #}
+{% with name="World" %}
+  <p>Hello, {{ name }}!</p>
+{% endwith %}
+
+{# ✓ valid: multiple assignments #}
+{% with first="Hello" last="World" %}
+  <p>{{ first }} {{ last }}</p>
+{% endwith %}
+
+{# ✓ valid: legacy form #}
+{% with items.count as total %}
+  <p>{{ total }} items</p>
+{% endwith %}
+
+{# ✗ S100: unclosed with #}
+{% with x=1 %}
+  <p>Never closed.</p>

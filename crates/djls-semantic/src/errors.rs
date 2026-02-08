@@ -22,8 +22,12 @@ pub enum ValidationError {
         closing_span: Option<Span>,
     },
 
-    #[error("endblock '{name}' does not match any open block")]
-    UnmatchedBlockName { name: String, span: Span },
+    #[error("'{got}' does not match '{expected}'")]
+    UnmatchedBlockName {
+        expected: String,
+        got: String,
+        span: Span,
+    },
 
     #[error("Unknown tag '{tag}'")]
     UnknownTag { tag: String, span: Span },

@@ -70,7 +70,7 @@ impl From<&AbstractValue> for AbstractValueKey {
             },
             AbstractValue::Int(n) => AbstractValueKey::Int(*n),
             AbstractValue::Str(s) => AbstractValueKey::Str(s.clone()),
-            AbstractValue::Tuple(_) | AbstractValue::List(_) => AbstractValueKey::Other,
+            AbstractValue::Tuple(_) => AbstractValueKey::Other,
         }
     }
 }

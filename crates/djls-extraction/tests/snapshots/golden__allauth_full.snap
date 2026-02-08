@@ -8,16 +8,8 @@ tag_rules:
       - Max: 1
     required_keywords: []
     known_options: ~
-    extracted_args:
-      - name: as
-        required: false
-        kind:
-          Literal: as
-        position: 0
-      - name: varname
-        required: false
-        kind: Variable
-        position: 1
+    extracted_args: []
+    supports_as_var: true
   "allauth::get_social_accounts":
     arg_constraints:
       - Min: 2
@@ -29,15 +21,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-      - name: as
-        required: false
-        kind:
-          Literal: as
-        position: 1
-      - name: varname
-        required: false
-        kind: Variable
-        position: 2
+    supports_as_var: true
   "allauth::provider_login_url":
     arg_constraints:
       - Min: 2
@@ -48,30 +32,14 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-      - name: as
-        required: false
-        kind:
-          Literal: as
-        position: 1
-      - name: varname
-        required: false
-        kind: Variable
-        position: 2
+    supports_as_var: true
   "allauth::providers_media_js":
     arg_constraints:
       - Max: 1
     required_keywords: []
     known_options: ~
-    extracted_args:
-      - name: as
-        required: false
-        kind:
-          Literal: as
-        position: 0
-      - name: varname
-        required: false
-        kind: Variable
-        position: 1
+    extracted_args: []
+    supports_as_var: true
   "allauth::setvar":
     arg_constraints:
       - Exact: 2
@@ -82,6 +50,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
+    supports_as_var: false
   "allauth::user_display":
     arg_constraints:
       - Min: 2
@@ -93,15 +62,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-      - name: as
-        required: false
-        kind:
-          Literal: as
-        position: 1
-      - name: varname
-        required: false
-        kind: Variable
-        position: 2
+    supports_as_var: true
 filter_arities: {}
 block_specs:
   "allauth::element":

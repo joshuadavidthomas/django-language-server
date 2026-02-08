@@ -218,7 +218,7 @@ mod tests {
                     arg_constraints: vec![ArgumentCountConstraint::Exact(1)],
                     required_keywords: vec![],
                     known_options: None,
-                    extracted_args: vec![],
+                    ..Default::default()
                 }),
             },
         );
@@ -282,7 +282,7 @@ mod tests {
                         value: "in".to_string(),
                     }],
                     known_options: None,
-                    extracted_args: vec![],
+                    ..Default::default()
                 }),
             },
         );
@@ -341,7 +341,7 @@ mod tests {
                         value: "in".to_string(),
                     }],
                     known_options: None,
-                    extracted_args: vec![],
+                    ..Default::default()
                 }),
             },
         );
@@ -391,7 +391,7 @@ mod tests {
                         value: "in".to_string(),
                     }],
                     known_options: None,
-                    extracted_args: vec![],
+                    ..Default::default()
                 }),
             },
         );

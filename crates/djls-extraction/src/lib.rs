@@ -63,6 +63,7 @@ pub fn extract_rules(source: &str, module_path: &str) -> ExtractionResult {
     let func_defs: Vec<&ruff_python_ast::StmtFunctionDef> = collect_func_defs(&module.body);
 
     let mut result = ExtractionResult::default();
+    let mut helper_cache = dataflow::HelperCache::new();
 
     for reg in &registrations {
         let func_def = reg
@@ -91,10 +92,15 @@ pub fn extract_rules(source: &str, module_path: &str) -> ExtractionResult {
                 if let Some(func) = func_def {
                     let tag_rule = match reg.kind {
                         RegistrationKind::SimpleTag | RegistrationKind::InclusionTag => {
-                            signature::extract_parse_bits_rule(func)
+                            let is_simple_tag = matches!(reg.kind, RegistrationKind::SimpleTag);
+                            signature::extract_parse_bits_rule(func, is_simple_tag)
                         }
                         RegistrationKind::Tag | RegistrationKind::SimpleBlockTag => {
-                            dataflow::analyze_compile_function(func, &func_defs)
+                            dataflow::analyze_compile_function_with_cache(
+                                func,
+                                &func_defs,
+                                &mut helper_cache,
+                            )
                         }
                         RegistrationKind::Filter => unreachable!(),
                     };

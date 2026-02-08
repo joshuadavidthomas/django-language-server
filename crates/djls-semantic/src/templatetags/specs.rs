@@ -611,8 +611,6 @@ mod tests {
             djls_extraction::SymbolKey::tag("django.template.defaulttags", "for"),
             djls_extraction::TagRule {
                 arg_constraints: vec![djls_extraction::ArgumentCountConstraint::Min(4)],
-                required_keywords: vec![],
-                known_options: None,
                 extracted_args: vec![
                     djls_extraction::ExtractedArg {
                         name: "item".to_string(),
@@ -633,6 +631,7 @@ mod tests {
                         position: 2,
                     },
                 ],
+                ..Default::default()
             },
         );
 

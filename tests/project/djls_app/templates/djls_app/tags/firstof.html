@@ -1,0 +1,9 @@
+{# firstof — no extraction rules in current snapshot #}
+{# Django requires at least one argument #}
+
+{# ✓ valid #}
+{% firstof var1 var2 var3 %}
+{% firstof var1 var2 "fallback" %}
+
+{# ✓ valid: store in variable #}
+{% firstof var1 var2 as result %}

@@ -9,6 +9,7 @@ tag_rules:
     required_keywords: []
     known_options: ~
     extracted_args: []
+    supports_as_var: false
 filter_arities: {}
 block_specs:
   "django.template.defaulttags::verbatim":

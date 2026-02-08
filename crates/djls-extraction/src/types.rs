@@ -97,12 +97,19 @@ impl ExtractionResult {
 /// Captures the conditions under which `TemplateSyntaxError` is raised,
 /// expressed as structured constraints on token count, keyword positions,
 /// and option values.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct TagRule {
     pub arg_constraints: Vec<ArgumentCountConstraint>,
     pub required_keywords: Vec<RequiredKeyword>,
     pub known_options: Option<KnownOptions>,
     pub extracted_args: Vec<ExtractedArg>,
+    /// Whether this tag supports Django's `{% tag args... as varname %}` syntax.
+    ///
+    /// When true, the evaluator strips trailing `as <varname>` from the argument
+    /// list before checking constraints. This is set for `simple_tag` registrations
+    /// where Django's framework handles the `as` syntax automatically.
+    #[serde(default)]
+    pub supports_as_var: bool,
 }
 
 /// Constraint on the number of tokens in a tag's argument list.
@@ -233,9 +240,7 @@ mod tests {
             SymbolKey::tag("mod1", "tag1"),
             TagRule {
                 arg_constraints: vec![ArgumentCountConstraint::Exact(3)],
-                required_keywords: vec![],
-                known_options: None,
-                extracted_args: vec![],
+                ..Default::default()
             },
         );
 
@@ -262,9 +267,7 @@ mod tests {
             key.clone(),
             TagRule {
                 arg_constraints: vec![ArgumentCountConstraint::Exact(3)],
-                required_keywords: vec![],
-                known_options: None,
-                extracted_args: vec![],
+                ..Default::default()
             },
         );
 
@@ -273,9 +276,7 @@ mod tests {
             key.clone(),
             TagRule {
                 arg_constraints: vec![ArgumentCountConstraint::Min(2)],
-                required_keywords: vec![],
-                known_options: None,
-                extracted_args: vec![],
+                ..Default::default()
             },
         );
 

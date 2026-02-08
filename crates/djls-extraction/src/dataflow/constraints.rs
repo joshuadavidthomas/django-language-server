@@ -14,7 +14,6 @@ use ruff_python_ast::ExprCompare;
 use ruff_python_ast::ExprName;
 use ruff_python_ast::ExprStringLiteral;
 use ruff_python_ast::ExprUnaryOp;
-use ruff_python_ast::Number;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtIf;
 use ruff_python_ast::StmtRaise;
@@ -24,6 +23,7 @@ use super::domain::AbstractValue;
 use super::domain::Env;
 use super::domain::Index;
 use super::eval::eval_expr;
+use super::eval::expr_as_positive_usize;
 use crate::types::ArgumentCountConstraint;
 use crate::types::RequiredKeyword;
 
@@ -81,11 +81,11 @@ fn eval_condition(expr: &Expr, env: &Env, constraints: &mut Constraints) {
             values,
             ..
         }) => {
-            let mut discarded = Vec::new();
             for value in values {
                 let mut sub = Constraints::default();
                 eval_condition(value, env, &mut sub);
-                discarded.extend(sub.arg_constraints);
+                // arg_constraints intentionally dropped — under `and`, each
+                // constraint alone is insufficient to guarantee the error
                 constraints.required_keywords.extend(sub.required_keywords);
             }
         }
@@ -115,12 +115,12 @@ fn eval_compare(compare: &ExprCompare, env: &Env, constraints: &mut Constraints)
         return;
     }
 
-    // Handle range comparisons: `2 <= len(bits) <= 4`
-    if compare.ops.len() == 2 && compare.comparators.len() == 2 {
-        if let Some(range_constraints) = eval_range_constraint(compare, env, false) {
-            constraints.arg_constraints.extend(range_constraints);
-            return;
-        }
+    // Skip chained comparisons (e.g., `2 <= len(bits) <= 4`). The only
+    // meaningful chained comparison in error guards is the negated form
+    // (`not (2 <= len(bits) <= 4)`), handled by eval_negated_compare.
+    // Processing only the first pair of a chain produces wrong constraints.
+    if compare.ops.len() > 1 {
+        return;
     }
 
     let op = &compare.ops[0];
@@ -136,7 +136,7 @@ fn eval_compare(compare: &ExprCompare, env: &Env, constraints: &mut Constraints)
         pops_from_end,
     } = &left_val
     {
-        if let Some(n) = expr_as_usize(comparator) {
+        if let Some(n) = expr_as_positive_usize(comparator) {
             let offset = *base_offset + *pops_from_end;
             let constraint = match op {
                 CmpOp::NotEq => Some(ArgumentCountConstraint::Exact(n + offset)),
@@ -173,7 +173,7 @@ fn eval_compare(compare: &ExprCompare, env: &Env, constraints: &mut Constraints)
         pops_from_end,
     } = &right_val
     {
-        if let Some(n) = expr_as_usize(left) {
+        if let Some(n) = expr_as_positive_usize(left) {
             let offset = *base_offset + *pops_from_end;
             let constraint = match op {
                 CmpOp::Lt => Some(ArgumentCountConstraint::Max(n + offset)),
@@ -216,7 +216,7 @@ fn eval_compare(compare: &ExprCompare, env: &Env, constraints: &mut Constraints)
 fn eval_negated_compare(compare: &ExprCompare, env: &Env, constraints: &mut Constraints) {
     // Range: `not (2 <= len(bits) <= 4)` → valid range is min..=max
     if compare.ops.len() == 2 && compare.comparators.len() == 2 {
-        if let Some(range_constraints) = eval_range_constraint(compare, env, true) {
+        if let Some(range_constraints) = eval_range_constraint(compare, env) {
             constraints.arg_constraints.extend(range_constraints);
             return;
         }
@@ -230,7 +230,7 @@ fn eval_negated_compare(compare: &ExprCompare, env: &Env, constraints: &mut Cons
             pops_from_end,
         } = left_val
         {
-            if let Some(n) = expr_as_usize(&compare.comparators[0]) {
+            if let Some(n) = expr_as_positive_usize(&compare.comparators[0]) {
                 let offset = base_offset + pops_from_end;
                 let constraint = match &compare.ops[0] {
                     CmpOp::Eq => Some(ArgumentCountConstraint::Exact(n + offset)),
@@ -246,12 +246,11 @@ fn eval_negated_compare(compare: &ExprCompare, env: &Env, constraints: &mut Cons
     }
 }
 
-/// Extract range constraint from `CONST <=/<  len(var) <=/<  CONST`.
-fn eval_range_constraint(
-    compare: &ExprCompare,
-    env: &Env,
-    negated: bool,
-) -> Option<Vec<ArgumentCountConstraint>> {
+/// Extract range constraint from negated `not (CONST <=/<  len(var) <=/<  CONST)`.
+///
+/// Only valid in negated context: `not (2 <= len(bits) <= 4)` means "error when
+/// NOT in [2,4]", so the valid range IS [2,4] → `Min(2), Max(4)`.
+fn eval_range_constraint(compare: &ExprCompare, env: &Env) -> Option<Vec<ArgumentCountConstraint>> {
     if compare.ops.len() != 2 || compare.comparators.len() != 2 {
         return None;
     }
@@ -266,8 +265,8 @@ fn eval_range_constraint(
     };
     let base_offset = base_offset + pops_from_end;
 
-    let lower = expr_as_usize(&compare.left)?;
-    let upper = expr_as_usize(&compare.comparators[1])?;
+    let lower = expr_as_positive_usize(&compare.left)?;
+    let upper = expr_as_positive_usize(&compare.comparators[1])?;
 
     let op1 = &compare.ops[0];
     let op2 = &compare.ops[1];
@@ -287,9 +286,6 @@ fn eval_range_constraint(
         upper - 1
     };
 
-    // Both negated and non-negated produce Min/Max bounds — the caller
-    // already handles the inversion semantics based on error-guard context
-    let _ = negated;
     Some(vec![
         ArgumentCountConstraint::Min(min_val + base_offset),
         ArgumentCountConstraint::Max(max_val + base_offset),
@@ -300,19 +296,6 @@ fn index_to_i64(index: &Index) -> i64 {
     match index {
         Index::Forward(n) => i64::try_from(*n).unwrap_or(0),
         Index::Backward(n) => -(i64::try_from(*n).unwrap_or(0)),
-    }
-}
-
-fn expr_as_usize(expr: &Expr) -> Option<usize> {
-    match expr {
-        Expr::NumberLiteral(lit) => match &lit.value {
-            Number::Int(int_val) => {
-                let val = int_val.as_u64()?;
-                usize::try_from(val).ok()
-            }
-            _ => None,
-        },
-        _ => None,
     }
 }
 
@@ -332,12 +315,12 @@ fn extract_int_collection(expr: &Expr) -> Option<Vec<usize>> {
     };
     let mut values = Vec::new();
     for elt in elements {
-        values.push(expr_as_usize(elt)?);
+        values.push(expr_as_positive_usize(elt)?);
     }
     Some(values)
 }
 
-fn body_raises_template_syntax_error(body: &[Stmt]) -> bool {
+pub(super) fn body_raises_template_syntax_error(body: &[Stmt]) -> bool {
     for stmt in body {
         if let Stmt::Raise(StmtRaise { exc: Some(exc), .. }) = stmt {
             if is_template_syntax_error_call(exc) {
@@ -348,7 +331,7 @@ fn body_raises_template_syntax_error(body: &[Stmt]) -> bool {
     false
 }
 
-fn is_template_syntax_error_call(expr: &Expr) -> bool {
+pub(super) fn is_template_syntax_error_call(expr: &Expr) -> bool {
     let Expr::Call(ExprCall { func, .. }) = expr else {
         return false;
     };

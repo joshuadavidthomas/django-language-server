@@ -195,10 +195,8 @@ mod tests {
             intermediate_tags: Cow::Borrowed(&[]),
             opaque: false,
             extracted_rules: Some(TagRule {
-                arg_constraints: vec![],
-                required_keywords: vec![],
-                known_options: None,
                 extracted_args: vec![make_var("name", true, 0)],
+                ..Default::default()
             }),
         };
 
@@ -219,10 +217,8 @@ mod tests {
             intermediate_tags: Cow::Borrowed(&[]),
             opaque: false,
             extracted_rules: Some(TagRule {
-                arg_constraints: vec![],
-                required_keywords: vec![],
-                known_options: None,
                 extracted_args: vec![make_choice("mode", true, vec!["on", "off"], 0)],
+                ..Default::default()
             }),
         };
 

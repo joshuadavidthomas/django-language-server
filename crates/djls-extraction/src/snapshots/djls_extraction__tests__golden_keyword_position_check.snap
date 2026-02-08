@@ -20,5 +20,6 @@ tag_rules:
         kind:
           Literal: as
         position: 1
+    supports_as_var: false
 filter_arities: {}
 block_specs: {}

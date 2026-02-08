@@ -1,0 +1,15 @@
+{# static — requires {% load static %} #}
+
+{# ✗ S109: 'static' requires {% load static %} #}
+{% static "before.css" %}
+
+{% load static %}
+
+{# ✓ valid: static file reference #}
+{% static "css/style.css" %}
+
+{# ✓ valid: store in variable #}
+{% static "css/style.css" as css_url %}
+
+{# ✓ valid: variable path #}
+{% static path_var %}

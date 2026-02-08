@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use std::collections::HashMap;
 
 use serde::Serialize;
@@ -49,8 +47,6 @@ pub enum AbstractValue {
     Str(String),
     /// Tuple of tracked values (for function return/destructuring)
     Tuple(Vec<AbstractValue>),
-    /// List with known elements
-    List(Vec<AbstractValue>),
 }
 
 /// The abstract environment: maps variable names to their abstract values.
@@ -68,12 +64,6 @@ impl Env {
         let mut bindings = HashMap::new();
         bindings.insert(parser_param.to_string(), AbstractValue::Parser);
         bindings.insert(token_param.to_string(), AbstractValue::Token);
-        Self { bindings }
-    }
-
-    /// Create a new environment with explicit bindings (for helper function inlining).
-    #[must_use]
-    pub fn with_bindings(bindings: HashMap<String, AbstractValue>) -> Self {
         Self { bindings }
     }
 
@@ -157,15 +147,5 @@ mod tests {
         let mut env = Env::default();
         let mutated = env.mutate("missing", |_| {});
         assert!(!mutated);
-    }
-
-    #[test]
-    fn env_with_bindings() {
-        let mut bindings = HashMap::new();
-        bindings.insert("a".to_string(), AbstractValue::Token);
-        bindings.insert("b".to_string(), AbstractValue::Parser);
-        let env = Env::with_bindings(bindings);
-        assert_eq!(env.get("a"), &AbstractValue::Token);
-        assert_eq!(env.get("b"), &AbstractValue::Parser);
     }
 }

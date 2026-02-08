@@ -13,6 +13,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
+    supports_as_var: false
   "django.template.loader_tags::extends":
     arg_constraints:
       - Exact: 2
@@ -23,6 +24,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
+    supports_as_var: false
   "django.template.loader_tags::include":
     arg_constraints:
       - Min: 2
@@ -38,6 +40,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
+    supports_as_var: false
 filter_arities: {}
 block_specs:
   "django.template.loader_tags::block":

@@ -20,6 +20,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 1
+    supports_as_var: false
   "django.templatetags.tz::localtime":
     arg_constraints:
       - Max: 2
@@ -30,6 +31,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
+    supports_as_var: false
   "django.templatetags.tz::timezone":
     arg_constraints:
       - Exact: 2
@@ -40,6 +42,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
+    supports_as_var: false
 filter_arities:
   "django.templatetags.tz::localtime":
     expects_arg: false

@@ -18,14 +18,6 @@ tag_rules:
         required: false
         kind: Variable
         position: 1
-      - name: as
-        required: false
-        kind:
-          Literal: as
-        position: 2
-      - name: varname
-        required: false
-        kind: Variable
-        position: 3
+    supports_as_var: true
 filter_arities: {}
 block_specs: {}

@@ -8,16 +8,8 @@ tag_rules:
       - Max: 1
     required_keywords: []
     known_options: ~
-    extracted_args:
-      - name: as
-        required: false
-        kind:
-          Literal: as
-        position: 0
-      - name: varname
-        required: false
-        kind: Variable
-        position: 1
+    extracted_args: []
+    supports_as_var: true
   "app.templatetags.helpers::with":
     arg_constraints:
       - Min: 2
@@ -28,6 +20,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
+    supports_as_var: false
 filter_arities:
   "app.templatetags.helpers::add":
     expects_arg: true

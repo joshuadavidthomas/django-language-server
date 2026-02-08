@@ -246,6 +246,24 @@ impl<'db> BlockTreeBuilder<'db> {
                     span,
                 });
             }
+            CloseValidation::ArgumentMismatch { expected, got } => {
+                self.ops.push(TreeOp::AccumulateDiagnostic(
+                    ValidationError::UnmatchedBlockName {
+                        expected,
+                        got,
+                        span: marker_span,
+                    },
+                ));
+                let content_end = span.start().saturating_sub(TagDelimiter::LENGTH_U32);
+                self.ops.push(TreeOp::FinalizeSpanTo {
+                    id: frame.segment_body,
+                    end: content_end,
+                });
+                self.ops.push(TreeOp::ExtendBlockSpan {
+                    id: frame.container_body,
+                    span,
+                });
+            }
             CloseValidation::NotABlock => {
                 self.ops.push(TreeOp::AccumulateDiagnostic(
                     ValidationError::UnbalancedStructure {

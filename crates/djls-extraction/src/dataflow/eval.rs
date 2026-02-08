@@ -4,6 +4,7 @@ use ruff_python_ast::Arguments;
 use ruff_python_ast::CmpOp;
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprAttribute;
+use ruff_python_ast::ExprBoolOp;
 use ruff_python_ast::ExprCall;
 use ruff_python_ast::ExprCompare;
 use ruff_python_ast::ExprName;
@@ -356,9 +357,8 @@ fn eval_subscript(base: &AbstractValue, slice: &Expr, env: &Env) -> AbstractValu
     }
 }
 
-/// Try to extract a non-negative integer from a literal expression.
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-fn expr_as_positive_usize(expr: &Expr) -> Option<usize> {
+pub(super) fn expr_as_positive_usize(expr: &Expr) -> Option<usize> {
     if let Expr::NumberLiteral(ExprNumberLiteral {
         value: Number::Int(int_val),
         ..
@@ -405,9 +405,30 @@ fn process_statement(stmt: &Stmt, env: &mut Env, ctx: &mut AnalysisContext<'_>) 
 
         Stmt::If(stmt_if) => {
             super::constraints::extract_from_if_inline(stmt_if, env, &mut ctx.constraints);
+
+            // When an if-condition checks a specific element value
+            // (e.g. `if args[-3] == "as"`), keyword constraints extracted
+            // from its body are conditional on that value and can't be
+            // expressed in our flat model. Discard them.
+            // Length guards (`if len(bits) >= 3`) are fine — the keyword
+            // only applies when the position exists, which the evaluator
+            // handles via bounds checking.
+            let kw_before = ctx.constraints.required_keywords.len();
             process_statements(&stmt_if.body, env, ctx);
+            if condition_involves_element_check(&stmt_if.test, env) {
+                ctx.constraints.required_keywords.truncate(kw_before);
+            }
+
             for clause in &stmt_if.elif_else_clauses {
+                let kw_before_clause = ctx.constraints.required_keywords.len();
                 process_statements(&clause.body, env, ctx);
+                if clause
+                    .test
+                    .as_ref()
+                    .is_some_and(|t| condition_involves_element_check(t, env))
+                {
+                    ctx.constraints.required_keywords.truncate(kw_before_clause);
+                }
             }
         }
 
@@ -516,6 +537,30 @@ fn try_extract_token_kwargs_call(expr: &Expr) -> Option<String> {
     None
 }
 
+/// Check if a condition expression involves comparing a `SplitElement` value.
+///
+/// Used to detect guards like `if args[-3] == "as"` where nested keyword
+/// constraints would be conditional on the element's value.
+fn condition_involves_element_check(expr: &Expr, env: &Env) -> bool {
+    match expr {
+        Expr::Compare(compare) => {
+            let left = eval_expr(&compare.left, env);
+            if matches!(left, AbstractValue::SplitElement { .. }) {
+                return true;
+            }
+            compare
+                .comparators
+                .iter()
+                .any(|c| matches!(eval_expr(c, env), AbstractValue::SplitElement { .. }))
+        }
+        Expr::BoolOp(ExprBoolOp { values, .. }) => {
+            values.iter().any(|v| condition_involves_element_check(v, env))
+        }
+        Expr::UnaryOp(unary) => condition_involves_element_check(&unary.operand, env),
+        _ => false,
+    }
+}
+
 /// Apply the mutation side effect of a pop call to the environment.
 fn apply_pop_mutation(env: &mut Env, pop_info: &PopInfo) {
     env.mutate(&pop_info.var_name, |v| {
@@ -581,21 +626,22 @@ fn process_tuple_unpack(targets: &[Expr], value: &AbstractValue, env: &mut Env) 
                     }
                 }
 
-                // The star target
+                // Elements after the star (indexed from end)
+                let after_star = targets.len() - si - 1;
+
+                // The star target captures everything between pre-star and post-star elements.
+                // Its pops_from_end must include the trailing targets it doesn't contain.
                 if let Expr::Starred(starred) = &targets[si] {
                     if let Expr::Name(ExprName { id, .. }) = starred.value.as_ref() {
                         env.set(
                             id.to_string(),
                             AbstractValue::SplitResult {
                                 base_offset: base_offset + si,
-                                pops_from_end,
+                                pops_from_end: pops_from_end + after_star,
                             },
                         );
                     }
                 }
-
-                // Elements after the star (indexed from end)
-                let after_star = targets.len() - si - 1;
                 for (j, target) in targets[si + 1..].iter().enumerate() {
                     if let Expr::Name(ExprName { id, .. }) = target {
                         env.set(
@@ -694,7 +740,9 @@ fn find_option_pop_var(body: &[Stmt], loop_var: &str) -> Option<String> {
         if let Stmt::Assign(assign) = stmt {
             if assign.targets.len() == 1 {
                 if let Expr::Name(ExprName { id, .. }) = &assign.targets[0] {
-                    if is_pop_zero_call(&assign.value, loop_var) {
+                    let is_pop_zero = try_extract_pop_call(&assign.value)
+                        .is_some_and(|info| info.var_name == loop_var && info.from_front);
+                    if is_pop_zero {
                         return Some(id.to_string());
                     }
                 }
@@ -702,35 +750,6 @@ fn find_option_pop_var(body: &[Stmt], loop_var: &str) -> Option<String> {
         }
     }
     None
-}
-
-/// Check if an expression is `var.pop(0)`.
-fn is_pop_zero_call(expr: &Expr, var_name: &str) -> bool {
-    let Expr::Call(ExprCall {
-        func, arguments, ..
-    }) = expr
-    else {
-        return false;
-    };
-    let Expr::Attribute(ExprAttribute {
-        attr, value: obj, ..
-    }) = func.as_ref()
-    else {
-        return false;
-    };
-    if attr.as_str() != "pop" {
-        return false;
-    }
-    let Expr::Name(ExprName { id, .. }) = obj.as_ref() else {
-        return false;
-    };
-    if id.as_str() != var_name {
-        return false;
-    }
-    if arguments.args.len() != 1 {
-        return false;
-    }
-    expr_as_positive_usize(&arguments.args[0]) == Some(0)
 }
 
 /// Extract option names from if/elif/else chains checking the option variable.
@@ -762,7 +781,7 @@ fn extract_option_checks(
             }
         } else {
             // else branch — if it raises TemplateSyntaxError, unknown options are rejected
-            if option_loop_body_raises(&clause.body) {
+            if super::constraints::body_raises_template_syntax_error(&clause.body) {
                 *rejects_unknown = true;
             }
         }
@@ -824,37 +843,12 @@ fn extract_option_equality(test: &Expr, option_var: &str) -> Option<String> {
     None
 }
 
-/// Check if a body contains `raise TemplateSyntaxError(...)`.
-/// Simpler raise check for option loop else-bodies (no recursion into if branches).
-fn option_loop_body_raises(body: &[Stmt]) -> bool {
-    use ruff_python_ast::StmtRaise;
-
-    for stmt in body {
-        if let Stmt::Raise(StmtRaise { exc: Some(exc), .. }) = stmt {
-            if let Expr::Call(ExprCall { func, .. }) = exc.as_ref() {
-                match func.as_ref() {
-                    Expr::Name(ExprName { id, .. }) if id.as_str() == "TemplateSyntaxError" => {
-                        return true;
-                    }
-                    Expr::Attribute(ExprAttribute { attr, .. })
-                        if attr.as_str() == "TemplateSyntaxError" =>
-                    {
-                        return true;
-                    }
-                    _ => {}
-                }
-            }
-        }
-    }
-    false
-}
-
 /// Extract argument constraints from a match statement whose subject is a `SplitResult`.
 ///
 /// Analyzes `match token.split_contents(): case ...:` patterns from Django 6.0+.
 /// Collects valid case shapes (cases whose body does NOT raise `TemplateSyntaxError`)
 /// and derives argument count constraints and required keywords from them.
-pub fn extract_match_constraints(
+fn extract_match_constraints(
     match_stmt: &StmtMatch,
     env: &Env,
 ) -> Option<(Vec<ArgumentCountConstraint>, Vec<RequiredKeyword>)> {
@@ -868,8 +862,7 @@ pub fn extract_match_constraints(
     let mut min_variable_length: Option<usize> = None;
 
     for case in &match_stmt.cases {
-        let is_error = body_raises_template_syntax_error(&case.body);
-        if is_error {
+        if any_path_raises_template_syntax_error(&case.body) {
             continue;
         }
 
@@ -992,7 +985,7 @@ fn extract_keywords_from_valid_cases(cases: &[MatchCase]) -> Vec<RequiredKeyword
         std::collections::HashMap::new();
 
     for case in cases {
-        if body_raises_template_syntax_error(&case.body) {
+        if any_path_raises_template_syntax_error(&case.body) {
             continue;
         }
         if let Pattern::MatchSequence(PatternMatchSequence { patterns, .. }) = &case.pattern {
@@ -1048,36 +1041,27 @@ fn pattern_literal(pattern: &Pattern) -> Option<String> {
     }
 }
 
-/// Check if a body contains `raise TemplateSyntaxError(...)`.
-fn body_raises_template_syntax_error(body: &[Stmt]) -> bool {
+/// Check if any code path in a body contains `raise TemplateSyntaxError(...)`.
+///
+/// Unlike `constraints::body_raises_template_syntax_error` (which only checks
+/// direct raises), this recurses into if/elif/else branches. Used for match
+/// case classification where any raise in any branch means the case can error.
+fn any_path_raises_template_syntax_error(body: &[Stmt]) -> bool {
     use ruff_python_ast::StmtRaise;
 
     for stmt in body {
         match stmt {
             Stmt::Raise(StmtRaise { exc: Some(exc), .. }) => {
-                if let Expr::Call(ExprCall { func, .. }) = exc.as_ref() {
-                    match func.as_ref() {
-                        Expr::Name(ExprName { id, .. }) => {
-                            if id.as_str() == "TemplateSyntaxError" {
-                                return true;
-                            }
-                        }
-                        Expr::Attribute(ExprAttribute { attr, .. }) => {
-                            if attr.as_str() == "TemplateSyntaxError" {
-                                return true;
-                            }
-                        }
-                        _ => {}
-                    }
+                if super::constraints::is_template_syntax_error_call(exc) {
+                    return true;
                 }
             }
             Stmt::If(if_stmt) => {
-                // Check all branches — if any branch unconditionally raises, count it
-                if body_raises_template_syntax_error(&if_stmt.body) {
+                if any_path_raises_template_syntax_error(&if_stmt.body) {
                     return true;
                 }
                 for clause in &if_stmt.elif_else_clauses {
-                    if body_raises_template_syntax_error(&clause.body) {
+                    if any_path_raises_template_syntax_error(&clause.body) {
                         return true;
                     }
                 }
@@ -1507,11 +1491,13 @@ def do_tag(parser, token):
                 index: Index::Forward(0)
             }
         );
+        // middle = original[1:-1], so base_offset=1 and pops_from_end=1
+        // (the trailing `last` element is accounted for in pops_from_end)
         assert_eq!(
             env.get("middle"),
             &AbstractValue::SplitResult {
                 base_offset: 1,
-                pops_from_end: 0
+                pops_from_end: 1
             }
         );
         assert_eq!(

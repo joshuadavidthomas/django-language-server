@@ -13,6 +13,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
+    supports_as_var: false
 filter_arities:
   "django.templatetags.l10n::localize":
     expects_arg: false

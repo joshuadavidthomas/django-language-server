@@ -72,6 +72,7 @@ pub fn analyze_compile_function_with_cache(
         required_keywords: ctx.constraints.required_keywords,
         known_options: ctx.known_options,
         extracted_args,
+        supports_as_var: false,
     }
 }
 
@@ -100,9 +101,12 @@ fn extract_arg_names(
         }
     }
 
-    // Sort by position for deterministic output
-    named_positions.sort_by_key(|(pos, _)| *pos);
-    // Deduplicate: if multiple vars at same position, keep the first
+    // Sort by (position, name) for deterministic output even when
+    // multiple variables map to the same split_contents position
+    named_positions.sort_by(|(pos_a, name_a), (pos_b, name_b)| {
+        pos_a.cmp(pos_b).then_with(|| name_a.cmp(name_b))
+    });
+    // Deduplicate: if multiple vars at same position, keep the first (alphabetically)
     named_positions.dedup_by_key(|(pos, _)| *pos);
 
     // Determine how many arg positions to generate

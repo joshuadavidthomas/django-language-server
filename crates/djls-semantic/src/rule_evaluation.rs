@@ -22,8 +22,18 @@ pub fn evaluate_tag_rules(
 ) -> Vec<ValidationError> {
     let mut errors = Vec::new();
 
+    // Django's simple_tag supports `{% tag args... as varname %}` syntax.
+    // The framework strips `as varname` before validating arguments, so we
+    // do the same: if the last two bits are ["as", <something>], strip them.
+    let effective_bits = if rules.supports_as_var && bits.len() >= 2 && bits[bits.len() - 2] == "as"
+    {
+        &bits[..bits.len() - 2]
+    } else {
+        bits
+    };
+
     // split_contents() length = bits.len() + 1 (tag name at index 0)
-    let split_len = bits.len() + 1;
+    let split_len = effective_bits.len() + 1;
 
     for constraint in &rules.arg_constraints {
         if let Some(error) = evaluate_arg_constraint(tag_name, split_len, constraint, span) {
@@ -32,13 +42,18 @@ pub fn evaluate_tag_rules(
     }
 
     for keyword in &rules.required_keywords {
-        if let Some(error) = evaluate_required_keyword(tag_name, bits, keyword, span) {
+        if let Some(error) = evaluate_required_keyword(tag_name, effective_bits, keyword, span) {
             errors.push(error);
         }
     }
 
     if let Some(options) = &rules.known_options {
-        errors.extend(evaluate_known_options(tag_name, bits, options, span));
+        errors.extend(evaluate_known_options(
+            tag_name,
+            effective_bits,
+            options,
+            span,
+        ));
     }
 
     errors
@@ -171,7 +186,6 @@ fn evaluate_known_options(
     let mut seen = Vec::new();
 
     for bit in bits {
-        // Check if this bit is an option (matches one of the known values)
         let is_known = options.values.iter().any(|v| v == bit);
 
         if is_known {
@@ -183,18 +197,10 @@ fn evaluate_known_options(
                 });
             }
             seen.push(bit.clone());
-        } else if options.rejects_unknown {
-            // Only flag as unknown if the option isn't a value/variable
-            // (heuristic: options are typically lowercase words without dots/quotes)
-            let looks_like_option = !bit.contains('.')
-                && !bit.starts_with('"')
-                && !bit.starts_with('\'')
-                && !bit.contains('=');
-            if looks_like_option {
-                // Don't flag positional args — only flag things that look like
-                // they're trying to be options. This is conservative.
-            }
         }
+        // NOTE: `rejects_unknown` is not enforced — distinguishing unknown
+        // options from positional values (e.g. `with key=val`) is unreliable
+        // without full tag-specific parsing context.
     }
 
     errors
@@ -213,12 +219,7 @@ mod tests {
     }
 
     fn empty_rule() -> TagRule {
-        TagRule {
-            arg_constraints: vec![],
-            required_keywords: vec![],
-            known_options: None,
-            extracted_args: vec![],
-        }
+        TagRule::default()
     }
 
     // --- ArgumentCountConstraint tests ---
@@ -488,8 +489,7 @@ mod tests {
                 position: 2,
                 value: "in".to_string(),
             }],
-            known_options: None,
-            extracted_args: vec![],
+            ..Default::default()
         };
         // split_len = 5 (4 bits + tag name), satisfies Min(4) and Max(6)
         // bits[1] = "in", satisfies keyword
@@ -506,8 +506,7 @@ mod tests {
                 position: 2,
                 value: "in".to_string(),
             }],
-            known_options: None,
-            extracted_args: vec![],
+            ..Default::default()
         };
         // split_len = 3, fails Min(4); bits[1] = "from", fails keyword
         let bits = make_bits(&["item", "from"]);
@@ -534,6 +533,91 @@ mod tests {
         assert!(
             errors.is_empty(),
             "Position 2 in split_contents should map to bits[1]"
+        );
+    }
+
+    // --- supports_as_var tests ---
+
+    #[test]
+    fn simple_tag_as_varname_passes_max_constraint() {
+        // simple_tag with Max(2): accepts 1 arg, but `as varname` adds 2 more tokens
+        let rule = TagRule {
+            arg_constraints: vec![
+                ArgumentCountConstraint::Min(2),
+                ArgumentCountConstraint::Max(2),
+            ],
+            supports_as_var: true,
+            ..Default::default()
+        };
+        // {% user_display user as foo %} → bits = ["user", "as", "foo"]
+        let bits = make_bits(&["user", "as", "foo"]);
+        let errors = evaluate_tag_rules("user_display", &bits, &rule, make_span());
+        assert!(
+            errors.is_empty(),
+            "simple_tag with `as varname` should pass: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn simple_tag_as_varname_zero_params() {
+        // simple_tag with Max(1): accepts 0 args, `{% tag as foo %}`
+        let rule = TagRule {
+            arg_constraints: vec![ArgumentCountConstraint::Max(1)],
+            supports_as_var: true,
+            ..Default::default()
+        };
+        // {% get_providers as providers %} → bits = ["as", "providers"]
+        let bits = make_bits(&["as", "providers"]);
+        let errors = evaluate_tag_rules("get_providers", &bits, &rule, make_span());
+        assert!(
+            errors.is_empty(),
+            "simple_tag with 0 params + `as varname` should pass: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn simple_tag_without_as_still_validated() {
+        // simple_tag with Max(2): accepts 1 arg, no `as` form
+        let rule = TagRule {
+            arg_constraints: vec![ArgumentCountConstraint::Max(2)],
+            supports_as_var: true,
+            ..Default::default()
+        };
+        // {% user_display user %} → bits = ["user"]
+        let bits = make_bits(&["user"]);
+        let errors = evaluate_tag_rules("user_display", &bits, &rule, make_span());
+        assert!(errors.is_empty(), "Normal usage should pass: {errors:?}");
+    }
+
+    #[test]
+    fn simple_tag_extra_args_still_rejected() {
+        // simple_tag with Max(2): accepts 1 arg, extra args should fail
+        let rule = TagRule {
+            arg_constraints: vec![ArgumentCountConstraint::Max(2)],
+            supports_as_var: true,
+            ..Default::default()
+        };
+        // {% user_display user extra %} → bits = ["user", "extra"]
+        let bits = make_bits(&["user", "extra"]);
+        let errors = evaluate_tag_rules("user_display", &bits, &rule, make_span());
+        assert_eq!(errors.len(), 1, "Extra args without `as` should still fail");
+    }
+
+    #[test]
+    fn non_simple_tag_as_varname_not_stripped() {
+        // Manual tag with supports_as_var=false: `as` is NOT stripped
+        let rule = TagRule {
+            arg_constraints: vec![ArgumentCountConstraint::Max(2)],
+            supports_as_var: false,
+            ..Default::default()
+        };
+        // bits = ["user", "as", "foo"] → split_len=4, Max(2) fails
+        let bits = make_bits(&["user", "as", "foo"]);
+        let errors = evaluate_tag_rules("mytag", &bits, &rule, make_span());
+        assert_eq!(
+            errors.len(),
+            1,
+            "Non-simple_tag should not strip `as varname`"
         );
     }
 }

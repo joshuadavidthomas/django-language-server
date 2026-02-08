@@ -12,8 +12,12 @@ use crate::types::TagRule;
 /// These tags use Django's `parse_bits` for argument validation, so we derive
 /// constraints from the function signature (required params, optional params,
 /// `*args`, `**kwargs`).
+///
+/// When `is_simple_tag` is true, the resulting `TagRule` will have
+/// `supports_as_var = true`, indicating that Django's framework automatically
+/// supports `{% tag args... as varname %}` syntax for this tag.
 #[must_use]
-pub fn extract_parse_bits_rule(func: &StmtFunctionDef) -> TagRule {
+pub fn extract_parse_bits_rule(func: &StmtFunctionDef, is_simple_tag: bool) -> TagRule {
     let params = &func.parameters;
 
     let takes_context = has_takes_context(func);
@@ -83,25 +87,12 @@ pub fn extract_parse_bits_rule(func: &StmtFunctionDef) -> TagRule {
         });
     }
 
-    let as_position = extracted_args.len();
-    extracted_args.push(ExtractedArg {
-        name: "as".to_string(),
-        required: false,
-        kind: ExtractedArgKind::Literal("as".to_string()),
-        position: as_position,
-    });
-    extracted_args.push(ExtractedArg {
-        name: "varname".to_string(),
-        required: false,
-        kind: ExtractedArgKind::Variable,
-        position: as_position + 1,
-    });
-
     TagRule {
         arg_constraints,
         required_keywords: Vec::new(),
         known_options: None,
         extracted_args,
+        supports_as_var: is_simple_tag,
     }
 }
 
@@ -155,7 +146,7 @@ def now():
     return datetime.now()
 ";
         let func = parse_function(source);
-        let rule = extract_parse_bits_rule(&func);
+        let rule = extract_parse_bits_rule(&func, true);
         assert!(rule
             .arg_constraints
             .iter()
@@ -170,7 +161,7 @@ def greeting(name, title):
     return f'Hello {title} {name}'
 ";
         let func = parse_function(source);
-        let rule = extract_parse_bits_rule(&func);
+        let rule = extract_parse_bits_rule(&func, true);
         assert!(rule
             .arg_constraints
             .contains(&ArgumentCountConstraint::Min(3)));
@@ -184,7 +175,7 @@ def greeting(name, title="Mr"):
     return f'Hello {title} {name}'
 "#;
         let func = parse_function(source);
-        let rule = extract_parse_bits_rule(&func);
+        let rule = extract_parse_bits_rule(&func, true);
         assert!(rule
             .arg_constraints
             .contains(&ArgumentCountConstraint::Min(2)));
@@ -198,7 +189,7 @@ def concat(*args):
     return ''.join(str(a) for a in args)
 ";
         let func = parse_function(source);
-        let rule = extract_parse_bits_rule(&func);
+        let rule = extract_parse_bits_rule(&func, true);
         assert!(!rule
             .arg_constraints
             .iter()
@@ -213,7 +204,7 @@ def show_user(context, name):
     return f'{context} {name}'
 ";
         let func = parse_function(source);
-        let rule = extract_parse_bits_rule(&func);
+        let rule = extract_parse_bits_rule(&func, true);
         assert!(rule
             .arg_constraints
             .contains(&ArgumentCountConstraint::Min(2)));

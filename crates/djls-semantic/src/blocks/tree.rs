@@ -361,4 +361,31 @@ mod tests {
         let block_tree = build_block_tree(&db, nodelist);
         insta::assert_yaml_snapshot!("blocktree", BlockTreeSnapshot::from_tree(block_tree, &db));
     }
+
+    #[test]
+    fn test_endblock_name_mismatch() {
+        let db = TestDatabase::new();
+
+        let source = r"
+{% block content %}
+    <p>Hello</p>
+{% endblock fdsaf %}
+";
+
+        db.add_file("test.html", source);
+        let file = File::new(&db, "test.html".into(), 0);
+        let nodelist = parse_template(&db, file).expect("should parse");
+        let errors =
+            build_block_tree::accumulated::<crate::ValidationErrorAccumulator>(&db, nodelist);
+        assert_eq!(errors.len(), 1);
+        assert!(
+            matches!(
+                &errors[0].0,
+                crate::ValidationError::UnmatchedBlockName { expected, got, .. }
+                    if expected == "content" && got == "fdsaf"
+            ),
+            "Expected UnmatchedBlockName, got: {:?}",
+            errors[0].0
+        );
+    }
 }

@@ -50,14 +50,26 @@ impl<'db> TagIndex<'db> {
         self,
         db: &'db dyn crate::Db,
         opener_name: &str,
-        _opener_bits: &[String],
-        _closer_bits: &[String],
+        opener_bits: &[String],
+        closer_bits: &[String],
     ) -> CloseValidation {
         if !self.openers(db).contains_key(opener_name) {
             return CloseValidation::NotABlock;
         }
 
-        // Closer argument matching removed — extraction handles validation
+        // If the closer supplies a name argument, it must match the opener's.
+        // e.g. `{% endblock content %}` must match `{% block content %}`
+        if let Some(closer_arg) = closer_bits.first() {
+            if let Some(opener_arg) = opener_bits.first() {
+                if closer_arg != opener_arg {
+                    return CloseValidation::ArgumentMismatch {
+                        expected: opener_arg.clone(),
+                        got: closer_arg.clone(),
+                    };
+                }
+            }
+        }
+
         CloseValidation::Valid
     }
 
@@ -117,4 +129,5 @@ pub enum TagClass {
 pub enum CloseValidation {
     Valid,
     NotABlock,
+    ArgumentMismatch { expected: String, got: String },
 }
