@@ -196,12 +196,20 @@ fn eval_contents_split(args: &Arguments) -> AbstractValue {
     // token.contents.split(None, 1) → Tuple of [SplitElement(Forward(0)), Unknown]
     if args.args.len() == 2 {
         if let Expr::NoneLiteral(_) = &args.args[0] {
-            return AbstractValue::Tuple(vec![
-                AbstractValue::SplitElement {
-                    index: Index::Forward(0),
-                },
-                AbstractValue::Unknown,
-            ]);
+            if let Expr::NumberLiteral(ExprNumberLiteral {
+                value: Number::Int(int_val),
+                ..
+            }) = &args.args[1]
+            {
+                if int_val.as_i64() == Some(1) {
+                    return AbstractValue::Tuple(vec![
+                        AbstractValue::SplitElement {
+                            index: Index::Forward(0),
+                        },
+                        AbstractValue::Unknown,
+                    ]);
+                }
+            }
         }
     }
 

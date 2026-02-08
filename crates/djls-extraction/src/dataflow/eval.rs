@@ -976,6 +976,62 @@ def do_tag(parser, token):
     }
 
     #[test]
+    fn contents_split_none_2_is_not_tuple() {
+        // split(None, 2) should NOT be modeled as a 2-tuple;
+        // only split(None, 1) has the special 2-tuple treatment.
+        let env = eval_body(
+            r"
+def do_tag(parser, token):
+    result = token.contents.split(None, 2)
+",
+        );
+        assert_eq!(
+            env.get("result"),
+            &AbstractValue::SplitResult {
+                base_offset: 0,
+                pops_from_end: 0
+            }
+        );
+    }
+
+    #[test]
+    fn contents_split_none_0_is_not_tuple() {
+        // split(None, 0) should NOT be modeled as a 2-tuple.
+        let env = eval_body(
+            r"
+def do_tag(parser, token):
+    result = token.contents.split(None, 0)
+",
+        );
+        assert_eq!(
+            env.get("result"),
+            &AbstractValue::SplitResult {
+                base_offset: 0,
+                pops_from_end: 0
+            }
+        );
+    }
+
+    #[test]
+    fn contents_split_none_variable_is_not_tuple() {
+        // split(None, some_var) should NOT be modeled as a 2-tuple.
+        let env = eval_body(
+            r"
+def do_tag(parser, token):
+    n = 1
+    result = token.contents.split(None, n)
+",
+        );
+        assert_eq!(
+            env.get("result"),
+            &AbstractValue::SplitResult {
+                base_offset: 0,
+                pops_from_end: 0
+            }
+        );
+    }
+
+    #[test]
     fn while_option_loop_skips_body_processing() {
         // Option loop pattern: body should NOT be processed to avoid
         // the loop variable appearing as a false positional argument

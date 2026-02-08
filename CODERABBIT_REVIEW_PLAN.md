@@ -125,7 +125,7 @@
 </details>
 
 ### 9. `expressions.rs:191-201` — `split(None, 1)` doesn't validate second arg
-- **Status**: TODO
+- **Status**: DONE
 - **Severity**: Low (theoretical)
 - **File**: `crates/djls-extraction/src/dataflow/eval/expressions.rs`
 - **Fix**: `split(None, 2)` would be incorrectly modeled as a 2-tuple. In Django template tag reality, `split(None, 1)` is the only idiomatic pattern—but adding a check for the integer literal `1` in `args.args[1]` is easy and correct.
