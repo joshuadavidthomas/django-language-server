@@ -643,7 +643,7 @@ Tracking progress for porting `template_linter/` capabilities into Rust `django-
 
 ## M11 — Environment-Aware Tag/Filter Resolution
 
-**Status:** planning
+**Status:** complete
 **Plan:** (derived from roadmap — no separate plan file)
 **Depends on:** M3/M4 (load scoping), M5 (extraction crate with Ruff parser)
 
@@ -732,8 +732,8 @@ Python Environment  →  Django Configuration  →  Template Load  →  Availabl
 - [x] Update `docs/template-validation.md` with three-layer resolution explanation
 - [x] Add S118–S121 to diagnostic codes documentation in `docs/configuration/index.md`
 - [x] Integration test: template with tags/filters from all three layers — verify correct diagnostic codes emitted for each layer
-- [ ] Update `.github/ISSUE_TEMPLATE/template-validation-mismatch.yml` if needed for new diagnostic codes
-- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Update `.github/ISSUE_TEMPLATE/template-validation-mismatch.yml` if needed for new diagnostic codes — N/A, templates were intentionally removed in cleanup commit f0af1ac5 ("Remove premature GitHub issue templates")
+- [x] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ---
 
