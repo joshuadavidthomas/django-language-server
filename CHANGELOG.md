@@ -18,6 +18,10 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ## [Unreleased]
 
+### Changed
+
+- Bumped Rust toolchain from 1.90 to 1.91.
+
 ## [6.0.0]
 
 ### Changed
