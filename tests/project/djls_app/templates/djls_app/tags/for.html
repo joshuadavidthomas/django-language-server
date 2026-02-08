@@ -22,6 +22,9 @@
   {{ item }}
 {% endfor %}
 
+{# ✗ S102: orphaned empty outside for #}
+{% empty %}
+
 {# ✗ S117: no arguments at all (split_len=1, need ≥4) #}
 {% for %}{% endfor %}
 
@@ -34,6 +37,3 @@
 {# ✗ S100: unclosed for #}
 {% for item in items %}
   <p>Never closed.</p>
-
-{# ✗ S102: orphaned empty outside for #}
-{% empty %}
