@@ -113,8 +113,10 @@ fn evaluate_arg_constraint(
                 )
             }
             ArgumentCountConstraint::OneOf(values) => {
-                let arg_counts: Vec<String> =
-                    values.iter().map(|v| v.saturating_sub(1).to_string()).collect();
+                let arg_counts: Vec<String> = values
+                    .iter()
+                    .map(|v| v.saturating_sub(1).to_string())
+                    .collect();
                 format!("'{tag_name}' takes {} argument(s)", arg_counts.join(" or "))
             }
         };

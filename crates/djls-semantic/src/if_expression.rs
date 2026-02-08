@@ -61,7 +61,7 @@ fn validate_expression(tokens: &[String]) -> Option<String> {
     parser.parse().err()
 }
 
-// ── Token types ──────────────────────────────────────────────────
+// Token types
 
 #[derive(Debug, Clone)]
 enum Token {
@@ -149,7 +149,7 @@ impl Operator {
     }
 }
 
-// ── Tokenizer ────────────────────────────────────────────────────
+// Tokenizer
 
 fn tokenize(tokens: &[String]) -> Vec<Token> {
     let mut result = Vec::new();
@@ -186,7 +186,7 @@ fn tokenize(tokens: &[String]) -> Vec<Token> {
     result
 }
 
-// ── Pratt parser ─────────────────────────────────────────────────
+// Pratt parser
 
 struct IfExpressionParser {
     tokens: Vec<Token>,
@@ -276,7 +276,7 @@ mod tests {
         validate_expression(&tokens(expr))
     }
 
-    // ── Valid expressions ─────────────────────────────────────
+    // Valid expressions
 
     #[test]
     fn simple_literal() {
@@ -349,7 +349,7 @@ mod tests {
         assert_eq!(validate("x == y and y != z"), None);
     }
 
-    // ── Invalid expressions ───────────────────────────────────
+    // Invalid expressions
 
     #[test]
     fn operator_in_operand_position() {
@@ -432,7 +432,7 @@ mod tests {
         );
     }
 
-    // ── Integration with validate_if_expressions ──────────────
+    // Integration with validate_if_expressions
 
     use std::sync::Arc;
     use std::sync::Mutex;
@@ -517,8 +517,8 @@ mod tests {
             None
         }
 
-        fn filter_arity_specs(&self) -> crate::filter_arity::FilterAritySpecs {
-            crate::filter_arity::FilterAritySpecs::new()
+        fn filter_arity_specs(&self) -> crate::filters::arity::FilterAritySpecs {
+            crate::filters::arity::FilterAritySpecs::new()
         }
 
         fn environment_inventory(&self) -> Option<djls_extraction::EnvironmentInventory> {

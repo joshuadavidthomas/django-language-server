@@ -1086,9 +1086,7 @@ mod tests {
         panic!("no function definition found in source");
     }
 
-    // =========================================================================
     // Simple end-tag
-    // =========================================================================
 
     #[test]
     fn simple_end_tag_single_parse() {
@@ -1105,9 +1103,7 @@ def do_for(parser, token):
         assert!(!spec.opaque);
     }
 
-    // =========================================================================
     // Intermediates (if/elif/else pattern)
-    // =========================================================================
 
     #[test]
     fn if_else_intermediates() {
@@ -1129,9 +1125,7 @@ def do_if(parser, token):
         assert!(!spec.opaque);
     }
 
-    // =========================================================================
     // Opaque block (skip_past)
-    // =========================================================================
 
     #[test]
     fn opaque_block_skip_past() {
@@ -1147,9 +1141,7 @@ def do_verbatim(parser, token):
         assert!(spec.opaque);
     }
 
-    // =========================================================================
     // Non-conventional closer names (found via control flow)
-    // =========================================================================
 
     #[test]
     fn non_conventional_closer_found_via_control_flow() {
@@ -1166,9 +1158,7 @@ def do_repeat(parser, token):
         assert!(spec.intermediates.is_empty());
     }
 
-    // =========================================================================
     // Ambiguous → None
-    // =========================================================================
 
     #[test]
     fn ambiguous_returns_none_for_end_tag() {
@@ -1183,9 +1173,7 @@ def do_custom(parser, token):
         assert!(extract_block_spec(&func).is_none());
     }
 
-    // =========================================================================
     // Dynamic f-string end-tags
-    // =========================================================================
 
     #[test]
     fn dynamic_fstring_end_tag() {
@@ -1204,9 +1192,7 @@ def do_block(parser, token):
         assert!(!spec.opaque);
     }
 
-    // =========================================================================
     // Multiple parser.parse() chains
-    // =========================================================================
 
     #[test]
     fn multiple_parse_calls_classify_correctly() {
@@ -1226,9 +1212,7 @@ def do_for(parser, token):
         assert!(!spec.opaque);
     }
 
-    // =========================================================================
     // No block structure
-    // =========================================================================
 
     #[test]
     fn no_parse_calls_returns_none() {
@@ -1241,9 +1225,7 @@ def do_now(parser, token):
         assert!(extract_block_spec(&func).is_none());
     }
 
-    // =========================================================================
     // self.parser pattern (classytags-like)
-    // =========================================================================
 
     #[test]
     fn self_parser_pattern() {
@@ -1258,9 +1240,7 @@ def do_block(self, token):
         assert_eq!(spec.end_tag.as_deref(), Some("endblock"));
     }
 
-    // =========================================================================
     // Convention tie-breaker for single-call multi-token
-    // =========================================================================
 
     #[test]
     fn convention_tiebreaker_single_call_multi_token() {
@@ -1277,9 +1257,7 @@ def do_if(parser, token):
         assert_eq!(spec.intermediates, vec!["else".to_string()]);
     }
 
-    // =========================================================================
     // Django-style with nested elif
-    // =========================================================================
 
     #[test]
     fn django_if_tag_style() {
@@ -1304,9 +1282,7 @@ def do_if(parser, token):
         assert!(spec.intermediates.contains(&"else".to_string()));
     }
 
-    // =========================================================================
     // Skip past with variable reference
-    // =========================================================================
 
     #[test]
     fn skip_past_string_constant() {
@@ -1321,9 +1297,7 @@ def do_comment(parser, token):
         assert!(spec.opaque);
     }
 
-    // =========================================================================
     // Function without parser parameter
-    // =========================================================================
 
     #[test]
     fn no_parameters_returns_none() {
@@ -1335,9 +1309,7 @@ def helper():
         assert!(extract_block_spec(&func).is_none());
     }
 
-    // =========================================================================
     // Multiple parse chains via sequential control flow
-    // =========================================================================
 
     #[test]
     fn sequential_parse_then_check() {

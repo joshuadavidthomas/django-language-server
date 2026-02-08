@@ -3,10 +3,9 @@ mod blocks;
 mod db;
 mod errors;
 mod extends;
-mod filter_arity;
-mod filter_validation;
+mod filters;
 mod if_expression;
-mod load_resolution;
+mod loads;
 mod opaque;
 mod primitives;
 mod resolution;
@@ -22,20 +21,20 @@ pub use db::Db;
 pub use db::ValidationErrorAccumulator;
 pub use errors::ValidationError;
 use extends::validate_extends;
-pub use filter_arity::FilterAritySpecs;
-use filter_validation::validate_filter_arity;
+use filters::validate_filter_arity;
+pub use filters::FilterAritySpecs;
 use if_expression::validate_if_expressions;
-pub use load_resolution::compute_loaded_libraries;
-pub use load_resolution::parse_load_bits;
-pub use load_resolution::validate_filter_scoping;
-pub use load_resolution::validate_load_libraries;
-pub use load_resolution::validate_tag_scoping;
-pub use load_resolution::AvailableSymbols;
-pub use load_resolution::FilterAvailability;
-pub use load_resolution::LoadKind;
-pub use load_resolution::LoadStatement;
-pub use load_resolution::LoadedLibraries;
-pub use load_resolution::TagAvailability;
+pub use loads::compute_loaded_libraries;
+pub use loads::parse_load_bits;
+pub use loads::validate_filter_scoping;
+pub use loads::validate_load_libraries;
+pub use loads::validate_tag_scoping;
+pub use loads::AvailableSymbols;
+pub use loads::FilterAvailability;
+pub use loads::LoadKind;
+pub use loads::LoadStatement;
+pub use loads::LoadedLibraries;
+pub use loads::TagAvailability;
 use opaque::compute_opaque_regions;
 pub use opaque::OpaqueRegions;
 pub use primitives::Tag;
@@ -96,7 +95,7 @@ mod tests {
     use djls_workspace::InMemoryFileSystem;
 
     use crate::blocks::TagIndex;
-    use crate::filter_arity::FilterAritySpecs;
+    use crate::filters::arity::FilterAritySpecs;
     use crate::templatetags::test_tag_specs;
     use crate::validate_nodelist;
     use crate::TagSpecs;
@@ -345,7 +344,7 @@ mod tests {
         }
     }
 
-    // ── Integration: Mixed diagnostics ─────────────────────────
+    // Integration: Mixed diagnostics
 
     #[test]
     fn mixed_expression_and_filter_arity_errors() {
@@ -567,7 +566,7 @@ mod tests {
         );
     }
 
-    // ── Snapshot tests for diagnostic output ───────────────────
+    // Snapshot tests for diagnostic output
 
     #[test]
     fn snapshot_mixed_diagnostics() {
@@ -674,7 +673,7 @@ mod tests {
         insta::assert_yaml_snapshot!(errors);
     }
 
-    // ── Extends validation (S122, S123) ───────────────────────
+    // Extends validation (S122, S123)
 
     #[test]
     fn extends_as_first_tag_no_errors() {
@@ -819,9 +818,7 @@ mod tests {
         assert_eq!(s123.len(), 1, "Expected S123, got: {s123:?}");
     }
 
-    // =====================================================================
     // Corpus / template validation tests
-    // =====================================================================
     //
     // These tests extract rules from real Python source files and validate
     // real Django templates against those rules. They prove zero false

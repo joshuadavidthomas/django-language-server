@@ -82,7 +82,7 @@ mod tests {
     use djls_workspace::InMemoryFileSystem;
 
     use crate::blocks::TagIndex;
-    use crate::filter_arity::FilterAritySpecs;
+    use crate::filters::arity::FilterAritySpecs;
     use crate::templatetags::test_tag_specs;
     use crate::validate_nodelist;
     use crate::TagSpecs;

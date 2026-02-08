@@ -296,8 +296,8 @@ mod tests {
             None
         }
 
-        fn filter_arity_specs(&self) -> crate::filter_arity::FilterAritySpecs {
-            crate::filter_arity::FilterAritySpecs::new()
+        fn filter_arity_specs(&self) -> crate::filters::arity::FilterAritySpecs {
+            crate::filters::arity::FilterAritySpecs::new()
         }
 
         fn environment_inventory(&self) -> Option<djls_extraction::EnvironmentInventory> {

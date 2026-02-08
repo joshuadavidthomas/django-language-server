@@ -96,9 +96,7 @@ fn extract_django_module(
     Some(extract_rules(&source, module_path))
 }
 
-// ===========================================================================
 // Django core: defaulttags.py
-// ===========================================================================
 
 #[test]
 fn test_defaulttags_full_snapshot() {
@@ -268,9 +266,7 @@ fn test_defaulttags_with_tag() {
     assert_eq!(block.end_tag.as_deref(), Some("endwith"));
 }
 
-// ===========================================================================
 // Django core: defaultfilters.py
-// ===========================================================================
 
 #[test]
 fn test_defaultfilters_full_snapshot() {
@@ -334,9 +330,7 @@ fn test_defaultfilters_filter_count() {
     );
 }
 
-// ===========================================================================
 // Django core: loader_tags.py
-// ===========================================================================
 
 #[test]
 fn test_loader_tags_full_snapshot() {
@@ -375,9 +369,7 @@ fn test_loader_tags_block_tag() {
     assert_eq!(block.end_tag.as_deref(), Some("endblock"));
 }
 
-// ===========================================================================
 // Django templatetags: i18n, static, cache, l10n, tz
-// ===========================================================================
 
 #[test]
 fn test_i18n_full_snapshot() {
@@ -464,9 +456,7 @@ fn test_tz_full_snapshot() {
     insta::assert_yaml_snapshot!("tz_full", snapshot(result));
 }
 
-// ===========================================================================
 // Cross-version stability
-// ===========================================================================
 
 #[test]
 fn test_for_tag_rules_across_django_versions() {
@@ -522,9 +512,7 @@ fn test_for_tag_rules_across_django_versions() {
     }
 }
 
-// ===========================================================================
 // Third-party packages
-// ===========================================================================
 
 #[test]
 fn test_wagtail_extraction_snapshot() {

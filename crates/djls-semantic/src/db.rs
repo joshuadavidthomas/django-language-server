@@ -6,7 +6,7 @@ use djls_templates::Db as TemplateDb;
 
 use crate::blocks::TagIndex;
 use crate::errors::ValidationError;
-use crate::filter_arity::FilterAritySpecs;
+use crate::filters::arity::FilterAritySpecs;
 use crate::templatetags::TagSpecs;
 
 #[salsa::db]

@@ -81,9 +81,7 @@ mod tests {
         panic!("no function definition found in source");
     }
 
-    // =========================================================================
     // No-arg filters (value only)
-    // =========================================================================
 
     #[test]
     fn no_arg_filter() {
@@ -111,9 +109,7 @@ def upper(value):
         assert!(!arity.arg_optional);
     }
 
-    // =========================================================================
     // Required-arg filters
-    // =========================================================================
 
     #[test]
     fn required_arg_filter() {
@@ -141,9 +137,7 @@ def add(value, arg):
         assert!(!arity.arg_optional);
     }
 
-    // =========================================================================
     // Optional-arg filters
-    // =========================================================================
 
     #[test]
     fn optional_arg_filter() {
@@ -173,9 +167,7 @@ def truncatewords(value, arg=None):
         assert!(arity.arg_optional);
     }
 
-    // =========================================================================
     // Method-style filters (with self)
-    // =========================================================================
 
     #[test]
     fn method_style_no_arg() {
@@ -215,9 +207,7 @@ def my_filter(self, value, arg="default"):
         assert!(arity.arg_optional);
     }
 
-    // =========================================================================
     // Edge cases
-    // =========================================================================
 
     #[test]
     fn no_params_at_all() {
@@ -294,9 +284,7 @@ def my_filter(value, arg1, arg2="b"):
         assert!(!arity.arg_optional);
     }
 
-    // =========================================================================
     // Arity doesn't change with decorator kwargs
-    // =========================================================================
 
     #[test]
     fn is_safe_does_not_affect_arity() {

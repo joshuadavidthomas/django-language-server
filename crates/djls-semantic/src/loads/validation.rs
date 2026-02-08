@@ -403,8 +403,8 @@ mod tests {
             self.inventory.clone()
         }
 
-        fn filter_arity_specs(&self) -> crate::filter_arity::FilterAritySpecs {
-            crate::filter_arity::FilterAritySpecs::new()
+        fn filter_arity_specs(&self) -> crate::filters::arity::FilterAritySpecs {
+            crate::filters::arity::FilterAritySpecs::new()
         }
 
         fn environment_inventory(&self) -> Option<djls_extraction::EnvironmentInventory> {
@@ -865,7 +865,7 @@ mod tests {
         );
     }
 
-    // ── Opaque region tests ────────────────────────────────────
+    // Opaque region tests
 
     #[test]
     fn verbatim_block_content_skipped() {
@@ -943,7 +943,7 @@ mod tests {
         );
     }
 
-    // ── Library name validation tests (S120) ───────────────────
+    // Library name validation tests (S120)
 
     fn collect_library_errors(db: &TestDatabase, source: &str) -> Vec<ValidationError> {
         let path = "test.html";
@@ -1071,7 +1071,7 @@ mod tests {
         assert!(names.contains(&"bar"));
     }
 
-    // ── Three-layer resolution tests (S118/S119) ───────────────
+    // Three-layer resolution tests (S118/S119)
 
     use std::collections::BTreeMap;
     use std::path::PathBuf;
@@ -1419,7 +1419,7 @@ mod tests {
         assert!(has_s120, "Expected UnknownLibrary for 'xyz'");
     }
 
-    // ── Integration test: all three layers in a single template ─
+    // Integration test: all three layers in a single template
 
     fn collect_all_errors(db: &TestDatabase, source: &str) -> Vec<ValidationError> {
         let path = "test.html";

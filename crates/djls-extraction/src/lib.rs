@@ -1,12 +1,10 @@
-mod environment_types;
+mod environment;
 mod types;
 
 #[cfg(feature = "parser")]
 mod blocks;
 #[cfg(feature = "parser")]
 mod dataflow;
-#[cfg(feature = "parser")]
-mod environment;
 #[cfg(feature = "parser")]
 mod filters;
 #[cfg(feature = "parser")]
@@ -22,9 +20,9 @@ pub use dataflow::analyze_compile_function;
 pub use environment::scan_environment;
 #[cfg(feature = "parser")]
 pub use environment::scan_environment_with_symbols;
-pub use environment_types::EnvironmentInventory;
-pub use environment_types::EnvironmentLibrary;
-pub use environment_types::EnvironmentSymbol;
+pub use environment::EnvironmentInventory;
+pub use environment::EnvironmentLibrary;
+pub use environment::EnvironmentSymbol;
 #[cfg(feature = "parser")]
 pub use filters::extract_filter_arity;
 #[cfg(feature = "parser")]
@@ -367,9 +365,7 @@ register.tag("for", do_for)
         assert!(result.block_specs.is_empty());
     }
 
-    // =====================================================================
     // Golden fixture tests — end-to-end through extract_rules() with insta
-    // =====================================================================
 
     // --- Registration discovery fixtures ---
 
