@@ -212,6 +212,16 @@ filter_arities:
     expects_arg: false
     arg_optional: false
 block_specs:
+  "django.templatetags.i18n::blocktrans":
+    end_tag: ~
+    intermediates:
+      - plural
+    opaque: false
+  "django.templatetags.i18n::blocktranslate":
+    end_tag: ~
+    intermediates:
+      - plural
+    opaque: false
   "django.templatetags.i18n::language":
     end_tag: endlanguage
     intermediates: []

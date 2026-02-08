@@ -795,16 +795,16 @@ Python Environment  →  Django Configuration  →  Template Load  →  Availabl
 - [x] Add `ChoiceAt` evaluator in `crates/djls-semantic/src/rule_evaluation.rs` — check that `bits[position]` is one of `values`
 - [x] Add appropriate diagnostic handling for `ChoiceAt` violations (reuse S117 `ExtractedRuleViolation`)
 - [x] Tests: `autoescape` tag (`not in ("on", "off")` → `ChoiceAt`), `templatetag` tag (`not in templatetag_names`), constraint extraction from `if arg not in (...)` pattern, evaluator positive/negative cases
-- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 2: `blocktrans`/`blocktranslate` Block Spec Extraction
 
-- [ ] Extend the dataflow analyzer to handle `parser.next_token()` loop patterns — detect token consumption loops that determine end tags and intermediates
-- [ ] Handle `while parser.tokens:` → `token = parser.next_token()` → string comparison patterns to identify end-tag names
-- [ ] Handle `plural` intermediate detection in `blocktrans` source
-- [ ] Handle dynamic end-tag patterns like `end_tag_name = "end%s" % bits[0]` in token loop context
-- [ ] Tests: `blocktrans` extracts `endblocktrans` end-tag and `plural` intermediate, `blocktranslate` similarly, non-token-loop functions unchanged
-- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Extend the dataflow analyzer to handle `parser.next_token()` loop patterns — detect token consumption loops that determine end tags and intermediates
+- [x] Handle `while parser.tokens:` → `token = parser.next_token()` → string comparison patterns to identify end-tag names
+- [x] Handle `plural` intermediate detection in `blocktrans` source
+- [x] Handle dynamic end-tag patterns like `end_tag_name = "end%s" % bits[0]` in token loop context
+- [x] Tests: `blocktrans` extracts `endblocktrans` end-tag and `plural` intermediate, `blocktranslate` similarly, non-token-loop functions unchanged
+- [x] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 3: Remove `builtins.rs`
 
