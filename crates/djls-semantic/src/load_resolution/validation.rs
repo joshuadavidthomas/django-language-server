@@ -1433,4 +1433,228 @@ mod tests {
         assert!(has_s121, "Expected LibraryNotInInstalledApps for 'humanize'");
         assert!(has_s120, "Expected UnknownLibrary for 'xyz'");
     }
+
+    // ── Integration test: all three layers in a single template ─
+
+    fn collect_all_errors(db: &TestDatabase, source: &str) -> Vec<ValidationError> {
+        let path = "test.html";
+        db.add_file(path, source);
+        let file = db.create_file(Utf8Path::new(path));
+        let nodelist = parse_template(db, file).expect("should parse");
+        validate_nodelist(db, nodelist);
+
+        validate_nodelist::accumulated::<ValidationErrorAccumulator>(db, nodelist)
+            .into_iter()
+            .map(|acc| acc.0.clone())
+            .filter(|err| {
+                matches!(
+                    err,
+                    ValidationError::UnknownTag { .. }
+                        | ValidationError::UnloadedTag { .. }
+                        | ValidationError::AmbiguousUnloadedTag { .. }
+                        | ValidationError::TagNotInInstalledApps { .. }
+                        | ValidationError::UnknownFilter { .. }
+                        | ValidationError::UnloadedFilter { .. }
+                        | ValidationError::AmbiguousUnloadedFilter { .. }
+                        | ValidationError::FilterNotInInstalledApps { .. }
+                        | ValidationError::UnknownLibrary { .. }
+                        | ValidationError::LibraryNotInInstalledApps { .. }
+                )
+            })
+            .collect()
+    }
+
+    fn three_layer_db() -> TestDatabase {
+        let tags = vec![
+            builtin_tag_json("if", "django.template.defaulttags"),
+            builtin_tag_json("csrf_token", "django.template.defaulttags"),
+            builtin_tag_json("verbatim", "django.template.defaulttags"),
+            builtin_tag_json("comment", "django.template.defaulttags"),
+            library_tag_json("trans", "i18n", "django.templatetags.i18n"),
+        ];
+        let filters = vec![
+            builtin_filter_json("title", "django.template.defaultfilters"),
+            library_filter_json("lower_i18n", "i18n", "django.templatetags.i18n"),
+        ];
+        let mut libraries = HashMap::new();
+        libraries.insert("i18n".to_string(), "django.templatetags.i18n".to_string());
+        let builtins = vec![
+            "django.template.defaulttags".to_string(),
+            "django.template.defaultfilters".to_string(),
+        ];
+        let inspector = make_inventory_with_filters(&tags, &filters, &libraries, &builtins);
+
+        let env = make_env_inventory(vec![make_env_library(
+            "humanize",
+            "django.contrib.humanize",
+            &["ordinal"],
+            &["intcomma"],
+        )]);
+
+        TestDatabase::with_inventories(inspector, env)
+    }
+
+    #[allow(clippy::too_many_lines)]
+    #[test]
+    fn three_layer_integration_all_diagnostic_codes() {
+        let db = three_layer_db();
+
+        let source = "\
+{% load i18n humanize nonexistent %}
+{% csrf_token %}
+{{ value|title }}
+{% trans 'hello' %}
+{{ value|lower_i18n }}
+{% ordinal 42 %}
+{{ value|intcomma }}
+{% floobarblatz %}
+{{ value|zzfilter }}";
+
+        let errors = collect_all_errors(&db, source);
+
+        // S120: truly unknown library
+        assert!(
+            errors.iter().any(|e| matches!(
+                e, ValidationError::UnknownLibrary { name, .. } if name == "nonexistent"
+            )),
+            "Expected S120 UnknownLibrary for 'nonexistent'. All errors: {errors:#?}"
+        );
+
+        // S121: library in env but not `INSTALLED_APPS`
+        assert!(
+            errors.iter().any(|e| matches!(
+                e,
+                ValidationError::LibraryNotInInstalledApps { name, app, .. }
+                    if name == "humanize" && app == "django.contrib.humanize"
+            )),
+            "Expected S121 LibraryNotInInstalledApps for 'humanize'. All errors: {errors:#?}"
+        );
+
+        // S118: tag in env but not `INSTALLED_APPS`
+        assert!(
+            errors.iter().any(|e| matches!(
+                e,
+                ValidationError::TagNotInInstalledApps { tag, app, load_name, .. }
+                    if tag == "ordinal"
+                        && app == "django.contrib.humanize"
+                        && load_name == "humanize"
+            )),
+            "Expected S118 TagNotInInstalledApps for 'ordinal'. All errors: {errors:#?}"
+        );
+
+        // S119: filter in env but not `INSTALLED_APPS`
+        assert!(
+            errors.iter().any(|e| matches!(
+                e,
+                ValidationError::FilterNotInInstalledApps { filter, app, load_name, .. }
+                    if filter == "intcomma"
+                        && app == "django.contrib.humanize"
+                        && load_name == "humanize"
+            )),
+            "Expected S119 FilterNotInInstalledApps for 'intcomma'. All errors: {errors:#?}"
+        );
+
+        // S108: truly unknown tag
+        assert!(
+            errors.iter().any(|e| matches!(
+                e, ValidationError::UnknownTag { tag, .. } if tag == "floobarblatz"
+            )),
+            "Expected S108 UnknownTag for 'floobarblatz'. All errors: {errors:#?}"
+        );
+
+        // S111: truly unknown filter
+        assert!(
+            errors.iter().any(|e| matches!(
+                e, ValidationError::UnknownFilter { filter, .. } if filter == "zzfilter"
+            )),
+            "Expected S111 UnknownFilter for 'zzfilter'. All errors: {errors:#?}"
+        );
+
+        // No false positives for valid builtins and loaded library items
+        let unexpected = errors.iter().find(|e| match e {
+            ValidationError::UnknownTag { tag, .. } => tag == "csrf_token" || tag == "if",
+            ValidationError::UnloadedTag { tag, .. } => tag == "trans",
+            ValidationError::UnknownFilter { filter, .. } => {
+                filter == "title" || filter == "lower_i18n"
+            }
+            ValidationError::UnloadedFilter { filter, .. } => filter == "lower_i18n",
+            _ => false,
+        });
+        assert!(
+            unexpected.is_none(),
+            "Unexpected error for valid builtin/loaded items: {unexpected:?}"
+        );
+
+        // Total: S108 + S111 + S118 + S119 + S120 + S121 = 6
+        assert_eq!(
+            errors.len(),
+            6,
+            "Expected exactly 6 errors. Got {}: {errors:#?}",
+            errors.len()
+        );
+    }
+
+    /// Integration test: S109/S112 layer — tags/filters in `INSTALLED_APPS` but
+    /// not loaded at the usage position.
+    #[test]
+    fn three_layer_integration_unloaded_library_tags_filters() {
+        let inspector = test_inventory_with_filters();
+
+        // No environment inventory — keeps test focused on the unloaded layer
+        let db = TestDatabase::with_inventory(inspector);
+
+        // i18n is in inspector (INSTALLED_APPS) but NOT loaded
+        // humanize is in inspector (INSTALLED_APPS) but NOT loaded
+        let source = "\
+{% trans 'hello' %}
+{{ value|apnumber }}
+{% load i18n %}
+{% trans 'now loaded' %}";
+
+        let errors = collect_all_errors(&db, source);
+
+        // trans before load → S109
+        let s109 = errors.iter().find(|e| {
+            matches!(
+                e,
+                ValidationError::UnloadedTag { tag, library, .. }
+                    if tag == "trans" && library == "i18n"
+            )
+        });
+        assert!(
+            s109.is_some(),
+            "Expected S109 for 'trans' before load. All errors: {errors:#?}"
+        );
+
+        // apnumber before load → S112
+        let s112 = errors.iter().find(|e| {
+            matches!(
+                e,
+                ValidationError::UnloadedFilter { filter, library, .. }
+                    if filter == "apnumber" && library == "humanize"
+            )
+        });
+        assert!(
+            s112.is_some(),
+            "Expected S112 for 'apnumber' before load. All errors: {errors:#?}"
+        );
+
+        // trans after load → valid (no error for second trans)
+        let trans_errors: Vec<_> = errors
+            .iter()
+            .filter(|e| matches!(e, ValidationError::UnloadedTag { tag, .. } if tag == "trans"))
+            .collect();
+        assert_eq!(
+            trans_errors.len(),
+            1,
+            "Only the first trans (before load) should error. Got: {trans_errors:#?}"
+        );
+
+        assert_eq!(
+            errors.len(),
+            2,
+            "Expected exactly 2 errors (S109 + S112). Got {} errors: {errors:#?}",
+            errors.len()
+        );
+    }
 }
