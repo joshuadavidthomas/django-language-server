@@ -79,7 +79,7 @@ impl ExtractionResult {
                 })
                 .collect();
             map.extend(entries);
-            debug_assert_eq!(
+            assert_eq!(
                 map.len(),
                 original_len,
                 "rekey_module produced duplicate keys for module '{module_path}' — data was lost"
@@ -359,5 +359,98 @@ mod tests {
         };
         assert!(arity.expects_arg);
         assert!(arity.arg_optional);
+    }
+
+    #[test]
+    fn rekey_module_updates_all_keys() {
+        let mut result = ExtractionResult::default();
+        result.tag_rules.insert(
+            SymbolKey::tag("old.module", "tag1"),
+            TagRule {
+                arg_constraints: vec![ArgumentCountConstraint::Exact(2)],
+                ..Default::default()
+            },
+        );
+        result.filter_arities.insert(
+            SymbolKey::filter("old.module", "filter1"),
+            FilterArity {
+                expects_arg: true,
+                arg_optional: false,
+            },
+        );
+        result.block_specs.insert(
+            SymbolKey::tag("old.module", "block1"),
+            BlockTagSpec {
+                end_tag: Some("endblock1".to_string()),
+                intermediates: vec![],
+                opaque: false,
+            },
+        );
+
+        result.rekey_module("new.module");
+
+        assert_eq!(result.tag_rules.len(), 1);
+        assert_eq!(result.filter_arities.len(), 1);
+        assert_eq!(result.block_specs.len(), 1);
+
+        let tag_key = SymbolKey::tag("new.module", "tag1");
+        assert!(result.tag_rules.contains_key(&tag_key));
+
+        let filter_key = SymbolKey::filter("new.module", "filter1");
+        assert!(result.filter_arities.contains_key(&filter_key));
+
+        let block_key = SymbolKey::tag("new.module", "block1");
+        assert!(result.block_specs.contains_key(&block_key));
+    }
+
+    #[test]
+    fn rekey_module_preserves_values() {
+        let mut result = ExtractionResult::default();
+        result.tag_rules.insert(
+            SymbolKey::tag("old.module", "tag1"),
+            TagRule {
+                arg_constraints: vec![
+                    ArgumentCountConstraint::Min(1),
+                    ArgumentCountConstraint::Max(3),
+                ],
+                ..Default::default()
+            },
+        );
+
+        result.rekey_module("new.module");
+
+        let key = SymbolKey::tag("new.module", "tag1");
+        let rule = result.tag_rules.get(&key).unwrap();
+        assert_eq!(
+            rule.arg_constraints,
+            vec![
+                ArgumentCountConstraint::Min(1),
+                ArgumentCountConstraint::Max(3)
+            ]
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "rekey_module produced duplicate keys")]
+    fn rekey_module_panics_on_duplicate_keys() {
+        let mut result = ExtractionResult::default();
+        result.tag_rules.insert(
+            SymbolKey::tag("module.a", "same_tag"),
+            TagRule {
+                arg_constraints: vec![ArgumentCountConstraint::Exact(1)],
+                ..Default::default()
+            },
+        );
+        result.tag_rules.insert(
+            SymbolKey::tag("module.b", "same_tag"),
+            TagRule {
+                arg_constraints: vec![ArgumentCountConstraint::Exact(2)],
+                ..Default::default()
+            },
+        );
+
+        // Both keys have name="same_tag" and kind=Tag, so rekeying to the same
+        // module produces duplicate SymbolKeys — this must panic, not silently drop.
+        result.rekey_module("shared.module");
     }
 }

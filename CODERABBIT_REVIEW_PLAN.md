@@ -33,7 +33,7 @@
 </details>
 
 ### 3. `types.rs:71-87` — `debug_assert_eq!` in `rekey_module` won't fire in release
-- **Status**: TODO
+- **Status**: DONE
 - **Severity**: Medium (silent data loss in release)
 - **File**: `crates/djls-extraction/src/types.rs`
 - **Fix**: If rekeying causes key collisions, `map.extend` silently drops entries. The `debug_assert_eq!` only catches this in debug builds. Should promote to `assert_eq!` or use `tracing::error!` + return `Result`.
