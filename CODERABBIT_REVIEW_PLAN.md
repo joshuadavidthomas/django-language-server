@@ -63,7 +63,7 @@
 </details>
 
 ### 5. `completions.rs:1931` — Typo in test comment
-- **Status**: TODO
+- **Status**: DONE
 - **Severity**: Trivial
 - **File**: `crates/djls-ide/src/completions.rs`
 - **Fix**: Comment says `{{% and {{` but should be `{% and {{`. One-char fix.

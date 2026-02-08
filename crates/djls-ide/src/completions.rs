@@ -1930,7 +1930,7 @@ mod tests {
 
     #[test]
     fn test_tag_context_preferred_over_variable_when_both_present() {
-        // When both {{% and {{ are present, the closer one wins
+        // When both {% and {{ are present, the closer one wins
         let line = "{{ var }} {% if";
         let cursor_offset = 14; // After "if"
 
