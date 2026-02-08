@@ -682,6 +682,8 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "camino",
+ "clap",
+ "djls-extraction",
  "flate2",
  "reqwest",
  "serde",
@@ -695,6 +697,7 @@ dependencies = [
 name = "djls-extraction"
 version = "0.0.0"
 dependencies = [
+ "camino",
  "djls-corpus",
  "insta",
  "ruff_python_ast",
@@ -748,6 +751,7 @@ version = "0.0.0"
 dependencies = [
  "camino",
  "djls-conf",
+ "djls-corpus",
  "djls-extraction",
  "djls-project",
  "djls-source",
@@ -772,7 +776,6 @@ dependencies = [
  "camino",
  "dashmap",
  "djls-conf",
- "djls-corpus",
  "djls-extraction",
  "djls-ide",
  "djls-project",
@@ -785,14 +788,12 @@ dependencies = [
  "salsa",
  "serde",
  "serde_json",
- "tempfile",
  "tokio",
  "toml",
  "tower-lsp-server",
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
- "walkdir",
 ]
 
 [[package]]

@@ -6,9 +6,11 @@
 //! - `**/templates/**/*.html`, `**/templates/**/*.txt` (Django templates)
 
 use std::io::Read;
-use std::path::Path;
 use std::time::Duration;
 
+use camino::Utf8Path;
+
+use crate::enumerate;
 use crate::manifest::Manifest;
 use crate::manifest::Package;
 use crate::manifest::Repo;
@@ -19,50 +21,40 @@ fn http_client() -> anyhow::Result<reqwest::blocking::Client> {
         .build()?)
 }
 
-/// Whether a file path is relevant for corpus testing (extraction + template validation).
-fn is_corpus_relevant(path: &str) -> bool {
-    if path.contains("__pycache__") {
+/// Whether a file path is relevant for corpus download.
+///
+/// This is the union of all [`enumerate::FileKind`] predicates — it decides
+/// what to extract from tarballs during sync. The enumerate functions apply
+/// stricter filtering (e.g. excluding `__init__.py`, `docs/`, `tests/`).
+fn is_download_relevant(path: &str) -> bool {
+    if enumerate::in_pycache(path) {
         return false;
     }
 
-    let ext = Path::new(path)
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(str::to_ascii_lowercase);
+    let utf8 = Utf8Path::new(path);
 
-    match ext.as_deref() {
-        Some("py") => {
-            // templatetags directories
-            if path.contains("/templatetags/") {
-                return true;
-            }
-            // Django core template modules
-            if path.contains("/template/") {
-                let file_name = path.rsplit('/').next().unwrap_or("");
-                return matches!(
-                    file_name,
-                    "defaulttags.py" | "defaultfilters.py" | "loader_tags.py"
-                );
-            }
-            false
-        }
-        Some("html" | "txt") => {
-            // Django template files inside templates/ directories
-            path.contains("/templates/")
-        }
-        _ => false,
+    if enumerate::has_py_extension(utf8) {
+        return enumerate::in_templatetags_dir(path) || enumerate::is_core_template_module(utf8);
     }
+
+    if enumerate::has_template_extension(utf8) {
+        return enumerate::in_templates_dir(path);
+    }
+
+    false
 }
 
-pub fn sync_corpus(manifest: &Manifest, corpus_root: &Path) -> anyhow::Result<()> {
+pub fn sync_corpus(manifest: &Manifest, corpus_root: &Utf8Path) -> anyhow::Result<()> {
+    let client = http_client()?;
+
     let packages_dir = corpus_root.join("packages");
     let repos_dir = corpus_root.join("repos");
 
-    std::fs::create_dir_all(&packages_dir)?;
-    std::fs::create_dir_all(&repos_dir)?;
+    std::fs::create_dir_all(packages_dir.as_std_path())?;
+    std::fs::create_dir_all(repos_dir.as_std_path())?;
 
     for package in &manifest.packages {
-        if let Err(e) = sync_package(package, &packages_dir) {
+        if let Err(e) = sync_package(&client, package, &packages_dir) {
             eprintln!(
                 "Warning: Failed to sync {}-{}: {e}",
                 package.name, package.version
@@ -71,7 +63,7 @@ pub fn sync_corpus(manifest: &Manifest, corpus_root: &Path) -> anyhow::Result<()
     }
 
     for repo in &manifest.repos {
-        if let Err(e) = sync_repo(repo, &repos_dir) {
+        if let Err(e) = sync_repo(&client, repo, &repos_dir) {
             eprintln!("Warning: Failed to sync {}: {e}", repo.name);
         }
     }
@@ -79,11 +71,15 @@ pub fn sync_corpus(manifest: &Manifest, corpus_root: &Path) -> anyhow::Result<()
     Ok(())
 }
 
-fn sync_package(package: &Package, packages_dir: &Path) -> anyhow::Result<()> {
+fn sync_package(
+    client: &reqwest::blocking::Client,
+    package: &Package,
+    packages_dir: &Utf8Path,
+) -> anyhow::Result<()> {
     let out_dir = packages_dir.join(&package.name).join(&package.version);
     let marker = out_dir.join(".complete");
 
-    if marker.exists() {
+    if marker.as_std_path().exists() {
         eprintln!(
             "  [skip] {}-{} (already synced)",
             package.name, package.version
@@ -93,12 +89,10 @@ fn sync_package(package: &Package, packages_dir: &Path) -> anyhow::Result<()> {
 
     eprintln!("  [sync] {}-{}", package.name, package.version);
 
-    // Query PyPI for download URL
     let url = format!(
         "https://pypi.org/pypi/{}/{}/json",
         package.name, package.version
     );
-    let client = http_client()?;
     let resp = client.get(&url).send()?;
     if !resp.status().is_success() {
         anyhow::bail!(
@@ -110,14 +104,11 @@ fn sync_package(package: &Package, packages_dir: &Path) -> anyhow::Result<()> {
     }
 
     let json: serde_json::Value = resp.json()?;
-
-    // Find sdist (.tar.gz) URL
     let sdist_url = find_sdist_url(&json, &package.name, &package.version)?;
 
-    // Download and extract relevant files
-    extract_tarball(&sdist_url, &out_dir)?;
+    extract_tarball(client, &sdist_url, &out_dir)?;
 
-    std::fs::write(marker, "")?;
+    std::fs::write(marker.as_std_path(), "")?;
     Ok(())
 }
 
@@ -137,8 +128,11 @@ fn find_sdist_url(json: &serde_json::Value, name: &str, version: &str) -> anyhow
         .ok_or_else(|| anyhow::anyhow!("No sdist found for {name}-{version}"))
 }
 
-fn extract_tarball(url: &str, out_dir: &Path) -> anyhow::Result<()> {
-    let client = http_client()?;
+fn extract_tarball(
+    client: &reqwest::blocking::Client,
+    url: &str,
+    out_dir: &Utf8Path,
+) -> anyhow::Result<()> {
     let resp = client.get(url).send()?;
     if !resp.status().is_success() {
         anyhow::bail!("HTTP {} fetching tarball from {}", resp.status(), url);
@@ -146,7 +140,7 @@ fn extract_tarball(url: &str, out_dir: &Path) -> anyhow::Result<()> {
     let gz = flate2::read::GzDecoder::new(resp);
     let mut archive = tar::Archive::new(gz);
 
-    std::fs::create_dir_all(out_dir)?;
+    std::fs::create_dir_all(out_dir.as_std_path())?;
 
     for entry in archive.entries()? {
         let mut entry = entry?;
@@ -157,12 +151,12 @@ fn extract_tarball(url: &str, out_dir: &Path) -> anyhow::Result<()> {
             .split_once('/')
             .map_or(entry_path.as_str(), |x| x.1);
 
-        if !is_corpus_relevant(relative) {
+        if !is_download_relevant(relative) {
             continue;
         }
 
-        // Reject paths containing ".." to prevent directory traversal attacks
-        if Path::new(relative)
+        // Reject paths containing ".." to prevent directory traversal
+        if std::path::Path::new(relative)
             .components()
             .any(|c| matches!(c, std::path::Component::ParentDir))
         {
@@ -171,22 +165,26 @@ fn extract_tarball(url: &str, out_dir: &Path) -> anyhow::Result<()> {
 
         let dest = out_dir.join(relative);
         if let Some(parent) = dest.parent() {
-            std::fs::create_dir_all(parent)?;
+            std::fs::create_dir_all(parent.as_std_path())?;
         }
 
         let mut content = Vec::new();
         entry.read_to_end(&mut content)?;
-        std::fs::write(&dest, &content)?;
+        std::fs::write(dest.as_std_path(), &content)?;
     }
 
     Ok(())
 }
 
-fn sync_repo(repo: &Repo, repos_dir: &Path) -> anyhow::Result<()> {
+fn sync_repo(
+    client: &reqwest::blocking::Client,
+    repo: &Repo,
+    repos_dir: &Utf8Path,
+) -> anyhow::Result<()> {
     let out_dir = repos_dir.join(&repo.name).join(&repo.git_ref);
     let marker = out_dir.join(".complete");
 
-    if marker.exists() {
+    if marker.as_std_path().exists() {
         eprintln!("  [skip] {} (already synced)", repo.name);
         return Ok(());
     }
@@ -197,15 +195,14 @@ fn sync_repo(repo: &Repo, repos_dir: &Path) -> anyhow::Result<()> {
         repo.git_ref.get(..12).unwrap_or(&repo.git_ref)
     );
 
-    // Download tarball from GitHub
     let tarball_url = format!(
         "{}/archive/{}.tar.gz",
         repo.url.trim_end_matches(".git"),
         repo.git_ref
     );
 
-    extract_tarball(&tarball_url, &out_dir)?;
+    extract_tarball(client, &tarball_url, &out_dir)?;
 
-    std::fs::write(marker, "")?;
+    std::fs::write(marker.as_std_path(), "")?;
     Ok(())
 }

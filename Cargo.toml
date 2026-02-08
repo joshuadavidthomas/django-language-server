@@ -25,13 +25,16 @@ camino = "1.2"
 clap = { version = "4.5", features = ["derive"] }
 config = { version ="0.15", features = ["toml"] }
 dashmap = "6.1"
+flate2 = "1.0"
 directories = "6.0"
 memchr = "2.7"
 notify = "8.2"
 percent-encoding = "2.3"
+reqwest = { version = "0.12", features = ["blocking", "json"] }
 rustc-hash = "2.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+tar = "0.4"
 thiserror = "2.0"
 tokio = { version = "1.49", features = ["full"] }
 toml = "0.9"

@@ -46,8 +46,9 @@ just lint                        # Run pre-commit hooks
 
 ## Key Conventions
 - **Parser `Node::Tag.bits` excludes tag name**: `{% load i18n %}` → `name: "load"`, `bits: ["i18n"]`. Functions processing `bits` work with arguments only.
-- **Workspace deps**: Third-party deps go in `[workspace.dependencies]` in root `Cargo.toml`, crates reference with `dep.workspace = true`.
-- **Insta snapshots**: After changing serialized types, run `INSTA_UPDATE=1 cargo test -q` then `cargo insta review`.
+- **Workspace deps**: ALL dependency versions (third-party and internal crates) go in `[workspace.dependencies]` in root `Cargo.toml`. Crates reference with `dep.workspace = true`. Never specify a version directly in a crate's `Cargo.toml` — always add it to the workspace first.
+- **Paths**: Use `camino::Utf8Path`/`Utf8PathBuf` as the canonical path types. Avoid `std::path::Path`/`PathBuf` except at FFI boundaries or when interfacing with APIs that require them (e.g., `walkdir` results — convert at the boundary).
+- **Insta snapshots**: After changing serialized types, run `cargo insta test --accept --unreferenced delete` to update snapshots and clean orphans.
 - **Extraction feature gate**: `djls-extraction` has a `parser` feature gating Ruff deps. Types in `types.rs` and `environment/types.rs` are always available. Crates doing extraction use `features = ["parser"]`; crates needing only types use default features off. Environment scan functions (`scan_environment`, `scan_environment_with_symbols`) in `environment/scan.rs` require the `parser` feature; environment types (`EnvironmentInventory`, `EnvironmentLibrary`, `EnvironmentSymbol`) in `environment/types.rs` are always available.
 - **`ValidationError` is exhaustive**: When adding/removing variants, update `errors.rs`, `djls-ide/src/diagnostics.rs` (S-code mapping), and test helpers. Grep: `grep -rn "ValidationError" crates/ --include="*.rs"`.
 - **`SemanticDb` trait**: When adding methods, update impls in `djls-server/src/db.rs` and `djls-bench/src/db.rs`.

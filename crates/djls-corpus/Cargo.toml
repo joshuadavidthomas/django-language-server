@@ -8,14 +8,19 @@ description = "Corpus management for Django template extraction testing"
 name = "djls-corpus"
 path = "src/main.rs"
 
+[features]
+extraction = ["dep:djls-extraction"]
+
 [dependencies]
 anyhow = { workspace = true }
 camino = { workspace = true }
-flate2 = "1.0"
-reqwest = { version = "0.12", features = ["blocking", "json"] }
-serde_json = { workspace = true }
+clap = { workspace = true }
+djls-extraction = { workspace = true, features = ["parser"], optional = true }
+flate2 = { workspace = true }
+reqwest = { workspace = true }
 serde = { workspace = true }
-tar = "0.4"
+serde_json = { workspace = true }
+tar = { workspace = true }
 toml = { workspace = true }
 walkdir = { workspace = true }
 

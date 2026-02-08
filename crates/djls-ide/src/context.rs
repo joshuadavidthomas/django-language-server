@@ -114,7 +114,8 @@ mod tests {
 
     #[test]
     fn test_offset_context_variants_exist() {
-        let contexts = [OffsetContext::TemplateReference("test.html".to_string()),
+        let contexts = [
+            OffsetContext::TemplateReference("test.html".to_string()),
             OffsetContext::BlockDefinition {
                 name: "content".to_string(),
                 span: Span::new(0, 10),
@@ -140,7 +141,8 @@ mod tests {
             OffsetContext::Text {
                 span: Span::new(0, 10),
             },
-            OffsetContext::None];
+            OffsetContext::None,
+        ];
         assert_eq!(contexts.len(), 8);
     }
 
