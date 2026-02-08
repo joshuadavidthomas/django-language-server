@@ -47,6 +47,7 @@
 
 pub mod db;
 mod error;
+mod filters;
 mod lexer;
 pub mod nodelist;
 mod parser;
@@ -58,8 +59,8 @@ pub use db::TemplateErrorAccumulator;
 use djls_source::File;
 use djls_source::FileKind;
 pub use error::TemplateError;
+pub use filters::Filter;
 pub use lexer::Lexer;
-pub use nodelist::Filter;
 pub use nodelist::Node;
 pub use nodelist::NodeList;
 pub use parser::ParseError;

@@ -1,6 +1,6 @@
 use djls_source::Span;
-use serde::Serialize;
 
+use crate::filters::Filter;
 use crate::parser::ParseError;
 use crate::tokens::TagDelimiter;
 
@@ -9,25 +9,6 @@ pub struct NodeList<'db> {
     #[tracked]
     #[returns(ref)]
     pub nodelist: Vec<Node>,
-}
-
-/// A parsed filter expression within a Django variable node.
-///
-/// Represents a single filter in a chain like `{{ value|default:'nothing'|title }}`.
-/// Each filter has a name, an optional argument, and a span covering its position
-/// within the source text.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
-pub struct Filter {
-    pub name: String,
-    pub arg: Option<String>,
-    pub span: Span,
-}
-
-impl Filter {
-    #[must_use]
-    pub fn new(name: String, arg: Option<String>, span: Span) -> Self {
-        Self { name, arg, span }
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
