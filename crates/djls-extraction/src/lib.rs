@@ -133,6 +133,7 @@ fn collect_func_defs(body: &[ruff_python_ast::Stmt]) -> Vec<&ruff_python_ast::St
 }
 
 #[cfg(test)]
+#[cfg(feature = "parser")]
 mod tests {
     use std::collections::BTreeMap;
 
