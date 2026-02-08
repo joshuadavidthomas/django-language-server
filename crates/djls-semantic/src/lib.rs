@@ -2,6 +2,7 @@ mod arguments;
 mod blocks;
 mod db;
 mod errors;
+mod extends;
 mod filter_arity;
 mod filter_validation;
 mod if_expression;
@@ -15,6 +16,7 @@ mod templatetags;
 mod traits;
 
 use arguments::validate_all_tag_arguments;
+use extends::validate_extends;
 pub use blocks::build_block_tree;
 pub use blocks::TagIndex;
 pub use db::Db;
@@ -73,6 +75,7 @@ pub fn validate_nodelist(db: &dyn Db, nodelist: djls_templates::NodeList<'_>) {
     validate_load_libraries(db, nodelist, &opaque_regions);
     validate_if_expressions(db, nodelist, &opaque_regions);
     validate_filter_arity(db, nodelist, &opaque_regions);
+    validate_extends(db, nodelist);
 }
 
 #[cfg(test)]

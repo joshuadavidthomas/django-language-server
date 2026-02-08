@@ -755,10 +755,10 @@ Python Environment  →  Django Configuration  →  Template Load  →  Availabl
 
 ### Phase 2: Implement Validation Logic
 
-- [ ] Create `crates/djls-semantic/src/extends.rs` with `validate_extends(db, nodelist)` function: walk `NodeList` once tracking `contains_nontext` (bool) and `first_extends_span` (Option<Span>); emit `ExtendsMustBeFirst` (S122) when extends appears after a tag/variable, emit `MultipleExtends` (S123) when a second extends is found
-- [ ] Register `mod extends` in `crates/djls-semantic/src/lib.rs`
-- [ ] Wire `validate_extends` into `validate_nodelist` alongside other validation passes (no opaque region check needed — extends is a top-level structural concern)
-- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Create `crates/djls-semantic/src/extends.rs` with `validate_extends(db, nodelist)` function: walk `NodeList` once tracking `contains_nontext` (bool) and `first_extends_span` (Option<Span>); emit `ExtendsMustBeFirst` (S122) when extends appears after a tag/variable, emit `MultipleExtends` (S123) when a second extends is found
+- [x] Register `mod extends` in `crates/djls-semantic/src/lib.rs`
+- [x] Wire `validate_extends` into `validate_nodelist` alongside other validation passes (no opaque region check needed — extends is a top-level structural concern)
+- [x] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 3: Tests
 
