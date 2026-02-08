@@ -46,13 +46,18 @@ pub(super) fn eval_expr_with_ctx(
         }
 
         Expr::Tuple(ExprTuple { elts, .. }) => {
-            AbstractValue::Tuple(elts.iter().map(|e| eval_expr(e, env)).collect())
+            let mut ctx = ctx;
+            let mut values = Vec::with_capacity(elts.len());
+            for e in elts {
+                values.push(eval_expr_with_ctx(e, env, ctx.as_deref_mut()));
+            }
+            AbstractValue::Tuple(values)
         }
 
         Expr::Call(call) => eval_call_with_ctx(call, env, ctx),
 
         Expr::Subscript(ExprSubscript { value, slice, .. }) => {
-            let base = eval_expr(value, env);
+            let base = eval_expr_with_ctx(value, env, ctx);
             eval_subscript(&base, slice, env)
         }
 

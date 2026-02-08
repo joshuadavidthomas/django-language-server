@@ -110,7 +110,7 @@
 </details>
 
 ### 8. `expressions.rs:48-57` — Tuple/Subscript don't propagate `ctx`
-- **Status**: TODO
+- **Status**: DONE
 - **Severity**: Low (theoretical)
 - **File**: `crates/djls-extraction/src/dataflow/eval/expressions.rs`
 - **Fix**: The `ctx` is used for bounded call inlining. Tuple elements and subscript bases rarely contain function calls in Django template tag code. If this is intentional to limit inlining depth, add a comment documenting the choice. If not, switch to `eval_expr_with_ctx`.

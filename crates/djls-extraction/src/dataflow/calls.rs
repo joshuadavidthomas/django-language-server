@@ -538,4 +538,82 @@ def do_tag(parser, token):
             }
         );
     }
+
+    #[test]
+    fn helper_call_in_tuple_element() {
+        // Verifies that ctx is propagated through tuple element evaluation,
+        // allowing module-local helper calls inside tuple literals to resolve.
+        let (env, _) = analyze_with_helpers(
+            r"
+def get_bits(tok):
+    return tok.split_contents()
+
+def do_tag(parser, token):
+    pair = (get_bits(token), 42)
+",
+        );
+        // The tuple should contain the resolved SplitResult from get_bits
+        assert_eq!(
+            env.get("pair"),
+            &AbstractValue::Tuple(vec![
+                AbstractValue::SplitResult {
+                    base_offset: 0,
+                    pops_from_end: 0,
+                },
+                AbstractValue::Int(42),
+            ])
+        );
+    }
+
+    #[test]
+    fn helper_call_in_subscript_base() {
+        // Verifies that ctx is propagated through subscript base evaluation,
+        // allowing module-local helper calls as the subscript target to resolve.
+        let (env, _) = analyze_with_helpers(
+            r"
+def get_bits(tok):
+    return tok.split_contents()
+
+def do_tag(parser, token):
+    first = get_bits(token)[0]
+",
+        );
+        assert_eq!(
+            env.get("first"),
+            &AbstractValue::SplitElement {
+                index: Index::Forward(0),
+            }
+        );
+    }
+
+    #[test]
+    fn multiple_helper_calls_in_tuple() {
+        // Ensures ctx reborrowing works correctly across multiple tuple elements
+        // that each need call resolution.
+        let (env, cache) = analyze_with_helpers(
+            r"
+def get_bits(tok):
+    return tok.split_contents()
+
+def identity(x):
+    return x
+
+def do_tag(parser, token):
+    triple = (get_bits(token), identity(parser), identity(token))
+",
+        );
+        assert_eq!(
+            env.get("triple"),
+            &AbstractValue::Tuple(vec![
+                AbstractValue::SplitResult {
+                    base_offset: 0,
+                    pops_from_end: 0,
+                },
+                AbstractValue::Parser,
+                AbstractValue::Token,
+            ])
+        );
+        // identity called with 2 different args → 2 cache entries, plus get_bits → 3 total
+        assert_eq!(cache.len(), 3);
+    }
 }
