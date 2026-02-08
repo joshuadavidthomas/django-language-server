@@ -109,4 +109,10 @@ pub enum ValidationError {
         candidates: Vec<String>,
         span: Span,
     },
+
+    #[error("'{{% extends %}}' must be the first tag in the template")]
+    ExtendsMustBeFirst { span: Span },
+
+    #[error("'{{% extends %}}' cannot appear more than once in the same template")]
+    MultipleExtends { span: Span },
 }

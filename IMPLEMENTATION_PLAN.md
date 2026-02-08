@@ -747,10 +747,11 @@ Python Environment  →  Django Configuration  →  Template Load  →  Availabl
 
 ### Phase 1: Add Error Variants and Diagnostic Codes
 
-- [ ] Add `ExtendsMustBeFirst` variant to `ValidationError` in `crates/djls-semantic/src/errors.rs` with `span: Span`
-- [ ] Add `MultipleExtends` variant to `ValidationError` in `crates/djls-semantic/src/errors.rs` with `span: Span` (span of the second `{% extends %}`)
-- [ ] Add S122 and S123 diagnostic code mappings in `crates/djls-ide/src/diagnostics.rs`
-- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Add `ExtendsMustBeFirst` variant to `ValidationError` in `crates/djls-semantic/src/errors.rs` with `span: Span`
+- [x] Add `MultipleExtends` variant to `ValidationError` in `crates/djls-semantic/src/errors.rs` with `span: Span` (span of the second `{% extends %}`)
+- [x] Add S122 and S123 diagnostic code mappings in `crates/djls-ide/src/diagnostics.rs`
+- [x] Also updated exhaustive match in `error_span_start()` in `crates/djls-semantic/src/lib.rs`
+- [x] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 2: Implement Validation Logic
 

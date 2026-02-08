@@ -336,7 +336,9 @@ mod tests {
             | ValidationError::TagNotInInstalledApps { span, .. }
             | ValidationError::FilterNotInInstalledApps { span, .. }
             | ValidationError::UnknownLibrary { span, .. }
-            | ValidationError::LibraryNotInInstalledApps { span, .. } => span.start(),
+            | ValidationError::LibraryNotInInstalledApps { span, .. }
+            | ValidationError::ExtendsMustBeFirst { span, .. }
+            | ValidationError::MultipleExtends { span, .. } => span.start(),
             ValidationError::UnbalancedStructure { opening_span, .. } => opening_span.start(),
         }
     }
