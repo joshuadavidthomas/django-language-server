@@ -105,6 +105,23 @@ impl DiagnosticError for ValidationError {
     }
 }
 
+fn push_with_severity(
+    mut diagnostic: ls_types::Diagnostic,
+    config: &djls_conf::diagnostics::DiagnosticsConfig,
+    diagnostics: &mut Vec<ls_types::Diagnostic>,
+) {
+    if let Some(ls_types::NumberOrString::String(code)) = &diagnostic.code {
+        let severity = config.get_severity(code);
+
+        if let Some(lsp_severity) = severity.to_lsp_severity() {
+            diagnostic.severity = Some(lsp_severity);
+            diagnostics.push(diagnostic);
+        }
+    } else {
+        diagnostics.push(diagnostic);
+    }
+}
+
 /// Collect all diagnostics for a template file.
 ///
 /// This function collects and converts errors that were accumulated during
@@ -144,19 +161,8 @@ pub fn collect_diagnostics(
     let line_index = file.line_index(db);
 
     for error_acc in template_errors {
-        let mut diagnostic = error_acc.0.as_diagnostic(line_index);
-        if let Some(ls_types::NumberOrString::String(code)) = &diagnostic.code {
-            let severity = config.get_severity(code);
-
-            // Skip if diagnostic is disabled (severity = off)
-            if let Some(lsp_severity) = severity.to_lsp_severity() {
-                diagnostic.severity = Some(lsp_severity);
-                diagnostics.push(diagnostic);
-            }
-        } else {
-            // No code, use default
-            diagnostics.push(diagnostic);
-        }
+        let diagnostic = error_acc.0.as_diagnostic(line_index);
+        push_with_severity(diagnostic, &config, &mut diagnostics);
     }
 
     if let Some(nodelist) = nodelist {
@@ -165,19 +171,8 @@ pub fn collect_diagnostics(
         >(db, nodelist);
 
         for error_acc in validation_errors {
-            let mut diagnostic = error_acc.0.as_diagnostic(line_index);
-            if let Some(ls_types::NumberOrString::String(code)) = &diagnostic.code {
-                let severity = config.get_severity(code);
-
-                // Skip if diagnostic is disabled (severity = off)
-                if let Some(lsp_severity) = severity.to_lsp_severity() {
-                    diagnostic.severity = Some(lsp_severity);
-                    diagnostics.push(diagnostic);
-                }
-            } else {
-                // No code, use default
-                diagnostics.push(diagnostic);
-            }
+            let diagnostic = error_acc.0.as_diagnostic(line_index);
+            push_with_severity(diagnostic, &config, &mut diagnostics);
         }
     }
 
