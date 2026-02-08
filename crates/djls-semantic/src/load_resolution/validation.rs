@@ -234,7 +234,9 @@ pub fn validate_filter_scoping(
 /// For each `{% load %}` tag, checks that all referenced library names
 /// exist in the inspector's `libraries()` map, producing:
 ///
-/// - **S120** (`UnknownLibrary`): library name is not known to the inspector
+/// - **S120** (`UnknownLibrary`): library name is not known to the inspector or environment
+/// - **S121** (`LibraryNotInInstalledApps`): library exists in the environment but the app
+///   is not in `INSTALLED_APPS`
 ///
 /// Handles both full loads (`{% load i18n %}`) and selective imports
 /// (`{% load trans from i18n %}` — validates `i18n`).
@@ -251,6 +253,7 @@ pub fn validate_load_libraries(
     };
 
     let known_libraries = inventory.libraries();
+    let env_inventory = db.environment_inventory();
 
     for node in nodelist.nodelist(db) {
         let Node::Tag {
@@ -280,13 +283,34 @@ pub fn validate_load_libraries(
         };
 
         for lib_name in libraries_to_check {
-            if !known_libraries.contains_key(lib_name) {
-                ValidationErrorAccumulator(ValidationError::UnknownLibrary {
-                    name: lib_name.to_string(),
-                    span: marker_span,
-                })
-                .accumulate(db);
+            if known_libraries.contains_key(lib_name) {
+                continue;
             }
+
+            if let Some(ref env) = env_inventory {
+                if env.has_library(lib_name) {
+                    let env_libs = env.libraries_for_name(lib_name);
+                    let candidates: Vec<String> = env_libs
+                        .iter()
+                        .map(|lib| lib.app_module.clone())
+                        .collect();
+                    let app = candidates.first().cloned().unwrap_or_default();
+                    ValidationErrorAccumulator(ValidationError::LibraryNotInInstalledApps {
+                        name: lib_name.to_string(),
+                        app,
+                        candidates,
+                        span: marker_span,
+                    })
+                    .accumulate(db);
+                    continue;
+                }
+            }
+
+            ValidationErrorAccumulator(ValidationError::UnknownLibrary {
+                name: lib_name.to_string(),
+                span: marker_span,
+            })
+            .accumulate(db);
         }
     }
 }
@@ -960,7 +984,7 @@ mod tests {
                 matches!(
                     err,
                     ValidationError::UnknownLibrary { .. }
-                        | ValidationError::AmbiguousUnknownLibrary { .. }
+                        | ValidationError::LibraryNotInInstalledApps { .. }
                 )
             })
             .collect()
@@ -1263,5 +1287,150 @@ mod tests {
             "Expected TagNotInInstalledApps for 'shared_tag' with multiple env candidates, got: {:?}",
             errors[0]
         );
+    }
+
+    // Three-layer resolution for {% load %} libraries (S121)
+
+    #[test]
+    fn load_library_in_env_but_not_installed_apps_produces_s121() {
+        let env = make_env_inventory(vec![make_env_library(
+            "humanize",
+            "django.contrib.humanize",
+            &["ordinal"],
+            &["intcomma"],
+        )]);
+        let db = TestDatabase::with_inventories(test_inventory(), env);
+        let errors = collect_library_errors(&db, "{% load humanize %}");
+
+        assert_eq!(errors.len(), 1, "Expected 1 error, got: {errors:?}");
+        assert!(
+            matches!(
+                &errors[0],
+                ValidationError::LibraryNotInInstalledApps { name, app, .. }
+                    if name == "humanize"
+                        && app == "django.contrib.humanize"
+            ),
+            "Expected LibraryNotInInstalledApps for 'humanize', got: {:?}",
+            errors[0]
+        );
+    }
+
+    #[test]
+    fn load_truly_unknown_library_still_s120_with_env() {
+        let env = make_env_inventory(vec![make_env_library(
+            "humanize",
+            "django.contrib.humanize",
+            &[],
+            &[],
+        )]);
+        let db = TestDatabase::with_inventories(test_inventory(), env);
+        let errors = collect_library_errors(&db, "{% load totallyunknown %}");
+
+        assert_eq!(errors.len(), 1);
+        assert!(
+            matches!(
+                &errors[0],
+                ValidationError::UnknownLibrary { name, .. }
+                    if name == "totallyunknown"
+            ),
+            "Expected UnknownLibrary for 'totallyunknown', got: {:?}",
+            errors[0]
+        );
+    }
+
+    #[test]
+    fn load_env_unavailable_falls_through_to_s120() {
+        // Inspector available but no environment inventory
+        let db = TestDatabase::with_inventory(test_inventory());
+        let errors = collect_library_errors(&db, "{% load nonexistent %}");
+
+        assert_eq!(errors.len(), 1);
+        assert!(
+            matches!(
+                &errors[0],
+                ValidationError::UnknownLibrary { name, .. }
+                    if name == "nonexistent"
+            ),
+            "Expected UnknownLibrary when env unavailable, got: {:?}",
+            errors[0]
+        );
+    }
+
+    #[test]
+    fn load_selective_import_env_library_produces_s121() {
+        let env = make_env_inventory(vec![make_env_library(
+            "humanize",
+            "django.contrib.humanize",
+            &["ordinal"],
+            &["intcomma"],
+        )]);
+        let db = TestDatabase::with_inventories(test_inventory(), env);
+        let errors = collect_library_errors(&db, "{% load intcomma from humanize %}");
+
+        assert_eq!(errors.len(), 1, "Expected 1 error, got: {errors:?}");
+        assert!(
+            matches!(
+                &errors[0],
+                ValidationError::LibraryNotInInstalledApps { name, app, .. }
+                    if name == "humanize"
+                        && app == "django.contrib.humanize"
+            ),
+            "Expected LibraryNotInInstalledApps for 'humanize', got: {:?}",
+            errors[0]
+        );
+    }
+
+    #[test]
+    fn load_ambiguous_library_across_apps_produces_s121_with_candidates() {
+        let env = make_env_inventory(vec![
+            make_env_library("utils", "app_a", &[], &[]),
+            make_env_library("utils", "app_b", &[], &[]),
+        ]);
+        let db = TestDatabase::with_inventories(test_inventory(), env);
+        let errors = collect_library_errors(&db, "{% load utils %}");
+
+        assert_eq!(errors.len(), 1, "Expected 1 error, got: {errors:?}");
+        match &errors[0] {
+            ValidationError::LibraryNotInInstalledApps {
+                name, candidates, ..
+            } => {
+                assert_eq!(name, "utils");
+                assert_eq!(candidates.len(), 2, "Expected 2 candidates, got: {candidates:?}");
+                assert!(candidates.contains(&"app_a".to_string()));
+                assert!(candidates.contains(&"app_b".to_string()));
+            }
+            other => panic!("Expected LibraryNotInInstalledApps, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn multi_load_mixed_env_and_unknown() {
+        let env = make_env_inventory(vec![make_env_library(
+            "humanize",
+            "django.contrib.humanize",
+            &[],
+            &[],
+        )]);
+        let db = TestDatabase::with_inventories(test_inventory(), env);
+        // i18n is known (in inspector), humanize is in env but not installed, xyz is truly unknown
+        let errors = collect_library_errors(&db, "{% load i18n humanize xyz %}");
+
+        assert_eq!(errors.len(), 2, "Expected 2 errors, got: {errors:?}");
+        let has_s121 = errors.iter().any(|e| {
+            matches!(
+                e,
+                ValidationError::LibraryNotInInstalledApps { name, .. }
+                    if name == "humanize"
+            )
+        });
+        let has_s120 = errors.iter().any(|e| {
+            matches!(
+                e,
+                ValidationError::UnknownLibrary { name, .. }
+                    if name == "xyz"
+            )
+        });
+        assert!(has_s121, "Expected LibraryNotInInstalledApps for 'humanize'");
+        assert!(has_s120, "Expected UnknownLibrary for 'xyz'");
     }
 }

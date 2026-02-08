@@ -73,7 +73,7 @@ impl DiagnosticError for ValidationError {
             | ValidationError::TagNotInInstalledApps { span, .. }
             | ValidationError::FilterNotInInstalledApps { span, .. }
             | ValidationError::UnknownLibrary { span, .. }
-            | ValidationError::AmbiguousUnknownLibrary { span, .. } => Some(span.into()),
+            | ValidationError::LibraryNotInInstalledApps { span, .. } => Some(span.into()),
         }
     }
 
@@ -96,7 +96,7 @@ impl DiagnosticError for ValidationError {
             ValidationError::TagNotInInstalledApps { .. } => "S118",
             ValidationError::FilterNotInInstalledApps { .. } => "S119",
             ValidationError::UnknownLibrary { .. } => "S120",
-            ValidationError::AmbiguousUnknownLibrary { .. } => "S121",
+            ValidationError::LibraryNotInInstalledApps { .. } => "S121",
         }
     }
 }

@@ -336,7 +336,7 @@ mod tests {
             | ValidationError::TagNotInInstalledApps { span, .. }
             | ValidationError::FilterNotInInstalledApps { span, .. }
             | ValidationError::UnknownLibrary { span, .. }
-            | ValidationError::AmbiguousUnknownLibrary { span, .. } => span.start(),
+            | ValidationError::LibraryNotInInstalledApps { span, .. } => span.start(),
             ValidationError::UnbalancedStructure { opening_span, .. } => opening_span.start(),
         }
     }

@@ -102,9 +102,10 @@ pub enum ValidationError {
     #[error("Unknown template tag library '{name}'")]
     UnknownLibrary { name: String, span: Span },
 
-    #[error("Template tag library '{name}' could not be resolved")]
-    AmbiguousUnknownLibrary {
+    #[error("Template tag library '{name}' requires '{app}' in INSTALLED_APPS")]
+    LibraryNotInInstalledApps {
         name: String,
+        app: String,
         candidates: Vec<String>,
         span: Span,
     },

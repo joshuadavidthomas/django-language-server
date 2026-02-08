@@ -720,12 +720,12 @@ Python Environment  →  Django Configuration  →  Template Load  →  Availabl
 
 ### Phase 6: Three-Layer Resolution — `{% load %}` Libraries
 
-- [ ] Repurpose `S121` diagnostic code (`LibraryNotInInstalledApps`): "Template tag library '{name}' requires '{app}' in INSTALLED_APPS"
-- [ ] Update `validate_load_libraries()` (from Phase 1): when a library is not in inspector's `libraries()`, check `environment_inventory.has_library(name)` — if found, emit S121 instead of S120
-- [ ] Include the app module in the S121 diagnostic message so users know exactly what to add
-- [ ] Handle ambiguity: library name exists in multiple apps in environment → include all candidates
-- [ ] Tests: library in environment but not INSTALLED_APPS → S121 with app name, library truly unknown → S120, environment unavailable → S120, ambiguous library name across apps → S121 with candidates
-- [ ] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] Repurpose `S121` diagnostic code (`LibraryNotInInstalledApps`): "Template tag library '{name}' requires '{app}' in INSTALLED_APPS"
+- [x] Update `validate_load_libraries()` (from Phase 1): when a library is not in inspector's `libraries()`, check `environment_inventory.has_library(name)` — if found, emit S121 instead of S120
+- [x] Include the app module in the S121 diagnostic message so users know exactly what to add
+- [x] Handle ambiguity: library name exists in multiple apps in environment → include all candidates
+- [x] Tests: library in environment but not INSTALLED_APPS → S121 with app name, library truly unknown → S120, environment unavailable → S120, ambiguous library name across apps → S121 with candidates
+- [x] Verify: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 7: Documentation and Integration Tests
 
