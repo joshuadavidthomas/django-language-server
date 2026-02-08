@@ -48,7 +48,7 @@
 </details>
 
 ### 4. `match_arms.rs:54-60` — Wildcard doesn't unconditionally set min to 0
-- **Status**: TODO
+- **Status**: DONE
 - **Severity**: Medium (incorrect constraint calculation)
 - **File**: `crates/djls-extraction/src/dataflow/eval/match_arms.rs`
 - **Fix**: If a `Variable { min_len: 2 }` arm is processed before `Wildcard`, `min_variable_length` stays at `Some(2)`. But a wildcard matches anything (including zero-length), so the overall minimum should be 0. The `if min_variable_length.is_none()` guard should be removed — wildcard should unconditionally set `min_variable_length = Some(0)`.

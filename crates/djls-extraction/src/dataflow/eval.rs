@@ -858,6 +858,59 @@ def do_tag(parser, token):
     }
 
     #[test]
+    fn match_wildcard_overrides_variable_min_to_zero() {
+        // When a Variable arm (min_len=2) appears before a non-error Wildcard,
+        // the wildcard should unconditionally set the minimum to 0 since it
+        // matches anything including zero-length inputs.
+        let rule = analyze(
+            r#"
+def do_tag(parser, token):
+    match token.split_contents():
+        case "tag", a, *rest:
+            pass
+        case _:
+            pass
+"#,
+        );
+        // Wildcard `case _:` is a valid (non-error) arm that matches anything,
+        // so there should be no Min constraint at all (min is effectively 0).
+        assert!(
+            !rule
+                .arg_constraints
+                .iter()
+                .any(|c| matches!(c, crate::types::ArgumentCountConstraint::Min(_))),
+            "wildcard should override variable min to 0 (no Min constraint), got {:?}",
+            rule.arg_constraints
+        );
+    }
+
+    #[test]
+    fn match_wildcard_after_fixed_produces_no_min() {
+        // A non-error wildcard means any length is valid, so even fixed-length
+        // arms shouldn't produce exact/range constraints when a wildcard is present.
+        let rule = analyze(
+            r#"
+def do_tag(parser, token):
+    match token.split_contents():
+        case "tag", a, b:
+            pass
+        case _:
+            pass
+"#,
+        );
+        // The wildcard is non-error, so it acts as a variable-length catch-all.
+        // With min=0, no Min constraint should be emitted.
+        assert!(
+            !rule
+                .arg_constraints
+                .iter()
+                .any(|c| matches!(c, crate::types::ArgumentCountConstraint::Min(m) if *m > 0)),
+            "non-error wildcard should prevent Min constraint > 0, got {:?}",
+            rule.arg_constraints
+        );
+    }
+
+    #[test]
     fn match_env_updates_propagate() {
         let env = eval_body(
             r#"

@@ -52,11 +52,10 @@ pub(super) fn extract_match_constraints(
                 }
             }
             PatternShape::Wildcard => {
-                // Wildcard/irrefutable pattern — no length constraint from this case
+                // Wildcard/irrefutable pattern — matches anything including zero-length,
+                // so unconditionally override any prior minimum to 0
                 has_variable_length = true;
-                if min_variable_length.is_none() {
-                    min_variable_length = Some(0);
-                }
+                min_variable_length = Some(0);
             }
             PatternShape::Unknown => {}
         }
