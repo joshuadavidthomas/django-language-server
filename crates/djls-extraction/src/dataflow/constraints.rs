@@ -41,7 +41,6 @@ pub struct ConstraintSet {
     pub choice_at_constraints: Vec<ChoiceAt>,
 }
 
-#[allow(dead_code)]
 impl ConstraintSet {
     pub fn single_length(c: ArgumentCountConstraint) -> Self {
         Self {
@@ -87,6 +86,7 @@ impl ConstraintSet {
         }
     }
 
+    #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.arg_constraints.is_empty()
             && self.required_keywords.is_empty()
@@ -108,14 +108,14 @@ impl ConstraintSet {
 /// not the final env state after the entire function body has been processed.
 pub fn extract_from_if_inline(if_stmt: &StmtIf, env: &Env, constraints: &mut ConstraintSet) {
     if body_raises_template_syntax_error(&if_stmt.body) {
-        eval_condition(&if_stmt.test, env, constraints);
+        constraints.extend(eval_condition(&if_stmt.test, env));
     }
 
     // Process elif/else clauses at this point too
     for clause in &if_stmt.elif_else_clauses {
         if body_raises_template_syntax_error(&clause.body) {
             if let Some(test) = &clause.test {
-                eval_condition(test, env, constraints);
+                constraints.extend(eval_condition(test, env));
             }
         }
     }
@@ -128,18 +128,18 @@ pub fn extract_from_if_inline(if_stmt: &StmtIf, env: &Env, constraints: &mut Con
 ///
 /// The condition guards a `raise TemplateSyntaxError(...)`, so it describes
 /// when the code errors. Constraints capture what's valid (the negation).
-fn eval_condition(expr: &Expr, env: &Env, constraints: &mut ConstraintSet) {
+fn eval_condition(expr: &Expr, env: &Env) -> ConstraintSet {
     match expr {
         // `or`: error when either side is true → each is an independent constraint
         Expr::BoolOp(ExprBoolOp {
             op: BoolOp::Or,
             values,
             ..
-        }) => {
-            for value in values {
-                eval_condition(value, env, constraints);
-            }
-        }
+        }) => values
+            .iter()
+            .fold(ConstraintSet::default(), |acc, value| {
+                acc.or(eval_condition(value, env))
+            }),
 
         // `and`: error when both true → length constraints are protective guards,
         // discard them but keep keyword constraints
@@ -147,20 +147,14 @@ fn eval_condition(expr: &Expr, env: &Env, constraints: &mut ConstraintSet) {
             op: BoolOp::And,
             values,
             ..
-        }) => {
-            for value in values {
-                let mut sub = ConstraintSet::default();
-                eval_condition(value, env, &mut sub);
-                // arg_constraints intentionally dropped — under `and`, each
-                // constraint alone is insufficient to guarantee the error
-                constraints.required_keywords.extend(sub.required_keywords);
-            }
-        }
+        }) => values
+            .iter()
+            .fold(ConstraintSet::default(), |acc, value| {
+                acc.and(eval_condition(value, env))
+            }),
 
         // Comparison: `len(bits) < 4` or `bits[2] != "as"`
-        Expr::Compare(compare) => {
-            eval_compare(compare, env, constraints);
-        }
+        Expr::Compare(compare) => eval_compare(compare, env),
 
         // Negation: `not (2 <= len(bits) <= 4)` or `not len(bits) == 3`
         Expr::UnaryOp(ExprUnaryOp {
@@ -169,17 +163,19 @@ fn eval_condition(expr: &Expr, env: &Env, constraints: &mut ConstraintSet) {
             ..
         }) => {
             if let Expr::Compare(compare) = operand.as_ref() {
-                eval_negated_compare(compare, env, constraints);
+                eval_negated_compare(compare, env)
+            } else {
+                ConstraintSet::default()
             }
         }
 
-        _ => {}
+        _ => ConstraintSet::default(),
     }
 }
 
-fn eval_compare(compare: &ExprCompare, env: &Env, constraints: &mut ConstraintSet) {
+fn eval_compare(compare: &ExprCompare, env: &Env) -> ConstraintSet {
     if compare.ops.is_empty() || compare.comparators.is_empty() {
-        return;
+        return ConstraintSet::default();
     }
 
     // Skip chained comparisons (e.g., `2 <= len(bits) <= 4`). The only
@@ -187,7 +183,7 @@ fn eval_compare(compare: &ExprCompare, env: &Env, constraints: &mut ConstraintSe
     // (`not (2 <= len(bits) <= 4)`), handled by eval_negated_compare.
     // Processing only the first pair of a chain produces wrong constraints.
     if compare.ops.len() > 1 {
-        return;
+        return ConstraintSet::default();
     }
 
     let op = &compare.ops[0];
@@ -213,25 +209,19 @@ fn eval_compare(compare: &ExprCompare, env: &Env, constraints: &mut ConstraintSe
                 CmpOp::GtE if n > 0 => Some(ArgumentCountConstraint::Max(n - 1 + offset)),
                 _ => None,
             };
-            if let Some(c) = constraint {
-                constraints.arg_constraints.push(c);
-            }
-            return;
+            return constraint.map_or_else(ConstraintSet::default, ConstraintSet::single_length);
         }
 
         // `len(bits) not in (2, 3, 4)` → valid counts are {2+offset, 3+offset, 4+offset}
         if matches!(op, CmpOp::NotIn) {
             if let Some(values) = comparator.collection_map(ExprExt::positive_integer) {
                 let offset = *base_offset + *pops_from_end;
-                constraints
-                    .arg_constraints
-                    .push(ArgumentCountConstraint::OneOf(
-                        values.into_iter().map(|v| v + offset).collect(),
-                    ));
-                return;
+                return ConstraintSet::single_length(ArgumentCountConstraint::OneOf(
+                    values.into_iter().map(|v| v + offset).collect(),
+                ));
             }
         }
-        return;
+        return ConstraintSet::default();
     }
 
     // Reversed: integer vs len(split_result), e.g. `4 < len(bits)`
@@ -249,22 +239,19 @@ fn eval_compare(compare: &ExprCompare, env: &Env, constraints: &mut ConstraintSe
                 CmpOp::GtE => Some(ArgumentCountConstraint::Min(n + 1 + offset)),
                 _ => None,
             };
-            if let Some(c) = constraint {
-                constraints.arg_constraints.push(c);
-            }
+            return constraint.map_or_else(ConstraintSet::default, ConstraintSet::single_length);
         }
-        return;
+        return ConstraintSet::default();
     }
 
     // SplitElement vs string: `bits[N] != "keyword"`
     if let AbstractValue::SplitElement { index } = &left_val {
         if let Some(keyword) = comparator.string_literal() {
             let position = index_to_i64(index);
-            constraints.required_keywords.push(RequiredKeyword {
+            return ConstraintSet::single_keyword(RequiredKeyword {
                 position,
                 value: keyword,
             });
-            return;
         }
 
         // SplitElement not in ("a", "b") → ChoiceAt constraint
@@ -272,33 +259,35 @@ fn eval_compare(compare: &ExprCompare, env: &Env, constraints: &mut ConstraintSe
             if let Some(values) = comparator.collection_map(ExprExt::string_literal) {
                 if !values.is_empty() {
                     let position = index_to_i64(index);
-                    constraints
-                        .choice_at_constraints
-                        .push(ChoiceAt { position, values });
+                    return ConstraintSet::single_choice(ChoiceAt { position, values });
                 }
             }
         }
-        return;
+        return ConstraintSet::default();
     }
 
     // Reversed: string vs SplitElement: `"keyword" != bits[N]`
     if let AbstractValue::SplitElement { index } = &right_val {
         if let Some(keyword) = left.string_literal() {
             let position = index_to_i64(index);
-            constraints.required_keywords.push(RequiredKeyword {
+            return ConstraintSet::single_keyword(RequiredKeyword {
                 position,
                 value: keyword,
             });
         }
     }
+
+    ConstraintSet::default()
 }
 
-fn eval_negated_compare(compare: &ExprCompare, env: &Env, constraints: &mut ConstraintSet) {
+fn eval_negated_compare(compare: &ExprCompare, env: &Env) -> ConstraintSet {
     // Range: `not (2 <= len(bits) <= 4)` → valid range is min..=max
     if compare.ops.len() == 2 && compare.comparators.len() == 2 {
         if let Some(range_constraints) = eval_range_constraint(compare, env) {
-            constraints.arg_constraints.extend(range_constraints);
-            return;
+            return ConstraintSet {
+                arg_constraints: range_constraints,
+                ..Default::default()
+            };
         }
     }
 
@@ -319,11 +308,13 @@ fn eval_negated_compare(compare: &ExprCompare, env: &Env, constraints: &mut Cons
                     _ => None,
                 };
                 if let Some(c) = constraint {
-                    constraints.arg_constraints.push(c);
+                    return ConstraintSet::single_length(c);
                 }
             }
         }
     }
+
+    ConstraintSet::default()
 }
 
 /// Extract range constraint from negated `not (CONST <=/<  len(var) <=/<  CONST)`.

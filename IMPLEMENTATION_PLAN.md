@@ -64,7 +64,7 @@
 ### Phase 1: `ConstraintSet` type (T4) + constraint functions return values
 
 - [x] **M15.1** Define `ConstraintSet` in `dataflow/constraints.rs` with `and()`/`or()`/`extend()` methods (replaces `Constraints`). Renamed `Constraints` → `ConstraintSet` in-place, added `single_length`/`single_keyword`/`single_choice` constructors, algebraic `or()`/`and()`, `is_empty()`, and `extend()`. Added `Clone` derive. Methods `#[allow(dead_code)]` until M15.2 wires them.
-- [ ] **M15.2** Make `eval_condition`, `eval_compare`, `eval_negated_compare`, and all internal constraint helpers return `ConstraintSet` instead of mutating `&mut Constraints`
+- [x] **M15.2** Make `eval_condition`, `eval_compare`, `eval_negated_compare`, and all internal constraint helpers return `ConstraintSet` instead of mutating `&mut Constraints`. Used `ConstraintSet` constructors (`single_length`, `single_keyword`, `single_choice`) and algebraic `or()`/`and()` methods. `extract_from_if_inline` still takes `&mut ConstraintSet` (M15.3) but now extends with returned values. Removed top-level `#[allow(dead_code)]` on impl block since constructors are now used.
 - [ ] **M15.3** Make `extract_from_if_inline` return `ConstraintSet`
 - [ ] **M15.4** Make `extract_match_constraints` in `eval/match_arms.rs` return `ConstraintSet`
 - [ ] **M15.5** Update `AnalysisContext.constraints` field type to `ConstraintSet`, update `process_statement` if-arm to collect returned constraints
