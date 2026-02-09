@@ -169,9 +169,13 @@ fn process_statement(stmt: &Stmt, env: &mut Env, ctx: &mut AnalysisContext<'_>) 
             if let Some(match_constraints) = extract_match_constraints(match_stmt, env) {
                 result.constraints.extend(match_constraints);
             }
-            // Process match bodies for env updates
+            // Process match bodies for env updates, capturing results
             for case in &match_stmt.cases {
-                process_statements(&case.body, env, ctx);
+                let body_result = collect_statements_result(&case.body, env, ctx);
+                result.constraints.extend(body_result.constraints);
+                if body_result.known_options.is_some() {
+                    result.known_options = body_result.known_options;
+                }
             }
         }
 
