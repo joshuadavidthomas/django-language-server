@@ -410,6 +410,8 @@ mod tests {
         }
     }
 
+    // Fabricated Python: tests filesystem scanning + symbol extraction integration.
+    // Real registration patterns but controlled directory layout needed for assertions.
     #[test]
     fn scan_with_symbols_extracts_registrations() {
         let tmp = tempfile::TempDir::new().unwrap();
@@ -446,6 +448,8 @@ def upper(value):
         assert_eq!(libs[0].filters, vec!["lower", "upper"]);
     }
 
+    // Fabricated Python: intentionally invalid syntax to test graceful parse failure.
+    // No corpus equivalent — edge case requires controlled invalid input.
     #[test]
     fn scan_with_symbols_parse_failure_still_discovers_library() {
         let tmp = tempfile::TempDir::new().unwrap();
@@ -461,6 +465,8 @@ def upper(value):
         assert!(libs[0].filters.is_empty());
     }
 
+    // Fabricated Python: tests reverse lookup mapping (symbol → library). Controlled
+    // directory layout needed for deterministic app_module assertions.
     #[test]
     fn scan_with_symbols_reverse_lookup_tags() {
         let tmp = tempfile::TempDir::new().unwrap();
@@ -507,6 +513,8 @@ def show_metric(name):
         assert_eq!(filter_syms[0].library_load_name, "humanize");
     }
 
+    // Fabricated Python: tests name collision detection across packages. Requires
+    // two packages with identical templatetag filenames — can't replicate with corpus.
     #[test]
     fn scan_with_symbols_reverse_lookup_collision() {
         let tmp = tempfile::TempDir::new().unwrap();
@@ -534,6 +542,8 @@ def render_widget():
         assert!(apps.contains(&"pkg_b"));
     }
 
+    // Fabricated Python: verifies scan_environment (no symbols) leaves tags/filters empty.
+    // Controlled layout needed for isolation from scan_with_symbols behavior.
     #[test]
     fn scan_without_symbols_has_empty_tags_filters() {
         let tmp = tempfile::TempDir::new().unwrap();
@@ -563,6 +573,8 @@ def hello():
         assert!(libs[0].filters.is_empty());
     }
 
+    // Fabricated Python: tests that a valid Python file with no registrations
+    // still discovers the library with empty tags/filters.
     #[test]
     fn scan_with_symbols_no_registrations() {
         let tmp = tempfile::TempDir::new().unwrap();
