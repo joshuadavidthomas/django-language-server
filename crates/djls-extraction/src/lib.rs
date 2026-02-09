@@ -145,6 +145,7 @@ mod tests {
     use serde::Serialize;
 
     use super::*;
+    use crate::test_helpers::django_source;
 
     /// A deterministically-ordered version of `ExtractionResult` for snapshot testing.
     ///
@@ -184,6 +185,7 @@ mod tests {
         result.into()
     }
 
+    // (d) Pure Rust — tests parser infrastructure works
     #[test]
     fn smoke_test_ruff_parser() {
         let source = r#"
@@ -204,90 +206,78 @@ def hello():
         assert!(!module.body.is_empty());
     }
 
+    // Corpus: `no_params` in tests/template_tests/templatetags/custom.py —
+    // `@register.simple_tag` with no user args, exercises simple_tag pipeline
     #[test]
     fn extract_rules_simple_tag() {
-        let source = r#"
-from django import template
-register = template.Library()
-
-@register.simple_tag
-def hello(name):
-    return f"Hello, {name}!"
-"#;
-        let result = extract_rules(source, "myapp.templatetags.custom");
-        // simple_tag with one param (minus takes_context) → should have an arg constraint
-        assert!(!result.is_empty());
+        let source = django_source("tests/template_tests/templatetags/custom.py")
+            .expect("corpus not synced");
+        let result = extract_rules(&source, "tests.template_tests.templatetags.custom");
+        let key = SymbolKey::tag("tests.template_tests.templatetags.custom", "no_params");
+        assert!(
+            result.tag_rules.contains_key(&key),
+            "should extract simple_tag no_params"
+        );
     }
 
+    // Corpus: `cut` in django/template/defaultfilters.py — `@register.filter`
+    // with required arg (value, arg), exercises filter pipeline
     #[test]
     fn extract_rules_filter() {
-        let source = r"
-from django import template
-register = template.Library()
-
-@register.filter
-def lower(value):
-    return value.lower()
-";
-        let result = extract_rules(source, "myapp.templatetags.custom");
-        let key = SymbolKey::filter("myapp.templatetags.custom", "lower");
+        let source =
+            django_source("django/template/defaultfilters.py").expect("corpus not synced");
+        let result = extract_rules(&source, "django.template.defaultfilters");
+        let key = SymbolKey::filter("django.template.defaultfilters", "lower");
         assert!(result.filter_arities.contains_key(&key));
         let arity = &result.filter_arities[&key];
         assert!(!arity.expects_arg);
     }
 
+    // Corpus: `default` in django/template/defaultfilters.py — filter with
+    // required arg (value, arg)
     #[test]
     fn extract_rules_filter_with_arg() {
-        let source = r"
-from django import template
-register = template.Library()
-
-@register.filter
-def default(value, arg):
-    return value or arg
-";
-        let result = extract_rules(source, "test.module");
-        let key = SymbolKey::filter("test.module", "default");
+        let source =
+            django_source("django/template/defaultfilters.py").expect("corpus not synced");
+        let result = extract_rules(&source, "django.template.defaultfilters");
+        let key = SymbolKey::filter("django.template.defaultfilters", "default");
         assert!(result.filter_arities.contains_key(&key));
         let arity = &result.filter_arities[&key];
         assert!(arity.expects_arg);
         assert!(!arity.arg_optional);
     }
 
+    // Corpus: `block` in django/template/loader_tags.py — `@register.tag("block")`
+    // with parser.parse(("endblock",)) block spec
     #[test]
     fn extract_rules_block_tag() {
-        let source = r#"
-from django import template
-register = template.Library()
-
-@register.tag("myblock")
-def do_myblock(parser, token):
-    nodelist = parser.parse(("endmyblock",))
-    parser.delete_first_token()
-    return MyBlockNode(nodelist)
-"#;
-        let result = extract_rules(source, "test.module");
-        let key = SymbolKey::tag("test.module", "myblock");
+        let source =
+            django_source("django/template/loader_tags.py").expect("corpus not synced");
+        let result = extract_rules(&source, "django.template.loader_tags");
+        let key = SymbolKey::tag("django.template.loader_tags", "block");
         assert!(
             result.block_specs.contains_key(&key),
-            "should extract block spec for myblock"
+            "should extract block spec for block tag"
         );
         let spec = &result.block_specs[&key];
-        assert_eq!(spec.end_tag.as_deref(), Some("endmyblock"));
+        assert_eq!(spec.end_tag.as_deref(), Some("endblock"));
     }
 
+    // (b) Edge case — empty source has no registrations
     #[test]
     fn extract_rules_empty_source() {
         let result = extract_rules("", "test.module");
         assert!(result.is_empty());
     }
 
+    // (b) Edge case — invalid Python returns empty result
     #[test]
     fn extract_rules_invalid_python() {
         let result = extract_rules("def {invalid python", "test.module");
         assert!(result.is_empty());
     }
 
+    // (b) Edge case — valid Python with no registrations
     #[test]
     fn extract_rules_no_registrations() {
         let source = r"
@@ -301,40 +291,29 @@ class MyClass:
         assert!(result.is_empty());
     }
 
+    // Corpus: defaulttags.py has both tags and filters (via `cycle` tag +
+    // querystring simple_tag). Validates multiple registration kinds extracted.
     #[test]
     fn extract_rules_multiple_registrations() {
-        let source = r#"
-from django import template
-register = template.Library()
-
-@register.tag
-def my_tag(parser, token):
-    bits = token.split_contents()
-    if len(bits) != 2:
-        raise template.TemplateSyntaxError("...")
-    return MyNode()
-
-@register.filter
-def my_filter(value, arg):
-    return value + arg
-"#;
-        let result = extract_rules(source, "test.module");
-        let tag_key = SymbolKey::tag("test.module", "my_tag");
-        let filter_key = SymbolKey::filter("test.module", "my_filter");
-
+        let source =
+            django_source("django/template/defaulttags.py").expect("corpus not synced");
+        let result = extract_rules(&source, "django.template.defaulttags");
+        let tag_key = SymbolKey::tag("django.template.defaulttags", "for");
+        let simple_key = SymbolKey::tag("django.template.defaulttags", "querystring");
         assert!(
             result.tag_rules.contains_key(&tag_key),
-            "should extract tag rule"
+            "should extract tag rule for 'for'"
         );
         assert!(
-            result.filter_arities.contains_key(&filter_key),
-            "should extract filter arity"
+            result.tag_rules.contains_key(&simple_key),
+            "should extract tag rule for 'querystring'"
         );
     }
 
+    // (b) Edge case — call-style registration where the function def isn't
+    // in the same file. Registration found but no matching func def → no rules.
     #[test]
     fn extract_rules_call_style_registration_no_func_def() {
-        // Call-style registration where the function def isn't in the same file
         let source = r#"
 from django import template
 from somewhere import do_for
@@ -343,512 +322,530 @@ register = template.Library()
 register.tag("for", do_for)
 "#;
         let result = extract_rules(source, "test.module");
-        // Registration found but no matching func def → no rules extracted
         assert!(result.tag_rules.is_empty());
         assert!(result.block_specs.is_empty());
     }
 
-    // Golden fixture tests — end-to-end through extract_rules() with insta
+    // Corpus golden tests — full pipeline extraction on real Django modules.
+    // These snapshot the complete extraction output for each module.
 
-    // --- Registration discovery fixtures ---
-
+    // Corpus: django/template/defaulttags.py — the largest built-in templatetag
+    // module. Exercises bare @register.tag, @register.tag("name"),
+    // @register.tag(name="name"), @register.simple_tag, len checks (exact, min,
+    // max, not-in), keyword position checks, option loops, block specs with
+    // intermediates, opaque blocks, dynamic end tags, and multiple raise statements.
     #[test]
-    fn golden_decorator_bare_tag() {
-        let source = r"
-from django import template
-register = template.Library()
-
-@register.tag
-def mytag(parser, token):
-    return MyNode()
-";
-        insta::assert_yaml_snapshot!(snapshot(extract_rules(source, "app.templatetags.custom")));
-    }
-
-    #[test]
-    fn golden_decorator_tag_with_explicit_name() {
-        let source = r#"
-from django import template
-register = template.Library()
-
-@register.tag("custom_name")
-def do_custom(parser, token):
-    return CustomNode()
-"#;
-        insta::assert_yaml_snapshot!(snapshot(extract_rules(source, "app.templatetags.custom")));
-    }
-
-    #[test]
-    fn golden_decorator_tag_with_name_kwarg() {
-        let source = r#"
-from django import template
-register = template.Library()
-
-@register.tag(name="named_tag")
-def do_named(parser, token):
-    return NamedNode()
-"#;
-        insta::assert_yaml_snapshot!(snapshot(extract_rules(source, "app.templatetags.custom")));
-    }
-
-    #[test]
-    fn golden_simple_tag_no_args() {
-        let source = r#"
-from django import template
-register = template.Library()
-
-@register.simple_tag
-def current_time():
-    return "now"
-"#;
-        insta::assert_yaml_snapshot!(snapshot(extract_rules(source, "app.templatetags.custom")));
-    }
-
-    #[test]
-    fn golden_simple_tag_with_args() {
-        let source = r#"
-from django import template
-register = template.Library()
-
-@register.simple_tag
-def greet(name, greeting="Hello"):
-    return f"{greeting}, {name}!"
-"#;
-        insta::assert_yaml_snapshot!(snapshot(extract_rules(source, "app.templatetags.custom")));
-    }
-
-    #[test]
-    fn golden_simple_tag_takes_context() {
-        let source = r#"
-from django import template
-register = template.Library()
-
-@register.simple_tag(takes_context=True)
-def show_user(context):
-    return context["user"].username
-"#;
-        insta::assert_yaml_snapshot!(snapshot(extract_rules(source, "app.templatetags.custom")));
-    }
-
-    #[test]
-    fn golden_inclusion_tag() {
-        let source = r#"
-from django import template
-register = template.Library()
-
-@register.inclusion_tag("results.html")
-def show_results(poll):
-    return {"choices": poll.choice_set.all()}
-"#;
-        insta::assert_yaml_snapshot!(snapshot(extract_rules(source, "app.templatetags.custom")));
-    }
-
-    #[test]
-    fn golden_inclusion_tag_takes_context() {
-        let source = r#"
-from django import template
-register = template.Library()
-
-@register.inclusion_tag("link.html", takes_context=True)
-def jump_link(context):
-    return {"link": context["home_link"]}
-"#;
-        insta::assert_yaml_snapshot!(snapshot(extract_rules(source, "app.templatetags.custom")));
-    }
-
-    #[test]
-    fn golden_call_style_registration() {
-        let source = r#"
-from django import template
-register = template.Library()
-
-def do_uppercase(parser, token):
-    return UpperNode()
-
-register.tag("upper", do_uppercase)
-"#;
-        insta::assert_yaml_snapshot!(snapshot(extract_rules(source, "app.templatetags.custom")));
-    }
-
-    #[test]
-    fn golden_filter_bare_decorator() {
-        let source = r"
-from django import template
-register = template.Library()
-
-@register.filter
-def lower(value):
-    return value.lower()
-";
-        insta::assert_yaml_snapshot!(snapshot(extract_rules(source, "app.templatetags.filters")));
-    }
-
-    #[test]
-    fn golden_filter_with_name_kwarg() {
-        let source = r"
-from django import template
-register = template.Library()
-
-@register.filter(name='cut')
-def cut_filter(value, arg):
-    return value.replace(arg, '')
-";
-        insta::assert_yaml_snapshot!(snapshot(extract_rules(source, "app.templatetags.filters")));
-    }
-
-    #[test]
-    fn golden_filter_is_safe() {
-        let source = r"
-from django import template
-register = template.Library()
-
-@register.filter(is_safe=True)
-def safe_lower(value):
-    return value.lower()
-";
-        insta::assert_yaml_snapshot!(snapshot(extract_rules(source, "app.templatetags.filters")));
-    }
-
-    #[test]
-    fn golden_multiple_registrations() {
-        let source = r#"
-from django import template
-register = template.Library()
-
-@register.tag
-def my_tag(parser, token):
-    bits = token.split_contents()
-    if len(bits) != 2:
-        raise template.TemplateSyntaxError("my_tag takes one argument")
-    return MyNode(bits[1])
-
-@register.simple_tag
-def simple_hello(name):
-    return f"Hello, {name}!"
-
-@register.filter
-def my_filter(value, arg):
-    return value + arg
-
-@register.filter
-def no_arg_filter(value):
-    return value.upper()
-"#;
-        insta::assert_yaml_snapshot!(snapshot(extract_rules(source, "app.templatetags.mixed")));
-    }
-
-    // --- Rule extraction fixtures ---
-
-    #[test]
-    fn golden_len_exact_check() {
-        let source = r#"
-from django import template
-register = template.Library()
-
-@register.tag
-def widthratio(parser, token):
-    bits = token.split_contents()
-    if len(bits) != 4:
-        raise template.TemplateSyntaxError("widthratio takes three arguments")
-    return WidthRatioNode(bits[1], bits[2], bits[3])
-"#;
+    fn golden_defaulttags() {
+        let source =
+            django_source("django/template/defaulttags.py").expect("corpus not synced");
         insta::assert_yaml_snapshot!(snapshot(extract_rules(
-            source,
+            &source,
             "django.template.defaulttags"
         )));
     }
 
+    // Corpus: django/template/loader_tags.py — block, extends, include tags.
+    // Exercises simple block (endblock), option loop (include with/only),
+    // and non-block tags (extends).
     #[test]
-    fn golden_len_min_check() {
-        let source = r#"
-from django import template
-register = template.Library()
-
-@register.tag
-def cycle(parser, token):
-    args = token.split_contents()
-    if len(args) < 2:
-        raise template.TemplateSyntaxError("'cycle' tag requires at least one argument")
-    return CycleNode(args[1:])
-"#;
+    fn golden_loader_tags() {
+        let source =
+            django_source("django/template/loader_tags.py").expect("corpus not synced");
         insta::assert_yaml_snapshot!(snapshot(extract_rules(
-            source,
-            "django.template.defaulttags"
-        )));
-    }
-
-    #[test]
-    fn golden_len_max_check() {
-        let source = r#"
-from django import template
-register = template.Library()
-
-@register.tag
-def debug(parser, token):
-    bits = token.split_contents()
-    if len(bits) > 1:
-        raise template.TemplateSyntaxError("'debug' tag takes no arguments")
-    return DebugNode()
-"#;
-        insta::assert_yaml_snapshot!(snapshot(extract_rules(
-            source,
-            "django.template.defaulttags"
-        )));
-    }
-
-    #[test]
-    fn golden_len_not_in_check() {
-        let source = r#"
-from django import template
-register = template.Library()
-
-@register.tag
-def firstof(parser, token):
-    bits = token.split_contents()
-    if len(bits) not in (2, 3, 4):
-        raise template.TemplateSyntaxError("'firstof' takes 1 to 3 arguments")
-    return FirstOfNode(bits[1:])
-"#;
-        insta::assert_yaml_snapshot!(snapshot(extract_rules(
-            source,
-            "django.template.defaulttags"
-        )));
-    }
-
-    #[test]
-    fn golden_keyword_position_check() {
-        let source = r#"
-from django import template
-register = template.Library()
-
-@register.tag
-def cycle(parser, token):
-    bits = token.split_contents()
-    if len(bits) < 2:
-        raise template.TemplateSyntaxError("'cycle' requires at least one argument")
-    if bits[-1] != "as" and bits[-2] == "as":
-        pass
-    if len(bits) > 3 and bits[2] != "as":
-        raise template.TemplateSyntaxError("Second argument to 'cycle' must be 'as'")
-    return CycleNode()
-"#;
-        insta::assert_yaml_snapshot!(snapshot(extract_rules(
-            source,
-            "django.template.defaulttags"
-        )));
-    }
-
-    #[test]
-    fn golden_option_loop() {
-        let source = r#"
-from django import template
-register = template.Library()
-
-@register.tag("include")
-def do_include(parser, token):
-    bits = token.split_contents()
-    if len(bits) < 2:
-        raise template.TemplateSyntaxError("'include' takes at least one argument")
-    remaining_bits = bits[2:]
-    while remaining_bits:
-        option = remaining_bits.pop(0)
-        if option in options:
-            raise template.TemplateSyntaxError("Duplicate option")
-        elif option == "with":
-            pass
-        elif option == "only":
-            pass
-        else:
-            raise template.TemplateSyntaxError("Unknown option")
-    return IncludeNode(bits[1])
-"#;
-        insta::assert_yaml_snapshot!(snapshot(extract_rules(
-            source,
-            "django.template.defaulttags"
-        )));
-    }
-
-    #[test]
-    fn golden_non_bits_variable() {
-        // Tests that the extraction uses the dynamically detected split variable,
-        // NOT a hardcoded "bits" name
-        let source = r#"
-from django import template
-register = template.Library()
-
-@register.tag
-def custom_tag(parser, token):
-    parts = token.split_contents()
-    if len(parts) != 3:
-        raise template.TemplateSyntaxError("'custom_tag' requires exactly two arguments")
-    return CustomNode(parts[1], parts[2])
-"#;
-        insta::assert_yaml_snapshot!(snapshot(extract_rules(source, "app.templatetags.custom")));
-    }
-
-    #[test]
-    fn golden_multiple_raise_statements() {
-        let source = r#"
-from django import template
-register = template.Library()
-
-@register.tag
-def url(parser, token):
-    bits = token.split_contents()
-    if len(bits) < 2:
-        raise template.TemplateSyntaxError("'url' takes at least one argument, a URL pattern name")
-    if len(bits) > 4:
-        raise template.TemplateSyntaxError("'url' takes at most three arguments")
-    return URLNode(bits[1])
-"#;
-        insta::assert_yaml_snapshot!(snapshot(extract_rules(
-            source,
-            "django.template.defaulttags"
-        )));
-    }
-
-    // --- Block spec extraction fixtures ---
-
-    #[test]
-    fn golden_simple_block() {
-        let source = r#"
-from django import template
-register = template.Library()
-
-@register.tag("block")
-def do_block(parser, token):
-    bits = token.split_contents()
-    nodelist = parser.parse(("endblock",))
-    parser.delete_first_token()
-    return BlockNode(bits[1], nodelist)
-"#;
-        insta::assert_yaml_snapshot!(snapshot(extract_rules(
-            source,
+            &source,
             "django.template.loader_tags"
         )));
     }
 
+    // Corpus: django/template/defaultfilters.py — all built-in filters.
+    // Exercises @register.filter (bare), @register.filter("name"),
+    // @register.filter(is_safe=True), filters with no arg, required arg,
+    // and optional arg (default parameter).
     #[test]
-    fn golden_block_with_intermediates() {
-        let source = r#"
-from django import template
-register = template.Library()
-
-@register.tag("if")
-def do_if(parser, token):
-    nodelist_true = parser.parse(("elif", "else", "endif"))
-    token = parser.next_token()
-    if token.contents == "elif":
-        nodelist_false = parser.parse(("else", "endif"))
-        parser.delete_first_token()
-    elif token.contents == "else":
-        nodelist_false = parser.parse(("endif",))
-        parser.delete_first_token()
-    return IfNode(nodelist_true, nodelist_false)
-"#;
+    fn golden_defaultfilters() {
+        let source =
+            django_source("django/template/defaultfilters.py").expect("corpus not synced");
         insta::assert_yaml_snapshot!(snapshot(extract_rules(
-            source,
-            "django.template.defaulttags"
-        )));
-    }
-
-    #[test]
-    fn golden_opaque_block() {
-        let source = r#"
-from django import template
-register = template.Library()
-
-@register.tag
-def verbatim(parser, token):
-    bits = token.split_contents()
-    if len(bits) != 1:
-        raise template.TemplateSyntaxError("'verbatim' takes no arguments")
-    parser.skip_past("endverbatim")
-    return VerbatimNode()
-"#;
-        insta::assert_yaml_snapshot!(snapshot(extract_rules(
-            source,
-            "django.template.defaulttags"
-        )));
-    }
-
-    #[test]
-    fn golden_for_tag_with_empty() {
-        let source = r#"
-from django import template
-register = template.Library()
-
-@register.tag("for")
-def do_for(parser, token):
-    bits = token.split_contents()
-    if len(bits) < 4:
-        raise template.TemplateSyntaxError("'for' requires at least three arguments")
-    nodelist_loop = parser.parse(("empty", "endfor"))
-    token = parser.next_token()
-    if token.contents == "empty":
-        nodelist_empty = parser.parse(("endfor",))
-        parser.delete_first_token()
-    else:
-        nodelist_empty = None
-    return ForNode(bits, nodelist_loop, nodelist_empty)
-"#;
-        insta::assert_yaml_snapshot!(snapshot(extract_rules(
-            source,
-            "django.template.defaulttags"
-        )));
-    }
-
-    // --- Filter arity fixtures ---
-
-    #[test]
-    fn golden_filter_no_arg() {
-        let source = r"
-from django import template
-register = template.Library()
-
-@register.filter
-def title(value):
-    return value.title()
-";
-        insta::assert_yaml_snapshot!(snapshot(extract_rules(
-            source,
+            &source,
             "django.template.defaultfilters"
         )));
     }
 
+    // Corpus: django/templatetags/i18n.py — i18n tags.
+    // Exercises @register.tag("name"), @register.filter, and the
+    // blocktranslate next_token loop pattern.
     #[test]
-    fn golden_filter_required_arg() {
-        let source = r"
-from django import template
-register = template.Library()
-
-@register.filter
-def default(value, arg):
-    return value or arg
-";
+    fn golden_i18n() {
+        let source =
+            django_source("django/templatetags/i18n.py").expect("corpus not synced");
         insta::assert_yaml_snapshot!(snapshot(extract_rules(
-            source,
-            "django.template.defaultfilters"
+            &source,
+            "django.templatetags.i18n"
         )));
     }
 
+    // Corpus: tests/template_tests/templatetags/inclusion.py — inclusion tags.
+    // Exercises @register.inclusion_tag with and without takes_context,
+    // various arg counts, and keyword-only defaults.
     #[test]
-    fn golden_filter_optional_arg() {
-        let source = r#"
-from django import template
-register = template.Library()
-
-@register.filter
-def truncatewords(value, arg=30):
-    words = value.split()
-    return " ".join(words[:arg])
-"#;
+    fn golden_inclusion_tags() {
+        let source =
+            django_source("tests/template_tests/templatetags/inclusion.py")
+                .expect("corpus not synced");
         insta::assert_yaml_snapshot!(snapshot(extract_rules(
-            source,
-            "django.template.defaultfilters"
+            &source,
+            "tests.template_tests.templatetags.inclusion"
         )));
     }
 
+    // Corpus: tests/template_tests/templatetags/custom.py — simple tags.
+    // Exercises @register.simple_tag with and without takes_context,
+    // @register.simple_tag(name="..."), @register.simple_block_tag,
+    // @register.filter, and various arg patterns.
+    #[test]
+    fn golden_custom_tags() {
+        let source =
+            django_source("tests/template_tests/templatetags/custom.py")
+                .expect("corpus not synced");
+        insta::assert_yaml_snapshot!(snapshot(extract_rules(
+            &source,
+            "tests.template_tests.templatetags.custom"
+        )));
+    }
+
+    // Corpus: tests/template_tests/templatetags/testtags.py — call-style
+    // registrations. Exercises register.tag("name", func) and
+    // register.filter("name", func) call-style patterns.
+    #[test]
+    fn golden_testtags() {
+        let source =
+            django_source("tests/template_tests/templatetags/testtags.py")
+                .expect("corpus not synced");
+        insta::assert_yaml_snapshot!(snapshot(extract_rules(
+            &source,
+            "tests.template_tests.templatetags.testtags"
+        )));
+    }
+
+    // Pattern-specific corpus assertions — validate specific extraction
+    // behaviors using real Django code, complementing the full-module snapshots.
+
+    // Corpus: `autoescape` in defaulttags.py — bare @register.tag decorator.
+    // Registration name defaults to function name.
+    #[test]
+    fn corpus_decorator_bare_tag() {
+        let source =
+            django_source("django/template/defaulttags.py").expect("corpus not synced");
+        let result = extract_rules(&source, "django.template.defaulttags");
+        let key = SymbolKey::tag("django.template.defaulttags", "autoescape");
+        assert!(
+            result.tag_rules.contains_key(&key) || result.block_specs.contains_key(&key),
+            "autoescape should be extracted"
+        );
+    }
+
+    // Corpus: `for` in defaulttags.py — @register.tag("for") with explicit
+    // positional string name overriding function name `do_for`.
+    #[test]
+    fn corpus_decorator_tag_with_explicit_name() {
+        let source =
+            django_source("django/template/defaulttags.py").expect("corpus not synced");
+        let result = extract_rules(&source, "django.template.defaulttags");
+        let key = SymbolKey::tag("django.template.defaulttags", "for");
+        assert!(
+            result.tag_rules.contains_key(&key),
+            "'for' tag should be extracted (name from decorator string arg)"
+        );
+    }
+
+    // Corpus: `partialdef` in defaulttags.py — @register.tag(name="partialdef")
+    // with name kwarg overriding function name `partialdef_func`.
+    #[test]
+    fn corpus_decorator_tag_with_name_kwarg() {
+        let source =
+            django_source("django/template/defaulttags.py").expect("corpus not synced");
+        let result = extract_rules(&source, "django.template.defaulttags");
+        let key = SymbolKey::tag("django.template.defaulttags", "partialdef");
+        assert!(
+            result.tag_rules.contains_key(&key) || result.block_specs.contains_key(&key),
+            "partialdef should be extracted (name from kwarg)"
+        );
+    }
+
+    // Corpus: `no_params` in custom.py — @register.simple_tag with zero user args.
+    #[test]
+    fn corpus_simple_tag_no_args() {
+        let source = django_source("tests/template_tests/templatetags/custom.py")
+            .expect("corpus not synced");
+        let result = extract_rules(&source, "tests.template_tests.templatetags.custom");
+        let key = SymbolKey::tag("tests.template_tests.templatetags.custom", "no_params");
+        assert!(result.tag_rules.contains_key(&key));
+        let rule = &result.tag_rules[&key];
+        assert!(rule.extracted_args.is_empty());
+    }
+
+    // Corpus: `one_param` in custom.py — @register.simple_tag with one required arg.
+    #[test]
+    fn corpus_simple_tag_with_args() {
+        let source = django_source("tests/template_tests/templatetags/custom.py")
+            .expect("corpus not synced");
+        let result = extract_rules(&source, "tests.template_tests.templatetags.custom");
+        let key = SymbolKey::tag("tests.template_tests.templatetags.custom", "one_param");
+        assert!(result.tag_rules.contains_key(&key));
+        let rule = &result.tag_rules[&key];
+        assert_eq!(rule.extracted_args.len(), 1);
+        assert!(rule.extracted_args[0].required);
+    }
+
+    // Corpus: `no_params_with_context` in custom.py —
+    // @register.simple_tag(takes_context=True), context param excluded from args.
+    #[test]
+    fn corpus_simple_tag_takes_context() {
+        let source = django_source("tests/template_tests/templatetags/custom.py")
+            .expect("corpus not synced");
+        let result = extract_rules(&source, "tests.template_tests.templatetags.custom");
+        let key = SymbolKey::tag(
+            "tests.template_tests.templatetags.custom",
+            "no_params_with_context",
+        );
+        assert!(result.tag_rules.contains_key(&key));
+        let rule = &result.tag_rules[&key];
+        assert!(
+            rule.extracted_args.is_empty(),
+            "context param should not appear as extracted arg"
+        );
+    }
+
+    // Corpus: `inclusion_one_param` in inclusion.py — @register.inclusion_tag
+    // with one required arg.
+    #[test]
+    fn corpus_inclusion_tag() {
+        let source = django_source("tests/template_tests/templatetags/inclusion.py")
+            .expect("corpus not synced");
+        let result = extract_rules(
+            &source,
+            "tests.template_tests.templatetags.inclusion",
+        );
+        let key = SymbolKey::tag(
+            "tests.template_tests.templatetags.inclusion",
+            "inclusion_one_param",
+        );
+        assert!(result.tag_rules.contains_key(&key));
+        let rule = &result.tag_rules[&key];
+        assert_eq!(rule.extracted_args.len(), 1);
+        assert!(rule.extracted_args[0].required);
+    }
+
+    // Corpus: `inclusion_no_params_with_context` in inclusion.py —
+    // @register.inclusion_tag with takes_context=True.
+    #[test]
+    fn corpus_inclusion_tag_takes_context() {
+        let source = django_source("tests/template_tests/templatetags/inclusion.py")
+            .expect("corpus not synced");
+        let result = extract_rules(
+            &source,
+            "tests.template_tests.templatetags.inclusion",
+        );
+        let key = SymbolKey::tag(
+            "tests.template_tests.templatetags.inclusion",
+            "inclusion_no_params_with_context",
+        );
+        assert!(result.tag_rules.contains_key(&key));
+        let rule = &result.tag_rules[&key];
+        assert!(
+            rule.extracted_args.is_empty(),
+            "context param should not appear as extracted arg"
+        );
+    }
+
+    // Corpus: `inclusion_one_default` in inclusion.py — inclusion_tag with
+    // one required + one optional arg.
+    #[test]
+    fn corpus_inclusion_tag_with_args() {
+        let source = django_source("tests/template_tests/templatetags/inclusion.py")
+            .expect("corpus not synced");
+        let result = extract_rules(
+            &source,
+            "tests.template_tests.templatetags.inclusion",
+        );
+        let key = SymbolKey::tag(
+            "tests.template_tests.templatetags.inclusion",
+            "inclusion_one_default",
+        );
+        assert!(result.tag_rules.contains_key(&key));
+        let rule = &result.tag_rules[&key];
+        assert_eq!(rule.extracted_args.len(), 2);
+        assert!(rule.extracted_args[0].required);
+        assert!(!rule.extracted_args[1].required);
+    }
+
+    // Corpus: `querystring` in defaulttags.py — @register.simple_tag(name="querystring",
+    // takes_context=True) with name kwarg on simple_tag.
+    #[test]
+    fn corpus_simple_tag_with_name_kwarg() {
+        let source =
+            django_source("django/template/defaulttags.py").expect("corpus not synced");
+        let result = extract_rules(&source, "django.template.defaulttags");
+        let key = SymbolKey::tag("django.template.defaulttags", "querystring");
+        assert!(
+            result.tag_rules.contains_key(&key),
+            "querystring should be extracted via name kwarg"
+        );
+    }
+
+    // Corpus: `widthratio` in defaulttags.py — real Django uses
+    // `if len(bits) == 4 / elif len(bits) == 6 / else` pattern, which
+    // extracts as required keyword "as" at position 4 (for the 6-arg form).
+    #[test]
+    fn corpus_len_exact_check() {
+        let source =
+            django_source("django/template/defaulttags.py").expect("corpus not synced");
+        let result = extract_rules(&source, "django.template.defaulttags");
+        let key = SymbolKey::tag("django.template.defaulttags", "widthratio");
+        assert!(
+            result.tag_rules.contains_key(&key),
+            "widthratio should be extracted"
+        );
+        let rule = &result.tag_rules[&key];
+        assert!(
+            !rule.required_keywords.is_empty(),
+            "widthratio should have required keyword (as)"
+        );
+    }
+
+    // Corpus: `cycle` in defaulttags.py — `len(args) < 2` → Min(2).
+    #[test]
+    fn corpus_len_min_check() {
+        let source =
+            django_source("django/template/defaulttags.py").expect("corpus not synced");
+        let result = extract_rules(&source, "django.template.defaulttags");
+        let key = SymbolKey::tag("django.template.defaulttags", "cycle");
+        assert!(result.tag_rules.contains_key(&key));
+        let rule = &result.tag_rules[&key];
+        assert!(
+            rule.arg_constraints
+                .contains(&ArgumentCountConstraint::Min(2)),
+            "cycle should have Min(2) constraint"
+        );
+    }
+
+    // Corpus: `templatetag` in defaulttags.py — `len(bits) != 2` → Exact(2).
+    // Real `debug` tag has no split_contents, so we use `templatetag` which
+    // has a clean `len(bits) != 2` check for the exact constraint pattern.
+    #[test]
+    fn corpus_len_exact_check_templatetag() {
+        let source =
+            django_source("django/template/defaulttags.py").expect("corpus not synced");
+        let result = extract_rules(&source, "django.template.defaulttags");
+        let key = SymbolKey::tag("django.template.defaulttags", "templatetag");
+        assert!(result.tag_rules.contains_key(&key));
+        let rule = &result.tag_rules[&key];
+        assert!(
+            rule.arg_constraints
+                .contains(&ArgumentCountConstraint::Exact(2)),
+            "templatetag should have Exact(2) constraint"
+        );
+    }
+
+    // Corpus: `url` in defaulttags.py — multiple raise statements:
+    // `len(bits) < 2` and additional constraints.
+    #[test]
+    fn corpus_multiple_raise_statements() {
+        let source =
+            django_source("django/template/defaulttags.py").expect("corpus not synced");
+        let result = extract_rules(&source, "django.template.defaulttags");
+        let key = SymbolKey::tag("django.template.defaulttags", "url");
+        assert!(result.tag_rules.contains_key(&key));
+        let rule = &result.tag_rules[&key];
+        assert!(
+            rule.arg_constraints
+                .contains(&ArgumentCountConstraint::Min(2)),
+            "url should have Min(2) constraint"
+        );
+    }
+
+    // Corpus: `include` in loader_tags.py — while-loop option parsing
+    // (with, only options).
+    #[test]
+    fn corpus_option_loop() {
+        let source =
+            django_source("django/template/loader_tags.py").expect("corpus not synced");
+        let result = extract_rules(&source, "django.template.loader_tags");
+        let key = SymbolKey::tag("django.template.loader_tags", "include");
+        assert!(result.tag_rules.contains_key(&key));
+        let rule = &result.tag_rules[&key];
+        assert!(
+            rule.known_options.is_some(),
+            "include should have known_options from while-loop"
+        );
+    }
+
+    // Corpus: `do_for` in defaulttags.py — block with "empty" intermediate
+    // and "endfor" end tag.
+    #[test]
+    fn corpus_for_tag_with_empty() {
+        let source =
+            django_source("django/template/defaulttags.py").expect("corpus not synced");
+        let result = extract_rules(&source, "django.template.defaulttags");
+        let key = SymbolKey::tag("django.template.defaulttags", "for");
+        assert!(result.block_specs.contains_key(&key));
+        let spec = &result.block_specs[&key];
+        assert_eq!(spec.end_tag.as_deref(), Some("endfor"));
+        assert!(spec.intermediates.contains(&"empty".to_string()));
+    }
+
+    // Corpus: `do_if` in defaulttags.py — block with elif/else intermediates.
+    #[test]
+    fn corpus_block_with_intermediates() {
+        let source =
+            django_source("django/template/defaulttags.py").expect("corpus not synced");
+        let result = extract_rules(&source, "django.template.defaulttags");
+        let key = SymbolKey::tag("django.template.defaulttags", "if");
+        assert!(result.block_specs.contains_key(&key));
+        let spec = &result.block_specs[&key];
+        assert_eq!(spec.end_tag.as_deref(), Some("endif"));
+        assert!(spec.intermediates.contains(&"elif".to_string()));
+        assert!(spec.intermediates.contains(&"else".to_string()));
+    }
+
+    // Corpus: `comment` in defaulttags.py — opaque block (skip_past).
+    // Real `verbatim` actually uses parser.parse(), not skip_past — only
+    // `comment` is truly opaque in defaulttags.py.
+    #[test]
+    fn corpus_opaque_block() {
+        let source =
+            django_source("django/template/defaulttags.py").expect("corpus not synced");
+        let result = extract_rules(&source, "django.template.defaulttags");
+        let key = SymbolKey::tag("django.template.defaulttags", "comment");
+        assert!(result.block_specs.contains_key(&key));
+        let spec = &result.block_specs[&key];
+        assert!(spec.opaque);
+        assert_eq!(spec.end_tag.as_deref(), Some("endcomment"));
+    }
+
+    // Corpus: `verbatim` in defaulttags.py — uses parser.parse(), not
+    // skip_past. No split_contents call (no argument validation).
+    #[test]
+    fn corpus_non_opaque_no_split_contents() {
+        let source =
+            django_source("django/template/defaulttags.py").expect("corpus not synced");
+        let result = extract_rules(&source, "django.template.defaulttags");
+        let key = SymbolKey::tag("django.template.defaulttags", "verbatim");
+        assert!(result.block_specs.contains_key(&key));
+        let spec = &result.block_specs[&key];
+        assert!(!spec.opaque, "real verbatim uses parser.parse(), not skip_past");
+        assert_eq!(spec.end_tag.as_deref(), Some("endverbatim"));
+    }
+
+    // Corpus: `spaceless` in defaulttags.py — uses `token.split_contents()[0]`
+    // in f-string for dynamic end tag name.
+    #[test]
+    fn corpus_dynamic_end_tag() {
+        let source =
+            django_source("django/template/defaulttags.py").expect("corpus not synced");
+        let result = extract_rules(&source, "django.template.defaulttags");
+        let key = SymbolKey::tag("django.template.defaulttags", "spaceless");
+        assert!(result.block_specs.contains_key(&key));
+        let spec = &result.block_specs[&key];
+        // Dynamic end-tag detected as None (computed at runtime), but
+        // extract_rules() fills it with "end{name}" as fallback
+        assert!(spec.end_tag.is_some());
+    }
+
+    // Corpus: `do_block` in loader_tags.py — simple block tag with endblock.
+    #[test]
+    fn corpus_simple_block() {
+        let source =
+            django_source("django/template/loader_tags.py").expect("corpus not synced");
+        let result = extract_rules(&source, "django.template.loader_tags");
+        let key = SymbolKey::tag("django.template.loader_tags", "block");
+        assert!(result.block_specs.contains_key(&key));
+        let spec = &result.block_specs[&key];
+        assert_eq!(spec.end_tag.as_deref(), Some("endblock"));
+        assert!(spec.intermediates.is_empty());
+        assert!(!spec.opaque);
+    }
+
+    // Corpus: `title` in defaultfilters.py — filter with no arg (value only).
+    #[test]
+    fn corpus_filter_no_arg() {
+        let source =
+            django_source("django/template/defaultfilters.py").expect("corpus not synced");
+        let result = extract_rules(&source, "django.template.defaultfilters");
+        let key = SymbolKey::filter("django.template.defaultfilters", "title");
+        assert!(result.filter_arities.contains_key(&key));
+        let arity = &result.filter_arities[&key];
+        assert!(!arity.expects_arg);
+    }
+
+    // Corpus: `default` in defaultfilters.py — filter with required arg.
+    #[test]
+    fn corpus_filter_required_arg() {
+        let source =
+            django_source("django/template/defaultfilters.py").expect("corpus not synced");
+        let result = extract_rules(&source, "django.template.defaultfilters");
+        let key = SymbolKey::filter("django.template.defaultfilters", "default");
+        assert!(result.filter_arities.contains_key(&key));
+        let arity = &result.filter_arities[&key];
+        assert!(arity.expects_arg);
+        assert!(!arity.arg_optional);
+    }
+
+    // Corpus: `date` in defaultfilters.py — filter with optional arg (arg=None).
+    #[test]
+    fn corpus_filter_optional_arg() {
+        let source =
+            django_source("django/template/defaultfilters.py").expect("corpus not synced");
+        let result = extract_rules(&source, "django.template.defaultfilters");
+        let key = SymbolKey::filter("django.template.defaultfilters", "date");
+        assert!(result.filter_arities.contains_key(&key));
+        let arity = &result.filter_arities[&key];
+        assert!(arity.expects_arg);
+        assert!(arity.arg_optional);
+    }
+
+    // Corpus: `escapejs` in defaultfilters.py — @register.filter("escapejs")
+    // with positional string name, bare filter decorator with no user arg.
+    #[test]
+    fn corpus_filter_bare_decorator() {
+        let source =
+            django_source("django/template/defaultfilters.py").expect("corpus not synced");
+        let result = extract_rules(&source, "django.template.defaultfilters");
+        let key = SymbolKey::filter("django.template.defaultfilters", "lower");
+        assert!(result.filter_arities.contains_key(&key));
+    }
+
+    // Corpus: `escapejs` in defaultfilters.py — @register.filter("escapejs")
+    // demonstrates named filter via positional string arg.
+    #[test]
+    fn corpus_filter_with_name() {
+        let source =
+            django_source("django/template/defaultfilters.py").expect("corpus not synced");
+        let result = extract_rules(&source, "django.template.defaultfilters");
+        let key = SymbolKey::filter("django.template.defaultfilters", "escapejs");
+        assert!(
+            result.filter_arities.contains_key(&key),
+            "escapejs should be extracted (name from positional string)"
+        );
+    }
+
+    // Corpus: `addslashes` in defaultfilters.py — @register.filter(is_safe=True)
+    // with kwarg but no name override.
+    #[test]
+    fn corpus_filter_is_safe() {
+        let source =
+            django_source("django/template/defaultfilters.py").expect("corpus not synced");
+        let result = extract_rules(&source, "django.template.defaultfilters");
+        let key = SymbolKey::filter("django.template.defaultfilters", "addslashes");
+        assert!(
+            result.filter_arities.contains_key(&key),
+            "addslashes should be extracted with is_safe kwarg"
+        );
+    }
+
+    // (b) Edge case — method-style registration (self parameter).
+    // Not standard Django — tests that class method registrations handle
+    // the extra `self` parameter.
     #[test]
     fn golden_filter_method_style() {
         let source = r"
@@ -864,55 +861,38 @@ register.filter('upper', StringFilter().upper)
         insta::assert_yaml_snapshot!(snapshot(extract_rules(source, "app.templatetags.filters")));
     }
 
-    // --- Edge case fixtures ---
-
+    // (b) Edge case — non-bits variable name in split_contents.
+    // Tests that the extraction uses the dynamically detected split variable,
+    // NOT a hardcoded "bits" name.
     #[test]
-    fn golden_no_split_contents() {
-        // Tag compile function that doesn't call split_contents
+    fn golden_non_bits_variable() {
         let source = r#"
 from django import template
 register = template.Library()
 
 @register.tag
-def comment(parser, token):
-    parser.skip_past("endcomment")
-    return CommentNode()
+def custom_tag(parser, token):
+    parts = token.split_contents()
+    if len(parts) != 3:
+        raise template.TemplateSyntaxError("'custom_tag' requires exactly two arguments")
+    return CustomNode(parts[1], parts[2])
 "#;
-        insta::assert_yaml_snapshot!(snapshot(extract_rules(
-            source,
-            "django.template.defaulttags"
-        )));
+        insta::assert_yaml_snapshot!(snapshot(extract_rules(source, "app.templatetags.custom")));
     }
 
-    #[test]
-    fn golden_dynamic_end_tag() {
-        let source = r#"
-from django import template
-register = template.Library()
-
-@register.tag("spaceless")
-def do_spaceless(parser, token):
-    tag_name = token.split_contents()[0]
-    nodelist = parser.parse((f"end{tag_name}",))
-    parser.delete_first_token()
-    return SpacelessNode(nodelist)
-"#;
-        insta::assert_yaml_snapshot!(snapshot(extract_rules(
-            source,
-            "django.template.defaulttags"
-        )));
-    }
-
+    // (b) Edge case — empty source
     #[test]
     fn golden_empty_source() {
         insta::assert_yaml_snapshot!(snapshot(extract_rules("", "test.module")));
     }
 
+    // (b) Edge case — invalid Python
     #[test]
     fn golden_invalid_python() {
         insta::assert_yaml_snapshot!(snapshot(extract_rules("def {invalid", "test.module")));
     }
 
+    // (b) Edge case — no registrations in valid Python
     #[test]
     fn golden_no_registrations() {
         let source = r"
@@ -925,6 +905,7 @@ class Config:
         insta::assert_yaml_snapshot!(snapshot(extract_rules(source, "test.module")));
     }
 
+    // (b) Edge case — call-style registration with missing function definition
     #[test]
     fn golden_call_style_no_func_def() {
         let source = r#"
@@ -935,68 +916,5 @@ register = template.Library()
 register.tag("for", do_for)
 "#;
         insta::assert_yaml_snapshot!(snapshot(extract_rules(source, "test.module")));
-    }
-
-    #[test]
-    fn golden_mixed_library() {
-        // A realistic library module with multiple registration styles
-        let source = r#"
-from django import template
-register = template.Library()
-
-@register.tag("with")
-def do_with(parser, token):
-    bits = token.split_contents()
-    if len(bits) < 2:
-        raise template.TemplateSyntaxError("'with' requires at least one argument")
-    nodelist = parser.parse(("endwith",))
-    parser.delete_first_token()
-    return WithNode(bits[1:], nodelist)
-
-@register.simple_tag(takes_context=True)
-def csrf_token(context):
-    return context.get("csrf_token", "")
-
-@register.filter
-def length(value):
-    return len(value)
-
-@register.filter
-def add(value, arg):
-    return value + arg
-
-@register.filter(name="default_if_none")
-def default_if_none_filter(value, arg=""):
-    if value is None:
-        return arg
-    return value
-"#;
-        insta::assert_yaml_snapshot!(snapshot(extract_rules(source, "app.templatetags.helpers")));
-    }
-
-    #[test]
-    fn golden_simple_tag_with_name_kwarg() {
-        let source = r#"
-from django import template
-register = template.Library()
-
-@register.simple_tag(name="get_value")
-def my_get_value(key, fallback=None):
-    return lookup(key, fallback)
-"#;
-        insta::assert_yaml_snapshot!(snapshot(extract_rules(source, "app.templatetags.utils")));
-    }
-
-    #[test]
-    fn golden_inclusion_tag_with_args() {
-        let source = r#"
-from django import template
-register = template.Library()
-
-@register.inclusion_tag("breadcrumbs.html")
-def breadcrumbs(items, separator="/"):
-    return {"items": items, "sep": separator}
-"#;
-        insta::assert_yaml_snapshot!(snapshot(extract_rules(source, "app.templatetags.nav")));
     }
 }

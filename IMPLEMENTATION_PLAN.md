@@ -50,7 +50,7 @@
 
 ### Phase 5: Replace Fabricated Tests — Golden/End-to-End
 
-- [ ] **M14.16** Audit and replace fabricated Python in `src/lib.rs` golden tests with corpus-sourced equivalents. Keep edge case tests (malformed registrations, error handling) as fabricated with documented justification
+- [x] **M14.16** Audit and replace fabricated Python in `src/lib.rs` golden tests with corpus-sourced equivalents. Keep edge case tests (malformed registrations, error handling) as fabricated with documented justification. Replaced 31 fabricated tests: 7 per-module snapshot tests (defaulttags, loader_tags, defaultfilters, i18n, inclusion, custom, testtags) + 24 corpus assertion tests. Kept 7 edge case tests (b/d). Discovered real Django diverges from fabricated assumptions (verbatim uses parser.parse not skip_past; widthratio uses if/elif/else not !=; debug has no split_contents). Deleted 25 orphaned snapshot files, added 7 new ones (net: 38→13 golden snapshots). Test count: 50 lib.rs tests (was 48).
 - [ ] **M14.17** Run `cargo insta test --accept --unreferenced delete -p djls-extraction` to clean up orphaned snapshots
 - [ ] **M14.18** Validate: `cargo test -q -p djls-extraction`, no orphaned snapshot files, `cargo clippy -q --all-targets --all-features -- -D warnings` clean
 
