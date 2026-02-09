@@ -12,6 +12,7 @@ use super::expressions::eval_expr;
 use super::expressions::eval_expr_with_ctx;
 use super::match_arms::extract_match_constraints;
 use super::AnalysisContext;
+use super::AnalysisResult;
 use crate::dataflow::domain::AbstractValue;
 use crate::dataflow::domain::Env;
 use crate::types::SplitPosition;
@@ -19,11 +20,17 @@ use crate::types::SplitPosition;
 /// Process a list of statements, updating the environment.
 pub fn process_statements(stmts: &[Stmt], env: &mut Env, ctx: &mut AnalysisContext<'_>) {
     for stmt in stmts {
-        process_statement(stmt, env, ctx);
+        let result = process_statement(stmt, env, ctx);
+        ctx.constraints.extend(result.constraints);
+        if result.known_options.is_some() {
+            ctx.known_options = result.known_options;
+        }
     }
 }
 
-fn process_statement(stmt: &Stmt, env: &mut Env, ctx: &mut AnalysisContext<'_>) {
+fn process_statement(stmt: &Stmt, env: &mut Env, ctx: &mut AnalysisContext<'_>) -> AnalysisResult {
+    let mut result = AnalysisResult::default();
+
     match stmt {
         Stmt::Assign(StmtAssign { targets, value, .. }) => {
             // Check for token_kwargs side effect: marks the bits arg as Unknown
@@ -47,7 +54,8 @@ fn process_statement(stmt: &Stmt, env: &mut Env, ctx: &mut AnalysisContext<'_>) 
         }
 
         Stmt::If(stmt_if) => {
-            ctx.constraints
+            result
+                .constraints
                 .extend(crate::dataflow::constraints::extract_from_if_inline(
                     stmt_if, env,
                 ));
@@ -111,7 +119,7 @@ fn process_statement(stmt: &Stmt, env: &mut Env, ctx: &mut AnalysisContext<'_>) 
                 // Option loop fully analyzed by extraction; skip body processing
                 // to avoid false positives (loop variables like `option` would
                 // appear as positional args).
-                ctx.known_options = Some(opts);
+                result.known_options = Some(opts);
             } else {
                 // Non-option while loop: process body for assignments and
                 // side effects (e.g. pop mutations, nested constraints).
@@ -122,7 +130,7 @@ fn process_statement(stmt: &Stmt, env: &mut Env, ctx: &mut AnalysisContext<'_>) 
         Stmt::Match(match_stmt) => {
             // Extract constraints at the point in code where the match appears
             if let Some(match_constraints) = extract_match_constraints(match_stmt, env) {
-                ctx.constraints.extend(match_constraints);
+                result.constraints.extend(match_constraints);
             }
             // Process match bodies for env updates
             for case in &match_stmt.cases {
@@ -132,6 +140,8 @@ fn process_statement(stmt: &Stmt, env: &mut Env, ctx: &mut AnalysisContext<'_>) 
 
         _ => {}
     }
+
+    result
 }
 
 /// Try to detect `token_kwargs(bits, parser)` calls and return the first

@@ -29,20 +29,19 @@ pub struct AnalysisContext<'a> {
 /// Returned from `process_statements` instead of being stored in a context.
 /// This separates the accumulation of analysis results from the call-resolution
 /// context that is threaded through the analysis.
-#[allow(dead_code)]
 #[derive(Default)]
 pub struct AnalysisResult {
     pub constraints: ConstraintSet,
     pub known_options: Option<KnownOptions>,
 }
 
-#[allow(dead_code)]
 impl AnalysisResult {
     /// Merge another result into this one.
     ///
     /// Constraints are combined additively. For `known_options`, the other
     /// result's value wins if present (last write wins — matches the sequential
     /// processing order of statements).
+    #[allow(dead_code)]
     pub fn extend(&mut self, other: AnalysisResult) {
         self.constraints.extend(other.constraints);
         if other.known_options.is_some() {
