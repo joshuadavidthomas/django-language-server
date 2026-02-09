@@ -9,7 +9,7 @@
 | Milestone | Status | Description |
 |-----------|--------|-------------|
 | M14 | **done** | Test baseline + corpus-grounded tests |
-| M15 | stub | Return values, not mutation (+ domain types T1-T4) |
+| M15 | **planning** | Return values, not mutation (+ domain types T1-T4) |
 | M16 | stub | Split god-context (+ CompileFunction, OptionLoop) |
 | M17 | stub | Decompose blocks.rs into strategy modules |
 | M18 | stub | Move environment scanning to djls-project |
@@ -59,8 +59,58 @@
 ## M15 — Return values, not mutation (+ domain types T1-T4)
 
 **Design docs:** `docs/dev/extraction-refactor-plan.md` (Phase 1), `docs/dev/extraction-type-driven-vision.md`
+**Plan file:** `.agents/plans/2026-02-09-m15-return-values.md`
 
-_Tasks not yet expanded. Needs plan file: `.agents/plans/2026-02-09-m15-return-values.md`_
+### Phase 1: `ConstraintSet` type (T4) + constraint functions return values
+
+- [ ] **M15.1** Define `ConstraintSet` in `dataflow/constraints.rs` with `and()`/`or()`/`extend()` methods (replaces `Constraints`)
+- [ ] **M15.2** Make `eval_condition`, `eval_compare`, `eval_negated_compare`, and all internal constraint helpers return `ConstraintSet` instead of mutating `&mut Constraints`
+- [ ] **M15.3** Make `extract_from_if_inline` return `ConstraintSet`
+- [ ] **M15.4** Make `extract_match_constraints` in `eval/match_arms.rs` return `ConstraintSet`
+- [ ] **M15.5** Update `AnalysisContext.constraints` field type to `ConstraintSet`, update `process_statement` if-arm to collect returned constraints
+- [ ] **M15.6** Validate: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q` all green
+
+### Phase 2: `blocks.rs` collection functions return values
+
+- [ ] **M15.7** Make `collect_parser_parse_calls` return `Vec<ParseCallInfo>` (no `&mut` param)
+- [ ] **M15.8** Make `collect_skip_past_tokens` return `Vec<String>`
+- [ ] **M15.9** Make `classify_in_body` and `classify_from_if_chain` return a `Classification` struct (intermediates + end_tags)
+- [ ] **M15.10** Make `collect_token_content_comparisons` and `extract_comparisons_from_expr` return `Vec<String>`
+- [ ] **M15.11** Update all callers in `blocks.rs` to use return values
+- [ ] **M15.12** Validate: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q` all green
+
+### Phase 3: `SplitPosition` newtype (T1) — cross-crate
+
+- [ ] **M15.13** Define `SplitPosition` enum (`Forward(usize)`, `Backward(usize)`) in `types.rs` with `arg_index()`, `raw()`, `is_tag_name()` methods
+- [ ] **M15.14** Update `RequiredKeyword.position` and `ChoiceAt.position` from `i64` to `SplitPosition`
+- [ ] **M15.15** Update `dataflow/constraints.rs` to emit `SplitPosition` values
+- [ ] **M15.16** Evaluate `Index` enum in `domain.rs` — consolidate with or map to `SplitPosition`
+- [ ] **M15.17** Update `djls-semantic/src/rule_evaluation.rs` to use `SplitPosition` methods
+- [ ] **M15.18** Update `dataflow.rs` `extract_arg_names` and any other consumers
+- [ ] **M15.19** Update snapshots: `cargo insta test --accept -p djls-extraction`
+- [ ] **M15.20** Validate: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q` all green
+
+### Phase 4: `TokenSplit` type (T2)
+
+- [ ] **M15.21** Define `TokenSplit` struct in `dataflow/domain.rs` with `fresh()`, `after_slice_from()`, `after_pop_front()`, `after_pop_back()`, `resolve_index()`, `resolve_length()` methods
+- [ ] **M15.22** Replace `SplitResult { base_offset, pops_from_end }` and `SplitLength { base_offset, pops_from_end }` with `SplitResult(TokenSplit)` and `SplitLength(TokenSplit)`
+- [ ] **M15.23** Replace all scattered `+ base_offset + pops_from_end` calculations in `constraints.rs` with `TokenSplit` method calls
+- [ ] **M15.24** Update `eval/effects.rs` pop mutations to use `TokenSplit` methods
+- [ ] **M15.25** Update snapshots: `cargo insta test --accept -p djls-extraction`
+- [ ] **M15.26** Validate: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q` all green
+
+### Phase 5: Evaluate `Guard` type (T3)
+
+- [ ] **M15.27** Evaluate whether `Guard` type is worth introducing (single call site). Document decision in this plan.
+- [ ] **M15.28** If introduced: define `Guard` type, refactor `extract_from_if_inline` to use it. If skipped: document rationale.
+- [ ] **M15.29** Validate: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q` all green
+
+### Phase 6: Final validation
+
+- [ ] **M15.30** Full suite: `cargo test -q` — all green (740+ tests)
+- [ ] **M15.31** Verify: no `&mut Vec<T>` params in `blocks.rs`, no `&mut Constraints` in `constraints.rs`
+- [ ] **M15.32** Verify: public API unchanged (`extract_rules()` → `ExtractionResult`)
+- [ ] **M15.33** Run `cargo insta test --accept --unreferenced delete -p djls-extraction` to clean orphaned snapshots
 
 ## M16 — Split god-context (+ CompileFunction, OptionLoop)
 
