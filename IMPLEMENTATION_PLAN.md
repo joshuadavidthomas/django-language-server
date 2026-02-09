@@ -10,7 +10,7 @@
 |-----------|--------|-------------|
 | M14 | **done** | Test baseline + corpus-grounded tests |
 | M15 | **done** | Return values, not mutation (+ domain types T1-T4) |
-| M16 | **in progress** | Split god-context (+ CompileFunction, OptionLoop) |
+| M16 | **done** | Split god-context (+ CompileFunction, OptionLoop) |
 | M17 | stub | Decompose blocks.rs into strategy modules |
 | M18 | stub | Move environment scanning to djls-project |
 | M19 | stub | HelperCache → Salsa tracked functions |
@@ -68,10 +68,10 @@ side-channel in M15-M16 Phase 1. The question is purely whether the name should 
 
 ### Phase 5: Final validation
 
-- [ ] **M16.20** Full suite: `cargo test -q` — all green
-- [ ] **M16.21** Verify: no `ctx.constraints` mutation in `statements.rs`, no `ctx.known_options` mutation
-- [ ] **M16.22** Verify: `AnalysisContext` type no longer exists (renamed to `CallContext`)
-- [ ] **M16.23** Verify: public API unchanged (`analyze_compile_function()` → `TagRule`)
+- [x] **M16.20** Full suite: `cargo test -q` — all green (745 passed, 0 failed, 7 ignored)
+- [x] **M16.21** Verify: no `ctx.constraints` mutation, no `ctx.known_options` mutation (one comment reference only)
+- [x] **M16.22** Verify: `AnalysisContext` type no longer exists (renamed to `CallContext`)
+- [x] **M16.23** Verify: public API unchanged (`analyze_compile_function()` → `TagRule`)
 
 ## M17 — Decompose blocks.rs into strategy modules
 
