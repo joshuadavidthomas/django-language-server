@@ -4,6 +4,7 @@ pub(crate) mod domain;
 pub(crate) mod eval;
 
 pub use calls::HelperCache;
+use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtFunctionDef;
 
 use crate::types::ArgumentCountConstraint;
@@ -12,6 +13,37 @@ use crate::types::ExtractedArgKind;
 use crate::types::RequiredKeyword;
 use crate::types::SplitPosition;
 use crate::types::TagRule;
+
+#[allow(dead_code)]
+/// Validated representation of a Django template tag compile function.
+///
+/// Ensures the function has at least two positional parameters (parser and token)
+/// before analysis begins. Use `from_ast` to construct from a `StmtFunctionDef`.
+pub struct CompileFunction<'a> {
+    pub parser_param: &'a str,
+    pub token_param: &'a str,
+    pub body: &'a [Stmt],
+    pub name: &'a str,
+}
+
+#[allow(dead_code)]
+impl<'a> CompileFunction<'a> {
+    /// Extract a `CompileFunction` from an AST function definition.
+    ///
+    /// Returns `None` if the function has fewer than 2 positional parameters,
+    /// since a valid Django compile function requires at least `parser` and `token`.
+    pub fn from_ast(func: &'a StmtFunctionDef) -> Option<Self> {
+        let params = &func.parameters;
+        let parser_param = params.args.first()?.parameter.name.as_str();
+        let token_param = params.args.get(1)?.parameter.name.as_str();
+        Some(CompileFunction {
+            parser_param,
+            token_param,
+            body: &func.body,
+            name: func.name.as_str(),
+        })
+    }
+}
 
 /// Analyze a compile function using dataflow analysis to extract argument constraints.
 ///

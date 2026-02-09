@@ -52,7 +52,7 @@ Six phases completed. Key changes:
 
 ### Phase 3: Introduce `CompileFunction` validated input type
 
-- [ ] **M16.14** Define `CompileFunction<'a>` with `from_ast(func: &StmtFunctionDef) -> Option<Self>` constructor
+- [x] **M16.14** Define `CompileFunction<'a>` with `from_ast(func: &StmtFunctionDef) -> Option<Self>` constructor — added in `dataflow.rs` with `#[allow(dead_code)]` until M16.15 wires it up. Returns `None` if function has fewer than 2 positional params.
 - [ ] **M16.15** Update `analyze_compile_function_with_cache` to construct `CompileFunction`, eliminating `map_or("parser", ...)` fallbacks
 - [ ] **M16.16** Validate: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
