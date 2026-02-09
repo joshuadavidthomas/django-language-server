@@ -40,7 +40,7 @@ All collection functions (`collect_parser_parse_calls`, `collect_skip_past_token
 
 - [x] **M15.13** Define `SplitPosition` enum (`Forward(usize)`, `Backward(usize)`) in `types.rs` with `arg_index()`, `raw()`, `is_tag_name()`, `to_bits_index()` methods
 - [x] **M15.14** Update `RequiredKeyword.position` and `ChoiceAt.position` from `i64` to `SplitPosition`
-- [ ] **M15.15** Update `dataflow/constraints.rs` to emit `SplitPosition` values
+- [x] **M15.15** Update `dataflow/constraints.rs` to emit `SplitPosition` values — already done: M15.13-14 changed field types to `SplitPosition` and added `index_to_split_position` helper; constraints.rs already emits `SplitPosition` for all `RequiredKeyword` and `ChoiceAt` outputs
 - [ ] **M15.16** Evaluate `Index` enum in `domain.rs` — consolidate with or map to `SplitPosition`
 - [ ] **M15.17** Update `djls-semantic/src/rule_evaluation.rs` to use `SplitPosition` methods
 - [ ] **M15.18** Update `dataflow.rs` `extract_arg_names` and any other consumers
