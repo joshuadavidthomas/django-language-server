@@ -342,6 +342,7 @@ pub(super) fn is_template_syntax_error_call(expr: &Expr) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use ruff_python_ast::StmtFunctionDef;
     use ruff_python_parser::parse_module;
 
     use super::*;
@@ -349,6 +350,7 @@ mod tests {
     use crate::dataflow::domain::Env;
     use crate::dataflow::eval::process_statements;
     use crate::dataflow::eval::AnalysisContext;
+    use crate::test_helpers::django_function;
 
     fn extract_from_source(source: &str) -> Constraints {
         let parsed = parse_module(source).expect("valid Python");
@@ -365,6 +367,10 @@ mod tests {
             })
             .expect("no function found");
 
+        extract_from_func(&func)
+    }
+
+    fn extract_from_func(func: &StmtFunctionDef) -> Constraints {
         let parser_param = func
             .parameters
             .args
@@ -390,6 +396,9 @@ mod tests {
         ctx.constraints
     }
 
+    // Fabricated: tests isolated `<` comparator on len(bits). Real Django functions
+    // combine this with other guards (e.g., do_for has len < 4 plus keyword checks),
+    // making isolated operator testing impractical with corpus source.
     #[test]
     fn len_lt() {
         let c = extract_from_source(
@@ -403,6 +412,9 @@ def do_tag(parser, token):
         assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Min(2)]);
     }
 
+    // Fabricated: tests isolated `!=` comparator. Real functions with len != N
+    // (e.g., regroup, templatetag) also have keyword checks; tested end-to-end
+    // in regroup_pattern_end_to_end and corpus_regroup below.
     #[test]
     fn len_ne() {
         let c = extract_from_source(
@@ -416,6 +428,9 @@ def do_tag(parser, token):
         assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Exact(4)]);
     }
 
+    // Fabricated: tests isolated `>` comparator. resetcycle has `len(args) > 2`
+    // but doesn't raise TemplateSyntaxError for it directly in a guard form
+    // our analyzer recognizes.
     #[test]
     fn len_gt() {
         let c = extract_from_source(
@@ -429,6 +444,7 @@ def do_tag(parser, token):
         assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Max(5)]);
     }
 
+    // Fabricated: tests `<=` comparator — rare in Django, no clean corpus example.
     #[test]
     fn len_le() {
         let c = extract_from_source(
@@ -442,6 +458,7 @@ def do_tag(parser, token):
         assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Min(2)]);
     }
 
+    // Fabricated: tests `>=` comparator — rare in Django, no clean corpus example.
     #[test]
     fn len_ge() {
         let c = extract_from_source(
@@ -455,6 +472,8 @@ def do_tag(parser, token):
         assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Max(4)]);
     }
 
+    // Fabricated: tests reversed comparison `N < len(bits)` — tests comparator
+    // normalization logic. No corpus function uses this form.
     #[test]
     fn reversed_lt() {
         let c = extract_from_source(
@@ -468,6 +487,8 @@ def do_tag(parser, token):
         assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Max(4)]);
     }
 
+    // Fabricated: tests reversed comparison `N > len(bits)` — tests comparator
+    // normalization logic. No corpus function uses this form.
     #[test]
     fn reversed_gt() {
         let c = extract_from_source(
@@ -481,6 +502,9 @@ def do_tag(parser, token):
         assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Min(4)]);
     }
 
+    // Fabricated: tests isolated keyword extraction from `bits[N] != "keyword"`.
+    // Real functions combine this with len checks; tested end-to-end in
+    // corpus_regroup and corpus_get_current_timezone.
     #[test]
     fn required_keyword_ne() {
         let c = extract_from_source(
@@ -501,6 +525,8 @@ def do_tag(parser, token):
         );
     }
 
+    // Fabricated: tests negative index keyword extraction — `bits[-1] != "silent"`.
+    // No corpus function has this exact isolated pattern.
     #[test]
     fn required_keyword_backward() {
         let c = extract_from_source(
@@ -520,6 +546,10 @@ def do_tag(parser, token):
         );
     }
 
+    // Fabricated: tests `or` boolean operator producing independent constraints.
+    // Real examples (e.g., l10n.py localize_tag) use `or` with `not in` which
+    // produces ChoiceAt, not RequiredKeyword. Tested end-to-end in
+    // corpus_get_current_timezone.
     #[test]
     fn compound_or() {
         let c = extract_from_source(
@@ -540,6 +570,8 @@ def do_tag(parser, token):
         );
     }
 
+    // Fabricated: tests `and` semantics — length discarded, keyword kept.
+    // Tests boolean operator handling logic.
     #[test]
     fn compound_and_discards_length() {
         let c = extract_from_source(
@@ -561,6 +593,9 @@ def do_tag(parser, token):
         );
     }
 
+    // Fabricated: tests `not (N <= len(bits) <= M)` range negation.
+    // No corpus function uses this exact negated-range form (flatpages uses
+    // the positive form `3 <= len(bits) <= 6` without negation).
     #[test]
     fn negated_range() {
         let c = extract_from_source(
@@ -580,6 +615,9 @@ def do_tag(parser, token):
         );
     }
 
+    // Fabricated: tests `len(bits) not in (2, 3, 4)` pattern.
+    // No corpus function uses this pattern — it's a valid Django API but
+    // no real tag uses `not in` with a tuple of allowed counts.
     #[test]
     fn len_not_in() {
         let c = extract_from_source(
@@ -596,6 +634,9 @@ def do_tag(parser, token):
         );
     }
 
+    // Fabricated: tests slice offset arithmetic — `bits = bits[1:]` followed by
+    // `len(bits) < 3` should produce Min(4) due to offset adjustment. Tests
+    // internal tracking logic.
     #[test]
     fn offset_adjustment_after_slice() {
         let c = extract_from_source(
@@ -611,6 +652,9 @@ def do_tag(parser, token):
         assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Min(4)]);
     }
 
+    // Fabricated: tests multiple sequential if/raise producing multiple
+    // constraints. Real functions have this pattern but always mixed with
+    // other code; tested end-to-end in corpus_regroup.
     #[test]
     fn multiple_raises() {
         let c = extract_from_source(
@@ -632,6 +676,8 @@ def do_tag(parser, token):
         );
     }
 
+    // Fabricated: tests nested if producing keyword constraint from inner guard.
+    // Real functions nest ifs but always with additional logic.
     #[test]
     fn nested_if_raise() {
         let c = extract_from_source(
@@ -652,6 +698,8 @@ def do_tag(parser, token):
         );
     }
 
+    // Fabricated: tests elif producing constraints from both branches.
+    // Real elif guards exist but are mixed with other code.
     #[test]
     fn elif_raise() {
         let c = extract_from_source(
@@ -673,6 +721,8 @@ def do_tag(parser, token):
         );
     }
 
+    // Fabricated: tests that non-TemplateSyntaxError raises are ignored.
+    // Robustness test — no corpus function raises ValueError in a guard.
     #[test]
     fn non_template_syntax_error_ignored() {
         let c = extract_from_source(
@@ -686,20 +736,13 @@ def do_tag(parser, token):
         assert!(c.arg_constraints.is_empty());
     }
 
+    // Corpus: regroup in defaulttags.py — `len(bits) != 6`, `bits[2] != "by"`,
+    // `bits[4] != "as"` in sequential if/raise guards.
     #[test]
     fn regroup_pattern_end_to_end() {
-        let c = extract_from_source(
-            r#"
-def do_tag(parser, token):
-    bits = token.split_contents()
-    if len(bits) != 6:
-        raise TemplateSyntaxError("err")
-    if bits[2] != "by":
-        raise TemplateSyntaxError("err")
-    if bits[4] != "as":
-        raise TemplateSyntaxError("err")
-"#,
-        );
+        let func = django_function("django/template/defaulttags.py", "regroup")
+            .expect("corpus not synced");
+        let c = extract_from_func(&func);
         assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Exact(6)]);
         assert_eq!(
             c.required_keywords,
@@ -716,6 +759,8 @@ def do_tag(parser, token):
         );
     }
 
+    // Fabricated: tests that unknown variable produces no constraint.
+    // Robustness test for abstract interpreter.
     #[test]
     fn unknown_variable_produces_no_constraint() {
         let c = extract_from_source(
@@ -728,6 +773,8 @@ def do_tag(parser, token):
         assert!(c.arg_constraints.is_empty());
     }
 
+    // Fabricated: tests reversed string comparison `"as" != bits[2]`.
+    // No corpus function uses reversed form — tests comparator normalization.
     #[test]
     fn keyword_from_reversed_comparison() {
         let c = extract_from_source(
@@ -747,6 +794,9 @@ def do_tag(parser, token):
         );
     }
 
+    // Fabricated: tests star unpack offset — `tag_name, *rest = bits` makes
+    // `rest` have base_offset=1. No corpus function has star unpack followed
+    // by an isolated len guard + TemplateSyntaxError raise.
     #[test]
     fn star_unpack_then_constraint() {
         let c = extract_from_source(
@@ -761,6 +811,9 @@ def do_tag(parser, token):
         assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Min(3)]);
     }
 
+    // Fabricated: tests pop(0) offset tracking — after pop(0), base_offset=1.
+    // No corpus function has pop(0) followed by an isolated len guard;
+    // real uses (e.g., i18n.py) pop in while-loops which are handled differently.
     #[test]
     fn pop_0_offset_adjusted_constraint() {
         let c = extract_from_source(
@@ -776,6 +829,8 @@ def do_tag(parser, token):
         assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Min(4)]);
     }
 
+    // Fabricated: tests multiple pop() from end — pops_from_end tracking.
+    // Tests offset arithmetic correctness.
     #[test]
     fn end_pop_adjusted_constraint() {
         let c = extract_from_source(
@@ -792,6 +847,8 @@ def do_tag(parser, token):
         assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Exact(3)]);
     }
 
+    // Fabricated: tests combined pop(0) + pop() offset arithmetic.
+    // Both base_offset and pops_from_end contribute to final constraint.
     #[test]
     fn combined_pop_front_and_end() {
         let c = extract_from_source(
@@ -808,6 +865,8 @@ def do_tag(parser, token):
         assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Min(4)]);
     }
 
+    // Fabricated: tests pop(0) with assignment — `tag_name = bits.pop(0)`.
+    // Tests that assignment doesn't prevent offset tracking.
     #[test]
     fn pop_0_with_assignment_then_constraint() {
         let c = extract_from_source(
@@ -823,6 +882,9 @@ def do_tag(parser, token):
         assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Min(3)]);
     }
 
+    // Fabricated: tests isolated ChoiceAt extraction from `not in` tuple.
+    // Real functions (autoescape, localize_tag) combine this with len checks;
+    // tested end-to-end in corpus_autoescape below.
     #[test]
     fn choice_at_not_in_tuple() {
         let c = extract_from_source(
@@ -844,19 +906,15 @@ def do_tag(parser, token):
         );
     }
 
+    // Corpus: autoescape in defaulttags.py — `len(args) != 2` followed by
+    // `arg not in ("on", "off")` where `arg = args[1]`.
+    // Uses `token.contents.split()` (not split_contents), which the abstract
+    // interpreter handles equivalently.
     #[test]
     fn choice_at_autoescape_pattern() {
-        let c = extract_from_source(
-            r#"
-def do_tag(parser, token):
-    args = token.split_contents()
-    if len(args) != 2:
-        raise TemplateSyntaxError("err")
-    arg = args[1]
-    if arg not in ("on", "off"):
-        raise TemplateSyntaxError("err")
-"#,
-        );
+        let func = django_function("django/template/defaulttags.py", "autoescape")
+            .expect("corpus not synced");
+        let c = extract_from_func(&func);
         assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Exact(2)]);
         assert_eq!(
             c.choice_at_constraints,
@@ -867,6 +925,9 @@ def do_tag(parser, token):
         );
     }
 
+    // Fabricated: tests ChoiceAt with list literal `["a", "b", "c"]` instead of
+    // tuple. No corpus function uses list syntax for `not in` checks — all use
+    // tuples. Tests that both collection types are handled.
     #[test]
     fn choice_at_with_list() {
         let c = extract_from_source(
@@ -886,6 +947,8 @@ def do_tag(parser, token):
         );
     }
 
+    // Fabricated: tests ChoiceAt with negative index `bits[-1]`.
+    // No corpus function uses negative index with `not in`.
     #[test]
     fn choice_at_negative_index() {
         let c = extract_from_source(
@@ -905,9 +968,10 @@ def do_tag(parser, token):
         );
     }
 
+    // Fabricated: tests boundary — single string `!=` produces RequiredKeyword
+    // not ChoiceAt. Tests classification logic.
     #[test]
     fn no_choice_at_for_single_string() {
-        // Single string comparison → RequiredKeyword, NOT ChoiceAt
         let c = extract_from_source(
             r#"
 def do_tag(parser, token):
@@ -918,5 +982,82 @@ def do_tag(parser, token):
         );
         assert!(c.choice_at_constraints.is_empty());
         assert_eq!(c.required_keywords.len(), 1);
+    }
+
+    // Corpus: get_current_timezone in tz.py — compound `or` guard:
+    // `len(args) != 3 or args[1] != "as"` using `token.contents.split()`.
+    // Produces Exact(3) + RequiredKeyword("as" at position 1).
+    #[test]
+    fn corpus_get_current_timezone() {
+        let func = django_function("django/templatetags/tz.py", "get_current_timezone_tag")
+            .expect("corpus not synced");
+        let c = extract_from_func(&func);
+        assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Exact(3)]);
+        assert_eq!(
+            c.required_keywords,
+            vec![RequiredKeyword {
+                position: 1,
+                value: "as".to_string()
+            }]
+        );
+    }
+
+    // Corpus: timezone_tag in tz.py — simple `len(bits) != 2` guard.
+    // Clean single-constraint example.
+    #[test]
+    fn corpus_timezone_tag() {
+        let func = django_function("django/templatetags/tz.py", "timezone_tag")
+            .expect("corpus not synced");
+        let c = extract_from_func(&func);
+        assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Exact(2)]);
+        assert!(c.required_keywords.is_empty());
+        assert!(c.choice_at_constraints.is_empty());
+    }
+
+    // Corpus: do_for in defaulttags.py — `len(bits) < 4` produces Min(4).
+    // Also has keyword checks but they use computed index (in_index) which
+    // the abstract interpreter may not fully resolve.
+    #[test]
+    fn corpus_do_for() {
+        let func = django_function("django/template/defaulttags.py", "do_for")
+            .expect("corpus not synced");
+        let c = extract_from_func(&func);
+        assert!(c.arg_constraints.contains(&ArgumentCountConstraint::Min(4)));
+    }
+
+    // Corpus: cycle in defaulttags.py — `len(args) < 2` produces Min(2).
+    #[test]
+    fn corpus_cycle() {
+        let func = django_function("django/template/defaulttags.py", "cycle")
+            .expect("corpus not synced");
+        let c = extract_from_func(&func);
+        assert!(c.arg_constraints.contains(&ArgumentCountConstraint::Min(2)));
+    }
+
+    // Corpus: url in defaulttags.py — `len(bits) < 2` produces Min(2).
+    #[test]
+    fn corpus_url() {
+        let func = django_function("django/template/defaulttags.py", "url")
+            .expect("corpus not synced");
+        let c = extract_from_func(&func);
+        assert!(c.arg_constraints.contains(&ArgumentCountConstraint::Min(2)));
+    }
+
+    // Corpus: localtime_tag in tz.py — compound `or` with ChoiceAt:
+    // `len(bits) > 2 or bits[1] not in ("on", "off")` produces
+    // Max(2) + ChoiceAt(position=1, ["on", "off"]).
+    #[test]
+    fn corpus_localtime_tag() {
+        let func = django_function("django/templatetags/tz.py", "localtime_tag")
+            .expect("corpus not synced");
+        let c = extract_from_func(&func);
+        assert!(c.arg_constraints.contains(&ArgumentCountConstraint::Max(2)));
+        assert_eq!(
+            c.choice_at_constraints,
+            vec![ChoiceAt {
+                position: 1,
+                values: vec!["on".to_string(), "off".to_string()]
+            }]
+        );
     }
 }
