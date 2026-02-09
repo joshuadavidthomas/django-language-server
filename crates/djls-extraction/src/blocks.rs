@@ -1063,6 +1063,7 @@ mod tests {
     use ruff_python_parser::parse_module;
 
     use super::*;
+    use crate::test_helpers::django_function;
 
     fn parse_function(source: &str) -> StmtFunctionDef {
         let parsed = parse_module(source).expect("valid Python");
@@ -1075,38 +1076,22 @@ mod tests {
         panic!("no function definition found in source");
     }
 
-    // Simple end-tag
-
+    // Corpus: verbatim in defaulttags.py — parse(("endverbatim",)) + delete_first_token
     #[test]
     fn simple_end_tag_single_parse() {
-        let source = r#"
-def do_for(parser, token):
-    nodelist = parser.parse(("endfor",))
-    parser.delete_first_token()
-    return ForNode(nodelist)
-"#;
-        let func = parse_function(source);
+        let func = django_function("django/template/defaulttags.py", "verbatim")
+            .expect("corpus not synced");
         let spec = extract_block_spec(&func).expect("should extract block spec");
-        assert_eq!(spec.end_tag.as_deref(), Some("endfor"));
+        assert_eq!(spec.end_tag.as_deref(), Some("endverbatim"));
         assert!(spec.intermediates.is_empty());
         assert!(!spec.opaque);
     }
 
-    // Intermediates (if/elif/else pattern)
-
+    // Corpus: do_if in defaulttags.py — parse(("elif", "else", "endif")) with while/if branches
     #[test]
     fn if_else_intermediates() {
-        let source = r#"
-def do_if(parser, token):
-    nodelist_true = parser.parse(("elif", "else", "endif"))
-    token = parser.next_token()
-    if token.contents == "elif":
-        nodelist_elif = parser.parse(("elif", "else", "endif"))
-    elif token.contents == "else":
-        nodelist_false = parser.parse(("endif",))
-    return IfNode(nodelist_true, nodelist_false)
-"#;
-        let func = parse_function(source);
+        let func = django_function("django/template/defaulttags.py", "do_if")
+            .expect("corpus not synced");
         let spec = extract_block_spec(&func).expect("should extract block spec");
         assert_eq!(spec.end_tag.as_deref(), Some("endif"));
         assert!(spec.intermediates.contains(&"elif".to_string()));
@@ -1114,27 +1099,21 @@ def do_if(parser, token):
         assert!(!spec.opaque);
     }
 
-    // Opaque block (skip_past)
-
+    // Corpus: comment in defaulttags.py — skip_past("endcomment")
     #[test]
     fn opaque_block_skip_past() {
-        let source = r#"
-def do_verbatim(parser, token):
-    parser.skip_past("endverbatim")
-    return VerbatimNode()
-"#;
-        let func = parse_function(source);
+        let func = django_function("django/template/defaulttags.py", "comment")
+            .expect("corpus not synced");
         let spec = extract_block_spec(&func).expect("should extract block spec");
-        assert_eq!(spec.end_tag.as_deref(), Some("endverbatim"));
+        assert_eq!(spec.end_tag.as_deref(), Some("endcomment"));
         assert!(spec.intermediates.is_empty());
         assert!(spec.opaque);
     }
 
-    // Non-conventional closer names (found via control flow)
-
+    // Fabricated: tests non-conventional closer ("done" instead of "end*").
+    // No corpus function uses a non-"end*" closer with a single-token parse call.
     #[test]
     fn non_conventional_closer_found_via_control_flow() {
-        // A tag that uses "done" as end-tag instead of "end*"
         let source = r#"
 def do_repeat(parser, token):
     nodelist = parser.parse(("done",))
@@ -1147,23 +1126,25 @@ def do_repeat(parser, token):
         assert!(spec.intermediates.is_empty());
     }
 
-    // Ambiguous → None
-
+    // Fabricated: tests ambiguous multi-token parse with no control flow clues.
+    // No corpus function has this pattern — real code always has control flow
+    // that disambiguates end-tag vs intermediate.
     #[test]
     fn ambiguous_returns_none_for_end_tag() {
-        // Multiple non-"end*" tokens in a single parse call with no control flow clues
         let source = r#"
 def do_custom(parser, token):
     nodelist = parser.parse(("stop", "halt"))
     return CustomNode(nodelist)
 "#;
         let func = parse_function(source);
-        // Can't determine which is the end-tag without control flow or convention
         assert!(extract_block_spec(&func).is_none());
     }
 
-    // Dynamic f-string end-tags
-
+    // Fabricated: tests f-string in parser.parse() producing dynamic (None) end-tag.
+    // No corpus function puts an f-string directly in parser.parse() — real Django
+    // uses "end%s" % bits[0] (percent formatting) in do_block_translate, or builds
+    // the f-string into a variable first (partialdef_func). This tests the f-string
+    // detection path specifically.
     #[test]
     fn dynamic_fstring_end_tag() {
         let source = r#"
@@ -1175,47 +1156,34 @@ def do_block(parser, token):
 "#;
         let func = parse_function(source);
         let spec = extract_block_spec(&func).expect("should extract block spec");
-        // Dynamic end-tag → end_tag is None (depends on runtime)
         assert!(spec.end_tag.is_none());
         assert!(spec.intermediates.is_empty());
         assert!(!spec.opaque);
     }
 
-    // Multiple parser.parse() chains
-
+    // Corpus: do_for in defaulttags.py — parse(("empty", "endfor")) then
+    // conditional parse(("endfor",))
     #[test]
     fn multiple_parse_calls_classify_correctly() {
-        let source = r#"
-def do_for(parser, token):
-    nodelist_loop = parser.parse(("empty", "endfor"))
-    token = parser.next_token()
-    if token.contents == "empty":
-        nodelist_empty = parser.parse(("endfor",))
-        parser.delete_first_token()
-    return ForNode(nodelist_loop, nodelist_empty)
-"#;
-        let func = parse_function(source);
+        let func = django_function("django/template/defaulttags.py", "do_for")
+            .expect("corpus not synced");
         let spec = extract_block_spec(&func).expect("should extract block spec");
         assert_eq!(spec.end_tag.as_deref(), Some("endfor"));
         assert_eq!(spec.intermediates, vec!["empty".to_string()]);
         assert!(!spec.opaque);
     }
 
-    // No block structure
-
+    // Corpus: now in defaulttags.py — no parser.parse() or skip_past calls
     #[test]
     fn no_parse_calls_returns_none() {
-        let source = r"
-def do_now(parser, token):
-    bits = token.split_contents()
-    return NowNode(bits[1])
-";
-        let func = parse_function(source);
+        let func = django_function("django/template/defaulttags.py", "now")
+            .expect("corpus not synced");
         assert!(extract_block_spec(&func).is_none());
     }
 
-    // self.parser pattern (classytags-like)
-
+    // Fabricated: tests classytags-style self.parser.parse() pattern.
+    // No corpus function uses self.parser — this is a third-party pattern
+    // (classytags, wagtail) not in standard Django.
     #[test]
     fn self_parser_pattern() {
         let source = r#"
@@ -1229,12 +1197,12 @@ def do_block(self, token):
         assert_eq!(spec.end_tag.as_deref(), Some("endblock"));
     }
 
-    // Convention tie-breaker for single-call multi-token
-
+    // Fabricated: tests convention tie-breaker when a single parse() call has
+    // both "end*" and non-"end*" tokens with no control flow. Real Django
+    // functions always have multiple parse calls or control flow that the
+    // classifier uses — this tests the fallback convention path.
     #[test]
     fn convention_tiebreaker_single_call_multi_token() {
-        // Single parse call with both "end*" and non-"end*" tokens.
-        // Convention used as tie-breaker: "endif" → end-tag, "else" → intermediate
         let source = r#"
 def do_if(parser, token):
     nodelist = parser.parse(("else", "endif"))
@@ -1246,114 +1214,46 @@ def do_if(parser, token):
         assert_eq!(spec.intermediates, vec!["else".to_string()]);
     }
 
-    // Django-style with nested elif
-
+    // Corpus: do_block in loader_tags.py — parse(("endblock",)) with next_token
+    // for endblock validation
     #[test]
-    fn django_if_tag_style() {
-        // Full Django if-tag pattern with while loop for multiple elif branches
-        let source = r#"
-def do_if(parser, token):
-    nodelist = parser.parse(("elif", "else", "endif"))
-    token = parser.next_token()
-    while token.contents.startswith("elif"):
-        nodelist_elif = parser.parse(("elif", "else", "endif"))
-        token = parser.next_token()
-    if token.contents == "else":
-        nodelist_else = parser.parse(("endif",))
-        token = parser.next_token()
-    return IfNode(nodelist)
-"#;
-        let func = parse_function(source);
+    fn simple_block_with_endblock_validation() {
+        let func = django_function("django/template/loader_tags.py", "do_block")
+            .expect("corpus not synced");
         let spec = extract_block_spec(&func).expect("should extract block spec");
-        assert_eq!(spec.end_tag.as_deref(), Some("endif"));
-        // Both "elif" and "else" should be intermediates
-        assert!(spec.intermediates.contains(&"elif".to_string()));
-        assert!(spec.intermediates.contains(&"else".to_string()));
+        assert_eq!(spec.end_tag.as_deref(), Some("endblock"));
+        assert!(spec.intermediates.is_empty());
+        assert!(!spec.opaque);
     }
 
-    // Skip past with variable reference
-
-    #[test]
-    fn skip_past_string_constant() {
-        let source = r#"
-def do_comment(parser, token):
-    parser.skip_past("endcomment")
-    return CommentNode()
-"#;
-        let func = parse_function(source);
-        let spec = extract_block_spec(&func).expect("should extract block spec");
-        assert_eq!(spec.end_tag.as_deref(), Some("endcomment"));
-        assert!(spec.opaque);
-    }
-
-    // Function without parser parameter
-
-    #[test]
-    fn no_parameters_returns_none() {
-        let source = r"
-def helper():
-    pass
-";
-        let func = parse_function(source);
-        assert!(extract_block_spec(&func).is_none());
-    }
-
-    // Multiple parse chains via sequential control flow
-
+    // Corpus: spaceless in defaulttags.py — parse(("endspaceless",)) +
+    // delete_first_token
     #[test]
     fn sequential_parse_then_check() {
-        // Pattern: parse → check token → conditional parse
-        let source = r#"
-def do_spaceless(parser, token):
-    nodelist = parser.parse(("endspaceless",))
-    parser.delete_first_token()
-    return SpacelessNode(nodelist)
-"#;
-        let func = parse_function(source);
+        let func = django_function("django/template/defaulttags.py", "spaceless")
+            .expect("corpus not synced");
         let spec = extract_block_spec(&func).expect("should extract block spec");
         assert_eq!(spec.end_tag.as_deref(), Some("endspaceless"));
         assert!(spec.intermediates.is_empty());
     }
 
+    // Corpus: do_block_translate in i18n.py — next_token loop with dynamic
+    // end-tag ("end%s" % bits[0]) and "plural" intermediate
     #[test]
     fn next_token_loop_blocktrans_pattern() {
-        // Django's blocktrans/blocktranslate pattern: manual token iteration
-        let source = r#"
-def do_block_translate(parser, token):
-    bits = token.split_contents()
-    singular = []
-    plural = []
-    while parser.tokens:
-        token = parser.next_token()
-        if token.token_type in (TokenType.VAR, TokenType.TEXT):
-            singular.append(token)
-        else:
-            break
-    if countervar and counter:
-        if token.contents.strip() != "plural":
-            raise TemplateSyntaxError("error")
-        while parser.tokens:
-            token = parser.next_token()
-            if token.token_type in (TokenType.VAR, TokenType.TEXT):
-                plural.append(token)
-            else:
-                break
-    end_tag_name = "end%s" % bits[0]
-    if token.contents.strip() != end_tag_name:
-        raise TemplateSyntaxError("error")
-    return BlockTranslateNode(singular, plural)
-"#;
-        let func = parse_function(source);
+        let func = django_function("django/templatetags/i18n.py", "do_block_translate")
+            .expect("corpus not synced");
         let spec = extract_block_spec(&func).expect("should extract block spec");
-        // Dynamic end-tag ("end%s" % bits[0]) → None
         assert!(spec.end_tag.is_none());
         assert_eq!(spec.intermediates, vec!["plural".to_string()]);
         assert!(!spec.opaque);
     }
 
+    // Fabricated: next_token loop with a static end-tag comparison.
+    // Real Django's do_block_translate uses a dynamic end-tag. This tests
+    // the static end-tag detection path in next_token loops.
     #[test]
     fn next_token_loop_static_end_tag() {
-        // A next_token loop with a static end-tag comparison
         let source = r#"
 def do_custom_block(parser, token):
     content = []
@@ -1374,9 +1274,11 @@ def do_custom_block(parser, token):
         assert!(!spec.opaque);
     }
 
+    // Fabricated: next_token loop with both an intermediate and a static end-tag.
+    // Real Django's do_block_translate has a dynamic end-tag. This tests the
+    // intermediate + static end-tag combination in next_token loops.
     #[test]
     fn next_token_loop_with_intermediate_and_static_end() {
-        // next_token loop with both an intermediate and a static end-tag
         let source = r#"
 def do_custom(parser, token):
     nodes = []
@@ -1404,13 +1306,26 @@ def do_custom(parser, token):
         assert_eq!(spec.intermediates, vec!["middle".to_string()]);
     }
 
+    // Fabricated: function with parser param but no parse/skip_past/next_token calls.
+    // Edge case — tests that a function with no block structure returns None.
     #[test]
     fn no_next_token_loop_no_parse_returns_none() {
-        // Function with no parser.parse() and no next_token loop
         let source = r"
 def do_simple(parser, token):
     bits = token.split_contents()
     return SimpleNode(bits[1])
+";
+        let func = parse_function(source);
+        assert!(extract_block_spec(&func).is_none());
+    }
+
+    // Fabricated: function with no parameters at all returns None.
+    // Edge case — tests the parameter check guard.
+    #[test]
+    fn no_parameters_returns_none() {
+        let source = r"
+def helper():
+    pass
 ";
         let func = parse_function(source);
         assert!(extract_block_spec(&func).is_none());
