@@ -23,7 +23,7 @@
 
 ### Phase 1: Record Baseline + Audit Fabricated Tests
 
-- [ ] **M14.1** Record baseline test counts: run `cargo test -q -p djls-extraction` and `cargo test -q -p djls-extraction --test corpus`, record total test count (pass/fail/ignored), total snapshot count, and corpus test count in this file
+- [x] **M14.1** Record baseline test counts: run `cargo test -q -p djls-extraction` and `cargo test -q -p djls-extraction --test corpus`, record total test count (pass/fail/ignored), total snapshot count, and corpus test count in this file
 - [ ] **M14.2** Audit fabricated Python tests across all extraction source files: categorize each test as (a) has corpus equivalent → replace, (b) pattern is real but no clean isolatable corpus example → keep with comment, or (c) pattern doesn't exist in real code → remove. Record audit results as a section below
 
 ### Phase 2: Create Corpus Test Helpers
@@ -92,6 +92,29 @@ _Tasks not yet expanded. Needs plan file: `.agents/plans/2026-02-09-m19-salsa-in
 **RFC:** `.agents/rfcs/2026-02-09-rfc-extraction-salsa-integration.md`
 
 _Tasks not yet expanded. Needs plan file: `.agents/plans/2026-02-09-m20-rename-crate.md`_
+
+## Baseline (M14.1 — 2026-02-09)
+
+### djls-extraction test counts
+
+| Suite | Passed | Failed | Ignored | Total |
+|-------|--------|--------|---------|-------|
+| Unit tests (`cargo test -q -p djls-extraction --features parser`) | 239 | 0 | 0 | 239 |
+| Corpus integration tests (`--test corpus`) | 2 | 0 | 0 | 2 |
+| **Total** | **241** | **0** | **0** | **241** |
+
+- **Snapshot files:** 210 (in `crates/djls-extraction/`)
+- **Corpus tests:** 2 (integration tests under `tests/corpus/`)
+
+### Full workspace test counts
+
+| Metric | Count |
+|--------|-------|
+| Total passed | 732 |
+| Total failed | 0 |
+| Total ignored | 7 |
+
+All tests green. This is the baseline that every M14-M20 change must maintain.
 
 ## Discoveries
 
