@@ -4,6 +4,95 @@ use serde::Serialize;
 
 use crate::types::SplitPosition;
 
+/// Tracks how a `token.split_contents()` result has been mutated.
+///
+/// Python compile functions commonly pop elements from the front (`bits.pop(0)`)
+/// or back (`bits.pop()`) of the split result, or slice it (`bits[2:]`). These
+/// mutations change the mapping between local indices and original positions.
+///
+/// `TokenSplit` encapsulates this offset arithmetic so callers use methods
+/// instead of manually computing `index + base_offset + pops_from_end`.
+// TODO(M15.22): Remove allow(dead_code) when SplitResult/SplitLength use TokenSplit
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+pub struct TokenSplit {
+    front_offset: usize,
+    back_offset: usize,
+}
+
+#[allow(dead_code)]
+impl TokenSplit {
+    /// A fresh split result with no mutations applied.
+    #[must_use]
+    pub fn fresh() -> Self {
+        Self {
+            front_offset: 0,
+            back_offset: 0,
+        }
+    }
+
+    /// The split after `bits.pop(0)` — removes one element from the front.
+    #[must_use]
+    pub fn after_pop_front(&self) -> Self {
+        Self {
+            front_offset: self.front_offset + 1,
+            back_offset: self.back_offset,
+        }
+    }
+
+    /// The split after `bits.pop()` — removes one element from the back.
+    #[must_use]
+    pub fn after_pop_back(&self) -> Self {
+        Self {
+            front_offset: self.front_offset,
+            back_offset: self.back_offset + 1,
+        }
+    }
+
+    /// The split after `bits = bits[start:]` — shifts the front offset.
+    #[must_use]
+    pub fn after_slice_from(&self, start: usize) -> Self {
+        Self {
+            front_offset: self.front_offset + start,
+            back_offset: self.back_offset,
+        }
+    }
+
+    /// Convert a local index (into the current mutated list) to an original
+    /// `SplitPosition` by adding the front offset.
+    #[must_use]
+    pub fn resolve_index(&self, local: usize) -> SplitPosition {
+        SplitPosition::Forward(self.front_offset + local)
+    }
+
+    /// Convert a local `len()` measurement to the original argument count.
+    ///
+    /// If the mutated list has `local_length` elements, the original had
+    /// `local_length + front_offset + back_offset`.
+    #[must_use]
+    pub fn resolve_length(&self, local_length: usize) -> usize {
+        local_length + self.front_offset + self.back_offset
+    }
+
+    /// The number of elements removed from the front.
+    #[must_use]
+    pub fn front_offset(&self) -> usize {
+        self.front_offset
+    }
+
+    /// The number of elements removed from the back.
+    #[must_use]
+    pub fn back_offset(&self) -> usize {
+        self.back_offset
+    }
+
+    /// Total offset (front + back) for length adjustment.
+    #[must_use]
+    pub fn total_offset(&self) -> usize {
+        self.front_offset + self.back_offset
+    }
+}
+
 /// Abstract representation of a Python value during dataflow analysis.
 ///
 /// Each variant represents a class of runtime values that we can track
@@ -140,5 +229,52 @@ mod tests {
         let mut env = Env::default();
         let mutated = env.mutate("missing", |_| {});
         assert!(!mutated);
+    }
+
+    #[test]
+    fn token_split_fresh() {
+        let ts = TokenSplit::fresh();
+        assert_eq!(ts.front_offset(), 0);
+        assert_eq!(ts.back_offset(), 0);
+        assert_eq!(ts.total_offset(), 0);
+    }
+
+    #[test]
+    fn token_split_pop_front() {
+        let ts = TokenSplit::fresh().after_pop_front();
+        assert_eq!(ts.front_offset(), 1);
+        assert_eq!(ts.back_offset(), 0);
+        assert_eq!(ts.resolve_index(0), SplitPosition::Forward(1));
+        assert_eq!(ts.resolve_length(3), 4);
+    }
+
+    #[test]
+    fn token_split_pop_back() {
+        let ts = TokenSplit::fresh().after_pop_back();
+        assert_eq!(ts.front_offset(), 0);
+        assert_eq!(ts.back_offset(), 1);
+        assert_eq!(ts.resolve_index(0), SplitPosition::Forward(0));
+        assert_eq!(ts.resolve_length(3), 4);
+    }
+
+    #[test]
+    fn token_split_slice_from() {
+        let ts = TokenSplit::fresh().after_slice_from(2);
+        assert_eq!(ts.front_offset(), 2);
+        assert_eq!(ts.resolve_index(0), SplitPosition::Forward(2));
+        assert_eq!(ts.resolve_length(1), 3);
+    }
+
+    #[test]
+    fn token_split_chained_mutations() {
+        let ts = TokenSplit::fresh()
+            .after_pop_front()
+            .after_pop_back()
+            .after_slice_from(1);
+        assert_eq!(ts.front_offset(), 2);
+        assert_eq!(ts.back_offset(), 1);
+        assert_eq!(ts.total_offset(), 3);
+        assert_eq!(ts.resolve_index(0), SplitPosition::Forward(2));
+        assert_eq!(ts.resolve_length(2), 5);
     }
 }
