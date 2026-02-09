@@ -14,7 +14,6 @@ use crate::types::RequiredKeyword;
 use crate::types::SplitPosition;
 use crate::types::TagRule;
 
-#[allow(dead_code)]
 /// Validated representation of a Django template tag compile function.
 ///
 /// Ensures the function has at least two positional parameters (parser and token)
@@ -26,7 +25,6 @@ pub struct CompileFunction<'a> {
     pub name: &'a str,
 }
 
-#[allow(dead_code)]
 impl<'a> CompileFunction<'a> {
     /// Extract a `CompileFunction` from an AST function definition.
     ///
@@ -66,31 +64,29 @@ pub fn analyze_compile_function(
 ///
 /// When analyzing multiple compile functions in the same module, passing
 /// a shared cache avoids re-analyzing helpers called by multiple functions.
+///
+/// Returns `TagRule::default()` (empty, no constraints) if the function has
+/// fewer than 2 positional parameters — such functions cannot be valid Django
+/// template tag compile functions (which require `parser` and `token`).
 #[must_use]
 pub fn analyze_compile_function_with_cache(
     func: &StmtFunctionDef,
     module_funcs: &[&StmtFunctionDef],
     cache: &mut HelperCache,
 ) -> TagRule {
-    let params = &func.parameters;
-    let parser_param = params
-        .args
-        .first()
-        .map_or("parser", |p| p.parameter.name.as_str());
-    let token_param = params
-        .args
-        .get(1)
-        .map_or("token", |p| p.parameter.name.as_str());
+    let Some(compile_fn) = CompileFunction::from_ast(func) else {
+        return TagRule::default();
+    };
 
-    let mut env = domain::Env::for_compile_function(parser_param, token_param);
+    let mut env = domain::Env::for_compile_function(compile_fn.parser_param, compile_fn.token_param);
     let mut ctx = eval::CallContext {
         module_funcs,
-        caller_name: func.name.as_str(),
+        caller_name: compile_fn.name,
         call_depth: 0,
         cache,
     };
 
-    let result = eval::process_statements(&func.body, &mut env, &mut ctx);
+    let result = eval::process_statements(compile_fn.body, &mut env, &mut ctx);
 
     let extracted_args = extract_arg_names(
         &env,
