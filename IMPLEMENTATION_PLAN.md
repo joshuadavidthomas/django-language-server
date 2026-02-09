@@ -43,7 +43,7 @@
 ### Phase 4: Replace Fabricated Tests — Dataflow
 
 - [x] **M14.11** Replace fabricated Python in `src/dataflow/constraints.rs` that models Django guard patterns with corpus-sourced equivalents. 2 tests now use corpus source directly: `regroup_pattern_end_to_end` (regroup from defaulttags.py — exact+keyword pattern) and `choice_at_autoescape_pattern` (autoescape from defaulttags.py — exact+choice_at pattern). 6 new corpus-grounded end-to-end tests added: `corpus_get_current_timezone` (compound or — tz.py), `corpus_timezone_tag` (simple exact — tz.py), `corpus_do_for` (min count — defaulttags.py), `corpus_cycle` (min count — defaulttags.py), `corpus_url` (min count — defaulttags.py), `corpus_localtime_tag` (compound or+choice_at — tz.py). 23 tests kept as fabricated with justification comments — these test isolated constraint extraction rules (individual comparator operators, reversed comparisons, boolean operator handling, offset arithmetic, pop tracking) that are inherently unit-level and cannot be cleanly isolated from real corpus functions. Audit reclassified 14 tests from (a) to (b): the patterns exist in real code but only as part of complex multi-guard functions, making them unsuitable for isolated unit testing. Net +6 tests (245 total)
-- [ ] **M14.12** Replace fabricated Python in `src/dataflow/eval.rs` that models Django compile function patterns with corpus-sourced equivalents. Keep pure unit tests (abstract value arithmetic, env operations) as fabricated with justification
+- [x] **M14.12** Replace fabricated Python in `src/dataflow/eval.rs` that models Django compile function patterns with corpus-sourced equivalents. 4 tests now use corpus source: `option_loop_with_duplicate_check` (do_translate from i18n.py — `seen = set()` duplicate check with "noop", "context", "as" options), `option_loop_include_pattern` (do_include from loader_tags.py — dict-based duplicate check with "with", "only" options), `match_partialdef_pattern` (partialdef_func from defaulttags.py — match with OneOf([2, 3]) constraint), `match_partial_exact` (partial_func from defaulttags.py — match with Exact(2) constraint). 34 tests kept as pure Rust logic (d). 10 tests kept as fabricated with justification comments (b): `parser_token_split_contents` (classytags-style `parser.token` access), `option_loop_basic` (reclassified from (a) — no corpus function has option loop without duplicate check), `option_loop_allows_unknown` (no corpus function allows unknown options), `match_star_pattern_variable_length`, `match_multiple_valid_lengths`, `match_wildcard_overrides_variable_min_to_zero`, `match_wildcard_after_fixed_produces_no_min` (match edge cases), `match_env_updates_propagate`, `while_body_assignments_propagate`, `while_body_pop_side_effects` (env propagation). No test count change (245 total)
 - [ ] **M14.13** Replace fabricated Python in `src/dataflow/calls.rs` with corpus-sourced equivalents (helper function inlining patterns, e.g. allauth parse_tag)
 - [ ] **M14.14** Replace fabricated Python in `src/environment/scan.rs` with corpus-sourced equivalents (AST scanning for registration patterns)
 - [ ] **M14.15** Validate: `cargo test -q -p djls-extraction`, snapshots reviewed, `cargo clippy -q --all-targets --all-features -- -D warnings` clean
@@ -298,13 +298,13 @@ Test abstract interpreter statement/expression evaluation. Many are inherently u
 | `multiple_pops` | (d) | Tests sequence of pops |
 | `len_after_pop` | (d) | Tests `len(bits)` after pop |
 | `len_after_end_pop` | (d) | Tests `len(bits)` after `pop()` |
-| `option_loop_basic` | (a) | While-loop option pattern — models `include` tag in `defaulttags.py` |
-| `option_loop_with_duplicate_check` | (a) | Duplicate option detection — models real Django option parsing |
+| `option_loop_basic` | (b) | Reclassified from (a): no corpus function has option loop without duplicate check — tests simpler permissive code path |
+| `option_loop_with_duplicate_check` | **(a) replaced** | Corpus: do_translate from i18n.py — `seen = set()` duplicate check |
 | `option_loop_allows_unknown` | (b) | Unknown option tolerance — fabricated but tests real behavior |
-| `option_loop_include_pattern` | (a) | Directly models Django's `include` tag option loop |
+| `option_loop_include_pattern` | **(a) replaced** | Corpus: do_include from loader_tags.py — dict-based duplicate check |
 | `no_option_loop_returns_none` | (d) | Edge case — no option loop present |
-| `match_partialdef_pattern` | (a) | Match statement pattern — models Django 5.2+ `match` usage if present |
-| `match_partial_exact` | (b) | Match with exact pattern — keep for completeness |
+| `match_partialdef_pattern` | **(a) replaced** | Corpus: partialdef_func from defaulttags.py — match with OneOf([2, 3]) |
+| `match_partial_exact` | **(a) replaced** | Corpus: partial_func from defaulttags.py — match with Exact(2). Reclassified from (b) to (a) |
 | `match_non_split_result_no_constraints` | (d) | Tests that non-split match produces no constraints |
 | `match_star_pattern_variable_length` | (b) | Star pattern in match — keep |
 | `match_multiple_valid_lengths` | (b) | Multiple case patterns — keep |
@@ -443,7 +443,7 @@ Golden end-to-end tests. These are the highest-value candidates for corpus repla
 | `filters.rs` | 17 | 8 | 9 | 0 | 0 |
 | `signature.rs` | 5 | 4 | 1 | 0 | 0 |
 | `dataflow/constraints.rs` | 37 | 8 | 22 | 0 | 7 |
-| `dataflow/eval.rs` | 48 | 4 | 10 | 0 | 34 |
+| `dataflow/eval.rs` | 48 | 4 | 10 | 0 | 34 | _(M14.12: 4 replaced with corpus, 1 reclassified (a)→(b), 1 reclassified (b)→(a))_ |
 | `dataflow/calls.rs` | 14 | 1 | 5 | 0 | 8 |
 | `dataflow.rs` | 5 | 0 | 0 | 0 | 5 |
 | `environment/scan.rs` | 16 | 0 | 15 | 0 | 1 |

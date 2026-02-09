@@ -32,6 +32,7 @@ mod tests {
     use crate::dataflow::domain::AbstractValue;
     use crate::dataflow::domain::Env;
     use crate::dataflow::domain::Index;
+    use crate::test_helpers::django_function;
 
     fn parse_function(source: &str) -> StmtFunctionDef {
         let parsed = parse_module(source).expect("valid Python");
@@ -117,6 +118,9 @@ def do_tag(parser, token):
         );
     }
 
+    // Fabricated: tests `parser.token.split_contents()` pattern (classytags-
+    // style). Real Django compile functions use `token.split_contents()` but
+    // third-party libraries access token via parser. Keep as unit test. (b)
     #[test]
     fn parser_token_split_contents() {
         let env = eval_body(
@@ -622,6 +626,14 @@ def do_tag(parser, token):
         crate::dataflow::analyze_compile_function(&func, &[])
     }
 
+    fn analyze_func(func: &StmtFunctionDef) -> crate::types::TagRule {
+        crate::dataflow::analyze_compile_function(func, &[])
+    }
+
+    // Fabricated: simple option loop without duplicate check. No corpus
+    // function has an option loop that allows duplicates — real Django tags
+    // always check for duplicates via `if option in options:` or `if option
+    // in seen:`. Keep as unit test for the simpler code path. (b)
     #[test]
     fn option_loop_basic() {
         let rule = analyze(
@@ -645,32 +657,29 @@ def do_tag(parser, token):
         assert!(opts.allow_duplicates);
     }
 
+    // Corpus: do_translate in i18n.py — option loop with `seen = set()`
+    // duplicate check. Options: "noop", "context", "as". Rejects unknown.
     #[test]
     fn option_loop_with_duplicate_check() {
-        let rule = analyze(
-            r#"
-def do_tag(parser, token):
-    bits = token.split_contents()
-    remaining_bits = bits[2:]
-    seen = set()
-    while remaining_bits:
-        option = remaining_bits.pop(0)
-        if option in seen:
-            raise TemplateSyntaxError("duplicate option")
-        elif option == "silent":
-            pass
-        elif option == "cache":
-            pass
-        else:
-            raise TemplateSyntaxError("unknown option")
-"#,
-        );
+        let func = django_function("django/templatetags/i18n.py", "do_translate")
+            .expect("corpus not synced");
+        let rule = analyze_func(&func);
         let opts = rule.known_options.expect("should have known_options");
-        assert_eq!(opts.values, vec!["silent".to_string(), "cache".to_string()]);
+        assert_eq!(
+            opts.values,
+            vec![
+                "noop".to_string(),
+                "context".to_string(),
+                "as".to_string()
+            ]
+        );
         assert!(opts.rejects_unknown);
         assert!(!opts.allow_duplicates);
     }
 
+    // Fabricated: option loop without else/raise — allows unknown options.
+    // No corpus function has this pattern (real Django tags always reject
+    // unknown options). Keep as unit test for permissive code path. (b)
     #[test]
     fn option_loop_allows_unknown() {
         let rule = analyze(
@@ -695,27 +704,18 @@ def do_tag(parser, token):
         assert!(opts.allow_duplicates);
     }
 
+    // Corpus: do_include in loader_tags.py — option loop with dict-based
+    // duplicate check (`if option in options:`). Options: "with", "only".
+    // Rejects unknown, rejects duplicates.
     #[test]
     fn option_loop_include_pattern() {
-        let rule = analyze(
-            r#"
-def do_include(parser, token):
-    bits = token.split_contents()
-    options = {}
-    remaining_bits = bits[2:]
-    while remaining_bits:
-        option = remaining_bits.pop(0)
-        if option == "with":
-            value = remaining_bits.pop(0)
-        elif option == "only":
-            options["only"] = True
-        else:
-            raise TemplateSyntaxError("unknown option")
-"#,
-        );
+        let func = django_function("django/template/loader_tags.py", "do_include")
+            .expect("corpus not synced");
+        let rule = analyze_func(&func);
         let opts = rule.known_options.expect("should have known_options");
         assert_eq!(opts.values, vec!["with".to_string(), "only".to_string()]);
         assert!(opts.rejects_unknown);
+        assert!(!opts.allow_duplicates);
     }
 
     #[test]
@@ -731,24 +731,14 @@ def do_tag(parser, token):
         assert!(rule.known_options.is_none());
     }
 
+    // Corpus: partialdef_func in defaulttags.py — match statement with
+    // multiple case arms of different lengths (2 and 3 elements), producing
+    // OneOf([2, 3]) constraint. Django 6.0+ match-based tag parsing.
     #[test]
     fn match_partialdef_pattern() {
-        let rule = analyze(
-            r#"
-def partialdef_func(parser, token):
-    match token.split_contents():
-        case "partialdef", partial_name, "inline":
-            inline = True
-        case "partialdef", partial_name, _:
-            raise TemplateSyntaxError("bad")
-        case "partialdef", partial_name:
-            inline = False
-        case ["partialdef"]:
-            raise TemplateSyntaxError("bad")
-        case _:
-            raise TemplateSyntaxError("bad")
-"#,
-        );
+        let func = django_function("django/template/defaulttags.py", "partialdef_func")
+            .expect("corpus not synced");
+        let rule = analyze_func(&func);
         assert!(
             rule.arg_constraints
                 .contains(&crate::types::ArgumentCountConstraint::OneOf(vec![2, 3])),
@@ -757,18 +747,14 @@ def partialdef_func(parser, token):
         );
     }
 
+    // Corpus: partial_func in defaulttags.py — match statement with a
+    // single fixed-length case (2 elements) + wildcard error, producing
+    // Exact(2) constraint.
     #[test]
     fn match_partial_exact() {
-        let rule = analyze(
-            r#"
-def partial_func(parser, token):
-    match token.split_contents():
-        case "partial", partial_name:
-            pass
-        case _:
-            raise TemplateSyntaxError("bad")
-"#,
-        );
+        let func = django_function("django/template/defaulttags.py", "partial_func")
+            .expect("corpus not synced");
+        let rule = analyze_func(&func);
         assert!(
             rule.arg_constraints
                 .contains(&crate::types::ArgumentCountConstraint::Exact(2)),
@@ -796,6 +782,9 @@ def do_tag(parser, token):
         );
     }
 
+    // Fabricated: match with star pattern (`case "tag", *rest:`). No corpus
+    // function uses star patterns in match arms currently. Keep as unit test
+    // for variable-length match handling. (b)
     #[test]
     fn match_star_pattern_variable_length() {
         let rule = analyze(
@@ -816,6 +805,9 @@ def do_tag(parser, token):
         );
     }
 
+    // Fabricated: match with multiple fixed-length non-error arms of
+    // different sizes (2 and 4 elements). Tests OneOf constraint from
+    // match. No corpus function has this exact pattern. (b)
     #[test]
     fn match_multiple_valid_lengths() {
         let rule = analyze(
@@ -857,6 +849,8 @@ def do_tag(parser, token):
         );
     }
 
+    // Fabricated: wildcard match arm overrides variable-length minimum.
+    // Tests that `case _: pass` (non-error) removes Min constraint. (b)
     #[test]
     fn match_wildcard_overrides_variable_min_to_zero() {
         // When a Variable arm (min_len=2) appears before a non-error Wildcard,
@@ -884,6 +878,8 @@ def do_tag(parser, token):
         );
     }
 
+    // Fabricated: non-error wildcard after fixed-length arm prevents Min
+    // constraint. Tests wildcard catch-all semantics in match. (b)
     #[test]
     fn match_wildcard_after_fixed_produces_no_min() {
         // A non-error wildcard means any length is valid, so even fixed-length
