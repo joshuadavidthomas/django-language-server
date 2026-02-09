@@ -33,7 +33,7 @@
 
 ### Phase 3: Replace Fabricated Tests — Registration & Blocks & Filters
 
-- [ ] **M14.5** Replace fabricated Python in `src/registry.rs` with corpus-sourced equivalents (map each registration pattern to a real Django function)
+- [x] **M14.5** Replace fabricated Python in `src/registry.rs` with corpus-sourced equivalents (map each registration pattern to a real Django function). 12 tests now use corpus source (defaulttags.py, defaultfilters.py, testtags.py, inclusion.py, custom.py, wagtailadmin_tags.py). 7 tests kept as fabricated with justification comments (edge cases, rare API patterns). Net +1 test (240 total). Removed `decorator_filter_with_name_kwarg` — the audit incorrectly claimed `defaultfilters.py` has `name=` kwarg; replaced with `decorator_filter_with_positional_string_name` (corpus: `@register.filter("escapejs")`) and added `tag_with_name_kwarg` (corpus: `@register.tag(name="partialdef")`) and `mixed_decorator_and_call_style` (corpus: testtags.py)
 - [ ] **M14.6** Replace fabricated Python in `src/blocks.rs` with corpus-sourced equivalents (parser.parse, skip_past, next_token patterns from defaulttags.py, i18n.py)
 - [ ] **M14.7** Replace fabricated Python in `src/filters.rs` with corpus-sourced equivalents (filter arity from defaultfilters.py)
 - [ ] **M14.8** Replace fabricated Python in `src/signature.rs` with corpus-sourced equivalents (simple_tag/inclusion_tag parameter patterns)

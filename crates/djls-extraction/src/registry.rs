@@ -408,6 +408,7 @@ fn callable_name(expr: &Expr) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_helpers::django_source;
 
     fn collect_registrations(source: &str) -> Vec<RegistrationInfo> {
         let parsed = ruff_python_parser::parse_module(source).expect("valid Python");
@@ -415,129 +416,192 @@ mod tests {
         collect_registrations_from_body(&module.body)
     }
 
+    fn find_reg<'a>(regs: &'a [RegistrationInfo], name: &str) -> &'a RegistrationInfo {
+        regs.iter()
+            .find(|r| r.name == name)
+            .unwrap_or_else(|| panic!("registration '{name}' not found"))
+    }
+
+    // Corpus: `autoescape` in django/template/defaulttags.py uses `@register.tag` (bare)
     #[test]
     fn decorator_bare_tag() {
-        let source = r"
-from django import template
-register = template.Library()
-
-@register.tag
-def my_tag(parser, token):
-    pass
-";
-        let regs = collect_registrations(source);
-        assert_eq!(regs.len(), 1);
-        assert_eq!(regs[0].name, "my_tag");
-        assert_eq!(regs[0].kind, RegistrationKind::Tag);
-        assert_eq!(regs[0].func_name.as_deref(), Some("my_tag"));
+        let source = django_source("django/template/defaulttags.py")
+            .expect("corpus not synced");
+        let regs = collect_registrations(&source);
+        let reg = find_reg(&regs, "autoescape");
+        assert_eq!(reg.kind, RegistrationKind::Tag);
+        assert_eq!(reg.func_name.as_deref(), Some("autoescape"));
     }
 
+    // Corpus: `querystring` in django/template/defaulttags.py uses
+    // `@register.simple_tag(name="querystring", takes_context=True)`
     #[test]
     fn decorator_simple_tag_with_name_kwarg() {
-        let source = r#"
-from django import template
-register = template.Library()
-
-@register.simple_tag(name="greeting")
-def hello(name):
-    return f"Hello, {name}!"
-"#;
-        let regs = collect_registrations(source);
-        assert_eq!(regs.len(), 1);
-        assert_eq!(regs[0].name, "greeting");
-        assert_eq!(regs[0].kind, RegistrationKind::SimpleTag);
-        assert_eq!(regs[0].func_name.as_deref(), Some("hello"));
+        let source = django_source("django/template/defaulttags.py")
+            .expect("corpus not synced");
+        let regs = collect_registrations(&source);
+        let reg = find_reg(&regs, "querystring");
+        assert_eq!(reg.kind, RegistrationKind::SimpleTag);
+        assert_eq!(reg.func_name.as_deref(), Some("querystring"));
     }
 
+    // Corpus: `inclusion_no_params` in tests/template_tests/templatetags/inclusion.py uses
+    // `@register.inclusion_tag("inclusion.html")`
     #[test]
     fn decorator_inclusion_tag() {
-        let source = r#"
-from django import template
-register = template.Library()
-
-@register.inclusion_tag("results.html")
-def show_results(poll):
-    return {"choices": poll.choice_set.all()}
-"#;
-        let regs = collect_registrations(source);
-        assert_eq!(regs.len(), 1);
-        assert_eq!(regs[0].name, "show_results");
-        assert_eq!(regs[0].kind, RegistrationKind::InclusionTag);
+        let source = django_source("tests/template_tests/templatetags/inclusion.py")
+            .expect("corpus not synced");
+        let regs = collect_registrations(&source);
+        let reg = find_reg(&regs, "inclusion_no_params");
+        assert_eq!(reg.kind, RegistrationKind::InclusionTag);
     }
 
+    // Corpus: `cut` in django/template/defaultfilters.py uses `@register.filter` (bare)
     #[test]
     fn decorator_filter_bare() {
-        let source = r#"
-from django import template
-register = template.Library()
-
-@register.filter
-def cut(value, arg):
-    return value.replace(arg, "")
-"#;
-        let regs = collect_registrations(source);
-        assert_eq!(regs.len(), 1);
-        assert_eq!(regs[0].name, "cut");
-        assert_eq!(regs[0].kind, RegistrationKind::Filter);
+        let source = django_source("django/template/defaultfilters.py")
+            .expect("corpus not synced");
+        let regs = collect_registrations(&source);
+        let reg = find_reg(&regs, "cut");
+        assert_eq!(reg.kind, RegistrationKind::Filter);
     }
 
+    // Corpus: `escapejs` in django/template/defaultfilters.py uses
+    // `@register.filter("escapejs")` — positional string name, func is `escapejs_filter`
     #[test]
-    fn decorator_filter_with_name_kwarg() {
-        let source = r#"
-from django import template
-register = template.Library()
-
-@register.filter(name="mycut")
-def cut(value, arg):
-    return value.replace(arg, "")
-"#;
-        let regs = collect_registrations(source);
-        assert_eq!(regs.len(), 1);
-        assert_eq!(regs[0].name, "mycut");
-        assert_eq!(regs[0].kind, RegistrationKind::Filter);
+    fn decorator_filter_with_positional_string_name() {
+        let source = django_source("django/template/defaultfilters.py")
+            .expect("corpus not synced");
+        let regs = collect_registrations(&source);
+        let reg = find_reg(&regs, "escapejs");
+        assert_eq!(reg.kind, RegistrationKind::Filter);
+        assert_eq!(reg.func_name.as_deref(), Some("escapejs_filter"));
     }
 
+    // Corpus: `other_echo` in tests/template_tests/templatetags/testtags.py uses
+    // `register.tag("other_echo", echo)` — call-style registration
     #[test]
     fn call_style_tag_registration() {
-        let source = r#"
-from django import template
-register = template.Library()
-
-def do_for(parser, token):
-    pass
-
-register.tag("for", do_for)
-"#;
-        let regs = collect_registrations(source);
-        // Should find both: the function def (no decorators) and the call-style registration
-        // Only the call-style produces a registration since do_for has no decorators
-        let tag_regs: Vec<_> = regs
-            .iter()
-            .filter(|r| r.kind == RegistrationKind::Tag)
-            .collect();
-        assert_eq!(tag_regs.len(), 1);
-        assert_eq!(tag_regs[0].name, "for");
-        assert_eq!(tag_regs[0].func_name.as_deref(), Some("do_for"));
+        let source = django_source("tests/template_tests/templatetags/testtags.py")
+            .expect("corpus not synced");
+        let regs = collect_registrations(&source);
+        let reg = find_reg(&regs, "other_echo");
+        assert_eq!(reg.kind, RegistrationKind::Tag);
+        assert_eq!(reg.func_name.as_deref(), Some("echo"));
     }
 
+    // Corpus: `intcomma` in wagtail/admin/templatetags/wagtailadmin_tags.py uses
+    // `register.filter("intcomma", intcomma)` — call-style filter registration
     #[test]
     fn call_style_filter_registration() {
-        let source = r#"
-from django import template
-register = template.Library()
-
-def my_func(value):
-    return value.upper()
-
-register.filter("upper_it", my_func)
-"#;
-        let regs = collect_registrations(source);
-        assert_eq!(regs.len(), 1);
-        assert_eq!(regs[0].name, "upper_it");
-        assert_eq!(regs[0].kind, RegistrationKind::Filter);
-        assert_eq!(regs[0].func_name.as_deref(), Some("my_func"));
+        let source = crate::test_helpers::corpus_source(
+            "packages/wagtail/7.3/wagtail/admin/templatetags/wagtailadmin_tags.py",
+        )
+        .expect("corpus not synced");
+        let regs = collect_registrations(&source);
+        let reg = find_reg(&regs, "intcomma");
+        assert_eq!(reg.kind, RegistrationKind::Filter);
+        assert_eq!(reg.func_name.as_deref(), Some("intcomma"));
     }
 
+    // Corpus: `for` in django/template/defaulttags.py uses `@register.tag("for")`
+    // — positional string name overrides function name `do_for`
+    #[test]
+    fn tag_with_positional_string_name() {
+        let source = django_source("django/template/defaulttags.py")
+            .expect("corpus not synced");
+        let regs = collect_registrations(&source);
+        let reg = find_reg(&regs, "for");
+        assert_eq!(reg.kind, RegistrationKind::Tag);
+        assert_eq!(reg.func_name.as_deref(), Some("do_for"));
+    }
+
+    // Corpus: `addslashes` in django/template/defaultfilters.py uses
+    // `@register.filter(is_safe=True)` — name defaults to function name
+    #[test]
+    fn filter_with_is_safe_kwarg() {
+        let source = django_source("django/template/defaultfilters.py")
+            .expect("corpus not synced");
+        let regs = collect_registrations(&source);
+        let reg = find_reg(&regs, "addslashes");
+        assert_eq!(reg.kind, RegistrationKind::Filter);
+        assert_eq!(reg.func_name.as_deref(), Some("addslashes"));
+    }
+
+    // Corpus: `partialdef` in django/template/defaulttags.py uses
+    // `@register.tag(name="partialdef")` — name kwarg overrides func name `partialdef_func`
+    #[test]
+    fn tag_with_name_kwarg() {
+        let source = django_source("django/template/defaulttags.py")
+            .expect("corpus not synced");
+        let regs = collect_registrations(&source);
+        let reg = find_reg(&regs, "partialdef");
+        assert_eq!(reg.kind, RegistrationKind::Tag);
+        assert_eq!(reg.func_name.as_deref(), Some("partialdef_func"));
+    }
+
+    // Corpus: `dialog` in wagtail/admin/templatetags/wagtailadmin_tags.py uses
+    // `register.tag("dialog", DialogNode.handle)` — call-style with method callable
+    #[test]
+    fn call_style_tag_with_method_callable() {
+        let source = crate::test_helpers::corpus_source(
+            "packages/wagtail/7.3/wagtail/admin/templatetags/wagtailadmin_tags.py",
+        )
+        .expect("corpus not synced");
+        let regs = collect_registrations(&source);
+        let reg = find_reg(&regs, "dialog");
+        assert_eq!(reg.kind, RegistrationKind::Tag);
+        assert_eq!(reg.func_name.as_deref(), Some("DialogNode.handle"));
+    }
+
+    // Corpus: `div` in tests/template_tests/templatetags/custom.py uses
+    // `@register.simple_block_tag` (bare decorator)
+    #[test]
+    fn simple_block_tag_decorator() {
+        let source = django_source("tests/template_tests/templatetags/custom.py")
+            .expect("corpus not synced");
+        let regs = collect_registrations(&source);
+        let reg = find_reg(&regs, "div");
+        assert_eq!(reg.kind, RegistrationKind::SimpleBlockTag);
+    }
+
+    // Corpus: defaulttags.py has many registrations (tags + simple_tags)
+    #[test]
+    fn multiple_registrations() {
+        let source = django_source("django/template/defaulttags.py")
+            .expect("corpus not synced");
+        let regs = collect_registrations(&source);
+        assert!(
+            regs.len() > 10,
+            "expected many registrations in defaulttags.py, got {}",
+            regs.len()
+        );
+        let tags: Vec<_> = regs.iter().filter(|r| r.kind == RegistrationKind::Tag).collect();
+        assert!(
+            tags.len() > 5,
+            "expected multiple Tag registrations, got {}",
+            tags.len()
+        );
+        assert!(regs.iter().any(|r| r.name == "for"));
+        assert!(regs.iter().any(|r| r.name == "if"));
+        assert!(regs.iter().any(|r| r.name == "autoescape"));
+    }
+
+    // Corpus: testtags.py has decorator @register.tag + call-style register.tag
+    // Tests that both decorator and call-style registrations are discovered
+    #[test]
+    fn mixed_decorator_and_call_style() {
+        let source = django_source("tests/template_tests/templatetags/testtags.py")
+            .expect("corpus not synced");
+        let regs = collect_registrations(&source);
+        let tag_regs: Vec<_> = regs.iter().filter(|r| r.kind == RegistrationKind::Tag).collect();
+        assert_eq!(tag_regs.len(), 2);
+        assert!(tag_regs.iter().any(|r| r.name == "echo"));
+        assert!(tag_regs.iter().any(|r| r.name == "other_echo"));
+    }
+
+    // Edge case: @register.tag() with empty parens — function name used as tag name.
+    // Corpus: no clean isolatable example of empty parens (all corpus uses bare or with args).
     #[test]
     fn function_name_fallback() {
         let source = r"
@@ -554,68 +618,8 @@ def current_time(parser, token):
         assert_eq!(regs[0].kind, RegistrationKind::Tag);
     }
 
-    #[test]
-    fn multiple_registrations() {
-        let source = r#"
-from django import template
-register = template.Library()
-
-@register.tag
-def my_tag(parser, token):
-    pass
-
-@register.simple_tag
-def greeting():
-    return "Hello"
-
-@register.filter
-def lower_it(value):
-    return value.lower()
-
-register.tag("explicit", do_explicit)
-"#;
-        let regs = collect_registrations(source);
-        assert_eq!(regs.len(), 4);
-        assert_eq!(regs[0].name, "my_tag");
-        assert_eq!(regs[0].kind, RegistrationKind::Tag);
-        assert_eq!(regs[1].name, "greeting");
-        assert_eq!(regs[1].kind, RegistrationKind::SimpleTag);
-        assert_eq!(regs[2].name, "lower_it");
-        assert_eq!(regs[2].kind, RegistrationKind::Filter);
-        assert_eq!(regs[3].name, "explicit");
-        assert_eq!(regs[3].kind, RegistrationKind::Tag);
-    }
-
-    #[test]
-    fn tag_with_positional_string_name() {
-        let source = r#"
-from django import template
-register = template.Library()
-
-@register.tag("custom_name")
-def my_tag(parser, token):
-    pass
-"#;
-        let regs = collect_registrations(source);
-        assert_eq!(regs.len(), 1);
-        assert_eq!(regs[0].name, "custom_name");
-        assert_eq!(regs[0].kind, RegistrationKind::Tag);
-    }
-
-    #[test]
-    fn call_style_tag_with_method_callable() {
-        let source = r#"
-from django import template
-register = template.Library()
-
-register.tag("for", ForNode.handle)
-"#;
-        let regs = collect_registrations(source);
-        assert_eq!(regs.len(), 1);
-        assert_eq!(regs[0].name, "for");
-        assert_eq!(regs[0].func_name.as_deref(), Some("ForNode.handle"));
-    }
-
+    // Edge case: register.simple_tag(my_func, name="alias") — call-style with func positional
+    // and name kwarg. Rare pattern, not found cleanly in corpus.
     #[test]
     fn simple_tag_func_positional() {
         let source = r#"
@@ -632,27 +636,12 @@ register.simple_tag(my_func, name="alias")
     }
 
     #[test]
-    fn simple_block_tag_decorator() {
-        let source = r#"
-from django import template
-register = template.Library()
-
-@register.simple_block_tag
-def my_block(content):
-    return f"<div>{content}</div>"
-"#;
-        let regs = collect_registrations(source);
-        assert_eq!(regs.len(), 1);
-        assert_eq!(regs[0].name, "my_block");
-        assert_eq!(regs[0].kind, RegistrationKind::SimpleBlockTag);
-    }
-
-    #[test]
     fn empty_source() {
         let regs = collect_registrations("");
         assert!(regs.is_empty());
     }
 
+    // Edge case: source with no registration patterns
     #[test]
     fn no_registrations() {
         let source = r"
@@ -666,38 +655,8 @@ class MyClass:
         assert!(regs.is_empty());
     }
 
-    #[test]
-    fn filter_with_positional_string_name() {
-        let source = r#"
-from django import template
-register = template.Library()
-
-@register.filter("custom_filter")
-def my_filter(value):
-    return value
-"#;
-        let regs = collect_registrations(source);
-        assert_eq!(regs.len(), 1);
-        assert_eq!(regs[0].name, "custom_filter");
-        assert_eq!(regs[0].kind, RegistrationKind::Filter);
-    }
-
-    #[test]
-    fn filter_with_is_safe_kwarg() {
-        let source = r"
-from django import template
-register = template.Library()
-
-@register.filter(is_safe=True)
-def my_filter(value):
-    return value
-";
-        let regs = collect_registrations(source);
-        assert_eq!(regs.len(), 1);
-        assert_eq!(regs[0].name, "my_filter");
-        assert_eq!(regs[0].kind, RegistrationKind::Filter);
-    }
-
+    // Edge case: register.tag(do_something) — single func arg, no name string.
+    // Valid Django API but rare. Not found cleanly in corpus.
     #[test]
     fn call_style_single_func_no_name() {
         let source = r"
@@ -712,6 +671,8 @@ register.tag(do_something)
         assert_eq!(regs[0].kind, RegistrationKind::Tag);
     }
 
+    // Edge case: register.filter(my_filter_func) — single func arg, no name string.
+    // Valid Django API but rare. Not found cleanly in corpus.
     #[test]
     fn call_style_filter_single_func_no_name() {
         let source = r"
@@ -726,6 +687,8 @@ register.filter(my_filter_func)
         assert_eq!(regs[0].kind, RegistrationKind::Filter);
     }
 
+    // Edge case: name kwarg overrides positional string arg.
+    // Tests priority: name= kwarg wins over positional string.
     #[test]
     fn name_kwarg_overrides_positional_for_tag() {
         let source = r#"
