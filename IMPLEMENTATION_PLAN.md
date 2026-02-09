@@ -10,7 +10,7 @@
 |-----------|--------|-------------|
 | M14 | **done** | Test baseline + corpus-grounded tests |
 | M15 | **done** | Return values, not mutation (+ domain types T1-T4) |
-| M16 | **planned** | Split god-context (+ CompileFunction, OptionLoop) |
+| M16 | **in progress** | Split god-context (+ CompileFunction, OptionLoop) |
 | M17 | stub | Decompose blocks.rs into strategy modules |
 | M18 | stub | Move environment scanning to djls-project |
 | M19 | stub | HelperCache → Salsa tracked functions |
@@ -18,41 +18,28 @@
 
 ## M14 — Test baseline + corpus-grounded tests ✅
 
-Replaced 55 fabricated tests with corpus-sourced equivalents. Cleaned 25 orphaned snapshot files (210→185). Final: 247 unit + 2 corpus tests.
+Replaced fabricated tests with corpus-sourced equivalents. Cleaned orphaned snapshots. See git history for details.
 
 ## M15 — Return values, not mutation (+ domain types T1-T4) ✅
 
-Six phases completed. Key changes:
-- **Phase 1**: `Constraints` → `ConstraintSet` with algebraic `or()`/`and()`/`extend()`. All constraint eval functions return values.
-- **Phase 2**: All `blocks.rs` collection functions return values instead of `&mut` params. Added `Classification` struct.
-- **Phase 3**: `SplitPosition` enum (`Forward(usize)`, `Backward(usize)`) replaces raw `i64` positions. `Index` enum removed.
-- **Phase 4**: `TokenSplit` type encapsulates split offset arithmetic. Replaces manual `base_offset + pops_from_end` math.
-- **Phase 5**: `Guard` type skipped (single call site, not worth the abstraction).
-- **Phase 6**: Final validation — 745 tests pass, public API unchanged.
+All eval/collection functions return values instead of mutating `&mut` params. New domain types: `ConstraintSet`, `Classification`, `SplitPosition`, `TokenSplit`. See git history for details.
 
 ## M16 — Split god-context (+ CompileFunction, OptionLoop)
 
 **Design docs:** `docs/dev/extraction-refactor-plan.md` (Phase 2)
 **Plan file:** `.agents/plans/2026-02-09-m16-split-context.md`
 
-### Phase 1: Introduce `AnalysisResult` and make `process_statements` return it
+### Phase 1: Introduce `AnalysisResult` and make `process_statements` return it ✅
 
-- [x] **M16.1** Define `AnalysisResult { constraints: ConstraintSet, known_options: Option<KnownOptions> }` in `eval.rs` with `extend()` method for merging — added `#[derive(Default)]`, `#[allow(dead_code)]` until M16.2 wires it up
-- [x] **M16.2** Change `process_statement` to return `AnalysisResult` — each arm returns its accumulated constraints/options instead of mutating `ctx`. Arms that directly set `ctx.constraints` or `ctx.known_options` (If, While, Match) now populate a local `AnalysisResult` instead. `process_statements` merges each statement's result into `ctx`. Recursive `process_statements` calls within arms still accumulate into `ctx` directly (will be addressed in M16.3-M16.6).
-- [x] **M16.3** Adapt `Stmt::If` arm: collect body/elif results as `AnalysisResult`, discard keywords via `clear()` on returned results instead of `truncate()` on ctx — added `collect_statements_result()` helper that swaps ctx accumulator fields to capture sub-statement results independently
-- [x] **M16.4** Adapt `Stmt::While` arm: use `collect_statements_result` for else-branch body, merge results into returned `AnalysisResult` (option loop path already returned via `result.known_options`)
-- [x] **M16.5** Adapt `Stmt::Match` arm: merge `extract_match_constraints` result into returned `AnalysisResult` — used `collect_statements_result` for case bodies, consistent with If/While arms
-- [x] **M16.6–M16.10** `process_statements` returns `AnalysisResult`; `constraints` and `known_options` removed from `AnalysisContext`; all callers updated — these tasks were atomic (removing ctx fields requires updating all callers simultaneously for compilation). `collect_statements_result` eliminated; `For`/`Try`/`With` arms now merge returned results explicitly. `resolve_call` in `calls.rs` discards callee results (helper analysis is for return values, not constraints). All 745 tests pass.
+- [x] **M16.1–M16.10** `AnalysisResult` introduced; `process_statements` returns it; `constraints` and `known_options` removed from context struct. All statement arms (If, While, Match, For, Try, With) return results instead of mutating ctx.
 
-### Phase 2: Rename `AnalysisContext` → `CallContext`
+### Phase 2: Rename `AnalysisContext` → `CallContext` ✅
 
-- [x] **M16.11** Rename `AnalysisContext` to `CallContext` in `eval.rs`, update all imports and references across `statements.rs`, `expressions.rs`, `calls.rs`, `constraints.rs`, `dataflow.rs`
-- [x] **M16.12** Update doc comments to reflect narrower purpose (call resolution context, not analysis accumulator) — done as part of M16.11 rename
-- [x] **M16.13** Validate: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q` — all green (745 passed, 0 failed, 7 ignored)
+- [x] **M16.11–M16.13** Renamed and validated. 745 tests pass.
 
 ### Phase 3: Introduce `CompileFunction` validated input type
 
-- [x] **M16.14** Define `CompileFunction<'a>` with `from_ast(func: &StmtFunctionDef) -> Option<Self>` constructor — added in `dataflow.rs` with `#[allow(dead_code)]` until M16.15 wires it up. Returns `None` if function has fewer than 2 positional params.
+- [x] **M16.14** Define `CompileFunction<'a>` with `from_ast` constructor in `dataflow.rs`. Returns `None` if function has fewer than 2 positional params.
 - [ ] **M16.15** Update `analyze_compile_function_with_cache` to construct `CompileFunction`, eliminating `map_or("parser", ...)` fallbacks
 - [ ] **M16.16** Validate: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
@@ -91,28 +78,9 @@ _Tasks not yet expanded. Needs plan file: `.agents/plans/2026-02-09-m19-salsa-in
 
 _Tasks not yet expanded. Needs plan file: `.agents/plans/2026-02-09-m20-rename-crate.md`_
 
-## Baseline (M14.1 — 2026-02-09)
+## Baseline (M14.1)
 
-### djls-extraction test counts
-
-| Suite | Passed | Failed | Ignored | Total |
-|-------|--------|--------|---------|-------|
-| Unit tests (`cargo test -q -p djls-extraction --features parser`) | 239 | 0 | 0 | 239 |
-| Corpus integration tests (`--test corpus`) | 2 | 0 | 0 | 2 |
-| **Total** | **241** | **0** | **0** | **241** |
-
-- **Snapshot files:** 210 (in `crates/djls-extraction/`)
-- **Corpus tests:** 2 (integration tests under `tests/corpus/`)
-
-### Full workspace test counts
-
-| Metric | Count |
-|--------|-------|
-| Total passed | 732 |
-| Total failed | 0 |
-| Total ignored | 7 |
-
-All tests green. This is the baseline that every M14-M20 change must maintain.
+Starting point: 732 workspace tests (241 in djls-extraction). Every M14-M20 change must maintain all green.
 
 ## Current Test Counts (M15 complete)
 
@@ -125,6 +93,3 @@ All tests green. This is the baseline that every M14-M20 change must maintain.
 
 Snapshot files: 185
 
-## Discoveries
-
-- **Corpus vs fabricated**: Real Django functions don't always match assumed patterns. Always verify corpus function signatures before replacing tests.
