@@ -17,39 +17,19 @@ use crate::dataflow::domain::AbstractValue;
 use crate::dataflow::domain::Env;
 use crate::types::SplitPosition;
 
-/// Process a list of statements, updating the environment.
-pub fn process_statements(stmts: &[Stmt], env: &mut Env, ctx: &mut AnalysisContext<'_>) {
-    for stmt in stmts {
-        let result = process_statement(stmt, env, ctx);
-        ctx.constraints.extend(result.constraints);
-        if result.known_options.is_some() {
-            ctx.known_options = result.known_options;
-        }
-    }
-}
-
-/// Process statements and return the accumulated results as an `AnalysisResult`
-/// instead of merging them into `ctx.constraints`/`ctx.known_options`.
-///
-/// Temporarily swaps `ctx` accumulator fields so that recursive calls through
-/// `process_statements` accumulate into a fresh set, which is then captured
-/// and the originals restored.
-fn collect_statements_result(
+/// Process a list of statements, updating the environment and returning
+/// accumulated analysis results.
+pub fn process_statements(
     stmts: &[Stmt],
     env: &mut Env,
     ctx: &mut AnalysisContext<'_>,
 ) -> AnalysisResult {
-    use std::mem;
-
-    let saved_constraints = mem::take(&mut ctx.constraints);
-    let saved_options = ctx.known_options.take();
-
-    process_statements(stmts, env, ctx);
-
-    AnalysisResult {
-        constraints: mem::replace(&mut ctx.constraints, saved_constraints),
-        known_options: mem::replace(&mut ctx.known_options, saved_options),
+    let mut combined = AnalysisResult::default();
+    for stmt in stmts {
+        let result = process_statement(stmt, env, ctx);
+        combined.extend(result);
     }
+    combined
 }
 
 fn process_statement(stmt: &Stmt, env: &mut Env, ctx: &mut AnalysisContext<'_>) -> AnalysisResult {
@@ -86,7 +66,7 @@ fn process_statement(stmt: &Stmt, env: &mut Env, ctx: &mut AnalysisContext<'_>) 
 
             // Collect body results separately so we can discard conditional
             // keywords without reaching into ctx.constraints.
-            let mut body_result = collect_statements_result(&stmt_if.body, env, ctx);
+            let mut body_result = process_statements(&stmt_if.body, env, ctx);
 
             // When an if-condition checks a specific element value
             // (e.g. `if args[-3] == "as"`), keyword constraints extracted
@@ -104,7 +84,7 @@ fn process_statement(stmt: &Stmt, env: &mut Env, ctx: &mut AnalysisContext<'_>) 
             }
 
             for clause in &stmt_if.elif_else_clauses {
-                let mut clause_result = collect_statements_result(&clause.body, env, ctx);
+                let mut clause_result = process_statements(&clause.body, env, ctx);
                 if clause
                     .test
                     .as_ref()
@@ -120,21 +100,21 @@ fn process_statement(stmt: &Stmt, env: &mut Env, ctx: &mut AnalysisContext<'_>) 
         }
 
         Stmt::For(stmt_for) => {
-            process_statements(&stmt_for.body, env, ctx);
+            result.extend(process_statements(&stmt_for.body, env, ctx));
         }
 
         Stmt::Try(stmt_try) => {
-            process_statements(&stmt_try.body, env, ctx);
+            result.extend(process_statements(&stmt_try.body, env, ctx));
             for handler in &stmt_try.handlers {
                 let ruff_python_ast::ExceptHandler::ExceptHandler(h) = handler;
-                process_statements(&h.body, env, ctx);
+                result.extend(process_statements(&h.body, env, ctx));
             }
-            process_statements(&stmt_try.orelse, env, ctx);
-            process_statements(&stmt_try.finalbody, env, ctx);
+            result.extend(process_statements(&stmt_try.orelse, env, ctx));
+            result.extend(process_statements(&stmt_try.finalbody, env, ctx));
         }
 
         Stmt::With(stmt_with) => {
-            process_statements(&stmt_with.body, env, ctx);
+            result.extend(process_statements(&stmt_with.body, env, ctx));
         }
 
         // Expression statement: handle side effects like bits.pop(0)
@@ -156,11 +136,7 @@ fn process_statement(stmt: &Stmt, env: &mut Env, ctx: &mut AnalysisContext<'_>) 
             } else {
                 // Non-option while loop: collect body results for assignments
                 // and side effects (e.g. pop mutations, nested constraints).
-                let body_result = collect_statements_result(&while_stmt.body, env, ctx);
-                result.constraints.extend(body_result.constraints);
-                if body_result.known_options.is_some() {
-                    result.known_options = body_result.known_options;
-                }
+                result.extend(process_statements(&while_stmt.body, env, ctx));
             }
         }
 
@@ -171,11 +147,7 @@ fn process_statement(stmt: &Stmt, env: &mut Env, ctx: &mut AnalysisContext<'_>) 
             }
             // Process match bodies for env updates, capturing results
             for case in &match_stmt.cases {
-                let body_result = collect_statements_result(&case.body, env, ctx);
-                result.constraints.extend(body_result.constraints);
-                if body_result.known_options.is_some() {
-                    result.known_options = body_result.known_options;
-                }
+                result.extend(process_statements(&case.body, env, ctx));
             }
         }
 

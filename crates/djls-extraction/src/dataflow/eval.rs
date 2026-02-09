@@ -15,13 +15,14 @@ use crate::dataflow::constraints::ConstraintSet;
 use crate::types::KnownOptions;
 
 /// Context for the dataflow analysis, threading through shared state.
+///
+/// Contains only call-resolution context (module functions, recursion
+/// tracking, caching). Analysis results are returned via `AnalysisResult`.
 pub struct AnalysisContext<'a> {
     pub module_funcs: &'a [&'a StmtFunctionDef],
     pub caller_name: &'a str,
     pub call_depth: usize,
     pub cache: &'a mut HelperCache,
-    pub known_options: Option<KnownOptions>,
-    pub constraints: ConstraintSet,
 }
 
 /// Results accumulated during statement processing.
@@ -41,7 +42,6 @@ impl AnalysisResult {
     /// Constraints are combined additively. For `known_options`, the other
     /// result's value wins if present (last write wins — matches the sequential
     /// processing order of statements).
-    #[allow(dead_code)]
     pub fn extend(&mut self, other: AnalysisResult) {
         self.constraints.extend(other.constraints);
         if other.known_options.is_some() {
@@ -93,8 +93,6 @@ mod tests {
             caller_name: "test",
             call_depth: 0,
             cache: &mut cache,
-            known_options: None,
-            constraints: crate::dataflow::constraints::ConstraintSet::default(),
         };
         process_statements(&func.body, &mut env, &mut ctx);
         env

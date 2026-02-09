@@ -42,11 +42,7 @@ Six phases completed. Key changes:
 - [x] **M16.3** Adapt `Stmt::If` arm: collect body/elif results as `AnalysisResult`, discard keywords via `clear()` on returned results instead of `truncate()` on ctx — added `collect_statements_result()` helper that swaps ctx accumulator fields to capture sub-statement results independently
 - [x] **M16.4** Adapt `Stmt::While` arm: use `collect_statements_result` for else-branch body, merge results into returned `AnalysisResult` (option loop path already returned via `result.known_options`)
 - [x] **M16.5** Adapt `Stmt::Match` arm: merge `extract_match_constraints` result into returned `AnalysisResult` — used `collect_statements_result` for case bodies, consistent with If/While arms
-- [ ] **M16.6** Change `process_statements` to return `AnalysisResult` by folding over `process_statement` results
-- [ ] **M16.7** Remove `constraints` and `known_options` fields from `AnalysisContext`
-- [ ] **M16.8** Update `analyze_compile_function_with_cache` to use returned `AnalysisResult`
-- [ ] **M16.9** Update test helpers in `eval.rs` and `constraints.rs` that construct `AnalysisContext`
-- [ ] **M16.10** Validate: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] **M16.6–M16.10** `process_statements` returns `AnalysisResult`; `constraints` and `known_options` removed from `AnalysisContext`; all callers updated — these tasks were atomic (removing ctx fields requires updating all callers simultaneously for compilation). `collect_statements_result` eliminated; `For`/`Try`/`With` arms now merge returned results explicitly. `resolve_call` in `calls.rs` discards callee results (helper analysis is for return values, not constraints). All 745 tests pass.
 
 ### Phase 2: Rename `AnalysisContext` → `CallContext`
 

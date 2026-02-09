@@ -427,11 +427,9 @@ mod tests {
             caller_name: func.name.as_str(),
             call_depth: 0,
             cache: &mut cache,
-            known_options: None,
-            constraints: ConstraintSet::default(),
         };
-        process_statements(&func.body, &mut env, &mut ctx);
-        ctx.constraints
+        let result = process_statements(&func.body, &mut env, &mut ctx);
+        result.constraints
     }
 
     // Fabricated: tests isolated `<` comparator on len(bits). Real Django functions

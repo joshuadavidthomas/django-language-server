@@ -56,23 +56,21 @@ pub fn analyze_compile_function_with_cache(
         caller_name: func.name.as_str(),
         call_depth: 0,
         cache,
-        known_options: None,
-        constraints: constraints::ConstraintSet::default(),
     };
 
-    eval::process_statements(&func.body, &mut env, &mut ctx);
+    let result = eval::process_statements(&func.body, &mut env, &mut ctx);
 
     let extracted_args = extract_arg_names(
         &env,
-        &ctx.constraints.required_keywords,
-        &ctx.constraints.arg_constraints,
+        &result.constraints.required_keywords,
+        &result.constraints.arg_constraints,
     );
 
     TagRule {
-        arg_constraints: ctx.constraints.arg_constraints,
-        required_keywords: ctx.constraints.required_keywords,
-        choice_at_constraints: ctx.constraints.choice_at_constraints,
-        known_options: ctx.known_options,
+        arg_constraints: result.constraints.arg_constraints,
+        required_keywords: result.constraints.required_keywords,
+        choice_at_constraints: result.constraints.choice_at_constraints,
+        known_options: result.known_options,
         extracted_args,
         supports_as_var: false,
     }

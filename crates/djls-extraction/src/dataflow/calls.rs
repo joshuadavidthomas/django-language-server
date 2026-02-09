@@ -147,7 +147,7 @@ pub fn resolve_call(
     ctx.caller_name = callee.name.as_str();
     ctx.call_depth = saved_depth + 1;
 
-    process_statements(&callee.body, &mut callee_env, ctx);
+    let _callee_result = process_statements(&callee.body, &mut callee_env, ctx);
 
     ctx.caller_name = saved_caller;
     ctx.call_depth = saved_depth;
@@ -290,8 +290,6 @@ mod tests {
             caller_name: main_func.name.as_str(),
             call_depth: 0,
             cache: &mut cache,
-            known_options: None,
-            constraints: crate::dataflow::constraints::ConstraintSet::default(),
         };
 
         process_statements(&main_func.body, &mut env, &mut ctx);
@@ -325,8 +323,6 @@ mod tests {
             caller_name: main_func.name.as_str(),
             call_depth: 0,
             cache: &mut cache,
-            known_options: None,
-            constraints: crate::dataflow::constraints::ConstraintSet::default(),
         };
 
         process_statements(&main_func.body, &mut env, &mut ctx);
@@ -508,8 +504,6 @@ def do_tag(parser, token):
             caller_name: "do_tag",
             call_depth: 0,
             cache: &mut cache,
-            known_options: None,
-            constraints: crate::dataflow::constraints::ConstraintSet::default(),
         };
 
         process_statements(&main_func.body, &mut env, &mut ctx);
