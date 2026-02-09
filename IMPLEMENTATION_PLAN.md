@@ -77,7 +77,9 @@ side-channel in M15-M16 Phase 1. The question is purely whether the name should 
 
 **Design docs:** `docs/dev/extraction-refactor-plan.md` (Phase 3), `docs/dev/extraction-type-driven-vision.md` (`BlockEvidence`)
 
-_Tasks not yet expanded. Needs plan file: `.agents/plans/2026-02-09-m17-decompose-blocks.md`_
+**Plan file:** `.agents/plans/2026-02-09-m17-decompose-blocks.md`
+
+5 phases: move opaque → dynamic_end → next_token → parse_calls → clean up orchestrator. Each strategy gets its own module under `blocks/` with a `detect()` entry point. Public API unchanged.
 
 ## M18 — Move environment scanning to djls-project
 
@@ -99,7 +101,7 @@ _Tasks not yet expanded. Needs plan file: `.agents/plans/2026-02-09-m20-rename-c
 
 Starting point: 732 workspace tests (241 in djls-extraction). Every M14-M20 change must maintain all green.
 
-## Current Test Counts (M15 complete)
+## Current Test Counts (M16 complete)
 
 | Suite | Passed |
 |-------|--------|
