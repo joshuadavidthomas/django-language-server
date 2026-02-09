@@ -9,6 +9,7 @@ use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtMatch;
 
 use super::expressions::eval_expr;
+use crate::dataflow::constraints::ConstraintSet;
 use crate::dataflow::domain::AbstractValue;
 use crate::dataflow::domain::Env;
 use crate::types::ArgumentCountConstraint;
@@ -22,7 +23,7 @@ use crate::types::RequiredKeyword;
 pub(super) fn extract_match_constraints(
     match_stmt: &StmtMatch,
     env: &Env,
-) -> Option<(Vec<ArgumentCountConstraint>, Vec<RequiredKeyword>)> {
+) -> Option<ConstraintSet> {
     let subject = eval_expr(&match_stmt.subject, env);
     if !matches!(subject, AbstractValue::SplitResult { .. }) {
         return None;
@@ -65,7 +66,7 @@ pub(super) fn extract_match_constraints(
         return None;
     }
 
-    let mut constraints = Vec::new();
+    let mut arg_constraints = Vec::new();
 
     if has_variable_length {
         // Variable-length patterns: only Min constraint from the shortest
@@ -76,32 +77,36 @@ pub(super) fn extract_match_constraints(
                 _ => min,
             };
             if overall_min > 0 {
-                constraints.push(ArgumentCountConstraint::Min(overall_min));
+                arg_constraints.push(ArgumentCountConstraint::Min(overall_min));
             }
         }
     } else {
         // Only fixed-length patterns
         valid_lengths.sort_unstable();
         if valid_lengths.len() == 1 {
-            constraints.push(ArgumentCountConstraint::Exact(valid_lengths[0]));
+            arg_constraints.push(ArgumentCountConstraint::Exact(valid_lengths[0]));
         } else {
             // Check if contiguous range → Min + Max
             let min = valid_lengths[0];
             let max = valid_lengths[valid_lengths.len() - 1];
             let is_contiguous = max - min + 1 == valid_lengths.len();
             if is_contiguous && valid_lengths.len() > 2 {
-                constraints.push(ArgumentCountConstraint::Min(min));
-                constraints.push(ArgumentCountConstraint::Max(max));
+                arg_constraints.push(ArgumentCountConstraint::Min(min));
+                arg_constraints.push(ArgumentCountConstraint::Max(max));
             } else {
-                constraints.push(ArgumentCountConstraint::OneOf(valid_lengths));
+                arg_constraints.push(ArgumentCountConstraint::OneOf(valid_lengths));
             }
         }
     }
 
     // Extract required keywords from valid cases
-    let keywords = extract_keywords_from_valid_cases(&match_stmt.cases);
+    let required_keywords = extract_keywords_from_valid_cases(&match_stmt.cases);
 
-    Some((constraints, keywords))
+    Some(ConstraintSet {
+        arg_constraints,
+        required_keywords,
+        choice_at_constraints: Vec::new(),
+    })
 }
 
 /// Shape determined from analyzing a match case pattern.

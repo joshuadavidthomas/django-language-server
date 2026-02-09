@@ -120,9 +120,8 @@ fn process_statement(stmt: &Stmt, env: &mut Env, ctx: &mut AnalysisContext<'_>) 
 
         Stmt::Match(match_stmt) => {
             // Extract constraints at the point in code where the match appears
-            if let Some((arg_constraints, keywords)) = extract_match_constraints(match_stmt, env) {
-                ctx.constraints.arg_constraints.extend(arg_constraints);
-                ctx.constraints.required_keywords.extend(keywords);
+            if let Some(match_constraints) = extract_match_constraints(match_stmt, env) {
+                ctx.constraints.extend(match_constraints);
             }
             // Process match bodies for env updates
             for case in &match_stmt.cases {

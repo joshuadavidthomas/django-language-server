@@ -66,7 +66,7 @@
 - [x] **M15.1** Define `ConstraintSet` in `dataflow/constraints.rs` with `and()`/`or()`/`extend()` methods (replaces `Constraints`). Renamed `Constraints` → `ConstraintSet` in-place, added `single_length`/`single_keyword`/`single_choice` constructors, algebraic `or()`/`and()`, `is_empty()`, and `extend()`. Added `Clone` derive. Methods `#[allow(dead_code)]` until M15.2 wires them.
 - [x] **M15.2** Make `eval_condition`, `eval_compare`, `eval_negated_compare`, and all internal constraint helpers return `ConstraintSet` instead of mutating `&mut Constraints`. Used `ConstraintSet` constructors (`single_length`, `single_keyword`, `single_choice`) and algebraic `or()`/`and()` methods. `extract_from_if_inline` still takes `&mut ConstraintSet` (M15.3) but now extends with returned values. Removed top-level `#[allow(dead_code)]` on impl block since constructors are now used.
 - [x] **M15.3** Make `extract_from_if_inline` return `ConstraintSet` instead of mutating `&mut ConstraintSet`. Caller in `statements.rs` now extends with the returned value.
-- [ ] **M15.4** Make `extract_match_constraints` in `eval/match_arms.rs` return `ConstraintSet`
+- [x] **M15.4** Make `extract_match_constraints` in `eval/match_arms.rs` return `ConstraintSet`. Changed return type from `Option<(Vec<ArgumentCountConstraint>, Vec<RequiredKeyword>)>` to `Option<ConstraintSet>`. Caller in `statements.rs` now uses `ctx.constraints.extend(match_constraints)`.
 - [ ] **M15.5** Update `AnalysisContext.constraints` field type to `ConstraintSet`, update `process_statement` if-arm to collect returned constraints
 - [ ] **M15.6** Validate: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q` all green
 
