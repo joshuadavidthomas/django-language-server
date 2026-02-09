@@ -9,7 +9,7 @@
 | Milestone | Status | Description |
 |-----------|--------|-------------|
 | M14 | **done** | Test baseline + corpus-grounded tests |
-| M15 | **in progress** | Return values, not mutation (+ domain types T1-T4) |
+| M15 | **done** | Return values, not mutation (+ domain types T1-T4) |
 | M16 | stub | Split god-context (+ CompileFunction, OptionLoop) |
 | M17 | stub | Decompose blocks.rs into strategy modules |
 | M18 | stub | Move environment scanning to djls-project |
@@ -53,21 +53,21 @@ All collection functions (`collect_parser_parse_calls`, `collect_skip_past_token
 - [x] **M15.22** Replace `SplitResult { base_offset, pops_from_end }` and `SplitLength { base_offset, pops_from_end }` with `SplitResult(TokenSplit)` and `SplitLength(TokenSplit)` — updated AbstractValue variants to use TokenSplit internally, updated AbstractValueKey in calls.rs, updated all pattern matches and test assertions across domain.rs, expressions.rs, effects.rs, statements.rs, match_arms.rs, constraints.rs, calls.rs, eval.rs. 745 tests pass.
 - [x] **M15.23** Replace all scattered `+ base_offset + pops_from_end` calculations in `constraints.rs` with `TokenSplit` method calls — replaced all `split.total_offset()` + manual arithmetic with `split.resolve_length(n)` calls across `eval_if_compare`, `eval_negated_compare`, and `eval_range_constraint`
 - [x] **M15.24** Update `eval/effects.rs` pop mutations to use `TokenSplit` methods — effects.rs already used `after_pop_front()`/`after_pop_back()`. Replaced remaining manual `front_offset() + i` arithmetic across expressions.rs and statements.rs with `TokenSplit::resolve_index()`. Refactored `i64_to_index_element` to take `&TokenSplit`. Simplified star-unpack split construction to use `split.after_slice_from(si)` instead of `TokenSplit::fresh().after_slice_from(front_offset + si)`. `front_offset()` accessor now `#[cfg(test)]` only.
-- [ ] **M15.25** Update snapshots: `cargo insta test --accept -p djls-extraction`
-- [ ] **M15.26** Validate: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q` all green
+- [x] **M15.25** Update snapshots: `cargo insta test --accept -p djls-extraction` — no snapshots needed updating; all 252 unit + 2 corpus tests pass with existing snapshots
+- [x] **M15.26** Validate: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q` all green — 745 tests pass, 0 failures
 
 ### Phase 5: Evaluate `Guard` type (T3)
 
-- [ ] **M15.27** Evaluate whether `Guard` type is worth introducing (single call site). Document decision in this plan.
-- [ ] **M15.28** If introduced: define `Guard` type, refactor `extract_from_if_inline` to use it. If skipped: document rationale.
-- [ ] **M15.29** Validate: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q` all green
+- [x] **M15.27** Evaluate whether `Guard` type is worth introducing (single call site). **Decision: SKIP.** The `extract_from_if_inline` function is already clean — it checks `body_raises_template_syntax_error` and calls `eval_condition`, returning a `ConstraintSet`. Introducing a `Guard` type for this single call site would be over-engineering, as the vision doc itself warns (§"Guard type: one call site"). The pattern is only ~20 lines and reads clearly without abstraction.
+- [x] **M15.28** Skipped per M15.27 decision — no `Guard` type introduced.
+- [x] **M15.29** Validate: no code changes needed — build/clippy/tests already green from M15.26
 
 ### Phase 6: Final validation
 
-- [ ] **M15.30** Full suite: `cargo test -q` — all green (740+ tests)
-- [ ] **M15.31** Verify: no `&mut Vec<T>` params in `blocks.rs`, no `&mut Constraints` in `constraints.rs`
-- [ ] **M15.32** Verify: public API unchanged (`extract_rules()` → `ExtractionResult`)
-- [ ] **M15.33** Run `cargo insta test --accept --unreferenced delete -p djls-extraction` to clean orphaned snapshots
+- [x] **M15.30** Full suite: `cargo test -q` — all green (745 passed, 0 failed, 7 ignored)
+- [x] **M15.31** Verify: no `&mut Vec<T>` params in `blocks.rs`, no `&mut Constraints` in `constraints.rs` — confirmed clean
+- [x] **M15.32** Verify: public API unchanged (`extract_rules()` → `ExtractionResult`) — confirmed
+- [x] **M15.33** Run `cargo insta test --accept --unreferenced delete -p djls-extraction` — no orphaned snapshots found
 
 ## M16 — Split god-context (+ CompileFunction, OptionLoop)
 
