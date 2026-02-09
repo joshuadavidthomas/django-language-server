@@ -18,56 +18,17 @@
 
 ## M14 — Test baseline + corpus-grounded tests ✅
 
-**Design docs:** `docs/dev/extraction-test-strategy.md`, `docs/dev/corpus-refactor.md`
-**Plan file:** `.agents/plans/2026-02-09-m14-test-baseline.md`
+Replaced 55 fabricated tests with corpus-sourced equivalents. Cleaned 25 orphaned snapshot files (210→185). Final: 247 unit + 2 corpus tests.
 
-Replaced 55 fabricated tests with corpus-sourced equivalents across all modules. Cleaned 25 orphaned snapshot files (210→185). Final: 247 unit + 2 corpus tests. See git history and plan file for per-phase details.
+## M15 — Return values, not mutation (+ domain types T1-T4) ✅
 
-## M15 — Return values, not mutation (+ domain types T1-T4)
-
-**Design docs:** `docs/dev/extraction-refactor-plan.md` (Phase 1), `docs/dev/extraction-type-driven-vision.md`
-**Plan file:** `.agents/plans/2026-02-09-m15-return-values.md`
-
-### Phase 1: `ConstraintSet` type (T4) + constraint functions return values ✅
-
-Renamed `Constraints` → `ConstraintSet` with algebraic `or()`/`and()`/`extend()` methods. All constraint eval functions now return `ConstraintSet` instead of mutating `&mut`. See git history for per-task details (M15.1-M15.6).
-
-### Phase 2: `blocks.rs` collection functions return values ✅
-
-All collection functions (`collect_parser_parse_calls`, `collect_skip_past_tokens`, `classify_in_body`, `collect_token_content_comparisons`) now return values instead of taking `&mut` params. Added `Classification` struct. See git history for per-task details (M15.7-M15.12).
-
-### Phase 3: `SplitPosition` newtype (T1) — cross-crate
-
-- [x] **M15.13** Define `SplitPosition` enum (`Forward(usize)`, `Backward(usize)`) in `types.rs` with `arg_index()`, `raw()`, `is_tag_name()`, `to_bits_index()` methods
-- [x] **M15.14** Update `RequiredKeyword.position` and `ChoiceAt.position` from `i64` to `SplitPosition`
-- [x] **M15.15** Update `dataflow/constraints.rs` to emit `SplitPosition` values — already done: M15.13-14 changed field types to `SplitPosition` and added `index_to_split_position` helper; constraints.rs already emits `SplitPosition` for all `RequiredKeyword` and `ChoiceAt` outputs
-- [x] **M15.16** Evaluate `Index` enum in `domain.rs` — consolidated: `Index` removed, `SplitElement` now uses `SplitPosition` directly. `index_to_split_position` helper deleted (was trivial 1:1 mapping). `SplitPosition` is `Copy` so no `.clone()` needed.
-- [x] **M15.17** Update `djls-semantic/src/rule_evaluation.rs` to use `SplitPosition` methods — already using `to_bits_index()` via `resolve_position_index` wrapper from M15.13-M15.16 work
-- [x] **M15.18** Update `dataflow.rs` `extract_arg_names` and any other consumers — replaced manual `pos - 1` with `SplitPosition::arg_index()` calls
-- [x] **M15.19** Update snapshots: no snapshot changes needed (SplitPosition serialization unchanged)
-- [x] **M15.20** Validate: all green — build, clippy, 740 tests pass
-
-### Phase 4: `TokenSplit` type (T2)
-
-- [x] **M15.21** Define `TokenSplit` struct in `dataflow/domain.rs` with `fresh()`, `after_slice_from()`, `after_pop_front()`, `after_pop_back()`, `resolve_index()`, `resolve_length()` methods — also added `total_offset()`, `front_offset()`, `back_offset()` accessors. 5 new tests. `#[allow(dead_code)]` until M15.22 wires it up.
-- [x] **M15.22** Replace `SplitResult { base_offset, pops_from_end }` and `SplitLength { base_offset, pops_from_end }` with `SplitResult(TokenSplit)` and `SplitLength(TokenSplit)` — updated AbstractValue variants to use TokenSplit internally, updated AbstractValueKey in calls.rs, updated all pattern matches and test assertions across domain.rs, expressions.rs, effects.rs, statements.rs, match_arms.rs, constraints.rs, calls.rs, eval.rs. 745 tests pass.
-- [x] **M15.23** Replace all scattered `+ base_offset + pops_from_end` calculations in `constraints.rs` with `TokenSplit` method calls — replaced all `split.total_offset()` + manual arithmetic with `split.resolve_length(n)` calls across `eval_if_compare`, `eval_negated_compare`, and `eval_range_constraint`
-- [x] **M15.24** Update `eval/effects.rs` pop mutations to use `TokenSplit` methods — effects.rs already used `after_pop_front()`/`after_pop_back()`. Replaced remaining manual `front_offset() + i` arithmetic across expressions.rs and statements.rs with `TokenSplit::resolve_index()`. Refactored `i64_to_index_element` to take `&TokenSplit`. Simplified star-unpack split construction to use `split.after_slice_from(si)` instead of `TokenSplit::fresh().after_slice_from(front_offset + si)`. `front_offset()` accessor now `#[cfg(test)]` only.
-- [x] **M15.25** Update snapshots: `cargo insta test --accept -p djls-extraction` — no snapshots needed updating; all 252 unit + 2 corpus tests pass with existing snapshots
-- [x] **M15.26** Validate: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q` all green — 745 tests pass, 0 failures
-
-### Phase 5: Evaluate `Guard` type (T3)
-
-- [x] **M15.27** Evaluate whether `Guard` type is worth introducing (single call site). **Decision: SKIP.** The `extract_from_if_inline` function is already clean — it checks `body_raises_template_syntax_error` and calls `eval_condition`, returning a `ConstraintSet`. Introducing a `Guard` type for this single call site would be over-engineering, as the vision doc itself warns (§"Guard type: one call site"). The pattern is only ~20 lines and reads clearly without abstraction.
-- [x] **M15.28** Skipped per M15.27 decision — no `Guard` type introduced.
-- [x] **M15.29** Validate: no code changes needed — build/clippy/tests already green from M15.26
-
-### Phase 6: Final validation
-
-- [x] **M15.30** Full suite: `cargo test -q` — all green (745 passed, 0 failed, 7 ignored)
-- [x] **M15.31** Verify: no `&mut Vec<T>` params in `blocks.rs`, no `&mut Constraints` in `constraints.rs` — confirmed clean
-- [x] **M15.32** Verify: public API unchanged (`extract_rules()` → `ExtractionResult`) — confirmed
-- [x] **M15.33** Run `cargo insta test --accept --unreferenced delete -p djls-extraction` — no orphaned snapshots found
+Six phases completed. Key changes:
+- **Phase 1**: `Constraints` → `ConstraintSet` with algebraic `or()`/`and()`/`extend()`. All constraint eval functions return values.
+- **Phase 2**: All `blocks.rs` collection functions return values instead of `&mut` params. Added `Classification` struct.
+- **Phase 3**: `SplitPosition` enum (`Forward(usize)`, `Backward(usize)`) replaces raw `i64` positions. `Index` enum removed.
+- **Phase 4**: `TokenSplit` type encapsulates split offset arithmetic. Replaces manual `base_offset + pops_from_end` math.
+- **Phase 5**: `Guard` type skipped (single call site, not worth the abstraction).
+- **Phase 6**: Final validation — 745 tests pass, public API unchanged.
 
 ## M16 — Split god-context (+ CompileFunction, OptionLoop)
 
@@ -157,16 +118,16 @@ _Tasks not yet expanded. Needs plan file: `.agents/plans/2026-02-09-m20-rename-c
 
 All tests green. This is the baseline that every M14-M20 change must maintain.
 
-## Current Test Counts (M14 complete)
+## Current Test Counts (M15 complete)
 
 | Suite | Passed |
 |-------|--------|
-| Unit tests (djls-extraction) | 247 |
+| Unit tests (djls-extraction) | 252 |
 | Corpus integration (djls-extraction) | 2 |
-| **djls-extraction total** | **249** |
-| **Full workspace** | **740 passed, 0 failed, 7 ignored** |
+| **djls-extraction total** | **254** |
+| **Full workspace** | **745 passed, 0 failed, 7 ignored** |
 
-Snapshot files: 185 (down from 210 — orphaned snapshots cleaned in M14.16)
+Snapshot files: 185
 
 ## Discoveries
 
