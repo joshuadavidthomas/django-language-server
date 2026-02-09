@@ -68,7 +68,6 @@ impl TokenSplit {
     /// If the mutated list has `local_length` elements, the original had
     /// `local_length + front_offset + back_offset`.
     #[must_use]
-    #[allow(dead_code)]
     pub fn resolve_length(&self, local_length: usize) -> usize {
         local_length + self.front_offset + self.back_offset
     }
@@ -87,6 +86,7 @@ impl TokenSplit {
 
     /// Total offset (front + back) for length adjustment.
     #[must_use]
+    #[allow(dead_code)]
     pub fn total_offset(&self) -> usize {
         self.front_offset + self.back_offset
     }

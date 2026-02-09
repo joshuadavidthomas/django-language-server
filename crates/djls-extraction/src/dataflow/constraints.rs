@@ -193,13 +193,14 @@ fn eval_compare(compare: &ExprCompare, env: &Env) -> ConstraintSet {
     // len(split_result) vs integer
     if let AbstractValue::SplitLength(split) = &left_val {
         if let Some(n) = comparator.positive_integer() {
-            let offset = split.total_offset();
             let constraint = match op {
-                CmpOp::NotEq => Some(ArgumentCountConstraint::Exact(n + offset)),
-                CmpOp::Lt => Some(ArgumentCountConstraint::Min(n + offset)),
-                CmpOp::LtE => Some(ArgumentCountConstraint::Min(n + 1 + offset)),
-                CmpOp::Gt => Some(ArgumentCountConstraint::Max(n + offset)),
-                CmpOp::GtE if n > 0 => Some(ArgumentCountConstraint::Max(n - 1 + offset)),
+                CmpOp::NotEq => Some(ArgumentCountConstraint::Exact(split.resolve_length(n))),
+                CmpOp::Lt => Some(ArgumentCountConstraint::Min(split.resolve_length(n))),
+                CmpOp::LtE => Some(ArgumentCountConstraint::Min(split.resolve_length(n + 1))),
+                CmpOp::Gt => Some(ArgumentCountConstraint::Max(split.resolve_length(n))),
+                CmpOp::GtE if n > 0 => {
+                    Some(ArgumentCountConstraint::Max(split.resolve_length(n - 1)))
+                }
                 _ => None,
             };
             return constraint.map_or_else(ConstraintSet::default, ConstraintSet::single_length);
@@ -208,9 +209,11 @@ fn eval_compare(compare: &ExprCompare, env: &Env) -> ConstraintSet {
         // `len(bits) not in (2, 3, 4)` → valid counts are {2+offset, 3+offset, 4+offset}
         if matches!(op, CmpOp::NotIn) {
             if let Some(values) = comparator.collection_map(ExprExt::positive_integer) {
-                let offset = split.total_offset();
                 return ConstraintSet::single_length(ArgumentCountConstraint::OneOf(
-                    values.into_iter().map(|v| v + offset).collect(),
+                    values
+                        .into_iter()
+                        .map(|v| split.resolve_length(v))
+                        .collect(),
                 ));
             }
         }
@@ -220,12 +223,13 @@ fn eval_compare(compare: &ExprCompare, env: &Env) -> ConstraintSet {
     // Reversed: integer vs len(split_result), e.g. `4 < len(bits)`
     if let AbstractValue::SplitLength(split) = &right_val {
         if let Some(n) = left.positive_integer() {
-            let offset = split.total_offset();
             let constraint = match op {
-                CmpOp::Lt => Some(ArgumentCountConstraint::Max(n + offset)),
-                CmpOp::LtE if n > 0 => Some(ArgumentCountConstraint::Max(n - 1 + offset)),
-                CmpOp::Gt => Some(ArgumentCountConstraint::Min(n + offset)),
-                CmpOp::GtE => Some(ArgumentCountConstraint::Min(n + 1 + offset)),
+                CmpOp::Lt => Some(ArgumentCountConstraint::Max(split.resolve_length(n))),
+                CmpOp::LtE if n > 0 => {
+                    Some(ArgumentCountConstraint::Max(split.resolve_length(n - 1)))
+                }
+                CmpOp::Gt => Some(ArgumentCountConstraint::Min(split.resolve_length(n))),
+                CmpOp::GtE => Some(ArgumentCountConstraint::Min(split.resolve_length(n + 1))),
                 _ => None,
             };
             return constraint.map_or_else(ConstraintSet::default, ConstraintSet::single_length);
@@ -285,11 +289,16 @@ fn eval_negated_compare(compare: &ExprCompare, env: &Env) -> ConstraintSet {
         let left_val = eval_expr(&compare.left, env);
         if let AbstractValue::SplitLength(split) = left_val {
             if let Some(n) = compare.comparators[0].positive_integer() {
-                let offset = split.total_offset();
                 let constraint = match &compare.ops[0] {
-                    CmpOp::Eq => Some(ArgumentCountConstraint::Exact(n + offset)),
-                    CmpOp::Lt if n > 0 => Some(ArgumentCountConstraint::Max(n - 1 + offset)),
-                    CmpOp::Gt => Some(ArgumentCountConstraint::Min(n + 1 + offset)),
+                    CmpOp::Eq => {
+                        Some(ArgumentCountConstraint::Exact(split.resolve_length(n)))
+                    }
+                    CmpOp::Lt if n > 0 => {
+                        Some(ArgumentCountConstraint::Max(split.resolve_length(n - 1)))
+                    }
+                    CmpOp::Gt => {
+                        Some(ArgumentCountConstraint::Min(split.resolve_length(n + 1)))
+                    }
                     _ => None,
                 };
                 if let Some(c) = constraint {
@@ -315,8 +324,6 @@ fn eval_range_constraint(compare: &ExprCompare, env: &Env) -> Option<Vec<Argumen
     let AbstractValue::SplitLength(split) = middle else {
         return None;
     };
-    let base_offset = split.total_offset();
-
     let lower = compare.left.positive_integer()?;
     let upper = compare.comparators[1].positive_integer()?;
 
@@ -343,8 +350,8 @@ fn eval_range_constraint(compare: &ExprCompare, env: &Env) -> Option<Vec<Argumen
     }
 
     Some(vec![
-        ArgumentCountConstraint::Min(min_val + base_offset),
-        ArgumentCountConstraint::Max(max_val + base_offset),
+        ArgumentCountConstraint::Min(split.resolve_length(min_val)),
+        ArgumentCountConstraint::Max(split.resolve_length(max_val)),
     ])
 }
 
