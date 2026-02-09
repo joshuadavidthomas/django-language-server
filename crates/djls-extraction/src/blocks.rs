@@ -1,3 +1,5 @@
+mod opaque;
+
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprAttribute;
 use ruff_python_ast::ExprBinOp;
@@ -36,18 +38,8 @@ pub fn extract_block_spec(func: &StmtFunctionDef) -> Option<BlockTagSpec> {
         .map(|p| p.parameter.name.to_string())?;
 
     // Check for opaque block patterns first: parser.skip_past("endtag")
-    let skip_past_tokens = collect_skip_past_tokens(&func.body, &parser_var);
-    if !skip_past_tokens.is_empty() {
-        let end_tag = if skip_past_tokens.len() == 1 {
-            Some(skip_past_tokens[0].clone())
-        } else {
-            None
-        };
-        return Some(BlockTagSpec {
-            end_tag,
-            intermediates: Vec::new(),
-            opaque: true,
-        });
+    if let Some(spec) = opaque::detect(&func.body, &parser_var) {
+        return Some(spec);
     }
 
     // Collect all stop-tokens from parser.parse((...)) calls
@@ -158,7 +150,7 @@ fn extract_parse_call_info(expr: &Expr, parser_var: &str) -> Option<ParseCallInf
 }
 
 /// Check if an expression is the parser variable (or `self.parser`).
-fn is_parser_receiver(expr: &Expr, parser_var: &str) -> bool {
+pub(crate) fn is_parser_receiver(expr: &Expr, parser_var: &str) -> bool {
     // Direct: `parser.parse(...)`
     if let Expr::Name(ExprName { id, .. }) = expr {
         if id.as_str() == parser_var {
@@ -603,92 +595,6 @@ fn body_has_parse_call(body: &[Stmt], parser_var: &str) -> bool {
         }
     }
     false
-}
-
-/// Collect all `parser.skip_past("token")` calls in a statement body (recursively).
-fn collect_skip_past_tokens(body: &[Stmt], parser_var: &str) -> Vec<String> {
-    let mut tokens = Vec::new();
-    for stmt in body {
-        match stmt {
-            Stmt::Expr(expr_stmt) => {
-                if let Some(t) = extract_skip_past_token(&expr_stmt.value, parser_var) {
-                    if !tokens.contains(&t) {
-                        tokens.push(t);
-                    }
-                }
-            }
-            Stmt::Assign(StmtAssign { value, .. }) => {
-                if let Some(t) = extract_skip_past_token(value, parser_var) {
-                    if !tokens.contains(&t) {
-                        tokens.push(t);
-                    }
-                }
-            }
-            Stmt::If(if_stmt) => {
-                for t in collect_skip_past_tokens(&if_stmt.body, parser_var) {
-                    if !tokens.contains(&t) {
-                        tokens.push(t);
-                    }
-                }
-                for clause in &if_stmt.elif_else_clauses {
-                    for t in collect_skip_past_tokens(&clause.body, parser_var) {
-                        if !tokens.contains(&t) {
-                            tokens.push(t);
-                        }
-                    }
-                }
-            }
-            Stmt::For(for_stmt) => {
-                for t in collect_skip_past_tokens(&for_stmt.body, parser_var) {
-                    if !tokens.contains(&t) {
-                        tokens.push(t);
-                    }
-                }
-            }
-            Stmt::While(while_stmt) => {
-                for t in collect_skip_past_tokens(&while_stmt.body, parser_var) {
-                    if !tokens.contains(&t) {
-                        tokens.push(t);
-                    }
-                }
-            }
-            Stmt::Try(try_stmt) => {
-                for t in collect_skip_past_tokens(&try_stmt.body, parser_var) {
-                    if !tokens.contains(&t) {
-                        tokens.push(t);
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-    tokens
-}
-
-/// Check if an expression is `parser.skip_past("token")` and extract the token.
-fn extract_skip_past_token(expr: &Expr, parser_var: &str) -> Option<String> {
-    let Expr::Call(ExprCall {
-        func, arguments, ..
-    }) = expr
-    else {
-        return None;
-    };
-    let Expr::Attribute(ExprAttribute {
-        attr, value: obj, ..
-    }) = func.as_ref()
-    else {
-        return None;
-    };
-    if attr.as_str() != "skip_past" {
-        return None;
-    }
-    if !is_parser_receiver(obj, parser_var) {
-        return None;
-    }
-    if arguments.args.is_empty() {
-        return None;
-    }
-    arguments.args[0].string_literal()
 }
 
 fn has_dynamic_end_in_body(body: &[Stmt], parser_var: &str) -> bool {

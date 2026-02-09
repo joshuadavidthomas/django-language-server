@@ -85,7 +85,7 @@ Module convention: `blocks.rs` (orchestrator) + `blocks/` directory (strategy su
 
 ### Phase 1: Create blocks/ directory and move opaque strategy
 
-- [ ] **M17.1** Create `blocks/opaque.rs` with `detect(body, parser_var) -> Option<BlockTagSpec>`. Move `collect_skip_past_tokens()` and `extract_skip_past_token()`.
+- [x] **M17.1** Create `blocks/opaque.rs` with `detect(body, parser_var) -> Option<BlockTagSpec>`. Move `collect_skip_past_tokens()` and `extract_skip_past_token()`.
 - [ ] **M17.2** Update `blocks.rs`: add `mod opaque;`, call `opaque::detect()` in orchestrator. Keep `is_parser_receiver()` in `blocks.rs` as shared helper.
 - [ ] **M17.3** Validate: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q` — all green.
 
