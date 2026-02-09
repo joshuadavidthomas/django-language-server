@@ -133,5 +133,4 @@ Snapshot files: 185 (down from 210 — orphaned snapshots cleaned in M14.16)
 
 ## Discoveries
 
-- **`-q` with `--features parser` quirk**: Shows 0 tests due to cargo output formatting. Use `--all-features` or drop `-q` to see actual counts.
 - **Corpus vs fabricated**: Real Django functions don't always match assumed patterns. Always verify corpus function signatures before replacing tests.
