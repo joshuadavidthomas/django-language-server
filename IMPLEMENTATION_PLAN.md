@@ -45,9 +45,26 @@ All eval/collection functions return values instead of mutating `&mut` params. N
 
 ### Phase 4: Evaluate `OptionLoop` type rename
 
-- [ ] **M16.17** Evaluate whether `KnownOptions` should be renamed to `OptionLoop`. Check type shape, usage sites, and whether rename adds clarity. Document decision.
-- [ ] **M16.18** If renaming: update `KnownOptions` → `OptionLoop` in `types.rs` and all references. If not: document why.
-- [ ] **M16.19** Validate: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+- [x] **M16.17** Evaluate whether `KnownOptions` should be renamed to `OptionLoop`. Check type shape, usage sites, and whether rename adds clarity. Document decision.
+- [x] **M16.18** Decision: **keep `KnownOptions`**, do not rename.
+- [x] **M16.19** Validate: no code changes needed — baseline already green.
+
+**M16.17 Decision Notes:**
+
+The ROADMAP proposed `OptionLoop` as a "first-class type for while-loop option parsing." However,
+`KnownOptions` already *is* a first-class type — it was extracted from the `ctx.known_options`
+side-channel in M15-M16 Phase 1. The question is purely whether the name should change.
+
+**Keep `KnownOptions` because:**
+1. The struct fields (`values`, `allow_duplicates`, `rejects_unknown`) describe option *semantics*,
+   not loop structure. `KnownOptions` matches this domain.
+2. At the consumption site (`djls-semantic/rule_evaluation.rs`), the consumer cares about "what
+   options does this tag accept?" — `KnownOptions` communicates that directly.
+3. `OptionLoop` describes *extraction origin* (a while-loop pattern), which is an implementation
+   detail irrelevant to consumers.
+4. The extraction function `try_extract_option_loop()` already captures the loop-detection concept;
+   the returned type should describe the *result*, not the *source*.
+5. Renaming crosses crate boundaries (`djls-semantic`) for no semantic gain.
 
 ### Phase 5: Final validation
 
