@@ -260,6 +260,7 @@ mod tests {
 
     use super::*;
     use crate::dataflow::domain::Index;
+    use crate::test_helpers::corpus_source;
 
     fn parse_module_funcs(source: &str) -> Vec<StmtFunctionDef> {
         let parsed = parse_module(source).expect("valid Python");
@@ -287,6 +288,41 @@ mod tests {
             .find(|f| f.name.starts_with("do_"))
             .or_else(|| funcs.iter().rfind(|f| f.parameters.args.len() >= 2))
             .unwrap_or(&funcs[0]);
+
+        let parser_param = main_func
+            .parameters
+            .args
+            .first()
+            .map_or("parser", |p| p.parameter.name.as_str());
+        let token_param = main_func
+            .parameters
+            .args
+            .get(1)
+            .map_or("token", |p| p.parameter.name.as_str());
+
+        let mut env = Env::for_compile_function(parser_param, token_param);
+        let mut cache = HelperCache::new();
+        let mut ctx = AnalysisContext {
+            module_funcs: &func_refs,
+            caller_name: main_func.name.as_str(),
+            call_depth: 0,
+            cache: &mut cache,
+            known_options: None,
+            constraints: crate::dataflow::constraints::Constraints::default(),
+        };
+
+        process_statements(&main_func.body, &mut env, &mut ctx);
+        (env, cache)
+    }
+
+    fn analyze_function_with_helpers(source: &str, func_name: &str) -> (Env, HelperCache) {
+        let funcs = parse_module_funcs(source);
+        let func_refs: Vec<&StmtFunctionDef> = funcs.iter().collect();
+
+        let main_func = funcs
+            .iter()
+            .find(|f| f.name.as_str() == func_name)
+            .unwrap_or_else(|| panic!("function '{func_name}' not found in source"));
 
         let parser_param = main_func
             .parameters
@@ -365,34 +401,25 @@ def do_tag(parser, token):
 
     #[test]
     fn allauth_parse_tag_pattern() {
-        // The allauth pattern: parse_tag builds args via for-loop with conditional appends.
+        // Corpus: allauth's parse_tag builds args via for-loop with conditional appends.
+        // do_element calls parse_tag(token, parser) and destructures the result.
         // The for-loop means args remains Unknown → no false positive constraints.
-        let (env, _) = analyze_with_helpers(
-            r#"
-def parse_tag(token, parser):
-    bits = token.split_contents()
-    tag_name = bits.pop(0)
-    args = []
-    kwargs = {}
-    for bit in bits:
-        if "=" in bit:
-            kwargs[bit.split("=")[0]] = bit.split("=")[1]
-        else:
-            args.append(bit)
-    return tag_name, args, kwargs
-
-def do_element(parser, token):
-    tag_name, args, kwargs = parse_tag(token, parser)
-"#,
+        let source = corpus_source(
+            "packages/django-allauth/0.63.3/allauth/templatetags/allauth.py",
         );
-        // tag_name should be SplitElement(Forward(0))
+        let Some(source) = source else {
+            eprintln!("skipping allauth_parse_tag_pattern: corpus not synced");
+            return;
+        };
+        let (env, _) = analyze_function_with_helpers(&source, "do_element");
+        // tag_name should be SplitElement(Forward(0)) — parse_tag does bits.pop(0)
         assert_eq!(
             env.get("tag_name"),
             &AbstractValue::SplitElement {
                 index: Index::Forward(0)
             }
         );
-        // args and kwargs should be Unknown (built from list/dict operations)
+        // args and kwargs should be Unknown (built from list/dict operations in parse_tag)
         assert_eq!(env.get("args"), &AbstractValue::Unknown);
         assert_eq!(env.get("kwargs"), &AbstractValue::Unknown);
     }
