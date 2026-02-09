@@ -8,7 +8,7 @@
 
 | Milestone | Status | Description |
 |-----------|--------|-------------|
-| M14 | planned | Test baseline + corpus-grounded tests |
+| M14 | **in-progress** | Test baseline + corpus-grounded tests |
 | M15 | stub | Return values, not mutation (+ domain types T1-T4) |
 | M16 | stub | Split god-context (+ CompileFunction, OptionLoop) |
 | M17 | stub | Decompose blocks.rs into strategy modules |
