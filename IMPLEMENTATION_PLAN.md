@@ -10,7 +10,7 @@
 |-----------|--------|-------------|
 | M14 | **done** | Test baseline + corpus-grounded tests |
 | M15 | **done** | Return values, not mutation (+ domain types T1-T4) |
-| M16 | stub | Split god-context (+ CompileFunction, OptionLoop) |
+| M16 | **planned** | Split god-context (+ CompileFunction, OptionLoop) |
 | M17 | stub | Decompose blocks.rs into strategy modules |
 | M18 | stub | Move environment scanning to djls-project |
 | M19 | stub | HelperCache → Salsa tracked functions |
@@ -72,8 +72,45 @@ All collection functions (`collect_parser_parse_calls`, `collect_skip_past_token
 ## M16 — Split god-context (+ CompileFunction, OptionLoop)
 
 **Design docs:** `docs/dev/extraction-refactor-plan.md` (Phase 2)
+**Plan file:** `.agents/plans/2026-02-09-m16-split-context.md`
 
-_Tasks not yet expanded. Needs plan file: `.agents/plans/2026-02-09-m16-split-context.md`_
+### Phase 1: Introduce `AnalysisResult` and make `process_statements` return it
+
+- [ ] **M16.1** Define `AnalysisResult { constraints: ConstraintSet, known_options: Option<KnownOptions> }` in `eval.rs` with `extend()` method for merging
+- [ ] **M16.2** Change `process_statement` to return `AnalysisResult` — each arm returns its accumulated constraints/options instead of mutating `ctx`
+- [ ] **M16.3** Adapt `Stmt::If` arm: collect body/elif results as `AnalysisResult`, discard keywords via `clear()` on returned results instead of `truncate()` on ctx
+- [ ] **M16.4** Adapt `Stmt::While` arm: return option loop in `AnalysisResult.known_options` instead of setting `ctx.known_options`
+- [ ] **M16.5** Adapt `Stmt::Match` arm: merge `extract_match_constraints` result into returned `AnalysisResult`
+- [ ] **M16.6** Change `process_statements` to return `AnalysisResult` by folding over `process_statement` results
+- [ ] **M16.7** Remove `constraints` and `known_options` fields from `AnalysisContext`
+- [ ] **M16.8** Update `analyze_compile_function_with_cache` to use returned `AnalysisResult`
+- [ ] **M16.9** Update test helpers in `eval.rs` and `constraints.rs` that construct `AnalysisContext`
+- [ ] **M16.10** Validate: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 2: Rename `AnalysisContext` → `CallContext`
+
+- [ ] **M16.11** Rename `AnalysisContext` to `CallContext` in `eval.rs`, update all imports and references across `statements.rs`, `expressions.rs`, `calls.rs`, `constraints.rs`, `dataflow.rs`
+- [ ] **M16.12** Update doc comments to reflect narrower purpose (call resolution context, not analysis accumulator)
+- [ ] **M16.13** Validate: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 3: Introduce `CompileFunction` validated input type
+
+- [ ] **M16.14** Define `CompileFunction<'a>` with `from_ast(func: &StmtFunctionDef) -> Option<Self>` constructor
+- [ ] **M16.15** Update `analyze_compile_function_with_cache` to construct `CompileFunction`, eliminating `map_or("parser", ...)` fallbacks
+- [ ] **M16.16** Validate: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 4: Evaluate `OptionLoop` type rename
+
+- [ ] **M16.17** Evaluate whether `KnownOptions` should be renamed to `OptionLoop`. Check type shape, usage sites, and whether rename adds clarity. Document decision.
+- [ ] **M16.18** If renaming: update `KnownOptions` → `OptionLoop` in `types.rs` and all references. If not: document why.
+- [ ] **M16.19** Validate: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
+
+### Phase 5: Final validation
+
+- [ ] **M16.20** Full suite: `cargo test -q` — all green
+- [ ] **M16.21** Verify: no `ctx.constraints` mutation in `statements.rs`, no `ctx.known_options` mutation
+- [ ] **M16.22** Verify: `AnalysisContext` type no longer exists (renamed to `CallContext`)
+- [ ] **M16.23** Verify: public API unchanged (`analyze_compile_function()` → `TagRule`)
 
 ## M17 — Decompose blocks.rs into strategy modules
 
