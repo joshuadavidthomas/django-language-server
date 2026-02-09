@@ -31,7 +31,7 @@ mod tests {
     use crate::dataflow::calls::HelperCache;
     use crate::dataflow::domain::AbstractValue;
     use crate::dataflow::domain::Env;
-    use crate::dataflow::domain::Index;
+    use crate::types::SplitPosition;
     use crate::test_helpers::django_function;
 
     fn parse_function(source: &str) -> StmtFunctionDef {
@@ -151,13 +151,13 @@ def do_tag(parser, token):
         assert_eq!(
             env.get("tag_name"),
             &AbstractValue::SplitElement {
-                index: Index::Forward(0)
+                index: SplitPosition::Forward(0)
             }
         );
         assert_eq!(
             env.get("item"),
             &AbstractValue::SplitElement {
-                index: Index::Forward(2)
+                index: SplitPosition::Forward(2)
             }
         );
     }
@@ -174,7 +174,7 @@ def do_tag(parser, token):
         assert_eq!(
             env.get("last"),
             &AbstractValue::SplitElement {
-                index: Index::Backward(1)
+                index: SplitPosition::Backward(1)
             }
         );
     }
@@ -270,7 +270,7 @@ def do_tag(parser, token):
         assert_eq!(
             env.get("tag_name"),
             &AbstractValue::SplitElement {
-                index: Index::Forward(0)
+                index: SplitPosition::Forward(0)
             }
         );
         assert_eq!(
@@ -306,7 +306,7 @@ def do_tag(parser, token):
         assert_eq!(
             env.get("tag_name"),
             &AbstractValue::SplitElement {
-                index: Index::Forward(0)
+                index: SplitPosition::Forward(0)
             }
         );
         assert_eq!(env.get("rest"), &AbstractValue::Unknown);
@@ -334,25 +334,25 @@ def do_tag(parser, token):
         assert_eq!(
             env.get("tag_name"),
             &AbstractValue::SplitElement {
-                index: Index::Forward(0)
+                index: SplitPosition::Forward(0)
             }
         );
         assert_eq!(
             env.get("item"),
             &AbstractValue::SplitElement {
-                index: Index::Forward(1)
+                index: SplitPosition::Forward(1)
             }
         );
         assert_eq!(
             env.get("connector"),
             &AbstractValue::SplitElement {
-                index: Index::Forward(2)
+                index: SplitPosition::Forward(2)
             }
         );
         assert_eq!(
             env.get("varname"),
             &AbstractValue::SplitElement {
-                index: Index::Forward(3)
+                index: SplitPosition::Forward(3)
             }
         );
     }
@@ -370,7 +370,7 @@ def do_tag(parser, token):
         assert_eq!(
             env.get("second"),
             &AbstractValue::SplitElement {
-                index: Index::Forward(1)
+                index: SplitPosition::Forward(1)
             }
         );
     }
@@ -446,7 +446,7 @@ def do_tag(parser, token):
         assert_eq!(
             env.get("first"),
             &AbstractValue::SplitElement {
-                index: Index::Forward(0)
+                index: SplitPosition::Forward(0)
             }
         );
         // middle = original[1:-1], so base_offset=1 and pops_from_end=1
@@ -461,7 +461,7 @@ def do_tag(parser, token):
         assert_eq!(
             env.get("last"),
             &AbstractValue::SplitElement {
-                index: Index::Backward(1)
+                index: SplitPosition::Backward(1)
             }
         );
     }
@@ -496,7 +496,7 @@ def do_tag(parser, token):
         assert_eq!(
             env.get("tag_name"),
             &AbstractValue::SplitElement {
-                index: Index::Forward(0)
+                index: SplitPosition::Forward(0)
             }
         );
         assert_eq!(
@@ -538,7 +538,7 @@ def do_tag(parser, token):
         assert_eq!(
             env.get("last"),
             &AbstractValue::SplitElement {
-                index: Index::Backward(1)
+                index: SplitPosition::Backward(1)
             }
         );
         assert_eq!(
@@ -932,7 +932,7 @@ def do_tag(parser, token):
         assert_eq!(
             env.get("val"),
             &AbstractValue::SplitElement {
-                index: Index::Forward(1)
+                index: SplitPosition::Forward(1)
             }
         );
         // The pop(0) side effect should also mutate `remaining`

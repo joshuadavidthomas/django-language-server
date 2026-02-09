@@ -14,7 +14,7 @@ use super::AnalysisContext;
 use crate::dataflow::calls::resolve_call;
 use crate::dataflow::domain::AbstractValue;
 use crate::dataflow::domain::Env;
-use crate::dataflow::domain::Index;
+use crate::types::SplitPosition;
 use crate::ext::ExprExt;
 
 /// Evaluate a Python expression against the abstract environment.
@@ -204,7 +204,7 @@ fn eval_contents_split(args: &Arguments) -> AbstractValue {
                 if int_val.as_i64() == Some(1) {
                     return AbstractValue::Tuple(vec![
                         AbstractValue::SplitElement {
-                            index: Index::Forward(0),
+                            index: SplitPosition::Forward(0),
                         },
                         AbstractValue::Unknown,
                     ]);
@@ -236,13 +236,13 @@ fn eval_pop_return(obj: &AbstractValue, args: &Arguments) -> AbstractValue {
         // bits.pop(0) — return element at base_offset
         if let Some(0) = arg.positive_integer() {
             return AbstractValue::SplitElement {
-                index: Index::Forward(*base_offset),
+                index: SplitPosition::Forward(*base_offset),
             };
         }
     } else {
         // bits.pop() — return last element (before pop)
         return AbstractValue::SplitElement {
-            index: Index::Backward(*pops_from_end + 1),
+            index: SplitPosition::Backward(*pops_from_end + 1),
         };
     }
 
@@ -254,11 +254,11 @@ fn eval_pop_return(obj: &AbstractValue, args: &Arguments) -> AbstractValue {
 fn i64_to_index_element(n: i64, base_offset: usize) -> AbstractValue {
     if n >= 0 {
         AbstractValue::SplitElement {
-            index: Index::Forward(base_offset + n as usize),
+            index: SplitPosition::Forward(base_offset + n as usize),
         }
     } else {
         AbstractValue::SplitElement {
-            index: Index::Backward((-n) as usize),
+            index: SplitPosition::Backward((-n) as usize),
         }
     }
 }
@@ -288,7 +288,7 @@ fn eval_subscript(base: &AbstractValue, slice: &Expr, env: &Env) -> AbstractValu
                 if let Some(n) = int_val.as_i64() {
                     #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
                     return AbstractValue::SplitElement {
-                        index: Index::Backward(n as usize),
+                        index: SplitPosition::Backward(n as usize),
                     };
                 }
             }

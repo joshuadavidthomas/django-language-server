@@ -37,7 +37,7 @@ enum AbstractValueKey {
         base_offset: usize,
         pops_from_end: usize,
     },
-    SplitElement(super::domain::Index),
+    SplitElement(crate::types::SplitPosition),
     SplitLength {
         base_offset: usize,
         pops_from_end: usize,
@@ -60,7 +60,7 @@ impl From<&AbstractValue> for AbstractValueKey {
                 base_offset: *base_offset,
                 pops_from_end: *pops_from_end,
             },
-            AbstractValue::SplitElement { index } => AbstractValueKey::SplitElement(index.clone()),
+            AbstractValue::SplitElement { index } => AbstractValueKey::SplitElement(*index),
             AbstractValue::SplitLength {
                 base_offset,
                 pops_from_end,
@@ -259,7 +259,7 @@ mod tests {
     use ruff_python_parser::parse_module;
 
     use super::*;
-    use crate::dataflow::domain::Index;
+    use crate::types::SplitPosition;
     use crate::test_helpers::corpus_source;
 
     fn parse_module_funcs(source: &str) -> Vec<StmtFunctionDef> {
@@ -386,7 +386,7 @@ def do_tag(parser, token):
         assert_eq!(
             env.get("name"),
             &AbstractValue::SplitElement {
-                index: Index::Forward(0)
+                index: SplitPosition::Forward(0)
             }
         );
         assert_eq!(
@@ -415,7 +415,7 @@ def do_tag(parser, token):
         assert_eq!(
             env.get("tag_name"),
             &AbstractValue::SplitElement {
-                index: Index::Forward(0)
+                index: SplitPosition::Forward(0)
             }
         );
         // args and kwargs should be Unknown (built from list/dict operations in parse_tag)
@@ -607,7 +607,7 @@ def do_tag(parser, token):
         assert_eq!(
             env.get("first"),
             &AbstractValue::SplitElement {
-                index: Index::Forward(0),
+                index: SplitPosition::Forward(0),
             }
         );
     }

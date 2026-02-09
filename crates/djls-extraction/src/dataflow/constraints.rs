@@ -20,13 +20,11 @@ use ruff_python_ast::UnaryOp;
 
 use super::domain::AbstractValue;
 use super::domain::Env;
-use super::domain::Index;
 use super::eval::eval_expr;
 use crate::ext::ExprExt;
 use crate::types::ArgumentCountConstraint;
 use crate::types::ChoiceAt;
 use crate::types::RequiredKeyword;
-use crate::types::SplitPosition;
 
 /// Collected constraints from analyzing a function body.
 ///
@@ -246,7 +244,7 @@ fn eval_compare(compare: &ExprCompare, env: &Env) -> ConstraintSet {
     // SplitElement vs string: `bits[N] != "keyword"`
     if let AbstractValue::SplitElement { index } = &left_val {
         if let Some(keyword) = comparator.string_literal() {
-            let position = index_to_split_position(index);
+            let position = *index;
             return ConstraintSet::single_keyword(RequiredKeyword {
                 position,
                 value: keyword,
@@ -257,7 +255,7 @@ fn eval_compare(compare: &ExprCompare, env: &Env) -> ConstraintSet {
         if matches!(op, CmpOp::NotIn) {
             if let Some(values) = comparator.collection_map(ExprExt::string_literal) {
                 if !values.is_empty() {
-                    let position = index_to_split_position(index);
+                    let position = *index;
                     return ConstraintSet::single_choice(ChoiceAt { position, values });
                 }
             }
@@ -268,7 +266,7 @@ fn eval_compare(compare: &ExprCompare, env: &Env) -> ConstraintSet {
     // Reversed: string vs SplitElement: `"keyword" != bits[N]`
     if let AbstractValue::SplitElement { index } = &right_val {
         if let Some(keyword) = left.string_literal() {
-            let position = index_to_split_position(index);
+            let position = *index;
             return ConstraintSet::single_keyword(RequiredKeyword {
                 position,
                 value: keyword,
@@ -366,13 +364,6 @@ fn eval_range_constraint(compare: &ExprCompare, env: &Env) -> Option<Vec<Argumen
     ])
 }
 
-fn index_to_split_position(index: &Index) -> SplitPosition {
-    match index {
-        Index::Forward(n) => SplitPosition::Forward(*n),
-        Index::Backward(n) => SplitPosition::Backward(*n),
-    }
-}
-
 pub(super) fn body_raises_template_syntax_error(body: &[Stmt]) -> bool {
     for stmt in body {
         if let Stmt::Raise(StmtRaise { exc: Some(exc), .. }) = stmt {
@@ -406,6 +397,7 @@ mod tests {
     use crate::dataflow::eval::process_statements;
     use crate::dataflow::eval::AnalysisContext;
     use crate::test_helpers::django_function;
+    use crate::types::SplitPosition;
 
     fn extract_from_source(source: &str) -> ConstraintSet {
         let parsed = parse_module(source).expect("valid Python");

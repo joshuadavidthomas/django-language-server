@@ -14,7 +14,7 @@ use super::match_arms::extract_match_constraints;
 use super::AnalysisContext;
 use crate::dataflow::domain::AbstractValue;
 use crate::dataflow::domain::Env;
-use crate::dataflow::domain::Index;
+use crate::types::SplitPosition;
 
 /// Process a list of statements, updating the environment.
 pub fn process_statements(stmts: &[Stmt], env: &mut Env, ctx: &mut AnalysisContext<'_>) {
@@ -219,7 +219,7 @@ fn process_tuple_unpack(targets: &[Expr], value: &AbstractValue, env: &mut Env) 
                         env.set(
                             id.to_string(),
                             AbstractValue::SplitElement {
-                                index: Index::Forward(base_offset + i),
+                                index: SplitPosition::Forward(base_offset + i),
                             },
                         );
                     }
@@ -246,7 +246,7 @@ fn process_tuple_unpack(targets: &[Expr], value: &AbstractValue, env: &mut Env) 
                         env.set(
                             id.to_string(),
                             AbstractValue::SplitElement {
-                                index: Index::Backward(after_star - j),
+                                index: SplitPosition::Backward(after_star - j),
                             },
                         );
                     }
@@ -258,7 +258,7 @@ fn process_tuple_unpack(targets: &[Expr], value: &AbstractValue, env: &mut Env) 
                         env.set(
                             id.to_string(),
                             AbstractValue::SplitElement {
-                                index: Index::Forward(base_offset + i),
+                                index: SplitPosition::Forward(base_offset + i),
                             },
                         );
                     }

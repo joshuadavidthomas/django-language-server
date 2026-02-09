@@ -101,7 +101,7 @@ fn extract_arg_names(
 
     for (name, value) in env.iter() {
         if let domain::AbstractValue::SplitElement {
-            index: domain::Index::Forward(pos),
+            index: crate::types::SplitPosition::Forward(pos),
         } = value
         {
             // Skip position 0 (tag name) and skip parser/token params

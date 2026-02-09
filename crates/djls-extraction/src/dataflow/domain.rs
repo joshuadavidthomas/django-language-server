@@ -2,14 +2,7 @@ use std::collections::HashMap;
 
 use serde::Serialize;
 
-/// Positions within a `split_contents()` result.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
-pub enum Index {
-    /// `bits[N]` — position from start, in `split_contents()` coordinates
-    Forward(usize),
-    /// `bits[-N]` — position from end
-    Backward(usize),
-}
+use crate::types::SplitPosition;
 
 /// Abstract representation of a Python value during dataflow analysis.
 ///
@@ -34,7 +27,7 @@ pub enum AbstractValue {
         pops_from_end: usize,
     },
     /// Single element from a split result: `bits[N]` or `bits[-N]`
-    SplitElement { index: Index },
+    SplitElement { index: SplitPosition },
     /// `len(split_result)` — carries offsets for constraint adjustment.
     /// The effective original length = `measured_len + base_offset + pops_from_end`.
     SplitLength {
