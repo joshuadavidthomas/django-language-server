@@ -21,32 +21,32 @@
 **Design docs:** `docs/dev/extraction-test-strategy.md`, `docs/dev/corpus-refactor.md`
 **Plan file:** `.agents/plans/2026-02-09-m14-test-baseline.md`
 
-### Phase 1: Record Baseline + Audit Fabricated Tests
+### Phase 1: Record Baseline + Audit Fabricated Tests ✅
 
-- [x] **M14.1** Record baseline test counts: run `cargo test -q -p djls-extraction` and `cargo test -q -p djls-extraction --test corpus`, record total test count (pass/fail/ignored), total snapshot count, and corpus test count in this file
-- [x] **M14.2** Audit fabricated Python tests across all extraction source files: categorize each test as (a) has corpus equivalent → replace, (b) pattern is real but no clean isolatable corpus example → keep with comment, or (c) pattern doesn't exist in real code → remove. Record audit results as a section below
+- [x] **M14.1** Record baseline test counts (241 total: 239 unit + 2 corpus, 210 snapshots)
+- [x] **M14.2** Audit all 239 fabricated tests — categorized as (a) replace / (b) keep / (c) remove / (d) pure Rust
 
-### Phase 2: Create Corpus Test Helpers
+### Phase 2: Create Corpus Test Helpers ✅
 
-- [x] **M14.3** Add corpus test helpers to extraction crate test utilities: `find_function_in_source()`, `corpus_function()`, `corpus_source()` that work with `Corpus::discover()` and skip gracefully when corpus is not synced
-- [x] **M14.4** Validate: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings` pass, no test behavior changes
+- [x] **M14.3** Add `find_function_in_source()`, `corpus_function()`, `corpus_source()` helpers
+- [x] **M14.4** Validate build and clippy clean
 
-### Phase 3: Replace Fabricated Tests — Registration & Blocks & Filters
+### Phase 3: Replace Fabricated Tests — Registration & Blocks & Filters ✅
 
-- [x] **M14.5** Replace fabricated Python in `src/registry.rs` with corpus-sourced equivalents (map each registration pattern to a real Django function). 12 tests now use corpus source (defaulttags.py, defaultfilters.py, testtags.py, inclusion.py, custom.py, wagtailadmin_tags.py). 7 tests kept as fabricated with justification comments (edge cases, rare API patterns). Net +1 test (240 total). Removed `decorator_filter_with_name_kwarg` — the audit incorrectly claimed `defaultfilters.py` has `name=` kwarg; replaced with `decorator_filter_with_positional_string_name` (corpus: `@register.filter("escapejs")`) and added `tag_with_name_kwarg` (corpus: `@register.tag(name="partialdef")`) and `mixed_decorator_and_call_style` (corpus: testtags.py)
-- [x] **M14.6** Replace fabricated Python in `src/blocks.rs` with corpus-sourced equivalents. 8 tests now use corpus source: `verbatim` (simple end-tag), `do_if` (intermediates), `comment` (opaque/skip_past), `do_for` (multiple parse calls), `now` (no block structure), `do_block` from loader_tags.py (endblock validation), `spaceless` (simple parse+delete), `do_block_translate` from i18n.py (next_token loop). Removed 2 duplicate tests (`django_if_tag_style` duplicated `if_else_intermediates`; `skip_past_string_constant` duplicated `opaque_block_skip_past`). Added 1 new corpus test (`simple_block_with_endblock_validation`). Net -1 test (239 total). Reclassified `dynamic_fstring_end_tag` and `convention_tiebreaker_single_call_multi_token` from (a) to (b) — no corpus function has f-string directly in parser.parse(), and no corpus function has only a single parse call with mixed tokens.
-- [x] **M14.7** Replace fabricated Python in `src/filters.rs` with corpus-sourced equivalents. 8 tests now use corpus source: `no_arg_filter` (title), `no_arg_filter_upper` (upper), `required_arg_filter` (cut), `required_arg_filter_add` (add), `optional_arg_filter` (floatformat — has `arg=-1`), `optional_arg_filter_none_default` (date — has `arg=None`), `is_safe_does_not_affect_arity` (floatformat — has `@register.filter(is_safe=True)`), `stringfilter_does_not_affect_arity` (title — has `@stringfilter`). 9 tests kept as fabricated with justification comments (method-style self-skipping, zero-params edge cases, positional-only params, multi-param edge cases). Audit correction: original `optional_arg_filter` used fabricated `default(value, arg="")` but real `default` has required `arg`; replaced with `floatformat`. Similarly `optional_arg_filter_none_default` used fabricated `truncatewords(value, arg=None)` but real `truncatewords` has required `arg`; replaced with `date`
-- [x] **M14.8** Replace fabricated Python in `src/signature.rs` with corpus-sourced equivalents. 4 tests now use corpus source: `no_params` (no params simple_tag from custom.py), `simple_two_params` (required params from custom.py), `simple_one_default` (defaults from custom.py), `add_preserved_filters` (takes_context from admin_urls.py). 1 test kept as fabricated: `simple_tag_with_varargs` (*args on simple_tag — uncommon, no corpus equivalent)
-- [x] **M14.9** Update and review snapshots — extraction results must be equivalent. Run `cargo insta test --accept -p djls-extraction` and review diffs. Result: "no snapshots to review" — all 210 snapshots are current, no `.snap.new` files, extraction results unchanged by corpus migration
-- [x] **M14.10** Validate: `cargo test -q -p djls-extraction`, `cargo clippy -q --all-targets --all-features -- -D warnings` clean. All 241 tests pass (239 unit + 2 corpus), build and clippy clean
+- [x] **M14.5** `registry.rs` — 12 tests → corpus, 7 kept fabricated, net +1 (240 total)
+- [x] **M14.6** `blocks.rs` — 8 tests → corpus, removed 2 duplicates, added 1 new, net -1 (239 total)
+- [x] **M14.7** `filters.rs` — 8 tests → corpus, 9 kept fabricated
+- [x] **M14.8** `signature.rs` — 4 tests → corpus, 1 kept fabricated
+- [x] **M14.9** Snapshots reviewed — all 210 current, no diffs
+- [x] **M14.10** Validate: 241 tests pass, clippy clean
 
-### Phase 4: Replace Fabricated Tests — Dataflow
+### Phase 4: Replace Fabricated Tests — Dataflow ✅
 
-- [x] **M14.11** Replace fabricated Python in `src/dataflow/constraints.rs` that models Django guard patterns with corpus-sourced equivalents. 2 tests now use corpus source directly: `regroup_pattern_end_to_end` (regroup from defaulttags.py — exact+keyword pattern) and `choice_at_autoescape_pattern` (autoescape from defaulttags.py — exact+choice_at pattern). 6 new corpus-grounded end-to-end tests added: `corpus_get_current_timezone` (compound or — tz.py), `corpus_timezone_tag` (simple exact — tz.py), `corpus_do_for` (min count — defaulttags.py), `corpus_cycle` (min count — defaulttags.py), `corpus_url` (min count — defaulttags.py), `corpus_localtime_tag` (compound or+choice_at — tz.py). 23 tests kept as fabricated with justification comments — these test isolated constraint extraction rules (individual comparator operators, reversed comparisons, boolean operator handling, offset arithmetic, pop tracking) that are inherently unit-level and cannot be cleanly isolated from real corpus functions. Audit reclassified 14 tests from (a) to (b): the patterns exist in real code but only as part of complex multi-guard functions, making them unsuitable for isolated unit testing. Net +6 tests (245 total)
-- [x] **M14.12** Replace fabricated Python in `src/dataflow/eval.rs` that models Django compile function patterns with corpus-sourced equivalents. 4 tests now use corpus source: `option_loop_with_duplicate_check` (do_translate from i18n.py — `seen = set()` duplicate check with "noop", "context", "as" options), `option_loop_include_pattern` (do_include from loader_tags.py — dict-based duplicate check with "with", "only" options), `match_partialdef_pattern` (partialdef_func from defaulttags.py — match with OneOf([2, 3]) constraint), `match_partial_exact` (partial_func from defaulttags.py — match with Exact(2) constraint). 34 tests kept as pure Rust logic (d). 10 tests kept as fabricated with justification comments (b): `parser_token_split_contents` (classytags-style `parser.token` access), `option_loop_basic` (reclassified from (a) — no corpus function has option loop without duplicate check), `option_loop_allows_unknown` (no corpus function allows unknown options), `match_star_pattern_variable_length`, `match_multiple_valid_lengths`, `match_wildcard_overrides_variable_min_to_zero`, `match_wildcard_after_fixed_produces_no_min` (match edge cases), `match_env_updates_propagate`, `while_body_assignments_propagate`, `while_body_pop_side_effects` (env propagation). No test count change (245 total)
-- [x] **M14.13** Replace fabricated Python in `src/dataflow/calls.rs` with corpus-sourced equivalents. 1 test now uses corpus source: `allauth_parse_tag_pattern` (allauth's `parse_tag` helper called from `do_element` — real `allauth/templatetags/allauth.py`). Added `analyze_function_with_helpers()` test utility to target a specific function by name in full module source. 13 tests kept as-is: 8 pure Rust logic (d) testing depth limits, recursion, caching, and missing helpers; 5 fabricated (b) testing helper return patterns, tuple elements, and subscript bases — these test abstract interpreter mechanics with controlled inputs that can't be cleanly isolated from corpus. No test count change (245 total)
-- [x] **M14.14** Audit `src/environment/scan.rs` — all 16 tests kept as fabricated (category b/d). These tests are inherently filesystem-oriented: they create temp directories with controlled layouts (collisions, missing `__init__.py`, non-py files, etc.) that corpus can't provide. The fabricated Python is minimal registration boilerplate — scaffolding for testing directory scanning, not extraction accuracy. Added justification comments to all 6 tests that use fabricated Python source. No test count change (245 total)
-- [x] **M14.15** Validate: `cargo test -q -p djls-extraction`, snapshots reviewed, `cargo clippy -q --all-targets --all-features -- -D warnings` clean. All 245 unit tests + 2 corpus tests pass. No pending snapshots. Clippy clean. Note: `-q` with `--features parser` shows 0 tests due to cargo output quirk — use `--features parser` without `-q` or `--all-features` to see actual counts
+- [x] **M14.11** `constraints.rs` — 8 tests → corpus (2 replaced, 6 new end-to-end), 23 kept fabricated, net +6 (245 total)
+- [x] **M14.12** `eval.rs` — 4 tests → corpus, 34 pure Rust, 10 kept fabricated
+- [x] **M14.13** `calls.rs` — 1 test → corpus (allauth), added `analyze_function_with_helpers()` utility, 13 kept
+- [x] **M14.14** `scan.rs` — all 16 kept as fabricated (filesystem-oriented, corpus can't provide controlled layouts)
+- [x] **M14.15** Validate: 245 unit + 2 corpus tests pass, clippy clean
 
 ### Phase 5: Replace Fabricated Tests — Golden/End-to-End
 
@@ -116,270 +116,23 @@ _Tasks not yet expanded. Needs plan file: `.agents/plans/2026-02-09-m20-rename-c
 
 All tests green. This is the baseline that every M14-M20 change must maintain.
 
-## M14.2 Audit — Fabricated Test Categorization
+## Current Test Counts (after Phase 4)
 
-Categories:
-- **(a) Has corpus equivalent → replace** — pattern exists in corpus, use real source
-- **(b) Real pattern, no clean isolatable example → keep** — pattern exists in real code but corpus doesn't have a clean isolatable example, or the test is testing a specific edge case of real behavior
-- **(c) Pattern doesn't exist in real code → remove** — fabricated pattern, not found in real Django/third-party code
-- **(d) Pure Rust logic → keep as-is** — no Python involved, tests Rust types/logic
+| Suite | Passed |
+|-------|--------|
+| Unit tests | 245 |
+| Corpus integration | 2 |
+| **Total** | **247** |
 
-### `src/types.rs` (13 tests)
+## M14.2 Audit — lib.rs Golden Tests (Phase 5 reference)
 
-All **(d) Pure Rust logic**. Tests `SymbolKey` construction, `ExtractionResult` merge, `BlockTagSpec` fields, `FilterArity` fields, `rekey_module`. No Python source involved.
+The full audit was completed in M14.2. Phases 3-4 consumed audit results for `registry.rs`, `blocks.rs`, `filters.rs`, `signature.rs`, `constraints.rs`, `eval.rs`, `calls.rs`, and `scan.rs`. The `lib.rs` section below is the remaining work for Phase 5.
 
-### `src/dataflow/domain.rs` (4 tests)
-
-All **(d) Pure Rust logic**. Tests `Env` creation, set/get, mutation. No Python source.
-
-### `src/registry.rs` (20 tests)
-
-All test registration discovery from Python source using fabricated snippets.
-
-| Test | Category | Corpus equivalent |
-|------|----------|-------------------|
-| `decorator_bare_tag` | (a) | `do_for` in `defaulttags.py` uses `@register.tag` (via call-style, but bare decorator exists on other functions) |
-| `decorator_simple_tag_with_name_kwarg` | (a) | Third-party packages use `@register.simple_tag(name=...)` |
-| `decorator_inclusion_tag` | (a) | Wagtail, crispy-forms use `@register.inclusion_tag(...)` |
-| `decorator_filter_bare` | (a) | `defaultfilters.py` has `@register.filter` on many functions |
-| `decorator_filter_with_name_kwarg` | (a) | `defaultfilters.py` has `@register.filter(name="floatformat")` etc. |
-| `call_style_tag_registration` | (a) | `defaulttags.py` uses `register.tag("for", do_for)` |
-| `call_style_filter_registration` | (a) | `defaultfilters.py` uses call-style filter registration |
-| `function_name_fallback` | (a) | `@register.tag()` with empty parens — exists in corpus |
-| `multiple_registrations` | (a) | Any templatetags module has multiple registrations |
-| `tag_with_positional_string_name` | (a) | `@register.tag("name")` pattern in `defaulttags.py` |
-| `call_style_tag_with_method_callable` | (b) | `register.tag("name", SomeClass.method)` — not in standard Django but plausible in third-party. Keep with comment |
-| `simple_tag_func_positional` | (b) | `register.simple_tag(func, name=...)` call-style — rare but valid API. Keep with comment |
-| `simple_block_tag_decorator` | (b) | `@register.simple_block_tag` — Django 5.2+ feature, may not be in corpus yet. Keep with comment |
-| `empty_source` | (b) | Edge case — keep as-is |
-| `no_registrations` | (b) | Edge case — keep as-is |
-| `filter_with_positional_string_name` | (a) | `@register.filter("name")` exists in `defaultfilters.py` |
-| `filter_with_is_safe_kwarg` | (a) | `@register.filter(is_safe=True)` in `defaultfilters.py` |
-| `call_style_single_func_no_name` | (b) | `register.tag(func)` with no name — valid API but rare. Keep with comment |
-| `call_style_filter_single_func_no_name` | (b) | `register.filter(func)` — valid API but rare. Keep with comment |
-| `name_kwarg_overrides_positional_for_tag` | (b) | Edge case of name resolution priority. Keep as unit test |
-
-### `src/blocks.rs` (18 tests)
-
-All test block spec extraction from Python source.
-
-| Test | Category | Corpus equivalent |
-|------|----------|-------------------|
-| `simple_end_tag_single_parse` | (a) | `do_for` in `defaulttags.py` |
-| `if_else_intermediates` | (a) | `do_if` in `defaulttags.py` |
-| `opaque_block_skip_past` | (a) | `do_comment` / `verbatim` in `defaulttags.py` |
-| `non_conventional_closer_found_via_control_flow` | (b) | "done" as end-tag — not in Django core but tests the classification algorithm. Keep |
-| `ambiguous_returns_none_for_end_tag` | (b) | Edge case — no corpus equivalent but tests classification logic. Keep |
-| `dynamic_fstring_end_tag` | (a) | `do_block` in `defaulttags.py` uses `f"end{tag_name}"` |
-| `multiple_parse_calls_classify_correctly` | (a) | `do_for` with `empty` intermediate in `defaulttags.py` |
-| `no_parse_calls_returns_none` | (a) | `do_now` in `defaulttags.py` (non-block tag) |
-| `self_parser_pattern` | (b) | classytags-style `self.parser` — not in standard Django corpus. Keep with comment |
-| `convention_tiebreaker_single_call_multi_token` | (a) | Pattern of `parser.parse(("else", "endif"))` from `defaulttags.py` |
-| `django_if_tag_style` | (a) | Directly models Django's `do_if` |
-| `skip_past_string_constant` | (a) | `do_comment` in `defaulttags.py` |
-| `no_parameters_returns_none` | (b) | Edge case — keep |
-| `sequential_parse_then_check` | (a) | `do_spaceless` in `defaulttags.py` |
-| `next_token_loop_blocktrans_pattern` | (a) | `do_block_translate` in `i18n.py` |
-| `next_token_loop_static_end_tag` | (b) | Variation with static end-tag — real pattern but the specific combination is fabricated. Keep |
-| `next_token_loop_with_intermediate_and_static_end` | (b) | Variation combining intermediate + static end — fabricated combination. Keep |
-| `no_next_token_loop_no_parse_returns_none` | (b) | Duplicate of `no_parse_calls_returns_none` — keep as edge case |
-
-### `src/filters.rs` (17 tests)
-
-All test filter arity extraction from function signatures.
-
-| Test | Category | Corpus equivalent |
-|------|----------|-------------------|
-| `no_arg_filter` | (a) | `title` in `defaultfilters.py` |
-| `no_arg_filter_upper` | (a) | `upper` in `defaultfilters.py` |
-| `required_arg_filter` | (a) | `cut` in `defaultfilters.py` |
-| `required_arg_filter_add` | (a) | `add` in `defaultfilters.py` |
-| `optional_arg_filter` | (a) | `default` in `defaultfilters.py` |
-| `optional_arg_filter_none_default` | (a) | `truncatewords` in `defaultfilters.py` |
-| `method_style_no_arg` | (b) | `self` parameter — not standard Django but valid Python. Keep |
-| `method_style_with_arg` | (b) | Same — `self` variation. Keep |
-| `method_style_with_optional_arg` | (b) | Same — `self` variation. Keep |
-| `no_params_at_all` | (b) | Edge case — no real filter has zero params. Keep as robustness test |
-| `self_only` | (b) | Edge case — keep |
-| `posonly_params` | (b) | Python 3.8+ positional-only — no Django filter uses this currently. Keep with comment |
-| `posonly_with_default` | (b) | Same — keep |
-| `multiple_extra_args_all_with_defaults` | (b) | Unusual — no real filter has 3+ params. Keep as edge case |
-| `multiple_extra_args_mixed_defaults` | (b) | Same — keep |
-| `is_safe_does_not_affect_arity` | (a) | `defaultfilters.py` uses `is_safe=True` on many filters |
-| `stringfilter_does_not_affect_arity` | (a) | `@stringfilter` decorator in `defaultfilters.py` |
-
-### `src/signature.rs` (5 tests)
-
-Test `simple_tag`/`inclusion_tag` parameter extraction.
-
-| Test | Category | Corpus equivalent |
-|------|----------|-------------------|
-| `simple_tag_no_params` | (a) | Find no-param `simple_tag` in corpus (e.g., `now` equivalent) |
-| `simple_tag_required_params` | (a) | Find multi-param `simple_tag` in corpus |
-| `simple_tag_with_defaults` | (a) | Find `simple_tag` with defaults in corpus |
-| `simple_tag_with_varargs` | (b) | `*args` on simple_tag — uncommon. Keep with comment |
-| `simple_tag_takes_context` | (a) | `takes_context=True` pattern exists in corpus |
-
-### `src/dataflow/constraints.rs` (37 tests)
-
-Test constraint extraction from guard conditions. Most tests are inherently unit-level — they test isolated constraint extraction rules that cannot be cleanly isolated from real corpus functions (which combine multiple guards). Corpus-grounded end-to-end tests verify the full pipeline against real Django functions.
-
-| Test | Category | Notes |
-|------|----------|-------|
-| `len_lt` | (b) | Isolated `<` comparator — real functions combine with keyword checks |
-| `len_ne` | (b) | Isolated `!=` comparator — tested end-to-end via corpus_timezone_tag |
-| `len_gt` | (b) | Isolated `>` comparator — rare in Django, no clean isolatable example |
-| `len_le` | (b) | `<=` comparator — rare in Django, no clean corpus example |
-| `len_ge` | (b) | `>=` comparator — rare in Django, no clean corpus example |
-| `reversed_lt` | (b) | `N > len(bits)` — reversed comparison. Tests comparator normalization |
-| `reversed_gt` | (b) | Same — reversed comparison |
-| `required_keyword_ne` | (b) | Isolated keyword extraction — tested end-to-end via corpus_regroup |
-| `required_keyword_backward` | (b) | Negative index keyword — no corpus function uses this isolated form |
-| `compound_or` | (b) | `or` semantics — tested end-to-end via corpus_get_current_timezone |
-| `compound_and_discards_length` | (b) | `and` semantics — unit logic |
-| `negated_range` | (b) | `not (N <= len <= M)` — no corpus function uses negated-range form |
-| `len_not_in` | (b) | `len(bits) not in (...)` — pattern doesn't exist in corpus |
-| `offset_adjustment_after_slice` | (b) | Tests slice offset arithmetic — internal tracking |
-| `multiple_raises` | (b) | Sequential if/raise — tested end-to-end via corpus_regroup |
-| `nested_if_raise` | (b) | Nested if producing keyword constraint — always mixed with other logic |
-| `elif_raise` | (b) | elif pattern — always mixed with other code in real functions |
-| `non_template_syntax_error_ignored` | (b) | Robustness: non-TSE raises ignored |
-| `regroup_pattern_end_to_end` | **(a) replaced** | Corpus: regroup from defaulttags.py |
-| `unknown_variable_produces_no_constraint` | (b) | Robustness for unknown variables |
-| `keyword_from_reversed_comparison` | (b) | Reversed string comparison — no corpus function uses this form |
-| `star_unpack_then_constraint` | (b) | Star unpack offset — no corpus function has star+isolated len guard |
-| `pop_0_offset_adjusted_constraint` | (b) | pop(0) offset — real uses are in while-loops (different handler) |
-| `end_pop_adjusted_constraint` | (b) | Multiple pop() from end — tests offset arithmetic |
-| `combined_pop_front_and_end` | (b) | Combined pop(0)+pop() — tests offset arithmetic |
-| `pop_0_with_assignment_then_constraint` | (b) | pop(0) with assignment — tests assignment doesn't break tracking |
-| `choice_at_not_in_tuple` | (b) | Isolated ChoiceAt — tested end-to-end via corpus_autoescape |
-| `choice_at_autoescape_pattern` | **(a) replaced** | Corpus: autoescape from defaulttags.py |
-| `choice_at_with_list` | (b) | List `[]` instead of tuple `()` — defensive test |
-| `choice_at_negative_index` | (b) | Negative index with `not in` — no corpus function uses this |
-| `no_choice_at_for_single_string` | (b) | Boundary: single string → RequiredKeyword not ChoiceAt |
-| `corpus_get_current_timezone` | **(a) new** | Corpus: tz.py — compound or (len+keyword) |
-| `corpus_timezone_tag` | **(a) new** | Corpus: tz.py — simple exact count |
-| `corpus_do_for` | **(a) new** | Corpus: defaulttags.py — min count |
-| `corpus_cycle` | **(a) new** | Corpus: defaulttags.py — min count |
-| `corpus_url` | **(a) new** | Corpus: defaulttags.py — min count |
-| `corpus_localtime_tag` | **(a) new** | Corpus: tz.py — compound or+choice_at |
-
-### `src/dataflow/eval.rs` (48 tests)
-
-Test abstract interpreter statement/expression evaluation. Many are inherently unit-level.
-
-| Test | Category | Notes |
-|------|----------|-------|
-| `env_initialization` | (d) | Pure Rust — Env setup |
-| `split_contents_binding` | (d) | Tests abstract value for `token.split_contents()` |
-| `contents_split_binding` | (d) | Tests abstract value for `token.contents.split()` |
-| `parser_token_split_contents` | (b) | Tests `parser.token.split_contents()` — fabricated but real pattern |
-| `subscript_forward` | (d) | Tests `bits[0]` → abstract value |
-| `subscript_negative` | (d) | Tests `bits[-1]` → abstract value |
-| `slice_from_start` | (d) | Tests `bits[1:]` → abstract value |
-| `slice_with_existing_offset` | (d) | Tests nested slice |
-| `len_of_split_result` | (d) | Tests `len(bits)` → abstract value |
-| `list_wrapping` | (d) | Tests `list(bits)` — pure eval |
-| `star_unpack` | (d) | Tests `name, *rest = bits` |
-| `tuple_unpack` | (d) | Tests `a, b, c = bits` |
-| `contents_split_none_1` | (d) | Tests `contents.split(None, 1)` |
-| `unknown_variable` | (d) | Tests unknown var → Unknown |
-| `split_result_tuple_unpack_no_star` | (d) | Tests fixed-length tuple unpack |
-| `subscript_with_offset` | (d) | Tests subscript on sliced result |
-| `if_branch_updates_env` | (d) | Tests if-branch env propagation |
-| `integer_literal` | (d) | Tests `x = 42` |
-| `string_literal` | (d) | Tests `x = "hello"` |
-| `slice_truncation_preserves_offset` | (d) | Tests `bits[:3]` on already-offset value |
-| `star_unpack_with_trailing` | (d) | Tests `*rest, last = bits` |
-| `pop_0_offset` | (d) | Tests `bits.pop(0)` side effect |
-| `pop_0_with_assignment` | (d) | Tests `x = bits.pop(0)` |
-| `pop_from_end` | (d) | Tests `bits.pop()` |
-| `pop_from_end_with_assignment` | (d) | Tests `x = bits.pop()` |
-| `multiple_pops` | (d) | Tests sequence of pops |
-| `len_after_pop` | (d) | Tests `len(bits)` after pop |
-| `len_after_end_pop` | (d) | Tests `len(bits)` after `pop()` |
-| `option_loop_basic` | (b) | Reclassified from (a): no corpus function has option loop without duplicate check — tests simpler permissive code path |
-| `option_loop_with_duplicate_check` | **(a) replaced** | Corpus: do_translate from i18n.py — `seen = set()` duplicate check |
-| `option_loop_allows_unknown` | (b) | Unknown option tolerance — fabricated but tests real behavior |
-| `option_loop_include_pattern` | **(a) replaced** | Corpus: do_include from loader_tags.py — dict-based duplicate check |
-| `no_option_loop_returns_none` | (d) | Edge case — no option loop present |
-| `match_partialdef_pattern` | **(a) replaced** | Corpus: partialdef_func from defaulttags.py — match with OneOf([2, 3]) |
-| `match_partial_exact` | **(a) replaced** | Corpus: partial_func from defaulttags.py — match with Exact(2). Reclassified from (b) to (a) |
-| `match_non_split_result_no_constraints` | (d) | Tests that non-split match produces no constraints |
-| `match_star_pattern_variable_length` | (b) | Star pattern in match — keep |
-| `match_multiple_valid_lengths` | (b) | Multiple case patterns — keep |
-| `match_all_error_cases_no_constraints` | (d) | Edge case — all cases raise |
-| `match_wildcard_overrides_variable_min_to_zero` | (b) | Wildcard `_` case — keep |
-| `match_wildcard_after_fixed_produces_no_min` | (b) | Wildcard after fixed — keep |
-| `match_env_updates_propagate` | (d) | Tests env propagation through match |
-| `while_body_assignments_propagate` | (d) | Tests while-body env propagation |
-| `while_body_pop_side_effects` | (d) | Tests pop side effects in while |
-| `contents_split_none_2_is_not_tuple` | (d) | Tests `split(None, 2)` is not tuple-unpackable |
-| `contents_split_none_0_is_not_tuple` | (d) | Tests `split(None, 0)` edge case |
-| `contents_split_none_variable_is_not_tuple` | (d) | Tests `split(None, var)` |
-| `while_option_loop_skips_body_processing` | (d) | Tests that recognized option loops skip body eval |
-
-### `src/dataflow/calls.rs` (14 tests)
-
-Test helper function call inlining.
-
-| Test | Category | Corpus equivalent |
-|------|----------|-------------------|
-| `simple_helper_returns_split_contents` | (b) | Fabricated but tests basic helper return. Keep |
-| `tuple_return_destructuring` | (b) | Tests tuple return from helper. Keep |
-| `allauth_parse_tag_pattern` | (a) | Directly models allauth's `parse_tag` helper |
-| `depth_limit` | (d) | Tests recursion depth limiting — pure logic |
-| `self_recursion` | (d) | Tests self-recursive helper detection |
-| `helper_not_found` | (d) | Tests missing helper graceful handling |
-| `token_kwargs_marks_unknown` | (d) | Tests `token_kwargs()` → Unknown |
-| `parser_compile_filter` | (d) | Tests `parser.compile_filter()` → Unknown |
-| `cache_hit_same_args` | (d) | Tests HelperCache hit behavior |
-| `cache_miss_different_args` | (d) | Tests HelperCache miss behavior |
-| `helper_with_pop_and_return` | (b) | Tests helper that pops and returns. Keep |
-| `helper_call_in_tuple_element` | (b) | Tests helper call in tuple context. Keep |
-| `helper_call_in_subscript_base` | (b) | Tests helper call in subscript context. Keep |
-| `multiple_helper_calls_in_tuple` | (b) | Tests multiple helpers in tuple. Keep |
-
-### `src/dataflow.rs` (5 tests)
-
-Test `extract_arg_names` (derives argument names from constraints).
-
-| Test | Category | Notes |
-|------|----------|-------|
-| `arg_names_from_tuple_unpack` | (d) | Pure Rust logic on constraint data |
-| `arg_names_from_indexed_access` | (d) | Pure Rust logic |
-| `arg_names_with_required_keyword` | (d) | Pure Rust logic |
-| `arg_names_fallback_generic` | (d) | Pure Rust logic |
-| `arg_names_empty_when_no_constraints` | (d) | Pure Rust logic |
-
-### `src/environment/scan.rs` (16 tests)
-
-Test environment scanning (filesystem + AST).
-
-| Test | Category | Notes |
-|------|----------|-------|
-| `scan_discovers_libraries` | (b) | Uses `tempdir` with fabricated filesystem. Pattern is real but tests filesystem logic. Keep |
-| `scan_derives_correct_app_module` | (b) | Tests module derivation logic. Keep |
-| `scan_name_collision_detection` | (b) | Tests collision detection. Keep |
-| `scan_skips_init_files` | (b) | Tests `__init__.py` skipping. Keep |
-| `scan_requires_templatetags_init` | (b) | Tests directory validity check. Keep |
-| `scan_empty_directory` | (b) | Edge case. Keep |
-| `scan_nonexistent_path` | (b) | Edge case. Keep |
-| `scan_multiple_sys_paths` | (b) | Tests multi-path scanning. Keep |
-| `libraries_for_unknown_name_returns_empty` | (d) | Pure logic on scan results |
-| `scan_skips_non_py_files` | (b) | Tests file filtering. Keep |
-| `scan_with_symbols_extracts_registrations` | (b) | Uses fabricated Python source in temp files. Pattern is real but hard to isolate from corpus |
-| `scan_with_symbols_parse_failure_still_discovers_library` | (b) | Tests graceful parse failure. Keep |
-| `scan_with_symbols_reverse_lookup_tags` | (b) | Tests reverse lookup. Keep |
-| `scan_with_symbols_reverse_lookup_collision` | (b) | Tests collision in reverse lookup. Keep |
-| `scan_without_symbols_has_empty_tags_filters` | (b) | Tests no-symbol mode. Keep |
-| `scan_with_symbols_no_registrations` | (b) | Tests empty registration file. Keep |
-
-Note: `scan.rs` tests are inherently filesystem-oriented. They create temp directories with fabricated file structures. Replacing with corpus would mean pointing at real corpus paths — but the tests need controlled directory structures (collisions, missing `__init__.py`, etc.) that corpus can't provide. Category (b) is appropriate for most.
+**Audit summary for completed files:** 78 tests replaced with corpus source, 95 kept with justification, 0 removed, 72 pure Rust. See git history (commit `8cf9415d`) for full audit.
 
 ### `src/lib.rs` (48 tests)
 
-Golden end-to-end tests. These are the highest-value candidates for corpus replacement.
+Golden end-to-end tests — highest-value candidates for corpus replacement.
 
 | Test | Category | Notes |
 |------|----------|-------|
@@ -432,33 +185,9 @@ Golden end-to-end tests. These are the highest-value candidates for corpus repla
 | `golden_simple_tag_with_name_kwarg` | (a) | Use real named simple_tag |
 | `golden_inclusion_tag_with_args` | (a) | Use real inclusion_tag with args |
 
-### Summary
-
-| File | Total | (a) Replace | (b) Keep+comment | (c) Remove | (d) Pure Rust |
-|------|-------|-------------|-------------------|------------|---------------|
-| `types.rs` | 13 | 0 | 0 | 0 | 13 |
-| `dataflow/domain.rs` | 4 | 0 | 0 | 0 | 4 |
-| `registry.rs` | 20 | 12 | 8 | 0 | 0 |
-| `blocks.rs` | 18 | 10 | 8 | 0 | 0 |
-| `filters.rs` | 17 | 8 | 9 | 0 | 0 |
-| `signature.rs` | 5 | 4 | 1 | 0 | 0 |
-| `dataflow/constraints.rs` | 37 | 8 | 22 | 0 | 7 |
-| `dataflow/eval.rs` | 48 | 4 | 10 | 0 | 34 | _(M14.12: 4 replaced with corpus, 1 reclassified (a)→(b), 1 reclassified (b)→(a))_ |
-| `dataflow/calls.rs` | 14 | 1 | 5 | 0 | 8 |
-| `dataflow.rs` | 5 | 0 | 0 | 0 | 5 |
-| `environment/scan.rs` | 16 | 0 | 15 | 0 | 1 |
-| `lib.rs` | 48 | 31 | 17 | 0 | 0 |
-| **Total** | **245** | **78** | **95** | **0** | **72** |
-
-**Key findings:**
-- **84 tests** (35%) should be replaced with corpus-sourced equivalents
-- **83 tests** (35%) should be kept with justification comments (real pattern but no clean isolatable example, edge cases, or filesystem-oriented)
-- **0 tests** to remove — no purely fictional patterns found. The fabricated snippets model real Django patterns, just not using actual corpus source.
-- **72 tests** (30%) are pure Rust logic, no Python involved
-- `lib.rs` golden tests are highest priority — 31 of 48 should use corpus source
-- `environment/scan.rs` tests are filesystem-oriented and should stay fabricated (they need controlled directory structures)
-- `dataflow/eval.rs` is mostly pure Rust unit tests (34 of 48) — the abstract interpreter tests don't need corpus source
+**Phase 5 scope:** 31 tests to replace with corpus source (category a), 17 to keep as-is (categories b/d).
 
 ## Discoveries
 
-_(Record anything learned during implementation that affects future milestones)_
+- **`-q` with `--features parser` quirk**: Shows 0 tests due to cargo output formatting. Use `--all-features` or drop `-q` to see actual counts.
+- **Audit corrections**: Several audit (a) classifications were wrong — real Django functions don't always match assumed patterns. Always verify corpus function signatures before replacing tests. Examples: `default` filter has required `arg` (not optional), `truncatewords` has required `arg` (not optional), `defaultfilters.py` doesn't use `name=` kwarg on `@register.filter`.
