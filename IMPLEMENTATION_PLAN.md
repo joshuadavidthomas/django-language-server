@@ -86,14 +86,14 @@ Module convention: `blocks.rs` (orchestrator) + `blocks/` directory (strategy su
 ### Phase 1: Create blocks/ directory and move opaque strategy
 
 - [x] **M17.1** Create `blocks/opaque.rs` with `detect(body, parser_var) -> Option<BlockTagSpec>`. Move `collect_skip_past_tokens()` and `extract_skip_past_token()`.
-- [ ] **M17.2** Update `blocks.rs`: add `mod opaque;`, call `opaque::detect()` in orchestrator. Keep `is_parser_receiver()` in `blocks.rs` as shared helper.
-- [ ] **M17.3** Validate: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q` — all green.
+- [x] **M17.2** Update `blocks.rs`: add `mod opaque;`, call `opaque::detect()` in orchestrator. Keep `is_parser_receiver()` in `blocks.rs` as shared helper. (Already done in M17.1 — mod declaration and orchestrator call were part of the same commit.)
+- [x] **M17.3** Validate: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q` — all green (745 passed, 0 failed, 7 ignored).
 
 ### Phase 2: Move dynamic_end strategy
 
-- [ ] **M17.4** Create `blocks/dynamic_end.rs` with `detect(body, parser_var) -> Option<BlockTagSpec>`. Move `has_dynamic_end_in_body()`, `is_dynamic_end_parse_call()`, `is_end_fstring()`, `has_dynamic_end_tag_format()`, `is_end_format_expr()`.
-- [ ] **M17.5** Update `blocks.rs`: add `mod dynamic_end;`, call `dynamic_end::detect()` in orchestrator.
-- [ ] **M17.6** Validate: all green.
+- [x] **M17.4** Create `blocks/dynamic_end.rs` with `detect(body, parser_var) -> Option<BlockTagSpec>`. Move `has_dynamic_end_in_body()`, `is_dynamic_end_parse_call()`, `is_end_fstring()`, `has_dynamic_end_tag_format()`, `is_end_format_expr()`.
+- [x] **M17.5** Update `blocks.rs`: add `mod dynamic_end;`, call `dynamic_end::detect()` in orchestrator. `has_dynamic_end_tag_format` and `is_end_fstring` made `pub(super)` for reuse by `next_token` strategy.
+- [x] **M17.6** Validate: all green (745 passed, 0 failed, 7 ignored).
 
 ### Phase 3: Move next_token strategy
 
