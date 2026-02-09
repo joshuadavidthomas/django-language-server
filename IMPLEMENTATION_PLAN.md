@@ -39,7 +39,7 @@ Six phases completed. Key changes:
 
 - [x] **M16.1** Define `AnalysisResult { constraints: ConstraintSet, known_options: Option<KnownOptions> }` in `eval.rs` with `extend()` method for merging — added `#[derive(Default)]`, `#[allow(dead_code)]` until M16.2 wires it up
 - [x] **M16.2** Change `process_statement` to return `AnalysisResult` — each arm returns its accumulated constraints/options instead of mutating `ctx`. Arms that directly set `ctx.constraints` or `ctx.known_options` (If, While, Match) now populate a local `AnalysisResult` instead. `process_statements` merges each statement's result into `ctx`. Recursive `process_statements` calls within arms still accumulate into `ctx` directly (will be addressed in M16.3-M16.6).
-- [ ] **M16.3** Adapt `Stmt::If` arm: collect body/elif results as `AnalysisResult`, discard keywords via `clear()` on returned results instead of `truncate()` on ctx
+- [x] **M16.3** Adapt `Stmt::If` arm: collect body/elif results as `AnalysisResult`, discard keywords via `clear()` on returned results instead of `truncate()` on ctx — added `collect_statements_result()` helper that swaps ctx accumulator fields to capture sub-statement results independently
 - [ ] **M16.4** Adapt `Stmt::While` arm: return option loop in `AnalysisResult.known_options` instead of setting `ctx.known_options`
 - [ ] **M16.5** Adapt `Stmt::Match` arm: merge `extract_match_constraints` result into returned `AnalysisResult`
 - [ ] **M16.6** Change `process_statements` to return `AnalysisResult` by folding over `process_statement` results

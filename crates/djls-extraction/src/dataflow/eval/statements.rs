@@ -28,6 +28,30 @@ pub fn process_statements(stmts: &[Stmt], env: &mut Env, ctx: &mut AnalysisConte
     }
 }
 
+/// Process statements and return the accumulated results as an `AnalysisResult`
+/// instead of merging them into `ctx.constraints`/`ctx.known_options`.
+///
+/// Temporarily swaps `ctx` accumulator fields so that recursive calls through
+/// `process_statements` accumulate into a fresh set, which is then captured
+/// and the originals restored.
+fn collect_statements_result(
+    stmts: &[Stmt],
+    env: &mut Env,
+    ctx: &mut AnalysisContext<'_>,
+) -> AnalysisResult {
+    use std::mem;
+
+    let saved_constraints = mem::take(&mut ctx.constraints);
+    let saved_options = ctx.known_options.take();
+
+    process_statements(stmts, env, ctx);
+
+    AnalysisResult {
+        constraints: mem::replace(&mut ctx.constraints, saved_constraints),
+        known_options: mem::replace(&mut ctx.known_options, saved_options),
+    }
+}
+
 fn process_statement(stmt: &Stmt, env: &mut Env, ctx: &mut AnalysisContext<'_>) -> AnalysisResult {
     let mut result = AnalysisResult::default();
 
@@ -60,6 +84,10 @@ fn process_statement(stmt: &Stmt, env: &mut Env, ctx: &mut AnalysisContext<'_>) 
                     stmt_if, env,
                 ));
 
+            // Collect body results separately so we can discard conditional
+            // keywords without reaching into ctx.constraints.
+            let mut body_result = collect_statements_result(&stmt_if.body, env, ctx);
+
             // When an if-condition checks a specific element value
             // (e.g. `if args[-3] == "as"`), keyword constraints extracted
             // from its body are conditional on that value and can't be
@@ -67,21 +95,26 @@ fn process_statement(stmt: &Stmt, env: &mut Env, ctx: &mut AnalysisContext<'_>) 
             // Length guards (`if len(bits) >= 3`) are fine — the keyword
             // only applies when the position exists, which the evaluator
             // handles via bounds checking.
-            let kw_before = ctx.constraints.required_keywords.len();
-            process_statements(&stmt_if.body, env, ctx);
             if condition_involves_element_check(&stmt_if.test, env) {
-                ctx.constraints.required_keywords.truncate(kw_before);
+                body_result.constraints.required_keywords.clear();
+            }
+            result.constraints.extend(body_result.constraints);
+            if body_result.known_options.is_some() {
+                result.known_options = body_result.known_options;
             }
 
             for clause in &stmt_if.elif_else_clauses {
-                let kw_before_clause = ctx.constraints.required_keywords.len();
-                process_statements(&clause.body, env, ctx);
+                let mut clause_result = collect_statements_result(&clause.body, env, ctx);
                 if clause
                     .test
                     .as_ref()
                     .is_some_and(|t| condition_involves_element_check(t, env))
                 {
-                    ctx.constraints.required_keywords.truncate(kw_before_clause);
+                    clause_result.constraints.required_keywords.clear();
+                }
+                result.constraints.extend(clause_result.constraints);
+                if clause_result.known_options.is_some() {
+                    result.known_options = clause_result.known_options;
                 }
             }
         }
