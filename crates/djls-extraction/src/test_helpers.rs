@@ -91,12 +91,7 @@ pub fn latest_django_path(relative_to_django: &str) -> Option<String> {
     let django_dir = corpus.latest_django()?;
     let full_path = django_dir.join(relative_to_django);
     if full_path.as_std_path().exists() {
-        Some(
-            full_path
-                .strip_prefix(corpus.root())
-                .ok()?
-                .to_string(),
-        )
+        Some(full_path.strip_prefix(corpus.root()).ok()?.to_string())
     } else {
         None
     }
@@ -113,10 +108,7 @@ pub fn latest_django_path(relative_to_django: &str) -> Option<String> {
 /// let func = django_function("django/template/defaulttags.py", "do_for");
 /// ```
 #[must_use]
-pub fn django_function(
-    relative_to_django: &str,
-    func_name: &str,
-) -> Option<StmtFunctionDef> {
+pub fn django_function(relative_to_django: &str, func_name: &str) -> Option<StmtFunctionDef> {
     let path = latest_django_path(relative_to_django)?;
     corpus_function(&path, func_name)
 }

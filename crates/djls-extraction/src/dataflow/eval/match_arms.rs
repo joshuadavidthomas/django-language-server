@@ -14,6 +14,7 @@ use crate::dataflow::domain::AbstractValue;
 use crate::dataflow::domain::Env;
 use crate::types::ArgumentCountConstraint;
 use crate::types::RequiredKeyword;
+use crate::types::SplitPosition;
 
 /// Extract argument constraints from a match statement whose subject is a `SplitResult`.
 ///
@@ -188,9 +189,8 @@ fn extract_keywords_from_valid_cases(cases: &[MatchCase]) -> Vec<RequiredKeyword
                 {
                     // Skip position 0 — that's the tag name, not a user argument
                     if pos > 0 {
-                        #[allow(clippy::cast_possible_wrap)]
                         keywords.push(RequiredKeyword {
-                            position: pos as i64,
+                            position: SplitPosition::Forward(pos),
                             value: lit.clone(),
                         });
                     }

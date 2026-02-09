@@ -251,6 +251,7 @@ mod tests {
 
         use djls_extraction::ArgumentCountConstraint;
         use djls_extraction::RequiredKeyword;
+        use djls_extraction::SplitPosition;
         use djls_extraction::TagRule;
         use rustc_hash::FxHashMap;
 
@@ -275,7 +276,7 @@ mod tests {
                 extracted_rules: Some(TagRule {
                     arg_constraints: vec![ArgumentCountConstraint::Min(4)],
                     required_keywords: vec![RequiredKeyword {
-                        position: 2,
+                        position: SplitPosition::Forward(2),
                         value: "in".to_string(),
                     }],
                     known_options: None,
@@ -310,6 +311,7 @@ mod tests {
 
         use djls_extraction::ArgumentCountConstraint;
         use djls_extraction::RequiredKeyword;
+        use djls_extraction::SplitPosition;
         use djls_extraction::TagRule;
         use rustc_hash::FxHashMap;
 
@@ -334,7 +336,7 @@ mod tests {
                 extracted_rules: Some(TagRule {
                     arg_constraints: vec![ArgumentCountConstraint::Min(4)],
                     required_keywords: vec![RequiredKeyword {
-                        position: 2,
+                        position: SplitPosition::Forward(2),
                         value: "in".to_string(),
                     }],
                     known_options: None,
@@ -360,6 +362,7 @@ mod tests {
 
         use djls_extraction::ArgumentCountConstraint;
         use djls_extraction::RequiredKeyword;
+        use djls_extraction::SplitPosition;
         use djls_extraction::TagRule;
         use rustc_hash::FxHashMap;
 
@@ -384,7 +387,7 @@ mod tests {
                 extracted_rules: Some(TagRule {
                     arg_constraints: vec![ArgumentCountConstraint::OneOf(vec![4, 5])],
                     required_keywords: vec![RequiredKeyword {
-                        position: 2,
+                        position: SplitPosition::Forward(2),
                         value: "in".to_string(),
                     }],
                     known_options: None,

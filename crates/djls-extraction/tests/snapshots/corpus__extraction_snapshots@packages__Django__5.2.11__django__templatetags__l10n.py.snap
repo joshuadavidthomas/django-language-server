@@ -9,7 +9,8 @@ tag_rules:
       - Max: 2
     required_keywords: []
     choice_at_constraints:
-      - position: 1
+      - position:
+          Forward: 1
         values:
           - "on"
           - "off"

@@ -10,6 +10,7 @@ use crate::types::ArgumentCountConstraint;
 use crate::types::ExtractedArg;
 use crate::types::ExtractedArgKind;
 use crate::types::RequiredKeyword;
+use crate::types::SplitPosition;
 use crate::types::TagRule;
 
 /// Analyze a compile function using dataflow analysis to extract argument constraints.
@@ -122,12 +123,9 @@ fn extract_arg_names(
     let max_from_env = named_positions.iter().map(|(p, _)| *p).max().unwrap_or(0);
     let max_from_keywords = required_keywords
         .iter()
-        .filter_map(|rk| {
-            if rk.position > 0 {
-                usize::try_from(rk.position).ok()
-            } else {
-                None
-            }
+        .filter_map(|rk| match rk.position {
+            SplitPosition::Forward(n) if n > 0 => Some(n),
+            _ => None,
         })
         .max()
         .unwrap_or(0);
@@ -143,10 +141,10 @@ fn extract_arg_names(
 
     let mut args = Vec::new();
     for pos in 1..=max_pos {
-        let pos_i64 = i64::try_from(pos).unwrap_or(0);
+        let pos_split = SplitPosition::Forward(pos);
 
         // Check if there's a required keyword at this position
-        if let Some(rk) = required_keywords.iter().find(|rk| rk.position == pos_i64) {
+        if let Some(rk) = required_keywords.iter().find(|rk| rk.position == pos_split) {
             args.push(ExtractedArg {
                 name: rk.value.clone(),
                 required: true,

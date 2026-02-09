@@ -404,9 +404,8 @@ def do_tag(parser, token):
         // Corpus: allauth's parse_tag builds args via for-loop with conditional appends.
         // do_element calls parse_tag(token, parser) and destructures the result.
         // The for-loop means args remains Unknown → no false positive constraints.
-        let source = corpus_source(
-            "packages/django-allauth/0.63.3/allauth/templatetags/allauth.py",
-        );
+        let source =
+            corpus_source("packages/django-allauth/0.63.3/allauth/templatetags/allauth.py");
         let Some(source) = source else {
             eprintln!("skipping allauth_parse_tag_pattern: corpus not synced");
             return;

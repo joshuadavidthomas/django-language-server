@@ -7,9 +7,11 @@ tag_rules:
   "django.contrib.flatpages.templatetags.flatpages::get_flatpages":
     arg_constraints: []
     required_keywords:
-      - position: -2
+      - position:
+          Backward: 2
         value: as
-      - position: -4
+      - position:
+          Backward: 4
         value: for
     choice_at_constraints: []
     known_options: ~

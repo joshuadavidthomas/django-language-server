@@ -8,9 +8,11 @@ tag_rules:
     arg_constraints:
       - Min: 4
     required_keywords:
-      - position: 2
+      - position:
+          Forward: 2
         value: as
-      - position: 4
+      - position:
+          Forward: 4
         value: for_user
     choice_at_constraints: []
     known_options: ~

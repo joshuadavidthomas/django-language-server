@@ -11,34 +11,19 @@ trait Constraint {
     fn validate(&self, tag_name: &str, bits: &[String], span: Span) -> Option<ValidationError>;
 }
 
-/// Resolve a `split_contents()` position to a `bits` index.
+/// Resolve a `SplitPosition` to a `bits` index.
 ///
-/// `split_contents()` includes the tag name at index 0, so positive positions
-/// are offset by 1. Negative positions index from the end, which maps directly
-/// since the end of `bits` is the same as the end of `split_contents()`.
+/// Delegates to `SplitPosition::to_bits_index`, which handles the offset
+/// between `split_contents()` coordinates (tag name at index 0) and `bits`
+/// coordinates (arguments only, tag name excluded).
 ///
 /// Returns `None` if the position is out of bounds or refers to the tag name
-/// (position 0) — the argument count constraint should catch those cases.
-fn resolve_position_index(position: i64, bits_len: usize) -> Option<usize> {
-    let bits_index = if position >= 0 {
-        let idx = usize::try_from(position).ok()?;
-        if idx == 0 {
-            return None;
-        }
-        idx - 1
-    } else {
-        let abs_pos = usize::try_from(position.unsigned_abs()).ok()?;
-        if abs_pos > bits_len {
-            return None;
-        }
-        bits_len - abs_pos
-    };
-
-    if bits_index >= bits_len {
-        None
-    } else {
-        Some(bits_index)
-    }
+/// — the argument count constraint should catch those cases.
+fn resolve_position_index(
+    position: &djls_extraction::SplitPosition,
+    bits_len: usize,
+) -> Option<usize> {
+    position.to_bits_index(bits_len)
 }
 
 /// Constraints express the conditions from Django source that raise
@@ -104,7 +89,7 @@ impl Constraint for ArgumentCountConstraint {
 
 impl Constraint for RequiredKeyword {
     fn validate(&self, tag_name: &str, bits: &[String], span: Span) -> Option<ValidationError> {
-        let bits_index = resolve_position_index(self.position, bits.len())?;
+        let bits_index = resolve_position_index(&self.position, bits.len())?;
 
         if bits[bits_index] == self.value {
             None
@@ -123,7 +108,7 @@ impl Constraint for RequiredKeyword {
 
 impl Constraint for ChoiceAt {
     fn validate(&self, tag_name: &str, bits: &[String], span: Span) -> Option<ValidationError> {
-        let bits_index = resolve_position_index(self.position, bits.len())?;
+        let bits_index = resolve_position_index(&self.position, bits.len())?;
 
         if self.values.iter().any(|v| v == &bits[bits_index]) {
             None
@@ -225,6 +210,8 @@ fn evaluate_known_options(
 
 #[cfg(test)]
 mod tests {
+    use djls_extraction::SplitPosition;
+
     use super::*;
 
     fn make_span() -> Span {
@@ -360,7 +347,7 @@ mod tests {
     fn required_keyword_passes_when_present() {
         let rule = TagRule {
             required_keywords: vec![RequiredKeyword {
-                position: 2,
+                position: SplitPosition::Forward(2),
                 value: "in".to_string(),
             }],
             ..empty_rule()
@@ -375,7 +362,7 @@ mod tests {
     fn required_keyword_fails_when_wrong() {
         let rule = TagRule {
             required_keywords: vec![RequiredKeyword {
-                position: 2,
+                position: SplitPosition::Forward(2),
                 value: "in".to_string(),
             }],
             ..empty_rule()
@@ -394,7 +381,7 @@ mod tests {
     fn required_keyword_negative_position() {
         let rule = TagRule {
             required_keywords: vec![RequiredKeyword {
-                position: -2,
+                position: SplitPosition::Backward(2),
                 value: "as".to_string(),
             }],
             ..empty_rule()
@@ -410,7 +397,7 @@ mod tests {
     fn required_keyword_negative_position_fails() {
         let rule = TagRule {
             required_keywords: vec![RequiredKeyword {
-                position: -2,
+                position: SplitPosition::Backward(2),
                 value: "as".to_string(),
             }],
             ..empty_rule()
@@ -424,7 +411,7 @@ mod tests {
     fn required_keyword_out_of_bounds_skipped() {
         let rule = TagRule {
             required_keywords: vec![RequiredKeyword {
-                position: 5,
+                position: SplitPosition::Forward(5),
                 value: "in".to_string(),
             }],
             ..empty_rule()
@@ -438,7 +425,7 @@ mod tests {
     fn required_keyword_position_zero_skipped() {
         let rule = TagRule {
             required_keywords: vec![RequiredKeyword {
-                position: 0,
+                position: SplitPosition::Forward(0),
                 value: "for".to_string(),
             }],
             ..empty_rule()
@@ -503,7 +490,7 @@ mod tests {
                 ArgumentCountConstraint::Max(6),
             ],
             required_keywords: vec![RequiredKeyword {
-                position: 2,
+                position: SplitPosition::Forward(2),
                 value: "in".to_string(),
             }],
             ..Default::default()
@@ -520,7 +507,7 @@ mod tests {
         let rule = TagRule {
             arg_constraints: vec![ArgumentCountConstraint::Min(4)],
             required_keywords: vec![RequiredKeyword {
-                position: 2,
+                position: SplitPosition::Forward(2),
                 value: "in".to_string(),
             }],
             ..Default::default()
@@ -536,7 +523,7 @@ mod tests {
         // Extraction says position 2 in split_contents = bits[1]
         let rule = TagRule {
             required_keywords: vec![RequiredKeyword {
-                position: 2,
+                position: SplitPosition::Forward(2),
                 value: "in".to_string(),
             }],
             ..empty_rule()
@@ -644,7 +631,7 @@ mod tests {
     fn choice_at_passes_when_valid() {
         let rule = TagRule {
             choice_at_constraints: vec![ChoiceAt {
-                position: 1,
+                position: SplitPosition::Forward(1),
                 values: vec!["on".to_string(), "off".to_string()],
             }],
             ..empty_rule()
@@ -658,7 +645,7 @@ mod tests {
     fn choice_at_fails_when_invalid() {
         let rule = TagRule {
             choice_at_constraints: vec![ChoiceAt {
-                position: 1,
+                position: SplitPosition::Forward(1),
                 values: vec!["on".to_string(), "off".to_string()],
             }],
             ..empty_rule()
@@ -677,7 +664,7 @@ mod tests {
     fn choice_at_negative_position() {
         let rule = TagRule {
             choice_at_constraints: vec![ChoiceAt {
-                position: -1,
+                position: SplitPosition::Backward(1),
                 values: vec!["yes".to_string(), "no".to_string()],
             }],
             ..empty_rule()
@@ -692,7 +679,7 @@ mod tests {
     fn choice_at_out_of_bounds_skipped() {
         let rule = TagRule {
             choice_at_constraints: vec![ChoiceAt {
-                position: 5,
+                position: SplitPosition::Forward(5),
                 values: vec!["a".to_string()],
             }],
             ..empty_rule()
@@ -707,7 +694,7 @@ mod tests {
         let rule = TagRule {
             arg_constraints: vec![ArgumentCountConstraint::Exact(2)],
             choice_at_constraints: vec![ChoiceAt {
-                position: 1,
+                position: SplitPosition::Forward(1),
                 values: vec!["on".to_string(), "off".to_string()],
             }],
             ..empty_rule()

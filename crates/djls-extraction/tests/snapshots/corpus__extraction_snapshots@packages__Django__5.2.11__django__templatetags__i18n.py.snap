@@ -38,7 +38,8 @@ tag_rules:
     arg_constraints:
       - Exact: 3
     required_keywords:
-      - position: 1
+      - position:
+          Forward: 1
         value: as
     choice_at_constraints: []
     known_options: ~
@@ -57,7 +58,8 @@ tag_rules:
     arg_constraints:
       - Exact: 3
     required_keywords:
-      - position: 1
+      - position:
+          Forward: 1
         value: as
     choice_at_constraints: []
     known_options: ~
@@ -76,7 +78,8 @@ tag_rules:
     arg_constraints:
       - Exact: 3
     required_keywords:
-      - position: 1
+      - position:
+          Forward: 1
         value: as
     choice_at_constraints: []
     known_options: ~
@@ -95,9 +98,11 @@ tag_rules:
     arg_constraints:
       - Exact: 5
     required_keywords:
-      - position: 1
+      - position:
+          Forward: 1
         value: for
-      - position: 3
+      - position:
+          Forward: 3
         value: as
     choice_at_constraints: []
     known_options: ~
@@ -125,9 +130,11 @@ tag_rules:
     arg_constraints:
       - Exact: 5
     required_keywords:
-      - position: 1
+      - position:
+          Forward: 1
         value: for
-      - position: 3
+      - position:
+          Forward: 3
         value: as
     choice_at_constraints: []
     known_options: ~

@@ -65,10 +65,9 @@ pub fn extract_filter_arity(func: &StmtFunctionDef) -> FilterArity {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::test_helpers::django_function;
     use crate::test_helpers::find_function_in_source;
-
-    use super::*;
 
     // No-arg filters (value only)
 
@@ -97,8 +96,8 @@ mod tests {
     // Corpus: `cut` in defaultfilters.py — `def cut(value, arg):`
     #[test]
     fn required_arg_filter() {
-        let func = django_function("django/template/defaultfilters.py", "cut")
-            .expect("corpus not synced");
+        let func =
+            django_function("django/template/defaultfilters.py", "cut").expect("corpus not synced");
         let arity = extract_filter_arity(&func);
         assert!(arity.expects_arg);
         assert!(!arity.arg_optional);
@@ -107,8 +106,8 @@ mod tests {
     // Corpus: `add` in defaultfilters.py — `def add(value, arg):`
     #[test]
     fn required_arg_filter_add() {
-        let func = django_function("django/template/defaultfilters.py", "add")
-            .expect("corpus not synced");
+        let func =
+            django_function("django/template/defaultfilters.py", "add").expect("corpus not synced");
         let arity = extract_filter_arity(&func);
         assert!(arity.expects_arg);
         assert!(!arity.arg_optional);
@@ -160,8 +159,7 @@ mod tests {
 
     #[test]
     fn method_style_with_optional_arg() {
-        let source =
-            "def my_filter(self, value, arg=\"default\"):\n    return value + arg\n";
+        let source = "def my_filter(self, value, arg=\"default\"):\n    return value + arg\n";
         let func = find_function_in_source(source, "my_filter").unwrap();
         let arity = extract_filter_arity(&func);
         assert!(arity.expects_arg);
@@ -215,8 +213,7 @@ mod tests {
 
     #[test]
     fn multiple_extra_args_all_with_defaults() {
-        let source =
-            "def my_filter(value, arg1=\"a\", arg2=\"b\"):\n    return value\n";
+        let source = "def my_filter(value, arg1=\"a\", arg2=\"b\"):\n    return value\n";
         let func = find_function_in_source(source, "my_filter").unwrap();
         let arity = extract_filter_arity(&func);
         assert!(arity.expects_arg);
@@ -225,8 +222,7 @@ mod tests {
 
     #[test]
     fn multiple_extra_args_mixed_defaults() {
-        let source =
-            "def my_filter(value, arg1, arg2=\"b\"):\n    return value\n";
+        let source = "def my_filter(value, arg1, arg2=\"b\"):\n    return value\n";
         let func = find_function_in_source(source, "my_filter").unwrap();
         let arity = extract_filter_arity(&func);
         assert!(arity.expects_arg);

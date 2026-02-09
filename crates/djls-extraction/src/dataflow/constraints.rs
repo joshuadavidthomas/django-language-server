@@ -26,6 +26,7 @@ use crate::ext::ExprExt;
 use crate::types::ArgumentCountConstraint;
 use crate::types::ChoiceAt;
 use crate::types::RequiredKeyword;
+use crate::types::SplitPosition;
 
 /// Collected constraints from analyzing a function body.
 ///
@@ -137,11 +138,9 @@ fn eval_condition(expr: &Expr, env: &Env) -> ConstraintSet {
             op: BoolOp::Or,
             values,
             ..
-        }) => values
-            .iter()
-            .fold(ConstraintSet::default(), |acc, value| {
-                acc.or(eval_condition(value, env))
-            }),
+        }) => values.iter().fold(ConstraintSet::default(), |acc, value| {
+            acc.or(eval_condition(value, env))
+        }),
 
         // `and`: error when both true → length constraints are protective guards,
         // discard them but keep keyword constraints
@@ -149,11 +148,9 @@ fn eval_condition(expr: &Expr, env: &Env) -> ConstraintSet {
             op: BoolOp::And,
             values,
             ..
-        }) => values
-            .iter()
-            .fold(ConstraintSet::default(), |acc, value| {
-                acc.and(eval_condition(value, env))
-            }),
+        }) => values.iter().fold(ConstraintSet::default(), |acc, value| {
+            acc.and(eval_condition(value, env))
+        }),
 
         // Comparison: `len(bits) < 4` or `bits[2] != "as"`
         Expr::Compare(compare) => eval_compare(compare, env),
@@ -249,7 +246,7 @@ fn eval_compare(compare: &ExprCompare, env: &Env) -> ConstraintSet {
     // SplitElement vs string: `bits[N] != "keyword"`
     if let AbstractValue::SplitElement { index } = &left_val {
         if let Some(keyword) = comparator.string_literal() {
-            let position = index_to_i64(index);
+            let position = index_to_split_position(index);
             return ConstraintSet::single_keyword(RequiredKeyword {
                 position,
                 value: keyword,
@@ -260,7 +257,7 @@ fn eval_compare(compare: &ExprCompare, env: &Env) -> ConstraintSet {
         if matches!(op, CmpOp::NotIn) {
             if let Some(values) = comparator.collection_map(ExprExt::string_literal) {
                 if !values.is_empty() {
-                    let position = index_to_i64(index);
+                    let position = index_to_split_position(index);
                     return ConstraintSet::single_choice(ChoiceAt { position, values });
                 }
             }
@@ -271,7 +268,7 @@ fn eval_compare(compare: &ExprCompare, env: &Env) -> ConstraintSet {
     // Reversed: string vs SplitElement: `"keyword" != bits[N]`
     if let AbstractValue::SplitElement { index } = &right_val {
         if let Some(keyword) = left.string_literal() {
-            let position = index_to_i64(index);
+            let position = index_to_split_position(index);
             return ConstraintSet::single_keyword(RequiredKeyword {
                 position,
                 value: keyword,
@@ -369,10 +366,10 @@ fn eval_range_constraint(compare: &ExprCompare, env: &Env) -> Option<Vec<Argumen
     ])
 }
 
-fn index_to_i64(index: &Index) -> i64 {
+fn index_to_split_position(index: &Index) -> SplitPosition {
     match index {
-        Index::Forward(n) => i64::try_from(*n).unwrap_or(0),
-        Index::Backward(n) => -(i64::try_from(*n).unwrap_or(0)),
+        Index::Forward(n) => SplitPosition::Forward(*n),
+        Index::Backward(n) => SplitPosition::Backward(*n),
     }
 }
 
@@ -577,7 +574,7 @@ def do_tag(parser, token):
         assert_eq!(
             c.required_keywords,
             vec![RequiredKeyword {
-                position: 2,
+                position: SplitPosition::Forward(2),
                 value: "as".to_string()
             }]
         );
@@ -598,7 +595,7 @@ def do_tag(parser, token):
         assert_eq!(
             c.required_keywords,
             vec![RequiredKeyword {
-                position: -1,
+                position: SplitPosition::Backward(1),
                 value: "silent".to_string()
             }]
         );
@@ -622,7 +619,7 @@ def do_tag(parser, token):
         assert_eq!(
             c.required_keywords,
             vec![RequiredKeyword {
-                position: 1,
+                position: SplitPosition::Forward(1),
                 value: "as".to_string()
             }]
         );
@@ -645,7 +642,7 @@ def do_tag(parser, token):
         assert_eq!(
             c.required_keywords,
             vec![RequiredKeyword {
-                position: 2,
+                position: SplitPosition::Forward(2),
                 value: "as".to_string()
             }]
         );
@@ -750,7 +747,7 @@ def do_tag(parser, token):
         assert_eq!(
             c.required_keywords,
             vec![RequiredKeyword {
-                position: 2,
+                position: SplitPosition::Forward(2),
                 value: "as".to_string()
             }]
         );
@@ -806,11 +803,11 @@ def do_tag(parser, token):
             c.required_keywords,
             vec![
                 RequiredKeyword {
-                    position: 2,
+                    position: SplitPosition::Forward(2),
                     value: "by".to_string()
                 },
                 RequiredKeyword {
-                    position: 4,
+                    position: SplitPosition::Forward(4),
                     value: "as".to_string()
                 }
             ]
@@ -846,7 +843,7 @@ def do_tag(parser, token):
         assert_eq!(
             c.required_keywords,
             vec![RequiredKeyword {
-                position: 2,
+                position: SplitPosition::Forward(2),
                 value: "as".to_string()
             }]
         );
@@ -958,7 +955,7 @@ def do_tag(parser, token):
         assert_eq!(
             c.choice_at_constraints,
             vec![ChoiceAt {
-                position: 1,
+                position: SplitPosition::Forward(1),
                 values: vec!["on".to_string(), "off".to_string()]
             }]
         );
@@ -977,7 +974,7 @@ def do_tag(parser, token):
         assert_eq!(
             c.choice_at_constraints,
             vec![ChoiceAt {
-                position: 1,
+                position: SplitPosition::Forward(1),
                 values: vec!["on".to_string(), "off".to_string()]
             }]
         );
@@ -999,7 +996,7 @@ def do_tag(parser, token):
         assert_eq!(
             c.choice_at_constraints,
             vec![ChoiceAt {
-                position: 1,
+                position: SplitPosition::Forward(1),
                 values: vec!["open".to_string(), "close".to_string(), "block".to_string()]
             }]
         );
@@ -1020,7 +1017,7 @@ def do_tag(parser, token):
         assert_eq!(
             c.choice_at_constraints,
             vec![ChoiceAt {
-                position: -1,
+                position: SplitPosition::Backward(1),
                 values: vec!["yes".to_string(), "no".to_string()]
             }]
         );
@@ -1054,7 +1051,7 @@ def do_tag(parser, token):
         assert_eq!(
             c.required_keywords,
             vec![RequiredKeyword {
-                position: 1,
+                position: SplitPosition::Forward(1),
                 value: "as".to_string()
             }]
         );
@@ -1077,8 +1074,8 @@ def do_tag(parser, token):
     // the abstract interpreter may not fully resolve.
     #[test]
     fn corpus_do_for() {
-        let func = django_function("django/template/defaulttags.py", "do_for")
-            .expect("corpus not synced");
+        let func =
+            django_function("django/template/defaulttags.py", "do_for").expect("corpus not synced");
         let c = extract_from_func(&func);
         assert!(c.arg_constraints.contains(&ArgumentCountConstraint::Min(4)));
     }
@@ -1086,8 +1083,8 @@ def do_tag(parser, token):
     // Corpus: cycle in defaulttags.py — `len(args) < 2` produces Min(2).
     #[test]
     fn corpus_cycle() {
-        let func = django_function("django/template/defaulttags.py", "cycle")
-            .expect("corpus not synced");
+        let func =
+            django_function("django/template/defaulttags.py", "cycle").expect("corpus not synced");
         let c = extract_from_func(&func);
         assert!(c.arg_constraints.contains(&ArgumentCountConstraint::Min(2)));
     }
@@ -1095,8 +1092,8 @@ def do_tag(parser, token):
     // Corpus: url in defaulttags.py — `len(bits) < 2` produces Min(2).
     #[test]
     fn corpus_url() {
-        let func = django_function("django/template/defaulttags.py", "url")
-            .expect("corpus not synced");
+        let func =
+            django_function("django/template/defaulttags.py", "url").expect("corpus not synced");
         let c = extract_from_func(&func);
         assert!(c.arg_constraints.contains(&ArgumentCountConstraint::Min(2)));
     }
@@ -1113,7 +1110,7 @@ def do_tag(parser, token):
         assert_eq!(
             c.choice_at_constraints,
             vec![ChoiceAt {
-                position: 1,
+                position: SplitPosition::Forward(1),
                 values: vec!["on".to_string(), "off".to_string()]
             }]
         );

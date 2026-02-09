@@ -116,20 +116,16 @@ fn has_takes_context(func: &StmtFunctionDef) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::test_helpers::django_function;
     use crate::test_helpers::find_function_in_source;
-
-    use super::*;
 
     // Corpus: `no_params` in custom.py — `def no_params():`
     // No params → only Max constraint
     #[test]
     fn simple_tag_no_params() {
-        let func = django_function(
-            "tests/template_tests/templatetags/custom.py",
-            "no_params",
-        )
-        .expect("corpus not synced");
+        let func = django_function("tests/template_tests/templatetags/custom.py", "no_params")
+            .expect("corpus not synced");
         let rule = extract_parse_bits_rule(&func, true);
         assert!(rule
             .arg_constraints

@@ -363,11 +363,7 @@ impl Classification {
 ///
 /// Where a token leads to another `parse()` call → intermediate,
 /// and a token leads to return/construction → end-tag.
-fn classify_in_body(
-    body: &[Stmt],
-    parser_var: &str,
-    all_tokens: &[String],
-) -> Classification {
+fn classify_in_body(body: &[Stmt], parser_var: &str, all_tokens: &[String]) -> Classification {
     let mut result = Classification::default();
 
     for (i, stmt) in body.iter().enumerate() {
@@ -388,29 +384,17 @@ fn classify_in_body(
                     result.add_end_tag(token);
                 }
             }
-            result.merge(classify_in_body(
-                &while_stmt.body,
-                parser_var,
-                all_tokens,
-            ));
+            result.merge(classify_in_body(&while_stmt.body, parser_var, all_tokens));
         }
 
         // Check for for-loops
         if let Stmt::For(for_stmt) = stmt {
-            result.merge(classify_in_body(
-                &for_stmt.body,
-                parser_var,
-                all_tokens,
-            ));
+            result.merge(classify_in_body(&for_stmt.body, parser_var, all_tokens));
         }
 
         // Recurse into try blocks
         if let Stmt::Try(try_stmt) = stmt {
-            result.merge(classify_in_body(
-                &try_stmt.body,
-                parser_var,
-                all_tokens,
-            ));
+            result.merge(classify_in_body(&try_stmt.body, parser_var, all_tokens));
         }
 
         // Check sequential pattern: parse() call followed by if-check
@@ -471,17 +455,9 @@ fn classify_from_if_chain(
     }
 
     // Recurse into the if-body for nested patterns
-    result.merge(classify_in_body(
-        &if_stmt.body,
-        parser_var,
-        all_tokens,
-    ));
+    result.merge(classify_in_body(&if_stmt.body, parser_var, all_tokens));
     for clause in &if_stmt.elif_else_clauses {
-        result.merge(classify_in_body(
-            &clause.body,
-            parser_var,
-            all_tokens,
-        ));
+        result.merge(classify_in_body(&clause.body, parser_var, all_tokens));
     }
 
     result
@@ -1163,8 +1139,8 @@ mod tests {
     // Corpus: do_if in defaulttags.py — parse(("elif", "else", "endif")) with while/if branches
     #[test]
     fn if_else_intermediates() {
-        let func = django_function("django/template/defaulttags.py", "do_if")
-            .expect("corpus not synced");
+        let func =
+            django_function("django/template/defaulttags.py", "do_if").expect("corpus not synced");
         let spec = extract_block_spec(&func).expect("should extract block spec");
         assert_eq!(spec.end_tag.as_deref(), Some("endif"));
         assert!(spec.intermediates.contains(&"elif".to_string()));
@@ -1238,8 +1214,8 @@ def do_block(parser, token):
     // conditional parse(("endfor",))
     #[test]
     fn multiple_parse_calls_classify_correctly() {
-        let func = django_function("django/template/defaulttags.py", "do_for")
-            .expect("corpus not synced");
+        let func =
+            django_function("django/template/defaulttags.py", "do_for").expect("corpus not synced");
         let spec = extract_block_spec(&func).expect("should extract block spec");
         assert_eq!(spec.end_tag.as_deref(), Some("endfor"));
         assert_eq!(spec.intermediates, vec!["empty".to_string()]);
@@ -1249,8 +1225,8 @@ def do_block(parser, token):
     // Corpus: now in defaulttags.py — no parser.parse() or skip_past calls
     #[test]
     fn no_parse_calls_returns_none() {
-        let func = django_function("django/template/defaulttags.py", "now")
-            .expect("corpus not synced");
+        let func =
+            django_function("django/template/defaulttags.py", "now").expect("corpus not synced");
         assert!(extract_block_spec(&func).is_none());
     }
 

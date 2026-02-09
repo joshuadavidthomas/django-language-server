@@ -225,8 +225,7 @@ def hello():
     // with required arg (value, arg), exercises filter pipeline
     #[test]
     fn extract_rules_filter() {
-        let source =
-            django_source("django/template/defaultfilters.py").expect("corpus not synced");
+        let source = django_source("django/template/defaultfilters.py").expect("corpus not synced");
         let result = extract_rules(&source, "django.template.defaultfilters");
         let key = SymbolKey::filter("django.template.defaultfilters", "lower");
         assert!(result.filter_arities.contains_key(&key));
@@ -238,8 +237,7 @@ def hello():
     // required arg (value, arg)
     #[test]
     fn extract_rules_filter_with_arg() {
-        let source =
-            django_source("django/template/defaultfilters.py").expect("corpus not synced");
+        let source = django_source("django/template/defaultfilters.py").expect("corpus not synced");
         let result = extract_rules(&source, "django.template.defaultfilters");
         let key = SymbolKey::filter("django.template.defaultfilters", "default");
         assert!(result.filter_arities.contains_key(&key));
@@ -252,8 +250,7 @@ def hello():
     // with parser.parse(("endblock",)) block spec
     #[test]
     fn extract_rules_block_tag() {
-        let source =
-            django_source("django/template/loader_tags.py").expect("corpus not synced");
+        let source = django_source("django/template/loader_tags.py").expect("corpus not synced");
         let result = extract_rules(&source, "django.template.loader_tags");
         let key = SymbolKey::tag("django.template.loader_tags", "block");
         assert!(
@@ -296,8 +293,7 @@ class MyClass:
     // querystring simple_tag). Validates multiple registration kinds extracted.
     #[test]
     fn extract_rules_multiple_registrations() {
-        let source =
-            django_source("django/template/defaulttags.py").expect("corpus not synced");
+        let source = django_source("django/template/defaulttags.py").expect("corpus not synced");
         let result = extract_rules(&source, "django.template.defaulttags");
         let tag_key = SymbolKey::tag("django.template.defaulttags", "for");
         let simple_key = SymbolKey::tag("django.template.defaulttags", "querystring");
@@ -337,8 +333,7 @@ register.tag("for", do_for)
     // intermediates, opaque blocks, dynamic end tags, and multiple raise statements.
     #[test]
     fn golden_defaulttags() {
-        let source =
-            django_source("django/template/defaulttags.py").expect("corpus not synced");
+        let source = django_source("django/template/defaulttags.py").expect("corpus not synced");
         insta::assert_yaml_snapshot!(snapshot(extract_rules(
             &source,
             "django.template.defaulttags"
@@ -350,8 +345,7 @@ register.tag("for", do_for)
     // and non-block tags (extends).
     #[test]
     fn golden_loader_tags() {
-        let source =
-            django_source("django/template/loader_tags.py").expect("corpus not synced");
+        let source = django_source("django/template/loader_tags.py").expect("corpus not synced");
         insta::assert_yaml_snapshot!(snapshot(extract_rules(
             &source,
             "django.template.loader_tags"
@@ -364,8 +358,7 @@ register.tag("for", do_for)
     // and optional arg (default parameter).
     #[test]
     fn golden_defaultfilters() {
-        let source =
-            django_source("django/template/defaultfilters.py").expect("corpus not synced");
+        let source = django_source("django/template/defaultfilters.py").expect("corpus not synced");
         insta::assert_yaml_snapshot!(snapshot(extract_rules(
             &source,
             "django.template.defaultfilters"
@@ -377,12 +370,8 @@ register.tag("for", do_for)
     // blocktranslate next_token loop pattern.
     #[test]
     fn golden_i18n() {
-        let source =
-            django_source("django/templatetags/i18n.py").expect("corpus not synced");
-        insta::assert_yaml_snapshot!(snapshot(extract_rules(
-            &source,
-            "django.templatetags.i18n"
-        )));
+        let source = django_source("django/templatetags/i18n.py").expect("corpus not synced");
+        insta::assert_yaml_snapshot!(snapshot(extract_rules(&source, "django.templatetags.i18n")));
     }
 
     // Corpus: tests/template_tests/templatetags/inclusion.py — inclusion tags.
@@ -390,9 +379,8 @@ register.tag("for", do_for)
     // various arg counts, and keyword-only defaults.
     #[test]
     fn golden_inclusion_tags() {
-        let source =
-            django_source("tests/template_tests/templatetags/inclusion.py")
-                .expect("corpus not synced");
+        let source = django_source("tests/template_tests/templatetags/inclusion.py")
+            .expect("corpus not synced");
         insta::assert_yaml_snapshot!(snapshot(extract_rules(
             &source,
             "tests.template_tests.templatetags.inclusion"
@@ -405,9 +393,8 @@ register.tag("for", do_for)
     // @register.filter, and various arg patterns.
     #[test]
     fn golden_custom_tags() {
-        let source =
-            django_source("tests/template_tests/templatetags/custom.py")
-                .expect("corpus not synced");
+        let source = django_source("tests/template_tests/templatetags/custom.py")
+            .expect("corpus not synced");
         insta::assert_yaml_snapshot!(snapshot(extract_rules(
             &source,
             "tests.template_tests.templatetags.custom"
@@ -419,9 +406,8 @@ register.tag("for", do_for)
     // register.filter("name", func) call-style patterns.
     #[test]
     fn golden_testtags() {
-        let source =
-            django_source("tests/template_tests/templatetags/testtags.py")
-                .expect("corpus not synced");
+        let source = django_source("tests/template_tests/templatetags/testtags.py")
+            .expect("corpus not synced");
         insta::assert_yaml_snapshot!(snapshot(extract_rules(
             &source,
             "tests.template_tests.templatetags.testtags"
@@ -435,8 +421,7 @@ register.tag("for", do_for)
     // Registration name defaults to function name.
     #[test]
     fn corpus_decorator_bare_tag() {
-        let source =
-            django_source("django/template/defaulttags.py").expect("corpus not synced");
+        let source = django_source("django/template/defaulttags.py").expect("corpus not synced");
         let result = extract_rules(&source, "django.template.defaulttags");
         let key = SymbolKey::tag("django.template.defaulttags", "autoescape");
         assert!(
@@ -449,8 +434,7 @@ register.tag("for", do_for)
     // positional string name overriding function name `do_for`.
     #[test]
     fn corpus_decorator_tag_with_explicit_name() {
-        let source =
-            django_source("django/template/defaulttags.py").expect("corpus not synced");
+        let source = django_source("django/template/defaulttags.py").expect("corpus not synced");
         let result = extract_rules(&source, "django.template.defaulttags");
         let key = SymbolKey::tag("django.template.defaulttags", "for");
         assert!(
@@ -463,8 +447,7 @@ register.tag("for", do_for)
     // with name kwarg overriding function name `partialdef_func`.
     #[test]
     fn corpus_decorator_tag_with_name_kwarg() {
-        let source =
-            django_source("django/template/defaulttags.py").expect("corpus not synced");
+        let source = django_source("django/template/defaulttags.py").expect("corpus not synced");
         let result = extract_rules(&source, "django.template.defaulttags");
         let key = SymbolKey::tag("django.template.defaulttags", "partialdef");
         assert!(
@@ -523,10 +506,7 @@ register.tag("for", do_for)
     fn corpus_inclusion_tag() {
         let source = django_source("tests/template_tests/templatetags/inclusion.py")
             .expect("corpus not synced");
-        let result = extract_rules(
-            &source,
-            "tests.template_tests.templatetags.inclusion",
-        );
+        let result = extract_rules(&source, "tests.template_tests.templatetags.inclusion");
         let key = SymbolKey::tag(
             "tests.template_tests.templatetags.inclusion",
             "inclusion_one_param",
@@ -543,10 +523,7 @@ register.tag("for", do_for)
     fn corpus_inclusion_tag_takes_context() {
         let source = django_source("tests/template_tests/templatetags/inclusion.py")
             .expect("corpus not synced");
-        let result = extract_rules(
-            &source,
-            "tests.template_tests.templatetags.inclusion",
-        );
+        let result = extract_rules(&source, "tests.template_tests.templatetags.inclusion");
         let key = SymbolKey::tag(
             "tests.template_tests.templatetags.inclusion",
             "inclusion_no_params_with_context",
@@ -565,10 +542,7 @@ register.tag("for", do_for)
     fn corpus_inclusion_tag_with_args() {
         let source = django_source("tests/template_tests/templatetags/inclusion.py")
             .expect("corpus not synced");
-        let result = extract_rules(
-            &source,
-            "tests.template_tests.templatetags.inclusion",
-        );
+        let result = extract_rules(&source, "tests.template_tests.templatetags.inclusion");
         let key = SymbolKey::tag(
             "tests.template_tests.templatetags.inclusion",
             "inclusion_one_default",
@@ -584,8 +558,7 @@ register.tag("for", do_for)
     // takes_context=True) with name kwarg on simple_tag.
     #[test]
     fn corpus_simple_tag_with_name_kwarg() {
-        let source =
-            django_source("django/template/defaulttags.py").expect("corpus not synced");
+        let source = django_source("django/template/defaulttags.py").expect("corpus not synced");
         let result = extract_rules(&source, "django.template.defaulttags");
         let key = SymbolKey::tag("django.template.defaulttags", "querystring");
         assert!(
@@ -599,8 +572,7 @@ register.tag("for", do_for)
     // extracts as required keyword "as" at position 4 (for the 6-arg form).
     #[test]
     fn corpus_len_exact_check() {
-        let source =
-            django_source("django/template/defaulttags.py").expect("corpus not synced");
+        let source = django_source("django/template/defaulttags.py").expect("corpus not synced");
         let result = extract_rules(&source, "django.template.defaulttags");
         let key = SymbolKey::tag("django.template.defaulttags", "widthratio");
         assert!(
@@ -617,8 +589,7 @@ register.tag("for", do_for)
     // Corpus: `cycle` in defaulttags.py — `len(args) < 2` → Min(2).
     #[test]
     fn corpus_len_min_check() {
-        let source =
-            django_source("django/template/defaulttags.py").expect("corpus not synced");
+        let source = django_source("django/template/defaulttags.py").expect("corpus not synced");
         let result = extract_rules(&source, "django.template.defaulttags");
         let key = SymbolKey::tag("django.template.defaulttags", "cycle");
         assert!(result.tag_rules.contains_key(&key));
@@ -635,8 +606,7 @@ register.tag("for", do_for)
     // has a clean `len(bits) != 2` check for the exact constraint pattern.
     #[test]
     fn corpus_len_exact_check_templatetag() {
-        let source =
-            django_source("django/template/defaulttags.py").expect("corpus not synced");
+        let source = django_source("django/template/defaulttags.py").expect("corpus not synced");
         let result = extract_rules(&source, "django.template.defaulttags");
         let key = SymbolKey::tag("django.template.defaulttags", "templatetag");
         assert!(result.tag_rules.contains_key(&key));
@@ -652,8 +622,7 @@ register.tag("for", do_for)
     // `len(bits) < 2` and additional constraints.
     #[test]
     fn corpus_multiple_raise_statements() {
-        let source =
-            django_source("django/template/defaulttags.py").expect("corpus not synced");
+        let source = django_source("django/template/defaulttags.py").expect("corpus not synced");
         let result = extract_rules(&source, "django.template.defaulttags");
         let key = SymbolKey::tag("django.template.defaulttags", "url");
         assert!(result.tag_rules.contains_key(&key));
@@ -669,8 +638,7 @@ register.tag("for", do_for)
     // (with, only options).
     #[test]
     fn corpus_option_loop() {
-        let source =
-            django_source("django/template/loader_tags.py").expect("corpus not synced");
+        let source = django_source("django/template/loader_tags.py").expect("corpus not synced");
         let result = extract_rules(&source, "django.template.loader_tags");
         let key = SymbolKey::tag("django.template.loader_tags", "include");
         assert!(result.tag_rules.contains_key(&key));
@@ -685,8 +653,7 @@ register.tag("for", do_for)
     // and "endfor" end tag.
     #[test]
     fn corpus_for_tag_with_empty() {
-        let source =
-            django_source("django/template/defaulttags.py").expect("corpus not synced");
+        let source = django_source("django/template/defaulttags.py").expect("corpus not synced");
         let result = extract_rules(&source, "django.template.defaulttags");
         let key = SymbolKey::tag("django.template.defaulttags", "for");
         assert!(result.block_specs.contains_key(&key));
@@ -698,8 +665,7 @@ register.tag("for", do_for)
     // Corpus: `do_if` in defaulttags.py — block with elif/else intermediates.
     #[test]
     fn corpus_block_with_intermediates() {
-        let source =
-            django_source("django/template/defaulttags.py").expect("corpus not synced");
+        let source = django_source("django/template/defaulttags.py").expect("corpus not synced");
         let result = extract_rules(&source, "django.template.defaulttags");
         let key = SymbolKey::tag("django.template.defaulttags", "if");
         assert!(result.block_specs.contains_key(&key));
@@ -714,8 +680,7 @@ register.tag("for", do_for)
     // `comment` is truly opaque in defaulttags.py.
     #[test]
     fn corpus_opaque_block() {
-        let source =
-            django_source("django/template/defaulttags.py").expect("corpus not synced");
+        let source = django_source("django/template/defaulttags.py").expect("corpus not synced");
         let result = extract_rules(&source, "django.template.defaulttags");
         let key = SymbolKey::tag("django.template.defaulttags", "comment");
         assert!(result.block_specs.contains_key(&key));
@@ -728,13 +693,15 @@ register.tag("for", do_for)
     // skip_past. No split_contents call (no argument validation).
     #[test]
     fn corpus_non_opaque_no_split_contents() {
-        let source =
-            django_source("django/template/defaulttags.py").expect("corpus not synced");
+        let source = django_source("django/template/defaulttags.py").expect("corpus not synced");
         let result = extract_rules(&source, "django.template.defaulttags");
         let key = SymbolKey::tag("django.template.defaulttags", "verbatim");
         assert!(result.block_specs.contains_key(&key));
         let spec = &result.block_specs[&key];
-        assert!(!spec.opaque, "real verbatim uses parser.parse(), not skip_past");
+        assert!(
+            !spec.opaque,
+            "real verbatim uses parser.parse(), not skip_past"
+        );
         assert_eq!(spec.end_tag.as_deref(), Some("endverbatim"));
     }
 
@@ -742,8 +709,7 @@ register.tag("for", do_for)
     // in f-string for dynamic end tag name.
     #[test]
     fn corpus_dynamic_end_tag() {
-        let source =
-            django_source("django/template/defaulttags.py").expect("corpus not synced");
+        let source = django_source("django/template/defaulttags.py").expect("corpus not synced");
         let result = extract_rules(&source, "django.template.defaulttags");
         let key = SymbolKey::tag("django.template.defaulttags", "spaceless");
         assert!(result.block_specs.contains_key(&key));
@@ -756,8 +722,7 @@ register.tag("for", do_for)
     // Corpus: `do_block` in loader_tags.py — simple block tag with endblock.
     #[test]
     fn corpus_simple_block() {
-        let source =
-            django_source("django/template/loader_tags.py").expect("corpus not synced");
+        let source = django_source("django/template/loader_tags.py").expect("corpus not synced");
         let result = extract_rules(&source, "django.template.loader_tags");
         let key = SymbolKey::tag("django.template.loader_tags", "block");
         assert!(result.block_specs.contains_key(&key));
@@ -770,8 +735,7 @@ register.tag("for", do_for)
     // Corpus: `title` in defaultfilters.py — filter with no arg (value only).
     #[test]
     fn corpus_filter_no_arg() {
-        let source =
-            django_source("django/template/defaultfilters.py").expect("corpus not synced");
+        let source = django_source("django/template/defaultfilters.py").expect("corpus not synced");
         let result = extract_rules(&source, "django.template.defaultfilters");
         let key = SymbolKey::filter("django.template.defaultfilters", "title");
         assert!(result.filter_arities.contains_key(&key));
@@ -782,8 +746,7 @@ register.tag("for", do_for)
     // Corpus: `default` in defaultfilters.py — filter with required arg.
     #[test]
     fn corpus_filter_required_arg() {
-        let source =
-            django_source("django/template/defaultfilters.py").expect("corpus not synced");
+        let source = django_source("django/template/defaultfilters.py").expect("corpus not synced");
         let result = extract_rules(&source, "django.template.defaultfilters");
         let key = SymbolKey::filter("django.template.defaultfilters", "default");
         assert!(result.filter_arities.contains_key(&key));
@@ -795,8 +758,7 @@ register.tag("for", do_for)
     // Corpus: `date` in defaultfilters.py — filter with optional arg (arg=None).
     #[test]
     fn corpus_filter_optional_arg() {
-        let source =
-            django_source("django/template/defaultfilters.py").expect("corpus not synced");
+        let source = django_source("django/template/defaultfilters.py").expect("corpus not synced");
         let result = extract_rules(&source, "django.template.defaultfilters");
         let key = SymbolKey::filter("django.template.defaultfilters", "date");
         assert!(result.filter_arities.contains_key(&key));
@@ -809,8 +771,7 @@ register.tag("for", do_for)
     // with positional string name, bare filter decorator with no user arg.
     #[test]
     fn corpus_filter_bare_decorator() {
-        let source =
-            django_source("django/template/defaultfilters.py").expect("corpus not synced");
+        let source = django_source("django/template/defaultfilters.py").expect("corpus not synced");
         let result = extract_rules(&source, "django.template.defaultfilters");
         let key = SymbolKey::filter("django.template.defaultfilters", "lower");
         assert!(result.filter_arities.contains_key(&key));
@@ -820,8 +781,7 @@ register.tag("for", do_for)
     // demonstrates named filter via positional string arg.
     #[test]
     fn corpus_filter_with_name() {
-        let source =
-            django_source("django/template/defaultfilters.py").expect("corpus not synced");
+        let source = django_source("django/template/defaultfilters.py").expect("corpus not synced");
         let result = extract_rules(&source, "django.template.defaultfilters");
         let key = SymbolKey::filter("django.template.defaultfilters", "escapejs");
         assert!(
@@ -834,8 +794,7 @@ register.tag("for", do_for)
     // with kwarg but no name override.
     #[test]
     fn corpus_filter_is_safe() {
-        let source =
-            django_source("django/template/defaultfilters.py").expect("corpus not synced");
+        let source = django_source("django/template/defaultfilters.py").expect("corpus not synced");
         let result = extract_rules(&source, "django.template.defaultfilters");
         let key = SymbolKey::filter("django.template.defaultfilters", "addslashes");
         assert!(

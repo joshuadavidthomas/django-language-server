@@ -667,11 +667,7 @@ def do_tag(parser, token):
         let opts = rule.known_options.expect("should have known_options");
         assert_eq!(
             opts.values,
-            vec![
-                "noop".to_string(),
-                "context".to_string(),
-                "as".to_string()
-            ]
+            vec!["noop".to_string(), "context".to_string(), "as".to_string()]
         );
         assert!(opts.rejects_unknown);
         assert!(!opts.allow_duplicates);

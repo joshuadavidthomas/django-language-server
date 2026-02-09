@@ -8,7 +8,8 @@ tag_rules:
       - Exact: 2
     required_keywords: []
     choice_at_constraints:
-      - position: 1
+      - position:
+          Forward: 1
         values:
           - "on"
           - "off"
@@ -101,7 +102,8 @@ tag_rules:
           - 2
           - 3
     required_keywords:
-      - position: 2
+      - position:
+          Forward: 2
         value: inline
     choice_at_constraints: []
     known_options: ~
@@ -131,9 +133,11 @@ tag_rules:
     arg_constraints:
       - Exact: 6
     required_keywords:
-      - position: 2
+      - position:
+          Forward: 2
         value: by
-      - position: 4
+      - position:
+          Forward: 4
         value: as
     choice_at_constraints: []
     known_options: ~
@@ -200,7 +204,8 @@ tag_rules:
   "django.template.defaulttags::widthratio":
     arg_constraints: []
     required_keywords:
-      - position: 4
+      - position:
+          Forward: 4
         value: as
     choice_at_constraints: []
     known_options: ~
