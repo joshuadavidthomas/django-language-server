@@ -50,6 +50,7 @@ pub use types::ExtractionResult;
 pub use types::FilterArity;
 pub use types::KnownOptions;
 pub use types::RequiredKeyword;
+pub use types::SplitPosition;
 pub use types::SymbolKey;
 pub use types::SymbolKind;
 pub use types::TagRule;

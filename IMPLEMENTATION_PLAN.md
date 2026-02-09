@@ -38,7 +38,7 @@ All collection functions (`collect_parser_parse_calls`, `collect_skip_past_token
 
 ### Phase 3: `SplitPosition` newtype (T1) — cross-crate
 
-- [ ] **M15.13** Define `SplitPosition` enum (`Forward(usize)`, `Backward(usize)`) in `types.rs` with `arg_index()`, `raw()`, `is_tag_name()` methods
+- [x] **M15.13** Define `SplitPosition` enum (`Forward(usize)`, `Backward(usize)`) in `types.rs` with `arg_index()`, `raw()`, `is_tag_name()`, `to_bits_index()` methods
 - [ ] **M15.14** Update `RequiredKeyword.position` and `ChoiceAt.position` from `i64` to `SplitPosition`
 - [ ] **M15.15** Update `dataflow/constraints.rs` to emit `SplitPosition` values
 - [ ] **M15.16** Evaluate `Index` enum in `domain.rs` — consolidate with or map to `SplitPosition`

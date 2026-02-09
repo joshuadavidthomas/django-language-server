@@ -138,6 +138,82 @@ pub enum ArgumentCountConstraint {
     OneOf(Vec<usize>),
 }
 
+/// Position within a `token.split_contents()` result.
+///
+/// In Django, `split_contents()` returns the tag name at index 0 followed by
+/// arguments. This type makes that invariant explicit:
+/// - `Forward(0)` is always the tag name
+/// - `Forward(1)` is the first argument
+/// - `Backward(1)` is the last element
+///
+/// The evaluator in `djls-semantic` works with `bits` (arguments only, tag name
+/// excluded). Use `arg_index()` to convert to the 0-based argument index, or
+/// `to_bits_index(bits_len)` to resolve backward positions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum SplitPosition {
+    /// Absolute position from start (0 = tag name, 1 = first arg, ...)
+    Forward(usize),
+    /// Position from end (1 = last element, 2 = second-to-last, ...)
+    Backward(usize),
+}
+
+impl SplitPosition {
+    /// Returns `true` if this position refers to the tag name (index 0).
+    #[must_use]
+    pub fn is_tag_name(&self) -> bool {
+        matches!(self, Self::Forward(0))
+    }
+
+    /// Returns the raw numeric value as stored (always non-negative).
+    #[must_use]
+    pub fn raw(&self) -> usize {
+        match self {
+            Self::Forward(n) | Self::Backward(n) => *n,
+        }
+    }
+
+    /// Convert to a 0-based argument index (in `bits` coordinates where tag
+    /// name is excluded).
+    ///
+    /// Returns `None` for the tag name position (`Forward(0)`) and for backward
+    /// positions (which require knowing the total length to resolve).
+    #[must_use]
+    pub fn arg_index(&self) -> Option<usize> {
+        match self {
+            Self::Forward(0) | Self::Backward(_) => None,
+            Self::Forward(n) => Some(n - 1),
+        }
+    }
+
+    /// Resolve this position to a `bits` index given the `bits` length
+    /// (arguments only, tag name excluded).
+    ///
+    /// Returns `None` if:
+    /// - This is the tag name position (`Forward(0)`)
+    /// - The resolved index is out of bounds
+    #[must_use]
+    pub fn to_bits_index(&self, bits_len: usize) -> Option<usize> {
+        match self {
+            Self::Forward(0) => None,
+            Self::Forward(n) => {
+                let idx = n - 1;
+                if idx < bits_len {
+                    Some(idx)
+                } else {
+                    None
+                }
+            }
+            Self::Backward(n) => {
+                if *n == 0 || *n > bits_len {
+                    None
+                } else {
+                    Some(bits_len - n)
+                }
+            }
+        }
+    }
+}
+
 /// A keyword that must appear at a specific position in the argument list.
 ///
 /// For example, `{% cycle ... as name %}` requires `"as"` at a specific position.
