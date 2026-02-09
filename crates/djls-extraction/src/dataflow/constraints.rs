@@ -290,15 +290,11 @@ fn eval_negated_compare(compare: &ExprCompare, env: &Env) -> ConstraintSet {
         if let AbstractValue::SplitLength(split) = left_val {
             if let Some(n) = compare.comparators[0].positive_integer() {
                 let constraint = match &compare.ops[0] {
-                    CmpOp::Eq => {
-                        Some(ArgumentCountConstraint::Exact(split.resolve_length(n)))
-                    }
+                    CmpOp::Eq => Some(ArgumentCountConstraint::Exact(split.resolve_length(n))),
                     CmpOp::Lt if n > 0 => {
                         Some(ArgumentCountConstraint::Max(split.resolve_length(n - 1)))
                     }
-                    CmpOp::Gt => {
-                        Some(ArgumentCountConstraint::Min(split.resolve_length(n + 1)))
-                    }
+                    CmpOp::Gt => Some(ArgumentCountConstraint::Min(split.resolve_length(n + 1))),
                     _ => None,
                 };
                 if let Some(c) = constraint {

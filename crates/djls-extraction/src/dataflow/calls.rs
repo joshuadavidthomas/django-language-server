@@ -242,8 +242,8 @@ mod tests {
     use ruff_python_parser::parse_module;
 
     use super::*;
-    use crate::types::SplitPosition;
     use crate::test_helpers::corpus_source;
+    use crate::types::SplitPosition;
 
     fn parse_module_funcs(source: &str) -> Vec<StmtFunctionDef> {
         let parsed = parse_module(source).expect("valid Python");

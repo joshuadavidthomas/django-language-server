@@ -97,9 +97,9 @@ Module convention: `blocks.rs` (orchestrator) + `blocks/` directory (strategy su
 
 ### Phase 3: Move next_token strategy
 
-- [ ] **M17.7** Create `blocks/next_token.rs` with `detect(body, parser_var) -> Option<BlockTagSpec>`. Move `extract_next_token_loop_spec()`, `has_next_token_loop()`, `is_parser_tokens_check()`, `body_has_next_token_call()`, `is_next_token_call()`, `collect_token_content_comparisons()`, `extract_comparisons_from_expr()`.
-- [ ] **M17.8** Update `blocks.rs`: add `mod next_token;`. Ensure shared helpers (`is_parser_receiver()`, etc.) are accessible.
-- [ ] **M17.9** Validate: all green.
+- [x] **M17.7** Create `blocks/next_token.rs` with `detect(body, parser_var) -> Option<BlockTagSpec>`. Move `extract_next_token_loop_spec()`, `has_next_token_loop()`, `is_parser_tokens_check()`, `body_has_next_token_call()`, `is_next_token_call()`, `collect_token_content_comparisons()`, `extract_comparisons_from_expr()`.
+- [x] **M17.8** Update `blocks.rs`: add `mod next_token;`. Made `is_token_contents_expr` `pub(crate)` so `next_token` module can use it via `super::is_token_contents_expr`.
+- [x] **M17.9** Validate: all green (745 passed, 0 failed, 7 ignored).
 
 ### Phase 4: Move parse_calls strategy
 

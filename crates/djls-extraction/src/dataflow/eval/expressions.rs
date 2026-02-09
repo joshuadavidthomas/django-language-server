@@ -15,8 +15,8 @@ use crate::dataflow::calls::resolve_call;
 use crate::dataflow::domain::AbstractValue;
 use crate::dataflow::domain::Env;
 use crate::dataflow::domain::TokenSplit;
-use crate::types::SplitPosition;
 use crate::ext::ExprExt;
+use crate::types::SplitPosition;
 
 /// Evaluate a Python expression against the abstract environment.
 ///
@@ -255,9 +255,9 @@ fn eval_subscript(base: &AbstractValue, slice: &Expr, env: &Env) -> AbstractValu
         Expr::NumberLiteral(ExprNumberLiteral {
             value: Number::Int(int_val),
             ..
-        }) => int_val.as_i64().map_or(AbstractValue::Unknown, |n| {
-            i64_to_index_element(n, split)
-        }),
+        }) => int_val
+            .as_i64()
+            .map_or(AbstractValue::Unknown, |n| i64_to_index_element(n, split)),
 
         // bits[unary -N]
         Expr::UnaryOp(unary) if matches!(unary.op, ruff_python_ast::UnaryOp::USub) => {

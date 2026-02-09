@@ -6,9 +6,8 @@ mod match_arms;
 mod statements;
 
 pub use expressions::eval_expr;
-pub use statements::process_statements;
-
 use ruff_python_ast::StmtFunctionDef;
+pub use statements::process_statements;
 
 use crate::dataflow::calls::HelperCache;
 use crate::dataflow::constraints::ConstraintSet;
@@ -61,8 +60,8 @@ mod tests {
     use crate::dataflow::domain::AbstractValue;
     use crate::dataflow::domain::Env;
     use crate::dataflow::domain::TokenSplit;
-    use crate::types::SplitPosition;
     use crate::test_helpers::django_function;
+    use crate::types::SplitPosition;
 
     fn parse_function(source: &str) -> StmtFunctionDef {
         let parsed = parse_module(source).expect("valid Python");
@@ -543,7 +542,12 @@ def do_tag(parser, token):
         );
         assert_eq!(
             env.get("bits"),
-            &AbstractValue::SplitResult(TokenSplit::fresh().after_pop_front().after_pop_back().after_pop_back())
+            &AbstractValue::SplitResult(
+                TokenSplit::fresh()
+                    .after_pop_front()
+                    .after_pop_back()
+                    .after_pop_back()
+            )
         );
     }
 

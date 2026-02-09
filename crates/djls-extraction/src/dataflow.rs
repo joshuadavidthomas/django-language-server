@@ -78,7 +78,8 @@ pub fn analyze_compile_function_with_cache(
         return TagRule::default();
     };
 
-    let mut env = domain::Env::for_compile_function(compile_fn.parser_param, compile_fn.token_param);
+    let mut env =
+        domain::Env::for_compile_function(compile_fn.parser_param, compile_fn.token_param);
     let mut ctx = eval::CallContext {
         module_funcs,
         caller_name: compile_fn.name,

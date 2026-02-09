@@ -11,8 +11,8 @@ use super::effects::try_extract_pop_call;
 use super::expressions::eval_expr;
 use super::expressions::eval_expr_with_ctx;
 use super::match_arms::extract_match_constraints;
-use super::CallContext;
 use super::AnalysisResult;
+use super::CallContext;
 use crate::dataflow::domain::AbstractValue;
 use crate::dataflow::domain::Env;
 use crate::types::SplitPosition;
@@ -258,10 +258,7 @@ fn process_tuple_unpack(targets: &[Expr], value: &AbstractValue, env: &mut Env) 
                         for _ in 0..after_star {
                             star_split = star_split.after_pop_back();
                         }
-                        env.set(
-                            id.to_string(),
-                            AbstractValue::SplitResult(star_split),
-                        );
+                        env.set(id.to_string(), AbstractValue::SplitResult(star_split));
                     }
                 }
                 for (j, target) in targets[si + 1..].iter().enumerate() {
