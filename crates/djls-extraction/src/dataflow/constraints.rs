@@ -106,22 +106,24 @@ impl ConstraintSet {
 /// Called inline during statement processing so that constraints see the env
 /// as it exists at the point in the code where the if-statement appears,
 /// not the final env state after the entire function body has been processed.
-pub fn extract_from_if_inline(if_stmt: &StmtIf, env: &Env, constraints: &mut ConstraintSet) {
+pub fn extract_from_if_inline(if_stmt: &StmtIf, env: &Env) -> ConstraintSet {
+    let mut result = ConstraintSet::default();
+
     if body_raises_template_syntax_error(&if_stmt.body) {
-        constraints.extend(eval_condition(&if_stmt.test, env));
+        result.extend(eval_condition(&if_stmt.test, env));
     }
 
-    // Process elif/else clauses at this point too
     for clause in &if_stmt.elif_else_clauses {
         if body_raises_template_syntax_error(&clause.body) {
             if let Some(test) = &clause.test {
-                constraints.extend(eval_condition(test, env));
+                result.extend(eval_condition(test, env));
             }
         }
     }
 
     // NOTE: We do NOT recurse into nested if-statements here — that's handled
     // by the caller (process_statements) as it walks into the body/clauses.
+    result
 }
 
 /// Evaluate a condition expression as a constraint.

@@ -47,10 +47,8 @@ fn process_statement(stmt: &Stmt, env: &mut Env, ctx: &mut AnalysisContext<'_>) 
         }
 
         Stmt::If(stmt_if) => {
-            crate::dataflow::constraints::extract_from_if_inline(
-                stmt_if,
-                env,
-                &mut ctx.constraints,
+            ctx.constraints.extend(
+                crate::dataflow::constraints::extract_from_if_inline(stmt_if, env),
             );
 
             // When an if-condition checks a specific element value
