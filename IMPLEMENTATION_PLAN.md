@@ -11,7 +11,7 @@
 | M14 | **done** | Test baseline + corpus-grounded tests |
 | M15 | **done** | Return values, not mutation (+ domain types T1-T4) |
 | M16 | **done** | Split god-context (+ CompileFunction, OptionLoop) |
-| M17 | stub | Decompose blocks.rs into strategy modules |
+| M17 | **ready** | Decompose blocks.rs into strategy modules |
 | M18 | stub | Move environment scanning to djls-project |
 | M19 | stub | HelperCache → Salsa tracked functions |
 | M20 | stub | Rename djls-extraction → djls-python |
@@ -79,7 +79,40 @@ side-channel in M15-M16 Phase 1. The question is purely whether the name should 
 
 **Plan file:** `.agents/plans/2026-02-09-m17-decompose-blocks.md`
 
-5 phases: move opaque → dynamic_end → next_token → parse_calls → clean up orchestrator. Each strategy gets its own module under `blocks/` with a `detect()` entry point. Public API unchanged.
+Split `blocks.rs` (1382 lines) into strategy modules under `blocks/`. Each strategy gets its own module with a `detect()` entry point. Public API unchanged: `blocks::extract_block_spec()`.
+
+Module convention: `blocks.rs` (orchestrator) + `blocks/` directory (strategy submodules). NOT `blocks/mod.rs`.
+
+### Phase 1: Create blocks/ directory and move opaque strategy
+
+- [ ] **M17.1** Create `blocks/opaque.rs` with `detect(body, parser_var) -> Option<BlockTagSpec>`. Move `collect_skip_past_tokens()` and `extract_skip_past_token()`.
+- [ ] **M17.2** Update `blocks.rs`: add `mod opaque;`, call `opaque::detect()` in orchestrator. Keep `is_parser_receiver()` in `blocks.rs` as shared helper.
+- [ ] **M17.3** Validate: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q` — all green.
+
+### Phase 2: Move dynamic_end strategy
+
+- [ ] **M17.4** Create `blocks/dynamic_end.rs` with `detect(body, parser_var) -> Option<BlockTagSpec>`. Move `has_dynamic_end_in_body()`, `is_dynamic_end_parse_call()`, `is_end_fstring()`, `has_dynamic_end_tag_format()`, `is_end_format_expr()`.
+- [ ] **M17.5** Update `blocks.rs`: add `mod dynamic_end;`, call `dynamic_end::detect()` in orchestrator.
+- [ ] **M17.6** Validate: all green.
+
+### Phase 3: Move next_token strategy
+
+- [ ] **M17.7** Create `blocks/next_token.rs` with `detect(body, parser_var) -> Option<BlockTagSpec>`. Move `extract_next_token_loop_spec()`, `has_next_token_loop()`, `is_parser_tokens_check()`, `body_has_next_token_call()`, `is_next_token_call()`, `collect_token_content_comparisons()`, `extract_comparisons_from_expr()`.
+- [ ] **M17.8** Update `blocks.rs`: add `mod next_token;`. Ensure shared helpers (`is_parser_receiver()`, etc.) are accessible.
+- [ ] **M17.9** Validate: all green.
+
+### Phase 4: Move parse_calls strategy
+
+- [ ] **M17.10** Create `blocks/parse_calls.rs` with `detect(body, parser_var) -> Option<BlockTagSpec>`. Move `ParseCallInfo`, `Classification`, `collect_parser_parse_calls()`, `extract_parse_call_info()`, `classify_stop_tokens()`, `classify_in_body()`, `classify_from_if_chain()`, `extract_token_check()`, `extract_startswith_check()`, `is_token_contents_expr()`, `body_has_parse_call()`.
+- [ ] **M17.11** Move `extract_string_sequence()` to `blocks.rs` shared helpers (used by multiple strategies).
+- [ ] **M17.12** Update `blocks.rs`: add `mod parse_calls;`.
+- [ ] **M17.13** Validate: all green.
+
+### Phase 5: Clean up orchestrator and evaluate BlockEvidence
+
+- [ ] **M17.14** Verify `blocks.rs` is compact (~50-100 lines): orchestrator + shared helpers + mod declarations only.
+- [ ] **M17.15** Evaluate `BlockEvidence` enum: does the module structure already provide clean separation? Document decision.
+- [ ] **M17.16** Final validation: `cargo test -q` — all green (745+ passed, 0 failed). Verify public API unchanged.
 
 ## M18 — Move environment scanning to djls-project
 
