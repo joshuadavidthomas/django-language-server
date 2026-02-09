@@ -8,7 +8,11 @@ mod statements;
 pub use expressions::eval_expr;
 pub use statements::process_statements;
 
+use ruff_python_ast::StmtFunctionDef;
+
 use crate::dataflow::calls::HelperCache;
+use crate::dataflow::constraints::ConstraintSet;
+use crate::types::KnownOptions;
 
 /// Context for the dataflow analysis, threading through shared state.
 pub struct AnalysisContext<'a> {
@@ -16,11 +20,36 @@ pub struct AnalysisContext<'a> {
     pub caller_name: &'a str,
     pub call_depth: usize,
     pub cache: &'a mut HelperCache,
-    pub known_options: Option<crate::types::KnownOptions>,
-    pub constraints: super::constraints::ConstraintSet,
+    pub known_options: Option<KnownOptions>,
+    pub constraints: ConstraintSet,
 }
 
-use ruff_python_ast::StmtFunctionDef;
+/// Results accumulated during statement processing.
+///
+/// Returned from `process_statements` instead of being stored in a context.
+/// This separates the accumulation of analysis results from the call-resolution
+/// context that is threaded through the analysis.
+#[allow(dead_code)]
+#[derive(Default)]
+pub struct AnalysisResult {
+    pub constraints: ConstraintSet,
+    pub known_options: Option<KnownOptions>,
+}
+
+#[allow(dead_code)]
+impl AnalysisResult {
+    /// Merge another result into this one.
+    ///
+    /// Constraints are combined additively. For `known_options`, the other
+    /// result's value wins if present (last write wins — matches the sequential
+    /// processing order of statements).
+    pub fn extend(&mut self, other: AnalysisResult) {
+        self.constraints.extend(other.constraints);
+        if other.known_options.is_some() {
+            self.known_options = other.known_options;
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {

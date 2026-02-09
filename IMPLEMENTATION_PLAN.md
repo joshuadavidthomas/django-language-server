@@ -76,7 +76,7 @@ All collection functions (`collect_parser_parse_calls`, `collect_skip_past_token
 
 ### Phase 1: Introduce `AnalysisResult` and make `process_statements` return it
 
-- [ ] **M16.1** Define `AnalysisResult { constraints: ConstraintSet, known_options: Option<KnownOptions> }` in `eval.rs` with `extend()` method for merging
+- [x] **M16.1** Define `AnalysisResult { constraints: ConstraintSet, known_options: Option<KnownOptions> }` in `eval.rs` with `extend()` method for merging — added `#[derive(Default)]`, `#[allow(dead_code)]` until M16.2 wires it up
 - [ ] **M16.2** Change `process_statement` to return `AnalysisResult` — each arm returns its accumulated constraints/options instead of mutating `ctx`
 - [ ] **M16.3** Adapt `Stmt::If` arm: collect body/elif results as `AnalysisResult`, discard keywords via `clear()` on returned results instead of `truncate()` on ctx
 - [ ] **M16.4** Adapt `Stmt::While` arm: return option loop in `AnalysisResult.known_options` instead of setting `ctx.known_options`
