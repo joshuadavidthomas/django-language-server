@@ -28,8 +28,8 @@
 
 ### Phase 2: Create Corpus Test Helpers
 
-- [ ] **M14.3** Add corpus test helpers to extraction crate test utilities: `find_function_in_source()`, `corpus_function()`, `corpus_source()` that work with `Corpus::discover()` and skip gracefully when corpus is not synced
-- [ ] **M14.4** Validate: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings` pass, no test behavior changes
+- [x] **M14.3** Add corpus test helpers to extraction crate test utilities: `find_function_in_source()`, `corpus_function()`, `corpus_source()` that work with `Corpus::discover()` and skip gracefully when corpus is not synced
+- [x] **M14.4** Validate: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings` pass, no test behavior changes
 
 ### Phase 3: Replace Fabricated Tests — Registration & Blocks & Filters
 

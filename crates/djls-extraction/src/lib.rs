@@ -1,6 +1,10 @@
 mod environment;
 mod types;
 
+#[cfg(test)]
+#[cfg(feature = "parser")]
+pub mod test_helpers;
+
 #[cfg(feature = "parser")]
 mod blocks;
 #[cfg(feature = "parser")]
