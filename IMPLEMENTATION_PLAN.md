@@ -19,8 +19,9 @@
 ## M14 — Test baseline + corpus-grounded tests
 
 **Design docs:** `docs/dev/extraction-test-strategy.md`, `docs/dev/corpus-refactor.md`
+**Plan file:** `.agents/plans/2026-02-09-m14-test-baseline.md`
 
-_Tasks not yet expanded. Needs plan file: `.agents/plans/2026-02-09-m14-test-baseline.md`_
+_Tasks not yet expanded. Read plan file and expand into detailed tasks._
 
 ## M15 — Return values, not mutation (+ domain types T1-T4)
 
