@@ -42,10 +42,10 @@ All collection functions (`collect_parser_parse_calls`, `collect_skip_past_token
 - [x] **M15.14** Update `RequiredKeyword.position` and `ChoiceAt.position` from `i64` to `SplitPosition`
 - [x] **M15.15** Update `dataflow/constraints.rs` to emit `SplitPosition` values — already done: M15.13-14 changed field types to `SplitPosition` and added `index_to_split_position` helper; constraints.rs already emits `SplitPosition` for all `RequiredKeyword` and `ChoiceAt` outputs
 - [x] **M15.16** Evaluate `Index` enum in `domain.rs` — consolidated: `Index` removed, `SplitElement` now uses `SplitPosition` directly. `index_to_split_position` helper deleted (was trivial 1:1 mapping). `SplitPosition` is `Copy` so no `.clone()` needed.
-- [ ] **M15.17** Update `djls-semantic/src/rule_evaluation.rs` to use `SplitPosition` methods
-- [ ] **M15.18** Update `dataflow.rs` `extract_arg_names` and any other consumers
-- [ ] **M15.19** Update snapshots: `cargo insta test --accept -p djls-extraction`
-- [ ] **M15.20** Validate: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q` all green
+- [x] **M15.17** Update `djls-semantic/src/rule_evaluation.rs` to use `SplitPosition` methods — already using `to_bits_index()` via `resolve_position_index` wrapper from M15.13-M15.16 work
+- [x] **M15.18** Update `dataflow.rs` `extract_arg_names` and any other consumers — replaced manual `pos - 1` with `SplitPosition::arg_index()` calls
+- [x] **M15.19** Update snapshots: no snapshot changes needed (SplitPosition serialization unchanged)
+- [x] **M15.20** Validate: all green — build, clippy, 740 tests pass
 
 ### Phase 4: `TokenSplit` type (T2)
 

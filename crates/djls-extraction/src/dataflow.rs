@@ -142,6 +142,9 @@ fn extract_arg_names(
     let mut args = Vec::new();
     for pos in 1..=max_pos {
         let pos_split = SplitPosition::Forward(pos);
+        let arg_index = pos_split
+            .arg_index()
+            .expect("Forward(pos) with pos >= 1 always has an arg_index");
 
         // Check if there's a required keyword at this position
         if let Some(rk) = required_keywords.iter().find(|rk| rk.position == pos_split) {
@@ -149,7 +152,7 @@ fn extract_arg_names(
                 name: rk.value.clone(),
                 required: true,
                 kind: ExtractedArgKind::Literal(rk.value.clone()),
-                position: pos - 1,
+                position: arg_index,
             });
             continue;
         }
@@ -160,7 +163,7 @@ fn extract_arg_names(
                 name: name.clone(),
                 required: true,
                 kind: ExtractedArgKind::Variable,
-                position: pos - 1,
+                position: arg_index,
             });
             continue;
         }
@@ -170,7 +173,7 @@ fn extract_arg_names(
             name: format!("arg{pos}"),
             required: true,
             kind: ExtractedArgKind::Variable,
-            position: pos - 1,
+            position: arg_index,
         });
     }
 
