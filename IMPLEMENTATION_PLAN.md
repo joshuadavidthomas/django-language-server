@@ -8,7 +8,7 @@
 
 | Milestone | Status | Description |
 |-----------|--------|-------------|
-| M14 | **in-progress** | Test baseline + corpus-grounded tests |
+| M14 | **done** | Test baseline + corpus-grounded tests |
 | M15 | stub | Return values, not mutation (+ domain types T1-T4) |
 | M16 | stub | Split god-context (+ CompileFunction, OptionLoop) |
 | M17 | stub | Decompose blocks.rs into strategy modules |
@@ -51,13 +51,10 @@
 ### Phase 5: Replace Fabricated Tests — Golden/End-to-End
 
 - [x] **M14.16** Audit and replace fabricated Python in `src/lib.rs` golden tests with corpus-sourced equivalents. Keep edge case tests (malformed registrations, error handling) as fabricated with documented justification. Replaced 31 fabricated tests: 7 per-module snapshot tests (defaulttags, loader_tags, defaultfilters, i18n, inclusion, custom, testtags) + 24 corpus assertion tests. Kept 7 edge case tests (b/d). Discovered real Django diverges from fabricated assumptions (verbatim uses parser.parse not skip_past; widthratio uses if/elif/else not !=; debug has no split_contents). Deleted 25 orphaned snapshot files, added 7 new ones (net: 38→13 golden snapshots). Test count: 50 lib.rs tests (was 48).
-- [ ] **M14.17** Run `cargo insta test --accept --unreferenced delete -p djls-extraction` to clean up orphaned snapshots
-- [ ] **M14.18** Validate: `cargo test -q -p djls-extraction`, no orphaned snapshot files, `cargo clippy -q --all-targets --all-features -- -D warnings` clean
-
-### Phase 6: Validation — Full Suite Green
-
-- [ ] **M14.19** Run full suite: `cargo build -q`, `cargo test -q`, `cargo clippy -q --all-targets --all-features -- -D warnings` — all green across all crates
-- [ ] **M14.20** Update baseline counts in this file with final numbers, mark M14 as "done" in progress table
+- [x] **M14.17** Run `cargo insta test --accept --unreferenced delete -p djls-extraction` to clean up orphaned snapshots — no unreferenced snapshots found (M14.16 already cleaned up). 185 snapshot files remain.
+- [x] **M14.18** Validate: 247 unit tests pass, no orphaned snapshots, clippy clean
+- [x] **M14.19** Full suite: `cargo build -q`, `cargo test`, `cargo clippy -q --all-targets --all-features -- -D warnings` — all green (740 passed, 0 failed, 7 ignored)
+- [x] **M14.20** Baseline counts updated below, M14 marked done
 
 ## M15 — Return values, not mutation (+ domain types T1-T4)
 
@@ -116,13 +113,16 @@ _Tasks not yet expanded. Needs plan file: `.agents/plans/2026-02-09-m20-rename-c
 
 All tests green. This is the baseline that every M14-M20 change must maintain.
 
-## Current Test Counts (after Phase 4)
+## Current Test Counts (M14 complete)
 
 | Suite | Passed |
 |-------|--------|
-| Unit tests | 245 |
-| Corpus integration | 2 |
-| **Total** | **247** |
+| Unit tests (djls-extraction) | 247 |
+| Corpus integration (djls-extraction) | 2 |
+| **djls-extraction total** | **249** |
+| **Full workspace** | **740 passed, 0 failed, 7 ignored** |
+
+Snapshot files: 185 (down from 210 — orphaned snapshots cleaned in M14.16)
 
 ## M14.2 Audit — lib.rs Golden Tests (Phase 5 reference)
 
