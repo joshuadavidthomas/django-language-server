@@ -9,75 +9,32 @@
 | Milestone | Status | Description |
 |-----------|--------|-------------|
 | M14 | **done** | Test baseline + corpus-grounded tests |
-| M15 | **planning** | Return values, not mutation (+ domain types T1-T4) |
+| M15 | **in progress** | Return values, not mutation (+ domain types T1-T4) |
 | M16 | stub | Split god-context (+ CompileFunction, OptionLoop) |
 | M17 | stub | Decompose blocks.rs into strategy modules |
 | M18 | stub | Move environment scanning to djls-project |
 | M19 | stub | HelperCache → Salsa tracked functions |
 | M20 | stub | Rename djls-extraction → djls-python |
 
-## M14 — Test baseline + corpus-grounded tests
+## M14 — Test baseline + corpus-grounded tests ✅
 
 **Design docs:** `docs/dev/extraction-test-strategy.md`, `docs/dev/corpus-refactor.md`
 **Plan file:** `.agents/plans/2026-02-09-m14-test-baseline.md`
 
-### Phase 1: Record Baseline + Audit Fabricated Tests ✅
-
-- [x] **M14.1** Record baseline test counts (241 total: 239 unit + 2 corpus, 210 snapshots)
-- [x] **M14.2** Audit all 239 fabricated tests — categorized as (a) replace / (b) keep / (c) remove / (d) pure Rust
-
-### Phase 2: Create Corpus Test Helpers ✅
-
-- [x] **M14.3** Add `find_function_in_source()`, `corpus_function()`, `corpus_source()` helpers
-- [x] **M14.4** Validate build and clippy clean
-
-### Phase 3: Replace Fabricated Tests — Registration & Blocks & Filters ✅
-
-- [x] **M14.5** `registry.rs` — 12 tests → corpus, 7 kept fabricated, net +1 (240 total)
-- [x] **M14.6** `blocks.rs` — 8 tests → corpus, removed 2 duplicates, added 1 new, net -1 (239 total)
-- [x] **M14.7** `filters.rs` — 8 tests → corpus, 9 kept fabricated
-- [x] **M14.8** `signature.rs` — 4 tests → corpus, 1 kept fabricated
-- [x] **M14.9** Snapshots reviewed — all 210 current, no diffs
-- [x] **M14.10** Validate: 241 tests pass, clippy clean
-
-### Phase 4: Replace Fabricated Tests — Dataflow ✅
-
-- [x] **M14.11** `constraints.rs` — 8 tests → corpus (2 replaced, 6 new end-to-end), 23 kept fabricated, net +6 (245 total)
-- [x] **M14.12** `eval.rs` — 4 tests → corpus, 34 pure Rust, 10 kept fabricated
-- [x] **M14.13** `calls.rs` — 1 test → corpus (allauth), added `analyze_function_with_helpers()` utility, 13 kept
-- [x] **M14.14** `scan.rs` — all 16 kept as fabricated (filesystem-oriented, corpus can't provide controlled layouts)
-- [x] **M14.15** Validate: 245 unit + 2 corpus tests pass, clippy clean
-
-### Phase 5: Replace Fabricated Tests — Golden/End-to-End
-
-- [x] **M14.16** Audit and replace fabricated Python in `src/lib.rs` golden tests with corpus-sourced equivalents. Keep edge case tests (malformed registrations, error handling) as fabricated with documented justification. Replaced 31 fabricated tests: 7 per-module snapshot tests (defaulttags, loader_tags, defaultfilters, i18n, inclusion, custom, testtags) + 24 corpus assertion tests. Kept 7 edge case tests (b/d). Discovered real Django diverges from fabricated assumptions (verbatim uses parser.parse not skip_past; widthratio uses if/elif/else not !=; debug has no split_contents). Deleted 25 orphaned snapshot files, added 7 new ones (net: 38→13 golden snapshots). Test count: 50 lib.rs tests (was 48).
-- [x] **M14.17** Run `cargo insta test --accept --unreferenced delete -p djls-extraction` to clean up orphaned snapshots — no unreferenced snapshots found (M14.16 already cleaned up). 185 snapshot files remain.
-- [x] **M14.18** Validate: 247 unit tests pass, no orphaned snapshots, clippy clean
-- [x] **M14.19** Full suite: `cargo build -q`, `cargo test`, `cargo clippy -q --all-targets --all-features -- -D warnings` — all green (740 passed, 0 failed, 7 ignored)
-- [x] **M14.20** Baseline counts updated below, M14 marked done
+Replaced 55 fabricated tests with corpus-sourced equivalents across all modules. Cleaned 25 orphaned snapshot files (210→185). Final: 247 unit + 2 corpus tests. See git history and plan file for per-phase details.
 
 ## M15 — Return values, not mutation (+ domain types T1-T4)
 
 **Design docs:** `docs/dev/extraction-refactor-plan.md` (Phase 1), `docs/dev/extraction-type-driven-vision.md`
 **Plan file:** `.agents/plans/2026-02-09-m15-return-values.md`
 
-### Phase 1: `ConstraintSet` type (T4) + constraint functions return values
+### Phase 1: `ConstraintSet` type (T4) + constraint functions return values ✅
 
-- [x] **M15.1** Define `ConstraintSet` in `dataflow/constraints.rs` with `and()`/`or()`/`extend()` methods (replaces `Constraints`). Renamed `Constraints` → `ConstraintSet` in-place, added `single_length`/`single_keyword`/`single_choice` constructors, algebraic `or()`/`and()`, `is_empty()`, and `extend()`. Added `Clone` derive. Methods `#[allow(dead_code)]` until M15.2 wires them.
-- [x] **M15.2** Make `eval_condition`, `eval_compare`, `eval_negated_compare`, and all internal constraint helpers return `ConstraintSet` instead of mutating `&mut Constraints`. Used `ConstraintSet` constructors (`single_length`, `single_keyword`, `single_choice`) and algebraic `or()`/`and()` methods. `extract_from_if_inline` still takes `&mut ConstraintSet` (M15.3) but now extends with returned values. Removed top-level `#[allow(dead_code)]` on impl block since constructors are now used.
-- [x] **M15.3** Make `extract_from_if_inline` return `ConstraintSet` instead of mutating `&mut ConstraintSet`. Caller in `statements.rs` now extends with the returned value.
-- [x] **M15.4** Make `extract_match_constraints` in `eval/match_arms.rs` return `ConstraintSet`. Changed return type from `Option<(Vec<ArgumentCountConstraint>, Vec<RequiredKeyword>)>` to `Option<ConstraintSet>`. Caller in `statements.rs` now uses `ctx.constraints.extend(match_constraints)`.
-- [x] **M15.5** Update `AnalysisContext.constraints` field type to `ConstraintSet`, update `process_statement` if-arm to collect returned constraints — already done in M15.1/M15.3 (field was renamed in-place, if-arm already uses `extend()` with return value)
-- [x] **M15.6** Validate: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q` all green
+Renamed `Constraints` → `ConstraintSet` with algebraic `or()`/`and()`/`extend()` methods. All constraint eval functions now return `ConstraintSet` instead of mutating `&mut`. See git history for per-task details (M15.1-M15.6).
 
 ### Phase 2: `blocks.rs` collection functions return values ✅
 
-- [x] **M15.7** Make `collect_parser_parse_calls` return `Vec<ParseCallInfo>` (no `&mut` param)
-- [x] **M15.8** Make `collect_skip_past_tokens` return `Vec<String>`
-- [x] **M15.9** Make `classify_in_body` and `classify_from_if_chain` return a `Classification` struct (intermediates + end_tags). Added `Classification` struct with `merge()`, `add_intermediate()`, `add_end_tag()` helpers.
-- [x] **M15.10** Make `collect_token_content_comparisons` and `extract_comparisons_from_expr` return `Vec<String>`
-- [x] **M15.11** Update all callers in `blocks.rs` to use return values — done inline with M15.7-M15.10
-- [x] **M15.12** Validate: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q` all green
+All collection functions (`collect_parser_parse_calls`, `collect_skip_past_tokens`, `classify_in_body`, `collect_token_content_comparisons`) now return values instead of taking `&mut` params. Added `Classification` struct. See git history for per-task details (M15.7-M15.12).
 
 ### Phase 3: `SplitPosition` newtype (T1) — cross-crate
 
