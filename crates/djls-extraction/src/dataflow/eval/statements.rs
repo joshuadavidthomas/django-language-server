@@ -11,7 +11,7 @@ use super::effects::try_extract_pop_call;
 use super::expressions::eval_expr;
 use super::expressions::eval_expr_with_ctx;
 use super::match_arms::extract_match_constraints;
-use super::AnalysisContext;
+use super::CallContext;
 use super::AnalysisResult;
 use crate::dataflow::domain::AbstractValue;
 use crate::dataflow::domain::Env;
@@ -22,7 +22,7 @@ use crate::types::SplitPosition;
 pub fn process_statements(
     stmts: &[Stmt],
     env: &mut Env,
-    ctx: &mut AnalysisContext<'_>,
+    ctx: &mut CallContext<'_>,
 ) -> AnalysisResult {
     let mut combined = AnalysisResult::default();
     for stmt in stmts {
@@ -32,7 +32,7 @@ pub fn process_statements(
     combined
 }
 
-fn process_statement(stmt: &Stmt, env: &mut Env, ctx: &mut AnalysisContext<'_>) -> AnalysisResult {
+fn process_statement(stmt: &Stmt, env: &mut Env, ctx: &mut CallContext<'_>) -> AnalysisResult {
     let mut result = AnalysisResult::default();
 
     match stmt {

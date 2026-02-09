@@ -46,8 +46,8 @@ Six phases completed. Key changes:
 
 ### Phase 2: Rename `AnalysisContext` → `CallContext`
 
-- [ ] **M16.11** Rename `AnalysisContext` to `CallContext` in `eval.rs`, update all imports and references across `statements.rs`, `expressions.rs`, `calls.rs`, `constraints.rs`, `dataflow.rs`
-- [ ] **M16.12** Update doc comments to reflect narrower purpose (call resolution context, not analysis accumulator)
+- [x] **M16.11** Rename `AnalysisContext` to `CallContext` in `eval.rs`, update all imports and references across `statements.rs`, `expressions.rs`, `calls.rs`, `constraints.rs`, `dataflow.rs`
+- [x] **M16.12** Update doc comments to reflect narrower purpose (call resolution context, not analysis accumulator) — done as part of M16.11 rename
 - [ ] **M16.13** Validate: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q`
 
 ### Phase 3: Introduce `CompileFunction` validated input type

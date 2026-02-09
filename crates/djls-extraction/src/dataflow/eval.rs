@@ -14,11 +14,12 @@ use crate::dataflow::calls::HelperCache;
 use crate::dataflow::constraints::ConstraintSet;
 use crate::types::KnownOptions;
 
-/// Context for the dataflow analysis, threading through shared state.
+/// Call-resolution context for the dataflow analysis.
 ///
-/// Contains only call-resolution context (module functions, recursion
-/// tracking, caching). Analysis results are returned via `AnalysisResult`.
-pub struct AnalysisContext<'a> {
+/// Carries the immutable context needed to resolve helper function calls
+/// (module functions, recursion tracking, caching). Does not accumulate
+/// analysis results — those are returned via `AnalysisResult`.
+pub struct CallContext<'a> {
     pub module_funcs: &'a [&'a StmtFunctionDef],
     pub caller_name: &'a str,
     pub call_depth: usize,
@@ -88,7 +89,7 @@ mod tests {
             .map_or("token", |p| p.parameter.name.as_str());
         let mut env = Env::for_compile_function(parser_param, token_param);
         let mut cache = HelperCache::new();
-        let mut ctx = AnalysisContext {
+        let mut ctx = CallContext {
             module_funcs: &[],
             caller_name: "test",
             call_depth: 0,

@@ -386,7 +386,7 @@ mod tests {
     use crate::dataflow::calls::HelperCache;
     use crate::dataflow::domain::Env;
     use crate::dataflow::eval::process_statements;
-    use crate::dataflow::eval::AnalysisContext;
+    use crate::dataflow::eval::CallContext;
     use crate::test_helpers::django_function;
     use crate::types::SplitPosition;
 
@@ -422,7 +422,7 @@ mod tests {
 
         let mut env = Env::for_compile_function(parser_param, token_param);
         let mut cache = HelperCache::new();
-        let mut ctx = AnalysisContext {
+        let mut ctx = CallContext {
             module_funcs: &[],
             caller_name: func.name.as_str(),
             call_depth: 0,

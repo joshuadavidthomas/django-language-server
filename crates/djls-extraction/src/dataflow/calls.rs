@@ -8,7 +8,7 @@ use super::domain::AbstractValue;
 use super::domain::Env;
 use super::domain::TokenSplit;
 use super::eval::process_statements;
-use super::eval::AnalysisContext;
+use super::eval::CallContext;
 
 /// Maximum call inlining depth. Beyond this, calls return Unknown.
 const MAX_CALL_DEPTH: usize = 2;
@@ -110,7 +110,7 @@ impl Default for HelperCache {
 pub fn resolve_call(
     callee_name: &str,
     args: &[AbstractValue],
-    ctx: &mut AnalysisContext<'_>,
+    ctx: &mut CallContext<'_>,
 ) -> AbstractValue {
     // Check cache first
     if let Some(cached) = ctx.cache.get(callee_name, args) {
@@ -285,7 +285,7 @@ mod tests {
 
         let mut env = Env::for_compile_function(parser_param, token_param);
         let mut cache = HelperCache::new();
-        let mut ctx = AnalysisContext {
+        let mut ctx = CallContext {
             module_funcs: &func_refs,
             caller_name: main_func.name.as_str(),
             call_depth: 0,
@@ -318,7 +318,7 @@ mod tests {
 
         let mut env = Env::for_compile_function(parser_param, token_param);
         let mut cache = HelperCache::new();
-        let mut ctx = AnalysisContext {
+        let mut ctx = CallContext {
             module_funcs: &func_refs,
             caller_name: main_func.name.as_str(),
             call_depth: 0,
@@ -499,7 +499,7 @@ def do_tag(parser, token):
 
         let mut env = Env::for_compile_function("parser", "token");
         let mut cache = HelperCache::new();
-        let mut ctx = AnalysisContext {
+        let mut ctx = CallContext {
             module_funcs: &func_refs,
             caller_name: "do_tag",
             call_depth: 0,

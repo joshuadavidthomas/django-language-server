@@ -10,7 +10,7 @@ use ruff_python_ast::ExprSubscript;
 use ruff_python_ast::ExprTuple;
 use ruff_python_ast::Number;
 
-use super::AnalysisContext;
+use super::CallContext;
 use crate::dataflow::calls::resolve_call;
 use crate::dataflow::domain::AbstractValue;
 use crate::dataflow::domain::Env;
@@ -30,7 +30,7 @@ pub fn eval_expr(expr: &Expr, env: &Env) -> AbstractValue {
 pub(super) fn eval_expr_with_ctx(
     expr: &Expr,
     env: &Env,
-    ctx: Option<&mut AnalysisContext<'_>>,
+    ctx: Option<&mut CallContext<'_>>,
 ) -> AbstractValue {
     match expr {
         Expr::Name(ExprName { id, .. }) => env.get(id.as_str()).clone(),
@@ -70,7 +70,7 @@ pub(super) fn eval_expr_with_ctx(
 fn eval_call_with_ctx(
     call: &ExprCall,
     env: &Env,
-    mut ctx: Option<&mut AnalysisContext<'_>>,
+    mut ctx: Option<&mut CallContext<'_>>,
 ) -> AbstractValue {
     if let Expr::Attribute(ExprAttribute { value, attr, .. }) = call.func.as_ref() {
         let obj = eval_expr(value, env);

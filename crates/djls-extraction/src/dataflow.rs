@@ -51,7 +51,7 @@ pub fn analyze_compile_function_with_cache(
         .map_or("token", |p| p.parameter.name.as_str());
 
     let mut env = domain::Env::for_compile_function(parser_param, token_param);
-    let mut ctx = eval::AnalysisContext {
+    let mut ctx = eval::CallContext {
         module_funcs,
         caller_name: func.name.as_str(),
         call_depth: 0,
