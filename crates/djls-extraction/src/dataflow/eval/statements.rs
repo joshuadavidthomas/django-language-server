@@ -14,6 +14,7 @@ use super::match_arms::extract_match_constraints;
 use super::AnalysisContext;
 use crate::dataflow::domain::AbstractValue;
 use crate::dataflow::domain::Env;
+use crate::dataflow::domain::TokenSplit;
 use crate::types::SplitPosition;
 
 /// Process a list of statements, updating the environment.
@@ -202,12 +203,8 @@ fn process_tuple_unpack(targets: &[Expr], value: &AbstractValue, env: &mut Env) 
             }
         }
 
-        AbstractValue::SplitResult {
-            base_offset,
-            pops_from_end,
-        } => {
-            let base_offset = *base_offset;
-            let pops_from_end = *pops_from_end;
+        AbstractValue::SplitResult(split) => {
+            let split = *split;
 
             // Find starred target index
             let star_index = targets.iter().position(|t| matches!(t, Expr::Starred(_)));
@@ -219,7 +216,7 @@ fn process_tuple_unpack(targets: &[Expr], value: &AbstractValue, env: &mut Env) 
                         env.set(
                             id.to_string(),
                             AbstractValue::SplitElement {
-                                index: SplitPosition::Forward(base_offset + i),
+                                index: SplitPosition::Forward(split.front_offset() + i),
                             },
                         );
                     }
@@ -229,15 +226,19 @@ fn process_tuple_unpack(targets: &[Expr], value: &AbstractValue, env: &mut Env) 
                 let after_star = targets.len() - si - 1;
 
                 // The star target captures everything between pre-star and post-star elements.
-                // Its pops_from_end must include the trailing targets it doesn't contain.
+                // Its back_offset must include the trailing targets it doesn't contain.
                 if let Expr::Starred(starred) = &targets[si] {
                     if let Expr::Name(ExprName { id, .. }) = starred.value.as_ref() {
+                        let star_split = TokenSplit::fresh()
+                            .after_slice_from(split.front_offset() + si);
+                        // Add back_offset from original split plus trailing targets
+                        let mut star_split_with_back = star_split;
+                        for _ in 0..(split.back_offset() + after_star) {
+                            star_split_with_back = star_split_with_back.after_pop_back();
+                        }
                         env.set(
                             id.to_string(),
-                            AbstractValue::SplitResult {
-                                base_offset: base_offset + si,
-                                pops_from_end: pops_from_end + after_star,
-                            },
+                            AbstractValue::SplitResult(star_split_with_back),
                         );
                     }
                 }
@@ -258,7 +259,7 @@ fn process_tuple_unpack(targets: &[Expr], value: &AbstractValue, env: &mut Env) 
                         env.set(
                             id.to_string(),
                             AbstractValue::SplitElement {
-                                index: SplitPosition::Forward(base_offset + i),
+                                index: SplitPosition::Forward(split.front_offset() + i),
                             },
                         );
                     }

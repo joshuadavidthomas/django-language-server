@@ -51,16 +51,12 @@ pub(super) fn try_extract_pop_call(expr: &Expr) -> Option<PopInfo> {
 /// Apply the mutation side effect of a pop call to the environment.
 pub(super) fn apply_pop_mutation(env: &mut Env, pop_info: &PopInfo) {
     env.mutate(&pop_info.var_name, |v| {
-        if let AbstractValue::SplitResult {
-            base_offset,
-            pops_from_end,
-        } = v
-        {
-            if pop_info.from_front {
-                *base_offset += 1;
+        if let AbstractValue::SplitResult(split) = v {
+            *split = if pop_info.from_front {
+                split.after_pop_front()
             } else {
-                *pops_from_end += 1;
-            }
+                split.after_pop_back()
+            };
         }
     });
 }
@@ -86,7 +82,7 @@ pub(super) fn try_extract_option_loop(while_stmt: &StmtWhile, env: &Env) -> Opti
     let loop_value = env.get(loop_var.as_str());
     if !matches!(
         loop_value,
-        AbstractValue::SplitResult { .. } | AbstractValue::Unknown
+        AbstractValue::SplitResult(_) | AbstractValue::Unknown
     ) {
         return None;
     }

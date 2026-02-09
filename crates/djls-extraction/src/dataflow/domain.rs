@@ -12,15 +12,12 @@ use crate::types::SplitPosition;
 ///
 /// `TokenSplit` encapsulates this offset arithmetic so callers use methods
 /// instead of manually computing `index + base_offset + pops_from_end`.
-// TODO(M15.22): Remove allow(dead_code) when SplitResult/SplitLength use TokenSplit
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 pub struct TokenSplit {
     front_offset: usize,
     back_offset: usize,
 }
 
-#[allow(dead_code)]
 impl TokenSplit {
     /// A fresh split result with no mutations applied.
     #[must_use]
@@ -61,6 +58,7 @@ impl TokenSplit {
     /// Convert a local index (into the current mutated list) to an original
     /// `SplitPosition` by adding the front offset.
     #[must_use]
+    #[allow(dead_code)]
     pub fn resolve_index(&self, local: usize) -> SplitPosition {
         SplitPosition::Forward(self.front_offset + local)
     }
@@ -70,6 +68,7 @@ impl TokenSplit {
     /// If the mutated list has `local_length` elements, the original had
     /// `local_length + front_offset + back_offset`.
     #[must_use]
+    #[allow(dead_code)]
     pub fn resolve_length(&self, local_length: usize) -> usize {
         local_length + self.front_offset + self.back_offset
     }
@@ -108,21 +107,13 @@ pub enum AbstractValue {
     /// The `parser` parameter to the compile function
     Parser,
     /// Result of `token.split_contents()` or `token.contents.split()`.
-    /// `base_offset` tracks mutations: after `bits.pop(0)`, offset becomes 1.
-    /// After `bits = bits[2:]`, offset becomes 2.
-    /// `pops_from_end` tracks `bits.pop()` calls (removing from the end).
-    SplitResult {
-        base_offset: usize,
-        pops_from_end: usize,
-    },
+    /// The `TokenSplit` tracks mutations (pop from front/back, slicing).
+    SplitResult(TokenSplit),
     /// Single element from a split result: `bits[N]` or `bits[-N]`
     SplitElement { index: SplitPosition },
     /// `len(split_result)` — carries offsets for constraint adjustment.
-    /// The effective original length = `measured_len + base_offset + pops_from_end`.
-    SplitLength {
-        base_offset: usize,
-        pops_from_end: usize,
-    },
+    /// The effective original length = `measured_len + split.total_offset()`.
+    SplitLength(TokenSplit),
     /// Integer constant
     Int(i64),
     /// String constant
@@ -204,23 +195,17 @@ mod tests {
         let mut env = Env::default();
         env.set(
             "bits".to_string(),
-            AbstractValue::SplitResult {
-                base_offset: 0,
-                pops_from_end: 0,
-            },
+            AbstractValue::SplitResult(TokenSplit::fresh()),
         );
         let mutated = env.mutate("bits", |v| {
-            if let AbstractValue::SplitResult { base_offset, .. } = v {
-                *base_offset += 1;
+            if let AbstractValue::SplitResult(split) = v {
+                *split = split.after_pop_front();
             }
         });
         assert!(mutated);
         assert_eq!(
             env.get("bits"),
-            &AbstractValue::SplitResult {
-                base_offset: 1,
-                pops_from_end: 0
-            }
+            &AbstractValue::SplitResult(TokenSplit::fresh().after_pop_front())
         );
     }
 

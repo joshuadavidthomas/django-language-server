@@ -14,6 +14,7 @@ use super::AnalysisContext;
 use crate::dataflow::calls::resolve_call;
 use crate::dataflow::domain::AbstractValue;
 use crate::dataflow::domain::Env;
+use crate::dataflow::domain::TokenSplit;
 use crate::types::SplitPosition;
 use crate::ext::ExprExt;
 
@@ -77,10 +78,7 @@ fn eval_call_with_ctx(
 
         // token.split_contents()
         if matches!((&obj, method), (AbstractValue::Token, "split_contents")) {
-            return AbstractValue::SplitResult {
-                base_offset: 0,
-                pops_from_end: 0,
-            };
+            return AbstractValue::SplitResult(TokenSplit::fresh());
         }
 
         // parser.token.split_contents()
@@ -93,16 +91,13 @@ fn eval_call_with_ctx(
             {
                 let inner_obj = eval_expr(inner_value, env);
                 if matches!(inner_obj, AbstractValue::Parser) && inner_attr.as_str() == "token" {
-                    return AbstractValue::SplitResult {
-                        base_offset: 0,
-                        pops_from_end: 0,
-                    };
+                    return AbstractValue::SplitResult(TokenSplit::fresh());
                 }
             }
         }
 
         // bits.pop(0) or bits.pop()
-        if method == "pop" && matches!(obj, AbstractValue::SplitResult { .. }) {
+        if method == "pop" && matches!(obj, AbstractValue::SplitResult(_)) {
             return eval_pop_return(&obj, &call.arguments);
         }
 
@@ -143,19 +138,12 @@ fn eval_call_with_ctx(
             let val = eval_expr(arg, env);
             match name {
                 "len" => {
-                    if let AbstractValue::SplitResult {
-                        base_offset,
-                        pops_from_end,
-                    } = val
-                    {
-                        return AbstractValue::SplitLength {
-                            base_offset,
-                            pops_from_end,
-                        };
+                    if let AbstractValue::SplitResult(split) = val {
+                        return AbstractValue::SplitLength(split);
                     }
                 }
                 "list" => {
-                    if matches!(val, AbstractValue::SplitResult { .. }) {
+                    if matches!(val, AbstractValue::SplitResult(_)) {
                         return val;
                     }
                 }
@@ -187,10 +175,7 @@ fn eval_call_with_ctx(
 /// Handle `token.contents.split(...)` patterns.
 fn eval_contents_split(args: &Arguments) -> AbstractValue {
     if args.args.is_empty() {
-        return AbstractValue::SplitResult {
-            base_offset: 0,
-            pops_from_end: 0,
-        };
+        return AbstractValue::SplitResult(TokenSplit::fresh());
     }
 
     // token.contents.split(None, 1) → Tuple of [SplitElement(Forward(0)), Unknown]
@@ -213,10 +198,7 @@ fn eval_contents_split(args: &Arguments) -> AbstractValue {
         }
     }
 
-    AbstractValue::SplitResult {
-        base_offset: 0,
-        pops_from_end: 0,
-    }
+    AbstractValue::SplitResult(TokenSplit::fresh())
 }
 
 /// Evaluate the return value of `split_result.pop(0)` or `split_result.pop()`.
@@ -224,25 +206,21 @@ fn eval_contents_split(args: &Arguments) -> AbstractValue {
 /// This only computes the return value — the mutation of the split result
 /// is handled in `process_pop_statement`.
 fn eval_pop_return(obj: &AbstractValue, args: &Arguments) -> AbstractValue {
-    let AbstractValue::SplitResult {
-        base_offset,
-        pops_from_end,
-    } = obj
-    else {
+    let AbstractValue::SplitResult(split) = obj else {
         return AbstractValue::Unknown;
     };
 
     if let Some(arg) = args.args.first() {
-        // bits.pop(0) — return element at base_offset
+        // bits.pop(0) — return element at front_offset
         if let Some(0) = arg.positive_integer() {
             return AbstractValue::SplitElement {
-                index: SplitPosition::Forward(*base_offset),
+                index: SplitPosition::Forward(split.front_offset()),
             };
         }
     } else {
         // bits.pop() — return last element (before pop)
         return AbstractValue::SplitElement {
-            index: SplitPosition::Backward(*pops_from_end + 1),
+            index: SplitPosition::Backward(split.back_offset() + 1),
         };
     }
 
@@ -265,7 +243,7 @@ fn i64_to_index_element(n: i64, base_offset: usize) -> AbstractValue {
 
 /// Evaluate subscript access on an abstract value.
 fn eval_subscript(base: &AbstractValue, slice: &Expr, env: &Env) -> AbstractValue {
-    let AbstractValue::SplitResult { base_offset, .. } = base else {
+    let AbstractValue::SplitResult(split) = base else {
         return AbstractValue::Unknown;
     };
 
@@ -275,7 +253,7 @@ fn eval_subscript(base: &AbstractValue, slice: &Expr, env: &Env) -> AbstractValu
             value: Number::Int(int_val),
             ..
         }) => int_val.as_i64().map_or(AbstractValue::Unknown, |n| {
-            i64_to_index_element(n, *base_offset)
+            i64_to_index_element(n, split.front_offset())
         }),
 
         // bits[unary -N]
@@ -303,27 +281,16 @@ fn eval_subscript(base: &AbstractValue, slice: &Expr, env: &Env) -> AbstractValu
                 return AbstractValue::Unknown;
             }
 
-            let pops = if let AbstractValue::SplitResult { pops_from_end, .. } = base {
-                *pops_from_end
-            } else {
-                0
-            };
             match (lower.as_deref(), upper.as_deref()) {
                 // bits[N:] — slice from N onwards
                 (Some(lower_expr), None) => {
                     if let Some(n) = lower_expr.positive_integer() {
-                        return AbstractValue::SplitResult {
-                            base_offset: base_offset + n,
-                            pops_from_end: pops,
-                        };
+                        return AbstractValue::SplitResult(split.after_slice_from(n));
                     }
                     AbstractValue::Unknown
                 }
                 // bits[:N], bits[:-N], or bits[:] — truncation, preserve offset
-                (None, _) => AbstractValue::SplitResult {
-                    base_offset: *base_offset,
-                    pops_from_end: pops,
-                },
+                (None, _) => AbstractValue::SplitResult(*split),
                 _ => AbstractValue::Unknown,
             }
         }
@@ -332,7 +299,7 @@ fn eval_subscript(base: &AbstractValue, slice: &Expr, env: &Env) -> AbstractValu
         Expr::Name(_) => {
             let idx = eval_expr(slice, env);
             if let AbstractValue::Int(n) = idx {
-                i64_to_index_element(n, *base_offset)
+                i64_to_index_element(n, split.front_offset())
             } else {
                 AbstractValue::Unknown
             }

@@ -26,7 +26,7 @@ pub(super) fn extract_match_constraints(
     env: &Env,
 ) -> Option<ConstraintSet> {
     let subject = eval_expr(&match_stmt.subject, env);
-    if !matches!(subject, AbstractValue::SplitResult { .. }) {
+    if !matches!(subject, AbstractValue::SplitResult(_)) {
         return None;
     }
 

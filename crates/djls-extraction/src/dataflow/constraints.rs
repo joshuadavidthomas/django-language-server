@@ -191,13 +191,9 @@ fn eval_compare(compare: &ExprCompare, env: &Env) -> ConstraintSet {
     let right_val = eval_expr(comparator, env);
 
     // len(split_result) vs integer
-    if let AbstractValue::SplitLength {
-        base_offset,
-        pops_from_end,
-    } = &left_val
-    {
+    if let AbstractValue::SplitLength(split) = &left_val {
         if let Some(n) = comparator.positive_integer() {
-            let offset = *base_offset + *pops_from_end;
+            let offset = split.total_offset();
             let constraint = match op {
                 CmpOp::NotEq => Some(ArgumentCountConstraint::Exact(n + offset)),
                 CmpOp::Lt => Some(ArgumentCountConstraint::Min(n + offset)),
@@ -212,7 +208,7 @@ fn eval_compare(compare: &ExprCompare, env: &Env) -> ConstraintSet {
         // `len(bits) not in (2, 3, 4)` → valid counts are {2+offset, 3+offset, 4+offset}
         if matches!(op, CmpOp::NotIn) {
             if let Some(values) = comparator.collection_map(ExprExt::positive_integer) {
-                let offset = *base_offset + *pops_from_end;
+                let offset = split.total_offset();
                 return ConstraintSet::single_length(ArgumentCountConstraint::OneOf(
                     values.into_iter().map(|v| v + offset).collect(),
                 ));
@@ -222,13 +218,9 @@ fn eval_compare(compare: &ExprCompare, env: &Env) -> ConstraintSet {
     }
 
     // Reversed: integer vs len(split_result), e.g. `4 < len(bits)`
-    if let AbstractValue::SplitLength {
-        base_offset,
-        pops_from_end,
-    } = &right_val
-    {
+    if let AbstractValue::SplitLength(split) = &right_val {
         if let Some(n) = left.positive_integer() {
-            let offset = *base_offset + *pops_from_end;
+            let offset = split.total_offset();
             let constraint = match op {
                 CmpOp::Lt => Some(ArgumentCountConstraint::Max(n + offset)),
                 CmpOp::LtE if n > 0 => Some(ArgumentCountConstraint::Max(n - 1 + offset)),
@@ -291,13 +283,9 @@ fn eval_negated_compare(compare: &ExprCompare, env: &Env) -> ConstraintSet {
     // Simple negation: `not len(bits) == 3` → Exact(3)
     if compare.ops.len() == 1 && compare.comparators.len() == 1 {
         let left_val = eval_expr(&compare.left, env);
-        if let AbstractValue::SplitLength {
-            base_offset,
-            pops_from_end,
-        } = left_val
-        {
+        if let AbstractValue::SplitLength(split) = left_val {
             if let Some(n) = compare.comparators[0].positive_integer() {
-                let offset = base_offset + pops_from_end;
+                let offset = split.total_offset();
                 let constraint = match &compare.ops[0] {
                     CmpOp::Eq => Some(ArgumentCountConstraint::Exact(n + offset)),
                     CmpOp::Lt if n > 0 => Some(ArgumentCountConstraint::Max(n - 1 + offset)),
@@ -324,14 +312,10 @@ fn eval_range_constraint(compare: &ExprCompare, env: &Env) -> Option<Vec<Argumen
     }
 
     let middle = eval_expr(&compare.comparators[0], env);
-    let AbstractValue::SplitLength {
-        base_offset,
-        pops_from_end,
-    } = middle
-    else {
+    let AbstractValue::SplitLength(split) = middle else {
         return None;
     };
-    let base_offset = base_offset + pops_from_end;
+    let base_offset = split.total_offset();
 
     let lower = compare.left.positive_integer()?;
     let upper = compare.comparators[1].positive_integer()?;

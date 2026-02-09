@@ -31,6 +31,7 @@ mod tests {
     use crate::dataflow::calls::HelperCache;
     use crate::dataflow::domain::AbstractValue;
     use crate::dataflow::domain::Env;
+    use crate::dataflow::domain::TokenSplit;
     use crate::types::SplitPosition;
     use crate::test_helpers::django_function;
 
@@ -94,10 +95,7 @@ def do_tag(parser, token):
         );
         assert_eq!(
             env.get("bits"),
-            &AbstractValue::SplitResult {
-                base_offset: 0,
-                pops_from_end: 0
-            }
+            &AbstractValue::SplitResult(TokenSplit::fresh())
         );
     }
 
@@ -111,10 +109,7 @@ def do_tag(parser, token):
         );
         assert_eq!(
             env.get("args"),
-            &AbstractValue::SplitResult {
-                base_offset: 0,
-                pops_from_end: 0
-            }
+            &AbstractValue::SplitResult(TokenSplit::fresh())
         );
     }
 
@@ -131,10 +126,7 @@ def do_tag(parser, token):
         );
         assert_eq!(
             env.get("bits"),
-            &AbstractValue::SplitResult {
-                base_offset: 0,
-                pops_from_end: 0
-            }
+            &AbstractValue::SplitResult(TokenSplit::fresh())
         );
     }
 
@@ -190,10 +182,7 @@ def do_tag(parser, token):
         );
         assert_eq!(
             env.get("rest"),
-            &AbstractValue::SplitResult {
-                base_offset: 1,
-                pops_from_end: 0
-            }
+            &AbstractValue::SplitResult(TokenSplit::fresh().after_slice_from(1))
         );
     }
 
@@ -209,17 +198,11 @@ def do_tag(parser, token):
         );
         assert_eq!(
             env.get("rest"),
-            &AbstractValue::SplitResult {
-                base_offset: 2,
-                pops_from_end: 0
-            }
+            &AbstractValue::SplitResult(TokenSplit::fresh().after_slice_from(2))
         );
         assert_eq!(
             env.get("more"),
-            &AbstractValue::SplitResult {
-                base_offset: 3,
-                pops_from_end: 0
-            }
+            &AbstractValue::SplitResult(TokenSplit::fresh().after_slice_from(3))
         );
     }
 
@@ -234,10 +217,7 @@ def do_tag(parser, token):
         );
         assert_eq!(
             env.get("n"),
-            &AbstractValue::SplitLength {
-                base_offset: 0,
-                pops_from_end: 0
-            }
+            &AbstractValue::SplitLength(TokenSplit::fresh())
         );
     }
 
@@ -252,10 +232,7 @@ def do_tag(parser, token):
         );
         assert_eq!(
             env.get("bits"),
-            &AbstractValue::SplitResult {
-                base_offset: 0,
-                pops_from_end: 0
-            }
+            &AbstractValue::SplitResult(TokenSplit::fresh())
         );
     }
 
@@ -275,10 +252,7 @@ def do_tag(parser, token):
         );
         assert_eq!(
             env.get("rest"),
-            &AbstractValue::SplitResult {
-                base_offset: 1,
-                pops_from_end: 0
-            }
+            &AbstractValue::SplitResult(TokenSplit::fresh().after_slice_from(1))
         );
     }
 
@@ -387,10 +361,7 @@ def do_tag(parser, token):
         );
         assert_eq!(
             env.get("rest"),
-            &AbstractValue::SplitResult {
-                base_offset: 1,
-                pops_from_end: 0
-            }
+            &AbstractValue::SplitResult(TokenSplit::fresh().after_slice_from(1))
         );
     }
 
@@ -428,10 +399,7 @@ def do_tag(parser, token):
         );
         assert_eq!(
             env.get("truncated"),
-            &AbstractValue::SplitResult {
-                base_offset: 1,
-                pops_from_end: 0
-            }
+            &AbstractValue::SplitResult(TokenSplit::fresh().after_slice_from(1))
         );
     }
 
@@ -453,10 +421,7 @@ def do_tag(parser, token):
         // (the trailing `last` element is accounted for in pops_from_end)
         assert_eq!(
             env.get("middle"),
-            &AbstractValue::SplitResult {
-                base_offset: 1,
-                pops_from_end: 1
-            }
+            &AbstractValue::SplitResult(TokenSplit::fresh().after_slice_from(1).after_pop_back())
         );
         assert_eq!(
             env.get("last"),
@@ -477,10 +442,7 @@ def do_tag(parser, token):
         );
         assert_eq!(
             env.get("bits"),
-            &AbstractValue::SplitResult {
-                base_offset: 1,
-                pops_from_end: 0
-            }
+            &AbstractValue::SplitResult(TokenSplit::fresh().after_slice_from(1))
         );
     }
 
@@ -501,10 +463,7 @@ def do_tag(parser, token):
         );
         assert_eq!(
             env.get("bits"),
-            &AbstractValue::SplitResult {
-                base_offset: 1,
-                pops_from_end: 0
-            }
+            &AbstractValue::SplitResult(TokenSplit::fresh().after_slice_from(1))
         );
     }
 
@@ -519,10 +478,7 @@ def do_tag(parser, token):
         );
         assert_eq!(
             env.get("bits"),
-            &AbstractValue::SplitResult {
-                base_offset: 0,
-                pops_from_end: 1
-            }
+            &AbstractValue::SplitResult(TokenSplit::fresh().after_pop_back())
         );
     }
 
@@ -543,10 +499,7 @@ def do_tag(parser, token):
         );
         assert_eq!(
             env.get("bits"),
-            &AbstractValue::SplitResult {
-                base_offset: 0,
-                pops_from_end: 1
-            }
+            &AbstractValue::SplitResult(TokenSplit::fresh().after_pop_back())
         );
     }
 
@@ -563,10 +516,7 @@ def do_tag(parser, token):
         );
         assert_eq!(
             env.get("bits"),
-            &AbstractValue::SplitResult {
-                base_offset: 1,
-                pops_from_end: 2
-            }
+            &AbstractValue::SplitResult(TokenSplit::fresh().after_pop_front().after_pop_back().after_pop_back())
         );
     }
 
@@ -582,10 +532,7 @@ def do_tag(parser, token):
         );
         assert_eq!(
             env.get("n"),
-            &AbstractValue::SplitLength {
-                base_offset: 1,
-                pops_from_end: 0
-            }
+            &AbstractValue::SplitLength(TokenSplit::fresh().after_pop_front())
         );
     }
 
@@ -602,10 +549,7 @@ def do_tag(parser, token):
         );
         assert_eq!(
             env.get("n"),
-            &AbstractValue::SplitLength {
-                base_offset: 0,
-                pops_from_end: 2
-            }
+            &AbstractValue::SplitLength(TokenSplit::fresh().after_pop_back().after_pop_back())
         );
     }
 
@@ -938,10 +882,7 @@ def do_tag(parser, token):
         // The pop(0) side effect should also mutate `remaining`
         assert_eq!(
             env.get("remaining"),
-            &AbstractValue::SplitResult {
-                base_offset: 2,
-                pops_from_end: 0
-            }
+            &AbstractValue::SplitResult(TokenSplit::fresh().after_slice_from(2))
         );
     }
 
@@ -960,10 +901,7 @@ def do_tag(parser, token):
         // The pop(0) inside the while body should mutate `remaining`
         assert_eq!(
             env.get("remaining"),
-            &AbstractValue::SplitResult {
-                base_offset: 3,
-                pops_from_end: 0
-            }
+            &AbstractValue::SplitResult(TokenSplit::fresh().after_slice_from(3))
         );
     }
 
@@ -979,10 +917,7 @@ def do_tag(parser, token):
         );
         assert_eq!(
             env.get("result"),
-            &AbstractValue::SplitResult {
-                base_offset: 0,
-                pops_from_end: 0
-            }
+            &AbstractValue::SplitResult(TokenSplit::fresh())
         );
     }
 
@@ -997,10 +932,7 @@ def do_tag(parser, token):
         );
         assert_eq!(
             env.get("result"),
-            &AbstractValue::SplitResult {
-                base_offset: 0,
-                pops_from_end: 0
-            }
+            &AbstractValue::SplitResult(TokenSplit::fresh())
         );
     }
 
@@ -1016,10 +948,7 @@ def do_tag(parser, token):
         );
         assert_eq!(
             env.get("result"),
-            &AbstractValue::SplitResult {
-                base_offset: 0,
-                pops_from_end: 0
-            }
+            &AbstractValue::SplitResult(TokenSplit::fresh())
         );
     }
 
@@ -1048,10 +977,7 @@ def do_tag(parser, token):
         // `remaining` should keep its pre-loop value
         assert_eq!(
             env.get("remaining"),
-            &AbstractValue::SplitResult {
-                base_offset: 2,
-                pops_from_end: 0
-            }
+            &AbstractValue::SplitResult(TokenSplit::fresh().after_slice_from(2))
         );
     }
 }

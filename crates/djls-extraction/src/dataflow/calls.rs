@@ -6,6 +6,7 @@ use ruff_python_ast::Stmt;
 
 use super::domain::AbstractValue;
 use super::domain::Env;
+use super::domain::TokenSplit;
 use super::eval::process_statements;
 use super::eval::AnalysisContext;
 
@@ -33,15 +34,9 @@ enum AbstractValueKey {
     Unknown,
     Token,
     Parser,
-    SplitResult {
-        base_offset: usize,
-        pops_from_end: usize,
-    },
+    SplitResult(TokenSplit),
     SplitElement(crate::types::SplitPosition),
-    SplitLength {
-        base_offset: usize,
-        pops_from_end: usize,
-    },
+    SplitLength(TokenSplit),
     Int(i64),
     Str(String),
     Other,
@@ -53,21 +48,9 @@ impl From<&AbstractValue> for AbstractValueKey {
             AbstractValue::Unknown => AbstractValueKey::Unknown,
             AbstractValue::Token => AbstractValueKey::Token,
             AbstractValue::Parser => AbstractValueKey::Parser,
-            AbstractValue::SplitResult {
-                base_offset,
-                pops_from_end,
-            } => AbstractValueKey::SplitResult {
-                base_offset: *base_offset,
-                pops_from_end: *pops_from_end,
-            },
+            AbstractValue::SplitResult(split) => AbstractValueKey::SplitResult(*split),
             AbstractValue::SplitElement { index } => AbstractValueKey::SplitElement(*index),
-            AbstractValue::SplitLength {
-                base_offset,
-                pops_from_end,
-            } => AbstractValueKey::SplitLength {
-                base_offset: *base_offset,
-                pops_from_end: *pops_from_end,
-            },
+            AbstractValue::SplitLength(split) => AbstractValueKey::SplitLength(*split),
             AbstractValue::Int(n) => AbstractValueKey::Int(*n),
             AbstractValue::Str(s) => AbstractValueKey::Str(s.clone()),
             AbstractValue::Tuple(_) => AbstractValueKey::Other,
@@ -363,10 +346,7 @@ def do_tag(parser, token):
         );
         assert_eq!(
             env.get("bits"),
-            &AbstractValue::SplitResult {
-                base_offset: 0,
-                pops_from_end: 0
-            }
+            &AbstractValue::SplitResult(TokenSplit::fresh())
         );
     }
 
@@ -391,10 +371,7 @@ def do_tag(parser, token):
         );
         assert_eq!(
             env.get("args"),
-            &AbstractValue::SplitResult {
-                base_offset: 1,
-                pops_from_end: 0
-            }
+            &AbstractValue::SplitResult(TokenSplit::fresh().after_slice_from(1))
         );
         assert_eq!(env.get("p"), &AbstractValue::Parser);
     }
@@ -558,10 +535,7 @@ def do_tag(parser, token):
         );
         assert_eq!(
             env.get("remaining"),
-            &AbstractValue::SplitResult {
-                base_offset: 1,
-                pops_from_end: 0
-            }
+            &AbstractValue::SplitResult(TokenSplit::fresh().after_pop_front())
         );
     }
 
@@ -582,10 +556,7 @@ def do_tag(parser, token):
         assert_eq!(
             env.get("pair"),
             &AbstractValue::Tuple(vec![
-                AbstractValue::SplitResult {
-                    base_offset: 0,
-                    pops_from_end: 0,
-                },
+                AbstractValue::SplitResult(TokenSplit::fresh()),
                 AbstractValue::Int(42),
             ])
         );
@@ -631,10 +602,7 @@ def do_tag(parser, token):
         assert_eq!(
             env.get("triple"),
             &AbstractValue::Tuple(vec![
-                AbstractValue::SplitResult {
-                    base_offset: 0,
-                    pops_from_end: 0,
-                },
+                AbstractValue::SplitResult(TokenSplit::fresh()),
                 AbstractValue::Parser,
                 AbstractValue::Token,
             ])

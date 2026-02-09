@@ -50,7 +50,7 @@ All collection functions (`collect_parser_parse_calls`, `collect_skip_past_token
 ### Phase 4: `TokenSplit` type (T2)
 
 - [x] **M15.21** Define `TokenSplit` struct in `dataflow/domain.rs` with `fresh()`, `after_slice_from()`, `after_pop_front()`, `after_pop_back()`, `resolve_index()`, `resolve_length()` methods — also added `total_offset()`, `front_offset()`, `back_offset()` accessors. 5 new tests. `#[allow(dead_code)]` until M15.22 wires it up.
-- [ ] **M15.22** Replace `SplitResult { base_offset, pops_from_end }` and `SplitLength { base_offset, pops_from_end }` with `SplitResult(TokenSplit)` and `SplitLength(TokenSplit)`
+- [x] **M15.22** Replace `SplitResult { base_offset, pops_from_end }` and `SplitLength { base_offset, pops_from_end }` with `SplitResult(TokenSplit)` and `SplitLength(TokenSplit)` — updated AbstractValue variants to use TokenSplit internally, updated AbstractValueKey in calls.rs, updated all pattern matches and test assertions across domain.rs, expressions.rs, effects.rs, statements.rs, match_arms.rs, constraints.rs, calls.rs, eval.rs. 745 tests pass.
 - [ ] **M15.23** Replace all scattered `+ base_offset + pops_from_end` calculations in `constraints.rs` with `TokenSplit` method calls
 - [ ] **M15.24** Update `eval/effects.rs` pop mutations to use `TokenSplit` methods
 - [ ] **M15.25** Update snapshots: `cargo insta test --accept -p djls-extraction`
