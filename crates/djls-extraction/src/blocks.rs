@@ -36,8 +36,7 @@ pub fn extract_block_spec(func: &StmtFunctionDef) -> Option<BlockTagSpec> {
         .map(|p| p.parameter.name.to_string())?;
 
     // Check for opaque block patterns first: parser.skip_past("endtag")
-    let mut skip_past_tokens = Vec::new();
-    collect_skip_past_tokens(&func.body, &parser_var, &mut skip_past_tokens);
+    let skip_past_tokens = collect_skip_past_tokens(&func.body, &parser_var);
     if !skip_past_tokens.is_empty() {
         let end_tag = if skip_past_tokens.len() == 1 {
             Some(skip_past_tokens[0].clone())
@@ -52,8 +51,7 @@ pub fn extract_block_spec(func: &StmtFunctionDef) -> Option<BlockTagSpec> {
     }
 
     // Collect all stop-tokens from parser.parse((...)) calls
-    let mut parse_calls = Vec::new();
-    collect_parser_parse_calls(&func.body, &parser_var, &mut parse_calls);
+    let parse_calls = collect_parser_parse_calls(&func.body, &parser_var);
 
     if parse_calls.is_empty() {
         // Try dynamic end-tag patterns: parser.parse((f"end{tag_name}",))
@@ -85,7 +83,8 @@ struct ParseCallInfo {
 }
 
 /// Collect all `parser.parse((...))` calls in a statement body (recursively).
-fn collect_parser_parse_calls(body: &[Stmt], parser_var: &str, calls: &mut Vec<ParseCallInfo>) {
+fn collect_parser_parse_calls(body: &[Stmt], parser_var: &str) -> Vec<ParseCallInfo> {
+    let mut calls = Vec::new();
     for stmt in body {
         match stmt {
             Stmt::Expr(expr_stmt) => {
@@ -99,30 +98,31 @@ fn collect_parser_parse_calls(body: &[Stmt], parser_var: &str, calls: &mut Vec<P
                 }
             }
             Stmt::If(if_stmt) => {
-                collect_parser_parse_calls(&if_stmt.body, parser_var, calls);
+                calls.extend(collect_parser_parse_calls(&if_stmt.body, parser_var));
                 for clause in &if_stmt.elif_else_clauses {
-                    collect_parser_parse_calls(&clause.body, parser_var, calls);
+                    calls.extend(collect_parser_parse_calls(&clause.body, parser_var));
                 }
             }
             Stmt::For(for_stmt) => {
-                collect_parser_parse_calls(&for_stmt.body, parser_var, calls);
+                calls.extend(collect_parser_parse_calls(&for_stmt.body, parser_var));
             }
             Stmt::While(while_stmt) => {
-                collect_parser_parse_calls(&while_stmt.body, parser_var, calls);
+                calls.extend(collect_parser_parse_calls(&while_stmt.body, parser_var));
             }
             Stmt::Try(try_stmt) => {
-                collect_parser_parse_calls(&try_stmt.body, parser_var, calls);
+                calls.extend(collect_parser_parse_calls(&try_stmt.body, parser_var));
                 for handler in &try_stmt.handlers {
                     let ruff_python_ast::ExceptHandler::ExceptHandler(h) = handler;
-                    collect_parser_parse_calls(&h.body, parser_var, calls);
+                    calls.extend(collect_parser_parse_calls(&h.body, parser_var));
                 }
             }
             Stmt::With(with_stmt) => {
-                collect_parser_parse_calls(&with_stmt.body, parser_var, calls);
+                calls.extend(collect_parser_parse_calls(&with_stmt.body, parser_var));
             }
             _ => {}
         }
     }
+    calls
 }
 
 /// Check if an expression is a `parser.parse((...))` call and extract stop-tokens.
@@ -235,16 +235,10 @@ fn classify_stop_tokens(
     }
 
     // Classify tokens by analyzing control flow after each parser.parse() call
-    let mut intermediates: Vec<String> = Vec::new();
-    let mut end_tags: Vec<String> = Vec::new();
-
-    classify_in_body(
-        body,
-        parser_var,
-        &all_tokens,
-        &mut intermediates,
-        &mut end_tags,
-    );
+    let Classification {
+        mut intermediates,
+        mut end_tags,
+    } = classify_in_body(body, parser_var, &all_tokens);
 
     // After flow analysis: any token that was found in stop-token lists but NOT
     // classified as intermediate is a candidate end-tag. This handles the common
@@ -322,6 +316,40 @@ fn classify_stop_tokens(
     })
 }
 
+/// Result of classifying stop-tokens into intermediates and end-tags.
+#[derive(Debug, Default)]
+struct Classification {
+    intermediates: Vec<String>,
+    end_tags: Vec<String>,
+}
+
+impl Classification {
+    fn merge(&mut self, other: Classification) {
+        for t in other.intermediates {
+            if !self.intermediates.contains(&t) {
+                self.intermediates.push(t);
+            }
+        }
+        for t in other.end_tags {
+            if !self.end_tags.contains(&t) {
+                self.end_tags.push(t);
+            }
+        }
+    }
+
+    fn add_intermediate(&mut self, token: String) {
+        if !self.intermediates.contains(&token) {
+            self.intermediates.push(token);
+        }
+    }
+
+    fn add_end_tag(&mut self, token: String) {
+        if !self.end_tags.contains(&token) {
+            self.end_tags.push(token);
+        }
+    }
+}
+
 /// Walk body statements classifying tokens based on control flow patterns.
 ///
 /// Looks for the pattern:
@@ -339,13 +367,13 @@ fn classify_in_body(
     body: &[Stmt],
     parser_var: &str,
     all_tokens: &[String],
-    intermediates: &mut Vec<String>,
-    end_tags: &mut Vec<String>,
-) {
+) -> Classification {
+    let mut result = Classification::default();
+
     for (i, stmt) in body.iter().enumerate() {
         // Look for if-statements that check token contents after a parse() call
         if let Stmt::If(if_stmt) = stmt {
-            classify_from_if_chain(if_stmt, parser_var, all_tokens, intermediates, end_tags);
+            result.merge(classify_from_if_chain(if_stmt, parser_var, all_tokens));
         }
 
         // Check while-loops for token classification (e.g., Django's if-tag
@@ -355,42 +383,34 @@ fn classify_in_body(
                 .or_else(|| extract_startswith_check(&while_stmt.test, all_tokens))
             {
                 if body_has_parse_call(&while_stmt.body, parser_var) {
-                    if !intermediates.contains(&token) {
-                        intermediates.push(token);
-                    }
-                } else if !end_tags.contains(&token) {
-                    end_tags.push(token);
+                    result.add_intermediate(token);
+                } else {
+                    result.add_end_tag(token);
                 }
             }
-            classify_in_body(
+            result.merge(classify_in_body(
                 &while_stmt.body,
                 parser_var,
                 all_tokens,
-                intermediates,
-                end_tags,
-            );
+            ));
         }
 
         // Check for for-loops
         if let Stmt::For(for_stmt) = stmt {
-            classify_in_body(
+            result.merge(classify_in_body(
                 &for_stmt.body,
                 parser_var,
                 all_tokens,
-                intermediates,
-                end_tags,
-            );
+            ));
         }
 
         // Recurse into try blocks
         if let Stmt::Try(try_stmt) = stmt {
-            classify_in_body(
+            result.merge(classify_in_body(
                 &try_stmt.body,
                 parser_var,
                 all_tokens,
-                intermediates,
-                end_tags,
-            );
+            ));
         }
 
         // Check sequential pattern: parse() call followed by if-check
@@ -406,10 +426,12 @@ fn classify_in_body(
         if has_parse_call {
             // Look ahead for an if-statement checking the token
             if let Some(Stmt::If(if_stmt)) = body.get(i + 1).or_else(|| body.get(i + 2)) {
-                classify_from_if_chain(if_stmt, parser_var, all_tokens, intermediates, end_tags);
+                result.merge(classify_from_if_chain(if_stmt, parser_var, all_tokens));
             }
         }
     }
+
+    result
 }
 
 /// Classify tokens from an if/elif/else chain.
@@ -423,17 +445,15 @@ fn classify_from_if_chain(
     if_stmt: &StmtIf,
     parser_var: &str,
     all_tokens: &[String],
-    intermediates: &mut Vec<String>,
-    end_tags: &mut Vec<String>,
-) {
+) -> Classification {
+    let mut result = Classification::default();
+
     // Check the main `if` branch
     if let Some(token) = extract_token_check(&if_stmt.test, all_tokens) {
         if body_has_parse_call(&if_stmt.body, parser_var) {
-            if !intermediates.contains(&token) {
-                intermediates.push(token);
-            }
-        } else if !end_tags.contains(&token) {
-            end_tags.push(token);
+            result.add_intermediate(token);
+        } else {
+            result.add_end_tag(token);
         }
     }
 
@@ -442,33 +462,29 @@ fn classify_from_if_chain(
         if let Some(test) = &clause.test {
             if let Some(token) = extract_token_check(test, all_tokens) {
                 if body_has_parse_call(&clause.body, parser_var) {
-                    if !intermediates.contains(&token) {
-                        intermediates.push(token);
-                    }
-                } else if !end_tags.contains(&token) {
-                    end_tags.push(token);
+                    result.add_intermediate(token);
+                } else {
+                    result.add_end_tag(token);
                 }
             }
         }
     }
 
     // Recurse into the if-body for nested patterns
-    classify_in_body(
+    result.merge(classify_in_body(
         &if_stmt.body,
         parser_var,
         all_tokens,
-        intermediates,
-        end_tags,
-    );
+    ));
     for clause in &if_stmt.elif_else_clauses {
-        classify_in_body(
+        result.merge(classify_in_body(
             &clause.body,
             parser_var,
             all_tokens,
-            intermediates,
-            end_tags,
-        );
+        ));
     }
+
+    result
 }
 
 /// Check if a condition expression checks a token string against known stop-tokens.
@@ -614,7 +630,8 @@ fn body_has_parse_call(body: &[Stmt], parser_var: &str) -> bool {
 }
 
 /// Collect all `parser.skip_past("token")` calls in a statement body (recursively).
-fn collect_skip_past_tokens(body: &[Stmt], parser_var: &str, tokens: &mut Vec<String>) {
+fn collect_skip_past_tokens(body: &[Stmt], parser_var: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
     for stmt in body {
         match stmt {
             Stmt::Expr(expr_stmt) => {
@@ -632,23 +649,44 @@ fn collect_skip_past_tokens(body: &[Stmt], parser_var: &str, tokens: &mut Vec<St
                 }
             }
             Stmt::If(if_stmt) => {
-                collect_skip_past_tokens(&if_stmt.body, parser_var, tokens);
+                for t in collect_skip_past_tokens(&if_stmt.body, parser_var) {
+                    if !tokens.contains(&t) {
+                        tokens.push(t);
+                    }
+                }
                 for clause in &if_stmt.elif_else_clauses {
-                    collect_skip_past_tokens(&clause.body, parser_var, tokens);
+                    for t in collect_skip_past_tokens(&clause.body, parser_var) {
+                        if !tokens.contains(&t) {
+                            tokens.push(t);
+                        }
+                    }
                 }
             }
             Stmt::For(for_stmt) => {
-                collect_skip_past_tokens(&for_stmt.body, parser_var, tokens);
+                for t in collect_skip_past_tokens(&for_stmt.body, parser_var) {
+                    if !tokens.contains(&t) {
+                        tokens.push(t);
+                    }
+                }
             }
             Stmt::While(while_stmt) => {
-                collect_skip_past_tokens(&while_stmt.body, parser_var, tokens);
+                for t in collect_skip_past_tokens(&while_stmt.body, parser_var) {
+                    if !tokens.contains(&t) {
+                        tokens.push(t);
+                    }
+                }
             }
             Stmt::Try(try_stmt) => {
-                collect_skip_past_tokens(&try_stmt.body, parser_var, tokens);
+                for t in collect_skip_past_tokens(&try_stmt.body, parser_var) {
+                    if !tokens.contains(&t) {
+                        tokens.push(t);
+                    }
+                }
             }
             _ => {}
         }
     }
+    tokens
 }
 
 /// Check if an expression is `parser.skip_past("token")` and extract the token.
@@ -800,8 +838,7 @@ fn extract_next_token_loop_spec(body: &[Stmt], parser_var: &str) -> Option<Block
 
     // Collect string literals compared against token.contents in the body
     // These are intermediates (like "plural") and end-tags
-    let mut token_comparisons: Vec<String> = Vec::new();
-    collect_token_content_comparisons(body, &mut token_comparisons);
+    let token_comparisons = collect_token_content_comparisons(body);
 
     // Check for dynamic end-tag patterns: `end_tag_name = "end%s" % bits[0]`
     // or `"end%s" % bits[0]` used in comparisons
@@ -943,39 +980,74 @@ fn is_next_token_call(expr: &Expr, parser_var: &str) -> bool {
 /// - `token.contents.strip() != "plural"`
 /// - `token.contents == "endblocktrans"`
 /// - `token.contents.strip() != end_tag_name` (skipped — dynamic)
-fn collect_token_content_comparisons(body: &[Stmt], comparisons: &mut Vec<String>) {
+fn collect_token_content_comparisons(body: &[Stmt]) -> Vec<String> {
+    let mut comparisons = Vec::new();
     for stmt in body {
         match stmt {
             Stmt::If(if_stmt) => {
-                extract_comparisons_from_expr(&if_stmt.test, comparisons);
-                collect_token_content_comparisons(&if_stmt.body, comparisons);
+                for s in extract_comparisons_from_expr(&if_stmt.test) {
+                    if !comparisons.contains(&s) {
+                        comparisons.push(s);
+                    }
+                }
+                for s in collect_token_content_comparisons(&if_stmt.body) {
+                    if !comparisons.contains(&s) {
+                        comparisons.push(s);
+                    }
+                }
                 for clause in &if_stmt.elif_else_clauses {
                     if let Some(test) = &clause.test {
-                        extract_comparisons_from_expr(test, comparisons);
+                        for s in extract_comparisons_from_expr(test) {
+                            if !comparisons.contains(&s) {
+                                comparisons.push(s);
+                            }
+                        }
                     }
-                    collect_token_content_comparisons(&clause.body, comparisons);
+                    for s in collect_token_content_comparisons(&clause.body) {
+                        if !comparisons.contains(&s) {
+                            comparisons.push(s);
+                        }
+                    }
                 }
             }
             Stmt::While(while_stmt) => {
-                collect_token_content_comparisons(&while_stmt.body, comparisons);
+                for s in collect_token_content_comparisons(&while_stmt.body) {
+                    if !comparisons.contains(&s) {
+                        comparisons.push(s);
+                    }
+                }
             }
             Stmt::For(for_stmt) => {
-                collect_token_content_comparisons(&for_stmt.body, comparisons);
+                for s in collect_token_content_comparisons(&for_stmt.body) {
+                    if !comparisons.contains(&s) {
+                        comparisons.push(s);
+                    }
+                }
             }
             Stmt::Try(try_stmt) => {
-                collect_token_content_comparisons(&try_stmt.body, comparisons);
+                for s in collect_token_content_comparisons(&try_stmt.body) {
+                    if !comparisons.contains(&s) {
+                        comparisons.push(s);
+                    }
+                }
                 for handler in &try_stmt.handlers {
                     let ruff_python_ast::ExceptHandler::ExceptHandler(h) = handler;
-                    collect_token_content_comparisons(&h.body, comparisons);
+                    for s in collect_token_content_comparisons(&h.body) {
+                        if !comparisons.contains(&s) {
+                            comparisons.push(s);
+                        }
+                    }
                 }
             }
             _ => {}
         }
     }
+    comparisons
 }
 
 /// Extract string comparisons against token.contents from a comparison expression.
-fn extract_comparisons_from_expr(expr: &Expr, comparisons: &mut Vec<String>) {
+fn extract_comparisons_from_expr(expr: &Expr) -> Vec<String> {
+    let mut comparisons = Vec::new();
     if let Expr::Compare(compare) = expr {
         for (left, right) in std::iter::once(compare.left.as_ref())
             .chain(compare.comparators.iter())
@@ -1000,6 +1072,7 @@ fn extract_comparisons_from_expr(expr: &Expr, comparisons: &mut Vec<String>) {
             }
         }
     }
+    comparisons
 }
 
 /// Check for dynamic end-tag format strings: `"end%s" % bits[0]` or `f"end{bits[0]}"`.

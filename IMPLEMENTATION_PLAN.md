@@ -67,17 +67,17 @@
 - [x] **M15.2** Make `eval_condition`, `eval_compare`, `eval_negated_compare`, and all internal constraint helpers return `ConstraintSet` instead of mutating `&mut Constraints`. Used `ConstraintSet` constructors (`single_length`, `single_keyword`, `single_choice`) and algebraic `or()`/`and()` methods. `extract_from_if_inline` still takes `&mut ConstraintSet` (M15.3) but now extends with returned values. Removed top-level `#[allow(dead_code)]` on impl block since constructors are now used.
 - [x] **M15.3** Make `extract_from_if_inline` return `ConstraintSet` instead of mutating `&mut ConstraintSet`. Caller in `statements.rs` now extends with the returned value.
 - [x] **M15.4** Make `extract_match_constraints` in `eval/match_arms.rs` return `ConstraintSet`. Changed return type from `Option<(Vec<ArgumentCountConstraint>, Vec<RequiredKeyword>)>` to `Option<ConstraintSet>`. Caller in `statements.rs` now uses `ctx.constraints.extend(match_constraints)`.
-- [ ] **M15.5** Update `AnalysisContext.constraints` field type to `ConstraintSet`, update `process_statement` if-arm to collect returned constraints
-- [ ] **M15.6** Validate: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q` all green
+- [x] **M15.5** Update `AnalysisContext.constraints` field type to `ConstraintSet`, update `process_statement` if-arm to collect returned constraints — already done in M15.1/M15.3 (field was renamed in-place, if-arm already uses `extend()` with return value)
+- [x] **M15.6** Validate: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q` all green
 
-### Phase 2: `blocks.rs` collection functions return values
+### Phase 2: `blocks.rs` collection functions return values ✅
 
-- [ ] **M15.7** Make `collect_parser_parse_calls` return `Vec<ParseCallInfo>` (no `&mut` param)
-- [ ] **M15.8** Make `collect_skip_past_tokens` return `Vec<String>`
-- [ ] **M15.9** Make `classify_in_body` and `classify_from_if_chain` return a `Classification` struct (intermediates + end_tags)
-- [ ] **M15.10** Make `collect_token_content_comparisons` and `extract_comparisons_from_expr` return `Vec<String>`
-- [ ] **M15.11** Update all callers in `blocks.rs` to use return values
-- [ ] **M15.12** Validate: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q` all green
+- [x] **M15.7** Make `collect_parser_parse_calls` return `Vec<ParseCallInfo>` (no `&mut` param)
+- [x] **M15.8** Make `collect_skip_past_tokens` return `Vec<String>`
+- [x] **M15.9** Make `classify_in_body` and `classify_from_if_chain` return a `Classification` struct (intermediates + end_tags). Added `Classification` struct with `merge()`, `add_intermediate()`, `add_end_tag()` helpers.
+- [x] **M15.10** Make `collect_token_content_comparisons` and `extract_comparisons_from_expr` return `Vec<String>`
+- [x] **M15.11** Update all callers in `blocks.rs` to use return values — done inline with M15.7-M15.10
+- [x] **M15.12** Validate: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q` all green
 
 ### Phase 3: `SplitPosition` newtype (T1) — cross-crate
 
