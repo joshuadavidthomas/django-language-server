@@ -308,7 +308,7 @@ mod tests {
             call_depth: 0,
             cache: &mut cache,
             known_options: None,
-            constraints: crate::dataflow::constraints::Constraints::default(),
+            constraints: crate::dataflow::constraints::ConstraintSet::default(),
         };
 
         process_statements(&main_func.body, &mut env, &mut ctx);
@@ -343,7 +343,7 @@ mod tests {
             call_depth: 0,
             cache: &mut cache,
             known_options: None,
-            constraints: crate::dataflow::constraints::Constraints::default(),
+            constraints: crate::dataflow::constraints::ConstraintSet::default(),
         };
 
         process_statements(&main_func.body, &mut env, &mut ctx);
@@ -533,7 +533,7 @@ def do_tag(parser, token):
             call_depth: 0,
             cache: &mut cache,
             known_options: None,
-            constraints: crate::dataflow::constraints::Constraints::default(),
+            constraints: crate::dataflow::constraints::ConstraintSet::default(),
         };
 
         process_statements(&main_func.body, &mut env, &mut ctx);

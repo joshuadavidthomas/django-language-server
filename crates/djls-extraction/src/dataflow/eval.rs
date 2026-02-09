@@ -17,7 +17,7 @@ pub struct AnalysisContext<'a> {
     pub call_depth: usize,
     pub cache: &'a mut HelperCache,
     pub known_options: Option<crate::types::KnownOptions>,
-    pub constraints: super::constraints::Constraints,
+    pub constraints: super::constraints::ConstraintSet,
 }
 
 use ruff_python_ast::StmtFunctionDef;
@@ -65,7 +65,7 @@ mod tests {
             call_depth: 0,
             cache: &mut cache,
             known_options: None,
-            constraints: crate::dataflow::constraints::Constraints::default(),
+            constraints: crate::dataflow::constraints::ConstraintSet::default(),
         };
         process_statements(&func.body, &mut env, &mut ctx);
         env

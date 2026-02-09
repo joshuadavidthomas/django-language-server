@@ -28,12 +28,77 @@ use crate::types::ChoiceAt;
 use crate::types::RequiredKeyword;
 
 /// Collected constraints from analyzing a function body.
-#[derive(Debug, Default)]
+///
+/// Provides algebraic `or()` and `and()` methods that encode boolean
+/// composition semantics from if/raise guard analysis:
+/// - `or`: error when either side is true → each constraint is independent
+/// - `and`: both must be true for error → length constraints dropped, keywords/choices kept
+#[derive(Debug, Clone, Default)]
 #[allow(clippy::struct_field_names)]
-pub struct Constraints {
+pub struct ConstraintSet {
     pub arg_constraints: Vec<ArgumentCountConstraint>,
     pub required_keywords: Vec<RequiredKeyword>,
     pub choice_at_constraints: Vec<ChoiceAt>,
+}
+
+#[allow(dead_code)]
+impl ConstraintSet {
+    pub fn single_length(c: ArgumentCountConstraint) -> Self {
+        Self {
+            arg_constraints: vec![c],
+            ..Default::default()
+        }
+    }
+
+    pub fn single_keyword(k: RequiredKeyword) -> Self {
+        Self {
+            required_keywords: vec![k],
+            ..Default::default()
+        }
+    }
+
+    pub fn single_choice(c: ChoiceAt) -> Self {
+        Self {
+            choice_at_constraints: vec![c],
+            ..Default::default()
+        }
+    }
+
+    /// Disjunction: error when either side is true → each is independent.
+    pub fn or(mut self, other: Self) -> Self {
+        self.arg_constraints.extend(other.arg_constraints);
+        self.required_keywords.extend(other.required_keywords);
+        self.choice_at_constraints
+            .extend(other.choice_at_constraints);
+        self
+    }
+
+    /// Conjunction: both must be true for error → drop length constraints,
+    /// keep keyword/choice constraints.
+    pub fn and(self, other: Self) -> Self {
+        let mut required_keywords = self.required_keywords;
+        required_keywords.extend(other.required_keywords);
+        let mut choice_at_constraints = self.choice_at_constraints;
+        choice_at_constraints.extend(other.choice_at_constraints);
+        Self {
+            arg_constraints: Vec::new(),
+            required_keywords,
+            choice_at_constraints,
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.arg_constraints.is_empty()
+            && self.required_keywords.is_empty()
+            && self.choice_at_constraints.is_empty()
+    }
+
+    pub fn extend(&mut self, other: Self) {
+        self.arg_constraints.extend(other.arg_constraints);
+        self.required_keywords.extend(other.required_keywords);
+        self.choice_at_constraints
+            .extend(other.choice_at_constraints);
+    }
 }
 
 /// Extract constraints from a single if-statement using the current env state.
@@ -41,7 +106,7 @@ pub struct Constraints {
 /// Called inline during statement processing so that constraints see the env
 /// as it exists at the point in the code where the if-statement appears,
 /// not the final env state after the entire function body has been processed.
-pub fn extract_from_if_inline(if_stmt: &StmtIf, env: &Env, constraints: &mut Constraints) {
+pub fn extract_from_if_inline(if_stmt: &StmtIf, env: &Env, constraints: &mut ConstraintSet) {
     if body_raises_template_syntax_error(&if_stmt.body) {
         eval_condition(&if_stmt.test, env, constraints);
     }
@@ -63,7 +128,7 @@ pub fn extract_from_if_inline(if_stmt: &StmtIf, env: &Env, constraints: &mut Con
 ///
 /// The condition guards a `raise TemplateSyntaxError(...)`, so it describes
 /// when the code errors. Constraints capture what's valid (the negation).
-fn eval_condition(expr: &Expr, env: &Env, constraints: &mut Constraints) {
+fn eval_condition(expr: &Expr, env: &Env, constraints: &mut ConstraintSet) {
     match expr {
         // `or`: error when either side is true → each is an independent constraint
         Expr::BoolOp(ExprBoolOp {
@@ -84,7 +149,7 @@ fn eval_condition(expr: &Expr, env: &Env, constraints: &mut Constraints) {
             ..
         }) => {
             for value in values {
-                let mut sub = Constraints::default();
+                let mut sub = ConstraintSet::default();
                 eval_condition(value, env, &mut sub);
                 // arg_constraints intentionally dropped — under `and`, each
                 // constraint alone is insufficient to guarantee the error
@@ -112,7 +177,7 @@ fn eval_condition(expr: &Expr, env: &Env, constraints: &mut Constraints) {
     }
 }
 
-fn eval_compare(compare: &ExprCompare, env: &Env, constraints: &mut Constraints) {
+fn eval_compare(compare: &ExprCompare, env: &Env, constraints: &mut ConstraintSet) {
     if compare.ops.is_empty() || compare.comparators.is_empty() {
         return;
     }
@@ -228,7 +293,7 @@ fn eval_compare(compare: &ExprCompare, env: &Env, constraints: &mut Constraints)
     }
 }
 
-fn eval_negated_compare(compare: &ExprCompare, env: &Env, constraints: &mut Constraints) {
+fn eval_negated_compare(compare: &ExprCompare, env: &Env, constraints: &mut ConstraintSet) {
     // Range: `not (2 <= len(bits) <= 4)` → valid range is min..=max
     if compare.ops.len() == 2 && compare.comparators.len() == 2 {
         if let Some(range_constraints) = eval_range_constraint(compare, env) {
@@ -352,7 +417,7 @@ mod tests {
     use crate::dataflow::eval::AnalysisContext;
     use crate::test_helpers::django_function;
 
-    fn extract_from_source(source: &str) -> Constraints {
+    fn extract_from_source(source: &str) -> ConstraintSet {
         let parsed = parse_module(source).expect("valid Python");
         let module = parsed.into_syntax();
         let func = module
@@ -370,7 +435,7 @@ mod tests {
         extract_from_func(&func)
     }
 
-    fn extract_from_func(func: &StmtFunctionDef) -> Constraints {
+    fn extract_from_func(func: &StmtFunctionDef) -> ConstraintSet {
         let parser_param = func
             .parameters
             .args
@@ -390,7 +455,7 @@ mod tests {
             call_depth: 0,
             cache: &mut cache,
             known_options: None,
-            constraints: Constraints::default(),
+            constraints: ConstraintSet::default(),
         };
         process_statements(&func.body, &mut env, &mut ctx);
         ctx.constraints

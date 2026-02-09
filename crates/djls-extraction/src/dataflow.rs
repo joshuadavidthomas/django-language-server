@@ -56,7 +56,7 @@ pub fn analyze_compile_function_with_cache(
         call_depth: 0,
         cache,
         known_options: None,
-        constraints: constraints::Constraints::default(),
+        constraints: constraints::ConstraintSet::default(),
     };
 
     eval::process_statements(&func.body, &mut env, &mut ctx);
