@@ -14,7 +14,6 @@ use super::match_arms::extract_match_constraints;
 use super::AnalysisContext;
 use crate::dataflow::domain::AbstractValue;
 use crate::dataflow::domain::Env;
-use crate::dataflow::domain::TokenSplit;
 use crate::types::SplitPosition;
 
 /// Process a list of statements, updating the environment.
@@ -216,7 +215,7 @@ fn process_tuple_unpack(targets: &[Expr], value: &AbstractValue, env: &mut Env) 
                         env.set(
                             id.to_string(),
                             AbstractValue::SplitElement {
-                                index: SplitPosition::Forward(split.front_offset() + i),
+                                index: split.resolve_index(i),
                             },
                         );
                     }
@@ -229,16 +228,16 @@ fn process_tuple_unpack(targets: &[Expr], value: &AbstractValue, env: &mut Env) 
                 // Its back_offset must include the trailing targets it doesn't contain.
                 if let Expr::Starred(starred) = &targets[si] {
                     if let Expr::Name(ExprName { id, .. }) = starred.value.as_ref() {
-                        let star_split = TokenSplit::fresh()
-                            .after_slice_from(split.front_offset() + si);
-                        // Add back_offset from original split plus trailing targets
-                        let mut star_split_with_back = star_split;
-                        for _ in 0..(split.back_offset() + after_star) {
-                            star_split_with_back = star_split_with_back.after_pop_back();
+                        // Start from the current split sliced past the pre-star targets,
+                        // which preserves the original back_offset.
+                        let mut star_split = split.after_slice_from(si);
+                        // Add trailing targets as additional back pops
+                        for _ in 0..after_star {
+                            star_split = star_split.after_pop_back();
                         }
                         env.set(
                             id.to_string(),
-                            AbstractValue::SplitResult(star_split_with_back),
+                            AbstractValue::SplitResult(star_split),
                         );
                     }
                 }
@@ -259,7 +258,7 @@ fn process_tuple_unpack(targets: &[Expr], value: &AbstractValue, env: &mut Env) 
                         env.set(
                             id.to_string(),
                             AbstractValue::SplitElement {
-                                index: SplitPosition::Forward(split.front_offset() + i),
+                                index: split.resolve_index(i),
                             },
                         );
                     }

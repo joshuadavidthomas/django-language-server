@@ -58,7 +58,6 @@ impl TokenSplit {
     /// Convert a local index (into the current mutated list) to an original
     /// `SplitPosition` by adding the front offset.
     #[must_use]
-    #[allow(dead_code)]
     pub fn resolve_index(&self, local: usize) -> SplitPosition {
         SplitPosition::Forward(self.front_offset + local)
     }
@@ -73,6 +72,7 @@ impl TokenSplit {
     }
 
     /// The number of elements removed from the front.
+    #[cfg(test)]
     #[must_use]
     pub fn front_offset(&self) -> usize {
         self.front_offset

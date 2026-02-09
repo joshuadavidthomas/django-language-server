@@ -214,7 +214,7 @@ fn eval_pop_return(obj: &AbstractValue, args: &Arguments) -> AbstractValue {
         // bits.pop(0) — return element at front_offset
         if let Some(0) = arg.positive_integer() {
             return AbstractValue::SplitElement {
-                index: SplitPosition::Forward(split.front_offset()),
+                index: split.resolve_index(0),
             };
         }
     } else {
@@ -228,11 +228,14 @@ fn eval_pop_return(obj: &AbstractValue, args: &Arguments) -> AbstractValue {
 }
 
 /// Convert an i64 to an `AbstractValue` index element based on sign.
+///
+/// Positive indices use `TokenSplit::resolve_index` to account for front offset.
+/// Negative indices map directly to `SplitPosition::Backward`.
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-fn i64_to_index_element(n: i64, base_offset: usize) -> AbstractValue {
+fn i64_to_index_element(n: i64, split: &TokenSplit) -> AbstractValue {
     if n >= 0 {
         AbstractValue::SplitElement {
-            index: SplitPosition::Forward(base_offset + n as usize),
+            index: split.resolve_index(n as usize),
         }
     } else {
         AbstractValue::SplitElement {
@@ -253,7 +256,7 @@ fn eval_subscript(base: &AbstractValue, slice: &Expr, env: &Env) -> AbstractValu
             value: Number::Int(int_val),
             ..
         }) => int_val.as_i64().map_or(AbstractValue::Unknown, |n| {
-            i64_to_index_element(n, split.front_offset())
+            i64_to_index_element(n, split)
         }),
 
         // bits[unary -N]
@@ -299,7 +302,7 @@ fn eval_subscript(base: &AbstractValue, slice: &Expr, env: &Env) -> AbstractValu
         Expr::Name(_) => {
             let idx = eval_expr(slice, env);
             if let AbstractValue::Int(n) = idx {
-                i64_to_index_element(n, split.front_offset())
+                i64_to_index_element(n, split)
             } else {
                 AbstractValue::Unknown
             }
