@@ -65,45 +65,28 @@ pub fn extract_filter_arity(func: &StmtFunctionDef) -> FilterArity {
 
 #[cfg(test)]
 mod tests {
-    use ruff_python_ast::Stmt;
-    use ruff_python_parser::parse_module;
+    use crate::test_helpers::django_function;
+    use crate::test_helpers::find_function_in_source;
 
     use super::*;
 
-    fn parse_function(source: &str) -> StmtFunctionDef {
-        let parsed = parse_module(source).expect("valid Python");
-        let module = parsed.into_syntax();
-        for stmt in module.body {
-            if let Stmt::FunctionDef(func_def) = stmt {
-                return func_def;
-            }
-        }
-        panic!("no function definition found in source");
-    }
-
     // No-arg filters (value only)
 
+    // Corpus: `title` in defaultfilters.py — `def title(value):`
     #[test]
     fn no_arg_filter() {
-        let source = r"
-@register.filter
-def title(value):
-    return value.title()
-";
-        let func = parse_function(source);
+        let func = django_function("django/template/defaultfilters.py", "title")
+            .expect("corpus not synced");
         let arity = extract_filter_arity(&func);
         assert!(!arity.expects_arg);
         assert!(!arity.arg_optional);
     }
 
+    // Corpus: `upper` in defaultfilters.py — `def upper(value):`
     #[test]
     fn no_arg_filter_upper() {
-        let source = r"
-@register.filter
-def upper(value):
-    return value.upper()
-";
-        let func = parse_function(source);
+        let func = django_function("django/template/defaultfilters.py", "upper")
+            .expect("corpus not synced");
         let arity = extract_filter_arity(&func);
         assert!(!arity.expects_arg);
         assert!(!arity.arg_optional);
@@ -111,27 +94,21 @@ def upper(value):
 
     // Required-arg filters
 
+    // Corpus: `cut` in defaultfilters.py — `def cut(value, arg):`
     #[test]
     fn required_arg_filter() {
-        let source = r#"
-@register.filter
-def cut(value, arg):
-    return value.replace(arg, "")
-"#;
-        let func = parse_function(source);
+        let func = django_function("django/template/defaultfilters.py", "cut")
+            .expect("corpus not synced");
         let arity = extract_filter_arity(&func);
         assert!(arity.expects_arg);
         assert!(!arity.arg_optional);
     }
 
+    // Corpus: `add` in defaultfilters.py — `def add(value, arg):`
     #[test]
     fn required_arg_filter_add() {
-        let source = r"
-@register.filter
-def add(value, arg):
-    return value + arg
-";
-        let func = parse_function(source);
+        let func = django_function("django/template/defaultfilters.py", "add")
+            .expect("corpus not synced");
         let arity = extract_filter_arity(&func);
         assert!(arity.expects_arg);
         assert!(!arity.arg_optional);
@@ -139,83 +116,65 @@ def add(value, arg):
 
     // Optional-arg filters
 
+    // Corpus: `floatformat` in defaultfilters.py — `def floatformat(text, arg=-1):`
     #[test]
     fn optional_arg_filter() {
-        let source = r#"
-@register.filter
-def default(value, arg=""):
-    if not value:
-        return arg
-    return value
-"#;
-        let func = parse_function(source);
+        let func = django_function("django/template/defaultfilters.py", "floatformat")
+            .expect("corpus not synced");
         let arity = extract_filter_arity(&func);
         assert!(arity.expects_arg);
         assert!(arity.arg_optional);
     }
 
+    // Corpus: `date` in defaultfilters.py — `def date(value, arg=None):`
     #[test]
     fn optional_arg_filter_none_default() {
-        let source = r"
-@register.filter
-def truncatewords(value, arg=None):
-    return value
-";
-        let func = parse_function(source);
+        let func = django_function("django/template/defaultfilters.py", "date")
+            .expect("corpus not synced");
         let arity = extract_filter_arity(&func);
         assert!(arity.expects_arg);
         assert!(arity.arg_optional);
     }
 
     // Method-style filters (with self)
+    // No standard Django filter uses `self` — these test the self-skipping logic
+    // for class-based filter implementations in third-party packages.
 
     #[test]
     fn method_style_no_arg() {
-        let source = r"
-def my_filter(self, value):
-    return value.upper()
-";
-        let func = parse_function(source);
+        let source = "def my_filter(self, value):\n    return value.upper()\n";
+        let func = find_function_in_source(source, "my_filter").unwrap();
         let arity = extract_filter_arity(&func);
-        // self is skipped, only value param → no arg expected
         assert!(!arity.expects_arg);
         assert!(!arity.arg_optional);
     }
 
     #[test]
     fn method_style_with_arg() {
-        let source = r"
-def my_filter(self, value, arg):
-    return value + arg
-";
-        let func = parse_function(source);
+        let source = "def my_filter(self, value, arg):\n    return value + arg\n";
+        let func = find_function_in_source(source, "my_filter").unwrap();
         let arity = extract_filter_arity(&func);
-        // self is skipped, value is first, arg is extra → expects_arg
         assert!(arity.expects_arg);
         assert!(!arity.arg_optional);
     }
 
     #[test]
     fn method_style_with_optional_arg() {
-        let source = r#"
-def my_filter(self, value, arg="default"):
-    return value + arg
-"#;
-        let func = parse_function(source);
+        let source =
+            "def my_filter(self, value, arg=\"default\"):\n    return value + arg\n";
+        let func = find_function_in_source(source, "my_filter").unwrap();
         let arity = extract_filter_arity(&func);
         assert!(arity.expects_arg);
         assert!(arity.arg_optional);
     }
 
-    // Edge cases
+    // Edge cases — no real filter has zero params or self-only.
+    // These test robustness of the extraction logic.
 
     #[test]
     fn no_params_at_all() {
-        let source = r"
-def weird_filter():
-    return 'nothing'
-";
-        let func = parse_function(source);
+        let source = "def weird_filter():\n    return 'nothing'\n";
+        let func = find_function_in_source(source, "weird_filter").unwrap();
         let arity = extract_filter_arity(&func);
         assert!(!arity.expects_arg);
         assert!(!arity.arg_optional);
@@ -223,24 +182,20 @@ def weird_filter():
 
     #[test]
     fn self_only() {
-        let source = r"
-def weird_method(self):
-    return 'nothing'
-";
-        let func = parse_function(source);
+        let source = "def weird_method(self):\n    return 'nothing'\n";
+        let func = find_function_in_source(source, "weird_method").unwrap();
         let arity = extract_filter_arity(&func);
         assert!(!arity.expects_arg);
         assert!(!arity.arg_optional);
     }
 
+    // Python 3.8+ positional-only parameters — no Django filter uses these
+    // currently, but they are valid Python and should be handled correctly.
+
     #[test]
     fn posonly_params() {
-        // Python 3.8+ positional-only parameters
-        let source = r"
-def my_filter(value, /, arg):
-    return value + arg
-";
-        let func = parse_function(source);
+        let source = "def my_filter(value, /, arg):\n    return value + arg\n";
+        let func = find_function_in_source(source, "my_filter").unwrap();
         let arity = extract_filter_arity(&func);
         assert!(arity.expects_arg);
         assert!(!arity.arg_optional);
@@ -248,24 +203,21 @@ def my_filter(value, /, arg):
 
     #[test]
     fn posonly_with_default() {
-        let source = r#"
-def my_filter(value, /, arg="x"):
-    return value + arg
-"#;
-        let func = parse_function(source);
+        let source = "def my_filter(value, /, arg=\"x\"):\n    return value + arg\n";
+        let func = find_function_in_source(source, "my_filter").unwrap();
         let arity = extract_filter_arity(&func);
         assert!(arity.expects_arg);
         assert!(arity.arg_optional);
     }
 
+    // Unusual multi-param signatures — no real Django filter has 3+ positional
+    // params, but these test the "all have defaults" logic edge cases.
+
     #[test]
     fn multiple_extra_args_all_with_defaults() {
-        // Unusual but handle gracefully
-        let source = r#"
-def my_filter(value, arg1="a", arg2="b"):
-    return value
-"#;
-        let func = parse_function(source);
+        let source =
+            "def my_filter(value, arg1=\"a\", arg2=\"b\"):\n    return value\n";
+        let func = find_function_in_source(source, "my_filter").unwrap();
         let arity = extract_filter_arity(&func);
         assert!(arity.expects_arg);
         assert!(arity.arg_optional);
@@ -273,42 +225,40 @@ def my_filter(value, arg1="a", arg2="b"):
 
     #[test]
     fn multiple_extra_args_mixed_defaults() {
-        let source = r#"
-def my_filter(value, arg1, arg2="b"):
-    return value
-"#;
-        let func = parse_function(source);
+        let source =
+            "def my_filter(value, arg1, arg2=\"b\"):\n    return value\n";
+        let func = find_function_in_source(source, "my_filter").unwrap();
         let arity = extract_filter_arity(&func);
         assert!(arity.expects_arg);
-        // Not all extra params have defaults → not optional
         assert!(!arity.arg_optional);
     }
 
     // Arity doesn't change with decorator kwargs
 
+    // Corpus: `addslashes` in defaultfilters.py — `@register.filter(is_safe=True)`
+    // with `def addslashes(value):` (no extra arg, but proves is_safe doesn't add one)
+    // We use `cut` which has `@register.filter` and a required arg, to prove
+    // `is_safe` on the decorator doesn't change the arity.
+    // Corpus: `floatformat` — `@register.filter(is_safe=True)` with `def floatformat(text, arg=-1):`
     #[test]
     fn is_safe_does_not_affect_arity() {
-        let source = r"
-@register.filter(is_safe=True)
-def my_filter(value, arg):
-    return value
-";
-        let func = parse_function(source);
+        let func = django_function("django/template/defaultfilters.py", "floatformat")
+            .expect("corpus not synced");
         let arity = extract_filter_arity(&func);
+        // floatformat has is_safe=True on decorator; arity should reflect signature only
         assert!(arity.expects_arg);
-        assert!(!arity.arg_optional);
+        assert!(arity.arg_optional);
     }
 
+    // Corpus: `title` in defaultfilters.py — decorated with both
+    // `@register.filter(is_safe=True)` and `@stringfilter`
     #[test]
     fn stringfilter_does_not_affect_arity() {
-        let source = r"
-@stringfilter
-def my_filter(value, arg):
-    return value + arg
-";
-        let func = parse_function(source);
+        let func = django_function("django/template/defaultfilters.py", "title")
+            .expect("corpus not synced");
         let arity = extract_filter_arity(&func);
-        assert!(arity.expects_arg);
+        // title has @stringfilter decorator; arity should reflect signature only (value-only)
+        assert!(!arity.expects_arg);
         assert!(!arity.arg_optional);
     }
 }
