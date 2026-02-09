@@ -154,9 +154,13 @@ fn process_statement(stmt: &Stmt, env: &mut Env, ctx: &mut AnalysisContext<'_>) 
                 // appear as positional args).
                 result.known_options = Some(opts);
             } else {
-                // Non-option while loop: process body for assignments and
-                // side effects (e.g. pop mutations, nested constraints).
-                process_statements(&while_stmt.body, env, ctx);
+                // Non-option while loop: collect body results for assignments
+                // and side effects (e.g. pop mutations, nested constraints).
+                let body_result = collect_statements_result(&while_stmt.body, env, ctx);
+                result.constraints.extend(body_result.constraints);
+                if body_result.known_options.is_some() {
+                    result.known_options = body_result.known_options;
+                }
             }
         }
 
