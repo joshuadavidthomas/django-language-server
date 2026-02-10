@@ -158,7 +158,7 @@ Move `environment/scan.rs` from `djls-extraction` to `djls-project`. Types (`Env
 
 ### Phase 2: Update consumers
 
-- [ ] **M18.4** Update `djls-server/src/db.rs` to import `scan_environment_with_symbols` from `djls_project` instead of `djls_extraction`.
+- [x] **M18.4** Update `djls-server/src/db.rs` to import `scan_environment_with_symbols` from `djls_project` instead of `djls_extraction`.
 - [ ] **M18.5** Validate: `cargo build -q`, `cargo test -q` — all green.
 
 ### Phase 3: Remove from djls-extraction

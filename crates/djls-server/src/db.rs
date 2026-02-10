@@ -418,7 +418,7 @@ impl DjangoDatabase {
             .iter()
             .map(|p| std::path::PathBuf::from(p.as_str()))
             .collect();
-        let new_env_inventory = Some(djls_extraction::scan_environment_with_symbols(&std_paths));
+        let new_env_inventory = Some(djls_project::scan_environment_with_symbols(&std_paths));
 
         if project.environment_inventory(self) != &new_env_inventory {
             project
