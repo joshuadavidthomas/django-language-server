@@ -20,10 +20,15 @@ tracing = { workspace = true }
 walkdir = { workspace = true }
 
 [dev-dependencies]
+datatest-stable = { workspace = true }
 djls-corpus = { workspace = true }
 insta = { workspace = true }
 serde_json = { workspace = true }
 tempfile = { workspace = true }
+
+[[test]]
+name = "corpus_validation"
+harness = false
 
 [lints]
 workspace = true
