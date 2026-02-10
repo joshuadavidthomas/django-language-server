@@ -86,7 +86,6 @@ impl TokenSplit {
 
     /// Total offset (front + back) for length adjustment.
     #[must_use]
-    #[allow(dead_code)]
     pub fn total_offset(&self) -> usize {
         self.front_offset + self.back_offset
     }

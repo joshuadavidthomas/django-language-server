@@ -71,7 +71,7 @@ Replace `HelperCache` + manual recursion guards with Salsa tracked functions. Ad
 
 ### Phase 5: Final validation and cleanup
 
-- [ ] **M19.15** Remove dead code, unused imports. Run `cargo +nightly fmt`.
+- [x] **M19.15** Remove dead code, unused imports. Run `cargo +nightly fmt`. Removed `#[allow(dead_code)]` from `SplitOffset::total_offset()` (was actually used in tests). Removed unused `ConstraintSet::is_empty()` method entirely. No formatting changes needed. No other dead code found.
 - [ ] **M19.16** Final validation: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q` — all green (761+ passed, 0 failed, 7 ignored). Verify no `HelperCache` references in production code.
 
 ## M20 — Rename djls-extraction → djls-python

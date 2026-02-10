@@ -85,13 +85,6 @@ impl ConstraintSet {
         }
     }
 
-    #[allow(dead_code)]
-    pub fn is_empty(&self) -> bool {
-        self.arg_constraints.is_empty()
-            && self.required_keywords.is_empty()
-            && self.choice_at_constraints.is_empty()
-    }
-
     pub fn extend(&mut self, other: Self) {
         self.arg_constraints.extend(other.arg_constraints);
         self.required_keywords.extend(other.required_keywords);
