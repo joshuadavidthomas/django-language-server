@@ -21,7 +21,7 @@ use crate::ValidationErrorAccumulator;
 /// - Filters with no known arity spec are silently skipped (no false positives).
 pub fn validate_filter_arity(db: &dyn Db, nodelist: NodeList<'_>, opaque_regions: &OpaqueRegions) {
     let template_libraries = db.template_libraries();
-    if template_libraries.installed().as_known().is_none() {
+    if template_libraries.inspector_knowledge != djls_project::Knowledge::Known {
         return;
     }
 
@@ -73,8 +73,6 @@ mod tests {
 
     use camino::Utf8Path;
     use camino::Utf8PathBuf;
-    use djls_project::InstalledTemplateLibraries;
-    use djls_project::KnownInstalledTemplateLibraries;
     use djls_project::TemplateLibraries;
     use djls_python::FilterArity;
     use djls_python::SymbolKey;
@@ -210,13 +208,13 @@ mod tests {
             }),
         ];
 
-        let tags: Vec<djls_project::InstalledTemplateTag> = tags
+        let templatetags: Vec<djls_project::InspectorSymbolWire> = tags
             .into_iter()
             .map(serde_json::from_value)
             .collect::<Result<_, _>>()
             .unwrap();
 
-        let filters: Vec<djls_project::InstalledTemplateFilter> = filters
+        let templatefilters: Vec<djls_project::InspectorSymbolWire> = filters
             .iter()
             .cloned()
             .map(serde_json::from_value)
@@ -228,10 +226,14 @@ mod tests {
             "django.template.defaultfilters".to_string(),
         ];
 
-        let installed =
-            KnownInstalledTemplateLibraries::new(tags, filters, BTreeMap::new(), builtins);
+        let response = djls_project::TemplateLibrariesResponse {
+            templatetags,
+            templatefilters,
+            libraries: BTreeMap::new(),
+            builtins,
+        };
 
-        TemplateLibraries::default().replace_installed(InstalledTemplateLibraries::Known(installed))
+        TemplateLibraries::default().apply_inspector(Some(response))
     }
 
     fn default_arities() -> FilterAritySpecs {

@@ -214,7 +214,7 @@ impl LanguageServer for DjangoLanguageServer {
             let env_inventory = tokio::task::spawn_blocking(move || {
                 let search_paths =
                     djls_project::build_search_paths(&interpreter, &root, &pythonpath);
-                djls_project::scan_environment_with_symbols(&search_paths)
+                djls_project::scan_template_libraries_with_symbols(&search_paths)
             })
             .await
             .map_err(|e| anyhow::anyhow!("Environment scan task failed: {e}"))?;
@@ -223,7 +223,7 @@ impl LanguageServer for DjangoLanguageServer {
                 let mut session_lock = session.lock().await;
                 let db = session_lock.db_mut();
 
-                db.update_discovered_template_libraries(env_inventory);
+                db.update_scanned_template_libraries(&env_inventory);
 
                 if let Some(project) = db.project() {
                     let path = project.root(db).clone();
@@ -318,10 +318,11 @@ impl LanguageServer for DjangoLanguageServer {
                 let supports_snippets = session.client_info().supports_snippets();
 
                 // Compute position-aware available symbols for load-scoped completions.
-                // Only computed when installed libraries are known and file is a template.
+                // Only computed when inspector-derived libraries are known and file is a template.
                 let available_symbols = if file_kind == FileKind::Template {
                     if let Some(template_libraries) = template_libraries {
-                        if let Some(installed) = template_libraries.installed().as_known() {
+                        if template_libraries.inspector_knowledge == djls_project::Knowledge::Known
+                        {
                             let file = db.get_or_create_file(&path);
                             let nodelist = djls_templates::parse_template(db, file);
 
@@ -336,7 +337,7 @@ impl LanguageServer for DjangoLanguageServer {
                                 );
                                 djls_semantic::AvailableSymbols::at_position(
                                     &loaded,
-                                    installed,
+                                    template_libraries,
                                     byte_offset.get(),
                                 )
                             })
@@ -516,7 +517,7 @@ impl LanguageServer for DjangoLanguageServer {
             let env_inventory = tokio::task::spawn_blocking(move || {
                 let search_paths =
                     djls_project::build_search_paths(&interpreter, &root, &pythonpath);
-                djls_project::scan_environment_with_symbols(&search_paths)
+                djls_project::scan_template_libraries_with_symbols(&search_paths)
             })
             .await
             .map_err(|e| anyhow::anyhow!("Environment scan task failed: {e}"))?;
@@ -525,7 +526,7 @@ impl LanguageServer for DjangoLanguageServer {
                 let mut session_lock = session.lock().await;
                 let db = session_lock.db_mut();
 
-                db.update_discovered_template_libraries(env_inventory);
+                db.update_scanned_template_libraries(&env_inventory);
 
                 if let Some(project) = db.project() {
                     project.initialize(db);

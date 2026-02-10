@@ -85,8 +85,6 @@ mod tests {
 
     use camino::Utf8Path;
     use camino::Utf8PathBuf;
-    use djls_project::InstalledTemplateLibraries;
-    use djls_project::KnownInstalledTemplateLibraries;
     use djls_project::TemplateLibraries;
     use djls_python::FilterArity;
     use djls_python::SymbolKey;
@@ -217,31 +215,31 @@ mod tests {
     ) -> TemplateLibraries {
         use std::collections::BTreeMap;
 
-        let tags: Vec<djls_project::InstalledTemplateTag> = tags
+        let templatetags: Vec<djls_project::InspectorSymbolWire> = tags
             .iter()
             .cloned()
             .map(serde_json::from_value)
             .collect::<Result<_, _>>()
             .unwrap();
 
-        let filters: Vec<djls_project::InstalledTemplateFilter> = filters
+        let templatefilters: Vec<djls_project::InspectorSymbolWire> = filters
             .iter()
             .cloned()
             .map(serde_json::from_value)
             .collect::<Result<_, _>>()
             .unwrap();
 
-        let installed = KnownInstalledTemplateLibraries::new(
-            tags,
-            filters,
-            libraries
+        let response = djls_project::TemplateLibrariesResponse {
+            templatetags,
+            templatefilters,
+            libraries: libraries
                 .iter()
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect::<BTreeMap<_, _>>(),
-            builtins.to_vec(),
-        );
+            builtins: builtins.to_vec(),
+        };
 
-        TemplateLibraries::default().replace_installed(InstalledTemplateLibraries::Known(installed))
+        TemplateLibraries::default().apply_inspector(Some(response))
     }
 
     fn default_builtins_module() -> &'static str {

@@ -3,9 +3,13 @@
 //! This module handles all LSP completion requests, analyzing cursor context
 //! and generating appropriate completion items for Django templates.
 
-use djls_project::InstalledTemplateFilter;
-use djls_project::InstalledTemplateTag;
+use djls_project::Knowledge;
+use djls_project::LibraryEnablement;
+use djls_project::LibraryLocation;
 use djls_project::TemplateLibraries;
+use djls_project::TemplateLibraryId;
+use djls_project::TemplateSymbol;
+use djls_project::TemplateSymbolKind;
 use djls_python::ExtractedArgKind;
 use djls_semantic::AvailableSymbols;
 use djls_semantic::TagSpecs;
@@ -17,69 +21,113 @@ use tower_lsp_server::ls_types;
 use crate::snippets::generate_partial_snippet;
 use crate::snippets::generate_snippet_for_tag_with_end;
 
-/// A template symbol that can generate LSP completion items.
-trait CompletableSymbol {
-    fn name(&self) -> &str;
-    fn doc(&self) -> Option<&str>;
-    fn is_available(&self, symbols: &AvailableSymbols) -> bool;
-    fn completion_kind(&self) -> ls_types::CompletionItemKind;
-    fn completion_detail(&self) -> String;
+fn symbol_name(symbol: &TemplateSymbol) -> &str {
+    symbol.name.as_str()
 }
 
-impl CompletableSymbol for InstalledTemplateTag {
-    fn name(&self) -> &str {
-        InstalledTemplateTag::name(self)
-    }
+fn symbol_doc(symbol: &TemplateSymbol) -> Option<&str> {
+    symbol.doc.as_deref()
+}
 
-    fn doc(&self) -> Option<&str> {
-        InstalledTemplateTag::doc(self)
-    }
-
-    fn is_available(&self, symbols: &AvailableSymbols) -> bool {
-        symbols.available_tags().contains(self.name())
-    }
-
-    fn completion_kind(&self) -> ls_types::CompletionItemKind {
-        ls_types::CompletionItemKind::KEYWORD
-    }
-
-    fn completion_detail(&self) -> String {
-        if self.is_builtin() {
-            format!("builtin from {}", self.registration_module())
-        } else if let Some(load_name) = self.library_load_name() {
-            format!("{{% load {load_name} %}}")
-        } else {
-            format!("from {}", self.registration_module())
-        }
+fn symbol_is_available(symbol: &TemplateSymbol, available: &AvailableSymbols) -> bool {
+    match symbol.kind {
+        TemplateSymbolKind::Tag => available.available_tags().contains(symbol_name(symbol)),
+        TemplateSymbolKind::Filter => available.available_filters().contains(symbol_name(symbol)),
     }
 }
 
-impl CompletableSymbol for InstalledTemplateFilter {
-    fn name(&self) -> &str {
-        InstalledTemplateFilter::name(self)
+fn symbol_completion_kind(symbol: &TemplateSymbol) -> ls_types::CompletionItemKind {
+    match symbol.kind {
+        TemplateSymbolKind::Tag => ls_types::CompletionItemKind::KEYWORD,
+        TemplateSymbolKind::Filter => ls_types::CompletionItemKind::FUNCTION,
     }
+}
 
-    fn doc(&self) -> Option<&str> {
-        InstalledTemplateFilter::doc(self)
-    }
+struct SymbolCandidate<'a> {
+    symbol: &'a TemplateSymbol,
+    detail: String,
+}
 
-    fn is_available(&self, symbols: &AvailableSymbols) -> bool {
-        symbols.available_filters().contains(self.name())
-    }
+fn installed_symbol_candidates(
+    template_libraries: &TemplateLibraries,
+    kind: TemplateSymbolKind,
+) -> Vec<SymbolCandidate<'_>> {
+    let mut symbols = Vec::new();
 
-    fn completion_kind(&self) -> ls_types::CompletionItemKind {
-        ls_types::CompletionItemKind::FUNCTION
-    }
+    for library in template_libraries.builtins.values() {
+        let module = match &library.id {
+            TemplateLibraryId::Builtin { module } => module.as_str(),
+            TemplateLibraryId::Loadable { .. } => "<builtin>",
+        };
 
-    fn completion_detail(&self) -> String {
-        if self.is_builtin() {
-            "builtin filter".to_string()
-        } else if let Some(load_name) = self.library_load_name() {
-            format!("{{% load {load_name} %}}")
-        } else {
-            "filter".to_string()
+        for symbol in &library.symbols {
+            if symbol.kind != kind {
+                continue;
+            }
+
+            let detail = match kind {
+                TemplateSymbolKind::Tag => format!("builtin from {module}"),
+                TemplateSymbolKind::Filter => "builtin filter".to_string(),
+            };
+
+            symbols.push(SymbolCandidate { symbol, detail });
         }
     }
+
+    for libraries in template_libraries.loadable.values() {
+        for library in libraries {
+            if library.enablement != LibraryEnablement::Enabled {
+                continue;
+            }
+
+            let TemplateLibraryId::Loadable { name, .. } = &library.id else {
+                continue;
+            };
+
+            for symbol in &library.symbols {
+                if symbol.kind != kind {
+                    continue;
+                }
+
+                symbols.push(SymbolCandidate {
+                    symbol,
+                    detail: format!("{{% load {} %}}", name.as_str()),
+                });
+            }
+        }
+    }
+
+    symbols
+}
+
+fn scanned_symbol_names(
+    template_libraries: &TemplateLibraries,
+    kind: TemplateSymbolKind,
+) -> Vec<String> {
+    if template_libraries.scan_knowledge != Knowledge::Known {
+        return Vec::new();
+    }
+
+    let mut names = Vec::new();
+
+    for libraries in template_libraries.loadable.values() {
+        for library in libraries {
+            if !matches!(library.location, LibraryLocation::Scanned { .. }) {
+                continue;
+            }
+
+            for symbol in &library.symbols {
+                if symbol.kind == kind {
+                    names.push(symbol.name.as_str().to_string());
+                }
+            }
+        }
+    }
+
+    names.sort();
+    names.dedup();
+
+    names
 }
 
 /// Tracks what closing characters are needed to complete a template tag.
@@ -514,10 +562,7 @@ fn generate_discovered_tag_name_completions(
     line_text: &str,
     cursor_offset: usize,
 ) -> Vec<ls_types::CompletionItem> {
-    let discovered = template_libraries.discovered();
-    let mut names: Vec<String> = discovered.tags_by_name().keys().cloned().collect();
-    names.sort();
-    names.dedup();
+    let names = scanned_symbol_names(template_libraries, TemplateSymbolKind::Tag);
 
     let replacement_range =
         calculate_replacement_range(position, line_text, cursor_offset, partial.len(), closing);
@@ -539,7 +584,7 @@ fn generate_discovered_tag_name_completions(
             ls_types::CompletionItem {
                 label: name.clone(),
                 kind: Some(ls_types::CompletionItemKind::KEYWORD),
-                detail: Some("discovered tag".to_string()),
+                detail: Some("scanned tag".to_string()),
                 text_edit: Some(tower_lsp_server::ls_types::CompletionTextEdit::Edit(
                     ls_types::TextEdit::new(replacement_range, insert_text),
                 )),
@@ -573,7 +618,7 @@ fn generate_tag_name_completions(
         return Vec::new();
     };
 
-    let Some(tags) = template_libraries.installed().as_known() else {
+    if template_libraries.inspector_knowledge != Knowledge::Known {
         return generate_discovered_tag_name_completions(
             partial,
             needs_space,
@@ -584,7 +629,9 @@ fn generate_tag_name_completions(
             line_text,
             cursor_offset,
         );
-    };
+    }
+
+    let tags = installed_symbol_candidates(template_libraries, TemplateSymbolKind::Tag);
 
     let mut completions = Vec::new();
 
@@ -633,18 +680,22 @@ fn generate_tag_name_completions(
         }
     }
 
-    for tag in tags.tags() {
+    for tag in tags {
+        let symbol = tag.symbol;
+
         if let Some(symbols) = available_symbols {
-            if !tag.is_available(symbols) {
+            if !symbol_is_available(symbol, symbols) {
                 continue;
             }
         }
 
-        if tag.name().starts_with(partial) {
+        let tag_name = symbol_name(symbol);
+
+        if tag_name.starts_with(partial) {
             // Try to get snippet from TagSpecs if available and client supports snippets
             let (insert_text, insert_format) = if supports_snippets {
                 if let Some(specs) = tag_specs {
-                    if let Some(spec) = specs.get(tag.name()) {
+                    if let Some(spec) = specs.get(tag_name) {
                         let has_args = spec
                             .extracted_rules
                             .as_ref()
@@ -659,7 +710,7 @@ fn generate_tag_name_completions(
                             }
 
                             // Generate the snippet
-                            let snippet = generate_snippet_for_tag_with_end(tag.name(), spec);
+                            let snippet = generate_snippet_for_tag_with_end(tag_name, spec);
                             text.push_str(&snippet);
 
                             // Only add closing if the snippet doesn't already include it
@@ -677,40 +728,39 @@ fn generate_tag_name_completions(
                             (text, ls_types::InsertTextFormat::SNIPPET)
                         } else {
                             // No args, use plain text
-                            build_plain_insert_for_tag(tag.name(), needs_space, closing)
+                            build_plain_insert_for_tag(tag_name, needs_space, closing)
                         }
                     } else {
                         // No spec found, use plain text
-                        build_plain_insert_for_tag(tag.name(), needs_space, closing)
+                        build_plain_insert_for_tag(tag_name, needs_space, closing)
                     }
                 } else {
                     // No specs available, use plain text
-                    build_plain_insert_for_tag(tag.name(), needs_space, closing)
+                    build_plain_insert_for_tag(tag_name, needs_space, closing)
                 }
             } else {
                 // Client doesn't support snippets
-                build_plain_insert_for_tag(tag.name(), needs_space, closing)
+                build_plain_insert_for_tag(tag_name, needs_space, closing)
             };
 
             let kind = if matches!(insert_format, ls_types::InsertTextFormat::SNIPPET) {
                 ls_types::CompletionItemKind::SNIPPET
             } else {
-                tag.completion_kind()
+                symbol_completion_kind(symbol)
             };
 
             let completion_item = ls_types::CompletionItem {
-                label: tag.name().to_string(),
+                label: tag_name.to_string(),
                 kind: Some(kind),
-                detail: Some(tag.completion_detail()),
-                documentation: tag
-                    .doc()
+                detail: Some(tag.detail.clone()),
+                documentation: symbol_doc(symbol)
                     .map(|doc| ls_types::Documentation::String(doc.to_string())),
                 text_edit: Some(tower_lsp_server::ls_types::CompletionTextEdit::Edit(
                     ls_types::TextEdit::new(replacement_range, insert_text.clone()),
                 )),
                 insert_text_format: Some(insert_format),
-                filter_text: Some(tag.name().to_string()),
-                sort_text: Some(format!("1_{}", tag.name())), // Regular tags sort after end tags
+                filter_text: Some(tag_name.to_string()),
+                sort_text: Some(format!("1_{tag_name}")), // Regular tags sort after end tags
                 ..Default::default()
             };
 
@@ -865,11 +915,22 @@ fn generate_library_completions(
 
     let mut names: Vec<String> = Vec::new();
 
-    if let Some(installed) = template_libraries.installed().as_known() {
-        names.extend(installed.libraries().keys().cloned());
+    for (name, libraries) in &template_libraries.loadable {
+        let installed = template_libraries.inspector_knowledge == Knowledge::Known
+            && libraries
+                .iter()
+                .any(|library| library.enablement == LibraryEnablement::Enabled);
+
+        let scanned = template_libraries.scan_knowledge == Knowledge::Known
+            && libraries
+                .iter()
+                .any(|library| matches!(library.location, LibraryLocation::Scanned { .. }));
+
+        if installed || scanned {
+            names.push(name.as_str().to_string());
+        }
     }
 
-    names.extend(template_libraries.discovered().libraries().keys().cloned());
     names.sort();
     names.dedup();
 
@@ -888,19 +949,25 @@ fn generate_library_completions(
             }
 
             let detail = template_libraries
-                .installed()
-                .as_known()
-                .and_then(|installed| installed.libraries().get(load_name.as_str()))
+                .loadable
+                .iter()
+                .find(|(name, _)| name.as_str() == load_name)
+                .and_then(|(_name, libraries)| {
+                    libraries
+                        .iter()
+                        .find(|library| library.enablement == LibraryEnablement::Enabled)
+                        .or_else(|| {
+                            libraries.iter().find(|library| {
+                                matches!(library.location, LibraryLocation::Scanned { .. })
+                            })
+                        })
+                })
+                .and_then(|library| match &library.id {
+                    TemplateLibraryId::Loadable { module, .. } => Some(module.as_str()),
+                    TemplateLibraryId::Builtin { .. } => None,
+                })
                 .map_or_else(
-                    || {
-                        let discovered = template_libraries.discovered();
-                        let libs = discovered.libraries_for_name(load_name.as_str());
-                        let module = libs.first().map(|lib| lib.module_path.as_str());
-                        module.map_or_else(
-                            || "Django template library".to_string(),
-                            |module| format!("Django template library ({module})"),
-                        )
-                    },
+                    || "Django template library".to_string(),
                     |module| format!("Django template library ({module})"),
                 );
 
@@ -919,43 +986,41 @@ fn generate_library_completions(
     completions
 }
 
-/// Generate completion items from any collection of `CompletableSymbol`s.
-///
-/// Handles the common pattern: filter by availability → filter by prefix →
-/// build `CompletionItem` with kind/detail/documentation → sort → deduplicate.
+/// Generate completion items from a collection of template symbols.
 ///
 /// When `available_symbols` is `Some` (inspector healthy), only symbols that are
 /// available at the cursor position (builtins + loaded library symbols) are shown.
-/// When `None` (inspector unavailable), all symbols are shown as a fallback.
-fn generate_completions<S: CompletableSymbol>(
-    symbols: &[S],
+fn generate_completions<'a>(
+    symbols: impl IntoIterator<Item = SymbolCandidate<'a>>,
     partial: &str,
     available_symbols: Option<&AvailableSymbols>,
 ) -> Vec<ls_types::CompletionItem> {
     let mut completions = Vec::new();
 
-    for symbol in symbols {
+    for candidate in symbols {
+        let symbol = candidate.symbol;
+
         if let Some(avail) = available_symbols {
-            if !symbol.is_available(avail) {
+            if !symbol_is_available(symbol, avail) {
                 continue;
             }
         }
 
-        if !symbol.name().starts_with(partial) {
+        let name = symbol_name(symbol);
+        if !name.starts_with(partial) {
             continue;
         }
 
         completions.push(ls_types::CompletionItem {
-            label: symbol.name().to_string(),
-            kind: Some(symbol.completion_kind()),
-            detail: Some(symbol.completion_detail()),
-            documentation: symbol
-                .doc()
+            label: name.to_string(),
+            kind: Some(symbol_completion_kind(symbol)),
+            detail: Some(candidate.detail),
+            documentation: symbol_doc(symbol)
                 .map(|doc| ls_types::Documentation::String(doc.to_string())),
-            insert_text: Some(symbol.name().to_string()),
+            insert_text: Some(name.to_string()),
             insert_text_format: Some(ls_types::InsertTextFormat::PLAIN_TEXT),
-            filter_text: Some(symbol.name().to_string()),
-            sort_text: Some(format!("1_{}", symbol.name())),
+            filter_text: Some(name.to_string()),
+            sort_text: Some(format!("1_{name}")),
             ..Default::default()
         });
     }
@@ -980,18 +1045,12 @@ fn generate_filter_completions(
         return Vec::new();
     };
 
-    if let Some(installed) = template_libraries.installed().as_known() {
-        return generate_completions(installed.filters(), partial, available_symbols);
+    if template_libraries.inspector_knowledge == Knowledge::Known {
+        let filters = installed_symbol_candidates(template_libraries, TemplateSymbolKind::Filter);
+        return generate_completions(filters, partial, available_symbols);
     }
 
-    let mut names: Vec<String> = template_libraries
-        .discovered()
-        .filters_by_name()
-        .keys()
-        .cloned()
-        .collect();
-    names.sort();
-    names.dedup();
+    let names = scanned_symbol_names(template_libraries, TemplateSymbolKind::Filter);
 
     names
         .into_iter()
@@ -999,7 +1058,7 @@ fn generate_filter_completions(
         .map(|name| ls_types::CompletionItem {
             label: name.clone(),
             kind: Some(ls_types::CompletionItemKind::FUNCTION),
-            detail: Some("discovered filter".to_string()),
+            detail: Some("scanned filter".to_string()),
             insert_text: Some(name),
             insert_text_format: Some(ls_types::InsertTextFormat::PLAIN_TEXT),
             ..Default::default()
@@ -1037,8 +1096,6 @@ mod tests {
     use std::collections::BTreeMap;
     use std::collections::HashMap;
 
-    use djls_project::KnownInstalledTemplateLibraries;
-
     use super::*;
 
     fn build_template_libraries(
@@ -1067,24 +1124,23 @@ mod tests {
             }));
         }
 
-        let tags: Vec<djls_project::InstalledTemplateTag> = tag_values
+        let templatetags: Vec<djls_project::InspectorSymbolWire> = tag_values
             .into_iter()
             .map(serde_json::from_value)
             .collect::<Result<_, _>>()
             .unwrap();
 
-        let installed = KnownInstalledTemplateLibraries::new(
-            tags,
-            vec![],
-            libraries
+        let response = djls_project::TemplateLibrariesResponse {
+            templatetags,
+            templatefilters: Vec::new(),
+            libraries: libraries
                 .iter()
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect::<BTreeMap<_, _>>(),
-            builtins.to_vec(),
-        );
+            builtins: builtins.to_vec(),
+        };
 
-        TemplateLibraries::default()
-            .replace_installed(djls_project::InstalledTemplateLibraries::Known(installed))
+        TemplateLibraries::default().apply_inspector(Some(response))
     }
 
     #[test]
@@ -1486,11 +1542,7 @@ mod tests {
         loaded_libs: &djls_semantic::LoadedLibraries,
         position: u32,
     ) -> AvailableSymbols {
-        let installed = template_libraries
-            .installed()
-            .as_known()
-            .expect("tests require installed libraries");
-        AvailableSymbols::at_position(loaded_libs, installed, position)
+        AvailableSymbols::at_position(loaded_libs, template_libraries, position)
     }
 
     fn make_load_statement(
@@ -1554,21 +1606,20 @@ mod tests {
             }),
         ];
 
-        let tags: Vec<djls_project::InstalledTemplateTag> = tag_values
+        let templatetags: Vec<djls_project::InspectorSymbolWire> = tag_values
             .into_iter()
             .map(serde_json::from_value)
             .collect::<Result<_, _>>()
             .unwrap();
 
-        let installed = KnownInstalledTemplateLibraries::new(
-            tags,
-            vec![],
-            libraries.into_iter().collect::<BTreeMap<String, String>>(),
+        let response = djls_project::TemplateLibrariesResponse {
+            templatetags,
+            templatefilters: Vec::new(),
+            libraries: libraries.into_iter().collect::<BTreeMap<String, String>>(),
             builtins,
-        );
+        };
 
-        TemplateLibraries::default()
-            .replace_installed(djls_project::InstalledTemplateLibraries::Known(installed))
+        TemplateLibraries::default().apply_inspector(Some(response))
     }
 
     #[test]
@@ -1806,27 +1857,26 @@ mod tests {
             "django.template.defaultfilters".to_string(),
         ];
 
-        let tags: Vec<djls_project::InstalledTemplateTag> = tags
+        let templatetags: Vec<djls_project::InspectorSymbolWire> = tags
             .into_iter()
             .map(serde_json::from_value)
             .collect::<Result<_, _>>()
             .unwrap();
 
-        let filters: Vec<djls_project::InstalledTemplateFilter> = filters
+        let templatefilters: Vec<djls_project::InspectorSymbolWire> = filters
             .into_iter()
             .map(serde_json::from_value)
             .collect::<Result<_, _>>()
             .unwrap();
 
-        let installed = KnownInstalledTemplateLibraries::new(
-            tags,
-            filters,
-            libraries.into_iter().collect::<BTreeMap<String, String>>(),
+        let response = djls_project::TemplateLibrariesResponse {
+            templatetags,
+            templatefilters,
+            libraries: libraries.into_iter().collect::<BTreeMap<String, String>>(),
             builtins,
-        );
+        };
 
-        TemplateLibraries::default()
-            .replace_installed(djls_project::InstalledTemplateLibraries::Known(installed))
+        TemplateLibraries::default().apply_inspector(Some(response))
     }
 
     #[test]

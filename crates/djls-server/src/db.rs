@@ -14,12 +14,12 @@ use djls_project::build_search_paths;
 use djls_project::template_dirs;
 use djls_project::Db as ProjectDb;
 use djls_project::Inspector;
-use djls_project::InstalledTemplateLibraries;
-use djls_project::InstalledTemplateLibrariesRequest;
-use djls_project::InstalledTemplateLibrariesResponse;
 use djls_project::Interpreter;
 use djls_project::Project;
+use djls_project::ScannedTemplateLibraries;
 use djls_project::TemplateLibraries;
+use djls_project::TemplateLibrariesRequest;
+use djls_project::TemplateLibrariesResponse;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::TagIndex;
 use djls_semantic::TagSpecs;
@@ -118,10 +118,15 @@ fn collect_workspace_extraction_results(
     let root = project.root(db);
     let pythonpath = project.pythonpath(db);
 
-    let module_paths = template_libraries.installed_registration_modules();
+    let module_paths = template_libraries.registration_modules();
     if module_paths.is_empty() {
         return Vec::new();
     }
+
+    let module_paths: Vec<String> = module_paths
+        .iter()
+        .map(|m| m.as_str().to_string())
+        .collect();
 
     let search_paths = build_search_paths(interpreter, root, pythonpath);
 
@@ -308,15 +313,14 @@ impl DjangoDatabase {
     /// querying the inspector subprocess directly and only calling Salsa
     /// setters when values have actually changed (Ruff/RA pattern).
     pub fn refresh_inspector(&mut self) {
-        let installed = self.query_inspector_installed_libraries();
-        self.extract_external_rules(&installed);
+        self.query_inspector_template_libraries();
+        self.extract_external_rules();
     }
 
-    /// Query the Python inspector subprocess and update the project's installed
-    /// template libraries and symbols.
-    fn query_inspector_installed_libraries(&mut self) -> InstalledTemplateLibraries {
+    /// Query the Python inspector subprocess and update the project's template libraries.
+    fn query_inspector_template_libraries(&mut self) {
         let Some(project) = self.project() else {
-            return InstalledTemplateLibraries::Unknown;
+            return;
         };
 
         let interpreter = project.interpreter(self).clone();
@@ -324,39 +328,34 @@ impl DjangoDatabase {
         let dsm = project.django_settings_module(self).clone();
         let pythonpath = project.pythonpath(self).clone();
 
-        let installed = match self
+        let response = match self
             .inspector
-            .query::<InstalledTemplateLibrariesRequest, InstalledTemplateLibrariesResponse>(
+            .query::<TemplateLibrariesRequest, TemplateLibrariesResponse>(
                 &interpreter,
                 &root,
                 dsm.as_deref(),
                 &pythonpath,
-                &InstalledTemplateLibrariesRequest,
+                &TemplateLibrariesRequest,
             ) {
-            Ok(response) if response.ok => response.data.map_or(
-                InstalledTemplateLibraries::Unknown,
-                InstalledTemplateLibraries::from_response,
-            ),
+            Ok(response) if response.ok => response.data,
             Ok(response) => {
                 tracing::warn!(
                     "query_inspector: inspector returned ok=false, error={:?}",
                     response.error
                 );
-                InstalledTemplateLibraries::Unknown
+                None
             }
             Err(e) => {
                 tracing::error!("query_inspector: inspector query failed: {}", e);
-                InstalledTemplateLibraries::Unknown
+                None
             }
         };
 
         let current = project.template_libraries(self).clone();
-        let next = current.replace_installed(installed.clone());
+        let next = current.apply_inspector(response);
         if project.template_libraries(self) != &next {
             project.set_template_libraries(self).to(next);
         }
-
-        installed
     }
 
     /// Extract validation rules from external (non-workspace) registration modules
@@ -364,7 +363,7 @@ impl DjangoDatabase {
     ///
     /// Workspace modules are handled separately by `collect_workspace_extraction_results`
     /// which uses tracked Salsa queries for automatic invalidation on file change.
-    fn extract_external_rules(&mut self, installed: &InstalledTemplateLibraries) {
+    fn extract_external_rules(&mut self) {
         let Some(project) = self.project() else {
             return;
         };
@@ -373,12 +372,17 @@ impl DjangoDatabase {
         let root = project.root(self).clone();
         let pythonpath = project.pythonpath(self).clone();
 
-        let new_extraction = match installed {
-            InstalledTemplateLibraries::Known(known) => {
-                let modules = known.registration_modules();
-                djls_project::extract_external_rules(&modules, &interpreter, &root, &pythonpath)
-            }
-            InstalledTemplateLibraries::Unknown => rustc_hash::FxHashMap::default(),
+        let modules: rustc_hash::FxHashSet<String> = project
+            .template_libraries(self)
+            .registration_modules()
+            .into_iter()
+            .map(|m| m.as_str().to_string())
+            .collect();
+
+        let new_extraction = if modules.is_empty() {
+            rustc_hash::FxHashMap::default()
+        } else {
+            djls_project::extract_external_rules(&modules, &interpreter, &root, &pythonpath)
         };
 
         if project.extracted_external_rules(self) != &new_extraction {
@@ -388,20 +392,17 @@ impl DjangoDatabase {
         }
     }
 
-    /// Update the project's discovered template libraries.
+    /// Update the project's scanned template libraries.
     ///
     /// This is a side-effect operation that should be run off the LSP request path.
     /// It only calls Salsa setters when values have actually changed.
-    pub fn update_discovered_template_libraries(
-        &mut self,
-        libraries: djls_project::DiscoveredTemplateLibraries,
-    ) {
+    pub fn update_scanned_template_libraries(&mut self, libraries: &ScannedTemplateLibraries) {
         let Some(project) = self.project() else {
             return;
         };
 
         let current = project.template_libraries(self).clone();
-        let next = current.replace_discovered(libraries);
+        let next = current.apply_scan(libraries);
         if project.template_libraries(self) != &next {
             project.set_template_libraries(self).to(next);
         }
@@ -510,13 +511,17 @@ mod invalidation_tests {
     use std::sync::Mutex;
 
     use djls_conf::Settings;
-    use djls_project::DiscoveredTemplateLibraries;
-    use djls_project::DiscoveredTemplateLibrary;
-    use djls_project::InstalledTemplateLibraries;
     use djls_project::Interpreter;
-    use djls_project::KnownInstalledTemplateLibraries;
+    use djls_project::Knowledge;
+    use djls_project::LibraryName;
     use djls_project::Project;
+    use djls_project::PyModuleName;
+    use djls_project::ScannedTemplateLibraries;
+    use djls_project::ScannedTemplateLibrary;
+    use djls_project::ScannedTemplateSymbol;
     use djls_project::TemplateLibraries;
+    use djls_project::TemplateSymbolKind;
+    use djls_project::TemplateSymbolName;
     use djls_semantic::Db as SemanticDb;
     use djls_source::FxDashMap;
     use djls_workspace::InMemoryFileSystem;
@@ -629,11 +634,14 @@ mod invalidation_tests {
         // Update template_libraries on the project
         let project = db.project.lock().unwrap().unwrap();
 
-        let installed =
-            KnownInstalledTemplateLibraries::new(vec![], vec![], BTreeMap::new(), vec![]);
+        let response = djls_project::TemplateLibrariesResponse {
+            templatetags: Vec::new(),
+            templatefilters: Vec::new(),
+            libraries: BTreeMap::new(),
+            builtins: Vec::new(),
+        };
 
-        let new_libraries = TemplateLibraries::default()
-            .replace_installed(InstalledTemplateLibraries::Known(installed));
+        let new_libraries = TemplateLibraries::default().apply_inspector(Some(response));
 
         project.set_template_libraries(&mut db).to(new_libraries);
 
@@ -863,48 +871,63 @@ def my_filter(value, arg):
     }
 
     #[test]
-    fn discovered_template_libraries_stored_on_project() {
+    fn scanned_template_libraries_stored_on_project() {
         let (db, _event_log) = test_db_with_project();
 
         let project = db.project.lock().unwrap().unwrap();
+        assert_eq!(
+            project.template_libraries(&db).scan_knowledge,
+            Knowledge::Unknown
+        );
         assert!(
-            project.template_libraries(&db).discovered().is_empty(),
-            "discovered template libraries should initially be empty"
+            project.template_libraries(&db).loadable.is_empty(),
+            "template libraries should initially be empty"
         );
     }
 
     #[test]
-    fn discovered_template_libraries_setter_updates_value() {
+    fn scanned_template_libraries_setter_updates_value() {
         let (mut db, _event_log) = test_db_with_project();
 
         let project = db.project.lock().unwrap().unwrap();
 
-        let mut libraries = std::collections::BTreeMap::new();
-        libraries.insert(
-            "humanize".to_string(),
-            vec![DiscoveredTemplateLibrary {
-                load_name: "humanize".to_string(),
-                app_module: "django.contrib.humanize".to_string(),
-                module_path: "django.contrib.humanize.templatetags.humanize".to_string(),
-                source_path: camino::Utf8PathBuf::from(
-                    "/site-packages/django/contrib/humanize/templatetags/humanize.py",
-                ),
-                tags: vec![],
-                filters: vec!["intcomma".to_string(), "intword".to_string()],
-            }],
-        );
-        let discovered = DiscoveredTemplateLibraries::new(libraries);
+        let name = LibraryName::new("humanize").unwrap();
 
-        let next = project
-            .template_libraries(&db)
-            .clone()
-            .replace_discovered(discovered);
+        let library = ScannedTemplateLibrary {
+            name: name.clone(),
+            app_module: PyModuleName::new("django.contrib.humanize").unwrap(),
+            module: PyModuleName::new("django.contrib.humanize.templatetags.humanize").unwrap(),
+            source_path: camino::Utf8PathBuf::from(
+                "/site-packages/django/contrib/humanize/templatetags/humanize.py",
+            ),
+            symbols: vec![
+                ScannedTemplateSymbol {
+                    kind: TemplateSymbolKind::Filter,
+                    name: TemplateSymbolName::new("intcomma").unwrap(),
+                },
+                ScannedTemplateSymbol {
+                    kind: TemplateSymbolKind::Filter,
+                    name: TemplateSymbolName::new("intword").unwrap(),
+                },
+            ],
+        };
+
+        let mut libraries = std::collections::BTreeMap::new();
+        libraries.insert(name, vec![library]);
+        let scanned = ScannedTemplateLibraries::new(libraries);
+
+        let next = project.template_libraries(&db).clone().apply_scan(&scanned);
         project.set_template_libraries(&mut db).to(next);
 
+        assert_eq!(
+            project.template_libraries(&db).scan_knowledge,
+            Knowledge::Known
+        );
         assert!(project
             .template_libraries(&db)
-            .discovered()
-            .has_library("humanize"));
+            .loadable
+            .keys()
+            .any(|k| k.as_str() == "humanize"));
     }
 
     #[test]
