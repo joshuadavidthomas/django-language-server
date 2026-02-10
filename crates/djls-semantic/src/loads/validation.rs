@@ -31,16 +31,20 @@ pub fn validate_tag_scoping(
     nodelist: NodeList<'_>,
     opaque_regions: &crate::OpaqueRegions,
 ) {
-    let Some(inventory) = db.template_symbols() else {
+    let template_libraries = db.template_libraries();
+    let Some(installed) = template_libraries.installed().as_known() else {
         return;
     };
 
     let tag_specs = db.tag_specs();
     let loaded_libraries = compute_loaded_libraries(db, nodelist);
-    let env_inventory = db.template_tag_libraries();
-    let env_tags = env_inventory
-        .as_ref()
-        .map(djls_project::TemplateTagLibraries::tags_by_name);
+
+    let discovered = template_libraries.discovered();
+    let env_tags = if discovered.is_empty() {
+        None
+    } else {
+        Some(discovered.tags_by_name())
+    };
 
     for node in nodelist.nodelist(db) {
         let Node::Tag { name, span, .. } = node else {
@@ -63,7 +67,7 @@ pub fn validate_tag_scoping(
         }
 
         let marker_span = span.expand(TagDelimiter::LENGTH_U32, TagDelimiter::LENGTH_U32);
-        let symbols = AvailableSymbols::at_position(&loaded_libraries, &inventory, span.start());
+        let symbols = AvailableSymbols::at_position(&loaded_libraries, installed, span.start());
 
         match symbols.check(name) {
             TagAvailability::Available => {}
@@ -139,15 +143,19 @@ pub fn validate_filter_scoping(
     nodelist: NodeList<'_>,
     opaque_regions: &crate::OpaqueRegions,
 ) {
-    let Some(inventory) = db.template_symbols() else {
+    let template_libraries = db.template_libraries();
+    let Some(installed) = template_libraries.installed().as_known() else {
         return;
     };
 
     let loaded_libraries = compute_loaded_libraries(db, nodelist);
-    let env_inventory = db.template_tag_libraries();
-    let env_filters = env_inventory
-        .as_ref()
-        .map(djls_project::TemplateTagLibraries::filters_by_name);
+
+    let discovered = template_libraries.discovered();
+    let env_filters = if discovered.is_empty() {
+        None
+    } else {
+        Some(discovered.filters_by_name())
+    };
 
     for node in nodelist.nodelist(db) {
         let Node::Variable { filters, span, .. } = node else {
@@ -158,7 +166,7 @@ pub fn validate_filter_scoping(
             continue;
         }
 
-        let symbols = AvailableSymbols::at_position(&loaded_libraries, &inventory, span.start());
+        let symbols = AvailableSymbols::at_position(&loaded_libraries, installed, span.start());
 
         for filter in filters {
             match symbols.check_filter(&filter.name) {
@@ -225,12 +233,13 @@ pub fn validate_load_libraries(
     nodelist: NodeList<'_>,
     opaque_regions: &crate::OpaqueRegions,
 ) {
-    let Some(inventory) = db.template_symbols() else {
+    let template_libraries = db.template_libraries();
+    let Some(installed) = template_libraries.installed().as_known() else {
         return;
     };
 
-    let known_libraries = inventory.libraries();
-    let env_inventory = db.template_tag_libraries();
+    let known_libraries = installed.libraries();
+    let discovered = template_libraries.discovered();
 
     for node in nodelist.nodelist(db) {
         let Node::Tag {
@@ -264,21 +273,19 @@ pub fn validate_load_libraries(
                 continue;
             }
 
-            if let Some(ref env) = env_inventory {
-                if env.has_library(lib_name) {
-                    let env_libs = env.libraries_for_name(lib_name);
-                    let candidates: Vec<String> =
-                        env_libs.iter().map(|lib| lib.app_module.clone()).collect();
-                    let app = candidates.first().cloned().unwrap_or_default();
-                    ValidationErrorAccumulator(ValidationError::LibraryNotInInstalledApps {
-                        name: lib_name.to_string(),
-                        app,
-                        candidates,
-                        span: marker_span,
-                    })
-                    .accumulate(db);
-                    continue;
-                }
+            if discovered.has_library(lib_name) {
+                let env_libs = discovered.libraries_for_name(lib_name);
+                let candidates: Vec<String> =
+                    env_libs.iter().map(|lib| lib.app_module.clone()).collect();
+                let app = candidates.first().cloned().unwrap_or_default();
+                ValidationErrorAccumulator(ValidationError::LibraryNotInInstalledApps {
+                    name: lib_name.to_string(),
+                    app,
+                    candidates,
+                    span: marker_span,
+                })
+                .accumulate(db);
+                continue;
             }
 
             ValidationErrorAccumulator(ValidationError::UnknownLibrary {
@@ -298,7 +305,11 @@ mod tests {
 
     use camino::Utf8Path;
     use camino::Utf8PathBuf;
-    use djls_project::TemplateSymbols;
+    use djls_project::DiscoveredTemplateLibraries;
+    use djls_project::DiscoveredTemplateLibrary;
+    use djls_project::InstalledTemplateLibraries;
+    use djls_project::KnownInstalledTemplateLibraries;
+    use djls_project::TemplateLibraries;
     use djls_source::Db as SourceDb;
     use djls_source::File;
     use djls_templates::parse_template;
@@ -317,8 +328,7 @@ mod tests {
     struct TestDatabase {
         storage: salsa::Storage<Self>,
         fs: Arc<Mutex<InMemoryFileSystem>>,
-        inventory: Option<TemplateSymbols>,
-        env_inventory: Option<djls_project::TemplateTagLibraries>,
+        template_libraries: TemplateLibraries,
     }
 
     impl TestDatabase {
@@ -326,30 +336,27 @@ mod tests {
             Self {
                 storage: salsa::Storage::default(),
                 fs: Arc::new(Mutex::new(InMemoryFileSystem::new())),
-                inventory: None,
-                env_inventory: None,
+                template_libraries: TemplateLibraries::default(),
             }
         }
 
-        fn with_inventory(inventory: TemplateSymbols) -> Self {
+        fn with_template_libraries(template_libraries: TemplateLibraries) -> Self {
             Self {
                 storage: salsa::Storage::default(),
                 fs: Arc::new(Mutex::new(InMemoryFileSystem::new())),
-                inventory: Some(inventory),
-                env_inventory: None,
+                template_libraries,
             }
+        }
+
+        fn with_inventory(template_libraries: TemplateLibraries) -> Self {
+            Self::with_template_libraries(template_libraries)
         }
 
         fn with_inventories(
-            inventory: TemplateSymbols,
-            env_inventory: djls_project::TemplateTagLibraries,
+            template_libraries: TemplateLibraries,
+            discovered: DiscoveredTemplateLibraries,
         ) -> Self {
-            Self {
-                storage: salsa::Storage::default(),
-                fs: Arc::new(Mutex::new(InMemoryFileSystem::new())),
-                inventory: Some(inventory),
-                env_inventory: Some(env_inventory),
-            }
+            Self::with_template_libraries(template_libraries.replace_discovered(discovered))
         }
 
         fn add_file(&self, path: &str, content: &str) {
@@ -399,16 +406,12 @@ mod tests {
             djls_conf::DiagnosticsConfig::default()
         }
 
-        fn template_symbols(&self) -> Option<TemplateSymbols> {
-            self.inventory.clone()
+        fn template_libraries(&self) -> TemplateLibraries {
+            self.template_libraries.clone()
         }
 
         fn filter_arity_specs(&self) -> crate::filters::arity::FilterAritySpecs {
             crate::filters::arity::FilterAritySpecs::new()
-        }
-
-        fn template_tag_libraries(&self) -> Option<djls_project::TemplateTagLibraries> {
-            self.env_inventory.clone()
         }
     }
 
@@ -452,7 +455,7 @@ mod tests {
         tags: &[serde_json::Value],
         libraries: &HashMap<String, String>,
         builtins: &[String],
-    ) -> TemplateSymbols {
+    ) -> TemplateLibraries {
         make_inventory_with_filters(tags, &[], libraries, builtins)
     }
 
@@ -461,17 +464,37 @@ mod tests {
         filters: &[serde_json::Value],
         libraries: &HashMap<String, String>,
         builtins: &[String],
-    ) -> TemplateSymbols {
-        let payload = serde_json::json!({
-            "tags": tags,
-            "filters": filters,
-            "libraries": libraries,
-            "builtins": builtins,
-        });
-        serde_json::from_value(payload).unwrap()
+    ) -> TemplateLibraries {
+        use std::collections::BTreeMap;
+
+        let tags: Vec<djls_project::InstalledTemplateTag> = tags
+            .iter()
+            .cloned()
+            .map(serde_json::from_value)
+            .collect::<Result<_, _>>()
+            .unwrap();
+
+        let filters: Vec<djls_project::InstalledTemplateFilter> = filters
+            .iter()
+            .cloned()
+            .map(serde_json::from_value)
+            .collect::<Result<_, _>>()
+            .unwrap();
+
+        let installed = KnownInstalledTemplateLibraries::new(
+            tags,
+            filters,
+            libraries
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect::<BTreeMap<_, _>>(),
+            builtins.to_vec(),
+        );
+
+        TemplateLibraries::default().replace_installed(InstalledTemplateLibraries::Known(installed))
     }
 
-    fn test_inventory() -> TemplateSymbols {
+    fn test_inventory() -> TemplateLibraries {
         let tags = vec![
             builtin_tag_json("if", "django.template.defaulttags"),
             builtin_tag_json("for", "django.template.defaulttags"),
@@ -689,7 +712,7 @@ mod tests {
             .collect()
     }
 
-    fn test_inventory_with_filters() -> TemplateSymbols {
+    fn test_inventory_with_filters() -> TemplateLibraries {
         let tags = vec![
             builtin_tag_json("if", "django.template.defaulttags"),
             builtin_tag_json("for", "django.template.defaulttags"),
@@ -1075,15 +1098,14 @@ mod tests {
 
     use std::collections::BTreeMap;
 
-    use djls_project::TemplateTagLibraries;
-    use djls_project::TemplateTagLibrary;
-
-    fn make_env_inventory(libraries: Vec<TemplateTagLibrary>) -> TemplateTagLibraries {
-        let mut map: BTreeMap<String, Vec<TemplateTagLibrary>> = BTreeMap::new();
+    fn make_env_inventory(
+        libraries: Vec<DiscoveredTemplateLibrary>,
+    ) -> DiscoveredTemplateLibraries {
+        let mut map: BTreeMap<String, Vec<DiscoveredTemplateLibrary>> = BTreeMap::new();
         for lib in libraries {
             map.entry(lib.load_name.clone()).or_default().push(lib);
         }
-        TemplateTagLibraries::new(map)
+        DiscoveredTemplateLibraries::new(map)
     }
 
     fn make_env_library(
@@ -1091,8 +1113,8 @@ mod tests {
         app_module: &str,
         tags: &[&str],
         filters: &[&str],
-    ) -> TemplateTagLibrary {
-        TemplateTagLibrary {
+    ) -> DiscoveredTemplateLibrary {
+        DiscoveredTemplateLibrary {
             load_name: load_name.to_string(),
             app_module: app_module.to_string(),
             module_path: format!("{app_module}.templatetags.{load_name}"),

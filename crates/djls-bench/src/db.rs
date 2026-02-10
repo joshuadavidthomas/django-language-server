@@ -89,15 +89,11 @@ impl SemanticDb for Db {
         djls_conf::DiagnosticsConfig::default()
     }
 
-    fn template_symbols(&self) -> Option<djls_project::TemplateSymbols> {
-        None
+    fn template_libraries(&self) -> djls_project::TemplateLibraries {
+        djls_project::TemplateLibraries::default()
     }
 
     fn filter_arity_specs(&self) -> djls_semantic::FilterAritySpecs {
         djls_semantic::FilterAritySpecs::new()
-    }
-
-    fn template_tag_libraries(&self) -> Option<djls_project::TemplateTagLibraries> {
-        None
     }
 }

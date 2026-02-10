@@ -216,16 +216,12 @@ mod tests {
             djls_conf::DiagnosticsConfig::default()
         }
 
-        fn template_symbols(&self) -> Option<djls_project::TemplateSymbols> {
-            None
+        fn template_libraries(&self) -> djls_project::TemplateLibraries {
+            djls_project::TemplateLibraries::default()
         }
 
         fn filter_arity_specs(&self) -> crate::filters::arity::FilterAritySpecs {
             crate::filters::arity::FilterAritySpecs::new()
-        }
-
-        fn template_tag_libraries(&self) -> Option<djls_project::TemplateTagLibraries> {
-            None
         }
     }
 

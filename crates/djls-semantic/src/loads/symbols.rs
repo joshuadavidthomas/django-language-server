@@ -1,9 +1,8 @@
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 
-use djls_project::TagProvenance;
-use djls_project::TemplateSymbol;
-use djls_project::TemplateSymbols;
+use djls_project::InstalledSymbolProvenance;
+use djls_project::KnownInstalledTemplateLibraries;
 
 use super::load::LoadState;
 use super::LoadedLibraries;
@@ -43,8 +42,8 @@ pub enum FilterAvailability {
 /// The set of tags and filters available at a given position in a template,
 /// plus a mapping of unavailable-but-known symbols to their required library/libraries.
 ///
-/// Constructed from `LoadedLibraries`, inspector symbols (`TemplateSymbols`),
-/// and a byte position in the template.
+/// Constructed from `LoadedLibraries`, installed template libraries, and a byte
+/// position in the template.
 #[derive(Clone, Debug)]
 pub struct AvailableSymbols {
     /// Tag names that are available at this position (builtins + loaded library tags).
@@ -64,27 +63,30 @@ impl AvailableSymbols {
     #[must_use]
     pub fn at_position(
         loaded_libraries: &LoadedLibraries,
-        inventory: &TemplateSymbols,
+        installed: &KnownInstalledTemplateLibraries,
         position: u32,
     ) -> Self {
         let load_state = loaded_libraries.available_at(position);
-        Self::from_load_state(&load_state, inventory)
+        Self::from_load_state(&load_state, installed)
     }
 
-    /// Build available symbols from a pre-computed `LoadState` and inspector inventory.
+    /// Build available symbols from a pre-computed `LoadState` and installed libraries.
     #[must_use]
-    pub fn from_load_state(load_state: &LoadState, inventory: &TemplateSymbols) -> Self {
+    pub fn from_load_state(
+        load_state: &LoadState,
+        installed: &KnownInstalledTemplateLibraries,
+    ) -> Self {
         let mut available = BTreeSet::new();
         let mut candidates: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
 
         // Build a reverse index: tag_name → set of candidate library load_names
         // Also collect builtins directly into available.
-        for tag in inventory.iter() {
+        for tag in installed.tags() {
             match tag.provenance() {
-                TagProvenance::Builtin { .. } => {
+                InstalledSymbolProvenance::Builtin { .. } => {
                     available.insert(tag.name().to_string());
                 }
-                TagProvenance::Library { load_name, .. } => {
+                InstalledSymbolProvenance::Library { load_name, .. } => {
                     candidates
                         .entry(tag.name().to_string())
                         .or_default()
@@ -112,12 +114,12 @@ impl AvailableSymbols {
         let mut available_filters = BTreeSet::new();
         let mut filter_candidates: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
 
-        for filter in inventory.filters() {
+        for filter in installed.filters() {
             match filter.provenance() {
-                TagProvenance::Builtin { .. } => {
+                InstalledSymbolProvenance::Builtin { .. } => {
                     available_filters.insert(filter.name().to_string());
                 }
-                TagProvenance::Library { load_name, .. } => {
+                InstalledSymbolProvenance::Library { load_name, .. } => {
                     filter_candidates
                         .entry(filter.name().to_string())
                         .or_default()
@@ -282,7 +284,7 @@ mod tests {
         tags: &[serde_json::Value],
         libraries: &HashMap<String, String>,
         builtins: &[String],
-    ) -> TemplateSymbols {
+    ) -> KnownInstalledTemplateLibraries {
         make_inventory_with_filters(tags, &[], libraries, builtins)
     }
 
@@ -291,21 +293,37 @@ mod tests {
         filters: &[serde_json::Value],
         libraries: &HashMap<String, String>,
         builtins: &[String],
-    ) -> TemplateSymbols {
-        let payload = serde_json::json!({
-            "tags": tags,
-            "filters": filters,
-            "libraries": libraries,
-            "builtins": builtins,
-        });
-        serde_json::from_value(payload).unwrap()
+    ) -> KnownInstalledTemplateLibraries {
+        let tags: Vec<djls_project::InstalledTemplateTag> = tags
+            .iter()
+            .cloned()
+            .map(serde_json::from_value)
+            .collect::<Result<_, _>>()
+            .unwrap();
+
+        let filters: Vec<djls_project::InstalledTemplateFilter> = filters
+            .iter()
+            .cloned()
+            .map(serde_json::from_value)
+            .collect::<Result<_, _>>()
+            .unwrap();
+
+        KnownInstalledTemplateLibraries::new(
+            tags,
+            filters,
+            libraries
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect::<BTreeMap<_, _>>(),
+            builtins.to_vec(),
+        )
     }
 
     fn make_load(span: (u32, u32), kind: LoadKind) -> LoadStatement {
         LoadStatement::new(Span::new(span.0, span.1), kind)
     }
 
-    fn test_inventory() -> TemplateSymbols {
+    fn test_inventory() -> KnownInstalledTemplateLibraries {
         let tags = vec![
             builtin_tag_json("if", "django.template.defaulttags"),
             builtin_tag_json("for", "django.template.defaulttags"),
@@ -640,7 +658,7 @@ mod tests {
 
     // --- Filter availability tests ---
 
-    fn test_inventory_with_filters() -> TemplateSymbols {
+    fn test_inventory_with_filters() -> KnownInstalledTemplateLibraries {
         let tags = vec![builtin_tag_json("if", "django.template.defaulttags")];
         let filters = vec![
             builtin_filter_json("title", "django.template.defaultfilters"),

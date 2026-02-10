@@ -85,7 +85,9 @@ mod tests {
 
     use camino::Utf8Path;
     use camino::Utf8PathBuf;
-    use djls_project::TemplateSymbols;
+    use djls_project::InstalledTemplateLibraries;
+    use djls_project::KnownInstalledTemplateLibraries;
+    use djls_project::TemplateLibraries;
     use djls_python::FilterArity;
     use djls_python::SymbolKey;
     use djls_source::Db as SourceDb;
@@ -107,19 +109,19 @@ mod tests {
     struct TestDatabase {
         storage: salsa::Storage<Self>,
         fs: Arc<Mutex<InMemoryFileSystem>>,
-        inventory: Option<TemplateSymbols>,
+        template_libraries: TemplateLibraries,
         arity_specs: FilterAritySpecs,
     }
 
     impl TestDatabase {
         fn with_inventory_and_arities(
-            inventory: TemplateSymbols,
+            template_libraries: TemplateLibraries,
             arity_specs: FilterAritySpecs,
         ) -> Self {
             Self {
                 storage: salsa::Storage::default(),
                 fs: Arc::new(Mutex::new(InMemoryFileSystem::new())),
-                inventory: Some(inventory),
+                template_libraries,
                 arity_specs,
             }
         }
@@ -171,16 +173,12 @@ mod tests {
             djls_conf::DiagnosticsConfig::default()
         }
 
-        fn template_symbols(&self) -> Option<TemplateSymbols> {
-            self.inventory.clone()
+        fn template_libraries(&self) -> TemplateLibraries {
+            self.template_libraries.clone()
         }
 
         fn filter_arity_specs(&self) -> FilterAritySpecs {
             self.arity_specs.clone()
-        }
-
-        fn template_tag_libraries(&self) -> Option<djls_project::TemplateTagLibraries> {
-            None
         }
     }
 
@@ -216,14 +214,34 @@ mod tests {
         filters: &[serde_json::Value],
         libraries: &HashMap<String, String>,
         builtins: &[String],
-    ) -> TemplateSymbols {
-        let payload = serde_json::json!({
-            "tags": tags,
-            "filters": filters,
-            "libraries": libraries,
-            "builtins": builtins,
-        });
-        serde_json::from_value(payload).unwrap()
+    ) -> TemplateLibraries {
+        use std::collections::BTreeMap;
+
+        let tags: Vec<djls_project::InstalledTemplateTag> = tags
+            .iter()
+            .cloned()
+            .map(serde_json::from_value)
+            .collect::<Result<_, _>>()
+            .unwrap();
+
+        let filters: Vec<djls_project::InstalledTemplateFilter> = filters
+            .iter()
+            .cloned()
+            .map(serde_json::from_value)
+            .collect::<Result<_, _>>()
+            .unwrap();
+
+        let installed = KnownInstalledTemplateLibraries::new(
+            tags,
+            filters,
+            libraries
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect::<BTreeMap<_, _>>(),
+            builtins.to_vec(),
+        );
+
+        TemplateLibraries::default().replace_installed(InstalledTemplateLibraries::Known(installed))
     }
 
     fn default_builtins_module() -> &'static str {
@@ -234,7 +252,7 @@ mod tests {
         "django.template.defaultfilters"
     }
 
-    fn standard_inventory() -> TemplateSymbols {
+    fn standard_inventory() -> TemplateLibraries {
         let tags = vec![
             builtin_tag_json("if", default_builtins_module()),
             builtin_tag_json("for", default_builtins_module()),
@@ -901,16 +919,12 @@ mod tests {
             djls_conf::DiagnosticsConfig::default()
         }
 
-        fn template_symbols(&self) -> Option<TemplateSymbols> {
-            None
+        fn template_libraries(&self) -> TemplateLibraries {
+            TemplateLibraries::default()
         }
 
         fn filter_arity_specs(&self) -> FilterAritySpecs {
             self.arity_specs.clone()
-        }
-
-        fn template_tag_libraries(&self) -> Option<djls_project::TemplateTagLibraries> {
-            None
         }
     }
 

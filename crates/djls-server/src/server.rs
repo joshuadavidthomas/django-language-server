@@ -223,7 +223,7 @@ impl LanguageServer for DjangoLanguageServer {
                 let mut session_lock = session.lock().await;
                 let db = session_lock.db_mut();
 
-                db.update_template_tag_libraries(env_inventory);
+                db.update_discovered_template_libraries(env_inventory);
 
                 if let Some(project) = db.project() {
                     let path = project.root(db).clone();
@@ -312,44 +312,37 @@ impl LanguageServer for DjangoLanguageServer {
                 let encoding = session.client_info().position_encoding();
                 let file_kind = FileKind::from(&path);
                 let db = session.db();
-                let template_tags = if let Some(project) = db.project() {
-                    tracing::debug!("Fetching templatetags for project");
-                    let tags = djls_project::template_symbols(db, project);
-                    if let Some(ref t) = tags {
-                        tracing::debug!("Got {} templatetags", t.len());
-                    } else {
-                        tracing::warn!("No templatetags returned from project");
-                    }
-                    tags
-                } else {
-                    tracing::warn!("No project available for templatetags");
-                    None
-                };
+                let template_libraries = db.project().map(|project| project.template_libraries(db));
+
                 let tag_specs = db.tag_specs();
                 let supports_snippets = session.client_info().supports_snippets();
 
                 // Compute position-aware available symbols for load-scoped completions.
-                // Only computed when inspector inventory is available and file is a template.
+                // Only computed when installed libraries are known and file is a template.
                 let available_symbols = if file_kind == FileKind::Template {
-                    let inventory = db.template_symbols();
-                    if let Some(ref inv) = inventory {
-                        let file = db.get_or_create_file(&path);
-                        let nodelist = djls_templates::parse_template(db, file);
-                        nodelist.map(|nl| {
-                            let loaded = djls_semantic::compute_loaded_libraries(db, nl);
-                            let line_index = file.line_index(db);
-                            let source_text = file.source(db);
-                            let byte_offset = line_index.offset(
-                                source_text.as_str(),
-                                djls_source::LineCol::new(position.line, position.character),
-                                encoding,
-                            );
-                            djls_semantic::AvailableSymbols::at_position(
-                                &loaded,
-                                inv,
-                                byte_offset.get(),
-                            )
-                        })
+                    if let Some(template_libraries) = template_libraries {
+                        if let Some(installed) = template_libraries.installed().as_known() {
+                            let file = db.get_or_create_file(&path);
+                            let nodelist = djls_templates::parse_template(db, file);
+
+                            nodelist.map(|nl| {
+                                let loaded = djls_semantic::compute_loaded_libraries(db, nl);
+                                let line_index = file.line_index(db);
+                                let source_text = file.source(db);
+                                let byte_offset = line_index.offset(
+                                    source_text.as_str(),
+                                    djls_source::LineCol::new(position.line, position.character),
+                                    encoding,
+                                );
+                                djls_semantic::AvailableSymbols::at_position(
+                                    &loaded,
+                                    installed,
+                                    byte_offset.get(),
+                                )
+                            })
+                        } else {
+                            None
+                        }
                     } else {
                         None
                     }
@@ -362,7 +355,7 @@ impl LanguageServer for DjangoLanguageServer {
                     position,
                     encoding,
                     file_kind,
-                    template_tags.as_ref(),
+                    template_libraries,
                     Some(&tag_specs),
                     available_symbols.as_ref(),
                     supports_snippets,
@@ -532,7 +525,7 @@ impl LanguageServer for DjangoLanguageServer {
                 let mut session_lock = session.lock().await;
                 let db = session_lock.db_mut();
 
-                db.update_template_tag_libraries(env_inventory);
+                db.update_discovered_template_libraries(env_inventory);
 
                 if let Some(project) = db.project() {
                     project.initialize(db);

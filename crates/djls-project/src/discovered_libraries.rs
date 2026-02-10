@@ -5,9 +5,9 @@ use camino::Utf8PathBuf;
 use serde::Deserialize;
 use serde::Serialize;
 
-/// A Django template tag library discovered by scanning `templatetags/` directories across `sys.path`.
+/// A Django template library discovered by scanning `templatetags/` directories across `sys.path`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TemplateTagLibrary {
+pub struct DiscoveredTemplateLibrary {
     /// The load name used in `{% load X %}` (derived from filename stem).
     pub load_name: String,
     /// The dotted Python module path of the containing app (e.g., `django.contrib.humanize`).
@@ -25,7 +25,7 @@ pub struct TemplateTagLibrary {
 
 /// A tag or filter name found in the environment, annotated with the library that provides it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TemplateTagLibrarySymbol {
+pub struct DiscoveredTemplateLibrarySymbol {
     /// The tag or filter name.
     pub name: String,
     /// The load name of the library providing this symbol.
@@ -40,21 +40,21 @@ pub struct TemplateTagLibrarySymbol {
 /// This is a superset of the inspector inventory — it includes libraries from
 /// apps that may not be in `INSTALLED_APPS`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TemplateTagLibraries {
+pub struct DiscoveredTemplateLibraries {
     /// Map from load name → list of libraries (Vec because name collisions across packages are possible).
-    libraries: BTreeMap<String, Vec<TemplateTagLibrary>>,
+    libraries: BTreeMap<String, Vec<DiscoveredTemplateLibrary>>,
 }
 
-impl TemplateTagLibraries {
-    /// Create a new `TemplateTagLibraries` from the given library map.
+impl DiscoveredTemplateLibraries {
+    /// Create a new `DiscoveredTemplateLibraries` from the given library map.
     #[must_use]
-    pub fn new(libraries: BTreeMap<String, Vec<TemplateTagLibrary>>) -> Self {
+    pub fn new(libraries: BTreeMap<String, Vec<DiscoveredTemplateLibrary>>) -> Self {
         Self { libraries }
     }
 
     /// All discovered libraries, grouped by load name.
     #[must_use]
-    pub fn libraries(&self) -> &BTreeMap<String, Vec<TemplateTagLibrary>> {
+    pub fn libraries(&self) -> &BTreeMap<String, Vec<DiscoveredTemplateLibrary>> {
         &self.libraries
     }
 
@@ -66,7 +66,7 @@ impl TemplateTagLibraries {
 
     /// Get all libraries registered under a given load name.
     #[must_use]
-    pub fn libraries_for_name(&self, name: &str) -> &[TemplateTagLibrary] {
+    pub fn libraries_for_name(&self, name: &str) -> &[DiscoveredTemplateLibrary] {
         self.libraries
             .get(name)
             .map(Vec::as_slice)
@@ -87,18 +87,18 @@ impl TemplateTagLibraries {
 
     /// Reverse lookup: for each tag name, list all environment libraries providing it.
     #[must_use]
-    pub fn tags_by_name(&self) -> HashMap<String, Vec<TemplateTagLibrarySymbol>> {
-        let mut map: HashMap<String, Vec<TemplateTagLibrarySymbol>> = HashMap::new();
+    pub fn tags_by_name(&self) -> HashMap<String, Vec<DiscoveredTemplateLibrarySymbol>> {
+        let mut map: HashMap<String, Vec<DiscoveredTemplateLibrarySymbol>> = HashMap::new();
         for libs in self.libraries.values() {
             for lib in libs {
                 for tag_name in &lib.tags {
-                    map.entry(tag_name.clone())
-                        .or_default()
-                        .push(TemplateTagLibrarySymbol {
+                    map.entry(tag_name.clone()).or_default().push(
+                        DiscoveredTemplateLibrarySymbol {
                             name: tag_name.clone(),
                             library_load_name: lib.load_name.clone(),
                             app_module: lib.app_module.clone(),
-                        });
+                        },
+                    );
                 }
             }
         }
@@ -107,18 +107,18 @@ impl TemplateTagLibraries {
 
     /// Reverse lookup: for each filter name, list all environment libraries providing it.
     #[must_use]
-    pub fn filters_by_name(&self) -> HashMap<String, Vec<TemplateTagLibrarySymbol>> {
-        let mut map: HashMap<String, Vec<TemplateTagLibrarySymbol>> = HashMap::new();
+    pub fn filters_by_name(&self) -> HashMap<String, Vec<DiscoveredTemplateLibrarySymbol>> {
+        let mut map: HashMap<String, Vec<DiscoveredTemplateLibrarySymbol>> = HashMap::new();
         for libs in self.libraries.values() {
             for lib in libs {
                 for filter_name in &lib.filters {
-                    map.entry(filter_name.clone())
-                        .or_default()
-                        .push(TemplateTagLibrarySymbol {
+                    map.entry(filter_name.clone()).or_default().push(
+                        DiscoveredTemplateLibrarySymbol {
                             name: filter_name.clone(),
                             library_load_name: lib.load_name.clone(),
                             app_module: lib.app_module.clone(),
-                        });
+                        },
+                    );
                 }
             }
         }

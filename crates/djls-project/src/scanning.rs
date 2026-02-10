@@ -5,8 +5,8 @@ use camino::Utf8PathBuf;
 use djls_python::collect_registrations_from_body;
 use djls_python::SymbolKind;
 
-use crate::TemplateTagLibraries;
-use crate::TemplateTagLibrary;
+use crate::DiscoveredTemplateLibraries;
+use crate::DiscoveredTemplateLibrary;
 
 /// Scan Python environment paths to discover all template tag libraries.
 ///
@@ -17,8 +17,8 @@ use crate::TemplateTagLibrary;
 /// This is a library-level scan only — `tags` and `filters` are empty.
 /// Use [`scan_environment_with_symbols`] for symbol-level extraction.
 #[must_use]
-pub fn scan_environment(sys_paths: &[Utf8PathBuf]) -> TemplateTagLibraries {
-    let mut libraries: BTreeMap<String, Vec<TemplateTagLibrary>> = BTreeMap::new();
+pub fn scan_environment(sys_paths: &[Utf8PathBuf]) -> DiscoveredTemplateLibraries {
+    let mut libraries: BTreeMap<String, Vec<DiscoveredTemplateLibrary>> = BTreeMap::new();
 
     for sys_path in sys_paths {
         if !sys_path.is_dir() {
@@ -27,7 +27,7 @@ pub fn scan_environment(sys_paths: &[Utf8PathBuf]) -> TemplateTagLibraries {
         scan_sys_path_entry(sys_path, false, &mut libraries);
     }
 
-    TemplateTagLibraries::new(libraries)
+    DiscoveredTemplateLibraries::new(libraries)
 }
 
 /// Scan Python environment paths and extract symbol-level information.
@@ -36,8 +36,8 @@ pub fn scan_environment(sys_paths: &[Utf8PathBuf]) -> TemplateTagLibraries {
 /// with Ruff to extract tag and filter registration names. If a file fails
 /// to parse, the library is still included with empty `tags`/`filters`.
 #[must_use]
-pub fn scan_environment_with_symbols(sys_paths: &[Utf8PathBuf]) -> TemplateTagLibraries {
-    let mut libraries: BTreeMap<String, Vec<TemplateTagLibrary>> = BTreeMap::new();
+pub fn scan_environment_with_symbols(sys_paths: &[Utf8PathBuf]) -> DiscoveredTemplateLibraries {
+    let mut libraries: BTreeMap<String, Vec<DiscoveredTemplateLibrary>> = BTreeMap::new();
 
     for sys_path in sys_paths {
         if !sys_path.is_dir() {
@@ -46,13 +46,13 @@ pub fn scan_environment_with_symbols(sys_paths: &[Utf8PathBuf]) -> TemplateTagLi
         scan_sys_path_entry(sys_path, true, &mut libraries);
     }
 
-    TemplateTagLibraries::new(libraries)
+    DiscoveredTemplateLibraries::new(libraries)
 }
 
 fn scan_sys_path_entry(
     sys_path: &Utf8Path,
     extract_symbols: bool,
-    libraries: &mut BTreeMap<String, Vec<TemplateTagLibrary>>,
+    libraries: &mut BTreeMap<String, Vec<DiscoveredTemplateLibrary>>,
 ) {
     let Ok(top_entries) = std::fs::read_dir(sys_path.as_std_path()) else {
         return;
@@ -75,7 +75,7 @@ fn scan_package_tree(
     dir: &Utf8Path,
     sys_path: &Utf8Path,
     extract_symbols: bool,
-    libraries: &mut BTreeMap<String, Vec<TemplateTagLibrary>>,
+    libraries: &mut BTreeMap<String, Vec<DiscoveredTemplateLibrary>>,
 ) {
     let templatetags_dir = dir.join("templatetags");
     if templatetags_dir.is_dir() {
@@ -121,7 +121,7 @@ fn scan_templatetags_dir(
     templatetags_dir: &Utf8Path,
     sys_path: &Utf8Path,
     extract_symbols: bool,
-    libraries: &mut BTreeMap<String, Vec<TemplateTagLibrary>>,
+    libraries: &mut BTreeMap<String, Vec<DiscoveredTemplateLibrary>>,
 ) {
     let Ok(entries) = std::fs::read_dir(templatetags_dir.as_std_path()) else {
         return;
@@ -182,7 +182,7 @@ fn scan_templatetags_dir(
             (Vec::new(), Vec::new())
         };
 
-        let lib = TemplateTagLibrary {
+        let lib = DiscoveredTemplateLibrary {
             load_name: load_name.clone(),
             app_module,
             module_path,
@@ -384,7 +384,7 @@ mod tests {
 
     #[test]
     fn libraries_for_unknown_name_returns_empty() {
-        let inventory = TemplateTagLibraries::default();
+        let inventory = DiscoveredTemplateLibraries::default();
         assert!(inventory.libraries_for_name("nonexistent").is_empty());
     }
 

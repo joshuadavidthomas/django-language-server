@@ -201,3 +201,6 @@ djls.db
 .corpus/
 .pi-sessions/
 target_local/
+
+# Local Django clone for reference
+django/

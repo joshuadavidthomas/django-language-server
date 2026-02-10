@@ -14,11 +14,12 @@ use djls_project::build_search_paths;
 use djls_project::template_dirs;
 use djls_project::Db as ProjectDb;
 use djls_project::Inspector;
+use djls_project::InstalledTemplateLibraries;
+use djls_project::InstalledTemplateLibrariesRequest;
+use djls_project::InstalledTemplateLibrariesResponse;
 use djls_project::Interpreter;
 use djls_project::Project;
-use djls_project::TemplateSymbols;
-use djls_project::TemplateSymbolsRequest;
-use djls_project::TemplateSymbolsResponse;
+use djls_project::TemplateLibraries;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::TagIndex;
 use djls_semantic::TagSpecs;
@@ -32,7 +33,7 @@ use salsa::Setter;
 
 /// Compute `TagSpecs` from extraction results.
 ///
-/// This tracked function reads `project.template_symbols(db)` and
+/// This tracked function reads `project.template_libraries(db)` and
 /// `project.extracted_external_rules(db)` to establish Salsa dependencies.
 /// It starts from empty specs and populates purely from extraction results
 /// (both workspace modules via tracked queries and external modules from
@@ -41,7 +42,7 @@ use salsa::Setter;
 /// Does NOT read from `Arc<Mutex<Settings>>`.
 #[salsa::tracked]
 pub fn compute_tag_specs(db: &dyn SemanticDb, project: Project) -> TagSpecs {
-    let _symbols = project.template_symbols(db);
+    let _libraries = project.template_libraries(db);
 
     let mut specs = TagSpecs::default();
 
@@ -112,16 +113,15 @@ fn collect_workspace_extraction_results(
     db: &dyn SemanticDb,
     project: Project,
 ) -> Vec<(String, djls_python::ExtractionResult)> {
-    let inventory = project.template_symbols(db);
+    let template_libraries = project.template_libraries(db);
     let interpreter = project.interpreter(db);
     let root = project.root(db);
     let pythonpath = project.pythonpath(db);
 
-    let Some(inventory) = inventory else {
+    let module_paths = template_libraries.installed_registration_modules();
+    if module_paths.is_empty() {
         return Vec::new();
-    };
-
-    let module_paths = inventory.registration_modules();
+    }
 
     let search_paths = build_search_paths(interpreter, root, pythonpath);
 
@@ -308,50 +308,55 @@ impl DjangoDatabase {
     /// querying the inspector subprocess directly and only calling Salsa
     /// setters when values have actually changed (Ruff/RA pattern).
     pub fn refresh_inspector(&mut self) {
-        let new_inventory = self.query_inspector();
-        self.extract_external_rules(new_inventory.as_ref());
+        let installed = self.query_inspector_installed_libraries();
+        self.extract_external_rules(&installed);
     }
 
-    /// Query the Python inspector subprocess and update the project's
-    /// template tag inventory if the result differs from the current value.
-    ///
-    /// Returns the new inventory for use by downstream refresh operations.
-    fn query_inspector(&mut self) -> Option<TemplateSymbols> {
-        let project = self.project()?;
+    /// Query the Python inspector subprocess and update the project's installed
+    /// template libraries and symbols.
+    fn query_inspector_installed_libraries(&mut self) -> InstalledTemplateLibraries {
+        let Some(project) = self.project() else {
+            return InstalledTemplateLibraries::Unknown;
+        };
 
         let interpreter = project.interpreter(self).clone();
         let root = project.root(self).clone();
         let dsm = project.django_settings_module(self).clone();
         let pythonpath = project.pythonpath(self).clone();
 
-        let new_inventory = match self
+        let installed = match self
             .inspector
-            .query::<TemplateSymbolsRequest, TemplateSymbolsResponse>(
+            .query::<InstalledTemplateLibrariesRequest, InstalledTemplateLibrariesResponse>(
                 &interpreter,
                 &root,
                 dsm.as_deref(),
                 &pythonpath,
-                &TemplateSymbolsRequest,
+                &InstalledTemplateLibrariesRequest,
             ) {
-            Ok(response) if response.ok => response.data.map(TemplateSymbols::from_response),
+            Ok(response) if response.ok => response.data.map_or(
+                InstalledTemplateLibraries::Unknown,
+                InstalledTemplateLibraries::from_response,
+            ),
             Ok(response) => {
                 tracing::warn!(
                     "query_inspector: inspector returned ok=false, error={:?}",
                     response.error
                 );
-                None
+                InstalledTemplateLibraries::Unknown
             }
             Err(e) => {
                 tracing::error!("query_inspector: inspector query failed: {}", e);
-                None
+                InstalledTemplateLibraries::Unknown
             }
         };
 
-        if project.template_symbols(self) != &new_inventory {
-            project.set_template_symbols(self).to(new_inventory.clone());
+        let current = project.template_libraries(self).clone();
+        let next = current.replace_installed(installed.clone());
+        if project.template_libraries(self) != &next {
+            project.set_template_libraries(self).to(next);
         }
 
-        new_inventory
+        installed
     }
 
     /// Extract validation rules from external (non-workspace) registration modules
@@ -359,7 +364,7 @@ impl DjangoDatabase {
     ///
     /// Workspace modules are handled separately by `collect_workspace_extraction_results`
     /// which uses tracked Salsa queries for automatic invalidation on file change.
-    fn extract_external_rules(&mut self, inventory: Option<&TemplateSymbols>) {
+    fn extract_external_rules(&mut self, installed: &InstalledTemplateLibraries) {
         let Some(project) = self.project() else {
             return;
         };
@@ -368,12 +373,13 @@ impl DjangoDatabase {
         let root = project.root(self).clone();
         let pythonpath = project.pythonpath(self).clone();
 
-        let new_extraction = inventory
-            .map(|inv| {
-                let modules = inv.registration_modules();
+        let new_extraction = match installed {
+            InstalledTemplateLibraries::Known(known) => {
+                let modules = known.registration_modules();
                 djls_project::extract_external_rules(&modules, &interpreter, &root, &pythonpath)
-            })
-            .unwrap_or_default();
+            }
+            InstalledTemplateLibraries::Unknown => rustc_hash::FxHashMap::default(),
+        };
 
         if project.extracted_external_rules(self) != &new_extraction {
             project
@@ -382,18 +388,22 @@ impl DjangoDatabase {
         }
     }
 
-    /// Update the project's scanned template-tag libraries.
+    /// Update the project's discovered template libraries.
     ///
     /// This is a side-effect operation that should be run off the LSP request path.
     /// It only calls Salsa setters when values have actually changed.
-    pub fn update_template_tag_libraries(&mut self, libraries: djls_project::TemplateTagLibraries) {
+    pub fn update_discovered_template_libraries(
+        &mut self,
+        libraries: djls_project::DiscoveredTemplateLibraries,
+    ) {
         let Some(project) = self.project() else {
             return;
         };
 
-        let new_libraries = Some(libraries);
-        if project.template_tag_libraries(self) != &new_libraries {
-            project.set_template_tag_libraries(self).to(new_libraries);
+        let current = project.template_libraries(self).clone();
+        let next = current.replace_discovered(libraries);
+        if project.template_libraries(self) != &next {
+            project.set_template_libraries(self).to(next);
         }
     }
 
@@ -467,9 +477,10 @@ impl SemanticDb for DjangoDatabase {
         }
     }
 
-    fn template_symbols(&self) -> Option<TemplateSymbols> {
+    fn template_libraries(&self) -> TemplateLibraries {
         self.project()
-            .and_then(|project| project.template_symbols(self).clone())
+            .map(|project| project.template_libraries(self).clone())
+            .unwrap_or_default()
     }
 
     fn filter_arity_specs(&self) -> djls_semantic::FilterAritySpecs {
@@ -478,11 +489,6 @@ impl SemanticDb for DjangoDatabase {
         } else {
             djls_semantic::FilterAritySpecs::new()
         }
-    }
-
-    fn template_tag_libraries(&self) -> Option<djls_project::TemplateTagLibraries> {
-        self.project()
-            .and_then(|project| project.template_tag_libraries(self).clone())
     }
 }
 
@@ -499,14 +505,18 @@ impl ProjectDb for DjangoDatabase {
 
 #[cfg(test)]
 mod invalidation_tests {
-    use std::collections::HashMap;
+    use std::collections::BTreeMap;
     use std::sync::Arc;
     use std::sync::Mutex;
 
     use djls_conf::Settings;
+    use djls_project::DiscoveredTemplateLibraries;
+    use djls_project::DiscoveredTemplateLibrary;
+    use djls_project::InstalledTemplateLibraries;
     use djls_project::Interpreter;
+    use djls_project::KnownInstalledTemplateLibraries;
     use djls_project::Project;
-    use djls_project::TemplateSymbols;
+    use djls_project::TemplateLibraries;
     use djls_semantic::Db as SemanticDb;
     use djls_source::FxDashMap;
     use djls_workspace::InMemoryFileSystem;
@@ -578,9 +588,8 @@ mod invalidation_tests {
             interpreter,
             dsm,
             settings.pythonpath().to_vec(),
-            None,
+            TemplateLibraries::default(),
             rustc_hash::FxHashMap::default(),
-            None,
             settings.diagnostics().clone(),
         );
         *db.project.lock().unwrap() = Some(project);
@@ -610,29 +619,30 @@ mod invalidation_tests {
     }
 
     #[test]
-    fn template_symbols_change_invalidates_compute_tag_specs() {
+    fn template_libraries_change_invalidates_compute_tag_specs() {
         let (mut db, event_log) = test_db_with_project();
 
         // Prime the cache
         let _specs = db.tag_specs();
         event_log.take();
 
-        // Update template_symbols on the project
+        // Update template_libraries on the project
         let project = db.project.lock().unwrap().unwrap();
-        let new_inventory = Some(TemplateSymbols::new(
-            vec![],
-            vec![],
-            HashMap::default(),
-            vec![],
-        ));
-        project.set_template_symbols(&mut db).to(new_inventory);
+
+        let installed =
+            KnownInstalledTemplateLibraries::new(vec![], vec![], BTreeMap::new(), vec![]);
+
+        let new_libraries = TemplateLibraries::default()
+            .replace_installed(InstalledTemplateLibraries::Known(installed));
+
+        project.set_template_libraries(&mut db).to(new_libraries);
 
         // Access again — should re-execute
         let _specs = db.tag_specs();
         let events = event_log.take();
         assert!(
             was_executed(&db, &events, "compute_tag_specs"),
-            "compute_tag_specs should re-execute after template_symbols change"
+            "compute_tag_specs should re-execute after template_libraries change"
         );
     }
 
@@ -853,28 +863,26 @@ def my_filter(value, arg):
     }
 
     #[test]
-    fn template_tag_libraries_stored_on_project() {
+    fn discovered_template_libraries_stored_on_project() {
         let (db, _event_log) = test_db_with_project();
 
-        // Initially None
         let project = db.project.lock().unwrap().unwrap();
         assert!(
-            project.template_tag_libraries(&db).is_none(),
-            "environment inventory should initially be None"
+            project.template_libraries(&db).discovered().is_empty(),
+            "discovered template libraries should initially be empty"
         );
     }
 
     #[test]
-    fn template_tag_libraries_setter_updates_value() {
+    fn discovered_template_libraries_setter_updates_value() {
         let (mut db, _event_log) = test_db_with_project();
 
         let project = db.project.lock().unwrap().unwrap();
 
-        // Set a non-empty environment inventory
         let mut libraries = std::collections::BTreeMap::new();
         libraries.insert(
             "humanize".to_string(),
-            vec![djls_project::TemplateTagLibrary {
+            vec![DiscoveredTemplateLibrary {
                 load_name: "humanize".to_string(),
                 app_module: "django.contrib.humanize".to_string(),
                 module_path: "django.contrib.humanize.templatetags.humanize".to_string(),
@@ -885,19 +893,22 @@ def my_filter(value, arg):
                 filters: vec!["intcomma".to_string(), "intword".to_string()],
             }],
         );
-        let inventory = djls_project::TemplateTagLibraries::new(libraries);
-        project
-            .set_template_tag_libraries(&mut db)
-            .to(Some(inventory.clone()));
+        let discovered = DiscoveredTemplateLibraries::new(libraries);
 
-        // Verify it's set
-        let stored = project.template_tag_libraries(&db);
-        assert!(stored.is_some());
-        assert!(stored.as_ref().unwrap().has_library("humanize"));
+        let next = project
+            .template_libraries(&db)
+            .clone()
+            .replace_discovered(discovered);
+        project.set_template_libraries(&mut db).to(next);
+
+        assert!(project
+            .template_libraries(&db)
+            .discovered()
+            .has_library("humanize"));
     }
 
     #[test]
-    fn template_tag_libraries_same_value_no_invalidation() {
+    fn template_libraries_same_value_no_invalidation() {
         let (mut db, event_log) = test_db_with_project();
 
         // Prime tag_specs cache
@@ -906,11 +917,11 @@ def my_filter(value, arg):
 
         let project = db.project.lock().unwrap().unwrap();
 
-        // Setting None when already None should not trigger invalidation
+        // Setting the same value should not trigger invalidation.
         // (manual comparison prevents setter call)
-        let current = project.template_tag_libraries(&db).clone();
-        if project.template_tag_libraries(&db) != &current {
-            project.set_template_tag_libraries(&mut db).to(current);
+        let current = project.template_libraries(&db).clone();
+        if project.template_libraries(&db) != &current {
+            project.set_template_libraries(&mut db).to(current);
         }
 
         // tag_specs should NOT re-execute
@@ -918,7 +929,7 @@ def my_filter(value, arg):
         let events = event_log.take();
         assert!(
             !was_executed(&db, &events, "compute_tag_specs"),
-            "compute_tag_specs should not re-execute when template_tag_libraries unchanged"
+            "compute_tag_specs should not re-execute when template_libraries unchanged"
         );
     }
 

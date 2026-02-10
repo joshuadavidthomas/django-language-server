@@ -20,7 +20,8 @@ use crate::ValidationErrorAccumulator;
 /// - Nodes inside opaque regions are skipped.
 /// - Filters with no known arity spec are silently skipped (no false positives).
 pub fn validate_filter_arity(db: &dyn Db, nodelist: NodeList<'_>, opaque_regions: &OpaqueRegions) {
-    if db.template_symbols().is_none() {
+    let template_libraries = db.template_libraries();
+    if template_libraries.installed().as_known().is_none() {
         return;
     }
 
@@ -66,13 +67,15 @@ pub fn validate_filter_arity(db: &dyn Db, nodelist: NodeList<'_>, opaque_regions
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use std::collections::BTreeMap;
     use std::sync::Arc;
     use std::sync::Mutex;
 
     use camino::Utf8Path;
     use camino::Utf8PathBuf;
-    use djls_project::TemplateSymbols;
+    use djls_project::InstalledTemplateLibraries;
+    use djls_project::KnownInstalledTemplateLibraries;
+    use djls_project::TemplateLibraries;
     use djls_python::FilterArity;
     use djls_python::SymbolKey;
     use djls_source::Db as SourceDb;
@@ -94,7 +97,7 @@ mod tests {
     struct TestDatabase {
         storage: salsa::Storage<Self>,
         fs: Arc<Mutex<InMemoryFileSystem>>,
-        inventory: Option<TemplateSymbols>,
+        template_libraries: TemplateLibraries,
         arity_specs: FilterAritySpecs,
     }
 
@@ -103,19 +106,19 @@ mod tests {
             Self {
                 storage: salsa::Storage::default(),
                 fs: Arc::new(Mutex::new(InMemoryFileSystem::new())),
-                inventory: None,
+                template_libraries: TemplateLibraries::default(),
                 arity_specs: FilterAritySpecs::new(),
             }
         }
 
         fn with_inventory_and_arities(
-            inventory: TemplateSymbols,
+            template_libraries: TemplateLibraries,
             arity_specs: FilterAritySpecs,
         ) -> Self {
             Self {
                 storage: salsa::Storage::default(),
                 fs: Arc::new(Mutex::new(InMemoryFileSystem::new())),
-                inventory: Some(inventory),
+                template_libraries,
                 arity_specs,
             }
         }
@@ -167,16 +170,12 @@ mod tests {
             djls_conf::DiagnosticsConfig::default()
         }
 
-        fn template_symbols(&self) -> Option<TemplateSymbols> {
-            self.inventory.clone()
+        fn template_libraries(&self) -> TemplateLibraries {
+            self.template_libraries.clone()
         }
 
         fn filter_arity_specs(&self) -> FilterAritySpecs {
             self.arity_specs.clone()
-        }
-
-        fn template_tag_libraries(&self) -> Option<djls_project::TemplateTagLibraries> {
-            None
         }
     }
 
@@ -189,7 +188,7 @@ mod tests {
         })
     }
 
-    fn make_inventory_with_filters(filters: &[serde_json::Value]) -> TemplateSymbols {
+    fn make_template_libraries_with_filters(filters: &[serde_json::Value]) -> TemplateLibraries {
         let tags: Vec<serde_json::Value> = vec![
             serde_json::json!({
                 "name": "if",
@@ -210,18 +209,29 @@ mod tests {
                 "doc": null,
             }),
         ];
-        let libraries: HashMap<String, String> = HashMap::new();
+
+        let tags: Vec<djls_project::InstalledTemplateTag> = tags
+            .into_iter()
+            .map(serde_json::from_value)
+            .collect::<Result<_, _>>()
+            .unwrap();
+
+        let filters: Vec<djls_project::InstalledTemplateFilter> = filters
+            .iter()
+            .cloned()
+            .map(serde_json::from_value)
+            .collect::<Result<_, _>>()
+            .unwrap();
+
         let builtins = vec![
             "django.template.defaulttags".to_string(),
             "django.template.defaultfilters".to_string(),
         ];
-        let payload = serde_json::json!({
-            "tags": tags,
-            "filters": filters,
-            "libraries": libraries,
-            "builtins": builtins,
-        });
-        serde_json::from_value(payload).unwrap()
+
+        let installed =
+            KnownInstalledTemplateLibraries::new(tags, filters, BTreeMap::new(), builtins);
+
+        TemplateLibraries::default().replace_installed(InstalledTemplateLibraries::Known(installed))
     }
 
     fn default_arities() -> FilterAritySpecs {
@@ -306,8 +316,8 @@ mod tests {
             builtin_filter_json("truncatechars", "django.template.defaultfilters"),
             builtin_filter_json("date", "django.template.defaultfilters"),
         ];
-        let inventory = make_inventory_with_filters(&filters);
-        TestDatabase::with_inventory_and_arities(inventory, default_arities())
+        let template_libraries = make_template_libraries_with_filters(&filters);
+        TestDatabase::with_inventory_and_arities(template_libraries, default_arities())
     }
 
     #[test]
@@ -433,8 +443,9 @@ mod tests {
             "title",
             "django.template.defaultfilters",
         )];
-        let inventory = make_inventory_with_filters(&filters);
-        let db = TestDatabase::with_inventory_and_arities(inventory, FilterAritySpecs::new());
+        let template_libraries = make_template_libraries_with_filters(&filters);
+        let db =
+            TestDatabase::with_inventory_and_arities(template_libraries, FilterAritySpecs::new());
         let errors = collect_arity_errors(&db, "{{ value|title:\"bad\" }}");
 
         assert!(
