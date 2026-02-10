@@ -32,6 +32,8 @@ pub use filters::extract_filter_arity;
 #[cfg(feature = "parser")]
 pub use parse::analyze_helper;
 #[cfg(feature = "parser")]
+pub use parse::extract_module;
+#[cfg(feature = "parser")]
 pub use parse::parse_python_module;
 #[cfg(feature = "parser")]
 pub use parse::HelperCall;
@@ -82,9 +84,22 @@ pub fn extract_rules(source: &str, module_path: &str) -> ExtractionResult {
     };
     let module = parsed.into_syntax();
 
-    let registrations = registry::collect_registrations_from_body(&module.body);
+    extract_rules_from_body(&module.body, module_path)
+}
 
-    let func_defs: Vec<&ruff_python_ast::StmtFunctionDef> = collect_func_defs(&module.body);
+/// Extract validation rules from a pre-parsed module body.
+///
+/// Shared implementation used by both `extract_rules` (string input) and
+/// `extract_module` (Salsa tracked, pre-parsed AST).
+#[cfg(feature = "parser")]
+#[must_use]
+pub(crate) fn extract_rules_from_body(
+    body: &[ruff_python_ast::Stmt],
+    module_path: &str,
+) -> ExtractionResult {
+    let registrations = registry::collect_registrations_from_body(body);
+
+    let func_defs: Vec<&ruff_python_ast::StmtFunctionDef> = collect_func_defs(body);
 
     let mut result = ExtractionResult::default();
 

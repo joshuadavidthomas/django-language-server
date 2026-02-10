@@ -9,6 +9,7 @@ use crate::dataflow::eval::process_statements;
 use crate::dataflow::eval::CallContext;
 use crate::dataflow::extract_return_value;
 use crate::dataflow::AbstractValueKey;
+use crate::types::ExtractionResult;
 
 /// Parsed Python module AST, cached by Salsa.
 ///
@@ -113,6 +114,24 @@ fn analyze_helper_cycle_recover(
     _call: HelperCall<'_>,
 ) -> AbstractValue {
     AbstractValue::Unknown
+}
+
+/// Extract validation rules from a Python file, cached by Salsa.
+///
+/// This is the Salsa-tracked entry point for the extraction pipeline.
+/// It parses the file (via `parse_python_module`), collects registrations,
+/// and runs the full extraction. The result is cached and invalidated
+/// when `file.source(db)` changes.
+///
+/// The `registration_module` in returned `SymbolKey`s is empty — callers
+/// must re-key with the actual module path via `ExtractionResult::rekey_module`.
+#[salsa::tracked]
+pub fn extract_module(db: &dyn djls_source::Db, file: File) -> ExtractionResult {
+    let Some(parsed) = parse_python_module(db, file) else {
+        return ExtractionResult::default();
+    };
+
+    crate::extract_rules_from_body(parsed.body(db), "")
 }
 
 fn find_function_def<'a>(body: &'a [Stmt], name: &str) -> Option<&'a StmtFunctionDef> {
