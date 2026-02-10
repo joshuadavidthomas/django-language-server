@@ -105,7 +105,7 @@ pub fn lock_corpus(
             Ok(locked) => packages.push(locked),
             Err(e) => {
                 let label = format!("{} {}", package.name, package.version);
-                eprintln!("  [error] {label}: {e}");
+                tracing::error!(label, error = %e, "failed to resolve package");
                 errors.push(label);
                 if let Some(locked) = existing_packages.get(&key) {
                     packages.push((*locked).clone());
@@ -125,7 +125,7 @@ pub fn lock_corpus(
         match resolve_repo(repo, existing_repos.get(repo.name.as_str()).copied()) {
             Ok(locked) => repos.push(locked),
             Err(e) => {
-                eprintln!("  [error] {}: {e}", repo.name);
+                tracing::error!(name = repo.name, error = %e, "failed to resolve repo");
                 errors.push(repo.name.clone());
                 if let Some(locked) = existing_repos.get(repo.name.as_str()) {
                     repos.push((*locked).clone());
@@ -155,16 +155,18 @@ fn resolve_package(
 
     match existing {
         Some(prev) if prev.resolved == resolved.version => {
-            eprintln!("  [current] {label}: {}", resolved.version);
+            tracing::info!(label, version = resolved.version, "current");
         }
         Some(prev) => {
-            eprintln!(
-                "  [updated] {label}: {} → {}",
-                prev.resolved, resolved.version
+            tracing::info!(
+                label,
+                from = prev.resolved,
+                to = resolved.version,
+                "updated"
             );
         }
         None => {
-            eprintln!("  [new] {label} → {}", resolved.version);
+            tracing::info!(label, version = resolved.version, "new");
         }
     }
 
@@ -187,19 +189,21 @@ fn resolve_repo(repo: &Repo, existing: Option<&LockedRepo>) -> anyhow::Result<Lo
     match existing {
         Some(prev) if prev.git_ref == git_ref => {
             let short = git_ref.get(..12).unwrap_or(&git_ref);
-            eprintln!("  [current] {}: {} ({short})", repo.name, tag);
+            tracing::info!(name = repo.name, tag, git_ref = short, "current");
         }
         Some(prev) => {
             let old_short = prev.git_ref.get(..12).unwrap_or(&prev.git_ref);
             let new_short = git_ref.get(..12).unwrap_or(&git_ref);
-            eprintln!(
-                "  [updated] {}: {} ({old_short}) → {tag} ({new_short})",
-                repo.name, prev.tag
+            tracing::info!(
+                name = repo.name,
+                from = format!("{} ({old_short})", prev.tag),
+                to = format!("{tag} ({new_short})"),
+                "updated"
             );
         }
         None => {
             let short = git_ref.get(..12).unwrap_or(&git_ref);
-            eprintln!("  [new] {} → {tag} ({short})", repo.name);
+            tracing::info!(name = repo.name, tag, git_ref = short, "new");
         }
     }
 

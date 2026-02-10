@@ -4,6 +4,7 @@
 //! This module downloads and extracts them without any network resolution —
 //! all resolution happens in [`crate::lock`].
 
+use std::collections::HashSet;
 use std::io::Read;
 use std::io::Write;
 use std::time::Duration;
@@ -97,11 +98,11 @@ fn sync_package(
     let label = format!("{}-{}", package.name, package.resolved);
 
     if is_synced(&out_dir) {
-        eprintln!("  [skip] {label} (already synced)");
+        tracing::debug!(label, "already synced, skipping");
         return Ok(());
     }
 
-    eprintln!("  [sync] {label}");
+    tracing::info!(label, "syncing");
 
     let (tmp, actual_sha256) = download_tarball(client, &package.url, &label)?;
 
@@ -139,11 +140,11 @@ fn sync_repo(
     let label = format!("{} @ {} ({short_ref})", repo.name, repo.tag);
 
     if is_synced(&out_dir) {
-        eprintln!("  [skip] {label} (already synced)");
+        tracing::debug!(label, "already synced, skipping");
         return Ok(());
     }
 
-    eprintln!("  [sync] {label}");
+    tracing::info!(label, "syncing");
 
     let base_url = repo.url.trim_end_matches(".git");
     let url = format!("{base_url}/archive/{}.tar.gz", repo.git_ref);
@@ -165,7 +166,7 @@ fn sync_repo(
     Ok(())
 }
 
-pub fn sync_corpus(lockfile: &Lockfile, corpus_root: &Utf8Path) -> anyhow::Result<()> {
+pub fn sync_corpus(lockfile: &Lockfile, corpus_root: &Utf8Path, prune: bool) -> anyhow::Result<()> {
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(300))
         .build()?;
@@ -181,7 +182,7 @@ pub fn sync_corpus(lockfile: &Lockfile, corpus_root: &Utf8Path) -> anyhow::Resul
     for package in &lockfile.packages {
         if let Err(e) = sync_package(&client, package, &packages_dir) {
             let label = format!("{}-{}", package.name, package.resolved);
-            eprintln!("Warning: Failed to sync {label}: {e}");
+            tracing::warn!(label, error = %e, "failed to sync package");
             errors.push(label);
         }
     }
@@ -190,9 +191,13 @@ pub fn sync_corpus(lockfile: &Lockfile, corpus_root: &Utf8Path) -> anyhow::Resul
         if let Err(e) = sync_repo(&client, repo, &repos_dir) {
             let short_ref = repo.git_ref.get(..12).unwrap_or(&repo.git_ref);
             let label = format!("{} @ {short_ref}", repo.name);
-            eprintln!("Warning: Failed to sync {label}: {e}");
+            tracing::warn!(label, error = %e, "failed to sync repo");
             errors.push(label);
         }
+    }
+
+    if prune {
+        prune_corpus(lockfile, corpus_root)?;
     }
 
     if !errors.is_empty() {
@@ -201,6 +206,99 @@ pub fn sync_corpus(lockfile: &Lockfile, corpus_root: &Utf8Path) -> anyhow::Resul
             errors.len(),
             errors.join(", ")
         );
+    }
+
+    Ok(())
+}
+
+/// Remove synced data for specific packages or repos by name.
+pub fn clean_packages(corpus_root: &Utf8Path, names: &[String]) -> anyhow::Result<()> {
+    let packages_dir = corpus_root.join("packages");
+    let repos_dir = corpus_root.join("repos");
+
+    for name in names {
+        for base in [&packages_dir, &repos_dir] {
+            let dir = base.join(name);
+            if dir.as_std_path().exists() {
+                std::fs::remove_dir_all(dir.as_std_path())?;
+                tracing::info!(name, "cleaned");
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Remove synced versions not present in the lockfile.
+fn prune_corpus(lockfile: &Lockfile, corpus_root: &Utf8Path) -> anyhow::Result<()> {
+    let packages_dir = corpus_root.join("packages");
+    let repos_dir = corpus_root.join("repos");
+
+    // Build sets of expected (name, version/ref) pairs
+    let locked_packages: HashSet<(&str, &str)> = lockfile
+        .packages
+        .iter()
+        .map(|p| (p.name.as_str(), p.resolved.as_str()))
+        .collect();
+
+    let locked_repos: HashSet<(&str, &str)> = lockfile
+        .repos
+        .iter()
+        .map(|r| (r.name.as_str(), r.git_ref.as_str()))
+        .collect();
+
+    prune_dir(&packages_dir, &locked_packages)?;
+    prune_dir(&repos_dir, &locked_repos)?;
+
+    Ok(())
+}
+
+/// Walk `{base}/{name}/{version_or_ref}/` and remove entries not in `keep`.
+///
+/// Also removes empty `{name}/` parent directories after pruning.
+fn prune_dir(base: &Utf8Path, keep: &HashSet<(&str, &str)>) -> anyhow::Result<()> {
+    let Ok(names) = std::fs::read_dir(base.as_std_path()) else {
+        return Ok(());
+    };
+
+    for name_entry in names.filter_map(Result::ok) {
+        if !name_entry.file_type().ok().is_some_and(|ft| ft.is_dir()) {
+            continue;
+        }
+        let Some(name) = name_entry.file_name().to_str().map(String::from) else {
+            continue;
+        };
+
+        let name_dir = base.join(&name);
+        let Ok(versions) = std::fs::read_dir(name_dir.as_std_path()) else {
+            continue;
+        };
+
+        for version_entry in versions.filter_map(Result::ok) {
+            if !version_entry.file_type().ok().is_some_and(|ft| ft.is_dir()) {
+                continue;
+            }
+            let Some(version) = version_entry.file_name().to_str().map(String::from) else {
+                continue;
+            };
+
+            if !keep.contains(&(name.as_str(), version.as_str())) {
+                let stale = name_dir.join(&version);
+                tracing::info!(name, version, "pruned");
+                std::fs::remove_dir_all(stale.as_std_path())?;
+            }
+        }
+
+        // Remove empty parent directory
+        if name_dir
+            .as_std_path()
+            .read_dir()
+            .ok()
+            .is_some_and(|mut d| d.next().is_none())
+        {
+            tracing::info!(name, "pruned empty directory");
+            std::fs::remove_dir(name_dir.as_std_path())?;
+        }
     }
 
     Ok(())

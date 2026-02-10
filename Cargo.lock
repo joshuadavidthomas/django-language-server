@@ -692,6 +692,8 @@ dependencies = [
  "tempfile",
  "toml",
  "toml_edit 0.24.0+spec-1.1.0",
+ "tracing",
+ "tracing-subscriber",
  "walkdir",
 ]
 

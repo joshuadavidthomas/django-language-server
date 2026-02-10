@@ -15,9 +15,6 @@ pub fn add_packages(
     names: &[String],
     bounds: Bounds,
 ) -> anyhow::Result<()> {
-    if names.is_empty() {
-        anyhow::bail!("Specify one or more package names");
-    }
     for name in names {
         add_package(manifest_path, name, bounds)?;
     }
@@ -97,7 +94,7 @@ fn add_package(manifest_path: &Utf8Path, name: &str, bounds: Bounds) -> anyhow::
     let trimmed = output.trim_end().to_string() + "\n";
     std::fs::write(manifest_path.as_std_path(), trimmed)?;
 
-    eprintln!("Added {name} {version_spec} (latest: {latest})");
+    tracing::info!(name, version_spec, latest, "added package");
     Ok(())
 }
 

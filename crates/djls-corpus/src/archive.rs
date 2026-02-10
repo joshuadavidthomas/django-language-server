@@ -39,7 +39,7 @@ fn is_download_relevant(path: &str) -> bool {
 /// [`is_download_relevant`], and rejects paths with `..` components
 /// to prevent directory traversal. Only regular files are extracted;
 /// directories are created implicitly via parent directory creation,
-/// and symlinks are rejected.
+/// and symlinks/hard links are silently skipped.
 pub fn extract_tarball<R: Read>(reader: R, out_dir: &Utf8Path) -> anyhow::Result<()> {
     let gz = flate2::read::GzDecoder::new(reader);
     let mut archive = tar::Archive::new(gz);
@@ -56,9 +56,10 @@ pub fn extract_tarball<R: Read>(reader: R, out_dir: &Utf8Path) -> anyhow::Result
             continue;
         }
 
-        // Reject symlinks and hard links to prevent path-based attacks.
+        // Skip symlinks and hard links — don't follow them, just ignore.
         if entry_type == tar::EntryType::Symlink || entry_type == tar::EntryType::Link {
-            anyhow::bail!("Refusing to extract link entry from tarball: {entry_path}");
+            tracing::warn!(path = entry_path, "skipping link entry");
+            continue;
         }
 
         // Only extract regular files (and Continuous, which is treated as regular).
@@ -200,59 +201,99 @@ mod tests {
     }
 
     #[test]
-    fn rejects_symlink_entries() {
+    fn skips_symlink_entries() {
         let data = build_test_tarball(|builder| {
-            let mut header = tar::Header::new_gnu();
-            header.set_entry_type(tar::EntryType::Symlink);
-            header.set_size(0);
-            header.set_mode(0o777);
-            header.set_cksum();
+            // Add a symlink entry
+            let mut sym_header = tar::Header::new_gnu();
+            sym_header.set_entry_type(tar::EntryType::Symlink);
+            sym_header.set_size(0);
+            sym_header.set_mode(0o777);
+            sym_header.set_cksum();
             builder
                 .append_link(
-                    &mut header,
+                    &mut sym_header,
                     "Django-5.2/django/templatetags/evil.py",
                     "/etc/passwd",
                 )
                 .unwrap();
-        });
 
-        let (_dir, out) = temp_dir();
-        let result = extract_tarball(data.as_slice(), &out);
-
-        assert!(result.is_err());
-        let err = result.unwrap_err().to_string();
-        assert!(
-            err.contains("Refusing to extract link entry"),
-            "error should mention link rejection, got: {err}"
-        );
-    }
-
-    #[test]
-    fn rejects_hard_link_entries() {
-        let data = build_test_tarball(|builder| {
-            let mut header = tar::Header::new_gnu();
-            header.set_entry_type(tar::EntryType::Link);
-            header.set_size(0);
-            header.set_mode(0o644);
-            header.set_cksum();
+            // Add a real file after the symlink
+            let content = b"# tag code";
+            let mut file_header = tar::Header::new_gnu();
+            file_header.set_entry_type(tar::EntryType::Regular);
+            file_header.set_size(content.len() as u64);
+            file_header.set_mode(0o644);
+            file_header.set_cksum();
             builder
-                .append_link(
-                    &mut header,
-                    "Django-5.2/django/templatetags/evil.py",
+                .append_data(
+                    &mut file_header,
                     "Django-5.2/django/templatetags/i18n.py",
+                    &content[..],
                 )
                 .unwrap();
         });
 
         let (_dir, out) = temp_dir();
-        let result = extract_tarball(data.as_slice(), &out);
+        extract_tarball(data.as_slice(), &out).unwrap();
 
-        assert!(result.is_err());
-        let err = result.unwrap_err().to_string();
-        assert!(
-            err.contains("Refusing to extract link entry"),
-            "error should mention link rejection, got: {err}"
-        );
+        // Symlink should not exist
+        assert!(!out
+            .join("django/templatetags/evil.py")
+            .as_std_path()
+            .exists());
+        // Real file should be extracted
+        assert!(out
+            .join("django/templatetags/i18n.py")
+            .as_std_path()
+            .exists());
+    }
+
+    #[test]
+    fn skips_hard_link_entries() {
+        let data = build_test_tarball(|builder| {
+            // Add a hard link entry
+            let mut link_header = tar::Header::new_gnu();
+            link_header.set_entry_type(tar::EntryType::Link);
+            link_header.set_size(0);
+            link_header.set_mode(0o644);
+            link_header.set_cksum();
+            builder
+                .append_link(
+                    &mut link_header,
+                    "Django-5.2/django/templatetags/evil.py",
+                    "Django-5.2/django/templatetags/i18n.py",
+                )
+                .unwrap();
+
+            // Add a real file after the hard link
+            let content = b"# tag code";
+            let mut file_header = tar::Header::new_gnu();
+            file_header.set_entry_type(tar::EntryType::Regular);
+            file_header.set_size(content.len() as u64);
+            file_header.set_mode(0o644);
+            file_header.set_cksum();
+            builder
+                .append_data(
+                    &mut file_header,
+                    "Django-5.2/django/templatetags/i18n.py",
+                    &content[..],
+                )
+                .unwrap();
+        });
+
+        let (_dir, out) = temp_dir();
+        extract_tarball(data.as_slice(), &out).unwrap();
+
+        // Hard link should not exist
+        assert!(!out
+            .join("django/templatetags/evil.py")
+            .as_std_path()
+            .exists());
+        // Real file should be extracted
+        assert!(out
+            .join("django/templatetags/i18n.py")
+            .as_std_path()
+            .exists());
     }
 
     #[test]

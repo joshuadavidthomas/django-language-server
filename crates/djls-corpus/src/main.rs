@@ -25,9 +25,10 @@ enum Command {
     /// Add `PyPI` packages to the manifest and update the lockfile
     Add {
         /// `PyPI` package names
+        #[arg(required = true)]
         names: Vec<String>,
 
-        /// Version pinning level [default: exact]
+        /// Version pinning level
         #[arg(long, default_value = "exact")]
         bounds: Bounds,
     },
@@ -41,12 +42,24 @@ enum Command {
         /// Re-resolve versions before syncing, ignoring pinned versions in the lockfile
         #[arg(short = 'U', long)]
         upgrade: bool,
+
+        /// Don't remove old versions after syncing
+        #[arg(long)]
+        no_prune: bool,
     },
-    /// Remove all synced corpus data
-    Clean,
+    /// Remove synced corpus data (all by default, or specific packages/repos)
+    Clean {
+        /// Package or repo names to remove (removes all if omitted)
+        names: Vec<String>,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
+    tracing_subscriber::fmt()
+        .with_target(false)
+        .with_writer(std::io::stderr)
+        .init();
+
     let cli = Cli::parse();
 
     let manifest_dir = Utf8Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -68,7 +81,7 @@ fn main() -> anyhow::Result<()> {
             };
             update_lockfile(&manifest_path, &lockfile_path, &filter)?;
         }
-        Command::Sync { upgrade } => {
+        Command::Sync { upgrade, no_prune } => {
             if upgrade {
                 update_lockfile(&manifest_path, &lockfile_path, &LockFilter::All)?;
             }
@@ -81,19 +94,24 @@ fn main() -> anyhow::Result<()> {
             let manifest = Manifest::load(&manifest_path)?;
             let corpus_root = manifest.corpus_root(manifest_dir)?;
 
-            eprintln!("Syncing corpus to {corpus_root}...");
-            djls_corpus::sync::sync_corpus(&lockfile, &corpus_root)?;
-            eprintln!("Corpus synced to {corpus_root}");
+            tracing::info!(%corpus_root, "syncing corpus");
+            djls_corpus::sync::sync_corpus(&lockfile, &corpus_root, !no_prune)?;
+            tracing::info!(%corpus_root, "corpus synced");
         }
-        Command::Clean => {
+        Command::Clean { names } => {
             let manifest = Manifest::load(&manifest_path)?;
             let corpus_root = manifest.corpus_root(manifest_dir)?;
 
-            if corpus_root.as_std_path().exists() {
+            if !corpus_root.as_std_path().exists() {
+                tracing::info!("no corpus to clean");
+                return Ok(());
+            }
+
+            if names.is_empty() {
                 std::fs::remove_dir_all(corpus_root.as_std_path())?;
-                eprintln!("Corpus cleaned");
+                tracing::info!("corpus cleaned");
             } else {
-                eprintln!("No corpus to clean");
+                djls_corpus::sync::clean_packages(&corpus_root, &names)?;
             }
         }
     }
@@ -113,9 +131,9 @@ fn update_lockfile(
         Lockfile::default()
     };
 
-    eprintln!("Resolving latest versions...");
+    tracing::info!("resolving latest versions");
     let lockfile = djls_corpus::lock::lock_corpus(&manifest, &existing, filter)?;
     lockfile.save(lockfile_path)?;
-    eprintln!("Updated {lockfile_path}");
+    tracing::info!(%lockfile_path, "lockfile updated");
     Ok(())
 }
