@@ -440,8 +440,7 @@ mod tests {
     // `@register.inclusion_tag("inclusion.html")`
     #[test]
     fn decorator_inclusion_tag() {
-        let source = django_source("tests/template_tests/templatetags/inclusion.py")
-            .unwrap();
+        let source = django_source("tests/template_tests/templatetags/inclusion.py").unwrap();
         let regs = collect_registrations(&source);
         let reg = find_reg(&regs, "inclusion_no_params");
         assert_eq!(reg.kind, RegistrationKind::InclusionTag);
@@ -471,8 +470,7 @@ mod tests {
     // `register.tag("other_echo", echo)` — call-style registration
     #[test]
     fn call_style_tag_registration() {
-        let source = django_source("tests/template_tests/templatetags/testtags.py")
-            .unwrap();
+        let source = django_source("tests/template_tests/templatetags/testtags.py").unwrap();
         let regs = collect_registrations(&source);
         let reg = find_reg(&regs, "other_echo");
         assert_eq!(reg.kind, RegistrationKind::Tag);
@@ -544,8 +542,7 @@ mod tests {
     // `@register.simple_block_tag` (bare decorator)
     #[test]
     fn simple_block_tag_decorator() {
-        let source = django_source("tests/template_tests/templatetags/custom.py")
-            .unwrap();
+        let source = django_source("tests/template_tests/templatetags/custom.py").unwrap();
         let regs = collect_registrations(&source);
         let reg = find_reg(&regs, "div");
         assert_eq!(reg.kind, RegistrationKind::SimpleBlockTag);
@@ -579,8 +576,7 @@ mod tests {
     // Tests that both decorator and call-style registrations are discovered
     #[test]
     fn mixed_decorator_and_call_style() {
-        let source = django_source("tests/template_tests/templatetags/testtags.py")
-            .unwrap();
+        let source = django_source("tests/template_tests/templatetags/testtags.py").unwrap();
         let regs = collect_registrations(&source);
         let tag_regs: Vec<_> = regs
             .iter()

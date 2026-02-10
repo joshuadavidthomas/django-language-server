@@ -233,8 +233,7 @@ def hello():
     // `@register.simple_tag` with no user args, exercises simple_tag pipeline
     #[test]
     fn extract_rules_simple_tag() {
-        let source = django_source("tests/template_tests/templatetags/custom.py")
-            .unwrap();
+        let source = django_source("tests/template_tests/templatetags/custom.py").unwrap();
         let result = extract_rules(&source, "tests.template_tests.templatetags.custom");
         let key = SymbolKey::tag("tests.template_tests.templatetags.custom", "no_params");
         assert!(
@@ -401,8 +400,7 @@ register.tag("for", do_for)
     // various arg counts, and keyword-only defaults.
     #[test]
     fn golden_inclusion_tags() {
-        let source = django_source("tests/template_tests/templatetags/inclusion.py")
-            .unwrap();
+        let source = django_source("tests/template_tests/templatetags/inclusion.py").unwrap();
         insta::assert_yaml_snapshot!(snapshot(extract_rules(
             &source,
             "tests.template_tests.templatetags.inclusion"
@@ -415,8 +413,7 @@ register.tag("for", do_for)
     // @register.filter, and various arg patterns.
     #[test]
     fn golden_custom_tags() {
-        let source = django_source("tests/template_tests/templatetags/custom.py")
-            .unwrap();
+        let source = django_source("tests/template_tests/templatetags/custom.py").unwrap();
         insta::assert_yaml_snapshot!(snapshot(extract_rules(
             &source,
             "tests.template_tests.templatetags.custom"
@@ -428,8 +425,7 @@ register.tag("for", do_for)
     // register.filter("name", func) call-style patterns.
     #[test]
     fn golden_testtags() {
-        let source = django_source("tests/template_tests/templatetags/testtags.py")
-            .unwrap();
+        let source = django_source("tests/template_tests/templatetags/testtags.py").unwrap();
         insta::assert_yaml_snapshot!(snapshot(extract_rules(
             &source,
             "tests.template_tests.templatetags.testtags"
@@ -481,8 +477,7 @@ register.tag("for", do_for)
     // Corpus: `no_params` in custom.py — @register.simple_tag with zero user args.
     #[test]
     fn corpus_simple_tag_no_args() {
-        let source = django_source("tests/template_tests/templatetags/custom.py")
-            .unwrap();
+        let source = django_source("tests/template_tests/templatetags/custom.py").unwrap();
         let result = extract_rules(&source, "tests.template_tests.templatetags.custom");
         let key = SymbolKey::tag("tests.template_tests.templatetags.custom", "no_params");
         assert!(result.tag_rules.contains_key(&key));
@@ -493,8 +488,7 @@ register.tag("for", do_for)
     // Corpus: `one_param` in custom.py — @register.simple_tag with one required arg.
     #[test]
     fn corpus_simple_tag_with_args() {
-        let source = django_source("tests/template_tests/templatetags/custom.py")
-            .unwrap();
+        let source = django_source("tests/template_tests/templatetags/custom.py").unwrap();
         let result = extract_rules(&source, "tests.template_tests.templatetags.custom");
         let key = SymbolKey::tag("tests.template_tests.templatetags.custom", "one_param");
         assert!(result.tag_rules.contains_key(&key));
@@ -507,8 +501,7 @@ register.tag("for", do_for)
     // @register.simple_tag(takes_context=True), context param excluded from args.
     #[test]
     fn corpus_simple_tag_takes_context() {
-        let source = django_source("tests/template_tests/templatetags/custom.py")
-            .unwrap();
+        let source = django_source("tests/template_tests/templatetags/custom.py").unwrap();
         let result = extract_rules(&source, "tests.template_tests.templatetags.custom");
         let key = SymbolKey::tag(
             "tests.template_tests.templatetags.custom",
@@ -526,8 +519,7 @@ register.tag("for", do_for)
     // with one required arg.
     #[test]
     fn corpus_inclusion_tag() {
-        let source = django_source("tests/template_tests/templatetags/inclusion.py")
-            .unwrap();
+        let source = django_source("tests/template_tests/templatetags/inclusion.py").unwrap();
         let result = extract_rules(&source, "tests.template_tests.templatetags.inclusion");
         let key = SymbolKey::tag(
             "tests.template_tests.templatetags.inclusion",
@@ -543,8 +535,7 @@ register.tag("for", do_for)
     // @register.inclusion_tag with takes_context=True.
     #[test]
     fn corpus_inclusion_tag_takes_context() {
-        let source = django_source("tests/template_tests/templatetags/inclusion.py")
-            .unwrap();
+        let source = django_source("tests/template_tests/templatetags/inclusion.py").unwrap();
         let result = extract_rules(&source, "tests.template_tests.templatetags.inclusion");
         let key = SymbolKey::tag(
             "tests.template_tests.templatetags.inclusion",
@@ -562,8 +553,7 @@ register.tag("for", do_for)
     // one required + one optional arg.
     #[test]
     fn corpus_inclusion_tag_with_args() {
-        let source = django_source("tests/template_tests/templatetags/inclusion.py")
-            .unwrap();
+        let source = django_source("tests/template_tests/templatetags/inclusion.py").unwrap();
         let result = extract_rules(&source, "tests.template_tests.templatetags.inclusion");
         let key = SymbolKey::tag(
             "tests.template_tests.templatetags.inclusion",

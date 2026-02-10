@@ -767,8 +767,7 @@ def do_tag(parser, token):
     // `bits[4] != "as"` in sequential if/raise guards.
     #[test]
     fn regroup_pattern_end_to_end() {
-        let func = django_function("django/template/defaulttags.py", "regroup")
-            .unwrap();
+        let func = django_function("django/template/defaulttags.py", "regroup").unwrap();
         let c = extract_from_func(&func);
         assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Exact(6)]);
         assert_eq!(
@@ -939,8 +938,7 @@ def do_tag(parser, token):
     // interpreter handles equivalently.
     #[test]
     fn choice_at_autoescape_pattern() {
-        let func = django_function("django/template/defaulttags.py", "autoescape")
-            .unwrap();
+        let func = django_function("django/template/defaulttags.py", "autoescape").unwrap();
         let c = extract_from_func(&func);
         assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Exact(2)]);
         assert_eq!(
@@ -1016,8 +1014,8 @@ def do_tag(parser, token):
     // Produces Exact(3) + RequiredKeyword("as" at position 1).
     #[test]
     fn corpus_get_current_timezone() {
-        let func = django_function("django/templatetags/tz.py", "get_current_timezone_tag")
-            .unwrap();
+        let func =
+            django_function("django/templatetags/tz.py", "get_current_timezone_tag").unwrap();
         let c = extract_from_func(&func);
         assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Exact(3)]);
         assert_eq!(
@@ -1033,8 +1031,7 @@ def do_tag(parser, token):
     // Clean single-constraint example.
     #[test]
     fn corpus_timezone_tag() {
-        let func = django_function("django/templatetags/tz.py", "timezone_tag")
-            .unwrap();
+        let func = django_function("django/templatetags/tz.py", "timezone_tag").unwrap();
         let c = extract_from_func(&func);
         assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Exact(2)]);
         assert!(c.required_keywords.is_empty());
@@ -1046,8 +1043,7 @@ def do_tag(parser, token):
     // the abstract interpreter may not fully resolve.
     #[test]
     fn corpus_do_for() {
-        let func =
-            django_function("django/template/defaulttags.py", "do_for").unwrap();
+        let func = django_function("django/template/defaulttags.py", "do_for").unwrap();
         let c = extract_from_func(&func);
         assert!(c.arg_constraints.contains(&ArgumentCountConstraint::Min(4)));
     }
@@ -1055,8 +1051,7 @@ def do_tag(parser, token):
     // Corpus: cycle in defaulttags.py — `len(args) < 2` produces Min(2).
     #[test]
     fn corpus_cycle() {
-        let func =
-            django_function("django/template/defaulttags.py", "cycle").unwrap();
+        let func = django_function("django/template/defaulttags.py", "cycle").unwrap();
         let c = extract_from_func(&func);
         assert!(c.arg_constraints.contains(&ArgumentCountConstraint::Min(2)));
     }
@@ -1064,8 +1059,7 @@ def do_tag(parser, token):
     // Corpus: url in defaulttags.py — `len(bits) < 2` produces Min(2).
     #[test]
     fn corpus_url() {
-        let func =
-            django_function("django/template/defaulttags.py", "url").unwrap();
+        let func = django_function("django/template/defaulttags.py", "url").unwrap();
         let c = extract_from_func(&func);
         assert!(c.arg_constraints.contains(&ArgumentCountConstraint::Min(2)));
     }
@@ -1075,8 +1069,7 @@ def do_tag(parser, token):
     // Max(2) + ChoiceAt(position=1, ["on", "off"]).
     #[test]
     fn corpus_localtime_tag() {
-        let func = django_function("django/templatetags/tz.py", "localtime_tag")
-            .unwrap();
+        let func = django_function("django/templatetags/tz.py", "localtime_tag").unwrap();
         let c = extract_from_func(&func);
         assert!(c.arg_constraints.contains(&ArgumentCountConstraint::Max(2)));
         assert_eq!(

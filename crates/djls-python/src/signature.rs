@@ -124,8 +124,8 @@ mod tests {
     // No params → only Max constraint
     #[test]
     fn simple_tag_no_params() {
-        let func = django_function("tests/template_tests/templatetags/custom.py", "no_params")
-            .unwrap();
+        let func =
+            django_function("tests/template_tests/templatetags/custom.py", "no_params").unwrap();
         let rule = extract_parse_bits_rule(&func, true);
         assert!(rule
             .arg_constraints

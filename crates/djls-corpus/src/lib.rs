@@ -33,6 +33,8 @@ use camino::Utf8PathBuf;
 use walkdir::WalkDir;
 
 pub mod archive;
+pub mod bump;
+pub mod lockfile;
 pub mod manifest;
 pub mod sync;
 

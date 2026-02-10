@@ -1,0 +1,468 @@
+use std::collections::HashMap;
+use std::time::Duration;
+
+use crate::lockfile::LockedPackage;
+use crate::lockfile::LockedRepo;
+use crate::lockfile::Lockfile;
+use crate::manifest::Manifest;
+use crate::manifest::Package;
+use crate::manifest::Repo;
+
+pub enum BumpFilter {
+    All,
+    Names(Vec<String>),
+}
+
+impl BumpFilter {
+    fn matches(&self, name: &str) -> bool {
+        match self {
+            BumpFilter::All => true,
+            BumpFilter::Names(names) => names.iter().any(|n| n.eq_ignore_ascii_case(name)),
+        }
+    }
+}
+
+pub fn bump_corpus(
+    manifest: &Manifest,
+    existing: &Lockfile,
+    filter: &BumpFilter,
+) -> anyhow::Result<Lockfile> {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(60))
+        .user_agent("djls-corpus")
+        .build()?;
+
+    let existing_packages: HashMap<(&str, &str), &LockedPackage> = existing
+        .packages
+        .iter()
+        .map(|p| ((p.name.as_str(), p.version.as_str()), p))
+        .collect();
+
+    let existing_repos: HashMap<&str, &LockedRepo> = existing
+        .repos
+        .iter()
+        .map(|r| (r.name.as_str(), r))
+        .collect();
+
+    let mut packages = Vec::new();
+    let mut repos = Vec::new();
+    let mut errors = Vec::new();
+
+    for package in &manifest.packages {
+        let key = (package.name.as_str(), package.version.as_str());
+
+        if !filter.matches(&package.name) {
+            if let Some(locked) = existing_packages.get(&key) {
+                packages.push((*locked).clone());
+            }
+            continue;
+        }
+
+        match bump_package(&client, package, existing_packages.get(&key).copied()) {
+            Ok(locked) => packages.push(locked),
+            Err(e) => {
+                let label = format!("{} {}", package.name, package.version);
+                eprintln!("  [error] {label}: {e}");
+                errors.push(label);
+                if let Some(locked) = existing_packages.get(&key) {
+                    packages.push((*locked).clone());
+                }
+            }
+        }
+    }
+
+    for repo in &manifest.repos {
+        if !filter.matches(&repo.name) {
+            if let Some(locked) = existing_repos.get(repo.name.as_str()) {
+                repos.push((*locked).clone());
+            }
+            continue;
+        }
+
+        match bump_repo(repo, existing_repos.get(repo.name.as_str()).copied()) {
+            Ok(locked) => repos.push(locked),
+            Err(e) => {
+                eprintln!("  [error] {}: {e}", repo.name);
+                errors.push(repo.name.clone());
+                if let Some(locked) = existing_repos.get(repo.name.as_str()) {
+                    repos.push((*locked).clone());
+                }
+            }
+        }
+    }
+
+    if !errors.is_empty() {
+        anyhow::bail!(
+            "Failed to bump {} entries: {}",
+            errors.len(),
+            errors.join(", ")
+        );
+    }
+
+    Ok(Lockfile { packages, repos })
+}
+
+fn bump_package(
+    client: &reqwest::blocking::Client,
+    package: &Package,
+    existing: Option<&LockedPackage>,
+) -> anyhow::Result<LockedPackage> {
+    let label = format!("{} {}", package.name, package.version);
+    let resolved = resolve_pypi_package(client, &package.name, &package.version)?;
+
+    match existing {
+        Some(prev) if prev.resolved == resolved.version => {
+            eprintln!("  [current] {label}: {}", resolved.version);
+        }
+        Some(prev) => {
+            eprintln!("  [bump] {label}: {} → {}", prev.resolved, resolved.version);
+        }
+        None => {
+            eprintln!("  [new] {label} → {}", resolved.version);
+        }
+    }
+
+    Ok(LockedPackage {
+        name: package.name.clone(),
+        version: package.version.clone(),
+        resolved: resolved.version,
+        url: resolved.url,
+        sha256: resolved.sha256,
+    })
+}
+
+fn bump_repo(repo: &Repo, existing: Option<&LockedRepo>) -> anyhow::Result<LockedRepo> {
+    let (tag, git_ref) = match &repo.git_ref {
+        Some(r) if looks_like_sha(r) => (r.clone(), r.clone()),
+        Some(r) => resolve_ref(&repo.url, r)?,
+        None => resolve_latest_tag(&repo.url)?,
+    };
+
+    match existing {
+        Some(prev) if prev.git_ref == git_ref => {
+            let short = git_ref.get(..12).unwrap_or(&git_ref);
+            eprintln!("  [current] {}: {} ({short})", repo.name, tag);
+        }
+        Some(prev) => {
+            let old_short = prev.git_ref.get(..12).unwrap_or(&prev.git_ref);
+            let new_short = git_ref.get(..12).unwrap_or(&git_ref);
+            eprintln!(
+                "  [bump] {}: {} ({old_short}) → {tag} ({new_short})",
+                repo.name, prev.tag
+            );
+        }
+        None => {
+            let short = git_ref.get(..12).unwrap_or(&git_ref);
+            eprintln!("  [new] {} → {tag} ({short})", repo.name);
+        }
+    }
+
+    Ok(LockedRepo {
+        name: repo.name.clone(),
+        url: repo.url.clone(),
+        tag,
+        git_ref,
+    })
+}
+
+fn looks_like_sha(s: &str) -> bool {
+    s.len() >= 40 && s.chars().all(|c| c.is_ascii_hexdigit())
+}
+
+struct ResolvedPackage {
+    version: String,
+    url: String,
+    sha256: String,
+}
+
+/// Query `PyPI` for the latest stable version of a package.
+///
+/// Returns the minor version spec (e.g. `"5.2"` for version `5.2.11`).
+pub fn resolve_pypi_latest(name: &str) -> anyhow::Result<(String, String)> {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .user_agent("djls-corpus")
+        .build()?;
+
+    let api_url = format!("https://pypi.org/pypi/{name}/json");
+    let resp = client.get(&api_url).send()?;
+    if !resp.status().is_success() {
+        anyhow::bail!("PyPI returned {} for {name}", resp.status());
+    }
+
+    let json: serde_json::Value = resp.json()?;
+
+    let releases = json["releases"]
+        .as_object()
+        .ok_or_else(|| anyhow::anyhow!("No releases found for {name}"))?;
+
+    // Find the highest stable version across all releases
+    let (_, latest) = releases
+        .keys()
+        .filter_map(|v| parse_version(v).map(|parts| (parts, v.as_str())))
+        .max_by(|(a, _), (b, _)| a.cmp(b))
+        .ok_or_else(|| anyhow::anyhow!("No stable releases found for {name}"))?;
+
+    let parts: Vec<&str> = latest.split('.').collect();
+    let minor_spec = if parts.len() >= 2 {
+        format!("{}.{}", parts[0], parts[1])
+    } else {
+        latest.to_string()
+    };
+
+    Ok((minor_spec, latest.to_string()))
+}
+
+fn parse_version(s: &str) -> Option<Vec<u32>> {
+    s.split('.').map(|part| part.parse::<u32>().ok()).collect()
+}
+
+fn version_matches(spec: &[u32], candidate: &[u32]) -> bool {
+    candidate.len() >= spec.len() && candidate[..spec.len()] == *spec
+}
+
+fn resolve_pypi_package(
+    client: &reqwest::blocking::Client,
+    name: &str,
+    version_spec: &str,
+) -> anyhow::Result<ResolvedPackage> {
+    let api_url = format!("https://pypi.org/pypi/{name}/json");
+    let resp = client.get(&api_url).send()?;
+    if !resp.status().is_success() {
+        anyhow::bail!("PyPI returned {} for {name}", resp.status());
+    }
+
+    let json: serde_json::Value = resp.json()?;
+
+    let spec_parts = parse_version(version_spec)
+        .ok_or_else(|| anyhow::anyhow!("Invalid version spec: {version_spec}"))?;
+
+    let releases = json["releases"]
+        .as_object()
+        .ok_or_else(|| anyhow::anyhow!("No releases found for {name}"))?;
+
+    let resolved_version = releases
+        .keys()
+        .filter_map(|v| parse_version(v).map(|parts| (parts, v.as_str())))
+        .filter(|(parts, _)| version_matches(&spec_parts, parts))
+        .max_by(|(a, _), (b, _)| a.cmp(b))
+        .map(|(_, v)| v)
+        .ok_or_else(|| anyhow::anyhow!("No release matching {version_spec} for {name}"))?;
+
+    let files = releases
+        .get(resolved_version)
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| anyhow::anyhow!("No files for {name}-{resolved_version}"))?;
+
+    let sdist = files
+        .iter()
+        .find(|f| {
+            f["packagetype"].as_str() == Some("sdist")
+                && f["filename"]
+                    .as_str()
+                    .is_some_and(|name| name.ends_with(".tar.gz"))
+        })
+        .ok_or_else(|| anyhow::anyhow!("No sdist found for {name}-{resolved_version}"))?;
+
+    let url = sdist["url"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("No URL in sdist for {name}-{resolved_version}"))?
+        .to_string();
+
+    let sha256 = sdist["digests"]["sha256"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("No SHA256 in sdist for {name}-{resolved_version}"))?
+        .to_string();
+
+    Ok(ResolvedPackage {
+        version: resolved_version.to_string(),
+        url,
+        sha256,
+    })
+}
+
+fn parse_tag_version(tag: &str) -> Option<(Vec<u32>, bool)> {
+    let s = tag.strip_prefix('v').unwrap_or(tag);
+    let mut parts = Vec::new();
+    let mut is_prerelease = false;
+
+    for segment in s.split('.') {
+        let numeric: String = segment.chars().take_while(char::is_ascii_digit).collect();
+        if numeric.is_empty() {
+            if parts.is_empty() {
+                return None;
+            }
+            break;
+        }
+        parts.push(numeric.parse::<u32>().ok()?);
+        if numeric.len() < segment.len() {
+            is_prerelease = true;
+        }
+    }
+
+    if parts.is_empty() {
+        return None;
+    }
+
+    Some((parts, is_prerelease))
+}
+
+/// Resolve a named ref (branch or tag) to `(label, commit_sha)`.
+fn resolve_ref(url: &str, git_ref: &str) -> anyhow::Result<(String, String)> {
+    let output = std::process::Command::new("git")
+        .args(["ls-remote", url, git_ref, &format!("{git_ref}^{{}}")])
+        .output()
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                anyhow::anyhow!("git not found — install git to resolve repo refs")
+            } else {
+                anyhow::anyhow!("Failed to run git ls-remote: {e}")
+            }
+        })?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("git ls-remote failed for {url}: {stderr}");
+    }
+
+    let stdout = String::from_utf8(output.stdout)?;
+    let mut sha = None;
+    let mut dereferenced = false;
+
+    for line in stdout.lines() {
+        let Some((line_sha, refname)) = line.split_once('\t') else {
+            continue;
+        };
+        // Prefer ^{} (dereferenced annotated tag → commit SHA)
+        if refname.ends_with("^{}") {
+            sha = Some(line_sha.to_string());
+            dereferenced = true;
+        } else if !dereferenced {
+            sha = Some(line_sha.to_string());
+        }
+    }
+
+    let sha = sha.ok_or_else(|| anyhow::anyhow!("Ref {git_ref:?} not found in {url}"))?;
+    Ok((git_ref.to_string(), sha))
+}
+
+fn resolve_latest_tag(url: &str) -> anyhow::Result<(String, String)> {
+    let output = std::process::Command::new("git")
+        .args(["ls-remote", "--tags", url])
+        .output()
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                anyhow::anyhow!("git not found — install git to resolve repo tags")
+            } else {
+                anyhow::anyhow!("Failed to run git ls-remote: {e}")
+            }
+        })?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("git ls-remote failed for {url}: {stderr}");
+    }
+
+    let stdout = String::from_utf8(output.stdout)?;
+
+    // Collect tag → SHA, preferring ^{} (dereferenced) for annotated tags
+    let mut tags: HashMap<String, String> = HashMap::new();
+
+    for line in stdout.lines() {
+        let Some((sha, refname)) = line.split_once('\t') else {
+            continue;
+        };
+        let Some(tag) = refname.strip_prefix("refs/tags/") else {
+            continue;
+        };
+
+        if let Some(base_tag) = tag.strip_suffix("^{}") {
+            tags.insert(base_tag.to_string(), sha.to_string());
+        } else if !tags.contains_key(tag) {
+            tags.insert(tag.to_string(), sha.to_string());
+        }
+    }
+
+    if tags.is_empty() {
+        anyhow::bail!("No tags found for {url}");
+    }
+
+    // Sort by parsed version: highest first, stable before pre-release
+    let mut versioned: Vec<(Vec<u32>, bool, String, String)> = tags
+        .iter()
+        .filter_map(|(tag, sha)| {
+            parse_tag_version(tag).map(|(parts, pre)| (parts, pre, tag.clone(), sha.clone()))
+        })
+        .collect();
+
+    versioned.sort_by(|a, b| {
+        a.0.cmp(&b.0).reverse().then(a.1.cmp(&b.1)) // false (stable) < true (pre-release)
+    });
+
+    if let Some((_, _, tag, sha)) = versioned.into_iter().next() {
+        return Ok((tag, sha));
+    }
+
+    // No version-like tags; pick first alphabetically
+    let mut entries: Vec<_> = tags.into_iter().collect();
+    entries.sort_by(|a, b| a.0.cmp(&b.0));
+    let (tag, sha) = entries.into_iter().next().unwrap();
+    Ok((tag, sha))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_version_stable() {
+        assert_eq!(parse_version("5.2.11"), Some(vec![5, 2, 11]));
+        assert_eq!(parse_version("5.2"), Some(vec![5, 2]));
+        assert_eq!(parse_version("2.2"), Some(vec![2, 2]));
+    }
+
+    #[test]
+    fn parse_version_prerelease() {
+        assert_eq!(parse_version("5.2a1"), None);
+        assert_eq!(parse_version("5.2rc1"), None);
+        assert_eq!(parse_version("5.2b1"), None);
+    }
+
+    #[test]
+    fn version_matches_exact() {
+        assert!(version_matches(&[5, 2, 11], &[5, 2, 11]));
+        assert!(!version_matches(&[5, 2, 11], &[5, 2, 10]));
+    }
+
+    #[test]
+    fn version_matches_minor_prefix() {
+        assert!(version_matches(&[5, 2], &[5, 2]));
+        assert!(version_matches(&[5, 2], &[5, 2, 11]));
+        assert!(!version_matches(&[5, 2], &[5, 1, 2]));
+        assert!(!version_matches(&[5, 2], &[5, 20]));
+    }
+
+    #[test]
+    fn version_matches_major_prefix() {
+        assert!(version_matches(&[5], &[5, 2, 11]));
+        assert!(!version_matches(&[5], &[6, 0]));
+    }
+
+    #[test]
+    fn parse_tag_version_simple() {
+        assert_eq!(parse_tag_version("v1.0.0"), Some((vec![1, 0, 0], false)));
+        assert_eq!(parse_tag_version("1.0.0"), Some((vec![1, 0, 0], false)));
+    }
+
+    #[test]
+    fn parse_tag_version_prerelease() {
+        assert_eq!(parse_tag_version("v0.8.6rc1"), Some((vec![0, 8, 6], true)));
+        assert_eq!(parse_tag_version("v5.2a1"), Some((vec![5, 2], true)));
+    }
+
+    #[test]
+    fn parse_tag_version_not_a_version() {
+        assert_eq!(parse_tag_version("release-candidate"), None);
+        assert_eq!(parse_tag_version("nightly"), None);
+    }
+}

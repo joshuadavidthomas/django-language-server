@@ -638,8 +638,7 @@ def do_tag(parser, token):
     // duplicate check. Options: "noop", "context", "as". Rejects unknown.
     #[test]
     fn option_loop_with_duplicate_check() {
-        let func = django_function("django/templatetags/i18n.py", "do_translate")
-            .unwrap();
+        let func = django_function("django/templatetags/i18n.py", "do_translate").unwrap();
         let rule = analyze_func(&func);
         let opts = rule.known_options.expect("should have known_options");
         assert_eq!(
@@ -682,8 +681,7 @@ def do_tag(parser, token):
     // Rejects unknown, rejects duplicates.
     #[test]
     fn option_loop_include_pattern() {
-        let func = django_function("django/template/loader_tags.py", "do_include")
-            .unwrap();
+        let func = django_function("django/template/loader_tags.py", "do_include").unwrap();
         let rule = analyze_func(&func);
         let opts = rule.known_options.expect("should have known_options");
         assert_eq!(opts.values, vec!["with".to_string(), "only".to_string()]);
@@ -709,8 +707,7 @@ def do_tag(parser, token):
     // OneOf([2, 3]) constraint. Django 6.0+ match-based tag parsing.
     #[test]
     fn match_partialdef_pattern() {
-        let func = django_function("django/template/defaulttags.py", "partialdef_func")
-            .unwrap();
+        let func = django_function("django/template/defaulttags.py", "partialdef_func").unwrap();
         let rule = analyze_func(&func);
         assert!(
             rule.arg_constraints
@@ -725,8 +722,7 @@ def do_tag(parser, token):
     // Exact(2) constraint.
     #[test]
     fn match_partial_exact() {
-        let func = django_function("django/template/defaulttags.py", "partial_func")
-            .unwrap();
+        let func = django_function("django/template/defaulttags.py", "partial_func").unwrap();
         let rule = analyze_func(&func);
         assert!(
             rule.arg_constraints

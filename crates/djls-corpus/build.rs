@@ -6,13 +6,12 @@ fn main() {
     let corpus_dir = Path::new(&manifest_dir).join(".corpus");
 
     println!("cargo:rerun-if-changed=manifest.toml");
+    println!("cargo:rerun-if-changed=manifest.lock");
     println!("cargo:rerun-if-changed=.corpus");
 
     if corpus_dir.is_dir() {
         println!("cargo:rustc-cfg=corpus_available");
     } else {
-        println!(
-            "cargo:warning=Corpus not synced. Run: cargo run --bin djls-corpus -- sync"
-        );
+        println!("cargo:warning=Corpus not synced. Run: cargo run --bin djls-corpus -- sync");
     }
 }
