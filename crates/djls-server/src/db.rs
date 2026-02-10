@@ -97,25 +97,12 @@ pub fn compute_filter_arity_specs(
 
 /// Extract validation rules from a Python registration module file.
 ///
-/// This tracked function depends on `file.source(db)`, so editing the file
-/// automatically invalidates the extraction result via Salsa's dependency
-/// tracking.
-///
-/// The `ExtractionResult` uses empty `registration_module` in `SymbolKey`s.
-/// Callers must re-key with the actual dotted module path when merging
-/// results into `TagSpecs`.
-#[salsa::tracked]
-pub fn extract_module_rules(db: &dyn SemanticDb, file: File) -> djls_extraction::ExtractionResult {
-    let source = file.source(db);
-    djls_extraction::extract_rules(source.as_str(), "")
-}
-
 /// Collect extracted rules from all workspace registration modules.
 ///
 /// This tracked query:
 /// 1. Gets registration modules from inspector inventory
 /// 2. Resolves workspace modules to `File` inputs via `get_or_create_file`
-/// 3. Extracts rules from each (via tracked `extract_module_rules`)
+/// 3. Extracts rules from each (via tracked `djls_extraction::extract_module`)
 ///
 /// External modules are handled separately (cached on `Project` field,
 /// updated by `refresh_inspector`). This function only processes workspace
@@ -145,7 +132,7 @@ fn collect_workspace_extraction_results(
 
     for resolved in workspace_modules {
         let file = db.get_or_create_file(&resolved.file_path);
-        let mut extraction = extract_module_rules(db, file);
+        let mut extraction = djls_extraction::extract_module(db, file);
 
         if !extraction.is_empty() {
             extraction.rekey_module(&resolved.module_path);
@@ -764,19 +751,19 @@ mod invalidation_tests {
         let file = djls_source::File::new(&db, "/test/project/tags.py".into(), 0);
 
         // First extraction
-        let _result1 = super::extract_module_rules(&db, file);
+        let _result1 = djls_extraction::extract_module(&db, file);
         let events = event_log.take();
         assert!(
-            was_executed(&db, &events, "extract_module_rules"),
-            "extract_module_rules should execute on first call"
+            was_executed(&db, &events, "extract_module"),
+            "extract_module should execute on first call"
         );
 
         // Second call — cached
-        let _result2 = super::extract_module_rules(&db, file);
+        let _result2 = djls_extraction::extract_module(&db, file);
         let events = event_log.take();
         assert!(
-            !was_executed(&db, &events, "extract_module_rules"),
-            "extract_module_rules should NOT re-execute on second call (cached)"
+            !was_executed(&db, &events, "extract_module"),
+            "extract_module should NOT re-execute on second call (cached)"
         );
     }
 
@@ -786,19 +773,19 @@ mod invalidation_tests {
 
         // Create and extract from a file (file doesn't exist, source is empty)
         let file = djls_source::File::new(&db, "/test/project/tags.py".into(), 0);
-        let _result = super::extract_module_rules(&db, file);
+        let _result = djls_extraction::extract_module(&db, file);
         event_log.take();
 
         // Bump the file revision — but the source is still empty (file not in FS)
         file.set_revision(&mut db).to(1);
 
         // Salsa's backdate optimization: file.source() returns the same empty text,
-        // so extract_module_rules does NOT re-execute (correct behavior)
-        let _result = super::extract_module_rules(&db, file);
+        // so extract_module does NOT re-execute (correct behavior)
+        let _result = djls_extraction::extract_module(&db, file);
         let events = event_log.take();
         assert!(
-            !was_executed(&db, &events, "extract_module_rules"),
-            "extract_module_rules should NOT re-execute when source content is unchanged (backdate)"
+            !was_executed(&db, &events, "extract_module"),
+            "extract_module should NOT re-execute when source content is unchanged (backdate)"
         );
     }
 
@@ -840,7 +827,7 @@ def my_filter(value, arg):
         };
 
         let file = djls_source::File::new(&db, "/test/project/tags.py".into(), 0);
-        let result = super::extract_module_rules(&db, file);
+        let result = djls_extraction::extract_module(&db, file);
 
         // Should extract the filter
         let key = djls_extraction::SymbolKey::filter("", "my_filter");
