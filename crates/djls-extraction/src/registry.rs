@@ -9,7 +9,6 @@ use ruff_python_ast::StmtFunctionDef;
 
 use crate::blocks;
 use crate::dataflow;
-use crate::dataflow::HelperCache;
 use crate::ext::ExprExt;
 use crate::filters;
 use crate::signature;
@@ -65,12 +64,7 @@ impl RegistrationKind {
     /// For tag variants, extracts validation rules (via signature analysis or
     /// dataflow analysis) and block structure.
     #[must_use]
-    pub fn extract(
-        self,
-        func: &StmtFunctionDef,
-        func_defs: &[&StmtFunctionDef],
-        helper_cache: &mut HelperCache,
-    ) -> ExtractionOutput {
+    pub fn extract(self, func: &StmtFunctionDef) -> ExtractionOutput {
         match self {
             Self::Filter => ExtractionOutput::Filter(filters::extract_filter_arity(func)),
             Self::SimpleTag | Self::InclusionTag => {
@@ -81,8 +75,7 @@ impl RegistrationKind {
                 ExtractionOutput::Tag { rule, block_spec }
             }
             Self::Tag | Self::SimpleBlockTag => {
-                let rule =
-                    dataflow::analyze_compile_function_with_cache(func, func_defs, helper_cache);
+                let rule = dataflow::analyze_compile_function(func);
                 let rule = rule.has_content().then_some(rule);
                 let block_spec = blocks::extract_block_spec(func);
                 ExtractionOutput::Tag { rule, block_spec }

@@ -7,28 +7,22 @@ mod statements;
 
 use djls_source::File;
 pub use expressions::eval_expr;
-use ruff_python_ast::StmtFunctionDef;
 pub use statements::process_statements;
 
-use crate::dataflow::calls::HelperCache;
 use crate::dataflow::constraints::ConstraintSet;
 use crate::types::KnownOptions;
 
 /// Call-resolution context for the dataflow analysis.
 ///
 /// Carries the immutable context needed to resolve helper function calls
-/// (module functions, recursion tracking, caching). Does not accumulate
-/// analysis results — those are returned via `AnalysisResult`.
+/// (module functions list and Salsa database/file references). Does not
+/// accumulate analysis results — those are returned via `AnalysisResult`.
 ///
-/// The `db` and `file` fields are populated when running under Salsa
-/// (e.g., from `extract_module`). They are `None` for standalone
-/// extraction calls and tests. When present, `resolve_call` can use
-/// Salsa tracked functions instead of the `HelperCache`.
+/// When `db` and `file` are set (running under Salsa), `resolve_call`
+/// delegates to `analyze_helper` — a Salsa tracked function with cycle
+/// recovery and automatic memoization. When `None` (standalone extraction),
+/// helper calls return `Unknown`.
 pub struct CallContext<'a> {
-    pub module_funcs: &'a [&'a StmtFunctionDef],
-    pub caller_name: &'a str,
-    pub call_depth: usize,
-    pub cache: &'a mut HelperCache,
     /// Salsa database, populated when running under `extract_module`.
     /// Used by `resolve_call` to call `analyze_helper` via Salsa.
     pub db: Option<&'a dyn djls_source::Db>,
@@ -64,10 +58,10 @@ impl AnalysisResult {
 #[cfg(test)]
 mod tests {
     use ruff_python_ast::Stmt;
+    use ruff_python_ast::StmtFunctionDef;
     use ruff_python_parser::parse_module;
 
     use super::*;
-    use crate::dataflow::calls::HelperCache;
     use crate::dataflow::domain::AbstractValue;
     use crate::dataflow::domain::Env;
     use crate::dataflow::domain::TokenSplit;
@@ -98,12 +92,7 @@ mod tests {
             .get(1)
             .map_or("token", |p| p.parameter.name.as_str());
         let mut env = Env::for_compile_function(parser_param, token_param);
-        let mut cache = HelperCache::new();
         let mut ctx = CallContext {
-            module_funcs: &[],
-            caller_name: "test",
-            call_depth: 0,
-            cache: &mut cache,
             db: None,
             file: None,
         };
@@ -611,11 +600,11 @@ def do_tag(parser, token):
                 }
             })
             .expect("no function found");
-        crate::dataflow::analyze_compile_function(&func, &[])
+        crate::dataflow::analyze_compile_function(&func)
     }
 
     fn analyze_func(func: &StmtFunctionDef) -> crate::types::TagRule {
-        crate::dataflow::analyze_compile_function(func, &[])
+        crate::dataflow::analyze_compile_function(func)
     }
 
     // Fabricated: simple option loop without duplicate check. No corpus

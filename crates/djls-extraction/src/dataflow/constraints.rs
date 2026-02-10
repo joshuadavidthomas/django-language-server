@@ -379,7 +379,6 @@ mod tests {
     use ruff_python_parser::parse_module;
 
     use super::*;
-    use crate::dataflow::calls::HelperCache;
     use crate::dataflow::domain::Env;
     use crate::dataflow::eval::process_statements;
     use crate::dataflow::eval::CallContext;
@@ -417,12 +416,7 @@ mod tests {
             .map_or("token", |p| p.parameter.name.as_str());
 
         let mut env = Env::for_compile_function(parser_param, token_param);
-        let mut cache = HelperCache::new();
         let mut ctx = CallContext {
-            module_funcs: &[],
-            caller_name: func.name.as_str(),
-            call_depth: 0,
-            cache: &mut cache,
             db: None,
             file: None,
         };

@@ -87,7 +87,6 @@ pub fn extract_rules(source: &str, module_path: &str) -> ExtractionResult {
     let func_defs: Vec<&ruff_python_ast::StmtFunctionDef> = collect_func_defs(&module.body);
 
     let mut result = ExtractionResult::default();
-    let mut helper_cache = dataflow::HelperCache::new();
 
     for reg in &registrations {
         let Some(func) = reg
@@ -104,7 +103,7 @@ pub fn extract_rules(source: &str, module_path: &str) -> ExtractionResult {
             kind: reg.kind.symbol_kind(),
         };
 
-        match reg.kind.extract(func, &func_defs, &mut helper_cache) {
+        match reg.kind.extract(func) {
             ExtractionOutput::Filter(arity) => {
                 result.filter_arities.insert(key, arity);
             }

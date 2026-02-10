@@ -5,7 +5,6 @@ pub(crate) mod eval;
 
 pub(crate) use calls::extract_return_value;
 pub use calls::AbstractValueKey;
-pub use calls::HelperCache;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtFunctionDef;
 
@@ -24,7 +23,6 @@ pub struct CompileFunction<'a> {
     pub parser_param: &'a str,
     pub token_param: &'a str,
     pub body: &'a [Stmt],
-    pub name: &'a str,
 }
 
 impl<'a> CompileFunction<'a> {
@@ -40,7 +38,6 @@ impl<'a> CompileFunction<'a> {
             parser_param,
             token_param,
             body: &func.body,
-            name: func.name.as_str(),
         })
     }
 }
@@ -52,30 +49,10 @@ impl<'a> CompileFunction<'a> {
 /// from `raise TemplateSyntaxError(...)` guards.
 ///
 /// `module_funcs` provides all function definitions in the same module, used
-/// for bounded-depth inlining of helper function calls.
+/// for resolving helper function calls (via Salsa when a database is available,
+/// or returning Unknown in standalone mode).
 #[must_use]
-pub fn analyze_compile_function(
-    func: &StmtFunctionDef,
-    module_funcs: &[&StmtFunctionDef],
-) -> TagRule {
-    let mut cache = HelperCache::new();
-    analyze_compile_function_with_cache(func, module_funcs, &mut cache)
-}
-
-/// Analyze a compile function with an existing helper cache.
-///
-/// When analyzing multiple compile functions in the same module, passing
-/// a shared cache avoids re-analyzing helpers called by multiple functions.
-///
-/// Returns `TagRule::default()` (empty, no constraints) if the function has
-/// fewer than 2 positional parameters — such functions cannot be valid Django
-/// template tag compile functions (which require `parser` and `token`).
-#[must_use]
-pub fn analyze_compile_function_with_cache(
-    func: &StmtFunctionDef,
-    module_funcs: &[&StmtFunctionDef],
-    cache: &mut HelperCache,
-) -> TagRule {
+pub fn analyze_compile_function(func: &StmtFunctionDef) -> TagRule {
     let Some(compile_fn) = CompileFunction::from_ast(func) else {
         return TagRule::default();
     };
@@ -83,10 +60,6 @@ pub fn analyze_compile_function_with_cache(
     let mut env =
         domain::Env::for_compile_function(compile_fn.parser_param, compile_fn.token_param);
     let mut ctx = eval::CallContext {
-        module_funcs,
-        caller_name: compile_fn.name,
-        call_depth: 0,
-        cache,
         db: None,
         file: None,
     };
@@ -251,7 +224,7 @@ mod tests {
                 }
             })
             .expect("no function found");
-        analyze_compile_function(&func, &[])
+        analyze_compile_function(&func)
     }
 
     #[test]

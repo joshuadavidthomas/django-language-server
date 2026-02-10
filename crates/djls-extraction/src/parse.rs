@@ -9,7 +9,6 @@ use crate::dataflow::eval::process_statements;
 use crate::dataflow::eval::CallContext;
 use crate::dataflow::extract_return_value;
 use crate::dataflow::AbstractValueKey;
-use crate::dataflow::HelperCache;
 
 /// Parsed Python module AST, cached by Salsa.
 ///
@@ -26,7 +25,7 @@ pub struct ParsedPythonModule<'db> {
 ///
 /// Salsa uses interning to deduplicate identical helper calls: same file,
 /// same callee name, same abstract argument values produce the same
-/// `HelperCall` identity. This replaces the hand-rolled `HelperCacheKey`.
+/// `HelperCall` identity, enabling Salsa's built-in memoization.
 #[salsa::interned]
 pub struct HelperCall<'db> {
     pub file: File,
@@ -88,13 +87,7 @@ pub fn analyze_helper(db: &dyn djls_source::Db, call: HelperCall<'_>) -> Abstrac
         callee_env.set(param.parameter.name.to_string(), value);
     }
 
-    let func_refs: Vec<&StmtFunctionDef> = collect_function_defs(parsed.body(db));
-    let mut cache = HelperCache::new();
     let mut ctx = CallContext {
-        module_funcs: &func_refs,
-        caller_name: callee_name,
-        call_depth: 0,
-        cache: &mut cache,
         db: Some(db),
         file: Some(call.file(db)),
     };
@@ -135,16 +128,4 @@ fn find_function_def<'a>(body: &'a [Stmt], name: &str) -> Option<&'a StmtFunctio
         }
     }
     None
-}
-
-fn collect_function_defs(body: &[Stmt]) -> Vec<&StmtFunctionDef> {
-    let mut defs = Vec::new();
-    for stmt in body {
-        match stmt {
-            Stmt::FunctionDef(func) => defs.push(func),
-            Stmt::ClassDef(class) => defs.extend(collect_function_defs(&class.body)),
-            _ => {}
-        }
-    }
-    defs
 }

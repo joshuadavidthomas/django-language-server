@@ -1,36 +1,15 @@
-//! Intra-module function call resolution via bounded inlining.
-
-use std::collections::HashMap;
+//! Intra-module function call resolution via Salsa tracked functions.
 
 use ruff_python_ast::Stmt;
 
 use super::domain::AbstractValue;
 use super::domain::Env;
 use super::domain::TokenSplit;
-use super::eval::process_statements;
 use super::eval::CallContext;
-use crate::parse::HelperCall;
 use crate::parse::analyze_helper;
+use crate::parse::HelperCall;
 
-/// Maximum call inlining depth. Beyond this, calls return Unknown.
-const MAX_CALL_DEPTH: usize = 2;
-
-/// Cache for helper function analysis results.
-///
-/// When multiple compile functions in the same module call the same helper,
-/// the helper is analyzed once and the result is reused. Keyed by
-/// (function name, abstract input values).
-pub struct HelperCache {
-    summaries: HashMap<HelperCacheKey, AbstractValue>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct HelperCacheKey {
-    func_name: String,
-    args: Vec<AbstractValueKey>,
-}
-
-/// A hashable representation of `AbstractValue` for cache keying.
+/// A hashable representation of `AbstractValue` for Salsa interned keys.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum AbstractValueKey {
     Unknown,
@@ -75,61 +54,22 @@ impl From<&AbstractValueKey> for AbstractValue {
     }
 }
 
-impl HelperCache {
-    #[must_use]
-    pub fn new() -> Self {
-        Self {
-            summaries: HashMap::new(),
-        }
-    }
-
-    fn get(&self, func_name: &str, args: &[AbstractValue]) -> Option<&AbstractValue> {
-        let key = Self::make_key(func_name, args);
-        self.summaries.get(&key)
-    }
-
-    fn insert(&mut self, func_name: &str, args: &[AbstractValue], result: AbstractValue) {
-        let key = Self::make_key(func_name, args);
-        self.summaries.insert(key, result);
-    }
-
-    fn make_key(func_name: &str, args: &[AbstractValue]) -> HelperCacheKey {
-        HelperCacheKey {
-            func_name: func_name.to_string(),
-            args: args.iter().map(AbstractValueKey::from).collect(),
-        }
-    }
-
-    /// Returns the number of cached entries (for testing).
-    #[cfg(test)]
-    pub fn len(&self) -> usize {
-        self.summaries.len()
-    }
-}
-
-impl Default for HelperCache {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 /// Resolve a function call to a module-local helper.
 ///
 /// When a Salsa database and file are available (`ctx.db` and `ctx.file`
 /// are `Some`), constructs a `HelperCall` interned value and delegates to
-/// `analyze_helper` — a Salsa tracked function with cycle recovery. This
-/// replaces the manual `HelperCache` lookup, depth limit, and self-recursion
-/// guard with Salsa's built-in memoization and cycle detection.
+/// `analyze_helper` — a Salsa tracked function with cycle recovery and
+/// automatic memoization. This replaces manual caching, depth limits, and
+/// self-recursion guards.
 ///
-/// When running without Salsa (standalone extraction calls and tests),
-/// falls back to the manual `HelperCache` + bounded inlining path.
+/// When running without Salsa (standalone extraction), returns `Unknown`
+/// for all helper calls.
 ///
 /// Returns `Unknown` if:
-/// - The callee is not found in `module_funcs` (non-Salsa path only)
-/// - `call_depth >= MAX_CALL_DEPTH` (non-Salsa path only)
-/// - The callee is the same function as the caller (non-Salsa path only)
+/// - No Salsa database is available (standalone extraction)
+/// - The callee is not found in the parsed module
 /// - Multiple return statements yield different abstract values
-/// - A cycle is detected (Salsa path — cycle recovery returns `Unknown`)
+/// - A cycle is detected (Salsa cycle recovery returns `Unknown`)
 pub fn resolve_call(
     callee_name: &str,
     args: &[AbstractValue],
@@ -142,65 +82,8 @@ pub fn resolve_call(
         return analyze_helper(db, call);
     }
 
-    // Fallback: manual cache + bounded inlining (standalone/tests)
-    resolve_call_manual(callee_name, args, ctx)
-}
-
-/// Manual helper resolution with `HelperCache` and depth/recursion guards.
-///
-/// Used when no Salsa database is available (standalone extraction, tests).
-fn resolve_call_manual(
-    callee_name: &str,
-    args: &[AbstractValue],
-    ctx: &mut CallContext<'_>,
-) -> AbstractValue {
-    // Check cache first
-    if let Some(cached) = ctx.cache.get(callee_name, args) {
-        return cached.clone();
-    }
-
-    // Recursion guards
-    if ctx.call_depth >= MAX_CALL_DEPTH {
-        return AbstractValue::Unknown;
-    }
-    if callee_name == ctx.caller_name {
-        return AbstractValue::Unknown;
-    }
-
-    // Find callee in module functions
-    let Some(callee) = ctx
-        .module_funcs
-        .iter()
-        .find(|f| f.name.as_str() == callee_name)
-    else {
-        return AbstractValue::Unknown;
-    };
-
-    // Create env binding callee parameters to caller's argument values
-    let mut callee_env = Env::default();
-    for (i, param) in callee.parameters.args.iter().enumerate() {
-        let value = args.get(i).cloned().unwrap_or(AbstractValue::Unknown);
-        callee_env.set(param.parameter.name.to_string(), value);
-    }
-
-    // Analyze callee body
-    let saved_caller = ctx.caller_name;
-    let saved_depth = ctx.call_depth;
-    ctx.caller_name = callee.name.as_str();
-    ctx.call_depth = saved_depth + 1;
-
-    let _callee_result = process_statements(&callee.body, &mut callee_env, ctx);
-
-    ctx.caller_name = saved_caller;
-    ctx.call_depth = saved_depth;
-
-    // Extract return value
-    let result = extract_return_value(&callee.body, &callee_env);
-
-    // Cache before returning
-    ctx.cache.insert(callee_name, args, result.clone());
-
-    result
+    // No Salsa database — cannot resolve helper calls
+    AbstractValue::Unknown
 }
 
 /// Extract the abstract return value from a function body.
@@ -279,13 +162,67 @@ fn collect_returns(stmts: &[Stmt], env: &Env, returns: &mut Vec<AbstractValue>) 
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+    use std::sync::Mutex;
+
+    use camino::Utf8Path;
     use ruff_python_ast::Stmt;
     use ruff_python_ast::StmtFunctionDef;
     use ruff_python_parser::parse_module;
 
     use super::*;
+    use crate::dataflow::eval::process_statements;
+    use crate::dataflow::eval::CallContext;
     use crate::test_helpers::corpus_source;
     use crate::types::SplitPosition;
+
+    #[salsa::db]
+    #[derive(Clone)]
+    struct TestDatabase {
+        storage: salsa::Storage<Self>,
+        files: Arc<Mutex<std::collections::HashMap<String, String>>>,
+    }
+
+    impl TestDatabase {
+        fn new() -> Self {
+            Self {
+                storage: salsa::Storage::default(),
+                files: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            }
+        }
+
+        fn create_python_file(&self, source: &str) -> djls_source::File {
+            let path = "test_module.py";
+            self.files
+                .lock()
+                .unwrap()
+                .insert(path.to_string(), source.to_string());
+            djls_source::File::new(self, path.into(), 0)
+        }
+    }
+
+    #[salsa::db]
+    impl salsa::Database for TestDatabase {}
+
+    #[salsa::db]
+    impl djls_source::Db for TestDatabase {
+        fn create_file(&self, path: &Utf8Path) -> djls_source::File {
+            djls_source::File::new(self, path.to_owned(), 0)
+        }
+
+        fn get_file(&self, _path: &Utf8Path) -> Option<djls_source::File> {
+            None
+        }
+
+        fn read_file(&self, path: &Utf8Path) -> std::io::Result<String> {
+            self.files
+                .lock()
+                .unwrap()
+                .get(path.as_str())
+                .cloned()
+                .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "not found"))
+        }
+    }
 
     fn parse_module_funcs(source: &str) -> Vec<StmtFunctionDef> {
         let parsed = parse_module(source).expect("valid Python");
@@ -303,11 +240,13 @@ mod tests {
             .collect()
     }
 
-    fn analyze_with_helpers(source: &str) -> (Env, HelperCache) {
-        let funcs = parse_module_funcs(source);
-        let func_refs: Vec<&StmtFunctionDef> = funcs.iter().collect();
+    /// Analyze a module with helper resolution via Salsa.
+    fn analyze_with_helpers(source: &str) -> Env {
+        let db = TestDatabase::new();
+        let file = db.create_python_file(source);
 
-        // Find the main compile function: prefer one named do_* or the last with 2+ params
+        let funcs = parse_module_funcs(source);
+
         let main_func = funcs
             .iter()
             .find(|f| f.name.starts_with("do_"))
@@ -326,23 +265,21 @@ mod tests {
             .map_or("token", |p| p.parameter.name.as_str());
 
         let mut env = Env::for_compile_function(parser_param, token_param);
-        let mut cache = HelperCache::new();
         let mut ctx = CallContext {
-            module_funcs: &func_refs,
-            caller_name: main_func.name.as_str(),
-            call_depth: 0,
-            cache: &mut cache,
-            db: None,
-            file: None,
+            db: Some(&db),
+            file: Some(file),
         };
 
         process_statements(&main_func.body, &mut env, &mut ctx);
-        (env, cache)
+        env
     }
 
-    fn analyze_function_with_helpers(source: &str, func_name: &str) -> (Env, HelperCache) {
+    /// Analyze a specific function with helper resolution via Salsa.
+    fn analyze_function_with_helpers(source: &str, func_name: &str) -> Env {
+        let db = TestDatabase::new();
+        let file = db.create_python_file(source);
+
         let funcs = parse_module_funcs(source);
-        let func_refs: Vec<&StmtFunctionDef> = funcs.iter().collect();
 
         let main_func = funcs
             .iter()
@@ -361,23 +298,18 @@ mod tests {
             .map_or("token", |p| p.parameter.name.as_str());
 
         let mut env = Env::for_compile_function(parser_param, token_param);
-        let mut cache = HelperCache::new();
         let mut ctx = CallContext {
-            module_funcs: &func_refs,
-            caller_name: main_func.name.as_str(),
-            call_depth: 0,
-            cache: &mut cache,
-            db: None,
-            file: None,
+            db: Some(&db),
+            file: Some(file),
         };
 
         process_statements(&main_func.body, &mut env, &mut ctx);
-        (env, cache)
+        env
     }
 
     #[test]
     fn simple_helper_returns_split_contents() {
-        let (env, _) = analyze_with_helpers(
+        let env = analyze_with_helpers(
             r"
 def helper(tok):
     return tok.split_contents()
@@ -394,7 +326,7 @@ def do_tag(parser, token):
 
     #[test]
     fn tuple_return_destructuring() {
-        let (env, _) = analyze_with_helpers(
+        let env = analyze_with_helpers(
             r"
 def parse_tag(tok, prs):
     bits = tok.split_contents()
@@ -420,31 +352,30 @@ def do_tag(parser, token):
 
     #[test]
     fn allauth_parse_tag_pattern() {
-        // Corpus: allauth's parse_tag builds args via for-loop with conditional appends.
-        // do_element calls parse_tag(token, parser) and destructures the result.
-        // The for-loop means args remains Unknown → no false positive constraints.
         let source =
             corpus_source("packages/django-allauth/0.63.3/allauth/templatetags/allauth.py");
         let Some(source) = source else {
             eprintln!("skipping allauth_parse_tag_pattern: corpus not synced");
             return;
         };
-        let (env, _) = analyze_function_with_helpers(&source, "do_element");
-        // tag_name should be SplitElement(Forward(0)) — parse_tag does bits.pop(0)
+        let env = analyze_function_with_helpers(&source, "do_element");
         assert_eq!(
             env.get("tag_name"),
             &AbstractValue::SplitElement {
                 index: SplitPosition::Forward(0)
             }
         );
-        // args and kwargs should be Unknown (built from list/dict operations in parse_tag)
         assert_eq!(env.get("args"), &AbstractValue::Unknown);
         assert_eq!(env.get("kwargs"), &AbstractValue::Unknown);
     }
 
     #[test]
-    fn depth_limit() {
-        let (env, _) = analyze_with_helpers(
+    fn deep_call_chain_returns_unknown() {
+        // Deep chains (A calls B calls C) return Unknown because
+        // `extract_return_value` uses `eval_expr` without ctx, so
+        // function calls in return expressions can't resolve nested
+        // helpers. Only direct (non-chained) helper calls resolve.
+        let env = analyze_with_helpers(
             r"
 def deep3(tok):
     return tok.split_contents()
@@ -459,13 +390,13 @@ def do_tag(parser, token):
     bits = deep1(token)
 ",
         );
-        // depth 0 → deep1, depth 1 → deep2, depth 2 → deep3 (at limit, returns Unknown)
         assert_eq!(env.get("bits"), &AbstractValue::Unknown);
     }
 
     #[test]
     fn self_recursion() {
-        let (env, _) = analyze_with_helpers(
+        // Self-recursion: Salsa cycle recovery returns Unknown.
+        let env = analyze_with_helpers(
             r"
 def do_tag(parser, token):
     bits = do_tag(parser, token)
@@ -476,7 +407,7 @@ def do_tag(parser, token):
 
     #[test]
     fn helper_not_found() {
-        let (env, _) = analyze_with_helpers(
+        let env = analyze_with_helpers(
             r"
 def do_tag(parser, token):
     bits = nonexistent_helper(token)
@@ -487,7 +418,7 @@ def do_tag(parser, token):
 
     #[test]
     fn token_kwargs_marks_unknown() {
-        let (env, _) = analyze_with_helpers(
+        let env = analyze_with_helpers(
             r"
 def do_tag(parser, token):
     bits = token.split_contents()
@@ -495,14 +426,13 @@ def do_tag(parser, token):
     result = token_kwargs(bits, parser)
 ",
         );
-        // After token_kwargs, bits should be Unknown
         assert_eq!(env.get("bits"), &AbstractValue::Unknown);
         assert_eq!(env.get("result"), &AbstractValue::Unknown);
     }
 
     #[test]
     fn parser_compile_filter() {
-        let (env, _) = analyze_with_helpers(
+        let env = analyze_with_helpers(
             r"
 def do_tag(parser, token):
     bits = token.split_contents()
@@ -513,8 +443,9 @@ def do_tag(parser, token):
     }
 
     #[test]
-    fn cache_hit_same_args() {
-        let (_, cache) = analyze_with_helpers(
+    fn helper_called_twice_same_args() {
+        // Salsa memoizes: calling the same helper twice yields the same result.
+        let env = analyze_with_helpers(
             r"
 def helper(tok):
     return tok.split_contents()
@@ -524,47 +455,35 @@ def do_tag(parser, token):
     b = helper(token)
 ",
         );
-        // Helper called twice with same args → cached, only 1 entry
-        assert_eq!(cache.len(), 1);
+        assert_eq!(
+            env.get("a"),
+            &AbstractValue::SplitResult(TokenSplit::fresh())
+        );
+        assert_eq!(
+            env.get("b"),
+            &AbstractValue::SplitResult(TokenSplit::fresh())
+        );
     }
 
     #[test]
-    fn cache_miss_different_args() {
-        let source = r"
+    fn helper_called_with_different_args() {
+        let env = analyze_with_helpers(
+            r"
 def helper(x):
     return x
 
 def do_tag(parser, token):
     a = helper(token)
     b = helper(parser)
-";
-        let funcs = parse_module_funcs(source);
-        let func_refs: Vec<&StmtFunctionDef> = funcs.iter().collect();
-
-        let main_func = funcs.iter().find(|f| f.name.as_str() == "do_tag").unwrap();
-
-        let mut env = Env::for_compile_function("parser", "token");
-        let mut cache = HelperCache::new();
-        let mut ctx = CallContext {
-            module_funcs: &func_refs,
-            caller_name: "do_tag",
-            call_depth: 0,
-            cache: &mut cache,
-            db: None,
-            file: None,
-        };
-
-        process_statements(&main_func.body, &mut env, &mut ctx);
-
-        // Different arg values → 2 cache entries
-        assert_eq!(cache.len(), 2);
+",
+        );
         assert_eq!(env.get("a"), &AbstractValue::Token);
         assert_eq!(env.get("b"), &AbstractValue::Parser);
     }
 
     #[test]
     fn helper_with_pop_and_return() {
-        let (env, _) = analyze_with_helpers(
+        let env = analyze_with_helpers(
             r"
 def get_bits(tok):
     bits = tok.split_contents()
@@ -583,9 +502,7 @@ def do_tag(parser, token):
 
     #[test]
     fn helper_call_in_tuple_element() {
-        // Verifies that ctx is propagated through tuple element evaluation,
-        // allowing module-local helper calls inside tuple literals to resolve.
-        let (env, _) = analyze_with_helpers(
+        let env = analyze_with_helpers(
             r"
 def get_bits(tok):
     return tok.split_contents()
@@ -594,7 +511,6 @@ def do_tag(parser, token):
     pair = (get_bits(token), 42)
 ",
         );
-        // The tuple should contain the resolved SplitResult from get_bits
         assert_eq!(
             env.get("pair"),
             &AbstractValue::Tuple(vec![
@@ -606,9 +522,7 @@ def do_tag(parser, token):
 
     #[test]
     fn helper_call_in_subscript_base() {
-        // Verifies that ctx is propagated through subscript base evaluation,
-        // allowing module-local helper calls as the subscript target to resolve.
-        let (env, _) = analyze_with_helpers(
+        let env = analyze_with_helpers(
             r"
 def get_bits(tok):
     return tok.split_contents()
@@ -627,9 +541,7 @@ def do_tag(parser, token):
 
     #[test]
     fn multiple_helper_calls_in_tuple() {
-        // Ensures ctx reborrowing works correctly across multiple tuple elements
-        // that each need call resolution.
-        let (env, cache) = analyze_with_helpers(
+        let env = analyze_with_helpers(
             r"
 def get_bits(tok):
     return tok.split_contents()
@@ -649,7 +561,5 @@ def do_tag(parser, token):
                 AbstractValue::Token,
             ])
         );
-        // identity called with 2 different args → 2 cache entries, plus get_bits → 3 total
-        assert_eq!(cache.len(), 3);
     }
 }
