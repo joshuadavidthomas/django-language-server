@@ -15,12 +15,12 @@ clap = { workspace = true }
 flate2 = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
-sha2 = { workspace = true }
 serde_json = { workspace = true }
+sha2 = { workspace = true }
 tar = { workspace = true }
+tempfile = { workspace = true }
 toml = { workspace = true }
 walkdir = { workspace = true }
-tempfile = { workspace = true }
 
 [lints]
 workspace = true
