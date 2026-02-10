@@ -34,7 +34,6 @@ struct RepoMarker {
     name: String,
     url: String,
     git_ref: String,
-    sha256: String,
 }
 
 fn write_marker(out_dir: &Utf8Path, value: &impl Serialize) -> anyhow::Result<()> {
@@ -187,7 +186,7 @@ fn sync_repo(
         repo.url.trim_end_matches(".git"),
         repo.git_ref
     );
-    let (tmp, sha256) = download_tarball(client, &url, &label)?;
+    let (tmp, _sha256) = download_tarball(client, &url, &label)?;
 
     let file = tmp.reopen()?;
     extract_tarball(file, &out_dir)?;
@@ -198,7 +197,6 @@ fn sync_repo(
             name: repo.name.clone(),
             url: repo.url.clone(),
             git_ref: repo.git_ref.clone(),
-            sha256,
         },
     )?;
 
