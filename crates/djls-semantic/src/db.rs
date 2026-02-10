@@ -1,6 +1,6 @@
 use camino::Utf8PathBuf;
 use djls_conf::DiagnosticsConfig;
-use djls_extraction::EnvironmentInventory;
+use djls_python::EnvironmentInventory;
 use djls_project::TemplateTags;
 use djls_templates::Db as TemplateDb;
 

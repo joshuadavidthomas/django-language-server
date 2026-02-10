@@ -52,7 +52,7 @@ Corpus layout knowledge is still scattered across test files. Building `TagSpecs
 
 The binary uses bare `args.get(1)` matching on two subcommands. Clap is already a workspace dep. Should have proper `--help`, and potentially `--manifest`, `--root` flags.
 
-### 4. `corpus.rs` and `golden.rs` in djls-extraction are the same idea
+### 4. `corpus.rs` and `golden.rs` in djls-python are the same idea
 
 - `corpus.rs` — runs extraction on every corpus file, checks no panics + results exist
 - `golden.rs` — runs extraction on specific Django modules, snapshots results
@@ -73,14 +73,14 @@ These should be one test module. The golden tests are just corpus tests that sna
 
 `djls-corpus` is never linked into the final `djls` binary — it's only used from test code (`[dev-dependencies]`) and its own CLI binary. The current dep structure is fine for this, but consider:
 
-- The `extraction` feature pulls `djls-extraction` + Ruff into the library. This is only used by dev-dep consumers, so the weight is acceptable.
+- The `extraction` feature pulls `djls-python` + Ruff into the library. This is only used by dev-dep consumers, so the weight is acceptable.
 - The sync-specific deps (`reqwest`, `flate2`, `tar`) are needed by the binary but also get compiled when tests pull in `djls-corpus`. This is unavoidable without splitting the crate, which isn't worth it.
 
 ## Implementation Order
 
 1. **Add `Corpus` struct** with discovery + all navigation/enumeration/extraction methods
 2. **Use clap** for the CLI binary
-3. **Merge `corpus.rs` + `golden.rs`** in djls-extraction into one data-driven test module
+3. **Merge `corpus.rs` + `golden.rs`** in djls-python into one data-driven test module
 4. **Move server corpus tests** to djls-semantic or djls-corpus
 5. **Eliminate hardcoded per-file test functions** — replace with enumeration + snapshot
 6. **Remove free functions** that are now `Corpus` methods (keep as private helpers if needed)

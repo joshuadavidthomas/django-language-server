@@ -2,10 +2,10 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::path::PathBuf;
 
-use djls_extraction::collect_registrations_from_body;
-use djls_extraction::EnvironmentInventory;
-use djls_extraction::EnvironmentLibrary;
-use djls_extraction::SymbolKind;
+use djls_python::collect_registrations_from_body;
+use djls_python::EnvironmentInventory;
+use djls_python::EnvironmentLibrary;
+use djls_python::SymbolKind;
 
 /// Scan Python environment paths to discover all template tag libraries.
 ///

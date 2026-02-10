@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 djls-conf = { workspace = true }
-djls-extraction = { workspace = true }
+djls-python = { workspace = true }
 djls-project = { workspace = true }
 djls-source = { workspace = true }
 djls-templates = { workspace = true }
@@ -21,7 +21,7 @@ walkdir = { workspace = true }
 
 [dev-dependencies]
 djls-corpus = { workspace = true }
-djls-extraction = { workspace = true, features = ["parser"] }
+djls-python = { workspace = true, features = ["parser"] }
 insta = { workspace = true }
 serde_json = { workspace = true }
 tempfile = { workspace = true }

@@ -34,7 +34,7 @@ Internal types:
 ## Desired End State
 
 ```
-crates/djls-extraction/src/
+crates/djls-python/src/
     blocks.rs              → orchestrator + shared helpers + re-exports
     blocks/
         opaque.rs          — parser.skip_past() detection
@@ -73,8 +73,8 @@ Each strategy module exposes a `detect(body, parser_var) -> Option<BlockTagSpec>
 The simplest and most self-contained strategy.
 
 **Changes required:**
-- Create `crates/djls-extraction/src/blocks/` directory
-- Create `crates/djls-extraction/src/blocks/opaque.rs`:
+- Create `crates/djls-python/src/blocks/` directory
+- Create `crates/djls-python/src/blocks/opaque.rs`:
   - Move `collect_skip_past_tokens()` and `extract_skip_past_token()`
   - Add `pub fn detect(body: &[Stmt], parser_var: &str) -> Option<BlockTagSpec>`
 - Update `blocks.rs`: add `mod opaque;` and call `opaque::detect()` in orchestrator
@@ -90,7 +90,7 @@ The simplest and most self-contained strategy.
 Second simplest — self-contained functions for f-string/format detection.
 
 **Changes required:**
-- Create `crates/djls-extraction/src/blocks/dynamic_end.rs`:
+- Create `crates/djls-python/src/blocks/dynamic_end.rs`:
   - Move `has_dynamic_end_in_body()`, `is_dynamic_end_parse_call()`, `is_end_fstring()`, `has_dynamic_end_tag_format()`, `is_end_format_expr()`
   - Add `pub fn detect(body: &[Stmt], parser_var: &str) -> Option<BlockTagSpec>`
 - Update `blocks.rs`: add `mod dynamic_end;` and call `dynamic_end::detect()` in orchestrator
@@ -105,7 +105,7 @@ Second simplest — self-contained functions for f-string/format detection.
 The next-token loop detection for blocktrans/blocktranslate.
 
 **Changes required:**
-- Create `crates/djls-extraction/src/blocks/next_token.rs`:
+- Create `crates/djls-python/src/blocks/next_token.rs`:
   - Move `extract_next_token_loop_spec()`, `has_next_token_loop()`, `is_parser_tokens_check()`, `body_has_next_token_call()`, `is_next_token_call()`, `collect_token_content_comparisons()`, `extract_comparisons_from_expr()`
   - Add `pub fn detect(body: &[Stmt], parser_var: &str) -> Option<BlockTagSpec>`
 - Update `blocks.rs`: add `mod next_token;`
@@ -121,7 +121,7 @@ The next-token loop detection for blocktrans/blocktranslate.
 The largest and most complex strategy — parser.parse() extraction and stop-token classification.
 
 **Changes required:**
-- Create `crates/djls-extraction/src/blocks/parse_calls.rs`:
+- Create `crates/djls-python/src/blocks/parse_calls.rs`:
   - Move `ParseCallInfo`, `Classification` types
   - Move `collect_parser_parse_calls()`, `extract_parse_call_info()`, `classify_stop_tokens()`, `classify_in_body()`, `classify_from_if_chain()`, `extract_token_check()`, `extract_startswith_check()`, `is_token_contents_expr()`, `body_has_parse_call()`
   - Add `pub fn detect(body: &[Stmt], parser_var: &str) -> Option<BlockTagSpec>`

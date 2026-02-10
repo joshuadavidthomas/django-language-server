@@ -6,7 +6,7 @@ support specific milestones and refactoring efforts.
 
 ## Extraction Crate Refactor (M10)
 
-Refactoring `djls-extraction` from agent-written procedural code to
+Refactoring `djls-python` from agent-written procedural code to
 type-driven Rust with Salsa integration. The algorithms (interprocedural
 abstract interpretation with bounded inlining) are correct — the
 implementation and representation are changing.

@@ -2,8 +2,8 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_conf::DiagnosticsConfig;
 use djls_conf::Settings;
-use djls_extraction::EnvironmentInventory;
-use djls_extraction::ExtractionResult;
+use djls_python::EnvironmentInventory;
+use djls_python::ExtractionResult;
 use rustc_hash::FxHashMap;
 
 use crate::db::Db as ProjectDb;

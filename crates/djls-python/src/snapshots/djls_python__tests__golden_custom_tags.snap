@@ -1,0 +1,257 @@
+---
+source: crates/djls-python/src/lib.rs
+expression: "snapshot(extract_rules(&source, \"tests.template_tests.templatetags.custom\"))"
+---
+tag_rules:
+  "tests.template_tests.templatetags.custom::context_stack_length":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    supports_as_var: true
+  "tests.template_tests.templatetags.custom::current_app":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    supports_as_var: true
+  "tests.template_tests.templatetags.custom::escape_explicit":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    supports_as_var: true
+  "tests.template_tests.templatetags.custom::escape_format_html":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    supports_as_var: true
+  "tests.template_tests.templatetags.custom::escape_naive":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    supports_as_var: true
+  "tests.template_tests.templatetags.custom::explicit_no_context":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: arg
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: true
+  "tests.template_tests.templatetags.custom::minustwo":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: value
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: true
+  "tests.template_tests.templatetags.custom::no_params":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    supports_as_var: true
+  "tests.template_tests.templatetags.custom::no_params_with_context":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    supports_as_var: true
+  "tests.template_tests.templatetags.custom::one_param":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: arg
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: true
+  "tests.template_tests.templatetags.custom::params_and_context":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: arg
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: true
+  "tests.template_tests.templatetags.custom::simple_keyword_only_default":
+    arg_constraints:
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: kwarg
+        required: false
+        kind: Keyword
+        position: 0
+    supports_as_var: true
+  "tests.template_tests.templatetags.custom::simple_keyword_only_param":
+    arg_constraints:
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: kwarg
+        required: true
+        kind: Keyword
+        position: 0
+    supports_as_var: true
+  "tests.template_tests.templatetags.custom::simple_one_default":
+    arg_constraints:
+      - Min: 2
+      - Max: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: one
+        required: true
+        kind: Variable
+        position: 0
+      - name: two
+        required: false
+        kind: Variable
+        position: 1
+    supports_as_var: true
+  "tests.template_tests.templatetags.custom::simple_only_unlimited_args":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: args
+        required: false
+        kind: VarArgs
+        position: 0
+    supports_as_var: true
+  "tests.template_tests.templatetags.custom::simple_tag_takes_context_without_params":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    supports_as_var: true
+  "tests.template_tests.templatetags.custom::simple_tag_without_context_parameter":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    supports_as_var: true
+  "tests.template_tests.templatetags.custom::simple_two_params":
+    arg_constraints:
+      - Min: 3
+      - Max: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: one
+        required: true
+        kind: Variable
+        position: 0
+      - name: two
+        required: true
+        kind: Variable
+        position: 1
+    supports_as_var: true
+  "tests.template_tests.templatetags.custom::simple_unlimited_args":
+    arg_constraints:
+      - Min: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: one
+        required: true
+        kind: Variable
+        position: 0
+      - name: two
+        required: false
+        kind: Variable
+        position: 1
+      - name: args
+        required: false
+        kind: VarArgs
+        position: 2
+    supports_as_var: true
+  "tests.template_tests.templatetags.custom::simple_unlimited_args_kwargs":
+    arg_constraints:
+      - Min: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: one
+        required: true
+        kind: Variable
+        position: 0
+      - name: two
+        required: false
+        kind: Variable
+        position: 1
+      - name: args
+        required: false
+        kind: VarArgs
+        position: 2
+    supports_as_var: true
+  "tests.template_tests.templatetags.custom::use_l10n":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    supports_as_var: true
+filter_arities:
+  "tests.template_tests.templatetags.custom::make_data_div":
+    expects_arg: false
+    arg_optional: false
+  "tests.template_tests.templatetags.custom::noop":
+    expects_arg: true
+    arg_optional: true
+  "tests.template_tests.templatetags.custom::trim":
+    expects_arg: true
+    arg_optional: false
+block_specs: {}

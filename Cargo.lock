@@ -654,8 +654,8 @@ dependencies = [
  "camino",
  "codspeed-divan-compat",
  "djls-conf",
- "djls-extraction",
  "djls-project",
+ "djls-python",
  "djls-semantic",
  "djls-source",
  "djls-templates",
@@ -695,30 +695,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "djls-extraction"
-version = "0.0.0"
-dependencies = [
- "camino",
- "djls-corpus",
- "djls-source",
- "insta",
- "ruff_python_ast",
- "ruff_python_parser",
- "rustc-hash",
- "salsa",
- "serde",
- "tempfile",
- "walkdir",
-]
-
-[[package]]
 name = "djls-ide"
 version = "0.0.0"
 dependencies = [
  "camino",
  "djls-conf",
- "djls-extraction",
  "djls-project",
+ "djls-python",
  "djls-semantic",
  "djls-source",
  "djls-templates",
@@ -736,7 +719,7 @@ dependencies = [
  "anyhow",
  "camino",
  "djls-conf",
- "djls-extraction",
+ "djls-python",
  "djls-source",
  "djls-workspace",
  "ruff_python_parser",
@@ -750,14 +733,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "djls-python"
+version = "0.0.0"
+dependencies = [
+ "camino",
+ "djls-corpus",
+ "djls-source",
+ "insta",
+ "ruff_python_ast",
+ "ruff_python_parser",
+ "rustc-hash",
+ "salsa",
+ "serde",
+ "tempfile",
+ "walkdir",
+]
+
+[[package]]
 name = "djls-semantic"
 version = "0.0.0"
 dependencies = [
  "camino",
  "djls-conf",
  "djls-corpus",
- "djls-extraction",
  "djls-project",
+ "djls-python",
  "djls-source",
  "djls-templates",
  "djls-workspace",
@@ -780,9 +780,9 @@ dependencies = [
  "camino",
  "dashmap",
  "djls-conf",
- "djls-extraction",
  "djls-ide",
  "djls-project",
+ "djls-python",
  "djls-semantic",
  "djls-source",
  "djls-templates",

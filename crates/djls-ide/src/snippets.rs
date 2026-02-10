@@ -1,5 +1,5 @@
-use djls_extraction::ExtractedArg;
-use djls_extraction::ExtractedArgKind;
+use djls_python::ExtractedArg;
+use djls_python::ExtractedArgKind;
 use djls_semantic::TagSpec;
 
 /// Generate an LSP snippet pattern from an array of extracted arguments
@@ -102,9 +102,9 @@ pub fn generate_partial_snippet(spec: &TagSpec, starting_from_position: usize) -
 
 #[cfg(test)]
 mod tests {
-    use djls_extraction::ExtractedArg;
-    use djls_extraction::ExtractedArgKind;
-    use djls_extraction::TagRule;
+    use djls_python::ExtractedArg;
+    use djls_python::ExtractedArgKind;
+    use djls_python::TagRule;
     use djls_semantic::EndTag;
 
     use super::*;

@@ -1,7 +1,7 @@
 # Ruff/ty Pattern Reference
 
 > Concrete code examples from the Ruff codebase that demonstrate patterns
-> applicable to djls-extraction refactoring. All paths relative to
+> applicable to djls-python refactoring. All paths relative to
 > `/home/josh/projects/astral-sh/ruff/`.
 >
 > **Note**: Line numbers are approximate — Ruff is actively developed and
@@ -11,7 +11,7 @@
 
 ## 1. Type Narrowing (Constraint Extraction from Conditionals)
 
-The closest analog to djls-extraction's `dataflow/constraints.rs`.
+The closest analog to djls-python's `dataflow/constraints.rs`.
 
 ### Entry Point
 
@@ -60,7 +60,7 @@ struct NarrowingConstraintsBuilder<'db, 'ast> {
 }
 ```
 
-Compare to djls-extraction's `AnalysisContext` (6 fields, 2 mutable).
+Compare to djls-python's `AnalysisContext` (6 fields, 2 mutable).
 This builder has 4 fields, all immutable. The `&mut self` on methods
 is only for the builder pattern itself — it doesn't accumulate state.
 
@@ -108,7 +108,7 @@ Unknown expressions return `None` (no constraint), not `Unknown`.
 crates/ty_python_semantic/src/types/narrow.rs:478-595
 ```
 
-This is analogous to djls-extraction's `eval_compare` in `constraints.rs`.
+This is analogous to djls-python's `eval_compare` in `constraints.rs`.
 The Ruff version:
 
 - Takes `lhs_ty: Type<'db>` and `rhs_ty: Type<'db>` (already evaluated)
@@ -274,7 +274,7 @@ crates/ruff_python_semantic/src/binding.rs:427-551
 20+ variants, each carrying exactly what it needs. `is_macro::Is`
 generates predicate methods (`is_import()`, `is_loop_var()`, etc.).
 
-Relevant variants for djls-extraction comparison:
+Relevant variants for djls-python comparison:
 - `Argument` — function parameter
 - `Assignment` — variable assignment
 - `LoopVar` — for-loop target
@@ -426,7 +426,7 @@ constraints). Simplification via saturation and subsumption.
 
 ## Summary: Patterns to Adopt
 
-| Ruff Pattern | Current djls-extraction | Target |
+| Ruff Pattern | Current djls-python | Target |
 |---|---|---|
 | Methods return values | Functions push into `&mut` bags | Return `Option<Constraint>`, compose at call site |
 | Immutable builder context | God-context `AnalysisContext` | Split into read context + returned results |

@@ -1,7 +1,7 @@
 # Extraction Crate: Refactor Research
 
 > Research notes from code review of PR #394 and study of Ruff/ty codebase
-> patterns. This documents problems with the current `djls-extraction` crate
+> patterns. This documents problems with the current `djls-python` crate
 > and patterns from Ruff that point toward better abstractions.
 
 ## The Core Problem
@@ -119,7 +119,7 @@ fn infer_expression_impl(&mut self, expression: &ast::Expr) -> Type<'db> {
 }
 ```
 
-**Contrast with djls-extraction**: `eval_condition` doesn't return
+**Contrast with djls-python**: `eval_condition` doesn't return
 anything — it pushes into `&mut Constraints`. The caller has no
 visibility into what happened.
 
@@ -159,7 +159,7 @@ fn evaluate_bool_op(&mut self, ...) -> Option<NarrowingConstraints<'db>> {
 }
 ```
 
-**Contrast with djls-extraction**: `eval_condition` for `and` creates
+**Contrast with djls-python**: `eval_condition` for `and` creates
 a temp `Constraints`, pushes into it, then cherry-picks which fields
 to copy back. The logic for "and means drop length constraints but keep
 keywords" is encoded in imperative code with a comment, not in types.
@@ -182,7 +182,7 @@ All entities stored in `IndexVec<IdType, DataType>` — like a normalized
 database. Relationships via typed IDs, not string keys. You can't
 accidentally pass a `BindingId` where a `ScopeId` is expected.
 
-**Contrast with djls-extraction**: `Env` is `HashMap<String, AbstractValue>`.
+**Contrast with djls-python**: `Env` is `HashMap<String, AbstractValue>`.
 Variable names are strings. No type-level distinction between "the parser
 parameter" and "a user's local variable."
 
@@ -280,7 +280,7 @@ fn infer_statement(&mut self, stmt: &ast::Stmt) {
 Each arm delegates to a specific method that returns its result. Clean,
 greppable, explicit control flow.
 
-## Implications for djls-extraction Refactor
+## Implications for djls-python Refactor
 
 ### What Changes
 

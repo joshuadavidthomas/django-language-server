@@ -1,8 +1,8 @@
-use djls_extraction::ArgumentCountConstraint;
-use djls_extraction::ChoiceAt;
-use djls_extraction::KnownOptions;
-use djls_extraction::RequiredKeyword;
-use djls_extraction::TagRule;
+use djls_python::ArgumentCountConstraint;
+use djls_python::ChoiceAt;
+use djls_python::KnownOptions;
+use djls_python::RequiredKeyword;
+use djls_python::TagRule;
 use djls_source::Span;
 
 use crate::ValidationError;
@@ -20,7 +20,7 @@ trait Constraint {
 /// Returns `None` if the position is out of bounds or refers to the tag name
 /// — the argument count constraint should catch those cases.
 fn resolve_position_index(
-    position: &djls_extraction::SplitPosition,
+    position: &djls_python::SplitPosition,
     bits_len: usize,
 ) -> Option<usize> {
     position.to_bits_index(bits_len)
@@ -210,7 +210,7 @@ fn evaluate_known_options(
 
 #[cfg(test)]
 mod tests {
-    use djls_extraction::SplitPosition;
+    use djls_python::SplitPosition;
 
     use super::*;
 

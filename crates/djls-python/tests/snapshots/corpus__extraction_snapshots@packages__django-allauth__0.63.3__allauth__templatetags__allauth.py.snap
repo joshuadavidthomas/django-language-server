@@ -1,0 +1,32 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+input_file: crates/djls-corpus/.corpus/packages/django-allauth/0.63.3/allauth/templatetags/allauth.py
+---
+tag_rules:
+  "allauth.templatetags.allauth::setvar":
+    arg_constraints:
+      - Exact: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: arg1
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: false
+filter_arities: {}
+block_specs:
+  "allauth.templatetags.allauth::element":
+    end_tag: endelement
+    intermediates: []
+    opaque: false
+  "allauth.templatetags.allauth::setvar":
+    end_tag: endsetvar
+    intermediates: []
+    opaque: false
+  "allauth.templatetags.allauth::slot":
+    end_tag: endslot
+    intermediates: []
+    opaque: false

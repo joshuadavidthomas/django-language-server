@@ -1,6 +1,6 @@
 # Extraction Crate: Architecture Map
 
-> Complete map of what `djls-extraction` does, who uses it, and where the
+> Complete map of what `djls-python` does, who uses it, and where the
 > boundaries are. Reference for refactoring.
 
 ## Nine Responsibilities
@@ -140,7 +140,7 @@ The `HelperCache` in `dataflow/calls.rs` is a hand-rolled memoization
 cache that was explicitly rejected. It should never have been built.
 Salsa tracked functions were requested for this purpose.
 
-### djls-extraction is the odd crate out
+### djls-python is the odd crate out
 
 Salsa is woven throughout this project. Of 12 crates in the workspace:
 
@@ -148,7 +148,7 @@ Salsa is woven throughout this project. Of 12 crates in the workspace:
   djls-server, djls-source, djls-templates, djls-workspace
 - **3 don't need it**: djls (binary entrypoint), djls-conf (settings),
   djls-corpus (test fixtures)
-- **1 should but doesn't**: **djls-extraction**
+- **1 should but doesn't**: **djls-python**
 
 The extraction crate was agent-written and hand-rolled its own caching
 (`HelperCache`) and recursion guards (`call_depth`, `caller_name`)

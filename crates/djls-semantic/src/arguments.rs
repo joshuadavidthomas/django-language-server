@@ -129,7 +129,7 @@ mod tests {
             crate::filters::arity::FilterAritySpecs::new()
         }
 
-        fn environment_inventory(&self) -> Option<djls_extraction::EnvironmentInventory> {
+        fn environment_inventory(&self) -> Option<djls_python::EnvironmentInventory> {
             None
         }
     }
@@ -196,8 +196,8 @@ mod tests {
     fn test_extracted_rules_exact_constraint_rejects() {
         use std::borrow::Cow;
 
-        use djls_extraction::ArgumentCountConstraint;
-        use djls_extraction::TagRule;
+        use djls_python::ArgumentCountConstraint;
+        use djls_python::TagRule;
         use rustc_hash::FxHashMap;
 
         use crate::templatetags::TagSpec;
@@ -249,10 +249,10 @@ mod tests {
     fn test_extracted_rules_min_constraint_rejects() {
         use std::borrow::Cow;
 
-        use djls_extraction::ArgumentCountConstraint;
-        use djls_extraction::RequiredKeyword;
-        use djls_extraction::SplitPosition;
-        use djls_extraction::TagRule;
+        use djls_python::ArgumentCountConstraint;
+        use djls_python::RequiredKeyword;
+        use djls_python::SplitPosition;
+        use djls_python::TagRule;
         use rustc_hash::FxHashMap;
 
         use crate::templatetags::EndTag;
@@ -309,10 +309,10 @@ mod tests {
     fn test_extracted_rules_required_keyword_rejects() {
         use std::borrow::Cow;
 
-        use djls_extraction::ArgumentCountConstraint;
-        use djls_extraction::RequiredKeyword;
-        use djls_extraction::SplitPosition;
-        use djls_extraction::TagRule;
+        use djls_python::ArgumentCountConstraint;
+        use djls_python::RequiredKeyword;
+        use djls_python::SplitPosition;
+        use djls_python::TagRule;
         use rustc_hash::FxHashMap;
 
         use crate::templatetags::EndTag;
@@ -360,10 +360,10 @@ mod tests {
     fn test_for_extra_arg_with_extracted_rules() {
         use std::borrow::Cow;
 
-        use djls_extraction::ArgumentCountConstraint;
-        use djls_extraction::RequiredKeyword;
-        use djls_extraction::SplitPosition;
-        use djls_extraction::TagRule;
+        use djls_python::ArgumentCountConstraint;
+        use djls_python::RequiredKeyword;
+        use djls_python::SplitPosition;
+        use djls_python::TagRule;
         use rustc_hash::FxHashMap;
 
         use crate::templatetags::EndTag;

@@ -12,7 +12,7 @@ djls-semantic = { path = "crates/djls-semantic" }
 djls-server = { path = "crates/djls-server" }
 djls-source = { path = "crates/djls-source" }
 djls-templates = { path = "crates/djls-templates" }
-djls-extraction = { path = "crates/djls-extraction" }
+djls-python = { path = "crates/djls-python" }
 djls-workspace = { path = "crates/djls-workspace" }
 djls-corpus = { path = "crates/djls-corpus" }
 

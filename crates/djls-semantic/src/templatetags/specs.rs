@@ -109,11 +109,11 @@ impl TagSpecs {
     /// extracted from actual Python source code.
     pub fn merge_extraction_results(
         &mut self,
-        extraction: &djls_extraction::ExtractionResult,
+        extraction: &djls_python::ExtractionResult,
     ) -> &mut Self {
         // Merge block specs (end tags, intermediates, opaque)
         for (key, block_spec) in &extraction.block_specs {
-            if key.kind != djls_extraction::SymbolKind::Tag {
+            if key.kind != djls_python::SymbolKind::Tag {
                 continue;
             }
             if let Some(spec) = self.0.get_mut(&key.name) {
@@ -168,7 +168,7 @@ impl TagSpecs {
 
         // Merge tag rules (argument validation constraints from extraction)
         for (key, tag_rule) in &extraction.tag_rules {
-            if key.kind != djls_extraction::SymbolKind::Tag {
+            if key.kind != djls_python::SymbolKind::Tag {
                 continue;
             }
 
@@ -239,7 +239,7 @@ pub struct TagSpec {
     ///
     /// When present, provides argument validation (S117 diagnostics) and
     /// argument structure for completions/snippets via `extracted_args`.
-    pub extracted_rules: Option<djls_extraction::TagRule>,
+    pub extracted_rules: Option<djls_python::TagRule>,
 }
 
 /// Specification for a closing tag (e.g., `{% endfor %}`, `{% endblock %}`).
@@ -634,10 +634,10 @@ mod tests {
         assert!(specs.get("if").unwrap().end_tag.is_some());
         assert_eq!(specs.get("if").unwrap().intermediate_tags.len(), 2);
 
-        let mut extraction = djls_extraction::ExtractionResult::default();
+        let mut extraction = djls_python::ExtractionResult::default();
         extraction.block_specs.insert(
-            djls_extraction::SymbolKey::tag("django.template.defaulttags", "if"),
-            djls_extraction::BlockTagSpec {
+            djls_python::SymbolKey::tag("django.template.defaulttags", "if"),
+            djls_python::BlockTagSpec {
                 end_tag: Some("endif".to_string()),
                 intermediates: vec!["elif".to_string(), "else".to_string(), "elseif".to_string()],
                 opaque: false,
@@ -660,10 +660,10 @@ mod tests {
         let mut specs = create_test_specs();
         let original_count = specs.len();
 
-        let mut extraction = djls_extraction::ExtractionResult::default();
+        let mut extraction = djls_python::ExtractionResult::default();
         extraction.block_specs.insert(
-            djls_extraction::SymbolKey::tag("myapp.templatetags.custom", "myblock"),
-            djls_extraction::BlockTagSpec {
+            djls_python::SymbolKey::tag("myapp.templatetags.custom", "myblock"),
+            djls_python::BlockTagSpec {
                 end_tag: Some("endmyblock".to_string()),
                 intermediates: vec!["mymiddle".to_string()],
                 opaque: false,
@@ -688,10 +688,10 @@ mod tests {
         let mut specs = create_test_specs();
         let original_count = specs.len();
 
-        let mut extraction = djls_extraction::ExtractionResult::default();
+        let mut extraction = djls_python::ExtractionResult::default();
         extraction.block_specs.insert(
-            djls_extraction::SymbolKey::filter("module", "lower"),
-            djls_extraction::BlockTagSpec {
+            djls_python::SymbolKey::filter("module", "lower"),
+            djls_python::BlockTagSpec {
                 end_tag: Some("endlower".to_string()),
                 intermediates: vec![],
                 opaque: false,
@@ -708,7 +708,7 @@ mod tests {
         let mut specs = create_test_specs();
         let original_count = specs.len();
 
-        let extraction = djls_extraction::ExtractionResult::default();
+        let extraction = djls_python::ExtractionResult::default();
         specs.merge_extraction_results(&extraction);
         assert_eq!(specs.len(), original_count);
     }
@@ -717,28 +717,28 @@ mod tests {
     fn test_merge_extraction_results_stores_rules() {
         let mut specs = create_test_specs();
 
-        let mut extraction = djls_extraction::ExtractionResult::default();
+        let mut extraction = djls_python::ExtractionResult::default();
         extraction.tag_rules.insert(
-            djls_extraction::SymbolKey::tag("django.template.defaulttags", "for"),
-            djls_extraction::TagRule {
-                arg_constraints: vec![djls_extraction::ArgumentCountConstraint::Min(4)],
+            djls_python::SymbolKey::tag("django.template.defaulttags", "for"),
+            djls_python::TagRule {
+                arg_constraints: vec![djls_python::ArgumentCountConstraint::Min(4)],
                 extracted_args: vec![
-                    djls_extraction::ExtractedArg {
+                    djls_python::ExtractedArg {
                         name: "item".to_string(),
                         required: true,
-                        kind: djls_extraction::ExtractedArgKind::Variable,
+                        kind: djls_python::ExtractedArgKind::Variable,
                         position: 0,
                     },
-                    djls_extraction::ExtractedArg {
+                    djls_python::ExtractedArg {
                         name: "in".to_string(),
                         required: true,
-                        kind: djls_extraction::ExtractedArgKind::Literal("in".to_string()),
+                        kind: djls_python::ExtractedArgKind::Literal("in".to_string()),
                         position: 1,
                     },
-                    djls_extraction::ExtractedArg {
+                    djls_python::ExtractedArg {
                         name: "iterable".to_string(),
                         required: true,
-                        kind: djls_extraction::ExtractedArgKind::Variable,
+                        kind: djls_python::ExtractedArgKind::Variable,
                         position: 2,
                     },
                 ],

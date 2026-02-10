@@ -1,0 +1,53 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+input_file: crates/djls-corpus/.corpus/packages/Django/4.2.28/django/template/loader_tags.py
+---
+tag_rules:
+  "django.template.loader_tags::block":
+    arg_constraints:
+      - Exact: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: block_name
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: false
+  "django.template.loader_tags::extends":
+    arg_constraints:
+      - Exact: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: arg1
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: false
+  "django.template.loader_tags::include":
+    arg_constraints:
+      - Min: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options:
+      values:
+        - with
+        - only
+      allow_duplicates: false
+      rejects_unknown: true
+    extracted_args:
+      - name: arg1
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: false
+filter_arities: {}
+block_specs:
+  "django.template.loader_tags::block":
+    end_tag: endblock
+    intermediates: []
+    opaque: false

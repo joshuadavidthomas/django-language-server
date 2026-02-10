@@ -1,0 +1,45 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+input_file: crates/djls-corpus/.corpus/repos/getsentry-sentry/f96e0f2de81f9d5b95614393be420f3107604220/src/sentry/templatetags/sentry_assets.py
+---
+tag_rules:
+  "src.sentry.templatetags.sentry_assets::absolute_asset_url":
+    arg_constraints:
+      - Min: 3
+      - Max: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: module
+        required: true
+        kind: Variable
+        position: 0
+      - name: path
+        required: true
+        kind: Variable
+        position: 1
+    supports_as_var: true
+  "src.sentry.templatetags.sentry_assets::crossorigin":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    supports_as_var: true
+  "src.sentry.templatetags.sentry_assets::injected_script_assets":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    supports_as_var: true
+filter_arities: {}
+block_specs:
+  "src.sentry.templatetags.sentry_assets::script":
+    end_tag: endscript
+    intermediates: []
+    opaque: false

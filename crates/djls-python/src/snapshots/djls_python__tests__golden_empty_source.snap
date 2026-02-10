@@ -1,0 +1,7 @@
+---
+source: crates/djls-python/src/lib.rs
+expression: "snapshot(extract_rules(\"\", \"test.module\"))"
+---
+tag_rules: {}
+filter_arities: {}
+block_specs: {}

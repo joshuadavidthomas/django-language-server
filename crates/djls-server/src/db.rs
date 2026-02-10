@@ -102,7 +102,7 @@ pub fn compute_filter_arity_specs(
 /// This tracked query:
 /// 1. Gets registration modules from inspector inventory
 /// 2. Resolves workspace modules to `File` inputs via `get_or_create_file`
-/// 3. Extracts rules from each (via tracked `djls_extraction::extract_module`)
+/// 3. Extracts rules from each (via tracked `djls_python::extract_module`)
 ///
 /// External modules are handled separately (cached on `Project` field,
 /// updated by `refresh_inspector`). This function only processes workspace
@@ -111,7 +111,7 @@ pub fn compute_filter_arity_specs(
 fn collect_workspace_extraction_results(
     db: &dyn SemanticDb,
     project: Project,
-) -> Vec<(String, djls_extraction::ExtractionResult)> {
+) -> Vec<(String, djls_python::ExtractionResult)> {
     let inventory = project.inspector_inventory(db);
     let interpreter = project.interpreter(db);
     let root = project.root(db);
@@ -132,7 +132,7 @@ fn collect_workspace_extraction_results(
 
     for resolved in workspace_modules {
         let file = db.get_or_create_file(&resolved.file_path);
-        let mut extraction = djls_extraction::extract_module(db, file);
+        let mut extraction = djls_python::extract_module(db, file);
 
         if !extraction.is_empty() {
             extraction.rekey_module(&resolved.module_path);
@@ -498,7 +498,7 @@ impl SemanticDb for DjangoDatabase {
         }
     }
 
-    fn environment_inventory(&self) -> Option<djls_extraction::EnvironmentInventory> {
+    fn environment_inventory(&self) -> Option<djls_python::EnvironmentInventory> {
         self.project()
             .and_then(|project| project.environment_inventory(self).clone())
     }
@@ -690,10 +690,10 @@ mod invalidation_tests {
 
         // Change extraction results to produce different TagSpecs
         let project = db.project.lock().unwrap().unwrap();
-        let mut extraction = djls_extraction::ExtractionResult::default();
+        let mut extraction = djls_python::ExtractionResult::default();
         extraction.block_specs.insert(
-            djls_extraction::SymbolKey::tag("test.module", "mytag"),
-            djls_extraction::BlockTagSpec {
+            djls_python::SymbolKey::tag("test.module", "mytag"),
+            djls_python::BlockTagSpec {
                 end_tag: Some("endmytag".to_string()),
                 intermediates: vec![],
                 opaque: false,
@@ -751,7 +751,7 @@ mod invalidation_tests {
         let file = djls_source::File::new(&db, "/test/project/tags.py".into(), 0);
 
         // First extraction
-        let _result1 = djls_extraction::extract_module(&db, file);
+        let _result1 = djls_python::extract_module(&db, file);
         let events = event_log.take();
         assert!(
             was_executed(&db, &events, "extract_module"),
@@ -759,7 +759,7 @@ mod invalidation_tests {
         );
 
         // Second call — cached
-        let _result2 = djls_extraction::extract_module(&db, file);
+        let _result2 = djls_python::extract_module(&db, file);
         let events = event_log.take();
         assert!(
             !was_executed(&db, &events, "extract_module"),
@@ -773,7 +773,7 @@ mod invalidation_tests {
 
         // Create and extract from a file (file doesn't exist, source is empty)
         let file = djls_source::File::new(&db, "/test/project/tags.py".into(), 0);
-        let _result = djls_extraction::extract_module(&db, file);
+        let _result = djls_python::extract_module(&db, file);
         event_log.take();
 
         // Bump the file revision — but the source is still empty (file not in FS)
@@ -781,7 +781,7 @@ mod invalidation_tests {
 
         // Salsa's backdate optimization: file.source() returns the same empty text,
         // so extract_module does NOT re-execute (correct behavior)
-        let _result = djls_extraction::extract_module(&db, file);
+        let _result = djls_python::extract_module(&db, file);
         let events = event_log.take();
         assert!(
             !was_executed(&db, &events, "extract_module"),
@@ -827,10 +827,10 @@ def my_filter(value, arg):
         };
 
         let file = djls_source::File::new(&db, "/test/project/tags.py".into(), 0);
-        let result = djls_extraction::extract_module(&db, file);
+        let result = djls_python::extract_module(&db, file);
 
         // Should extract the filter
-        let key = djls_extraction::SymbolKey::filter("", "my_filter");
+        let key = djls_python::SymbolKey::filter("", "my_filter");
         assert!(
             result.filter_arities.contains_key(&key),
             "should extract filter from file content"
@@ -850,10 +850,10 @@ def my_filter(value, arg):
         );
 
         // Set some extraction results
-        let mut extraction = djls_extraction::ExtractionResult::default();
+        let mut extraction = djls_python::ExtractionResult::default();
         extraction.block_specs.insert(
-            djls_extraction::SymbolKey::tag("test.module", "mytag"),
-            djls_extraction::BlockTagSpec {
+            djls_python::SymbolKey::tag("test.module", "mytag"),
+            djls_python::BlockTagSpec {
                 end_tag: Some("endmytag".to_string()),
                 intermediates: vec![],
                 opaque: false,
@@ -892,7 +892,7 @@ def my_filter(value, arg):
         let mut libraries = std::collections::BTreeMap::new();
         libraries.insert(
             "humanize".to_string(),
-            vec![djls_extraction::EnvironmentLibrary {
+            vec![djls_python::EnvironmentLibrary {
                 load_name: "humanize".to_string(),
                 app_module: "django.contrib.humanize".to_string(),
                 module_path: "django.contrib.humanize.templatetags.humanize".to_string(),
@@ -903,7 +903,7 @@ def my_filter(value, arg):
                 filters: vec!["intcomma".to_string(), "intword".to_string()],
             }],
         );
-        let inventory = djls_extraction::EnvironmentInventory::new(libraries);
+        let inventory = djls_python::EnvironmentInventory::new(libraries);
         project
             .set_environment_inventory(&mut db)
             .to(Some(inventory.clone()));
@@ -950,10 +950,10 @@ def my_filter(value, arg):
 
         // Set extraction results on the project
         let project = db.project.lock().unwrap().unwrap();
-        let mut extraction = djls_extraction::ExtractionResult::default();
+        let mut extraction = djls_python::ExtractionResult::default();
         extraction.block_specs.insert(
-            djls_extraction::SymbolKey::tag("test.module", "customblock"),
-            djls_extraction::BlockTagSpec {
+            djls_python::SymbolKey::tag("test.module", "customblock"),
+            djls_python::BlockTagSpec {
                 end_tag: Some("endcustomblock".to_string()),
                 intermediates: vec![],
                 opaque: false,

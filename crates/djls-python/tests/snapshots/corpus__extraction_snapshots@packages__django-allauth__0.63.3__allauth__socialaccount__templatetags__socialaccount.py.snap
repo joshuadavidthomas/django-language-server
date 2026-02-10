@@ -1,0 +1,49 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+input_file: crates/djls-corpus/.corpus/packages/django-allauth/0.63.3/allauth/socialaccount/templatetags/socialaccount.py
+---
+tag_rules:
+  "allauth.socialaccount.templatetags.socialaccount::get_providers":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    supports_as_var: true
+  "allauth.socialaccount.templatetags.socialaccount::get_social_accounts":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: user
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: true
+  "allauth.socialaccount.templatetags.socialaccount::provider_login_url":
+    arg_constraints:
+      - Min: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: provider
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: true
+  "allauth.socialaccount.templatetags.socialaccount::providers_media_js":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    supports_as_var: true
+filter_arities: {}
+block_specs: {}

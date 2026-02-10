@@ -72,8 +72,8 @@ mod tests {
 
     use camino::Utf8Path;
     use camino::Utf8PathBuf;
-    use djls_extraction::FilterArity;
-    use djls_extraction::SymbolKey;
+    use djls_python::FilterArity;
+    use djls_python::SymbolKey;
     use djls_project::TemplateTags;
     use djls_source::Db as SourceDb;
     use djls_source::File;
@@ -175,7 +175,7 @@ mod tests {
             self.arity_specs.clone()
         }
 
-        fn environment_inventory(&self) -> Option<djls_extraction::EnvironmentInventory> {
+        fn environment_inventory(&self) -> Option<djls_python::EnvironmentInventory> {
             None
         }
     }

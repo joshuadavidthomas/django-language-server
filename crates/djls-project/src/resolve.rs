@@ -194,7 +194,7 @@ pub fn extract_external_rules(
     interpreter: &Interpreter,
     root: &Utf8Path,
     pythonpath: &[String],
-) -> rustc_hash::FxHashMap<String, djls_extraction::ExtractionResult> {
+) -> rustc_hash::FxHashMap<String, djls_python::ExtractionResult> {
     let search_paths = build_search_paths(interpreter, root, pythonpath);
 
     let (_workspace, external_modules) =
@@ -205,7 +205,7 @@ pub fn extract_external_rules(
     for resolved in external_modules {
         match std::fs::read_to_string(resolved.file_path.as_std_path()) {
             Ok(source) => {
-                let module_result = djls_extraction::extract_rules(&source, &resolved.module_path);
+                let module_result = djls_python::extract_rules(&source, &resolved.module_path);
                 if !module_result.is_empty() {
                     results.insert(resolved.module_path, module_result);
                 }

@@ -1,5 +1,5 @@
-use djls_extraction::FilterArity;
-use djls_extraction::SymbolKey;
+use djls_python::FilterArity;
+use djls_python::SymbolKey;
 use rustc_hash::FxHashMap;
 
 /// Map from filter name → `FilterArity`, resolved for the current project.
@@ -46,7 +46,7 @@ impl FilterAritySpecs {
 
     /// Merge extraction results' filter arities into this map.
     /// Later entries overwrite earlier ones (last-wins).
-    pub fn merge_extraction_result(&mut self, result: &djls_extraction::ExtractionResult) {
+    pub fn merge_extraction_result(&mut self, result: &djls_python::ExtractionResult) {
         for (key, arity) in &result.filter_arities {
             self.insert(key.clone(), arity.clone());
         }

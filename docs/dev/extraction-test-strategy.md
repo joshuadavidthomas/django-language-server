@@ -2,7 +2,7 @@
 
 ## Problem
 
-The extraction crate (`djls-extraction`) tests Python source analysis — parsing
+The extraction crate (`djls-python`) tests Python source analysis — parsing
 Django templatetag/filter registration files and extracting validation rules,
 block specs, filter arities, etc.
 
@@ -41,7 +41,7 @@ this corpus.
 
 ### Phase 1: Audit existing fabricated tests
 
-- [ ] Inventory all tests in `djls-extraction` that use inline Python source
+- [ ] Inventory all tests in `djls-python` that use inline Python source
   - `src/lib.rs` — golden snapshot tests (~40 tests)
   - `src/rules.rs` — unit tests for rule extraction (~30 tests)
   - `src/registry.rs` — unit tests for registration discovery (~20 tests)

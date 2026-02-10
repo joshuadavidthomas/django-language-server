@@ -40,7 +40,7 @@ pub fn validate_tag_scoping(
     let env_inventory = db.environment_inventory();
     let env_tags = env_inventory
         .as_ref()
-        .map(djls_extraction::EnvironmentInventory::tags_by_name);
+        .map(djls_python::EnvironmentInventory::tags_by_name);
 
     for node in nodelist.nodelist(db) {
         let Node::Tag { name, span, .. } = node else {
@@ -147,7 +147,7 @@ pub fn validate_filter_scoping(
     let env_inventory = db.environment_inventory();
     let env_filters = env_inventory
         .as_ref()
-        .map(djls_extraction::EnvironmentInventory::filters_by_name);
+        .map(djls_python::EnvironmentInventory::filters_by_name);
 
     for node in nodelist.nodelist(db) {
         let Node::Variable { filters, span, .. } = node else {
@@ -318,7 +318,7 @@ mod tests {
         storage: salsa::Storage<Self>,
         fs: Arc<Mutex<InMemoryFileSystem>>,
         inventory: Option<TemplateTags>,
-        env_inventory: Option<djls_extraction::EnvironmentInventory>,
+        env_inventory: Option<djls_python::EnvironmentInventory>,
     }
 
     impl TestDatabase {
@@ -342,7 +342,7 @@ mod tests {
 
         fn with_inventories(
             inventory: TemplateTags,
-            env_inventory: djls_extraction::EnvironmentInventory,
+            env_inventory: djls_python::EnvironmentInventory,
         ) -> Self {
             Self {
                 storage: salsa::Storage::default(),
@@ -407,7 +407,7 @@ mod tests {
             crate::filters::arity::FilterAritySpecs::new()
         }
 
-        fn environment_inventory(&self) -> Option<djls_extraction::EnvironmentInventory> {
+        fn environment_inventory(&self) -> Option<djls_python::EnvironmentInventory> {
             self.env_inventory.clone()
         }
     }
@@ -1076,8 +1076,8 @@ mod tests {
     use std::collections::BTreeMap;
     use std::path::PathBuf;
 
-    use djls_extraction::EnvironmentInventory;
-    use djls_extraction::EnvironmentLibrary;
+    use djls_python::EnvironmentInventory;
+    use djls_python::EnvironmentLibrary;
 
     fn make_env_inventory(libraries: Vec<EnvironmentLibrary>) -> EnvironmentInventory {
         let mut map: BTreeMap<String, Vec<EnvironmentLibrary>> = BTreeMap::new();

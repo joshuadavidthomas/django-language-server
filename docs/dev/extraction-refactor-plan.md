@@ -12,9 +12,9 @@
 
 Before touching anything, ensure the existing tests are the safety net.
 
-- [ ] Run full test suite, confirm green: `cargo test -p djls-extraction`
-- [ ] Run corpus tests: `cargo test -p djls-extraction --test corpus`
-- [ ] Run snapshot tests, ensure all accepted: `cargo insta test -p djls-extraction`
+- [ ] Run full test suite, confirm green: `cargo test -p djls-python`
+- [ ] Run corpus tests: `cargo test -p djls-python --test corpus`
+- [ ] Run snapshot tests, ensure all accepted: `cargo insta test -p djls-python`
 - [ ] Run downstream consumers: `cargo test -p djls-semantic -p djls-server`
 - [ ] Record current snapshot count and test count as baseline
 
@@ -161,13 +161,13 @@ belongs closer to the project/inspector layer.
 
 - [ ] Move `environment/scan.rs` functions to `djls-project`
 - [ ] Keep `environment/types.rs` types where consumers can reach them
-  (either in `djls-extraction` as today, or in `djls-project` with
+  (either in `djls-python` as today, or in `djls-project` with
   re-exports)
 - [ ] The optional `collect_registrations_from_body` call becomes a
-  dependency from `djls-project` → `djls-extraction` (which already
+  dependency from `djls-project` → `djls-python` (which already
   exists)
 
-**Outcome**: `djls-extraction` becomes purely "Python AST → validation
+**Outcome**: `djls-python` becomes purely "Python AST → validation
 rules." No filesystem operations.
 
 ## Phase 5: Rename Things
@@ -239,7 +239,7 @@ This eliminates:
 
 Salsa requires inputs to be Salsa types. The current helper analysis
 takes `&[&StmtFunctionDef]` and `Vec<AbstractValue>` — plain Rust types.
-This means `djls-extraction` needs to become Salsa-aware:
+This means `djls-python` needs to become Salsa-aware:
 
 - Add `salsa` dependency to the crate
 - Design interned types for helper function identity and abstract args
@@ -345,7 +345,7 @@ Changing `RequiredKeyword.position` from `i64` to `SplitPosition` touches
 ### Environment scanning has a coupling (Phase 4)
 `scan_environment_with_symbols()` calls `collect_registrations_from_body()`
 — that's AST analysis. Moving scanning to `djls-project` means
-`djls-project` depends on `djls-extraction` for that function (dependency
+`djls-project` depends on `djls-python` for that function (dependency
 already exists, but the coupling is real).
 
 ### blocks.rs has shared helpers (Phase 3)
@@ -357,7 +357,7 @@ etc. Split needs a shared `helpers.rs` or `mod.rs` — not perfectly clean.
 - **Each phase keeps tests green.** No phase depends on a future phase.
 - **Phase 1 changes the internal pattern** from "mutate shared state" to
   "return values and compose." Public API unchanged.
-- **Phases 1-3 touch only `djls-extraction` internals.** The public API
+- **Phases 1-3 touch only `djls-python` internals.** The public API
   (`extract_rules()` → `ExtractionResult`) stays the same.
 - **Type track T1 (SplitPosition) is cross-crate** — do it when ready
   to update consumers too.

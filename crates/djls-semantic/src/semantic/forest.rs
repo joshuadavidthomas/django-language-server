@@ -300,7 +300,7 @@ mod tests {
             crate::filters::arity::FilterAritySpecs::new()
         }
 
-        fn environment_inventory(&self) -> Option<djls_extraction::EnvironmentInventory> {
+        fn environment_inventory(&self) -> Option<djls_python::EnvironmentInventory> {
             None
         }
     }

@@ -3,7 +3,7 @@
 //! This module handles all LSP completion requests, analyzing cursor context
 //! and generating appropriate completion items for Django templates.
 
-use djls_extraction::ExtractedArgKind;
+use djls_python::ExtractedArgKind;
 use djls_project::TemplateFilter;
 use djls_project::TemplateSymbol;
 use djls_project::TemplateTag;
@@ -1962,9 +1962,9 @@ mod tests {
     fn build_test_tag_specs_with_args() -> TagSpecs {
         use std::borrow::Cow;
 
-        use djls_extraction::ExtractedArg;
-        use djls_extraction::ExtractedArgKind;
-        use djls_extraction::TagRule;
+        use djls_python::ExtractedArg;
+        use djls_python::ExtractedArgKind;
+        use djls_python::TagRule;
 
         let mut specs = TagSpecs::default();
 

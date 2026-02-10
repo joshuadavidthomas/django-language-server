@@ -22,7 +22,7 @@
 //!
 //! # Consumers
 //!
-//! - `djls-extraction` — golden tests: extract rules from real templatetag
+//! - `djls-python` — golden tests: extract rules from real templatetag
 //!   modules and snapshot the results
 //! - `djls-server` — integration tests: parse real templates, validate
 //!   against extracted rules, assert zero false positives

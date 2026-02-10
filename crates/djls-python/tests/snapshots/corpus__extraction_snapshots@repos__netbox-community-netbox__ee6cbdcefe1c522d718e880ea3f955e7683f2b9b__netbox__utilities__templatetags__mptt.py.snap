@@ -1,0 +1,21 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+input_file: crates/djls-corpus/.corpus/repos/netbox-community-netbox/ee6cbdcefe1c522d718e880ea3f955e7683f2b9b/netbox/utilities/templatetags/mptt.py
+---
+tag_rules:
+  "netbox.utilities.templatetags.mptt::nested_tree":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: obj
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: true
+filter_arities: {}
+block_specs: {}

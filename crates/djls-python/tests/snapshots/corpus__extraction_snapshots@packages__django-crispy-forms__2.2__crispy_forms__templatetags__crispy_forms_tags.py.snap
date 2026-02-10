@@ -1,0 +1,8 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+input_file: crates/djls-corpus/.corpus/packages/django-crispy-forms/2.2/crispy_forms/templatetags/crispy_forms_tags.py
+---
+tag_rules: {}
+filter_arities: {}
+block_specs: {}

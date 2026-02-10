@@ -5,7 +5,7 @@
 
 ## Start Here: The Narrowing System
 
-This is the closest analog to what djls-extraction's constraint system
+This is the closest analog to what djls-python's constraint system
 does. It's 1073 lines and self-contained.
 
 **`crates/ty_python_semantic/src/types/narrow.rs`** (1073 lines)

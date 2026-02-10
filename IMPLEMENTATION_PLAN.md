@@ -14,7 +14,7 @@
 | M17 | **done** | Decompose blocks.rs into strategy modules |
 | M18 | **done** | Move environment scanning to djls-project |
 | M19 | **done** | HelperCache → Salsa tracked functions |
-| M20 | stub | Rename djls-extraction → djls-python |
+| M20 | **done** | Rename djls-extraction → djls-python |
 
 ## M14 — Test baseline + corpus-grounded tests ✅
 
@@ -83,26 +83,26 @@ Mechanical rename — no logic changes. The crate sits alongside `djls-templates
 
 ### Phase 1: Rename crate directory and Cargo.toml files
 
-- [ ] **M20.1** Rename `crates/djls-extraction/` → `crates/djls-python/`. Update `crates/djls-python/Cargo.toml` name. Update root `Cargo.toml` (members + workspace.dependencies). Update all dependent crates' `Cargo.toml` files (djls-bench, djls-ide, djls-project, djls-semantic, djls-server).
-- [ ] **M20.2** Validate: `cargo build -q` passes.
+- [x] **M20.1** Rename `crates/djls-extraction/` → `crates/djls-python/`. Update `crates/djls-python/Cargo.toml` name. Update root `Cargo.toml` (members + workspace.dependencies). Update all dependent crates' `Cargo.toml` files (djls-bench, djls-ide, djls-project, djls-semantic, djls-server).
+- [x] **M20.2** Validate: `cargo build -q` passes. (Combined with M20.3 — build requires import rename.)
 
 ### Phase 2: Rename all Rust imports
 
-- [ ] **M20.3** Global find-replace `djls_extraction` → `djls_python` across all `.rs` files in `crates/`.
-- [ ] **M20.4** Validate: `cargo build -q`, `cargo test -q` — all green.
+- [x] **M20.3** Global find-replace `djls_extraction` → `djls_python` across all `.rs` files in `crates/`.
+- [x] **M20.4** Validate: `cargo build -q`, `cargo test -q` — all green.
 
 ### Phase 3: Update snapshot file names
 
-- [ ] **M20.5** Rename snapshot files in `crates/djls-python/src/snapshots/` from `djls_extraction__*` → `djls_python__*`. Run `cargo insta test -p djls-python --accept --unreferenced delete`.
-- [ ] **M20.6** Validate: `cargo test -q` — all green.
+- [x] **M20.5** Rename snapshot files in `crates/djls-python/src/snapshots/` from `djls_extraction__*` → `djls_python__*`. Run `cargo insta test -p djls-python --features parser --accept --unreferenced delete`. Also accepted corpus test snapshots in `crates/djls-python/tests/snapshots/`.
+- [x] **M20.6** Validate: `cargo test -q` — all green.
 
 ### Phase 4: Update documentation
 
-- [ ] **M20.7** Update `AGENTS.md` crate listing. Update `docs/dev/*.md` and `.agents/ROADMAP.md` references to `djls-extraction`.
+- [x] **M20.7** Update `AGENTS.md` crate listing. Update `docs/dev/*.md`, `.agents/ROADMAP.md`, `.agents/rfcs/`, `.agents/plans/`, and doc comments in `crates/djls-corpus/src/lib.rs` and `crates/djls-python/tests/corpus.rs`.
 
 ### Phase 5: Final validation
 
-- [ ] **M20.8** Final validation: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q` — all green (745+ passed, 0 failed, 7 ignored). Verify no `djls-extraction` or `djls_extraction` references remain in `crates/` or `Cargo.toml`.
+- [x] **M20.8** Final validation: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q` — all green (745 passed, 0 failed, 7 ignored). Verified no `djls-extraction` or `djls_extraction` references remain in `crates/` or `Cargo.toml`.
 
 ## Baseline
 

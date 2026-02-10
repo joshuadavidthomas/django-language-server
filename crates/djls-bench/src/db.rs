@@ -97,7 +97,7 @@ impl SemanticDb for Db {
         djls_semantic::FilterAritySpecs::new()
     }
 
-    fn environment_inventory(&self) -> Option<djls_extraction::EnvironmentInventory> {
+    fn environment_inventory(&self) -> Option<djls_python::EnvironmentInventory> {
         None
     }
 }

@@ -1,0 +1,8 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+input_file: crates/djls-corpus/.corpus/packages/Django/4.2.28/tests/template_backends/apps/good/templatetags/good_tags.py
+---
+tag_rules: {}
+filter_arities: {}
+block_specs: {}
