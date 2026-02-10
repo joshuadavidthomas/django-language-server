@@ -170,8 +170,40 @@ Move `environment/scan.rs` from `djls-extraction` to `djls-project`. Types (`Env
 ## M19 — HelperCache → Salsa tracked functions
 
 **RFC:** `.agents/rfcs/2026-02-09-rfc-extraction-salsa-integration.md`
+**Plan file:** `.agents/plans/2026-02-09-m19-salsa-integration.md`
 
-_Tasks not yet expanded. Needs plan file: `.agents/plans/2026-02-09-m19-salsa-integration.md`_
+Replace `HelperCache` + manual recursion guards with Salsa tracked functions. Add `salsa` and `djls-source` dependencies. Introduce `parse_python_module`, `analyze_helper` (with cycle recovery), and `extract_module` tracked functions. Move `extract_module_rules` from `djls-server` into `djls-extraction`.
+
+### Phase 1: Add Salsa + djls-source dependencies
+
+- [ ] **M19.1** Add `salsa = { workspace = true }` and `djls-source = { workspace = true }` to `crates/djls-extraction/Cargo.toml` dependencies.
+- [ ] **M19.2** Validate: `cargo build -q`, `cargo test -q` — all green, no regressions.
+
+### Phase 2: Add `ParsedPythonModule` and `parse_python_module` tracked function
+
+- [ ] **M19.3** Create `crates/djls-extraction/src/parse.rs` with `ParsedPythonModule<'db>` (`#[salsa::tracked(no_eq)]`) and `parse_python_module(db, file)` (`#[salsa::tracked]`). Follow `djls-templates::parse_template` pattern and Ruff's `no_eq` pattern for parsed ASTs.
+- [ ] **M19.4** Add `mod parse;` to `lib.rs` (under `#[cfg(feature = "parser")]`), re-export `parse_python_module`.
+- [ ] **M19.5** Validate: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q` — all green.
+
+### Phase 3: Add `HelperCall` interned type and `analyze_helper` with cycle recovery
+
+- [ ] **M19.6** Add `HelperCall<'db>` (`#[salsa::interned]`) with `file: File`, `callee_name: String`, `args: Vec<AbstractValueKey>`.
+- [ ] **M19.7** Add `analyze_helper(db, call)` (`#[salsa::tracked(cycle_fn=..., cycle_initial=...)]`) that looks up function def in parsed module, runs eval, returns `AbstractValue`. Cycle recovery returns `Unknown`.
+- [ ] **M19.8** Add `db: &'a dyn djls_source::Db` and `file: File` to `CallContext`. Thread `db` through the eval call chain.
+- [ ] **M19.9** Update `resolve_helper_call` in `dataflow/calls.rs` to construct `HelperCall` interned value and call `analyze_helper(db, call)` instead of `HelperCache` lookup + manual depth/recursion guards.
+- [ ] **M19.10** Delete `HelperCache`, `HelperCacheKey`, `MAX_CALL_DEPTH`, `caller_name`, `call_depth` from `CallContext`.
+- [ ] **M19.11** Validate: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q` — all green. Verify `grep -rn "HelperCache\|call_depth\|caller_name\|MAX_CALL_DEPTH" crates/djls-extraction/src/` returns no results.
+
+### Phase 4: Add `extract_module` tracked function, move from server
+
+- [ ] **M19.12** Add `extract_module(db, file)` tracked function to extraction crate (in `parse.rs` or `lib.rs`). Calls `parse_python_module`, runs registration collection + extraction pipeline, returns `ExtractionResult`.
+- [ ] **M19.13** Update `crates/djls-server/src/db.rs`: remove `extract_module_rules`, update `collect_workspace_extraction_results` to call `djls_extraction::extract_module(db, file)`. Update server tests.
+- [ ] **M19.14** Validate: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q` — all green.
+
+### Phase 5: Final validation and cleanup
+
+- [ ] **M19.15** Remove dead code, unused imports. Run `cargo +nightly fmt`.
+- [ ] **M19.16** Final validation: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q` — all green (761+ passed, 0 failed, 7 ignored). Verify no `HelperCache` references in production code.
 
 ## M20 — Rename djls-extraction → djls-python
 
