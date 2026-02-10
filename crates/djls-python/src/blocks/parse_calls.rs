@@ -55,9 +55,11 @@ fn collect_parser_parse_calls(body: &[Stmt], parser_var: &str) -> Vec<ParseCallI
             }
             Stmt::For(for_stmt) => {
                 calls.extend(collect_parser_parse_calls(&for_stmt.body, parser_var));
+                calls.extend(collect_parser_parse_calls(&for_stmt.orelse, parser_var));
             }
             Stmt::While(while_stmt) => {
                 calls.extend(collect_parser_parse_calls(&while_stmt.body, parser_var));
+                calls.extend(collect_parser_parse_calls(&while_stmt.orelse, parser_var));
             }
             Stmt::Try(try_stmt) => {
                 calls.extend(collect_parser_parse_calls(&try_stmt.body, parser_var));
@@ -65,6 +67,8 @@ fn collect_parser_parse_calls(body: &[Stmt], parser_var: &str) -> Vec<ParseCallI
                     let ruff_python_ast::ExceptHandler::ExceptHandler(h) = handler;
                     calls.extend(collect_parser_parse_calls(&h.body, parser_var));
                 }
+                calls.extend(collect_parser_parse_calls(&try_stmt.orelse, parser_var));
+                calls.extend(collect_parser_parse_calls(&try_stmt.finalbody, parser_var));
             }
             Stmt::With(with_stmt) => {
                 calls.extend(collect_parser_parse_calls(&with_stmt.body, parser_var));
@@ -249,21 +253,35 @@ fn classify_in_body(body: &[Stmt], parser_var: &str, all_tokens: &[String]) -> C
             if let Some(token) = extract_token_check(&while_stmt.test, all_tokens)
                 .or_else(|| extract_startswith_check(&while_stmt.test, all_tokens))
             {
-                if body_has_parse_call(&while_stmt.body, parser_var) {
+                if body_has_parse_call(&while_stmt.body, parser_var)
+                    || body_has_parse_call(&while_stmt.orelse, parser_var)
+                {
                     result.add_intermediate(token);
                 } else {
                     result.add_end_tag(token);
                 }
             }
             result.merge(classify_in_body(&while_stmt.body, parser_var, all_tokens));
+            result.merge(classify_in_body(&while_stmt.orelse, parser_var, all_tokens));
         }
 
         if let Stmt::For(for_stmt) = stmt {
             result.merge(classify_in_body(&for_stmt.body, parser_var, all_tokens));
+            result.merge(classify_in_body(&for_stmt.orelse, parser_var, all_tokens));
         }
 
         if let Stmt::Try(try_stmt) = stmt {
             result.merge(classify_in_body(&try_stmt.body, parser_var, all_tokens));
+            for handler in &try_stmt.handlers {
+                let ruff_python_ast::ExceptHandler::ExceptHandler(h) = handler;
+                result.merge(classify_in_body(&h.body, parser_var, all_tokens));
+            }
+            result.merge(classify_in_body(&try_stmt.orelse, parser_var, all_tokens));
+            result.merge(classify_in_body(
+                &try_stmt.finalbody,
+                parser_var,
+                all_tokens,
+            ));
         }
 
         let has_parse_call = match stmt {
@@ -406,17 +424,32 @@ fn body_has_parse_call(body: &[Stmt], parser_var: &str) -> bool {
                 }
             }
             Stmt::For(for_stmt) => {
-                if body_has_parse_call(&for_stmt.body, parser_var) {
+                if body_has_parse_call(&for_stmt.body, parser_var)
+                    || body_has_parse_call(&for_stmt.orelse, parser_var)
+                {
                     return true;
                 }
             }
             Stmt::While(while_stmt) => {
-                if body_has_parse_call(&while_stmt.body, parser_var) {
+                if body_has_parse_call(&while_stmt.body, parser_var)
+                    || body_has_parse_call(&while_stmt.orelse, parser_var)
+                {
                     return true;
                 }
             }
             Stmt::Try(try_stmt) => {
                 if body_has_parse_call(&try_stmt.body, parser_var) {
+                    return true;
+                }
+                for handler in &try_stmt.handlers {
+                    let ruff_python_ast::ExceptHandler::ExceptHandler(h) = handler;
+                    if body_has_parse_call(&h.body, parser_var) {
+                        return true;
+                    }
+                }
+                if body_has_parse_call(&try_stmt.orelse, parser_var)
+                    || body_has_parse_call(&try_stmt.finalbody, parser_var)
+                {
                     return true;
                 }
             }

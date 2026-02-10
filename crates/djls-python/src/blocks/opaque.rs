@@ -65,9 +65,19 @@ fn collect_skip_past_tokens(body: &[Stmt], parser_var: &str) -> Vec<String> {
                         tokens.push(t);
                     }
                 }
+                for t in collect_skip_past_tokens(&for_stmt.orelse, parser_var) {
+                    if !tokens.contains(&t) {
+                        tokens.push(t);
+                    }
+                }
             }
             Stmt::While(while_stmt) => {
                 for t in collect_skip_past_tokens(&while_stmt.body, parser_var) {
+                    if !tokens.contains(&t) {
+                        tokens.push(t);
+                    }
+                }
+                for t in collect_skip_past_tokens(&while_stmt.orelse, parser_var) {
                     if !tokens.contains(&t) {
                         tokens.push(t);
                     }
@@ -77,6 +87,40 @@ fn collect_skip_past_tokens(body: &[Stmt], parser_var: &str) -> Vec<String> {
                 for t in collect_skip_past_tokens(&try_stmt.body, parser_var) {
                     if !tokens.contains(&t) {
                         tokens.push(t);
+                    }
+                }
+                for handler in &try_stmt.handlers {
+                    let ruff_python_ast::ExceptHandler::ExceptHandler(h) = handler;
+                    for t in collect_skip_past_tokens(&h.body, parser_var) {
+                        if !tokens.contains(&t) {
+                            tokens.push(t);
+                        }
+                    }
+                }
+                for t in collect_skip_past_tokens(&try_stmt.orelse, parser_var) {
+                    if !tokens.contains(&t) {
+                        tokens.push(t);
+                    }
+                }
+                for t in collect_skip_past_tokens(&try_stmt.finalbody, parser_var) {
+                    if !tokens.contains(&t) {
+                        tokens.push(t);
+                    }
+                }
+            }
+            Stmt::With(with_stmt) => {
+                for t in collect_skip_past_tokens(&with_stmt.body, parser_var) {
+                    if !tokens.contains(&t) {
+                        tokens.push(t);
+                    }
+                }
+            }
+            Stmt::Match(match_stmt) => {
+                for case in &match_stmt.cases {
+                    for t in collect_skip_past_tokens(&case.body, parser_var) {
+                        if !tokens.contains(&t) {
+                            tokens.push(t);
+                        }
                     }
                 }
             }

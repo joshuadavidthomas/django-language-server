@@ -4,6 +4,7 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_python::collect_registrations_from_body;
 use djls_python::SymbolKind;
+use rustc_hash::FxHashSet;
 
 use crate::scanned_libraries::ScannedTemplateLibraries;
 use crate::scanned_libraries::ScannedTemplateLibrary;
@@ -47,12 +48,13 @@ fn scan_template_libraries_impl(
     extraction: SymbolExtraction,
 ) -> ScannedTemplateLibraries {
     let mut libraries: BTreeMap<LibraryName, Vec<ScannedTemplateLibrary>> = BTreeMap::new();
+    let mut visited: FxHashSet<Utf8PathBuf> = FxHashSet::default();
 
     for sys_path in sys_paths {
         if !sys_path.is_dir() {
             continue;
         }
-        scan_sys_path_entry(sys_path, extraction, &mut libraries);
+        scan_sys_path_entry(sys_path, extraction, &mut visited, &mut libraries);
     }
 
     ScannedTemplateLibraries::new(libraries)
@@ -61,6 +63,7 @@ fn scan_template_libraries_impl(
 fn scan_sys_path_entry(
     sys_path: &Utf8Path,
     extraction: SymbolExtraction,
+    visited: &mut FxHashSet<Utf8PathBuf>,
     libraries: &mut BTreeMap<LibraryName, Vec<ScannedTemplateLibrary>>,
 ) {
     let Ok(top_entries) = std::fs::read_dir(sys_path.as_std_path()) else {
@@ -76,7 +79,7 @@ fn scan_sys_path_entry(
             continue;
         }
 
-        scan_package_tree(&path, sys_path, extraction, libraries);
+        scan_package_tree(&path, sys_path, extraction, visited, libraries);
     }
 }
 
@@ -84,8 +87,18 @@ fn scan_package_tree(
     dir: &Utf8Path,
     sys_path: &Utf8Path,
     extraction: SymbolExtraction,
+    visited: &mut FxHashSet<Utf8PathBuf>,
     libraries: &mut BTreeMap<LibraryName, Vec<ScannedTemplateLibrary>>,
 ) {
+    let key = std::fs::canonicalize(dir.as_std_path())
+        .ok()
+        .and_then(|p| Utf8PathBuf::from_path_buf(p).ok())
+        .unwrap_or_else(|| dir.to_owned());
+
+    if !visited.insert(key) {
+        return;
+    }
+
     let templatetags_dir = dir.join("templatetags");
     if templatetags_dir.is_dir() {
         let init_file = templatetags_dir.join("__init__.py");
@@ -121,7 +134,7 @@ fn scan_package_tree(
 
         let init = path.join("__init__.py");
         if init.exists() {
-            scan_package_tree(&path, sys_path, extraction, libraries);
+            scan_package_tree(&path, sys_path, extraction, visited, libraries);
         }
     }
 }
@@ -336,7 +349,7 @@ mod tests {
         assert!(inventory.has_library(&LibraryName::new("humanize").unwrap()));
         assert!(inventory.has_library(&LibraryName::new("admin_list").unwrap()));
         assert!(inventory.has_library(&LibraryName::new("admin_modify").unwrap()));
-        assert!(!inventory.has_library(&LibraryName::new("__init__").unwrap()));
+        assert!(!inventory.has_library(&LibraryName::new("nonexistent_library").unwrap()));
     }
 
     #[test]

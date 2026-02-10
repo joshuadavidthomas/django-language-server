@@ -212,7 +212,7 @@ fn eval_pop_return(obj: &AbstractValue, args: &Arguments) -> AbstractValue {
 
     if let Some(arg) = args.args.first() {
         // bits.pop(0) — return element at front_offset
-        if let Some(0) = arg.positive_integer() {
+        if let Some(0) = arg.non_negative_integer() {
             return AbstractValue::SplitElement {
                 index: split.resolve_index(0),
             };
@@ -239,7 +239,7 @@ fn i64_to_index_element(n: i64, split: &TokenSplit) -> AbstractValue {
         }
     } else {
         AbstractValue::SplitElement {
-            index: SplitPosition::Backward((-n) as usize),
+            index: SplitPosition::Backward(n.unsigned_abs() as usize),
         }
     }
 }
@@ -269,7 +269,7 @@ fn eval_subscript(base: &AbstractValue, slice: &Expr, env: &Env) -> AbstractValu
                 if let Some(n) = int_val.as_i64() {
                     #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
                     return AbstractValue::SplitElement {
-                        index: SplitPosition::Backward(n as usize),
+                        index: SplitPosition::Backward(n.unsigned_abs() as usize),
                     };
                 }
             }
@@ -287,7 +287,7 @@ fn eval_subscript(base: &AbstractValue, slice: &Expr, env: &Env) -> AbstractValu
             match (lower.as_deref(), upper.as_deref()) {
                 // bits[N:] — slice from N onwards
                 (Some(lower_expr), None) => {
-                    if let Some(n) = lower_expr.positive_integer() {
+                    if let Some(n) = lower_expr.non_negative_integer() {
                         return AbstractValue::SplitResult(split.after_slice_from(n));
                     }
                     AbstractValue::Unknown

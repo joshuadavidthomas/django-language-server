@@ -160,15 +160,65 @@ fn find_site_packages_in_venv(venv: &Utf8Path) -> Option<Utf8PathBuf> {
 
     // On Linux/macOS: lib/pythonX.Y/site-packages
     if let Ok(entries) = std::fs::read_dir(lib_dir.as_std_path()) {
+        fn parse_python_dir_version(name: &str) -> Option<(u32, u32)> {
+            let suffix = name.strip_prefix("python")?;
+            let mut parts = suffix.splitn(2, '.');
+            let major = parts.next()?.parse::<u32>().ok()?;
+            let minor_part = parts.next()?;
+
+            let minor_digits: String = minor_part
+                .chars()
+                .take_while(char::is_ascii_digit)
+                .collect();
+            if minor_digits.is_empty() {
+                return None;
+            }
+            let minor = minor_digits.parse::<u32>().ok()?;
+
+            Some((major, minor))
+        }
+
+        struct PythonLibCandidate {
+            version: Option<(u32, u32)>,
+            name: String,
+            path: std::path::PathBuf,
+        }
+
+        let mut candidates: Vec<PythonLibCandidate> = Vec::new();
+
         for entry in entries.flatten() {
+            if let Ok(file_type) = entry.file_type() {
+                if !file_type.is_dir() {
+                    continue;
+                }
+            }
+
             let name = entry.file_name();
             let name_str = name.to_string_lossy();
-            if name_str.starts_with("python") {
-                let site_packages =
-                    Utf8PathBuf::from_path_buf(entry.path().join("site-packages")).ok()?;
-                if site_packages.is_dir() {
-                    return Some(site_packages);
-                }
+            if !name_str.starts_with("python") {
+                continue;
+            }
+
+            let version = parse_python_dir_version(&name_str);
+            candidates.push(PythonLibCandidate {
+                version,
+                name: name_str.to_string(),
+                path: entry.path(),
+            });
+        }
+
+        candidates.sort_by(|a, b| match (&a.version, &b.version) {
+            (Some(a_v), Some(b_v)) => a_v.cmp(b_v).then_with(|| a.name.cmp(&b.name)),
+            (Some(_), None) => std::cmp::Ordering::Greater,
+            (None, Some(_)) => std::cmp::Ordering::Less,
+            (None, None) => a.name.cmp(&b.name),
+        });
+
+        for candidate in candidates.into_iter().rev() {
+            let site_packages =
+                Utf8PathBuf::from_path_buf(candidate.path.join("site-packages")).ok()?;
+            if site_packages.is_dir() {
+                return Some(site_packages);
             }
         }
     }

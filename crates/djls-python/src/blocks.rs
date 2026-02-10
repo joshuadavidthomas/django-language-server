@@ -71,12 +71,13 @@ pub(crate) fn is_parser_receiver(expr: &Expr, parser_var: &str) -> bool {
     false
 }
 
-/// Extract string constants from a tuple/list expression.
+/// Extract literal string constants from a tuple/list/set expression.
 ///
 /// Handles:
 /// - `("endif", "else", "elif")`
 /// - `("endif",)`
-/// - Variable references resolved from known constant assignments nearby
+///
+/// Does not resolve variable references.
 pub(super) fn extract_string_sequence(expr: &Expr) -> Vec<String> {
     match expr {
         Expr::Tuple(t) => t

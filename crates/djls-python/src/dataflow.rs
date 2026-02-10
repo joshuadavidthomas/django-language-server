@@ -48,9 +48,9 @@ impl<'a> CompileFunction<'a> {
 /// and `parser` parameters through the function body, extracting constraints
 /// from `raise TemplateSyntaxError(...)` guards.
 ///
-/// `module_funcs` provides all function definitions in the same module, used
-/// for resolving helper function calls (via Salsa when a database is available,
-/// or returning Unknown in standalone mode).
+/// Helper function calls are resolved only when analysis runs with a Salsa
+/// database and file context (see [`eval::CallContext`]). In standalone mode
+/// (no database), helper calls evaluate to `Unknown`.
 #[must_use]
 pub fn analyze_compile_function(func: &StmtFunctionDef) -> TagRule {
     let Some(compile_fn) = CompileFunction::from_ast(func) else {

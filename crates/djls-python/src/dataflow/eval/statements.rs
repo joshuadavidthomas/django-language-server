@@ -101,6 +101,7 @@ fn process_statement(stmt: &Stmt, env: &mut Env, ctx: &mut CallContext<'_>) -> A
 
         Stmt::For(stmt_for) => {
             result.extend(process_statements(&stmt_for.body, env, ctx));
+            result.extend(process_statements(&stmt_for.orelse, env, ctx));
         }
 
         Stmt::Try(stmt_try) => {

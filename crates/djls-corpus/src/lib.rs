@@ -37,6 +37,17 @@ pub mod filter;
 pub mod manifest;
 pub mod sync;
 
+fn parse_numeric_version(s: &str) -> Option<Vec<u32>> {
+    let mut parts = Vec::new();
+    for part in s.split('.') {
+        if part.is_empty() || !part.chars().all(|c| c.is_ascii_digit()) {
+            return None;
+        }
+        parts.push(part.parse::<u32>().ok()?);
+    }
+    Some(parts)
+}
+
 /// A validated corpus root directory.
 ///
 /// Constructed via [`Corpus::discover`], which validates that the
@@ -73,7 +84,33 @@ impl Corpus {
         if !django_dir.as_std_path().exists() {
             return None;
         }
-        synced_children(&django_dir).into_iter().last()
+
+        let children = synced_children(&django_dir);
+
+        let mut best: Option<(Vec<u32>, Utf8PathBuf)> = None;
+        for child in &children {
+            let Some(name) = child.file_name() else {
+                continue;
+            };
+            let Some(version) = parse_numeric_version(name) else {
+                continue;
+            };
+
+            let should_replace = match &best {
+                None => true,
+                Some((best_version, _)) => version > *best_version,
+            };
+
+            if should_replace {
+                best = Some((version, child.clone()));
+            }
+        }
+
+        if let Some((_, path)) = best {
+            return Some(path);
+        }
+
+        children.into_iter().last()
     }
 
     /// Synced subdirectories under a path relative to the corpus root.
@@ -247,7 +284,9 @@ pub fn module_path_from_file(file: &Utf8Path) -> String {
         fallback
     };
 
-    components[start..]
+    let slice: &[&str] = components.get(start..).unwrap_or(&[]);
+
+    slice
         .iter()
         .map(|s| s.strip_suffix(".py").unwrap_or(s))
         .collect::<Vec<_>>()

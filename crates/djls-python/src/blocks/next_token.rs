@@ -74,7 +74,9 @@ fn has_next_token_loop(body: &[Stmt], parser_var: &str) -> bool {
                 {
                     return true;
                 }
-                if has_next_token_loop(&while_stmt.body, parser_var) {
+                if has_next_token_loop(&while_stmt.body, parser_var)
+                    || has_next_token_loop(&while_stmt.orelse, parser_var)
+                {
                     return true;
                 }
             }
@@ -89,12 +91,25 @@ fn has_next_token_loop(body: &[Stmt], parser_var: &str) -> bool {
                 }
             }
             Stmt::For(for_stmt) => {
-                if has_next_token_loop(&for_stmt.body, parser_var) {
+                if has_next_token_loop(&for_stmt.body, parser_var)
+                    || has_next_token_loop(&for_stmt.orelse, parser_var)
+                {
                     return true;
                 }
             }
             Stmt::Try(try_stmt) => {
                 if has_next_token_loop(&try_stmt.body, parser_var) {
+                    return true;
+                }
+                for handler in &try_stmt.handlers {
+                    let ruff_python_ast::ExceptHandler::ExceptHandler(h) = handler;
+                    if has_next_token_loop(&h.body, parser_var) {
+                        return true;
+                    }
+                }
+                if has_next_token_loop(&try_stmt.orelse, parser_var)
+                    || has_next_token_loop(&try_stmt.finalbody, parser_var)
+                {
                     return true;
                 }
             }
@@ -196,7 +211,17 @@ fn collect_token_content_comparisons(body: &[Stmt]) -> Vec<String> {
                 }
             }
             Stmt::While(while_stmt) => {
+                for s in extract_comparisons_from_expr(&while_stmt.test) {
+                    if !comparisons.contains(&s) {
+                        comparisons.push(s);
+                    }
+                }
                 for s in collect_token_content_comparisons(&while_stmt.body) {
+                    if !comparisons.contains(&s) {
+                        comparisons.push(s);
+                    }
+                }
+                for s in collect_token_content_comparisons(&while_stmt.orelse) {
                     if !comparisons.contains(&s) {
                         comparisons.push(s);
                     }
@@ -204,6 +229,11 @@ fn collect_token_content_comparisons(body: &[Stmt]) -> Vec<String> {
             }
             Stmt::For(for_stmt) => {
                 for s in collect_token_content_comparisons(&for_stmt.body) {
+                    if !comparisons.contains(&s) {
+                        comparisons.push(s);
+                    }
+                }
+                for s in collect_token_content_comparisons(&for_stmt.orelse) {
                     if !comparisons.contains(&s) {
                         comparisons.push(s);
                     }
@@ -223,6 +253,16 @@ fn collect_token_content_comparisons(body: &[Stmt]) -> Vec<String> {
                         }
                     }
                 }
+                for s in collect_token_content_comparisons(&try_stmt.orelse) {
+                    if !comparisons.contains(&s) {
+                        comparisons.push(s);
+                    }
+                }
+                for s in collect_token_content_comparisons(&try_stmt.finalbody) {
+                    if !comparisons.contains(&s) {
+                        comparisons.push(s);
+                    }
+                }
             }
             _ => {}
         }
@@ -234,15 +274,14 @@ fn collect_token_content_comparisons(body: &[Stmt]) -> Vec<String> {
 fn extract_comparisons_from_expr(expr: &Expr) -> Vec<String> {
     let mut comparisons = Vec::new();
     if let Expr::Compare(compare) = expr {
-        for (left, right) in std::iter::once(compare.left.as_ref())
+        let operands: Vec<&Expr> = std::iter::once(compare.left.as_ref())
             .chain(compare.comparators.iter())
-            .zip(
-                compare
-                    .comparators
-                    .iter()
-                    .chain(std::iter::once(compare.left.as_ref())),
-            )
-        {
+            .collect();
+
+        for window in operands.windows(2) {
+            let left = window[0];
+            let right = window[1];
+
             if is_token_contents_expr(left) || is_token_contents_expr(right) {
                 if let Some(s) = left.string_literal() {
                     if !comparisons.contains(&s) {

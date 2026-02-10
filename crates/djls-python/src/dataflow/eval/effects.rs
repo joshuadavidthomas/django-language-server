@@ -37,7 +37,7 @@ pub(super) fn try_extract_pop_call(expr: &Expr) -> Option<PopInfo> {
     };
 
     let from_front = if let Some(arg) = call.arguments.args.first() {
-        arg.positive_integer() == Some(0)
+        arg.non_negative_integer() == Some(0)
     } else {
         false
     };

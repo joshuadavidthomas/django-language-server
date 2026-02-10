@@ -16,7 +16,7 @@ pub(crate) trait ExprExt {
 
     /// Extract a non-negative integer literal as `usize`.
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    fn positive_integer(&self) -> Option<usize>;
+    fn non_negative_integer(&self) -> Option<usize>;
 
     /// Check if the expression is a boolean `True` literal.
     fn is_true_literal(&self) -> bool;
@@ -48,7 +48,7 @@ impl ExprExt for Expr {
     }
 
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    fn positive_integer(&self) -> Option<usize> {
+    fn non_negative_integer(&self) -> Option<usize> {
         if let Expr::NumberLiteral(ExprNumberLiteral {
             value: Number::Int(int_val),
             ..

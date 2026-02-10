@@ -189,10 +189,13 @@ fn extract_keywords_from_valid_cases(cases: &[MatchCase]) -> Vec<RequiredKeyword
                 {
                     // Skip position 0 — that's the tag name, not a user argument
                     if pos > 0 {
-                        keywords.push(RequiredKeyword {
+                        let kw = RequiredKeyword {
                             position: SplitPosition::Forward(pos),
                             value: lit.clone(),
-                        });
+                        };
+                        if !keywords.contains(&kw) {
+                            keywords.push(kw);
+                        }
                     }
                 }
             }

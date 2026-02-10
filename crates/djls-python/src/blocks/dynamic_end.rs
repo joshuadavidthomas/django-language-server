@@ -41,8 +41,9 @@ fn has_dynamic_end_in_body(body: &[Stmt], parser_var: &str) -> bool {
                     .iter()
                     .any(|c| has_dynamic_end_in_body(&c.body, parser_var))
         }
-        Stmt::For(StmtFor { body, .. }) | Stmt::While(ruff_python_ast::StmtWhile { body, .. }) => {
-            has_dynamic_end_in_body(body, parser_var)
+        Stmt::For(StmtFor { body, orelse, .. })
+        | Stmt::While(ruff_python_ast::StmtWhile { body, orelse, .. }) => {
+            has_dynamic_end_in_body(body, parser_var) || has_dynamic_end_in_body(orelse, parser_var)
         }
         Stmt::Return(StmtReturn {
             value: Some(val), ..
@@ -100,23 +101,24 @@ pub(super) fn is_end_fstring(expr: &Expr) -> bool {
     for part in value {
         match part {
             FStringPart::FString(fstr) => {
-                let mut has_end_prefix = false;
-                let mut has_interpolation = false;
+                let Some(first) = fstr.elements.first() else {
+                    continue;
+                };
 
-                for element in &fstr.elements {
-                    match element {
-                        InterpolatedStringElement::Literal(lit) => {
-                            if lit.value.starts_with("end") {
-                                has_end_prefix = true;
-                            }
-                        }
-                        InterpolatedStringElement::Interpolation(_) => {
-                            has_interpolation = true;
-                        }
-                    }
+                let has_end_prefix = matches!(
+                    first,
+                    InterpolatedStringElement::Literal(lit) if lit.value.starts_with("end")
+                );
+                if !has_end_prefix {
+                    continue;
                 }
 
-                if has_end_prefix && has_interpolation {
+                let has_interpolation = fstr
+                    .elements
+                    .iter()
+                    .any(|e| matches!(e, InterpolatedStringElement::Interpolation(_)));
+
+                if has_interpolation {
                     return true;
                 }
             }
@@ -146,8 +148,17 @@ pub(super) fn has_dynamic_end_tag_format(body: &[Stmt]) -> bool {
                     }
                 }
             }
+            Stmt::For(for_stmt) => {
+                if has_dynamic_end_tag_format(&for_stmt.body)
+                    || has_dynamic_end_tag_format(&for_stmt.orelse)
+                {
+                    return true;
+                }
+            }
             Stmt::While(while_stmt) => {
-                if has_dynamic_end_tag_format(&while_stmt.body) {
+                if has_dynamic_end_tag_format(&while_stmt.body)
+                    || has_dynamic_end_tag_format(&while_stmt.orelse)
+                {
                     return true;
                 }
             }

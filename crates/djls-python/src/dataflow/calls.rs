@@ -155,6 +155,11 @@ fn collect_returns(stmts: &[Stmt], env: &Env, returns: &mut Vec<AbstractValue>) 
             Stmt::With(with_stmt) => {
                 collect_returns(&with_stmt.body, env, returns);
             }
+            Stmt::Match(match_stmt) => {
+                for case in &match_stmt.cases {
+                    collect_returns(&case.body, env, returns);
+                }
+            }
             _ => {}
         }
     }
@@ -251,7 +256,8 @@ mod tests {
             .iter()
             .find(|f| f.name.starts_with("do_"))
             .or_else(|| funcs.iter().rfind(|f| f.parameters.args.len() >= 2))
-            .unwrap_or(&funcs[0]);
+            .or_else(|| funcs.first())
+            .expect("no function definitions found in module");
 
         let parser_param = main_func
             .parameters
