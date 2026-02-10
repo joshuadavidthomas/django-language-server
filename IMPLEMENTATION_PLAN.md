@@ -67,7 +67,7 @@ Replace `HelperCache` + manual recursion guards with Salsa tracked functions. Ad
 
 - [x] **M19.12** Add `extract_module(db, file)` tracked function to extraction crate (in `parse.rs`). Calls `parse_python_module`, runs extraction pipeline via shared `extract_rules_from_body` helper, returns `ExtractionResult`. Refactored `extract_rules` to also use the shared helper. Re-exported as `djls_extraction::extract_module`.
 - [x] **M19.13** Update `crates/djls-server/src/db.rs`: remove `extract_module_rules`, update `collect_workspace_extraction_results` to call `djls_extraction::extract_module(db, file)`. Update server tests. Removed the `extract_module_rules` tracked function (12 lines). Updated `collect_workspace_extraction_results` to call `djls_extraction::extract_module(db, file)` directly. Updated 3 server tests to use `djls_extraction::extract_module` and check for `"extract_module"` in Salsa events. Salsa upcasting from `&dyn SemanticDb` to `&dyn djls_source::Db` works transparently for tracked functions.
-- [ ] **M19.14** Validate: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q` — all green.
+- [x] **M19.14** Validate: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q` — all green (745 passed, 0 failed, 7 ignored).
 
 ### Phase 5: Final validation and cleanup
 
