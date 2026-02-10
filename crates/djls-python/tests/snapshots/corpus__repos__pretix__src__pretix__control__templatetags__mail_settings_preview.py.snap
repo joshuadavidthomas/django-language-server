@@ -1,0 +1,16 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+---
+tag_rules: {}
+filter_arities:
+  "src.pretix.control.templatetags.mail_settings_preview::filter::getattr":
+    expects_arg: true
+    arg_optional: false
+  "src.pretix.control.templatetags.mail_settings_preview::filter::hasattr":
+    expects_arg: true
+    arg_optional: false
+  "src.pretix.control.templatetags.mail_settings_preview::filter::split":
+    expects_arg: true
+    arg_optional: true
+block_specs: {}

@@ -246,91 +246,12 @@ mod tests {
     use super::super::LoadStatement;
     use super::*;
 
-    fn builtin_tag_json(name: &str, module: &str) -> serde_json::Value {
-        serde_json::json!({
-            "kind": "tag",
-            "name": name,
-            "load_name": null,
-            "library_module": module,
-            "module": module,
-            "doc": null,
-        })
-    }
-
-    fn library_tag_json(name: &str, load_name: &str, module: &str) -> serde_json::Value {
-        serde_json::json!({
-            "kind": "tag",
-            "name": name,
-            "load_name": load_name,
-            "library_module": module,
-            "module": module,
-            "doc": null,
-        })
-    }
-
-    fn builtin_filter_json(name: &str, module: &str) -> serde_json::Value {
-        serde_json::json!({
-            "kind": "filter",
-            "name": name,
-            "load_name": null,
-            "library_module": module,
-            "module": module,
-            "doc": null,
-        })
-    }
-
-    fn library_filter_json(name: &str, load_name: &str, module: &str) -> serde_json::Value {
-        serde_json::json!({
-            "kind": "filter",
-            "name": name,
-            "load_name": load_name,
-            "library_module": module,
-            "module": module,
-            "doc": null,
-        })
-    }
-
-    fn make_inventory(
-        tags: &[serde_json::Value],
-        libraries: &HashMap<String, String>,
-        builtins: &[String],
-    ) -> TemplateLibraries {
-        make_inventory_with_filters(tags, &[], libraries, builtins)
-    }
-
-    fn make_inventory_with_filters(
-        tags: &[serde_json::Value],
-        filters: &[serde_json::Value],
-        libraries: &HashMap<String, String>,
-        builtins: &[String],
-    ) -> TemplateLibraries {
-        let mut symbols: Vec<djls_project::InspectorTemplateLibrarySymbolWire> = tags
-            .iter()
-            .cloned()
-            .map(serde_json::from_value)
-            .collect::<Result<_, _>>()
-            .unwrap();
-
-        symbols.extend(
-            filters
-                .iter()
-                .cloned()
-                .map(serde_json::from_value)
-                .collect::<Result<Vec<djls_project::InspectorTemplateLibrarySymbolWire>, _>>()
-                .unwrap(),
-        );
-
-        let response = djls_project::TemplateLibrariesResponse {
-            symbols,
-            libraries: libraries
-                .iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect::<BTreeMap<_, _>>(),
-            builtins: builtins.to_vec(),
-        };
-
-        TemplateLibraries::default().apply_inspector(Some(response))
-    }
+    use crate::testing::builtin_filter_json;
+    use crate::testing::builtin_tag_json;
+    use crate::testing::library_filter_json;
+    use crate::testing::library_tag_json;
+    use crate::testing::make_template_libraries;
+    use crate::testing::make_template_libraries_tags_only;
 
     fn make_load(span: (u32, u32), kind: LoadKind) -> LoadStatement {
         LoadStatement::new(Span::new(span.0, span.1), kind)
@@ -359,7 +280,7 @@ mod tests {
             "django.template.loader_tags".to_string(),
         ];
 
-        make_inventory(&tags, &libraries, &builtins)
+        make_template_libraries_tags_only(&tags, &libraries, &builtins)
     }
 
     #[test]
@@ -487,7 +408,7 @@ mod tests {
         libraries.insert("lib_a".to_string(), "app.templatetags.lib_a".to_string());
         libraries.insert("lib_b".to_string(), "app.templatetags.lib_b".to_string());
 
-        let inventory = make_inventory(&tags, &libraries, &[]);
+        let inventory = make_template_libraries_tags_only(&tags, &libraries, &[]);
         let loaded = LoadedLibraries::new(vec![]);
 
         let symbols = AvailableSymbols::at_position(&loaded, &inventory, 100);
@@ -511,7 +432,7 @@ mod tests {
         libraries.insert("lib_a".to_string(), "app.templatetags.lib_a".to_string());
         libraries.insert("lib_b".to_string(), "app.templatetags.lib_b".to_string());
 
-        let inventory = make_inventory(&tags, &libraries, &[]);
+        let inventory = make_template_libraries_tags_only(&tags, &libraries, &[]);
 
         // Load lib_a
         let loaded = LoadedLibraries::new(vec![make_load(
@@ -630,7 +551,7 @@ mod tests {
 
     #[test]
     fn empty_inventory_everything_unknown() {
-        let inventory = make_inventory(&[], &HashMap::new(), &[]);
+        let inventory = make_template_libraries_tags_only(&[], &HashMap::new(), &[]);
         let loaded = LoadedLibraries::new(vec![]);
 
         let symbols = AvailableSymbols::at_position(&loaded, &inventory, 100);
@@ -652,7 +573,7 @@ mod tests {
         libraries.insert("lib_a".to_string(), "app.templatetags.lib_a".to_string());
         libraries.insert("lib_b".to_string(), "app.templatetags.lib_b".to_string());
 
-        let inventory = make_inventory(&tags, &libraries, &[]);
+        let inventory = make_template_libraries_tags_only(&tags, &libraries, &[]);
 
         // Selectively import "shared" from lib_a
         let loaded = LoadedLibraries::new(vec![make_load(
@@ -699,7 +620,7 @@ mod tests {
             "django.template.defaultfilters".to_string(),
         ];
 
-        make_inventory_with_filters(&tags, &filters, &libraries, &builtins)
+        make_template_libraries(&tags, &filters, &libraries, &builtins)
     }
 
     #[test]
@@ -776,7 +697,7 @@ mod tests {
         libraries.insert("lib_a".to_string(), "app.templatetags.lib_a".to_string());
         libraries.insert("lib_b".to_string(), "app.templatetags.lib_b".to_string());
 
-        let inventory = make_inventory_with_filters(&[], &filters, &libraries, &[]);
+        let inventory = make_template_libraries(&[], &filters, &libraries, &[]);
         let loaded = LoadedLibraries::new(vec![]);
 
         let symbols = AvailableSymbols::at_position(&loaded, &inventory, 100);

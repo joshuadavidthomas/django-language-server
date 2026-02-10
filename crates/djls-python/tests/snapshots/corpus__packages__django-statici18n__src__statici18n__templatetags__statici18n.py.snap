@@ -1,0 +1,33 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+---
+tag_rules:
+  "src.statici18n.templatetags.statici18n::tag::inlinei18n":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: locale
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: true
+  "src.statici18n.templatetags.statici18n::tag::statici18n":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: locale
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: true
+filter_arities: {}
+block_specs: {}

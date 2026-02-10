@@ -1,0 +1,18 @@
+---
+source: crates/djls-semantic/src/loads/validation.rs
+expression: rendered
+---
+Source
+test.html
+   1 | {% load foo bar %}
+
+Diagnostics (2)
+1. UnknownLibrary: Unknown template tag library 'foo'
+    --> test.html:1:1
+   1 | {% load foo bar %}
+     | ^^^^^^^^^^^^^^^^^^
+
+2. UnknownLibrary: Unknown template tag library 'bar'
+    --> test.html:1:1
+   1 | {% load foo bar %}
+     | ^^^^^^^^^^^^^^^^^^

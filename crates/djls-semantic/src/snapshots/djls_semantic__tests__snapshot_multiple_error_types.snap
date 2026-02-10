@@ -1,30 +1,39 @@
 ---
 source: crates/djls-semantic/src/lib.rs
-expression: errors
+expression: rendered
 ---
-- FilterUnexpectedArgument:
-    filter: title
-    span:
-      start: 9
-      length: 16
-- ExpressionSyntaxError:
+Source
+test.html
+   1 | {{ value|title:"unwanted" }}
+   2 | {% if == broken %}bad{% endif %}
+   3 | {{ text|lower:"arg" }}
+   4 | {% comment %}{% if and %}{% endcomment %}
+   5 | {{ result|truncatewords }}
+   6 |
+
+Diagnostics (5)
+1. FilterUnexpectedArgument: Filter 'title' does not accept an argument
+    --> test.html:1:10
+   1 | {{ value|title:"unwanted" }}
+     |          ^^^^^^^^^^^^^^^^
+
+2. ExpressionSyntaxError: Not expecting '==' in this position in if tag.
+    --> test.html:2:1
     tag: if
-    message: "Not expecting '==' in this position in if tag."
-    span:
-      start: 29
-      length: 18
-- FilterUnexpectedArgument:
-    filter: lower
-    span:
-      start: 70
-      length: 11
-- UnclosedTag:
-    tag: if
-    span:
-      start: 98
-      length: 12
-- FilterMissingArgument:
-    filter: truncatewords
-    span:
-      start: 137
-      length: 13
+   2 | {% if == broken %}bad{% endif %}
+     | ^^^^^^^^^^^^^^^^^^
+
+3. FilterUnexpectedArgument: Filter 'lower' does not accept an argument
+    --> test.html:3:9
+   3 | {{ text|lower:"arg" }}
+     |         ^^^^^^^^^^^
+
+4. UnclosedTag: Unclosed tag: if
+    --> test.html:4:14
+   4 | {% comment %}{% if and %}{% endcomment %}
+     |              ^^^^^^^^^^^^
+
+5. FilterMissingArgument: Filter 'truncatewords' requires an argument
+    --> test.html:5:11
+   5 | {{ result|truncatewords }}
+     |           ^^^^^^^^^^^^^

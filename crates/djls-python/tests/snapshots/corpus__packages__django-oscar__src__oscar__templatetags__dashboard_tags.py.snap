@@ -1,0 +1,20 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+---
+tag_rules:
+  "src.oscar.templatetags.dashboard_tags::tag::dashboard_navigation":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: user
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: true
+filter_arities: {}
+block_specs: {}

@@ -115,6 +115,14 @@ pub(crate) mod testing {
 Then update every unit test module in `djls-semantic/src/` to use
 `crate::testing::TestDatabase` and delete the local copies.
 
+Optional follow-up:
+- Consider extracting shared test utilities into a dedicated workspace crate
+  (e.g. `djls-testing`, `djls-testutils`, or `djls-test`) so other crates
+  (`djls-python`, `djls-project`, `djls-server`, etc.) can reuse a single
+  canonical snapshot renderer / test DB helpers without copy-paste.
+  This can stay as `#[cfg(test)]`-only code or be a normal crate depending on
+  whether we want integration tests to depend on it.
+
 ### Phase 2: Rewrite the corpus smoke test (move to unit tests, template-driven)
 
 The smoke test does not need to be a Cargo integration test.
@@ -217,6 +225,13 @@ includes the template source and rendered diagnostics together in the snapshot.
 
 - Put renderer code in `crates/djls-semantic/src/testing.rs` (unit-test only)
 - Use `djls_source::LineIndex` to map byte offsets → line/col
+
+Later enhancement ideas (for prettier snapshots):
+- Prefer a Ruff/ty-style **markdown snapshot format**: template source first, then rendered diagnostics.
+- Explore text renderers:
+  - `annotate-snippets` (preferred; matches Ruff/ty)
+  - `miette`
+  - `ariadne`
 
 Add helper:
 

@@ -1,8 +1,0 @@
----
-source: crates/djls-python/tests/corpus.rs
-expression: snapshot(result)
-input_file: crates/djls-corpus/.corpus/packages/django-6.0/tests/forms_tests/templatetags/tags.py
----
-tag_rules: {}
-filter_arities: {}
-block_specs: {}

@@ -1,0 +1,10 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+---
+tag_rules: {}
+filter_arities:
+  "misago.users.templatetags.misago_avatars::filter::avatar":
+    expects_arg: true
+    arg_optional: true
+block_specs: {}

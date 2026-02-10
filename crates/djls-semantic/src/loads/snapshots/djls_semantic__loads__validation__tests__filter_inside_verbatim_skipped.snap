@@ -1,0 +1,9 @@
+---
+source: crates/djls-semantic/src/loads/validation.rs
+expression: rendered
+---
+Source
+test.html
+   1 | {% verbatim %}{{ value|intcomma }}{% endverbatim %}
+
+Diagnostics (0)

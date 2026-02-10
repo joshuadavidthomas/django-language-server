@@ -1,0 +1,49 @@
+---
+source: crates/djls-semantic/src/loads/validation.rs
+expression: rendered
+---
+Source
+test.html
+   1 | {% load i18n humanize nonexistent %}
+   2 | {% csrf_token %}
+   3 | {{ value|title }}
+   4 | {% trans 'hello' %}
+   5 | {{ value|lower_i18n }}
+   6 | {% ordinal 42 %}
+   7 | {{ value|intcomma }}
+   8 | {% floobarblatz %}
+   9 | {{ value|zzfilter }}
+
+Diagnostics (6)
+1. LibraryNotInInstalledApps: Template tag library 'humanize' requires 'django.contrib.humanize' in INSTALLED_APPS
+    --> test.html:1:1
+    candidates: ["django.contrib.humanize"]
+   1 | {% load i18n humanize nonexistent %}
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+2. UnknownLibrary: Unknown template tag library 'nonexistent'
+    --> test.html:1:1
+   1 | {% load i18n humanize nonexistent %}
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+3. TagNotInInstalledApps: Tag 'ordinal' requires 'django.contrib.humanize' in INSTALLED_APPS
+    --> test.html:6:1
+    load_name: humanize
+   6 | {% ordinal 42 %}
+     | ^^^^^^^^^^^^^^^^
+
+4. FilterNotInInstalledApps: Filter 'intcomma' requires 'django.contrib.humanize' in INSTALLED_APPS
+    --> test.html:7:10
+    load_name: humanize
+   7 | {{ value|intcomma }}
+     |          ^^^^^^^^
+
+5. UnknownTag: Unknown tag 'floobarblatz'
+    --> test.html:8:1
+   8 | {% floobarblatz %}
+     | ^^^^^^^^^^^^^^^^^^
+
+6. UnknownFilter: Unknown filter 'zzfilter'
+    --> test.html:9:10
+   9 | {{ value|zzfilter }}
+     |          ^^^^^^^^

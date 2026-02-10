@@ -14,6 +14,9 @@ mod semantic;
 mod templatetags;
 mod traits;
 
+#[cfg(test)]
+mod testing;
+
 use arguments::validate_all_tag_arguments;
 pub use blocks::build_block_tree;
 pub use blocks::TagIndex;
@@ -78,175 +81,23 @@ pub fn validate_nodelist(db: &dyn Db, nodelist: djls_templates::NodeList<'_>) {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
     use std::collections::HashMap;
-    use std::sync::Arc;
-    use std::sync::Mutex;
+    use std::fmt::Write;
 
-    use camino::Utf8Path;
     use camino::Utf8PathBuf;
     use djls_project::TemplateLibraries;
     use djls_python::FilterArity;
     use djls_python::SymbolKey;
-    use djls_source::Db as SourceDb;
-    use djls_source::File;
-    use djls_templates::parse_template;
-    use djls_workspace::FileSystem;
-    use djls_workspace::InMemoryFileSystem;
 
-    use crate::blocks::TagIndex;
     use crate::filters::arity::FilterAritySpecs;
-    use crate::templatetags::test_tag_specs;
-    use crate::validate_nodelist;
-    use crate::TagSpecs;
+    use crate::testing::builtin_filter_json;
+    use crate::testing::builtin_tag_json;
+    use crate::testing::collect_errors;
+    use crate::testing::library_tag_json;
+    use crate::testing::make_template_libraries;
+    use crate::testing::TestDatabase;
     use crate::ValidationError;
-    use crate::ValidationErrorAccumulator;
-
-    #[salsa::db]
-    #[derive(Clone)]
-    struct TestDatabase {
-        storage: salsa::Storage<Self>,
-        fs: Arc<Mutex<InMemoryFileSystem>>,
-        template_libraries: TemplateLibraries,
-        arity_specs: FilterAritySpecs,
-    }
-
-    impl TestDatabase {
-        fn with_inventory_and_arities(
-            template_libraries: TemplateLibraries,
-            arity_specs: FilterAritySpecs,
-        ) -> Self {
-            Self {
-                storage: salsa::Storage::default(),
-                fs: Arc::new(Mutex::new(InMemoryFileSystem::new())),
-                template_libraries,
-                arity_specs,
-            }
-        }
-
-        fn add_file(&self, path: &str, content: &str) {
-            self.fs
-                .lock()
-                .unwrap()
-                .add_file(path.into(), content.to_string());
-        }
-    }
-
-    #[salsa::db]
-    impl salsa::Database for TestDatabase {}
-
-    #[salsa::db]
-    impl djls_source::Db for TestDatabase {
-        fn create_file(&self, path: &Utf8Path) -> File {
-            File::new(self, path.to_owned(), 0)
-        }
-
-        fn get_file(&self, _path: &Utf8Path) -> Option<File> {
-            None
-        }
-
-        fn read_file(&self, path: &Utf8Path) -> std::io::Result<String> {
-            self.fs.lock().unwrap().read_to_string(path)
-        }
-    }
-
-    #[salsa::db]
-    impl djls_templates::Db for TestDatabase {}
-
-    #[salsa::db]
-    impl crate::Db for TestDatabase {
-        fn tag_specs(&self) -> TagSpecs {
-            test_tag_specs()
-        }
-
-        fn tag_index(&self) -> TagIndex<'_> {
-            TagIndex::from_specs(self)
-        }
-
-        fn template_dirs(&self) -> Option<Vec<Utf8PathBuf>> {
-            None
-        }
-
-        fn diagnostics_config(&self) -> djls_conf::DiagnosticsConfig {
-            djls_conf::DiagnosticsConfig::default()
-        }
-
-        fn template_libraries(&self) -> TemplateLibraries {
-            self.template_libraries.clone()
-        }
-
-        fn filter_arity_specs(&self) -> FilterAritySpecs {
-            self.arity_specs.clone()
-        }
-    }
-
-    fn builtin_tag_json(name: &str, module: &str) -> serde_json::Value {
-        serde_json::json!({
-            "kind": "tag",
-            "name": name,
-            "load_name": null,
-            "library_module": module,
-            "module": module,
-            "doc": null,
-        })
-    }
-
-    fn builtin_filter_json(name: &str, module: &str) -> serde_json::Value {
-        serde_json::json!({
-            "kind": "filter",
-            "name": name,
-            "load_name": null,
-            "library_module": module,
-            "module": module,
-            "doc": null,
-        })
-    }
-
-    fn library_tag_json(name: &str, load_name: &str, module: &str) -> serde_json::Value {
-        serde_json::json!({
-            "kind": "tag",
-            "name": name,
-            "load_name": load_name,
-            "library_module": module,
-            "module": module,
-            "doc": null,
-        })
-    }
-
-    fn make_inventory(
-        tags: &[serde_json::Value],
-        filters: &[serde_json::Value],
-        libraries: &HashMap<String, String>,
-        builtins: &[String],
-    ) -> TemplateLibraries {
-        use std::collections::BTreeMap;
-
-        let mut symbols: Vec<djls_project::InspectorTemplateLibrarySymbolWire> = tags
-            .iter()
-            .cloned()
-            .map(serde_json::from_value)
-            .collect::<Result<_, _>>()
-            .unwrap();
-
-        symbols.extend(
-            filters
-                .iter()
-                .cloned()
-                .map(serde_json::from_value)
-                .collect::<Result<Vec<djls_project::InspectorTemplateLibrarySymbolWire>, _>>()
-                .unwrap(),
-        );
-
-        let response = djls_project::TemplateLibrariesResponse {
-            symbols,
-            libraries: libraries
-                .iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect::<BTreeMap<_, _>>(),
-            builtins: builtins.to_vec(),
-        };
-
-        TemplateLibraries::default().apply_inspector(Some(response))
-    }
 
     fn default_builtins_module() -> &'static str {
         "django.template.defaulttags"
@@ -281,7 +132,7 @@ mod tests {
             default_builtins_module().to_string(),
             default_filters_module().to_string(),
         ];
-        make_inventory(&tags, &filters, &libraries, &builtins)
+        make_template_libraries(&tags, &filters, &libraries, &builtins)
     }
 
     fn standard_arities() -> FilterAritySpecs {
@@ -325,45 +176,13 @@ mod tests {
     }
 
     fn standard_db() -> TestDatabase {
-        TestDatabase::with_inventory_and_arities(standard_inventory(), standard_arities())
+        TestDatabase::new()
+            .with_template_libraries(standard_inventory())
+            .with_arity_specs(standard_arities())
     }
 
     fn collect_all_errors(db: &TestDatabase, source: &str) -> Vec<ValidationError> {
-        let path = "test.html";
-        db.add_file(path, source);
-        let file = db.create_file(Utf8Path::new(path));
-        let nodelist = parse_template(db, file).expect("should parse");
-        validate_nodelist(db, nodelist);
-
-        validate_nodelist::accumulated::<ValidationErrorAccumulator>(db, nodelist)
-            .into_iter()
-            .map(|acc| acc.0.clone())
-            .collect()
-    }
-
-    fn error_span_start(e: &ValidationError) -> u32 {
-        match e {
-            ValidationError::ExpressionSyntaxError { span, .. }
-            | ValidationError::FilterMissingArgument { span, .. }
-            | ValidationError::FilterUnexpectedArgument { span, .. }
-            | ValidationError::UnloadedTag { span, .. }
-            | ValidationError::UnknownTag { span, .. }
-            | ValidationError::UnclosedTag { span, .. }
-            | ValidationError::OrphanedTag { span, .. }
-            | ValidationError::AmbiguousUnloadedTag { span, .. }
-            | ValidationError::UnknownFilter { span, .. }
-            | ValidationError::UnloadedFilter { span, .. }
-            | ValidationError::AmbiguousUnloadedFilter { span, .. }
-            | ValidationError::UnmatchedBlockName { span, .. }
-            | ValidationError::ExtractedRuleViolation { span, .. }
-            | ValidationError::TagNotInInstalledApps { span, .. }
-            | ValidationError::FilterNotInInstalledApps { span, .. }
-            | ValidationError::UnknownLibrary { span, .. }
-            | ValidationError::LibraryNotInInstalledApps { span, .. }
-            | ValidationError::ExtendsMustBeFirst { span, .. }
-            | ValidationError::MultipleExtends { span, .. } => span.start(),
-            ValidationError::UnbalancedStructure { opening_span, .. } => opening_span.start(),
-        }
+        collect_errors(db, "test.html", source)
     }
 
     // Integration: Mixed diagnostics
@@ -599,10 +418,9 @@ mod tests {
             "{{ text|truncatewords }}\n",
             "{% trans \"hello\" %}\n",
         );
-        let mut errors = collect_all_errors(&db, source);
-        errors.sort_by_key(error_span_start);
 
-        insta::assert_yaml_snapshot!(errors);
+        let rendered = crate::testing::render_validate_snapshot(&db, "test.html", 0, source);
+        insta::assert_snapshot!(rendered);
     }
 
     #[test]
@@ -689,10 +507,9 @@ mod tests {
             "{% comment %}{% if and %}{% endcomment %}\n",
             "{{ result|truncatewords }}\n",
         );
-        let mut errors = collect_all_errors(&db, source);
-        errors.sort_by_key(error_span_start);
 
-        insta::assert_yaml_snapshot!(errors);
+        let rendered = crate::testing::render_validate_snapshot(&db, "test.html", 0, source);
+        insta::assert_snapshot!(rendered);
     }
 
     // Extends validation (S122, S123)
@@ -849,148 +666,93 @@ mod tests {
     // All tests skip gracefully when the corpus is unavailable.
     // Run `cargo run -p djls-corpus -- sync` to populate it.
 
-    use djls_corpus::module_path_from_file;
     use djls_corpus::Corpus;
 
-    /// A test database using extraction-derived `TagSpecs`.
-    ///
-    /// No inspector inventory — scoping diagnostics (S108-S113) suppressed.
-    /// Tests argument validation (S117), expression validation (S114),
-    /// and filter arity (S115/S116).
-    #[salsa::db]
-    #[derive(Clone)]
-    struct CorpusTestDatabase {
-        storage: salsa::Storage<Self>,
-        fs: Arc<Mutex<InMemoryFileSystem>>,
-        specs: TagSpecs,
-        arity_specs: FilterAritySpecs,
+    use crate::testing::build_entry_specs;
+    use crate::testing::build_specs_from_extraction;
+    use crate::testing::collect_argument_validation_errors_with_revision;
+
+    struct FailureEntry {
+        path: Utf8PathBuf,
+        errors: Vec<String>,
     }
 
-    impl CorpusTestDatabase {
-        fn new(specs: TagSpecs, arity_specs: FilterAritySpecs) -> Self {
-            Self {
-                storage: salsa::Storage::default(),
-                fs: Arc::new(Mutex::new(InMemoryFileSystem::new())),
-                specs,
-                arity_specs,
+    fn format_failures(failures: &[FailureEntry]) -> String {
+        let mut out = String::new();
+        for f in failures.iter().take(20) {
+            let _ = writeln!(out, "  {}:", f.path);
+            for err in &f.errors {
+                let _ = writeln!(out, "    - {err}");
+            }
+        }
+        if failures.len() > 20 {
+            let _ = writeln!(out, "  ... and {} more", failures.len() - 20);
+        }
+        out
+    }
+
+    #[test]
+    fn corpus_templates_have_no_argument_false_positives() {
+        let corpus = Corpus::require();
+
+        let templates = corpus.templates_in(corpus.root());
+        let mut by_entry: BTreeMap<Utf8PathBuf, Vec<Utf8PathBuf>> = BTreeMap::new();
+
+        for template_path in templates {
+            let Some(entry_dir) = corpus.entry_dir_for_path(&template_path) else {
+                continue;
+            };
+
+            by_entry.entry(entry_dir).or_default().push(template_path);
+        }
+
+        for templates in by_entry.values_mut() {
+            templates.sort();
+        }
+
+        let mut failures = Vec::new();
+
+        for (entry_dir, templates) in by_entry {
+            if templates.is_empty() {
+                continue;
+            }
+
+            let (specs, arities) = build_entry_specs(&corpus, &entry_dir);
+            let db = TestDatabase::new()
+                .with_specs(specs)
+                .with_arity_specs(arities);
+
+            for (i, template_path) in templates.into_iter().enumerate() {
+                let Ok(content) = std::fs::read_to_string(template_path.as_std_path()) else {
+                    continue;
+                };
+
+                let errors = collect_argument_validation_errors_with_revision(
+                    &db,
+                    "corpus_test.html",
+                    i as u64,
+                    &content,
+                );
+                if errors.is_empty() {
+                    continue;
+                }
+
+                failures.push(FailureEntry {
+                    path: template_path,
+                    errors: errors
+                        .into_iter()
+                        .take(5)
+                        .map(|e| format!("{e:?}"))
+                        .collect(),
+                });
             }
         }
 
-        fn add_file(&self, path: &str, content: &str) {
-            self.fs
-                .lock()
-                .unwrap()
-                .add_file(path.into(), content.to_string());
-        }
-    }
-
-    #[salsa::db]
-    impl salsa::Database for CorpusTestDatabase {}
-
-    #[salsa::db]
-    impl djls_source::Db for CorpusTestDatabase {
-        fn create_file(&self, path: &Utf8Path) -> File {
-            File::new(self, path.to_owned(), 0)
-        }
-
-        fn get_file(&self, _path: &Utf8Path) -> Option<File> {
-            None
-        }
-
-        fn read_file(&self, path: &Utf8Path) -> std::io::Result<String> {
-            self.fs.lock().unwrap().read_to_string(path)
-        }
-    }
-
-    #[salsa::db]
-    impl djls_templates::Db for CorpusTestDatabase {}
-
-    #[salsa::db]
-    impl crate::Db for CorpusTestDatabase {
-        fn tag_specs(&self) -> TagSpecs {
-            self.specs.clone()
-        }
-
-        fn tag_index(&self) -> TagIndex<'_> {
-            TagIndex::from_specs(self)
-        }
-
-        fn template_dirs(&self) -> Option<Vec<Utf8PathBuf>> {
-            None
-        }
-
-        fn diagnostics_config(&self) -> djls_conf::DiagnosticsConfig {
-            djls_conf::DiagnosticsConfig::default()
-        }
-
-        fn template_libraries(&self) -> TemplateLibraries {
-            TemplateLibraries::default()
-        }
-
-        fn filter_arity_specs(&self) -> FilterAritySpecs {
-            self.arity_specs.clone()
-        }
-    }
-
-    fn extract_and_merge(
-        corpus: &Corpus,
-        dir: &Utf8Path,
-        specs: &mut TagSpecs,
-        arities: &mut FilterAritySpecs,
-    ) {
-        for file_path in &corpus.extraction_targets_in(dir) {
-            let Ok(source) = std::fs::read_to_string(file_path.as_std_path()) else {
-                continue;
-            };
-            let module_path = module_path_from_file(file_path);
-            let result = djls_python::extract_rules(&source, &module_path);
-            arities.merge_extraction_result(&result);
-            specs.merge_extraction_results(&result);
-        }
-    }
-
-    fn build_specs_from_extraction(
-        corpus: &Corpus,
-        entry_dir: &Utf8Path,
-    ) -> (TagSpecs, FilterAritySpecs) {
-        let mut specs = TagSpecs::default();
-        let mut arities = FilterAritySpecs::new();
-        extract_and_merge(corpus, entry_dir, &mut specs, &mut arities);
-        (specs, arities)
-    }
-
-    fn is_argument_validation_error(err: &ValidationError) -> bool {
-        matches!(
-            err,
-            ValidationError::ExpressionSyntaxError { .. }
-                | ValidationError::FilterMissingArgument { .. }
-                | ValidationError::FilterUnexpectedArgument { .. }
-                | ValidationError::ExtractedRuleViolation { .. }
-        )
-    }
-
-    fn validate_corpus_template(
-        content: &str,
-        specs: &TagSpecs,
-        arities: &FilterAritySpecs,
-    ) -> Vec<ValidationError> {
-        let db = CorpusTestDatabase::new(specs.clone(), arities.clone());
-
-        let path = "corpus_test.html";
-        db.add_file(path, content);
-        let file = db.create_file(Utf8Path::new(path));
-
-        let Some(nodelist) = parse_template(&db, file) else {
-            return Vec::new();
-        };
-
-        validate_nodelist(&db, nodelist);
-
-        validate_nodelist::accumulated::<ValidationErrorAccumulator>(&db, nodelist)
-            .into_iter()
-            .map(|acc| acc.0.clone())
-            .filter(is_argument_validation_error)
-            .collect()
+        assert!(
+            failures.is_empty(),
+            "Corpus templates have false positives:\n{}",
+            format_failures(&failures)
+        );
     }
 
     #[test]
@@ -1004,15 +766,29 @@ mod tests {
 
         let (specs, arities) = build_specs_from_extraction(&corpus, &django_dir);
 
+        let db = TestDatabase::new()
+            .with_specs(specs)
+            .with_arity_specs(arities);
+
         // for tag with wrong number of args
-        let errors = validate_corpus_template("{% for %}content{% endfor %}", &specs, &arities);
+        let errors = collect_argument_validation_errors_with_revision(
+            &db,
+            "corpus_test.html",
+            0,
+            "{% for %}content{% endfor %}",
+        );
         assert!(
             !errors.is_empty(),
             "Expected errors for {{% for %}} with no args"
         );
 
         // if expression syntax error
-        let errors = validate_corpus_template("{% if and x %}content{% endif %}", &specs, &arities);
+        let errors = collect_argument_validation_errors_with_revision(
+            &db,
+            "corpus_test.html",
+            1,
+            "{% if and x %}content{% endif %}",
+        );
         let expr_errors: Vec<_> = errors
             .iter()
             .filter(|e| matches!(e, ValidationError::ExpressionSyntaxError { .. }))

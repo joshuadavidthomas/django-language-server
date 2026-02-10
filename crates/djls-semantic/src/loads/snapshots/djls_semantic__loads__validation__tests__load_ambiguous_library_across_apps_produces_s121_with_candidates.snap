@@ -1,0 +1,14 @@
+---
+source: crates/djls-semantic/src/loads/validation.rs
+expression: rendered
+---
+Source
+test.html
+   1 | {% load utils %}
+
+Diagnostics (1)
+1. LibraryNotInInstalledApps: Template tag library 'utils' requires 'app_a' in INSTALLED_APPS
+    --> test.html:1:1
+    candidates: ["app_a", "app_b"]
+   1 | {% load utils %}
+     | ^^^^^^^^^^^^^^^^

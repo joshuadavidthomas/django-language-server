@@ -1,0 +1,33 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+---
+tag_rules:
+  "geonode.layers.templatetags.contact_roles::tag::getattribute":
+    arg_constraints:
+      - Min: 3
+      - Max: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: form
+        required: true
+        kind: Variable
+        position: 0
+      - name: contact
+        required: true
+        kind: Variable
+        position: 1
+    supports_as_var: true
+filter_arities:
+  "geonode.layers.templatetags.contact_roles::filter::get_contact_role_id":
+    expects_arg: true
+    arg_optional: false
+  "geonode.layers.templatetags.contact_roles::filter::get_contact_role_label":
+    expects_arg: true
+    arg_optional: false
+  "geonode.layers.templatetags.contact_roles::filter::get_contact_role_value":
+    expects_arg: true
+    arg_optional: false
+block_specs: {}

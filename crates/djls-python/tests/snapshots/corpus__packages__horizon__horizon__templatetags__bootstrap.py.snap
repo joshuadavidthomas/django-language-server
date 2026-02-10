@@ -1,0 +1,18 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+---
+tag_rules:
+  "horizon.templatetags.bootstrap::tag::bs_progress_bar":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: args
+        required: false
+        kind: VarArgs
+        position: 0
+    supports_as_var: false
+filter_arities: {}
+block_specs: {}

@@ -1,0 +1,60 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+---
+tag_rules:
+  "src.backend.InvenTree.report.templatetags.barcode::tag::barcode":
+    arg_constraints:
+      - Min: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: data
+        required: true
+        kind: Variable
+        position: 0
+      - name: barcode_class
+        required: false
+        kind: Variable
+        position: 1
+    supports_as_var: true
+  "src.backend.InvenTree.report.templatetags.barcode::tag::clean_barcode":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: data
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: true
+  "src.backend.InvenTree.report.templatetags.barcode::tag::datamatrix":
+    arg_constraints:
+      - Min: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: data
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: true
+  "src.backend.InvenTree.report.templatetags.barcode::tag::qrcode":
+    arg_constraints:
+      - Min: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: data
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: true
+filter_arities: {}
+block_specs: {}

@@ -1,0 +1,9 @@
+---
+source: crates/djls-semantic/src/loads/validation.rs
+expression: rendered
+---
+Source
+test.html
+   1 | {{ value|title }}
+
+Diagnostics (0)

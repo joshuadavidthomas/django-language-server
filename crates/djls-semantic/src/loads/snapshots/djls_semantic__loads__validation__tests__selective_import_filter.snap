@@ -1,0 +1,15 @@
+---
+source: crates/djls-semantic/src/loads/validation.rs
+expression: rendered
+---
+Source
+test.html
+   1 | {% load apnumber from humanize %}
+   2 | {{ value|apnumber }}
+   3 | {{ value|intcomma }}
+
+Diagnostics (1)
+1. UnloadedFilter: Filter 'intcomma' requires {% load humanize %}
+    --> test.html:3:10
+   3 | {{ value|intcomma }}
+     |          ^^^^^^^^

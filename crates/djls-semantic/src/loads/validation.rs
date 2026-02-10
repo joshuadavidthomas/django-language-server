@@ -297,10 +297,7 @@ pub fn validate_load_libraries(
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
-    use std::sync::Arc;
-    use std::sync::Mutex;
 
-    use camino::Utf8Path;
     use camino::Utf8PathBuf;
     use djls_project::LibraryName;
     use djls_project::PyModuleName;
@@ -310,199 +307,15 @@ mod tests {
     use djls_project::TemplateLibraries;
     use djls_project::TemplateSymbolKind;
     use djls_project::TemplateSymbolName;
-    use djls_source::Db as SourceDb;
-    use djls_source::File;
-    use djls_templates::parse_template;
-    use djls_workspace::FileSystem;
-    use djls_workspace::InMemoryFileSystem;
 
-    use crate::blocks::TagIndex;
-    use crate::templatetags::test_tag_specs;
-    use crate::validate_nodelist;
-    use crate::TagSpecs;
+    use crate::testing::builtin_filter_json;
+    use crate::testing::builtin_tag_json;
+    use crate::testing::library_filter_json;
+    use crate::testing::library_tag_json;
+    use crate::testing::make_template_libraries;
+    use crate::testing::make_template_libraries_tags_only;
+    use crate::testing::TestDatabase;
     use crate::ValidationError;
-    use crate::ValidationErrorAccumulator;
-
-    #[salsa::db]
-    #[derive(Clone)]
-    struct TestDatabase {
-        storage: salsa::Storage<Self>,
-        fs: Arc<Mutex<InMemoryFileSystem>>,
-        template_libraries: TemplateLibraries,
-    }
-
-    impl TestDatabase {
-        fn new() -> Self {
-            Self {
-                storage: salsa::Storage::default(),
-                fs: Arc::new(Mutex::new(InMemoryFileSystem::new())),
-                template_libraries: TemplateLibraries::default(),
-            }
-        }
-
-        fn with_template_libraries(template_libraries: TemplateLibraries) -> Self {
-            Self {
-                storage: salsa::Storage::default(),
-                fs: Arc::new(Mutex::new(InMemoryFileSystem::new())),
-                template_libraries,
-            }
-        }
-
-        fn with_inventory(template_libraries: TemplateLibraries) -> Self {
-            Self::with_template_libraries(template_libraries)
-        }
-
-        #[allow(clippy::needless_pass_by_value)]
-        fn with_inventories(
-            template_libraries: TemplateLibraries,
-            scanned: ScannedTemplateLibraries,
-        ) -> Self {
-            Self::with_template_libraries(template_libraries.apply_scan(&scanned))
-        }
-
-        fn add_file(&self, path: &str, content: &str) {
-            self.fs
-                .lock()
-                .unwrap()
-                .add_file(path.into(), content.to_string());
-        }
-    }
-
-    #[salsa::db]
-    impl salsa::Database for TestDatabase {}
-
-    #[salsa::db]
-    impl djls_source::Db for TestDatabase {
-        fn create_file(&self, path: &Utf8Path) -> File {
-            File::new(self, path.to_owned(), 0)
-        }
-
-        fn get_file(&self, _path: &Utf8Path) -> Option<File> {
-            None
-        }
-
-        fn read_file(&self, path: &Utf8Path) -> std::io::Result<String> {
-            self.fs.lock().unwrap().read_to_string(path)
-        }
-    }
-
-    #[salsa::db]
-    impl djls_templates::Db for TestDatabase {}
-
-    #[salsa::db]
-    impl crate::Db for TestDatabase {
-        fn tag_specs(&self) -> TagSpecs {
-            test_tag_specs()
-        }
-
-        fn tag_index(&self) -> TagIndex<'_> {
-            TagIndex::from_specs(self)
-        }
-
-        fn template_dirs(&self) -> Option<Vec<Utf8PathBuf>> {
-            None
-        }
-
-        fn diagnostics_config(&self) -> djls_conf::DiagnosticsConfig {
-            djls_conf::DiagnosticsConfig::default()
-        }
-
-        fn template_libraries(&self) -> TemplateLibraries {
-            self.template_libraries.clone()
-        }
-
-        fn filter_arity_specs(&self) -> crate::filters::arity::FilterAritySpecs {
-            crate::filters::arity::FilterAritySpecs::new()
-        }
-    }
-
-    fn builtin_tag_json(name: &str, module: &str) -> serde_json::Value {
-        serde_json::json!({
-            "kind": "tag",
-            "name": name,
-            "load_name": null,
-            "library_module": module,
-            "module": module,
-            "doc": null,
-        })
-    }
-
-    fn library_tag_json(name: &str, load_name: &str, module: &str) -> serde_json::Value {
-        serde_json::json!({
-            "kind": "tag",
-            "name": name,
-            "load_name": load_name,
-            "library_module": module,
-            "module": module,
-            "doc": null,
-        })
-    }
-
-    fn builtin_filter_json(name: &str, module: &str) -> serde_json::Value {
-        serde_json::json!({
-            "kind": "filter",
-            "name": name,
-            "load_name": null,
-            "library_module": module,
-            "module": module,
-            "doc": null,
-        })
-    }
-
-    fn library_filter_json(name: &str, load_name: &str, module: &str) -> serde_json::Value {
-        serde_json::json!({
-            "kind": "filter",
-            "name": name,
-            "load_name": load_name,
-            "library_module": module,
-            "module": module,
-            "doc": null,
-        })
-    }
-
-    fn make_inventory(
-        tags: &[serde_json::Value],
-        libraries: &HashMap<String, String>,
-        builtins: &[String],
-    ) -> TemplateLibraries {
-        make_inventory_with_filters(tags, &[], libraries, builtins)
-    }
-
-    fn make_inventory_with_filters(
-        tags: &[serde_json::Value],
-        filters: &[serde_json::Value],
-        libraries: &HashMap<String, String>,
-        builtins: &[String],
-    ) -> TemplateLibraries {
-        use std::collections::BTreeMap;
-
-        let mut symbols: Vec<djls_project::InspectorTemplateLibrarySymbolWire> = tags
-            .iter()
-            .cloned()
-            .map(serde_json::from_value)
-            .collect::<Result<_, _>>()
-            .unwrap();
-
-        symbols.extend(
-            filters
-                .iter()
-                .cloned()
-                .map(serde_json::from_value)
-                .collect::<Result<Vec<djls_project::InspectorTemplateLibrarySymbolWire>, _>>()
-                .unwrap(),
-        );
-
-        let response = djls_project::TemplateLibrariesResponse {
-            symbols,
-            libraries: libraries
-                .iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect::<BTreeMap<_, _>>(),
-            builtins: builtins.to_vec(),
-        };
-
-        TemplateLibraries::default().apply_inspector(Some(response))
-    }
 
     fn test_inventory() -> TemplateLibraries {
         let tags = vec![
@@ -529,58 +342,32 @@ mod tests {
             "django.template.loader_tags".to_string(),
         ];
 
-        make_inventory(&tags, &libraries, &builtins)
+        make_template_libraries_tags_only(&tags, &libraries, &builtins)
     }
 
-    fn collect_scoping_errors(db: &TestDatabase, source: &str) -> Vec<ValidationError> {
-        let path = "test.html";
-        db.add_file(path, source);
-        let file = db.create_file(Utf8Path::new(path));
-        let nodelist = parse_template(db, file).expect("should parse");
-        validate_nodelist(db, nodelist);
-
-        validate_nodelist::accumulated::<ValidationErrorAccumulator>(db, nodelist)
-            .into_iter()
-            .map(|acc| acc.0.clone())
-            .filter(|err| {
-                matches!(
-                    err,
-                    ValidationError::UnknownTag { .. }
-                        | ValidationError::UnloadedTag { .. }
-                        | ValidationError::AmbiguousUnloadedTag { .. }
-                )
-            })
-            .collect()
+    fn render_tag_scoping_snapshot(db: &TestDatabase, source: &str) -> String {
+        crate::testing::render_validate_snapshot_filtered(db, "test.html", 0, source, |err| {
+            matches!(
+                err,
+                ValidationError::UnknownTag { .. }
+                    | ValidationError::UnloadedTag { .. }
+                    | ValidationError::AmbiguousUnloadedTag { .. }
+            )
+        })
     }
 
     #[test]
     fn unknown_tag_produces_s108() {
         let db = TestDatabase::with_inventory(test_inventory());
-        let errors = collect_scoping_errors(&db, "{% xyz %}");
-
-        assert_eq!(errors.len(), 1);
-        assert!(
-            matches!(&errors[0], ValidationError::UnknownTag { tag, .. } if tag == "xyz"),
-            "Expected UnknownTag for 'xyz', got: {:?}",
-            errors[0]
-        );
+        let rendered = render_tag_scoping_snapshot(&db, "{% xyz %}");
+        insta::assert_snapshot!(rendered);
     }
 
     #[test]
     fn unloaded_library_tag_produces_s109() {
         let db = TestDatabase::with_inventory(test_inventory());
-        let errors = collect_scoping_errors(&db, "{% trans 'hello' %}");
-
-        assert_eq!(errors.len(), 1);
-        assert!(
-            matches!(
-                &errors[0],
-                ValidationError::UnloadedTag { tag, library, .. }
-                    if tag == "trans" && library == "i18n"
-            ),
-            "Expected UnloadedTag for 'trans' requiring 'i18n', got: {:?}",
-            errors[0]
-        );
+        let rendered = render_tag_scoping_snapshot(&db, "{% trans 'hello' %}");
+        insta::assert_snapshot!(rendered);
     }
 
     #[test]
@@ -592,71 +379,40 @@ mod tests {
         let mut libraries = HashMap::new();
         libraries.insert("lib_a".to_string(), "app.templatetags.lib_a".to_string());
         libraries.insert("lib_b".to_string(), "app.templatetags.lib_b".to_string());
-        let inventory = make_inventory(&tags, &libraries, &[]);
+        let inventory = make_template_libraries_tags_only(&tags, &libraries, &[]);
 
         let db = TestDatabase::with_inventory(inventory);
-        let errors = collect_scoping_errors(&db, "{% shared %}");
-
-        assert_eq!(errors.len(), 1);
-        assert!(
-            matches!(
-                &errors[0],
-                ValidationError::AmbiguousUnloadedTag { tag, libraries, .. }
-                    if tag == "shared" && libraries == &["lib_a", "lib_b"]
-            ),
-            "Expected AmbiguousUnloadedTag for 'shared', got: {:?}",
-            errors[0]
-        );
+        let rendered = render_tag_scoping_snapshot(&db, "{% shared %}");
+        insta::assert_snapshot!(rendered);
     }
 
     #[test]
     fn inspector_unavailable_no_scoping_diagnostics() {
-        // No inventory set — inspector unavailable
         let db = TestDatabase::new();
-        let errors = collect_scoping_errors(&db, "{% xyz %}{% trans 'hello' %}");
-
-        assert!(
-            errors.is_empty(),
-            "No scoping diagnostics when inspector unavailable, got: {errors:?}"
-        );
+        let rendered = render_tag_scoping_snapshot(&db, "{% xyz %}{% trans 'hello' %}");
+        insta::assert_snapshot!(rendered);
     }
 
     #[test]
     fn structural_tags_skip_scoping_checks() {
         let db = TestDatabase::with_inventory(test_inventory());
-        // endif, else, elif are structural — they shouldn't produce S108
-        let errors =
-            collect_scoping_errors(&db, "{% if True %}{% elif False %}{% else %}{% endif %}");
-
-        assert!(
-            errors.is_empty(),
-            "Structural tags should not produce scoping errors, got: {errors:?}"
-        );
+        let rendered =
+            render_tag_scoping_snapshot(&db, "{% if True %}{% elif False %}{% else %}{% endif %}");
+        insta::assert_snapshot!(rendered);
     }
 
     #[test]
     fn loaded_library_tag_no_error() {
         let db = TestDatabase::with_inventory(test_inventory());
-        let errors = collect_scoping_errors(&db, "{% load i18n %}\n{% trans 'hello' %}");
-
-        assert!(
-            errors.is_empty(),
-            "Loaded library tag should not produce error, got: {errors:?}"
-        );
+        let rendered = render_tag_scoping_snapshot(&db, "{% load i18n %}\n{% trans 'hello' %}");
+        insta::assert_snapshot!(rendered);
     }
 
     #[test]
     fn tag_before_load_produces_error() {
         let db = TestDatabase::with_inventory(test_inventory());
-        let errors = collect_scoping_errors(&db, "{% trans 'hello' %}\n{% load i18n %}");
-
-        assert_eq!(errors.len(), 1);
-        assert!(
-            matches!(&errors[0], ValidationError::UnloadedTag { tag, library, .. }
-                if tag == "trans" && library == "i18n"),
-            "Tag before load should produce UnloadedTag, got: {:?}",
-            errors[0]
-        );
+        let rendered = render_tag_scoping_snapshot(&db, "{% trans 'hello' %}\n{% load i18n %}");
+        insta::assert_snapshot!(rendered);
     }
 
     #[test]
@@ -664,62 +420,35 @@ mod tests {
         let db = TestDatabase::with_inventory(test_inventory());
         let source =
             "{% load trans from i18n %}\n{% trans 'hello' %}\n{% blocktrans %}{% endblocktrans %}";
-        let errors = collect_scoping_errors(&db, source);
-
-        // trans should be available, blocktrans should NOT (only selectively imported trans)
-        assert_eq!(errors.len(), 1);
-        assert!(
-            matches!(&errors[0], ValidationError::UnloadedTag { tag, library, .. }
-                if tag == "blocktrans" && library == "i18n"),
-            "Selectively-unimported tag should produce UnloadedTag, got: {:?}",
-            errors[0]
-        );
+        let rendered = render_tag_scoping_snapshot(&db, source);
+        insta::assert_snapshot!(rendered);
     }
 
     #[test]
     fn builtin_tag_always_available() {
         let db = TestDatabase::with_inventory(test_inventory());
-        // csrf_token is a builtin — should be available without any load
-        let errors = collect_scoping_errors(&db, "{% csrf_token %}");
-
-        assert!(
-            errors.is_empty(),
-            "Builtin tags should always be available, got: {errors:?}"
-        );
+        let rendered = render_tag_scoping_snapshot(&db, "{% csrf_token %}");
+        insta::assert_snapshot!(rendered);
     }
 
     #[test]
     fn load_tag_itself_not_flagged() {
         let db = TestDatabase::with_inventory(test_inventory());
-        let errors = collect_scoping_errors(&db, "{% load i18n %}");
-
-        assert!(
-            errors.is_empty(),
-            "Load tag itself should not be flagged, got: {errors:?}"
-        );
+        let rendered = render_tag_scoping_snapshot(&db, "{% load i18n %}");
+        insta::assert_snapshot!(rendered);
     }
 
     // --- Filter scoping tests ---
 
-    fn collect_filter_scoping_errors(db: &TestDatabase, source: &str) -> Vec<ValidationError> {
-        let path = "test.html";
-        db.add_file(path, source);
-        let file = db.create_file(Utf8Path::new(path));
-        let nodelist = parse_template(db, file).expect("should parse");
-        validate_nodelist(db, nodelist);
-
-        validate_nodelist::accumulated::<ValidationErrorAccumulator>(db, nodelist)
-            .into_iter()
-            .map(|acc| acc.0.clone())
-            .filter(|err| {
-                matches!(
-                    err,
-                    ValidationError::UnknownFilter { .. }
-                        | ValidationError::UnloadedFilter { .. }
-                        | ValidationError::AmbiguousUnloadedFilter { .. }
-                )
-            })
-            .collect()
+    fn render_filter_scoping_snapshot(db: &TestDatabase, source: &str) -> String {
+        crate::testing::render_validate_snapshot_filtered(db, "test.html", 0, source, |err| {
+            matches!(
+                err,
+                ValidationError::UnknownFilter { .. }
+                    | ValidationError::UnloadedFilter { .. }
+                    | ValidationError::AmbiguousUnloadedFilter { .. }
+            )
+        })
     }
 
     fn test_inventory_with_filters() -> TemplateLibraries {
@@ -767,37 +496,21 @@ mod tests {
             "django.template.defaultfilters".to_string(),
         ];
 
-        make_inventory_with_filters(&tags, &filters, &libraries, &builtins)
+        make_template_libraries(&tags, &filters, &libraries, &builtins)
     }
 
     #[test]
     fn unknown_filter_produces_s111() {
         let db = TestDatabase::with_inventory(test_inventory_with_filters());
-        let errors = collect_filter_scoping_errors(&db, "{{ value|nonexistent }}");
-
-        assert_eq!(errors.len(), 1);
-        assert!(
-            matches!(&errors[0], ValidationError::UnknownFilter { filter, .. } if filter == "nonexistent"),
-            "Expected UnknownFilter for 'nonexistent', got: {:?}",
-            errors[0]
-        );
+        let rendered = render_filter_scoping_snapshot(&db, "{{ value|nonexistent }}");
+        insta::assert_snapshot!(rendered);
     }
 
     #[test]
     fn unloaded_library_filter_produces_s112() {
         let db = TestDatabase::with_inventory(test_inventory_with_filters());
-        let errors = collect_filter_scoping_errors(&db, "{{ value|apnumber }}");
-
-        assert_eq!(errors.len(), 1);
-        assert!(
-            matches!(
-                &errors[0],
-                ValidationError::UnloadedFilter { filter, library, .. }
-                    if filter == "apnumber" && library == "humanize"
-            ),
-            "Expected UnloadedFilter for 'apnumber' requiring 'humanize', got: {:?}",
-            errors[0]
-        );
+        let rendered = render_filter_scoping_snapshot(&db, "{{ value|apnumber }}");
+        insta::assert_snapshot!(rendered);
     }
 
     #[test]
@@ -809,73 +522,41 @@ mod tests {
         let mut libraries = HashMap::new();
         libraries.insert("lib_a".to_string(), "app.templatetags.lib_a".to_string());
         libraries.insert("lib_b".to_string(), "app.templatetags.lib_b".to_string());
-        let inventory = make_inventory_with_filters(&[], &filters, &libraries, &[]);
+        let inventory = make_template_libraries(&[], &filters, &libraries, &[]);
 
         let db = TestDatabase::with_inventory(inventory);
-        let errors = collect_filter_scoping_errors(&db, "{{ value|myfilter }}");
-
-        assert_eq!(errors.len(), 1);
-        assert!(
-            matches!(
-                &errors[0],
-                ValidationError::AmbiguousUnloadedFilter { filter, libraries, .. }
-                    if filter == "myfilter" && libraries == &["lib_a", "lib_b"]
-            ),
-            "Expected AmbiguousUnloadedFilter for 'myfilter', got: {:?}",
-            errors[0]
-        );
+        let rendered = render_filter_scoping_snapshot(&db, "{{ value|myfilter }}");
+        insta::assert_snapshot!(rendered);
     }
 
     #[test]
     fn filter_after_load_is_valid() {
         let db = TestDatabase::with_inventory(test_inventory_with_filters());
-        let errors =
-            collect_filter_scoping_errors(&db, "{% load humanize %}\n{{ value|apnumber }}");
-
-        assert!(
-            errors.is_empty(),
-            "Filter after load should not produce error, got: {errors:?}"
-        );
+        let rendered =
+            render_filter_scoping_snapshot(&db, "{% load humanize %}\n{{ value|apnumber }}");
+        insta::assert_snapshot!(rendered);
     }
 
     #[test]
     fn builtin_filter_always_valid() {
         let db = TestDatabase::with_inventory(test_inventory_with_filters());
-        let errors = collect_filter_scoping_errors(&db, "{{ value|title }}");
-
-        assert!(
-            errors.is_empty(),
-            "Builtin filter should always be valid, got: {errors:?}"
-        );
+        let rendered = render_filter_scoping_snapshot(&db, "{{ value|title }}");
+        insta::assert_snapshot!(rendered);
     }
 
     #[test]
     fn inspector_unavailable_no_filter_diagnostics() {
         let db = TestDatabase::new();
-        let errors = collect_filter_scoping_errors(&db, "{{ value|nonexistent }}{{ x|apnumber }}");
-
-        assert!(
-            errors.is_empty(),
-            "No filter scoping diagnostics when inspector unavailable, got: {errors:?}"
-        );
+        let rendered =
+            render_filter_scoping_snapshot(&db, "{{ value|nonexistent }}{{ x|apnumber }}");
+        insta::assert_snapshot!(rendered);
     }
 
     #[test]
     fn filter_chain_validates_each_filter() {
         let db = TestDatabase::with_inventory(test_inventory_with_filters());
-        // title is builtin (valid), apnumber requires humanize (unloaded)
-        let errors = collect_filter_scoping_errors(&db, "{{ value|title|apnumber }}");
-
-        assert_eq!(errors.len(), 1);
-        assert!(
-            matches!(
-                &errors[0],
-                ValidationError::UnloadedFilter { filter, library, .. }
-                    if filter == "apnumber" && library == "humanize"
-            ),
-            "Expected UnloadedFilter for 'apnumber' in chain, got: {:?}",
-            errors[0]
-        );
+        let rendered = render_filter_scoping_snapshot(&db, "{{ value|title|apnumber }}");
+        insta::assert_snapshot!(rendered);
     }
 
     #[test]
@@ -883,19 +564,8 @@ mod tests {
         let db = TestDatabase::with_inventory(test_inventory_with_filters());
         let source =
             "{% load apnumber from humanize %}\n{{ value|apnumber }}\n{{ value|intcomma }}";
-        let errors = collect_filter_scoping_errors(&db, source);
-
-        // apnumber should be available (selectively imported), intcomma should NOT
-        assert_eq!(errors.len(), 1);
-        assert!(
-            matches!(
-                &errors[0],
-                ValidationError::UnloadedFilter { filter, library, .. }
-                    if filter == "intcomma" && library == "humanize"
-            ),
-            "Selectively-unimported filter should produce UnloadedFilter, got: {:?}",
-            errors[0]
-        );
+        let rendered = render_filter_scoping_snapshot(&db, source);
+        insta::assert_snapshot!(rendered);
     }
 
     // Opaque region tests
@@ -904,204 +574,100 @@ mod tests {
     fn verbatim_block_content_skipped() {
         let db = TestDatabase::with_inventory(test_inventory());
         let source = "{% verbatim %}{% trans 'hello' %}{% endverbatim %}\n{% if True %}{% endif %}";
-        let errors = collect_scoping_errors(&db, source);
-
-        // trans inside verbatim should NOT trigger S109 (UnloadedTag)
-        // if/endif are builtins and should validate fine
-        assert!(
-            errors.is_empty(),
-            "Expected no errors — content inside verbatim should be skipped. Got: {errors:?}"
-        );
+        let rendered = render_tag_scoping_snapshot(&db, source);
+        insta::assert_snapshot!(rendered);
     }
 
     #[test]
     fn comment_block_content_skipped() {
         let db = TestDatabase::with_inventory(test_inventory());
         let source = "{% comment %}{% trans 'hello' %}{% endcomment %}";
-        let errors = collect_scoping_errors(&db, source);
-
-        assert!(
-            errors.is_empty(),
-            "Expected no errors — content inside comment should be skipped. Got: {errors:?}"
-        );
+        let rendered = render_tag_scoping_snapshot(&db, source);
+        insta::assert_snapshot!(rendered);
     }
 
     #[test]
     fn non_opaque_blocks_validated_normally() {
         let db = TestDatabase::with_inventory(test_inventory());
-        // trans inside if block (non-opaque) should still be validated
         let source = "{% if True %}{% trans 'hello' %}{% endif %}";
-        let errors = collect_scoping_errors(&db, source);
-
-        // trans is a library tag not loaded — should get S109
-        assert_eq!(
-            errors.len(),
-            1,
-            "Expected S109 for unloaded trans. Got: {errors:?}"
-        );
-        assert!(matches!(
-            &errors[0],
-            ValidationError::UnloadedTag { tag, .. } if tag == "trans"
-        ));
+        let rendered = render_tag_scoping_snapshot(&db, source);
+        insta::assert_snapshot!(rendered);
     }
 
     #[test]
     fn content_after_opaque_block_still_validated() {
         let db = TestDatabase::with_inventory(test_inventory());
         let source = "{% verbatim %}{% trans 'skip' %}{% endverbatim %}{% trans 'check' %}";
-        let errors = collect_scoping_errors(&db, source);
-
-        // First trans inside verbatim: skipped
-        // Second trans after verbatim: should get S109
-        assert_eq!(
-            errors.len(),
-            1,
-            "Expected 1 error for trans after verbatim. Got: {errors:?}"
-        );
-        assert!(matches!(
-            &errors[0],
-            ValidationError::UnloadedTag { tag, .. } if tag == "trans"
-        ));
+        let rendered = render_tag_scoping_snapshot(&db, source);
+        insta::assert_snapshot!(rendered);
     }
 
     #[test]
     fn filter_inside_verbatim_skipped() {
         let db = TestDatabase::with_inventory(test_inventory_with_filters());
         let source = "{% verbatim %}{{ value|intcomma }}{% endverbatim %}";
-        let errors = collect_filter_scoping_errors(&db, source);
-
-        assert!(
-            errors.is_empty(),
-            "Expected no errors — filter inside verbatim should be skipped. Got: {errors:?}"
-        );
+        let rendered = render_filter_scoping_snapshot(&db, source);
+        insta::assert_snapshot!(rendered);
     }
 
     // Library name validation tests (S120)
 
-    fn collect_library_errors(db: &TestDatabase, source: &str) -> Vec<ValidationError> {
-        let path = "test.html";
-        db.add_file(path, source);
-        let file = db.create_file(Utf8Path::new(path));
-        let nodelist = parse_template(db, file).expect("should parse");
-        validate_nodelist(db, nodelist);
-
-        validate_nodelist::accumulated::<ValidationErrorAccumulator>(db, nodelist)
-            .into_iter()
-            .map(|acc| acc.0.clone())
-            .filter(|err| {
-                matches!(
-                    err,
-                    ValidationError::UnknownLibrary { .. }
-                        | ValidationError::LibraryNotInInstalledApps { .. }
-                )
-            })
-            .collect()
+    fn render_library_snapshot(db: &TestDatabase, source: &str) -> String {
+        crate::testing::render_validate_snapshot_filtered(db, "test.html", 0, source, |err| {
+            matches!(
+                err,
+                ValidationError::UnknownLibrary { .. } | ValidationError::LibraryNotInInstalledApps { .. }
+            )
+        })
     }
 
     #[test]
     fn known_library_valid() {
         let db = TestDatabase::with_inventory(test_inventory());
-        let errors = collect_library_errors(&db, "{% load i18n %}");
-
-        assert!(
-            errors.is_empty(),
-            "Known library should not produce error, got: {errors:?}"
-        );
+        let rendered = render_library_snapshot(&db, "{% load i18n %}");
+        insta::assert_snapshot!(rendered);
     }
 
     #[test]
     fn unknown_library_produces_s120() {
         let db = TestDatabase::with_inventory(test_inventory());
-        let errors = collect_library_errors(&db, "{% load fdsafdsafdsafdsa %}");
-
-        assert_eq!(errors.len(), 1);
-        assert!(
-            matches!(
-                &errors[0],
-                ValidationError::UnknownLibrary { name, .. }
-                    if name == "fdsafdsafdsafdsa"
-            ),
-            "Expected UnknownLibrary for 'fdsafdsafdsafdsa', got: {:?}",
-            errors[0]
-        );
+        let rendered = render_library_snapshot(&db, "{% load fdsafdsafdsafdsa %}");
+        insta::assert_snapshot!(rendered);
     }
 
     #[test]
     fn selective_import_known_library_valid() {
         let db = TestDatabase::with_inventory(test_inventory());
-        let errors = collect_library_errors(&db, "{% load trans from i18n %}");
-
-        assert!(
-            errors.is_empty(),
-            "Selective import from known library should not produce error, got: {errors:?}"
-        );
+        let rendered = render_library_snapshot(&db, "{% load trans from i18n %}");
+        insta::assert_snapshot!(rendered);
     }
 
     #[test]
     fn selective_import_unknown_library_produces_s120() {
         let db = TestDatabase::with_inventory(test_inventory());
-        let errors = collect_library_errors(&db, "{% load foo from nonexistent %}");
-
-        assert_eq!(errors.len(), 1);
-        assert!(
-            matches!(
-                &errors[0],
-                ValidationError::UnknownLibrary { name, .. }
-                    if name == "nonexistent"
-            ),
-            "Expected UnknownLibrary for 'nonexistent', got: {:?}",
-            errors[0]
-        );
+        let rendered = render_library_snapshot(&db, "{% load foo from nonexistent %}");
+        insta::assert_snapshot!(rendered);
     }
 
     #[test]
     fn inspector_unavailable_no_library_diagnostics() {
         let db = TestDatabase::new();
-        let errors = collect_library_errors(&db, "{% load nonexistent %}");
-
-        assert!(
-            errors.is_empty(),
-            "No library diagnostics when inspector unavailable, got: {errors:?}"
-        );
+        let rendered = render_library_snapshot(&db, "{% load nonexistent %}");
+        insta::assert_snapshot!(rendered);
     }
 
     #[test]
     fn multi_library_load_each_validated() {
         let db = TestDatabase::with_inventory(test_inventory());
-        // i18n is known, nonexistent is not
-        let errors = collect_library_errors(&db, "{% load i18n nonexistent %}");
-
-        assert_eq!(errors.len(), 1);
-        assert!(
-            matches!(
-                &errors[0],
-                ValidationError::UnknownLibrary { name, .. }
-                    if name == "nonexistent"
-            ),
-            "Expected UnknownLibrary for 'nonexistent' in multi-load, got: {:?}",
-            errors[0]
-        );
+        let rendered = render_library_snapshot(&db, "{% load i18n nonexistent %}");
+        insta::assert_snapshot!(rendered);
     }
 
     #[test]
     fn multi_library_load_both_unknown() {
         let db = TestDatabase::with_inventory(test_inventory());
-        let errors = collect_library_errors(&db, "{% load foo bar %}");
-
-        assert_eq!(
-            errors.len(),
-            2,
-            "Expected 2 UnknownLibrary errors, got: {errors:?}"
-        );
-        let names: Vec<&str> = errors
-            .iter()
-            .filter_map(|e| match e {
-                ValidationError::UnknownLibrary { name, .. } => Some(name.as_str()),
-                _ => None,
-            })
-            .collect();
-        assert!(names.contains(&"foo"));
-        assert!(names.contains(&"bar"));
+        let rendered = render_library_snapshot(&db, "{% load foo bar %}");
+        insta::assert_snapshot!(rendered);
     }
 
     // Three-layer resolution tests (S118/S119)
@@ -1151,30 +717,20 @@ mod tests {
         }
     }
 
-    fn collect_all_scoping_errors(db: &TestDatabase, source: &str) -> Vec<ValidationError> {
-        let path = "test.html";
-        db.add_file(path, source);
-        let file = db.create_file(Utf8Path::new(path));
-        let nodelist = parse_template(db, file).expect("should parse");
-        validate_nodelist(db, nodelist);
-
-        validate_nodelist::accumulated::<ValidationErrorAccumulator>(db, nodelist)
-            .into_iter()
-            .map(|acc| acc.0.clone())
-            .filter(|err| {
-                matches!(
-                    err,
-                    ValidationError::UnknownTag { .. }
-                        | ValidationError::UnloadedTag { .. }
-                        | ValidationError::AmbiguousUnloadedTag { .. }
-                        | ValidationError::TagNotInInstalledApps { .. }
-                        | ValidationError::UnknownFilter { .. }
-                        | ValidationError::UnloadedFilter { .. }
-                        | ValidationError::AmbiguousUnloadedFilter { .. }
-                        | ValidationError::FilterNotInInstalledApps { .. }
-                )
-            })
-            .collect()
+    fn render_scoping_snapshot(db: &TestDatabase, source: &str) -> String {
+        crate::testing::render_validate_snapshot_filtered(db, "test.html", 0, source, |err| {
+            matches!(
+                err,
+                ValidationError::UnknownTag { .. }
+                    | ValidationError::UnloadedTag { .. }
+                    | ValidationError::AmbiguousUnloadedTag { .. }
+                    | ValidationError::TagNotInInstalledApps { .. }
+                    | ValidationError::UnknownFilter { .. }
+                    | ValidationError::UnloadedFilter { .. }
+                    | ValidationError::AmbiguousUnloadedFilter { .. }
+                    | ValidationError::FilterNotInInstalledApps { .. }
+            )
+        })
     }
 
     #[test]
@@ -1185,22 +741,9 @@ mod tests {
             &["ordinal", "intword"],
             &[],
         )]);
-        // Inspector has no humanize tags (not in INSTALLED_APPS)
         let db = TestDatabase::with_inventories(test_inventory(), env);
-        let errors = collect_all_scoping_errors(&db, "{% ordinal 42 %}");
-
-        assert_eq!(errors.len(), 1);
-        assert!(
-            matches!(
-                &errors[0],
-                ValidationError::TagNotInInstalledApps { tag, app, load_name, .. }
-                    if tag == "ordinal"
-                        && app == "django.contrib.humanize"
-                        && load_name == "humanize"
-            ),
-            "Expected TagNotInInstalledApps for 'ordinal', got: {:?}",
-            errors[0]
-        );
+        let rendered = render_scoping_snapshot(&db, "{% ordinal 42 %}");
+        insta::assert_snapshot!(rendered);
     }
 
     #[test]
@@ -1211,7 +754,7 @@ mod tests {
             "title",
             "django.template.defaultfilters",
         )];
-        let simple_inventory = make_inventory_with_filters(
+        let simple_inventory = make_template_libraries(
             &simple_tags,
             &simple_filters,
             &HashMap::new(),
@@ -1228,20 +771,8 @@ mod tests {
             &["intcomma"],
         )]);
         let db = TestDatabase::with_inventories(simple_inventory, env);
-        let errors = collect_all_scoping_errors(&db, "{{ value|intcomma }}");
-
-        assert_eq!(errors.len(), 1);
-        assert!(
-            matches!(
-                &errors[0],
-                ValidationError::FilterNotInInstalledApps { filter, app, load_name, .. }
-                    if filter == "intcomma"
-                        && app == "django.contrib.humanize"
-                        && load_name == "humanize"
-            ),
-            "Expected FilterNotInInstalledApps for 'intcomma', got: {:?}",
-            errors[0]
-        );
+        let rendered = render_scoping_snapshot(&db, "{{ value|intcomma }}");
+        insta::assert_snapshot!(rendered);
     }
 
     #[test]
@@ -1253,15 +784,8 @@ mod tests {
             &[],
         )]);
         let db = TestDatabase::with_inventories(test_inventory(), env);
-        // "xyz" is not in inspector AND not in environment
-        let errors = collect_all_scoping_errors(&db, "{% xyz %}");
-
-        assert_eq!(errors.len(), 1);
-        assert!(
-            matches!(&errors[0], ValidationError::UnknownTag { tag, .. } if tag == "xyz"),
-            "Expected UnknownTag for 'xyz', got: {:?}",
-            errors[0]
-        );
+        let rendered = render_scoping_snapshot(&db, "{% xyz %}");
+        insta::assert_snapshot!(rendered);
     }
 
     #[test]
@@ -1273,28 +797,15 @@ mod tests {
             &["intcomma"],
         )]);
         let db = TestDatabase::with_inventories(test_inventory_with_filters(), env);
-        let errors = collect_all_scoping_errors(&db, "{{ value|nonexistent }}");
-
-        assert_eq!(errors.len(), 1);
-        assert!(
-            matches!(&errors[0], ValidationError::UnknownFilter { filter, .. } if filter == "nonexistent"),
-            "Expected UnknownFilter for 'nonexistent', got: {:?}",
-            errors[0]
-        );
+        let rendered = render_scoping_snapshot(&db, "{{ value|nonexistent }}");
+        insta::assert_snapshot!(rendered);
     }
 
     #[test]
     fn env_unavailable_falls_through_to_s108() {
-        // No environment inventory, but inspector is available
         let db = TestDatabase::with_inventory(test_inventory());
-        let errors = collect_all_scoping_errors(&db, "{% xyz %}");
-
-        assert_eq!(errors.len(), 1);
-        assert!(
-            matches!(&errors[0], ValidationError::UnknownTag { tag, .. } if tag == "xyz"),
-            "Expected UnknownTag when env unavailable, got: {:?}",
-            errors[0]
-        );
+        let rendered = render_scoping_snapshot(&db, "{% xyz %}");
+        insta::assert_snapshot!(rendered);
     }
 
     #[test]
@@ -1304,15 +815,8 @@ mod tests {
             make_env_library("utils_b", "app_b", &["shared_tag"], &[]),
         ]);
         let db = TestDatabase::with_inventories(test_inventory(), env);
-        let errors = collect_all_scoping_errors(&db, "{% shared_tag %}");
-
-        // Should produce S118 (found in environment), not S108
-        assert_eq!(errors.len(), 1);
-        assert!(
-            matches!(&errors[0], ValidationError::TagNotInInstalledApps { tag, .. } if tag == "shared_tag"),
-            "Expected TagNotInInstalledApps for 'shared_tag' with multiple env candidates, got: {:?}",
-            errors[0]
-        );
+        let rendered = render_scoping_snapshot(&db, "{% shared_tag %}");
+        insta::assert_snapshot!(rendered);
     }
 
     // Three-layer resolution for {% load %} libraries (S121)
@@ -1326,19 +830,8 @@ mod tests {
             &["intcomma"],
         )]);
         let db = TestDatabase::with_inventories(test_inventory(), env);
-        let errors = collect_library_errors(&db, "{% load humanize %}");
-
-        assert_eq!(errors.len(), 1, "Expected 1 error, got: {errors:?}");
-        assert!(
-            matches!(
-                &errors[0],
-                ValidationError::LibraryNotInInstalledApps { name, app, .. }
-                    if name == "humanize"
-                        && app == "django.contrib.humanize"
-            ),
-            "Expected LibraryNotInInstalledApps for 'humanize', got: {:?}",
-            errors[0]
-        );
+        let rendered = render_library_snapshot(&db, "{% load humanize %}");
+        insta::assert_snapshot!(rendered);
     }
 
     #[test]
@@ -1350,36 +843,15 @@ mod tests {
             &[],
         )]);
         let db = TestDatabase::with_inventories(test_inventory(), env);
-        let errors = collect_library_errors(&db, "{% load totallyunknown %}");
-
-        assert_eq!(errors.len(), 1);
-        assert!(
-            matches!(
-                &errors[0],
-                ValidationError::UnknownLibrary { name, .. }
-                    if name == "totallyunknown"
-            ),
-            "Expected UnknownLibrary for 'totallyunknown', got: {:?}",
-            errors[0]
-        );
+        let rendered = render_library_snapshot(&db, "{% load totallyunknown %}");
+        insta::assert_snapshot!(rendered);
     }
 
     #[test]
     fn load_env_unavailable_falls_through_to_s120() {
-        // Inspector available but no environment inventory
         let db = TestDatabase::with_inventory(test_inventory());
-        let errors = collect_library_errors(&db, "{% load nonexistent %}");
-
-        assert_eq!(errors.len(), 1);
-        assert!(
-            matches!(
-                &errors[0],
-                ValidationError::UnknownLibrary { name, .. }
-                    if name == "nonexistent"
-            ),
-            "Expected UnknownLibrary when env unavailable, got: {:?}",
-            errors[0]
-        );
+        let rendered = render_library_snapshot(&db, "{% load nonexistent %}");
+        insta::assert_snapshot!(rendered);
     }
 
     #[test]
@@ -1391,19 +863,8 @@ mod tests {
             &["intcomma"],
         )]);
         let db = TestDatabase::with_inventories(test_inventory(), env);
-        let errors = collect_library_errors(&db, "{% load intcomma from humanize %}");
-
-        assert_eq!(errors.len(), 1, "Expected 1 error, got: {errors:?}");
-        assert!(
-            matches!(
-                &errors[0],
-                ValidationError::LibraryNotInInstalledApps { name, app, .. }
-                    if name == "humanize"
-                        && app == "django.contrib.humanize"
-            ),
-            "Expected LibraryNotInInstalledApps for 'humanize', got: {:?}",
-            errors[0]
-        );
+        let rendered = render_library_snapshot(&db, "{% load intcomma from humanize %}");
+        insta::assert_snapshot!(rendered);
     }
 
     #[test]
@@ -1413,24 +874,8 @@ mod tests {
             make_env_library("utils", "app_b", &[], &[]),
         ]);
         let db = TestDatabase::with_inventories(test_inventory(), env);
-        let errors = collect_library_errors(&db, "{% load utils %}");
-
-        assert_eq!(errors.len(), 1, "Expected 1 error, got: {errors:?}");
-        match &errors[0] {
-            ValidationError::LibraryNotInInstalledApps {
-                name, candidates, ..
-            } => {
-                assert_eq!(name, "utils");
-                assert_eq!(
-                    candidates.len(),
-                    2,
-                    "Expected 2 candidates, got: {candidates:?}"
-                );
-                assert!(candidates.contains(&"app_a".to_string()));
-                assert!(candidates.contains(&"app_b".to_string()));
-            }
-            other => panic!("Expected LibraryNotInInstalledApps, got: {other:?}"),
-        }
+        let rendered = render_library_snapshot(&db, "{% load utils %}");
+        insta::assert_snapshot!(rendered);
     }
 
     #[test]
@@ -1442,59 +887,28 @@ mod tests {
             &[],
         )]);
         let db = TestDatabase::with_inventories(test_inventory(), env);
-        // i18n is known (in inspector), humanize is in env but not installed, xyz is truly unknown
-        let errors = collect_library_errors(&db, "{% load i18n humanize xyz %}");
-
-        assert_eq!(errors.len(), 2, "Expected 2 errors, got: {errors:?}");
-        let has_s121 = errors.iter().any(|e| {
-            matches!(
-                e,
-                ValidationError::LibraryNotInInstalledApps { name, .. }
-                    if name == "humanize"
-            )
-        });
-        let has_s120 = errors.iter().any(|e| {
-            matches!(
-                e,
-                ValidationError::UnknownLibrary { name, .. }
-                    if name == "xyz"
-            )
-        });
-        assert!(
-            has_s121,
-            "Expected LibraryNotInInstalledApps for 'humanize'"
-        );
-        assert!(has_s120, "Expected UnknownLibrary for 'xyz'");
+        let rendered = render_library_snapshot(&db, "{% load i18n humanize xyz %}");
+        insta::assert_snapshot!(rendered);
     }
 
     // Integration test: all three layers in a single template
 
-    fn collect_all_errors(db: &TestDatabase, source: &str) -> Vec<ValidationError> {
-        let path = "test.html";
-        db.add_file(path, source);
-        let file = db.create_file(Utf8Path::new(path));
-        let nodelist = parse_template(db, file).expect("should parse");
-        validate_nodelist(db, nodelist);
-
-        validate_nodelist::accumulated::<ValidationErrorAccumulator>(db, nodelist)
-            .into_iter()
-            .map(|acc| acc.0.clone())
-            .filter(|err| {
-                matches!(
-                    err,
-                    ValidationError::UnknownTag { .. }
-                        | ValidationError::UnloadedTag { .. }
-                        | ValidationError::AmbiguousUnloadedTag { .. }
-                        | ValidationError::TagNotInInstalledApps { .. }
-                        | ValidationError::UnknownFilter { .. }
-                        | ValidationError::UnloadedFilter { .. }
-                        | ValidationError::AmbiguousUnloadedFilter { .. }
-                        | ValidationError::FilterNotInInstalledApps { .. }
-                        | ValidationError::UnknownLibrary { .. }
-                        | ValidationError::LibraryNotInInstalledApps { .. }
-                )
-            })
-            .collect()
+    fn render_all_scoping_snapshot(db: &TestDatabase, source: &str) -> String {
+        crate::testing::render_validate_snapshot_filtered(db, "test.html", 0, source, |err| {
+            matches!(
+                err,
+                ValidationError::UnknownTag { .. }
+                    | ValidationError::UnloadedTag { .. }
+                    | ValidationError::AmbiguousUnloadedTag { .. }
+                    | ValidationError::TagNotInInstalledApps { .. }
+                    | ValidationError::UnknownFilter { .. }
+                    | ValidationError::UnloadedFilter { .. }
+                    | ValidationError::AmbiguousUnloadedFilter { .. }
+                    | ValidationError::FilterNotInInstalledApps { .. }
+                    | ValidationError::UnknownLibrary { .. }
+                    | ValidationError::LibraryNotInInstalledApps { .. }
+            )
+        })
     }
 
     fn three_layer_db() -> TestDatabase {
@@ -1515,7 +929,7 @@ mod tests {
             "django.template.defaulttags".to_string(),
             "django.template.defaultfilters".to_string(),
         ];
-        let inspector = make_inventory_with_filters(&tags, &filters, &libraries, &builtins);
+        let inspector = make_template_libraries(&tags, &filters, &libraries, &builtins);
 
         let env = make_env_inventory(vec![make_env_library(
             "humanize",
@@ -1527,7 +941,6 @@ mod tests {
         TestDatabase::with_inventories(inspector, env)
     }
 
-    #[allow(clippy::too_many_lines)]
     #[test]
     fn three_layer_integration_all_diagnostic_codes() {
         let db = three_layer_db();
@@ -1543,88 +956,8 @@ mod tests {
 {% floobarblatz %}
 {{ value|zzfilter }}";
 
-        let errors = collect_all_errors(&db, source);
-
-        // S120: truly unknown library
-        assert!(
-            errors.iter().any(|e| matches!(
-                e, ValidationError::UnknownLibrary { name, .. } if name == "nonexistent"
-            )),
-            "Expected S120 UnknownLibrary for 'nonexistent'. All errors: {errors:#?}"
-        );
-
-        // S121: library in env but not `INSTALLED_APPS`
-        assert!(
-            errors.iter().any(|e| matches!(
-                e,
-                ValidationError::LibraryNotInInstalledApps { name, app, .. }
-                    if name == "humanize" && app == "django.contrib.humanize"
-            )),
-            "Expected S121 LibraryNotInInstalledApps for 'humanize'. All errors: {errors:#?}"
-        );
-
-        // S118: tag in env but not `INSTALLED_APPS`
-        assert!(
-            errors.iter().any(|e| matches!(
-                e,
-                ValidationError::TagNotInInstalledApps { tag, app, load_name, .. }
-                    if tag == "ordinal"
-                        && app == "django.contrib.humanize"
-                        && load_name == "humanize"
-            )),
-            "Expected S118 TagNotInInstalledApps for 'ordinal'. All errors: {errors:#?}"
-        );
-
-        // S119: filter in env but not `INSTALLED_APPS`
-        assert!(
-            errors.iter().any(|e| matches!(
-                e,
-                ValidationError::FilterNotInInstalledApps { filter, app, load_name, .. }
-                    if filter == "intcomma"
-                        && app == "django.contrib.humanize"
-                        && load_name == "humanize"
-            )),
-            "Expected S119 FilterNotInInstalledApps for 'intcomma'. All errors: {errors:#?}"
-        );
-
-        // S108: truly unknown tag
-        assert!(
-            errors.iter().any(|e| matches!(
-                e, ValidationError::UnknownTag { tag, .. } if tag == "floobarblatz"
-            )),
-            "Expected S108 UnknownTag for 'floobarblatz'. All errors: {errors:#?}"
-        );
-
-        // S111: truly unknown filter
-        assert!(
-            errors.iter().any(|e| matches!(
-                e, ValidationError::UnknownFilter { filter, .. } if filter == "zzfilter"
-            )),
-            "Expected S111 UnknownFilter for 'zzfilter'. All errors: {errors:#?}"
-        );
-
-        // No false positives for valid builtins and loaded library items
-        let unexpected = errors.iter().find(|e| match e {
-            ValidationError::UnknownTag { tag, .. } => tag == "csrf_token" || tag == "if",
-            ValidationError::UnloadedTag { tag, .. } => tag == "trans",
-            ValidationError::UnknownFilter { filter, .. } => {
-                filter == "title" || filter == "lower_i18n"
-            }
-            ValidationError::UnloadedFilter { filter, .. } => filter == "lower_i18n",
-            _ => false,
-        });
-        assert!(
-            unexpected.is_none(),
-            "Unexpected error for valid builtin/loaded items: {unexpected:?}"
-        );
-
-        // Total: S108 + S111 + S118 + S119 + S120 + S121 = 6
-        assert_eq!(
-            errors.len(),
-            6,
-            "Expected exactly 6 errors. Got {}: {errors:#?}",
-            errors.len()
-        );
+        let rendered = render_all_scoping_snapshot(&db, source);
+        insta::assert_snapshot!(rendered);
     }
 
     /// Integration test: S109/S112 layer — tags/filters in `INSTALLED_APPS` but
@@ -1644,50 +977,7 @@ mod tests {
 {% load i18n %}
 {% trans 'now loaded' %}";
 
-        let errors = collect_all_errors(&db, source);
-
-        // trans before load → S109
-        let s109 = errors.iter().find(|e| {
-            matches!(
-                e,
-                ValidationError::UnloadedTag { tag, library, .. }
-                    if tag == "trans" && library == "i18n"
-            )
-        });
-        assert!(
-            s109.is_some(),
-            "Expected S109 for 'trans' before load. All errors: {errors:#?}"
-        );
-
-        // apnumber before load → S112
-        let s112 = errors.iter().find(|e| {
-            matches!(
-                e,
-                ValidationError::UnloadedFilter { filter, library, .. }
-                    if filter == "apnumber" && library == "humanize"
-            )
-        });
-        assert!(
-            s112.is_some(),
-            "Expected S112 for 'apnumber' before load. All errors: {errors:#?}"
-        );
-
-        // trans after load → valid (no error for second trans)
-        let trans_errors: Vec<_> = errors
-            .iter()
-            .filter(|e| matches!(e, ValidationError::UnloadedTag { tag, .. } if tag == "trans"))
-            .collect();
-        assert_eq!(
-            trans_errors.len(),
-            1,
-            "Only the first trans (before load) should error. Got: {trans_errors:#?}"
-        );
-
-        assert_eq!(
-            errors.len(),
-            2,
-            "Expected exactly 2 errors (S109 + S112). Got {} errors: {errors:#?}",
-            errors.len()
-        );
+        let rendered = render_all_scoping_snapshot(&db, source);
+        insta::assert_snapshot!(rendered);
     }
 }

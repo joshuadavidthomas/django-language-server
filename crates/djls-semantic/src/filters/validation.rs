@@ -67,182 +67,31 @@ pub fn validate_filter_arity(db: &dyn Db, nodelist: NodeList<'_>, opaque_regions
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
-    use std::sync::Arc;
-    use std::sync::Mutex;
+    use std::collections::HashMap;
 
-    use camino::Utf8Path;
-    use camino::Utf8PathBuf;
-    use djls_project::TemplateLibraries;
     use djls_python::FilterArity;
     use djls_python::SymbolKey;
-    use djls_source::Db as SourceDb;
-    use djls_source::File;
-    use djls_templates::parse_template;
-    use djls_workspace::FileSystem;
-    use djls_workspace::InMemoryFileSystem;
 
-    use crate::blocks::TagIndex;
     use crate::filters::arity::FilterAritySpecs;
-    use crate::templatetags::test_tag_specs;
-    use crate::validate_nodelist;
-    use crate::TagSpecs;
+    use crate::testing::builtin_filter_json;
+    use crate::testing::builtin_tag_json;
+    use crate::testing::make_template_libraries;
+    use crate::testing::TestDatabase;
     use crate::ValidationError;
-    use crate::ValidationErrorAccumulator;
 
-    #[salsa::db]
-    #[derive(Clone)]
-    struct TestDatabase {
-        storage: salsa::Storage<Self>,
-        fs: Arc<Mutex<InMemoryFileSystem>>,
-        template_libraries: TemplateLibraries,
-        arity_specs: FilterAritySpecs,
-    }
-
-    impl TestDatabase {
-        fn new() -> Self {
-            Self {
-                storage: salsa::Storage::default(),
-                fs: Arc::new(Mutex::new(InMemoryFileSystem::new())),
-                template_libraries: TemplateLibraries::default(),
-                arity_specs: FilterAritySpecs::new(),
-            }
-        }
-
-        fn with_inventory_and_arities(
-            template_libraries: TemplateLibraries,
-            arity_specs: FilterAritySpecs,
-        ) -> Self {
-            Self {
-                storage: salsa::Storage::default(),
-                fs: Arc::new(Mutex::new(InMemoryFileSystem::new())),
-                template_libraries,
-                arity_specs,
-            }
-        }
-
-        fn add_file(&self, path: &str, content: &str) {
-            self.fs
-                .lock()
-                .unwrap()
-                .add_file(path.into(), content.to_string());
-        }
-    }
-
-    #[salsa::db]
-    impl salsa::Database for TestDatabase {}
-
-    #[salsa::db]
-    impl djls_source::Db for TestDatabase {
-        fn create_file(&self, path: &Utf8Path) -> File {
-            File::new(self, path.to_owned(), 0)
-        }
-
-        fn get_file(&self, _path: &Utf8Path) -> Option<File> {
-            None
-        }
-
-        fn read_file(&self, path: &Utf8Path) -> std::io::Result<String> {
-            self.fs.lock().unwrap().read_to_string(path)
-        }
-    }
-
-    #[salsa::db]
-    impl djls_templates::Db for TestDatabase {}
-
-    #[salsa::db]
-    impl crate::Db for TestDatabase {
-        fn tag_specs(&self) -> TagSpecs {
-            test_tag_specs()
-        }
-
-        fn tag_index(&self) -> TagIndex<'_> {
-            TagIndex::from_specs(self)
-        }
-
-        fn template_dirs(&self) -> Option<Vec<Utf8PathBuf>> {
-            None
-        }
-
-        fn diagnostics_config(&self) -> djls_conf::DiagnosticsConfig {
-            djls_conf::DiagnosticsConfig::default()
-        }
-
-        fn template_libraries(&self) -> TemplateLibraries {
-            self.template_libraries.clone()
-        }
-
-        fn filter_arity_specs(&self) -> FilterAritySpecs {
-            self.arity_specs.clone()
-        }
-    }
-
-    fn builtin_filter_json(name: &str, module: &str) -> serde_json::Value {
-        serde_json::json!({
-            "kind": "filter",
-            "name": name,
-            "load_name": null,
-            "library_module": module,
-            "module": module,
-            "doc": null,
-        })
-    }
-
-    fn make_template_libraries_with_filters(filters: &[serde_json::Value]) -> TemplateLibraries {
-        let tags: Vec<serde_json::Value> = vec![
-            serde_json::json!({
-                "kind": "tag",
-                "name": "if",
-                "load_name": null,
-                "library_module": "django.template.defaulttags",
-                "module": "django.template.defaulttags",
-                "doc": null,
-            }),
-            serde_json::json!({
-                "kind": "tag",
-                "name": "verbatim",
-                "load_name": null,
-                "library_module": "django.template.defaulttags",
-                "module": "django.template.defaulttags",
-                "doc": null,
-            }),
-            serde_json::json!({
-                "kind": "tag",
-                "name": "comment",
-                "load_name": null,
-                "library_module": "django.template.defaulttags",
-                "module": "django.template.defaulttags",
-                "doc": null,
-            }),
+    fn make_template_libraries_with_filters(filters: &[serde_json::Value]) -> djls_project::TemplateLibraries {
+        let tags = vec![
+            builtin_tag_json("if", "django.template.defaulttags"),
+            builtin_tag_json("verbatim", "django.template.defaulttags"),
+            builtin_tag_json("comment", "django.template.defaulttags"),
         ];
-
-        let mut symbols: Vec<djls_project::InspectorTemplateLibrarySymbolWire> = tags
-            .into_iter()
-            .map(serde_json::from_value)
-            .collect::<Result<_, _>>()
-            .unwrap();
-
-        symbols.extend(
-            filters
-                .iter()
-                .cloned()
-                .map(serde_json::from_value)
-                .collect::<Result<Vec<djls_project::InspectorTemplateLibrarySymbolWire>, _>>()
-                .unwrap(),
-        );
 
         let builtins = vec![
             "django.template.defaulttags".to_string(),
             "django.template.defaultfilters".to_string(),
         ];
 
-        let response = djls_project::TemplateLibrariesResponse {
-            symbols,
-            libraries: BTreeMap::new(),
-            builtins,
-        };
-
-        TemplateLibraries::default().apply_inspector(Some(response))
+        make_template_libraries(&tags, filters, &HashMap::new(), &builtins)
     }
 
     fn default_arities() -> FilterAritySpecs {
@@ -298,24 +147,14 @@ mod tests {
         specs
     }
 
-    fn collect_arity_errors(db: &TestDatabase, source: &str) -> Vec<ValidationError> {
-        let path = "test.html";
-        db.add_file(path, source);
-        let file = db.create_file(Utf8Path::new(path));
-        let nodelist = parse_template(db, file).expect("should parse");
-        validate_nodelist(db, nodelist);
-
-        validate_nodelist::accumulated::<ValidationErrorAccumulator>(db, nodelist)
-            .into_iter()
-            .map(|acc| acc.0.clone())
-            .filter(|err| {
-                matches!(
-                    err,
-                    ValidationError::FilterMissingArgument { .. }
-                        | ValidationError::FilterUnexpectedArgument { .. }
-                )
-            })
-            .collect()
+    fn render_arity_snapshot(db: &TestDatabase, source: &str) -> String {
+        crate::testing::render_validate_snapshot_filtered(db, "test.html", 0, source, |err| {
+            matches!(
+                err,
+                ValidationError::FilterMissingArgument { .. }
+                    | ValidationError::FilterUnexpectedArgument { .. }
+            )
+        })
     }
 
     fn test_db() -> TestDatabase {
@@ -328,124 +167,75 @@ mod tests {
             builtin_filter_json("date", "django.template.defaultfilters"),
         ];
         let template_libraries = make_template_libraries_with_filters(&filters);
-        TestDatabase::with_inventory_and_arities(template_libraries, default_arities())
+        TestDatabase::new()
+            .with_template_libraries(template_libraries)
+            .with_arity_specs(default_arities())
     }
 
     #[test]
     fn filter_missing_required_arg_s115() {
         let db = test_db();
-        let errors = collect_arity_errors(&db, "{{ value|truncatewords }}");
-
-        assert_eq!(errors.len(), 1);
-        assert!(
-            matches!(&errors[0], ValidationError::FilterMissingArgument { filter, .. } if filter == "truncatewords"),
-            "Expected FilterMissingArgument for 'truncatewords', got: {:?}",
-            errors[0]
-        );
+        let rendered = render_arity_snapshot(&db, "{{ value|truncatewords }}");
+        insta::assert_snapshot!(rendered);
     }
 
     #[test]
     fn filter_unexpected_arg_s116() {
         let db = test_db();
-        let errors = collect_arity_errors(&db, "{{ value|title:\"arg\" }}");
-
-        assert_eq!(errors.len(), 1);
-        assert!(
-            matches!(&errors[0], ValidationError::FilterUnexpectedArgument { filter, .. } if filter == "title"),
-            "Expected FilterUnexpectedArgument for 'title', got: {:?}",
-            errors[0]
-        );
+        let rendered = render_arity_snapshot(&db, "{{ value|title:\"arg\" }}");
+        insta::assert_snapshot!(rendered);
     }
 
     #[test]
     fn filter_with_required_arg_no_error() {
         let db = test_db();
-        let errors = collect_arity_errors(&db, "{{ value|truncatewords:30 }}");
-
-        assert!(
-            errors.is_empty(),
-            "Filter with required arg should not produce error, got: {errors:?}"
-        );
+        let rendered = render_arity_snapshot(&db, "{{ value|truncatewords:30 }}");
+        insta::assert_snapshot!(rendered);
     }
 
     #[test]
     fn filter_no_arg_no_error() {
         let db = test_db();
-        let errors = collect_arity_errors(&db, "{{ value|title }}");
-
-        assert!(
-            errors.is_empty(),
-            "No-arg filter used without arg should not produce error, got: {errors:?}"
-        );
+        let rendered = render_arity_snapshot(&db, "{{ value|title }}");
+        insta::assert_snapshot!(rendered);
     }
 
     #[test]
     fn optional_arg_both_ways_no_error() {
         let db = test_db();
-        // date has optional arg — both with and without should be fine
-        let errors = collect_arity_errors(&db, "{{ value|date }}{{ value|date:\"Y-m-d\" }}");
-
-        assert!(
-            errors.is_empty(),
-            "Optional arg filter should work both ways, got: {errors:?}"
-        );
+        let rendered = render_arity_snapshot(&db, "{{ value|date }}{{ value|date:\"Y-m-d\" }}");
+        insta::assert_snapshot!(rendered);
     }
 
     #[test]
     fn filter_chain_validates_each() {
         let db = test_db();
-        // title (no-arg, used with arg = S116) + truncatewords (required arg, missing = S115)
-        let errors = collect_arity_errors(&db, "{{ value|title:\"bad\"|truncatewords }}");
-
-        assert_eq!(errors.len(), 2, "Expected 2 errors, got: {errors:?}");
-        let has_s116 = errors.iter().any(|e| {
-            matches!(e, ValidationError::FilterUnexpectedArgument { filter, .. } if filter == "title")
-        });
-        let has_s115 = errors.iter().any(|e| {
-            matches!(e, ValidationError::FilterMissingArgument { filter, .. } if filter == "truncatewords")
-        });
-        assert!(has_s116, "Expected S116 for title");
-        assert!(has_s115, "Expected S115 for truncatewords");
+        let rendered = render_arity_snapshot(&db, "{{ value|title:\"bad\"|truncatewords }}");
+        insta::assert_snapshot!(rendered);
     }
 
     #[test]
     fn unknown_filter_no_arity_error() {
         let db = test_db();
-        // A filter not in arity specs should not produce arity errors
-        let errors = collect_arity_errors(&db, "{{ value|unknown_filter }}");
-
-        assert!(
-            errors.is_empty(),
-            "Unknown filter should not produce arity errors, got: {errors:?}"
-        );
+        let rendered = render_arity_snapshot(&db, "{{ value|unknown_filter }}");
+        insta::assert_snapshot!(rendered);
     }
 
     #[test]
     fn inspector_unavailable_no_arity_diagnostics() {
-        // No inventory → no diagnostics
-        let mut db = TestDatabase::new();
-        db.arity_specs = default_arities();
-        let errors = collect_arity_errors(&db, "{{ value|truncatewords }}");
-
-        assert!(
-            errors.is_empty(),
-            "No arity diagnostics when inspector unavailable, got: {errors:?}"
-        );
+        let db = TestDatabase::new().with_arity_specs(default_arities());
+        let rendered = render_arity_snapshot(&db, "{{ value|truncatewords }}");
+        insta::assert_snapshot!(rendered);
     }
 
     #[test]
     fn opaque_region_skipped() {
         let db = test_db();
-        // truncatewords inside verbatim should NOT produce S115
-        let errors = collect_arity_errors(
+        let rendered = render_arity_snapshot(
             &db,
             "{% verbatim %}{{ value|truncatewords }}{% endverbatim %}",
         );
-
-        assert!(
-            errors.is_empty(),
-            "Filter inside opaque region should be skipped, got: {errors:?}"
-        );
+        insta::assert_snapshot!(rendered);
     }
 
     #[test]
@@ -455,13 +245,11 @@ mod tests {
             "django.template.defaultfilters",
         )];
         let template_libraries = make_template_libraries_with_filters(&filters);
-        let db =
-            TestDatabase::with_inventory_and_arities(template_libraries, FilterAritySpecs::new());
-        let errors = collect_arity_errors(&db, "{{ value|title:\"bad\" }}");
+        let db = TestDatabase::new()
+            .with_template_libraries(template_libraries)
+            .with_arity_specs(FilterAritySpecs::new());
 
-        assert!(
-            errors.is_empty(),
-            "Empty arity specs should not produce errors, got: {errors:?}"
-        );
+        let rendered = render_arity_snapshot(&db, "{{ value|title:\"bad\" }}");
+        insta::assert_snapshot!(rendered);
     }
 }

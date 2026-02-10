@@ -1,0 +1,182 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+---
+tag_rules:
+  "src.unfold.templatetags.unfold::tag::action_item_classes":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: action
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: true
+  "src.unfold.templatetags.unfold::tag::capture":
+    arg_constraints:
+      - Max: 4
+    required_keywords:
+      - position:
+          Forward: 1
+        value: silent
+      - position:
+          Forward: 1
+        value: as
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: silent
+        required: true
+        kind:
+          Literal: silent
+        position: 0
+      - name: arg2
+        required: true
+        kind: Variable
+        position: 1
+      - name: arg3
+        required: true
+        kind: Variable
+        position: 2
+    supports_as_var: false
+  "src.unfold.templatetags.unfold::tag::component":
+    arg_constraints:
+      - Min: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options:
+      values:
+        - with
+        - include_context
+      allow_duplicates: false
+      rejects_unknown: true
+    extracted_args:
+      - name: arg1
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: false
+  "src.unfold.templatetags.unfold::tag::element_classes":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: key
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: true
+  "src.unfold.templatetags.unfold::tag::fieldset_line_classes":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    supports_as_var: true
+  "src.unfold.templatetags.unfold::tag::fieldset_row_classes":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    supports_as_var: true
+  "src.unfold.templatetags.unfold::tag::fieldset_rows_classes":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    supports_as_var: true
+  "src.unfold.templatetags.unfold::tag::has_nav_item_active":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: items
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: true
+  "src.unfold.templatetags.unfold::tag::preserve_filters":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    supports_as_var: false
+  "src.unfold.templatetags.unfold::tag::render_section":
+    arg_constraints:
+      - Min: 3
+      - Max: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: section_class
+        required: true
+        kind: Variable
+        position: 0
+      - name: instance
+        required: true
+        kind: Variable
+        position: 1
+    supports_as_var: true
+  "src.unfold.templatetags.unfold::tag::tab_list":
+    arg_constraints:
+      - Min: 2
+      - Max: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: page
+        required: true
+        kind: Variable
+        position: 0
+      - name: opts
+        required: false
+        kind: Variable
+        position: 1
+    supports_as_var: true
+filter_arities:
+  "src.unfold.templatetags.unfold::filter::add_css_class":
+    expects_arg: true
+    arg_optional: false
+  "src.unfold.templatetags.unfold::filter::changeform_condition":
+    expects_arg: false
+    arg_optional: false
+  "src.unfold.templatetags.unfold::filter::changeform_data":
+    expects_arg: false
+    arg_optional: false
+  "src.unfold.templatetags.unfold::filter::class_name":
+    expects_arg: false
+    arg_optional: false
+  "src.unfold.templatetags.unfold::filter::index":
+    expects_arg: true
+    arg_optional: false
+  "src.unfold.templatetags.unfold::filter::tabs":
+    expects_arg: false
+    arg_optional: false
+block_specs:
+  "src.unfold.templatetags.unfold::tag::capture":
+    end_tag: endcapture
+    intermediates: []
+    opaque: false
+  "src.unfold.templatetags.unfold::tag::component":
+    end_tag: endcomponent
+    intermediates: []
+    opaque: false

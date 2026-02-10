@@ -42,93 +42,11 @@ pub fn validate_all_tag_arguments(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-    use std::sync::Mutex;
-
     use camino::Utf8Path;
-    use camino::Utf8PathBuf;
-    use djls_source::File;
-    use djls_workspace::FileSystem;
-    use djls_workspace::InMemoryFileSystem;
 
     use super::*;
-    use crate::templatetags::test_tag_specs;
-    use crate::TagIndex;
+    use crate::testing::TestDatabase;
     use crate::ValidationError;
-
-    #[salsa::db]
-    #[derive(Clone)]
-    struct TestDatabase {
-        storage: salsa::Storage<Self>,
-        fs: Arc<Mutex<InMemoryFileSystem>>,
-        custom_specs: Option<crate::templatetags::TagSpecs>,
-    }
-
-    impl TestDatabase {
-        fn new() -> Self {
-            Self {
-                storage: salsa::Storage::default(),
-                fs: Arc::new(Mutex::new(InMemoryFileSystem::new())),
-                custom_specs: None,
-            }
-        }
-
-        fn with_custom_specs(specs: crate::templatetags::TagSpecs) -> Self {
-            Self {
-                storage: salsa::Storage::default(),
-                fs: Arc::new(Mutex::new(InMemoryFileSystem::new())),
-                custom_specs: Some(specs),
-            }
-        }
-    }
-
-    #[salsa::db]
-    impl salsa::Database for TestDatabase {}
-
-    #[salsa::db]
-    impl djls_source::Db for TestDatabase {
-        fn create_file(&self, path: &Utf8Path) -> File {
-            File::new(self, path.to_owned(), 0)
-        }
-
-        fn get_file(&self, _path: &Utf8Path) -> Option<File> {
-            None
-        }
-
-        fn read_file(&self, path: &Utf8Path) -> std::io::Result<String> {
-            self.fs.lock().unwrap().read_to_string(path)
-        }
-    }
-
-    #[salsa::db]
-    impl djls_templates::Db for TestDatabase {}
-
-    #[salsa::db]
-    impl crate::Db for TestDatabase {
-        fn tag_specs(&self) -> crate::templatetags::TagSpecs {
-            self.custom_specs.clone().unwrap_or_else(test_tag_specs)
-        }
-
-        fn tag_index(&self) -> TagIndex<'_> {
-            TagIndex::from_specs(self)
-        }
-
-        fn template_dirs(&self) -> Option<Vec<Utf8PathBuf>> {
-            None
-        }
-
-        fn diagnostics_config(&self) -> djls_conf::DiagnosticsConfig {
-            djls_conf::DiagnosticsConfig::default()
-        }
-
-        fn template_libraries(&self) -> djls_project::TemplateLibraries {
-            djls_project::TemplateLibraries::default()
-        }
-
-        fn filter_arity_specs(&self) -> crate::filters::arity::FilterAritySpecs {
-            crate::filters::arity::FilterAritySpecs::new()
-        }
-    }
 
     /// Test helper: Create a temporary `NodeList` with a single tag and validate it using custom specs
     #[allow(clippy::needless_pass_by_value)]
@@ -137,8 +55,6 @@ mod tests {
         bits: &[String],
         db: TestDatabase,
     ) -> Vec<ValidationError> {
-        use djls_source::Db as SourceDb;
-
         let bits_str = bits.join(" ");
 
         // Add closing tags for block tags to avoid UnclosedTag errors
@@ -154,10 +70,10 @@ mod tests {
             _ => format!("{{% {tag_name} {bits_str} %}}"),
         };
 
-        let path = camino::Utf8Path::new("/test.html");
-        db.fs.lock().unwrap().add_file(path.to_owned(), content);
+        let path = "/test.html";
+        db.add_file(path, &content);
 
-        let file = db.create_file(path);
+        let file = db.create_file(Utf8Path::new(path));
         let nodelist = djls_templates::parse_template(&db, file).expect("Failed to parse template");
 
         crate::validate_nodelist(&db, nodelist);
@@ -216,7 +132,7 @@ mod tests {
             },
         );
 
-        let db = TestDatabase::with_custom_specs(TagSpecs::new(specs));
+        let db = TestDatabase::new().with_specs(TagSpecs::new(specs));
 
         // Valid: no args → split_len=1 → Exact(1) passes
         let bits: Vec<String> = vec![];
@@ -227,9 +143,8 @@ mod tests {
         );
 
         // Invalid: 1 arg → split_len=2 → Exact(1) fails
-        let db2 = TestDatabase::with_custom_specs(db.tag_specs());
         let bits = vec!["extra".to_string()];
-        let errors = check_validation_errors_with_db("csrf_token", &bits, db2);
+        let errors = check_validation_errors_with_db("csrf_token", &bits, db.clone());
         assert!(
             !errors.is_empty(),
             "Extra arg should fail Exact(1) constraint"
@@ -281,7 +196,7 @@ mod tests {
             },
         );
 
-        let db = TestDatabase::with_custom_specs(TagSpecs::new(specs));
+        let db = TestDatabase::new().with_specs(TagSpecs::new(specs));
 
         // Invalid: {% for item %} → split_len=2 < 4
         let bits = vec!["item".to_string()];
@@ -292,9 +207,8 @@ mod tests {
         );
 
         // Valid: {% for item in items %} → split_len=4 >= 4
-        let db2 = TestDatabase::with_custom_specs(db.tag_specs());
         let bits = vec!["item".to_string(), "in".to_string(), "items".to_string()];
-        let errors = check_validation_errors_with_db("for", &bits, db2);
+        let errors = check_validation_errors_with_db("for", &bits, db.clone());
         assert!(
             errors.is_empty(),
             "3 args should pass Min(4) (split_len=4): {errors:?}"
@@ -341,7 +255,7 @@ mod tests {
             },
         );
 
-        let db = TestDatabase::with_custom_specs(TagSpecs::new(specs));
+        let db = TestDatabase::new().with_specs(TagSpecs::new(specs));
 
         // Invalid: {% for item at items %} → "in" expected at position 2
         let bits = vec!["item".to_string(), "at".to_string(), "items".to_string()];
@@ -392,7 +306,7 @@ mod tests {
             },
         );
 
-        let db = TestDatabase::with_custom_specs(TagSpecs::new(specs));
+        let db = TestDatabase::new().with_specs(TagSpecs::new(specs));
 
         // Valid: {% for item in items %} → split_len=4
         let bits = vec!["item".to_string(), "in".to_string(), "items".to_string()];
@@ -400,21 +314,19 @@ mod tests {
         assert!(errors.is_empty(), "Valid for tag should pass: {errors:?}");
 
         // Valid: {% for item in items reversed %} → split_len=5
-        let db2 = TestDatabase::with_custom_specs(db.tag_specs());
         let bits = vec![
             "item".to_string(),
             "in".to_string(),
             "items".to_string(),
             "reversed".to_string(),
         ];
-        let errors = check_validation_errors_with_db("for", &bits, db2);
+        let errors = check_validation_errors_with_db("for", &bits, db.clone());
         assert!(
             errors.is_empty(),
             "Valid for tag with reversed should pass: {errors:?}"
         );
 
         // Invalid: 6 args → split_len=6, not in {4,5}
-        let db3 = TestDatabase::with_custom_specs(db.tag_specs());
         let bits = vec![
             "item".to_string(),
             "in".to_string(),
@@ -422,7 +334,7 @@ mod tests {
             "football".to_string(),
             "extra".to_string(),
         ];
-        let errors = check_validation_errors_with_db("for", &bits, db3);
+        let errors = check_validation_errors_with_db("for", &bits, db.clone());
         assert!(
             !errors.is_empty(),
             "Too many args should fail OneOf constraint: {errors:?}"

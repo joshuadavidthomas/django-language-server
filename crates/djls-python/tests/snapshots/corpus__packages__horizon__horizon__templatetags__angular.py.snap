@@ -1,0 +1,18 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+---
+tag_rules:
+  "horizon.templatetags.angular::tag::angular_templates":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    supports_as_var: false
+filter_arities:
+  "horizon.templatetags.angular::filter::angular_escapes":
+    expects_arg: false
+    arg_optional: false
+block_specs: {}

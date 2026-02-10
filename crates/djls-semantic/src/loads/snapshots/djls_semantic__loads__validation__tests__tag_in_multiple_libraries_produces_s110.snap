@@ -1,0 +1,13 @@
+---
+source: crates/djls-semantic/src/loads/validation.rs
+expression: rendered
+---
+Source
+test.html
+   1 | {% shared %}
+
+Diagnostics (1)
+1. AmbiguousUnloadedTag: Tag 'shared' is defined in multiple libraries: ["lib_a", "lib_b"]
+    --> test.html:1:1
+   1 | {% shared %}
+     | ^^^^^^^^^^^^

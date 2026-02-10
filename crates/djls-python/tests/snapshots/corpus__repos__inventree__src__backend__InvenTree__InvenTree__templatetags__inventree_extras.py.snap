@@ -1,0 +1,200 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+---
+tag_rules:
+  "src.backend.InvenTree.InvenTree.templatetags.inventree_extras::tag::decimal":
+    arg_constraints:
+      - Min: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: x
+        required: true
+        kind: Variable
+        position: 0
+      - name: args
+        required: false
+        kind: VarArgs
+        position: 1
+    supports_as_var: true
+  "src.backend.InvenTree.InvenTree.templatetags.inventree_extras::tag::define":
+    arg_constraints:
+      - Min: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: value
+        required: true
+        kind: Variable
+        position: 0
+      - name: args
+        required: false
+        kind: VarArgs
+        position: 1
+    supports_as_var: true
+  "src.backend.InvenTree.InvenTree.templatetags.inventree_extras::tag::inventree_commit_date":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: args
+        required: false
+        kind: VarArgs
+        position: 0
+    supports_as_var: true
+  "src.backend.InvenTree.InvenTree.templatetags.inventree_extras::tag::inventree_commit_hash":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: args
+        required: false
+        kind: VarArgs
+        position: 0
+    supports_as_var: true
+  "src.backend.InvenTree.InvenTree.templatetags.inventree_extras::tag::inventree_customize":
+    arg_constraints:
+      - Min: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: reference
+        required: true
+        kind: Variable
+        position: 0
+      - name: args
+        required: false
+        kind: VarArgs
+        position: 1
+    supports_as_var: true
+  "src.backend.InvenTree.InvenTree.templatetags.inventree_extras::tag::inventree_installer":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: args
+        required: false
+        kind: VarArgs
+        position: 0
+    supports_as_var: true
+  "src.backend.InvenTree.InvenTree.templatetags.inventree_extras::tag::inventree_instance_name":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: args
+        required: false
+        kind: VarArgs
+        position: 0
+    supports_as_var: true
+  "src.backend.InvenTree.InvenTree.templatetags.inventree_extras::tag::inventree_title":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: args
+        required: false
+        kind: VarArgs
+        position: 0
+    supports_as_var: true
+  "src.backend.InvenTree.InvenTree.templatetags.inventree_extras::tag::inventree_version":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: shortstring
+        required: false
+        kind: Variable
+        position: 0
+      - name: args
+        required: false
+        kind: VarArgs
+        position: 1
+    supports_as_var: true
+  "src.backend.InvenTree.InvenTree.templatetags.inventree_extras::tag::render_date":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: date_object
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: true
+  "src.backend.InvenTree.InvenTree.templatetags.inventree_extras::tag::setting_object":
+    arg_constraints:
+      - Min: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: key
+        required: true
+        kind: Variable
+        position: 0
+      - name: args
+        required: false
+        kind: VarArgs
+        position: 1
+    supports_as_var: true
+  "src.backend.InvenTree.InvenTree.templatetags.inventree_extras::tag::settings_value":
+    arg_constraints:
+      - Min: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: key
+        required: true
+        kind: Variable
+        position: 0
+      - name: args
+        required: false
+        kind: VarArgs
+        position: 1
+    supports_as_var: true
+  "src.backend.InvenTree.InvenTree.templatetags.inventree_extras::tag::str2bool":
+    arg_constraints:
+      - Min: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: x
+        required: true
+        kind: Variable
+        position: 0
+      - name: args
+        required: false
+        kind: VarArgs
+        position: 1
+    supports_as_var: true
+  "src.backend.InvenTree.InvenTree.templatetags.inventree_extras::tag::to_list":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: args
+        required: false
+        kind: VarArgs
+        position: 0
+    supports_as_var: true
+filter_arities:
+  "src.backend.InvenTree.InvenTree.templatetags.inventree_extras::filter::keyvalue":
+    expects_arg: true
+    arg_optional: false
+block_specs: {}

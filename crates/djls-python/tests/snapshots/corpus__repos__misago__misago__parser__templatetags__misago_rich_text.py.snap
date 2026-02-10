@@ -1,0 +1,28 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+---
+tag_rules:
+  "misago.parser.templatetags.misago_rich_text::tag::rich_text":
+    arg_constraints:
+      - Min: 2
+      - Max: 4
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: html
+        required: true
+        kind: Variable
+        position: 0
+      - name: data
+        required: false
+        kind: Variable
+        position: 1
+      - name: thread
+        required: false
+        kind: Keyword
+        position: 2
+    supports_as_var: true
+filter_arities: {}
+block_specs: {}

@@ -1,0 +1,14 @@
+---
+source: crates/djls-semantic/src/loads/validation.rs
+expression: rendered
+---
+Source
+test.html
+   1 | {% shared_tag %}
+
+Diagnostics (1)
+1. TagNotInInstalledApps: Tag 'shared_tag' requires 'app_a' in INSTALLED_APPS
+    --> test.html:1:1
+    load_name: utils_a
+   1 | {% shared_tag %}
+     | ^^^^^^^^^^^^^^^^

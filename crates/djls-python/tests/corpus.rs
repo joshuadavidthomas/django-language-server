@@ -21,7 +21,6 @@
 
 use std::collections::BTreeMap;
 
-use camino::Utf8Path;
 use djls_corpus::module_path_from_file;
 use djls_corpus::Corpus;
 use djls_python::extract_rules;
@@ -72,32 +71,6 @@ fn snapshot(result: ExtractionResult) -> SortedExtractionResult {
     result.into()
 }
 
-fn is_extraction_target(path: &Utf8Path) -> bool {
-    let path_str = path.as_str();
-    if path_str.contains("__pycache__") {
-        return false;
-    }
-    let is_py = path.extension().is_some_and(|ext| ext == "py");
-    if !is_py {
-        return false;
-    }
-    if path.file_name() == Some("__init__.py") {
-        return false;
-    }
-    if path
-        .file_name()
-        .is_some_and(|f| f.starts_with("test_") || f == "conftest.py")
-    {
-        return false;
-    }
-    path_str.contains("/templatetags/")
-        || (path_str.contains("/template/")
-            && matches!(
-                path.file_name(),
-                Some("defaulttags.py" | "defaultfilters.py" | "loader_tags.py")
-            ))
-}
-
 fn snapshot_dir() -> insta::internals::SettingsBindDropGuard {
     let mut settings = insta::Settings::clone_current();
     settings.set_snapshot_path(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/snapshots"));
@@ -107,70 +80,22 @@ fn snapshot_dir() -> insta::internals::SettingsBindDropGuard {
 #[test]
 fn extraction_snapshots() {
     let corpus = Corpus::require();
-    if corpus.extraction_targets().is_empty() {
+    let targets = corpus.extraction_targets();
+    if targets.is_empty() {
         eprintln!("No extraction targets in corpus.");
         return;
     }
 
-    insta::glob!(corpus.root().as_str(), "**/*.py", |path| {
-        let path = Utf8Path::from_path(path).unwrap();
-        if !is_extraction_target(path) {
-            return;
-        }
-        let _guard = snapshot_dir();
-        let source = std::fs::read_to_string(path).unwrap();
-        let module_path = module_path_from_file(path);
-        let result = extract_rules(&source, &module_path);
-        insta::assert_yaml_snapshot!(snapshot(result));
-    });
-}
-
-#[test]
-fn test_django_versions_extraction() {
     let _guard = snapshot_dir();
-    let corpus = Corpus::require();
 
-    let django_dirs = corpus.package_dirs("django");
-    if django_dirs.is_empty() {
-        eprintln!("No Django version dirs found, skipping");
-        return;
+    for path in targets {
+        let source = std::fs::read_to_string(path.as_std_path()).unwrap();
+        let module_path = module_path_from_file(&path);
+        let result = extract_rules(&source, &module_path);
+
+        let relative = path.strip_prefix(corpus.root()).unwrap_or(&path);
+        let snapshot_name = relative.as_str().replace('/', "__");
+
+        insta::assert_yaml_snapshot!(snapshot_name, snapshot(result));
     }
-
-    let mut version_results: BTreeMap<String, VersionSummary> = BTreeMap::new();
-
-    for django_dir in &django_dirs {
-        let version = django_dir.file_name().unwrap().to_string();
-        let defaulttags = django_dir.join("django/template/defaulttags.py");
-
-        if defaulttags.as_std_path().exists() {
-            let source = std::fs::read_to_string(defaulttags.as_std_path()).unwrap();
-            let result = extract_rules(&source, "django.template.defaulttags");
-
-            let mut tag_names: Vec<String> =
-                result.tag_rules.keys().map(|k| k.name.clone()).collect();
-            tag_names.sort();
-
-            version_results.insert(
-                version,
-                VersionSummary {
-                    tag_rule_count: result.tag_rules.len(),
-                    filter_count: result.filter_arities.len(),
-                    block_spec_count: result.block_specs.len(),
-                    tag_names,
-                },
-            );
-        }
-    }
-
-    if !version_results.is_empty() {
-        insta::assert_yaml_snapshot!("django_versions_extraction", version_results);
-    }
-}
-
-#[derive(Debug, Serialize)]
-struct VersionSummary {
-    tag_rule_count: usize,
-    filter_count: usize,
-    block_spec_count: usize,
-    tag_names: Vec<String>,
 }

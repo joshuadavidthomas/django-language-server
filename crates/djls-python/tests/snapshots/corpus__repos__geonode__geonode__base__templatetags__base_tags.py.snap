@@ -1,0 +1,131 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+---
+tag_rules:
+  "geonode.base.templatetags.base_tags::tag::display_change_perms_button":
+    arg_constraints:
+      - Min: 4
+      - Max: 4
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: resource
+        required: true
+        kind: Variable
+        position: 0
+      - name: user
+        required: true
+        kind: Variable
+        position: 1
+      - name: perms
+        required: true
+        kind: Variable
+        position: 2
+    supports_as_var: true
+  "geonode.base.templatetags.base_tags::tag::display_edit_request_button":
+    arg_constraints:
+      - Min: 4
+      - Max: 4
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: resource
+        required: true
+        kind: Variable
+        position: 0
+      - name: user
+        required: true
+        kind: Variable
+        position: 1
+      - name: perms
+        required: true
+        kind: Variable
+        position: 2
+    supports_as_var: true
+  "geonode.base.templatetags.base_tags::tag::facets":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    supports_as_var: true
+  "geonode.base.templatetags.base_tags::tag::fullurl":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: url
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: true
+  "geonode.base.templatetags.base_tags::tag::get_context_resourcetype":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    supports_as_var: true
+  "geonode.base.templatetags.base_tags::tag::get_current_path":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    supports_as_var: true
+  "geonode.base.templatetags.base_tags::tag::get_menu":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: placeholder_name
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: true
+  "geonode.base.templatetags.base_tags::tag::get_visibile_resources":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: user
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: false
+  "geonode.base.templatetags.base_tags::tag::render_nav_menu":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: placeholder_name
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: false
+filter_arities:
+  "geonode.base.templatetags.base_tags::filter::get_item":
+    expects_arg: true
+    arg_optional: false
+  "geonode.base.templatetags.base_tags::filter::template_trans":
+    expects_arg: false
+    arg_optional: false
+block_specs: {}

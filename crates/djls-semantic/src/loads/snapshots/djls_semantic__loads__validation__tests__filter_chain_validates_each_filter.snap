@@ -1,0 +1,13 @@
+---
+source: crates/djls-semantic/src/loads/validation.rs
+expression: rendered
+---
+Source
+test.html
+   1 | {{ value|title|apnumber }}
+
+Diagnostics (1)
+1. UnloadedFilter: Filter 'apnumber' requires {% load humanize %}
+    --> test.html:1:16
+   1 | {{ value|title|apnumber }}
+     |                ^^^^^^^^

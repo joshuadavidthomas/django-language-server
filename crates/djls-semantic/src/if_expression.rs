@@ -434,104 +434,12 @@ mod tests {
 
     // Integration with validate_if_expressions
 
-    use std::sync::Arc;
-    use std::sync::Mutex;
-
-    use camino::Utf8Path;
-    use camino::Utf8PathBuf;
-    use djls_source::Db as SourceDb;
-    use djls_source::File;
-    use djls_templates::parse_template;
-    use djls_workspace::FileSystem;
-    use djls_workspace::InMemoryFileSystem;
-
-    use crate::blocks::TagIndex;
-    use crate::templatetags::test_tag_specs;
-    use crate::validate_nodelist;
-    use crate::TagSpecs;
-    use crate::ValidationErrorAccumulator;
-
-    #[salsa::db]
-    #[derive(Clone)]
-    struct TestDatabase {
-        storage: salsa::Storage<Self>,
-        fs: Arc<Mutex<InMemoryFileSystem>>,
-    }
-
-    impl TestDatabase {
-        fn new() -> Self {
-            Self {
-                storage: salsa::Storage::default(),
-                fs: Arc::new(Mutex::new(InMemoryFileSystem::new())),
-            }
-        }
-
-        fn add_file(&self, path: &str, content: &str) {
-            self.fs
-                .lock()
-                .unwrap()
-                .add_file(path.into(), content.to_string());
-        }
-    }
-
-    #[salsa::db]
-    impl salsa::Database for TestDatabase {}
-
-    #[salsa::db]
-    impl djls_source::Db for TestDatabase {
-        fn create_file(&self, path: &Utf8Path) -> File {
-            File::new(self, path.to_owned(), 0)
-        }
-
-        fn get_file(&self, _path: &Utf8Path) -> Option<File> {
-            None
-        }
-
-        fn read_file(&self, path: &Utf8Path) -> std::io::Result<String> {
-            self.fs.lock().unwrap().read_to_string(path)
-        }
-    }
-
-    #[salsa::db]
-    impl djls_templates::Db for TestDatabase {}
-
-    #[salsa::db]
-    impl crate::Db for TestDatabase {
-        fn tag_specs(&self) -> TagSpecs {
-            test_tag_specs()
-        }
-
-        fn tag_index(&self) -> TagIndex<'_> {
-            TagIndex::from_specs(self)
-        }
-
-        fn template_dirs(&self) -> Option<Vec<Utf8PathBuf>> {
-            None
-        }
-
-        fn diagnostics_config(&self) -> djls_conf::DiagnosticsConfig {
-            djls_conf::DiagnosticsConfig::default()
-        }
-
-        fn template_libraries(&self) -> djls_project::TemplateLibraries {
-            djls_project::TemplateLibraries::default()
-        }
-
-        fn filter_arity_specs(&self) -> crate::filters::arity::FilterAritySpecs {
-            crate::filters::arity::FilterAritySpecs::new()
-        }
-    }
+    use crate::testing::collect_errors;
+    use crate::testing::TestDatabase;
 
     fn collect_expression_errors(db: &TestDatabase, source: &str) -> Vec<ValidationError> {
-        let path = "test.html";
-        db.add_file(path, source);
-        let file = db.create_file(Utf8Path::new(path));
-        let nodelist = parse_template(db, file).expect("should parse");
-        validate_nodelist(db, nodelist);
-
-        validate_nodelist::accumulated::<ValidationErrorAccumulator>(db, nodelist)
+        collect_errors(db, "test.html", source)
             .into_iter()
-            .map(|acc| acc.0.clone())
             .filter(|err| matches!(err, ValidationError::ExpressionSyntaxError { .. }))
             .collect()
     }

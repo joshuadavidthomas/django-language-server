@@ -1,0 +1,9 @@
+---
+source: crates/djls-semantic/src/filters/validation.rs
+expression: rendered
+---
+Source
+test.html
+   1 | {{ value|date }}{{ value|date:"Y-m-d" }}
+
+Diagnostics (0)

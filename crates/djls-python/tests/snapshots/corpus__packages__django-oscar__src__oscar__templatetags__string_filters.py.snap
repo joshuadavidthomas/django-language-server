@@ -1,0 +1,10 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+---
+tag_rules: {}
+filter_arities:
+  "src.oscar.templatetags.string_filters::filter::split":
+    expects_arg: true
+    arg_optional: true
+block_specs: {}

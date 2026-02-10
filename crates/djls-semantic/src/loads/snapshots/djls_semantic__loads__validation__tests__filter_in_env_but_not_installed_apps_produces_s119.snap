@@ -1,0 +1,14 @@
+---
+source: crates/djls-semantic/src/loads/validation.rs
+expression: rendered
+---
+Source
+test.html
+   1 | {{ value|intcomma }}
+
+Diagnostics (1)
+1. FilterNotInInstalledApps: Filter 'intcomma' requires 'django.contrib.humanize' in INSTALLED_APPS
+    --> test.html:1:10
+    load_name: humanize
+   1 | {{ value|intcomma }}
+     |          ^^^^^^^^

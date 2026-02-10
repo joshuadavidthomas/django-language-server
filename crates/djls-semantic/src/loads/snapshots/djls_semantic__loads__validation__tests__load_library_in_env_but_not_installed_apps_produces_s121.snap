@@ -1,0 +1,14 @@
+---
+source: crates/djls-semantic/src/loads/validation.rs
+expression: rendered
+---
+Source
+test.html
+   1 | {% load humanize %}
+
+Diagnostics (1)
+1. LibraryNotInInstalledApps: Template tag library 'humanize' requires 'django.contrib.humanize' in INSTALLED_APPS
+    --> test.html:1:1
+    candidates: ["django.contrib.humanize"]
+   1 | {% load humanize %}
+     | ^^^^^^^^^^^^^^^^^^^

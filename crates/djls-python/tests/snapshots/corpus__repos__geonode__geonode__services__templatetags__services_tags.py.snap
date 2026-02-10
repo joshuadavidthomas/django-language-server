@@ -1,0 +1,24 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+---
+tag_rules:
+  "geonode.services.templatetags.services_tags::tag::get_dataset_count_by_services":
+    arg_constraints:
+      - Min: 3
+      - Max: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: service_id
+        required: true
+        kind: Variable
+        position: 0
+      - name: user
+        required: true
+        kind: Variable
+        position: 1
+    supports_as_var: true
+filter_arities: {}
+block_specs: {}

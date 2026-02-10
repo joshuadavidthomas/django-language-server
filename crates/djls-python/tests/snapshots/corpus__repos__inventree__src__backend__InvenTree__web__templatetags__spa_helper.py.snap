@@ -1,0 +1,31 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+---
+tag_rules:
+  "src.backend.InvenTree.web.templatetags.spa_helper::tag::spa_bundle":
+    arg_constraints:
+      - Max: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: manifest_path
+        required: false
+        kind: Variable
+        position: 0
+      - name: app
+        required: false
+        kind: Variable
+        position: 1
+    supports_as_var: true
+  "src.backend.InvenTree.web.templatetags.spa_helper::tag::spa_settings":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    supports_as_var: true
+filter_arities: {}
+block_specs: {}

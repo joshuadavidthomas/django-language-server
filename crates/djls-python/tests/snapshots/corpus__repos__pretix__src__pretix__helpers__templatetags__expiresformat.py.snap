@@ -1,0 +1,10 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+---
+tag_rules: {}
+filter_arities:
+  "src.pretix.helpers.templatetags.expiresformat::filter::format_expires":
+    expects_arg: false
+    arg_optional: false
+block_specs: {}

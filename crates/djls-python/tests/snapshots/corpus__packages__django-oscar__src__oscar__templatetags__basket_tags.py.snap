@@ -1,0 +1,28 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+---
+tag_rules:
+  "src.oscar.templatetags.basket_tags::tag::basket_form":
+    arg_constraints:
+      - Min: 3
+      - Max: 4
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: request
+        required: true
+        kind: Variable
+        position: 0
+      - name: product
+        required: true
+        kind: Variable
+        position: 1
+      - name: quantity_type
+        required: false
+        kind: Variable
+        position: 2
+    supports_as_var: true
+filter_arities: {}
+block_specs: {}

@@ -1,0 +1,24 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+---
+tag_rules:
+  "src.sentry.templatetags.sentry_features::tag::feature":
+    arg_constraints:
+      - Min: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: name
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: false
+filter_arities: {}
+block_specs:
+  "src.sentry.templatetags.sentry_features::tag::feature":
+    end_tag: endfeature
+    intermediates:
+      - else
+    opaque: false

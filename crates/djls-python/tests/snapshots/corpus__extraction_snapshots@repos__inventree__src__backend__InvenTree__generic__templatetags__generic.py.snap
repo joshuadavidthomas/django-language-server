@@ -1,8 +1,0 @@
----
-source: crates/djls-python/tests/corpus.rs
-expression: snapshot(result)
-input_file: crates/djls-corpus/.corpus/repos/inventree/src/backend/InvenTree/generic/templatetags/generic.py
----
-tag_rules: {}
-filter_arities: {}
-block_specs: {}

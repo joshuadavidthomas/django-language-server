@@ -68,6 +68,51 @@ impl Corpus {
         Utf8Path::new(CORPUS_DIR)
     }
 
+    /// Derive the corpus entry directory for a path under the corpus root.
+    ///
+    /// Corpus entries are direct children of `packages/` or `repos/`.
+    /// For example:
+    /// - `{root}/packages/django-6.0/...` -> `{root}/packages/django-6.0`
+    /// - `{root}/repos/sentry/...` -> `{root}/repos/sentry`
+    #[must_use]
+    pub fn entry_dir_for_path(&self, path: &Utf8Path) -> Option<Utf8PathBuf> {
+        let relative = path.strip_prefix(self.root()).ok()?;
+
+        let mut components = relative.components();
+        let category = components.next()?;
+        let entry = components.next()?;
+
+        match category.as_str() {
+            "packages" | "repos" => Some(self.root().join(category.as_str()).join(entry.as_str())),
+            _ => None,
+        }
+    }
+
+    /// Whether an entry directory represents a Django package.
+    ///
+    /// True for:
+    /// - `packages/django`
+    /// - `packages/django-<version>`
+    #[must_use]
+    pub fn is_django_entry(&self, entry_dir: &Utf8Path) -> bool {
+        let Some(entry_name) = entry_dir.file_name() else {
+            return false;
+        };
+
+        let is_packages = entry_dir
+            .parent()
+            .and_then(|p| p.file_name())
+            .is_some_and(|cat| cat == "packages");
+
+        if !is_packages {
+            return false;
+        }
+
+        entry_name == "django"
+            || (entry_name.starts_with("django-")
+                && entry_name["django-".len()..].starts_with(|c: char| c.is_ascii_digit()))
+    }
+
     /// Latest synced version directory for a package under `packages/`.
     ///
     /// Handles the flat corpus layout where single-version packages are

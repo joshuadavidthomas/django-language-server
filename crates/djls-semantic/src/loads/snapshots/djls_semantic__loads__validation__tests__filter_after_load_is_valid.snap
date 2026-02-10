@@ -1,0 +1,10 @@
+---
+source: crates/djls-semantic/src/loads/validation.rs
+expression: rendered
+---
+Source
+test.html
+   1 | {% load humanize %}
+   2 | {{ value|apnumber }}
+
+Diagnostics (0)

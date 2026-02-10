@@ -1,0 +1,13 @@
+---
+source: crates/djls-semantic/src/filters/validation.rs
+expression: rendered
+---
+Source
+test.html
+   1 | {{ value|truncatewords }}
+
+Diagnostics (1)
+1. FilterMissingArgument: Filter 'truncatewords' requires an argument
+    --> test.html:1:10
+   1 | {{ value|truncatewords }}
+     |          ^^^^^^^^^^^^^

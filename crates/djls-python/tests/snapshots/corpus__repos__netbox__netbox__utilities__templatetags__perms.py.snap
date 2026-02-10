@@ -1,0 +1,25 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+---
+tag_rules: {}
+filter_arities:
+  "netbox.utilities.templatetags.perms::filter::can_add":
+    expects_arg: true
+    arg_optional: false
+  "netbox.utilities.templatetags.perms::filter::can_change":
+    expects_arg: true
+    arg_optional: false
+  "netbox.utilities.templatetags.perms::filter::can_delete":
+    expects_arg: true
+    arg_optional: false
+  "netbox.utilities.templatetags.perms::filter::can_run":
+    expects_arg: true
+    arg_optional: false
+  "netbox.utilities.templatetags.perms::filter::can_sync":
+    expects_arg: true
+    arg_optional: false
+  "netbox.utilities.templatetags.perms::filter::can_view":
+    expects_arg: true
+    arg_optional: false
+block_specs: {}

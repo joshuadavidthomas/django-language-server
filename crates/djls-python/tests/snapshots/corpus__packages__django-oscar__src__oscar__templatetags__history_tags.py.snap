@@ -1,0 +1,27 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+---
+tag_rules:
+  "src.oscar.templatetags.history_tags::tag::get_back_button":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    supports_as_var: true
+  "src.oscar.templatetags.history_tags::tag::recently_viewed_products":
+    arg_constraints:
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: current_product
+        required: false
+        kind: Variable
+        position: 0
+    supports_as_var: false
+filter_arities: {}
+block_specs: {}

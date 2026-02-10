@@ -1,0 +1,28 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+---
+tag_rules: {}
+filter_arities:
+  "geonode.base.templatetags.thesaurus::filter::get_name_translation":
+    expects_arg: false
+    arg_optional: false
+  "geonode.base.templatetags.thesaurus::filter::get_thesaurus_date":
+    expects_arg: false
+    arg_optional: false
+  "geonode.base.templatetags.thesaurus::filter::get_thesaurus_localized_label":
+    expects_arg: false
+    arg_optional: false
+  "geonode.base.templatetags.thesaurus::filter::get_thesaurus_title":
+    expects_arg: false
+    arg_optional: false
+  "geonode.base.templatetags.thesaurus::filter::get_thesaurus_translation_by_id":
+    expects_arg: false
+    arg_optional: false
+  "geonode.base.templatetags.thesaurus::filter::get_unique_thesaurus_set":
+    expects_arg: false
+    arg_optional: false
+  "geonode.base.templatetags.thesaurus::filter::with_localized_labels":
+    expects_arg: false
+    arg_optional: false
+block_specs: {}

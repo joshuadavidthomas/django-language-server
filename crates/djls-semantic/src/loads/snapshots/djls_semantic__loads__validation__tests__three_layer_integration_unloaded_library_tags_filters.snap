@@ -1,0 +1,21 @@
+---
+source: crates/djls-semantic/src/loads/validation.rs
+expression: rendered
+---
+Source
+test.html
+   1 | {% trans 'hello' %}
+   2 | {{ value|apnumber }}
+   3 | {% load i18n %}
+   4 | {% trans 'now loaded' %}
+
+Diagnostics (2)
+1. UnloadedTag: Tag 'trans' requires {% load i18n %}
+    --> test.html:1:1
+   1 | {% trans 'hello' %}
+     | ^^^^^^^^^^^^^^^^^^^
+
+2. UnloadedFilter: Filter 'apnumber' requires {% load humanize %}
+    --> test.html:2:10
+   2 | {{ value|apnumber }}
+     |          ^^^^^^^^
