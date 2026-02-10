@@ -7,9 +7,14 @@
 use std::collections::HashSet;
 use std::io::Read;
 use std::io::Write;
+use std::sync::Mutex;
 use std::time::Duration;
 
 use camino::Utf8Path;
+use camino::Utf8PathBuf;
+use indicatif::MultiProgress;
+use indicatif::ProgressBar;
+use indicatif::ProgressStyle;
 use serde::Serialize;
 use sha2::Digest;
 use sha2::Sha256;
@@ -18,6 +23,8 @@ use crate::archive::extract_tarball;
 use crate::lock::LockedPackage;
 use crate::lock::LockedRepo;
 use crate::lock::Lockfile;
+
+const MAX_CONCURRENT_DOWNLOADS: usize = 8;
 
 const COMPLETE_MARKER: &str = ".complete.json";
 const MAX_TARBALL_BYTES: u64 = 512 * 1024 * 1024;
@@ -56,10 +63,21 @@ fn download_tarball(
     client: &reqwest::blocking::Client,
     url: &str,
     label: &str,
+    pb: &ProgressBar,
 ) -> anyhow::Result<(tempfile::NamedTempFile, String)> {
     let mut resp = client.get(url).send()?;
     if !resp.status().is_success() {
         anyhow::bail!("HTTP {} fetching tarball from {url}", resp.status());
+    }
+
+    if let Some(len) = resp.content_length() {
+        pb.set_length(len);
+        pb.set_style(
+            ProgressStyle::default_bar()
+                .template("  {msg} [{bar:20}] {bytes}/{total_bytes} {bytes_per_sec}")
+                .unwrap()
+                .progress_chars("=> "),
+        );
     }
 
     let mut tmp = tempfile::NamedTempFile::new()?;
@@ -82,6 +100,7 @@ fn download_tarball(
 
         hasher.update(&buf[..n]);
         tmp.write_all(&buf[..n])?;
+        pb.set_position(total_bytes);
     }
 
     tmp.flush()?;
@@ -92,19 +111,12 @@ fn download_tarball(
 fn sync_package(
     client: &reqwest::blocking::Client,
     package: &LockedPackage,
-    packages_dir: &Utf8Path,
-) -> anyhow::Result<()> {
-    let out_dir = packages_dir.join(&package.name).join(&package.resolved);
-    let label = format!("{}-{}", package.name, package.resolved);
-
-    if is_synced(&out_dir) {
-        tracing::debug!(label, "already synced, skipping");
-        return Ok(());
-    }
-
-    tracing::info!(label, "syncing");
-
-    let (tmp, actual_sha256) = download_tarball(client, &package.url, &label)?;
+    out_dir: &Utf8Path,
+    label: &str,
+    pb: &ProgressBar,
+) -> anyhow::Result<Vec<String>> {
+    pb.set_message(format!("{label}: downloading"));
+    let (tmp, actual_sha256) = download_tarball(client, &package.url, label, pb)?;
 
     if !actual_sha256.eq_ignore_ascii_case(&package.sha256) {
         anyhow::bail!(
@@ -114,11 +126,12 @@ fn sync_package(
         );
     }
 
+    pb.set_message(format!("{label}: extracting"));
     let file = tmp.reopen()?;
-    extract_tarball(file, &out_dir)?;
+    let warnings = extract_tarball(file, out_dir)?;
 
     write_marker(
-        &out_dir,
+        out_dir,
         &PackageMarker {
             name: package.name.clone(),
             version: package.resolved.clone(),
@@ -127,34 +140,27 @@ fn sync_package(
         },
     )?;
 
-    Ok(())
+    Ok(warnings)
 }
 
 fn sync_repo(
     client: &reqwest::blocking::Client,
     repo: &LockedRepo,
-    repos_dir: &Utf8Path,
-) -> anyhow::Result<()> {
-    let out_dir = repos_dir.join(&repo.name).join(&repo.git_ref);
-    let short_ref = repo.git_ref.get(..12).unwrap_or(&repo.git_ref);
-    let label = format!("{} @ {} ({short_ref})", repo.name, repo.tag);
-
-    if is_synced(&out_dir) {
-        tracing::debug!(label, "already synced, skipping");
-        return Ok(());
-    }
-
-    tracing::info!(label, "syncing");
-
+    out_dir: &Utf8Path,
+    label: &str,
+    pb: &ProgressBar,
+) -> anyhow::Result<Vec<String>> {
+    pb.set_message(format!("{label}: downloading"));
     let base_url = repo.url.trim_end_matches(".git");
     let url = format!("{base_url}/archive/{}.tar.gz", repo.git_ref);
-    let (tmp, _sha256) = download_tarball(client, &url, &label)?;
+    let (tmp, _sha256) = download_tarball(client, &url, label, pb)?;
 
+    pb.set_message(format!("{label}: extracting"));
     let file = tmp.reopen()?;
-    extract_tarball(file, &out_dir)?;
+    let warnings = extract_tarball(file, out_dir)?;
 
     write_marker(
-        &out_dir,
+        out_dir,
         &RepoMarker {
             name: repo.name.clone(),
             url: repo.url.clone(),
@@ -163,10 +169,14 @@ fn sync_repo(
         },
     )?;
 
-    Ok(())
+    Ok(warnings)
 }
 
-pub fn sync_corpus(lockfile: &Lockfile, corpus_root: &Utf8Path, prune: bool) -> anyhow::Result<()> {
+pub fn sync_corpus(
+    lockfile: &Lockfile,
+    corpus_root: &Utf8Path,
+    prune: bool,
+) -> anyhow::Result<()> {
     let client = reqwest::blocking::Client::builder()
         .connect_timeout(Duration::from_secs(30))
         .build()?;
@@ -177,38 +187,172 @@ pub fn sync_corpus(lockfile: &Lockfile, corpus_root: &Utf8Path, prune: bool) -> 
     std::fs::create_dir_all(packages_dir.as_std_path())?;
     std::fs::create_dir_all(repos_dir.as_std_path())?;
 
-    let mut errors = Vec::new();
+    let mut work: Vec<SyncItem> = Vec::new();
+    let mut skipped = 0usize;
 
     for package in &lockfile.packages {
-        if let Err(e) = sync_package(&client, package, &packages_dir) {
-            let label = format!("{}-{}", package.name, package.resolved);
-            tracing::warn!(label, error = %e, "failed to sync package");
-            errors.push(label);
+        let out_dir = packages_dir.join(&package.name).join(&package.resolved);
+        let label = format!("{}-{}", package.name, package.resolved);
+        if is_synced(&out_dir) {
+            skipped += 1;
+        } else {
+            work.push(SyncItem::Package {
+                package,
+                out_dir,
+                label,
+            });
         }
     }
 
     for repo in &lockfile.repos {
-        if let Err(e) = sync_repo(&client, repo, &repos_dir) {
-            let short_ref = repo.git_ref.get(..12).unwrap_or(&repo.git_ref);
-            let label = format!("{} @ {short_ref}", repo.name);
-            tracing::warn!(label, error = %e, "failed to sync repo");
-            errors.push(label);
+        let out_dir = repos_dir.join(&repo.name).join(&repo.git_ref);
+        let short_ref = repo.git_ref.get(..12).unwrap_or(&repo.git_ref);
+        let label = format!("{} @ {} ({short_ref})", repo.name, repo.tag);
+        if is_synced(&out_dir) {
+            skipped += 1;
+        } else {
+            work.push(SyncItem::Repo {
+                repo,
+                out_dir,
+                label,
+            });
         }
+    }
+
+    if skipped > 0 {
+        tracing::info!(skipped, "already synced");
+    }
+
+    let output = if work.is_empty() {
+        SyncOutput {
+            errors: Vec::new(),
+            warnings: Vec::new(),
+        }
+    } else {
+        tracing::info!(count = work.len(), "downloading");
+        sync_parallel(&client, &work)
+    };
+
+    for w in &output.warnings {
+        tracing::warn!("{w}");
     }
 
     if prune {
         prune_corpus(lockfile, corpus_root)?;
     }
 
-    if !errors.is_empty() {
+    if !output.errors.is_empty() {
+        for e in &output.errors {
+            tracing::error!("{e}");
+        }
         anyhow::bail!(
-            "Failed to sync {} entries: {}",
-            errors.len(),
-            errors.join(", ")
+            "failed to sync {} entries",
+            output.errors.len(),
         );
     }
 
     Ok(())
+}
+
+enum SyncItem<'a> {
+    Package {
+        package: &'a LockedPackage,
+        out_dir: Utf8PathBuf,
+        label: String,
+    },
+    Repo {
+        repo: &'a LockedRepo,
+        out_dir: Utf8PathBuf,
+        label: String,
+    },
+}
+
+struct SyncOutput {
+    errors: Vec<String>,
+    warnings: Vec<String>,
+}
+
+fn sync_parallel(client: &reqwest::blocking::Client, work: &[SyncItem]) -> SyncOutput {
+    let (permit_tx, permit_rx) = std::sync::mpsc::sync_channel(MAX_CONCURRENT_DOWNLOADS);
+    for _ in 0..MAX_CONCURRENT_DOWNLOADS {
+        permit_tx.send(()).unwrap();
+    }
+
+    let mp = MultiProgress::new();
+
+    let overall = mp.add(ProgressBar::new(work.len() as u64));
+    overall.set_style(
+        ProgressStyle::default_bar()
+            .template("{prefix} [{bar:30}] {pos}/{len} {msg}")
+            .unwrap()
+            .progress_chars("=> "),
+    );
+    overall.set_prefix("syncing");
+
+    let spinner_style = ProgressStyle::default_spinner()
+        .template("  {msg} {bytes} {bytes_per_sec}")
+        .unwrap();
+
+    let errors: Mutex<Vec<String>> = Mutex::new(Vec::new());
+    let warnings: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+    std::thread::scope(|s| {
+        for item in work {
+            permit_rx.recv().unwrap();
+            let permit_tx = permit_tx.clone();
+            let errors = &errors;
+            let warnings = &warnings;
+            let mp = &mp;
+            let overall = &overall;
+            let spinner_style = &spinner_style;
+
+            s.spawn(move || {
+                let pb = mp.add(ProgressBar::new(0));
+                pb.set_style(spinner_style.clone());
+
+                let result = match item {
+                    SyncItem::Package {
+                        package,
+                        out_dir,
+                        label,
+                    } => sync_package(client, package, out_dir, label, &pb),
+                    SyncItem::Repo {
+                        repo,
+                        out_dir,
+                        label,
+                    } => sync_repo(client, repo, out_dir, label, &pb),
+                };
+
+                let label = match item {
+                    SyncItem::Package { label, .. } | SyncItem::Repo { label, .. } => label,
+                };
+
+                match result {
+                    Ok(item_warnings) => {
+                        pb.finish_and_clear();
+                        if !item_warnings.is_empty() {
+                            warnings.lock().unwrap().extend(item_warnings);
+                        }
+                    }
+                    Err(e) => {
+                        pb.abandon_with_message(format!("{label}: failed"));
+                        errors.lock().unwrap().push(format!("{label}: {e}"));
+                    }
+                }
+
+                mp.remove(&pb);
+                overall.inc(1);
+                let _ = permit_tx.send(());
+            });
+        }
+    });
+
+    overall.finish_with_message("done");
+
+    SyncOutput {
+        errors: errors.into_inner().unwrap(),
+        warnings: warnings.into_inner().unwrap(),
+    }
 }
 
 /// Remove synced data for specific packages or repos by name.
@@ -234,7 +378,6 @@ fn prune_corpus(lockfile: &Lockfile, corpus_root: &Utf8Path) -> anyhow::Result<(
     let packages_dir = corpus_root.join("packages");
     let repos_dir = corpus_root.join("repos");
 
-    // Build sets of expected (name, version/ref) pairs
     let locked_packages: HashSet<(&str, &str)> = lockfile
         .packages
         .iter()
@@ -289,7 +432,6 @@ fn prune_dir(base: &Utf8Path, keep: &HashSet<(&str, &str)>) -> anyhow::Result<()
             }
         }
 
-        // Remove empty parent directory
         if name_dir
             .as_std_path()
             .read_dir()

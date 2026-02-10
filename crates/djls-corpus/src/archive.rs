@@ -40,11 +40,12 @@ fn is_download_relevant(path: &str) -> bool {
 /// to prevent directory traversal. Only regular files are extracted;
 /// directories are created implicitly via parent directory creation,
 /// and symlinks/hard links are silently skipped.
-pub fn extract_tarball<R: Read>(reader: R, out_dir: &Utf8Path) -> anyhow::Result<()> {
+pub fn extract_tarball<R: Read>(reader: R, out_dir: &Utf8Path) -> anyhow::Result<Vec<String>> {
     let gz = flate2::read::GzDecoder::new(reader);
     let mut archive = tar::Archive::new(gz);
 
     std::fs::create_dir_all(out_dir.as_std_path())?;
+    let mut warnings = Vec::new();
 
     for entry in archive.entries()? {
         let mut entry = entry?;
@@ -58,7 +59,7 @@ pub fn extract_tarball<R: Read>(reader: R, out_dir: &Utf8Path) -> anyhow::Result
 
         // Skip symlinks and hard links — don't follow them, just ignore.
         if entry_type == tar::EntryType::Symlink || entry_type == tar::EntryType::Link {
-            tracing::warn!(path = entry_path, "skipping link entry");
+            warnings.push(format!("skipping link entry: {entry_path}"));
             continue;
         }
 
@@ -98,7 +99,7 @@ pub fn extract_tarball<R: Read>(reader: R, out_dir: &Utf8Path) -> anyhow::Result
         std::fs::write(dest.as_std_path(), &content)?;
     }
 
-    Ok(())
+    Ok(warnings)
 }
 
 #[cfg(test)]
@@ -234,8 +235,10 @@ mod tests {
         });
 
         let (_dir, out) = temp_dir();
-        extract_tarball(data.as_slice(), &out).unwrap();
+        let warnings = extract_tarball(data.as_slice(), &out).unwrap();
 
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("link entry"));
         // Symlink should not exist
         assert!(!out
             .join("django/templatetags/evil.py")
@@ -282,8 +285,10 @@ mod tests {
         });
 
         let (_dir, out) = temp_dir();
-        extract_tarball(data.as_slice(), &out).unwrap();
+        let warnings = extract_tarball(data.as_slice(), &out).unwrap();
 
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("link entry"));
         // Hard link should not exist
         assert!(!out
             .join("django/templatetags/evil.py")
