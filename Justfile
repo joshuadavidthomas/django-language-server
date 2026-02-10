@@ -26,6 +26,9 @@ check *ARGS:
 clean:
     cargo clean
 
+corpus *ARGS:
+    cargo run -p djls-corpus -- {{ ARGS }}
+
 clippy *ARGS:
     cargo clippy --all-targets --all-features --benches --fix {{ ARGS }} -- -D warnings
 

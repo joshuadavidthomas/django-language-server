@@ -10,6 +10,10 @@ cargo test test_name             # Run single test by name
 cargo test -p crate_name         # Test specific crate
 just test                        # Run tests via nox (with Django matrix)
 just lint                        # Run pre-commit hooks
+just corpus lock                 # Resolve corpus versions and update lockfile
+just corpus sync                 # Download corpus from lockfile (prunes old versions)
+just corpus sync -U              # Re-resolve versions then sync
+just corpus clean                # Remove all synced corpus data
 # NEVER use `cargo doc --open` - it requires browser interaction
 ```
 
