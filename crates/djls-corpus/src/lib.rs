@@ -36,39 +36,38 @@ pub mod archive;
 pub mod manifest;
 pub mod sync;
 
+const CORPUS_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/.corpus");
+
 /// A validated corpus root directory.
 ///
 /// Constructed via [`Corpus::discover`], which validates that the
 /// directory exists. Once constructed, the root path is trusted for
 /// the lifetime of the value.
-pub struct Corpus {
-    root: Utf8PathBuf,
-}
+pub struct Corpus;
 
 impl Corpus {
-    /// Discover the corpus at its fixed location in the workspace.
+    /// Discover the corpus at its fixed location alongside this crate.
     ///
     /// Returns `None` if the corpus has not been synced.
     #[must_use]
     pub fn discover() -> Option<Self> {
-        let root = Utf8Path::new(env!("CARGO_WORKSPACE_DIR")).join("crates/djls-corpus/.corpus");
-        if root.as_std_path().exists() {
-            Some(Self { root })
+        if Utf8Path::new(CORPUS_DIR).as_std_path().exists() {
+            Some(Self)
         } else {
             None
         }
     }
 
-    /// The validated corpus root directory.
+    /// The corpus root directory.
     #[must_use]
     pub fn root(&self) -> &Utf8Path {
-        &self.root
+        Utf8Path::new(CORPUS_DIR)
     }
 
     /// Latest synced Django version directory.
     #[must_use]
     pub fn latest_django(&self) -> Option<Utf8PathBuf> {
-        let django_dir = self.root.join("packages/Django");
+        let django_dir = self.root().join("packages/Django");
         if !django_dir.as_std_path().exists() {
             return None;
         }
@@ -118,13 +117,13 @@ impl Corpus {
     /// Only returns directories containing a `.complete` marker.
     #[must_use]
     pub fn synced_dirs(&self, relative: &str) -> Vec<Utf8PathBuf> {
-        synced_children(&self.root.join(relative))
+        synced_children(&self.root().join(relative))
     }
 
     /// All extraction target files in the entire corpus.
     #[must_use]
     pub fn extraction_targets(&self) -> Vec<Utf8PathBuf> {
-        self.extraction_targets_in(&self.root)
+        self.extraction_targets_in(self.root())
     }
 
     /// Extraction target files under a specific directory.
