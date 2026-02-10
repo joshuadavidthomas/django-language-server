@@ -22,10 +22,6 @@ mod signature;
 pub use blocks::extract_block_spec;
 #[cfg(feature = "parser")]
 pub use dataflow::analyze_compile_function;
-#[cfg(feature = "parser")]
-pub use environment::scan_environment;
-#[cfg(feature = "parser")]
-pub use environment::scan_environment_with_symbols;
 pub use environment::EnvironmentInventory;
 pub use environment::EnvironmentLibrary;
 pub use environment::EnvironmentSymbol;

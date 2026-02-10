@@ -12,7 +12,7 @@
 | M15 | **done** | Return values, not mutation (+ domain types T1-T4) |
 | M16 | **done** | Split god-context (+ CompileFunction, OptionLoop) |
 | M17 | **done** | Decompose blocks.rs into strategy modules |
-| M18 | **ready** | Move environment scanning to djls-project |
+| M18 | **done** | Move environment scanning to djls-project |
 | M19 | stub | HelperCache → Salsa tracked functions |
 | M20 | stub | Rename djls-extraction → djls-python |
 
@@ -163,9 +163,9 @@ Move `environment/scan.rs` from `djls-extraction` to `djls-project`. Types (`Env
 
 ### Phase 3: Remove from djls-extraction
 
-- [ ] **M18.6** Delete `crates/djls-extraction/src/environment/scan.rs`. Update `environment.rs` to remove `mod scan` and scan re-exports. Update `lib.rs` to remove `pub use environment::scan_environment*`.
-- [ ] **M18.7** Ensure `collect_registrations_from_body` and `SymbolKind` are public in `djls-extraction` (needed by `djls-project/scanning.rs`).
-- [ ] **M18.8** Validate: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q` — all green (745+ passed, 0 failed).
+- [x] **M18.6** Delete `crates/djls-extraction/src/environment/scan.rs`. Update `environment.rs` to remove `mod scan` and scan re-exports. Update `lib.rs` to remove `pub use environment::scan_environment*`.
+- [x] **M18.7** Ensure `collect_registrations_from_body` and `SymbolKind` are public in `djls-extraction` (needed by `djls-project/scanning.rs`). Already public — no changes needed.
+- [x] **M18.8** Validate: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q` — all green (745 passed, 0 failed, 7 ignored). djls-extraction tests: 236 (16 scan tests now in djls-project).
 
 ## M19 — HelperCache → Salsa tracked functions
 
