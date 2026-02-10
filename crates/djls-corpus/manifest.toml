@@ -4,28 +4,28 @@ root_dir = ".corpus"
 # Django versions (multiple supported branches)
 [[package]]
 name = "Django"
-version = "6.0.2"
+version = "6.0"
 
 [[package]]
 name = "Django"
-version = "5.2.11"
+version = "5.2"
 
 [[package]]
 name = "Django"
-version = "5.1.15"
+version = "5.1"
 
 [[package]]
 name = "Django"
-version = "4.2.28"
+version = "4.2"
 
 # Third-party packages with templatetags
 [[package]]
 name = "django-debug-toolbar"
-version = "4.4.6"
+version = "4.4"
 
 [[package]]
 name = "django-allauth"
-version = "0.63.3"
+version = "0.63"
 
 [[package]]
 name = "django-crispy-forms"
@@ -37,7 +37,7 @@ version = "7.3"
 
 [[package]]
 name = "django-compressor"
-version = "4.5.1"
+version = "4.5"
 
 # Project repos (pinned by commit)
 [[repo]]
