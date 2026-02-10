@@ -6,7 +6,7 @@
 //!
 //! # Running
 //!
-//! These tests skip gracefully when the corpus is not synced.
+//! These tests require the corpus to be synced.
 //!
 //! ```bash
 //! # Sync the corpus:
@@ -100,10 +100,7 @@ fn snapshot_dir() -> insta::internals::SettingsBindDropGuard {
 
 #[test]
 fn extraction_snapshots() {
-    let Some(corpus) = Corpus::discover() else {
-        eprintln!("Corpus not available. Run `cargo run -p djls-corpus -- sync`.");
-        return;
-    };
+    let corpus = Corpus::require();
     if corpus.extraction_targets().is_empty() {
         eprintln!("No extraction targets in corpus.");
         return;
@@ -125,9 +122,7 @@ fn extraction_snapshots() {
 #[test]
 fn test_django_versions_extraction() {
     let _guard = snapshot_dir();
-    let Some(corpus) = Corpus::discover() else {
-        return;
-    };
+    let corpus = Corpus::require();
 
     let django_packages = corpus.root().join("packages/Django");
     if !django_packages.as_std_path().exists() {

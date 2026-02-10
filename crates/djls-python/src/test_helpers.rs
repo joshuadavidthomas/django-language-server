@@ -1,8 +1,8 @@
 /// Test utilities for corpus-grounded extraction tests.
 ///
 /// These helpers load Python source from the corpus and extract specific
-/// functions for targeted unit testing. All corpus-dependent helpers return
-/// `Option` and skip gracefully when the corpus is not synced.
+/// functions for targeted unit testing. The corpus is required — helpers
+/// panic with a helpful message if it has not been synced.
 use djls_corpus::Corpus;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtFunctionDef;
@@ -36,7 +36,11 @@ pub fn find_function_in_source(source: &str, func_name: &str) -> Option<StmtFunc
 
 /// Load the full source of a corpus file by path relative to the corpus root.
 ///
-/// Returns `None` if the corpus is not synced or the file doesn't exist.
+/// Returns `None` if the file doesn't exist.
+///
+/// # Panics
+///
+/// Panics if the corpus has not been synced.
 ///
 /// # Examples
 ///
@@ -45,7 +49,7 @@ pub fn find_function_in_source(source: &str, func_name: &str) -> Option<StmtFunc
 /// ```
 #[must_use]
 pub fn corpus_source(relative_path: &str) -> Option<String> {
-    let corpus = Corpus::discover()?;
+    let corpus = Corpus::require();
     let path = corpus.root().join(relative_path);
     std::fs::read_to_string(path.as_std_path()).ok()
 }
@@ -53,10 +57,12 @@ pub fn corpus_source(relative_path: &str) -> Option<String> {
 /// Load a specific function from a corpus file.
 ///
 /// Combines [`corpus_source`] and [`find_function_in_source`] — loads the
-/// file from the corpus and finds the named function. Returns `None` if:
-/// - The corpus is not synced
-/// - The file doesn't exist
-/// - The function is not found in the file
+/// file from the corpus and finds the named function. Returns `None` if
+/// the file doesn't exist or the function is not found.
+///
+/// # Panics
+///
+/// Panics if the corpus has not been synced.
 ///
 /// # Examples
 ///
@@ -76,8 +82,12 @@ pub fn corpus_function(relative_path: &str, func_name: &str) -> Option<StmtFunct
 ///
 /// Given a path relative to the Django package root (e.g.,
 /// `"django/template/defaulttags.py"`), returns the full corpus-relative
-/// path using the latest synced Django version. Returns `None` if the
-/// corpus is not synced or no Django version is available.
+/// path using the latest synced Django version. Returns `None` if no
+/// Django version is available or the file doesn't exist.
+///
+/// # Panics
+///
+/// Panics if the corpus has not been synced.
 ///
 /// # Examples
 ///
@@ -87,7 +97,7 @@ pub fn corpus_function(relative_path: &str, func_name: &str) -> Option<StmtFunct
 /// ```
 #[must_use]
 pub fn latest_django_path(relative_to_django: &str) -> Option<String> {
-    let corpus = Corpus::discover()?;
+    let corpus = Corpus::require();
     let django_dir = corpus.latest_django()?;
     let full_path = django_dir.join(relative_to_django);
     if full_path.as_std_path().exists() {
@@ -102,6 +112,10 @@ pub fn latest_django_path(relative_to_django: &str) -> Option<String> {
 /// Convenience wrapper that combines [`latest_django_path`] and
 /// [`corpus_function`].
 ///
+/// # Panics
+///
+/// Panics if the corpus has not been synced.
+///
 /// # Examples
 ///
 /// ```ignore
@@ -114,6 +128,10 @@ pub fn django_function(relative_to_django: &str, func_name: &str) -> Option<Stmt
 }
 
 /// Load the full source from the latest Django version in the corpus.
+///
+/// # Panics
+///
+/// Panics if the corpus has not been synced.
 ///
 /// # Examples
 ///

@@ -359,11 +359,8 @@ def do_tag(parser, token):
     #[test]
     fn allauth_parse_tag_pattern() {
         let source =
-            corpus_source("packages/django-allauth/0.63.3/allauth/templatetags/allauth.py");
-        let Some(source) = source else {
-            eprintln!("skipping allauth_parse_tag_pattern: corpus not synced");
-            return;
-        };
+            corpus_source("packages/django-allauth/0.63.3/allauth/templatetags/allauth.py")
+                .unwrap();
         let env = analyze_function_with_helpers(&source, "do_element");
         assert_eq!(
             env.get("tag_name"),

@@ -639,7 +639,7 @@ def do_tag(parser, token):
     #[test]
     fn option_loop_with_duplicate_check() {
         let func = django_function("django/templatetags/i18n.py", "do_translate")
-            .expect("corpus not synced");
+            .unwrap();
         let rule = analyze_func(&func);
         let opts = rule.known_options.expect("should have known_options");
         assert_eq!(
@@ -683,7 +683,7 @@ def do_tag(parser, token):
     #[test]
     fn option_loop_include_pattern() {
         let func = django_function("django/template/loader_tags.py", "do_include")
-            .expect("corpus not synced");
+            .unwrap();
         let rule = analyze_func(&func);
         let opts = rule.known_options.expect("should have known_options");
         assert_eq!(opts.values, vec!["with".to_string(), "only".to_string()]);
@@ -710,7 +710,7 @@ def do_tag(parser, token):
     #[test]
     fn match_partialdef_pattern() {
         let func = django_function("django/template/defaulttags.py", "partialdef_func")
-            .expect("corpus not synced");
+            .unwrap();
         let rule = analyze_func(&func);
         assert!(
             rule.arg_constraints
@@ -726,7 +726,7 @@ def do_tag(parser, token):
     #[test]
     fn match_partial_exact() {
         let func = django_function("django/template/defaulttags.py", "partial_func")
-            .expect("corpus not synced");
+            .unwrap();
         let rule = analyze_func(&func);
         assert!(
             rule.arg_constraints

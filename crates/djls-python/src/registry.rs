@@ -418,7 +418,7 @@ mod tests {
     // Corpus: `autoescape` in django/template/defaulttags.py uses `@register.tag` (bare)
     #[test]
     fn decorator_bare_tag() {
-        let source = django_source("django/template/defaulttags.py").expect("corpus not synced");
+        let source = django_source("django/template/defaulttags.py").unwrap();
         let regs = collect_registrations(&source);
         let reg = find_reg(&regs, "autoescape");
         assert_eq!(reg.kind, RegistrationKind::Tag);
@@ -429,7 +429,7 @@ mod tests {
     // `@register.simple_tag(name="querystring", takes_context=True)`
     #[test]
     fn decorator_simple_tag_with_name_kwarg() {
-        let source = django_source("django/template/defaulttags.py").expect("corpus not synced");
+        let source = django_source("django/template/defaulttags.py").unwrap();
         let regs = collect_registrations(&source);
         let reg = find_reg(&regs, "querystring");
         assert_eq!(reg.kind, RegistrationKind::SimpleTag);
@@ -441,7 +441,7 @@ mod tests {
     #[test]
     fn decorator_inclusion_tag() {
         let source = django_source("tests/template_tests/templatetags/inclusion.py")
-            .expect("corpus not synced");
+            .unwrap();
         let regs = collect_registrations(&source);
         let reg = find_reg(&regs, "inclusion_no_params");
         assert_eq!(reg.kind, RegistrationKind::InclusionTag);
@@ -450,7 +450,7 @@ mod tests {
     // Corpus: `cut` in django/template/defaultfilters.py uses `@register.filter` (bare)
     #[test]
     fn decorator_filter_bare() {
-        let source = django_source("django/template/defaultfilters.py").expect("corpus not synced");
+        let source = django_source("django/template/defaultfilters.py").unwrap();
         let regs = collect_registrations(&source);
         let reg = find_reg(&regs, "cut");
         assert_eq!(reg.kind, RegistrationKind::Filter);
@@ -460,7 +460,7 @@ mod tests {
     // `@register.filter("escapejs")` — positional string name, func is `escapejs_filter`
     #[test]
     fn decorator_filter_with_positional_string_name() {
-        let source = django_source("django/template/defaultfilters.py").expect("corpus not synced");
+        let source = django_source("django/template/defaultfilters.py").unwrap();
         let regs = collect_registrations(&source);
         let reg = find_reg(&regs, "escapejs");
         assert_eq!(reg.kind, RegistrationKind::Filter);
@@ -472,7 +472,7 @@ mod tests {
     #[test]
     fn call_style_tag_registration() {
         let source = django_source("tests/template_tests/templatetags/testtags.py")
-            .expect("corpus not synced");
+            .unwrap();
         let regs = collect_registrations(&source);
         let reg = find_reg(&regs, "other_echo");
         assert_eq!(reg.kind, RegistrationKind::Tag);
@@ -486,7 +486,7 @@ mod tests {
         let source = crate::test_helpers::corpus_source(
             "packages/wagtail/7.3/wagtail/admin/templatetags/wagtailadmin_tags.py",
         )
-        .expect("corpus not synced");
+        .unwrap();
         let regs = collect_registrations(&source);
         let reg = find_reg(&regs, "intcomma");
         assert_eq!(reg.kind, RegistrationKind::Filter);
@@ -497,7 +497,7 @@ mod tests {
     // — positional string name overrides function name `do_for`
     #[test]
     fn tag_with_positional_string_name() {
-        let source = django_source("django/template/defaulttags.py").expect("corpus not synced");
+        let source = django_source("django/template/defaulttags.py").unwrap();
         let regs = collect_registrations(&source);
         let reg = find_reg(&regs, "for");
         assert_eq!(reg.kind, RegistrationKind::Tag);
@@ -508,7 +508,7 @@ mod tests {
     // `@register.filter(is_safe=True)` — name defaults to function name
     #[test]
     fn filter_with_is_safe_kwarg() {
-        let source = django_source("django/template/defaultfilters.py").expect("corpus not synced");
+        let source = django_source("django/template/defaultfilters.py").unwrap();
         let regs = collect_registrations(&source);
         let reg = find_reg(&regs, "addslashes");
         assert_eq!(reg.kind, RegistrationKind::Filter);
@@ -519,7 +519,7 @@ mod tests {
     // `@register.tag(name="partialdef")` — name kwarg overrides func name `partialdef_func`
     #[test]
     fn tag_with_name_kwarg() {
-        let source = django_source("django/template/defaulttags.py").expect("corpus not synced");
+        let source = django_source("django/template/defaulttags.py").unwrap();
         let regs = collect_registrations(&source);
         let reg = find_reg(&regs, "partialdef");
         assert_eq!(reg.kind, RegistrationKind::Tag);
@@ -533,7 +533,7 @@ mod tests {
         let source = crate::test_helpers::corpus_source(
             "packages/wagtail/7.3/wagtail/admin/templatetags/wagtailadmin_tags.py",
         )
-        .expect("corpus not synced");
+        .unwrap();
         let regs = collect_registrations(&source);
         let reg = find_reg(&regs, "dialog");
         assert_eq!(reg.kind, RegistrationKind::Tag);
@@ -545,7 +545,7 @@ mod tests {
     #[test]
     fn simple_block_tag_decorator() {
         let source = django_source("tests/template_tests/templatetags/custom.py")
-            .expect("corpus not synced");
+            .unwrap();
         let regs = collect_registrations(&source);
         let reg = find_reg(&regs, "div");
         assert_eq!(reg.kind, RegistrationKind::SimpleBlockTag);
@@ -554,7 +554,7 @@ mod tests {
     // Corpus: defaulttags.py has many registrations (tags + simple_tags)
     #[test]
     fn multiple_registrations() {
-        let source = django_source("django/template/defaulttags.py").expect("corpus not synced");
+        let source = django_source("django/template/defaulttags.py").unwrap();
         let regs = collect_registrations(&source);
         assert!(
             regs.len() > 10,
@@ -580,7 +580,7 @@ mod tests {
     #[test]
     fn mixed_decorator_and_call_style() {
         let source = django_source("tests/template_tests/templatetags/testtags.py")
-            .expect("corpus not synced");
+            .unwrap();
         let regs = collect_registrations(&source);
         let tag_regs: Vec<_> = regs
             .iter()

@@ -16,7 +16,7 @@
 //! ```no_run
 //! use djls_corpus::Corpus;
 //!
-//! let corpus = Corpus::discover().expect("corpus not synced");
+//! let corpus = Corpus::require();
 //! let django = corpus.latest_django().expect("no Django in corpus");
 //! ```
 //!
@@ -56,6 +56,20 @@ impl Corpus {
         } else {
             None
         }
+    }
+
+    /// Discover the corpus, panicking with a helpful message if not synced.
+    ///
+    /// Use in tests that require the corpus to be present.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the corpus has not been synced.
+    #[must_use]
+    pub fn require() -> Self {
+        Self::discover().expect(
+            "Corpus not synced. Run: cargo run --bin djls-corpus -- sync",
+        )
     }
 
     /// The corpus root directory.

@@ -75,7 +75,7 @@ mod tests {
     #[test]
     fn no_arg_filter() {
         let func = django_function("django/template/defaultfilters.py", "title")
-            .expect("corpus not synced");
+            .unwrap();
         let arity = extract_filter_arity(&func);
         assert!(!arity.expects_arg);
         assert!(!arity.arg_optional);
@@ -85,7 +85,7 @@ mod tests {
     #[test]
     fn no_arg_filter_upper() {
         let func = django_function("django/template/defaultfilters.py", "upper")
-            .expect("corpus not synced");
+            .unwrap();
         let arity = extract_filter_arity(&func);
         assert!(!arity.expects_arg);
         assert!(!arity.arg_optional);
@@ -97,7 +97,7 @@ mod tests {
     #[test]
     fn required_arg_filter() {
         let func =
-            django_function("django/template/defaultfilters.py", "cut").expect("corpus not synced");
+            django_function("django/template/defaultfilters.py", "cut").unwrap();
         let arity = extract_filter_arity(&func);
         assert!(arity.expects_arg);
         assert!(!arity.arg_optional);
@@ -107,7 +107,7 @@ mod tests {
     #[test]
     fn required_arg_filter_add() {
         let func =
-            django_function("django/template/defaultfilters.py", "add").expect("corpus not synced");
+            django_function("django/template/defaultfilters.py", "add").unwrap();
         let arity = extract_filter_arity(&func);
         assert!(arity.expects_arg);
         assert!(!arity.arg_optional);
@@ -119,7 +119,7 @@ mod tests {
     #[test]
     fn optional_arg_filter() {
         let func = django_function("django/template/defaultfilters.py", "floatformat")
-            .expect("corpus not synced");
+            .unwrap();
         let arity = extract_filter_arity(&func);
         assert!(arity.expects_arg);
         assert!(arity.arg_optional);
@@ -129,7 +129,7 @@ mod tests {
     #[test]
     fn optional_arg_filter_none_default() {
         let func = django_function("django/template/defaultfilters.py", "date")
-            .expect("corpus not synced");
+            .unwrap();
         let arity = extract_filter_arity(&func);
         assert!(arity.expects_arg);
         assert!(arity.arg_optional);
@@ -239,7 +239,7 @@ mod tests {
     #[test]
     fn is_safe_does_not_affect_arity() {
         let func = django_function("django/template/defaultfilters.py", "floatformat")
-            .expect("corpus not synced");
+            .unwrap();
         let arity = extract_filter_arity(&func);
         // floatformat has is_safe=True on decorator; arity should reflect signature only
         assert!(arity.expects_arg);
@@ -251,7 +251,7 @@ mod tests {
     #[test]
     fn stringfilter_does_not_affect_arity() {
         let func = django_function("django/template/defaultfilters.py", "title")
-            .expect("corpus not synced");
+            .unwrap();
         let arity = extract_filter_arity(&func);
         // title has @stringfilter decorator; arity should reflect signature only (value-only)
         assert!(!arity.expects_arg);

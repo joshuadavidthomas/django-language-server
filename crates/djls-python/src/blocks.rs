@@ -144,7 +144,7 @@ mod tests {
     #[test]
     fn simple_end_tag_single_parse() {
         let func = django_function("django/template/defaulttags.py", "verbatim")
-            .expect("corpus not synced");
+            .unwrap();
         let spec = extract_block_spec(&func).expect("should extract block spec");
         assert_eq!(spec.end_tag.as_deref(), Some("endverbatim"));
         assert!(spec.intermediates.is_empty());
@@ -155,7 +155,7 @@ mod tests {
     #[test]
     fn if_else_intermediates() {
         let func =
-            django_function("django/template/defaulttags.py", "do_if").expect("corpus not synced");
+            django_function("django/template/defaulttags.py", "do_if").unwrap();
         let spec = extract_block_spec(&func).expect("should extract block spec");
         assert_eq!(spec.end_tag.as_deref(), Some("endif"));
         assert!(spec.intermediates.contains(&"elif".to_string()));
@@ -167,7 +167,7 @@ mod tests {
     #[test]
     fn opaque_block_skip_past() {
         let func = django_function("django/template/defaulttags.py", "comment")
-            .expect("corpus not synced");
+            .unwrap();
         let spec = extract_block_spec(&func).expect("should extract block spec");
         assert_eq!(spec.end_tag.as_deref(), Some("endcomment"));
         assert!(spec.intermediates.is_empty());
@@ -230,7 +230,7 @@ def do_block(parser, token):
     #[test]
     fn multiple_parse_calls_classify_correctly() {
         let func =
-            django_function("django/template/defaulttags.py", "do_for").expect("corpus not synced");
+            django_function("django/template/defaulttags.py", "do_for").unwrap();
         let spec = extract_block_spec(&func).expect("should extract block spec");
         assert_eq!(spec.end_tag.as_deref(), Some("endfor"));
         assert_eq!(spec.intermediates, vec!["empty".to_string()]);
@@ -241,7 +241,7 @@ def do_block(parser, token):
     #[test]
     fn no_parse_calls_returns_none() {
         let func =
-            django_function("django/template/defaulttags.py", "now").expect("corpus not synced");
+            django_function("django/template/defaulttags.py", "now").unwrap();
         assert!(extract_block_spec(&func).is_none());
     }
 
@@ -283,7 +283,7 @@ def do_if(parser, token):
     #[test]
     fn simple_block_with_endblock_validation() {
         let func = django_function("django/template/loader_tags.py", "do_block")
-            .expect("corpus not synced");
+            .unwrap();
         let spec = extract_block_spec(&func).expect("should extract block spec");
         assert_eq!(spec.end_tag.as_deref(), Some("endblock"));
         assert!(spec.intermediates.is_empty());
@@ -295,7 +295,7 @@ def do_if(parser, token):
     #[test]
     fn sequential_parse_then_check() {
         let func = django_function("django/template/defaulttags.py", "spaceless")
-            .expect("corpus not synced");
+            .unwrap();
         let spec = extract_block_spec(&func).expect("should extract block spec");
         assert_eq!(spec.end_tag.as_deref(), Some("endspaceless"));
         assert!(spec.intermediates.is_empty());
@@ -306,7 +306,7 @@ def do_if(parser, token):
     #[test]
     fn next_token_loop_blocktrans_pattern() {
         let func = django_function("django/templatetags/i18n.py", "do_block_translate")
-            .expect("corpus not synced");
+            .unwrap();
         let spec = extract_block_spec(&func).expect("should extract block spec");
         assert!(spec.end_tag.is_none());
         assert_eq!(spec.intermediates, vec!["plural".to_string()]);

@@ -1059,10 +1059,7 @@ mod tests {
 
     #[test]
     fn corpus_django_shipped_templates_zero_false_positives() {
-        let Some(corpus) = Corpus::discover() else {
-            eprintln!("Corpus not available. Run `cargo run -p djls-corpus -- sync`.");
-            return;
-        };
+        let corpus = Corpus::require();
 
         let django_packages = corpus.root().join("packages/Django");
         if !django_packages.as_std_path().exists() {
@@ -1103,10 +1100,7 @@ mod tests {
 
     #[test]
     fn corpus_third_party_templates_zero_arg_false_positives() {
-        let Some(corpus) = Corpus::discover() else {
-            eprintln!("Corpus not available. Run `cargo run -p djls-corpus -- sync`.");
-            return;
-        };
+        let corpus = Corpus::require();
 
         let packages_dir = corpus.root().join("packages");
         if !packages_dir.as_std_path().exists() {
@@ -1162,10 +1156,7 @@ mod tests {
 
     #[test]
     fn corpus_repo_templates_zero_arg_false_positives() {
-        let Some(corpus) = Corpus::discover() else {
-            eprintln!("Corpus not available. Run `cargo run -p djls-corpus -- sync`.");
-            return;
-        };
+        let corpus = Corpus::require();
 
         let repos_dir = corpus.root().join("repos");
         if !repos_dir.as_std_path().exists() {
@@ -1215,10 +1206,7 @@ mod tests {
 
     #[test]
     fn corpus_known_invalid_templates_produce_errors() {
-        let Some(corpus) = Corpus::discover() else {
-            eprintln!("Corpus not available. Run `cargo run -p djls-corpus -- sync`.");
-            return;
-        };
+        let corpus = Corpus::require();
 
         let Some(django_dir) = corpus.latest_django() else {
             eprintln!("No Django in corpus.");

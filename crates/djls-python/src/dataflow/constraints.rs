@@ -768,7 +768,7 @@ def do_tag(parser, token):
     #[test]
     fn regroup_pattern_end_to_end() {
         let func = django_function("django/template/defaulttags.py", "regroup")
-            .expect("corpus not synced");
+            .unwrap();
         let c = extract_from_func(&func);
         assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Exact(6)]);
         assert_eq!(
@@ -940,7 +940,7 @@ def do_tag(parser, token):
     #[test]
     fn choice_at_autoescape_pattern() {
         let func = django_function("django/template/defaulttags.py", "autoescape")
-            .expect("corpus not synced");
+            .unwrap();
         let c = extract_from_func(&func);
         assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Exact(2)]);
         assert_eq!(
@@ -1017,7 +1017,7 @@ def do_tag(parser, token):
     #[test]
     fn corpus_get_current_timezone() {
         let func = django_function("django/templatetags/tz.py", "get_current_timezone_tag")
-            .expect("corpus not synced");
+            .unwrap();
         let c = extract_from_func(&func);
         assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Exact(3)]);
         assert_eq!(
@@ -1034,7 +1034,7 @@ def do_tag(parser, token):
     #[test]
     fn corpus_timezone_tag() {
         let func = django_function("django/templatetags/tz.py", "timezone_tag")
-            .expect("corpus not synced");
+            .unwrap();
         let c = extract_from_func(&func);
         assert_eq!(c.arg_constraints, vec![ArgumentCountConstraint::Exact(2)]);
         assert!(c.required_keywords.is_empty());
@@ -1047,7 +1047,7 @@ def do_tag(parser, token):
     #[test]
     fn corpus_do_for() {
         let func =
-            django_function("django/template/defaulttags.py", "do_for").expect("corpus not synced");
+            django_function("django/template/defaulttags.py", "do_for").unwrap();
         let c = extract_from_func(&func);
         assert!(c.arg_constraints.contains(&ArgumentCountConstraint::Min(4)));
     }
@@ -1056,7 +1056,7 @@ def do_tag(parser, token):
     #[test]
     fn corpus_cycle() {
         let func =
-            django_function("django/template/defaulttags.py", "cycle").expect("corpus not synced");
+            django_function("django/template/defaulttags.py", "cycle").unwrap();
         let c = extract_from_func(&func);
         assert!(c.arg_constraints.contains(&ArgumentCountConstraint::Min(2)));
     }
@@ -1065,7 +1065,7 @@ def do_tag(parser, token):
     #[test]
     fn corpus_url() {
         let func =
-            django_function("django/template/defaulttags.py", "url").expect("corpus not synced");
+            django_function("django/template/defaulttags.py", "url").unwrap();
         let c = extract_from_func(&func);
         assert!(c.arg_constraints.contains(&ArgumentCountConstraint::Min(2)));
     }
@@ -1076,7 +1076,7 @@ def do_tag(parser, token):
     #[test]
     fn corpus_localtime_tag() {
         let func = django_function("django/templatetags/tz.py", "localtime_tag")
-            .expect("corpus not synced");
+            .unwrap();
         let c = extract_from_func(&func);
         assert!(c.arg_constraints.contains(&ArgumentCountConstraint::Max(2)));
         assert_eq!(

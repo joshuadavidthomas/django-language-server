@@ -125,7 +125,7 @@ mod tests {
     #[test]
     fn simple_tag_no_params() {
         let func = django_function("tests/template_tests/templatetags/custom.py", "no_params")
-            .expect("corpus not synced");
+            .unwrap();
         let rule = extract_parse_bits_rule(&func, true);
         assert!(rule
             .arg_constraints
@@ -141,7 +141,7 @@ mod tests {
             "tests/template_tests/templatetags/custom.py",
             "simple_two_params",
         )
-        .expect("corpus not synced");
+        .unwrap();
         let rule = extract_parse_bits_rule(&func, true);
         assert!(rule
             .arg_constraints
@@ -156,7 +156,7 @@ mod tests {
             "tests/template_tests/templatetags/custom.py",
             "simple_one_default",
         )
-        .expect("corpus not synced");
+        .unwrap();
         let rule = extract_parse_bits_rule(&func, true);
         assert!(rule
             .arg_constraints
@@ -189,7 +189,7 @@ def concat(*args):
             "django/contrib/admin/templatetags/admin_urls.py",
             "add_preserved_filters",
         )
-        .expect("corpus not synced");
+        .unwrap();
         let rule = extract_parse_bits_rule(&func, true);
         assert!(rule
             .arg_constraints
