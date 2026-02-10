@@ -46,30 +46,18 @@ const CORPUS_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/.corpus");
 pub struct Corpus;
 
 impl Corpus {
-    /// Discover the corpus at its fixed location alongside this crate.
-    ///
-    /// Returns `None` if the corpus has not been synced.
-    #[must_use]
-    pub fn discover() -> Option<Self> {
-        if Utf8Path::new(CORPUS_DIR).as_std_path().exists() {
-            Some(Self)
-        } else {
-            None
-        }
-    }
-
-    /// Discover the corpus, panicking with a helpful message if not synced.
-    ///
-    /// Use in tests that require the corpus to be present.
+    /// Get the corpus, panicking with a helpful message if not synced.
     ///
     /// # Panics
     ///
     /// Panics if the corpus has not been synced.
     #[must_use]
     pub fn require() -> Self {
-        Self::discover().expect(
+        assert!(
+            Utf8Path::new(CORPUS_DIR).as_std_path().exists(),
             "Corpus not synced. Run: cargo run --bin djls-corpus -- sync",
-        )
+        );
+        Self
     }
 
     /// The corpus root directory.
