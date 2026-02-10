@@ -48,11 +48,8 @@ fn is_download_relevant(path: &str) -> bool {
                 ));
     }
 
-    if utf8
-        .extension()
-        .is_some_and(|ext| ext.eq_ignore_ascii_case("html") || ext.eq_ignore_ascii_case("txt"))
-    {
-        return path.contains("/templates/");
+    if path.contains("/templates/") {
+        return true;
     }
 
     false

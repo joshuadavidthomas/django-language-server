@@ -169,9 +169,8 @@ impl Corpus {
 
     /// Template files under a specific directory.
     ///
-    /// Matches `**/templates/**/*.html` and `**/templates/**/*.txt`.
-    /// Excludes files inside `docs/`, `tests/`, `jinja2/`, and `static/`
-    /// directories.
+    /// Matches any file under a `templates/` directory. Excludes files
+    /// inside `docs/`, `tests/`, `jinja2/`, and `static/` directories.
     #[must_use]
     pub fn templates_in(&self, dir: &Utf8Path) -> Vec<Utf8PathBuf> {
         let mut files = Vec::new();
@@ -186,16 +185,8 @@ impl Corpus {
             };
             let path_str = path.as_str();
 
-            if path_str.contains("__pycache__") {
-                continue;
-            }
-
-            let is_template = path.extension().is_some_and(|ext| {
-                ext.eq_ignore_ascii_case("html") || ext.eq_ignore_ascii_case("txt")
-            });
-
-            if is_template
-                && path_str.contains("/templates/")
+            if path_str.contains("/templates/")
+                && !path_str.contains("__pycache__")
                 && !path_str.contains("/docs/")
                 && !path_str.contains("/tests/")
                 && !path_str.contains("/jinja2/")
