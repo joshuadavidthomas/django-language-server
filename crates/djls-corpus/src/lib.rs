@@ -114,7 +114,7 @@ impl Corpus {
 
     /// Synced subdirectories under a path relative to the corpus root.
     ///
-    /// Only returns directories containing a `.complete` marker.
+    /// Only returns directories containing a `.complete.json` marker.
     #[must_use]
     pub fn synced_dirs(&self, relative: &str) -> Vec<Utf8PathBuf> {
         synced_children(&self.root().join(relative))
@@ -201,7 +201,7 @@ impl Corpus {
     }
 }
 
-/// Collect subdirectories that have been fully synced (contain a `.complete` marker).
+/// Collect subdirectories that have been fully synced (contain a `.complete.json` marker).
 ///
 /// Returns sorted paths for deterministic iteration.
 fn synced_children(parent: &Utf8Path) -> Vec<Utf8PathBuf> {
@@ -213,7 +213,7 @@ fn synced_children(parent: &Utf8Path) -> Vec<Utf8PathBuf> {
         .filter_map(Result::ok)
         .filter(|e| e.file_type().ok().is_some_and(|ft| ft.is_dir()))
         .filter_map(|e| Utf8PathBuf::from_path_buf(e.path()).ok())
-        .filter(|p| p.join(".complete").as_std_path().exists())
+        .filter(|p| p.join(".complete.json").as_std_path().exists())
         .collect();
 
     dirs.sort();

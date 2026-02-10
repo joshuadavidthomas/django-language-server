@@ -5,58 +5,47 @@ root_dir = ".corpus"
 [[package]]
 name = "Django"
 version = "6.0.2"
-sha256 = "3046a53b0e40d4b676c3b774c73411d7184ae2745fe8ce5e45c0f33d3ddb71a7"
 
 [[package]]
 name = "Django"
 version = "5.2.11"
-sha256 = "7f2d292ad8b9ee35e405d965fbbad293758b858c34bbf7f3df551aeeac6f02d3"
 
 [[package]]
 name = "Django"
 version = "5.1.15"
-sha256 = "46a356b5ff867bece73fc6365e081f21c569973403ee7e9b9a0316f27d0eb947"
 
 [[package]]
 name = "Django"
 version = "4.2.28"
-sha256 = "a4b9cd881991add394cafa8bb3b11ad1742d1e1470ba99c3ef53dc540316ccfe"
 
 # Third-party packages with templatetags
 [[package]]
 name = "django-debug-toolbar"
 version = "4.4.6"
-sha256 = "36e421cb908c2f0675e07f9f41e3d1d8618dc386392ec82d23bcfcd5d29c7044"
 
 [[package]]
 name = "django-allauth"
 version = "0.63.3"
-sha256 = "2374164c468a309e6badf70bc3405136df6036f24a20a13387f2a063066bdaa9"
 
 [[package]]
 name = "django-crispy-forms"
 version = "2.2"
-sha256 = "92cb7b7786fb82646bad739343fd17a99a04b0b736a09e34f3b91f26cbca7e4a"
 
 [[package]]
 name = "wagtail"
 version = "7.3"
-sha256 = "81c3449652b17341fc794d65bdd208ae9e15f21743e8a6ca6bc2ce2e7b7312ce"
 
 [[package]]
 name = "django-compressor"
 version = "4.5.1"
-sha256 = "c1d8a48a2ee4d8b7f23c411eb9c97e2d88db18a18ba1c9e8178d5f5b8366a822"
 
 # Project repos (pinned by commit)
 [[repo]]
 name = "getsentry-sentry"
 url = "https://github.com/getsentry/sentry.git"
 ref = "f96e0f2de81f9d5b95614393be420f3107604220"
-sha256 = "9666a3f85783c84f653d565455c92efecd4e3a10a64295feaeb129a5a10b2a03"
 
 [[repo]]
 name = "netbox-community-netbox"
 url = "https://github.com/netbox-community/netbox.git"
 ref = "ee6cbdcefe1c522d718e880ea3f955e7683f2b9b"
-sha256 = "6208906f86034e404ef706389da5aca36a7e803a3c5879eb92d3c2be0a2370a7"

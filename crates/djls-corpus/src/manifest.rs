@@ -21,7 +21,6 @@ pub struct CorpusConfig {
 pub struct Package {
     pub name: String,
     pub version: String,
-    pub sha256: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -30,7 +29,6 @@ pub struct Repo {
     pub url: String,
     #[serde(rename = "ref")]
     pub git_ref: String,
-    pub sha256: String,
 }
 
 impl Manifest {
