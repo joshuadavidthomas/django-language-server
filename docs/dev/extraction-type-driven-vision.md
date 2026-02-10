@@ -506,7 +506,9 @@ fn analyze_helper(
     arg_abstractions: AbstractArgs,
 ) -> AbstractValue {
     // Salsa handles: memoization, cycle detection, invalidation
-    let func = CompileFunction::from_ast(helper.ast(db))?;
+    let Some(func) = CompileFunction::from_ast(helper.ast(db)) else {
+        return AbstractValue::Unknown;
+    };
     let result = walk_body(&func, db);
     extract_return_value(&result.bindings)
 }

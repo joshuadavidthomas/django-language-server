@@ -103,8 +103,11 @@ pub struct AnalysisContext<'a> {
 }
 ```
 
-**After Phase 1**, `constraints` is gone (returned). Three more fields
-are eliminated by Salsa (Phase 6). What remains:
+**After Phase 1**, `constraints` is gone (returned).
+After Phase 2, the context should contain only immutable inputs (e.g. `module_funcs`).
+The Salsa database handle (`db`) is introduced in Phase 6.
+
+Final target state (after Phase 6):
 
 ```rust
 /// Immutable context for analysis
@@ -252,9 +255,12 @@ hand-rolled cache — it's work that needs to be done.
 
 ## Parallel Track: Introduce Domain Types
 
-This runs alongside phases 1-3, not after them. As each phase makes
-functions return values, introduce the types that give those values
-meaning. See `extraction-type-driven-vision.md` for full type designs.
+This runs alongside the refactor phases. As each phase makes functions return values,
+introduce the types that give those values meaning. See `extraction-type-driven-vision.md`
+for full type designs.
+
+Note: T6 (CompileFunction) and T7 (OptionLoop) are tied to Phase 2; other types may be
+introduced opportunistically earlier.
 
 ### T1: SplitPosition (with Phase 1)
 Replace bare `i64`/`usize` positions with `SplitPosition` newtype.

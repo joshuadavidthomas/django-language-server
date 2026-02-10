@@ -1,7 +1,7 @@
 # Ruff Reading List
 
 > Files in the Ruff codebase worth reading in full, in suggested order.
-> Local clone at `/home/josh/projects/astral-sh/ruff/`.
+> Local clone at `/path/to/ruff/`.
 
 ## Start Here: The Narrowing System
 
