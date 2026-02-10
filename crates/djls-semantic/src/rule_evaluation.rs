@@ -1,7 +1,10 @@
+use std::collections::HashMap;
+
 use djls_python::ArgumentCountConstraint;
 use djls_python::ChoiceAt;
 use djls_python::KnownOptions;
 use djls_python::RequiredKeyword;
+use djls_python::SplitPosition;
 use djls_python::TagRule;
 use djls_source::Span;
 
@@ -150,8 +153,46 @@ pub fn evaluate_tag_rules(
         errors.extend(constraint.validate(tag_name, effective_bits, span));
     }
 
-    for keyword in &rules.required_keywords {
-        errors.extend(keyword.validate(tag_name, effective_bits, span));
+    // When multiple required_keywords target the same position with different
+    // values (from different if/elif branches), treat them as alternatives:
+    // at least one must match. Single keywords at a position remain strict.
+    {
+        let mut by_position: HashMap<&SplitPosition, Vec<&RequiredKeyword>> = HashMap::new();
+        for keyword in &rules.required_keywords {
+            by_position
+                .entry(&keyword.position)
+                .or_default()
+                .push(keyword);
+        }
+        for keywords in by_position.values() {
+            if keywords.len() == 1 {
+                errors.extend(keywords[0].validate(tag_name, effective_bits, span));
+            } else {
+                // Multiple keywords at the same position → OR semantics.
+                // If any one matches, no error. If all fail, report the first.
+                let all_fail = keywords
+                    .iter()
+                    .all(|kw| kw.validate(tag_name, effective_bits, span).is_some());
+                if all_fail {
+                    // Pick the first as representative error, but phrase it
+                    // as a choice to be clearer.
+                    let values: Vec<&str> = keywords.iter().map(|kw| kw.value.as_str()).collect();
+                    let bits_index =
+                        resolve_position_index(&keywords[0].position, effective_bits.len());
+                    if bits_index.is_some() {
+                        let choices = values.join("' or '");
+                        errors.push(ValidationError::ExtractedRuleViolation {
+                            tag: tag_name.to_string(),
+                            message: format!(
+                                "'{tag_name}' expected '{}' at position {}",
+                                choices, keywords[0].position
+                            ),
+                            span,
+                        });
+                    }
+                }
+            }
+        }
     }
 
     for choice in &rules.choice_at_constraints {

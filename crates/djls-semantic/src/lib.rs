@@ -1118,8 +1118,7 @@ mod tests {
                 let name = p.file_name().unwrap_or("");
                 name != "django"
                     && !(name.starts_with("django-")
-                        && name["django-".len()..]
-                            .starts_with(|c: char| c.is_ascii_digit()))
+                        && name["django-".len()..].starts_with(|c: char| c.is_ascii_digit()))
             })
             .collect();
         pkg_dirs.sort();
@@ -1144,10 +1143,7 @@ mod tests {
                 format_failures(&failures),
             );
 
-            eprintln!(
-                "  ✓ {pkg_name} — {} templates validated",
-                templates.len()
-            );
+            eprintln!("  ✓ {pkg_name} — {} templates validated", templates.len());
         }
     }
 

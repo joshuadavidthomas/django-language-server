@@ -378,10 +378,7 @@ fn prune_flat_dir(base: &Utf8Path, keep: &HashSet<impl AsRef<str>>) -> anyhow::R
 /// These are leftovers from the previous `packages/{name}/{version}/` layout.
 /// Directories that contain subdirectories with `.complete.json` markers (but
 /// don't have their own marker) are old nested parents.
-fn prune_old_nested_dirs(
-    base: &Utf8Path,
-    _keep: &HashSet<impl AsRef<str>>,
-) -> anyhow::Result<()> {
+fn prune_old_nested_dirs(base: &Utf8Path, _keep: &HashSet<impl AsRef<str>>) -> anyhow::Result<()> {
     let Ok(entries) = std::fs::read_dir(base.as_std_path()) else {
         return Ok(());
     };
