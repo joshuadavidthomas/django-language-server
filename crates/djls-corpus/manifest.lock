@@ -295,12 +295,6 @@ tag = "main"
 ref = "23f1c86e9c17332ad4dd28ff6a89d2331bdb2de6"
 
 [[repo]]
-name = "newsblur"
-url = "https://github.com/samuelclay/NewsBlur.git"
-tag = "main"
-ref = "08323cb372c310feed8cd7f215057c8903fc27aa"
-
-[[repo]]
 name = "pretix"
 url = "https://github.com/pretix/pretix.git"
 tag = "master"

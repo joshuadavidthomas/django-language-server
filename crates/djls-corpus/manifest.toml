@@ -183,11 +183,6 @@ url = "https://github.com/netbox-community/netbox.git"
 ref = "main"
 
 [[repo]]
-name = "newsblur"
-url = "https://github.com/samuelclay/NewsBlur.git"
-ref = "main"
-
-[[repo]]
 name = "pretix"
 url = "https://github.com/pretix/pretix.git"
 ref = "master"
