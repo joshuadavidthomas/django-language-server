@@ -9,6 +9,8 @@ use super::domain::Env;
 use super::domain::TokenSplit;
 use super::eval::process_statements;
 use super::eval::CallContext;
+use crate::parse::HelperCall;
+use crate::parse::analyze_helper;
 
 /// Maximum call inlining depth. Beyond this, calls return Unknown.
 const MAX_CALL_DEPTH: usize = 2;
@@ -113,16 +115,41 @@ impl Default for HelperCache {
 
 /// Resolve a function call to a module-local helper.
 ///
-/// Finds the callee in `module_funcs`, creates a new environment with
-/// the callee's parameters bound to the caller's argument values,
-/// analyzes the callee's body, and returns the abstract return value.
+/// When a Salsa database and file are available (`ctx.db` and `ctx.file`
+/// are `Some`), constructs a `HelperCall` interned value and delegates to
+/// `analyze_helper` — a Salsa tracked function with cycle recovery. This
+/// replaces the manual `HelperCache` lookup, depth limit, and self-recursion
+/// guard with Salsa's built-in memoization and cycle detection.
+///
+/// When running without Salsa (standalone extraction calls and tests),
+/// falls back to the manual `HelperCache` + bounded inlining path.
 ///
 /// Returns `Unknown` if:
-/// - The callee is not found in `module_funcs`
-/// - `call_depth >= MAX_CALL_DEPTH`
-/// - The callee is the same function as the caller (self-recursion guard)
+/// - The callee is not found in `module_funcs` (non-Salsa path only)
+/// - `call_depth >= MAX_CALL_DEPTH` (non-Salsa path only)
+/// - The callee is the same function as the caller (non-Salsa path only)
 /// - Multiple return statements yield different abstract values
+/// - A cycle is detected (Salsa path — cycle recovery returns `Unknown`)
 pub fn resolve_call(
+    callee_name: &str,
+    args: &[AbstractValue],
+    ctx: &mut CallContext<'_>,
+) -> AbstractValue {
+    // When Salsa is available, use tracked function with cycle recovery
+    if let (Some(db), Some(file)) = (ctx.db, ctx.file) {
+        let arg_keys: Vec<AbstractValueKey> = args.iter().map(AbstractValueKey::from).collect();
+        let call = HelperCall::new(db, file, callee_name.to_string(), arg_keys);
+        return analyze_helper(db, call);
+    }
+
+    // Fallback: manual cache + bounded inlining (standalone/tests)
+    resolve_call_manual(callee_name, args, ctx)
+}
+
+/// Manual helper resolution with `HelperCache` and depth/recursion guards.
+///
+/// Used when no Salsa database is available (standalone extraction, tests).
+fn resolve_call_manual(
     callee_name: &str,
     args: &[AbstractValue],
     ctx: &mut CallContext<'_>,

@@ -30,11 +30,9 @@ pub struct CallContext<'a> {
     pub call_depth: usize,
     pub cache: &'a mut HelperCache,
     /// Salsa database, populated when running under `extract_module`.
-    /// Used by `resolve_call` to call `analyze_helper` via Salsa (M19.9).
-    #[allow(dead_code)]
+    /// Used by `resolve_call` to call `analyze_helper` via Salsa.
     pub db: Option<&'a dyn djls_source::Db>,
-    /// Source file being analyzed, used to construct `HelperCall` interned keys (M19.9).
-    #[allow(dead_code)]
+    /// Source file being analyzed, used to construct `HelperCall` interned keys.
     pub file: Option<File>,
 }
 
