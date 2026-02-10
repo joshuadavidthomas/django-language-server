@@ -5,6 +5,7 @@ mod expressions;
 mod match_arms;
 mod statements;
 
+use djls_source::File;
 pub use expressions::eval_expr;
 use ruff_python_ast::StmtFunctionDef;
 pub use statements::process_statements;
@@ -18,11 +19,23 @@ use crate::types::KnownOptions;
 /// Carries the immutable context needed to resolve helper function calls
 /// (module functions, recursion tracking, caching). Does not accumulate
 /// analysis results — those are returned via `AnalysisResult`.
+///
+/// The `db` and `file` fields are populated when running under Salsa
+/// (e.g., from `extract_module`). They are `None` for standalone
+/// extraction calls and tests. When present, `resolve_call` can use
+/// Salsa tracked functions instead of the `HelperCache`.
 pub struct CallContext<'a> {
     pub module_funcs: &'a [&'a StmtFunctionDef],
     pub caller_name: &'a str,
     pub call_depth: usize,
     pub cache: &'a mut HelperCache,
+    /// Salsa database, populated when running under `extract_module`.
+    /// Used by `resolve_call` to call `analyze_helper` via Salsa (M19.9).
+    #[allow(dead_code)]
+    pub db: Option<&'a dyn djls_source::Db>,
+    /// Source file being analyzed, used to construct `HelperCall` interned keys (M19.9).
+    #[allow(dead_code)]
+    pub file: Option<File>,
 }
 
 /// Results accumulated during statement processing.
@@ -93,6 +106,8 @@ mod tests {
             caller_name: "test",
             call_depth: 0,
             cache: &mut cache,
+            db: None,
+            file: None,
         };
         process_statements(&func.body, &mut env, &mut ctx);
         env

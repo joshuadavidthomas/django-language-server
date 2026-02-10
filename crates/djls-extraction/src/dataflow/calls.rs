@@ -305,6 +305,8 @@ mod tests {
             caller_name: main_func.name.as_str(),
             call_depth: 0,
             cache: &mut cache,
+            db: None,
+            file: None,
         };
 
         process_statements(&main_func.body, &mut env, &mut ctx);
@@ -338,6 +340,8 @@ mod tests {
             caller_name: main_func.name.as_str(),
             call_depth: 0,
             cache: &mut cache,
+            db: None,
+            file: None,
         };
 
         process_statements(&main_func.body, &mut env, &mut ctx);
@@ -519,6 +523,8 @@ def do_tag(parser, token):
             caller_name: "do_tag",
             call_depth: 0,
             cache: &mut cache,
+            db: None,
+            file: None,
         };
 
         process_statements(&main_func.body, &mut env, &mut ctx);

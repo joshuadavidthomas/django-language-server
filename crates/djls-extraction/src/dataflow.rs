@@ -87,6 +87,8 @@ pub fn analyze_compile_function_with_cache(
         caller_name: compile_fn.name,
         call_depth: 0,
         cache,
+        db: None,
+        file: None,
     };
 
     let result = eval::process_statements(compile_fn.body, &mut env, &mut ctx);

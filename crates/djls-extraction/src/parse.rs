@@ -95,6 +95,8 @@ pub fn analyze_helper(db: &dyn djls_source::Db, call: HelperCall<'_>) -> Abstrac
         caller_name: callee_name,
         call_depth: 0,
         cache: &mut cache,
+        db: Some(db),
+        file: Some(call.file(db)),
     };
 
     let _result = process_statements(&callee.body, &mut callee_env, &mut ctx);
