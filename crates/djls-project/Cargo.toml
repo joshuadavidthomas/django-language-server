@@ -9,6 +9,7 @@ djls-extraction = { workspace = true, features = ["parser"] }
 djls-workspace = { workspace = true }
 
 anyhow = { workspace = true }
+ruff_python_parser = { workspace = true }
 camino = { workspace = true, features = ["serde1"] }
 rustc-hash = { workspace = true }
 salsa = { workspace = true }

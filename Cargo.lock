@@ -737,6 +737,7 @@ dependencies = [
  "djls-extraction",
  "djls-source",
  "djls-workspace",
+ "ruff_python_parser",
  "rustc-hash",
  "salsa",
  "serde",

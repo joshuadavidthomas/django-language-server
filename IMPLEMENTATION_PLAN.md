@@ -152,9 +152,9 @@ Move `environment/scan.rs` from `djls-extraction` to `djls-project`. Types (`Env
 
 ### Phase 1: Create scanning module in djls-project
 
-- [ ] **M18.1** Create `crates/djls-project/src/scanning.rs` with scan functions moved from `environment/scan.rs`. Update imports to use `djls_extraction::` for types and `registry::collect_registrations_from_body`.
-- [ ] **M18.2** Add `mod scanning;` and public re-exports in `crates/djls-project/src/lib.rs`. Update `djls-project/Cargo.toml`: ensure `djls-extraction` dep has `features = ["parser"]`, add `ruff_python_parser` workspace dep.
-- [ ] **M18.3** Validate: `cargo build -q`, `cargo test -q` — all green.
+- [x] **M18.1** Create `crates/djls-project/src/scanning.rs` with scan functions moved from `environment/scan.rs`. Update imports to use `djls_extraction::` for types and `registry::collect_registrations_from_body`.
+- [x] **M18.2** Add `mod scanning;` and public re-exports in `crates/djls-project/src/lib.rs`. Update `djls-project/Cargo.toml`: ensure `djls-extraction` dep has `features = ["parser"]`, add `ruff_python_parser` workspace dep.
+- [x] **M18.3** Validate: `cargo build -q`, `cargo test -q` — all green. 761 passed (745 + 16 scan tests now in djls-project), 0 failed, 7 ignored.
 
 ### Phase 2: Update consumers
 

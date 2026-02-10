@@ -4,6 +4,7 @@ mod inspector;
 mod project;
 mod python;
 mod resolve;
+mod scanning;
 
 pub use db::Db;
 pub use django::django_available;
@@ -30,3 +31,5 @@ pub use resolve::resolve_module;
 pub use resolve::resolve_modules;
 pub use resolve::ModuleLocation;
 pub use resolve::ResolvedModule;
+pub use scanning::scan_environment;
+pub use scanning::scan_environment_with_symbols;
