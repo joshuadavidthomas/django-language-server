@@ -21,7 +21,6 @@ walkdir = { workspace = true }
 
 [dev-dependencies]
 djls-corpus = { workspace = true }
-djls-python = { workspace = true, features = ["parser"] }
 insta = { workspace = true }
 serde_json = { workspace = true }
 tempfile = { workspace = true }

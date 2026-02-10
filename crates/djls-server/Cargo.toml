@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 djls-conf = { workspace = true }
-djls-python = { workspace = true, features = ["parser"] }
+djls-python = { workspace = true }
 djls-ide = { workspace = true }
 djls-project = { workspace = true }
 djls-semantic = { workspace = true }

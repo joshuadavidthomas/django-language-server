@@ -1,49 +1,28 @@
 mod types;
 
 #[cfg(test)]
-#[cfg(feature = "parser")]
-pub mod test_helpers;
+mod test_helpers;
 
-#[cfg(feature = "parser")]
 mod blocks;
-#[cfg(feature = "parser")]
 mod dataflow;
-#[cfg(feature = "parser")]
 mod ext;
-#[cfg(feature = "parser")]
 mod filters;
-#[cfg(feature = "parser")]
 mod parse;
-#[cfg(feature = "parser")]
 mod registry;
-#[cfg(feature = "parser")]
 mod signature;
 
-#[cfg(feature = "parser")]
 pub use blocks::extract_block_spec;
-#[cfg(feature = "parser")]
 pub use dataflow::analyze_compile_function;
-#[cfg(feature = "parser")]
 pub use filters::extract_filter_arity;
-#[cfg(feature = "parser")]
 pub use parse::analyze_helper;
-#[cfg(feature = "parser")]
 pub use parse::extract_module;
-#[cfg(feature = "parser")]
 pub use parse::parse_python_module;
-#[cfg(feature = "parser")]
 pub use parse::HelperCall;
-#[cfg(feature = "parser")]
 pub use parse::ParsedPythonModule;
-#[cfg(feature = "parser")]
 pub use registry::collect_registrations_from_body;
-#[cfg(feature = "parser")]
 pub use registry::ExtractionOutput;
-#[cfg(feature = "parser")]
 pub use registry::RegistrationInfo;
-#[cfg(feature = "parser")]
 pub use registry::RegistrationKind;
-#[cfg(feature = "parser")]
 pub use signature::extract_parse_bits_rule;
 pub use types::ArgumentCountConstraint;
 pub use types::BlockTagSpec;
@@ -72,7 +51,6 @@ pub use types::TagRule;
 ///
 /// Returns an `ExtractionResult` mapping each discovered `SymbolKey` to its
 /// extracted rules.
-#[cfg(feature = "parser")]
 #[must_use]
 pub fn extract_rules(source: &str, module_path: &str) -> ExtractionResult {
     let Ok(parsed) = ruff_python_parser::parse_module(source) else {
@@ -87,7 +65,6 @@ pub fn extract_rules(source: &str, module_path: &str) -> ExtractionResult {
 ///
 /// Shared implementation used by both `extract_rules` (string input) and
 /// `extract_module` (Salsa tracked, pre-parsed AST).
-#[cfg(feature = "parser")]
 #[must_use]
 pub(crate) fn extract_rules_from_body(
     body: &[ruff_python_ast::Stmt],
@@ -136,7 +113,6 @@ pub(crate) fn extract_rules_from_body(
 }
 
 /// Recursively collect all function definitions from a module body.
-#[cfg(feature = "parser")]
 fn collect_func_defs(body: &[ruff_python_ast::Stmt]) -> Vec<&ruff_python_ast::StmtFunctionDef> {
     let mut defs = Vec::new();
     for stmt in body {
@@ -154,7 +130,6 @@ fn collect_func_defs(body: &[ruff_python_ast::Stmt]) -> Vec<&ruff_python_ast::St
 }
 
 #[cfg(test)]
-#[cfg(feature = "parser")]
 mod tests {
     use std::collections::BTreeMap;
 

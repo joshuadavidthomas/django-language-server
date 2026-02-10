@@ -5,6 +5,7 @@ use camino::Utf8Path;
 use serde::Deserialize;
 use serde::Serialize;
 
+use crate::manifest::deserialize_pypi_name;
 use crate::manifest::Manifest;
 use crate::manifest::Package;
 use crate::manifest::Repo;
@@ -21,6 +22,7 @@ pub struct Lockfile {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LockedPackage {
+    #[serde(deserialize_with = "deserialize_pypi_name")]
     pub name: String,
     pub version: String,
     pub resolved: String,

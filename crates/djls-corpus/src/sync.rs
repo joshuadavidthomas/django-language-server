@@ -161,11 +161,7 @@ fn sync_repo(
     Ok(())
 }
 
-pub fn sync_corpus(
-    lockfile: &Lockfile,
-    corpus_root: &Utf8Path,
-    prune: bool,
-) -> anyhow::Result<()> {
+pub fn sync_corpus(lockfile: &Lockfile, corpus_root: &Utf8Path, prune: bool) -> anyhow::Result<()> {
     let client = reqwest::blocking::Client::builder()
         .connect_timeout(Duration::from_secs(30))
         .build()?;

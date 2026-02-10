@@ -33,7 +33,7 @@ just corpus clean                # Remove all synced corpus data
 - `crates/djls-server/` - LSP server implementation
 - `crates/djls-templates/` - Django template parser
 - `crates/djls-workspace/` - Workspace/document management
-- `crates/djls-python/` - Python AST analysis via Ruff parser (feature-gated)
+- `crates/djls-python/` - Python AST analysis via Ruff parser
 - `crates/djls-ide/` - Completions, diagnostics, snippets
 - `crates/djls-semantic/` - Semantic analysis, validation, load resolution
 - `crates/djls-project/` - Project/inspector types, Salsa inputs, module resolution
@@ -53,7 +53,7 @@ just corpus clean                # Remove all synced corpus data
 - **Workspace deps**: ALL dependency versions (third-party and internal crates) go in `[workspace.dependencies]` in root `Cargo.toml`. Crates reference with `dep.workspace = true`. Never specify a version directly in a crate's `Cargo.toml` — always add it to the workspace first.
 - **Paths**: Use `camino::Utf8Path`/`Utf8PathBuf` as the canonical path types. Avoid `std::path::Path`/`PathBuf` except at FFI boundaries or when interfacing with APIs that require them (e.g., `walkdir` results — convert at the boundary).
 - **Insta snapshots**: After changing serialized types, run `cargo insta test --accept --unreferenced delete` to update snapshots and clean orphans.
-- **Extraction feature gate**: `djls-python` has a `parser` feature gating Ruff deps. Types in `types.rs` and `environment/types.rs` are always available. Crates doing extraction use `features = ["parser"]`; crates needing only types use default features off. Environment scan functions (`scan_environment`, `scan_environment_with_symbols`) live in `djls-project/src/scanning.rs`; environment types (`EnvironmentInventory`, `EnvironmentLibrary`, `EnvironmentSymbol`) in `djls-python/src/environment/types.rs` are always available.
+- **Environment layout**: Environment scan functions (`scan_environment`, `scan_environment_with_symbols`) live in `djls-project/src/scanning.rs`; environment types (`EnvironmentInventory`, `EnvironmentLibrary`, `EnvironmentSymbol`) in `djls-python/src/environment/types.rs`.
 - **`ValidationError` is exhaustive**: When adding/removing variants, update `errors.rs`, `djls-ide/src/diagnostics.rs` (S-code mapping), and test helpers. Grep: `grep -rn "ValidationError" crates/ --include="*.rs"`.
 - **`SemanticDb` trait**: When adding methods, update impls in `djls-server/src/db.rs` and `djls-bench/src/db.rs`.
 - **`crate::Db` in `djls-semantic`**: When adding methods, update ALL test databases (~10 files). E0046 if you miss one. Grep: `grep -rn "impl crate::Db" crates/djls-semantic/ --include="*.rs"`.

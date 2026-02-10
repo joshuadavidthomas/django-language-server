@@ -71,7 +71,7 @@ impl Corpus {
     /// Latest synced Django version directory.
     #[must_use]
     pub fn latest_django(&self) -> Option<Utf8PathBuf> {
-        let django_dir = self.root().join("packages/Django");
+        let django_dir = self.root().join("packages/django");
         if !django_dir.as_std_path().exists() {
             return None;
         }
