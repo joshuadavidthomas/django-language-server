@@ -33,20 +33,8 @@ use camino::Utf8PathBuf;
 use walkdir::WalkDir;
 
 pub mod archive;
-pub mod filter;
 pub mod manifest;
 pub mod sync;
-
-fn parse_numeric_version(s: &str) -> Option<Vec<u32>> {
-    let mut parts = Vec::new();
-    for part in s.split('.') {
-        if part.is_empty() || !part.chars().all(|c| c.is_ascii_digit()) {
-            return None;
-        }
-        parts.push(part.parse::<u32>().ok()?);
-    }
-    Some(parts)
-}
 
 /// A validated corpus root directory.
 ///
@@ -92,7 +80,19 @@ impl Corpus {
             let Some(name) = child.file_name() else {
                 continue;
             };
-            let Some(version) = parse_numeric_version(name) else {
+
+            // Parse "5.2.11" → [5, 2, 11] for numeric comparison
+            let version: Option<Vec<u32>> = name
+                .split('.')
+                .map(|part| {
+                    if part.is_empty() || !part.chars().all(|c| c.is_ascii_digit()) {
+                        return None;
+                    }
+                    part.parse::<u32>().ok()
+                })
+                .collect();
+
+            let Some(version) = version else {
                 continue;
             };
 
@@ -150,9 +150,15 @@ impl Corpus {
             }
 
             let is_py = path.extension().is_some_and(|ext| ext == "py");
+            let is_core_template_module = path_str.contains("/template/")
+                && matches!(
+                    path.file_name(),
+                    Some("defaulttags.py" | "defaultfilters.py" | "loader_tags.py")
+                );
+
             if is_py
                 && path.file_name() != Some("__init__.py")
-                && (path_str.contains("/templatetags/") || filter::is_core_template_module(path))
+                && (path_str.contains("/templatetags/") || is_core_template_module)
             {
                 files.push(path.to_owned());
             }
@@ -160,12 +166,6 @@ impl Corpus {
 
         files.sort();
         files
-    }
-
-    /// All template files in the entire corpus.
-    #[must_use]
-    pub fn templates(&self) -> Vec<Utf8PathBuf> {
-        self.templates_in(&self.root)
     }
 
     /// Template files under a specific directory.

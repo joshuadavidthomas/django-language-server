@@ -6,8 +6,6 @@ use camino::Utf8Path;
 use sha2::Digest;
 use sha2::Sha256;
 
-use crate::filter::is_download_relevant;
-
 /// Compute the hex-encoded SHA256 digest of `data`.
 #[must_use]
 pub fn sha256_hex(data: &[u8]) -> String {
@@ -16,52 +14,58 @@ pub fn sha256_hex(data: &[u8]) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-/// Verify that `actual` matches the expected SHA256 hex digest.
+/// Verify that `data` matches the expected SHA256 hex digest.
 ///
 /// Comparison is case-insensitive so that uppercase hex digests
 /// (e.g. from external manifests) match our lowercase output.
-pub fn verify_sha256_hex_str(actual: &str, expected: &str, label: &str) -> anyhow::Result<()> {
+pub fn verify_sha256(data: &[u8], expected: &str, label: &str) -> anyhow::Result<()> {
+    let actual = sha256_hex(data);
     if !actual.eq_ignore_ascii_case(expected) {
         anyhow::bail!("SHA256 mismatch for {label}\n  expected: {expected}\n  actual:   {actual}");
     }
     Ok(())
 }
 
-/// Verify that `data` matches the expected SHA256 hex digest.
-pub fn verify_sha256(data: &[u8], expected: &str, label: &str) -> anyhow::Result<()> {
-    let actual = sha256_hex(data);
-    verify_sha256_hex_str(&actual, expected, label)
-}
-
-/// Build a gzipped tarball in memory from a closure that populates a [`tar::Builder`].
+/// Whether a path is relevant for corpus download (broad filter).
 ///
-/// Used by tests to construct tarballs with specific entry types.
-#[cfg(test)]
-fn build_test_tarball(populate: impl FnOnce(&mut tar::Builder<Vec<u8>>)) -> Vec<u8> {
-    let mut builder = tar::Builder::new(Vec::new());
-    populate(&mut builder);
-    let tar_bytes = builder.into_inner().expect("tar builder finish");
+/// Used during tarball extraction to decide what to keep. This is the
+/// union of all extraction-target and template predicates. Discovery
+/// methods in [`super::Corpus`] apply stricter filtering on top (e.g.
+/// excluding `__init__.py`, `docs/`, `tests/`).
+fn is_download_relevant(path: &str) -> bool {
+    if path.contains("__pycache__") {
+        return false;
+    }
 
-    let mut gz_bytes = Vec::new();
-    let mut encoder = flate2::write::GzEncoder::new(&mut gz_bytes, flate2::Compression::default());
-    std::io::Write::write_all(&mut encoder, &tar_bytes).expect("gz write");
-    encoder.finish().expect("gz finish");
+    let utf8 = Utf8Path::new(path);
 
-    gz_bytes
+    if utf8.extension().is_some_and(|ext| ext == "py") {
+        return path.contains("/templatetags/")
+            || (path.contains("/template/")
+                && matches!(
+                    utf8.file_name(),
+                    Some("defaulttags.py" | "defaultfilters.py" | "loader_tags.py")
+                ));
+    }
+
+    if utf8
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("html") || ext.eq_ignore_ascii_case("txt"))
+    {
+        return path.contains("/templates/");
+    }
+
+    false
 }
 
-/// Extract relevant files from in-memory tarball bytes.
+/// Extract relevant files from a gzipped tarball.
 ///
 /// Strips the top-level directory from each entry, filters through
 /// [`is_download_relevant`], and rejects paths with `..` components
 /// to prevent directory traversal. Only regular files are extracted;
 /// directories are created implicitly via parent directory creation,
 /// and symlinks are rejected.
-pub fn extract_tarball(data: &[u8], out_dir: &Utf8Path) -> anyhow::Result<()> {
-    extract_tarball_reader(data, out_dir)
-}
-
-pub fn extract_tarball_reader<R: Read>(reader: R, out_dir: &Utf8Path) -> anyhow::Result<()> {
+pub fn extract_tarball<R: Read>(reader: R, out_dir: &Utf8Path) -> anyhow::Result<()> {
     let gz = flate2::read::GzDecoder::new(reader);
     let mut archive = tar::Archive::new(gz);
 
@@ -127,6 +131,20 @@ mod tests {
 
     use super::*;
 
+    fn build_test_tarball(populate: impl FnOnce(&mut tar::Builder<Vec<u8>>)) -> Vec<u8> {
+        let mut builder = tar::Builder::new(Vec::new());
+        populate(&mut builder);
+        let tar_bytes = builder.into_inner().expect("tar builder finish");
+
+        let mut gz_bytes = Vec::new();
+        let mut encoder =
+            flate2::write::GzEncoder::new(&mut gz_bytes, flate2::Compression::default());
+        std::io::Write::write_all(&mut encoder, &tar_bytes).expect("gz write");
+        encoder.finish().expect("gz finish");
+
+        gz_bytes
+    }
+
     fn temp_dir() -> (tempfile::TempDir, Utf8PathBuf) {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("utf8 path");
@@ -152,7 +170,7 @@ mod tests {
         });
 
         let (_dir, out) = temp_dir();
-        extract_tarball(&data, &out).unwrap();
+        extract_tarball(data.as_slice(), &out).unwrap();
 
         let extracted = out.join("django/templatetags/i18n.py");
         assert!(extracted.as_std_path().exists(), "file should be extracted");
@@ -192,7 +210,7 @@ mod tests {
         });
 
         let (_dir, out) = temp_dir();
-        extract_tarball(&data, &out).unwrap();
+        extract_tarball(data.as_slice(), &out).unwrap();
 
         // The file should exist (created via parent dir creation)
         let file = out.join("django/templatetags/i18n.py");
@@ -224,7 +242,7 @@ mod tests {
         });
 
         let (_dir, out) = temp_dir();
-        let result = extract_tarball(&data, &out);
+        let result = extract_tarball(data.as_slice(), &out);
 
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
@@ -252,7 +270,7 @@ mod tests {
         });
 
         let (_dir, out) = temp_dir();
-        let result = extract_tarball(&data, &out);
+        let result = extract_tarball(data.as_slice(), &out);
 
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
@@ -343,7 +361,7 @@ mod tests {
         encoder.finish().unwrap();
 
         let (_dir, out) = temp_dir();
-        let result = extract_tarball(&gz_bytes, &out);
+        let result = extract_tarball(gz_bytes.as_slice(), &out);
 
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
@@ -385,7 +403,7 @@ mod tests {
         encoder.finish().unwrap();
 
         let (_dir, out) = temp_dir();
-        let result = extract_tarball(&gz_bytes, &out);
+        let result = extract_tarball(gz_bytes.as_slice(), &out);
 
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
