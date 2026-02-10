@@ -9,7 +9,7 @@ use crate::inspector;
 use crate::inspector::InspectorRequest;
 use crate::Project;
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TagProvenance {
     Library { load_name: String, module: String },
@@ -104,7 +104,7 @@ pub fn template_dirs(db: &dyn ProjectDb, _project: Project) -> Option<TemplateDi
 
 type TemplateDirs = Vec<Utf8PathBuf>;
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TemplateFilter {
     name: String,
     provenance: TagProvenance,
@@ -131,35 +131,34 @@ impl TemplateSymbol for TemplateFilter {
 }
 
 #[derive(Serialize)]
-pub struct TemplatetagsRequest;
+pub struct TemplateSymbolsRequest;
 
 #[derive(Deserialize)]
-pub struct TemplatetagsResponse {
+pub struct TemplateSymbolsResponse {
     pub templatetags: Vec<TemplateTag>,
     pub templatefilters: Vec<TemplateFilter>,
     pub libraries: HashMap<String, String>,
     pub builtins: Vec<String>,
 }
 
-impl InspectorRequest for TemplatetagsRequest {
+impl InspectorRequest for TemplateSymbolsRequest {
+    // Inspector endpoint name is historical; it returns tags, filters, libraries, and builtins.
     const NAME: &'static str = "templatetags";
-    type Response = TemplatetagsResponse;
+    type Response = TemplateSymbolsResponse;
 }
 
-/// Get template tags for the current project by querying the inspector.
-///
-/// This is the primary Salsa-tracked entry point for templatetags.
+/// Get template tag/filter symbols for the current project by querying the inspector.
 #[salsa::tracked]
-pub fn templatetags(db: &dyn ProjectDb, _project: Project) -> Option<TemplateTags> {
-    let response = inspector::query(db, &TemplatetagsRequest)?;
+pub fn template_symbols(db: &dyn ProjectDb, _project: Project) -> Option<TemplateSymbols> {
+    let response = inspector::query(db, &TemplateSymbolsRequest)?;
     let tag_count = response.templatetags.len();
     let filter_count = response.templatefilters.len();
     tracing::debug!(
-        "Retrieved {} templatetags and {} templatefilters from inspector",
+        "Retrieved {} template tags and {} template filters from inspector",
         tag_count,
         filter_count
     );
-    Some(TemplateTags {
+    Some(TemplateSymbols {
         tags: response.templatetags,
         filters: response.templatefilters,
         libraries: response.libraries,
@@ -167,8 +166,8 @@ pub fn templatetags(db: &dyn ProjectDb, _project: Project) -> Option<TemplateTag
     })
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Deserialize)]
-pub struct TemplateTags {
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TemplateSymbols {
     tags: Vec<TemplateTag>,
     #[serde(default)]
     filters: Vec<TemplateFilter>,
@@ -176,7 +175,7 @@ pub struct TemplateTags {
     builtins: Vec<String>,
 }
 
-impl TemplateTags {
+impl TemplateSymbols {
     #[must_use]
     pub fn new(
         tags: Vec<TemplateTag>,
@@ -192,9 +191,9 @@ impl TemplateTags {
         }
     }
 
-    /// Construct a `TemplateTags` from a raw inspector response.
+    /// Construct `TemplateSymbols` from a raw inspector response.
     #[must_use]
-    pub fn from_response(response: TemplatetagsResponse) -> Self {
+    pub fn from_response(response: TemplateSymbolsResponse) -> Self {
         Self {
             tags: response.templatetags,
             filters: response.templatefilters,
@@ -251,7 +250,7 @@ impl TemplateTags {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TemplateTag {
     name: String,
     provenance: TagProvenance,
@@ -384,7 +383,7 @@ mod tests {
         );
         libraries.insert("i18n".to_string(), "django.templatetags.i18n".to_string());
 
-        let tags = TemplateTags {
+        let tags = TemplateSymbols {
             tags: vec![
                 builtin_tag(
                     "if",
@@ -419,7 +418,7 @@ mod tests {
 
     #[test]
     fn test_template_tags_accessors() {
-        let tags = TemplateTags {
+        let tags = TemplateSymbols {
             tags: vec![
                 builtin_tag("tag1", "module1", "module1"),
                 builtin_tag("tag2", "module2", "module2"),
@@ -516,7 +515,7 @@ mod tests {
 
     #[test]
     fn test_template_tags_with_filters() {
-        let tags = TemplateTags {
+        let tags = TemplateSymbols {
             tags: vec![builtin_tag(
                 "if",
                 "django.template.defaulttags",
@@ -556,7 +555,7 @@ mod tests {
 
     #[test]
     fn test_template_tags_from_response_with_filters() {
-        let response = TemplatetagsResponse {
+        let response = TemplateSymbolsResponse {
             templatetags: vec![TemplateTag {
                 name: "if".to_string(),
                 provenance: TagProvenance::Builtin {
@@ -577,7 +576,7 @@ mod tests {
             builtins: vec![],
         };
 
-        let tags = TemplateTags::from_response(response);
+        let tags = TemplateSymbols::from_response(response);
         assert_eq!(tags.tags().len(), 1);
         assert_eq!(tags.filters().len(), 1);
         assert_eq!(tags.filters()[0].name(), "title");
@@ -590,7 +589,7 @@ mod tests {
             "libraries": {},
             "builtins": []
         }"#;
-        let tags: TemplateTags = serde_json::from_str(json).unwrap();
+        let tags: TemplateSymbols = serde_json::from_str(json).unwrap();
         assert!(tags.filters().is_empty());
     }
 }

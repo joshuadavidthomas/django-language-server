@@ -16,16 +16,21 @@ pub fn sha256_hex(data: &[u8]) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-/// Verify that `data` matches the expected SHA256 hex digest.
+/// Verify that `actual` matches the expected SHA256 hex digest.
 ///
 /// Comparison is case-insensitive so that uppercase hex digests
 /// (e.g. from external manifests) match our lowercase output.
-pub fn verify_sha256(data: &[u8], expected: &str, label: &str) -> anyhow::Result<()> {
-    let actual = sha256_hex(data);
+pub fn verify_sha256_hex_str(actual: &str, expected: &str, label: &str) -> anyhow::Result<()> {
     if !actual.eq_ignore_ascii_case(expected) {
         anyhow::bail!("SHA256 mismatch for {label}\n  expected: {expected}\n  actual:   {actual}");
     }
     Ok(())
+}
+
+/// Verify that `data` matches the expected SHA256 hex digest.
+pub fn verify_sha256(data: &[u8], expected: &str, label: &str) -> anyhow::Result<()> {
+    let actual = sha256_hex(data);
+    verify_sha256_hex_str(&actual, expected, label)
 }
 
 /// Build a gzipped tarball in memory from a closure that populates a [`tar::Builder`].
@@ -53,7 +58,11 @@ fn build_test_tarball(populate: impl FnOnce(&mut tar::Builder<Vec<u8>>)) -> Vec<
 /// directories are created implicitly via parent directory creation,
 /// and symlinks are rejected.
 pub fn extract_tarball(data: &[u8], out_dir: &Utf8Path) -> anyhow::Result<()> {
-    let gz = flate2::read::GzDecoder::new(data);
+    extract_tarball_reader(data, out_dir)
+}
+
+pub fn extract_tarball_reader<R: Read>(reader: R, out_dir: &Utf8Path) -> anyhow::Result<()> {
+    let gz = flate2::read::GzDecoder::new(reader);
     let mut archive = tar::Archive::new(gz);
 
     std::fs::create_dir_all(out_dir.as_std_path())?;
@@ -83,15 +92,20 @@ pub fn extract_tarball(data: &[u8], out_dir: &Utf8Path) -> anyhow::Result<()> {
             .split_once('/')
             .map_or(entry_path.as_str(), |x| x.1);
 
-        if !is_download_relevant(relative) {
-            continue;
+        let relative_path = std::path::Path::new(relative);
+        if relative_path.components().any(|c| {
+            matches!(
+                c,
+                std::path::Component::ParentDir
+                    | std::path::Component::RootDir
+                    | std::path::Component::Prefix(_)
+            )
+        }) {
+            anyhow::bail!("Invalid tarball entry path (absolute or traversal): {entry_path}");
         }
 
-        if std::path::Path::new(relative)
-            .components()
-            .any(|c| matches!(c, std::path::Component::ParentDir))
-        {
-            anyhow::bail!("Path traversal detected in tarball entry: {entry_path}");
+        if !is_download_relevant(relative) {
+            continue;
         }
 
         let dest = out_dir.join(relative);
@@ -334,8 +348,50 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(
-            err.contains("Path traversal detected"),
-            "error should mention path traversal, got: {err}"
+            err.contains("Invalid tarball entry path"),
+            "error should mention invalid path, got: {err}"
+        );
+    }
+
+    #[test]
+    fn rejects_absolute_paths() {
+        // Build the tarball manually to bypass any path normalization.
+        let content = b"pwned";
+        let mut header = tar::Header::new_gnu();
+        header.set_entry_type(tar::EntryType::Regular);
+        header.set_size(content.len() as u64);
+        header.set_mode(0o644);
+        header
+            .set_path("Django-5.2/django/templatetags/safe.py")
+            .unwrap();
+
+        // After stripping top-level dir, this becomes "/django/templatetags/evil.py".
+        let evil_path = b"Django-5.2//django/templatetags/evil.py";
+        header.as_old_mut().name[..evil_path.len()].copy_from_slice(evil_path);
+        header.as_old_mut().name[evil_path.len()] = 0;
+        header.set_cksum();
+
+        let mut tar_bytes = Vec::new();
+        {
+            let mut builder = tar::Builder::new(&mut tar_bytes);
+            builder.append(&header, &content[..]).unwrap();
+            builder.into_inner().unwrap();
+        }
+
+        let mut gz_bytes = Vec::new();
+        let mut encoder =
+            flate2::write::GzEncoder::new(&mut gz_bytes, flate2::Compression::default());
+        std::io::Write::write_all(&mut encoder, &tar_bytes).unwrap();
+        encoder.finish().unwrap();
+
+        let (_dir, out) = temp_dir();
+        let result = extract_tarball(&gz_bytes, &out);
+
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("Invalid tarball entry path"),
+            "error should mention invalid path, got: {err}"
         );
     }
 }

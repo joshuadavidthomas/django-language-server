@@ -2,16 +2,16 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_conf::DiagnosticsConfig;
 use djls_conf::Settings;
-use djls_python::EnvironmentInventory;
 use djls_python::ExtractionResult;
 use rustc_hash::FxHashMap;
 
 use crate::db::Db as ProjectDb;
 use crate::django_available;
 use crate::template_dirs;
-use crate::templatetags;
+use crate::template_symbols;
 use crate::Interpreter;
-use crate::TemplateTags;
+use crate::TemplateSymbols;
+use crate::TemplateTagLibraries;
 
 /// Complete project configuration as a Salsa input.
 ///
@@ -36,20 +36,24 @@ pub struct Project {
     /// Additional Python import paths (PYTHONPATH entries)
     #[returns(ref)]
     pub pythonpath: Vec<String>,
-    /// Inspector inventory from Python subprocess (populated by `refresh_inspector`)
+    /// Template symbols from the Python inspector subprocess (tags, filters, libraries, builtins).
+    ///
+    /// Populated by `refresh_inspector` in `djls-server`.
     #[returns(ref)]
-    pub inspector_inventory: Option<TemplateTags>,
+    pub template_symbols: Option<TemplateSymbols>,
     /// Extraction results from external modules (site-packages), keyed by
     /// registration module path (e.g., `"django.templatetags.i18n"`).
     /// Populated by `refresh_inspector`. Workspace files use tracked queries
     /// via `collect_workspace_extraction_results` instead.
     #[returns(ref)]
     pub extracted_external_rules: FxHashMap<String, ExtractionResult>,
-    /// Environment inventory from scanning `sys.path` for `templatetags/` modules.
-    /// Populated by `refresh_inspector`. A superset of the inspector inventory —
-    /// includes libraries from apps not in `INSTALLED_APPS`.
+    /// Libraries discovered by scanning `sys.path` for `templatetags/` modules.
+    ///
+    /// Populated asynchronously by the server to avoid blocking LSP requests.
+    /// This is a superset of the inspector results — it includes libraries from apps
+    /// that may not be in `INSTALLED_APPS`.
     #[returns(ref)]
-    pub environment_inventory: Option<EnvironmentInventory>,
+    pub template_tag_libraries: Option<TemplateTagLibraries>,
     /// Diagnostic severity configuration
     #[returns(ref)]
     pub diagnostics: DiagnosticsConfig,
@@ -75,7 +79,7 @@ impl Project {
 
     pub fn initialize(self, db: &dyn ProjectDb) {
         let _ = django_available(db, self);
-        let _ = templatetags(db, self);
+        let _ = template_symbols(db, self);
         let _ = template_dirs(db, self);
     }
 }

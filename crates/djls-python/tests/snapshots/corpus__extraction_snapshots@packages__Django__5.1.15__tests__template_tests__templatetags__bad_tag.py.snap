@@ -4,7 +4,7 @@ expression: snapshot(result)
 input_file: crates/djls-corpus/.corpus/packages/Django/5.1.15/tests/template_tests/templatetags/bad_tag.py
 ---
 tag_rules:
-  "tests.template_tests.templatetags.bad_tag::badsimpletag":
+  "tests.template_tests.templatetags.bad_tag::tag::badsimpletag":
     arg_constraints:
       - Max: 1
     required_keywords: []

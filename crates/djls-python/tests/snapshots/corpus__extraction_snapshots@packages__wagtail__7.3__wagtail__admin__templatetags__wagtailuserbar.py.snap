@@ -4,7 +4,7 @@ expression: snapshot(result)
 input_file: crates/djls-corpus/.corpus/packages/wagtail/7.3/wagtail/admin/templatetags/wagtailuserbar.py
 ---
 tag_rules:
-  "wagtail.admin.templatetags.wagtailuserbar::wagtailuserbar":
+  "wagtail.admin.templatetags.wagtailuserbar::tag::wagtailuserbar":
     arg_constraints:
       - Max: 2
     required_keywords: []

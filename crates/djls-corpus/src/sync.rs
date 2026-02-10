@@ -3,13 +3,17 @@
 //! Every download is verified against the SHA256 checksum in the manifest
 //! before extraction.
 
+use std::io::Read;
+use std::io::Write;
 use std::time::Duration;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
+use sha2::Digest;
+use sha2::Sha256;
 
-use crate::archive::extract_tarball;
-use crate::archive::verify_sha256;
+use crate::archive::extract_tarball_reader;
+use crate::archive::verify_sha256_hex_str;
 use crate::manifest::Manifest;
 use crate::manifest::Package;
 use crate::manifest::Repo;
@@ -74,6 +78,8 @@ fn http_client() -> anyhow::Result<reqwest::blocking::Client> {
         .build()?)
 }
 
+const MAX_TARBALL_BYTES: u64 = 200 * 1024 * 1024;
+
 /// Find the sdist `.tar.gz` URL from a `PyPI` JSON API response.
 fn find_sdist_url(json: &serde_json::Value, name: &str, version: &str) -> anyhow::Result<String> {
     json["urls"]
@@ -108,14 +114,40 @@ fn sync_entry(
 
     let tarball_url = entry.tarball_url(client)?;
 
-    let resp = client.get(&tarball_url).send()?;
+    let mut resp = client.get(&tarball_url).send()?;
     if !resp.status().is_success() {
         anyhow::bail!("HTTP {} fetching tarball from {tarball_url}", resp.status());
     }
-    let bytes = resp.bytes()?.to_vec();
-    verify_sha256(&bytes, entry.sha256(), &tarball_url)?;
 
-    extract_tarball(&bytes, &out_dir)?;
+    let mut tmp = tempfile::NamedTempFile::new()?;
+    let mut hasher = Sha256::new();
+    let mut total_bytes: u64 = 0;
+
+    let mut buf = [0u8; 16 * 1024];
+    loop {
+        let n = resp.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+
+        total_bytes += n as u64;
+        if total_bytes > MAX_TARBALL_BYTES {
+            anyhow::bail!(
+                "Tarball too large ({total_bytes} bytes) for {label} (max {MAX_TARBALL_BYTES} bytes)"
+            );
+        }
+
+        hasher.update(&buf[..n]);
+        tmp.write_all(&buf[..n])?;
+    }
+
+    tmp.flush()?;
+
+    let actual_sha256 = format!("{:x}", hasher.finalize());
+    verify_sha256_hex_str(&actual_sha256, entry.sha256(), &tarball_url)?;
+
+    let file = tmp.reopen()?;
+    extract_tarball_reader(file, &out_dir)?;
     std::fs::write(out_dir.join(".complete").as_std_path(), "")?;
 
     Ok(())

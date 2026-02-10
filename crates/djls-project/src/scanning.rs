@@ -1,11 +1,12 @@
 use std::collections::BTreeMap;
-use std::path::Path;
-use std::path::PathBuf;
 
+use camino::Utf8Path;
+use camino::Utf8PathBuf;
 use djls_python::collect_registrations_from_body;
-use djls_python::EnvironmentInventory;
-use djls_python::EnvironmentLibrary;
 use djls_python::SymbolKind;
+
+use crate::TemplateTagLibraries;
+use crate::TemplateTagLibrary;
 
 /// Scan Python environment paths to discover all template tag libraries.
 ///
@@ -16,8 +17,8 @@ use djls_python::SymbolKind;
 /// This is a library-level scan only — `tags` and `filters` are empty.
 /// Use [`scan_environment_with_symbols`] for symbol-level extraction.
 #[must_use]
-pub fn scan_environment(sys_paths: &[PathBuf]) -> EnvironmentInventory {
-    let mut libraries: BTreeMap<String, Vec<EnvironmentLibrary>> = BTreeMap::new();
+pub fn scan_environment(sys_paths: &[Utf8PathBuf]) -> TemplateTagLibraries {
+    let mut libraries: BTreeMap<String, Vec<TemplateTagLibrary>> = BTreeMap::new();
 
     for sys_path in sys_paths {
         if !sys_path.is_dir() {
@@ -26,7 +27,7 @@ pub fn scan_environment(sys_paths: &[PathBuf]) -> EnvironmentInventory {
         scan_sys_path_entry(sys_path, false, &mut libraries);
     }
 
-    EnvironmentInventory::new(libraries)
+    TemplateTagLibraries::new(libraries)
 }
 
 /// Scan Python environment paths and extract symbol-level information.
@@ -35,8 +36,8 @@ pub fn scan_environment(sys_paths: &[PathBuf]) -> EnvironmentInventory {
 /// with Ruff to extract tag and filter registration names. If a file fails
 /// to parse, the library is still included with empty `tags`/`filters`.
 #[must_use]
-pub fn scan_environment_with_symbols(sys_paths: &[PathBuf]) -> EnvironmentInventory {
-    let mut libraries: BTreeMap<String, Vec<EnvironmentLibrary>> = BTreeMap::new();
+pub fn scan_environment_with_symbols(sys_paths: &[Utf8PathBuf]) -> TemplateTagLibraries {
+    let mut libraries: BTreeMap<String, Vec<TemplateTagLibrary>> = BTreeMap::new();
 
     for sys_path in sys_paths {
         if !sys_path.is_dir() {
@@ -45,32 +46,36 @@ pub fn scan_environment_with_symbols(sys_paths: &[PathBuf]) -> EnvironmentInvent
         scan_sys_path_entry(sys_path, true, &mut libraries);
     }
 
-    EnvironmentInventory::new(libraries)
+    TemplateTagLibraries::new(libraries)
 }
 
 fn scan_sys_path_entry(
-    sys_path: &Path,
+    sys_path: &Utf8Path,
     extract_symbols: bool,
-    libraries: &mut BTreeMap<String, Vec<EnvironmentLibrary>>,
+    libraries: &mut BTreeMap<String, Vec<TemplateTagLibrary>>,
 ) {
-    let Ok(top_entries) = std::fs::read_dir(sys_path) else {
+    let Ok(top_entries) = std::fs::read_dir(sys_path.as_std_path()) else {
         return;
     };
 
     for entry in top_entries.flatten() {
-        let path = entry.path();
+        let Ok(path) = Utf8PathBuf::from_path_buf(entry.path()) else {
+            continue;
+        };
+
         if !path.is_dir() {
             continue;
         }
+
         scan_package_tree(&path, sys_path, extract_symbols, libraries);
     }
 }
 
 fn scan_package_tree(
-    dir: &Path,
-    sys_path: &Path,
+    dir: &Utf8Path,
+    sys_path: &Utf8Path,
     extract_symbols: bool,
-    libraries: &mut BTreeMap<String, Vec<EnvironmentLibrary>>,
+    libraries: &mut BTreeMap<String, Vec<TemplateTagLibrary>>,
 ) {
     let templatetags_dir = dir.join("templatetags");
     if templatetags_dir.is_dir() {
@@ -80,16 +85,22 @@ fn scan_package_tree(
         }
     }
 
-    let Ok(entries) = std::fs::read_dir(dir) else {
+    let Ok(entries) = std::fs::read_dir(dir.as_std_path()) else {
         return;
     };
+
     for entry in entries.flatten() {
-        let path = entry.path();
+        let Ok(path) = Utf8PathBuf::from_path_buf(entry.path()) else {
+            continue;
+        };
+
         if !path.is_dir() {
             continue;
         }
+
         let name = entry.file_name();
         let name_str = name.to_string_lossy();
+
         if name_str.starts_with('.')
             || name_str == "__pycache__"
             || name_str == "templatetags"
@@ -98,6 +109,7 @@ fn scan_package_tree(
         {
             continue;
         }
+
         let init = path.join("__init__.py");
         if init.exists() {
             scan_package_tree(&path, sys_path, extract_symbols, libraries);
@@ -106,17 +118,20 @@ fn scan_package_tree(
 }
 
 fn scan_templatetags_dir(
-    templatetags_dir: &Path,
-    sys_path: &Path,
+    templatetags_dir: &Utf8Path,
+    sys_path: &Utf8Path,
     extract_symbols: bool,
-    libraries: &mut BTreeMap<String, Vec<EnvironmentLibrary>>,
+    libraries: &mut BTreeMap<String, Vec<TemplateTagLibrary>>,
 ) {
-    let Ok(entries) = std::fs::read_dir(templatetags_dir) else {
+    let Ok(entries) = std::fs::read_dir(templatetags_dir.as_std_path()) else {
         return;
     };
 
     for entry in entries.flatten() {
-        let path = entry.path();
+        let Ok(path) = Utf8PathBuf::from_path_buf(entry.path()) else {
+            continue;
+        };
+
         if !path.is_file() {
             continue;
         }
@@ -128,7 +143,7 @@ fn scan_templatetags_dir(
             continue;
         }
 
-        let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
+        let Some(stem) = path.file_stem() else {
             continue;
         };
         if stem == "__init__" {
@@ -137,22 +152,28 @@ fn scan_templatetags_dir(
 
         let load_name = stem.to_string();
 
-        let Some(rel_path) = pathdiff(templatetags_dir.parent().unwrap(), sys_path) else {
+        let Some(parent) = templatetags_dir.parent() else {
             continue;
         };
-        let app_module = path_to_dotted(&rel_path);
+        let Ok(rel_path) = parent.strip_prefix(sys_path) else {
+            continue;
+        };
+        let app_module = path_to_dotted(rel_path);
 
-        let Some(full_rel) = pathdiff(&path, sys_path) else {
+        let Ok(full_rel) = path.strip_prefix(sys_path) else {
             continue;
         };
-        let module_path = path_to_dotted_strip_py(&full_rel);
+        let module_path = path_to_dotted_strip_py(full_rel);
 
         let abs_path = if path.is_absolute() {
             path.clone()
         } else {
-            std::env::current_dir()
-                .map(|cwd| cwd.join(&path))
-                .unwrap_or(path.clone())
+            match std::env::current_dir() {
+                Ok(cwd) => {
+                    Utf8PathBuf::from_path_buf(cwd.join(path.as_std_path())).unwrap_or(path.clone())
+                }
+                Err(_) => path.clone(),
+            }
         };
 
         let (tags, filters) = if extract_symbols {
@@ -161,7 +182,7 @@ fn scan_templatetags_dir(
             (Vec::new(), Vec::new())
         };
 
-        let lib = EnvironmentLibrary {
+        let lib = TemplateTagLibrary {
             load_name: load_name.clone(),
             app_module,
             module_path,
@@ -174,8 +195,8 @@ fn scan_templatetags_dir(
     }
 }
 
-fn extract_symbols_from_file(path: &Path) -> (Vec<String>, Vec<String>) {
-    let Ok(source) = std::fs::read_to_string(path) else {
+fn extract_symbols_from_file(path: &Utf8Path) -> (Vec<String>, Vec<String>) {
+    let Ok(source) = std::fs::read_to_string(path.as_std_path()) else {
         return (Vec::new(), Vec::new());
     };
 
@@ -204,19 +225,15 @@ fn extract_symbols_from_file(path: &Path) -> (Vec<String>, Vec<String>) {
     (tags, filters)
 }
 
-fn pathdiff(target: &Path, base: &Path) -> Option<PathBuf> {
-    target.strip_prefix(base).ok().map(PathBuf::from)
-}
-
-fn path_to_dotted(rel_path: &Path) -> String {
+fn path_to_dotted(rel_path: &Utf8Path) -> String {
     rel_path
         .components()
-        .map(|c| c.as_os_str().to_string_lossy())
+        .map(|c| c.as_str())
         .collect::<Vec<_>>()
         .join(".")
 }
 
-fn path_to_dotted_strip_py(rel_path: &Path) -> String {
+fn path_to_dotted_strip_py(rel_path: &Utf8Path) -> String {
     let dotted = path_to_dotted(rel_path);
     dotted.strip_suffix(".py").unwrap_or(&dotted).to_string()
 }
@@ -225,24 +242,32 @@ fn path_to_dotted_strip_py(rel_path: &Path) -> String {
 mod tests {
     use super::*;
 
-    fn create_templatetags_layout(root: &Path, packages: &[(&str, &[&str])]) {
+    fn utf8_tmpdir() -> (tempfile::TempDir, Utf8PathBuf) {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let root = Utf8PathBuf::from_path_buf(tmp.path().to_path_buf()).unwrap();
+        (tmp, root)
+    }
+
+    fn create_templatetags_layout(root: &Utf8Path, packages: &[(&str, &[&str])]) {
         for (package_path, tag_files) in packages {
             let parts: Vec<&str> = package_path.split('/').collect();
             let mut current = root.to_path_buf();
 
             for part in &parts {
                 current.push(part);
-                std::fs::create_dir_all(&current).unwrap();
-                std::fs::write(current.join("__init__.py"), "").unwrap();
+                std::fs::create_dir_all(current.as_std_path()).unwrap();
+                std::fs::write(current.join("__init__.py").as_std_path(), "").unwrap();
             }
 
             let templatetags_dir = current.join("templatetags");
-            std::fs::create_dir_all(&templatetags_dir).unwrap();
-            std::fs::write(templatetags_dir.join("__init__.py"), "").unwrap();
+            std::fs::create_dir_all(templatetags_dir.as_std_path()).unwrap();
+            std::fs::write(templatetags_dir.join("__init__.py").as_std_path(), "").unwrap();
 
             for tag_file in *tag_files {
                 std::fs::write(
-                    templatetags_dir.join(format!("{tag_file}.py")),
+                    templatetags_dir
+                        .join(format!("{tag_file}.py"))
+                        .as_std_path(),
                     "# templatetag module\n",
                 )
                 .unwrap();
@@ -252,18 +277,17 @@ mod tests {
 
     #[test]
     fn scan_discovers_libraries() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let root = tmp.path();
+        let (_tmp, root) = utf8_tmpdir();
 
         create_templatetags_layout(
-            root,
+            &root,
             &[
                 ("django/contrib/humanize", &["humanize"]),
                 ("django/contrib/admin", &["admin_list", "admin_modify"]),
             ],
         );
 
-        let inventory = scan_environment(&[root.to_path_buf()]);
+        let inventory = scan_environment(std::slice::from_ref(&root));
 
         assert!(inventory.has_library("humanize"));
         assert!(inventory.has_library("admin_list"));
@@ -273,12 +297,11 @@ mod tests {
 
     #[test]
     fn scan_derives_correct_app_module() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let root = tmp.path();
+        let (_tmp, root) = utf8_tmpdir();
 
-        create_templatetags_layout(root, &[("django/contrib/humanize", &["humanize"])]);
+        create_templatetags_layout(&root, &[("django/contrib/humanize", &["humanize"])]);
 
-        let inventory = scan_environment(&[root.to_path_buf()]);
+        let inventory = scan_environment(std::slice::from_ref(&root));
         let libs = inventory.libraries_for_name("humanize");
         assert_eq!(libs.len(), 1);
         assert_eq!(libs[0].app_module, "django.contrib.humanize");
@@ -290,12 +313,11 @@ mod tests {
 
     #[test]
     fn scan_name_collision_detection() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let root = tmp.path();
+        let (_tmp, root) = utf8_tmpdir();
 
-        create_templatetags_layout(root, &[("pkg_a", &["utils"]), ("pkg_b", &["utils"])]);
+        create_templatetags_layout(&root, &[("pkg_a", &["utils"]), ("pkg_b", &["utils"])]);
 
-        let inventory = scan_environment(&[root.to_path_buf()]);
+        let inventory = scan_environment(std::slice::from_ref(&root));
         let libs = inventory.libraries_for_name("utils");
         assert_eq!(libs.len(), 2);
 
@@ -306,55 +328,54 @@ mod tests {
 
     #[test]
     fn scan_skips_init_files() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let root = tmp.path();
+        let (_tmp, root) = utf8_tmpdir();
 
-        create_templatetags_layout(root, &[("myapp", &["custom"])]);
+        create_templatetags_layout(&root, &[("myapp", &["custom"])]);
 
-        let inventory = scan_environment(&[root.to_path_buf()]);
+        let inventory = scan_environment(std::slice::from_ref(&root));
         assert!(!inventory.has_library("__init__"));
         assert!(inventory.has_library("custom"));
     }
 
     #[test]
     fn scan_requires_templatetags_init() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let root = tmp.path();
+        let (_tmp, root) = utf8_tmpdir();
 
         let pkg_dir = root.join("myapp");
-        std::fs::create_dir_all(&pkg_dir).unwrap();
-        std::fs::write(pkg_dir.join("__init__.py"), "").unwrap();
+        std::fs::create_dir_all(pkg_dir.as_std_path()).unwrap();
+        std::fs::write(pkg_dir.join("__init__.py").as_std_path(), "").unwrap();
 
         let tags_dir = pkg_dir.join("templatetags");
-        std::fs::create_dir_all(&tags_dir).unwrap();
-        std::fs::write(tags_dir.join("custom.py"), "# tag module").unwrap();
+        std::fs::create_dir_all(tags_dir.as_std_path()).unwrap();
+        std::fs::write(tags_dir.join("custom.py").as_std_path(), "# tag module").unwrap();
 
-        let inventory = scan_environment(&[root.to_path_buf()]);
+        let inventory = scan_environment(std::slice::from_ref(&root));
         assert!(!inventory.has_library("custom"));
     }
 
     #[test]
     fn scan_empty_directory() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let inventory = scan_environment(&[tmp.path().to_path_buf()]);
+        let (_tmp, root) = utf8_tmpdir();
+
+        let inventory = scan_environment(&[root]);
         assert!(inventory.is_empty());
     }
 
     #[test]
     fn scan_nonexistent_path() {
-        let inventory = scan_environment(&[PathBuf::from("/nonexistent/path/12345")]);
+        let inventory = scan_environment(&[Utf8PathBuf::from("/nonexistent/path/12345")]);
         assert!(inventory.is_empty());
     }
 
     #[test]
     fn scan_multiple_sys_paths() {
-        let tmp1 = tempfile::TempDir::new().unwrap();
-        let tmp2 = tempfile::TempDir::new().unwrap();
+        let (_tmp1, root1) = utf8_tmpdir();
+        let (_tmp2, root2) = utf8_tmpdir();
 
-        create_templatetags_layout(tmp1.path(), &[("pkg1", &["tags1"])]);
-        create_templatetags_layout(tmp2.path(), &[("pkg2", &["tags2"])]);
+        create_templatetags_layout(&root1, &[("pkg1", &["tags1"])]);
+        create_templatetags_layout(&root2, &[("pkg2", &["tags2"])]);
 
-        let inventory = scan_environment(&[tmp1.path().to_path_buf(), tmp2.path().to_path_buf()]);
+        let inventory = scan_environment(&[root1, root2]);
 
         assert!(inventory.has_library("tags1"));
         assert!(inventory.has_library("tags2"));
@@ -363,54 +384,60 @@ mod tests {
 
     #[test]
     fn libraries_for_unknown_name_returns_empty() {
-        let inventory = EnvironmentInventory::default();
+        let inventory = TemplateTagLibraries::default();
         assert!(inventory.libraries_for_name("nonexistent").is_empty());
     }
 
     #[test]
     fn scan_skips_non_py_files() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let root = tmp.path();
+        let (_tmp, root) = utf8_tmpdir();
 
         let pkg_dir = root.join("myapp");
-        std::fs::create_dir_all(&pkg_dir).unwrap();
-        std::fs::write(pkg_dir.join("__init__.py"), "").unwrap();
+        std::fs::create_dir_all(pkg_dir.as_std_path()).unwrap();
+        std::fs::write(pkg_dir.join("__init__.py").as_std_path(), "").unwrap();
 
         let tags_dir = pkg_dir.join("templatetags");
-        std::fs::create_dir_all(&tags_dir).unwrap();
-        std::fs::write(tags_dir.join("__init__.py"), "").unwrap();
-        std::fs::write(tags_dir.join("tags.py"), "# tag").unwrap();
-        std::fs::write(tags_dir.join("readme.txt"), "# readme").unwrap();
-        std::fs::write(tags_dir.join("data.json"), "{}").unwrap();
+        std::fs::create_dir_all(tags_dir.as_std_path()).unwrap();
+        std::fs::write(tags_dir.join("__init__.py").as_std_path(), "").unwrap();
+        std::fs::write(tags_dir.join("tags.py").as_std_path(), "# tag").unwrap();
+        std::fs::write(tags_dir.join("readme.txt").as_std_path(), "# readme").unwrap();
+        std::fs::write(tags_dir.join("data.json").as_std_path(), "{}").unwrap();
 
-        let inventory = scan_environment(&[root.to_path_buf()]);
+        let inventory = scan_environment(std::slice::from_ref(&root));
         assert_eq!(inventory.len(), 1);
         assert!(inventory.has_library("tags"));
     }
 
-    fn create_templatetags_with_source(root: &Path, package_path: &str, files: &[(&str, &str)]) {
+    fn create_templatetags_with_source(
+        root: &Utf8Path,
+        package_path: &str,
+        files: &[(&str, &str)],
+    ) {
         let parts: Vec<&str> = package_path.split('/').collect();
         let mut current = root.to_path_buf();
         for part in &parts {
             current.push(part);
-            std::fs::create_dir_all(&current).unwrap();
-            std::fs::write(current.join("__init__.py"), "").unwrap();
+            std::fs::create_dir_all(current.as_std_path()).unwrap();
+            std::fs::write(current.join("__init__.py").as_std_path(), "").unwrap();
         }
         let templatetags_dir = current.join("templatetags");
-        std::fs::create_dir_all(&templatetags_dir).unwrap();
-        std::fs::write(templatetags_dir.join("__init__.py"), "").unwrap();
+        std::fs::create_dir_all(templatetags_dir.as_std_path()).unwrap();
+        std::fs::write(templatetags_dir.join("__init__.py").as_std_path(), "").unwrap();
         for (name, source) in files {
-            std::fs::write(templatetags_dir.join(format!("{name}.py")), source).unwrap();
+            std::fs::write(
+                templatetags_dir.join(format!("{name}.py")).as_std_path(),
+                source,
+            )
+            .unwrap();
         }
     }
 
     #[test]
     fn scan_with_symbols_extracts_registrations() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let root = tmp.path();
+        let (_tmp, root) = utf8_tmpdir();
 
         create_templatetags_with_source(
-            root,
+            &root,
             "myapp",
             &[(
                 "custom",
@@ -433,7 +460,7 @@ def upper(value):
             )],
         );
 
-        let inventory = scan_environment_with_symbols(&[root.to_path_buf()]);
+        let inventory = scan_environment_with_symbols(std::slice::from_ref(&root));
         let libs = inventory.libraries_for_name("custom");
         assert_eq!(libs.len(), 1);
         assert_eq!(libs[0].tags, vec!["hello"]);
@@ -442,12 +469,15 @@ def upper(value):
 
     #[test]
     fn scan_with_symbols_parse_failure_still_discovers_library() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let root = tmp.path();
+        let (_tmp, root) = utf8_tmpdir();
 
-        create_templatetags_with_source(root, "myapp", &[("broken", "def {invalid python syntax")]);
+        create_templatetags_with_source(
+            &root,
+            "myapp",
+            &[("broken", "def {invalid python syntax")],
+        );
 
-        let inventory = scan_environment_with_symbols(&[root.to_path_buf()]);
+        let inventory = scan_environment_with_symbols(std::slice::from_ref(&root));
         assert!(inventory.has_library("broken"));
         let libs = inventory.libraries_for_name("broken");
         assert_eq!(libs.len(), 1);
@@ -457,11 +487,10 @@ def upper(value):
 
     #[test]
     fn scan_with_symbols_reverse_lookup_tags() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let root = tmp.path();
+        let (_tmp, root) = utf8_tmpdir();
 
         create_templatetags_with_source(
-            root,
+            &root,
             "django/contrib/humanize",
             &[(
                 "humanize",
@@ -484,7 +513,7 @@ def show_metric(name):
             )],
         );
 
-        let inventory = scan_environment_with_symbols(&[root.to_path_buf()]);
+        let inventory = scan_environment_with_symbols(std::slice::from_ref(&root));
         let tags_map = inventory.tags_by_name();
         let filters_map = inventory.filters_by_name();
 
@@ -503,8 +532,7 @@ def show_metric(name):
 
     #[test]
     fn scan_with_symbols_reverse_lookup_collision() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let root = tmp.path();
+        let (_tmp, root) = utf8_tmpdir();
 
         let tag_source = r#"
 from django import template
@@ -515,10 +543,10 @@ def render_widget():
     return ""
 "#;
 
-        create_templatetags_with_source(root, "pkg_a", &[("widgets", tag_source)]);
-        create_templatetags_with_source(root, "pkg_b", &[("widgets", tag_source)]);
+        create_templatetags_with_source(&root, "pkg_a", &[("widgets", tag_source)]);
+        create_templatetags_with_source(&root, "pkg_b", &[("widgets", tag_source)]);
 
-        let inventory = scan_environment_with_symbols(&[root.to_path_buf()]);
+        let inventory = scan_environment_with_symbols(std::slice::from_ref(&root));
         let tags_map = inventory.tags_by_name();
 
         let syms = &tags_map["render_widget"];
@@ -530,11 +558,10 @@ def render_widget():
 
     #[test]
     fn scan_without_symbols_has_empty_tags_filters() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let root = tmp.path();
+        let (_tmp, root) = utf8_tmpdir();
 
         create_templatetags_with_source(
-            root,
+            &root,
             "myapp",
             &[(
                 "custom",
@@ -549,7 +576,7 @@ def hello():
             )],
         );
 
-        let inventory = scan_environment(&[root.to_path_buf()]);
+        let inventory = scan_environment(std::slice::from_ref(&root));
         let libs = inventory.libraries_for_name("custom");
         assert_eq!(libs.len(), 1);
         assert!(libs[0].tags.is_empty());
@@ -558,12 +585,11 @@ def hello():
 
     #[test]
     fn scan_with_symbols_no_registrations() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let root = tmp.path();
+        let (_tmp, root) = utf8_tmpdir();
 
-        create_templatetags_with_source(root, "myapp", &[("utils", "def helper():\n    pass\n")]);
+        create_templatetags_with_source(&root, "myapp", &[("utils", "def helper():\n    pass\n")]);
 
-        let inventory = scan_environment_with_symbols(&[root.to_path_buf()]);
+        let inventory = scan_environment_with_symbols(std::slice::from_ref(&root));
         assert!(inventory.has_library("utils"));
         let libs = inventory.libraries_for_name("utils");
         assert!(libs[0].tags.is_empty());

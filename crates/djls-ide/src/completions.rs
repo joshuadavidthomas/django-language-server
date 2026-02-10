@@ -3,11 +3,11 @@
 //! This module handles all LSP completion requests, analyzing cursor context
 //! and generating appropriate completion items for Django templates.
 
-use djls_python::ExtractedArgKind;
 use djls_project::TemplateFilter;
 use djls_project::TemplateSymbol;
+use djls_project::TemplateSymbols;
 use djls_project::TemplateTag;
-use djls_project::TemplateTags;
+use djls_python::ExtractedArgKind;
 use djls_semantic::AvailableSymbols;
 use djls_semantic::TagSpecs;
 use djls_source::FileKind;
@@ -141,7 +141,7 @@ pub fn handle_completion(
     position: ls_types::Position,
     encoding: PositionEncoding,
     file_kind: FileKind,
-    template_tags: Option<&TemplateTags>,
+    template_tags: Option<&TemplateSymbols>,
     tag_specs: Option<&TagSpecs>,
     available_symbols: Option<&AvailableSymbols>,
     supports_snippets: bool,
@@ -413,7 +413,7 @@ fn detect_closing_brace(suffix: &str) -> ClosingBrace {
 #[allow(clippy::too_many_arguments)]
 fn generate_template_completions(
     context: &TemplateCompletionContext,
-    template_tags: Option<&TemplateTags>,
+    template_tags: Option<&TemplateSymbols>,
     tag_specs: Option<&TagSpecs>,
     available_symbols: Option<&AvailableSymbols>,
     supports_snippets: bool,
@@ -499,7 +499,7 @@ fn generate_tag_name_completions(
     partial: &str,
     needs_space: bool,
     closing: &ClosingBrace,
-    template_tags: Option<&TemplateTags>,
+    template_tags: Option<&TemplateSymbols>,
     tag_specs: Option<&TagSpecs>,
     available_symbols: Option<&AvailableSymbols>,
     supports_snippets: bool,
@@ -782,7 +782,7 @@ fn generate_argument_completions(
 fn generate_library_completions(
     partial: &str,
     closing: &ClosingBrace,
-    template_tags: Option<&TemplateTags>,
+    template_tags: Option<&TemplateSymbols>,
 ) -> Vec<ls_types::CompletionItem> {
     let Some(tags) = template_tags else {
         return Vec::new();
@@ -879,7 +879,7 @@ fn generate_completions<S: CompletableSymbol>(
 /// unavailable), shows all known filters as a fallback.
 fn generate_filter_completions(
     partial: &str,
-    template_tags: Option<&TemplateTags>,
+    template_tags: Option<&TemplateSymbols>,
     available_symbols: Option<&AvailableSymbols>,
 ) -> Vec<ls_types::CompletionItem> {
     let Some(tags) = template_tags else {
@@ -923,7 +923,7 @@ mod tests {
     fn build_template_tags(
         libraries: &HashMap<String, String>,
         builtins: &[String],
-    ) -> TemplateTags {
+    ) -> TemplateSymbols {
         let mut tags = Vec::new();
 
         for module in builtins {
@@ -1348,7 +1348,7 @@ mod tests {
 
     // Helper to build AvailableSymbols for testing load-scoped completions
     fn build_available_symbols(
-        inventory: &TemplateTags,
+        inventory: &TemplateSymbols,
         loaded_libs: &djls_semantic::LoadedLibraries,
         position: u32,
     ) -> AvailableSymbols {
@@ -1362,7 +1362,7 @@ mod tests {
         djls_semantic::LoadStatement::new(djls_source::Span::new(span.0, span.1), kind)
     }
 
-    fn build_test_inventory() -> TemplateTags {
+    fn build_test_inventory() -> TemplateSymbols {
         let mut libraries = HashMap::new();
         libraries.insert("i18n".to_string(), "django.templatetags.i18n".to_string());
         libraries.insert(
@@ -1599,7 +1599,7 @@ mod tests {
 
     // --- Filter completion tests ---
 
-    fn build_test_filter_inventory() -> TemplateTags {
+    fn build_test_filter_inventory() -> TemplateSymbols {
         let tags = vec![serde_json::json!({
             "name": "if",
             "provenance": {"builtin": {"module": "django.template.defaulttags"}},

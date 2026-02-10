@@ -1,4 +1,3 @@
-mod environment;
 mod types;
 
 #[cfg(test)]
@@ -24,9 +23,6 @@ mod signature;
 pub use blocks::extract_block_spec;
 #[cfg(feature = "parser")]
 pub use dataflow::analyze_compile_function;
-pub use environment::EnvironmentInventory;
-pub use environment::EnvironmentLibrary;
-pub use environment::EnvironmentSymbol;
 #[cfg(feature = "parser")]
 pub use filters::extract_filter_arity;
 #[cfg(feature = "parser")]
@@ -181,7 +177,13 @@ mod tests {
 
     impl From<ExtractionResult> for SortedExtractionResult {
         fn from(result: ExtractionResult) -> Self {
-            let key_str = |k: &SymbolKey| format!("{}::{}", k.registration_module, k.name);
+            let key_str = |k: &SymbolKey| {
+                let kind = match k.kind {
+                    SymbolKind::Tag => "tag",
+                    SymbolKind::Filter => "filter",
+                };
+                format!("{}::{kind}::{}", k.registration_module, k.name)
+            };
             Self {
                 tag_rules: result
                     .tag_rules

@@ -85,9 +85,9 @@ mod tests {
 
     use camino::Utf8Path;
     use camino::Utf8PathBuf;
+    use djls_project::TemplateSymbols;
     use djls_python::FilterArity;
     use djls_python::SymbolKey;
-    use djls_project::TemplateTags;
     use djls_source::Db as SourceDb;
     use djls_source::File;
     use djls_templates::parse_template;
@@ -107,13 +107,13 @@ mod tests {
     struct TestDatabase {
         storage: salsa::Storage<Self>,
         fs: Arc<Mutex<InMemoryFileSystem>>,
-        inventory: Option<TemplateTags>,
+        inventory: Option<TemplateSymbols>,
         arity_specs: FilterAritySpecs,
     }
 
     impl TestDatabase {
         fn with_inventory_and_arities(
-            inventory: TemplateTags,
+            inventory: TemplateSymbols,
             arity_specs: FilterAritySpecs,
         ) -> Self {
             Self {
@@ -171,7 +171,7 @@ mod tests {
             djls_conf::DiagnosticsConfig::default()
         }
 
-        fn inspector_inventory(&self) -> Option<TemplateTags> {
+        fn template_symbols(&self) -> Option<TemplateSymbols> {
             self.inventory.clone()
         }
 
@@ -179,7 +179,7 @@ mod tests {
             self.arity_specs.clone()
         }
 
-        fn environment_inventory(&self) -> Option<djls_python::EnvironmentInventory> {
+        fn template_tag_libraries(&self) -> Option<djls_project::TemplateTagLibraries> {
             None
         }
     }
@@ -216,7 +216,7 @@ mod tests {
         filters: &[serde_json::Value],
         libraries: &HashMap<String, String>,
         builtins: &[String],
-    ) -> TemplateTags {
+    ) -> TemplateSymbols {
         let payload = serde_json::json!({
             "tags": tags,
             "filters": filters,
@@ -234,7 +234,7 @@ mod tests {
         "django.template.defaultfilters"
     }
 
-    fn standard_inventory() -> TemplateTags {
+    fn standard_inventory() -> TemplateSymbols {
         let tags = vec![
             builtin_tag_json("if", default_builtins_module()),
             builtin_tag_json("for", default_builtins_module()),
@@ -901,7 +901,7 @@ mod tests {
             djls_conf::DiagnosticsConfig::default()
         }
 
-        fn inspector_inventory(&self) -> Option<TemplateTags> {
+        fn template_symbols(&self) -> Option<TemplateSymbols> {
             None
         }
 
@@ -909,7 +909,7 @@ mod tests {
             self.arity_specs.clone()
         }
 
-        fn environment_inventory(&self) -> Option<djls_python::EnvironmentInventory> {
+        fn template_tag_libraries(&self) -> Option<djls_project::TemplateTagLibraries> {
             None
         }
     }

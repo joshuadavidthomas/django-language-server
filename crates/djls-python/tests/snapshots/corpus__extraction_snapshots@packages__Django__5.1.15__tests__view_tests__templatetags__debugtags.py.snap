@@ -4,7 +4,7 @@ expression: snapshot(result)
 input_file: crates/djls-corpus/.corpus/packages/Django/5.1.15/tests/view_tests/templatetags/debugtags.py
 ---
 tag_rules:
-  "tests.view_tests.templatetags.debugtags::go_boom":
+  "tests.view_tests.templatetags.debugtags::tag::go_boom":
     arg_constraints:
       - Max: 1
     required_keywords: []

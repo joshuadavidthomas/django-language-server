@@ -6,7 +6,7 @@ input_file: crates/djls-corpus/.corpus/packages/Django/6.0.2/tests/template_test
 tag_rules: {}
 filter_arities: {}
 block_specs:
-  "tests.template_tests.templatetags.tag_27584::badtag":
+  "tests.template_tests.templatetags.tag_27584::tag::badtag":
     end_tag: endbadtag
     intermediates: []
     opaque: false

@@ -4,7 +4,7 @@ expression: snapshot(result)
 input_file: crates/djls-corpus/.corpus/repos/getsentry-sentry/f96e0f2de81f9d5b95614393be420f3107604220/src/sentry/templatetags/sentry_trace.py
 ---
 tag_rules:
-  "src.sentry.templatetags.sentry_trace::get_sentry_baggage":
+  "src.sentry.templatetags.sentry_trace::tag::get_sentry_baggage":
     arg_constraints:
       - Max: 1
     required_keywords: []
@@ -12,7 +12,7 @@ tag_rules:
     known_options: ~
     extracted_args: []
     supports_as_var: true
-  "src.sentry.templatetags.sentry_trace::get_sentry_trace":
+  "src.sentry.templatetags.sentry_trace::tag::get_sentry_trace":
     arg_constraints:
       - Max: 1
     required_keywords: []

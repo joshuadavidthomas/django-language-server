@@ -4,7 +4,7 @@ expression: snapshot(result)
 input_file: crates/djls-corpus/.corpus/packages/Django/6.0.2/django/contrib/admin/templatetags/admin_urls.py
 ---
 tag_rules:
-  "django.contrib.admin.templatetags.admin_urls::add_preserved_filters":
+  "django.contrib.admin.templatetags.admin_urls::tag::add_preserved_filters":
     arg_constraints:
       - Min: 2
       - Max: 4
@@ -26,10 +26,10 @@ tag_rules:
         position: 2
     supports_as_var: true
 filter_arities:
-  "django.contrib.admin.templatetags.admin_urls::admin_urlname":
+  "django.contrib.admin.templatetags.admin_urls::filter::admin_urlname":
     expects_arg: true
     arg_optional: false
-  "django.contrib.admin.templatetags.admin_urls::admin_urlquote":
+  "django.contrib.admin.templatetags.admin_urls::filter::admin_urlquote":
     expects_arg: false
     arg_optional: false
 block_specs: {}

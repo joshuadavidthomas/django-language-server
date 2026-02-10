@@ -103,8 +103,8 @@ impl Session {
         &mut self.db
     }
 
-    pub fn set_settings(&mut self, settings: Settings) {
-        self.db.set_settings(settings);
+    pub fn set_settings(&mut self, settings: Settings) -> bool {
+        self.db.set_settings(settings)
     }
 
     /// Get the current project for this session

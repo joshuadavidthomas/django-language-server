@@ -4,7 +4,7 @@ expression: snapshot(result)
 input_file: crates/djls-corpus/.corpus/packages/Django/4.2.28/django/template/defaulttags.py
 ---
 tag_rules:
-  "django.template.defaulttags::autoescape":
+  "django.template.defaulttags::tag::autoescape":
     arg_constraints:
       - Exact: 2
     required_keywords: []
@@ -21,7 +21,7 @@ tag_rules:
         kind: Variable
         position: 0
     supports_as_var: false
-  "django.template.defaulttags::cycle":
+  "django.template.defaulttags::tag::cycle":
     arg_constraints:
       - Min: 2
     required_keywords: []
@@ -33,7 +33,7 @@ tag_rules:
         kind: Variable
         position: 0
     supports_as_var: false
-  "django.template.defaulttags::for":
+  "django.template.defaulttags::tag::for":
     arg_constraints:
       - Min: 4
     required_keywords: []
@@ -53,7 +53,7 @@ tag_rules:
         kind: Variable
         position: 2
     supports_as_var: false
-  "django.template.defaulttags::lorem":
+  "django.template.defaulttags::tag::lorem":
     arg_constraints:
       - Exact: 4
     required_keywords: []
@@ -73,7 +73,7 @@ tag_rules:
         kind: Variable
         position: 2
     supports_as_var: false
-  "django.template.defaulttags::now":
+  "django.template.defaulttags::tag::now":
     arg_constraints:
       - Exact: 2
     required_keywords: []
@@ -85,7 +85,7 @@ tag_rules:
         kind: Variable
         position: 0
     supports_as_var: false
-  "django.template.defaulttags::regroup":
+  "django.template.defaulttags::tag::regroup":
     arg_constraints:
       - Exact: 6
     required_keywords:
@@ -121,7 +121,7 @@ tag_rules:
         kind: Variable
         position: 4
     supports_as_var: false
-  "django.template.defaulttags::resetcycle":
+  "django.template.defaulttags::tag::resetcycle":
     arg_constraints:
       - Max: 2
     required_keywords: []
@@ -133,7 +133,7 @@ tag_rules:
         kind: Variable
         position: 0
     supports_as_var: false
-  "django.template.defaulttags::templatetag":
+  "django.template.defaulttags::tag::templatetag":
     arg_constraints:
       - Exact: 2
     required_keywords: []
@@ -145,7 +145,7 @@ tag_rules:
         kind: Variable
         position: 0
     supports_as_var: false
-  "django.template.defaulttags::url":
+  "django.template.defaulttags::tag::url":
     arg_constraints:
       - Min: 2
     required_keywords: []
@@ -157,7 +157,7 @@ tag_rules:
         kind: Variable
         position: 0
     supports_as_var: false
-  "django.template.defaulttags::widthratio":
+  "django.template.defaulttags::tag::widthratio":
     arg_constraints: []
     required_keywords:
       - position:
@@ -190,43 +190,43 @@ tag_rules:
     supports_as_var: false
 filter_arities: {}
 block_specs:
-  "django.template.defaulttags::autoescape":
+  "django.template.defaulttags::tag::autoescape":
     end_tag: endautoescape
     intermediates: []
     opaque: false
-  "django.template.defaulttags::comment":
+  "django.template.defaulttags::tag::comment":
     end_tag: endcomment
     intermediates: []
     opaque: true
-  "django.template.defaulttags::filter":
+  "django.template.defaulttags::tag::filter":
     end_tag: endfilter
     intermediates: []
     opaque: false
-  "django.template.defaulttags::for":
+  "django.template.defaulttags::tag::for":
     end_tag: endfor
     intermediates:
       - empty
     opaque: false
-  "django.template.defaulttags::if":
+  "django.template.defaulttags::tag::if":
     end_tag: endif
     intermediates:
       - elif
       - else
     opaque: false
-  "django.template.defaulttags::ifchanged":
+  "django.template.defaulttags::tag::ifchanged":
     end_tag: endifchanged
     intermediates:
       - else
     opaque: false
-  "django.template.defaulttags::spaceless":
+  "django.template.defaulttags::tag::spaceless":
     end_tag: endspaceless
     intermediates: []
     opaque: false
-  "django.template.defaulttags::verbatim":
+  "django.template.defaulttags::tag::verbatim":
     end_tag: endverbatim
     intermediates: []
     opaque: false
-  "django.template.defaulttags::with":
+  "django.template.defaulttags::tag::with":
     end_tag: endwith
     intermediates: []
     opaque: false

@@ -4,7 +4,7 @@ expression: snapshot(result)
 input_file: crates/djls-corpus/.corpus/packages/Django/6.0.2/tests/template_tests/templatetags/inclusion.py
 ---
 tag_rules:
-  "tests.template_tests.templatetags.inclusion::inclusion_explicit_no_context":
+  "tests.template_tests.templatetags.inclusion::tag::inclusion_explicit_no_context":
     arg_constraints:
       - Min: 2
       - Max: 2
@@ -17,7 +17,7 @@ tag_rules:
         kind: Variable
         position: 0
     supports_as_var: false
-  "tests.template_tests.templatetags.inclusion::inclusion_explicit_no_context_from_template":
+  "tests.template_tests.templatetags.inclusion::tag::inclusion_explicit_no_context_from_template":
     arg_constraints:
       - Min: 2
       - Max: 2
@@ -30,7 +30,7 @@ tag_rules:
         kind: Variable
         position: 0
     supports_as_var: false
-  "tests.template_tests.templatetags.inclusion::inclusion_extends1":
+  "tests.template_tests.templatetags.inclusion::tag::inclusion_extends1":
     arg_constraints:
       - Max: 1
     required_keywords: []
@@ -38,7 +38,7 @@ tag_rules:
     known_options: ~
     extracted_args: []
     supports_as_var: false
-  "tests.template_tests.templatetags.inclusion::inclusion_extends2":
+  "tests.template_tests.templatetags.inclusion::tag::inclusion_extends2":
     arg_constraints:
       - Max: 1
     required_keywords: []
@@ -46,7 +46,7 @@ tag_rules:
     known_options: ~
     extracted_args: []
     supports_as_var: false
-  "tests.template_tests.templatetags.inclusion::inclusion_keyword_only_default":
+  "tests.template_tests.templatetags.inclusion::tag::inclusion_keyword_only_default":
     arg_constraints:
       - Max: 2
     required_keywords: []
@@ -58,7 +58,7 @@ tag_rules:
         kind: Keyword
         position: 0
     supports_as_var: false
-  "tests.template_tests.templatetags.inclusion::inclusion_no_params":
+  "tests.template_tests.templatetags.inclusion::tag::inclusion_no_params":
     arg_constraints:
       - Max: 1
     required_keywords: []
@@ -66,7 +66,7 @@ tag_rules:
     known_options: ~
     extracted_args: []
     supports_as_var: false
-  "tests.template_tests.templatetags.inclusion::inclusion_no_params_from_template":
+  "tests.template_tests.templatetags.inclusion::tag::inclusion_no_params_from_template":
     arg_constraints:
       - Max: 1
     required_keywords: []
@@ -74,7 +74,7 @@ tag_rules:
     known_options: ~
     extracted_args: []
     supports_as_var: false
-  "tests.template_tests.templatetags.inclusion::inclusion_no_params_with_context":
+  "tests.template_tests.templatetags.inclusion::tag::inclusion_no_params_with_context":
     arg_constraints:
       - Max: 1
     required_keywords: []
@@ -82,7 +82,7 @@ tag_rules:
     known_options: ~
     extracted_args: []
     supports_as_var: false
-  "tests.template_tests.templatetags.inclusion::inclusion_no_params_with_context_from_template":
+  "tests.template_tests.templatetags.inclusion::tag::inclusion_no_params_with_context_from_template":
     arg_constraints:
       - Max: 1
     required_keywords: []
@@ -90,7 +90,7 @@ tag_rules:
     known_options: ~
     extracted_args: []
     supports_as_var: false
-  "tests.template_tests.templatetags.inclusion::inclusion_one_default":
+  "tests.template_tests.templatetags.inclusion::tag::inclusion_one_default":
     arg_constraints:
       - Min: 2
       - Max: 3
@@ -107,7 +107,7 @@ tag_rules:
         kind: Variable
         position: 1
     supports_as_var: false
-  "tests.template_tests.templatetags.inclusion::inclusion_one_default_from_template":
+  "tests.template_tests.templatetags.inclusion::tag::inclusion_one_default_from_template":
     arg_constraints:
       - Min: 2
       - Max: 3
@@ -124,7 +124,7 @@ tag_rules:
         kind: Variable
         position: 1
     supports_as_var: false
-  "tests.template_tests.templatetags.inclusion::inclusion_one_param":
+  "tests.template_tests.templatetags.inclusion::tag::inclusion_one_param":
     arg_constraints:
       - Min: 2
       - Max: 2
@@ -137,7 +137,7 @@ tag_rules:
         kind: Variable
         position: 0
     supports_as_var: false
-  "tests.template_tests.templatetags.inclusion::inclusion_one_param_from_template":
+  "tests.template_tests.templatetags.inclusion::tag::inclusion_one_param_from_template":
     arg_constraints:
       - Min: 2
       - Max: 2
@@ -150,7 +150,7 @@ tag_rules:
         kind: Variable
         position: 0
     supports_as_var: false
-  "tests.template_tests.templatetags.inclusion::inclusion_only_unlimited_args":
+  "tests.template_tests.templatetags.inclusion::tag::inclusion_only_unlimited_args":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -161,7 +161,7 @@ tag_rules:
         kind: VarArgs
         position: 0
     supports_as_var: false
-  "tests.template_tests.templatetags.inclusion::inclusion_only_unlimited_args_from_template":
+  "tests.template_tests.templatetags.inclusion::tag::inclusion_only_unlimited_args_from_template":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -172,7 +172,7 @@ tag_rules:
         kind: VarArgs
         position: 0
     supports_as_var: false
-  "tests.template_tests.templatetags.inclusion::inclusion_params_and_context":
+  "tests.template_tests.templatetags.inclusion::tag::inclusion_params_and_context":
     arg_constraints:
       - Min: 2
       - Max: 2
@@ -185,7 +185,7 @@ tag_rules:
         kind: Variable
         position: 0
     supports_as_var: false
-  "tests.template_tests.templatetags.inclusion::inclusion_params_and_context_from_template":
+  "tests.template_tests.templatetags.inclusion::tag::inclusion_params_and_context_from_template":
     arg_constraints:
       - Min: 2
       - Max: 2
@@ -198,7 +198,7 @@ tag_rules:
         kind: Variable
         position: 0
     supports_as_var: false
-  "tests.template_tests.templatetags.inclusion::inclusion_tag_takes_context_without_params":
+  "tests.template_tests.templatetags.inclusion::tag::inclusion_tag_takes_context_without_params":
     arg_constraints:
       - Max: 1
     required_keywords: []
@@ -206,7 +206,7 @@ tag_rules:
     known_options: ~
     extracted_args: []
     supports_as_var: false
-  "tests.template_tests.templatetags.inclusion::inclusion_tag_use_l10n":
+  "tests.template_tests.templatetags.inclusion::tag::inclusion_tag_use_l10n":
     arg_constraints:
       - Max: 1
     required_keywords: []
@@ -214,7 +214,7 @@ tag_rules:
     known_options: ~
     extracted_args: []
     supports_as_var: false
-  "tests.template_tests.templatetags.inclusion::inclusion_tag_without_context_parameter":
+  "tests.template_tests.templatetags.inclusion::tag::inclusion_tag_without_context_parameter":
     arg_constraints:
       - Max: 1
     required_keywords: []
@@ -222,7 +222,7 @@ tag_rules:
     known_options: ~
     extracted_args: []
     supports_as_var: false
-  "tests.template_tests.templatetags.inclusion::inclusion_two_params":
+  "tests.template_tests.templatetags.inclusion::tag::inclusion_two_params":
     arg_constraints:
       - Min: 3
       - Max: 3
@@ -239,7 +239,7 @@ tag_rules:
         kind: Variable
         position: 1
     supports_as_var: false
-  "tests.template_tests.templatetags.inclusion::inclusion_two_params_from_template":
+  "tests.template_tests.templatetags.inclusion::tag::inclusion_two_params_from_template":
     arg_constraints:
       - Min: 3
       - Max: 3
@@ -256,7 +256,7 @@ tag_rules:
         kind: Variable
         position: 1
     supports_as_var: false
-  "tests.template_tests.templatetags.inclusion::inclusion_unlimited_args":
+  "tests.template_tests.templatetags.inclusion::tag::inclusion_unlimited_args":
     arg_constraints:
       - Min: 2
     required_keywords: []
@@ -276,7 +276,7 @@ tag_rules:
         kind: VarArgs
         position: 2
     supports_as_var: false
-  "tests.template_tests.templatetags.inclusion::inclusion_unlimited_args_from_template":
+  "tests.template_tests.templatetags.inclusion::tag::inclusion_unlimited_args_from_template":
     arg_constraints:
       - Min: 2
     required_keywords: []
@@ -296,7 +296,7 @@ tag_rules:
         kind: VarArgs
         position: 2
     supports_as_var: false
-  "tests.template_tests.templatetags.inclusion::inclusion_unlimited_args_kwargs":
+  "tests.template_tests.templatetags.inclusion::tag::inclusion_unlimited_args_kwargs":
     arg_constraints:
       - Min: 2
     required_keywords: []

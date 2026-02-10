@@ -4,7 +4,7 @@ expression: snapshot(result)
 input_file: crates/djls-corpus/.corpus/packages/Django/5.1.15/django/templatetags/tz.py
 ---
 tag_rules:
-  "django.templatetags.tz::get_current_timezone":
+  "django.templatetags.tz::tag::get_current_timezone":
     arg_constraints:
       - Exact: 3
     required_keywords:
@@ -24,7 +24,7 @@ tag_rules:
         kind: Variable
         position: 1
     supports_as_var: false
-  "django.templatetags.tz::localtime":
+  "django.templatetags.tz::tag::localtime":
     arg_constraints:
       - Max: 2
     required_keywords: []
@@ -41,7 +41,7 @@ tag_rules:
         kind: Variable
         position: 0
     supports_as_var: false
-  "django.templatetags.tz::timezone":
+  "django.templatetags.tz::tag::timezone":
     arg_constraints:
       - Exact: 2
     required_keywords: []
@@ -54,21 +54,21 @@ tag_rules:
         position: 0
     supports_as_var: false
 filter_arities:
-  "django.templatetags.tz::localtime":
+  "django.templatetags.tz::filter::localtime":
     expects_arg: false
     arg_optional: false
-  "django.templatetags.tz::timezone":
+  "django.templatetags.tz::filter::timezone":
     expects_arg: true
     arg_optional: false
-  "django.templatetags.tz::utc":
+  "django.templatetags.tz::filter::utc":
     expects_arg: false
     arg_optional: false
 block_specs:
-  "django.templatetags.tz::localtime":
+  "django.templatetags.tz::tag::localtime":
     end_tag: endlocaltime
     intermediates: []
     opaque: false
-  "django.templatetags.tz::timezone":
+  "django.templatetags.tz::tag::timezone":
     end_tag: endtimezone
     intermediates: []
     opaque: false

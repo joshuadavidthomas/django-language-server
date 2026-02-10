@@ -4,7 +4,7 @@ expression: snapshot(result)
 input_file: crates/djls-corpus/.corpus/packages/wagtail/7.3/wagtail/images/templatetags/wagtailimages_tags.py
 ---
 tag_rules:
-  "wagtail.images.templatetags.wagtailimages_tags::image_url":
+  "wagtail.images.templatetags.wagtailimages_tags::tag::image_url":
     arg_constraints:
       - Min: 3
       - Max: 4

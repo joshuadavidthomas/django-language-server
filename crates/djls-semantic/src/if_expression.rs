@@ -513,7 +513,7 @@ mod tests {
             djls_conf::DiagnosticsConfig::default()
         }
 
-        fn inspector_inventory(&self) -> Option<djls_project::TemplateTags> {
+        fn template_symbols(&self) -> Option<djls_project::TemplateSymbols> {
             None
         }
 
@@ -521,7 +521,7 @@ mod tests {
             crate::filters::arity::FilterAritySpecs::new()
         }
 
-        fn environment_inventory(&self) -> Option<djls_python::EnvironmentInventory> {
+        fn template_tag_libraries(&self) -> Option<djls_project::TemplateTagLibraries> {
             None
         }
     }

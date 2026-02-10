@@ -4,7 +4,7 @@ expression: snapshot(result)
 input_file: crates/djls-corpus/.corpus/repos/getsentry-sentry/f96e0f2de81f9d5b95614393be420f3107604220/src/sentry/templatetags/sentry_platforms.py
 ---
 tag_rules:
-  "src.sentry.templatetags.sentry_platforms::letter_platform_svg":
+  "src.sentry.templatetags.sentry_platforms::tag::letter_platform_svg":
     arg_constraints:
       - Min: 3
       - Max: 5
@@ -29,7 +29,7 @@ tag_rules:
         kind: Variable
         position: 3
     supports_as_var: true
-  "src.sentry.templatetags.sentry_platforms::platform_avatar":
+  "src.sentry.templatetags.sentry_platforms::tag::platform_avatar":
     arg_constraints:
       - Min: 2
       - Max: 3

@@ -89,7 +89,7 @@ impl SemanticDb for Db {
         djls_conf::DiagnosticsConfig::default()
     }
 
-    fn inspector_inventory(&self) -> Option<djls_project::TemplateTags> {
+    fn template_symbols(&self) -> Option<djls_project::TemplateSymbols> {
         None
     }
 
@@ -97,7 +97,7 @@ impl SemanticDb for Db {
         djls_semantic::FilterAritySpecs::new()
     }
 
-    fn environment_inventory(&self) -> Option<djls_python::EnvironmentInventory> {
+    fn template_tag_libraries(&self) -> Option<djls_project::TemplateTagLibraries> {
         None
     }
 }

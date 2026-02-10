@@ -4,7 +4,7 @@ expression: snapshot(result)
 input_file: crates/djls-corpus/.corpus/repos/netbox-community-netbox/ee6cbdcefe1c522d718e880ea3f955e7683f2b9b/netbox/extras/templatetags/log_levels.py
 ---
 tag_rules:
-  "netbox.extras.templatetags.log_levels::log_level":
+  "netbox.extras.templatetags.log_levels::tag::log_level":
     arg_constraints:
       - Min: 2
       - Max: 2

@@ -1,7 +1,7 @@
 use camino::Utf8PathBuf;
 use djls_conf::DiagnosticsConfig;
-use djls_python::EnvironmentInventory;
-use djls_project::TemplateTags;
+use djls_project::TemplateSymbols;
+use djls_project::TemplateTagLibraries;
 use djls_templates::Db as TemplateDb;
 
 use crate::blocks::TagIndex;
@@ -21,11 +21,11 @@ pub trait Db: TemplateDb {
     /// Get the diagnostics configuration
     fn diagnostics_config(&self) -> DiagnosticsConfig;
 
-    /// Get the inspector inventory (template tags from the Python inspector).
+    /// Get template symbols from the Python inspector (tags, filters, libraries, builtins).
     ///
     /// Returns `None` when the inspector is unavailable or hasn't been queried yet.
     /// When `None`, load-scoping diagnostics (S108/S109/S110) are suppressed entirely.
-    fn inspector_inventory(&self) -> Option<TemplateTags>;
+    fn template_symbols(&self) -> Option<TemplateSymbols>;
 
     /// Get the filter arity specifications for filter argument validation.
     ///
@@ -33,11 +33,11 @@ pub trait Db: TemplateDb {
     /// data is available.
     fn filter_arity_specs(&self) -> FilterAritySpecs;
 
-    /// Get the environment inventory from scanning `sys.path` for templatetag modules.
+    /// Get template-tag libraries discovered by scanning `sys.path`.
     ///
     /// Returns `None` when the environment hasn't been scanned yet.
     /// Used for three-layer resolution (environment → `INSTALLED_APPS` → load).
-    fn environment_inventory(&self) -> Option<EnvironmentInventory>;
+    fn template_tag_libraries(&self) -> Option<TemplateTagLibraries>;
 }
 
 #[salsa::accumulator]

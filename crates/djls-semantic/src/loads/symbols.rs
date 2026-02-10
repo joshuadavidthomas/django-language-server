@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 
 use djls_project::TagProvenance;
 use djls_project::TemplateSymbol;
-use djls_project::TemplateTags;
+use djls_project::TemplateSymbols;
 
 use super::load::LoadState;
 use super::LoadedLibraries;
@@ -43,7 +43,7 @@ pub enum FilterAvailability {
 /// The set of tags and filters available at a given position in a template,
 /// plus a mapping of unavailable-but-known symbols to their required library/libraries.
 ///
-/// Constructed from `LoadedLibraries`, inspector inventory (`TemplateTags`),
+/// Constructed from `LoadedLibraries`, inspector symbols (`TemplateSymbols`),
 /// and a byte position in the template.
 #[derive(Clone, Debug)]
 pub struct AvailableSymbols {
@@ -64,7 +64,7 @@ impl AvailableSymbols {
     #[must_use]
     pub fn at_position(
         loaded_libraries: &LoadedLibraries,
-        inventory: &TemplateTags,
+        inventory: &TemplateSymbols,
         position: u32,
     ) -> Self {
         let load_state = loaded_libraries.available_at(position);
@@ -73,7 +73,7 @@ impl AvailableSymbols {
 
     /// Build available symbols from a pre-computed `LoadState` and inspector inventory.
     #[must_use]
-    pub fn from_load_state(load_state: &LoadState, inventory: &TemplateTags) -> Self {
+    pub fn from_load_state(load_state: &LoadState, inventory: &TemplateSymbols) -> Self {
         let mut available = BTreeSet::new();
         let mut candidates: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
 
@@ -282,7 +282,7 @@ mod tests {
         tags: &[serde_json::Value],
         libraries: &HashMap<String, String>,
         builtins: &[String],
-    ) -> TemplateTags {
+    ) -> TemplateSymbols {
         make_inventory_with_filters(tags, &[], libraries, builtins)
     }
 
@@ -291,7 +291,7 @@ mod tests {
         filters: &[serde_json::Value],
         libraries: &HashMap<String, String>,
         builtins: &[String],
-    ) -> TemplateTags {
+    ) -> TemplateSymbols {
         let payload = serde_json::json!({
             "tags": tags,
             "filters": filters,
@@ -305,7 +305,7 @@ mod tests {
         LoadStatement::new(Span::new(span.0, span.1), kind)
     }
 
-    fn test_inventory() -> TemplateTags {
+    fn test_inventory() -> TemplateSymbols {
         let tags = vec![
             builtin_tag_json("if", "django.template.defaulttags"),
             builtin_tag_json("for", "django.template.defaulttags"),
@@ -640,7 +640,7 @@ mod tests {
 
     // --- Filter availability tests ---
 
-    fn test_inventory_with_filters() -> TemplateTags {
+    fn test_inventory_with_filters() -> TemplateSymbols {
         let tags = vec![builtin_tag_json("if", "django.template.defaulttags")];
         let filters = vec![
             builtin_filter_json("title", "django.template.defaultfilters"),

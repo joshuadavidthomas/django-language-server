@@ -274,10 +274,7 @@ impl Drop for InspectorInner {
     }
 }
 
-const INSPECTOR_PYZ: &[u8] = include_bytes!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/dist/djls_inspector.pyz"
-));
+const INSPECTOR_PYZ: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/djls_inspector.pyz"));
 
 struct InspectorFile(NamedTempFile);
 

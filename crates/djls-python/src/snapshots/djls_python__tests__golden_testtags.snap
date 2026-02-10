@@ -4,7 +4,7 @@ expression: "snapshot(extract_rules(&source, \"tests.template_tests.templatetags
 ---
 tag_rules: {}
 filter_arities:
-  "tests.template_tests.templatetags.testtags::upper":
+  "tests.template_tests.templatetags.testtags::filter::upper":
     expects_arg: false
     arg_optional: false
 block_specs: {}

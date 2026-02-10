@@ -4,7 +4,7 @@ expression: snapshot(result)
 input_file: crates/djls-corpus/.corpus/packages/django-allauth/0.63.3/allauth/socialaccount/templatetags/socialaccount.py
 ---
 tag_rules:
-  "allauth.socialaccount.templatetags.socialaccount::get_providers":
+  "allauth.socialaccount.templatetags.socialaccount::tag::get_providers":
     arg_constraints:
       - Max: 1
     required_keywords: []
@@ -12,7 +12,7 @@ tag_rules:
     known_options: ~
     extracted_args: []
     supports_as_var: true
-  "allauth.socialaccount.templatetags.socialaccount::get_social_accounts":
+  "allauth.socialaccount.templatetags.socialaccount::tag::get_social_accounts":
     arg_constraints:
       - Min: 2
       - Max: 2
@@ -25,7 +25,7 @@ tag_rules:
         kind: Variable
         position: 0
     supports_as_var: true
-  "allauth.socialaccount.templatetags.socialaccount::provider_login_url":
+  "allauth.socialaccount.templatetags.socialaccount::tag::provider_login_url":
     arg_constraints:
       - Min: 2
     required_keywords: []
@@ -37,7 +37,7 @@ tag_rules:
         kind: Variable
         position: 0
     supports_as_var: true
-  "allauth.socialaccount.templatetags.socialaccount::providers_media_js":
+  "allauth.socialaccount.templatetags.socialaccount::tag::providers_media_js":
     arg_constraints:
       - Max: 1
     required_keywords: []

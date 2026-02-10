@@ -4,7 +4,7 @@ expression: snapshot(result)
 input_file: crates/djls-corpus/.corpus/packages/Django/6.0.2/django/contrib/admin/templatetags/admin_list.py
 ---
 tag_rules:
-  "django.contrib.admin.templatetags.admin_list::admin_list_filter":
+  "django.contrib.admin.templatetags.admin_list::tag::admin_list_filter":
     arg_constraints:
       - Min: 3
       - Max: 3
@@ -21,7 +21,7 @@ tag_rules:
         kind: Variable
         position: 1
     supports_as_var: true
-  "django.contrib.admin.templatetags.admin_list::paginator_number":
+  "django.contrib.admin.templatetags.admin_list::tag::paginator_number":
     arg_constraints:
       - Min: 3
       - Max: 3

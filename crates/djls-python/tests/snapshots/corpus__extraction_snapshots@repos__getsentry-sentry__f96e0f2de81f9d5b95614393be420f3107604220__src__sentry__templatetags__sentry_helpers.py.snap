@@ -4,7 +4,7 @@ expression: snapshot(result)
 input_file: crates/djls-corpus/.corpus/repos/getsentry-sentry/f96e0f2de81f9d5b95614393be420f3107604220/src/sentry/templatetags/sentry_helpers.py
 ---
 tag_rules:
-  "src.sentry.templatetags.sentry_helpers::get_sentry_version":
+  "src.sentry.templatetags.sentry_helpers::tag::get_sentry_version":
     arg_constraints:
       - Max: 1
     required_keywords: []
@@ -12,7 +12,7 @@ tag_rules:
     known_options: ~
     extracted_args: []
     supports_as_var: true
-  "src.sentry.templatetags.sentry_helpers::loading_message":
+  "src.sentry.templatetags.sentry_helpers::tag::loading_message":
     arg_constraints:
       - Max: 1
     required_keywords: []
@@ -20,7 +20,7 @@ tag_rules:
     known_options: ~
     extracted_args: []
     supports_as_var: true
-  "src.sentry.templatetags.sentry_helpers::org_url":
+  "src.sentry.templatetags.sentry_helpers::tag::org_url":
     arg_constraints:
       - Min: 3
       - Max: 5
@@ -45,7 +45,7 @@ tag_rules:
         kind: Variable
         position: 3
     supports_as_var: true
-  "src.sentry.templatetags.sentry_helpers::percent":
+  "src.sentry.templatetags.sentry_helpers::tag::percent":
     arg_constraints:
       - Min: 3
       - Max: 4
@@ -66,7 +66,7 @@ tag_rules:
         kind: Variable
         position: 2
     supports_as_var: true
-  "src.sentry.templatetags.sentry_helpers::random_int":
+  "src.sentry.templatetags.sentry_helpers::tag::random_int":
     arg_constraints:
       - Min: 2
       - Max: 3
@@ -83,7 +83,7 @@ tag_rules:
         kind: Variable
         position: 1
     supports_as_var: true
-  "src.sentry.templatetags.sentry_helpers::security_contact":
+  "src.sentry.templatetags.sentry_helpers::tag::security_contact":
     arg_constraints:
       - Max: 1
     required_keywords: []
@@ -91,7 +91,7 @@ tag_rules:
     known_options: ~
     extracted_args: []
     supports_as_var: true
-  "src.sentry.templatetags.sentry_helpers::serialize":
+  "src.sentry.templatetags.sentry_helpers::tag::serialize":
     arg_constraints:
       - Min: 2
       - Max: 2
@@ -104,7 +104,7 @@ tag_rules:
         kind: Variable
         position: 0
     supports_as_var: true
-  "src.sentry.templatetags.sentry_helpers::system_origin":
+  "src.sentry.templatetags.sentry_helpers::tag::system_origin":
     arg_constraints:
       - Max: 1
     required_keywords: []
@@ -113,55 +113,55 @@ tag_rules:
     extracted_args: []
     supports_as_var: true
 filter_arities:
-  "src.sentry.templatetags.sentry_helpers::absolute_value":
+  "src.sentry.templatetags.sentry_helpers::filter::absolute_value":
     expects_arg: false
     arg_optional: false
-  "src.sentry.templatetags.sentry_helpers::as_sorted":
+  "src.sentry.templatetags.sentry_helpers::filter::as_sorted":
     expects_arg: false
     arg_optional: false
-  "src.sentry.templatetags.sentry_helpers::as_tag_alias":
+  "src.sentry.templatetags.sentry_helpers::filter::as_tag_alias":
     expects_arg: false
     arg_optional: false
-  "src.sentry.templatetags.sentry_helpers::basename":
+  "src.sentry.templatetags.sentry_helpers::filter::basename":
     expects_arg: false
     arg_optional: false
-  "src.sentry.templatetags.sentry_helpers::date":
+  "src.sentry.templatetags.sentry_helpers::filter::date":
     expects_arg: true
     arg_optional: true
-  "src.sentry.templatetags.sentry_helpers::duration":
+  "src.sentry.templatetags.sentry_helpers::filter::duration":
     expects_arg: false
     arg_optional: false
-  "src.sentry.templatetags.sentry_helpers::get_item":
+  "src.sentry.templatetags.sentry_helpers::filter::get_item":
     expects_arg: true
     arg_optional: false
-  "src.sentry.templatetags.sentry_helpers::is_url":
+  "src.sentry.templatetags.sentry_helpers::filter::is_url":
     expects_arg: false
     arg_optional: false
-  "src.sentry.templatetags.sentry_helpers::multiply":
+  "src.sentry.templatetags.sentry_helpers::filter::multiply":
     expects_arg: true
     arg_optional: false
-  "src.sentry.templatetags.sentry_helpers::sanitize_periods":
+  "src.sentry.templatetags.sentry_helpers::filter::sanitize_periods":
     expects_arg: false
     arg_optional: false
-  "src.sentry.templatetags.sentry_helpers::small_count":
+  "src.sentry.templatetags.sentry_helpers::filter::small_count":
     expects_arg: true
     arg_optional: true
-  "src.sentry.templatetags.sentry_helpers::soft_break":
+  "src.sentry.templatetags.sentry_helpers::filter::soft_break":
     expects_arg: true
     arg_optional: false
-  "src.sentry.templatetags.sentry_helpers::split":
+  "src.sentry.templatetags.sentry_helpers::filter::split":
     expects_arg: true
     arg_optional: true
-  "src.sentry.templatetags.sentry_helpers::timesince":
+  "src.sentry.templatetags.sentry_helpers::filter::timesince":
     expects_arg: true
     arg_optional: true
-  "src.sentry.templatetags.sentry_helpers::titleize":
+  "src.sentry.templatetags.sentry_helpers::filter::titleize":
     expects_arg: false
     arg_optional: false
-  "src.sentry.templatetags.sentry_helpers::to_json":
+  "src.sentry.templatetags.sentry_helpers::filter::to_json":
     expects_arg: true
     arg_optional: true
-  "src.sentry.templatetags.sentry_helpers::urlquote":
+  "src.sentry.templatetags.sentry_helpers::filter::urlquote":
     expects_arg: true
     arg_optional: true
 block_specs: {}

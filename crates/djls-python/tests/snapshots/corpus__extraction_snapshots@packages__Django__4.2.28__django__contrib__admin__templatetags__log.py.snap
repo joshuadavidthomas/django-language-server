@@ -4,7 +4,7 @@ expression: snapshot(result)
 input_file: crates/djls-corpus/.corpus/packages/Django/4.2.28/django/contrib/admin/templatetags/log.py
 ---
 tag_rules:
-  "django.contrib.admin.templatetags.log::get_admin_log":
+  "django.contrib.admin.templatetags.log::tag::get_admin_log":
     arg_constraints:
       - Min: 4
     required_keywords:

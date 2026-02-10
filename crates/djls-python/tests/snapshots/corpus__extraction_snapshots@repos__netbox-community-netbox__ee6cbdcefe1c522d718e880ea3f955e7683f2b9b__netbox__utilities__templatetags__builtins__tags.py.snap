@@ -4,7 +4,7 @@ expression: snapshot(result)
 input_file: crates/djls-corpus/.corpus/repos/netbox-community-netbox/ee6cbdcefe1c522d718e880ea3f955e7683f2b9b/netbox/utilities/templatetags/builtins/tags.py
 ---
 tag_rules:
-  "netbox.utilities.templatetags.builtins.tags::badge":
+  "netbox.utilities.templatetags.builtins.tags::tag::badge":
     arg_constraints:
       - Min: 2
       - Max: 4
@@ -25,7 +25,7 @@ tag_rules:
         kind: Variable
         position: 2
     supports_as_var: false
-  "netbox.utilities.templatetags.builtins.tags::checkmark":
+  "netbox.utilities.templatetags.builtins.tags::tag::checkmark":
     arg_constraints:
       - Min: 2
       - Max: 5
@@ -50,7 +50,7 @@ tag_rules:
         kind: Variable
         position: 3
     supports_as_var: false
-  "netbox.utilities.templatetags.builtins.tags::copy_content":
+  "netbox.utilities.templatetags.builtins.tags::tag::copy_content":
     arg_constraints:
       - Min: 2
       - Max: 5
@@ -75,7 +75,7 @@ tag_rules:
         kind: Variable
         position: 3
     supports_as_var: false
-  "netbox.utilities.templatetags.builtins.tags::customfield_value":
+  "netbox.utilities.templatetags.builtins.tags::tag::customfield_value":
     arg_constraints:
       - Min: 3
       - Max: 3
@@ -92,7 +92,7 @@ tag_rules:
         kind: Variable
         position: 1
     supports_as_var: false
-  "netbox.utilities.templatetags.builtins.tags::formaction":
+  "netbox.utilities.templatetags.builtins.tags::tag::formaction":
     arg_constraints:
       - Max: 1
     required_keywords: []
@@ -100,7 +100,7 @@ tag_rules:
     known_options: ~
     extracted_args: []
     supports_as_var: true
-  "netbox.utilities.templatetags.builtins.tags::htmx_table":
+  "netbox.utilities.templatetags.builtins.tags::tag::htmx_table":
     arg_constraints:
       - Min: 2
     required_keywords: []
@@ -116,7 +116,7 @@ tag_rules:
         kind: Variable
         position: 1
     supports_as_var: false
-  "netbox.utilities.templatetags.builtins.tags::render":
+  "netbox.utilities.templatetags.builtins.tags::tag::render":
     arg_constraints:
       - Min: 2
       - Max: 2
@@ -129,7 +129,7 @@ tag_rules:
         kind: Variable
         position: 0
     supports_as_var: true
-  "netbox.utilities.templatetags.builtins.tags::static_with_params":
+  "netbox.utilities.templatetags.builtins.tags::tag::static_with_params":
     arg_constraints:
       - Min: 2
     required_keywords: []
@@ -141,7 +141,7 @@ tag_rules:
         kind: Variable
         position: 0
     supports_as_var: true
-  "netbox.utilities.templatetags.builtins.tags::tag":
+  "netbox.utilities.templatetags.builtins.tags::tag::tag":
     arg_constraints:
       - Min: 2
       - Max: 3

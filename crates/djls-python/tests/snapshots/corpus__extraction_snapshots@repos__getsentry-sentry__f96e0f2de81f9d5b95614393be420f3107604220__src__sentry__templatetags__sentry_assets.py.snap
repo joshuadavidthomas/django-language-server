@@ -4,7 +4,7 @@ expression: snapshot(result)
 input_file: crates/djls-corpus/.corpus/repos/getsentry-sentry/f96e0f2de81f9d5b95614393be420f3107604220/src/sentry/templatetags/sentry_assets.py
 ---
 tag_rules:
-  "src.sentry.templatetags.sentry_assets::absolute_asset_url":
+  "src.sentry.templatetags.sentry_assets::tag::absolute_asset_url":
     arg_constraints:
       - Min: 3
       - Max: 3
@@ -21,7 +21,7 @@ tag_rules:
         kind: Variable
         position: 1
     supports_as_var: true
-  "src.sentry.templatetags.sentry_assets::crossorigin":
+  "src.sentry.templatetags.sentry_assets::tag::crossorigin":
     arg_constraints:
       - Max: 1
     required_keywords: []
@@ -29,7 +29,7 @@ tag_rules:
     known_options: ~
     extracted_args: []
     supports_as_var: true
-  "src.sentry.templatetags.sentry_assets::injected_script_assets":
+  "src.sentry.templatetags.sentry_assets::tag::injected_script_assets":
     arg_constraints:
       - Max: 1
     required_keywords: []
@@ -39,7 +39,7 @@ tag_rules:
     supports_as_var: true
 filter_arities: {}
 block_specs:
-  "src.sentry.templatetags.sentry_assets::script":
+  "src.sentry.templatetags.sentry_assets::tag::script":
     end_tag: endscript
     intermediates: []
     opaque: false

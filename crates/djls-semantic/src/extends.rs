@@ -1,3 +1,4 @@
+use djls_templates::tokens::TagDelimiter;
 use djls_templates::Node;
 use djls_templates::NodeList;
 use salsa::Accumulator;
@@ -8,23 +9,27 @@ use crate::ValidationErrorAccumulator;
 
 pub fn validate_extends(db: &dyn Db, nodelist: NodeList<'_>) {
     let mut contains_nontext = false;
-    let mut first_extends_span = None;
+    let mut seen_extends = false;
 
     for node in nodelist.nodelist(db) {
         match node {
             Node::Text { .. } | Node::Comment { .. } | Node::Error { .. } => {}
             Node::Tag { name, span, .. } if name == "extends" => {
-                if first_extends_span.is_some() {
-                    ValidationErrorAccumulator(ValidationError::MultipleExtends { span: *span })
-                        .accumulate(db);
+                let marker_span = span.expand(TagDelimiter::LENGTH_U32, TagDelimiter::LENGTH_U32);
+
+                if seen_extends {
+                    ValidationErrorAccumulator(ValidationError::MultipleExtends {
+                        span: marker_span,
+                    })
+                    .accumulate(db);
                 } else {
                     if contains_nontext {
                         ValidationErrorAccumulator(ValidationError::ExtendsMustBeFirst {
-                            span: *span,
+                            span: marker_span,
                         })
                         .accumulate(db);
                     }
-                    first_extends_span = Some(*span);
+                    seen_extends = true;
                 }
             }
             Node::Tag { .. } | Node::Variable { .. } => {

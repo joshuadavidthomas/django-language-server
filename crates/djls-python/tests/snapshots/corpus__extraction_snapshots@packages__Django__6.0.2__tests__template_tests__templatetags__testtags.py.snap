@@ -5,7 +5,7 @@ input_file: crates/djls-corpus/.corpus/packages/Django/6.0.2/tests/template_test
 ---
 tag_rules: {}
 filter_arities:
-  "tests.template_tests.templatetags.testtags::upper":
+  "tests.template_tests.templatetags.testtags::filter::upper":
     expects_arg: false
     arg_optional: false
 block_specs: {}

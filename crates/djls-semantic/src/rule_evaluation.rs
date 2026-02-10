@@ -19,10 +19,7 @@ trait Constraint {
 ///
 /// Returns `None` if the position is out of bounds or refers to the tag name
 /// — the argument count constraint should catch those cases.
-fn resolve_position_index(
-    position: &djls_python::SplitPosition,
-    bits_len: usize,
-) -> Option<usize> {
+fn resolve_position_index(position: &djls_python::SplitPosition, bits_len: usize) -> Option<usize> {
     position.to_bits_index(bits_len)
 }
 

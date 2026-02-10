@@ -31,16 +31,16 @@ pub fn validate_tag_scoping(
     nodelist: NodeList<'_>,
     opaque_regions: &crate::OpaqueRegions,
 ) {
-    let Some(inventory) = db.inspector_inventory() else {
+    let Some(inventory) = db.template_symbols() else {
         return;
     };
 
     let tag_specs = db.tag_specs();
     let loaded_libraries = compute_loaded_libraries(db, nodelist);
-    let env_inventory = db.environment_inventory();
+    let env_inventory = db.template_tag_libraries();
     let env_tags = env_inventory
         .as_ref()
-        .map(djls_python::EnvironmentInventory::tags_by_name);
+        .map(djls_project::TemplateTagLibraries::tags_by_name);
 
     for node in nodelist.nodelist(db) {
         let Node::Tag { name, span, .. } = node else {
@@ -139,15 +139,15 @@ pub fn validate_filter_scoping(
     nodelist: NodeList<'_>,
     opaque_regions: &crate::OpaqueRegions,
 ) {
-    let Some(inventory) = db.inspector_inventory() else {
+    let Some(inventory) = db.template_symbols() else {
         return;
     };
 
     let loaded_libraries = compute_loaded_libraries(db, nodelist);
-    let env_inventory = db.environment_inventory();
+    let env_inventory = db.template_tag_libraries();
     let env_filters = env_inventory
         .as_ref()
-        .map(djls_python::EnvironmentInventory::filters_by_name);
+        .map(djls_project::TemplateTagLibraries::filters_by_name);
 
     for node in nodelist.nodelist(db) {
         let Node::Variable { filters, span, .. } = node else {
@@ -225,12 +225,12 @@ pub fn validate_load_libraries(
     nodelist: NodeList<'_>,
     opaque_regions: &crate::OpaqueRegions,
 ) {
-    let Some(inventory) = db.inspector_inventory() else {
+    let Some(inventory) = db.template_symbols() else {
         return;
     };
 
     let known_libraries = inventory.libraries();
-    let env_inventory = db.environment_inventory();
+    let env_inventory = db.template_tag_libraries();
 
     for node in nodelist.nodelist(db) {
         let Node::Tag {
@@ -298,7 +298,7 @@ mod tests {
 
     use camino::Utf8Path;
     use camino::Utf8PathBuf;
-    use djls_project::TemplateTags;
+    use djls_project::TemplateSymbols;
     use djls_source::Db as SourceDb;
     use djls_source::File;
     use djls_templates::parse_template;
@@ -317,8 +317,8 @@ mod tests {
     struct TestDatabase {
         storage: salsa::Storage<Self>,
         fs: Arc<Mutex<InMemoryFileSystem>>,
-        inventory: Option<TemplateTags>,
-        env_inventory: Option<djls_python::EnvironmentInventory>,
+        inventory: Option<TemplateSymbols>,
+        env_inventory: Option<djls_project::TemplateTagLibraries>,
     }
 
     impl TestDatabase {
@@ -331,7 +331,7 @@ mod tests {
             }
         }
 
-        fn with_inventory(inventory: TemplateTags) -> Self {
+        fn with_inventory(inventory: TemplateSymbols) -> Self {
             Self {
                 storage: salsa::Storage::default(),
                 fs: Arc::new(Mutex::new(InMemoryFileSystem::new())),
@@ -341,8 +341,8 @@ mod tests {
         }
 
         fn with_inventories(
-            inventory: TemplateTags,
-            env_inventory: djls_python::EnvironmentInventory,
+            inventory: TemplateSymbols,
+            env_inventory: djls_project::TemplateTagLibraries,
         ) -> Self {
             Self {
                 storage: salsa::Storage::default(),
@@ -399,7 +399,7 @@ mod tests {
             djls_conf::DiagnosticsConfig::default()
         }
 
-        fn inspector_inventory(&self) -> Option<TemplateTags> {
+        fn template_symbols(&self) -> Option<TemplateSymbols> {
             self.inventory.clone()
         }
 
@@ -407,7 +407,7 @@ mod tests {
             crate::filters::arity::FilterAritySpecs::new()
         }
 
-        fn environment_inventory(&self) -> Option<djls_python::EnvironmentInventory> {
+        fn template_tag_libraries(&self) -> Option<djls_project::TemplateTagLibraries> {
             self.env_inventory.clone()
         }
     }
@@ -452,7 +452,7 @@ mod tests {
         tags: &[serde_json::Value],
         libraries: &HashMap<String, String>,
         builtins: &[String],
-    ) -> TemplateTags {
+    ) -> TemplateSymbols {
         make_inventory_with_filters(tags, &[], libraries, builtins)
     }
 
@@ -461,7 +461,7 @@ mod tests {
         filters: &[serde_json::Value],
         libraries: &HashMap<String, String>,
         builtins: &[String],
-    ) -> TemplateTags {
+    ) -> TemplateSymbols {
         let payload = serde_json::json!({
             "tags": tags,
             "filters": filters,
@@ -471,7 +471,7 @@ mod tests {
         serde_json::from_value(payload).unwrap()
     }
 
-    fn test_inventory() -> TemplateTags {
+    fn test_inventory() -> TemplateSymbols {
         let tags = vec![
             builtin_tag_json("if", "django.template.defaulttags"),
             builtin_tag_json("for", "django.template.defaulttags"),
@@ -689,7 +689,7 @@ mod tests {
             .collect()
     }
 
-    fn test_inventory_with_filters() -> TemplateTags {
+    fn test_inventory_with_filters() -> TemplateSymbols {
         let tags = vec![
             builtin_tag_json("if", "django.template.defaulttags"),
             builtin_tag_json("for", "django.template.defaulttags"),
@@ -1074,17 +1074,16 @@ mod tests {
     // Three-layer resolution tests (S118/S119)
 
     use std::collections::BTreeMap;
-    use std::path::PathBuf;
 
-    use djls_python::EnvironmentInventory;
-    use djls_python::EnvironmentLibrary;
+    use djls_project::TemplateTagLibraries;
+    use djls_project::TemplateTagLibrary;
 
-    fn make_env_inventory(libraries: Vec<EnvironmentLibrary>) -> EnvironmentInventory {
-        let mut map: BTreeMap<String, Vec<EnvironmentLibrary>> = BTreeMap::new();
+    fn make_env_inventory(libraries: Vec<TemplateTagLibrary>) -> TemplateTagLibraries {
+        let mut map: BTreeMap<String, Vec<TemplateTagLibrary>> = BTreeMap::new();
         for lib in libraries {
             map.entry(lib.load_name.clone()).or_default().push(lib);
         }
-        EnvironmentInventory::new(map)
+        TemplateTagLibraries::new(map)
     }
 
     fn make_env_library(
@@ -1092,12 +1091,12 @@ mod tests {
         app_module: &str,
         tags: &[&str],
         filters: &[&str],
-    ) -> EnvironmentLibrary {
-        EnvironmentLibrary {
+    ) -> TemplateTagLibrary {
+        TemplateTagLibrary {
             load_name: load_name.to_string(),
             app_module: app_module.to_string(),
             module_path: format!("{app_module}.templatetags.{load_name}"),
-            source_path: PathBuf::from(format!("/fake/{load_name}.py")),
+            source_path: Utf8PathBuf::from(format!("/fake/{load_name}.py")),
             tags: tags.iter().copied().map(str::to_string).collect(),
             filters: filters.iter().copied().map(str::to_string).collect(),
         }

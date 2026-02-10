@@ -4,7 +4,7 @@ expression: snapshot(result)
 input_file: crates/djls-corpus/.corpus/packages/wagtail/7.3/wagtail/templatetags/wagtailcore_tags.py
 ---
 tag_rules:
-  "wagtail.templatetags.wagtailcore_tags::fullpageurl":
+  "wagtail.templatetags.wagtailcore_tags::tag::fullpageurl":
     arg_constraints:
       - Min: 2
       - Max: 3
@@ -21,7 +21,7 @@ tag_rules:
         kind: Variable
         position: 1
     supports_as_var: true
-  "wagtail.templatetags.wagtailcore_tags::include_block":
+  "wagtail.templatetags.wagtailcore_tags::tag::include_block":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -32,7 +32,7 @@ tag_rules:
         kind: Variable
         position: 0
     supports_as_var: false
-  "wagtail.templatetags.wagtailcore_tags::pageurl":
+  "wagtail.templatetags.wagtailcore_tags::tag::pageurl":
     arg_constraints:
       - Min: 2
       - Max: 3
@@ -49,7 +49,7 @@ tag_rules:
         kind: Variable
         position: 1
     supports_as_var: true
-  "wagtail.templatetags.wagtailcore_tags::slugurl":
+  "wagtail.templatetags.wagtailcore_tags::tag::slugurl":
     arg_constraints:
       - Min: 2
       - Max: 2
@@ -62,7 +62,7 @@ tag_rules:
         kind: Variable
         position: 0
     supports_as_var: true
-  "wagtail.templatetags.wagtailcore_tags::wagtail_documentation_path":
+  "wagtail.templatetags.wagtailcore_tags::tag::wagtail_documentation_path":
     arg_constraints:
       - Max: 1
     required_keywords: []
@@ -70,7 +70,7 @@ tag_rules:
     known_options: ~
     extracted_args: []
     supports_as_var: true
-  "wagtail.templatetags.wagtailcore_tags::wagtail_feature_release_editor_guide_link":
+  "wagtail.templatetags.wagtailcore_tags::tag::wagtail_feature_release_editor_guide_link":
     arg_constraints:
       - Max: 1
     required_keywords: []
@@ -78,7 +78,7 @@ tag_rules:
     known_options: ~
     extracted_args: []
     supports_as_var: true
-  "wagtail.templatetags.wagtailcore_tags::wagtail_feature_release_whats_new_link":
+  "wagtail.templatetags.wagtailcore_tags::tag::wagtail_feature_release_whats_new_link":
     arg_constraints:
       - Max: 1
     required_keywords: []
@@ -86,7 +86,7 @@ tag_rules:
     known_options: ~
     extracted_args: []
     supports_as_var: true
-  "wagtail.templatetags.wagtailcore_tags::wagtail_release_notes_path":
+  "wagtail.templatetags.wagtailcore_tags::tag::wagtail_release_notes_path":
     arg_constraints:
       - Max: 1
     required_keywords: []
@@ -94,7 +94,7 @@ tag_rules:
     known_options: ~
     extracted_args: []
     supports_as_var: true
-  "wagtail.templatetags.wagtailcore_tags::wagtail_site":
+  "wagtail.templatetags.wagtailcore_tags::tag::wagtail_site":
     arg_constraints:
       - Max: 1
     required_keywords: []
@@ -102,7 +102,7 @@ tag_rules:
     known_options: ~
     extracted_args: []
     supports_as_var: true
-  "wagtail.templatetags.wagtailcore_tags::wagtail_version":
+  "wagtail.templatetags.wagtailcore_tags::tag::wagtail_version":
     arg_constraints:
       - Max: 1
     required_keywords: []
@@ -111,7 +111,7 @@ tag_rules:
     extracted_args: []
     supports_as_var: true
 filter_arities:
-  "wagtail.templatetags.wagtailcore_tags::richtext":
+  "wagtail.templatetags.wagtailcore_tags::filter::richtext":
     expects_arg: false
     arg_optional: false
 block_specs: {}

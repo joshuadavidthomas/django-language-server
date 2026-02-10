@@ -20,7 +20,7 @@ use crate::ValidationErrorAccumulator;
 /// - Nodes inside opaque regions are skipped.
 /// - Filters with no known arity spec are silently skipped (no false positives).
 pub fn validate_filter_arity(db: &dyn Db, nodelist: NodeList<'_>, opaque_regions: &OpaqueRegions) {
-    if db.inspector_inventory().is_none() {
+    if db.template_symbols().is_none() {
         return;
     }
 
@@ -72,9 +72,9 @@ mod tests {
 
     use camino::Utf8Path;
     use camino::Utf8PathBuf;
+    use djls_project::TemplateSymbols;
     use djls_python::FilterArity;
     use djls_python::SymbolKey;
-    use djls_project::TemplateTags;
     use djls_source::Db as SourceDb;
     use djls_source::File;
     use djls_templates::parse_template;
@@ -94,7 +94,7 @@ mod tests {
     struct TestDatabase {
         storage: salsa::Storage<Self>,
         fs: Arc<Mutex<InMemoryFileSystem>>,
-        inventory: Option<TemplateTags>,
+        inventory: Option<TemplateSymbols>,
         arity_specs: FilterAritySpecs,
     }
 
@@ -109,7 +109,7 @@ mod tests {
         }
 
         fn with_inventory_and_arities(
-            inventory: TemplateTags,
+            inventory: TemplateSymbols,
             arity_specs: FilterAritySpecs,
         ) -> Self {
             Self {
@@ -167,7 +167,7 @@ mod tests {
             djls_conf::DiagnosticsConfig::default()
         }
 
-        fn inspector_inventory(&self) -> Option<TemplateTags> {
+        fn template_symbols(&self) -> Option<TemplateSymbols> {
             self.inventory.clone()
         }
 
@@ -175,7 +175,7 @@ mod tests {
             self.arity_specs.clone()
         }
 
-        fn environment_inventory(&self) -> Option<djls_python::EnvironmentInventory> {
+        fn template_tag_libraries(&self) -> Option<djls_project::TemplateTagLibraries> {
             None
         }
     }
@@ -189,7 +189,7 @@ mod tests {
         })
     }
 
-    fn make_inventory_with_filters(filters: &[serde_json::Value]) -> TemplateTags {
+    fn make_inventory_with_filters(filters: &[serde_json::Value]) -> TemplateSymbols {
         let tags: Vec<serde_json::Value> = vec![
             serde_json::json!({
                 "name": "if",

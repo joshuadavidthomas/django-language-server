@@ -4,7 +4,7 @@ expression: snapshot(result)
 input_file: crates/djls-corpus/.corpus/repos/netbox-community-netbox/ee6cbdcefe1c522d718e880ea3f955e7683f2b9b/netbox/utilities/templatetags/buttons.py
 ---
 tag_rules:
-  "netbox.utilities.templatetags.buttons::action_buttons":
+  "netbox.utilities.templatetags.buttons::tag::action_buttons":
     arg_constraints:
       - Min: 3
     required_keywords: []
@@ -24,7 +24,7 @@ tag_rules:
         kind: Variable
         position: 2
     supports_as_var: true
-  "netbox.utilities.templatetags.buttons::add_button":
+  "netbox.utilities.templatetags.buttons::tag::add_button":
     arg_constraints:
       - Min: 2
       - Max: 4
@@ -45,7 +45,7 @@ tag_rules:
         kind: Variable
         position: 2
     supports_as_var: false
-  "netbox.utilities.templatetags.buttons::bookmark_button":
+  "netbox.utilities.templatetags.buttons::tag::bookmark_button":
     arg_constraints:
       - Min: 2
       - Max: 2
@@ -58,7 +58,7 @@ tag_rules:
         kind: Variable
         position: 0
     supports_as_var: false
-  "netbox.utilities.templatetags.buttons::bulk_delete_button":
+  "netbox.utilities.templatetags.buttons::tag::bulk_delete_button":
     arg_constraints:
       - Min: 2
       - Max: 4
@@ -79,7 +79,7 @@ tag_rules:
         kind: Variable
         position: 2
     supports_as_var: false
-  "netbox.utilities.templatetags.buttons::bulk_edit_button":
+  "netbox.utilities.templatetags.buttons::tag::bulk_edit_button":
     arg_constraints:
       - Min: 2
       - Max: 4
@@ -100,7 +100,7 @@ tag_rules:
         kind: Variable
         position: 2
     supports_as_var: false
-  "netbox.utilities.templatetags.buttons::clone_button":
+  "netbox.utilities.templatetags.buttons::tag::clone_button":
     arg_constraints:
       - Min: 2
       - Max: 2
@@ -113,7 +113,7 @@ tag_rules:
         kind: Variable
         position: 0
     supports_as_var: false
-  "netbox.utilities.templatetags.buttons::delete_button":
+  "netbox.utilities.templatetags.buttons::tag::delete_button":
     arg_constraints:
       - Min: 2
       - Max: 2
@@ -126,7 +126,7 @@ tag_rules:
         kind: Variable
         position: 0
     supports_as_var: false
-  "netbox.utilities.templatetags.buttons::edit_button":
+  "netbox.utilities.templatetags.buttons::tag::edit_button":
     arg_constraints:
       - Min: 2
       - Max: 2
@@ -139,7 +139,7 @@ tag_rules:
         kind: Variable
         position: 0
     supports_as_var: false
-  "netbox.utilities.templatetags.buttons::export_button":
+  "netbox.utilities.templatetags.buttons::tag::export_button":
     arg_constraints:
       - Min: 2
       - Max: 2
@@ -152,7 +152,7 @@ tag_rules:
         kind: Variable
         position: 0
     supports_as_var: false
-  "netbox.utilities.templatetags.buttons::import_button":
+  "netbox.utilities.templatetags.buttons::tag::import_button":
     arg_constraints:
       - Min: 2
       - Max: 3
@@ -169,7 +169,7 @@ tag_rules:
         kind: Variable
         position: 1
     supports_as_var: false
-  "netbox.utilities.templatetags.buttons::subscribe_button":
+  "netbox.utilities.templatetags.buttons::tag::subscribe_button":
     arg_constraints:
       - Min: 2
       - Max: 2
@@ -182,7 +182,7 @@ tag_rules:
         kind: Variable
         position: 0
     supports_as_var: false
-  "netbox.utilities.templatetags.buttons::sync_button":
+  "netbox.utilities.templatetags.buttons::tag::sync_button":
     arg_constraints:
       - Min: 2
       - Max: 2

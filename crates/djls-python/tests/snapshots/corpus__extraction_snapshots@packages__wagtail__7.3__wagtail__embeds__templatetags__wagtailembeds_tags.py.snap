@@ -4,7 +4,7 @@ expression: snapshot(result)
 input_file: crates/djls-corpus/.corpus/packages/wagtail/7.3/wagtail/embeds/templatetags/wagtailembeds_tags.py
 ---
 tag_rules:
-  "wagtail.embeds.templatetags.wagtailembeds_tags::embed":
+  "wagtail.embeds.templatetags.wagtailembeds_tags::tag::embed":
     arg_constraints:
       - Min: 2
       - Max: 3

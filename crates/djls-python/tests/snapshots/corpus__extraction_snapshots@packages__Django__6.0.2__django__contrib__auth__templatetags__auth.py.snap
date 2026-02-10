@@ -4,7 +4,7 @@ expression: snapshot(result)
 input_file: crates/djls-corpus/.corpus/packages/Django/6.0.2/django/contrib/auth/templatetags/auth.py
 ---
 tag_rules:
-  "django.contrib.auth.templatetags.auth::render_password_as_hash":
+  "django.contrib.auth.templatetags.auth::tag::render_password_as_hash":
     arg_constraints:
       - Min: 2
       - Max: 2

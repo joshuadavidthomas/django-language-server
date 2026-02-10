@@ -4,7 +4,7 @@ expression: snapshot(result)
 input_file: crates/djls-corpus/.corpus/packages/Django/5.1.15/django/templatetags/i18n.py
 ---
 tag_rules:
-  "django.templatetags.i18n::blocktrans":
+  "django.templatetags.i18n::tag::blocktrans":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -19,7 +19,7 @@ tag_rules:
       rejects_unknown: true
     extracted_args: []
     supports_as_var: false
-  "django.templatetags.i18n::blocktranslate":
+  "django.templatetags.i18n::tag::blocktranslate":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -34,7 +34,7 @@ tag_rules:
       rejects_unknown: true
     extracted_args: []
     supports_as_var: false
-  "django.templatetags.i18n::get_available_languages":
+  "django.templatetags.i18n::tag::get_available_languages":
     arg_constraints:
       - Exact: 3
     required_keywords:
@@ -54,7 +54,7 @@ tag_rules:
         kind: Variable
         position: 1
     supports_as_var: false
-  "django.templatetags.i18n::get_current_language":
+  "django.templatetags.i18n::tag::get_current_language":
     arg_constraints:
       - Exact: 3
     required_keywords:
@@ -74,7 +74,7 @@ tag_rules:
         kind: Variable
         position: 1
     supports_as_var: false
-  "django.templatetags.i18n::get_current_language_bidi":
+  "django.templatetags.i18n::tag::get_current_language_bidi":
     arg_constraints:
       - Exact: 3
     required_keywords:
@@ -94,7 +94,7 @@ tag_rules:
         kind: Variable
         position: 1
     supports_as_var: false
-  "django.templatetags.i18n::get_language_info":
+  "django.templatetags.i18n::tag::get_language_info":
     arg_constraints:
       - Exact: 5
     required_keywords:
@@ -126,7 +126,7 @@ tag_rules:
         kind: Variable
         position: 3
     supports_as_var: false
-  "django.templatetags.i18n::get_language_info_list":
+  "django.templatetags.i18n::tag::get_language_info_list":
     arg_constraints:
       - Exact: 5
     required_keywords:
@@ -158,7 +158,7 @@ tag_rules:
         kind: Variable
         position: 3
     supports_as_var: false
-  "django.templatetags.i18n::language":
+  "django.templatetags.i18n::tag::language":
     arg_constraints:
       - Exact: 2
     required_keywords: []
@@ -170,7 +170,7 @@ tag_rules:
         kind: Variable
         position: 0
     supports_as_var: false
-  "django.templatetags.i18n::trans":
+  "django.templatetags.i18n::tag::trans":
     arg_constraints:
       - Min: 2
     required_keywords: []
@@ -188,7 +188,7 @@ tag_rules:
         kind: Variable
         position: 0
     supports_as_var: false
-  "django.templatetags.i18n::translate":
+  "django.templatetags.i18n::tag::translate":
     arg_constraints:
       - Min: 2
     required_keywords: []
@@ -207,30 +207,30 @@ tag_rules:
         position: 0
     supports_as_var: false
 filter_arities:
-  "django.templatetags.i18n::language_bidi":
+  "django.templatetags.i18n::filter::language_bidi":
     expects_arg: false
     arg_optional: false
-  "django.templatetags.i18n::language_name":
+  "django.templatetags.i18n::filter::language_name":
     expects_arg: false
     arg_optional: false
-  "django.templatetags.i18n::language_name_local":
+  "django.templatetags.i18n::filter::language_name_local":
     expects_arg: false
     arg_optional: false
-  "django.templatetags.i18n::language_name_translated":
+  "django.templatetags.i18n::filter::language_name_translated":
     expects_arg: false
     arg_optional: false
 block_specs:
-  "django.templatetags.i18n::blocktrans":
+  "django.templatetags.i18n::tag::blocktrans":
     end_tag: endblocktrans
     intermediates:
       - plural
     opaque: false
-  "django.templatetags.i18n::blocktranslate":
+  "django.templatetags.i18n::tag::blocktranslate":
     end_tag: endblocktranslate
     intermediates:
       - plural
     opaque: false
-  "django.templatetags.i18n::language":
+  "django.templatetags.i18n::tag::language":
     end_tag: endlanguage
     intermediates: []
     opaque: false

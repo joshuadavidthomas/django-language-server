@@ -41,7 +41,13 @@ struct SortedExtractionResult {
 
 impl From<ExtractionResult> for SortedExtractionResult {
     fn from(result: ExtractionResult) -> Self {
-        let key_str = |k: &SymbolKey| format!("{}::{}", k.registration_module, k.name);
+        let key_str = |k: &SymbolKey| {
+            let kind = match k.kind {
+                djls_python::SymbolKind::Tag => "tag",
+                djls_python::SymbolKind::Filter => "filter",
+            };
+            format!("{}::{kind}::{}", k.registration_module, k.name)
+        };
         Self {
             tag_rules: result
                 .tag_rules

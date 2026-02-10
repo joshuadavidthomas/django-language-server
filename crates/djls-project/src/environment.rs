@@ -1,33 +1,31 @@
 use std::collections::BTreeMap;
 use std::collections::HashMap;
-use std::path::PathBuf;
 
+use camino::Utf8PathBuf;
 use serde::Deserialize;
 use serde::Serialize;
 
-/// A template tag library discovered in the Python environment by scanning
-/// `templatetags/` directories across `sys.path`.
+/// A Django template tag library discovered by scanning `templatetags/` directories across `sys.path`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct EnvironmentLibrary {
+pub struct TemplateTagLibrary {
     /// The load name used in `{% load X %}` (derived from filename stem).
     pub load_name: String,
-    /// The dotted Python module path of the containing app
-    /// (e.g., `django.contrib.humanize`).
+    /// The dotted Python module path of the containing app (e.g., `django.contrib.humanize`).
     pub app_module: String,
     /// The dotted Python module path of the templatetags file
     /// (e.g., `django.contrib.humanize.templatetags.humanize`).
     pub module_path: String,
     /// Absolute path to the `templatetags/*.py` source file.
-    pub source_path: PathBuf,
+    pub source_path: Utf8PathBuf,
     /// Tag names registered in this library (empty if parse failed).
     pub tags: Vec<String>,
     /// Filter names registered in this library (empty if parse failed).
     pub filters: Vec<String>,
 }
 
-/// A symbol (tag or filter) found in the environment, with its source library info.
+/// A tag or filter name found in the environment, annotated with the library that provides it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct EnvironmentSymbol {
+pub struct TemplateTagLibrarySymbol {
     /// The tag or filter name.
     pub name: String,
     /// The load name of the library providing this symbol.
@@ -36,28 +34,27 @@ pub struct EnvironmentSymbol {
     pub app_module: String,
 }
 
-/// Inventory of all template tag libraries discovered in the Python environment.
+/// All template-tag libraries discovered in the Python environment.
 ///
 /// Built by scanning `sys.path` entries for `*/templatetags/*.py` files.
 /// This is a superset of the inspector inventory — it includes libraries from
 /// apps that may not be in `INSTALLED_APPS`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct EnvironmentInventory {
-    /// Map from load name → list of libraries (Vec because name collisions
-    /// across packages are possible).
-    libraries: BTreeMap<String, Vec<EnvironmentLibrary>>,
+pub struct TemplateTagLibraries {
+    /// Map from load name → list of libraries (Vec because name collisions across packages are possible).
+    libraries: BTreeMap<String, Vec<TemplateTagLibrary>>,
 }
 
-impl EnvironmentInventory {
-    /// Create a new `EnvironmentInventory` from the given library map.
+impl TemplateTagLibraries {
+    /// Create a new `TemplateTagLibraries` from the given library map.
     #[must_use]
-    pub fn new(libraries: BTreeMap<String, Vec<EnvironmentLibrary>>) -> Self {
+    pub fn new(libraries: BTreeMap<String, Vec<TemplateTagLibrary>>) -> Self {
         Self { libraries }
     }
 
     /// All discovered libraries, grouped by load name.
     #[must_use]
-    pub fn libraries(&self) -> &BTreeMap<String, Vec<EnvironmentLibrary>> {
+    pub fn libraries(&self) -> &BTreeMap<String, Vec<TemplateTagLibrary>> {
         &self.libraries
     }
 
@@ -69,7 +66,7 @@ impl EnvironmentInventory {
 
     /// Get all libraries registered under a given load name.
     #[must_use]
-    pub fn libraries_for_name(&self, name: &str) -> &[EnvironmentLibrary] {
+    pub fn libraries_for_name(&self, name: &str) -> &[TemplateTagLibrary] {
         self.libraries
             .get(name)
             .map(Vec::as_slice)
@@ -82,7 +79,7 @@ impl EnvironmentInventory {
         self.libraries.len()
     }
 
-    /// Whether the inventory is empty.
+    /// Whether the collection is empty.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.libraries.is_empty()
@@ -90,14 +87,14 @@ impl EnvironmentInventory {
 
     /// Reverse lookup: for each tag name, list all environment libraries providing it.
     #[must_use]
-    pub fn tags_by_name(&self) -> HashMap<String, Vec<EnvironmentSymbol>> {
-        let mut map: HashMap<String, Vec<EnvironmentSymbol>> = HashMap::new();
+    pub fn tags_by_name(&self) -> HashMap<String, Vec<TemplateTagLibrarySymbol>> {
+        let mut map: HashMap<String, Vec<TemplateTagLibrarySymbol>> = HashMap::new();
         for libs in self.libraries.values() {
             for lib in libs {
                 for tag_name in &lib.tags {
                     map.entry(tag_name.clone())
                         .or_default()
-                        .push(EnvironmentSymbol {
+                        .push(TemplateTagLibrarySymbol {
                             name: tag_name.clone(),
                             library_load_name: lib.load_name.clone(),
                             app_module: lib.app_module.clone(),
@@ -110,14 +107,14 @@ impl EnvironmentInventory {
 
     /// Reverse lookup: for each filter name, list all environment libraries providing it.
     #[must_use]
-    pub fn filters_by_name(&self) -> HashMap<String, Vec<EnvironmentSymbol>> {
-        let mut map: HashMap<String, Vec<EnvironmentSymbol>> = HashMap::new();
+    pub fn filters_by_name(&self) -> HashMap<String, Vec<TemplateTagLibrarySymbol>> {
+        let mut map: HashMap<String, Vec<TemplateTagLibrarySymbol>> = HashMap::new();
         for libs in self.libraries.values() {
             for lib in libs {
                 for filter_name in &lib.filters {
                     map.entry(filter_name.clone())
                         .or_default()
-                        .push(EnvironmentSymbol {
+                        .push(TemplateTagLibrarySymbol {
                             name: filter_name.clone(),
                             library_load_name: lib.load_name.clone(),
                             app_module: lib.app_module.clone(),

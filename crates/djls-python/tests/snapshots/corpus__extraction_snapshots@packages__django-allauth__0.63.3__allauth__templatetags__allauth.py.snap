@@ -4,7 +4,7 @@ expression: snapshot(result)
 input_file: crates/djls-corpus/.corpus/packages/django-allauth/0.63.3/allauth/templatetags/allauth.py
 ---
 tag_rules:
-  "allauth.templatetags.allauth::setvar":
+  "allauth.templatetags.allauth::tag::setvar":
     arg_constraints:
       - Exact: 2
     required_keywords: []
@@ -18,15 +18,15 @@ tag_rules:
     supports_as_var: false
 filter_arities: {}
 block_specs:
-  "allauth.templatetags.allauth::element":
+  "allauth.templatetags.allauth::tag::element":
     end_tag: endelement
     intermediates: []
     opaque: false
-  "allauth.templatetags.allauth::setvar":
+  "allauth.templatetags.allauth::tag::setvar":
     end_tag: endsetvar
     intermediates: []
     opaque: false
-  "allauth.templatetags.allauth::slot":
+  "allauth.templatetags.allauth::tag::slot":
     end_tag: endslot
     intermediates: []
     opaque: false

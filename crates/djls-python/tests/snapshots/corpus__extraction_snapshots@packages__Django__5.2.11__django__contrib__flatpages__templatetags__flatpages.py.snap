@@ -4,7 +4,7 @@ expression: snapshot(result)
 input_file: crates/djls-corpus/.corpus/packages/Django/5.2.11/django/contrib/flatpages/templatetags/flatpages.py
 ---
 tag_rules:
-  "django.contrib.flatpages.templatetags.flatpages::get_flatpages":
+  "django.contrib.flatpages.templatetags.flatpages::tag::get_flatpages":
     arg_constraints: []
     required_keywords:
       - position:

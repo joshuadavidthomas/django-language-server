@@ -4,7 +4,7 @@ expression: snapshot(result)
 input_file: crates/djls-corpus/.corpus/packages/wagtail/7.3/wagtail/users/templatetags/wagtailusers_tags.py
 ---
 tag_rules:
-  "wagtail.users.templatetags.wagtailusers_tags::format_permissions":
+  "wagtail.users.templatetags.wagtailusers_tags::tag::format_permissions":
     arg_constraints:
       - Min: 2
       - Max: 2

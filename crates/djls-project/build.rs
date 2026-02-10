@@ -8,13 +8,10 @@ fn main() {
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
     let manifest_path = PathBuf::from(manifest_dir);
     let inspector_dir = manifest_path.join("inspector");
-    let dist_dir = manifest_path.join("dist");
-    let pyz_path = dist_dir.join("djls_inspector.pyz");
+    let out_dir = env::var("OUT_DIR").expect("OUT_DIR not set");
+    let pyz_path = PathBuf::from(out_dir).join("djls_inspector.pyz");
 
     println!("cargo:rerun-if-changed={}", inspector_dir.display());
-
-    std::fs::create_dir_all(&dist_dir)
-        .expect("Failed to create inspector/dist directory for Python zipapp");
 
     let python = which::which("python3")
         .or_else(|_| which::which("python"))

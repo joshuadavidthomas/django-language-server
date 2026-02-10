@@ -4,7 +4,7 @@ expression: snapshot(result)
 input_file: crates/djls-corpus/.corpus/packages/django-compressor/4.5.1/compressor/templatetags/compress.py
 ---
 tag_rules:
-  "compressor.templatetags.compress::compress":
+  "compressor.templatetags.compress::tag::compress":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -17,7 +17,7 @@ tag_rules:
     supports_as_var: false
 filter_arities: {}
 block_specs:
-  "compressor.templatetags.compress::compress":
+  "compressor.templatetags.compress::tag::compress":
     end_tag: endcompress
     intermediates: []
     opaque: false
