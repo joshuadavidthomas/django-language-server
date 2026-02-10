@@ -1061,13 +1061,13 @@ mod tests {
     fn corpus_django_shipped_templates_zero_false_positives() {
         let corpus = Corpus::require();
 
-        let django_packages = corpus.root().join("packages/Django");
-        if !django_packages.as_std_path().exists() {
+        let django_dirs = corpus.package_dirs("django");
+        if django_dirs.is_empty() {
             eprintln!("No Django packages in corpus.");
             return;
         }
 
-        for version_dir in &corpus.synced_dirs("packages/Django") {
+        for version_dir in &django_dirs {
             let version = version_dir.file_name().unwrap();
 
             let (specs, arities) = build_specs_from_extraction(&corpus, version_dir);
@@ -1108,49 +1108,46 @@ mod tests {
             return;
         }
 
-        let latest_django = corpus.latest_django();
+        let latest_django = corpus.latest_package("django");
 
-        let mut entry_dirs: Vec<Utf8PathBuf> = std::fs::read_dir(packages_dir.as_std_path())
-            .unwrap()
-            .filter_map(Result::ok)
-            .filter(|e| e.file_type().ok().is_some_and(|ft| ft.is_dir()))
-            .filter_map(|e| Utf8PathBuf::from_path_buf(e.path()).ok())
-            .filter(|p| p.file_name().is_some_and(|n| n != "Django"))
+        let mut pkg_dirs: Vec<Utf8PathBuf> = corpus
+            .synced_dirs("packages")
+            .into_iter()
+            .filter(|p| {
+                // Exclude django dirs (both "django" and "django-X.Y")
+                let name = p.file_name().unwrap_or("");
+                name != "django"
+                    && !(name.starts_with("django-")
+                        && name["django-".len()..]
+                            .starts_with(|c: char| c.is_ascii_digit()))
+            })
             .collect();
-        entry_dirs.sort();
+        pkg_dirs.sort();
 
-        for pkg_dir in &entry_dirs {
+        for pkg_dir in &pkg_dirs {
             let pkg_name = pkg_dir.file_name().unwrap();
-            let pkg_relative = format!("packages/{pkg_name}");
 
-            for version_dir in &corpus.synced_dirs(&pkg_relative) {
-                let version = version_dir.file_name().unwrap();
+            let (specs, arities) =
+                build_specs_with_django_builtins(&corpus, pkg_dir, latest_django.as_deref());
+            let templates = corpus.templates_in(pkg_dir);
 
-                let (specs, arities) = build_specs_with_django_builtins(
-                    &corpus,
-                    version_dir,
-                    latest_django.as_deref(),
-                );
-                let templates = corpus.templates_in(version_dir);
-
-                if templates.is_empty() {
-                    continue;
-                }
-
-                let failures = validate_templates_in_dir(&corpus, version_dir, &specs, &arities);
-
-                assert!(
-                    failures.is_empty(),
-                    "{pkg_name} {version} templates have argument \
-                     validation false positives:\n{}",
-                    format_failures(&failures),
-                );
-
-                eprintln!(
-                    "  ✓ {pkg_name} {version} — {} templates validated",
-                    templates.len()
-                );
+            if templates.is_empty() {
+                continue;
             }
+
+            let failures = validate_templates_in_dir(&corpus, pkg_dir, &specs, &arities);
+
+            assert!(
+                failures.is_empty(),
+                "{pkg_name} templates have argument \
+                 validation false positives:\n{}",
+                format_failures(&failures),
+            );
+
+            eprintln!(
+                "  ✓ {pkg_name} — {} templates validated",
+                templates.len()
+            );
         }
     }
 
@@ -1158,49 +1155,35 @@ mod tests {
     fn corpus_repo_templates_zero_arg_false_positives() {
         let corpus = Corpus::require();
 
-        let repos_dir = corpus.root().join("repos");
-        if !repos_dir.as_std_path().exists() {
+        let repo_dirs = corpus.synced_dirs("repos");
+        if repo_dirs.is_empty() {
             eprintln!("No repos directory in corpus.");
             return;
         }
 
-        let latest_django = corpus.latest_django();
-
-        let Ok(repo_entries) = std::fs::read_dir(repos_dir.as_std_path()) else {
-            return;
-        };
-
-        let mut repo_dirs: Vec<Utf8PathBuf> = repo_entries
-            .filter_map(Result::ok)
-            .filter(|e| e.file_type().ok().is_some_and(|ft| ft.is_dir()))
-            .filter_map(|e| Utf8PathBuf::from_path_buf(e.path()).ok())
-            .collect();
-        repo_dirs.sort();
+        let latest_django = corpus.latest_package("django");
 
         for repo_dir in &repo_dirs {
             let repo_name = repo_dir.file_name().unwrap();
-            let repo_relative = format!("repos/{repo_name}");
 
-            for ref_dir in &corpus.synced_dirs(&repo_relative) {
-                let (specs, arities) =
-                    build_specs_with_django_builtins(&corpus, ref_dir, latest_django.as_deref());
-                let templates = corpus.templates_in(ref_dir);
+            let (specs, arities) =
+                build_specs_with_django_builtins(&corpus, repo_dir, latest_django.as_deref());
+            let templates = corpus.templates_in(repo_dir);
 
-                if templates.is_empty() {
-                    continue;
-                }
-
-                let failures = validate_templates_in_dir(&corpus, ref_dir, &specs, &arities);
-
-                assert!(
-                    failures.is_empty(),
-                    "{repo_name} templates have argument \
-                     validation false positives:\n{}",
-                    format_failures(&failures),
-                );
-
-                eprintln!("  ✓ {repo_name} — {} templates validated", templates.len());
+            if templates.is_empty() {
+                continue;
             }
+
+            let failures = validate_templates_in_dir(&corpus, repo_dir, &specs, &arities);
+
+            assert!(
+                failures.is_empty(),
+                "{repo_name} templates have argument \
+                 validation false positives:\n{}",
+                format_failures(&failures),
+            );
+
+            eprintln!("  ✓ {repo_name} — {} templates validated", templates.len());
         }
     }
 
@@ -1208,7 +1191,7 @@ mod tests {
     fn corpus_known_invalid_templates_produce_errors() {
         let corpus = Corpus::require();
 
-        let Some(django_dir) = corpus.latest_django() else {
+        let Some(django_dir) = corpus.latest_package("django") else {
             eprintln!("No Django in corpus.");
             return;
         };

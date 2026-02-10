@@ -1,0 +1,16 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+input_file: crates/djls-corpus/.corpus/packages/horizon/horizon/templatetags/breadcrumb_nav.py
+---
+tag_rules:
+  "horizon.templatetags.breadcrumb_nav::tag::breadcrumb_nav":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    supports_as_var: false
+filter_arities: {}
+block_specs: {}

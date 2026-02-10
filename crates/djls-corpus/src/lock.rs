@@ -40,6 +40,26 @@ pub struct LockedRepo {
 }
 
 impl Lockfile {
+    /// Count how many entries exist for a given package name.
+    #[must_use]
+    pub fn version_count(&self, name: &str) -> usize {
+        self.packages.iter().filter(|p| p.name == name).count()
+    }
+
+    /// Compute the corpus directory name for a package.
+    ///
+    /// Multi-version packages (e.g. django with 3 versions) use the
+    /// manifest version spec: `"django-6.0"`, `"django-4.2"`.
+    /// Single-version packages get just `"django-allauth"`.
+    #[must_use]
+    pub fn package_dir_name(&self, package: &LockedPackage) -> String {
+        if self.version_count(&package.name) > 1 {
+            format!("{}-{}", package.name, package.version)
+        } else {
+            package.name.clone()
+        }
+    }
+
     pub fn load(path: &Utf8Path) -> anyhow::Result<Self> {
         let content = std::fs::read_to_string(path.as_std_path())?;
         let lockfile: Self = toml::from_str(&content)?;

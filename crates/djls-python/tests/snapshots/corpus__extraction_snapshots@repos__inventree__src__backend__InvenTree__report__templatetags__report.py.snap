@@ -1,0 +1,503 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+input_file: crates/djls-corpus/.corpus/repos/inventree/src/backend/InvenTree/report/templatetags/report.py
+---
+tag_rules:
+  "src.backend.InvenTree.report.templatetags.report::tag::add":
+    arg_constraints:
+      - Min: 3
+      - Max: 4
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: x
+        required: true
+        kind: Variable
+        position: 0
+      - name: y
+        required: true
+        kind: Variable
+        position: 1
+      - name: cast
+        required: false
+        kind: Variable
+        position: 2
+    supports_as_var: true
+  "src.backend.InvenTree.report.templatetags.report::tag::asset":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: filename
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: true
+  "src.backend.InvenTree.report.templatetags.report::tag::company_image":
+    arg_constraints:
+      - Min: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: company
+        required: true
+        kind: Variable
+        position: 0
+      - name: preview
+        required: false
+        kind: Variable
+        position: 1
+      - name: thumbnail
+        required: false
+        kind: Variable
+        position: 2
+    supports_as_var: true
+  "src.backend.InvenTree.report.templatetags.report::tag::convert_currency":
+    arg_constraints:
+      - Min: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: money
+        required: true
+        kind: Variable
+        position: 0
+      - name: currency
+        required: false
+        kind: Variable
+        position: 1
+    supports_as_var: true
+  "src.backend.InvenTree.report.templatetags.report::tag::create_currency":
+    arg_constraints:
+      - Min: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: amount
+        required: true
+        kind: Variable
+        position: 0
+      - name: currency
+        required: false
+        kind: Variable
+        position: 1
+    supports_as_var: true
+  "src.backend.InvenTree.report.templatetags.report::tag::divide":
+    arg_constraints:
+      - Min: 3
+      - Max: 4
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: x
+        required: true
+        kind: Variable
+        position: 0
+      - name: y
+        required: true
+        kind: Variable
+        position: 1
+      - name: cast
+        required: false
+        kind: Variable
+        position: 2
+    supports_as_var: true
+  "src.backend.InvenTree.report.templatetags.report::tag::encode_svg_image":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: filename
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: true
+  "src.backend.InvenTree.report.templatetags.report::tag::filter_db_model":
+    arg_constraints:
+      - Min: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: model_name
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: true
+  "src.backend.InvenTree.report.templatetags.report::tag::filter_queryset":
+    arg_constraints:
+      - Min: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: queryset
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: true
+  "src.backend.InvenTree.report.templatetags.report::tag::format_date":
+    arg_constraints:
+      - Min: 2
+      - Max: 4
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: dt
+        required: true
+        kind: Variable
+        position: 0
+      - name: timezone
+        required: false
+        kind: Variable
+        position: 1
+      - name: fmt
+        required: false
+        kind: Variable
+        position: 2
+    supports_as_var: true
+  "src.backend.InvenTree.report.templatetags.report::tag::format_datetime":
+    arg_constraints:
+      - Min: 2
+      - Max: 4
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: dt
+        required: true
+        kind: Variable
+        position: 0
+      - name: timezone
+        required: false
+        kind: Variable
+        position: 1
+      - name: fmt
+        required: false
+        kind: Variable
+        position: 2
+    supports_as_var: true
+  "src.backend.InvenTree.report.templatetags.report::tag::format_number":
+    arg_constraints:
+      - Min: 2
+      - Max: 7
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: number
+        required: true
+        kind: Variable
+        position: 0
+      - name: decimal_places
+        required: false
+        kind: Variable
+        position: 1
+      - name: multiplier
+        required: false
+        kind: Variable
+        position: 2
+      - name: integer
+        required: false
+        kind: Variable
+        position: 3
+      - name: leading
+        required: false
+        kind: Variable
+        position: 4
+      - name: separator
+        required: false
+        kind: Variable
+        position: 5
+    supports_as_var: true
+  "src.backend.InvenTree.report.templatetags.report::tag::getindex":
+    arg_constraints:
+      - Min: 3
+      - Max: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: container
+        required: true
+        kind: Variable
+        position: 0
+      - name: index
+        required: true
+        kind: Variable
+        position: 1
+    supports_as_var: true
+  "src.backend.InvenTree.report.templatetags.report::tag::getkey":
+    arg_constraints:
+      - Min: 3
+      - Max: 4
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: container
+        required: true
+        kind: Variable
+        position: 0
+      - name: key
+        required: true
+        kind: Variable
+        position: 1
+      - name: backup_value
+        required: false
+        kind: Variable
+        position: 2
+    supports_as_var: true
+  "src.backend.InvenTree.report.templatetags.report::tag::icon":
+    arg_constraints:
+      - Min: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: name
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: true
+  "src.backend.InvenTree.report.templatetags.report::tag::include_icon_fonts":
+    arg_constraints:
+      - Max: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: ttf
+        required: false
+        kind: Variable
+        position: 0
+      - name: woff
+        required: false
+        kind: Variable
+        position: 1
+    supports_as_var: true
+  "src.backend.InvenTree.report.templatetags.report::tag::internal_link":
+    arg_constraints:
+      - Min: 3
+      - Max: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: link
+        required: true
+        kind: Variable
+        position: 0
+      - name: text
+        required: true
+        kind: Variable
+        position: 1
+    supports_as_var: true
+  "src.backend.InvenTree.report.templatetags.report::tag::modulo":
+    arg_constraints:
+      - Min: 3
+      - Max: 4
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: x
+        required: true
+        kind: Variable
+        position: 0
+      - name: y
+        required: true
+        kind: Variable
+        position: 1
+      - name: cast
+        required: false
+        kind: Variable
+        position: 2
+    supports_as_var: true
+  "src.backend.InvenTree.report.templatetags.report::tag::multiply":
+    arg_constraints:
+      - Min: 3
+      - Max: 4
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: x
+        required: true
+        kind: Variable
+        position: 0
+      - name: y
+        required: true
+        kind: Variable
+        position: 1
+      - name: cast
+        required: false
+        kind: Variable
+        position: 2
+    supports_as_var: true
+  "src.backend.InvenTree.report.templatetags.report::tag::order_queryset":
+    arg_constraints:
+      - Min: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: queryset
+        required: true
+        kind: Variable
+        position: 0
+      - name: args
+        required: false
+        kind: VarArgs
+        position: 1
+    supports_as_var: true
+  "src.backend.InvenTree.report.templatetags.report::tag::parameter":
+    arg_constraints:
+      - Min: 3
+      - Max: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: instance
+        required: true
+        kind: Variable
+        position: 0
+      - name: parameter_name
+        required: true
+        kind: Variable
+        position: 1
+    supports_as_var: true
+  "src.backend.InvenTree.report.templatetags.report::tag::part_image":
+    arg_constraints:
+      - Min: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: part
+        required: true
+        kind: Variable
+        position: 0
+      - name: preview
+        required: false
+        kind: Variable
+        position: 1
+      - name: thumbnail
+        required: false
+        kind: Variable
+        position: 2
+    supports_as_var: true
+  "src.backend.InvenTree.report.templatetags.report::tag::part_parameter":
+    arg_constraints:
+      - Min: 3
+      - Max: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: instance
+        required: true
+        kind: Variable
+        position: 0
+      - name: parameter_name
+        required: true
+        kind: Variable
+        position: 1
+    supports_as_var: true
+  "src.backend.InvenTree.report.templatetags.report::tag::render_currency":
+    arg_constraints:
+      - Min: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: money
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: true
+  "src.backend.InvenTree.report.templatetags.report::tag::render_html_text":
+    arg_constraints:
+      - Min: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: text
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: true
+  "src.backend.InvenTree.report.templatetags.report::tag::subtract":
+    arg_constraints:
+      - Min: 3
+      - Max: 4
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: x
+        required: true
+        kind: Variable
+        position: 0
+      - name: y
+        required: true
+        kind: Variable
+        position: 1
+      - name: cast
+        required: false
+        kind: Variable
+        position: 2
+    supports_as_var: true
+  "src.backend.InvenTree.report.templatetags.report::tag::uploaded_image":
+    arg_constraints:
+      - Min: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: filename
+        required: true
+        kind: Variable
+        position: 0
+      - name: replace_missing
+        required: false
+        kind: Variable
+        position: 1
+      - name: replacement_file
+        required: false
+        kind: Variable
+        position: 2
+      - name: validate
+        required: false
+        kind: Variable
+        position: 3
+      - name: width
+        required: false
+        kind: Variable
+        position: 4
+      - name: height
+        required: false
+        kind: Variable
+        position: 5
+      - name: rotate
+        required: false
+        kind: Variable
+        position: 6
+    supports_as_var: true
+filter_arities: {}
+block_specs: {}

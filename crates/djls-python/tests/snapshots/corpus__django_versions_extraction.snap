@@ -2,7 +2,7 @@
 source: crates/djls-python/tests/corpus.rs
 expression: version_results
 ---
-4.2.28:
+django-4.2:
   tag_rule_count: 10
   filter_count: 0
   block_spec_count: 9
@@ -17,7 +17,7 @@ expression: version_results
     - templatetag
     - url
     - widthratio
-5.1.15:
+django-5.2:
   tag_rule_count: 11
   filter_count: 0
   block_spec_count: 9
@@ -33,23 +33,7 @@ expression: version_results
     - templatetag
     - url
     - widthratio
-5.2.11:
-  tag_rule_count: 11
-  filter_count: 0
-  block_spec_count: 9
-  tag_names:
-    - autoescape
-    - cycle
-    - for
-    - lorem
-    - now
-    - querystring
-    - regroup
-    - resetcycle
-    - templatetag
-    - url
-    - widthratio
-6.0.2:
+django-6.0:
   tag_rule_count: 13
   filter_count: 0
   block_spec_count: 9

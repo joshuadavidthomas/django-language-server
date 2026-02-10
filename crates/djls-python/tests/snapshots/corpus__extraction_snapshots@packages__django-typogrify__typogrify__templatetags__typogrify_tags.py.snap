@@ -1,0 +1,17 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+input_file: crates/djls-corpus/.corpus/packages/django-typogrify/typogrify/templatetags/typogrify_tags.py
+---
+tag_rules: {}
+filter_arities:
+  "typogrify.templatetags.typogrify_tags::filter::fuzzydate":
+    expects_arg: true
+    arg_optional: true
+  "typogrify.templatetags.typogrify_tags::filter::super_fuzzydate":
+    expects_arg: false
+    arg_optional: false
+  "typogrify.templatetags.typogrify_tags::filter::text_whole_number":
+    expects_arg: false
+    arg_optional: false
+block_specs: {}

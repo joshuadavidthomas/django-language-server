@@ -54,36 +54,11 @@ pub fn corpus_source(relative_path: &str) -> Option<String> {
     std::fs::read_to_string(path.as_std_path()).ok()
 }
 
-/// Load a specific function from a corpus file.
+/// Load the full source from the latest version of a package in the corpus.
 ///
-/// Combines [`corpus_source`] and [`find_function_in_source`] — loads the
-/// file from the corpus and finds the named function. Returns `None` if
-/// the file doesn't exist or the function is not found.
-///
-/// # Panics
-///
-/// Panics if the corpus has not been synced.
-///
-/// # Examples
-///
-/// ```ignore
-/// let func = corpus_function(
-///     "packages/Django/6.0.2/django/template/defaulttags.py",
-///     "do_for",
-/// );
-/// ```
-#[must_use]
-pub fn corpus_function(relative_path: &str, func_name: &str) -> Option<StmtFunctionDef> {
-    let source = corpus_source(relative_path)?;
-    find_function_in_source(&source, func_name)
-}
-
-/// Resolve a corpus path for the latest Django version.
-///
-/// Given a path relative to the Django package root (e.g.,
-/// `"django/template/defaulttags.py"`), returns the full corpus-relative
-/// path using the latest synced Django version. Returns `None` if no
-/// Django version is available or the file doesn't exist.
+/// `package` is the directory name under `packages/` (e.g. `"django-allauth"`,
+/// `"wagtail"`). `relative_to_package` is the path within the versioned
+/// directory (e.g. `"allauth/templatetags/allauth.py"`).
 ///
 /// # Panics
 ///
@@ -92,54 +67,48 @@ pub fn corpus_function(relative_path: &str, func_name: &str) -> Option<StmtFunct
 /// # Examples
 ///
 /// ```ignore
-/// let path = latest_django_path("django/template/defaulttags.py");
-/// // Returns something like "packages/Django/6.0.2/django/template/defaulttags.py"
+/// let source = package_source("django-allauth", "allauth/templatetags/allauth.py");
 /// ```
 #[must_use]
-pub fn latest_django_path(relative_to_django: &str) -> Option<String> {
+pub fn package_source(package: &str, relative_to_package: &str) -> Option<String> {
     let corpus = Corpus::require();
-    let django_dir = corpus.latest_django()?;
-    let full_path = django_dir.join(relative_to_django);
+    let pkg_dir = corpus.latest_package(package)?;
+    let full_path = pkg_dir.join(relative_to_package);
     if full_path.as_std_path().exists() {
-        Some(full_path.strip_prefix(corpus.root()).ok()?.to_string())
+        let rel = full_path.strip_prefix(corpus.root()).ok()?.to_string();
+        corpus_source(&rel)
     } else {
         None
     }
 }
 
-/// Load a function from the latest Django version in the corpus.
+/// Load a function from the latest version of a package in the corpus.
 ///
-/// Convenience wrapper that combines [`latest_django_path`] and
-/// [`corpus_function`].
+/// `package` is the directory name under `packages/` (e.g. `"django"`,
+/// `"wagtail"`). `relative_to_package` is the file path within the
+/// versioned directory. `func_name` is the function to find.
 ///
 /// # Panics
 ///
 /// Panics if the corpus has not been synced.
-///
-/// # Examples
-///
-/// ```ignore
-/// let func = django_function("django/template/defaulttags.py", "do_for");
-/// ```
 #[must_use]
-pub fn django_function(relative_to_django: &str, func_name: &str) -> Option<StmtFunctionDef> {
-    let path = latest_django_path(relative_to_django)?;
-    corpus_function(&path, func_name)
+pub fn package_function(
+    package: &str,
+    relative_to_package: &str,
+    func_name: &str,
+) -> Option<StmtFunctionDef> {
+    let source = package_source(package, relative_to_package)?;
+    find_function_in_source(&source, func_name)
 }
 
-/// Load the full source from the latest Django version in the corpus.
-///
-/// # Panics
-///
-/// Panics if the corpus has not been synced.
-///
-/// # Examples
-///
-/// ```ignore
-/// let source = django_source("django/template/defaulttags.py");
-/// ```
+/// Convenience wrapper: load a function from the latest Django version.
+#[must_use]
+pub fn django_function(relative_to_django: &str, func_name: &str) -> Option<StmtFunctionDef> {
+    package_function("django", relative_to_django, func_name)
+}
+
+/// Convenience wrapper: load source from the latest Django version.
 #[must_use]
 pub fn django_source(relative_to_django: &str) -> Option<String> {
-    let path = latest_django_path(relative_to_django)?;
-    corpus_source(&path)
+    package_source("django", relative_to_django)
 }

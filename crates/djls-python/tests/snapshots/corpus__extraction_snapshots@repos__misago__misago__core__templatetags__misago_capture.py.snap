@@ -1,0 +1,31 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+input_file: crates/djls-corpus/.corpus/repos/misago/misago/core/templatetags/misago_capture.py
+---
+tag_rules:
+  "misago.core.templatetags.misago_capture::tag::capture":
+    arg_constraints: []
+    required_keywords:
+      - position:
+          Forward: 1
+        value: trimmed
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: trimmed
+        required: true
+        kind:
+          Literal: trimmed
+        position: 0
+      - name: variable
+        required: true
+        kind: Variable
+        position: 1
+    supports_as_var: false
+filter_arities: {}
+block_specs:
+  "misago.core.templatetags.misago_capture::tag::capture":
+    end_tag: endcapture
+    intermediates: []
+    opaque: false

@@ -1,0 +1,29 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+input_file: crates/djls-corpus/.corpus/repos/babybuddy/core/templatetags/duration.py
+---
+tag_rules: {}
+filter_arities:
+  "core.templatetags.duration::filter::child_age_string":
+    expects_arg: false
+    arg_optional: false
+  "core.templatetags.duration::filter::dayssince":
+    expects_arg: true
+    arg_optional: true
+  "core.templatetags.duration::filter::deltasince":
+    expects_arg: true
+    arg_optional: true
+  "core.templatetags.duration::filter::duration_string":
+    expects_arg: true
+    arg_optional: true
+  "core.templatetags.duration::filter::hours":
+    expects_arg: false
+    arg_optional: false
+  "core.templatetags.duration::filter::minutes":
+    expects_arg: false
+    arg_optional: false
+  "core.templatetags.duration::filter::seconds":
+    expects_arg: false
+    arg_optional: false
+block_specs: {}

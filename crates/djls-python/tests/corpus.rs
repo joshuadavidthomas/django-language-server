@@ -84,6 +84,12 @@ fn is_extraction_target(path: &Utf8Path) -> bool {
     if path.file_name() == Some("__init__.py") {
         return false;
     }
+    if path
+        .file_name()
+        .is_some_and(|f| f.starts_with("test_") || f == "conftest.py")
+    {
+        return false;
+    }
     path_str.contains("/templatetags/")
         || (path_str.contains("/template/")
             && matches!(
@@ -124,13 +130,7 @@ fn test_django_versions_extraction() {
     let _guard = snapshot_dir();
     let corpus = Corpus::require();
 
-    let django_packages = corpus.root().join("packages/Django");
-    if !django_packages.as_std_path().exists() {
-        eprintln!("Django packages not in corpus, skipping");
-        return;
-    }
-
-    let django_dirs = corpus.synced_dirs("packages/Django");
+    let django_dirs = corpus.package_dirs("django");
     if django_dirs.is_empty() {
         eprintln!("No Django version dirs found, skipping");
         return;

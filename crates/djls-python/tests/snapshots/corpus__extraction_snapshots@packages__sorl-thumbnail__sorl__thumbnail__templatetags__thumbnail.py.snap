@@ -1,0 +1,26 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+input_file: crates/djls-corpus/.corpus/packages/sorl-thumbnail/sorl/thumbnail/templatetags/thumbnail.py
+---
+tag_rules: {}
+filter_arities:
+  "sorl.thumbnail.templatetags.thumbnail::filter::background_margin":
+    expects_arg: true
+    arg_optional: false
+  "sorl.thumbnail.templatetags.thumbnail::filter::html_thumbnails":
+    expects_arg: false
+    arg_optional: false
+  "sorl.thumbnail.templatetags.thumbnail::filter::is_portrait":
+    expects_arg: false
+    arg_optional: false
+  "sorl.thumbnail.templatetags.thumbnail::filter::margin":
+    expects_arg: true
+    arg_optional: false
+  "sorl.thumbnail.templatetags.thumbnail::filter::markdown_thumbnails":
+    expects_arg: false
+    arg_optional: false
+  "sorl.thumbnail.templatetags.thumbnail::filter::resolution":
+    expects_arg: true
+    arg_optional: false
+block_specs: {}

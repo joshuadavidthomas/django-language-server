@@ -1,0 +1,20 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+input_file: crates/djls-corpus/.corpus/packages/django-forms-bootstrap/django_forms_bootstrap/templatetags/bootstrap_tags.py
+---
+tag_rules: {}
+filter_arities:
+  "django_forms_bootstrap.templatetags.bootstrap_tags::filter::as_bootstrap":
+    expects_arg: false
+    arg_optional: false
+  "django_forms_bootstrap.templatetags.bootstrap_tags::filter::as_bootstrap_horizontal":
+    expects_arg: true
+    arg_optional: true
+  "django_forms_bootstrap.templatetags.bootstrap_tags::filter::as_bootstrap_inline":
+    expects_arg: false
+    arg_optional: false
+  "django_forms_bootstrap.templatetags.bootstrap_tags::filter::css_class":
+    expects_arg: false
+    arg_optional: false
+block_specs: {}

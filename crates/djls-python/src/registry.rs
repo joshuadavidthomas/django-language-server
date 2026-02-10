@@ -481,8 +481,9 @@ mod tests {
     // `register.filter("intcomma", intcomma)` — call-style filter registration
     #[test]
     fn call_style_filter_registration() {
-        let source = crate::test_helpers::corpus_source(
-            "packages/wagtail/7.3/wagtail/admin/templatetags/wagtailadmin_tags.py",
+        let source = crate::test_helpers::package_source(
+            "wagtail",
+            "wagtail/admin/templatetags/wagtailadmin_tags.py",
         )
         .unwrap();
         let regs = collect_registrations(&source);
@@ -528,8 +529,9 @@ mod tests {
     // `register.tag("dialog", DialogNode.handle)` — call-style with method callable
     #[test]
     fn call_style_tag_with_method_callable() {
-        let source = crate::test_helpers::corpus_source(
-            "packages/wagtail/7.3/wagtail/admin/templatetags/wagtailadmin_tags.py",
+        let source = crate::test_helpers::package_source(
+            "wagtail",
+            "wagtail/admin/templatetags/wagtailadmin_tags.py",
         )
         .unwrap();
         let regs = collect_registrations(&source);

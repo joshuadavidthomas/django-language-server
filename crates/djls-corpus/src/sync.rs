@@ -176,7 +176,8 @@ pub fn sync_corpus(lockfile: &Lockfile, corpus_root: &Utf8Path, prune: bool) -> 
     let mut skipped = 0usize;
 
     for package in &lockfile.packages {
-        let out_dir = packages_dir.join(&package.name).join(&package.resolved);
+        let dir_name = lockfile.package_dir_name(package);
+        let out_dir = packages_dir.join(&dir_name);
         let label = format!("{}-{}", package.name, package.resolved);
         if is_synced(&out_dir) {
             skipped += 1;
@@ -190,7 +191,7 @@ pub fn sync_corpus(lockfile: &Lockfile, corpus_root: &Utf8Path, prune: bool) -> 
     }
 
     for repo in &lockfile.repos {
-        let out_dir = repos_dir.join(&repo.name).join(&repo.git_ref);
+        let out_dir = repos_dir.join(&repo.name);
         let short_ref = repo.git_ref.get(..12).unwrap_or(&repo.git_ref);
         let label = format!("{} @ {} ({short_ref})", repo.name, repo.tag);
         if is_synced(&out_dir) {
@@ -286,16 +287,33 @@ fn sync_parallel(client: &reqwest::blocking::Client, work: &[SyncItem]) -> Vec<S
 }
 
 /// Remove synced data for specific packages or repos by name.
+///
+/// For packages, removes all directories matching the name (including
+/// versioned variants like `django-6.0.2` for the name `django`).
 pub fn clean_packages(corpus_root: &Utf8Path, names: &[String]) -> anyhow::Result<()> {
     let packages_dir = corpus_root.join("packages");
     let repos_dir = corpus_root.join("repos");
 
     for name in names {
-        for base in [&packages_dir, &repos_dir] {
-            let dir = base.join(name);
-            if dir.as_std_path().exists() {
-                std::fs::remove_dir_all(dir.as_std_path())?;
-                tracing::info!(name, "cleaned");
+        // Repos: flat directory
+        let dir = repos_dir.join(name);
+        if dir.as_std_path().exists() {
+            std::fs::remove_dir_all(dir.as_std_path())?;
+            tracing::info!(name, "cleaned repo");
+        }
+
+        // Packages: could be exact name or name-version
+        if let Ok(entries) = std::fs::read_dir(packages_dir.as_std_path()) {
+            for entry in entries.filter_map(Result::ok) {
+                let Some(dir_name) = entry.file_name().to_str().map(String::from) else {
+                    continue;
+                };
+                // Match exact name or name-{version} prefix
+                if dir_name == *name || dir_name.starts_with(&format!("{name}-")) {
+                    let dir = packages_dir.join(&dir_name);
+                    std::fs::remove_dir_all(dir.as_std_path())?;
+                    tracing::info!(dir_name, "cleaned package");
+                }
             }
         }
     }
@@ -303,73 +321,100 @@ pub fn clean_packages(corpus_root: &Utf8Path, names: &[String]) -> anyhow::Resul
     Ok(())
 }
 
-/// Remove synced versions not present in the lockfile.
+/// Remove synced data not present in the lockfile.
 fn prune_corpus(lockfile: &Lockfile, corpus_root: &Utf8Path) -> anyhow::Result<()> {
     let packages_dir = corpus_root.join("packages");
     let repos_dir = corpus_root.join("repos");
 
-    let locked_packages: HashSet<(&str, &str)> = lockfile
+    let locked_package_dirs: HashSet<String> = lockfile
         .packages
         .iter()
-        .map(|p| (p.name.as_str(), p.resolved.as_str()))
+        .map(|p| lockfile.package_dir_name(p))
         .collect();
 
-    let locked_repos: HashSet<(&str, &str)> = lockfile
-        .repos
-        .iter()
-        .map(|r| (r.name.as_str(), r.git_ref.as_str()))
-        .collect();
+    let locked_repo_dirs: HashSet<&str> = lockfile.repos.iter().map(|r| r.name.as_str()).collect();
 
-    prune_dir(&packages_dir, &locked_packages)?;
-    prune_dir(&repos_dir, &locked_repos)?;
+    prune_flat_dir(&packages_dir, &locked_package_dirs)?;
+    prune_flat_dir(&repos_dir, &locked_repo_dirs)?;
+
+    // Also clean up old two-level layout directories (packages/{name}/{version}/)
+    prune_old_nested_dirs(&packages_dir, &locked_package_dirs)?;
+    prune_old_nested_dirs(&repos_dir, &locked_repo_dirs)?;
 
     Ok(())
 }
 
-/// Walk `{base}/{name}/{version_or_ref}/` and remove entries not in `keep`.
-///
-/// Also removes empty `{name}/` parent directories after pruning.
-fn prune_dir(base: &Utf8Path, keep: &HashSet<(&str, &str)>) -> anyhow::Result<()> {
-    let Ok(names) = std::fs::read_dir(base.as_std_path()) else {
+/// Remove directories under `base/` whose names are not in `keep`.
+fn prune_flat_dir(base: &Utf8Path, keep: &HashSet<impl AsRef<str>>) -> anyhow::Result<()> {
+    let Ok(entries) = std::fs::read_dir(base.as_std_path()) else {
         return Ok(());
     };
 
-    for name_entry in names.filter_map(Result::ok) {
-        if !name_entry.file_type().ok().is_some_and(|ft| ft.is_dir()) {
+    for entry in entries.filter_map(Result::ok) {
+        if !entry.file_type().ok().is_some_and(|ft| ft.is_dir()) {
             continue;
         }
-        let Some(name) = name_entry.file_name().to_str().map(String::from) else {
+        let Some(dir_name) = entry.file_name().to_str().map(String::from) else {
             continue;
         };
 
-        let name_dir = base.join(&name);
-        let Ok(versions) = std::fs::read_dir(name_dir.as_std_path()) else {
+        if !keep.iter().any(|k| k.as_ref() == dir_name) {
+            let dir = base.join(&dir_name);
+            // Only prune if it has a .complete.json (it's a synced dir, not a
+            // leftover nested parent from the old layout — those are handled by
+            // prune_old_nested_dirs).
+            if dir.join(".complete.json").as_std_path().exists() {
+                tracing::info!(dir_name, "pruned");
+                std::fs::remove_dir_all(dir.as_std_path())?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Remove old two-level layout directories (`{base}/{name}/{version}/`).
+///
+/// These are leftovers from the previous `packages/{name}/{version}/` layout.
+/// Directories that contain subdirectories with `.complete.json` markers (but
+/// don't have their own marker) are old nested parents.
+fn prune_old_nested_dirs(
+    base: &Utf8Path,
+    _keep: &HashSet<impl AsRef<str>>,
+) -> anyhow::Result<()> {
+    let Ok(entries) = std::fs::read_dir(base.as_std_path()) else {
+        return Ok(());
+    };
+
+    for entry in entries.filter_map(Result::ok) {
+        if !entry.file_type().ok().is_some_and(|ft| ft.is_dir()) {
+            continue;
+        }
+        let Some(dir_name) = entry.file_name().to_str().map(String::from) else {
             continue;
         };
 
-        for version_entry in versions.filter_map(Result::ok) {
-            if !version_entry.file_type().ok().is_some_and(|ft| ft.is_dir()) {
-                continue;
-            }
-            let Some(version) = version_entry.file_name().to_str().map(String::from) else {
-                continue;
-            };
+        let dir = base.join(&dir_name);
 
-            if !keep.contains(&(name.as_str(), version.as_str())) {
-                let stale = name_dir.join(&version);
-                tracing::info!(name, version, "pruned");
-                std::fs::remove_dir_all(stale.as_std_path())?;
-            }
+        // Old layout: directory has no .complete.json itself but contains
+        // subdirectories that do (e.g. packages/django/4.2.28/.complete.json)
+        if dir.join(".complete.json").as_std_path().exists() {
+            continue;
         }
 
-        if name_dir
-            .as_std_path()
-            .read_dir()
-            .ok()
-            .is_some_and(|mut d| d.next().is_none())
-        {
-            tracing::info!(name, "pruned empty directory");
-            std::fs::remove_dir(name_dir.as_std_path())?;
+        // Check if any child is a synced directory
+        let Ok(children) = std::fs::read_dir(dir.as_std_path()) else {
+            continue;
+        };
+
+        let has_synced_children = children.filter_map(Result::ok).any(|child| {
+            child.file_type().ok().is_some_and(|ft| ft.is_dir())
+                && child.path().join(".complete.json").exists()
+        });
+
+        if has_synced_children {
+            tracing::info!(dir_name, "pruned old nested layout");
+            std::fs::remove_dir_all(dir.as_std_path())?;
         }
     }
 

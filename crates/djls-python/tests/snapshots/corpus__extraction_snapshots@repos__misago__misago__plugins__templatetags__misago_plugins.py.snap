@@ -1,0 +1,32 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+input_file: crates/djls-corpus/.corpus/repos/misago/misago/plugins/templatetags/misago_plugins.py
+---
+tag_rules:
+  "misago.plugins.templatetags.misago_plugins::tag::hasplugins":
+    arg_constraints:
+      - Exact: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: arg1
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: false
+  "misago.plugins.templatetags.misago_plugins::tag::pluginoutlet":
+    arg_constraints:
+      - Exact: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: arg1
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: false
+filter_arities: {}
+block_specs: {}

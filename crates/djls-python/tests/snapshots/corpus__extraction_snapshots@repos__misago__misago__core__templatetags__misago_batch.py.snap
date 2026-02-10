@@ -1,0 +1,14 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+input_file: crates/djls-corpus/.corpus/repos/misago/misago/core/templatetags/misago_batch.py
+---
+tag_rules: {}
+filter_arities:
+  "misago.core.templatetags.misago_batch::filter::batch":
+    expects_arg: true
+    arg_optional: false
+  "misago.core.templatetags.misago_batch::filter::batchnonefilled":
+    expects_arg: true
+    arg_optional: false
+block_specs: {}

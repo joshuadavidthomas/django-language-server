@@ -1,0 +1,8 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+input_file: crates/djls-corpus/.corpus/repos/pretix/src/pretix/helpers/templatetags/simple_block_tag.py
+---
+tag_rules: {}
+filter_arities: {}
+block_specs: {}

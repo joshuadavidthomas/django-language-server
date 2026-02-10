@@ -1,0 +1,23 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+input_file: crates/djls-corpus/.corpus/packages/django-compressor/compressor/templatetags/compress.py
+---
+tag_rules:
+  "compressor.templatetags.compress::tag::compress":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: kind
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: false
+filter_arities: {}
+block_specs:
+  "compressor.templatetags.compress::tag::compress":
+    end_tag: endcompress
+    intermediates: []
+    opaque: false

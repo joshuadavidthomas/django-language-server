@@ -1,0 +1,24 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+input_file: crates/djls-corpus/.corpus/packages/django-oscar/src/oscar/templatetags/category_tags.py
+---
+tag_rules:
+  "src.oscar.templatetags.category_tags::tag::category_tree":
+    arg_constraints:
+      - Max: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: depth
+        required: false
+        kind: Variable
+        position: 0
+      - name: parent
+        required: false
+        kind: Variable
+        position: 1
+    supports_as_var: true
+filter_arities: {}
+block_specs: {}

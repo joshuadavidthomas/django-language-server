@@ -1,0 +1,11 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+input_file: crates/djls-corpus/.corpus/packages/django-5.2/tests/template_tests/templatetags/testtags.py
+---
+tag_rules: {}
+filter_arities:
+  "tests.template_tests.templatetags.testtags::filter::upper":
+    expects_arg: false
+    arg_optional: false
+block_specs: {}

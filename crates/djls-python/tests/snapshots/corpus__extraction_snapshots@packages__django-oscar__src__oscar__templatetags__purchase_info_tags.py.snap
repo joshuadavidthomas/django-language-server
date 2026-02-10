@@ -1,0 +1,42 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+input_file: crates/djls-corpus/.corpus/packages/django-oscar/src/oscar/templatetags/purchase_info_tags.py
+---
+tag_rules:
+  "src.oscar.templatetags.purchase_info_tags::tag::purchase_info_for_line":
+    arg_constraints:
+      - Min: 3
+      - Max: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: request
+        required: true
+        kind: Variable
+        position: 0
+      - name: line
+        required: true
+        kind: Variable
+        position: 1
+    supports_as_var: true
+  "src.oscar.templatetags.purchase_info_tags::tag::purchase_info_for_product":
+    arg_constraints:
+      - Min: 3
+      - Max: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: request
+        required: true
+        kind: Variable
+        position: 0
+      - name: product
+        required: true
+        kind: Variable
+        position: 1
+    supports_as_var: true
+filter_arities: {}
+block_specs: {}

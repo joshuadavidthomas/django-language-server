@@ -1,0 +1,16 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+input_file: crates/djls-corpus/.corpus/repos/sentry/src/sentry/templatetags/sentry_status.py
+---
+tag_rules:
+  "src.sentry.templatetags.sentry_status::tag::show_system_status":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    supports_as_var: false
+filter_arities: {}
+block_specs: {}

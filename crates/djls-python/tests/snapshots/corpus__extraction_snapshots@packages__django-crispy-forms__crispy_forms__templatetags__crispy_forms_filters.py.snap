@@ -1,0 +1,23 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+input_file: crates/djls-corpus/.corpus/packages/django-crispy-forms/crispy_forms/templatetags/crispy_forms_filters.py
+---
+tag_rules: {}
+filter_arities:
+  "crispy_forms.templatetags.crispy_forms_filters::filter::as_crispy_errors":
+    expects_arg: true
+    arg_optional: true
+  "crispy_forms.templatetags.crispy_forms_filters::filter::as_crispy_field":
+    expects_arg: true
+    arg_optional: true
+  "crispy_forms.templatetags.crispy_forms_filters::filter::crispy":
+    expects_arg: true
+    arg_optional: true
+  "crispy_forms.templatetags.crispy_forms_filters::filter::flatatt":
+    expects_arg: false
+    arg_optional: false
+  "crispy_forms.templatetags.crispy_forms_filters::filter::optgroups":
+    expects_arg: false
+    arg_optional: false
+block_specs: {}

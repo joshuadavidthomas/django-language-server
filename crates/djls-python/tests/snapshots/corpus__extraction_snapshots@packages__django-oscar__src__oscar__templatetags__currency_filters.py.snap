@@ -1,0 +1,11 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+input_file: crates/djls-corpus/.corpus/packages/django-oscar/src/oscar/templatetags/currency_filters.py
+---
+tag_rules: {}
+filter_arities:
+  "src.oscar.templatetags.currency_filters::filter::currency":
+    expects_arg: true
+    arg_optional: true
+block_specs: {}

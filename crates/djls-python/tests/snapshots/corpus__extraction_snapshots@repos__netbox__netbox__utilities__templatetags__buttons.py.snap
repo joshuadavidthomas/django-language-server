@@ -1,0 +1,199 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+input_file: crates/djls-corpus/.corpus/repos/netbox/netbox/utilities/templatetags/buttons.py
+---
+tag_rules:
+  "netbox.utilities.templatetags.buttons::tag::action_buttons":
+    arg_constraints:
+      - Min: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: actions
+        required: true
+        kind: Variable
+        position: 0
+      - name: obj
+        required: true
+        kind: Variable
+        position: 1
+      - name: multi
+        required: false
+        kind: Variable
+        position: 2
+    supports_as_var: true
+  "netbox.utilities.templatetags.buttons::tag::add_button":
+    arg_constraints:
+      - Min: 2
+      - Max: 4
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: model
+        required: true
+        kind: Variable
+        position: 0
+      - name: action
+        required: false
+        kind: Variable
+        position: 1
+      - name: return_url
+        required: false
+        kind: Variable
+        position: 2
+    supports_as_var: false
+  "netbox.utilities.templatetags.buttons::tag::bookmark_button":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: instance
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: false
+  "netbox.utilities.templatetags.buttons::tag::bulk_delete_button":
+    arg_constraints:
+      - Min: 2
+      - Max: 4
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: model
+        required: true
+        kind: Variable
+        position: 0
+      - name: action
+        required: false
+        kind: Variable
+        position: 1
+      - name: query_params
+        required: false
+        kind: Variable
+        position: 2
+    supports_as_var: false
+  "netbox.utilities.templatetags.buttons::tag::bulk_edit_button":
+    arg_constraints:
+      - Min: 2
+      - Max: 4
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: model
+        required: true
+        kind: Variable
+        position: 0
+      - name: action
+        required: false
+        kind: Variable
+        position: 1
+      - name: query_params
+        required: false
+        kind: Variable
+        position: 2
+    supports_as_var: false
+  "netbox.utilities.templatetags.buttons::tag::clone_button":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: instance
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: false
+  "netbox.utilities.templatetags.buttons::tag::delete_button":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: instance
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: false
+  "netbox.utilities.templatetags.buttons::tag::edit_button":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: instance
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: false
+  "netbox.utilities.templatetags.buttons::tag::export_button":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: model
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: false
+  "netbox.utilities.templatetags.buttons::tag::import_button":
+    arg_constraints:
+      - Min: 2
+      - Max: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: model
+        required: true
+        kind: Variable
+        position: 0
+      - name: action
+        required: false
+        kind: Variable
+        position: 1
+    supports_as_var: false
+  "netbox.utilities.templatetags.buttons::tag::subscribe_button":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: instance
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: false
+  "netbox.utilities.templatetags.buttons::tag::sync_button":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: instance
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: false
+filter_arities: {}
+block_specs: {}

@@ -1,0 +1,21 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+input_file: crates/djls-corpus/.corpus/packages/wagtail-7.3/wagtail/users/templatetags/wagtailusers_tags.py
+---
+tag_rules:
+  "wagtail.users.templatetags.wagtailusers_tags::tag::format_permissions":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: permission_bound_field
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: false
+filter_arities: {}
+block_specs: {}

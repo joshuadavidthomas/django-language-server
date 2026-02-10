@@ -1,0 +1,24 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+input_file: crates/djls-corpus/.corpus/repos/pretix/src/pretix/base/templatetags/urlreplace.py
+---
+tag_rules:
+  "src.pretix.base.templatetags.urlreplace::tag::url_replace":
+    arg_constraints:
+      - Min: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: request
+        required: true
+        kind: Variable
+        position: 0
+      - name: pairs
+        required: false
+        kind: VarArgs
+        position: 1
+    supports_as_var: true
+filter_arities: {}
+block_specs: {}

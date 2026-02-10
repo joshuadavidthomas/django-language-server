@@ -1,0 +1,15 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+input_file: crates/djls-corpus/.corpus/packages/django-markdownify/markdownify/templatetags/markdownify.py
+---
+tag_rules: {}
+filter_arities:
+  "markdownify.templatetags.markdownify::filter::markdownify":
+    expects_arg: true
+    arg_optional: true
+block_specs:
+  "markdownify.templatetags.markdownify::tag::markdownify":
+    end_tag: endmarkdownify
+    intermediates: []
+    opaque: false

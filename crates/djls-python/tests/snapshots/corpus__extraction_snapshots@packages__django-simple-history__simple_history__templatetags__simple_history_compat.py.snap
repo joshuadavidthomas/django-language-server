@@ -1,0 +1,8 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+input_file: crates/djls-corpus/.corpus/packages/django-simple-history/simple_history/templatetags/simple_history_compat.py
+---
+tag_rules: {}
+filter_arities: {}
+block_specs: {}

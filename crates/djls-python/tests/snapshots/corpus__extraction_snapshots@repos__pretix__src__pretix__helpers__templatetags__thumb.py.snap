@@ -1,0 +1,11 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+input_file: crates/djls-corpus/.corpus/repos/pretix/src/pretix/helpers/templatetags/thumb.py
+---
+tag_rules: {}
+filter_arities:
+  "src.pretix.helpers.templatetags.thumb::filter::thumb":
+    expects_arg: true
+    arg_optional: false
+block_specs: {}

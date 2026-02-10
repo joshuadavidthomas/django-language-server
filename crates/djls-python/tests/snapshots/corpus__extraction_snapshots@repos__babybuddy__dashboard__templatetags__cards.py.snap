@@ -1,0 +1,213 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+input_file: crates/djls-corpus/.corpus/repos/babybuddy/dashboard/templatetags/cards.py
+---
+tag_rules:
+  "dashboard.templatetags.cards::tag::card_breastfeeding":
+    arg_constraints:
+      - Min: 2
+      - Max: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: child
+        required: true
+        kind: Variable
+        position: 0
+      - name: date
+        required: false
+        kind: Variable
+        position: 1
+    supports_as_var: false
+  "dashboard.templatetags.cards::tag::card_diaperchange_last":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: child
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: false
+  "dashboard.templatetags.cards::tag::card_diaperchange_types":
+    arg_constraints:
+      - Min: 2
+      - Max: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: child
+        required: true
+        kind: Variable
+        position: 0
+      - name: date
+        required: false
+        kind: Variable
+        position: 1
+    supports_as_var: false
+  "dashboard.templatetags.cards::tag::card_feeding_last":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: child
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: false
+  "dashboard.templatetags.cards::tag::card_feeding_last_method":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: child
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: false
+  "dashboard.templatetags.cards::tag::card_feeding_recent":
+    arg_constraints:
+      - Min: 2
+      - Max: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: child
+        required: true
+        kind: Variable
+        position: 0
+      - name: end_date
+        required: false
+        kind: Variable
+        position: 1
+    supports_as_var: false
+  "dashboard.templatetags.cards::tag::card_pumping_last":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: child
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: false
+  "dashboard.templatetags.cards::tag::card_sleep_last":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: child
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: false
+  "dashboard.templatetags.cards::tag::card_sleep_naps_day":
+    arg_constraints:
+      - Min: 2
+      - Max: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: child
+        required: true
+        kind: Variable
+        position: 0
+      - name: date
+        required: false
+        kind: Variable
+        position: 1
+    supports_as_var: false
+  "dashboard.templatetags.cards::tag::card_sleep_recent":
+    arg_constraints:
+      - Min: 2
+      - Max: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: child
+        required: true
+        kind: Variable
+        position: 0
+      - name: end_date
+        required: false
+        kind: Variable
+        position: 1
+    supports_as_var: false
+  "dashboard.templatetags.cards::tag::card_statistics":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: child
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: false
+  "dashboard.templatetags.cards::tag::card_timer_list":
+    arg_constraints:
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: child
+        required: false
+        kind: Variable
+        position: 0
+    supports_as_var: false
+  "dashboard.templatetags.cards::tag::card_tummytime_day":
+    arg_constraints:
+      - Min: 2
+      - Max: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: child
+        required: true
+        kind: Variable
+        position: 0
+      - name: date
+        required: false
+        kind: Variable
+        position: 1
+    supports_as_var: false
+  "dashboard.templatetags.cards::tag::card_tummytime_last":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: child
+        required: true
+        kind: Variable
+        position: 0
+    supports_as_var: false
+filter_arities: {}
+block_specs: {}
