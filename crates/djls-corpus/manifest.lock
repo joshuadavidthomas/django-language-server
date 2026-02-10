@@ -265,6 +265,18 @@ tag = "master"
 ref = "6ce518f3612ae1ee8d49de3434aacf48e15c0724"
 
 [[repo]]
+name = "djangopackages.org"
+url = "https://github.com/djangopackages/djangopackages.git"
+tag = "main"
+ref = "96f90e48be545413fb380083c33a6e7dd450589c"
+
+[[repo]]
+name = "djangoproject.com"
+url = "https://github.com/django/djangoproject.com.git"
+tag = "main"
+ref = "aa87acefdd37ef59b60ae55354255ff76a813a3b"
+
+[[repo]]
 name = "geonode"
 url = "https://github.com/GeoNode/geonode.git"
 tag = "master"

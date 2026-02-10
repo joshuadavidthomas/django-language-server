@@ -158,6 +158,16 @@ url = "https://github.com/babybuddy/babybuddy.git"
 ref = "master"
 
 [[repo]]
+name = "djangopackages.org"
+url = "https://github.com/djangopackages/djangopackages.git"
+ref = "main"
+
+[[repo]]
+name = "djangoproject.com"
+url = "https://github.com/django/djangoproject.com.git"
+ref = "main"
+
+[[repo]]
 name = "geonode"
 url = "https://github.com/GeoNode/geonode.git"
 ref = "master"
