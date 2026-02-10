@@ -4,10 +4,8 @@
 //! and generating appropriate completion items for Django templates.
 
 use djls_project::Knowledge;
-use djls_project::LibraryEnablement;
-use djls_project::LibraryLocation;
+use djls_project::LibraryName;
 use djls_project::TemplateLibraries;
-use djls_project::TemplateLibraryId;
 use djls_project::TemplateSymbol;
 use djls_project::TemplateSymbolKind;
 use djls_python::ExtractedArgKind;
@@ -54,19 +52,14 @@ fn installed_symbol_candidates(
 ) -> Vec<SymbolCandidate<'_>> {
     let mut symbols = Vec::new();
 
-    for library in template_libraries.builtins.values() {
-        let module = match &library.id {
-            TemplateLibraryId::Builtin { module } => module.as_str(),
-            TemplateLibraryId::Loadable { .. } => "<builtin>",
-        };
-
+    for (module, library) in template_libraries.builtin_libraries_by_module() {
         for symbol in &library.symbols {
             if symbol.kind != kind {
                 continue;
             }
 
             let detail = match kind {
-                TemplateSymbolKind::Tag => format!("builtin from {module}"),
+                TemplateSymbolKind::Tag => format!("builtin from {}", module.as_str()),
                 TemplateSymbolKind::Filter => "builtin filter".to_string(),
             };
 
@@ -74,26 +67,16 @@ fn installed_symbol_candidates(
         }
     }
 
-    for libraries in template_libraries.loadable.values() {
-        for library in libraries {
-            if library.enablement != LibraryEnablement::Enabled {
+    for (name, library) in template_libraries.enabled_loadable_libraries() {
+        for symbol in &library.symbols {
+            if symbol.kind != kind {
                 continue;
             }
 
-            let TemplateLibraryId::Loadable { name, .. } = &library.id else {
-                continue;
-            };
-
-            for symbol in &library.symbols {
-                if symbol.kind != kind {
-                    continue;
-                }
-
-                symbols.push(SymbolCandidate {
-                    symbol,
-                    detail: format!("{{% load {} %}}", name.as_str()),
-                });
-            }
+            symbols.push(SymbolCandidate {
+                symbol,
+                detail: format!("{{% load {} %}}", name.as_str()),
+            });
         }
     }
 
@@ -883,8 +866,8 @@ fn generate_argument_completions(
 
 /// Generate completions for library names (for {% load %} tag).
 ///
-/// When the inspector is unavailable (`template_tags` is `None`), returns an
-/// empty list since we have no knowledge of which libraries are available.
+/// When `template_libraries` is `None`, returns an empty list since we have no
+/// knowledge of which libraries are available.
 fn generate_library_completions(
     partial: &str,
     closing: &ClosingBrace,
@@ -894,13 +877,13 @@ fn generate_library_completions(
         return Vec::new();
     };
 
-    let mut names: Vec<String> = Vec::new();
+    let mut names: Vec<LibraryName> = Vec::new();
 
-    for name in template_libraries.loadable.keys() {
+    for name in template_libraries.loadable_library_names() {
         if template_libraries.is_enabled_library(name)
             || template_libraries.has_scanned_library(name)
         {
-            names.push(name.as_str().to_string());
+            names.push(name.clone());
         }
     }
 
@@ -910,8 +893,9 @@ fn generate_library_completions(
     let mut completions = Vec::new();
 
     for load_name in names {
-        if load_name.starts_with(partial) {
-            let mut insert_text = load_name.clone();
+        if load_name.as_str().starts_with(partial) {
+            let load_name_str = load_name.as_str().to_string();
+            let mut insert_text = load_name_str.clone();
 
             // Add closing if needed
             match closing {
@@ -922,35 +906,19 @@ fn generate_library_completions(
             }
 
             let detail = template_libraries
-                .loadable
-                .iter()
-                .find(|(name, _)| name.as_str() == load_name)
-                .and_then(|(_name, libraries)| {
-                    libraries
-                        .iter()
-                        .find(|library| library.enablement == LibraryEnablement::Enabled)
-                        .or_else(|| {
-                            libraries.iter().find(|library| {
-                                matches!(library.location, LibraryLocation::Scanned { .. })
-                            })
-                        })
-                })
-                .and_then(|library| match &library.id {
-                    TemplateLibraryId::Loadable { module, .. } => Some(module.as_str()),
-                    TemplateLibraryId::Builtin { .. } => None,
-                })
+                .loadable_library_module(&load_name)
                 .map_or_else(
                     || "Django template library".to_string(),
-                    |module| format!("Django template library ({module})"),
+                    |module| format!("Django template library ({})", module.as_str()),
                 );
 
             completions.push(ls_types::CompletionItem {
-                label: load_name.clone(),
+                label: load_name_str.clone(),
                 kind: Some(ls_types::CompletionItemKind::MODULE),
                 detail: Some(detail),
                 insert_text: Some(insert_text),
                 insert_text_format: Some(ls_types::InsertTextFormat::PLAIN_TEXT),
-                filter_text: Some(load_name.clone()),
+                filter_text: Some(load_name_str.clone()),
                 ..Default::default()
             });
         }

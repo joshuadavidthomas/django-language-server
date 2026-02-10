@@ -1,9 +1,7 @@
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 
-use djls_project::LibraryEnablement;
 use djls_project::TemplateLibraries;
-use djls_project::TemplateLibraryId;
 use djls_project::TemplateSymbolKind;
 
 use super::load::LoadState;
@@ -82,7 +80,7 @@ impl AvailableSymbols {
         let mut filter_candidates: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
 
         // Builtins are always available.
-        for library in template_libraries.builtins.values() {
+        for library in template_libraries.builtin_libraries() {
             for symbol in &library.symbols {
                 match symbol.kind {
                     TemplateSymbolKind::Tag => {
@@ -96,32 +94,22 @@ impl AvailableSymbols {
         }
 
         // Build reverse indices for enabled, loadable libraries.
-        for libraries in template_libraries.loadable.values() {
-            for library in libraries {
-                if library.enablement != LibraryEnablement::Enabled {
-                    continue;
-                }
+        for (name, library) in template_libraries.enabled_loadable_libraries() {
+            let load_name = name.as_str();
 
-                let TemplateLibraryId::Loadable { name, .. } = &library.id else {
-                    continue;
-                };
-
-                let load_name = name.as_str();
-
-                for symbol in &library.symbols {
-                    match symbol.kind {
-                        TemplateSymbolKind::Tag => {
-                            candidates
-                                .entry(symbol.name.as_str().to_string())
-                                .or_default()
-                                .insert(load_name.to_string());
-                        }
-                        TemplateSymbolKind::Filter => {
-                            filter_candidates
-                                .entry(symbol.name.as_str().to_string())
-                                .or_default()
-                                .insert(load_name.to_string());
-                        }
+            for symbol in &library.symbols {
+                match symbol.kind {
+                    TemplateSymbolKind::Tag => {
+                        candidates
+                            .entry(symbol.name.as_str().to_string())
+                            .or_default()
+                            .insert(load_name.to_string());
+                    }
+                    TemplateSymbolKind::Filter => {
+                        filter_candidates
+                            .entry(symbol.name.as_str().to_string())
+                            .or_default()
+                            .insert(load_name.to_string());
                     }
                 }
             }

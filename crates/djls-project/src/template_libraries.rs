@@ -187,23 +187,96 @@ impl TemplateLibraries {
 
         let mut modules = FxHashSet::default();
 
-        for libraries in self.loadable.values() {
-            for library in libraries {
-                if library.enablement != LibraryEnablement::Enabled {
-                    continue;
-                }
+        for (_name, library) in self.enabled_loadable_libraries() {
+            let TemplateLibraryId::Loadable { module, .. } = &library.id else {
+                continue;
+            };
 
-                if let TemplateLibraryId::Loadable { module, .. } = &library.id {
-                    modules.insert(module.clone());
-                }
-            }
+            modules.insert(module.clone());
         }
 
-        for module in self.builtins.keys() {
+        for module in self.builtin_modules() {
             modules.insert(module.clone());
         }
 
         modules
+    }
+
+    pub fn builtin_modules(&self) -> impl Iterator<Item = &PyModuleName> + '_ {
+        self.builtins.keys()
+    }
+
+    pub fn builtin_libraries(&self) -> impl Iterator<Item = &TemplateLibrary> + '_ {
+        self.builtins.values()
+    }
+
+    pub fn builtin_libraries_by_module(
+        &self,
+    ) -> impl Iterator<Item = (&PyModuleName, &TemplateLibrary)> + '_ {
+        self.builtins.iter()
+    }
+
+    pub fn loadable_library_names(&self) -> impl Iterator<Item = &LibraryName> + '_ {
+        self.loadable.keys()
+    }
+
+    pub fn loadable_libraries(
+        &self,
+    ) -> impl Iterator<Item = (&LibraryName, &TemplateLibrary)> + '_ {
+        self.loadable
+            .iter()
+            .flat_map(|(name, libraries)| libraries.iter().map(move |library| (name, library)))
+    }
+
+    pub fn enabled_loadable_libraries(
+        &self,
+    ) -> impl Iterator<Item = (&LibraryName, &TemplateLibrary)> + '_ {
+        self.loadable_libraries()
+            .filter(|(_name, library)| library.enablement == LibraryEnablement::Enabled)
+    }
+
+    pub fn scanned_loadable_libraries(
+        &self,
+    ) -> impl Iterator<Item = (&LibraryName, &TemplateLibrary)> + '_ {
+        self.loadable_libraries()
+            .filter(|(_name, library)| matches!(&library.location, LibraryLocation::Scanned { .. }))
+    }
+
+    #[must_use]
+    pub fn best_loadable_library(&self, name: &LibraryName) -> Option<&TemplateLibrary> {
+        let libraries = self.loadable.get(name)?;
+
+        libraries
+            .iter()
+            .find(|library| library.enablement == LibraryEnablement::Enabled)
+            .or_else(|| {
+                libraries
+                    .iter()
+                    .find(|library| matches!(&library.location, LibraryLocation::Scanned { .. }))
+            })
+            .or_else(|| libraries.first())
+    }
+
+    #[must_use]
+    pub fn best_loadable_library_str(&self, name: &str) -> Option<&TemplateLibrary> {
+        let name = LibraryName::new(name)?;
+        self.best_loadable_library(&name)
+    }
+
+    #[must_use]
+    pub fn loadable_library_module(&self, name: &LibraryName) -> Option<&PyModuleName> {
+        let library = self.best_loadable_library(name)?;
+
+        match &library.id {
+            TemplateLibraryId::Loadable { module, .. } => Some(module),
+            TemplateLibraryId::Builtin { .. } => None,
+        }
+    }
+
+    #[must_use]
+    pub fn loadable_library_module_str(&self, name: &str) -> Option<&PyModuleName> {
+        let name = LibraryName::new(name)?;
+        self.loadable_library_module(&name)
     }
 
     #[must_use]
@@ -273,24 +346,22 @@ impl TemplateLibraries {
 
         let mut map: HashMap<TemplateSymbolName, Vec<ScannedSymbolCandidate>> = HashMap::new();
 
-        for (library_name, libraries) in &self.loadable {
-            for library in libraries {
-                let LibraryLocation::Scanned { app_module, .. } = &library.location else {
+        for (library_name, library) in self.scanned_loadable_libraries() {
+            let LibraryLocation::Scanned { app_module, .. } = &library.location else {
+                continue;
+            };
+
+            for symbol in &library.symbols {
+                if symbol.kind != kind {
                     continue;
-                };
-
-                for symbol in &library.symbols {
-                    if symbol.kind != kind {
-                        continue;
-                    }
-
-                    map.entry(symbol.name.clone())
-                        .or_default()
-                        .push(ScannedSymbolCandidate {
-                            app_module: app_module.clone(),
-                            library_name: library_name.clone(),
-                        });
                 }
+
+                map.entry(symbol.name.clone())
+                    .or_default()
+                    .push(ScannedSymbolCandidate {
+                        app_module: app_module.clone(),
+                        library_name: library_name.clone(),
+                    });
             }
         }
 
