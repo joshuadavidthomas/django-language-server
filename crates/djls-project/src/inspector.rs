@@ -22,7 +22,7 @@ use crate::db::Db as ProjectDb;
 use crate::python::Interpreter;
 
 pub trait InspectorRequest: Serialize {
-    /// The query name sent to Python (e.g., "templatetags", "`python_env`")
+    /// The query name sent to Python (e.g., `template_libraries`, `python_env`)
     const NAME: &'static str;
     /// The response type to deserialize into
     type Response: DeserializeOwned;

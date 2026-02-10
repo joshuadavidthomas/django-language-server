@@ -635,8 +635,7 @@ mod invalidation_tests {
         let project = db.project.lock().unwrap().unwrap();
 
         let response = djls_project::TemplateLibrariesResponse {
-            templatetags: Vec::new(),
-            templatefilters: Vec::new(),
+            symbols: Vec::new(),
             libraries: BTreeMap::new(),
             builtins: Vec::new(),
         };

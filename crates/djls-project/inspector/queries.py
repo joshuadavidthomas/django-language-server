@@ -12,7 +12,7 @@ class Query(str, Enum):
     DJANGO_INIT = "django_init"
     PYTHON_ENV = "python_env"
     TEMPLATE_DIRS = "template_dirs"
-    TEMPLATETAGS = "templatetags"
+    TEMPLATE_LIBRARIES = "template_libraries"
 
 
 def initialize_django() -> tuple[bool, str | None]:
@@ -88,118 +88,108 @@ def get_template_dirs() -> TemplateDirsQueryData:
 
 
 @dataclass
-class TemplateTagQueryData:
-    templatetags: list[TemplateTag]
-    templatefilters: list[TemplateFilter]
+class TemplateLibrarySymbol:
+    kind: Literal["tag", "filter"]
+    name: str
+    load_name: str | None
+    library_module: str
+    module: str
+    doc: str | None
+
+
+@dataclass
+class TemplateLibrariesQueryData:
+    symbols: list[TemplateLibrarySymbol]
     libraries: dict[str, str]
     builtins: list[str]
 
 
-@dataclass
-class TemplateTag:
-    name: str
-    provenance: dict[str, dict[str, str]]
-    defining_module: str
-    doc: str | None
-
-
-@dataclass
-class TemplateFilter:
-    name: str
-    provenance: dict[str, dict[str, str]]
-    defining_module: str
-    doc: str | None
-
-
-def get_installed_templatetags() -> TemplateTagQueryData:
+def get_installed_template_libraries() -> TemplateLibrariesQueryData:
     import django
     from django.apps import apps
     from django.template.engine import Engine
     from django.template.library import import_library
 
-    # Ensure Django is set up
     if not apps.ready:
         django.setup()
 
-    templatetags: list[TemplateTag] = []
-    templatefilters: list[TemplateFilter] = []
+    symbols: list[TemplateLibrarySymbol] = []
 
     engine = Engine.get_default()
 
-    # Collect builtin tags and filters: engine.builtins has module paths,
-    # engine.template_builtins has the corresponding loaded Library objects.
-    # Guard against length mismatch by using zip (stops at shorter list).
     builtin_modules: list[str] = []
+
     for builtin_module, library in zip(engine.builtins, engine.template_builtins):
         if builtin_module not in builtin_modules:
             builtin_modules.append(builtin_module)
+
         if library.tags:
             for tag_name, tag_func in library.tags.items():
-                templatetags.append(
-                    TemplateTag(
+                symbols.append(
+                    TemplateLibrarySymbol(
+                        kind="tag",
                         name=tag_name,
-                        provenance={"builtin": {"module": builtin_module}},
-                        defining_module=tag_func.__module__,
+                        load_name=None,
+                        library_module=builtin_module,
+                        module=tag_func.__module__,
                         doc=tag_func.__doc__,
                     )
                 )
+
         if library.filters:
             for filter_name, filter_func in library.filters.items():
-                templatefilters.append(
-                    TemplateFilter(
+                symbols.append(
+                    TemplateLibrarySymbol(
+                        kind="filter",
                         name=filter_name,
-                        provenance={"builtin": {"module": builtin_module}},
-                        defining_module=filter_func.__module__,
+                        load_name=None,
+                        library_module=builtin_module,
+                        module=filter_func.__module__,
                         doc=filter_func.__doc__,
                     )
                 )
 
-    # Collect library tags and filters: engine.libraries maps load-name -> module path.
-    # Use .items() to preserve the load-name key for each library.
     lib_registry: dict[str, str] = {}
+
     for load_name, lib_module in engine.libraries.items():
         lib_registry[load_name] = lib_module
+
         try:
             library = import_library(lib_module)
         except Exception:
             continue
+
         if library and library.tags:
             for tag_name, tag_func in library.tags.items():
-                templatetags.append(
-                    TemplateTag(
+                symbols.append(
+                    TemplateLibrarySymbol(
+                        kind="tag",
                         name=tag_name,
-                        provenance={
-                            "library": {
-                                "load_name": load_name,
-                                "module": lib_module,
-                            }
-                        },
-                        defining_module=tag_func.__module__,
+                        load_name=load_name,
+                        library_module=lib_module,
+                        module=tag_func.__module__,
                         doc=tag_func.__doc__,
                     )
                 )
+
         if library and library.filters:
             for filter_name, filter_func in library.filters.items():
-                templatefilters.append(
-                    TemplateFilter(
+                symbols.append(
+                    TemplateLibrarySymbol(
+                        kind="filter",
                         name=filter_name,
-                        provenance={
-                            "library": {
-                                "load_name": load_name,
-                                "module": lib_module,
-                            }
-                        },
-                        defining_module=filter_func.__module__,
+                        load_name=load_name,
+                        library_module=lib_module,
+                        module=filter_func.__module__,
                         doc=filter_func.__doc__,
                     )
                 )
 
-    return TemplateTagQueryData(
-        templatetags=templatetags,
-        templatefilters=templatefilters,
+    return TemplateLibrariesQueryData(
+        symbols=symbols,
         libraries=lib_registry,
         builtins=builtin_modules,
     )
 
 
-QueryData = PythonEnvironmentQueryData | TemplateDirsQueryData | TemplateTagQueryData
+QueryData = PythonEnvironmentQueryData | TemplateDirsQueryData | TemplateLibrariesQueryData

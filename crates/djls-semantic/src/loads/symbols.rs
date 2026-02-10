@@ -260,36 +260,44 @@ mod tests {
 
     fn builtin_tag_json(name: &str, module: &str) -> serde_json::Value {
         serde_json::json!({
+            "kind": "tag",
             "name": name,
-            "provenance": {"builtin": {"module": module}},
-            "defining_module": module,
+            "load_name": null,
+            "library_module": module,
+            "module": module,
             "doc": null,
         })
     }
 
     fn library_tag_json(name: &str, load_name: &str, module: &str) -> serde_json::Value {
         serde_json::json!({
+            "kind": "tag",
             "name": name,
-            "provenance": {"library": {"load_name": load_name, "module": module}},
-            "defining_module": module,
+            "load_name": load_name,
+            "library_module": module,
+            "module": module,
             "doc": null,
         })
     }
 
     fn builtin_filter_json(name: &str, module: &str) -> serde_json::Value {
         serde_json::json!({
+            "kind": "filter",
             "name": name,
-            "provenance": {"builtin": {"module": module}},
-            "defining_module": module,
+            "load_name": null,
+            "library_module": module,
+            "module": module,
             "doc": null,
         })
     }
 
     fn library_filter_json(name: &str, load_name: &str, module: &str) -> serde_json::Value {
         serde_json::json!({
+            "kind": "filter",
             "name": name,
-            "provenance": {"library": {"load_name": load_name, "module": module}},
-            "defining_module": module,
+            "load_name": load_name,
+            "library_module": module,
+            "module": module,
             "doc": null,
         })
     }
@@ -308,23 +316,24 @@ mod tests {
         libraries: &HashMap<String, String>,
         builtins: &[String],
     ) -> TemplateLibraries {
-        let templatetags: Vec<djls_project::InspectorSymbolWire> = tags
+        let mut symbols: Vec<djls_project::InspectorTemplateLibrarySymbolWire> = tags
             .iter()
             .cloned()
             .map(serde_json::from_value)
             .collect::<Result<_, _>>()
             .unwrap();
 
-        let templatefilters: Vec<djls_project::InspectorSymbolWire> = filters
-            .iter()
-            .cloned()
-            .map(serde_json::from_value)
-            .collect::<Result<_, _>>()
-            .unwrap();
+        symbols.extend(
+            filters
+                .iter()
+                .cloned()
+                .map(serde_json::from_value)
+                .collect::<Result<Vec<djls_project::InspectorTemplateLibrarySymbolWire>, _>>()
+                .unwrap(),
+        );
 
         let response = djls_project::TemplateLibrariesResponse {
-            templatetags,
-            templatefilters,
+            symbols,
             libraries: libraries
                 .iter()
                 .map(|(k, v)| (k.clone(), v.clone()))

@@ -104,30 +104,11 @@ fn scanned_symbol_names(
     template_libraries: &TemplateLibraries,
     kind: TemplateSymbolKind,
 ) -> Vec<String> {
-    if template_libraries.scan_knowledge != Knowledge::Known {
-        return Vec::new();
-    }
-
-    let mut names = Vec::new();
-
-    for libraries in template_libraries.loadable.values() {
-        for library in libraries {
-            if !matches!(library.location, LibraryLocation::Scanned { .. }) {
-                continue;
-            }
-
-            for symbol in &library.symbols {
-                if symbol.kind == kind {
-                    names.push(symbol.name.as_str().to_string());
-                }
-            }
-        }
-    }
-
-    names.sort();
-    names.dedup();
-
-    names
+    template_libraries
+        .scanned_symbol_names(kind)
+        .into_iter()
+        .map(|name| name.as_str().to_string())
+        .collect()
 }
 
 /// Tracks what closing characters are needed to complete a template tag.
@@ -915,18 +896,10 @@ fn generate_library_completions(
 
     let mut names: Vec<String> = Vec::new();
 
-    for (name, libraries) in &template_libraries.loadable {
-        let installed = template_libraries.inspector_knowledge == Knowledge::Known
-            && libraries
-                .iter()
-                .any(|library| library.enablement == LibraryEnablement::Enabled);
-
-        let scanned = template_libraries.scan_knowledge == Knowledge::Known
-            && libraries
-                .iter()
-                .any(|library| matches!(library.location, LibraryLocation::Scanned { .. }));
-
-        if installed || scanned {
+    for name in template_libraries.loadable.keys() {
+        if template_libraries.is_enabled_library(name)
+            || template_libraries.has_scanned_library(name)
+        {
             names.push(name.as_str().to_string());
         }
     }
@@ -1108,31 +1081,34 @@ mod tests {
 
         for module in builtins {
             tag_values.push(serde_json::json!({
+                "kind": "tag",
                 "name": format!("builtin_from_{}", module.split('.').next_back().unwrap_or("unknown")),
-                "provenance": {"builtin": {"module": module}},
-                "defining_module": module,
+                "load_name": null,
+                "library_module": module,
+                "module": module,
                 "doc": null,
             }));
         }
 
         for (load_name, module) in libraries {
             tag_values.push(serde_json::json!({
+                "kind": "tag",
                 "name": format!("{}_tag", load_name),
-                "provenance": {"library": {"load_name": load_name, "module": module}},
-                "defining_module": module,
+                "load_name": load_name,
+                "library_module": module,
+                "module": module,
                 "doc": null,
             }));
         }
 
-        let templatetags: Vec<djls_project::InspectorSymbolWire> = tag_values
+        let symbols: Vec<djls_project::InspectorTemplateLibrarySymbolWire> = tag_values
             .into_iter()
             .map(serde_json::from_value)
             .collect::<Result<_, _>>()
             .unwrap();
 
         let response = djls_project::TemplateLibrariesResponse {
-            templatetags,
-            templatefilters: Vec::new(),
+            symbols,
             libraries: libraries
                 .iter()
                 .map(|(k, v)| (k.clone(), v.clone()))
@@ -1569,52 +1545,63 @@ mod tests {
 
         let tag_values = vec![
             serde_json::json!({
+                "kind": "tag",
                 "name": "if",
-                "provenance": {"builtin": {"module": "django.template.defaulttags"}},
-                "defining_module": "django.template.defaulttags",
+                "load_name": null,
+                "library_module": "django.template.defaulttags",
+                "module": "django.template.defaulttags",
                 "doc": null,
             }),
             serde_json::json!({
+                "kind": "tag",
                 "name": "for",
-                "provenance": {"builtin": {"module": "django.template.defaulttags"}},
-                "defining_module": "django.template.defaulttags",
+                "load_name": null,
+                "library_module": "django.template.defaulttags",
+                "module": "django.template.defaulttags",
                 "doc": null,
             }),
             serde_json::json!({
+                "kind": "tag",
                 "name": "block",
-                "provenance": {"builtin": {"module": "django.template.defaulttags"}},
-                "defining_module": "django.template.defaulttags",
+                "load_name": null,
+                "library_module": "django.template.defaulttags",
+                "module": "django.template.defaulttags",
                 "doc": null,
             }),
             serde_json::json!({
+                "kind": "tag",
                 "name": "trans",
-                "provenance": {"library": {"load_name": "i18n", "module": "django.templatetags.i18n"}},
-                "defining_module": "django.templatetags.i18n",
+                "load_name": "i18n",
+                "library_module": "django.templatetags.i18n",
+                "module": "django.templatetags.i18n",
                 "doc": null,
             }),
             serde_json::json!({
+                "kind": "tag",
                 "name": "blocktrans",
-                "provenance": {"library": {"load_name": "i18n", "module": "django.templatetags.i18n"}},
-                "defining_module": "django.templatetags.i18n",
+                "load_name": "i18n",
+                "library_module": "django.templatetags.i18n",
+                "module": "django.templatetags.i18n",
                 "doc": null,
             }),
             serde_json::json!({
+                "kind": "tag",
                 "name": "get_static_prefix",
-                "provenance": {"library": {"load_name": "static", "module": "django.templatetags.static"}},
-                "defining_module": "django.templatetags.static",
+                "load_name": "static",
+                "library_module": "django.templatetags.static",
+                "module": "django.templatetags.static",
                 "doc": null,
             }),
         ];
 
-        let templatetags: Vec<djls_project::InspectorSymbolWire> = tag_values
+        let symbols: Vec<djls_project::InspectorTemplateLibrarySymbolWire> = tag_values
             .into_iter()
             .map(serde_json::from_value)
             .collect::<Result<_, _>>()
             .unwrap();
 
         let response = djls_project::TemplateLibrariesResponse {
-            templatetags,
-            templatefilters: Vec::new(),
+            symbols,
             libraries: libraries.into_iter().collect::<BTreeMap<String, String>>(),
             builtins,
         };
@@ -1800,47 +1787,61 @@ mod tests {
 
     fn build_test_filter_libraries() -> TemplateLibraries {
         let tags = vec![serde_json::json!({
+            "kind": "tag",
             "name": "if",
-            "provenance": {"builtin": {"module": "django.template.defaulttags"}},
-            "defining_module": "django.template.defaulttags",
+            "load_name": null,
+            "library_module": "django.template.defaulttags",
+            "module": "django.template.defaulttags",
             "doc": null,
         })];
 
         let filters = vec![
             serde_json::json!({
+                "kind": "filter",
                 "name": "lower",
-                "provenance": {"builtin": {"module": "django.template.defaultfilters"}},
-                "defining_module": "django.template.defaultfilters",
+                "load_name": null,
+                "library_module": "django.template.defaultfilters",
+                "module": "django.template.defaultfilters",
                 "doc": "Convert a string to lowercase.",
             }),
             serde_json::json!({
+                "kind": "filter",
                 "name": "title",
-                "provenance": {"builtin": {"module": "django.template.defaultfilters"}},
-                "defining_module": "django.template.defaultfilters",
+                "load_name": null,
+                "library_module": "django.template.defaultfilters",
+                "module": "django.template.defaultfilters",
                 "doc": null,
             }),
             serde_json::json!({
+                "kind": "filter",
                 "name": "default",
-                "provenance": {"builtin": {"module": "django.template.defaultfilters"}},
-                "defining_module": "django.template.defaultfilters",
+                "load_name": null,
+                "library_module": "django.template.defaultfilters",
+                "module": "django.template.defaultfilters",
                 "doc": null,
             }),
             serde_json::json!({
+                "kind": "filter",
                 "name": "intcomma",
-                "provenance": {"library": {"load_name": "humanize", "module": "django.contrib.humanize.templatetags.humanize"}},
-                "defining_module": "django.contrib.humanize.templatetags.humanize",
+                "load_name": "humanize",
+                "library_module": "django.contrib.humanize.templatetags.humanize",
+                "module": "django.contrib.humanize.templatetags.humanize",
                 "doc": "Converts an integer to a string containing commas.",
             }),
             serde_json::json!({
+                "kind": "filter",
                 "name": "naturaltime",
-                "provenance": {"library": {"load_name": "humanize", "module": "django.contrib.humanize.templatetags.humanize"}},
-                "defining_module": "django.contrib.humanize.templatetags.humanize",
+                "load_name": "humanize",
+                "library_module": "django.contrib.humanize.templatetags.humanize",
+                "module": "django.contrib.humanize.templatetags.humanize",
                 "doc": null,
             }),
             serde_json::json!({
+                "kind": "filter",
                 "name": "localize",
-                "provenance": {"library": {"load_name": "l10n", "module": "django.templatetags.l10n"}},
-                "defining_module": "django.templatetags.l10n",
+                "load_name": "l10n",
+                "library_module": "django.templatetags.l10n",
+                "module": "django.templatetags.l10n",
                 "doc": null,
             }),
         ];
@@ -1857,21 +1858,22 @@ mod tests {
             "django.template.defaultfilters".to_string(),
         ];
 
-        let templatetags: Vec<djls_project::InspectorSymbolWire> = tags
+        let mut symbols: Vec<djls_project::InspectorTemplateLibrarySymbolWire> = tags
             .into_iter()
             .map(serde_json::from_value)
             .collect::<Result<_, _>>()
             .unwrap();
 
-        let templatefilters: Vec<djls_project::InspectorSymbolWire> = filters
-            .into_iter()
-            .map(serde_json::from_value)
-            .collect::<Result<_, _>>()
-            .unwrap();
+        symbols.extend(
+            filters
+                .into_iter()
+                .map(serde_json::from_value)
+                .collect::<Result<Vec<djls_project::InspectorTemplateLibrarySymbolWire>, _>>()
+                .unwrap(),
+        );
 
         let response = djls_project::TemplateLibrariesResponse {
-            templatetags,
-            templatefilters,
+            symbols,
             libraries: libraries.into_iter().collect::<BTreeMap<String, String>>(),
             builtins,
         };

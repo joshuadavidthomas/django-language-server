@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::collections::HashMap;
 
 use camino::Utf8PathBuf;
 use rustc_hash::FxHashSet;
@@ -17,15 +18,13 @@ pub struct TemplateLibrariesRequest;
 
 #[derive(Deserialize)]
 pub struct TemplateLibrariesResponse {
-    pub templatetags: Vec<InspectorSymbolWire>,
-    pub templatefilters: Vec<InspectorSymbolWire>,
+    pub symbols: Vec<InspectorTemplateLibrarySymbolWire>,
     pub libraries: BTreeMap<String, String>,
     pub builtins: Vec<String>,
 }
 
 impl InspectorRequest for TemplateLibrariesRequest {
-    // Inspector endpoint name is historical; it returns tags, filters, libraries, and builtins.
-    const NAME: &'static str = "templatetags";
+    const NAME: &'static str = "template_libraries";
     type Response = TemplateLibrariesResponse;
 }
 
@@ -162,6 +161,12 @@ pub struct TemplateLibraries {
     pub builtins: BTreeMap<PyModuleName, TemplateLibrary>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ScannedSymbolCandidate {
+    pub app_module: PyModuleName,
+    pub library_name: LibraryName,
+}
+
 impl Default for TemplateLibraries {
     fn default() -> Self {
         Self {
@@ -199,6 +204,109 @@ impl TemplateLibraries {
         }
 
         modules
+    }
+
+    #[must_use]
+    pub fn is_enabled_library(&self, name: &LibraryName) -> bool {
+        self.loadable.get(name).is_some_and(|libraries| {
+            libraries
+                .iter()
+                .any(|library| library.enablement == LibraryEnablement::Enabled)
+        })
+    }
+
+    #[must_use]
+    pub fn is_enabled_library_str(&self, name: &str) -> bool {
+        LibraryName::new(name).is_some_and(|name| self.is_enabled_library(&name))
+    }
+
+    #[must_use]
+    pub fn has_scanned_library(&self, name: &LibraryName) -> bool {
+        if self.scan_knowledge != Knowledge::Known {
+            return false;
+        }
+
+        self.loadable.get(name).is_some_and(|libraries| {
+            libraries
+                .iter()
+                .any(|library| matches!(library.location, LibraryLocation::Scanned { .. }))
+        })
+    }
+
+    #[must_use]
+    pub fn scanned_app_modules_for_library(&self, name: &LibraryName) -> Vec<PyModuleName> {
+        if self.scan_knowledge != Knowledge::Known {
+            return Vec::new();
+        }
+
+        self.loadable
+            .get(name)
+            .into_iter()
+            .flatten()
+            .filter_map(|library| match &library.location {
+                LibraryLocation::Scanned { app_module, .. } => Some(app_module.clone()),
+                LibraryLocation::Unknown => None,
+            })
+            .collect()
+    }
+
+    #[must_use]
+    pub fn scanned_app_modules_for_library_str(&self, name: &str) -> Vec<String> {
+        let Some(name) = LibraryName::new(name) else {
+            return Vec::new();
+        };
+
+        self.scanned_app_modules_for_library(&name)
+            .into_iter()
+            .map(|m| m.as_str().to_string())
+            .collect()
+    }
+
+    #[must_use]
+    pub fn scanned_symbol_candidates_by_name(
+        &self,
+        kind: TemplateSymbolKind,
+    ) -> Option<HashMap<TemplateSymbolName, Vec<ScannedSymbolCandidate>>> {
+        if self.scan_knowledge != Knowledge::Known {
+            return None;
+        }
+
+        let mut map: HashMap<TemplateSymbolName, Vec<ScannedSymbolCandidate>> = HashMap::new();
+
+        for (library_name, libraries) in &self.loadable {
+            for library in libraries {
+                let LibraryLocation::Scanned { app_module, .. } = &library.location else {
+                    continue;
+                };
+
+                for symbol in &library.symbols {
+                    if symbol.kind != kind {
+                        continue;
+                    }
+
+                    map.entry(symbol.name.clone())
+                        .or_default()
+                        .push(ScannedSymbolCandidate {
+                            app_module: app_module.clone(),
+                            library_name: library_name.clone(),
+                        });
+                }
+            }
+        }
+
+        Some(map)
+    }
+
+    #[must_use]
+    pub fn scanned_symbol_names(&self, kind: TemplateSymbolKind) -> Vec<TemplateSymbolName> {
+        let Some(map) = self.scanned_symbol_candidates_by_name(kind) else {
+            return Vec::new();
+        };
+
+        let mut names: Vec<TemplateSymbolName> = map.keys().cloned().collect();
+        names.sort();
+        names.dedup();
+        names
     }
 
     #[must_use]
@@ -340,24 +448,27 @@ impl TemplateLibraries {
                 .or_insert_with(|| TemplateLibrary::new_builtin(module));
         }
 
-        for symbol in response.templatetags {
-            self.apply_inspector_symbol(TemplateSymbolKind::Tag, symbol);
-        }
-
-        for symbol in response.templatefilters {
-            self.apply_inspector_symbol(TemplateSymbolKind::Filter, symbol);
+        for symbol in response.symbols {
+            self.apply_inspector_symbol(&enabled, symbol);
         }
 
         self
     }
 
-    fn apply_inspector_symbol(&mut self, kind: TemplateSymbolKind, wire: InspectorSymbolWire) {
+    fn apply_inspector_symbol(
+        &mut self,
+        enabled: &BTreeMap<LibraryName, PyModuleName>,
+        wire: InspectorTemplateLibrarySymbolWire,
+    ) {
+        let Some(kind) = wire.kind else {
+            return;
+        };
+
         let Some(name) = TemplateSymbolName::new(&wire.name) else {
             return;
         };
 
-        let definition_module = PyModuleName::new(&wire.defining_module)
-            .or_else(|| PyModuleName::new(wire.provenance.module()));
+        let definition_module = PyModuleName::new(&wire.module);
 
         let definition = match definition_module {
             Some(module) => SymbolDefinition::Module(module),
@@ -371,9 +482,9 @@ impl TemplateLibraries {
             doc: wire.doc,
         };
 
-        match wire.provenance {
-            InspectorSymbolProvenance::Builtin { module } => {
-                let Some(module) = PyModuleName::new(&module) else {
+        match wire.load_name {
+            None => {
+                let Some(module) = PyModuleName::new(&wire.library_module) else {
                     return;
                 };
 
@@ -384,11 +495,17 @@ impl TemplateLibraries {
 
                 library.merge_symbol(symbol);
             }
-            InspectorSymbolProvenance::Library { load_name, module } => {
+            Some(load_name) => {
                 let Some(library_name) = LibraryName::new(&load_name) else {
                     return;
                 };
-                let Some(module) = PyModuleName::new(&module) else {
+
+                let module = enabled
+                    .get(&library_name)
+                    .cloned()
+                    .or_else(|| PyModuleName::new(&wire.library_module));
+
+                let Some(module) = module else {
                     return;
                 };
 
@@ -421,26 +538,14 @@ impl TemplateLibraries {
 }
 
 #[derive(Clone, Debug, Deserialize)]
-pub struct InspectorSymbolWire {
-    pub name: String,
-    pub provenance: InspectorSymbolProvenance,
+pub struct InspectorTemplateLibrarySymbolWire {
     #[serde(default)]
-    pub defining_module: String,
+    pub kind: Option<TemplateSymbolKind>,
+    pub name: String,
+    #[serde(default)]
+    pub load_name: Option<String>,
+    pub library_module: String,
+    pub module: String,
     #[serde(default)]
     pub doc: Option<String>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum InspectorSymbolProvenance {
-    Library { load_name: String, module: String },
-    Builtin { module: String },
-}
-
-impl InspectorSymbolProvenance {
-    fn module(&self) -> &str {
-        match self {
-            Self::Library { module, .. } | Self::Builtin { module } => module,
-        }
-    }
 }

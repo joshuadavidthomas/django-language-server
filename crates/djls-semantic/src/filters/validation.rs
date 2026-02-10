@@ -179,9 +179,11 @@ mod tests {
 
     fn builtin_filter_json(name: &str, module: &str) -> serde_json::Value {
         serde_json::json!({
+            "kind": "filter",
             "name": name,
-            "provenance": {"builtin": {"module": module}},
-            "defining_module": module,
+            "load_name": null,
+            "library_module": module,
+            "module": module,
             "doc": null,
         })
     }
@@ -189,37 +191,45 @@ mod tests {
     fn make_template_libraries_with_filters(filters: &[serde_json::Value]) -> TemplateLibraries {
         let tags: Vec<serde_json::Value> = vec![
             serde_json::json!({
+                "kind": "tag",
                 "name": "if",
-                "provenance": {"builtin": {"module": "django.template.defaulttags"}},
-                "defining_module": "django.template.defaulttags",
+                "load_name": null,
+                "library_module": "django.template.defaulttags",
+                "module": "django.template.defaulttags",
                 "doc": null,
             }),
             serde_json::json!({
+                "kind": "tag",
                 "name": "verbatim",
-                "provenance": {"builtin": {"module": "django.template.defaulttags"}},
-                "defining_module": "django.template.defaulttags",
+                "load_name": null,
+                "library_module": "django.template.defaulttags",
+                "module": "django.template.defaulttags",
                 "doc": null,
             }),
             serde_json::json!({
+                "kind": "tag",
                 "name": "comment",
-                "provenance": {"builtin": {"module": "django.template.defaulttags"}},
-                "defining_module": "django.template.defaulttags",
+                "load_name": null,
+                "library_module": "django.template.defaulttags",
+                "module": "django.template.defaulttags",
                 "doc": null,
             }),
         ];
 
-        let templatetags: Vec<djls_project::InspectorSymbolWire> = tags
+        let mut symbols: Vec<djls_project::InspectorTemplateLibrarySymbolWire> = tags
             .into_iter()
             .map(serde_json::from_value)
             .collect::<Result<_, _>>()
             .unwrap();
 
-        let templatefilters: Vec<djls_project::InspectorSymbolWire> = filters
-            .iter()
-            .cloned()
-            .map(serde_json::from_value)
-            .collect::<Result<_, _>>()
-            .unwrap();
+        symbols.extend(
+            filters
+                .iter()
+                .cloned()
+                .map(serde_json::from_value)
+                .collect::<Result<Vec<djls_project::InspectorTemplateLibrarySymbolWire>, _>>()
+                .unwrap(),
+        );
 
         let builtins = vec![
             "django.template.defaulttags".to_string(),
@@ -227,8 +237,7 @@ mod tests {
         ];
 
         let response = djls_project::TemplateLibrariesResponse {
-            templatetags,
-            templatefilters,
+            symbols,
             libraries: BTreeMap::new(),
             builtins,
         };

@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use djls_templates::tokens::TagDelimiter;
 use djls_templates::Node;
 use djls_templates::NodeList;
@@ -14,93 +12,6 @@ use super::LoadKind;
 use crate::Db;
 use crate::ValidationError;
 use crate::ValidationErrorAccumulator;
-
-#[derive(Clone, Debug)]
-struct ScannedSymbolCandidate {
-    app_module: String,
-    library_name: String,
-}
-
-fn scanned_symbols_by_name(
-    template_libraries: &djls_project::TemplateLibraries,
-    kind: djls_project::TemplateSymbolKind,
-) -> Option<HashMap<String, Vec<ScannedSymbolCandidate>>> {
-    if template_libraries.scan_knowledge != djls_project::Knowledge::Known {
-        return None;
-    }
-
-    let mut map: HashMap<String, Vec<ScannedSymbolCandidate>> = HashMap::new();
-
-    for (library_name, libraries) in &template_libraries.loadable {
-        for library in libraries {
-            let djls_project::LibraryLocation::Scanned { app_module, .. } = &library.location
-            else {
-                continue;
-            };
-
-            for symbol in &library.symbols {
-                if symbol.kind != kind {
-                    continue;
-                }
-
-                map.entry(symbol.name.as_str().to_string())
-                    .or_default()
-                    .push(ScannedSymbolCandidate {
-                        app_module: app_module.as_str().to_string(),
-                        library_name: library_name.as_str().to_string(),
-                    });
-            }
-        }
-    }
-
-    Some(map)
-}
-
-fn is_installed_library(
-    template_libraries: &djls_project::TemplateLibraries,
-    library_name: &str,
-) -> bool {
-    template_libraries.loadable.iter().any(|(name, libraries)| {
-        if name.as_str() != library_name {
-            return false;
-        }
-        libraries
-            .iter()
-            .any(|library| library.enablement == djls_project::LibraryEnablement::Enabled)
-    })
-}
-
-fn scanned_app_modules_for_library(
-    template_libraries: &djls_project::TemplateLibraries,
-    library_name: &str,
-) -> Vec<String> {
-    if template_libraries.scan_knowledge != djls_project::Knowledge::Known {
-        return Vec::new();
-    }
-
-    template_libraries
-        .loadable
-        .iter()
-        .filter_map(|(name, libraries)| {
-            if name.as_str() != library_name {
-                return None;
-            }
-
-            let apps: Vec<String> = libraries
-                .iter()
-                .filter_map(|library| match &library.location {
-                    djls_project::LibraryLocation::Scanned { app_module, .. } => {
-                        Some(app_module.as_str().to_string())
-                    }
-                    djls_project::LibraryLocation::Unknown => None,
-                })
-                .collect();
-
-            Some(apps)
-        })
-        .flatten()
-        .collect()
-}
 
 /// Validate tag scoping for all tags in a template.
 ///
@@ -129,7 +40,7 @@ pub fn validate_tag_scoping(
     let loaded_libraries = compute_loaded_libraries(db, nodelist);
 
     let env_tags =
-        scanned_symbols_by_name(&template_libraries, djls_project::TemplateSymbolKind::Tag);
+        template_libraries.scanned_symbol_candidates_by_name(djls_project::TemplateSymbolKind::Tag);
 
     for node in nodelist.nodelist(db) {
         let Node::Tag { name, span, .. } = node else {
@@ -160,16 +71,18 @@ pub fn validate_tag_scoping(
             TagAvailability::Unknown => {
                 // Check environment inventory: is the tag installed but not in INSTALLED_APPS?
                 if let Some(env_tags) = &env_tags {
-                    if let Some(env_symbols) = env_tags.get(name.as_str()) {
-                        let sym = &env_symbols[0];
-                        ValidationErrorAccumulator(ValidationError::TagNotInInstalledApps {
-                            tag: name.clone(),
-                            app: sym.app_module.clone(),
-                            load_name: sym.library_name.clone(),
-                            span: marker_span,
-                        })
-                        .accumulate(db);
-                        continue;
+                    if let Some(key) = djls_project::TemplateSymbolName::new(name.as_str()) {
+                        if let Some(env_symbols) = env_tags.get(&key) {
+                            let sym = &env_symbols[0];
+                            ValidationErrorAccumulator(ValidationError::TagNotInInstalledApps {
+                                tag: name.clone(),
+                                app: sym.app_module.as_str().to_string(),
+                                load_name: sym.library_name.as_str().to_string(),
+                                span: marker_span,
+                            })
+                            .accumulate(db);
+                            continue;
+                        }
                     }
                 }
                 // Truly unknown — not in environment at all
@@ -236,10 +149,8 @@ pub fn validate_filter_scoping(
 
     let loaded_libraries = compute_loaded_libraries(db, nodelist);
 
-    let env_filters = scanned_symbols_by_name(
-        &template_libraries,
-        djls_project::TemplateSymbolKind::Filter,
-    );
+    let env_filters = template_libraries
+        .scanned_symbol_candidates_by_name(djls_project::TemplateSymbolKind::Filter);
 
     for node in nodelist.nodelist(db) {
         let Node::Variable { filters, span, .. } = node else {
@@ -259,16 +170,22 @@ pub fn validate_filter_scoping(
                 FilterAvailability::Unknown => {
                     // Check environment inventory: is the filter installed but not in INSTALLED_APPS?
                     if let Some(env_filters) = &env_filters {
-                        if let Some(env_symbols) = env_filters.get(filter.name.as_str()) {
-                            let sym = &env_symbols[0];
-                            ValidationErrorAccumulator(ValidationError::FilterNotInInstalledApps {
-                                filter: filter.name.clone(),
-                                app: sym.app_module.clone(),
-                                load_name: sym.library_name.clone(),
-                                span: filter.span,
-                            })
-                            .accumulate(db);
-                            continue;
+                        if let Some(key) =
+                            djls_project::TemplateSymbolName::new(filter.name.as_str())
+                        {
+                            if let Some(env_symbols) = env_filters.get(&key) {
+                                let sym = &env_symbols[0];
+                                ValidationErrorAccumulator(
+                                    ValidationError::FilterNotInInstalledApps {
+                                        filter: filter.name.clone(),
+                                        app: sym.app_module.as_str().to_string(),
+                                        load_name: sym.library_name.as_str().to_string(),
+                                        span: filter.span,
+                                    },
+                                )
+                                .accumulate(db);
+                                continue;
+                            }
                         }
                     }
                     // Truly unknown — not in environment at all
@@ -351,11 +268,11 @@ pub fn validate_load_libraries(
         };
 
         for lib_name in libraries_to_check {
-            if is_installed_library(&template_libraries, lib_name) {
+            if template_libraries.is_enabled_library_str(lib_name) {
                 continue;
             }
 
-            let candidates = scanned_app_modules_for_library(&template_libraries, lib_name);
+            let candidates = template_libraries.scanned_app_modules_for_library_str(lib_name);
             if !candidates.is_empty() {
                 let app = candidates.first().cloned().unwrap_or_default();
                 ValidationErrorAccumulator(ValidationError::LibraryNotInInstalledApps {
@@ -501,36 +418,44 @@ mod tests {
 
     fn builtin_tag_json(name: &str, module: &str) -> serde_json::Value {
         serde_json::json!({
+            "kind": "tag",
             "name": name,
-            "provenance": {"builtin": {"module": module}},
-            "defining_module": module,
+            "load_name": null,
+            "library_module": module,
+            "module": module,
             "doc": null,
         })
     }
 
     fn library_tag_json(name: &str, load_name: &str, module: &str) -> serde_json::Value {
         serde_json::json!({
+            "kind": "tag",
             "name": name,
-            "provenance": {"library": {"load_name": load_name, "module": module}},
-            "defining_module": module,
+            "load_name": load_name,
+            "library_module": module,
+            "module": module,
             "doc": null,
         })
     }
 
     fn builtin_filter_json(name: &str, module: &str) -> serde_json::Value {
         serde_json::json!({
+            "kind": "filter",
             "name": name,
-            "provenance": {"builtin": {"module": module}},
-            "defining_module": module,
+            "load_name": null,
+            "library_module": module,
+            "module": module,
             "doc": null,
         })
     }
 
     fn library_filter_json(name: &str, load_name: &str, module: &str) -> serde_json::Value {
         serde_json::json!({
+            "kind": "filter",
             "name": name,
-            "provenance": {"library": {"load_name": load_name, "module": module}},
-            "defining_module": module,
+            "load_name": load_name,
+            "library_module": module,
+            "module": module,
             "doc": null,
         })
     }
@@ -551,23 +476,24 @@ mod tests {
     ) -> TemplateLibraries {
         use std::collections::BTreeMap;
 
-        let templatetags: Vec<djls_project::InspectorSymbolWire> = tags
+        let mut symbols: Vec<djls_project::InspectorTemplateLibrarySymbolWire> = tags
             .iter()
             .cloned()
             .map(serde_json::from_value)
             .collect::<Result<_, _>>()
             .unwrap();
 
-        let templatefilters: Vec<djls_project::InspectorSymbolWire> = filters
-            .iter()
-            .cloned()
-            .map(serde_json::from_value)
-            .collect::<Result<_, _>>()
-            .unwrap();
+        symbols.extend(
+            filters
+                .iter()
+                .cloned()
+                .map(serde_json::from_value)
+                .collect::<Result<Vec<djls_project::InspectorTemplateLibrarySymbolWire>, _>>()
+                .unwrap(),
+        );
 
         let response = djls_project::TemplateLibrariesResponse {
-            templatetags,
-            templatefilters,
+            symbols,
             libraries: libraries
                 .iter()
                 .map(|(k, v)| (k.clone(), v.clone()))
