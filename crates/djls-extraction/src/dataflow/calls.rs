@@ -58,6 +58,21 @@ impl From<&AbstractValue> for AbstractValueKey {
     }
 }
 
+impl From<&AbstractValueKey> for AbstractValue {
+    fn from(k: &AbstractValueKey) -> Self {
+        match k {
+            AbstractValueKey::Unknown | AbstractValueKey::Other => AbstractValue::Unknown,
+            AbstractValueKey::Token => AbstractValue::Token,
+            AbstractValueKey::Parser => AbstractValue::Parser,
+            AbstractValueKey::SplitResult(split) => AbstractValue::SplitResult(*split),
+            AbstractValueKey::SplitElement(index) => AbstractValue::SplitElement { index: *index },
+            AbstractValueKey::SplitLength(split) => AbstractValue::SplitLength(*split),
+            AbstractValueKey::Int(n) => AbstractValue::Int(*n),
+            AbstractValueKey::Str(s) => AbstractValue::Str(s.clone()),
+        }
+    }
+}
+
 impl HelperCache {
     #[must_use]
     pub fn new() -> Self {
@@ -165,7 +180,7 @@ pub fn resolve_call(
 ///
 /// Scans for `return expr` statements. If exactly one return path yields
 /// a non-Unknown value, returns that. If multiple yields differ, returns Unknown.
-fn extract_return_value(body: &[Stmt], env: &Env) -> AbstractValue {
+pub(crate) fn extract_return_value(body: &[Stmt], env: &Env) -> AbstractValue {
     let mut returns = Vec::new();
     collect_returns(body, env, &mut returns);
 

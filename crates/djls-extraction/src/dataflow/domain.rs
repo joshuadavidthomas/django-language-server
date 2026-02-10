@@ -98,7 +98,7 @@ impl TokenSplit {
 /// through the compile function body. `Unknown` is the safe default —
 /// any value we can't track becomes Unknown, and constraints involving
 /// Unknown values produce no output.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub enum AbstractValue {
     /// Untracked value — safe default, produces no constraints
     Unknown,
