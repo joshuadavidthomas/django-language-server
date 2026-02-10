@@ -12,7 +12,7 @@
 | M15 | **done** | Return values, not mutation (+ domain types T1-T4) |
 | M16 | **done** | Split god-context (+ CompileFunction, OptionLoop) |
 | M17 | **done** | Decompose blocks.rs into strategy modules |
-| M18 | stub | Move environment scanning to djls-project |
+| M18 | **ready** | Move environment scanning to djls-project |
 | M19 | stub | HelperCache → Salsa tracked functions |
 | M20 | stub | Rename djls-extraction → djls-python |
 
@@ -146,7 +146,26 @@ maintainability benefit.
 
 ## M18 — Move environment scanning to djls-project
 
-_Tasks not yet expanded. Needs plan file: `.agents/plans/2026-02-09-m18-move-env-scanning.md`_
+**Plan file:** `.agents/plans/2026-02-09-m18-move-env-scanning.md`
+
+Move `environment/scan.rs` from `djls-extraction` to `djls-project`. Types (`EnvironmentInventory`, `EnvironmentLibrary`, `EnvironmentSymbol`) stay in `djls-extraction`.
+
+### Phase 1: Create scanning module in djls-project
+
+- [ ] **M18.1** Create `crates/djls-project/src/scanning.rs` with scan functions moved from `environment/scan.rs`. Update imports to use `djls_extraction::` for types and `registry::collect_registrations_from_body`.
+- [ ] **M18.2** Add `mod scanning;` and public re-exports in `crates/djls-project/src/lib.rs`. Update `djls-project/Cargo.toml`: ensure `djls-extraction` dep has `features = ["parser"]`, add `ruff_python_parser` workspace dep.
+- [ ] **M18.3** Validate: `cargo build -q`, `cargo test -q` — all green.
+
+### Phase 2: Update consumers
+
+- [ ] **M18.4** Update `djls-server/src/db.rs` to import `scan_environment_with_symbols` from `djls_project` instead of `djls_extraction`.
+- [ ] **M18.5** Validate: `cargo build -q`, `cargo test -q` — all green.
+
+### Phase 3: Remove from djls-extraction
+
+- [ ] **M18.6** Delete `crates/djls-extraction/src/environment/scan.rs`. Update `environment.rs` to remove `mod scan` and scan re-exports. Update `lib.rs` to remove `pub use environment::scan_environment*`.
+- [ ] **M18.7** Ensure `collect_registrations_from_body` and `SymbolKind` are public in `djls-extraction` (needed by `djls-project/scanning.rs`).
+- [ ] **M18.8** Validate: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q` — all green (745+ passed, 0 failed).
 
 ## M19 — HelperCache → Salsa tracked functions
 
