@@ -14,6 +14,8 @@ mod ext;
 #[cfg(feature = "parser")]
 mod filters;
 #[cfg(feature = "parser")]
+mod parse;
+#[cfg(feature = "parser")]
 mod registry;
 #[cfg(feature = "parser")]
 mod signature;
@@ -27,6 +29,10 @@ pub use environment::EnvironmentLibrary;
 pub use environment::EnvironmentSymbol;
 #[cfg(feature = "parser")]
 pub use filters::extract_filter_arity;
+#[cfg(feature = "parser")]
+pub use parse::parse_python_module;
+#[cfg(feature = "parser")]
+pub use parse::ParsedPythonModule;
 #[cfg(feature = "parser")]
 pub use registry::collect_registrations_from_body;
 #[cfg(feature = "parser")]

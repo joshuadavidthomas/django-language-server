@@ -177,13 +177,13 @@ Replace `HelperCache` + manual recursion guards with Salsa tracked functions. Ad
 ### Phase 1: Add Salsa + djls-source dependencies
 
 - [x] **M19.1** Add `salsa = { workspace = true }` and `djls-source = { workspace = true }` to `crates/djls-extraction/Cargo.toml` dependencies.
-- [ ] **M19.2** Validate: `cargo build -q`, `cargo test -q` — all green, no regressions.
+- [x] **M19.2** Validate: `cargo build -q`, `cargo test -q` — all green (745 passed, 0 failed, 7 ignored), no regressions.
 
 ### Phase 2: Add `ParsedPythonModule` and `parse_python_module` tracked function
 
-- [ ] **M19.3** Create `crates/djls-extraction/src/parse.rs` with `ParsedPythonModule<'db>` (`#[salsa::tracked(no_eq)]`) and `parse_python_module(db, file)` (`#[salsa::tracked]`). Follow `djls-templates::parse_template` pattern and Ruff's `no_eq` pattern for parsed ASTs.
-- [ ] **M19.4** Add `mod parse;` to `lib.rs` (under `#[cfg(feature = "parser")]`), re-export `parse_python_module`.
-- [ ] **M19.5** Validate: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q` — all green.
+- [x] **M19.3** Create `crates/djls-extraction/src/parse.rs` with `ParsedPythonModule<'db>` (`#[salsa::tracked]`) and `parse_python_module(db, file)` (`#[salsa::tracked]`). Follow `djls-templates::parse_template` / `NodeList` pattern. Note: RFC's `no_eq` attribute is from Ruff's forked Salsa — upstream salsa 0.25.2 doesn't support it. Used `#[salsa::tracked]` with `#[tracked] #[returns(ref)]` on the body field, matching the `NodeList` pattern exactly.
+- [x] **M19.4** Add `mod parse;` to `lib.rs` (under `#[cfg(feature = "parser")]`), re-export `parse_python_module` and `ParsedPythonModule`.
+- [x] **M19.5** Validate: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q` — all green (745 passed, 0 failed, 7 ignored).
 
 ### Phase 3: Add `HelperCall` interned type and `analyze_helper` with cycle recovery
 
