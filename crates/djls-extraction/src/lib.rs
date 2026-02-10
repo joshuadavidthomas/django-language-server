@@ -30,6 +30,8 @@ pub use environment::EnvironmentSymbol;
 #[cfg(feature = "parser")]
 pub use filters::extract_filter_arity;
 #[cfg(feature = "parser")]
+pub use parse::HelperCall;
+#[cfg(feature = "parser")]
 pub use parse::parse_python_module;
 #[cfg(feature = "parser")]
 pub use parse::ParsedPythonModule;

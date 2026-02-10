@@ -3,6 +3,7 @@ pub(crate) mod constraints;
 pub(crate) mod domain;
 pub(crate) mod eval;
 
+pub use calls::AbstractValueKey;
 pub use calls::HelperCache;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtFunctionDef;

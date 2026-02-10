@@ -187,7 +187,7 @@ Replace `HelperCache` + manual recursion guards with Salsa tracked functions. Ad
 
 ### Phase 3: Add `HelperCall` interned type and `analyze_helper` with cycle recovery
 
-- [ ] **M19.6** Add `HelperCall<'db>` (`#[salsa::interned]`) with `file: File`, `callee_name: String`, `args: Vec<AbstractValueKey>`.
+- [x] **M19.6** Add `HelperCall<'db>` (`#[salsa::interned]`) with `file: File`, `callee_name: String`, `args: Vec<AbstractValueKey>`. Made `AbstractValueKey` public (was private in `calls.rs`), re-exported from `dataflow.rs` and `lib.rs`.
 - [ ] **M19.7** Add `analyze_helper(db, call)` (`#[salsa::tracked(cycle_fn=..., cycle_initial=...)]`) that looks up function def in parsed module, runs eval, returns `AbstractValue`. Cycle recovery returns `Unknown`.
 - [ ] **M19.8** Add `db: &'a dyn djls_source::Db` and `file: File` to `CallContext`. Thread `db` through the eval call chain.
 - [ ] **M19.9** Update `resolve_helper_call` in `dataflow/calls.rs` to construct `HelperCall` interned value and call `analyze_helper(db, call)` instead of `HelperCache` lookup + manual depth/recursion guards.

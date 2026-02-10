@@ -30,7 +30,7 @@ struct HelperCacheKey {
 
 /// A hashable representation of `AbstractValue` for cache keying.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-enum AbstractValueKey {
+pub enum AbstractValueKey {
     Unknown,
     Token,
     Parser,
