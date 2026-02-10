@@ -176,7 +176,7 @@ Replace `HelperCache` + manual recursion guards with Salsa tracked functions. Ad
 
 ### Phase 1: Add Salsa + djls-source dependencies
 
-- [ ] **M19.1** Add `salsa = { workspace = true }` and `djls-source = { workspace = true }` to `crates/djls-extraction/Cargo.toml` dependencies.
+- [x] **M19.1** Add `salsa = { workspace = true }` and `djls-source = { workspace = true }` to `crates/djls-extraction/Cargo.toml` dependencies.
 - [ ] **M19.2** Validate: `cargo build -q`, `cargo test -q` — all green, no regressions.
 
 ### Phase 2: Add `ParsedPythonModule` and `parse_python_module` tracked function

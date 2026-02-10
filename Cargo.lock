@@ -700,10 +700,12 @@ version = "0.0.0"
 dependencies = [
  "camino",
  "djls-corpus",
+ "djls-source",
  "insta",
  "ruff_python_ast",
  "ruff_python_parser",
  "rustc-hash",
+ "salsa",
  "serde",
  "tempfile",
  "walkdir",

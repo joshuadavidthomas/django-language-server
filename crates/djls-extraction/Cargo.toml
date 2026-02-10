@@ -7,10 +7,13 @@ edition = "2021"
 parser = ["dep:ruff_python_parser"]
 
 [dependencies]
+djls-source = { workspace = true }
+
 ruff_python_ast = { workspace = true }
 ruff_python_parser = { workspace = true, optional = true }
 
 rustc-hash = { workspace = true }
+salsa = { workspace = true }
 serde = { workspace = true }
 
 [[test]]
