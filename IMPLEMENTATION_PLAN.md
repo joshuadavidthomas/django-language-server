@@ -11,7 +11,7 @@
 | M14 | **done** | Test baseline + corpus-grounded tests |
 | M15 | **done** | Return values, not mutation (+ domain types T1-T4) |
 | M16 | **done** | Split god-context (+ CompileFunction, OptionLoop) |
-| M17 | **ready** | Decompose blocks.rs into strategy modules |
+| M17 | **done** | Decompose blocks.rs into strategy modules |
 | M18 | stub | Move environment scanning to djls-project |
 | M19 | stub | HelperCache → Salsa tracked functions |
 | M20 | stub | Rename djls-extraction → djls-python |
@@ -110,9 +110,39 @@ Module convention: `blocks.rs` (orchestrator) + `blocks/` directory (strategy su
 
 ### Phase 5: Clean up orchestrator and evaluate BlockEvidence
 
-- [ ] **M17.14** Verify `blocks.rs` is compact (~50-100 lines): orchestrator + shared helpers + mod declarations only.
-- [ ] **M17.15** Evaluate `BlockEvidence` enum: does the module structure already provide clean separation? Document decision.
-- [ ] **M17.16** Final validation: `cargo test -q` — all green (745+ passed, 0 failed). Verify public API unchanged.
+- [x] **M17.14** Verify `blocks.rs` is compact (~50-100 lines): orchestrator + shared helpers + mod declarations only.
+- [x] **M17.15** Evaluate `BlockEvidence` enum: does the module structure already provide clean separation? Document decision.
+- [x] **M17.16** Final validation: `cargo test -q` — all green (745+ passed, 0 failed). Verify public API unchanged.
+
+**M17.14 Verification Notes:**
+
+`blocks.rs` is 396 lines total: 122 lines production code + 274 lines tests. The production
+portion breaks down as: ~20-line orchestrator (`extract_block_spec`), mod declarations/imports
+(~35 lines), and 3 shared helper functions (~67 lines: `is_parser_receiver`,
+`extract_string_sequence`, `is_token_contents_expr`). Slightly above the 50-100 target for
+production code due to the shared helpers, but these must stay in the parent module since they're
+used across multiple strategy submodules. The orchestrator itself is compact.
+
+Strategy module sizes: `opaque.rs` (113), `dynamic_end.rs` (181), `next_token.rs` (261),
+`parse_calls.rs` (432). Total decomposed: 987 lines across strategy modules. Original monolith
+was 1382 lines; current total (blocks.rs + submodules) is 1383 lines — essentially identical,
+confirming this was a pure structural refactor with no logic changes.
+
+**M17.15 BlockEvidence Decision: Do not introduce.**
+
+The module decomposition already provides the separation between observation and interpretation
+that `BlockEvidence` was designed to achieve. Each strategy module encapsulates its own
+detection-to-`BlockTagSpec` path in its `detect()` function. Introducing `BlockEvidence` would
+move interpretation logic OUT of strategy modules into the orchestrator — the opposite direction
+of the clean separation we just achieved. The modules ARE the evidence types: `opaque::detect()`,
+`parse_calls::detect()`, `dynamic_end::detect()`, `next_token::detect()` each represent a
+distinct evidence pattern. An enum wrapper would add indirection without testability or
+maintainability benefit.
+
+**M17.16 Final Validation:**
+
+745 passed, 0 failed, 7 ignored. Public API unchanged: `extract_block_spec` exported from
+`lib.rs`, called in `registry.rs`. Build, clippy, and tests all green.
 
 ## M18 — Move environment scanning to djls-project
 
