@@ -103,10 +103,10 @@ Module convention: `blocks.rs` (orchestrator) + `blocks/` directory (strategy su
 
 ### Phase 4: Move parse_calls strategy
 
-- [ ] **M17.10** Create `blocks/parse_calls.rs` with `detect(body, parser_var) -> Option<BlockTagSpec>`. Move `ParseCallInfo`, `Classification`, `collect_parser_parse_calls()`, `extract_parse_call_info()`, `classify_stop_tokens()`, `classify_in_body()`, `classify_from_if_chain()`, `extract_token_check()`, `extract_startswith_check()`, `is_token_contents_expr()`, `body_has_parse_call()`.
-- [ ] **M17.11** Move `extract_string_sequence()` to `blocks.rs` shared helpers (used by multiple strategies).
-- [ ] **M17.12** Update `blocks.rs`: add `mod parse_calls;`.
-- [ ] **M17.13** Validate: all green.
+- [x] **M17.10** Create `blocks/parse_calls.rs` with `detect(body, parser_var) -> Option<BlockTagSpec>`. Move `ParseCallInfo`, `Classification`, `collect_parser_parse_calls()`, `extract_parse_call_info()`, `classify_stop_tokens()`, `classify_in_body()`, `classify_from_if_chain()`, `extract_token_check()`, `extract_startswith_check()`, `body_has_parse_call()`. Shared helpers `is_token_contents_expr` and `extract_string_sequence` remain in `blocks.rs`.
+- [x] **M17.11** `extract_string_sequence()` kept in `blocks.rs` as `pub(super)` shared helper. `is_token_contents_expr` also stays (used by `next_token` and `parse_calls`).
+- [x] **M17.12** Added `mod parse_calls;` to `blocks.rs`. Orchestrator now calls `parse_calls::detect()` — equivalent flow to before (returns None when no parse calls found, falling through to dynamic_end and next_token).
+- [x] **M17.13** Validate: `cargo build -q`, `cargo clippy -q --all-targets --all-features -- -D warnings`, `cargo test -q` — all green (745 passed, 0 failed, 7 ignored).
 
 ### Phase 5: Clean up orchestrator and evaluate BlockEvidence
 
