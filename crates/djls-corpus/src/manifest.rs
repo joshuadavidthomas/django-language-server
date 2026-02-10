@@ -28,7 +28,7 @@ pub struct Repo {
     pub name: String,
     pub url: String,
     /// Optional ref to track: a branch (`main`), tag (`v1.0.0`), or SHA.
-    /// When omitted, `bump` resolves to the latest tag.
+    /// When omitted, `lock` resolves to the latest tag.
     #[serde(rename = "ref")]
     pub git_ref: Option<String>,
 }

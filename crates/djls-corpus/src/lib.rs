@@ -32,9 +32,9 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use walkdir::WalkDir;
 
-pub mod archive;
-pub mod bump;
-pub mod lockfile;
+pub mod add;
+pub(crate) mod archive;
+pub mod lock;
 pub mod manifest;
 pub mod sync;
 

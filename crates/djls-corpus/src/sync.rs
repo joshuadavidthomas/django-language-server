@@ -2,7 +2,7 @@
 //!
 //! The lockfile contains fully-resolved versions, URLs, and checksums.
 //! This module downloads and extracts them without any network resolution —
-//! all resolution happens in [`crate::bump`].
+//! all resolution happens in [`crate::lock`].
 
 use std::io::Read;
 use std::io::Write;
@@ -14,9 +14,9 @@ use sha2::Digest;
 use sha2::Sha256;
 
 use crate::archive::extract_tarball;
-use crate::lockfile::LockedPackage;
-use crate::lockfile::LockedRepo;
-use crate::lockfile::Lockfile;
+use crate::lock::LockedPackage;
+use crate::lock::LockedRepo;
+use crate::lock::Lockfile;
 
 const COMPLETE_MARKER: &str = ".complete.json";
 const MAX_TARBALL_BYTES: u64 = 512 * 1024 * 1024;

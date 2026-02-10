@@ -4,9 +4,9 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use clap::Parser;
 use clap::Subcommand;
-use clap::ValueEnum;
-use djls_corpus::bump::BumpFilter;
-use djls_corpus::lockfile::Lockfile;
+use djls_corpus::add::Bounds;
+use djls_corpus::lock::LockFilter;
+use djls_corpus::lock::Lockfile;
 use djls_corpus::manifest::Manifest;
 
 #[derive(Parser)]
@@ -20,13 +20,6 @@ struct Cli {
     manifest: Option<Utf8PathBuf>,
 }
 
-#[derive(Clone, Copy, ValueEnum)]
-enum Bounds {
-    Major,
-    Minor,
-    Exact,
-}
-
 #[derive(Subcommand)]
 enum Command {
     /// Add `PyPI` packages to the manifest and update the lockfile
@@ -38,13 +31,17 @@ enum Command {
         #[arg(long, default_value = "exact")]
         bounds: Bounds,
     },
-    /// Resolve latest versions and update the lockfile (all by default)
-    Bump {
-        /// Package or repo names to bump (bumps all if omitted)
+    /// Resolve latest versions and update the lockfile
+    Lock {
+        /// Package or repo names to lock (locks all if omitted)
         names: Vec<String>,
     },
     /// Download and extract corpus packages/repos from the lockfile
-    Sync,
+    Sync {
+        /// Re-resolve versions before syncing, ignoring pinned versions in the lockfile
+        #[arg(short = 'U', long)]
+        upgrade: bool,
+    },
     /// Remove all synced corpus data
     Clean,
 }
@@ -60,26 +57,25 @@ fn main() -> anyhow::Result<()> {
 
     match cli.command {
         Command::Add { names, bounds } => {
-            if names.is_empty() {
-                anyhow::bail!("Specify one or more package names");
-            }
-            for name in &names {
-                add_package(&manifest_path, name, bounds)?;
-            }
-            bump_lockfile(&manifest_path, &lockfile_path, &BumpFilter::All)?;
+            djls_corpus::add::add_packages(&manifest_path, &names, bounds)?;
+            update_lockfile(&manifest_path, &lockfile_path, &LockFilter::All)?;
         }
-        Command::Bump { names } => {
+        Command::Lock { names } => {
             let filter = if names.is_empty() {
-                BumpFilter::All
+                LockFilter::All
             } else {
-                BumpFilter::Names(names)
+                LockFilter::Names(names)
             };
-            bump_lockfile(&manifest_path, &lockfile_path, &filter)?;
+            update_lockfile(&manifest_path, &lockfile_path, &filter)?;
         }
-        Command::Sync => {
+        Command::Sync { upgrade } => {
+            if upgrade {
+                update_lockfile(&manifest_path, &lockfile_path, &LockFilter::All)?;
+            }
+
             let lockfile = Lockfile::load(&lockfile_path).map_err(|_| {
                 anyhow::anyhow!(
-                    "No lockfile found at {lockfile_path}. Run `djls-corpus bump` first."
+                    "No lockfile found at {lockfile_path}. Run `djls-corpus lock` first."
                 )
             })?;
             let manifest = Manifest::load(&manifest_path)?;
@@ -105,10 +101,10 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn bump_lockfile(
+fn update_lockfile(
     manifest_path: &Utf8Path,
     lockfile_path: &Utf8Path,
-    filter: &BumpFilter,
+    filter: &LockFilter,
 ) -> anyhow::Result<()> {
     let manifest = Manifest::load(manifest_path)?;
     let existing = if lockfile_path.as_std_path().exists() {
@@ -118,85 +114,8 @@ fn bump_lockfile(
     };
 
     eprintln!("Resolving latest versions...");
-    let lockfile = djls_corpus::bump::bump_corpus(&manifest, &existing, filter)?;
+    let lockfile = djls_corpus::lock::lock_corpus(&manifest, &existing, filter)?;
     lockfile.save(lockfile_path)?;
     eprintln!("Updated {lockfile_path}");
-    Ok(())
-}
-
-fn add_package(manifest_path: &Utf8Path, name: &str, bounds: Bounds) -> anyhow::Result<()> {
-    let (_, latest) = djls_corpus::bump::resolve_pypi_latest(name)?;
-
-    let parts: Vec<&str> = latest.split('.').collect();
-    let version_spec = match bounds {
-        Bounds::Major => parts[..1].join("."),
-        Bounds::Minor if parts.len() >= 2 => parts[..2].join("."),
-        Bounds::Minor | Bounds::Exact => latest.clone(),
-    };
-
-    let content = std::fs::read_to_string(manifest_path.as_std_path())?;
-    let mut doc = content
-        .parse::<toml_edit::DocumentMut>()
-        .map_err(|e| anyhow::anyhow!("Failed to parse manifest: {e}"))?;
-
-    let packages = doc["package"]
-        .as_array_of_tables_mut()
-        .ok_or_else(|| anyhow::anyhow!("No [[package]] array in manifest"))?;
-
-    // Remove existing entry if present
-    let mut i = 0;
-    while i < packages.len() {
-        let is_match = packages
-            .get(i)
-            .and_then(|t| t.get("name"))
-            .and_then(|v| v.as_str())
-            .is_some_and(|n| n == name);
-        if is_match {
-            packages.remove(i);
-        } else {
-            i += 1;
-        }
-    }
-
-    // Find sorted insertion point
-    let mut insert_at = packages.len();
-    for (i, table) in packages.iter().enumerate() {
-        let Some(existing_name) = table.get("name").and_then(|v| v.as_str()) else {
-            continue;
-        };
-        if existing_name > name {
-            insert_at = i;
-            break;
-        }
-    }
-
-    let mut entry = toml_edit::Table::new();
-    entry.insert("name", toml_edit::value(name));
-    entry.insert("version", toml_edit::value(&version_spec));
-
-    // toml_edit only has push(); rebuild with insertion at the right position
-    let mut tables: Vec<toml_edit::Table> = Vec::new();
-    for (i, table) in packages.iter().enumerate() {
-        if i == insert_at {
-            tables.push(entry.clone());
-        }
-        tables.push(table.clone());
-    }
-    if insert_at >= packages.len() {
-        tables.push(entry);
-    }
-
-    while !packages.is_empty() {
-        packages.remove(0);
-    }
-    for t in tables {
-        packages.push(t);
-    }
-
-    let output = doc.to_string();
-    let trimmed = output.trim_end().to_string() + "\n";
-    std::fs::write(manifest_path.as_std_path(), trimmed)?;
-
-    eprintln!("Added {name} {version_spec} (latest: {latest})");
     Ok(())
 }
