@@ -95,6 +95,14 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Cache corpus
+        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        with:
+          path: crates/djls-corpus/.corpus
+          key: ${{ runner.os }}-corpus-${{ hashFiles('crates/djls-corpus/manifest.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-corpus-
+
       - name: Install uv
         uses: astral-sh/setup-uv@61cb8a9741eeb8a550a1b8544337180c0fc8476b # v7.2.0
         with:
