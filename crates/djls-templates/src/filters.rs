@@ -35,11 +35,16 @@ pub(crate) fn split_variable_expression(content: &str) -> impl Iterator<Item = (
     let mut segments = Vec::new();
     let mut start = 0;
 
-    for_each_unquoted(content, |ch| ch == '|', false, |idx| {
-        segments.push((&content[start..idx], usize_to_u32(start)));
-        start = idx + 1;
-        false
-    });
+    for_each_unquoted(
+        content,
+        |ch| ch == '|',
+        false,
+        |idx| {
+            segments.push((&content[start..idx], usize_to_u32(start)));
+            start = idx + 1;
+            false
+        },
+    );
 
     segments.push((&content[start..], usize_to_u32(start)));
     segments.into_iter()
@@ -56,10 +61,15 @@ pub(crate) fn parse_filter(raw: &str, base_offset: u32) -> Option<Filter> {
 
     let mut colon_pos = None;
 
-    for_each_unquoted(trimmed, |ch| ch == ':', false, |idx| {
-        colon_pos = Some(idx);
-        true
-    });
+    for_each_unquoted(
+        trimmed,
+        |ch| ch == ':',
+        false,
+        |idx| {
+            colon_pos = Some(idx);
+            true
+        },
+    );
 
     let (name, arg) = match colon_pos {
         Some(pos) => {

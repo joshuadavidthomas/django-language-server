@@ -107,40 +107,60 @@ mod tests {
     #[test]
     fn unquoted_delimiters_found() {
         let mut positions = Vec::new();
-        for_each_unquoted("a|b|c", |ch| ch == '|', false, |idx| {
-            positions.push(idx);
-            false
-        });
+        for_each_unquoted(
+            "a|b|c",
+            |ch| ch == '|',
+            false,
+            |idx| {
+                positions.push(idx);
+                false
+            },
+        );
         assert_eq!(positions, vec![1, 3]);
     }
 
     #[test]
     fn quoted_delimiters_skipped() {
         let mut positions = Vec::new();
-        for_each_unquoted("a|'b|c'|d", |ch| ch == '|', false, |idx| {
-            positions.push(idx);
-            false
-        });
+        for_each_unquoted(
+            "a|'b|c'|d",
+            |ch| ch == '|',
+            false,
+            |idx| {
+                positions.push(idx);
+                false
+            },
+        );
         assert_eq!(positions, vec![1, 7]);
     }
 
     #[test]
     fn double_quotes() {
         let mut positions = Vec::new();
-        for_each_unquoted(r#"a|"b|c"|d"#, |ch| ch == '|', false, |idx| {
-            positions.push(idx);
-            false
-        });
+        for_each_unquoted(
+            r#"a|"b|c"|d"#,
+            |ch| ch == '|',
+            false,
+            |idx| {
+                positions.push(idx);
+                false
+            },
+        );
         assert_eq!(positions, vec![1, 7]);
     }
 
     #[test]
     fn escape_handling() {
         let mut positions = Vec::new();
-        for_each_unquoted(r#""a\"b"|c"#, |ch| ch == '|', true, |idx| {
-            positions.push(idx);
-            false
-        });
+        for_each_unquoted(
+            r#""a\"b"|c"#,
+            |ch| ch == '|',
+            true,
+            |idx| {
+                positions.push(idx);
+                false
+            },
+        );
         // The \" is escaped, so the quote doesn't close until the real "
         assert_eq!(positions, vec![6]);
     }
@@ -148,10 +168,15 @@ mod tests {
     #[test]
     fn escape_ignored_without_flag() {
         let mut positions = Vec::new();
-        for_each_unquoted(r#""a\"b"|c"#, |ch| ch == '|', false, |idx| {
-            positions.push(idx);
-            false
-        });
+        for_each_unquoted(
+            r#""a\"b"|c"#,
+            |ch| ch == '|',
+            false,
+            |idx| {
+                positions.push(idx);
+                false
+            },
+        );
         // Without escape handling, \" closes the quote, then b" opens a new one
         // "a\" -> quote closed at \", then b" opens, |c is outside... actually:
         // char-by-char: " opens, a inside, \ inside, " closes, b outside, " opens, | inside, c inside
@@ -161,16 +186,24 @@ mod tests {
     #[test]
     fn early_stop() {
         let mut positions = Vec::new();
-        for_each_unquoted("a|b|c|d", |ch| ch == '|', false, |idx| {
-            positions.push(idx);
-            positions.len() >= 2
-        });
+        for_each_unquoted(
+            "a|b|c|d",
+            |ch| ch == '|',
+            false,
+            |idx| {
+                positions.push(idx);
+                positions.len() >= 2
+            },
+        );
         assert_eq!(positions, vec![1, 3]);
     }
 
     #[test]
     fn split_whitespace_simple() {
-        assert_eq!(split_on_whitespace("load i18n l10n"), vec!["load", "i18n", "l10n"]);
+        assert_eq!(
+            split_on_whitespace("load i18n l10n"),
+            vec!["load", "i18n", "l10n"]
+        );
     }
 
     #[test]
