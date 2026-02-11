@@ -103,7 +103,7 @@ impl Session {
         &mut self.db
     }
 
-    pub fn set_settings(&mut self, settings: Settings) -> crate::db::SettingsUpdate {
+    pub fn set_settings(&mut self, settings: Settings) -> crate::settings::SettingsUpdate {
         self.db.set_settings(settings)
     }
 

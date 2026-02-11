@@ -1,7 +1,7 @@
 use djls_source::Span;
 use serde::Serialize;
 
-use crate::quotes::QuoteTracker;
+use crate::quotes::for_each_unquoted;
 
 /// A parsed filter expression within a Django variable node.
 ///
@@ -34,14 +34,13 @@ fn usize_to_u32(val: usize) -> u32 {
 pub(crate) fn split_variable_expression(content: &str) -> impl Iterator<Item = (&str, u32)> {
     let mut segments = Vec::new();
     let mut start = 0;
-    let mut quotes = QuoteTracker::new();
 
-    for (idx, ch) in content.char_indices() {
-        if quotes.process(ch, false) && ch == '|' {
-            segments.push((&content[start..idx], usize_to_u32(start)));
-            start = idx + 1;
-        }
-    }
+    for_each_unquoted(content, |ch| ch == '|', false, |idx| {
+        segments.push((&content[start..idx], usize_to_u32(start)));
+        start = idx + 1;
+        false
+    });
+
     segments.push((&content[start..], usize_to_u32(start)));
     segments.into_iter()
 }
@@ -55,15 +54,12 @@ pub(crate) fn parse_filter(raw: &str, base_offset: u32) -> Option<Filter> {
 
     let filter_offset = base_offset + usize_to_u32(trimmed_start);
 
-    let mut quotes = QuoteTracker::new();
     let mut colon_pos = None;
 
-    for (idx, ch) in trimmed.char_indices() {
-        if quotes.process(ch, false) && ch == ':' {
-            colon_pos = Some(idx);
-            break;
-        }
-    }
+    for_each_unquoted(trimmed, |ch| ch == ':', false, |idx| {
+        colon_pos = Some(idx);
+        true
+    });
 
     let (name, arg) = match colon_pos {
         Some(pos) => {

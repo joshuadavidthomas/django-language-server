@@ -1,10 +1,13 @@
 mod client;
 pub mod db;
 mod ext;
+mod inspector;
 mod logging;
+mod queries;
 mod queue;
 pub mod server;
 pub mod session;
+mod settings;
 
 use std::io::IsTerminal;
 

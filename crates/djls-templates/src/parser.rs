@@ -6,7 +6,7 @@ use crate::filters::parse_filter;
 use crate::filters::split_variable_expression;
 use crate::filters::Filter;
 use crate::nodelist::Node;
-use crate::quotes::QuoteTracker;
+use crate::quotes::split_on_whitespace;
 use crate::tokens::Token;
 
 pub struct Parser {
@@ -96,22 +96,7 @@ impl Parser {
     }
 
     fn parse_tag_args(content: &str) -> Result<(String, Vec<String>), ParseError> {
-        let mut pieces = Vec::with_capacity((content.len() / 8).clamp(2, 8));
-        let mut start = None;
-        let mut quotes = QuoteTracker::new();
-        for (idx, ch) in content.char_indices() {
-            if start.is_none() && !ch.is_whitespace() {
-                start = Some(idx);
-            }
-            if quotes.process(ch, true) && ch.is_whitespace() {
-                if let Some(s) = start.take() {
-                    pieces.push(content[s..idx].to_owned());
-                }
-            }
-        }
-        if let Some(s) = start {
-            pieces.push(content[s..].to_owned());
-        }
+        let pieces = split_on_whitespace(content);
         let mut iter = pieces.into_iter();
         let name = iter.next().ok_or(ParseError::EmptyTag)?;
         Ok((name, iter.collect()))

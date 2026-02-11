@@ -1,50 +1,103 @@
-/// Tracks quote state while iterating through characters.
+/// Find positions of a delimiter character in `s`, skipping occurrences inside
+/// single- or double-quoted regions.
 ///
-/// Handles single and double quotes, with optional backslash escaping.
-/// Used to split strings on delimiters while respecting quoted sections.
-pub(crate) struct QuoteTracker {
-    quote: Option<char>,
-    escape: bool,
-}
+/// When `handle_escapes` is true, `\` inside a quoted region escapes the next
+/// character (so `\"` does not close the quote).
+///
+/// The callback receives the byte index of each unquoted delimiter found.
+/// Return `true` from the callback to stop early.
+pub(crate) fn for_each_unquoted(
+    s: &str,
+    delimiter: impl Fn(char) -> bool,
+    handle_escapes: bool,
+    mut cb: impl FnMut(usize) -> bool,
+) {
+    let mut quote: Option<char> = None;
+    let mut escape = false;
 
-impl QuoteTracker {
-    pub(crate) fn new() -> Self {
-        Self {
-            quote: None,
-            escape: false,
-        }
-    }
-
-    /// Update state for the given character.
-    ///
-    /// Returns `true` if the character is outside quotes and not part of
-    /// quote or escape syntax — i.e., the character is "actionable" for
-    /// delimiter checking by the caller.
-    ///
-    /// When `handle_escapes` is true, a `\` inside quotes starts an escape
-    /// sequence and the following character is consumed.
-    pub(crate) fn process(&mut self, ch: char, handle_escapes: bool) -> bool {
-        if self.escape {
-            self.escape = false;
-            return false;
+    for (idx, ch) in s.char_indices() {
+        if escape {
+            escape = false;
+            continue;
         }
         match ch {
-            '\\' if handle_escapes && self.quote.is_some() => {
-                self.escape = true;
-                false
+            '\\' if handle_escapes && quote.is_some() => {
+                escape = true;
             }
-            '"' | '\'' if self.quote == Some(ch) => {
-                self.quote = None;
-                false
+            '"' | '\'' if quote == Some(ch) => {
+                quote = None;
             }
-            '"' | '\'' if self.quote.is_none() => {
-                self.quote = Some(ch);
-                false
+            '"' | '\'' if quote.is_none() => {
+                quote = Some(ch);
             }
-            _ if self.quote.is_some() => false,
-            _ => true,
+            _ if quote.is_some() => {}
+            _ if delimiter(ch) => {
+                if cb(idx) {
+                    return;
+                }
+            }
+            _ => {}
         }
     }
+}
+
+/// Split `s` on whitespace while respecting quoted regions (with escape handling).
+///
+/// Returns owned strings for each whitespace-delimited token.
+pub(crate) fn split_on_whitespace(s: &str) -> Vec<String> {
+    let mut pieces = Vec::with_capacity((s.len() / 8).clamp(2, 8));
+    let mut start = None;
+    let mut quote: Option<char> = None;
+    let mut escape = false;
+
+    for (idx, ch) in s.char_indices() {
+        if escape {
+            escape = false;
+            if start.is_none() {
+                start = Some(idx.saturating_sub(1));
+            }
+            continue;
+        }
+        match ch {
+            '\\' if quote.is_some() => {
+                escape = true;
+                if start.is_none() {
+                    start = Some(idx);
+                }
+            }
+            '"' | '\'' if quote == Some(ch) => {
+                quote = None;
+                if start.is_none() {
+                    start = Some(idx);
+                }
+            }
+            '"' | '\'' if quote.is_none() => {
+                quote = Some(ch);
+                if start.is_none() {
+                    start = Some(idx);
+                }
+            }
+            _ if quote.is_some() => {
+                if start.is_none() {
+                    start = Some(idx);
+                }
+            }
+            _ if ch.is_whitespace() => {
+                if let Some(s_start) = start.take() {
+                    pieces.push(s[s_start..idx].to_owned());
+                }
+            }
+            _ => {
+                if start.is_none() {
+                    start = Some(idx);
+                }
+            }
+        }
+    }
+    if let Some(s_start) = start {
+        pieces.push(s[s_start..].to_owned());
+    }
+    pieces
 }
 
 #[cfg(test)]
@@ -52,64 +105,93 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_unquoted_characters_are_actionable() {
-        let mut qt = QuoteTracker::new();
-        assert!(qt.process('a', false));
-        assert!(qt.process(' ', false));
-        assert!(qt.process('|', false));
+    fn unquoted_delimiters_found() {
+        let mut positions = Vec::new();
+        for_each_unquoted("a|b|c", |ch| ch == '|', false, |idx| {
+            positions.push(idx);
+            false
+        });
+        assert_eq!(positions, vec![1, 3]);
     }
 
     #[test]
-    fn test_quoted_characters_not_actionable() {
-        let mut qt = QuoteTracker::new();
-        assert!(!qt.process('\'', false)); // open quote
-        assert!(!qt.process('a', false)); // inside
-        assert!(!qt.process('|', false)); // inside, delimiter not actionable
-        assert!(!qt.process('\'', false)); // close quote
-        assert!(qt.process('b', false)); // outside again
+    fn quoted_delimiters_skipped() {
+        let mut positions = Vec::new();
+        for_each_unquoted("a|'b|c'|d", |ch| ch == '|', false, |idx| {
+            positions.push(idx);
+            false
+        });
+        assert_eq!(positions, vec![1, 7]);
     }
 
     #[test]
-    fn test_double_quotes() {
-        let mut qt = QuoteTracker::new();
-        assert!(!qt.process('"', false));
-        assert!(!qt.process('x', false));
-        assert!(!qt.process('"', false));
-        assert!(qt.process('y', false));
+    fn double_quotes() {
+        let mut positions = Vec::new();
+        for_each_unquoted(r#"a|"b|c"|d"#, |ch| ch == '|', false, |idx| {
+            positions.push(idx);
+            false
+        });
+        assert_eq!(positions, vec![1, 7]);
     }
 
     #[test]
-    fn test_escape_handling() {
-        let mut qt = QuoteTracker::new();
-        assert!(!qt.process('"', true)); // open
-        assert!(!qt.process('\\', true)); // escape start
-        assert!(!qt.process('"', true)); // escaped, NOT a close
-        assert!(!qt.process('a', true)); // still inside
-        assert!(!qt.process('"', true)); // actual close
-        assert!(qt.process('b', true)); // outside
+    fn escape_handling() {
+        let mut positions = Vec::new();
+        for_each_unquoted(r#""a\"b"|c"#, |ch| ch == '|', true, |idx| {
+            positions.push(idx);
+            false
+        });
+        // The \" is escaped, so the quote doesn't close until the real "
+        assert_eq!(positions, vec![6]);
     }
 
     #[test]
-    fn test_escape_ignored_without_flag() {
-        let mut qt = QuoteTracker::new();
-        assert!(!qt.process('"', false)); // open
-        assert!(!qt.process('\\', false)); // NOT an escape without flag
-        assert!(!qt.process('"', false)); // closes the quote
-        assert!(qt.process('a', false)); // outside
+    fn escape_ignored_without_flag() {
+        let mut positions = Vec::new();
+        for_each_unquoted(r#""a\"b"|c"#, |ch| ch == '|', false, |idx| {
+            positions.push(idx);
+            false
+        });
+        // Without escape handling, \" closes the quote, then b" opens a new one
+        // "a\" -> quote closed at \", then b" opens, |c is outside... actually:
+        // char-by-char: " opens, a inside, \ inside, " closes, b outside, " opens, | inside, c inside
+        assert!(positions.is_empty());
     }
 
     #[test]
-    fn test_escape_outside_quotes_is_actionable() {
-        let mut qt = QuoteTracker::new();
-        assert!(qt.process('\\', true)); // outside quotes, backslash is just a char
+    fn early_stop() {
+        let mut positions = Vec::new();
+        for_each_unquoted("a|b|c|d", |ch| ch == '|', false, |idx| {
+            positions.push(idx);
+            positions.len() >= 2
+        });
+        assert_eq!(positions, vec![1, 3]);
     }
 
     #[test]
-    fn test_mismatched_quotes() {
-        let mut qt = QuoteTracker::new();
-        assert!(!qt.process('\'', false)); // open single
-        assert!(!qt.process('"', false)); // double inside single, not actionable
-        assert!(!qt.process('\'', false)); // close single
-        assert!(qt.process('x', false)); // outside
+    fn split_whitespace_simple() {
+        assert_eq!(split_on_whitespace("load i18n l10n"), vec!["load", "i18n", "l10n"]);
+    }
+
+    #[test]
+    fn split_whitespace_quoted() {
+        assert_eq!(
+            split_on_whitespace(r#"if x == "hello world""#),
+            vec!["if", "x", "==", r#""hello world""#]
+        );
+    }
+
+    #[test]
+    fn split_whitespace_escaped() {
+        assert_eq!(
+            split_on_whitespace(r#"blocktrans "it\"s fine""#),
+            vec!["blocktrans", r#""it\"s fine""#]
+        );
+    }
+
+    #[test]
+    fn split_whitespace_empty() {
+        assert!(split_on_whitespace("").is_empty());
+        assert!(split_on_whitespace("   ").is_empty());
     }
 }

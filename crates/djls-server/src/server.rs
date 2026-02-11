@@ -479,7 +479,7 @@ impl LanguageServer for DjangoLanguageServer {
         let settings_update = self
             .with_session_mut(|session| {
                 if session.project().is_none() {
-                    return crate::db::SettingsUpdate::default();
+                    return crate::settings::SettingsUpdate::default();
                 }
 
                 let project_root = session.db().project_root_or_cwd();
@@ -491,7 +491,7 @@ impl LanguageServer for DjangoLanguageServer {
                     Ok(new_settings) => session.set_settings(new_settings),
                     Err(e) => {
                         tracing::error!("Error loading settings: {}", e);
-                        crate::db::SettingsUpdate::default()
+                        crate::settings::SettingsUpdate::default()
                     }
                 }
             })

@@ -10,16 +10,11 @@ use std::sync::Mutex;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_conf::Settings;
-use djls_project::build_search_paths;
 use djls_project::template_dirs;
 use djls_project::Db as ProjectDb;
 use djls_project::Inspector;
-use djls_project::Interpreter;
 use djls_project::Project;
 use djls_project::TemplateLibraries;
-use djls_project::TemplateLibrariesRequest;
-use djls_project::TemplateLibrariesResponse;
-use djls_project::TemplateLibrary;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::TagIndex;
 use djls_semantic::TagSpecs;
@@ -29,138 +24,10 @@ use djls_source::FxDashMap;
 use djls_templates::Db as TemplateDb;
 use djls_workspace::Db as WorkspaceDb;
 use djls_workspace::FileSystem;
-use salsa::Setter;
 
-/// Compute `TagSpecs` from extraction results.
-///
-/// This tracked function reads `project.template_libraries(db)` and
-/// `project.extracted_external_rules(db)` to establish Salsa dependencies.
-/// It starts from empty specs and populates purely from extraction results
-/// (both workspace modules via tracked queries and external modules from
-/// the Project field).
-///
-/// Does NOT read from `Arc<Mutex<Settings>>`.
-#[salsa::tracked]
-pub fn compute_tag_specs(db: &dyn SemanticDb, project: Project) -> TagSpecs {
-    let _libraries = project.template_libraries(db);
-    let tagspecs = project.tagspecs(db);
-
-    let mut specs = TagSpecs::default();
-
-    // Merge workspace extraction results (tracked, auto-invalidating on file change)
-    let workspace_results = collect_workspace_extraction_results(db, project);
-    for (_module_path, extraction) in &workspace_results {
-        specs.merge_extraction_results(extraction);
-    }
-
-    // Merge external extraction results (from Project field, updated by refresh_inspector)
-    for extraction in project.extracted_external_rules(db).values() {
-        specs.merge_extraction_results(extraction);
-    }
-
-    // Fill extraction gaps with manual TagSpecs configuration (fallback).
-    // Extraction always wins.
-    if !tagspecs.libraries.is_empty() {
-        let fallback = TagSpecs::from_tagspec_def(tagspecs);
-        specs.merge_fallback(fallback);
-    }
-
-    specs
-}
-
-/// Compute `TagIndex` from the project's `TagSpecs`.
-///
-/// Depends on `compute_tag_specs` — automatic invalidation cascade ensures
-/// the index is rebuilt whenever specs change.
-#[salsa::tracked]
-pub fn compute_tag_index(db: &dyn SemanticDb, project: Project) -> TagIndex<'_> {
-    let specs = compute_tag_specs(db, project);
-    TagIndex::from_tag_specs(db, &specs)
-}
-
-/// Compute `FilterAritySpecs` from a project's extraction results.
-///
-/// Merges filter arity data from both workspace (tracked) and external
-/// extraction results, with last-wins semantics for name collisions
-/// (matching Django's builtin ordering).
-#[salsa::tracked]
-pub fn compute_filter_arity_specs(
-    db: &dyn SemanticDb,
-    project: Project,
-) -> djls_semantic::FilterAritySpecs {
-    let mut specs = djls_semantic::FilterAritySpecs::new();
-
-    // Merge workspace extraction results (tracked)
-    let workspace_results = collect_workspace_extraction_results(db, project);
-    for (_module_path, extraction) in &workspace_results {
-        specs.merge_extraction_result(extraction);
-    }
-
-    // Merge external extraction results (from Project field)
-    for extraction in project.extracted_external_rules(db).values() {
-        specs.merge_extraction_result(extraction);
-    }
-
-    specs
-}
-
-/// Extract validation rules from a Python registration module file.
-///
-/// Collect extracted rules from all workspace registration modules.
-///
-/// This tracked query:
-/// 1. Gets registration modules from inspector inventory
-/// 2. Resolves workspace modules to `File` inputs via `get_or_create_file`
-/// 3. Extracts rules from each (via tracked `djls_python::extract_module`)
-///
-/// External modules are handled separately (cached on `Project` field,
-/// updated by `refresh_inspector`). This function only processes workspace
-/// modules, giving them automatic Salsa invalidation when files change.
-#[salsa::tracked]
-fn collect_workspace_extraction_results(
-    db: &dyn SemanticDb,
-    project: Project,
-) -> Vec<(String, djls_python::ExtractionResult)> {
-    let template_libraries = project.template_libraries(db);
-    let interpreter = project.interpreter(db);
-    let root = project.root(db);
-    let pythonpath = project.pythonpath(db);
-
-    let module_paths = template_libraries.registration_modules();
-    if module_paths.is_empty() {
-        return Vec::new();
-    }
-
-    let module_paths: Vec<String> = module_paths
-        .iter()
-        .map(|m| m.as_str().to_string())
-        .collect();
-
-    let search_paths = build_search_paths(interpreter, root, pythonpath);
-
-    let (workspace_modules, _external) =
-        djls_project::resolve_modules(module_paths.iter().map(String::as_str), &search_paths, root);
-
-    let mut results = Vec::new();
-
-    for resolved in workspace_modules {
-        let file = db.get_or_create_file(&resolved.file_path);
-        let mut extraction = djls_python::extract_module(db, file);
-
-        if !extraction.is_empty() {
-            extraction.rekey_module(&resolved.module_path);
-            results.push((resolved.module_path, extraction));
-        }
-    }
-
-    results
-}
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct SettingsUpdate {
-    pub env_changed: bool,
-    pub diagnostics_changed: bool,
-}
+use crate::queries::compute_filter_arity_specs;
+use crate::queries::compute_tag_index;
+use crate::queries::compute_tag_specs;
 
 /// Concrete Salsa database for the Django Language Server.
 ///
@@ -172,26 +39,26 @@ pub struct SettingsUpdate {
 #[derive(Clone)]
 pub struct DjangoDatabase {
     /// File system for reading file content (checks buffers first, then disk).
-    fs: Arc<dyn FileSystem>,
+    pub(crate) fs: Arc<dyn FileSystem>,
 
     /// Registry of tracked files used by the workspace layer.
-    files: Arc<FxDashMap<Utf8PathBuf, File>>,
+    pub(crate) files: Arc<FxDashMap<Utf8PathBuf, File>>,
 
     /// The single project for this database instance
-    project: Arc<Mutex<Option<Project>>>,
+    pub(crate) project: Arc<Mutex<Option<Project>>>,
 
     /// Configuration settings for the language server
-    settings: Arc<Mutex<Settings>>,
+    pub(crate) settings: Arc<Mutex<Settings>>,
 
     /// Shared inspector for executing Python queries
-    inspector: Arc<Inspector>,
+    pub(crate) inspector: Arc<Inspector>,
 
-    storage: salsa::Storage<Self>,
+    pub(crate) storage: salsa::Storage<Self>,
 
     // The logs are only used for testing and demonstrating reuse:
     #[cfg(test)]
     #[allow(dead_code)]
-    logs: Arc<Mutex<Option<Vec<String>>>>,
+    pub(crate) logs: Arc<Mutex<Option<Vec<String>>>>,
 }
 
 #[cfg(test)]
@@ -248,188 +115,6 @@ impl DjangoDatabase {
         }
 
         db
-    }
-
-    fn settings(&self) -> Settings {
-        self.settings.lock().unwrap().clone()
-    }
-
-    /// Update the settings, updating the existing project's fields via manual
-    /// comparison (Ruff/RA pattern) to avoid unnecessary Salsa invalidation.
-    ///
-    /// When a project exists, delegates to [`update_project_from_settings`] to
-    /// surgically update only the fields that changed, keeping project identity
-    /// stable. When no project exists, the settings are stored for future use.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the settings mutex is poisoned (another thread panicked while holding the lock)
-    pub fn set_settings(&mut self, settings: Settings) -> SettingsUpdate {
-        let previous = self.settings();
-        *self.settings.lock().unwrap() = settings;
-
-        let diagnostics_changed = previous.diagnostics() != self.settings().diagnostics();
-
-        if self.project().is_some() {
-            let settings = self.settings();
-            let env_changed = self.update_project_from_settings(&settings);
-            return SettingsUpdate {
-                env_changed,
-                diagnostics_changed,
-            };
-        }
-
-        SettingsUpdate {
-            env_changed: false,
-            diagnostics_changed,
-        }
-    }
-
-    /// Update an existing project's fields from new settings, only calling
-    /// Salsa setters when values actually change (Ruff/RA pattern).
-    ///
-    /// Returns `true` if environment-related fields changed (`interpreter`,
-    /// `django_settings_module`, `pythonpath`), indicating the inspector should
-    /// be refreshed.
-    pub fn update_project_from_settings(&mut self, settings: &Settings) -> bool {
-        let Some(project) = self.project() else {
-            return false;
-        };
-
-        let mut env_changed = false;
-
-        let new_interpreter = Interpreter::discover(settings.venv_path());
-        if project.interpreter(self) != &new_interpreter {
-            project.set_interpreter(self).to(new_interpreter);
-            env_changed = true;
-        }
-
-        let new_dsm = settings
-            .django_settings_module()
-            .map(String::from)
-            .or_else(|| {
-                std::env::var("DJANGO_SETTINGS_MODULE")
-                    .ok()
-                    .filter(|s| !s.is_empty())
-            });
-        if project.django_settings_module(self) != &new_dsm {
-            project.set_django_settings_module(self).to(new_dsm);
-            env_changed = true;
-        }
-
-        let new_pythonpath = settings.pythonpath().to_vec();
-        if project.pythonpath(self) != &new_pythonpath {
-            project.set_pythonpath(self).to(new_pythonpath);
-            env_changed = true;
-        }
-
-        let new_tagspecs = settings.tagspecs().clone();
-        if project.tagspecs(self) != &new_tagspecs {
-            project.set_tagspecs(self).to(new_tagspecs);
-        }
-
-        env_changed
-    }
-
-    /// Refresh all inspector-derived data: inventory and external rules.
-    ///
-    /// This is a side-effect operation that bypasses Salsa tracked functions,
-    /// querying the inspector subprocess directly and only calling Salsa
-    /// setters when values have actually changed (Ruff/RA pattern).
-    pub fn refresh_inspector(&mut self) {
-        self.query_inspector_template_libraries();
-        self.extract_external_rules();
-    }
-
-    /// Query the Python inspector subprocess and update the project's template libraries.
-    fn query_inspector_template_libraries(&mut self) {
-        let Some(project) = self.project() else {
-            return;
-        };
-
-        let interpreter = project.interpreter(self).clone();
-        let root = project.root(self).clone();
-        let dsm = project.django_settings_module(self).clone();
-        let pythonpath = project.pythonpath(self).clone();
-
-        let response = match self
-            .inspector
-            .query::<TemplateLibrariesRequest, TemplateLibrariesResponse>(
-                &interpreter,
-                &root,
-                dsm.as_deref(),
-                &pythonpath,
-                &TemplateLibrariesRequest,
-            ) {
-            Ok(response) if response.ok => response.data,
-            Ok(response) => {
-                tracing::warn!(
-                    "query_inspector: inspector returned ok=false, error={:?}",
-                    response.error
-                );
-                None
-            }
-            Err(e) => {
-                tracing::error!("query_inspector: inspector query failed: {}", e);
-                None
-            }
-        };
-
-        let current = project.template_libraries(self).clone();
-        let next = current.apply_inspector(response);
-        if project.template_libraries(self) != &next {
-            project.set_template_libraries(self).to(next);
-        }
-    }
-
-    /// Extract validation rules from external (non-workspace) registration modules
-    /// and update the project's extracted rules if they differ.
-    ///
-    /// Workspace modules are handled separately by `collect_workspace_extraction_results`
-    /// which uses tracked Salsa queries for automatic invalidation on file change.
-    fn extract_external_rules(&mut self) {
-        let Some(project) = self.project() else {
-            return;
-        };
-
-        let interpreter = project.interpreter(self).clone();
-        let root = project.root(self).clone();
-        let pythonpath = project.pythonpath(self).clone();
-
-        let modules: rustc_hash::FxHashSet<String> = project
-            .template_libraries(self)
-            .registration_modules()
-            .into_iter()
-            .map(|m| m.as_str().to_string())
-            .collect();
-
-        let new_extraction = if modules.is_empty() {
-            rustc_hash::FxHashMap::default()
-        } else {
-            djls_project::extract_external_rules(&modules, &interpreter, &root, &pythonpath)
-        };
-
-        if project.extracted_external_rules(self) != &new_extraction {
-            project
-                .set_extracted_external_rules(self)
-                .to(new_extraction);
-        }
-    }
-
-    /// Update the project's discovered template libraries.
-    ///
-    /// This is a side-effect operation that should be run off the LSP request path.
-    /// It only calls Salsa setters when values have actually changed.
-    pub fn update_discovered_template_libraries(&mut self, libraries: &[TemplateLibrary]) {
-        let Some(project) = self.project() else {
-            return;
-        };
-
-        let current = project.template_libraries(self).clone();
-        let next = current.apply_discovery(libraries.iter().cloned());
-        if project.template_libraries(self) != &next {
-            project.set_template_libraries(self).to(next);
-        }
     }
 
     fn set_project(&mut self, root: &Utf8Path, settings: &Settings) {
