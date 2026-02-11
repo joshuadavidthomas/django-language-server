@@ -21,4 +21,5 @@ pub use document::DocumentChange;
 pub use document::TextDocument;
 pub use files::FileSystem;
 pub use files::InMemoryFileSystem;
+pub use files::OsFileSystem;
 pub use workspace::Workspace;

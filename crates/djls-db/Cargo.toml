@@ -14,10 +14,14 @@ djls-workspace = { workspace = true }
 
 camino = { workspace = true }
 rustc-hash = { workspace = true }
+walkdir = { workspace = true }
 salsa = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
 
 [lints]
 workspace = true

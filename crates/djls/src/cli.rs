@@ -27,6 +27,7 @@ pub fn run(args: Vec<String>) -> Result<()> {
     });
 
     let result = match &cli.command {
+        DjlsCommand::Check(cmd) => cmd.execute(&cli.args),
         DjlsCommand::Serve(cmd) => cmd.execute(&cli.args),
     };
 

@@ -75,6 +75,11 @@ impl DiagnosticsConfig {
         best_match.map_or(DiagnosticSeverity::Error, |(_, severity)| severity)
     }
 
+    /// Set the severity for a specific diagnostic code or prefix.
+    pub fn set_severity(&mut self, code: &str, severity: DiagnosticSeverity) {
+        self.severity.insert(code.to_string(), severity);
+    }
+
     /// Check if a diagnostic should be shown (severity is not Off).
     #[must_use]
     pub fn is_enabled(&self, code: &str) -> bool {

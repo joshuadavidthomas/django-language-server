@@ -1,3 +1,4 @@
+pub mod check;
 mod serve;
 
 use anyhow::Result;
@@ -12,6 +13,8 @@ pub trait Command {
 
 #[derive(Debug, Subcommand)]
 pub enum DjlsCommand {
+    /// Check Django template files for errors
+    Check(self::check::Check),
     /// Start the LSP server
     Serve(self::serve::Serve),
 }

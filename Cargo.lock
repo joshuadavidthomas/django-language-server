@@ -651,11 +651,19 @@ name = "djls"
 version = "6.0.0"
 dependencies = [
  "anyhow",
+ "camino",
  "clap",
+ "djls-conf",
  "djls-db",
+ "djls-ide",
  "djls-project",
+ "djls-semantic",
  "djls-server",
+ "djls-source",
+ "djls-templates",
+ "djls-workspace",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]
@@ -726,7 +734,9 @@ dependencies = [
  "salsa",
  "serde",
  "serde_json",
+ "tempfile",
  "tracing",
+ "walkdir",
 ]
 
 [[package]]
