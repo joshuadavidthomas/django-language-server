@@ -45,7 +45,9 @@ const CORPUS_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/.corpus");
 /// Constructed via [`Corpus::require`], which validates that the
 /// directory exists. Once constructed, the root path is trusted for
 /// the lifetime of the value.
-pub struct Corpus;
+pub struct Corpus {
+    _private: (),
+}
 
 impl Corpus {
     /// Get the corpus, panicking with a helpful message if not synced.
@@ -59,7 +61,7 @@ impl Corpus {
             Utf8Path::new(CORPUS_DIR).as_std_path().exists(),
             "Corpus not synced. Run: cargo run --bin djls-corpus -- sync",
         );
-        Self
+        Self { _private: () }
     }
 
     /// The corpus root directory.

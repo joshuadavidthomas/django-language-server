@@ -62,9 +62,10 @@ fn main() -> anyhow::Result<()> {
 
     let cli = Cli::parse();
 
-    let manifest_path = cli.manifest.unwrap_or_else(|| {
-        Utf8Path::new(env!("CARGO_MANIFEST_DIR")).join("manifest.toml")
-    });
+    let default_manifest_dir = Utf8Path::new(env!("CARGO_MANIFEST_DIR"));
+    let manifest_path = cli
+        .manifest
+        .unwrap_or_else(|| default_manifest_dir.join("manifest.toml"));
     let manifest_dir = manifest_path
         .parent()
         .ok_or_else(|| anyhow::anyhow!("Invalid manifest path: no parent directory"))?;
@@ -134,8 +135,17 @@ fn update_lockfile(
     };
 
     tracing::info!("resolving latest versions");
-    let lockfile = djls_corpus::lock::lock_corpus(&manifest, &existing, filter)?;
+    let (lockfile, errors) = djls_corpus::lock::lock_corpus(&manifest, &existing, filter)?;
     lockfile.save(lockfile_path)?;
     tracing::info!(%lockfile_path, "lockfile updated");
+
+    if !errors.is_empty() {
+        anyhow::bail!(
+            "Failed to lock {} entries:\n  {}",
+            errors.len(),
+            errors.join("\n  ")
+        );
+    }
+
     Ok(())
 }

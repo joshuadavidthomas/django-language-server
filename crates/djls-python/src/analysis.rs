@@ -99,7 +99,7 @@ impl<'a> CompileFunction<'a> {
 /// from `raise TemplateSyntaxError(...)` guards.
 ///
 /// Helper function calls are resolved only when analysis runs with a Salsa
-/// database and file context (see [`eval::CallContext`]). In standalone mode
+/// database and file context (see [`CallContext`]). In standalone mode
 /// (no database), helper calls evaluate to `Unknown`.
 #[must_use]
 pub(crate) fn analyze_compile_function(func: &StmtFunctionDef) -> TagRule {

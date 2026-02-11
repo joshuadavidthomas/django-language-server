@@ -91,9 +91,9 @@ pub fn lock_corpus(
     manifest: &Manifest,
     existing: &Lockfile,
     filter: &LockFilter,
-) -> anyhow::Result<Lockfile> {
+) -> anyhow::Result<(Lockfile, Vec<String>)> {
     let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_mins(1))
+        .timeout(Duration::from_secs(60))
         .user_agent("djls-corpus")
         .build()?;
 
@@ -128,7 +128,7 @@ pub fn lock_corpus(
             Err(e) => {
                 let label = format!("{} {}", package.name, package.version);
                 tracing::error!(label, error = %e, "failed to resolve package");
-                errors.push(label);
+                errors.push(format!("{label}: {e}"));
                 if let Some(locked) = existing_packages.get(&key) {
                     packages.push((*locked).clone());
                 }
@@ -148,7 +148,7 @@ pub fn lock_corpus(
             Ok(locked) => repos.push(locked),
             Err(e) => {
                 tracing::error!(name = repo.name, error = %e, "failed to resolve repo");
-                errors.push(repo.name.clone());
+                errors.push(format!("{}: {e}", repo.name));
                 if let Some(locked) = existing_repos.get(repo.name.as_str()) {
                     repos.push((*locked).clone());
                 }
@@ -156,15 +156,7 @@ pub fn lock_corpus(
         }
     }
 
-    if !errors.is_empty() {
-        anyhow::bail!(
-            "Failed to lock {} entries: {}",
-            errors.len(),
-            errors.join(", ")
-        );
-    }
-
-    Ok(Lockfile { packages, repos })
+    Ok((Lockfile { packages, repos }, errors))
 }
 
 fn resolve_package(

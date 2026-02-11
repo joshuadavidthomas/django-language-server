@@ -479,15 +479,8 @@ fn generate_discovered_tag_name_completions(
         .into_iter()
         .filter(|name| name.starts_with(partial))
         .map(|name| {
-            let (mut insert_text, insert_text_format) =
+            let (insert_text, insert_text_format) =
                 build_plain_insert_for_tag(&name, needs_space, closing);
-
-            if matches!(closing, ClosingBrace::None | ClosingBrace::PartialClose) {
-                // build_plain_insert_for_tag already adds closing.
-            } else if matches!(closing, ClosingBrace::FullClose) {
-                // Remove the appended closing if the template already has `%}`.
-                insert_text = insert_text.trim_end_matches(" %}").to_string();
-            }
 
             ls_types::CompletionItem {
                 label: name.clone(),

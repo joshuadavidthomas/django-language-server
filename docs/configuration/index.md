@@ -93,6 +93,23 @@ Map diagnostic codes or prefixes to severity levels. Supports:
 - `S102` - Orphaned tag (intermediate tag without parent)
 - `S103` - Unmatched block name (e.g., `{% endblock foo %}` doesn't match `{% block bar %}`)
 
+!!! info "Migration from v5.x"
+
+    In v6.0.0, several diagnostic codes were renumbered for consistency. If you have custom severity settings for the old codes, please update your configuration:
+
+    - `S104` → `S108` (Unknown tag)
+    - `S105` → `S109` (Unloaded tag)
+    - `S106` → `S111` (Unknown filter)
+    - `S107` → `S112` (Unloaded filter)
+
+    Update your `pyproject.toml` or `djls.toml` like this:
+
+    ```toml
+    [tool.djls.diagnostics.severity]
+    # Old: S104 = "warning"
+    S108 = "warning" # New
+    ```
+
 *Tag Scoping (requires [inspector](../template-validation.md#inspector-availability)):*
 
 - `S108` - Unknown tag (not found in any known library or in the Python environment)

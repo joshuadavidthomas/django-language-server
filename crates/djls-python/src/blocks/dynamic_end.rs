@@ -179,8 +179,16 @@ impl StatementVisitor<'_> for DynamicEndFormatFinder {
         }
 
         match stmt {
+            Stmt::Expr(expr_stmt) => {
+                self.found = is_end_format_expr(&expr_stmt.value);
+            }
             Stmt::Assign(StmtAssign { value, .. }) => {
                 self.found = is_end_format_expr(value);
+            }
+            Stmt::Return(StmtReturn {
+                value: Some(val), ..
+            }) => {
+                self.found = is_end_format_expr(val);
             }
             // Recurse into control flow to find all possible parse calls.
             Stmt::If(_)

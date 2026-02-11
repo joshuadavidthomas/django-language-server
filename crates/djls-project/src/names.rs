@@ -17,6 +17,8 @@ pub enum InvalidName {
     ModuleContainsConsecutiveDots,
     #[error("python module file path must end with '.py'")]
     ModuleMustHavePyExtension,
+    #[error("python module path must be relative, got absolute: {0}")]
+    ModuleIsAbsolute(String),
 }
 
 fn validate_non_empty_no_whitespace(value: &str) -> Result<&str, InvalidName> {
@@ -118,6 +120,10 @@ impl PyModuleName {
     }
 
     pub fn from_relative_package(path: &Utf8Path) -> Result<Self, InvalidName> {
+        if path.is_absolute() {
+            return Err(InvalidName::ModuleIsAbsolute(path.to_string()));
+        }
+
         let dotted = path
             .components()
             .map(|component| component.as_str())
