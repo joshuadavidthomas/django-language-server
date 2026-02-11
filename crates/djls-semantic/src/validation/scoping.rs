@@ -160,19 +160,19 @@ pub(crate) fn check_load_libraries_rule(
         }
 
         let candidates = template_libraries.discovered_app_modules_for_library_str(&lib);
-        if !candidates.is_empty() {
+        if candidates.is_empty() {
             let marker_span = span.expand(TagDelimiter::LENGTH_U32, TagDelimiter::LENGTH_U32);
-            ValidationErrorAccumulator(ValidationError::LibraryNotInInstalledApps {
+            ValidationErrorAccumulator(ValidationError::UnknownLibrary {
                 name: lib,
-                app: candidates[0].clone(),
-                candidates,
                 span: marker_span,
             })
             .accumulate(db);
         } else {
             let marker_span = span.expand(TagDelimiter::LENGTH_U32, TagDelimiter::LENGTH_U32);
-            ValidationErrorAccumulator(ValidationError::UnknownLibrary {
+            ValidationErrorAccumulator(ValidationError::LibraryNotInInstalledApps {
                 name: lib,
+                app: candidates[0].clone(),
+                candidates,
                 span: marker_span,
             })
             .accumulate(db);

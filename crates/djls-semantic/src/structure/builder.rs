@@ -392,7 +392,7 @@ struct TreeFrame {
     segment_body: BlockId,
 }
 
-impl<'db> Visitor for BlockTreeBuilder<'db> {
+impl Visitor for BlockTreeBuilder<'_> {
     fn visit_tag(&mut self, name: &str, bits: &[String], span: Span) {
         self.handle_tag(name, bits, span);
     }

@@ -13,14 +13,17 @@ pub struct BlockTree<'db> {
 pub struct BlockId(u32);
 
 impl BlockId {
+    #[must_use]
     pub fn new(id: u32) -> Self {
         Self(id)
     }
 
+    #[must_use]
     pub fn id(self) -> u32 {
         self.0
     }
 
+    #[must_use]
     pub fn index(self) -> usize {
         self.0 as usize
     }
@@ -30,6 +33,7 @@ impl BlockId {
 pub struct Blocks(Vec<Region>);
 
 impl Blocks {
+    #[must_use]
     pub fn get(&self, id: usize) -> &Region {
         &self.0[id]
     }
@@ -122,6 +126,7 @@ impl Region {
         }
     }
 
+    #[must_use]
     pub fn span(&self) -> &Span {
         &self.span
     }
@@ -130,6 +135,7 @@ impl Region {
         self.span = span;
     }
 
+    #[must_use]
     pub fn nodes(&self) -> &Vec<BlockNode> {
         &self.nodes
     }
