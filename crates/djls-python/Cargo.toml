@@ -18,7 +18,6 @@ djls-corpus = { workspace = true }
 insta = { workspace = true }
 serde = { workspace = true }
 tempfile = { workspace = true }
-walkdir = { workspace = true }
 
 [lints]
 workspace = true

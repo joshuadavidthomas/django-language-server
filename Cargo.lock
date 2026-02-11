@@ -706,6 +706,7 @@ dependencies = [
  "camino",
  "clap",
  "flate2",
+ "ignore",
  "reqwest",
  "serde",
  "serde_json",
@@ -716,7 +717,6 @@ dependencies = [
  "toml_edit 0.24.0+spec-1.1.0",
  "tracing",
  "tracing-subscriber",
- "walkdir",
 ]
 
 [[package]]
@@ -790,7 +790,6 @@ dependencies = [
  "salsa",
  "serde",
  "tempfile",
- "walkdir",
 ]
 
 [[package]]
@@ -805,6 +804,7 @@ dependencies = [
  "djls-source",
  "djls-templates",
  "djls-workspace",
+ "ignore",
  "insta",
  "rustc-hash",
  "salsa",
@@ -813,7 +813,6 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tracing",
- "walkdir",
 ]
 
 [[package]]
@@ -883,6 +882,7 @@ dependencies = [
  "dashmap",
  "djls-source",
  "dunce",
+ "ignore",
  "notify",
  "percent-encoding",
  "rustc-hash",
@@ -890,7 +890,6 @@ dependencies = [
  "tempfile",
  "tokio",
  "tracing",
- "walkdir",
 ]
 
 [[package]]
@@ -1487,6 +1486,22 @@ checksum = "3acae9609540aa318d1bc588455225fb2085b9ed0c4f6bd0d9d5bcd86f1a0344"
 dependencies = [
  "icu_normalizer",
  "icu_properties",
+]
+
+[[package]]
+name = "ignore"
+version = "0.4.23"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6d89fd380afde86567dfba715db065673989d6253f42b88179abd3eae47bda4b"
+dependencies = [
+ "crossbeam-deque",
+ "globset",
+ "log",
+ "memchr",
+ "regex-automata",
+ "same-file",
+ "walkdir",
+ "winapi-util",
 ]
 
 [[package]]
