@@ -34,9 +34,7 @@ pub fn walk_files(
             continue;
         }
 
-        let walker = WalkBuilder::new(path.as_std_path())
-            .hidden(!hidden)
-            .build();
+        let walker = WalkBuilder::new(path.as_std_path()).hidden(!hidden).build();
 
         for entry in walker.filter_map(Result::ok) {
             if !entry.file_type().is_some_and(|ft| ft.is_file()) {
