@@ -1,24 +1,26 @@
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
-use djls_source::FileKind;
 use walkdir::WalkDir;
 
-/// Walk the given paths and collect all files that match [`FileKind::Template`].
+/// Walk the given paths and collect files that pass `predicate`.
 ///
 /// Each entry in `paths` may be a file or a directory:
-/// - Files are included directly if their extension matches a template kind.
-/// - Directories are walked recursively; only template files are collected.
-///
-/// Hidden files and directories (names starting with `.`) are skipped.
+/// - Files are included directly if `predicate` returns `true`.
+/// - Directories are walked recursively; only matching files are collected.
+/// - Directories where `skip_dir` returns `true` are pruned from traversal.
 ///
 /// Returns a sorted, deduplicated list of absolute paths.
 #[must_use]
-pub fn walk_template_files(paths: &[Utf8PathBuf]) -> Vec<Utf8PathBuf> {
+pub fn walk_files(
+    paths: &[Utf8PathBuf],
+    predicate: impl Fn(&Utf8Path) -> bool,
+    skip_dir: impl Fn(&Utf8Path) -> bool,
+) -> Vec<Utf8PathBuf> {
     let mut files = Vec::new();
 
     for path in paths {
         if path.is_file() {
-            if is_template(path) {
+            if predicate(path) {
                 if let Ok(canonical) = dunce_utf8(path) {
                     files.push(canonical);
                 } else {
@@ -28,12 +30,18 @@ pub fn walk_template_files(paths: &[Utf8PathBuf]) -> Vec<Utf8PathBuf> {
         } else if path.is_dir() {
             for entry in WalkDir::new(path)
                 .into_iter()
-                .filter_entry(|e| e.depth() == 0 || !is_hidden(e))
+                .filter_entry(|e| {
+                    if e.depth() == 0 || !e.file_type().is_dir() {
+                        return true;
+                    }
+                    camino::Utf8Path::from_path(e.path())
+                        .is_none_or(|p| !skip_dir(p))
+                })
                 .flatten()
             {
                 if entry.file_type().is_file() {
                     if let Some(utf8) = camino::Utf8Path::from_path(entry.path()) {
-                        if is_template(utf8) {
+                        if predicate(utf8) {
                             if let Ok(canonical) = dunce_utf8(utf8) {
                                 files.push(canonical);
                             } else {
@@ -51,17 +59,6 @@ pub fn walk_template_files(paths: &[Utf8PathBuf]) -> Vec<Utf8PathBuf> {
     files
 }
 
-fn is_template(path: &Utf8Path) -> bool {
-    FileKind::from(path) == FileKind::Template
-}
-
-fn is_hidden(entry: &walkdir::DirEntry) -> bool {
-    entry
-        .file_name()
-        .to_str()
-        .is_some_and(|name| name.starts_with('.'))
-}
-
 fn dunce_utf8(path: &Utf8Path) -> std::io::Result<Utf8PathBuf> {
     let canonical = path.as_std_path().canonicalize()?;
     #[cfg(windows)]
@@ -74,25 +71,37 @@ fn dunce_utf8(path: &Utf8Path) -> std::io::Result<Utf8PathBuf> {
 mod tests {
     use super::*;
 
+    fn is_html(path: &Utf8Path) -> bool {
+        path.extension() == Some("html")
+    }
+
+    fn no_skip(_path: &Utf8Path) -> bool {
+        false
+    }
+
+    fn skip_hidden(path: &Utf8Path) -> bool {
+        path.file_name().is_some_and(|name| name.starts_with('.'))
+    }
+
     #[test]
-    fn walks_directory_for_templates() {
+    fn walks_directory_with_predicate() {
         let dir = tempfile::tempdir().unwrap();
         let dir_path = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).unwrap();
 
         std::fs::write(dir.path().join("page.html"), "<h1>hi</h1>").unwrap();
         std::fs::write(dir.path().join("style.css"), "body {}").unwrap();
-        std::fs::write(dir.path().join("base.djhtml"), "{% block %}{% endblock %}").unwrap();
+        std::fs::write(dir.path().join("app.js"), "console.log()").unwrap();
 
-        let files = walk_template_files(&[dir_path]);
+        let files = walk_files(&[dir_path], is_html, no_skip);
         let names: Vec<&str> = files.iter().filter_map(|p| p.file_name()).collect();
 
         assert!(names.contains(&"page.html"));
-        assert!(names.contains(&"base.djhtml"));
         assert!(!names.contains(&"style.css"));
+        assert!(!names.contains(&"app.js"));
     }
 
     #[test]
-    fn skips_hidden_directories() {
+    fn skip_dir_prunes_directories() {
         let dir = tempfile::tempdir().unwrap();
         let dir_path = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).unwrap();
 
@@ -101,11 +110,28 @@ mod tests {
         std::fs::write(hidden.join("secret.html"), "<p>secret</p>").unwrap();
         std::fs::write(dir.path().join("visible.html"), "<p>visible</p>").unwrap();
 
-        let files = walk_template_files(&[dir_path]);
+        let files = walk_files(&[dir_path], is_html, skip_hidden);
         let names: Vec<&str> = files.iter().filter_map(|p| p.file_name()).collect();
 
         assert!(names.contains(&"visible.html"));
         assert!(!names.contains(&"secret.html"));
+    }
+
+    #[test]
+    fn no_skip_includes_hidden_directories() {
+        let dir = tempfile::tempdir().unwrap();
+        let dir_path = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).unwrap();
+
+        let hidden = dir.path().join(".hidden");
+        std::fs::create_dir_all(&hidden).unwrap();
+        std::fs::write(hidden.join("secret.html"), "<p>secret</p>").unwrap();
+        std::fs::write(dir.path().join("visible.html"), "<p>visible</p>").unwrap();
+
+        let files = walk_files(&[dir_path], is_html, no_skip);
+        let names: Vec<&str> = files.iter().filter_map(|p| p.file_name()).collect();
+
+        assert!(names.contains(&"visible.html"));
+        assert!(names.contains(&"secret.html"));
     }
 
     #[test]
@@ -115,19 +141,19 @@ mod tests {
         std::fs::write(&file_path, "<p>single</p>").unwrap();
         let utf8 = Utf8PathBuf::from_path_buf(file_path).unwrap();
 
-        let files = walk_template_files(&[utf8]);
+        let files = walk_files(&[utf8], is_html, no_skip);
         assert_eq!(files.len(), 1);
         assert!(files[0].file_name() == Some("single.html"));
     }
 
     #[test]
-    fn non_template_file_excluded() {
+    fn non_matching_file_excluded() {
         let dir = tempfile::tempdir().unwrap();
         let file_path = dir.path().join("script.py");
         std::fs::write(&file_path, "print('hi')").unwrap();
         let utf8 = Utf8PathBuf::from_path_buf(file_path).unwrap();
 
-        let files = walk_template_files(&[utf8]);
+        let files = walk_files(&[utf8], is_html, no_skip);
         assert!(files.is_empty());
     }
 
@@ -140,7 +166,7 @@ mod tests {
         std::fs::write(&file_path, "<p>dup</p>").unwrap();
         let utf8_file = Utf8PathBuf::from_path_buf(file_path).unwrap();
 
-        let files = walk_template_files(&[dir_path, utf8_file]);
+        let files = walk_files(&[dir_path, utf8_file], is_html, no_skip);
         let html_count = files
             .iter()
             .filter(|p| p.file_name() == Some("page.html"))

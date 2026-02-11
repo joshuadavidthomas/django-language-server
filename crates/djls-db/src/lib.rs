@@ -8,9 +8,7 @@
 mod db;
 mod inspector;
 mod queries;
-mod send_check;
 mod settings;
-pub mod walk;
 
 pub use db::DjangoDatabase;
 pub use settings::SettingsUpdate;

@@ -737,7 +737,6 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tracing",
- "walkdir",
 ]
 
 [[package]]
@@ -890,6 +889,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tracing",
+ "walkdir",
 ]
 
 [[package]]

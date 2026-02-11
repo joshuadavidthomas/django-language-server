@@ -210,6 +210,18 @@ impl ProjectDb for DjangoDatabase {
 }
 
 #[cfg(test)]
+mod marker_tests {
+    // DjangoDatabase is intentionally !Sync — salsa::Storage uses RefCell
+    // internally. Parallel work uses db.clone() per rayon task instead.
+
+    #[test]
+    fn db_is_send() {
+        fn assert_send<T: Send>() {}
+        assert_send::<crate::DjangoDatabase>();
+    }
+}
+
+#[cfg(test)]
 mod invalidation_tests {
     use std::collections::BTreeMap;
     use std::sync::Arc;

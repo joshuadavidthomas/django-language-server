@@ -7,7 +7,8 @@ use anyhow::Result;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use clap::Parser;
-use djls_db::walk::walk_template_files;
+use djls_source::FileKind;
+use djls_workspace::walk_files;
 use djls_db::DjangoDatabase;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::ValidationError;
@@ -130,14 +131,14 @@ fn discover_files(
                 }
             })
             .collect();
-        return walk_template_files(&resolved);
+        return walk_files(&resolved, is_template, is_hidden_dir);
     }
 
     if let Some(dirs) = db.template_dirs() {
         let dirs: Vec<Utf8PathBuf> = dirs.into_iter().collect();
-        walk_template_files(&dirs)
+        walk_files(&dirs, is_template, is_hidden_dir)
     } else {
-        walk_template_files(&[project_root.to_owned()])
+        walk_files(&[project_root.to_owned()], is_template, is_hidden_dir)
     }
 }
 
@@ -338,6 +339,14 @@ fn resolve_project_root() -> Result<Utf8PathBuf> {
     let cwd = std::env::current_dir().context("Failed to get current directory")?;
     Utf8PathBuf::from_path_buf(cwd)
         .map_err(|_| anyhow::anyhow!("Current directory is not valid UTF-8"))
+}
+
+fn is_template(path: &Utf8Path) -> bool {
+    FileKind::from(path) == FileKind::Template
+}
+
+fn is_hidden_dir(path: &Utf8Path) -> bool {
+    path.file_name().is_some_and(|name| name.starts_with('.'))
 }
 
 fn pick_renderer() -> DiagnosticRenderer {
