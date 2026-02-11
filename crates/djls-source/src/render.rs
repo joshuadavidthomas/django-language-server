@@ -232,8 +232,7 @@ mod tests {
 
     #[test]
     fn two_annotations_same_line() {
-        let source =
-            "{% if user.is_authenticated and and user.is_staff %}\n{% endif %}\n";
+        let source = "{% if user.is_authenticated and and user.is_staff %}\n{% endif %}\n";
 
         let diag = Diagnostic::new(
             source,
@@ -290,18 +289,14 @@ mod tests {
         );
         let output = plain().render(&diag);
 
-        assert!(
-            output.contains("warning[W001]"),
-            "should use warning level"
-        );
+        assert!(output.contains("warning[W001]"), "should use warning level");
         assert!(output.contains("Duplicate {% load i18n %}"));
     }
 
     #[test]
     fn long_line_truncation() {
         let long_prefix = "x".repeat(200);
-        let source =
-            format!("<div class=\"{long_prefix}\">{{{{ value|bogus_filter }}}}</div>\n");
+        let source = format!("<div class=\"{long_prefix}\">{{{{ value|bogus_filter }}}}</div>\n");
         let filter_start = source.find("bogus_filter").unwrap();
 
         let diag = Diagnostic::new(
