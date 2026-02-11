@@ -49,9 +49,17 @@ just corpus clean                # Remove all synced corpus data
 - **`#[returns(ref)]`**: Use on fields returning owned types. Salsa returns `&T`, so compare with `&new_value`.
 - **Tracked return types need `PartialEq`**: Salsa uses equality for backdate optimization.
 
+## Workspace and Crate Conventions
+- **All crates live in `crates/`**, auto-discovered via `members = ["crates/*"]`
+- **All dependency versions** (third-party and internal) go in `[workspace.dependencies]` in root `Cargo.toml`. Crates reference with `dep.workspace = true`. Never specify a version directly in a crate's `Cargo.toml`.
+- **Alphabetical order** in `[workspace.dependencies]` and in each crate's `[dependencies]`
+- **Internal deps listed before third-party** in each crate's `Cargo.toml`, separated by a blank line, both groups alphabetical
+- **`[lints] workspace = true`** in every crate — lints are configured once in root `[workspace.lints]`
+- **Versioning**: Only `djls` (the binary) carries the release version (currently `6.0.0`). All library crates use `version = "0.0.0"`.
+- **Adding a new crate**: Add to `[workspace.dependencies]` in root `Cargo.toml` (alphabetical), create `crates/<name>/Cargo.toml` with `{ workspace = true }` deps and `[lints] workspace = true`
+
 ## Key Conventions
 - **Parser `Node::Tag.bits` excludes tag name**: `{% load i18n %}` → `name: "load"`, `bits: ["i18n"]`. Functions processing `bits` work with arguments only.
-- **Workspace deps**: ALL dependency versions (third-party and internal crates) go in `[workspace.dependencies]` in root `Cargo.toml`. Crates reference with `dep.workspace = true`. Never specify a version directly in a crate's `Cargo.toml` — always add it to the workspace first.
 - **Paths**: Use `camino::Utf8Path`/`Utf8PathBuf` as the canonical path types. Avoid `std::path::Path`/`PathBuf` except at FFI boundaries or when interfacing with APIs that require them (e.g., `walkdir` results — convert at the boundary).
 - **Insta snapshots**: After changing serialized types, run `cargo insta test --accept --unreferenced delete` to update snapshots and clean orphans.
 - **Environment layout**: Environment scan functions (`scan_environment`, `scan_environment_with_symbols`) live in `djls-project/src/scanning.rs`; environment types (`EnvironmentInventory`, `EnvironmentLibrary`, `EnvironmentSymbol`) in `djls-python/src/environment/types.rs`.

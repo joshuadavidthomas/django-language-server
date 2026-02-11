@@ -24,6 +24,13 @@ The project is written in Rust with IPC for Python communication. Here is a high
 - Template parsing ([`crates/djls-templates/`](./crates/djls-templates/))
 - Workspace and document management ([`crates/djls-workspace/`](./crates/djls-workspace/))
 
+The project uses a [Cargo workspace](https://doc.rust-lang.org/cargo/reference/workspaces.html) with all crates under `crates/`. A few conventions to be aware of:
+
+- **Dependency versions** are centralized in `[workspace.dependencies]` in the root [`Cargo.toml`](./Cargo.toml). Individual crates reference them with `dep.workspace = true` and never specify versions directly.
+- **Internal crates are listed before third-party crates** in each crate's `[dependencies]`, separated by a blank line. Both groups are kept in alphabetical order.
+- **Lints** are configured once in `[workspace.lints]` in the root `Cargo.toml`. Each crate opts in with `[lints] workspace = true`.
+- **Versioning**: Only the `djls` binary crate carries the release version. All library crates use `version = "0.0.0"`.
+
 Code contributions are welcome from developers of all backgrounds. Rust expertise is valuable for the LSP server and core components, but Python and Django developers should not be deterred by the Rust codebase - Django expertise is just as valuable. Understanding Django's internals and common development patterns helps inform what features would be most valuable.
 
 So far it's all been built by a [a simple country CRUD web developer](https://youtu.be/7ij_1SQqbVo?si=hwwPyBjmaOGnvPPI&t=53) learning Rust along the way - send help!
