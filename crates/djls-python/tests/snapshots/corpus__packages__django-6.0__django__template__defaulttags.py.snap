@@ -19,7 +19,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: false
+    as_var: keep
   "django.template.defaulttags::tag::cycle":
     arg_constraints:
       - Min: 2
@@ -31,7 +31,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: false
+    as_var: keep
   "django.template.defaulttags::tag::for":
     arg_constraints:
       - Min: 4
@@ -51,7 +51,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 2
-    supports_as_var: false
+    as_var: keep
   "django.template.defaulttags::tag::lorem":
     arg_constraints:
       - Exact: 4
@@ -71,7 +71,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 2
-    supports_as_var: false
+    as_var: keep
   "django.template.defaulttags::tag::now":
     arg_constraints:
       - Exact: 2
@@ -83,7 +83,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: false
+    as_var: keep
   "django.template.defaulttags::tag::partial":
     arg_constraints:
       - Exact: 2
@@ -95,7 +95,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: false
+    as_var: keep
   "django.template.defaulttags::tag::partialdef":
     arg_constraints:
       - OneOf:
@@ -117,7 +117,7 @@ tag_rules:
         kind:
           Literal: inline
         position: 1
-    supports_as_var: false
+    as_var: keep
   "django.template.defaulttags::tag::querystring":
     arg_constraints: []
     required_keywords: []
@@ -128,7 +128,7 @@ tag_rules:
         required: false
         kind: VarArgs
         position: 0
-    supports_as_var: true
+    as_var: strip
   "django.template.defaulttags::tag::regroup":
     arg_constraints:
       - Exact: 6
@@ -164,7 +164,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 4
-    supports_as_var: false
+    as_var: keep
   "django.template.defaulttags::tag::resetcycle":
     arg_constraints:
       - Max: 2
@@ -176,7 +176,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: false
+    as_var: keep
   "django.template.defaulttags::tag::templatetag":
     arg_constraints:
       - Exact: 2
@@ -188,7 +188,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: false
+    as_var: keep
   "django.template.defaulttags::tag::url":
     arg_constraints:
       - Min: 2
@@ -200,7 +200,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: false
+    as_var: keep
   "django.template.defaulttags::tag::widthratio":
     arg_constraints: []
     required_keywords:
@@ -231,7 +231,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 4
-    supports_as_var: false
+    as_var: keep
 filter_arities: {}
 block_specs:
   "django.template.defaulttags::tag::autoescape":

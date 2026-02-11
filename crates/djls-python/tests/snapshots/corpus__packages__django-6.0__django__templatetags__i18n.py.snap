@@ -17,7 +17,7 @@ tag_rules:
       allow_duplicates: false
       rejects_unknown: true
     extracted_args: []
-    supports_as_var: false
+    as_var: keep
   "django.templatetags.i18n::tag::blocktranslate":
     arg_constraints: []
     required_keywords: []
@@ -32,7 +32,7 @@ tag_rules:
       allow_duplicates: false
       rejects_unknown: true
     extracted_args: []
-    supports_as_var: false
+    as_var: keep
   "django.templatetags.i18n::tag::get_available_languages":
     arg_constraints:
       - Exact: 3
@@ -52,7 +52,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 1
-    supports_as_var: false
+    as_var: keep
   "django.templatetags.i18n::tag::get_current_language":
     arg_constraints:
       - Exact: 3
@@ -72,7 +72,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 1
-    supports_as_var: false
+    as_var: keep
   "django.templatetags.i18n::tag::get_current_language_bidi":
     arg_constraints:
       - Exact: 3
@@ -92,7 +92,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 1
-    supports_as_var: false
+    as_var: keep
   "django.templatetags.i18n::tag::get_language_info":
     arg_constraints:
       - Exact: 5
@@ -124,7 +124,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 3
-    supports_as_var: false
+    as_var: keep
   "django.templatetags.i18n::tag::get_language_info_list":
     arg_constraints:
       - Exact: 5
@@ -156,7 +156,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 3
-    supports_as_var: false
+    as_var: keep
   "django.templatetags.i18n::tag::language":
     arg_constraints:
       - Exact: 2
@@ -168,7 +168,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: false
+    as_var: keep
   "django.templatetags.i18n::tag::trans":
     arg_constraints:
       - Min: 2
@@ -186,7 +186,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: false
+    as_var: keep
   "django.templatetags.i18n::tag::translate":
     arg_constraints:
       - Min: 2
@@ -204,7 +204,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: false
+    as_var: keep
 filter_arities:
   "django.templatetags.i18n::filter::language_bidi":
     expects_arg: false

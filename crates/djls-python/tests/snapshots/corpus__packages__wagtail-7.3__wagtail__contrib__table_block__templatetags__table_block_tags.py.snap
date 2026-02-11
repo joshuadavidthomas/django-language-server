@@ -23,7 +23,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 2
-    supports_as_var: true
+    as_var: strip
   "wagtail.contrib.table_block.templatetags.table_block_tags::tag::cell_hidden":
     arg_constraints:
       - Min: 3
@@ -44,7 +44,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 2
-    supports_as_var: true
+    as_var: strip
   "wagtail.contrib.table_block.templatetags.table_block_tags::tag::cell_span":
     arg_constraints:
       - Min: 3
@@ -65,6 +65,6 @@ tag_rules:
         required: false
         kind: Variable
         position: 2
-    supports_as_var: true
+    as_var: strip
 filter_arities: {}
 block_specs: {}

@@ -47,7 +47,7 @@ pub enum SymbolKind {
 pub struct ExtractionResult {
     pub tag_rules: FxHashMap<SymbolKey, TagRule>,
     pub filter_arities: FxHashMap<SymbolKey, FilterArity>,
-    pub block_specs: FxHashMap<SymbolKey, BlockTagSpec>,
+    pub block_specs: FxHashMap<SymbolKey, BlockSpec>,
 }
 
 impl ExtractionResult {
@@ -92,6 +92,22 @@ impl ExtractionResult {
     }
 }
 
+/// How to treat trailing `as <varname>` in tag arguments.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AsVar {
+    #[default]
+    Keep,
+    Strip,
+}
+
+impl AsVar {
+    #[must_use]
+    pub const fn strips_suffix(self) -> bool {
+        matches!(self, Self::Strip)
+    }
+}
+
 /// Validation rules extracted from a tag's compile function.
 ///
 /// Captures the conditions under which `TemplateSyntaxError` is raised,
@@ -104,13 +120,13 @@ pub struct TagRule {
     pub choice_at_constraints: Vec<ChoiceAt>,
     pub known_options: Option<KnownOptions>,
     pub extracted_args: Vec<ExtractedArg>,
-    /// Whether this tag supports Django's `{% tag args... as varname %}` syntax.
+    /// Support for Django's `{% tag args... as varname %}` form.
     ///
-    /// When true, the evaluator strips trailing `as <varname>` from the argument
-    /// list before checking constraints. This is set for `simple_tag` registrations
-    /// where Django's framework handles the `as` syntax automatically.
+    /// When supported, the evaluator strips trailing `as <varname>` from the
+    /// argument list before checking constraints. Set for `simple_tag`
+    /// registrations where Django handles the `as` syntax automatically.
     #[serde(default)]
-    pub supports_as_var: bool,
+    pub as_var: AsVar,
 }
 
 impl TagRule {
@@ -259,7 +275,7 @@ pub struct KnownOptions {
 /// exclusively from `parser.parse()` call patterns and control flow — never
 /// from string prefix heuristics.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct BlockTagSpec {
+pub struct BlockSpec {
     /// The closing tag name (e.g., `"endfor"`), or `None` if inference was
     /// ambiguous and we couldn't determine the closer with confidence.
     pub end_tag: Option<String>,
@@ -397,7 +413,7 @@ mod tests {
 
     #[test]
     fn block_tag_spec_opaque() {
-        let spec = BlockTagSpec {
+        let spec = BlockSpec {
             end_tag: Some("endverbatim".to_string()),
             intermediates: vec![],
             opaque: true,
@@ -408,7 +424,7 @@ mod tests {
 
     #[test]
     fn block_tag_spec_with_intermediates() {
-        let spec = BlockTagSpec {
+        let spec = BlockSpec {
             end_tag: Some("endif".to_string()),
             intermediates: vec!["elif".to_string(), "else".to_string()],
             opaque: false,
@@ -465,7 +481,7 @@ mod tests {
         );
         result.block_specs.insert(
             SymbolKey::tag("old.module", "block1"),
-            BlockTagSpec {
+            BlockSpec {
                 end_tag: Some("endblock1".to_string()),
                 intermediates: vec![],
                 opaque: false,

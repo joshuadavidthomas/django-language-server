@@ -9,14 +9,14 @@ use super::extract_string_sequence;
 use super::is_parser_receiver;
 use super::is_token_contents_expr;
 use crate::ext::ExprExt;
-use crate::types::BlockTagSpec;
+use crate::types::BlockSpec;
 
 /// Detect block structure from `parser.parse((...))` calls with control flow analysis.
 ///
 /// Collects all stop-tokens from parse calls, then classifies them as intermediates
 /// or end-tags based on whether they lead to further parse calls (intermediate) or
 /// return/construction (end-tag).
-pub fn detect(body: &[Stmt], parser_var: &str) -> Option<BlockTagSpec> {
+pub fn detect(body: &[Stmt], parser_var: &str) -> Option<BlockSpec> {
     let parse_calls = collect_parser_parse_calls(body, parser_var);
 
     if parse_calls.is_empty() {
@@ -122,7 +122,7 @@ fn classify_stop_tokens(
     body: &[Stmt],
     parser_var: &str,
     parse_calls: &[ParseCallInfo],
-) -> Option<BlockTagSpec> {
+) -> Option<BlockSpec> {
     let mut all_tokens: Vec<String> = Vec::new();
     for call in parse_calls {
         for token in &call.stop_tokens {
@@ -199,7 +199,7 @@ fn classify_stop_tokens(
 
     intermediates.sort();
 
-    Some(BlockTagSpec {
+    Some(BlockSpec {
         end_tag,
         intermediates,
         opaque: false,

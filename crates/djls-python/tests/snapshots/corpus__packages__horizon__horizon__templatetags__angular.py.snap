@@ -10,7 +10,7 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: false
+    as_var: keep
 filter_arities:
   "horizon.templatetags.angular::filter::angular_escapes":
     expects_arg: false

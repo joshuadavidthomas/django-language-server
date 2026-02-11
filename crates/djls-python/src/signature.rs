@@ -4,6 +4,7 @@ use ruff_python_ast::StmtFunctionDef;
 
 use crate::ext::ExprExt;
 use crate::types::ArgumentCountConstraint;
+use crate::types::AsVar;
 use crate::types::ExtractedArg;
 use crate::types::ExtractedArgKind;
 use crate::types::TagRule;
@@ -14,11 +15,10 @@ use crate::types::TagRule;
 /// constraints from the function signature (required params, optional params,
 /// `*args`, `**kwargs`).
 ///
-/// When `is_simple_tag` is true, the resulting `TagRule` will have
-/// `supports_as_var = true`, indicating that Django's framework automatically
-/// supports `{% tag args... as varname %}` syntax for this tag.
+/// `as_var` controls whether Django's framework strips trailing
+/// `as <varname>` before argument validation.
 #[must_use]
-pub fn extract_parse_bits_rule(func: &StmtFunctionDef, is_simple_tag: bool) -> TagRule {
+pub fn extract_parse_bits_rule(func: &StmtFunctionDef, as_var: AsVar) -> TagRule {
     let params = &func.parameters;
 
     let takes_context = has_takes_context(func);
@@ -94,7 +94,7 @@ pub fn extract_parse_bits_rule(func: &StmtFunctionDef, is_simple_tag: bool) -> T
         choice_at_constraints: Vec::new(),
         known_options: None,
         extracted_args,
-        supports_as_var: is_simple_tag,
+        as_var,
     }
 }
 
@@ -126,7 +126,7 @@ mod tests {
     fn simple_tag_no_params() {
         let func =
             django_function("tests/template_tests/templatetags/custom.py", "no_params").unwrap();
-        let rule = extract_parse_bits_rule(&func, true);
+        let rule = extract_parse_bits_rule(&func, AsVar::Strip);
         assert!(rule
             .arg_constraints
             .iter()
@@ -142,7 +142,7 @@ mod tests {
             "simple_two_params",
         )
         .unwrap();
-        let rule = extract_parse_bits_rule(&func, true);
+        let rule = extract_parse_bits_rule(&func, AsVar::Strip);
         assert!(rule
             .arg_constraints
             .contains(&ArgumentCountConstraint::Min(3)));
@@ -157,7 +157,7 @@ mod tests {
             "simple_one_default",
         )
         .unwrap();
-        let rule = extract_parse_bits_rule(&func, true);
+        let rule = extract_parse_bits_rule(&func, AsVar::Strip);
         assert!(rule
             .arg_constraints
             .contains(&ArgumentCountConstraint::Min(2)));
@@ -173,7 +173,7 @@ def concat(*args):
     return ''.join(str(a) for a in args)
 ";
         let func = find_function_in_source(source, "concat").unwrap();
-        let rule = extract_parse_bits_rule(&func, true);
+        let rule = extract_parse_bits_rule(&func, AsVar::Strip);
         assert!(!rule
             .arg_constraints
             .iter()
@@ -190,7 +190,7 @@ def concat(*args):
             "add_preserved_filters",
         )
         .unwrap();
-        let rule = extract_parse_bits_rule(&func, true);
+        let rule = extract_parse_bits_rule(&func, AsVar::Strip);
         assert!(rule
             .arg_constraints
             .contains(&ArgumentCountConstraint::Min(2)));

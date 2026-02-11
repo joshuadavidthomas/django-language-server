@@ -26,7 +26,8 @@ pub use registry::RegistrationInfo;
 pub use registry::RegistrationKind;
 pub use signature::extract_parse_bits_rule;
 pub use types::ArgumentCountConstraint;
-pub use types::BlockTagSpec;
+pub use types::AsVar;
+pub use types::BlockSpec;
 pub use types::ChoiceAt;
 pub use types::ExtractedArg;
 pub use types::ExtractedArgKind;
@@ -148,7 +149,7 @@ mod tests {
     struct SortedExtractionResult {
         tag_rules: BTreeMap<String, TagRule>,
         filter_arities: BTreeMap<String, FilterArity>,
-        block_specs: BTreeMap<String, BlockTagSpec>,
+        block_specs: BTreeMap<String, BlockSpec>,
     }
 
     impl From<ExtractionResult> for SortedExtractionResult {

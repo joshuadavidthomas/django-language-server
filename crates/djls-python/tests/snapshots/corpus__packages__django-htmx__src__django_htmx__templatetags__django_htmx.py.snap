@@ -10,7 +10,7 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: true
+    as_var: strip
   "src.django_htmx.templatetags.django_htmx::tag::htmx_script":
     arg_constraints:
       - Max: 2
@@ -22,6 +22,6 @@ tag_rules:
         required: false
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
 filter_arities: {}
 block_specs: {}

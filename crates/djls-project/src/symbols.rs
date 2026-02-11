@@ -96,7 +96,11 @@ impl TemplateLibrary {
     }
 
     #[must_use]
-    pub fn new_active(name: LibraryName, module: PyModuleName, origin: Option<LibraryOrigin>) -> Self {
+    pub fn new_active(
+        name: LibraryName,
+        module: PyModuleName,
+        origin: Option<LibraryOrigin>,
+    ) -> Self {
         Self {
             name,
             status: LibraryStatus::Active { module, origin },
@@ -117,8 +121,7 @@ impl TemplateLibrary {
     pub fn module(&self) -> &PyModuleName {
         match &self.status {
             LibraryStatus::Discovered(origin) => &origin.module,
-            LibraryStatus::Active { module, .. } => module,
-            LibraryStatus::Builtin { module } => module,
+            LibraryStatus::Active { module, .. } | LibraryStatus::Builtin { module } => module,
         }
     }
 
@@ -273,7 +276,9 @@ impl TemplateLibraries {
         names
     }
 
-    pub fn loadable_libraries(&self) -> impl Iterator<Item = (&LibraryName, &TemplateLibrary)> + '_ {
+    pub fn loadable_libraries(
+        &self,
+    ) -> impl Iterator<Item = (&LibraryName, &TemplateLibrary)> + '_ {
         self.loadable
             .iter()
             .flat_map(|(name, libraries)| libraries.iter().map(move |library| (name, library)))
@@ -294,7 +299,10 @@ impl TemplateLibraries {
     }
 
     #[must_use]
-    pub fn installed_symbol_candidates(&self, kind: TemplateSymbolKind) -> Vec<InstalledSymbolCandidate> {
+    pub fn installed_symbol_candidates(
+        &self,
+        kind: TemplateSymbolKind,
+    ) -> Vec<InstalledSymbolCandidate> {
         let mut candidates = Vec::new();
 
         for (module, library) in self.builtin_libraries_by_module() {
@@ -349,7 +357,8 @@ impl TemplateLibraries {
 
     #[must_use]
     pub fn loadable_library_module(&self, name: &LibraryName) -> Option<&PyModuleName> {
-        self.best_loadable_library(name).map(TemplateLibrary::module)
+        self.best_loadable_library(name)
+            .map(TemplateLibrary::module)
     }
 
     #[must_use]
@@ -525,7 +534,11 @@ impl TemplateLibraries {
                     origin,
                 };
             } else {
-                entry.push(TemplateLibrary::new_active(name.clone(), module.clone(), None));
+                entry.push(TemplateLibrary::new_active(
+                    name.clone(),
+                    module.clone(),
+                    None,
+                ));
             }
         }
 
@@ -561,7 +574,9 @@ impl TemplateLibraries {
             let Ok(module) = PyModuleName::parse(&builtin_module) else {
                 continue;
             };
-            let Ok(name) = LibraryName::parse(module.as_str().split('.').next_back().unwrap_or("unknown")) else {
+            let Ok(name) =
+                LibraryName::parse(module.as_str().split('.').next_back().unwrap_or("unknown"))
+            else {
                 continue;
             };
 

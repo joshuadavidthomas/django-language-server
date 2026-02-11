@@ -21,7 +21,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 1
-    supports_as_var: false
+    as_var: keep
 filter_arities: {}
 block_specs:
   "misago.core.templatetags.misago_capture::tag::capture":

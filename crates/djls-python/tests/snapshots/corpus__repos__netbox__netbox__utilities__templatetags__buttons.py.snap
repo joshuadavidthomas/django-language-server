@@ -22,7 +22,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 2
-    supports_as_var: true
+    as_var: strip
   "netbox.utilities.templatetags.buttons::tag::add_button":
     arg_constraints:
       - Min: 2
@@ -43,7 +43,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 2
-    supports_as_var: false
+    as_var: keep
   "netbox.utilities.templatetags.buttons::tag::bookmark_button":
     arg_constraints:
       - Min: 2
@@ -56,7 +56,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: false
+    as_var: keep
   "netbox.utilities.templatetags.buttons::tag::bulk_delete_button":
     arg_constraints:
       - Min: 2
@@ -77,7 +77,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 2
-    supports_as_var: false
+    as_var: keep
   "netbox.utilities.templatetags.buttons::tag::bulk_edit_button":
     arg_constraints:
       - Min: 2
@@ -98,7 +98,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 2
-    supports_as_var: false
+    as_var: keep
   "netbox.utilities.templatetags.buttons::tag::clone_button":
     arg_constraints:
       - Min: 2
@@ -111,7 +111,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: false
+    as_var: keep
   "netbox.utilities.templatetags.buttons::tag::delete_button":
     arg_constraints:
       - Min: 2
@@ -124,7 +124,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: false
+    as_var: keep
   "netbox.utilities.templatetags.buttons::tag::edit_button":
     arg_constraints:
       - Min: 2
@@ -137,7 +137,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: false
+    as_var: keep
   "netbox.utilities.templatetags.buttons::tag::export_button":
     arg_constraints:
       - Min: 2
@@ -150,7 +150,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: false
+    as_var: keep
   "netbox.utilities.templatetags.buttons::tag::import_button":
     arg_constraints:
       - Min: 2
@@ -167,7 +167,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 1
-    supports_as_var: false
+    as_var: keep
   "netbox.utilities.templatetags.buttons::tag::subscribe_button":
     arg_constraints:
       - Min: 2
@@ -180,7 +180,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: false
+    as_var: keep
   "netbox.utilities.templatetags.buttons::tag::sync_button":
     arg_constraints:
       - Min: 2
@@ -193,6 +193,6 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: false
+    as_var: keep
 filter_arities: {}
 block_specs: {}

@@ -19,7 +19,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 1
-    supports_as_var: true
+    as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::admin_theme_classname":
     arg_constraints:
       - Max: 1
@@ -27,7 +27,7 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: true
+    as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::admin_url_name":
     arg_constraints:
       - Min: 3
@@ -44,7 +44,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 1
-    supports_as_var: true
+    as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::allow_unicode_slugs":
     arg_constraints:
       - Max: 1
@@ -52,7 +52,7 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: true
+    as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::avatar":
     arg_constraints:
       - Max: 7
@@ -84,7 +84,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 5
-    supports_as_var: false
+    as_var: keep
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::avatar_url":
     arg_constraints:
       - Min: 2
@@ -105,7 +105,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 2
-    supports_as_var: true
+    as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::base_url_setting":
     arg_constraints:
       - Max: 2
@@ -117,7 +117,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::breadcrumbs":
     arg_constraints:
       - Min: 2
@@ -142,7 +142,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 3
-    supports_as_var: false
+    as_var: keep
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::bulk_action_choices":
     arg_constraints:
       - Min: 3
@@ -159,7 +159,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 1
-    supports_as_var: false
+    as_var: keep
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::classnames":
     arg_constraints: []
     required_keywords: []
@@ -170,7 +170,7 @@ tag_rules:
         required: false
         kind: VarArgs
         position: 0
-    supports_as_var: true
+    as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::dialog_toggle":
     arg_constraints:
       - Min: 2
@@ -191,7 +191,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 2
-    supports_as_var: false
+    as_var: keep
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::formattedfield":
     arg_constraints:
       - Max: 13
@@ -247,7 +247,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 11
-    supports_as_var: false
+    as_var: keep
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::formattedfieldfromcontext":
     arg_constraints:
       - Max: 1
@@ -255,7 +255,7 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: false
+    as_var: keep
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::get_comments_enabled":
     arg_constraints:
       - Max: 1
@@ -263,7 +263,7 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: true
+    as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::hook_output":
     arg_constraints:
       - Min: 2
@@ -276,7 +276,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::human_readable_date":
     arg_constraints:
       - Min: 2
@@ -297,7 +297,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 2
-    supports_as_var: false
+    as_var: keep
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::i18n_enabled":
     arg_constraints:
       - Max: 1
@@ -305,7 +305,7 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: true
+    as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::icon":
     arg_constraints:
       - Max: 5
@@ -329,7 +329,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 3
-    supports_as_var: false
+    as_var: keep
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::is_page":
     arg_constraints:
       - Min: 2
@@ -342,7 +342,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::js_translation_strings":
     arg_constraints:
       - Max: 1
@@ -350,7 +350,7 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: true
+    as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::keyboard_shortcuts_dialog":
     arg_constraints:
       - Max: 1
@@ -358,7 +358,7 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: false
+    as_var: keep
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::latest_str":
     arg_constraints:
       - Min: 2
@@ -371,7 +371,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::locale_label_from_id":
     arg_constraints:
       - Min: 2
@@ -384,7 +384,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::locales":
     arg_constraints:
       - Max: 2
@@ -396,7 +396,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::message_level_tag":
     arg_constraints:
       - Min: 2
@@ -409,7 +409,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::message_tags":
     arg_constraints:
       - Min: 2
@@ -422,7 +422,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::notification_static":
     arg_constraints:
       - Min: 2
@@ -435,7 +435,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::page_breadcrumbs":
     arg_constraints:
       - Min: 3
@@ -480,7 +480,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 8
-    supports_as_var: false
+    as_var: keep
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::page_header_buttons":
     arg_constraints:
       - Min: 4
@@ -501,7 +501,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 2
-    supports_as_var: false
+    as_var: keep
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::page_listing_buttons":
     arg_constraints:
       - Min: 3
@@ -522,7 +522,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 2
-    supports_as_var: false
+    as_var: keep
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::page_permissions":
     arg_constraints:
       - Min: 2
@@ -535,7 +535,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::paginate":
     arg_constraints:
       - Min: 2
@@ -560,7 +560,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 3
-    supports_as_var: false
+    as_var: keep
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::pagination_querystring":
     arg_constraints:
       - Min: 2
@@ -577,7 +577,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 1
-    supports_as_var: true
+    as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::resolve_url":
     arg_constraints:
       - Min: 2
@@ -590,7 +590,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::search_other":
     arg_constraints:
       - Max: 2
@@ -602,7 +602,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 0
-    supports_as_var: false
+    as_var: keep
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::sidebar_collapsed":
     arg_constraints:
       - Max: 1
@@ -610,7 +610,7 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: true
+    as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::sidebar_props":
     arg_constraints:
       - Max: 1
@@ -618,7 +618,7 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: true
+    as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::status":
     arg_constraints:
       - Max: 7
@@ -650,7 +650,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 5
-    supports_as_var: false
+    as_var: keep
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::test_collection_is_public":
     arg_constraints:
       - Min: 2
@@ -663,7 +663,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::test_page_is_public":
     arg_constraints:
       - Min: 2
@@ -676,7 +676,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::timesince_last_update":
     arg_constraints:
       - Min: 2
@@ -701,7 +701,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 3
-    supports_as_var: true
+    as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::versioned_static":
     arg_constraints:
       - Min: 2
@@ -714,7 +714,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::wagtail_config":
     arg_constraints:
       - Max: 1
@@ -722,7 +722,7 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: true
+    as_var: strip
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::workflow_status_with_date":
     arg_constraints:
       - Min: 2
@@ -735,7 +735,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
 filter_arities:
   "wagtail.admin.templatetags.wagtailadmin_tags::filter::abs":
     expects_arg: false

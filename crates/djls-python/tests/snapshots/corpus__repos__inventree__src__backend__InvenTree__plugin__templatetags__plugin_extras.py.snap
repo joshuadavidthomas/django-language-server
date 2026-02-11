@@ -13,7 +13,7 @@ tag_rules:
         required: false
         kind: VarArgs
         position: 0
-    supports_as_var: true
+    as_var: strip
   "src.backend.InvenTree.plugin.templatetags.plugin_extras::tag::mixin_available":
     arg_constraints:
       - Min: 2
@@ -29,7 +29,7 @@ tag_rules:
         required: false
         kind: VarArgs
         position: 1
-    supports_as_var: true
+    as_var: strip
   "src.backend.InvenTree.plugin.templatetags.plugin_extras::tag::mixin_enabled":
     arg_constraints:
       - Min: 3
@@ -49,7 +49,7 @@ tag_rules:
         required: false
         kind: VarArgs
         position: 2
-    supports_as_var: true
+    as_var: strip
   "src.backend.InvenTree.plugin.templatetags.plugin_extras::tag::plugin_list":
     arg_constraints: []
     required_keywords: []
@@ -60,7 +60,7 @@ tag_rules:
         required: false
         kind: VarArgs
         position: 0
-    supports_as_var: true
+    as_var: strip
   "src.backend.InvenTree.plugin.templatetags.plugin_extras::tag::plugin_settings":
     arg_constraints:
       - Min: 2
@@ -76,7 +76,7 @@ tag_rules:
         required: false
         kind: VarArgs
         position: 1
-    supports_as_var: true
+    as_var: strip
   "src.backend.InvenTree.plugin.templatetags.plugin_extras::tag::safe_url":
     arg_constraints:
       - Min: 2
@@ -92,6 +92,6 @@ tag_rules:
         required: false
         kind: VarArgs
         position: 1
-    supports_as_var: true
+    as_var: strip
 filter_arities: {}
 block_specs: {}

@@ -12,7 +12,8 @@ use crate::dataflow;
 use crate::ext::ExprExt;
 use crate::filters;
 use crate::signature;
-use crate::types::BlockTagSpec;
+use crate::types::AsVar;
+use crate::types::BlockSpec;
 use crate::types::FilterArity;
 use crate::types::TagRule;
 use crate::SymbolKind;
@@ -43,7 +44,7 @@ pub enum ExtractionOutput {
     Filter(FilterArity),
     Tag {
         rule: Option<TagRule>,
-        block_spec: Option<BlockTagSpec>,
+        block_spec: Option<BlockSpec>,
     },
 }
 
@@ -58,6 +59,14 @@ impl RegistrationKind {
         }
     }
 
+    #[must_use]
+    pub const fn as_var(self) -> AsVar {
+        match self {
+            Self::SimpleTag | Self::SimpleBlockTag => AsVar::Strip,
+            Self::Tag | Self::InclusionTag | Self::Filter => AsVar::Keep,
+        }
+    }
+
     /// Run the appropriate extraction for this registration kind.
     ///
     /// For filters, extracts argument arity from the function signature.
@@ -68,14 +77,14 @@ impl RegistrationKind {
         match self {
             Self::Filter => ExtractionOutput::Filter(filters::extract_filter_arity(func)),
             Self::SimpleTag | Self::InclusionTag => {
-                let is_simple_tag = matches!(self, Self::SimpleTag);
-                let rule = signature::extract_parse_bits_rule(func, is_simple_tag);
+                let rule = signature::extract_parse_bits_rule(func, self.as_var());
                 let rule = rule.has_content().then_some(rule);
                 let block_spec = blocks::extract_block_spec(func);
                 ExtractionOutput::Tag { rule, block_spec }
             }
             Self::Tag | Self::SimpleBlockTag => {
-                let rule = dataflow::analyze_compile_function(func);
+                let mut rule = dataflow::analyze_compile_function(func);
+                rule.as_var = self.as_var();
                 let rule = rule.has_content().then_some(rule);
                 let block_spec = blocks::extract_block_spec(func);
                 ExtractionOutput::Tag { rule, block_spec }

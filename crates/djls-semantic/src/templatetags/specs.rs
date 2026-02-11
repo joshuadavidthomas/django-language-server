@@ -438,8 +438,12 @@ pub struct CompletionArg {
 impl CompletionArg {
     fn from_extracted(arg: &djls_python::ExtractedArg) -> Self {
         let kind = match &arg.kind {
-            djls_python::ExtractedArgKind::Literal(value) => CompletionArgKind::Literal(value.clone()),
-            djls_python::ExtractedArgKind::Choice(values) => CompletionArgKind::Choice(values.clone()),
+            djls_python::ExtractedArgKind::Literal(value) => {
+                CompletionArgKind::Literal(value.clone())
+            }
+            djls_python::ExtractedArgKind::Choice(values) => {
+                CompletionArgKind::Choice(values.clone())
+            }
             djls_python::ExtractedArgKind::Variable => CompletionArgKind::Variable,
             djls_python::ExtractedArgKind::Keyword => CompletionArgKind::Keyword,
             djls_python::ExtractedArgKind::VarArgs => CompletionArgKind::VarArgs,
@@ -474,13 +478,15 @@ impl CompletionArg {
 impl TagSpec {
     #[must_use]
     pub fn completion_args(&self) -> Vec<CompletionArg> {
-        self.extracted_rules.as_ref().map_or_else(Vec::new, |rules| {
-            rules
-                .extracted_args
-                .iter()
-                .map(CompletionArg::from_extracted)
-                .collect()
-        })
+        self.extracted_rules
+            .as_ref()
+            .map_or_else(Vec::new, |rules| {
+                rules
+                    .extracted_args
+                    .iter()
+                    .map(CompletionArg::from_extracted)
+                    .collect()
+            })
     }
 
     #[must_use]
@@ -890,7 +896,7 @@ mod tests {
         let mut extraction = djls_python::ExtractionResult::default();
         extraction.block_specs.insert(
             djls_python::SymbolKey::tag("django.template.defaulttags", "if"),
-            djls_python::BlockTagSpec {
+            djls_python::BlockSpec {
                 end_tag: Some("endif".to_string()),
                 intermediates: vec!["elif".to_string(), "else".to_string(), "elseif".to_string()],
                 opaque: false,
@@ -916,7 +922,7 @@ mod tests {
         let mut extraction = djls_python::ExtractionResult::default();
         extraction.block_specs.insert(
             djls_python::SymbolKey::tag("myapp.templatetags.custom", "myblock"),
-            djls_python::BlockTagSpec {
+            djls_python::BlockSpec {
                 end_tag: Some("endmyblock".to_string()),
                 intermediates: vec!["mymiddle".to_string()],
                 opaque: false,
@@ -944,7 +950,7 @@ mod tests {
         let mut extraction = djls_python::ExtractionResult::default();
         extraction.block_specs.insert(
             djls_python::SymbolKey::filter("module", "lower"),
-            djls_python::BlockTagSpec {
+            djls_python::BlockSpec {
                 end_tag: Some("endlower".to_string()),
                 intermediates: vec![],
                 opaque: false,

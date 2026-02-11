@@ -22,7 +22,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 2
-    supports_as_var: true
+    as_var: strip
   "avatar.templatetags.avatar_tags::tag::avatar_url":
     arg_constraints:
       - Min: 2
@@ -43,7 +43,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 2
-    supports_as_var: true
+    as_var: strip
   "avatar.templatetags.avatar_tags::tag::primary_avatar":
     arg_constraints:
       - Min: 2
@@ -64,7 +64,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 2
-    supports_as_var: true
+    as_var: strip
   "avatar.templatetags.avatar_tags::tag::render_avatar":
     arg_constraints:
       - Min: 2
@@ -85,7 +85,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 2
-    supports_as_var: true
+    as_var: strip
 filter_arities:
   "avatar.templatetags.avatar_tags::filter::has_avatar":
     expects_arg: false

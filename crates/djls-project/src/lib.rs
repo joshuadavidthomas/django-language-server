@@ -1,14 +1,15 @@
 mod db;
+mod discover;
 mod django;
 mod inspector;
 mod names;
 mod project;
 mod python;
-mod discover;
 mod resolve;
 mod symbols;
 
 pub use db::Db;
+pub use discover::discover_template_libraries;
 pub use django::template_dirs;
 pub use inspector::Inspector;
 pub use names::LibraryName;
@@ -19,7 +20,6 @@ pub use python::Interpreter;
 pub use resolve::build_search_paths;
 pub use resolve::extract_external_rules;
 pub use resolve::resolve_modules;
-pub use discover::discover_template_libraries;
 pub use symbols::InspectorLibrarySymbol;
 pub use symbols::InstalledSymbolCandidate;
 pub use symbols::InstalledSymbolOrigin;

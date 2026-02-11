@@ -10,7 +10,7 @@ use ruff_python_ast::ExprName;
 use ruff_python_ast::StmtFunctionDef;
 
 use crate::ext::ExprExt;
-use crate::types::BlockTagSpec;
+use crate::types::BlockSpec;
 
 /// Extract a block spec from a tag's compile function.
 ///
@@ -23,7 +23,7 @@ use crate::types::BlockTagSpec;
 ///
 /// Returns `None` when no block structure is detected or inference is ambiguous.
 #[must_use]
-pub fn extract_block_spec(func: &StmtFunctionDef) -> Option<BlockTagSpec> {
+pub fn extract_block_spec(func: &StmtFunctionDef) -> Option<BlockSpec> {
     let parser_var = func
         .parameters
         .args

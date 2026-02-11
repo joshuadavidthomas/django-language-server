@@ -6,10 +6,10 @@ use ruff_python_ast::StmtAssign;
 
 use super::is_parser_receiver;
 use crate::ext::ExprExt;
-use crate::types::BlockTagSpec;
+use crate::types::BlockSpec;
 
 /// Detect opaque block patterns: `parser.skip_past("endtag")`.
-pub fn detect(body: &[Stmt], parser_var: &str) -> Option<BlockTagSpec> {
+pub fn detect(body: &[Stmt], parser_var: &str) -> Option<BlockSpec> {
     let skip_past_tokens = collect_skip_past_tokens(body, parser_var);
     if skip_past_tokens.is_empty() {
         return None;
@@ -19,7 +19,7 @@ pub fn detect(body: &[Stmt], parser_var: &str) -> Option<BlockTagSpec> {
     } else {
         None
     };
-    Some(BlockTagSpec {
+    Some(BlockSpec {
         end_tag,
         intermediates: Vec::new(),
         opaque: true,

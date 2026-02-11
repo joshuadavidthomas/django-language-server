@@ -18,7 +18,7 @@ tag_rules:
         required: false
         kind: VarArgs
         position: 1
-    supports_as_var: true
+    as_var: strip
   "src.backend.InvenTree.InvenTree.templatetags.inventree_extras::tag::define":
     arg_constraints:
       - Min: 2
@@ -34,7 +34,7 @@ tag_rules:
         required: false
         kind: VarArgs
         position: 1
-    supports_as_var: true
+    as_var: strip
   "src.backend.InvenTree.InvenTree.templatetags.inventree_extras::tag::inventree_commit_date":
     arg_constraints: []
     required_keywords: []
@@ -45,7 +45,7 @@ tag_rules:
         required: false
         kind: VarArgs
         position: 0
-    supports_as_var: true
+    as_var: strip
   "src.backend.InvenTree.InvenTree.templatetags.inventree_extras::tag::inventree_commit_hash":
     arg_constraints: []
     required_keywords: []
@@ -56,7 +56,7 @@ tag_rules:
         required: false
         kind: VarArgs
         position: 0
-    supports_as_var: true
+    as_var: strip
   "src.backend.InvenTree.InvenTree.templatetags.inventree_extras::tag::inventree_customize":
     arg_constraints:
       - Min: 2
@@ -72,7 +72,7 @@ tag_rules:
         required: false
         kind: VarArgs
         position: 1
-    supports_as_var: true
+    as_var: strip
   "src.backend.InvenTree.InvenTree.templatetags.inventree_extras::tag::inventree_installer":
     arg_constraints: []
     required_keywords: []
@@ -83,7 +83,7 @@ tag_rules:
         required: false
         kind: VarArgs
         position: 0
-    supports_as_var: true
+    as_var: strip
   "src.backend.InvenTree.InvenTree.templatetags.inventree_extras::tag::inventree_instance_name":
     arg_constraints: []
     required_keywords: []
@@ -94,7 +94,7 @@ tag_rules:
         required: false
         kind: VarArgs
         position: 0
-    supports_as_var: true
+    as_var: strip
   "src.backend.InvenTree.InvenTree.templatetags.inventree_extras::tag::inventree_title":
     arg_constraints: []
     required_keywords: []
@@ -105,7 +105,7 @@ tag_rules:
         required: false
         kind: VarArgs
         position: 0
-    supports_as_var: true
+    as_var: strip
   "src.backend.InvenTree.InvenTree.templatetags.inventree_extras::tag::inventree_version":
     arg_constraints: []
     required_keywords: []
@@ -120,7 +120,7 @@ tag_rules:
         required: false
         kind: VarArgs
         position: 1
-    supports_as_var: true
+    as_var: strip
   "src.backend.InvenTree.InvenTree.templatetags.inventree_extras::tag::render_date":
     arg_constraints:
       - Min: 2
@@ -133,7 +133,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
   "src.backend.InvenTree.InvenTree.templatetags.inventree_extras::tag::setting_object":
     arg_constraints:
       - Min: 2
@@ -149,7 +149,7 @@ tag_rules:
         required: false
         kind: VarArgs
         position: 1
-    supports_as_var: true
+    as_var: strip
   "src.backend.InvenTree.InvenTree.templatetags.inventree_extras::tag::settings_value":
     arg_constraints:
       - Min: 2
@@ -165,7 +165,7 @@ tag_rules:
         required: false
         kind: VarArgs
         position: 1
-    supports_as_var: true
+    as_var: strip
   "src.backend.InvenTree.InvenTree.templatetags.inventree_extras::tag::str2bool":
     arg_constraints:
       - Min: 2
@@ -181,7 +181,7 @@ tag_rules:
         required: false
         kind: VarArgs
         position: 1
-    supports_as_var: true
+    as_var: strip
   "src.backend.InvenTree.InvenTree.templatetags.inventree_extras::tag::to_list":
     arg_constraints: []
     required_keywords: []
@@ -192,7 +192,7 @@ tag_rules:
         required: false
         kind: VarArgs
         position: 0
-    supports_as_var: true
+    as_var: strip
 filter_arities:
   "src.backend.InvenTree.InvenTree.templatetags.inventree_extras::filter::keyvalue":
     expects_arg: true

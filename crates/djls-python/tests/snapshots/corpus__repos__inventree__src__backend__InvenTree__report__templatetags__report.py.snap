@@ -23,7 +23,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 2
-    supports_as_var: true
+    as_var: strip
   "src.backend.InvenTree.report.templatetags.report::tag::asset":
     arg_constraints:
       - Min: 2
@@ -36,7 +36,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
   "src.backend.InvenTree.report.templatetags.report::tag::company_image":
     arg_constraints:
       - Min: 2
@@ -56,7 +56,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 2
-    supports_as_var: true
+    as_var: strip
   "src.backend.InvenTree.report.templatetags.report::tag::convert_currency":
     arg_constraints:
       - Min: 2
@@ -72,7 +72,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 1
-    supports_as_var: true
+    as_var: strip
   "src.backend.InvenTree.report.templatetags.report::tag::create_currency":
     arg_constraints:
       - Min: 2
@@ -88,7 +88,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 1
-    supports_as_var: true
+    as_var: strip
   "src.backend.InvenTree.report.templatetags.report::tag::divide":
     arg_constraints:
       - Min: 3
@@ -109,7 +109,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 2
-    supports_as_var: true
+    as_var: strip
   "src.backend.InvenTree.report.templatetags.report::tag::encode_svg_image":
     arg_constraints:
       - Min: 2
@@ -122,7 +122,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
   "src.backend.InvenTree.report.templatetags.report::tag::filter_db_model":
     arg_constraints:
       - Min: 2
@@ -134,7 +134,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
   "src.backend.InvenTree.report.templatetags.report::tag::filter_queryset":
     arg_constraints:
       - Min: 2
@@ -146,7 +146,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
   "src.backend.InvenTree.report.templatetags.report::tag::format_date":
     arg_constraints:
       - Min: 2
@@ -167,7 +167,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 2
-    supports_as_var: true
+    as_var: strip
   "src.backend.InvenTree.report.templatetags.report::tag::format_datetime":
     arg_constraints:
       - Min: 2
@@ -188,7 +188,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 2
-    supports_as_var: true
+    as_var: strip
   "src.backend.InvenTree.report.templatetags.report::tag::format_number":
     arg_constraints:
       - Min: 2
@@ -221,7 +221,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 5
-    supports_as_var: true
+    as_var: strip
   "src.backend.InvenTree.report.templatetags.report::tag::getindex":
     arg_constraints:
       - Min: 3
@@ -238,7 +238,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 1
-    supports_as_var: true
+    as_var: strip
   "src.backend.InvenTree.report.templatetags.report::tag::getkey":
     arg_constraints:
       - Min: 3
@@ -259,7 +259,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 2
-    supports_as_var: true
+    as_var: strip
   "src.backend.InvenTree.report.templatetags.report::tag::icon":
     arg_constraints:
       - Min: 2
@@ -271,7 +271,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
   "src.backend.InvenTree.report.templatetags.report::tag::include_icon_fonts":
     arg_constraints:
       - Max: 3
@@ -287,7 +287,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 1
-    supports_as_var: true
+    as_var: strip
   "src.backend.InvenTree.report.templatetags.report::tag::internal_link":
     arg_constraints:
       - Min: 3
@@ -304,7 +304,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 1
-    supports_as_var: true
+    as_var: strip
   "src.backend.InvenTree.report.templatetags.report::tag::modulo":
     arg_constraints:
       - Min: 3
@@ -325,7 +325,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 2
-    supports_as_var: true
+    as_var: strip
   "src.backend.InvenTree.report.templatetags.report::tag::multiply":
     arg_constraints:
       - Min: 3
@@ -346,7 +346,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 2
-    supports_as_var: true
+    as_var: strip
   "src.backend.InvenTree.report.templatetags.report::tag::order_queryset":
     arg_constraints:
       - Min: 2
@@ -362,7 +362,7 @@ tag_rules:
         required: false
         kind: VarArgs
         position: 1
-    supports_as_var: true
+    as_var: strip
   "src.backend.InvenTree.report.templatetags.report::tag::parameter":
     arg_constraints:
       - Min: 3
@@ -379,7 +379,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 1
-    supports_as_var: true
+    as_var: strip
   "src.backend.InvenTree.report.templatetags.report::tag::part_image":
     arg_constraints:
       - Min: 2
@@ -399,7 +399,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 2
-    supports_as_var: true
+    as_var: strip
   "src.backend.InvenTree.report.templatetags.report::tag::part_parameter":
     arg_constraints:
       - Min: 3
@@ -416,7 +416,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 1
-    supports_as_var: true
+    as_var: strip
   "src.backend.InvenTree.report.templatetags.report::tag::render_currency":
     arg_constraints:
       - Min: 2
@@ -428,7 +428,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
   "src.backend.InvenTree.report.templatetags.report::tag::render_html_text":
     arg_constraints:
       - Min: 2
@@ -440,7 +440,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
   "src.backend.InvenTree.report.templatetags.report::tag::subtract":
     arg_constraints:
       - Min: 3
@@ -461,7 +461,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 2
-    supports_as_var: true
+    as_var: strip
   "src.backend.InvenTree.report.templatetags.report::tag::uploaded_image":
     arg_constraints:
       - Min: 2
@@ -497,6 +497,6 @@ tag_rules:
         required: false
         kind: Variable
         position: 6
-    supports_as_var: true
+    as_var: strip
 filter_arities: {}
 block_specs: {}

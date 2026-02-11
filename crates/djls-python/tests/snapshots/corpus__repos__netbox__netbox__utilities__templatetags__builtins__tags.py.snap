@@ -23,7 +23,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 2
-    supports_as_var: false
+    as_var: keep
   "netbox.utilities.templatetags.builtins.tags::tag::checkmark":
     arg_constraints:
       - Min: 2
@@ -48,7 +48,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 3
-    supports_as_var: false
+    as_var: keep
   "netbox.utilities.templatetags.builtins.tags::tag::copy_content":
     arg_constraints:
       - Min: 2
@@ -73,7 +73,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 3
-    supports_as_var: false
+    as_var: keep
   "netbox.utilities.templatetags.builtins.tags::tag::customfield_value":
     arg_constraints:
       - Min: 3
@@ -90,7 +90,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 1
-    supports_as_var: false
+    as_var: keep
   "netbox.utilities.templatetags.builtins.tags::tag::formaction":
     arg_constraints:
       - Max: 1
@@ -98,7 +98,7 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: true
+    as_var: strip
   "netbox.utilities.templatetags.builtins.tags::tag::htmx_table":
     arg_constraints:
       - Min: 2
@@ -114,7 +114,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 1
-    supports_as_var: false
+    as_var: keep
   "netbox.utilities.templatetags.builtins.tags::tag::render":
     arg_constraints:
       - Min: 2
@@ -127,7 +127,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
   "netbox.utilities.templatetags.builtins.tags::tag::static_with_params":
     arg_constraints:
       - Min: 2
@@ -139,7 +139,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
   "netbox.utilities.templatetags.builtins.tags::tag::tag":
     arg_constraints:
       - Min: 2
@@ -156,6 +156,6 @@ tag_rules:
         required: false
         kind: Variable
         position: 1
-    supports_as_var: false
+    as_var: keep
 filter_arities: {}
 block_specs: {}

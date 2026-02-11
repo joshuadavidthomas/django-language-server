@@ -19,7 +19,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 1
-    supports_as_var: true
+    as_var: strip
   "wagtail.templatetags.wagtailcore_tags::tag::include_block":
     arg_constraints: []
     required_keywords: []
@@ -30,7 +30,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: false
+    as_var: keep
   "wagtail.templatetags.wagtailcore_tags::tag::pageurl":
     arg_constraints:
       - Min: 2
@@ -47,7 +47,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 1
-    supports_as_var: true
+    as_var: strip
   "wagtail.templatetags.wagtailcore_tags::tag::slugurl":
     arg_constraints:
       - Min: 2
@@ -60,7 +60,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
   "wagtail.templatetags.wagtailcore_tags::tag::wagtail_documentation_path":
     arg_constraints:
       - Max: 1
@@ -68,7 +68,7 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: true
+    as_var: strip
   "wagtail.templatetags.wagtailcore_tags::tag::wagtail_feature_release_editor_guide_link":
     arg_constraints:
       - Max: 1
@@ -76,7 +76,7 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: true
+    as_var: strip
   "wagtail.templatetags.wagtailcore_tags::tag::wagtail_feature_release_whats_new_link":
     arg_constraints:
       - Max: 1
@@ -84,7 +84,7 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: true
+    as_var: strip
   "wagtail.templatetags.wagtailcore_tags::tag::wagtail_release_notes_path":
     arg_constraints:
       - Max: 1
@@ -92,7 +92,7 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: true
+    as_var: strip
   "wagtail.templatetags.wagtailcore_tags::tag::wagtail_site":
     arg_constraints:
       - Max: 1
@@ -100,7 +100,7 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: true
+    as_var: strip
   "wagtail.templatetags.wagtailcore_tags::tag::wagtail_version":
     arg_constraints:
       - Max: 1
@@ -108,7 +108,7 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: true
+    as_var: strip
 filter_arities:
   "wagtail.templatetags.wagtailcore_tags::filter::richtext":
     expects_arg: false

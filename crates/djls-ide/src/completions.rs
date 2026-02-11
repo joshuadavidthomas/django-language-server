@@ -34,8 +34,6 @@ fn symbol_completion_kind(symbol: &TemplateSymbol) -> ls_types::CompletionItemKi
     }
 }
 
-
-
 /// Tracks what closing characters are needed to complete a template tag.
 ///
 /// Used to determine whether the completion system needs to insert
@@ -669,7 +667,8 @@ fn generate_tag_name_completions(
                 label: tag_name.to_string(),
                 kind: Some(kind),
                 detail: Some(detail),
-                documentation: symbol.doc()
+                documentation: symbol
+                    .doc()
                     .map(|doc| ls_types::Documentation::String(doc.to_string())),
                 text_edit: Some(tower_lsp_server::ls_types::CompletionTextEdit::Edit(
                     ls_types::TextEdit::new(replacement_range, insert_text.clone()),
@@ -903,7 +902,8 @@ fn generate_completions(
             label: name.to_string(),
             kind: Some(symbol_completion_kind(symbol)),
             detail: Some(detail),
-            documentation: symbol.doc()
+            documentation: symbol
+                .doc()
                 .map(|doc| ls_types::Documentation::String(doc.to_string())),
             insert_text: Some(name.to_string()),
             insert_text_format: Some(ls_types::InsertTextFormat::PLAIN_TEXT),
@@ -1034,7 +1034,10 @@ mod tests {
         for module in builtins {
             symbols.push(symbol(
                 TemplateSymbolKind::Tag,
-                &format!("builtin_from_{}", module.split('.').next_back().unwrap_or("unknown")),
+                &format!(
+                    "builtin_from_{}",
+                    module.split('.').next_back().unwrap_or("unknown")
+                ),
                 None,
                 module,
                 module,
@@ -1045,7 +1048,7 @@ mod tests {
         for (load_name, module) in libraries {
             symbols.push(symbol(
                 TemplateSymbolKind::Tag,
-                &format!("{}_tag", load_name),
+                &format!("{load_name}_tag"),
                 Some(load_name),
                 module,
                 module,

@@ -10,7 +10,7 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: true
+    as_var: strip
   "cms.templatetags.cms_admin::tag::get_page_display_name":
     arg_constraints:
       - Min: 2
@@ -23,7 +23,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
   "cms.templatetags.cms_admin::tag::render_filter_field":
     arg_constraints:
       - Min: 3
@@ -40,7 +40,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 1
-    supports_as_var: false
+    as_var: keep
   "cms.templatetags.cms_admin::tag::show_admin_menu_for_pages":
     arg_constraints:
       - Min: 2
@@ -57,7 +57,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 1
-    supports_as_var: true
+    as_var: strip
   "cms.templatetags.cms_admin::tag::submit_row_plugin":
     arg_constraints:
       - Max: 1
@@ -65,7 +65,7 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: false
+    as_var: keep
 filter_arities:
   "cms.templatetags.cms_admin::filter::boolean_icon":
     expects_arg: false

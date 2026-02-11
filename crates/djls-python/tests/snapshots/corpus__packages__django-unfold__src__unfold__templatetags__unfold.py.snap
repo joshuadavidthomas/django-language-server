@@ -15,7 +15,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
   "src.unfold.templatetags.unfold::tag::capture":
     arg_constraints:
       - Max: 4
@@ -42,7 +42,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 2
-    supports_as_var: false
+    as_var: keep
   "src.unfold.templatetags.unfold::tag::component":
     arg_constraints:
       - Min: 2
@@ -59,7 +59,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: false
+    as_var: keep
   "src.unfold.templatetags.unfold::tag::element_classes":
     arg_constraints:
       - Min: 2
@@ -72,7 +72,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
   "src.unfold.templatetags.unfold::tag::fieldset_line_classes":
     arg_constraints:
       - Max: 1
@@ -80,7 +80,7 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: true
+    as_var: strip
   "src.unfold.templatetags.unfold::tag::fieldset_row_classes":
     arg_constraints:
       - Max: 1
@@ -88,7 +88,7 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: true
+    as_var: strip
   "src.unfold.templatetags.unfold::tag::fieldset_rows_classes":
     arg_constraints:
       - Max: 1
@@ -96,7 +96,7 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: true
+    as_var: strip
   "src.unfold.templatetags.unfold::tag::has_nav_item_active":
     arg_constraints:
       - Min: 2
@@ -109,7 +109,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
   "src.unfold.templatetags.unfold::tag::preserve_filters":
     arg_constraints:
       - Max: 1
@@ -117,7 +117,7 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: false
+    as_var: keep
   "src.unfold.templatetags.unfold::tag::render_section":
     arg_constraints:
       - Min: 3
@@ -134,7 +134,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 1
-    supports_as_var: true
+    as_var: strip
   "src.unfold.templatetags.unfold::tag::tab_list":
     arg_constraints:
       - Min: 2
@@ -151,7 +151,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 1
-    supports_as_var: true
+    as_var: strip
 filter_arities:
   "src.unfold.templatetags.unfold::filter::add_css_class":
     expects_arg: true

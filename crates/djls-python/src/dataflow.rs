@@ -9,6 +9,7 @@ use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtFunctionDef;
 
 use crate::types::ArgumentCountConstraint;
+use crate::types::AsVar;
 use crate::types::ExtractedArg;
 use crate::types::ExtractedArgKind;
 use crate::types::RequiredKeyword;
@@ -78,7 +79,7 @@ pub fn analyze_compile_function(func: &StmtFunctionDef) -> TagRule {
         choice_at_constraints: result.constraints.choice_at_constraints,
         known_options: result.known_options,
         extracted_args,
-        supports_as_var: false,
+        as_var: AsVar::Keep,
     }
 }
 

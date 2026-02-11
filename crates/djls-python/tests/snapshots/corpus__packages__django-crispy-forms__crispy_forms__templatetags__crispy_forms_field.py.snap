@@ -27,7 +27,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 3
-    supports_as_var: true
+    as_var: strip
 filter_arities:
   "crispy_forms.templatetags.crispy_forms_field::filter::classes":
     expects_arg: false

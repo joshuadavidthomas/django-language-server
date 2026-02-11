@@ -17,9 +17,9 @@ use djls_project::Inspector;
 use djls_project::Interpreter;
 use djls_project::Project;
 use djls_project::TemplateLibraries;
-use djls_project::TemplateLibrary;
 use djls_project::TemplateLibrariesRequest;
 use djls_project::TemplateLibrariesResponse;
+use djls_project::TemplateLibrary;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::TagIndex;
 use djls_semantic::TagSpecs;
@@ -754,7 +754,7 @@ mod invalidation_tests {
         let mut extraction = djls_python::ExtractionResult::default();
         extraction.block_specs.insert(
             djls_python::SymbolKey::tag("test.module", "mytag"),
-            djls_python::BlockTagSpec {
+            djls_python::BlockSpec {
                 end_tag: Some("endmytag".to_string()),
                 intermediates: vec![],
                 opaque: false,
@@ -914,7 +914,7 @@ def my_filter(value, arg):
         let mut extraction = djls_python::ExtractionResult::default();
         extraction.block_specs.insert(
             djls_python::SymbolKey::tag("test.module", "mytag"),
-            djls_python::BlockTagSpec {
+            djls_python::BlockSpec {
                 end_tag: Some("endmytag".to_string()),
                 intermediates: vec![],
                 opaque: false,
@@ -1037,7 +1037,7 @@ def my_filter(value, arg):
         let mut extraction = djls_python::ExtractionResult::default();
         extraction.block_specs.insert(
             djls_python::SymbolKey::tag("test.module", "customblock"),
-            djls_python::BlockTagSpec {
+            djls_python::BlockSpec {
                 end_tag: Some("endcustomblock".to_string()),
                 intermediates: vec![],
                 opaque: false,

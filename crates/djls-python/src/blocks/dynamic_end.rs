@@ -13,17 +13,17 @@ use ruff_python_ast::StmtReturn;
 
 use super::is_parser_receiver;
 use crate::ext::ExprExt;
-use crate::types::BlockTagSpec;
+use crate::types::BlockSpec;
 
 /// Detect dynamic end-tag patterns: `parser.parse((f"end{tag_name}",))`.
 ///
-/// Returns a `BlockTagSpec` with `end_tag: None` (dynamic, not statically known)
+/// Returns a `BlockSpec` with `end_tag: None` (dynamic, not statically known)
 /// when the function uses f-string or format-string patterns for the end tag.
-pub fn detect(body: &[Stmt], parser_var: &str) -> Option<BlockTagSpec> {
+pub fn detect(body: &[Stmt], parser_var: &str) -> Option<BlockSpec> {
     if !has_dynamic_end_in_body(body, parser_var) {
         return None;
     }
-    Some(BlockTagSpec {
+    Some(BlockSpec {
         end_tag: None,
         intermediates: Vec::new(),
         opaque: false,

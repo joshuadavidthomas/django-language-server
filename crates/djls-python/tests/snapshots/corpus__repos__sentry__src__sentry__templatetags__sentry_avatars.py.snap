@@ -19,7 +19,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 1
-    supports_as_var: false
+    as_var: keep
   "src.sentry.templatetags.sentry_avatars::tag::avatar_for_email":
     arg_constraints:
       - Min: 2
@@ -36,7 +36,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 1
-    supports_as_var: false
+    as_var: keep
   "src.sentry.templatetags.sentry_avatars::tag::email_avatar":
     arg_constraints:
       - Min: 3
@@ -61,7 +61,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 3
-    supports_as_var: true
+    as_var: strip
   "src.sentry.templatetags.sentry_avatars::tag::gravatar_url":
     arg_constraints:
       - Min: 3
@@ -82,7 +82,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 2
-    supports_as_var: true
+    as_var: strip
   "src.sentry.templatetags.sentry_avatars::tag::letter_avatar_svg":
     arg_constraints:
       - Min: 3
@@ -103,7 +103,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 2
-    supports_as_var: true
+    as_var: strip
   "src.sentry.templatetags.sentry_avatars::tag::profile_photo_url":
     arg_constraints:
       - Min: 2
@@ -120,6 +120,6 @@ tag_rules:
         required: false
         kind: Variable
         position: 1
-    supports_as_var: true
+    as_var: strip
 filter_arities: {}
 block_specs: {}

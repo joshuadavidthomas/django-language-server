@@ -23,7 +23,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 2
-    supports_as_var: false
+    as_var: keep
   "misago.admin.templatetags.misago_admin_form::tag::form_dimensions_row":
     arg_constraints:
       - Min: 3
@@ -48,7 +48,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 3
-    supports_as_var: false
+    as_var: keep
   "misago.admin.templatetags.misago_admin_form::tag::form_image_row":
     arg_constraints:
       - Min: 2
@@ -85,7 +85,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 6
-    supports_as_var: false
+    as_var: keep
   "misago.admin.templatetags.misago_admin_form::tag::form_input":
     arg_constraints:
       - Min: 2
@@ -98,7 +98,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: false
+    as_var: keep
   "misago.admin.templatetags.misago_admin_form::tag::form_row":
     arg_constraints:
       - Min: 2
@@ -119,7 +119,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 2
-    supports_as_var: false
+    as_var: keep
   "misago.admin.templatetags.misago_admin_form::tag::render_attrs":
     arg_constraints:
       - Min: 2
@@ -136,7 +136,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 1
-    supports_as_var: true
+    as_var: strip
   "misago.admin.templatetags.misago_admin_form::tag::render_bool_attrs":
     arg_constraints:
       - Min: 2
@@ -149,7 +149,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
 filter_arities:
   "misago.admin.templatetags.misago_admin_form::filter::get_options":
     expects_arg: false

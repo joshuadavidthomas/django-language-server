@@ -25,7 +25,9 @@ pub fn generate_snippet_from_args(args: &[CompletionArg]) -> String {
                 // At this point, we know it's required (optional literals were skipped above)
                 value.clone()
             }
-            CompletionArgKind::Variable | CompletionArgKind::Keyword | CompletionArgKind::VarArgs => {
+            CompletionArgKind::Variable
+            | CompletionArgKind::Keyword
+            | CompletionArgKind::VarArgs => {
                 let result = format!("${{{}:{}}}", placeholder_index, arg.name);
                 placeholder_index += 1;
                 result

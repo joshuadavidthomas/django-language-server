@@ -10,7 +10,7 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: true
+    as_var: strip
   "allauth.socialaccount.templatetags.socialaccount::tag::get_social_accounts":
     arg_constraints:
       - Min: 2
@@ -23,7 +23,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
   "allauth.socialaccount.templatetags.socialaccount::tag::provider_login_url":
     arg_constraints:
       - Min: 2
@@ -35,7 +35,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
   "allauth.socialaccount.templatetags.socialaccount::tag::providers_media_js":
     arg_constraints:
       - Max: 1
@@ -43,6 +43,6 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: true
+    as_var: strip
 filter_arities: {}
 block_specs: {}

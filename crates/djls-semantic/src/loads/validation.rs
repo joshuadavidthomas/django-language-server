@@ -39,8 +39,8 @@ pub fn validate_tag_scoping(
     let tag_specs = db.tag_specs();
     let loaded_libraries = compute_loaded_libraries(db, nodelist);
 
-    let env_tags =
-        template_libraries.discovered_symbol_candidates_by_name(djls_project::TemplateSymbolKind::Tag);
+    let env_tags = template_libraries
+        .discovered_symbol_candidates_by_name(djls_project::TemplateSymbolKind::Tag);
 
     for node in nodelist.nodelist(db) {
         let Node::Tag { name, span, .. } = node else {

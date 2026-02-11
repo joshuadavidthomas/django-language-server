@@ -123,7 +123,7 @@ impl DjangoLanguageServer {
     }
 
     async fn republish_open_template_diagnostics(&self) {
-        let documents = self.with_session(|session| session.open_documents()).await;
+        let documents = self.with_session(Session::open_documents).await;
 
         for document in documents {
             self.publish_diagnostics(&document).await;

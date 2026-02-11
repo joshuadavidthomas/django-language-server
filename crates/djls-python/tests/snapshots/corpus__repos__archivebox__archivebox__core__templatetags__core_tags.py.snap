@@ -10,7 +10,7 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: true
+    as_var: strip
   "archivebox.core.templatetags.core_tags::tag::api_token":
     arg_constraints:
       - Max: 1
@@ -18,7 +18,7 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: true
+    as_var: strip
   "archivebox.core.templatetags.core_tags::tag::plugin_card":
     arg_constraints:
       - Min: 2
@@ -31,7 +31,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
   "archivebox.core.templatetags.core_tags::tag::plugin_full":
     arg_constraints:
       - Min: 2
@@ -44,7 +44,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
   "archivebox.core.templatetags.core_tags::tag::plugin_icon":
     arg_constraints:
       - Min: 2
@@ -57,7 +57,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
   "archivebox.core.templatetags.core_tags::tag::snapshot_base_url":
     arg_constraints:
       - Min: 2
@@ -70,7 +70,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
   "archivebox.core.templatetags.core_tags::tag::snapshot_url":
     arg_constraints:
       - Min: 2
@@ -87,7 +87,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 1
-    supports_as_var: true
+    as_var: strip
   "archivebox.core.templatetags.core_tags::tag::web_base_url":
     arg_constraints:
       - Max: 1
@@ -95,7 +95,7 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: true
+    as_var: strip
 filter_arities:
   "archivebox.core.templatetags.core_tags::filter::file_size":
     expects_arg: false

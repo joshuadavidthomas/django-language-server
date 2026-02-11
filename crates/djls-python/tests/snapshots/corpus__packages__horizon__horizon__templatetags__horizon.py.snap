@@ -10,7 +10,7 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: true
+    as_var: strip
   "horizon.templatetags.horizon::tag::horizon_dashboard_nav":
     arg_constraints:
       - Max: 1
@@ -18,7 +18,7 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: false
+    as_var: keep
   "horizon.templatetags.horizon::tag::horizon_main_nav":
     arg_constraints:
       - Max: 1
@@ -26,7 +26,7 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: false
+    as_var: keep
   "horizon.templatetags.horizon::tag::horizon_nav":
     arg_constraints:
       - Max: 1
@@ -34,7 +34,7 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: false
+    as_var: keep
   "horizon.templatetags.horizon::tag::load_config":
     arg_constraints:
       - Max: 1
@@ -42,7 +42,7 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: true
+    as_var: strip
   "horizon.templatetags.horizon::tag::quotapercent":
     arg_constraints:
       - Min: 3
@@ -59,7 +59,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 1
-    supports_as_var: true
+    as_var: strip
   "horizon.templatetags.horizon::tag::template_cache_age":
     arg_constraints:
       - Max: 1
@@ -67,7 +67,7 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: true
+    as_var: strip
 filter_arities:
   "horizon.templatetags.horizon::filter::has_permissions":
     expects_arg: true

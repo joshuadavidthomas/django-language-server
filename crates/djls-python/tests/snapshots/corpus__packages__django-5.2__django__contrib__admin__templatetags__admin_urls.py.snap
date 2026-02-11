@@ -23,7 +23,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 2
-    supports_as_var: true
+    as_var: strip
 filter_arities:
   "django.contrib.admin.templatetags.admin_urls::filter::admin_urlname":
     expects_arg: true

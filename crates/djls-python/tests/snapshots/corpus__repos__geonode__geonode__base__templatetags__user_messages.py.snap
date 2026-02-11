@@ -19,7 +19,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 1
-    supports_as_var: true
+    as_var: strip
   "geonode.base.templatetags.user_messages::tag::get_item":
     arg_constraints:
       - Min: 3
@@ -36,7 +36,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 1
-    supports_as_var: true
+    as_var: strip
   "geonode.base.templatetags.user_messages::tag::is_unread":
     arg_constraints:
       - Min: 3
@@ -53,7 +53,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 1
-    supports_as_var: true
+    as_var: strip
   "geonode.base.templatetags.user_messages::tag::random_uuid":
     arg_constraints:
       - Max: 1
@@ -61,7 +61,7 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: true
+    as_var: strip
   "geonode.base.templatetags.user_messages::tag::show_notification":
     arg_constraints:
       - Min: 3
@@ -78,6 +78,6 @@ tag_rules:
         required: true
         kind: Variable
         position: 1
-    supports_as_var: true
+    as_var: strip
 filter_arities: {}
 block_specs: {}

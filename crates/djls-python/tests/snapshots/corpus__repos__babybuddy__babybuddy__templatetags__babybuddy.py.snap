@@ -10,7 +10,7 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: true
+    as_var: strip
   "babybuddy.templatetags.babybuddy::tag::confirm_delete_text":
     arg_constraints:
       - Min: 2
@@ -23,7 +23,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
   "babybuddy.templatetags.babybuddy::tag::confirm_unlock_text":
     arg_constraints:
       - Min: 2
@@ -36,7 +36,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
   "babybuddy.templatetags.babybuddy::tag::get_child_count":
     arg_constraints:
       - Max: 1
@@ -44,7 +44,7 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: true
+    as_var: strip
   "babybuddy.templatetags.babybuddy::tag::get_current_locale":
     arg_constraints:
       - Max: 1
@@ -52,7 +52,7 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: true
+    as_var: strip
   "babybuddy.templatetags.babybuddy::tag::get_current_timezone":
     arg_constraints:
       - Max: 1
@@ -60,7 +60,7 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: true
+    as_var: strip
   "babybuddy.templatetags.babybuddy::tag::make_absolute_url":
     arg_constraints:
       - Min: 2
@@ -73,7 +73,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
   "babybuddy.templatetags.babybuddy::tag::relative_url":
     arg_constraints:
       - Min: 3
@@ -90,7 +90,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 1
-    supports_as_var: true
+    as_var: strip
   "babybuddy.templatetags.babybuddy::tag::user_is_locked":
     arg_constraints:
       - Min: 2
@@ -103,7 +103,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
   "babybuddy.templatetags.babybuddy::tag::user_is_read_only":
     arg_constraints:
       - Min: 2
@@ -116,7 +116,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
   "babybuddy.templatetags.babybuddy::tag::version_string":
     arg_constraints:
       - Max: 1
@@ -124,6 +124,6 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: true
+    as_var: strip
 filter_arities: {}
 block_specs: {}

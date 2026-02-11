@@ -26,7 +26,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 3
-    supports_as_var: true
+    as_var: strip
   "qr_code.templatetags.qr_code::tag::qr_for_email":
     arg_constraints:
       - Min: 2
@@ -50,7 +50,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 3
-    supports_as_var: true
+    as_var: strip
   "qr_code.templatetags.qr_code::tag::qr_for_epc":
     arg_constraints:
       - Min: 2
@@ -74,7 +74,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 3
-    supports_as_var: true
+    as_var: strip
   "qr_code.templatetags.qr_code::tag::qr_for_event":
     arg_constraints:
       - Min: 2
@@ -98,7 +98,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 3
-    supports_as_var: true
+    as_var: strip
   "qr_code.templatetags.qr_code::tag::qr_for_google_play":
     arg_constraints:
       - Min: 2
@@ -122,7 +122,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 3
-    supports_as_var: true
+    as_var: strip
   "qr_code.templatetags.qr_code::tag::qr_for_mecard":
     arg_constraints:
       - Min: 2
@@ -146,7 +146,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 3
-    supports_as_var: true
+    as_var: strip
   "qr_code.templatetags.qr_code::tag::qr_for_sms":
     arg_constraints:
       - Min: 2
@@ -170,7 +170,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 3
-    supports_as_var: true
+    as_var: strip
   "qr_code.templatetags.qr_code::tag::qr_for_tel":
     arg_constraints:
       - Min: 2
@@ -194,7 +194,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 3
-    supports_as_var: true
+    as_var: strip
   "qr_code.templatetags.qr_code::tag::qr_for_vcard":
     arg_constraints:
       - Min: 2
@@ -218,7 +218,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 3
-    supports_as_var: true
+    as_var: strip
   "qr_code.templatetags.qr_code::tag::qr_for_wifi":
     arg_constraints:
       - Min: 2
@@ -242,7 +242,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 3
-    supports_as_var: true
+    as_var: strip
   "qr_code.templatetags.qr_code::tag::qr_for_youtube":
     arg_constraints:
       - Min: 2
@@ -266,7 +266,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 3
-    supports_as_var: true
+    as_var: strip
   "qr_code.templatetags.qr_code::tag::qr_from_data":
     arg_constraints:
       - Min: 2
@@ -290,7 +290,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 3
-    supports_as_var: true
+    as_var: strip
   "qr_code.templatetags.qr_code::tag::qr_from_text":
     arg_constraints:
       - Min: 2
@@ -314,7 +314,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 3
-    supports_as_var: true
+    as_var: strip
   "qr_code.templatetags.qr_code::tag::qr_url_for_contact":
     arg_constraints:
       - Min: 2
@@ -326,7 +326,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
   "qr_code.templatetags.qr_code::tag::qr_url_for_email":
     arg_constraints:
       - Min: 2
@@ -338,7 +338,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
   "qr_code.templatetags.qr_code::tag::qr_url_for_epc":
     arg_constraints:
       - Min: 2
@@ -350,7 +350,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
   "qr_code.templatetags.qr_code::tag::qr_url_for_event":
     arg_constraints:
       - Min: 2
@@ -362,7 +362,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
   "qr_code.templatetags.qr_code::tag::qr_url_for_google_play":
     arg_constraints:
       - Min: 2
@@ -374,7 +374,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
   "qr_code.templatetags.qr_code::tag::qr_url_for_mecard":
     arg_constraints:
       - Min: 2
@@ -386,7 +386,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
   "qr_code.templatetags.qr_code::tag::qr_url_for_sms":
     arg_constraints:
       - Min: 2
@@ -398,7 +398,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
   "qr_code.templatetags.qr_code::tag::qr_url_for_tel":
     arg_constraints:
       - Min: 2
@@ -410,7 +410,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
   "qr_code.templatetags.qr_code::tag::qr_url_for_vcard":
     arg_constraints:
       - Min: 2
@@ -422,7 +422,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
   "qr_code.templatetags.qr_code::tag::qr_url_for_wifi":
     arg_constraints:
       - Min: 2
@@ -434,7 +434,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
   "qr_code.templatetags.qr_code::tag::qr_url_for_youtube":
     arg_constraints:
       - Min: 2
@@ -446,7 +446,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
   "qr_code.templatetags.qr_code::tag::qr_url_from_data":
     arg_constraints:
       - Min: 2
@@ -458,7 +458,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
   "qr_code.templatetags.qr_code::tag::qr_url_from_text":
     arg_constraints:
       - Min: 2
@@ -470,6 +470,6 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
 filter_arities: {}
 block_specs: {}

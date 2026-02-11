@@ -8,7 +8,7 @@ use ruff_python_ast::StmtAssign;
 use super::dynamic_end;
 use super::is_token_contents_expr;
 use crate::ext::ExprExt;
-use crate::types::BlockTagSpec;
+use crate::types::BlockSpec;
 
 /// Detect block structure from `parser.next_token()` loop patterns.
 ///
@@ -28,7 +28,7 @@ use crate::types::BlockTagSpec;
 /// if token.contents.strip() != end_tag_name:
 ///     raise TemplateSyntaxError(...)
 /// ```
-pub fn detect(body: &[Stmt], parser_var: &str) -> Option<BlockTagSpec> {
+pub fn detect(body: &[Stmt], parser_var: &str) -> Option<BlockSpec> {
     if !has_next_token_loop(body, parser_var) {
         return None;
     }
@@ -57,7 +57,7 @@ pub fn detect(body: &[Stmt], parser_var: &str) -> Option<BlockTagSpec> {
 
     intermediates.sort();
 
-    Some(BlockTagSpec {
+    Some(BlockSpec {
         end_tag,
         intermediates,
         opaque: false,

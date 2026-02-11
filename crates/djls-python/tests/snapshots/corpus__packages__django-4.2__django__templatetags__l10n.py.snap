@@ -19,7 +19,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: false
+    as_var: keep
 filter_arities:
   "django.templatetags.l10n::filter::localize":
     expects_arg: false

@@ -10,7 +10,7 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: true
+    as_var: strip
   "src.sentry.templatetags.sentry_helpers::tag::loading_message":
     arg_constraints:
       - Max: 1
@@ -18,7 +18,7 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: true
+    as_var: strip
   "src.sentry.templatetags.sentry_helpers::tag::org_url":
     arg_constraints:
       - Min: 3
@@ -43,7 +43,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 3
-    supports_as_var: true
+    as_var: strip
   "src.sentry.templatetags.sentry_helpers::tag::percent":
     arg_constraints:
       - Min: 3
@@ -64,7 +64,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 2
-    supports_as_var: true
+    as_var: strip
   "src.sentry.templatetags.sentry_helpers::tag::random_int":
     arg_constraints:
       - Min: 2
@@ -81,7 +81,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 1
-    supports_as_var: true
+    as_var: strip
   "src.sentry.templatetags.sentry_helpers::tag::security_contact":
     arg_constraints:
       - Max: 1
@@ -89,7 +89,7 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: true
+    as_var: strip
   "src.sentry.templatetags.sentry_helpers::tag::serialize":
     arg_constraints:
       - Min: 2
@@ -102,7 +102,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
   "src.sentry.templatetags.sentry_helpers::tag::system_origin":
     arg_constraints:
       - Max: 1
@@ -110,7 +110,7 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: true
+    as_var: strip
 filter_arities:
   "src.sentry.templatetags.sentry_helpers::filter::absolute_value":
     expects_arg: false

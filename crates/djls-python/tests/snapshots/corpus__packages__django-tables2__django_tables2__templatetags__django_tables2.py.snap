@@ -19,7 +19,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 1
-    supports_as_var: true
+    as_var: strip
   "django_tables2.templatetags.django_tables2::tag::render_attrs":
     arg_constraints:
       - Min: 2
@@ -31,7 +31,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
 filter_arities:
   "django_tables2.templatetags.django_tables2::filter::table_page_range":
     expects_arg: true

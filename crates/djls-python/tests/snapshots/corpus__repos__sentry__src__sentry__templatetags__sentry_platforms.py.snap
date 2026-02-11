@@ -27,7 +27,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 3
-    supports_as_var: true
+    as_var: strip
   "src.sentry.templatetags.sentry_platforms::tag::platform_avatar":
     arg_constraints:
       - Min: 2
@@ -44,6 +44,6 @@ tag_rules:
         required: false
         kind: Variable
         position: 1
-    supports_as_var: true
+    as_var: strip
 filter_arities: {}
 block_specs: {}

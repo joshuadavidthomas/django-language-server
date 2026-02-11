@@ -142,12 +142,12 @@ pub fn evaluate_tag_rules(
     // Django's simple_tag supports `{% tag args... as varname %}` syntax.
     // The framework strips `as varname` before validating arguments, so we
     // do the same: if the last two bits are ["as", <something>], strip them.
-    let effective_bits = if rules.supports_as_var && bits.len() >= 2 && bits[bits.len() - 2] == "as"
-    {
-        &bits[..bits.len() - 2]
-    } else {
-        bits
-    };
+    let effective_bits =
+        if rules.as_var.strips_suffix() && bits.len() >= 2 && bits[bits.len() - 2] == "as" {
+            &bits[..bits.len() - 2]
+        } else {
+            bits
+        };
 
     for constraint in &rules.arg_constraints {
         errors.extend(constraint.validate(tag_name, effective_bits, span));
@@ -248,6 +248,7 @@ fn evaluate_known_options(
 
 #[cfg(test)]
 mod tests {
+    use djls_python::AsVar;
     use djls_python::SplitPosition;
 
     use super::*;
@@ -578,7 +579,7 @@ mod tests {
         );
     }
 
-    // --- supports_as_var tests ---
+    // --- as_var tests ---
 
     #[test]
     fn simple_tag_as_varname_passes_max_constraint() {
@@ -588,7 +589,7 @@ mod tests {
                 ArgumentCountConstraint::Min(2),
                 ArgumentCountConstraint::Max(2),
             ],
-            supports_as_var: true,
+            as_var: AsVar::Strip,
             ..Default::default()
         };
         // {% user_display user as foo %} → bits = ["user", "as", "foo"]
@@ -605,7 +606,7 @@ mod tests {
         // simple_tag with Max(1): accepts 0 args, `{% tag as foo %}`
         let rule = TagRule {
             arg_constraints: vec![ArgumentCountConstraint::Max(1)],
-            supports_as_var: true,
+            as_var: AsVar::Strip,
             ..Default::default()
         };
         // {% get_providers as providers %} → bits = ["as", "providers"]
@@ -622,7 +623,7 @@ mod tests {
         // simple_tag with Max(2): accepts 1 arg, no `as` form
         let rule = TagRule {
             arg_constraints: vec![ArgumentCountConstraint::Max(2)],
-            supports_as_var: true,
+            as_var: AsVar::Strip,
             ..Default::default()
         };
         // {% user_display user %} → bits = ["user"]
@@ -636,7 +637,7 @@ mod tests {
         // simple_tag with Max(2): accepts 1 arg, extra args should fail
         let rule = TagRule {
             arg_constraints: vec![ArgumentCountConstraint::Max(2)],
-            supports_as_var: true,
+            as_var: AsVar::Strip,
             ..Default::default()
         };
         // {% user_display user extra %} → bits = ["user", "extra"]
@@ -647,10 +648,10 @@ mod tests {
 
     #[test]
     fn non_simple_tag_as_varname_not_stripped() {
-        // Manual tag with supports_as_var=false: `as` is NOT stripped
+        // Manual tag with AsVar::Keep: `as` is NOT stripped
         let rule = TagRule {
             arg_constraints: vec![ArgumentCountConstraint::Max(2)],
-            supports_as_var: false,
+            as_var: AsVar::Keep,
             ..Default::default()
         };
         // bits = ["user", "as", "foo"] → split_len=4, Max(2) fails

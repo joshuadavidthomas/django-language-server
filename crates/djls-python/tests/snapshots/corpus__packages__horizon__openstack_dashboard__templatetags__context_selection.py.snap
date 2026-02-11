@@ -10,7 +10,7 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: false
+    as_var: keep
   "openstack_dashboard.templatetags.context_selection::tag::is_multi_region":
     arg_constraints:
       - Max: 1
@@ -18,7 +18,7 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: true
+    as_var: strip
   "openstack_dashboard.templatetags.context_selection::tag::is_multidomain":
     arg_constraints:
       - Max: 1
@@ -26,7 +26,7 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: true
+    as_var: strip
   "openstack_dashboard.templatetags.context_selection::tag::show_domain_list":
     arg_constraints:
       - Max: 1
@@ -34,7 +34,7 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: false
+    as_var: keep
   "openstack_dashboard.templatetags.context_selection::tag::show_overview":
     arg_constraints:
       - Max: 1
@@ -42,7 +42,7 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: false
+    as_var: keep
   "openstack_dashboard.templatetags.context_selection::tag::show_project_list":
     arg_constraints:
       - Max: 1
@@ -50,7 +50,7 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: false
+    as_var: keep
   "openstack_dashboard.templatetags.context_selection::tag::show_region_list":
     arg_constraints:
       - Max: 1
@@ -58,7 +58,7 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: false
+    as_var: keep
   "openstack_dashboard.templatetags.context_selection::tag::show_system_list":
     arg_constraints:
       - Max: 1
@@ -66,7 +66,7 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: false
+    as_var: keep
   "openstack_dashboard.templatetags.context_selection::tag::show_systems":
     arg_constraints:
       - Max: 1
@@ -74,6 +74,6 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: true
+    as_var: strip
 filter_arities: {}
 block_specs: {}

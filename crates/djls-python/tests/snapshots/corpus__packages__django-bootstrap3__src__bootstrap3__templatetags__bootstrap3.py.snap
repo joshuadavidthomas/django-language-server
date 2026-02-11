@@ -23,7 +23,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 2
-    supports_as_var: true
+    as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_button":
     arg_constraints: []
     required_keywords: []
@@ -34,7 +34,7 @@ tag_rules:
         required: false
         kind: VarArgs
         position: 0
-    supports_as_var: true
+    as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_css":
     arg_constraints:
       - Max: 1
@@ -42,7 +42,7 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: true
+    as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_css_url":
     arg_constraints:
       - Max: 1
@@ -50,7 +50,7 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: true
+    as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_field":
     arg_constraints: []
     required_keywords: []
@@ -61,7 +61,7 @@ tag_rules:
         required: false
         kind: VarArgs
         position: 0
-    supports_as_var: true
+    as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_form":
     arg_constraints: []
     required_keywords: []
@@ -72,7 +72,7 @@ tag_rules:
         required: false
         kind: VarArgs
         position: 0
-    supports_as_var: true
+    as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_form_errors":
     arg_constraints: []
     required_keywords: []
@@ -83,7 +83,7 @@ tag_rules:
         required: false
         kind: VarArgs
         position: 0
-    supports_as_var: true
+    as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_formset":
     arg_constraints: []
     required_keywords: []
@@ -94,7 +94,7 @@ tag_rules:
         required: false
         kind: VarArgs
         position: 0
-    supports_as_var: true
+    as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_formset_errors":
     arg_constraints: []
     required_keywords: []
@@ -105,7 +105,7 @@ tag_rules:
         required: false
         kind: VarArgs
         position: 0
-    supports_as_var: true
+    as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_icon":
     arg_constraints:
       - Min: 2
@@ -117,7 +117,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_javascript":
     arg_constraints:
       - Max: 2
@@ -129,7 +129,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_javascript_url":
     arg_constraints:
       - Max: 1
@@ -137,7 +137,7 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: true
+    as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_jquery_url":
     arg_constraints:
       - Max: 1
@@ -145,7 +145,7 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: true
+    as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_label":
     arg_constraints: []
     required_keywords: []
@@ -156,7 +156,7 @@ tag_rules:
         required: false
         kind: VarArgs
         position: 0
-    supports_as_var: true
+    as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_messages":
     arg_constraints: []
     required_keywords: []
@@ -167,7 +167,7 @@ tag_rules:
         required: false
         kind: VarArgs
         position: 0
-    supports_as_var: true
+    as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_pagination":
     arg_constraints:
       - Min: 2
@@ -179,7 +179,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: false
+    as_var: keep
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_theme_url":
     arg_constraints:
       - Max: 1
@@ -187,7 +187,7 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     extracted_args: []
-    supports_as_var: true
+    as_var: strip
   "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_url_replace_param":
     arg_constraints:
       - Min: 4
@@ -208,7 +208,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 2
-    supports_as_var: true
+    as_var: strip
 filter_arities:
   "src.bootstrap3.templatetags.bootstrap3::filter::bootstrap_message_classes":
     expects_arg: false

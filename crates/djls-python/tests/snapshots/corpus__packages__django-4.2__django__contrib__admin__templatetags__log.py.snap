@@ -34,6 +34,6 @@ tag_rules:
         kind:
           Literal: for_user
         position: 3
-    supports_as_var: false
+    as_var: keep
 filter_arities: {}
 block_specs: {}

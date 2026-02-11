@@ -24,7 +24,7 @@ use std::collections::BTreeMap;
 use djls_corpus::module_path_from_file;
 use djls_corpus::Corpus;
 use djls_python::extract_rules;
-use djls_python::BlockTagSpec;
+use djls_python::BlockSpec;
 use djls_python::ExtractionResult;
 use djls_python::FilterArity;
 use djls_python::SymbolKey;
@@ -35,7 +35,7 @@ use serde::Serialize;
 struct SortedExtractionResult {
     tag_rules: BTreeMap<String, TagRule>,
     filter_arities: BTreeMap<String, FilterArity>,
-    block_specs: BTreeMap<String, BlockTagSpec>,
+    block_specs: BTreeMap<String, BlockSpec>,
 }
 
 impl From<ExtractionResult> for SortedExtractionResult {

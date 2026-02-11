@@ -18,7 +18,7 @@ tag_rules:
         required: false
         kind: Variable
         position: 1
-    supports_as_var: true
+    as_var: strip
   "src.backend.InvenTree.report.templatetags.barcode::tag::clean_barcode":
     arg_constraints:
       - Min: 2
@@ -31,7 +31,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
   "src.backend.InvenTree.report.templatetags.barcode::tag::datamatrix":
     arg_constraints:
       - Min: 2
@@ -43,7 +43,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
   "src.backend.InvenTree.report.templatetags.barcode::tag::qrcode":
     arg_constraints:
       - Min: 2
@@ -55,6 +55,6 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
 filter_arities: {}
 block_specs: {}

@@ -19,7 +19,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 1
-    supports_as_var: true
+    as_var: strip
   "cms.templatetags.cms_js_tags::tag::render_plugin_init_js":
     arg_constraints:
       - Min: 2
@@ -32,7 +32,7 @@ tag_rules:
         required: true
         kind: Variable
         position: 0
-    supports_as_var: true
+    as_var: strip
 filter_arities:
   "cms.templatetags.cms_js_tags::filter::bool":
     expects_arg: false
