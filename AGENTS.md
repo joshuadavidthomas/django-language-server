@@ -29,7 +29,8 @@ just corpus clean                # Remove all synced corpus data
 - **Module convention**: Uses `folder.rs` NOT `folder/mod.rs` (e.g. `templatetags.rs` + `templatetags/specs.rs`)
 
 ## Project Structure
-- `crates/djls/` - Main CLI binary and PyO3 interface
+- `crates/djls/` - Main CLI binary
+- `crates/djls-db/` - Concrete Salsa database (`DjangoDatabase`), queries, settings, inspector refresh
 - `crates/djls-server/` - LSP server implementation
 - `crates/djls-templates/` - Django template parser
 - `crates/djls-workspace/` - Workspace/document management
@@ -48,15 +49,32 @@ just corpus clean                # Remove all synced corpus data
 - **`#[returns(ref)]`**: Use on fields returning owned types. Salsa returns `&T`, so compare with `&new_value`.
 - **Tracked return types need `PartialEq`**: Salsa uses equality for backdate optimization.
 
+## Workspace and Crate Conventions
+- **All crates live in `crates/`**, auto-discovered via `members = ["crates/*"]`
+- **All dependency versions** (third-party and internal) go in `[workspace.dependencies]` in root `Cargo.toml`. Crates reference with `dep.workspace = true`. Never specify a version directly in a crate's `Cargo.toml`.
+- **Root `[workspace.dependencies]` grouping**: internal path crates → pinned core deps (`salsa`, `tower-lsp-server`) → crates.io deps → git deps (`ruff_*`). Blank line between groups, alphabetical within each.
+- **Alphabetical order** in each crate's `[dependencies]`
+- **Internal deps listed before third-party** in each crate's `Cargo.toml`, separated by a blank line, both groups alphabetical
+- **`[lints] workspace = true`** in every crate — lints are configured once in root `[workspace.lints]`
+- **Versioning**: Only `djls` (the binary) carries the release version (currently `6.0.0`). All library crates use `version = "0.0.0"`.
+- **Adding a new crate**: Add to `[workspace.dependencies]` in root `Cargo.toml` (alphabetical), create `crates/<name>/Cargo.toml` with `{ workspace = true }` deps and `[lints] workspace = true`
+
 ## Key Conventions
 - **Parser `Node::Tag.bits` excludes tag name**: `{% load i18n %}` → `name: "load"`, `bits: ["i18n"]`. Functions processing `bits` work with arguments only.
-- **Workspace deps**: ALL dependency versions (third-party and internal crates) go in `[workspace.dependencies]` in root `Cargo.toml`. Crates reference with `dep.workspace = true`. Never specify a version directly in a crate's `Cargo.toml` — always add it to the workspace first.
 - **Paths**: Use `camino::Utf8Path`/`Utf8PathBuf` as the canonical path types. Avoid `std::path::Path`/`PathBuf` except at FFI boundaries or when interfacing with APIs that require them (e.g., `walkdir` results — convert at the boundary).
 - **Insta snapshots**: After changing serialized types, run `cargo insta test --accept --unreferenced delete` to update snapshots and clean orphans.
 - **Environment layout**: Environment scan functions (`scan_environment`, `scan_environment_with_symbols`) live in `djls-project/src/scanning.rs`; environment types (`EnvironmentInventory`, `EnvironmentLibrary`, `EnvironmentSymbol`) in `djls-python/src/environment/types.rs`.
 - **`ValidationError` is exhaustive**: When adding/removing variants, update `errors.rs`, `djls-ide/src/diagnostics.rs` (S-code mapping), and test helpers. Grep: `grep -rn "ValidationError" crates/ --include="*.rs"`.
-- **`SemanticDb` trait**: When adding methods, update impls in `djls-server/src/db.rs` and `djls-bench/src/db.rs`.
+- **`SemanticDb` trait**: When adding methods, update impls in `djls-db/src/db.rs` and `djls-bench/src/db.rs`.
 - **`crate::Db` in `djls-semantic`**: When adding methods, update ALL test databases (~10 files). E0046 if you miss one. Grep: `grep -rn "impl crate::Db" crates/djls-semantic/ --include="*.rs"`.
+
+## Changelog
+[Keep a Changelog](https://keepachangelog.com/en/1.0.0/) format.
+- Entries go under `[Unreleased]` in the appropriate section (`Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`)
+- Short and factual — what changed, not why. No rationale or future plans.
+- Past tense verbs: "Added", "Fixed", "Removed", "Bumped"
+- Prefix internal-only changes with `**Internal**:`, list after user-facing entries
+- Backtick-wrap code identifiers: crate names, types, commands, config keys
 
 ## Ruff AST API (djls-extraction)
 - **Parse**: `ruff_python_parser::parse_module(source)` → `.into_syntax()` for `ModModule` AST

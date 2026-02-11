@@ -6,6 +6,7 @@
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_conf::Settings;
+use djls_db::DjangoDatabase;
 use djls_project::Db as ProjectDb;
 use djls_source::File;
 use djls_source::FileKind;
@@ -14,7 +15,6 @@ use djls_workspace::Workspace;
 use tower_lsp_server::ls_types;
 
 use crate::client::ClientInfo;
-use crate::db::DjangoDatabase;
 use crate::ext::InitializeParamsExt;
 use crate::ext::TextDocumentContentChangeEventExt;
 use crate::ext::TextDocumentItemExt;
@@ -103,7 +103,7 @@ impl Session {
         &mut self.db
     }
 
-    pub fn set_settings(&mut self, settings: Settings) -> crate::settings::SettingsUpdate {
+    pub fn set_settings(&mut self, settings: Settings) -> djls_db::SettingsUpdate {
         self.db.set_settings(settings)
     }
 

@@ -13,15 +13,65 @@ We adhere to Django's Code of Conduct in all interactions and expect all contrib
 The project is written in Rust with IPC for Python communication. Here is a high-level overview of the project and the various crates:
 
 - CLI entrypoint ([`crates/djls/`](./crates/djls/))
+- Concrete Salsa database, queries, and settings ([`crates/djls-db/`](./crates/djls-db/))
 - Configuration management ([`crates/djls-conf/`](./crates/djls-conf/))
+- Completions, diagnostics, and snippets ([`crates/djls-ide/`](./crates/djls-ide/))
 - Django and Python project introspection ([`crates/djls-project/`](./crates/djls-project/))
+- Python AST analysis via Ruff parser ([`crates/djls-python/`](./crates/djls-python/))
+- Semantic analysis and validation ([`crates/djls-semantic/`](./crates/djls-semantic/))
 - LSP server implementation ([`crates/djls-server/`](./crates/djls-server/))
+- Source DB, File type, and path utilities ([`crates/djls-source/`](./crates/djls-source/))
 - Template parsing ([`crates/djls-templates/`](./crates/djls-templates/))
 - Workspace and document management ([`crates/djls-workspace/`](./crates/djls-workspace/))
+
+The project uses a [Cargo workspace](https://doc.rust-lang.org/cargo/reference/workspaces.html) with all crates under `crates/`. A few conventions to be aware of:
+
+- **Dependency versions** are centralized in `[workspace.dependencies]` in the root [`Cargo.toml`](./Cargo.toml). Individual crates reference them with `dep.workspace = true` and never specify versions directly.
+- **Internal crates are listed before third-party crates** in each crate's `[dependencies]`, separated by a blank line. Both groups are kept in alphabetical order.
+- **Lints** are configured once in `[workspace.lints]` in the root `Cargo.toml`. Each crate opts in with `[lints] workspace = true`.
+- **Versioning**: Only the `djls` binary crate carries the release version. All library crates use `version = "0.0.0"`.
 
 Code contributions are welcome from developers of all backgrounds. Rust expertise is valuable for the LSP server and core components, but Python and Django developers should not be deterred by the Rust codebase - Django expertise is just as valuable. Understanding Django's internals and common development patterns helps inform what features would be most valuable.
 
 So far it's all been built by a [a simple country CRUD web developer](https://youtu.be/7ij_1SQqbVo?si=hwwPyBjmaOGnvPPI&t=53) learning Rust along the way - send help!
+
+### Changelog
+
+The project maintains a [`CHANGELOG.md`](CHANGELOG.md) following [Keep a Changelog](https://keepachangelog.com/en/1.0.0/). All notable changes should be documented under the `[Unreleased]` heading in the appropriate section.
+
+**Sections** (use only those that apply):
+
+- `Added` — new features
+- `Changed` — changes in existing functionality
+- `Deprecated` — soon-to-be removed features
+- `Removed` — now removed features
+- `Fixed` — bug fixes
+- `Security` — vulnerability fixes
+
+**Writing entries:**
+
+- Keep entries short and factual — describe what changed, not why
+- Use past tense verbs: "Added", "Fixed", "Removed", "Bumped", etc.
+- Wrap crate names, types, commands, and config keys in backticks
+- Prefix internal changes (refactors, crate restructuring, CI) with `**Internal**:`
+- List user-facing entries before `**Internal**:` entries within each section
+
+**Examples:**
+
+```markdown
+### Added
+
+- Added `diagnostics.severity` configuration option for configuring diagnostic severity levels.
+
+### Changed
+
+- Bumped Rust toolchain from 1.90 to 1.91.
+- **Internal**: Extracted concrete Salsa database into new `djls-db` crate.
+
+### Fixed
+
+- Fixed false positive errors for quoted strings with spaces (e.g., `{% translate "Contact the owner" %}`).
+```
 
 ### Version Updates
 
