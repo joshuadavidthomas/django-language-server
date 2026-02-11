@@ -233,5 +233,4 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 [5.2.3]: https://github.com/joshuadavidthomas/django-language-server/releases/tag/v5.2.3
 [5.2.4]: https://github.com/joshuadavidthomas/django-language-server/releases/tag/v5.2.4
 [6.0.0]: https://github.com/joshuadavidthomas/django-language-server/releases/tag/v6.0.0
-
 [6.0.1]: https://github.com/joshuadavidthomas/django-language-server/releases/tag/v6.0.1
