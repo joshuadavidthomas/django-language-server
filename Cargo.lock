@@ -726,6 +726,7 @@ dependencies = [
  "djls-conf",
  "djls-python",
  "djls-source",
+ "djls-templates",
  "djls-workspace",
  "ruff_python_parser",
  "rustc-hash",

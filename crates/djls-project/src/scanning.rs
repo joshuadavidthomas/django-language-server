@@ -10,9 +10,9 @@ use crate::scanned_libraries::ScannedTemplateLibraries;
 use crate::scanned_libraries::ScannedTemplateLibrary;
 use crate::scanned_libraries::ScannedTemplateSymbol;
 use crate::template_libraries::TemplateSymbolKind;
-use crate::template_names::LibraryName;
-use crate::template_names::PyModuleName;
-use crate::template_names::TemplateSymbolName;
+use djls_templates::names::LibraryName;
+use djls_templates::names::PyModuleName;
+use djls_templates::names::TemplateSymbolName;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum SymbolExtraction {

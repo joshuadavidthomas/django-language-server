@@ -19,18 +19,10 @@ use tower_lsp_server::ls_types;
 use crate::snippets::generate_partial_snippet;
 use crate::snippets::generate_snippet_for_tag_with_end;
 
-fn symbol_name(symbol: &TemplateSymbol) -> &str {
-    symbol.name.as_str()
-}
-
-fn symbol_doc(symbol: &TemplateSymbol) -> Option<&str> {
-    symbol.doc.as_deref()
-}
-
 fn symbol_is_available(symbol: &TemplateSymbol, available: &AvailableSymbols) -> bool {
     match symbol.kind {
-        TemplateSymbolKind::Tag => available.available_tags().contains(symbol_name(symbol)),
-        TemplateSymbolKind::Filter => available.available_filters().contains(symbol_name(symbol)),
+        TemplateSymbolKind::Tag => available.available_tags().contains(symbol.name()),
+        TemplateSymbolKind::Filter => available.available_filters().contains(symbol.name()),
     }
 }
 
@@ -653,7 +645,7 @@ fn generate_tag_name_completions(
             }
         }
 
-        let tag_name = symbol_name(symbol);
+        let tag_name = symbol.name();
 
         if tag_name.starts_with(partial) {
             // Try to get snippet from TagSpecs if available and client supports snippets
@@ -717,7 +709,7 @@ fn generate_tag_name_completions(
                 label: tag_name.to_string(),
                 kind: Some(kind),
                 detail: Some(tag.detail.clone()),
-                documentation: symbol_doc(symbol)
+                documentation: symbol.doc()
                     .map(|doc| ls_types::Documentation::String(doc.to_string())),
                 text_edit: Some(tower_lsp_server::ls_types::CompletionTextEdit::Edit(
                     ls_types::TextEdit::new(replacement_range, insert_text.clone()),
@@ -947,7 +939,7 @@ fn generate_completions<'a>(
             }
         }
 
-        let name = symbol_name(symbol);
+        let name = symbol.name();
         if !name.starts_with(partial) {
             continue;
         }
@@ -956,7 +948,7 @@ fn generate_completions<'a>(
             label: name.to_string(),
             kind: Some(symbol_completion_kind(symbol)),
             detail: Some(candidate.detail),
-            documentation: symbol_doc(symbol)
+            documentation: symbol.doc()
                 .map(|doc| ls_types::Documentation::String(doc.to_string())),
             insert_text: Some(name.to_string()),
             insert_text_format: Some(ls_types::InsertTextFormat::PLAIN_TEXT),

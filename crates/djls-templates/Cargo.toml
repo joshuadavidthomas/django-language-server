@@ -9,6 +9,7 @@ djls-source = { workspace = true }
 djls-workspace = { workspace = true }
 
 anyhow = { workspace = true }
+camino = { workspace = true, features = ["serde1"] }
 memchr = { workspace = true }
 salsa = { workspace = true }
 serde = { workspace = true }
@@ -16,7 +17,6 @@ thiserror = { workspace = true }
 toml = { workspace = true }
 
 [dev-dependencies]
-camino = { workspace = true }
 insta = { workspace = true }
 tempfile = { workspace = true }
 

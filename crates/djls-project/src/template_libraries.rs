@@ -1,7 +1,17 @@
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 
-use camino::Utf8PathBuf;
+use djls_templates::names::LibraryName;
+use djls_templates::names::PyModuleName;
+use djls_templates::names::TemplateSymbolName;
+pub use djls_templates::symbols::Knowledge;
+pub use djls_templates::symbols::LibraryEnablement;
+pub use djls_templates::symbols::LibraryLocation;
+pub use djls_templates::symbols::SymbolDefinition;
+pub use djls_templates::symbols::TemplateLibrary;
+pub use djls_templates::symbols::TemplateLibraryId;
+pub use djls_templates::symbols::TemplateSymbol;
+pub use djls_templates::symbols::TemplateSymbolKind;
 use rustc_hash::FxHashSet;
 use serde::Deserialize;
 use serde::Serialize;
@@ -9,9 +19,6 @@ use serde::Serialize;
 use crate::inspector::InspectorRequest;
 use crate::scanned_libraries::ScannedTemplateLibraries;
 use crate::scanned_libraries::ScannedTemplateLibrary;
-use crate::template_names::LibraryName;
-use crate::template_names::PyModuleName;
-use crate::template_names::TemplateSymbolName;
 
 #[derive(Serialize)]
 pub struct TemplateLibrariesRequest;
@@ -26,127 +33,6 @@ pub struct TemplateLibrariesResponse {
 impl InspectorRequest for TemplateLibrariesRequest {
     const NAME: &'static str = "template_libraries";
     type Response = TemplateLibrariesResponse;
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum TemplateSymbolKind {
-    Tag,
-    Filter,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum SymbolDefinition {
-    Exact { file: Utf8PathBuf },
-    Module(PyModuleName),
-    LibraryFile(Utf8PathBuf),
-    Unknown,
-}
-
-impl SymbolDefinition {
-    fn rank(&self) -> u8 {
-        match self {
-            Self::Exact { .. } => 3,
-            Self::Module(_) => 2,
-            Self::LibraryFile(_) => 1,
-            Self::Unknown => 0,
-        }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TemplateSymbol {
-    pub kind: TemplateSymbolKind,
-    pub name: TemplateSymbolName,
-    pub definition: SymbolDefinition,
-    #[serde(default)]
-    pub doc: Option<String>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum TemplateLibraryId {
-    Loadable {
-        name: LibraryName,
-        module: PyModuleName,
-    },
-    Builtin {
-        module: PyModuleName,
-    },
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub enum Knowledge {
-    Known,
-    Unknown,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub enum LibraryEnablement {
-    Enabled,
-    NotEnabled,
-    Unknown,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum LibraryLocation {
-    Scanned {
-        app_module: PyModuleName,
-        source_path: Utf8PathBuf,
-    },
-    Unknown,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TemplateLibrary {
-    pub id: TemplateLibraryId,
-    pub enablement: LibraryEnablement,
-    pub location: LibraryLocation,
-    #[serde(default)]
-    pub symbols: Vec<TemplateSymbol>,
-}
-
-impl TemplateLibrary {
-    fn new_loadable(name: LibraryName, module: PyModuleName) -> Self {
-        Self {
-            id: TemplateLibraryId::Loadable { name, module },
-            enablement: LibraryEnablement::Unknown,
-            location: LibraryLocation::Unknown,
-            symbols: Vec::new(),
-        }
-    }
-
-    fn new_builtin(module: PyModuleName) -> Self {
-        Self {
-            id: TemplateLibraryId::Builtin { module },
-            enablement: LibraryEnablement::Enabled,
-            location: LibraryLocation::Unknown,
-            symbols: Vec::new(),
-        }
-    }
-
-    fn merge_symbol(&mut self, new_symbol: TemplateSymbol) {
-        if let Some(existing) = self
-            .symbols
-            .iter_mut()
-            .find(|sym| sym.kind == new_symbol.kind && sym.name == new_symbol.name)
-        {
-            if existing.doc.is_none() {
-                existing.doc = new_symbol.doc;
-            }
-
-            if new_symbol.definition.rank() > existing.definition.rank() {
-                existing.definition = new_symbol.definition;
-            }
-
-            return;
-        }
-
-        self.symbols.push(new_symbol);
-        self.symbols
-            .sort_by(|a, b| a.kind.cmp(&b.kind).then(a.name.cmp(&b.name)));
-        self.symbols
-            .dedup_by(|a, b| a.kind == b.kind && a.name == b.name);
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

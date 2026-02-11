@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 djls-conf = { workspace = true }
 djls-python = { workspace = true }
+djls-templates = { workspace = true }
 djls-workspace = { workspace = true }
 
 anyhow = { workspace = true }

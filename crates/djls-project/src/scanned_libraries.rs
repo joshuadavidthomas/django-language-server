@@ -6,9 +6,9 @@ use serde::Deserialize;
 use serde::Serialize;
 
 use crate::template_libraries::TemplateSymbolKind;
-use crate::template_names::LibraryName;
-use crate::template_names::PyModuleName;
-use crate::template_names::TemplateSymbolName;
+use djls_templates::names::LibraryName;
+use djls_templates::names::PyModuleName;
+use djls_templates::names::TemplateSymbolName;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ScannedTemplateSymbol {
