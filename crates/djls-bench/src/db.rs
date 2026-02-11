@@ -4,6 +4,7 @@ use std::sync::Arc;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_semantic::Db as SemanticDb;
+use djls_semantic::FilterAritySpecs;
 use djls_semantic::TagIndex;
 use djls_semantic::TagSpecs;
 use djls_source::Db as SourceDb;
@@ -16,6 +17,9 @@ use salsa::Setter;
 #[derive(Clone)]
 pub struct Db {
     sources: Arc<FxDashMap<Utf8PathBuf, String>>,
+    tag_specs: Arc<TagSpecs>,
+    template_libraries: Arc<djls_project::TemplateLibraries>,
+    filter_arity_specs: Arc<FilterAritySpecs>,
     storage: salsa::Storage<Self>,
 }
 
@@ -24,8 +28,29 @@ impl Db {
     pub fn new() -> Self {
         Self {
             sources: Arc::new(FxDashMap::default()),
+            tag_specs: Arc::new(TagSpecs::default()),
+            template_libraries: Arc::new(djls_project::TemplateLibraries::default()),
+            filter_arity_specs: Arc::new(FilterAritySpecs::new()),
             storage: salsa::Storage::default(),
         }
+    }
+
+    #[must_use]
+    pub fn with_tag_specs(mut self, specs: TagSpecs) -> Self {
+        self.tag_specs = Arc::new(specs);
+        self
+    }
+
+    #[must_use]
+    pub fn with_template_libraries(mut self, libs: djls_project::TemplateLibraries) -> Self {
+        self.template_libraries = Arc::new(libs);
+        self
+    }
+
+    #[must_use]
+    pub fn with_filter_arity_specs(mut self, specs: FilterAritySpecs) -> Self {
+        self.filter_arity_specs = Arc::new(specs);
+        self
     }
 
     pub fn file_with_contents(&mut self, path: Utf8PathBuf, contents: &str) -> File {
@@ -74,7 +99,7 @@ impl TemplateDb for Db {}
 #[salsa::db]
 impl SemanticDb for Db {
     fn tag_specs(&self) -> TagSpecs {
-        TagSpecs::default()
+        (*self.tag_specs).clone()
     }
 
     fn tag_index(&self) -> TagIndex<'_> {
@@ -90,10 +115,10 @@ impl SemanticDb for Db {
     }
 
     fn template_libraries(&self) -> djls_project::TemplateLibraries {
-        djls_project::TemplateLibraries::default()
+        (*self.template_libraries).clone()
     }
 
-    fn filter_arity_specs(&self) -> djls_semantic::FilterAritySpecs {
-        djls_semantic::FilterAritySpecs::new()
+    fn filter_arity_specs(&self) -> FilterAritySpecs {
+        (*self.filter_arity_specs).clone()
     }
 }

@@ -30,6 +30,17 @@ jobs:
         with:
           toolchain: stable
 
+      - name: Cache corpus
+        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+        with:
+          path: crates/djls-corpus/.corpus
+          key: ${{ runner.os }}-corpus-${{ hashFiles('crates/djls-corpus/manifest.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-corpus-
+
+      - name: Sync corpus
+        run: cargo run -q -p djls-corpus -- sync
+
       - run: cargo install cargo-codspeed --locked
 
       - name: Build the benchmark target(s)

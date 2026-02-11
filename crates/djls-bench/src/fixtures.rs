@@ -19,41 +19,92 @@ impl fmt::Display for TemplateFixture {
     }
 }
 
+#[derive(Clone)]
+pub struct PythonFixture {
+    pub label: String,
+    pub path: Utf8PathBuf,
+    pub source: String,
+}
+
+impl fmt::Display for PythonFixture {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.label)
+    }
+}
+
 pub fn template_fixtures() -> &'static [TemplateFixture] {
     static FIXTURES: OnceLock<Vec<TemplateFixture>> = OnceLock::new();
     FIXTURES.get_or_init(load_template_fixtures).as_slice()
 }
 
+pub fn python_fixtures() -> &'static [PythonFixture] {
+    static FIXTURES: OnceLock<Vec<PythonFixture>> = OnceLock::new();
+    FIXTURES.get_or_init(load_python_fixtures).as_slice()
+}
+
+pub(crate) fn crate_root() -> Utf8PathBuf {
+    Utf8PathBuf::from(env!("CARGO_WORKSPACE_DIR")).join("crates/djls-bench")
+}
+
 fn load_template_fixtures() -> Vec<TemplateFixture> {
-    let crate_root = option_env!("CARGO_MANIFEST_DIR")
-        .and_then(|value| if value.is_empty() { None } else { Some(value) })
-        .map_or_else(
-            || panic!("CARGO_MANIFEST_DIR must be set for benchmarks"),
-            Utf8PathBuf::from,
-        );
-    let template_root = crate_root.join("fixtures");
+    let root = crate_root().join("fixtures").join("django");
 
     let mut fixtures = Vec::new();
-    collect_template_files(
-        template_root.as_path(),
-        template_root.as_path(),
+    collect_files(
+        root.as_path(),
+        root.as_path(),
+        &["html", "htm", "txt", "xml"],
         &mut fixtures,
     )
     .unwrap_or_else(|err| panic!("failed to load template fixtures: {err}"));
 
-    fixtures.sort_by(|a, b| a.label.cmp(&b.label));
+    fixtures.sort_by(|a, b| a.0.cmp(&b.0));
+
+    let fixtures = fixtures
+        .into_iter()
+        .map(|(label, path, source)| TemplateFixture {
+            label,
+            path,
+            source,
+        })
+        .collect::<Vec<_>>();
+
+    assert!(!fixtures.is_empty(), "no templates discovered under {root}");
+
+    fixtures
+}
+
+fn load_python_fixtures() -> Vec<PythonFixture> {
+    let root = crate_root().join("fixtures").join("python");
+
+    let mut fixtures = Vec::new();
+    collect_files(root.as_path(), root.as_path(), &["py"], &mut fixtures)
+        .unwrap_or_else(|err| panic!("failed to load Python fixtures: {err}"));
+
+    fixtures.sort_by(|a, b| a.0.cmp(&b.0));
+
+    let fixtures = fixtures
+        .into_iter()
+        .map(|(label, path, source)| PythonFixture {
+            label,
+            path,
+            source,
+        })
+        .collect::<Vec<_>>();
+
     assert!(
         !fixtures.is_empty(),
-        "no templates discovered under {template_root}",
+        "no Python files discovered under {root}"
     );
 
     fixtures
 }
 
-fn collect_template_files(
+fn collect_files(
     root: &Utf8Path,
     dir: &Utf8Path,
-    fixtures: &mut Vec<TemplateFixture>,
+    extensions: &[&str],
+    fixtures: &mut Vec<(String, Utf8PathBuf, String)>,
 ) -> io::Result<()> {
     for entry in fs::read_dir(dir.as_std_path())? {
         let entry = entry?;
@@ -67,12 +118,14 @@ fn collect_template_files(
         })?;
 
         if file_type.is_dir() {
-            collect_template_files(root, utf8_path.as_path(), fixtures)?;
+            collect_files(root, utf8_path.as_path(), extensions, fixtures)?;
             continue;
         }
 
         if file_type.is_file()
-            && matches!(utf8_path.extension(), Some("html" | "htm" | "txt" | "xml"))
+            && utf8_path
+                .extension()
+                .is_some_and(|ext| extensions.contains(&ext))
         {
             let source = fs::read_to_string(utf8_path.as_std_path())?;
             let relative = utf8_path.strip_prefix(root).map_err(|err| {
@@ -82,11 +135,7 @@ fn collect_template_files(
                 )
             })?;
 
-            fixtures.push(TemplateFixture {
-                label: relative.to_string(),
-                path: utf8_path,
-                source,
-            });
+            fixtures.push((relative.to_string(), utf8_path, source));
         }
     }
 
