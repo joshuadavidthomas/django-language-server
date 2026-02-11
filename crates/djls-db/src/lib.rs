@@ -8,6 +8,7 @@
 mod db;
 mod inspector;
 mod queries;
+mod send_check;
 mod settings;
 pub mod walk;
 

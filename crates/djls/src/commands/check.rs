@@ -64,17 +64,41 @@ impl Command for Check {
             return Ok(Exit::success());
         }
 
+        // DjangoDatabase is Send + !Sync (salsa::Storage has RefCell).
+        // Clone the db per rayon task (each clone gets its own Salsa cache).
+        // Collect raw diagnostic data in parallel, render on the main thread
+        // after — the renderer is not Send and doesn't need to be.
+        let raw_results: Vec<FileCheckResult> = {
+            let db = db;
+            let (tx, rx) = std::sync::mpsc::channel();
+
+            rayon::scope(move |scope| {
+                for path in files {
+                    let db = db.clone();
+                    let tx = tx.clone();
+                    scope.spawn(move |_| {
+                        let result = check_file(&db, &path);
+                        if result.has_diagnostics() {
+                            let _ = tx.send(result);
+                        }
+                    });
+                }
+            });
+
+            rx.into_iter().collect()
+        };
+
         let mut error_count: usize = 0;
         let mut file_count: usize = 0;
 
-        for path in &files {
-            let file_diagnostics = check_file(&db, path, &config, &fmt);
-            if !file_diagnostics.is_empty() {
+        for result in &raw_results {
+            let rendered = result.render(&config, &fmt);
+            if !rendered.is_empty() {
                 file_count += 1;
-                for output in &file_diagnostics {
+                for output in &rendered {
                     println!("{output}\n");
                 }
-                error_count += file_diagnostics.len();
+                error_count += rendered.len();
             }
         }
 
@@ -134,62 +158,92 @@ fn check_stdin(
     let fs: Arc<dyn djls_workspace::FileSystem> = Arc::new(mem_fs);
     let db = DjangoDatabase::new(fs, settings, Some(project_root));
 
-    let diagnostics = check_file(&db, &stdin_path, config, fmt);
-    if diagnostics.is_empty() {
+    let result = check_file(&db, &stdin_path);
+    let rendered = result.render(config, fmt);
+    if rendered.is_empty() {
         Ok(Exit::success())
     } else {
-        for output in &diagnostics {
+        for output in &rendered {
             println!("{output}\n");
         }
-        let count = diagnostics.len();
+        let count = rendered.len();
         let word = if count == 1 { "error" } else { "errors" };
         Ok(Exit::error().with_message(format!("Found {count} {word}.")))
     }
 }
 
-fn check_file(
-    db: &DjangoDatabase,
-    path: &Utf8Path,
-    config: &djls_conf::DiagnosticsConfig,
-    fmt: &DiagnosticRenderer,
-) -> Vec<String> {
+/// Raw diagnostic data collected for a single file.
+///
+/// Produced in parallel by rayon tasks (only Salsa queries, no rendering).
+/// Rendered on the main thread after the parallel phase completes.
+struct FileCheckResult {
+    path: Utf8PathBuf,
+    source: String,
+    template_errors: Vec<TemplateError>,
+    validation_errors: Vec<ValidationError>,
+}
+
+impl FileCheckResult {
+    fn has_diagnostics(&self) -> bool {
+        !self.template_errors.is_empty() || !self.validation_errors.is_empty()
+    }
+
+    fn render(
+        &self,
+        config: &djls_conf::DiagnosticsConfig,
+        fmt: &DiagnosticRenderer,
+    ) -> Vec<String> {
+        let mut results = Vec::new();
+        let path = self.path.as_str();
+        let source = self.source.as_str();
+
+        for error in &self.template_errors {
+            if let Some(output) = render_template_error(source, path, error, config, fmt) {
+                results.push(output);
+            }
+        }
+
+        for error in &self.validation_errors {
+            if let Some(output) = render_validation_error(source, path, error, config, fmt) {
+                results.push(output);
+            }
+        }
+
+        results
+    }
+}
+
+fn check_file(db: &DjangoDatabase, path: &Utf8Path) -> FileCheckResult {
     let file = db.get_or_create_file(path);
-    let source_text = file.source(db);
-    let source = source_text.as_str();
+    let source = file.source(db).to_string();
 
     let nodelist = djls_templates::parse_template(db, file);
 
-    let mut results = Vec::new();
+    let template_errors: Vec<TemplateError> =
+        djls_templates::parse_template::accumulated::<TemplateErrorAccumulator>(db, file)
+            .iter()
+            .map(|acc| acc.0.clone())
+            .collect();
 
-    let template_errors =
-        djls_templates::parse_template::accumulated::<TemplateErrorAccumulator>(db, file);
-    for error_acc in &template_errors {
-        if let Some(output) =
-            render_template_error(source, path.as_str(), &error_acc.0, config, fmt)
-        {
-            results.push(output);
-        }
-    }
+    let mut validation_errors: Vec<ValidationError> = Vec::new();
 
     if let Some(nodelist) = nodelist {
         djls_semantic::validate_nodelist(db, nodelist);
 
-        let validation_errors = djls_semantic::validate_nodelist::accumulated::<
+        let accumulated = djls_semantic::validate_nodelist::accumulated::<
             ValidationErrorAccumulator,
         >(db, nodelist);
 
-        let mut errors: Vec<&ValidationError> =
-            validation_errors.iter().map(|acc| &acc.0).collect();
-        errors.sort_by_key(|e| e.primary_span().map_or(0, Span::start));
-
-        for err in errors {
-            if let Some(output) = render_validation_error(source, path.as_str(), err, config, fmt) {
-                results.push(output);
-            }
-        }
+        validation_errors = accumulated.iter().map(|acc| acc.0.clone()).collect();
+        validation_errors.sort_by_key(|e| e.primary_span().map_or(0, Span::start));
     }
 
-    results
+    FileCheckResult {
+        path: path.to_owned(),
+        source,
+        template_errors,
+        validation_errors,
+    }
 }
 
 fn render_template_error(

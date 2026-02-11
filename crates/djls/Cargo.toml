@@ -17,6 +17,7 @@ djls-workspace = { workspace = true }
 anyhow = { workspace = true }
 camino = { workspace = true }
 clap = { workspace = true }
+rayon = { workspace = true }
 serde_json = { workspace = true }
 
 [dev-dependencies]

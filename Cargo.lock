@@ -662,6 +662,7 @@ dependencies = [
  "djls-source",
  "djls-templates",
  "djls-workspace",
+ "rayon",
  "serde_json",
  "tempfile",
 ]
