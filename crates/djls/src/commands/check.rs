@@ -72,7 +72,7 @@ impl Command for Check {
             if !file_diagnostics.is_empty() {
                 file_count += 1;
                 for output in &file_diagnostics {
-                    println!("{output}");
+                    println!("{output}\n");
                 }
                 error_count += file_diagnostics.len();
             }
@@ -139,7 +139,7 @@ fn check_stdin(
         Ok(Exit::success())
     } else {
         for output in &diagnostics {
-            println!("{output}");
+            println!("{output}\n");
         }
         let count = diagnostics.len();
         let word = if count == 1 { "error" } else { "errors" };
