@@ -29,7 +29,8 @@ just corpus clean                # Remove all synced corpus data
 - **Module convention**: Uses `folder.rs` NOT `folder/mod.rs` (e.g. `templatetags.rs` + `templatetags/specs.rs`)
 
 ## Project Structure
-- `crates/djls/` - Main CLI binary and PyO3 interface
+- `crates/djls/` - Main CLI binary
+- `crates/djls-db/` - Concrete Salsa database (`DjangoDatabase`), queries, settings, inspector refresh
 - `crates/djls-server/` - LSP server implementation
 - `crates/djls-templates/` - Django template parser
 - `crates/djls-workspace/` - Workspace/document management
@@ -55,7 +56,7 @@ just corpus clean                # Remove all synced corpus data
 - **Insta snapshots**: After changing serialized types, run `cargo insta test --accept --unreferenced delete` to update snapshots and clean orphans.
 - **Environment layout**: Environment scan functions (`scan_environment`, `scan_environment_with_symbols`) live in `djls-project/src/scanning.rs`; environment types (`EnvironmentInventory`, `EnvironmentLibrary`, `EnvironmentSymbol`) in `djls-python/src/environment/types.rs`.
 - **`ValidationError` is exhaustive**: When adding/removing variants, update `errors.rs`, `djls-ide/src/diagnostics.rs` (S-code mapping), and test helpers. Grep: `grep -rn "ValidationError" crates/ --include="*.rs"`.
-- **`SemanticDb` trait**: When adding methods, update impls in `djls-server/src/db.rs` and `djls-bench/src/db.rs`.
+- **`SemanticDb` trait**: When adding methods, update impls in `djls-db/src/db.rs` and `djls-bench/src/db.rs`.
 - **`crate::Db` in `djls-semantic`**: When adding methods, update ALL test databases (~10 files). E0046 if you miss one. Grep: `grep -rn "impl crate::Db" crates/djls-semantic/ --include="*.rs"`.
 
 ## Ruff AST API (djls-extraction)

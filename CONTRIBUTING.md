@@ -13,9 +13,14 @@ We adhere to Django's Code of Conduct in all interactions and expect all contrib
 The project is written in Rust with IPC for Python communication. Here is a high-level overview of the project and the various crates:
 
 - CLI entrypoint ([`crates/djls/`](./crates/djls/))
+- Concrete Salsa database, queries, and settings ([`crates/djls-db/`](./crates/djls-db/))
 - Configuration management ([`crates/djls-conf/`](./crates/djls-conf/))
+- Completions, diagnostics, and snippets ([`crates/djls-ide/`](./crates/djls-ide/))
 - Django and Python project introspection ([`crates/djls-project/`](./crates/djls-project/))
+- Python AST analysis via Ruff parser ([`crates/djls-python/`](./crates/djls-python/))
+- Semantic analysis and validation ([`crates/djls-semantic/`](./crates/djls-semantic/))
 - LSP server implementation ([`crates/djls-server/`](./crates/djls-server/))
+- Source DB, File type, and path utilities ([`crates/djls-source/`](./crates/djls-source/))
 - Template parsing ([`crates/djls-templates/`](./crates/djls-templates/))
 - Workspace and document management ([`crates/djls-workspace/`](./crates/djls-workspace/))
 
