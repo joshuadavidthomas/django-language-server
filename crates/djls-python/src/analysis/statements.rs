@@ -1,56 +1,298 @@
-//! Expression evaluation and statement processing for the dataflow analyzer.
+use ruff_python_ast::Expr;
+use ruff_python_ast::ExprBoolOp;
+use ruff_python_ast::ExprName;
+use ruff_python_ast::ExprTuple;
+use ruff_python_ast::Stmt;
+use ruff_python_ast::StmtAssign;
 
-mod effects;
-mod expressions;
-mod match_arms;
-mod statements;
+use super::expressions::eval_expr;
+use super::expressions::eval_expr_with_ctx;
+use super::match_arms::extract_match_constraints;
+use super::mutations::apply_pop_mutation;
+use super::mutations::try_extract_option_loop;
+use super::mutations::try_extract_pop_call;
+use super::AnalysisResult;
+use super::CallContext;
+use crate::analysis::state::AbstractValue;
+use crate::analysis::state::Env;
+use crate::types::SplitPosition;
 
-use djls_source::File;
-pub use expressions::eval_expr;
-pub use statements::process_statements;
-
-use crate::dataflow::constraints::ConstraintSet;
-use crate::types::KnownOptions;
-
-/// Call-resolution context for the dataflow analysis.
-///
-/// Carries the immutable context needed to resolve helper function calls
-/// (module functions list and Salsa database/file references). Does not
-/// accumulate analysis results — those are returned via `AnalysisResult`.
-///
-/// When `db` and `file` are set (running under Salsa), `resolve_call`
-/// delegates to `analyze_helper` — a Salsa tracked function with cycle
-/// recovery and automatic memoization. When `None` (standalone extraction),
-/// helper calls return `Unknown`.
-pub struct CallContext<'a> {
-    /// Salsa database, populated when running under `extract_module`.
-    /// Used by `resolve_call` to call `analyze_helper` via Salsa.
-    pub db: Option<&'a dyn djls_source::Db>,
-    /// Source file being analyzed, used to construct `HelperCall` interned keys.
-    pub file: Option<File>,
+/// Process a list of statements, updating the environment and returning
+/// accumulated analysis results.
+pub fn process_statements(
+    stmts: &[Stmt],
+    env: &mut Env,
+    ctx: &mut CallContext<'_>,
+) -> AnalysisResult {
+    let mut combined = AnalysisResult::default();
+    for stmt in stmts {
+        let result = process_statement(stmt, env, ctx);
+        combined.extend(result);
+    }
+    combined
 }
 
-/// Results accumulated during statement processing.
-///
-/// Returned from `process_statements` instead of being stored in a context.
-/// This separates the accumulation of analysis results from the call-resolution
-/// context that is threaded through the analysis.
-#[derive(Default)]
-pub struct AnalysisResult {
-    pub constraints: ConstraintSet,
-    pub known_options: Option<KnownOptions>,
+fn process_statement(stmt: &Stmt, env: &mut Env, ctx: &mut CallContext<'_>) -> AnalysisResult {
+    let mut result = AnalysisResult::default();
+
+    match stmt {
+        Stmt::Assign(StmtAssign { targets, value, .. }) => {
+            // Check for token_kwargs side effect: marks the bits arg as Unknown
+            if let Some(var_name) = try_extract_token_kwargs_call(value) {
+                env.set(var_name, AbstractValue::Unknown);
+            }
+
+            // Check if RHS is a pop call that needs side effects
+            if let Some(pop_info) = try_extract_pop_call(value) {
+                let rhs = eval_expr_with_ctx(value, env, Some(ctx));
+                apply_pop_mutation(env, &pop_info);
+                if targets.len() == 1 {
+                    process_assignment_target(&targets[0], &rhs, env);
+                }
+            } else {
+                let rhs = eval_expr_with_ctx(value, env, Some(ctx));
+                if targets.len() == 1 {
+                    process_assignment_target(&targets[0], &rhs, env);
+                }
+            }
+        }
+
+        Stmt::If(stmt_if) => {
+            result
+                .constraints
+                .extend(crate::analysis::rules::extract_from_if_inline(
+                    stmt_if, env,
+                ));
+
+            // Collect body results separately so we can discard conditional
+            // keywords without reaching into ctx.constraints.
+            let mut body_result = process_statements(&stmt_if.body, env, ctx);
+
+            // When an if-condition checks a specific element value
+            // (e.g. `if args[-3] == "as"`), keyword constraints extracted
+            // from its body are conditional on that value and can't be
+            // expressed in our flat model. Discard them.
+            // Length guards (`if len(bits) >= 3`) are fine — the keyword
+            // only applies when the position exists, which the evaluator
+            // handles via bounds checking.
+            if condition_involves_element_check(&stmt_if.test, env) {
+                body_result.constraints.required_keywords.clear();
+            }
+            result.constraints.extend(body_result.constraints);
+            if body_result.known_options.is_some() {
+                result.known_options = body_result.known_options;
+            }
+
+            for clause in &stmt_if.elif_else_clauses {
+                let mut clause_result = process_statements(&clause.body, env, ctx);
+                if clause
+                    .test
+                    .as_ref()
+                    .is_some_and(|t| condition_involves_element_check(t, env))
+                {
+                    clause_result.constraints.required_keywords.clear();
+                }
+                result.constraints.extend(clause_result.constraints);
+                if clause_result.known_options.is_some() {
+                    result.known_options = clause_result.known_options;
+                }
+            }
+        }
+
+        Stmt::For(stmt_for) => {
+            result.extend(process_statements(&stmt_for.body, env, ctx));
+            result.extend(process_statements(&stmt_for.orelse, env, ctx));
+        }
+
+        Stmt::Try(stmt_try) => {
+            result.extend(process_statements(&stmt_try.body, env, ctx));
+            for handler in &stmt_try.handlers {
+                let ruff_python_ast::ExceptHandler::ExceptHandler(h) = handler;
+                result.extend(process_statements(&h.body, env, ctx));
+            }
+            result.extend(process_statements(&stmt_try.orelse, env, ctx));
+            result.extend(process_statements(&stmt_try.finalbody, env, ctx));
+        }
+
+        Stmt::With(stmt_with) => {
+            result.extend(process_statements(&stmt_with.body, env, ctx));
+        }
+
+        // Expression statement: handle side effects like bits.pop(0)
+        Stmt::Expr(stmt_expr) => {
+            if let Some(pop_info) = try_extract_pop_call(&stmt_expr.value) {
+                apply_pop_mutation(env, &pop_info);
+            }
+            if let Some(var_name) = try_extract_token_kwargs_call(&stmt_expr.value) {
+                env.set(var_name, AbstractValue::Unknown);
+            }
+        }
+
+        Stmt::While(while_stmt) => {
+            if let Some(opts) = try_extract_option_loop(while_stmt, env) {
+                // Option loop fully analyzed by extraction; skip body processing
+                // to avoid false positives (loop variables like `option` would
+                // appear as positional args).
+                result.known_options = Some(opts);
+            } else {
+                // Non-option while loop: collect body results for assignments
+                // and side effects (e.g. pop mutations, nested constraints).
+                result.extend(process_statements(&while_stmt.body, env, ctx));
+            }
+        }
+
+        Stmt::Match(match_stmt) => {
+            // Extract constraints at the point in code where the match appears
+            if let Some(match_constraints) = extract_match_constraints(match_stmt, env) {
+                result.constraints.extend(match_constraints);
+            }
+            // Process match bodies for env updates, capturing results
+            for case in &match_stmt.cases {
+                result.extend(process_statements(&case.body, env, ctx));
+            }
+        }
+
+        _ => {}
+    }
+
+    result
 }
 
-impl AnalysisResult {
-    /// Merge another result into this one.
-    ///
-    /// Constraints are combined additively. For `known_options`, the other
-    /// result's value wins if present (last write wins — matches the sequential
-    /// processing order of statements).
-    pub fn extend(&mut self, other: AnalysisResult) {
-        self.constraints.extend(other.constraints);
-        if other.known_options.is_some() {
-            self.known_options = other.known_options;
+/// Try to detect `token_kwargs(bits, parser)` calls and return the first
+/// argument name so we can mark it as Unknown (`token_kwargs` mutates bits).
+fn try_extract_token_kwargs_call(expr: &Expr) -> Option<String> {
+    let Expr::Call(call) = expr else {
+        return None;
+    };
+    let Expr::Name(ExprName { id, .. }) = call.func.as_ref() else {
+        return None;
+    };
+    if id.as_str() != "token_kwargs" {
+        return None;
+    }
+    // First argument is the bits variable that gets mutated
+    if let Some(Expr::Name(ExprName { id: arg_name, .. })) = call.arguments.args.first() {
+        return Some(arg_name.to_string());
+    }
+    None
+}
+
+/// Check if a condition expression involves comparing a `SplitElement` value.
+///
+/// Used to detect guards like `if args[-3] == "as"` where nested keyword
+/// constraints would be conditional on the element's value.
+fn condition_involves_element_check(expr: &Expr, env: &Env) -> bool {
+    match expr {
+        Expr::Compare(compare) => {
+            let left = eval_expr(&compare.left, env);
+            if matches!(left, AbstractValue::SplitElement { .. }) {
+                return true;
+            }
+            compare
+                .comparators
+                .iter()
+                .any(|c| matches!(eval_expr(c, env), AbstractValue::SplitElement { .. }))
+        }
+        Expr::BoolOp(ExprBoolOp { values, .. }) => values
+            .iter()
+            .any(|v| condition_involves_element_check(v, env)),
+        Expr::UnaryOp(unary) => condition_involves_element_check(&unary.operand, env),
+        _ => false,
+    }
+}
+
+/// Process an assignment target with the evaluated RHS value.
+fn process_assignment_target(target: &Expr, value: &AbstractValue, env: &mut Env) {
+    match target {
+        Expr::Name(ExprName { id, .. }) => {
+            env.set(id.to_string(), value.clone());
+        }
+        Expr::Tuple(ExprTuple { elts, .. }) => {
+            process_tuple_unpack(elts, value, env);
+        }
+        _ => {}
+    }
+}
+
+/// Handle tuple unpacking assignment.
+fn process_tuple_unpack(targets: &[Expr], value: &AbstractValue, env: &mut Env) {
+    match value {
+        AbstractValue::Tuple(elements) => {
+            for (i, target) in targets.iter().enumerate() {
+                let elem = elements.get(i).cloned().unwrap_or(AbstractValue::Unknown);
+                if let Expr::Name(ExprName { id, .. }) = target {
+                    env.set(id.to_string(), elem);
+                }
+            }
+        }
+
+        AbstractValue::SplitResult(split) => {
+            let split = *split;
+
+            // Find starred target index
+            let star_index = targets.iter().position(|t| matches!(t, Expr::Starred(_)));
+
+            if let Some(si) = star_index {
+                // Elements before the star
+                for (i, target) in targets[..si].iter().enumerate() {
+                    if let Expr::Name(ExprName { id, .. }) = target {
+                        env.set(
+                            id.to_string(),
+                            AbstractValue::SplitElement {
+                                index: split.resolve_index(i),
+                            },
+                        );
+                    }
+                }
+
+                // Elements after the star (indexed from end)
+                let after_star = targets.len() - si - 1;
+
+                // The star target captures everything between pre-star and post-star elements.
+                // Its back_offset must include the trailing targets it doesn't contain.
+                if let Expr::Starred(starred) = &targets[si] {
+                    if let Expr::Name(ExprName { id, .. }) = starred.value.as_ref() {
+                        // Start from the current split sliced past the pre-star targets,
+                        // which preserves the original back_offset.
+                        let mut star_split = split.after_slice_from(si);
+                        // Add trailing targets as additional back pops
+                        for _ in 0..after_star {
+                            star_split = star_split.after_pop_back();
+                        }
+                        env.set(id.to_string(), AbstractValue::SplitResult(star_split));
+                    }
+                }
+                for (j, target) in targets[si + 1..].iter().enumerate() {
+                    if let Expr::Name(ExprName { id, .. }) = target {
+                        env.set(
+                            id.to_string(),
+                            AbstractValue::SplitElement {
+                                index: SplitPosition::Backward(after_star - j),
+                            },
+                        );
+                    }
+                }
+            } else {
+                // No star: each target gets a SplitElement at its position
+                for (i, target) in targets.iter().enumerate() {
+                    if let Expr::Name(ExprName { id, .. }) = target {
+                        env.set(
+                            id.to_string(),
+                            AbstractValue::SplitElement {
+                                index: split.resolve_index(i),
+                            },
+                        );
+                    }
+                }
+            }
+        }
+
+        _ => {
+            for target in targets {
+                if let Expr::Name(ExprName { id, .. }) = target {
+                    env.set(id.to_string(), AbstractValue::Unknown);
+                }
+            }
         }
     }
 }
@@ -62,10 +304,10 @@ mod tests {
     use ruff_python_parser::parse_module;
 
     use super::*;
-    use crate::dataflow::domain::AbstractValue;
-    use crate::dataflow::domain::Env;
-    use crate::dataflow::domain::TokenSplit;
-    use crate::test_helpers::django_function;
+    use crate::analysis::state::AbstractValue;
+    use crate::analysis::state::Env;
+    use crate::analysis::state::TokenSplit;
+    use crate::testing::django_function;
     use crate::types::SplitPosition;
 
     fn parse_function(source: &str) -> StmtFunctionDef {
@@ -600,11 +842,11 @@ def do_tag(parser, token):
                 }
             })
             .expect("no function found");
-        crate::dataflow::analyze_compile_function(&func)
+        crate::analysis::analyze_compile_function(&func)
     }
 
     fn analyze_func(func: &StmtFunctionDef) -> crate::types::TagRule {
-        crate::dataflow::analyze_compile_function(func)
+        crate::analysis::analyze_compile_function(func)
     }
 
     // Fabricated: simple option loop without duplicate check. No corpus

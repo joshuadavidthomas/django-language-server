@@ -1,29 +1,78 @@
 pub(crate) mod calls;
-pub(crate) mod constraints;
-pub(crate) mod domain;
-pub(crate) mod eval;
+pub(crate) mod state;
+pub(crate) mod expressions;
+pub(crate) mod match_arms;
+pub(crate) mod mutations;
+pub(crate) mod rules;
+pub(crate) mod statements;
 
 pub(crate) use calls::extract_return_value;
 pub use calls::AbstractValueKey;
+use djls_source::File;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtFunctionDef;
 
+use crate::analysis::rules::ConstraintSet;
 use crate::types::ArgumentCountConstraint;
 use crate::types::AsVar;
 use crate::types::ExtractedArg;
 use crate::types::ExtractedArgKind;
+use crate::types::KnownOptions;
 use crate::types::RequiredKeyword;
 use crate::types::SplitPosition;
 use crate::types::TagRule;
+
+/// Call-resolution context for the analysis.
+///
+/// Carries the immutable context needed to resolve helper function calls
+/// (module functions list and Salsa database/file references). Does not
+/// accumulate analysis results — those are returned via `AnalysisResult`.
+///
+/// When `db` and `file` are set (running under Salsa), `resolve_call`
+/// delegates to `analyze_helper` — a Salsa tracked function with cycle
+/// recovery and automatic memoization. When `None` (standalone extraction),
+/// helper calls return `Unknown`.
+pub struct CallContext<'a> {
+    /// Salsa database, populated when running under `extract_module`.
+    /// Used by `resolve_call` to call `analyze_helper` via Salsa.
+    pub db: Option<&'a dyn djls_source::Db>,
+    /// Source file being analyzed, used to construct `HelperCall` interned keys.
+    pub file: Option<File>,
+}
+
+/// Results accumulated during statement processing.
+///
+/// Returned from `statements::process_statements` instead of being stored in a context.
+/// This separates the accumulation of analysis results from the call-resolution
+/// context that is threaded through the analysis.
+#[derive(Default)]
+pub struct AnalysisResult {
+    pub constraints: ConstraintSet,
+    pub known_options: Option<KnownOptions>,
+}
+
+impl AnalysisResult {
+    /// Merge another result into this one.
+    ///
+    /// Constraints are combined additively. For `known_options`, the other
+    /// result's value wins if present (last write wins — matches the sequential
+    /// processing order of statements).
+    pub fn extend(&mut self, other: AnalysisResult) {
+        self.constraints.extend(other.constraints);
+        if other.known_options.is_some() {
+            self.known_options = other.known_options;
+        }
+    }
+}
 
 /// Validated representation of a Django template tag compile function.
 ///
 /// Ensures the function has at least two positional parameters (parser and token)
 /// before analysis begins. Use `from_ast` to construct from a `StmtFunctionDef`.
-pub struct CompileFunction<'a> {
-    pub parser_param: &'a str,
-    pub token_param: &'a str,
-    pub body: &'a [Stmt],
+struct CompileFunction<'a> {
+    parser_param: &'a str,
+    token_param: &'a str,
+    body: &'a [Stmt],
 }
 
 impl<'a> CompileFunction<'a> {
@@ -31,7 +80,7 @@ impl<'a> CompileFunction<'a> {
     ///
     /// Returns `None` if the function has fewer than 2 positional parameters,
     /// since a valid Django compile function requires at least `parser` and `token`.
-    pub fn from_ast(func: &'a StmtFunctionDef) -> Option<Self> {
+    fn from_ast(func: &'a StmtFunctionDef) -> Option<Self> {
         let params = &func.parameters;
         let parser_param = params.args.first()?.parameter.name.as_str();
         let token_param = params.args.get(1)?.parameter.name.as_str();
@@ -43,9 +92,9 @@ impl<'a> CompileFunction<'a> {
     }
 }
 
-/// Analyze a compile function using dataflow analysis to extract argument constraints.
+/// Analyze a compile function to extract argument constraints.
 ///
-/// This is the main entry point for the dataflow analyzer. It tracks `token`
+/// This is the main entry point for the analyzer. It tracks `token`
 /// and `parser` parameters through the function body, extracting constraints
 /// from `raise TemplateSyntaxError(...)` guards.
 ///
@@ -53,19 +102,19 @@ impl<'a> CompileFunction<'a> {
 /// database and file context (see [`eval::CallContext`]). In standalone mode
 /// (no database), helper calls evaluate to `Unknown`.
 #[must_use]
-pub fn analyze_compile_function(func: &StmtFunctionDef) -> TagRule {
+pub(crate) fn analyze_compile_function(func: &StmtFunctionDef) -> TagRule {
     let Some(compile_fn) = CompileFunction::from_ast(func) else {
         return TagRule::default();
     };
 
     let mut env =
-        domain::Env::for_compile_function(compile_fn.parser_param, compile_fn.token_param);
-    let mut ctx = eval::CallContext {
+        state::Env::for_compile_function(compile_fn.parser_param, compile_fn.token_param);
+    let mut ctx = CallContext {
         db: None,
         file: None,
     };
 
-    let result = eval::process_statements(compile_fn.body, &mut env, &mut ctx);
+    let result = statements::process_statements(compile_fn.body, &mut env, &mut ctx);
 
     let extracted_args = extract_arg_names(
         &env,
@@ -83,7 +132,7 @@ pub fn analyze_compile_function(func: &StmtFunctionDef) -> TagRule {
     }
 }
 
-/// Extract argument names from the environment after dataflow analysis.
+/// Extract argument names from the environment after analysis.
 ///
 /// Scans env bindings for `SplitElement` values to reconstruct positional
 /// argument names. Combines with `RequiredKeyword` positions for literal args.
@@ -97,7 +146,7 @@ pub fn analyze_compile_function(func: &StmtFunctionDef) -> TagRule {
 /// is handled by skipping body processing in the While arm of
 /// `process_statement`, so the loop variable never enters the env.
 fn extract_arg_names(
-    env: &domain::Env,
+    env: &state::Env,
     required_keywords: &[RequiredKeyword],
     arg_constraints: &[ArgumentCountConstraint],
 ) -> Vec<ExtractedArg> {
@@ -105,7 +154,7 @@ fn extract_arg_names(
     let mut named_positions: Vec<(usize, String)> = Vec::new();
 
     for (name, value) in env.iter() {
-        if let domain::AbstractValue::SplitElement {
+        if let state::AbstractValue::SplitElement {
             index: crate::types::SplitPosition::Forward(pos),
         } = value
         {

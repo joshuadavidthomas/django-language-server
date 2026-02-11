@@ -1,30 +1,24 @@
 mod types;
 
 #[cfg(test)]
-mod test_helpers;
+mod testing;
 
+mod analysis;
 mod blocks;
-mod dataflow;
 mod ext;
 mod filters;
-mod parse;
 mod registry;
 mod signature;
 
-pub use blocks::extract_block_spec;
-pub use dataflow::analyze_compile_function;
-pub use filters::extract_filter_arity;
-pub use parse::analyze_helper;
-pub use parse::extract_module;
-pub use parse::parse_python_module;
-pub use parse::HelperCall;
-pub use parse::ParsedPythonModule;
-pub use registry::collect_registrations_from_body;
+use djls_source::File;
+use djls_source::FileKind;
 pub use registry::collect_registrations_from_source;
-pub use registry::ExtractionOutput;
 pub use registry::RegistrationInfo;
 pub use registry::RegistrationKind;
-pub use signature::extract_parse_bits_rule;
+use ruff_python_ast::statement_visitor::walk_stmt;
+use ruff_python_ast::statement_visitor::StatementVisitor;
+use ruff_python_ast::Stmt;
+use ruff_python_ast::StmtFunctionDef;
 pub use types::ArgumentCountConstraint;
 pub use types::AsVar;
 pub use types::BlockSpec;
@@ -39,6 +33,155 @@ pub use types::SplitPosition;
 pub use types::SymbolKey;
 pub use types::SymbolKind;
 pub use types::TagRule;
+
+use crate::analysis::state::AbstractValue;
+use crate::analysis::state::Env;
+use crate::analysis::statements::process_statements;
+use crate::analysis::CallContext;
+use crate::analysis::extract_return_value;
+use crate::analysis::AbstractValueKey;
+use crate::registry::ExtractionOutput;
+
+/// Parsed Python module AST, cached by Salsa.
+///
+/// Wraps Ruff's statement list in a tracked struct. The parsed AST is
+/// invalidated when the source file changes.
+#[salsa::tracked]
+pub struct ParsedPythonModule<'db> {
+    #[tracked]
+    #[returns(ref)]
+    pub body: Vec<Stmt>,
+}
+
+/// Interned key for a helper function call.
+///
+/// Salsa uses interning to deduplicate identical helper calls: same file,
+/// same callee name, same abstract argument values produce the same
+/// `HelperCall` identity, enabling Salsa's built-in memoization.
+#[salsa::interned]
+pub struct HelperCall<'db> {
+    pub file: File,
+    #[returns(ref)]
+    pub callee_name: String,
+    #[returns(ref)]
+    pub args: Vec<AbstractValueKey>,
+}
+
+/// Parse a Python source file into a cached AST.
+///
+/// Returns `None` for non-Python files or files that fail to parse.
+/// The parsed AST is cached by Salsa and invalidated when
+/// `file.source(db)` changes.
+#[salsa::tracked]
+pub fn parse_python_module(db: &dyn djls_source::Db, file: File) -> Option<ParsedPythonModule<'_>> {
+    let source = file.source(db);
+    if *source.kind() != FileKind::Python {
+        return None;
+    }
+
+    let parsed = ruff_python_parser::parse_module(source.as_ref());
+    let module = match parsed {
+        Ok(parsed) => parsed.into_syntax(),
+        Err(_) => return None,
+    };
+
+    Some(ParsedPythonModule::new(db, module.body))
+}
+
+/// Analyze a helper function call and return its abstract return value.
+///
+/// This is a Salsa tracked function with cycle recovery: if A calls B
+/// which calls A (directly or transitively), the cycle resolves to
+/// `AbstractValue::Unknown` instead of panicking.
+///
+/// Looks up the callee by name in the parsed module's AST, binds
+/// parameters to the abstract argument values from `HelperCall`, runs
+/// the analyzer on the callee body, and extracts the return
+/// value.
+#[salsa::tracked(
+    cycle_initial=analyze_helper_cycle_initial,
+    cycle_fn=analyze_helper_cycle_recover,
+)]
+pub fn analyze_helper(db: &dyn djls_source::Db, call: HelperCall<'_>) -> AbstractValue {
+    let Some(parsed) = parse_python_module(db, call.file(db)) else {
+        return AbstractValue::Unknown;
+    };
+
+    let callee_name = call.callee_name(db);
+    let args = call.args(db);
+
+    let Some(callee) = find_function_def(parsed.body(db), callee_name) else {
+        return AbstractValue::Unknown;
+    };
+
+    let mut callee_env = Env::default();
+    for (i, param) in callee.parameters.args.iter().enumerate() {
+        let value = args
+            .get(i)
+            .map_or(AbstractValue::Unknown, AbstractValue::from);
+        callee_env.set(param.parameter.name.to_string(), value);
+    }
+
+    let mut ctx = CallContext {
+        db: Some(db),
+        file: Some(call.file(db)),
+    };
+
+    let _result = process_statements(&callee.body, &mut callee_env, &mut ctx);
+
+    extract_return_value(&callee.body, &callee_env)
+}
+
+fn analyze_helper_cycle_initial(
+    _db: &dyn djls_source::Db,
+    _id: salsa::Id,
+    _call: HelperCall<'_>,
+) -> AbstractValue {
+    AbstractValue::Unknown
+}
+
+fn analyze_helper_cycle_recover(
+    _db: &dyn djls_source::Db,
+    _cycle: &salsa::Cycle,
+    _last_provisional: &AbstractValue,
+    _value: AbstractValue,
+    _call: HelperCall<'_>,
+) -> AbstractValue {
+    AbstractValue::Unknown
+}
+
+fn find_function_def<'a>(body: &'a [Stmt], name: &str) -> Option<&'a StmtFunctionDef> {
+    for stmt in body {
+        match stmt {
+            Stmt::FunctionDef(func) if func.name.as_str() == name => return Some(func),
+            Stmt::ClassDef(class) => {
+                if let Some(found) = find_function_def(&class.body, name) {
+                    return Some(found);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Extract validation rules from a Python file, cached by Salsa.
+///
+/// This is the Salsa-tracked entry point for the extraction pipeline.
+/// It parses the file (via `parse_python_module`), collects registrations,
+/// and runs the full extraction. The result is cached and invalidated
+/// when `file.source(db)` changes.
+///
+/// The `registration_module` in returned `SymbolKey`s is empty — callers
+/// must re-key with the actual module path via `ExtractionResult::rekey_module`.
+#[salsa::tracked]
+pub fn extract_module(db: &dyn djls_source::Db, file: File) -> ExtractionResult {
+    let Some(parsed) = parse_python_module(db, file) else {
+        return ExtractionResult::default();
+    };
+
+    extract_rules_from_body(parsed.body(db), "")
+}
 
 /// Extract validation rules from a Python registration module source.
 ///
@@ -115,20 +258,29 @@ pub(crate) fn extract_rules_from_body(
 }
 
 /// Recursively collect all function definitions from a module body.
-fn collect_func_defs(body: &[ruff_python_ast::Stmt]) -> Vec<&ruff_python_ast::StmtFunctionDef> {
-    let mut defs = Vec::new();
-    for stmt in body {
+fn collect_func_defs(body: &[Stmt]) -> Vec<&StmtFunctionDef> {
+    let mut visitor = FunctionDefCollector::default();
+    visitor.visit_body(body);
+    visitor.defs
+}
+
+#[derive(Default)]
+struct FunctionDefCollector<'a> {
+    defs: Vec<&'a StmtFunctionDef>,
+}
+
+impl<'a> StatementVisitor<'a> for FunctionDefCollector<'a> {
+    fn visit_stmt(&mut self, stmt: &'a Stmt) {
         match stmt {
-            ruff_python_ast::Stmt::FunctionDef(func) => {
-                defs.push(func);
+            Stmt::FunctionDef(func) => {
+                self.defs.push(func);
             }
-            ruff_python_ast::Stmt::ClassDef(class) => {
-                defs.extend(collect_func_defs(&class.body));
+            Stmt::ClassDef(_) => {
+                walk_stmt(self, stmt);
             }
             _ => {}
         }
     }
-    defs
 }
 
 #[cfg(test)]
@@ -139,7 +291,7 @@ mod tests {
     use serde::Serialize;
 
     use super::*;
-    use crate::test_helpers::django_source;
+    use crate::testing::django_source;
 
     /// A deterministically-ordered version of `ExtractionResult` for snapshot testing.
     ///

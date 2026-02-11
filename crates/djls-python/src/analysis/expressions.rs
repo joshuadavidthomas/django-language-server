@@ -11,10 +11,10 @@ use ruff_python_ast::ExprTuple;
 use ruff_python_ast::Number;
 
 use super::CallContext;
-use crate::dataflow::calls::resolve_call;
-use crate::dataflow::domain::AbstractValue;
-use crate::dataflow::domain::Env;
-use crate::dataflow::domain::TokenSplit;
+use crate::analysis::calls::resolve_call;
+use crate::analysis::state::AbstractValue;
+use crate::analysis::state::Env;
+use crate::analysis::state::TokenSplit;
 use crate::ext::ExprExt;
 use crate::types::SplitPosition;
 

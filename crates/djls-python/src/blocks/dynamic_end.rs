@@ -1,3 +1,5 @@
+use ruff_python_ast::statement_visitor::walk_stmt;
+use ruff_python_ast::statement_visitor::StatementVisitor;
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprAttribute;
 use ruff_python_ast::ExprBinOp;
@@ -8,7 +10,6 @@ use ruff_python_ast::InterpolatedStringElement;
 use ruff_python_ast::Operator;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtAssign;
-use ruff_python_ast::StmtFor;
 use ruff_python_ast::StmtReturn;
 
 use super::is_parser_receiver;
@@ -19,7 +20,7 @@ use crate::types::BlockSpec;
 ///
 /// Returns a `BlockSpec` with `end_tag: None` (dynamic, not statically known)
 /// when the function uses f-string or format-string patterns for the end tag.
-pub fn detect(body: &[Stmt], parser_var: &str) -> Option<BlockSpec> {
+pub(super) fn detect(body: &[Stmt], parser_var: &str) -> Option<BlockSpec> {
     if !has_dynamic_end_in_body(body, parser_var) {
         return None;
     }
@@ -31,25 +32,50 @@ pub fn detect(body: &[Stmt], parser_var: &str) -> Option<BlockSpec> {
 }
 
 fn has_dynamic_end_in_body(body: &[Stmt], parser_var: &str) -> bool {
-    body.iter().any(|stmt| match stmt {
-        Stmt::Expr(expr_stmt) => is_dynamic_end_parse_call(&expr_stmt.value, parser_var),
-        Stmt::Assign(StmtAssign { value, .. }) => is_dynamic_end_parse_call(value, parser_var),
-        Stmt::If(if_stmt) => {
-            has_dynamic_end_in_body(&if_stmt.body, parser_var)
-                || if_stmt
-                    .elif_else_clauses
-                    .iter()
-                    .any(|c| has_dynamic_end_in_body(&c.body, parser_var))
+    let mut visitor = DynamicEndFinder::new(parser_var);
+    visitor.visit_body(body);
+    visitor.found
+}
+
+struct DynamicEndFinder<'a> {
+    parser_var: &'a str,
+    found: bool,
+}
+
+impl<'a> DynamicEndFinder<'a> {
+    fn new(parser_var: &'a str) -> Self {
+        Self {
+            parser_var,
+            found: false,
         }
-        Stmt::For(StmtFor { body, orelse, .. })
-        | Stmt::While(ruff_python_ast::StmtWhile { body, orelse, .. }) => {
-            has_dynamic_end_in_body(body, parser_var) || has_dynamic_end_in_body(orelse, parser_var)
+    }
+}
+
+impl StatementVisitor<'_> for DynamicEndFinder<'_> {
+    fn visit_stmt(&mut self, stmt: &Stmt) {
+        if self.found {
+            return;
         }
-        Stmt::Return(StmtReturn {
-            value: Some(val), ..
-        }) => is_dynamic_end_parse_call(val, parser_var),
-        _ => false,
-    })
+
+        match stmt {
+            Stmt::Expr(expr_stmt) => {
+                self.found = is_dynamic_end_parse_call(&expr_stmt.value, self.parser_var);
+            }
+            Stmt::Assign(StmtAssign { value, .. }) => {
+                self.found = is_dynamic_end_parse_call(value, self.parser_var);
+            }
+            Stmt::Return(StmtReturn {
+                value: Some(val), ..
+            }) => {
+                self.found = is_dynamic_end_parse_call(val, self.parser_var);
+            }
+            // Recurse into control flow to find all possible parse calls.
+            Stmt::If(_) | Stmt::For(_) | Stmt::While(_) | Stmt::Try(_) | Stmt::With(_) | Stmt::Match(_) => {
+                walk_stmt(self, stmt);
+            }
+            _ => {}
+        }
+    }
 }
 
 /// Check if an expression is `parser.parse((f"end{...}",))`.
@@ -131,42 +157,33 @@ pub(super) fn is_end_fstring(expr: &Expr) -> bool {
 
 /// Check for dynamic end-tag format strings: `"end%s" % bits[0]` or `f"end{bits[0]}"`.
 pub(super) fn has_dynamic_end_tag_format(body: &[Stmt]) -> bool {
-    for stmt in body {
+    let mut visitor = DynamicEndFormatFinder::default();
+    visitor.visit_body(body);
+    visitor.found
+}
+
+#[derive(Default)]
+struct DynamicEndFormatFinder {
+    found: bool,
+}
+
+impl StatementVisitor<'_> for DynamicEndFormatFinder {
+    fn visit_stmt(&mut self, stmt: &Stmt) {
+        if self.found {
+            return;
+        }
+
         match stmt {
             Stmt::Assign(StmtAssign { value, .. }) => {
-                if is_end_format_expr(value) {
-                    return true;
-                }
+                self.found = is_end_format_expr(value);
             }
-            Stmt::If(if_stmt) => {
-                if has_dynamic_end_tag_format(&if_stmt.body) {
-                    return true;
-                }
-                for clause in &if_stmt.elif_else_clauses {
-                    if has_dynamic_end_tag_format(&clause.body) {
-                        return true;
-                    }
-                }
-            }
-            Stmt::For(for_stmt) => {
-                if has_dynamic_end_tag_format(&for_stmt.body)
-                    || has_dynamic_end_tag_format(&for_stmt.orelse)
-                {
-                    return true;
-                }
-            }
-            Stmt::While(while_stmt) => {
-                if has_dynamic_end_tag_format(&while_stmt.body)
-                    || has_dynamic_end_tag_format(&while_stmt.orelse)
-                {
-                    return true;
-                }
+            // Recurse into control flow to find all possible parse calls.
+            Stmt::If(_) | Stmt::For(_) | Stmt::While(_) | Stmt::Try(_) | Stmt::With(_) | Stmt::Match(_) => {
+                walk_stmt(self, stmt);
             }
             _ => {}
         }
     }
-
-    false
 }
 
 /// Check if an expression is `"end%s" % something` or similar end-tag format.

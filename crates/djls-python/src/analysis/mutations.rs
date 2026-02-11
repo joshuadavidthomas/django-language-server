@@ -1,3 +1,4 @@
+use ruff_python_ast::statement_visitor::StatementVisitor;
 use ruff_python_ast::CmpOp;
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprAttribute;
@@ -8,8 +9,8 @@ use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtIf;
 use ruff_python_ast::StmtWhile;
 
-use crate::dataflow::domain::AbstractValue;
-use crate::dataflow::domain::Env;
+use crate::analysis::state::AbstractValue;
+use crate::analysis::state::Env;
 use crate::ext::ExprExt;
 use crate::types::KnownOptions;
 
@@ -120,20 +121,44 @@ pub(super) fn try_extract_option_loop(while_stmt: &StmtWhile, env: &Env) -> Opti
 
 /// Find the variable assigned from `loop_var.pop(0)` in a while-loop body.
 fn find_option_pop_var(body: &[Stmt], loop_var: &str) -> Option<String> {
-    for stmt in body {
+    let mut visitor = OptionPopFinder::new(loop_var);
+    visitor.visit_body(body);
+    visitor.option_var
+}
+
+struct OptionPopFinder<'a> {
+    loop_var: &'a str,
+    option_var: Option<String>,
+}
+
+impl<'a> OptionPopFinder<'a> {
+    fn new(loop_var: &'a str) -> Self {
+        Self {
+            loop_var,
+            option_var: None,
+        }
+    }
+}
+
+impl StatementVisitor<'_> for OptionPopFinder<'_> {
+    fn visit_stmt(&mut self, stmt: &Stmt) {
+        if self.option_var.is_some() {
+            return;
+        }
+
         if let Stmt::Assign(assign) = stmt {
             if assign.targets.len() == 1 {
                 if let Expr::Name(ExprName { id, .. }) = &assign.targets[0] {
                     let is_pop_zero = try_extract_pop_call(&assign.value)
-                        .is_some_and(|info| info.var_name == loop_var && info.from_front);
+                        .is_some_and(|info| info.var_name == self.loop_var && info.from_front);
                     if is_pop_zero {
-                        return Some(id.to_string());
+                        self.option_var = Some(id.to_string());
                     }
                 }
             }
         }
+        // Do not recurse into nested statements.
     }
-    None
 }
 
 /// Extract option names from if/elif/else chains checking the option variable.
@@ -144,29 +169,60 @@ fn extract_option_checks(
     rejects_unknown: &mut bool,
     allow_duplicates: &mut bool,
 ) {
-    // Check for duplicate detection: `if option in seen_options`
-    if is_duplicate_check(&if_stmt.test, option_var) {
-        *allow_duplicates = false;
-    } else if let Some(opt_name) = extract_option_equality(&if_stmt.test, option_var) {
-        if !values.contains(&opt_name) {
-            values.push(opt_name);
+    let mut visitor = OptionCheckVisitor::new(option_var, values, rejects_unknown, allow_duplicates);
+    visitor.visit_stmt(&Stmt::If(if_stmt.clone()));
+}
+
+struct OptionCheckVisitor<'a> {
+    option_var: &'a str,
+    values: &'a mut Vec<String>,
+    rejects_unknown: &'a mut bool,
+    allow_duplicates: &'a mut bool,
+}
+
+impl<'a> OptionCheckVisitor<'a> {
+    fn new(
+        option_var: &'a str,
+        values: &'a mut Vec<String>,
+        rejects_unknown: &'a mut bool,
+        allow_duplicates: &'a mut bool,
+    ) -> Self {
+        Self {
+            option_var,
+            values,
+            rejects_unknown,
+            allow_duplicates,
         }
     }
+}
 
-    // Process elif/else clauses
-    for clause in &if_stmt.elif_else_clauses {
-        if let Some(test) = &clause.test {
-            if is_duplicate_check(test, option_var) {
-                *allow_duplicates = false;
-            } else if let Some(opt_name) = extract_option_equality(test, option_var) {
-                if !values.contains(&opt_name) {
-                    values.push(opt_name);
+impl StatementVisitor<'_> for OptionCheckVisitor<'_> {
+    fn visit_stmt(&mut self, stmt: &Stmt) {
+        if let Stmt::If(if_stmt) = stmt {
+            if is_duplicate_check(&if_stmt.test, self.option_var) {
+                *self.allow_duplicates = false;
+            } else if let Some(opt_name) = extract_option_equality(&if_stmt.test, self.option_var) {
+                if !self.values.contains(&opt_name) {
+                    self.values.push(opt_name);
                 }
             }
-        } else {
-            // else branch — if it raises TemplateSyntaxError, unknown options are rejected
-            if crate::dataflow::constraints::body_raises_template_syntax_error(&clause.body) {
-                *rejects_unknown = true;
+
+            for clause in &if_stmt.elif_else_clauses {
+                if let Some(test) = &clause.test {
+                    if is_duplicate_check(test, self.option_var) {
+                        *self.allow_duplicates = false;
+                    } else if let Some(opt_name) = extract_option_equality(test, self.option_var) {
+                        if !self.values.contains(&opt_name) {
+                            self.values.push(opt_name);
+                        }
+                    }
+                } else {
+                    // else branch — if it raises TemplateSyntaxError, unknown options are rejected
+                    if crate::analysis::rules::body_raises_template_syntax_error(&clause.body)
+                    {
+                        *self.rejects_unknown = true;
+                    }
+                }
             }
         }
     }

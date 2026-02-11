@@ -1,3 +1,6 @@
+use ruff_python_ast::statement_visitor::walk_body;
+use ruff_python_ast::statement_visitor::walk_stmt;
+use ruff_python_ast::statement_visitor::StatementVisitor;
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprAttribute;
 use ruff_python_ast::ExprCall;
@@ -16,7 +19,7 @@ use crate::types::BlockSpec;
 /// Collects all stop-tokens from parse calls, then classifies them as intermediates
 /// or end-tags based on whether they lead to further parse calls (intermediate) or
 /// return/construction (end-tag).
-pub fn detect(body: &[Stmt], parser_var: &str) -> Option<BlockSpec> {
+pub(super) fn detect(body: &[Stmt], parser_var: &str) -> Option<BlockSpec> {
     let parse_calls = collect_parser_parse_calls(body, parser_var);
 
     if parse_calls.is_empty() {
@@ -32,51 +35,50 @@ struct ParseCallInfo {
     stop_tokens: Vec<String>,
 }
 
-/// Collect all `parser.parse((...))` calls in a statement body (recursively).
+/// Collect all `parser.parse((...))` calls in a statement body.
+///
+/// Uses Ruff's statement visitor to avoid hand-written recursion across
+/// statement variants.
 fn collect_parser_parse_calls(body: &[Stmt], parser_var: &str) -> Vec<ParseCallInfo> {
-    let mut calls = Vec::new();
-    for stmt in body {
+    let mut visitor = ParseCallCollector::new(parser_var);
+    visitor.visit_body(body);
+    visitor.calls
+}
+
+struct ParseCallCollector<'a> {
+    parser_var: &'a str,
+    calls: Vec<ParseCallInfo>,
+}
+
+impl<'a> ParseCallCollector<'a> {
+    fn new(parser_var: &'a str) -> Self {
+        Self {
+            parser_var,
+            calls: Vec::new(),
+        }
+    }
+}
+
+impl StatementVisitor<'_> for ParseCallCollector<'_> {
+    fn visit_stmt(&mut self, stmt: &Stmt) {
         match stmt {
             Stmt::Expr(expr_stmt) => {
-                if let Some(info) = extract_parse_call_info(&expr_stmt.value, parser_var) {
-                    calls.push(info);
+                if let Some(info) = extract_parse_call_info(&expr_stmt.value, self.parser_var) {
+                    self.calls.push(info);
                 }
             }
             Stmt::Assign(StmtAssign { value, .. }) => {
-                if let Some(info) = extract_parse_call_info(value, parser_var) {
-                    calls.push(info);
+                if let Some(info) = extract_parse_call_info(value, self.parser_var) {
+                    self.calls.push(info);
                 }
             }
-            Stmt::If(if_stmt) => {
-                calls.extend(collect_parser_parse_calls(&if_stmt.body, parser_var));
-                for clause in &if_stmt.elif_else_clauses {
-                    calls.extend(collect_parser_parse_calls(&clause.body, parser_var));
-                }
-            }
-            Stmt::For(for_stmt) => {
-                calls.extend(collect_parser_parse_calls(&for_stmt.body, parser_var));
-                calls.extend(collect_parser_parse_calls(&for_stmt.orelse, parser_var));
-            }
-            Stmt::While(while_stmt) => {
-                calls.extend(collect_parser_parse_calls(&while_stmt.body, parser_var));
-                calls.extend(collect_parser_parse_calls(&while_stmt.orelse, parser_var));
-            }
-            Stmt::Try(try_stmt) => {
-                calls.extend(collect_parser_parse_calls(&try_stmt.body, parser_var));
-                for handler in &try_stmt.handlers {
-                    let ruff_python_ast::ExceptHandler::ExceptHandler(h) = handler;
-                    calls.extend(collect_parser_parse_calls(&h.body, parser_var));
-                }
-                calls.extend(collect_parser_parse_calls(&try_stmt.orelse, parser_var));
-                calls.extend(collect_parser_parse_calls(&try_stmt.finalbody, parser_var));
-            }
-            Stmt::With(with_stmt) => {
-                calls.extend(collect_parser_parse_calls(&with_stmt.body, parser_var));
+            // Recurse into control flow to find all possible parse calls.
+            Stmt::If(_) | Stmt::For(_) | Stmt::While(_) | Stmt::Try(_) | Stmt::With(_) => {
+                walk_stmt(self, stmt);
             }
             _ => {}
         }
     }
-    calls
 }
 
 /// Check if an expression is a `parser.parse((...))` call and extract stop-tokens.
@@ -401,65 +403,50 @@ fn extract_startswith_check(expr: &Expr, known_tokens: &[String]) -> Option<Stri
 
 /// Check if a statement body contains a `parser.parse(...)` call.
 fn body_has_parse_call(body: &[Stmt], parser_var: &str) -> bool {
-    for stmt in body {
+    let mut visitor = ParseCallFinder::new(parser_var);
+    visitor.visit_body(body);
+    visitor.found
+}
+
+struct ParseCallFinder<'a> {
+    parser_var: &'a str,
+    found: bool,
+}
+
+impl<'a> ParseCallFinder<'a> {
+    fn new(parser_var: &'a str) -> Self {
+        Self {
+            parser_var,
+            found: false,
+        }
+    }
+}
+
+impl StatementVisitor<'_> for ParseCallFinder<'_> {
+    fn visit_body(&mut self, body: &[Stmt]) {
+        if self.found {
+            return;
+        }
+        walk_body(self, body);
+    }
+
+    fn visit_stmt(&mut self, stmt: &Stmt) {
+        if self.found {
+            return;
+        }
+
         match stmt {
             Stmt::Expr(expr_stmt) => {
-                if extract_parse_call_info(&expr_stmt.value, parser_var).is_some() {
-                    return true;
-                }
+                self.found = extract_parse_call_info(&expr_stmt.value, self.parser_var).is_some();
             }
             Stmt::Assign(StmtAssign { value, .. }) => {
-                if extract_parse_call_info(value, parser_var).is_some() {
-                    return true;
-                }
+                self.found = extract_parse_call_info(value, self.parser_var).is_some();
             }
-            Stmt::If(if_stmt) => {
-                if body_has_parse_call(&if_stmt.body, parser_var) {
-                    return true;
-                }
-                for clause in &if_stmt.elif_else_clauses {
-                    if body_has_parse_call(&clause.body, parser_var) {
-                        return true;
-                    }
-                }
-            }
-            Stmt::For(for_stmt) => {
-                if body_has_parse_call(&for_stmt.body, parser_var)
-                    || body_has_parse_call(&for_stmt.orelse, parser_var)
-                {
-                    return true;
-                }
-            }
-            Stmt::While(while_stmt) => {
-                if body_has_parse_call(&while_stmt.body, parser_var)
-                    || body_has_parse_call(&while_stmt.orelse, parser_var)
-                {
-                    return true;
-                }
-            }
-            Stmt::Try(try_stmt) => {
-                if body_has_parse_call(&try_stmt.body, parser_var) {
-                    return true;
-                }
-                for handler in &try_stmt.handlers {
-                    let ruff_python_ast::ExceptHandler::ExceptHandler(h) = handler;
-                    if body_has_parse_call(&h.body, parser_var) {
-                        return true;
-                    }
-                }
-                if body_has_parse_call(&try_stmt.orelse, parser_var)
-                    || body_has_parse_call(&try_stmt.finalbody, parser_var)
-                {
-                    return true;
-                }
-            }
-            Stmt::With(with_stmt) => {
-                if body_has_parse_call(&with_stmt.body, parser_var) {
-                    return true;
-                }
+            // Recurse into control flow to find all possible parse calls.
+            Stmt::If(_) | Stmt::For(_) | Stmt::While(_) | Stmt::Try(_) | Stmt::With(_) => {
+                walk_stmt(self, stmt);
             }
             _ => {}
         }
     }
-    false
 }

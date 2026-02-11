@@ -1,3 +1,5 @@
+use ruff_python_ast::statement_visitor::walk_stmt;
+use ruff_python_ast::statement_visitor::StatementVisitor;
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprAttribute;
 use ruff_python_ast::ExprCall;
@@ -7,8 +9,8 @@ use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtExpr;
 use ruff_python_ast::StmtFunctionDef;
 
+use crate::analysis;
 use crate::blocks;
-use crate::dataflow;
 use crate::ext::ExprExt;
 use crate::filters;
 use crate::signature;
@@ -40,7 +42,7 @@ pub enum RegistrationKind {
 }
 
 /// Output of [`RegistrationKind::extract`], distinguishing filter vs tag results.
-pub enum ExtractionOutput {
+pub(crate) enum ExtractionOutput {
     Filter(FilterArity),
     Tag {
         rule: Option<TagRule>,
@@ -71,9 +73,9 @@ impl RegistrationKind {
     ///
     /// For filters, extracts argument arity from the function signature.
     /// For tag variants, extracts validation rules (via signature analysis or
-    /// dataflow analysis) and block structure.
+    /// AST/control-flow analysis) and block structure.
     #[must_use]
-    pub fn extract(self, func: &StmtFunctionDef) -> ExtractionOutput {
+    pub(crate) fn extract(self, func: &StmtFunctionDef) -> ExtractionOutput {
         match self {
             Self::Filter => ExtractionOutput::Filter(filters::extract_filter_arity(func)),
             Self::SimpleTag | Self::InclusionTag => {
@@ -83,7 +85,7 @@ impl RegistrationKind {
                 ExtractionOutput::Tag { rule, block_spec }
             }
             Self::Tag | Self::SimpleBlockTag => {
-                let mut rule = dataflow::analyze_compile_function(func);
+                let mut rule = analysis::analyze_compile_function(func);
                 rule.as_var = self.as_var();
                 let rule = rule.has_content().then_some(rule);
                 let block_spec = blocks::extract_block_spec(func);
@@ -108,25 +110,30 @@ pub fn collect_registrations_from_source(source: &str) -> Vec<RegistrationInfo> 
 ///
 /// This avoids re-parsing the source when the caller already has the AST.
 #[must_use]
-pub fn collect_registrations_from_body(body: &[Stmt]) -> Vec<RegistrationInfo> {
-    let mut registrations = Vec::new();
-    collect_from_body(body, &mut registrations);
-    registrations
+pub(crate) fn collect_registrations_from_body(body: &[Stmt]) -> Vec<RegistrationInfo> {
+    let mut visitor = RegistrationCollector::default();
+    visitor.visit_body(body);
+    visitor.registrations
 }
 
-fn collect_from_body(body: &[Stmt], registrations: &mut Vec<RegistrationInfo>) {
-    for stmt in body {
+#[derive(Default)]
+struct RegistrationCollector {
+    registrations: Vec<RegistrationInfo>,
+}
+
+impl StatementVisitor<'_> for RegistrationCollector {
+    fn visit_stmt(&mut self, stmt: &Stmt) {
         match stmt {
             Stmt::FunctionDef(func_def) => {
-                collect_from_decorated_function(func_def, registrations);
+                collect_from_decorated_function(func_def, &mut self.registrations);
             }
             Stmt::Expr(StmtExpr { value, .. }) => {
                 if let Expr::Call(call) = value.as_ref() {
-                    collect_from_call_statement(call, registrations);
+                    collect_from_call_statement(call, &mut self.registrations);
                 }
             }
-            Stmt::ClassDef(class_def) => {
-                collect_from_body(&class_def.body, registrations);
+            Stmt::ClassDef(_) => {
+                walk_stmt(self, stmt);
             }
             _ => {}
         }
@@ -421,7 +428,7 @@ fn callable_name(expr: &Expr) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_helpers::django_source;
+    use crate::testing::django_source;
 
     fn collect_registrations(source: &str) -> Vec<RegistrationInfo> {
         let parsed = ruff_python_parser::parse_module(source).expect("valid Python");
@@ -501,7 +508,7 @@ mod tests {
     // `register.filter("intcomma", intcomma)` — call-style filter registration
     #[test]
     fn call_style_filter_registration() {
-        let source = crate::test_helpers::package_source(
+        let source = crate::testing::package_source(
             "wagtail",
             "wagtail/admin/templatetags/wagtailadmin_tags.py",
         )
@@ -549,7 +556,7 @@ mod tests {
     // `register.tag("dialog", DialogNode.handle)` — call-style with method callable
     #[test]
     fn call_style_tag_with_method_callable() {
-        let source = crate::test_helpers::package_source(
+        let source = crate::testing::package_source(
             "wagtail",
             "wagtail/admin/templatetags/wagtailadmin_tags.py",
         )

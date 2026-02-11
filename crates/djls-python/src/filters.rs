@@ -16,7 +16,7 @@ use crate::types::FilterArity;
 /// If the function is a method (first param is `self`), `self` is skipped
 /// before identifying the value parameter.
 #[must_use]
-pub fn extract_filter_arity(func: &StmtFunctionDef) -> FilterArity {
+pub(crate) fn extract_filter_arity(func: &StmtFunctionDef) -> FilterArity {
     let params = &func.parameters;
 
     // Collect all positional parameters (posonly + regular)
@@ -66,8 +66,8 @@ pub fn extract_filter_arity(func: &StmtFunctionDef) -> FilterArity {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_helpers::django_function;
-    use crate::test_helpers::find_function_in_source;
+    use crate::testing::django_function;
+    use crate::testing::find_function_in_source;
 
     // No-arg filters (value only)
 

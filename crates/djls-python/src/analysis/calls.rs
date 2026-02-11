@@ -1,13 +1,15 @@
 //! Intra-module function call resolution via Salsa tracked functions.
 
+use ruff_python_ast::statement_visitor::walk_stmt;
+use ruff_python_ast::statement_visitor::StatementVisitor;
 use ruff_python_ast::Stmt;
 
-use super::domain::AbstractValue;
-use super::domain::Env;
-use super::domain::TokenSplit;
-use super::eval::CallContext;
-use crate::parse::analyze_helper;
-use crate::parse::HelperCall;
+use super::state::AbstractValue;
+use super::state::Env;
+use super::state::TokenSplit;
+use super::CallContext;
+use crate::analyze_helper;
+use crate::HelperCall;
 
 /// A hashable representation of `AbstractValue` for Salsa interned keys.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -91,21 +93,22 @@ pub fn resolve_call(
 /// Scans for `return expr` statements. If exactly one return path yields
 /// a non-Unknown value, returns that. If multiple yields differ, returns Unknown.
 pub(crate) fn extract_return_value(body: &[Stmt], env: &Env) -> AbstractValue {
-    let mut returns = Vec::new();
-    collect_returns(body, env, &mut returns);
+    let mut visitor = ReturnVisitor::new(env);
+    visitor.visit_body(body);
 
-    if returns.is_empty() {
+    if visitor.returns.is_empty() {
         return AbstractValue::Unknown;
     }
 
     // If all returns are the same, use that value
-    let first = &returns[0];
-    if returns.iter().all(|r| r == first) {
+    let first = &visitor.returns[0];
+    if visitor.returns.iter().all(|r| r == first) {
         return first.clone();
     }
 
     // Filter out Unknown values — if a single non-Unknown value remains, use it
-    let non_unknown: Vec<_> = returns
+    let non_unknown: Vec<_> = visitor
+        .returns
         .iter()
         .filter(|r| !matches!(r, AbstractValue::Unknown))
         .collect();
@@ -120,47 +123,32 @@ pub(crate) fn extract_return_value(body: &[Stmt], env: &Env) -> AbstractValue {
     AbstractValue::Unknown
 }
 
-fn collect_returns(stmts: &[Stmt], env: &Env, returns: &mut Vec<AbstractValue>) {
-    for stmt in stmts {
+struct ReturnVisitor<'a> {
+    env: &'a Env,
+    returns: Vec<AbstractValue>,
+}
+
+impl<'a> ReturnVisitor<'a> {
+    fn new(env: &'a Env) -> Self {
+        Self {
+            env,
+            returns: Vec::new(),
+        }
+    }
+}
+
+impl StatementVisitor<'_> for ReturnVisitor<'_> {
+    fn visit_stmt(&mut self, stmt: &Stmt) {
         match stmt {
             Stmt::Return(ret) => {
                 let value = ret.value.as_deref().map_or(AbstractValue::Unknown, |expr| {
-                    super::eval::eval_expr(expr, env)
+                    super::expressions::eval_expr(expr, self.env)
                 });
-                returns.push(value);
+                self.returns.push(value);
             }
-            Stmt::If(if_stmt) => {
-                collect_returns(&if_stmt.body, env, returns);
-                for clause in &if_stmt.elif_else_clauses {
-                    collect_returns(&clause.body, env, returns);
-                }
-            }
-            Stmt::For(for_stmt) => {
-                collect_returns(&for_stmt.body, env, returns);
-                collect_returns(&for_stmt.orelse, env, returns);
-            }
-            Stmt::While(while_stmt) => {
-                collect_returns(&while_stmt.body, env, returns);
-                collect_returns(&while_stmt.orelse, env, returns);
-            }
-            Stmt::Try(try_stmt) => {
-                collect_returns(&try_stmt.body, env, returns);
-                for handler in &try_stmt.handlers {
-                    let ruff_python_ast::ExceptHandler::ExceptHandler(h) = handler;
-                    collect_returns(&h.body, env, returns);
-                }
-                collect_returns(&try_stmt.orelse, env, returns);
-                collect_returns(&try_stmt.finalbody, env, returns);
-            }
-            Stmt::With(with_stmt) => {
-                collect_returns(&with_stmt.body, env, returns);
-            }
-            Stmt::Match(match_stmt) => {
-                for case in &match_stmt.cases {
-                    collect_returns(&case.body, env, returns);
-                }
-            }
-            _ => {}
+            // Only collect returns from the current function scope.
+            Stmt::FunctionDef(_) | Stmt::ClassDef(_) => {}
+            _ => walk_stmt(self, stmt),
         }
     }
 }
@@ -176,9 +164,9 @@ mod tests {
     use ruff_python_parser::parse_module;
 
     use super::*;
-    use crate::dataflow::eval::process_statements;
-    use crate::dataflow::eval::CallContext;
-    use crate::test_helpers::package_source;
+    use crate::analysis::statements::process_statements;
+    use crate::analysis::CallContext;
+    use crate::testing::package_source;
     use crate::types::SplitPosition;
 
     #[salsa::db]

@@ -23,7 +23,7 @@ use crate::types::BlockSpec;
 ///
 /// Returns `None` when no block structure is detected or inference is ambiguous.
 #[must_use]
-pub fn extract_block_spec(func: &StmtFunctionDef) -> Option<BlockSpec> {
+pub(crate) fn extract_block_spec(func: &StmtFunctionDef) -> Option<BlockSpec> {
     let parser_var = func
         .parameters
         .args
@@ -50,7 +50,7 @@ pub fn extract_block_spec(func: &StmtFunctionDef) -> Option<BlockSpec> {
 }
 
 /// Check if an expression is the parser variable (or `self.parser`).
-pub(crate) fn is_parser_receiver(expr: &Expr, parser_var: &str) -> bool {
+pub(super) fn is_parser_receiver(expr: &Expr, parser_var: &str) -> bool {
     if let Expr::Name(ExprName { id, .. }) = expr {
         if id.as_str() == parser_var {
             return true;
@@ -102,7 +102,7 @@ pub(super) fn extract_string_sequence(expr: &Expr) -> Vec<String> {
 /// Check if an expression accesses token contents.
 ///
 /// Matches: `token.contents`, `token.contents.split()[0]`, `token.contents.strip()`
-pub(crate) fn is_token_contents_expr(expr: &Expr) -> bool {
+pub(super) fn is_token_contents_expr(expr: &Expr) -> bool {
     match expr {
         Expr::Attribute(ExprAttribute { attr, value, .. }) => {
             if attr.as_str() == "contents" {
@@ -127,7 +127,7 @@ mod tests {
     use ruff_python_parser::parse_module;
 
     use super::*;
-    use crate::test_helpers::django_function;
+    use crate::testing::django_function;
 
     fn parse_function(source: &str) -> StmtFunctionDef {
         let parsed = parse_module(source).expect("valid Python");

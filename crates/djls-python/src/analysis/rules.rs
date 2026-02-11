@@ -4,6 +4,7 @@
 //! interprets the condition against the abstract environment to produce
 //! `ArgumentCountConstraint` and `RequiredKeyword` values.
 
+use ruff_python_ast::statement_visitor::StatementVisitor;
 use ruff_python_ast::BoolOp;
 use ruff_python_ast::CmpOp;
 use ruff_python_ast::Expr;
@@ -15,12 +16,11 @@ use ruff_python_ast::ExprName;
 use ruff_python_ast::ExprUnaryOp;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtIf;
-use ruff_python_ast::StmtRaise;
 use ruff_python_ast::UnaryOp;
 
-use super::domain::AbstractValue;
-use super::domain::Env;
-use super::eval::eval_expr;
+use super::state::AbstractValue;
+use super::state::Env;
+use super::expressions::eval_expr;
 use crate::ext::ExprExt;
 use crate::types::ArgumentCountConstraint;
 use crate::types::ChoiceAt;
@@ -231,10 +231,10 @@ fn eval_compare(compare: &ExprCompare, env: &Env) -> ConstraintSet {
     }
 
     // SplitElement vs string: `bits[N] != "keyword"`
-    if let AbstractValue::SplitElement { index } = &left_val {
+    if let AbstractValue::SplitElement { index } = left_val {
         if let Some(keyword) = comparator.string_literal() {
             if matches!(op, CmpOp::NotEq) {
-                let position = *index;
+                let position = index;
                 return ConstraintSet::single_keyword(RequiredKeyword {
                     position,
                     value: keyword,
@@ -247,7 +247,7 @@ fn eval_compare(compare: &ExprCompare, env: &Env) -> ConstraintSet {
         if matches!(op, CmpOp::NotIn) {
             if let Some(values) = comparator.collection_map(ExprExt::string_literal) {
                 if !values.is_empty() {
-                    let position = *index;
+                    let position = index;
                     return ConstraintSet::single_choice(ChoiceAt { position, values });
                 }
             }
@@ -256,10 +256,10 @@ fn eval_compare(compare: &ExprCompare, env: &Env) -> ConstraintSet {
     }
 
     // Reversed: string vs SplitElement: `"keyword" != bits[N]`
-    if let AbstractValue::SplitElement { index } = &right_val {
+    if let AbstractValue::SplitElement { index } = right_val {
         if let Some(keyword) = left.string_literal() {
             if matches!(op, CmpOp::NotEq) {
-                let position = *index;
+                let position = index;
                 return ConstraintSet::single_keyword(RequiredKeyword {
                     position,
                     value: keyword,
@@ -351,14 +351,34 @@ fn eval_range_constraint(compare: &ExprCompare, env: &Env) -> Option<Vec<Argumen
 }
 
 pub(super) fn body_raises_template_syntax_error(body: &[Stmt]) -> bool {
-    for stmt in body {
-        if let Stmt::Raise(StmtRaise { exc: Some(exc), .. }) = stmt {
-            if is_template_syntax_error_call(exc) {
-                return true;
+    let mut visitor = RaiseFinder::default();
+    visitor.visit_body(body);
+    visitor.found
+}
+
+#[derive(Default)]
+struct RaiseFinder {
+    found: bool,
+}
+
+impl StatementVisitor<'_> for RaiseFinder {
+    fn visit_stmt(&mut self, stmt: &Stmt) {
+        if self.found {
+            return;
+        }
+
+        match stmt {
+            Stmt::Raise(ruff_python_ast::StmtRaise { exc: Some(exc), .. }) => {
+                if is_template_syntax_error_call(exc) {
+                    self.found = true;
+                }
             }
+            // Do not recurse into nested statements for this specific check.
+            // This matches the previous non-recursive behavior used by
+            // `extract_from_if_inline` to identify direct error guards.
+            _ => {}
         }
     }
-    false
 }
 
 pub(super) fn is_template_syntax_error_call(expr: &Expr) -> bool {
@@ -378,10 +398,10 @@ mod tests {
     use ruff_python_parser::parse_module;
 
     use super::*;
-    use crate::dataflow::domain::Env;
-    use crate::dataflow::eval::process_statements;
-    use crate::dataflow::eval::CallContext;
-    use crate::test_helpers::django_function;
+    use crate::analysis::state::Env;
+    use crate::analysis::statements::process_statements;
+    use crate::analysis::CallContext;
+    use crate::testing::django_function;
     use crate::types::SplitPosition;
 
     fn extract_from_source(source: &str) -> ConstraintSet {

@@ -18,7 +18,7 @@ use crate::types::TagRule;
 /// `as_var` controls whether Django's framework strips trailing
 /// `as <varname>` before argument validation.
 #[must_use]
-pub fn extract_parse_bits_rule(func: &StmtFunctionDef, as_var: AsVar) -> TagRule {
+pub(crate) fn extract_parse_bits_rule(func: &StmtFunctionDef, as_var: AsVar) -> TagRule {
     let params = &func.parameters;
 
     let takes_context = has_takes_context(func);
@@ -117,8 +117,8 @@ fn has_takes_context(func: &StmtFunctionDef) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_helpers::django_function;
-    use crate::test_helpers::find_function_in_source;
+    use crate::testing::django_function;
+    use crate::testing::find_function_in_source;
 
     // Corpus: `no_params` in custom.py — `def no_params():`
     // No params → only Max constraint

@@ -1,3 +1,5 @@
+use ruff_python_ast::statement_visitor::walk_stmt;
+use ruff_python_ast::statement_visitor::StatementVisitor;
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprAttribute;
 use ruff_python_ast::ExprCall;
@@ -9,7 +11,7 @@ use crate::ext::ExprExt;
 use crate::types::BlockSpec;
 
 /// Detect opaque block patterns: `parser.skip_past("endtag")`.
-pub fn detect(body: &[Stmt], parser_var: &str) -> Option<BlockSpec> {
+pub(super) fn detect(body: &[Stmt], parser_var: &str) -> Option<BlockSpec> {
     let skip_past_tokens = collect_skip_past_tokens(body, parser_var);
     if skip_past_tokens.is_empty() {
         return None;
@@ -26,108 +28,54 @@ pub fn detect(body: &[Stmt], parser_var: &str) -> Option<BlockSpec> {
     })
 }
 
-/// Collect all `parser.skip_past("token")` calls in a statement body (recursively).
+/// Collect all `parser.skip_past("token")` calls in a statement body.
+///
+/// Uses Ruff's statement visitor to avoid hand-written recursion across
+/// statement variants.
 fn collect_skip_past_tokens(body: &[Stmt], parser_var: &str) -> Vec<String> {
-    let mut tokens = Vec::new();
-    for stmt in body {
+    let mut visitor = SkipPastVisitor::new(parser_var);
+    visitor.visit_body(body);
+    visitor.tokens
+}
+
+struct SkipPastVisitor<'a> {
+    parser_var: &'a str,
+    tokens: Vec<String>,
+}
+
+impl<'a> SkipPastVisitor<'a> {
+    fn new(parser_var: &'a str) -> Self {
+        Self {
+            parser_var,
+            tokens: Vec::new(),
+        }
+    }
+
+    fn insert_token(&mut self, token: String) {
+        if !self.tokens.contains(&token) {
+            self.tokens.push(token);
+        }
+    }
+}
+
+impl StatementVisitor<'_> for SkipPastVisitor<'_> {
+    fn visit_stmt(&mut self, stmt: &Stmt) {
         match stmt {
             Stmt::Expr(expr_stmt) => {
-                if let Some(t) = extract_skip_past_token(&expr_stmt.value, parser_var) {
-                    if !tokens.contains(&t) {
-                        tokens.push(t);
-                    }
+                if let Some(token) = extract_skip_past_token(&expr_stmt.value, self.parser_var) {
+                    self.insert_token(token);
                 }
             }
             Stmt::Assign(StmtAssign { value, .. }) => {
-                if let Some(t) = extract_skip_past_token(value, parser_var) {
-                    if !tokens.contains(&t) {
-                        tokens.push(t);
-                    }
+                if let Some(token) = extract_skip_past_token(value, self.parser_var) {
+                    self.insert_token(token);
                 }
             }
-            Stmt::If(if_stmt) => {
-                for t in collect_skip_past_tokens(&if_stmt.body, parser_var) {
-                    if !tokens.contains(&t) {
-                        tokens.push(t);
-                    }
-                }
-                for clause in &if_stmt.elif_else_clauses {
-                    for t in collect_skip_past_tokens(&clause.body, parser_var) {
-                        if !tokens.contains(&t) {
-                            tokens.push(t);
-                        }
-                    }
-                }
-            }
-            Stmt::For(for_stmt) => {
-                for t in collect_skip_past_tokens(&for_stmt.body, parser_var) {
-                    if !tokens.contains(&t) {
-                        tokens.push(t);
-                    }
-                }
-                for t in collect_skip_past_tokens(&for_stmt.orelse, parser_var) {
-                    if !tokens.contains(&t) {
-                        tokens.push(t);
-                    }
-                }
-            }
-            Stmt::While(while_stmt) => {
-                for t in collect_skip_past_tokens(&while_stmt.body, parser_var) {
-                    if !tokens.contains(&t) {
-                        tokens.push(t);
-                    }
-                }
-                for t in collect_skip_past_tokens(&while_stmt.orelse, parser_var) {
-                    if !tokens.contains(&t) {
-                        tokens.push(t);
-                    }
-                }
-            }
-            Stmt::Try(try_stmt) => {
-                for t in collect_skip_past_tokens(&try_stmt.body, parser_var) {
-                    if !tokens.contains(&t) {
-                        tokens.push(t);
-                    }
-                }
-                for handler in &try_stmt.handlers {
-                    let ruff_python_ast::ExceptHandler::ExceptHandler(h) = handler;
-                    for t in collect_skip_past_tokens(&h.body, parser_var) {
-                        if !tokens.contains(&t) {
-                            tokens.push(t);
-                        }
-                    }
-                }
-                for t in collect_skip_past_tokens(&try_stmt.orelse, parser_var) {
-                    if !tokens.contains(&t) {
-                        tokens.push(t);
-                    }
-                }
-                for t in collect_skip_past_tokens(&try_stmt.finalbody, parser_var) {
-                    if !tokens.contains(&t) {
-                        tokens.push(t);
-                    }
-                }
-            }
-            Stmt::With(with_stmt) => {
-                for t in collect_skip_past_tokens(&with_stmt.body, parser_var) {
-                    if !tokens.contains(&t) {
-                        tokens.push(t);
-                    }
-                }
-            }
-            Stmt::Match(match_stmt) => {
-                for case in &match_stmt.cases {
-                    for t in collect_skip_past_tokens(&case.body, parser_var) {
-                        if !tokens.contains(&t) {
-                            tokens.push(t);
-                        }
-                    }
-                }
-            }
-            _ => {}
+            // Stay within the current function scope.
+            Stmt::FunctionDef(_) | Stmt::ClassDef(_) => {}
+            _ => walk_stmt(self, stmt),
         }
     }
-    tokens
 }
 
 /// Check if an expression is `parser.skip_past("token")` and extract the token.

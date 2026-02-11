@@ -1,3 +1,5 @@
+use ruff_python_ast::statement_visitor::walk_stmt;
+use ruff_python_ast::statement_visitor::StatementVisitor;
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprStringLiteral;
 use ruff_python_ast::MatchCase;
@@ -9,9 +11,9 @@ use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtMatch;
 
 use super::expressions::eval_expr;
-use crate::dataflow::constraints::ConstraintSet;
-use crate::dataflow::domain::AbstractValue;
-use crate::dataflow::domain::Env;
+use crate::analysis::rules::ConstraintSet;
+use crate::analysis::state::AbstractValue;
+use crate::analysis::state::Env;
 use crate::types::ArgumentCountConstraint;
 use crate::types::RequiredKeyword;
 use crate::types::SplitPosition;
@@ -222,30 +224,37 @@ fn pattern_literal(pattern: &Pattern) -> Option<String> {
 /// Check if any code path in a body contains `raise TemplateSyntaxError(...)`.
 ///
 /// Unlike `constraints::body_raises_template_syntax_error` (which only checks
-/// direct raises), this recurses into if/elif/else branches. Used for match
+/// direct raises), this recurses into control flow branches. Used for match
 /// case classification where any raise in any branch means the case can error.
 fn any_path_raises_template_syntax_error(body: &[Stmt]) -> bool {
-    use ruff_python_ast::StmtRaise;
+    let mut visitor = RaiseFinder::default();
+    visitor.visit_body(body);
+    visitor.found
+}
 
-    for stmt in body {
+#[derive(Default)]
+struct RaiseFinder {
+    found: bool,
+}
+
+impl StatementVisitor<'_> for RaiseFinder {
+    fn visit_stmt(&mut self, stmt: &Stmt) {
+        if self.found {
+            return;
+        }
+
         match stmt {
-            Stmt::Raise(StmtRaise { exc: Some(exc), .. }) => {
-                if crate::dataflow::constraints::is_template_syntax_error_call(exc) {
-                    return true;
+            // Only search for raises within the current function scope.
+            Stmt::Raise(ruff_python_ast::StmtRaise { exc: Some(exc), .. }) => {
+                if crate::analysis::rules::is_template_syntax_error_call(exc) {
+                    self.found = true;
                 }
             }
-            Stmt::If(if_stmt) => {
-                if any_path_raises_template_syntax_error(&if_stmt.body) {
-                    return true;
-                }
-                for clause in &if_stmt.elif_else_clauses {
-                    if any_path_raises_template_syntax_error(&clause.body) {
-                        return true;
-                    }
-                }
+            // Recurse into control flow to check all possible execution paths.
+            Stmt::If(_) | Stmt::For(_) | Stmt::While(_) | Stmt::Try(_) | Stmt::With(_) | Stmt::Match(_) => {
+                walk_stmt(self, stmt);
             }
             _ => {}
         }
     }
-    false
 }

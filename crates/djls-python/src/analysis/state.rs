@@ -91,7 +91,7 @@ impl TokenSplit {
     }
 }
 
-/// Abstract representation of a Python value during dataflow analysis.
+/// Abstract representation of a Python value during analysis.
 ///
 /// Each variant represents a class of runtime values that we can track
 /// through the compile function body. `Unknown` is the safe default —
