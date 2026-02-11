@@ -18,8 +18,17 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ## [Unreleased]
 
+### Added
+
+- Added automated extraction of tag and filter validation rules from Python source code.
+- Added diagnostics for tag argument counts (S117), library resolution (S120, S121), and symbol scoping (S118, S119).
+- Added structural validation for {% extends %} placement (S122, S123).
+
 ### Changed
 
+- **Internal**: Re-architected core analysis pipeline using Salsa for incremental computation.
+- **Internal**: Consolidated template validation into a single-pass visitor.
+- **Internal**: Updated completions and snippets to use extracted argument structures.
 - Bumped Rust toolchain from 1.90 to 1.91.
 
 ### Fixed
