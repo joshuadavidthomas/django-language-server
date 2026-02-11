@@ -20,6 +20,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Added
 
+- Added `djls check` CLI command for validating Django template files.
 - Added automated extraction of tag and filter validation rules from Python source code.
 - Added diagnostics for tag argument counts (S117), library resolution (S120, S121), and symbol scoping (S118, S119).
 - Added structural validation for {% extends %} placement (S122, S123).

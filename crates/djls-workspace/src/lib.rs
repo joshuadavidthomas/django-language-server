@@ -14,6 +14,7 @@
 mod db;
 mod document;
 mod files;
+mod walk;
 mod workspace;
 
 pub use db::Db;
@@ -21,4 +22,6 @@ pub use document::DocumentChange;
 pub use document::TextDocument;
 pub use files::FileSystem;
 pub use files::InMemoryFileSystem;
+pub use files::OsFileSystem;
+pub use walk::walk_files;
 pub use workspace::Workspace;

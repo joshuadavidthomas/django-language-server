@@ -7,6 +7,8 @@ mod snippets;
 
 pub use completions::handle_completion;
 pub use diagnostics::collect_diagnostics;
+pub use diagnostics::render_template_error;
+pub use diagnostics::render_validation_error;
 pub use navigation::find_references;
 pub use navigation::goto_definition;
 pub use snippets::generate_partial_snippet;

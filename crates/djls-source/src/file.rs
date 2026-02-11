@@ -114,6 +114,13 @@ pub enum FileKind {
     Template,
 }
 
+impl FileKind {
+    #[must_use]
+    pub fn is_template(path: &Utf8Path) -> bool {
+        Self::from(path) == Self::Template
+    }
+}
+
 impl From<&str> for FileKind {
     fn from(value: &str) -> Self {
         match value {

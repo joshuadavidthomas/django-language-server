@@ -1,6 +1,7 @@
 [workspace]
 members = ["crates/*"]
 resolver = "2"
+default-members = ["crates/djls"]
 
 [workspace.dependencies]
 djls = { path = "crates/djls" }
@@ -27,6 +28,7 @@ camino = { version = "1.2", features = ["serde1"] }
 clap = { version = "4.5", features = ["derive"] }
 config = { version ="0.15", features = ["toml"] }
 dashmap = "6.1"
+dunce = "1.0"
 datatest-stable = "0.3.3"
 directories = "6.0"
 divan = { package = "codspeed-divan-compat", version = "4.0" }
@@ -35,6 +37,7 @@ insta = { version = "1.46", features = ["glob", "yaml"] }
 memchr = "2.7"
 notify = "8.2"
 percent-encoding = "2.3"
+rayon = "1.11"
 reqwest = { version = "0.12", features = ["blocking", "json"] }
 rustc-hash = "2.1"
 serde = { version = "1.0", features = ["derive"] }
