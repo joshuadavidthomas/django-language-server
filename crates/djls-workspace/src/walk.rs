@@ -34,8 +34,7 @@ pub fn walk_files(
                     if e.depth() == 0 || !e.file_type().is_dir() {
                         return true;
                     }
-                    camino::Utf8Path::from_path(e.path())
-                        .is_none_or(|p| !skip_dir(p))
+                    camino::Utf8Path::from_path(e.path()).is_none_or(|p| !skip_dir(p))
                 })
                 .flatten()
             {

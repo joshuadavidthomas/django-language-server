@@ -205,9 +205,7 @@ impl FileCheckResult {
         }
 
         for error in &self.validation_errors {
-            if let Some(output) =
-                render_validation_error(source, path, error, config, fmt)
-            {
+            if let Some(output) = render_validation_error(source, path, error, config, fmt) {
                 results.push(output);
             }
         }
@@ -233,9 +231,9 @@ fn check_file(db: &DjangoDatabase, path: &Utf8Path) -> FileCheckResult {
     if let Some(nodelist) = nodelist {
         djls_semantic::validate_nodelist(db, nodelist);
 
-        let accumulated = djls_semantic::validate_nodelist::accumulated::<
-            ValidationErrorAccumulator,
-        >(db, nodelist);
+        let accumulated = djls_semantic::validate_nodelist::accumulated::<ValidationErrorAccumulator>(
+            db, nodelist,
+        );
 
         validation_errors = accumulated.iter().map(|acc| acc.0.clone()).collect();
         validation_errors.sort_by_key(|e| e.primary_span().map_or(0, Span::start));
