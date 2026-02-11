@@ -3,13 +3,14 @@
 //! This module handles all LSP completion requests, analyzing cursor context
 //! and generating appropriate completion items for Django templates.
 
+use djls_project::InstalledSymbolCandidate;
+use djls_project::InstalledSymbolOrigin;
 use djls_project::Knowledge;
-use djls_project::LibraryName;
 use djls_project::TemplateLibraries;
 use djls_project::TemplateSymbol;
 use djls_project::TemplateSymbolKind;
-use djls_python::ExtractedArgKind;
 use djls_semantic::AvailableSymbols;
+use djls_semantic::CompletionArgKind;
 use djls_semantic::TagSpecs;
 use djls_source::FileKind;
 use djls_source::PositionEncoding;
@@ -33,58 +34,7 @@ fn symbol_completion_kind(symbol: &TemplateSymbol) -> ls_types::CompletionItemKi
     }
 }
 
-struct SymbolCandidate<'a> {
-    symbol: &'a TemplateSymbol,
-    detail: String,
-}
 
-fn installed_symbol_candidates(
-    template_libraries: &TemplateLibraries,
-    kind: TemplateSymbolKind,
-) -> Vec<SymbolCandidate<'_>> {
-    let mut symbols = Vec::new();
-
-    for (module, library) in template_libraries.builtin_libraries_by_module() {
-        for symbol in &library.symbols {
-            if symbol.kind != kind {
-                continue;
-            }
-
-            let detail = match kind {
-                TemplateSymbolKind::Tag => format!("builtin from {}", module.as_str()),
-                TemplateSymbolKind::Filter => "builtin filter".to_string(),
-            };
-
-            symbols.push(SymbolCandidate { symbol, detail });
-        }
-    }
-
-    for (name, library) in template_libraries.enabled_loadable_libraries() {
-        for symbol in &library.symbols {
-            if symbol.kind != kind {
-                continue;
-            }
-
-            symbols.push(SymbolCandidate {
-                symbol,
-                detail: format!("{{% load {} %}}", name.as_str()),
-            });
-        }
-    }
-
-    symbols
-}
-
-fn discovered_symbol_names(
-    template_libraries: &TemplateLibraries,
-    kind: TemplateSymbolKind,
-) -> Vec<String> {
-    template_libraries
-        .discovered_symbol_names(kind)
-        .into_iter()
-        .map(|name| name.as_str().to_string())
-        .collect()
-}
 
 /// Tracks what closing characters are needed to complete a template tag.
 ///
@@ -518,7 +468,11 @@ fn generate_discovered_tag_name_completions(
     line_text: &str,
     cursor_offset: usize,
 ) -> Vec<ls_types::CompletionItem> {
-    let names = discovered_symbol_names(template_libraries, TemplateSymbolKind::Tag);
+    let names: Vec<String> = template_libraries
+        .discovered_symbol_names(TemplateSymbolKind::Tag)
+        .into_iter()
+        .map(|name| name.as_str().to_string())
+        .collect();
 
     let replacement_range =
         calculate_replacement_range(position, line_text, cursor_offset, partial.len(), closing);
@@ -587,7 +541,7 @@ fn generate_tag_name_completions(
         );
     }
 
-    let tags = installed_symbol_candidates(template_libraries, TemplateSymbolKind::Tag);
+    let tags = template_libraries.installed_symbol_candidates(TemplateSymbolKind::Tag);
 
     let mut completions = Vec::new();
 
@@ -637,7 +591,7 @@ fn generate_tag_name_completions(
     }
 
     for tag in tags {
-        let symbol = tag.symbol;
+        let symbol = &tag.symbol;
 
         if let Some(symbols) = available_symbols {
             if !symbol_is_available(symbol, symbols) {
@@ -652,10 +606,7 @@ fn generate_tag_name_completions(
             let (insert_text, insert_format) = if supports_snippets {
                 if let Some(specs) = tag_specs {
                     if let Some(spec) = specs.get(tag_name) {
-                        let has_args = spec
-                            .extracted_rules
-                            .as_ref()
-                            .is_some_and(|r| !r.extracted_args.is_empty());
+                        let has_args = !spec.completion_args().is_empty();
                         if has_args {
                             // Generate snippet from tag spec
                             let mut text = String::new();
@@ -705,10 +656,19 @@ fn generate_tag_name_completions(
                 symbol_completion_kind(symbol)
             };
 
+            let detail = match &tag.origin {
+                InstalledSymbolOrigin::Builtin { module } => {
+                    format!("builtin from {}", module.as_str())
+                }
+                InstalledSymbolOrigin::Loadable { load_name } => {
+                    format!("{{% load {} %}}", load_name.as_str())
+                }
+            };
+
             let completion_item = ls_types::CompletionItem {
                 label: tag_name.to_string(),
                 kind: Some(kind),
-                detail: Some(tag.detail.clone()),
+                detail: Some(detail),
                 documentation: symbol.doc()
                     .map(|doc| ls_types::Documentation::String(doc.to_string())),
                 text_edit: Some(tower_lsp_server::ls_types::CompletionTextEdit::Edit(
@@ -745,21 +705,17 @@ fn generate_argument_completions(
         return Vec::new();
     };
 
-    let args = match spec.extracted_rules.as_ref() {
-        Some(rules) => &rules.extracted_args,
-        None => return Vec::new(),
-    };
+    let args = spec.completion_args();
 
-    // Get the argument at this position
     if position >= args.len() {
-        return Vec::new(); // Beyond expected args
+        return Vec::new();
     }
 
     let arg = &args[position];
     let mut completions = Vec::new();
 
     match &arg.kind {
-        ExtractedArgKind::Literal(value) => {
+        CompletionArgKind::Literal(value) => {
             // For literals, complete the exact text
             if value.starts_with(partial) {
                 let mut insert_text = value.clone();
@@ -781,7 +737,7 @@ fn generate_argument_completions(
                 });
             }
         }
-        ExtractedArgKind::Choice(choices) => {
+        CompletionArgKind::Choice(choices) => {
             for option in choices {
                 if option.starts_with(partial) {
                     let mut insert_text = option.clone();
@@ -804,7 +760,7 @@ fn generate_argument_completions(
                 }
             }
         }
-        ExtractedArgKind::Variable | ExtractedArgKind::Keyword => {
+        CompletionArgKind::Variable | CompletionArgKind::Keyword => {
             if partial.is_empty() {
                 completions.push(ls_types::CompletionItem {
                     label: format!("<{}>", arg.name),
@@ -816,7 +772,7 @@ fn generate_argument_completions(
                 });
             }
         }
-        ExtractedArgKind::VarArgs => {
+        CompletionArgKind::VarArgs => {
             // VarArgs not specifically completed
         }
     }
@@ -869,18 +825,7 @@ fn generate_library_completions(
         return Vec::new();
     };
 
-    let mut names: Vec<LibraryName> = Vec::new();
-
-    for name in template_libraries.loadable_library_names() {
-        if template_libraries.is_enabled_library(name)
-            || template_libraries.has_discovered_library(name)
-        {
-            names.push(name.clone());
-        }
-    }
-
-    names.sort();
-    names.dedup();
+    let names = template_libraries.completion_library_names();
 
     let mut completions = Vec::new();
 
@@ -923,15 +868,15 @@ fn generate_library_completions(
 ///
 /// When `available_symbols` is `Some` (inspector healthy), only symbols that are
 /// available at the cursor position (builtins + loaded library symbols) are shown.
-fn generate_completions<'a>(
-    symbols: impl IntoIterator<Item = SymbolCandidate<'a>>,
+fn generate_completions(
+    symbols: impl IntoIterator<Item = InstalledSymbolCandidate>,
     partial: &str,
     available_symbols: Option<&AvailableSymbols>,
 ) -> Vec<ls_types::CompletionItem> {
     let mut completions = Vec::new();
 
     for candidate in symbols {
-        let symbol = candidate.symbol;
+        let symbol = &candidate.symbol;
 
         if let Some(avail) = available_symbols {
             if !symbol_is_available(symbol, avail) {
@@ -944,10 +889,20 @@ fn generate_completions<'a>(
             continue;
         }
 
+        let detail = match &candidate.origin {
+            InstalledSymbolOrigin::Builtin { module } => match symbol.kind {
+                TemplateSymbolKind::Tag => format!("builtin from {}", module.as_str()),
+                TemplateSymbolKind::Filter => "builtin filter".to_string(),
+            },
+            InstalledSymbolOrigin::Loadable { load_name } => {
+                format!("{{% load {} %}}", load_name.as_str())
+            }
+        };
+
         completions.push(ls_types::CompletionItem {
             label: name.to_string(),
             kind: Some(symbol_completion_kind(symbol)),
-            detail: Some(candidate.detail),
+            detail: Some(detail),
             documentation: symbol.doc()
                 .map(|doc| ls_types::Documentation::String(doc.to_string())),
             insert_text: Some(name.to_string()),
@@ -979,11 +934,15 @@ fn generate_filter_completions(
     };
 
     if template_libraries.inspector_knowledge == Knowledge::Known {
-        let filters = installed_symbol_candidates(template_libraries, TemplateSymbolKind::Filter);
+        let filters = template_libraries.installed_symbol_candidates(TemplateSymbolKind::Filter);
         return generate_completions(filters, partial, available_symbols);
     }
 
-    let names = discovered_symbol_names(template_libraries, TemplateSymbolKind::Filter);
+    let names: Vec<String> = template_libraries
+        .discovered_symbol_names(TemplateSymbolKind::Filter)
+        .into_iter()
+        .map(|name| name.as_str().to_string())
+        .collect();
 
     names
         .into_iter()
@@ -1029,52 +988,72 @@ mod tests {
     use std::collections::BTreeMap;
     use std::collections::HashMap;
 
+    use djls_semantic::CompletionArg;
+
     use super::*;
 
-    fn build_template_libraries(
+    fn symbol(
+        kind: TemplateSymbolKind,
+        name: &str,
+        load_name: Option<&str>,
+        library_module: &str,
+        module: &str,
+        doc: Option<&str>,
+    ) -> djls_project::InspectorLibrarySymbol {
+        djls_project::InspectorLibrarySymbol {
+            kind: Some(kind),
+            name: name.to_string(),
+            load_name: load_name.map(str::to_string),
+            library_module: library_module.to_string(),
+            module: module.to_string(),
+            doc: doc.map(str::to_string),
+        }
+    }
+
+    fn response_from_symbols(
+        symbols: Vec<djls_project::InspectorLibrarySymbol>,
         libraries: &HashMap<String, String>,
         builtins: &[String],
-    ) -> TemplateLibraries {
-        use std::collections::BTreeMap;
-
-        let mut tag_values = Vec::new();
-
-        for module in builtins {
-            tag_values.push(serde_json::json!({
-                "kind": "tag",
-                "name": format!("builtin_from_{}", module.split('.').next_back().unwrap_or("unknown")),
-                "load_name": null,
-                "library_module": module,
-                "module": module,
-                "doc": null,
-            }));
-        }
-
-        for (load_name, module) in libraries {
-            tag_values.push(serde_json::json!({
-                "kind": "tag",
-                "name": format!("{}_tag", load_name),
-                "load_name": load_name,
-                "library_module": module,
-                "module": module,
-                "doc": null,
-            }));
-        }
-
-        let symbols: Vec<djls_project::InspectorLibrarySymbol> = tag_values
-            .into_iter()
-            .map(serde_json::from_value)
-            .collect::<Result<_, _>>()
-            .unwrap();
-
-        let response = djls_project::TemplateLibrariesResponse {
+    ) -> djls_project::TemplateLibrariesResponse {
+        djls_project::TemplateLibrariesResponse {
             symbols,
             libraries: libraries
                 .iter()
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect::<BTreeMap<_, _>>(),
             builtins: builtins.to_vec(),
-        };
+        }
+    }
+
+    fn build_template_libraries(
+        libraries: &HashMap<String, String>,
+        builtins: &[String],
+    ) -> TemplateLibraries {
+        let mut symbols = Vec::new();
+
+        for module in builtins {
+            symbols.push(symbol(
+                TemplateSymbolKind::Tag,
+                &format!("builtin_from_{}", module.split('.').next_back().unwrap_or("unknown")),
+                None,
+                module,
+                module,
+                None,
+            ));
+        }
+
+        for (load_name, module) in libraries {
+            symbols.push(symbol(
+                TemplateSymbolKind::Tag,
+                &format!("{}_tag", load_name),
+                Some(load_name),
+                module,
+                module,
+                None,
+            ));
+        }
+
+        let response = response_from_symbols(symbols, libraries, builtins);
 
         TemplateLibraries::default().apply_inspector(Some(response))
     }
@@ -1503,62 +1482,56 @@ mod tests {
             "django.template.defaultfilters".to_string(),
         ];
 
-        let tag_values = vec![
-            serde_json::json!({
-                "kind": "tag",
-                "name": "if",
-                "load_name": null,
-                "library_module": "django.template.defaulttags",
-                "module": "django.template.defaulttags",
-                "doc": null,
-            }),
-            serde_json::json!({
-                "kind": "tag",
-                "name": "for",
-                "load_name": null,
-                "library_module": "django.template.defaulttags",
-                "module": "django.template.defaulttags",
-                "doc": null,
-            }),
-            serde_json::json!({
-                "kind": "tag",
-                "name": "block",
-                "load_name": null,
-                "library_module": "django.template.defaulttags",
-                "module": "django.template.defaulttags",
-                "doc": null,
-            }),
-            serde_json::json!({
-                "kind": "tag",
-                "name": "trans",
-                "load_name": "i18n",
-                "library_module": "django.templatetags.i18n",
-                "module": "django.templatetags.i18n",
-                "doc": null,
-            }),
-            serde_json::json!({
-                "kind": "tag",
-                "name": "blocktrans",
-                "load_name": "i18n",
-                "library_module": "django.templatetags.i18n",
-                "module": "django.templatetags.i18n",
-                "doc": null,
-            }),
-            serde_json::json!({
-                "kind": "tag",
-                "name": "get_static_prefix",
-                "load_name": "static",
-                "library_module": "django.templatetags.static",
-                "module": "django.templatetags.static",
-                "doc": null,
-            }),
+        let symbols = vec![
+            symbol(
+                TemplateSymbolKind::Tag,
+                "if",
+                None,
+                "django.template.defaulttags",
+                "django.template.defaulttags",
+                None,
+            ),
+            symbol(
+                TemplateSymbolKind::Tag,
+                "for",
+                None,
+                "django.template.defaulttags",
+                "django.template.defaulttags",
+                None,
+            ),
+            symbol(
+                TemplateSymbolKind::Tag,
+                "block",
+                None,
+                "django.template.defaulttags",
+                "django.template.defaulttags",
+                None,
+            ),
+            symbol(
+                TemplateSymbolKind::Tag,
+                "trans",
+                Some("i18n"),
+                "django.templatetags.i18n",
+                "django.templatetags.i18n",
+                None,
+            ),
+            symbol(
+                TemplateSymbolKind::Tag,
+                "blocktrans",
+                Some("i18n"),
+                "django.templatetags.i18n",
+                "django.templatetags.i18n",
+                None,
+            ),
+            symbol(
+                TemplateSymbolKind::Tag,
+                "get_static_prefix",
+                Some("static"),
+                "django.templatetags.static",
+                "django.templatetags.static",
+                None,
+            ),
         ];
-
-        let symbols: Vec<djls_project::InspectorLibrarySymbol> = tag_values
-            .into_iter()
-            .map(serde_json::from_value)
-            .collect::<Result<_, _>>()
-            .unwrap();
 
         let response = djls_project::TemplateLibrariesResponse {
             symbols,
@@ -1746,64 +1719,64 @@ mod tests {
     // --- Filter completion tests ---
 
     fn build_test_filter_libraries() -> TemplateLibraries {
-        let tags = vec![serde_json::json!({
-            "kind": "tag",
-            "name": "if",
-            "load_name": null,
-            "library_module": "django.template.defaulttags",
-            "module": "django.template.defaulttags",
-            "doc": null,
-        })];
+        let tags = vec![symbol(
+            TemplateSymbolKind::Tag,
+            "if",
+            None,
+            "django.template.defaulttags",
+            "django.template.defaulttags",
+            None,
+        )];
 
         let filters = vec![
-            serde_json::json!({
-                "kind": "filter",
-                "name": "lower",
-                "load_name": null,
-                "library_module": "django.template.defaultfilters",
-                "module": "django.template.defaultfilters",
-                "doc": "Convert a string to lowercase.",
-            }),
-            serde_json::json!({
-                "kind": "filter",
-                "name": "title",
-                "load_name": null,
-                "library_module": "django.template.defaultfilters",
-                "module": "django.template.defaultfilters",
-                "doc": null,
-            }),
-            serde_json::json!({
-                "kind": "filter",
-                "name": "default",
-                "load_name": null,
-                "library_module": "django.template.defaultfilters",
-                "module": "django.template.defaultfilters",
-                "doc": null,
-            }),
-            serde_json::json!({
-                "kind": "filter",
-                "name": "intcomma",
-                "load_name": "humanize",
-                "library_module": "django.contrib.humanize.templatetags.humanize",
-                "module": "django.contrib.humanize.templatetags.humanize",
-                "doc": "Converts an integer to a string containing commas.",
-            }),
-            serde_json::json!({
-                "kind": "filter",
-                "name": "naturaltime",
-                "load_name": "humanize",
-                "library_module": "django.contrib.humanize.templatetags.humanize",
-                "module": "django.contrib.humanize.templatetags.humanize",
-                "doc": null,
-            }),
-            serde_json::json!({
-                "kind": "filter",
-                "name": "localize",
-                "load_name": "l10n",
-                "library_module": "django.templatetags.l10n",
-                "module": "django.templatetags.l10n",
-                "doc": null,
-            }),
+            symbol(
+                TemplateSymbolKind::Filter,
+                "lower",
+                None,
+                "django.template.defaultfilters",
+                "django.template.defaultfilters",
+                Some("Convert a string to lowercase."),
+            ),
+            symbol(
+                TemplateSymbolKind::Filter,
+                "title",
+                None,
+                "django.template.defaultfilters",
+                "django.template.defaultfilters",
+                None,
+            ),
+            symbol(
+                TemplateSymbolKind::Filter,
+                "default",
+                None,
+                "django.template.defaultfilters",
+                "django.template.defaultfilters",
+                None,
+            ),
+            symbol(
+                TemplateSymbolKind::Filter,
+                "intcomma",
+                Some("humanize"),
+                "django.contrib.humanize.templatetags.humanize",
+                "django.contrib.humanize.templatetags.humanize",
+                Some("Converts an integer to a string containing commas."),
+            ),
+            symbol(
+                TemplateSymbolKind::Filter,
+                "naturaltime",
+                Some("humanize"),
+                "django.contrib.humanize.templatetags.humanize",
+                "django.contrib.humanize.templatetags.humanize",
+                None,
+            ),
+            symbol(
+                TemplateSymbolKind::Filter,
+                "localize",
+                Some("l10n"),
+                "django.templatetags.l10n",
+                "django.templatetags.l10n",
+                None,
+            ),
         ];
 
         let mut libraries = HashMap::new();
@@ -1818,19 +1791,8 @@ mod tests {
             "django.template.defaultfilters".to_string(),
         ];
 
-        let mut symbols: Vec<djls_project::InspectorLibrarySymbol> = tags
-            .into_iter()
-            .map(serde_json::from_value)
-            .collect::<Result<_, _>>()
-            .unwrap();
-
-        symbols.extend(
-            filters
-                .into_iter()
-                .map(serde_json::from_value)
-                .collect::<Result<Vec<djls_project::InspectorLibrarySymbol>, _>>()
-                .unwrap(),
-        );
+        let mut symbols: Vec<djls_project::InspectorLibrarySymbol> = tags;
+        symbols.extend(filters);
 
         let response = djls_project::TemplateLibrariesResponse {
             symbols,
@@ -2140,10 +2102,6 @@ mod tests {
     fn build_test_tag_specs_with_args() -> TagSpecs {
         use std::borrow::Cow;
 
-        use djls_python::ExtractedArg;
-        use djls_python::ExtractedArgKind;
-        use djls_python::TagRule;
-
         let mut specs = TagSpecs::default();
 
         specs.insert(
@@ -2156,16 +2114,14 @@ mod tests {
                 }),
                 intermediate_tags: Cow::Borrowed(&[]),
                 opaque: false,
-                extracted_rules: Some(TagRule {
-                    extracted_args: vec![ExtractedArg {
-                        name: "setting".to_string(),
-                        required: true,
-                        kind: ExtractedArgKind::Choice(vec!["on".to_string(), "off".to_string()]),
-                        position: 0,
-                    }],
-                    ..Default::default()
-                }),
-            },
+                extracted_rules: None,
+            }
+            .with_completion_args(vec![CompletionArg {
+                name: "setting".to_string(),
+                required: true,
+                kind: CompletionArgKind::Choice(vec!["on".to_string(), "off".to_string()]),
+                position: 0,
+            }]),
         );
 
         specs.insert(
@@ -2175,24 +2131,22 @@ mod tests {
                 end_tag: None,
                 intermediate_tags: Cow::Borrowed(&[]),
                 opaque: false,
-                extracted_rules: Some(TagRule {
-                    extracted_args: vec![
-                        ExtractedArg {
-                            name: "value1".to_string(),
-                            required: true,
-                            kind: ExtractedArgKind::Variable,
-                            position: 0,
-                        },
-                        ExtractedArg {
-                            name: "as".to_string(),
-                            required: false,
-                            kind: ExtractedArgKind::Literal("as".to_string()),
-                            position: 1,
-                        },
-                    ],
-                    ..Default::default()
-                }),
-            },
+                extracted_rules: None,
+            }
+            .with_completion_args(vec![
+                CompletionArg {
+                    name: "value1".to_string(),
+                    required: true,
+                    kind: CompletionArgKind::Variable,
+                    position: 0,
+                },
+                CompletionArg {
+                    name: "as".to_string(),
+                    required: false,
+                    kind: CompletionArgKind::Literal("as".to_string()),
+                    position: 1,
+                },
+            ]),
         );
 
         specs

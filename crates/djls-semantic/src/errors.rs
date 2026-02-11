@@ -116,3 +116,57 @@ pub enum ValidationError {
     #[error("'{{% extends %}}' cannot appear more than once in the same template")]
     MultipleExtends { span: Span },
 }
+
+impl ValidationError {
+    #[must_use]
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::UnclosedTag { .. } => "S100",
+            Self::UnbalancedStructure { .. } => "S101",
+            Self::OrphanedTag { .. } => "S102",
+            Self::UnmatchedBlockName { .. } => "S103",
+            Self::UnknownTag { .. } => "S108",
+            Self::UnloadedTag { .. } => "S109",
+            Self::AmbiguousUnloadedTag { .. } => "S110",
+            Self::UnknownFilter { .. } => "S111",
+            Self::UnloadedFilter { .. } => "S112",
+            Self::AmbiguousUnloadedFilter { .. } => "S113",
+            Self::ExpressionSyntaxError { .. } => "S114",
+            Self::FilterMissingArgument { .. } => "S115",
+            Self::FilterUnexpectedArgument { .. } => "S116",
+            Self::ExtractedRuleViolation { .. } => "S117",
+            Self::TagNotInInstalledApps { .. } => "S118",
+            Self::FilterNotInInstalledApps { .. } => "S119",
+            Self::UnknownLibrary { .. } => "S120",
+            Self::LibraryNotInInstalledApps { .. } => "S121",
+            Self::ExtendsMustBeFirst { .. } => "S122",
+            Self::MultipleExtends { .. } => "S123",
+        }
+    }
+
+    #[must_use]
+    pub fn primary_span(&self) -> Option<Span> {
+        match self {
+            Self::UnbalancedStructure { opening_span, .. } => Some(*opening_span),
+            Self::UnclosedTag { span, .. }
+            | Self::OrphanedTag { span, .. }
+            | Self::UnmatchedBlockName { span, .. }
+            | Self::UnknownTag { span, .. }
+            | Self::UnloadedTag { span, .. }
+            | Self::AmbiguousUnloadedTag { span, .. }
+            | Self::UnknownFilter { span, .. }
+            | Self::UnloadedFilter { span, .. }
+            | Self::AmbiguousUnloadedFilter { span, .. }
+            | Self::ExpressionSyntaxError { span, .. }
+            | Self::FilterMissingArgument { span, .. }
+            | Self::FilterUnexpectedArgument { span, .. }
+            | Self::ExtractedRuleViolation { span, .. }
+            | Self::TagNotInInstalledApps { span, .. }
+            | Self::FilterNotInInstalledApps { span, .. }
+            | Self::UnknownLibrary { span, .. }
+            | Self::LibraryNotInInstalledApps { span, .. }
+            | Self::ExtendsMustBeFirst { span, .. }
+            | Self::MultipleExtends { span, .. } => Some(*span),
+        }
+    }
+}

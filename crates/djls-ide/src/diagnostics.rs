@@ -55,53 +55,11 @@ impl DiagnosticError for TemplateError {
 
 impl DiagnosticError for ValidationError {
     fn span(&self) -> Option<(u32, u32)> {
-        match self {
-            ValidationError::UnbalancedStructure { opening_span, .. } => Some(opening_span.into()),
-            ValidationError::UnclosedTag { span, .. }
-            | ValidationError::OrphanedTag { span, .. }
-            | ValidationError::UnmatchedBlockName { span, .. }
-            | ValidationError::UnknownTag { span, .. }
-            | ValidationError::UnloadedTag { span, .. }
-            | ValidationError::AmbiguousUnloadedTag { span, .. }
-            | ValidationError::UnknownFilter { span, .. }
-            | ValidationError::UnloadedFilter { span, .. }
-            | ValidationError::AmbiguousUnloadedFilter { span, .. }
-            | ValidationError::ExpressionSyntaxError { span, .. }
-            | ValidationError::FilterMissingArgument { span, .. }
-            | ValidationError::FilterUnexpectedArgument { span, .. }
-            | ValidationError::ExtractedRuleViolation { span, .. }
-            | ValidationError::TagNotInInstalledApps { span, .. }
-            | ValidationError::FilterNotInInstalledApps { span, .. }
-            | ValidationError::UnknownLibrary { span, .. }
-            | ValidationError::LibraryNotInInstalledApps { span, .. }
-            | ValidationError::ExtendsMustBeFirst { span, .. }
-            | ValidationError::MultipleExtends { span, .. } => Some(span.into()),
-        }
+        self.primary_span().map(Into::into)
     }
 
     fn diagnostic_code(&self) -> &'static str {
-        match self {
-            ValidationError::UnclosedTag { .. } => "S100",
-            ValidationError::UnbalancedStructure { .. } => "S101",
-            ValidationError::OrphanedTag { .. } => "S102",
-            ValidationError::UnmatchedBlockName { .. } => "S103",
-            ValidationError::UnknownTag { .. } => "S108",
-            ValidationError::UnloadedTag { .. } => "S109",
-            ValidationError::AmbiguousUnloadedTag { .. } => "S110",
-            ValidationError::UnknownFilter { .. } => "S111",
-            ValidationError::UnloadedFilter { .. } => "S112",
-            ValidationError::AmbiguousUnloadedFilter { .. } => "S113",
-            ValidationError::ExpressionSyntaxError { .. } => "S114",
-            ValidationError::FilterMissingArgument { .. } => "S115",
-            ValidationError::FilterUnexpectedArgument { .. } => "S116",
-            ValidationError::ExtractedRuleViolation { .. } => "S117",
-            ValidationError::TagNotInInstalledApps { .. } => "S118",
-            ValidationError::FilterNotInInstalledApps { .. } => "S119",
-            ValidationError::UnknownLibrary { .. } => "S120",
-            ValidationError::LibraryNotInInstalledApps { .. } => "S121",
-            ValidationError::ExtendsMustBeFirst { .. } => "S122",
-            ValidationError::MultipleExtends { .. } => "S123",
-        }
+        self.code()
     }
 }
 

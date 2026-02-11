@@ -21,6 +21,8 @@ pub use resolve::extract_external_rules;
 pub use resolve::resolve_modules;
 pub use discover::discover_template_libraries;
 pub use symbols::InspectorLibrarySymbol;
+pub use symbols::InstalledSymbolCandidate;
+pub use symbols::InstalledSymbolOrigin;
 pub use symbols::Knowledge;
 pub use symbols::LibraryOrigin;
 pub use symbols::SymbolDefinition;

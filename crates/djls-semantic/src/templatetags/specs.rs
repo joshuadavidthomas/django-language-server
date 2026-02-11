@@ -418,6 +418,83 @@ pub struct TagSpec {
     pub extracted_rules: Option<djls_python::TagRule>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CompletionArgKind {
+    Literal(String),
+    Choice(Vec<String>),
+    Variable,
+    Keyword,
+    VarArgs,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompletionArg {
+    pub name: String,
+    pub required: bool,
+    pub kind: CompletionArgKind,
+    pub position: usize,
+}
+
+impl CompletionArg {
+    fn from_extracted(arg: &djls_python::ExtractedArg) -> Self {
+        let kind = match &arg.kind {
+            djls_python::ExtractedArgKind::Literal(value) => CompletionArgKind::Literal(value.clone()),
+            djls_python::ExtractedArgKind::Choice(values) => CompletionArgKind::Choice(values.clone()),
+            djls_python::ExtractedArgKind::Variable => CompletionArgKind::Variable,
+            djls_python::ExtractedArgKind::Keyword => CompletionArgKind::Keyword,
+            djls_python::ExtractedArgKind::VarArgs => CompletionArgKind::VarArgs,
+        };
+
+        Self {
+            name: arg.name.clone(),
+            required: arg.required,
+            kind,
+            position: arg.position,
+        }
+    }
+
+    fn into_extracted(self) -> djls_python::ExtractedArg {
+        let kind = match self.kind {
+            CompletionArgKind::Literal(value) => djls_python::ExtractedArgKind::Literal(value),
+            CompletionArgKind::Choice(values) => djls_python::ExtractedArgKind::Choice(values),
+            CompletionArgKind::Variable => djls_python::ExtractedArgKind::Variable,
+            CompletionArgKind::Keyword => djls_python::ExtractedArgKind::Keyword,
+            CompletionArgKind::VarArgs => djls_python::ExtractedArgKind::VarArgs,
+        };
+
+        djls_python::ExtractedArg {
+            name: self.name,
+            required: self.required,
+            kind,
+            position: self.position,
+        }
+    }
+}
+
+impl TagSpec {
+    #[must_use]
+    pub fn completion_args(&self) -> Vec<CompletionArg> {
+        self.extracted_rules.as_ref().map_or_else(Vec::new, |rules| {
+            rules
+                .extracted_args
+                .iter()
+                .map(CompletionArg::from_extracted)
+                .collect()
+        })
+    }
+
+    #[must_use]
+    pub fn with_completion_args(mut self, args: Vec<CompletionArg>) -> Self {
+        let mut rules = self.extracted_rules.unwrap_or_default();
+        rules.extracted_args = args
+            .into_iter()
+            .map(CompletionArg::into_extracted)
+            .collect();
+        self.extracted_rules = Some(rules);
+        self
+    }
+}
+
 /// Specification for a closing tag (e.g., `{% endfor %}`, `{% endblock %}`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct EndTag {

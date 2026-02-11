@@ -48,6 +48,8 @@ pub use resolution::resolve_template;
 pub use resolution::ResolveResult;
 pub use resolution::TemplateReference;
 pub use semantic::build_semantic_forest;
+pub use templatetags::CompletionArg;
+pub use templatetags::CompletionArgKind;
 pub use templatetags::EndTag;
 pub use templatetags::TagSpec;
 pub use templatetags::TagSpecs;

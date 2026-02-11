@@ -706,13 +706,11 @@ dependencies = [
  "camino",
  "djls-conf",
  "djls-project",
- "djls-python",
  "djls-semantic",
  "djls-source",
  "djls-templates",
  "djls-workspace",
  "salsa",
- "serde_json",
  "tower-lsp-server",
  "tracing",
 ]

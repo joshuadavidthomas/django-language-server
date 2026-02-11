@@ -186,6 +186,18 @@ impl InspectorRequest for TemplateLibrariesRequest {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub enum InstalledSymbolOrigin {
+    Builtin { module: PyModuleName },
+    Loadable { load_name: LibraryName },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InstalledSymbolCandidate {
+    pub symbol: TemplateSymbol,
+    pub origin: InstalledSymbolOrigin,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DiscoveredSymbolCandidate {
     pub app_module: PyModuleName,
     pub library_name: LibraryName,
@@ -248,6 +260,19 @@ impl TemplateLibraries {
         self.loadable.keys()
     }
 
+    #[must_use]
+    pub fn completion_library_names(&self) -> Vec<LibraryName> {
+        let mut names: Vec<LibraryName> = self
+            .loadable_library_names()
+            .filter(|name| self.is_enabled_library(name) || self.has_discovered_library(name))
+            .cloned()
+            .collect();
+
+        names.sort();
+        names.dedup();
+        names
+    }
+
     pub fn loadable_libraries(&self) -> impl Iterator<Item = (&LibraryName, &TemplateLibrary)> + '_ {
         self.loadable
             .iter()
@@ -266,6 +291,43 @@ impl TemplateLibraries {
     ) -> impl Iterator<Item = (&LibraryName, &TemplateLibrary)> + '_ {
         self.loadable_libraries()
             .filter(|(_name, library)| library.origin().is_some())
+    }
+
+    #[must_use]
+    pub fn installed_symbol_candidates(&self, kind: TemplateSymbolKind) -> Vec<InstalledSymbolCandidate> {
+        let mut candidates = Vec::new();
+
+        for (module, library) in self.builtin_libraries_by_module() {
+            for symbol in &library.symbols {
+                if symbol.kind != kind {
+                    continue;
+                }
+
+                candidates.push(InstalledSymbolCandidate {
+                    symbol: symbol.clone(),
+                    origin: InstalledSymbolOrigin::Builtin {
+                        module: module.clone(),
+                    },
+                });
+            }
+        }
+
+        for (name, library) in self.enabled_loadable_libraries() {
+            for symbol in &library.symbols {
+                if symbol.kind != kind {
+                    continue;
+                }
+
+                candidates.push(InstalledSymbolCandidate {
+                    symbol: symbol.clone(),
+                    origin: InstalledSymbolOrigin::Loadable {
+                        load_name: name.clone(),
+                    },
+                });
+            }
+        }
+
+        candidates
     }
 
     #[must_use]

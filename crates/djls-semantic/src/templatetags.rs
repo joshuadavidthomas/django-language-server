@@ -2,6 +2,8 @@ mod specs;
 
 #[cfg(test)]
 pub(crate) use specs::test_tag_specs;
+pub use specs::CompletionArg;
+pub use specs::CompletionArgKind;
 pub use specs::EndTag;
 #[cfg(test)]
 pub(crate) use specs::IntermediateTag;
