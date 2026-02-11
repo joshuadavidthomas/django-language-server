@@ -28,6 +28,44 @@ Code contributions are welcome from developers of all backgrounds. Rust expertis
 
 So far it's all been built by a [a simple country CRUD web developer](https://youtu.be/7ij_1SQqbVo?si=hwwPyBjmaOGnvPPI&t=53) learning Rust along the way - send help!
 
+### Changelog
+
+The project maintains a [`CHANGELOG.md`](CHANGELOG.md) following [Keep a Changelog](https://keepachangelog.com/en/1.0.0/). All notable changes should be documented under the `[Unreleased]` heading in the appropriate section.
+
+**Sections** (use only those that apply):
+
+- `Added` — new features
+- `Changed` — changes in existing functionality
+- `Deprecated` — soon-to-be removed features
+- `Removed` — now removed features
+- `Fixed` — bug fixes
+- `Security` — vulnerability fixes
+
+**Writing entries:**
+
+- Keep entries short and factual — describe what changed, not why
+- Use past tense verbs: "Added", "Fixed", "Removed", "Bumped", etc.
+- Wrap crate names, types, commands, and config keys in backticks
+- Prefix internal changes (refactors, crate restructuring, CI) with `**Internal**:`
+- List user-facing entries before `**Internal**:` entries within each section
+
+**Examples:**
+
+```markdown
+### Added
+
+- Added `diagnostics.severity` configuration option for configuring diagnostic severity levels.
+
+### Changed
+
+- Bumped Rust toolchain from 1.90 to 1.91.
+- **Internal**: Extracted concrete Salsa database into new `djls-db` crate.
+
+### Fixed
+
+- Fixed false positive errors for quoted strings with spaces (e.g., `{% translate "Contact the owner" %}`).
+```
+
 ### Version Updates
 
 #### Python

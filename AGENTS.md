@@ -59,6 +59,14 @@ just corpus clean                # Remove all synced corpus data
 - **`SemanticDb` trait**: When adding methods, update impls in `djls-db/src/db.rs` and `djls-bench/src/db.rs`.
 - **`crate::Db` in `djls-semantic`**: When adding methods, update ALL test databases (~10 files). E0046 if you miss one. Grep: `grep -rn "impl crate::Db" crates/djls-semantic/ --include="*.rs"`.
 
+## Changelog
+[Keep a Changelog](https://keepachangelog.com/en/1.0.0/) format.
+- Entries go under `[Unreleased]` in the appropriate section (`Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`)
+- Short and factual — what changed, not why. No rationale or future plans.
+- Past tense verbs: "Added", "Fixed", "Removed", "Bumped"
+- Prefix internal-only changes with `**Internal**:`, list after user-facing entries
+- Backtick-wrap code identifiers: crate names, types, commands, config keys
+
 ## Ruff AST API (djls-extraction)
 - **Parse**: `ruff_python_parser::parse_module(source)` → `.into_syntax()` for `ModModule` AST
 - **Parameters**: No top-level `defaults` field — defaults are per-parameter: `ParameterWithDefault { parameter, default: Option<Box<Expr>> }`
