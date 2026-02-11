@@ -606,8 +606,7 @@ impl TemplateLibraries {
         };
 
         let definition = PyModuleName::parse(&wire.module)
-            .map(SymbolDefinition::Module)
-            .unwrap_or(SymbolDefinition::Unknown);
+            .map_or(SymbolDefinition::Unknown, SymbolDefinition::Module);
 
         let symbol = TemplateSymbol {
             kind,
