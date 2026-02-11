@@ -78,7 +78,7 @@ pub fn query<Q: InspectorRequest>(db: &dyn ProjectDb, request: &Q) -> Option<Q::
     }
 }
 
-const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
+const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_mins(1);
 
 /// Manages inspector process with automatic cleanup
 #[derive(Clone)]
