@@ -165,6 +165,15 @@ impl DiagnosticRenderer {
 
 #[cfg(test)]
 mod tests {
+    //! Renderer capability tests.
+    //!
+    //! These exercise the rendering engine itself — multi-span annotations,
+    //! notes, severity levels, long-line truncation, etc. The diagnostic
+    //! scenarios are synthetic; real validation output (produced by
+    //! `djls-semantic`) currently uses single-span diagnostics with empty
+    //! labels. See `djls-semantic/src/testing.rs` for how actual errors are
+    //! rendered.
+
     use super::*;
 
     fn plain() -> DiagnosticRenderer {
