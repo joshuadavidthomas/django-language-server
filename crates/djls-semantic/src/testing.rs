@@ -11,7 +11,6 @@ use djls_corpus::Corpus;
 use djls_project::InspectorLibrarySymbol;
 use djls_project::TemplateLibraries;
 use djls_project::TemplateLibrariesResponse;
-use djls_project::TemplateLibrary;
 use djls_source::File;
 use djls_source::LineIndex;
 use djls_source::Span;

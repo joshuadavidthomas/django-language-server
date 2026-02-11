@@ -99,14 +99,14 @@ pub fn build_root_tag<S: ::std::hash::BuildHasher>(
     None
 }
 
-fn build_tag_from_container(
+fn build_tag_from_container<S: ::std::hash::BuildHasher>(
     db: &dyn Db,
     tree: BlockTree,
     nodelist: djls_templates::NodeList<'_>,
     container_id: BlockId,
     tag_name: String,
     opener_marker_span: Span,
-    spans: &mut FxHashSet<Span>,
+    spans: &mut HashSet<Span, S>,
 ) -> SemanticNode {
     let segments = build_segments(db, tree, nodelist, container_id, opener_marker_span, spans);
     let arguments = segments
@@ -122,13 +122,13 @@ fn build_tag_from_container(
     }
 }
 
-fn build_segments(
+fn build_segments<S: ::std::hash::BuildHasher>(
     db: &dyn Db,
     tree: BlockTree,
     nodelist: djls_templates::NodeList<'_>,
     container_id: BlockId,
     opener_marker_span: Span,
-    spans: &mut FxHashSet<Span>,
+    spans: &mut HashSet<Span, S>,
 ) -> Vec<SemanticSegment> {
     let mut segments = Vec::new();
     let container = tree.blocks(db).get(container_id.index());
@@ -172,12 +172,12 @@ fn build_segments(
     segments
 }
 
-fn build_children(
+fn build_children<S: ::std::hash::BuildHasher>(
     db: &dyn Db,
     tree: BlockTree,
     nodelist: djls_templates::NodeList<'_>,
     block_id: BlockId,
-    spans: &mut FxHashSet<Span>,
+    spans: &mut HashSet<Span, S>,
 ) -> Vec<SemanticNode> {
     let mut children = Vec::new();
     let block = tree.blocks(db).get(block_id.index());
