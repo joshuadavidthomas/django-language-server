@@ -1,0 +1,125 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+---
+tag_rules:
+  "src.sentry.templatetags.sentry_avatars::tag::avatar":
+    arg_constraints:
+      - Min: 2
+      - Max: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: user
+        required: true
+        kind: Variable
+        position: 0
+      - name: size
+        required: false
+        kind: Variable
+        position: 1
+    as_var: keep
+  "src.sentry.templatetags.sentry_avatars::tag::avatar_for_email":
+    arg_constraints:
+      - Min: 2
+      - Max: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: user
+        required: true
+        kind: Variable
+        position: 0
+      - name: size
+        required: false
+        kind: Variable
+        position: 1
+    as_var: keep
+  "src.sentry.templatetags.sentry_avatars::tag::email_avatar":
+    arg_constraints:
+      - Min: 3
+      - Max: 5
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: display_name
+        required: true
+        kind: Variable
+        position: 0
+      - name: identifier
+        required: true
+        kind: Variable
+        position: 1
+      - name: size
+        required: false
+        kind: Variable
+        position: 2
+      - name: try_gravatar
+        required: false
+        kind: Variable
+        position: 3
+    as_var: strip
+  "src.sentry.templatetags.sentry_avatars::tag::gravatar_url":
+    arg_constraints:
+      - Min: 3
+      - Max: 4
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: email
+        required: true
+        kind: Variable
+        position: 0
+      - name: size
+        required: true
+        kind: Variable
+        position: 1
+      - name: default
+        required: false
+        kind: Variable
+        position: 2
+    as_var: strip
+  "src.sentry.templatetags.sentry_avatars::tag::letter_avatar_svg":
+    arg_constraints:
+      - Min: 3
+      - Max: 4
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: display_name
+        required: true
+        kind: Variable
+        position: 0
+      - name: identifier
+        required: true
+        kind: Variable
+        position: 1
+      - name: size
+        required: false
+        kind: Variable
+        position: 2
+    as_var: strip
+  "src.sentry.templatetags.sentry_avatars::tag::profile_photo_url":
+    arg_constraints:
+      - Min: 2
+      - Max: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: user_id
+        required: true
+        kind: Variable
+        position: 0
+      - name: size
+        required: false
+        kind: Variable
+        position: 1
+    as_var: strip
+filter_arities: {}
+block_specs: {}

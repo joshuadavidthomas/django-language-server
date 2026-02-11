@@ -1,0 +1,26 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+---
+tag_rules:
+  "src.pretix.control.templatetags.hierarkey_form::tag::propagated":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: event
+        required: true
+        kind: Variable
+        position: 0
+      - name: url
+        required: true
+        kind: Variable
+        position: 1
+    as_var: keep
+filter_arities: {}
+block_specs:
+  "src.pretix.control.templatetags.hierarkey_form::tag::propagated":
+    end_tag: endpropagated
+    intermediates: []
+    opaque: false

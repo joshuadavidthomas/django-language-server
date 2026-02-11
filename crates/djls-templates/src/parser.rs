@@ -2,7 +2,11 @@ use djls_source::Span;
 use serde::Serialize;
 use thiserror::Error;
 
+use crate::filters::parse_filter;
+use crate::filters::split_variable_expression;
+use crate::filters::Filter;
 use crate::nodelist::Node;
+use crate::quotes::split_on_whitespace;
 use crate::tokens::Token;
 
 pub struct Parser {
@@ -92,33 +96,7 @@ impl Parser {
     }
 
     fn parse_tag_args(content: &str) -> Result<(String, Vec<String>), ParseError> {
-        let mut pieces = Vec::with_capacity((content.len() / 8).clamp(2, 8));
-        let mut start = None;
-        let mut quote: Option<char> = None;
-        let mut escape = false;
-        for (idx, ch) in content.char_indices() {
-            if start.is_none() && !ch.is_whitespace() {
-                start = Some(idx);
-            }
-            if escape {
-                escape = false;
-                continue;
-            }
-            match ch {
-                '\\' if quote.is_some() => escape = true,
-                '"' | '\'' if quote == Some(ch) => quote = None,
-                '"' | '\'' if quote.is_none() => quote = Some(ch),
-                c if quote.is_none() && c.is_whitespace() => {
-                    if let Some(s) = start.take() {
-                        pieces.push(content[s..idx].to_owned());
-                    }
-                }
-                _ => {}
-            }
-        }
-        if let Some(s) = start {
-            pieces.push(content[s..].to_owned());
-        }
+        let pieces = split_on_whitespace(content);
         let mut iter = pieces.into_iter();
         let name = iter.next().ok_or(ParseError::EmptyTag)?;
         Ok((name, iter.collect()))
@@ -192,12 +170,19 @@ impl Parser {
             });
         };
 
-        let mut parts = content_ref.split('|');
-
-        let var = parts.next().ok_or(ParseError::EmptyTag)?.trim().to_string();
-
-        let filters: Vec<String> = parts.map(|s| s.trim().to_string()).collect();
         let span = token.content_span_or_fallback();
+        let base_offset = span.start();
+
+        let mut parts = split_variable_expression(content_ref);
+
+        let (var_raw, _) = parts.next().ok_or(ParseError::EmptyTag)?;
+        let var = var_raw.trim().to_string();
+
+        let filters: Vec<Filter> = parts
+            .filter_map(|(raw, offset_in_content)| {
+                parse_filter(raw, base_offset + offset_in_content)
+            })
+            .collect();
 
         Ok(Node::Variable { var, filters, span })
     }
@@ -331,6 +316,24 @@ mod tests {
     }
 
     #[derive(Debug, Clone, PartialEq, Serialize)]
+    struct TestFilter {
+        name: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        arg: Option<String>,
+        span: (u32, u32),
+    }
+
+    impl TestFilter {
+        fn from_filter(filter: &crate::filters::Filter) -> Self {
+            Self {
+                name: filter.name.clone(),
+                arg: filter.arg.clone(),
+                span: (&filter.span).into(),
+            }
+        }
+    }
+
+    #[derive(Debug, Clone, PartialEq, Serialize)]
     #[serde(tag = "type")]
     enum TestNode {
         Tag {
@@ -350,7 +353,7 @@ mod tests {
         },
         Variable {
             var: String,
-            filters: Vec<String>,
+            filters: Vec<TestFilter>,
             span: (u32, u32),
             full_span: (u32, u32),
         },
@@ -381,7 +384,7 @@ mod tests {
                 },
                 Node::Variable { var, filters, span } => TestNode::Variable {
                     var: var.clone(),
-                    filters: filters.clone(),
+                    filters: filters.iter().map(TestFilter::from_filter).collect(),
                     span: span.into(),
                     full_span: node.full_span().into(),
                 },

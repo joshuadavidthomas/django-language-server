@@ -1,57 +1,39 @@
-use djls_semantic::TagArg;
+use djls_semantic::CompletionArg;
+use djls_semantic::CompletionArgKind;
 use djls_semantic::TagSpec;
 
-/// Generate an LSP snippet pattern from an array of arguments
+/// Generate an LSP snippet pattern from an array of extracted arguments
 #[must_use]
-pub fn generate_snippet_from_args(args: &[TagArg]) -> String {
+pub fn generate_snippet_from_args(args: &[CompletionArg]) -> String {
     let mut parts = Vec::new();
     let mut placeholder_index = 1;
 
     for arg in args {
         // Skip optional literals entirely - they're usually flags like "reversed" or "only"
         // that the user can add manually if needed
-        if !arg.is_required() && matches!(arg, TagArg::Literal { .. }) {
+        if !arg.required && matches!(arg.kind, CompletionArgKind::Literal(_)) {
             continue;
         }
 
         // Skip other optional args if we haven't seen any required args yet
-        // This prevents generating snippets like: "{% for %}" when everything is optional
-        if !arg.is_required() && parts.is_empty() {
+        if !arg.required && parts.is_empty() {
             continue;
         }
 
-        let snippet_part = match arg {
-            TagArg::Literal { lit, .. } => {
+        let snippet_part = match &arg.kind {
+            CompletionArgKind::Literal(value) => {
                 // At this point, we know it's required (optional literals were skipped above)
-                lit.to_string()
+                value.clone()
             }
-            TagArg::Variable { name, .. } | TagArg::Any { name, .. } => {
-                // Variables and expressions become placeholders
-                let result = format!("${{{}:{}}}", placeholder_index, name.as_ref());
+            CompletionArgKind::Variable
+            | CompletionArgKind::Keyword
+            | CompletionArgKind::VarArgs => {
+                let result = format!("${{{}:{}}}", placeholder_index, arg.name);
                 placeholder_index += 1;
                 result
             }
-            TagArg::String { name, .. } => {
-                // Strings get quotes around them
-                let result = format!("\"${{{}:{}}}\"", placeholder_index, name.as_ref());
-                placeholder_index += 1;
-                result
-            }
-            TagArg::Assignment { name, .. } => {
-                // Assignments use the name as-is (e.g., "var=value")
-                let result = format!("${{{}:{}}}", placeholder_index, name.as_ref());
-                placeholder_index += 1;
-                result
-            }
-            TagArg::VarArgs { name, .. } => {
-                // Variable arguments, just use the name
-                let result = format!("${{{}:{}}}", placeholder_index, name.as_ref());
-                placeholder_index += 1;
-                result
-            }
-            TagArg::Choice { choices, .. } => {
-                // Choice placeholders with options
-                let options: Vec<_> = choices.iter().map(std::convert::AsRef::as_ref).collect();
+            CompletionArgKind::Choice(choices) => {
+                let options: Vec<&str> = choices.iter().map(String::as_str).collect();
                 let result = format!("${{{}|{}|}}", placeholder_index, options.join(","));
                 placeholder_index += 1;
                 result
@@ -67,13 +49,13 @@ pub fn generate_snippet_from_args(args: &[TagArg]) -> String {
 /// Generate a complete LSP snippet for a tag including the tag name
 #[must_use]
 pub fn generate_snippet_for_tag(tag_name: &str, spec: &TagSpec) -> String {
-    let args_snippet = generate_snippet_from_args(&spec.args);
+    let args = spec.completion_args();
+
+    let args_snippet = generate_snippet_from_args(&args);
 
     if args_snippet.is_empty() {
-        // Tag with no arguments
         tag_name.to_string()
     } else {
-        // Tag with arguments
         format!("{tag_name} {args_snippet}")
     }
 }
@@ -83,8 +65,6 @@ pub fn generate_snippet_for_tag(tag_name: &str, spec: &TagSpec) -> String {
 pub fn generate_snippet_for_tag_with_end(tag_name: &str, spec: &TagSpec) -> String {
     // Special handling for block tag to mirror the name in endblock
     if tag_name == "block" {
-        // LSP snippets support placeholder mirroring using the same number
-        // ${1:name} in opening tag will be mirrored to ${1} in closing tag
         let snippet = String::from("block ${1:name} %}\n$0\n{% endblock ${1} %}");
         return snippet;
     }
@@ -94,7 +74,6 @@ pub fn generate_snippet_for_tag_with_end(tag_name: &str, spec: &TagSpec) -> Stri
     // If this tag has a required end tag, include it in the snippet
     if let Some(end_tag) = &spec.end_tag {
         if end_tag.required {
-            // Add closing %} for the opening tag, newline, cursor position, newline, then end tag
             snippet.push_str(" %}\n$0\n{% ");
             snippet.push_str(&end_tag.name);
             snippet.push_str(" %}");
@@ -105,30 +84,69 @@ pub fn generate_snippet_for_tag_with_end(tag_name: &str, spec: &TagSpec) -> Stri
 }
 
 /// Generate a partial snippet starting from a specific argument position
-/// This is useful when the user has already typed some arguments
 #[must_use]
 pub fn generate_partial_snippet(spec: &TagSpec, starting_from_position: usize) -> String {
-    if starting_from_position >= spec.args.len() {
+    let args = spec.completion_args();
+
+    if starting_from_position >= args.len() {
         return String::new();
     }
 
-    let remaining_args = &spec.args[starting_from_position..];
+    let remaining_args = &args[starting_from_position..];
     generate_snippet_from_args(remaining_args)
 }
 
 #[cfg(test)]
 mod tests {
+    use djls_semantic::CompletionArg;
+    use djls_semantic::CompletionArgKind;
     use djls_semantic::EndTag;
 
     use super::*;
 
+    fn make_var(name: &str, required: bool, pos: usize) -> CompletionArg {
+        CompletionArg {
+            name: name.to_string(),
+            required,
+            kind: CompletionArgKind::Variable,
+            position: pos,
+        }
+    }
+
+    fn make_literal(value: &str, required: bool, pos: usize) -> CompletionArg {
+        CompletionArg {
+            name: value.to_string(),
+            required,
+            kind: CompletionArgKind::Literal(value.to_string()),
+            position: pos,
+        }
+    }
+
+    fn make_choice(name: &str, required: bool, choices: Vec<&str>, pos: usize) -> CompletionArg {
+        CompletionArg {
+            name: name.to_string(),
+            required,
+            kind: CompletionArgKind::Choice(choices.into_iter().map(String::from).collect()),
+            position: pos,
+        }
+    }
+
+    fn make_varargs(name: &str, required: bool, pos: usize) -> CompletionArg {
+        CompletionArg {
+            name: name.to_string(),
+            required,
+            kind: CompletionArgKind::VarArgs,
+            position: pos,
+        }
+    }
+
     #[test]
     fn test_snippet_for_for_tag() {
         let args = vec![
-            TagArg::var("item", true),
-            TagArg::syntax("in", true),
-            TagArg::var("items", true),
-            TagArg::modifier("reversed", false),
+            make_var("item", true, 0),
+            make_literal("in", true, 1),
+            make_var("items", true, 2),
+            make_literal("reversed", false, 3),
         ];
 
         let snippet = generate_snippet_from_args(&args);
@@ -137,7 +155,7 @@ mod tests {
 
     #[test]
     fn test_snippet_for_if_tag() {
-        let args = vec![TagArg::expr("condition", true)];
+        let args = vec![make_var("condition", true, 0)];
 
         let snippet = generate_snippet_from_args(&args);
         assert_eq!(snippet, "${1:condition}");
@@ -145,30 +163,15 @@ mod tests {
 
     #[test]
     fn test_snippet_for_autoescape_tag() {
-        let args = vec![TagArg::Choice {
-            name: "mode".into(),
-            required: true,
-            choices: vec!["on".into(), "off".into()].into(),
-        }];
+        let args = vec![make_choice("mode", true, vec!["on", "off"], 0)];
 
         let snippet = generate_snippet_from_args(&args);
         assert_eq!(snippet, "${1|on,off|}");
     }
 
     #[test]
-    fn test_snippet_for_extends_tag() {
-        let args = vec![TagArg::String {
-            name: "template".into(),
-            required: true,
-        }];
-
-        let snippet = generate_snippet_from_args(&args);
-        assert_eq!(snippet, "\"${1:template}\"");
-    }
-
-    #[test]
     fn test_snippet_for_csrf_token_tag() {
-        let args = vec![];
+        let args: Vec<CompletionArg> = vec![];
 
         let snippet = generate_snippet_from_args(&args);
         assert_eq!(snippet, "");
@@ -183,11 +186,12 @@ mod tests {
             end_tag: Some(EndTag {
                 name: "endblock".into(),
                 required: true,
-                args: vec![TagArg::var("name", false)].into(),
             }),
             intermediate_tags: Cow::Borrowed(&[]),
-            args: vec![TagArg::var("name", true)].into(),
-        };
+            opaque: false,
+            extracted_rules: None,
+        }
+        .with_completion_args(vec![make_var("name", true, 0)]);
 
         let snippet = generate_snippet_for_tag_with_end("block", &spec);
         assert_eq!(snippet, "block ${1:name} %}\n$0\n{% endblock ${1} %}");
@@ -202,16 +206,12 @@ mod tests {
             end_tag: Some(EndTag {
                 name: "endautoescape".into(),
                 required: true,
-                args: Cow::Borrowed(&[]),
             }),
             intermediate_tags: Cow::Borrowed(&[]),
-            args: vec![TagArg::Choice {
-                name: "mode".into(),
-                required: true,
-                choices: vec!["on".into(), "off".into()].into(),
-            }]
-            .into(),
-        };
+            opaque: false,
+            extracted_rules: None,
+        }
+        .with_completion_args(vec![make_choice("mode", true, vec!["on", "off"], 0)]);
 
         let snippet = generate_snippet_for_tag_with_end("autoescape", &spec);
         assert_eq!(
@@ -223,19 +223,13 @@ mod tests {
     #[test]
     fn test_snippet_for_url_tag() {
         let args = vec![
-            TagArg::String {
-                name: "view_name".into(),
-                required: true,
-            },
-            TagArg::VarArgs {
-                name: "args".into(),
-                required: false,
-            },
-            TagArg::syntax("as", false),
-            TagArg::var("varname", false),
+            make_var("view_name", true, 0),
+            make_varargs("args", false, 1),
+            make_literal("as", false, 2),
+            make_var("varname", false, 3),
         ];
 
         let snippet = generate_snippet_from_args(&args);
-        assert_eq!(snippet, "\"${1:view_name}\" ${2:args} ${3:varname}");
+        assert_eq!(snippet, "${1:view_name} ${2:args} ${3:varname}");
     }
 }

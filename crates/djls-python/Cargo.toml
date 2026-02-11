@@ -1,0 +1,24 @@
+[package]
+name = "djls-python"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+djls-source = { workspace = true }
+
+ruff_python_ast = { workspace = true }
+ruff_python_parser = { workspace = true }
+rustc-hash = { workspace = true }
+salsa = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+camino = { workspace = true }
+djls-corpus = { workspace = true }
+insta = { workspace = true }
+serde = { workspace = true }
+tempfile = { workspace = true }
+walkdir = { workspace = true }
+
+[lints]
+workspace = true

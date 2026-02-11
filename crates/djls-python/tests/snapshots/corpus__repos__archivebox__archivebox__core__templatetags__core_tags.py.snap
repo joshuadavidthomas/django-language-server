@@ -1,0 +1,112 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+---
+tag_rules:
+  "archivebox.core.templatetags.core_tags::tag::admin_base_url":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    as_var: strip
+  "archivebox.core.templatetags.core_tags::tag::api_token":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    as_var: strip
+  "archivebox.core.templatetags.core_tags::tag::plugin_card":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: result
+        required: true
+        kind: Variable
+        position: 0
+    as_var: strip
+  "archivebox.core.templatetags.core_tags::tag::plugin_full":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: result
+        required: true
+        kind: Variable
+        position: 0
+    as_var: strip
+  "archivebox.core.templatetags.core_tags::tag::plugin_icon":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: plugin
+        required: true
+        kind: Variable
+        position: 0
+    as_var: strip
+  "archivebox.core.templatetags.core_tags::tag::snapshot_base_url":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: snapshot
+        required: true
+        kind: Variable
+        position: 0
+    as_var: strip
+  "archivebox.core.templatetags.core_tags::tag::snapshot_url":
+    arg_constraints:
+      - Min: 2
+      - Max: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: snapshot
+        required: true
+        kind: Variable
+        position: 0
+      - name: path
+        required: false
+        kind: Variable
+        position: 1
+    as_var: strip
+  "archivebox.core.templatetags.core_tags::tag::web_base_url":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    as_var: strip
+filter_arities:
+  "archivebox.core.templatetags.core_tags::filter::file_size":
+    expects_arg: false
+    arg_optional: false
+  "archivebox.core.templatetags.core_tags::filter::plugin_display_name":
+    expects_arg: false
+    arg_optional: false
+  "archivebox.core.templatetags.core_tags::filter::plugin_name":
+    expects_arg: false
+    arg_optional: false
+  "archivebox.core.templatetags.core_tags::filter::split":
+    expects_arg: true
+    arg_optional: true
+block_specs: {}

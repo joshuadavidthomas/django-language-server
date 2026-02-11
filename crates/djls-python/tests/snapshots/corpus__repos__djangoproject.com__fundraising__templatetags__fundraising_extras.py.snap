@@ -1,0 +1,49 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+---
+tag_rules:
+  "fundraising.templatetags.fundraising_extras::tag::display_django_heroes":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    as_var: keep
+  "fundraising.templatetags.fundraising_extras::tag::donation_form_with_heart":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    as_var: keep
+  "fundraising.templatetags.fundraising_extras::tag::donation_snippet":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    as_var: keep
+  "fundraising.templatetags.fundraising_extras::tag::top_corporate_members":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: levels
+        required: false
+        kind: VarArgs
+        position: 0
+      - name: header
+        required: false
+        kind: Keyword
+        position: 1
+    as_var: keep
+filter_arities:
+  "fundraising.templatetags.fundraising_extras::filter::as_percentage":
+    expects_arg: true
+    arg_optional: false
+block_specs: {}

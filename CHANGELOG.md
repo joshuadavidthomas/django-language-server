@@ -18,9 +18,22 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ## [Unreleased]
 
+### Added
+
+- Added automated extraction of tag and filter validation rules from Python source code.
+- Added diagnostics for tag argument counts (S117), library resolution (S120, S121), and symbol scoping (S118, S119).
+- Added structural validation for {% extends %} placement (S122, S123).
+
 ### Changed
 
+- **Internal**: Re-architected core analysis pipeline using Salsa for incremental computation.
+- **Internal**: Consolidated template validation into a single-pass visitor.
+- **Internal**: Updated completions and snippets to use extracted argument structures.
 - Bumped Rust toolchain from 1.90 to 1.91.
+
+### Fixed
+
+- Fixed a typo in the TagSpecs v0.4.0 deprecation notice; removal is targeted for v6.0.2 (matching the "two releases of warning" policy), not v6.2.0.
 
 ## [6.0.0]
 
@@ -30,7 +43,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Deprecated
 
-- TagSpecs v0.4.0 flat format (will be removed in v6.2.0), [migration guide here](docs/tagspecs.md#migration-from-v040)
+- TagSpecs v0.4.0 flat format (will be removed in v6.0.2). [migration guide here](docs/configuration/tagspecs.md#migration-from-v040)
 
 ### Removed
 

@@ -1,0 +1,29 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+---
+tag_rules:
+  "pipeline.templatetags.pipeline::tag::javascript":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: name
+        required: true
+        kind: Variable
+        position: 0
+    as_var: keep
+  "pipeline.templatetags.pipeline::tag::stylesheet":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: name
+        required: true
+        kind: Variable
+        position: 0
+    as_var: keep
+filter_arities: {}
+block_specs: {}

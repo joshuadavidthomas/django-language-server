@@ -22,7 +22,7 @@ use crate::db::Db as ProjectDb;
 use crate::python::Interpreter;
 
 pub trait InspectorRequest: Serialize {
-    /// The query name sent to Python (e.g., "templatetags", "`python_env`")
+    /// The query name sent to Python (e.g., `template_libraries`, `python_env`)
     const NAME: &'static str;
     /// The response type to deserialize into
     type Response: DeserializeOwned;
@@ -78,7 +78,7 @@ pub fn query<Q: InspectorRequest>(db: &dyn ProjectDb, request: &Q) -> Option<Q::
     }
 }
 
-const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
+const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_mins(1);
 
 /// Manages inspector process with automatic cleanup
 #[derive(Clone)]
@@ -274,10 +274,7 @@ impl Drop for InspectorInner {
     }
 }
 
-const INSPECTOR_PYZ: &[u8] = include_bytes!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/dist/djls_inspector.pyz"
-));
+const INSPECTOR_PYZ: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/djls_inspector.pyz"));
 
 struct InspectorFile(NamedTempFile);
 

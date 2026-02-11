@@ -5,6 +5,8 @@ edition = "2021"
 
 [dependencies]
 djls-conf = { workspace = true }
+djls-project = { workspace = true }
+djls-python = { workspace = true }
 djls-source = { workspace = true }
 djls-templates = { workspace = true }
 djls-workspace = { workspace = true }
@@ -13,13 +15,14 @@ camino = { workspace = true }
 rustc-hash = { workspace = true }
 salsa = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 walkdir = { workspace = true }
 
 [dev-dependencies]
+djls-corpus = { workspace = true }
 insta = { workspace = true }
-serde_json = { workspace = true }
 tempfile = { workspace = true }
 
 [lints]

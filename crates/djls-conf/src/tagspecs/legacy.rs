@@ -1,9 +1,8 @@
-// DEPRECATION: This entire module will be removed in v6.2.0
-// Legacy v0.4.0 TagSpec format support with deprecation warnings
+// DEPRECATION: This entire module will be removed in v6.0.2
+// Legacy v0.4.0 TagSpec format support
 //
 // This module provides backward compatibility for the old flat tagspec format.
-// Supported in v6.0.x and v6.1.x; removed in v6.2.0 following the
-// project's deprecation policy.
+// Deprecated in v6.0.0; removed in v6.0.2.
 
 use std::collections::HashMap;
 
@@ -18,8 +17,8 @@ use super::TagLibraryDef;
 use super::TagSpecDef;
 use super::TagTypeDef;
 
-/// Legacy v0.4.0 tag specification (DEPRECATED)
-#[deprecated(since = "6.0.0", note = "Remove in v6.2.0")]
+/// Legacy v0.4.0 tag specification
+#[deprecated(since = "6.0.0", note = "Remove in v6.0.2")]
 #[allow(deprecated)]
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct LegacyTagSpecDef {
@@ -39,7 +38,7 @@ pub struct LegacyTagSpecDef {
 }
 
 /// Legacy end tag specification
-#[deprecated(since = "6.0.0", note = "Remove in v6.2.0")]
+#[deprecated(since = "6.0.0", note = "Remove in v6.0.2")]
 #[allow(deprecated)]
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct LegacyEndTagDef {
@@ -54,7 +53,7 @@ pub struct LegacyEndTagDef {
 }
 
 /// Legacy intermediate tag specification
-#[deprecated(since = "6.0.0", note = "Remove in v6.2.0")]
+#[deprecated(since = "6.0.0", note = "Remove in v6.0.2")]
 #[allow(deprecated)]
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct LegacyIntermediateTagDef {
@@ -66,7 +65,7 @@ pub struct LegacyIntermediateTagDef {
 }
 
 /// Legacy tag argument specification
-#[deprecated(since = "6.0.0", note = "Remove in v6.2.0")]
+#[deprecated(since = "6.0.0", note = "Remove in v6.0.2")]
 #[allow(deprecated)]
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct LegacyTagArgDef {
@@ -81,7 +80,7 @@ pub struct LegacyTagArgDef {
 }
 
 /// Legacy argument type specification
-#[deprecated(since = "6.0.0", note = "Remove in v6.2.0")]
+#[deprecated(since = "6.0.0", note = "Remove in v6.0.2")]
 #[allow(deprecated)]
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(untagged)]
@@ -93,7 +92,8 @@ pub enum LegacyArgTypeDef {
 }
 
 /// Legacy simple argument types
-#[deprecated(since = "6.0.0", note = "Remove in v6.2.0")]
+#[deprecated(since = "6.0.0", note = "Remove in v6.0.2")]
+#[allow(deprecated)]
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum LegacySimpleArgTypeDef {
@@ -109,10 +109,10 @@ fn default_true() -> bool {
     true
 }
 
-/// Convert a vector of legacy tagspecs to the new v0.6.0 hierarchical format
+/// Convert a vector of legacy tagspecs to the new v0.6.0 hierarchical format.
 ///
 /// Groups tags by module and creates the appropriate library structure.
-#[deprecated(since = "6.0.0", note = "Remove in v6.2.0")]
+#[deprecated(since = "6.0.0", note = "Remove in v6.0.2")]
 #[must_use]
 pub fn convert_legacy_tagspecs(legacy: Vec<LegacyTagSpecDef>) -> TagSpecDef {
     let mut modules: HashMap<String, Vec<TagDef>> = HashMap::new();
@@ -167,7 +167,7 @@ fn convert_legacy_tag(legacy: LegacyTagSpecDef) -> TagDef {
 fn convert_legacy_end_tag(legacy: LegacyEndTagDef) -> EndTagDef {
     EndTagDef {
         name: legacy.name,
-        required: !legacy.optional, // Invert: optional -> required
+        required: !legacy.optional,
         args: legacy.args.into_iter().map(convert_legacy_arg).collect(),
         extra: None,
     }
@@ -200,7 +200,6 @@ fn convert_legacy_arg(legacy: LegacyTagArgDef) -> TagArgDef {
             (kind, None)
         }
         LegacyArgTypeDef::Choice { choice } => {
-            // Store choices in extra metadata as required by v0.6.0 spec
             let mut extra = std::collections::HashMap::new();
             extra.insert(
                 "choices".to_string(),
@@ -215,7 +214,7 @@ fn convert_legacy_arg(legacy: LegacyTagArgDef) -> TagArgDef {
     TagArgDef {
         name: legacy.name,
         required: legacy.required,
-        arg_type: super::ArgTypeDef::Both, // Default for legacy
+        arg_type: super::ArgTypeDef::Both,
         kind,
         count: None,
         extra,
@@ -346,7 +345,6 @@ mod tests {
         assert!(matches!(args[1].kind, ArgKindDef::Variable));
         assert!(matches!(args[2].kind, ArgKindDef::Choice));
 
-        // Check that choices are stored in extra
         assert!(args[2].extra.is_some());
         let choices = args[2].extra.as_ref().unwrap().get("choices").unwrap();
         assert_eq!(choices, &serde_json::json!(["on", "off"]));
@@ -382,7 +380,6 @@ mod tests {
 
         assert_eq!(converted.libraries.len(), 2);
 
-        // Find the libraries by module (order is not guaranteed due to HashMap)
         let module_a = converted
             .libraries
             .iter()

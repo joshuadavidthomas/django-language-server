@@ -1,0 +1,39 @@
+{# for — Min(4): requires at least 4 tokens (for VAR in ITERABLE) #}
+
+{# ✓ valid: basic for loop #}
+{% for item in items %}
+  {{ item }}
+{% endfor %}
+
+{# ✓ valid: with empty clause #}
+{% for item in items %}
+  {{ item }}
+{% empty %}
+  <p>No items.</p>
+{% endfor %}
+
+{# ✓ valid: unpacking #}
+{% for key, value in items.items %}
+  {{ key }}: {{ value }}
+{% endfor %}
+
+{# ✓ valid: reversed #}
+{% for item in items reversed %}
+  {{ item }}
+{% endfor %}
+
+{# ✗ S102: orphaned empty outside for #}
+{% empty %}
+
+{# ✗ S117: no arguments at all (split_len=1, need ≥4) #}
+{% for %}{% endfor %}
+
+{# ✗ S117: only one argument (split_len=2, need ≥4) #}
+{% for item %}{% endfor %}
+
+{# ✗ S117: only two arguments (split_len=3, need ≥4) #}
+{% for item in %}{% endfor %}
+
+{# ✗ S100: unclosed for #}
+{% for item in items %}
+  <p>Never closed.</p>

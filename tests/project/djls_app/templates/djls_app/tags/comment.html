@@ -1,0 +1,16 @@
+{# comment — no argument validation, opaque body #}
+
+{# ✓ valid #}
+{% comment %}
+  This is ignored by the template engine.
+  {% if broken %}{% endif broken does not matter here %}
+{% endcomment %}
+
+{# ✓ valid: optional note argument #}
+{% comment "Optional note" %}
+  Also ignored.
+{% endcomment %}
+
+{# ✗ S100: unclosed comment #}
+{% comment %}
+  Never closed.

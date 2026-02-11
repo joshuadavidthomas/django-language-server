@@ -55,31 +55,28 @@ impl DiagnosticError for TemplateError {
 
 impl DiagnosticError for ValidationError {
     fn span(&self) -> Option<(u32, u32)> {
-        match self {
-            ValidationError::UnbalancedStructure { opening_span, .. } => Some(opening_span.into()),
-            ValidationError::UnclosedTag { span, .. }
-            | ValidationError::OrphanedTag { span, .. }
-            | ValidationError::UnmatchedBlockName { span, .. }
-            | ValidationError::MissingRequiredArguments { span, .. }
-            | ValidationError::TooManyArguments { span, .. }
-            | ValidationError::MissingArgument { span, .. }
-            | ValidationError::InvalidLiteralArgument { span, .. }
-            | ValidationError::InvalidArgumentChoice { span, .. } => Some(span.into()),
-        }
+        self.primary_span().map(Into::into)
     }
 
     fn diagnostic_code(&self) -> &'static str {
-        match self {
-            ValidationError::UnclosedTag { .. } => "S100",
-            ValidationError::UnbalancedStructure { .. } => "S101",
-            ValidationError::OrphanedTag { .. } => "S102",
-            ValidationError::UnmatchedBlockName { .. } => "S103",
-            ValidationError::MissingRequiredArguments { .. }
-            | ValidationError::MissingArgument { .. } => "S104",
-            ValidationError::TooManyArguments { .. } => "S105",
-            ValidationError::InvalidLiteralArgument { .. } => "S106",
-            ValidationError::InvalidArgumentChoice { .. } => "S107",
+        self.code()
+    }
+}
+
+fn push_with_severity(
+    mut diagnostic: ls_types::Diagnostic,
+    config: &djls_conf::diagnostics::DiagnosticsConfig,
+    diagnostics: &mut Vec<ls_types::Diagnostic>,
+) {
+    if let Some(ls_types::NumberOrString::String(code)) = &diagnostic.code {
+        let severity = config.get_severity(code);
+
+        if let Some(lsp_severity) = severity.to_lsp_severity() {
+            diagnostic.severity = Some(lsp_severity);
+            diagnostics.push(diagnostic);
         }
+    } else {
+        diagnostics.push(diagnostic);
     }
 }
 
@@ -122,19 +119,8 @@ pub fn collect_diagnostics(
     let line_index = file.line_index(db);
 
     for error_acc in template_errors {
-        let mut diagnostic = error_acc.0.as_diagnostic(line_index);
-        if let Some(ls_types::NumberOrString::String(code)) = &diagnostic.code {
-            let severity = config.get_severity(code);
-
-            // Skip if diagnostic is disabled (severity = off)
-            if let Some(lsp_severity) = severity.to_lsp_severity() {
-                diagnostic.severity = Some(lsp_severity);
-                diagnostics.push(diagnostic);
-            }
-        } else {
-            // No code, use default
-            diagnostics.push(diagnostic);
-        }
+        let diagnostic = error_acc.0.as_diagnostic(line_index);
+        push_with_severity(diagnostic, &config, &mut diagnostics);
     }
 
     if let Some(nodelist) = nodelist {
@@ -143,19 +129,8 @@ pub fn collect_diagnostics(
         >(db, nodelist);
 
         for error_acc in validation_errors {
-            let mut diagnostic = error_acc.0.as_diagnostic(line_index);
-            if let Some(ls_types::NumberOrString::String(code)) = &diagnostic.code {
-                let severity = config.get_severity(code);
-
-                // Skip if diagnostic is disabled (severity = off)
-                if let Some(lsp_severity) = severity.to_lsp_severity() {
-                    diagnostic.severity = Some(lsp_severity);
-                    diagnostics.push(diagnostic);
-                }
-            } else {
-                // No code, use default
-                diagnostics.push(diagnostic);
-            }
+            let diagnostic = error_acc.0.as_diagnostic(line_index);
+            push_with_severity(diagnostic, &config, &mut diagnostics);
         }
     }
 

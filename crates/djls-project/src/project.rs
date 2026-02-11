@@ -1,16 +1,24 @@
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
+use djls_conf::Settings;
+use djls_conf::TagSpecDef;
+use djls_python::ExtractionResult;
+use rustc_hash::FxHashMap;
 
 use crate::db::Db as ProjectDb;
-use crate::django_available;
-use crate::template_dirs;
-use crate::templatetags;
-use crate::Interpreter;
+use crate::django::django_available;
+use crate::django::template_dirs;
+use crate::python::Interpreter;
+use crate::symbols::TemplateLibraries;
 
 /// Complete project configuration as a Salsa input.
 ///
 /// This represents the core identity of a project: where it is (root path),
-/// which Python environment to use (interpreter), and Django-specific configuration.
+/// which Python environment to use (interpreter), Django-specific configuration,
+/// and external data sources that drive semantic analysis.
+///
+/// Tracked queries in `djls-server` convert extraction results into semantic
+/// types (`TagSpecs`).
 #[salsa::input]
 #[derive(Debug)]
 pub struct Project {
@@ -26,66 +34,83 @@ pub struct Project {
     /// Additional Python import paths (PYTHONPATH entries)
     #[returns(ref)]
     pub pythonpath: Vec<String>,
+    /// Manual TagSpecs configuration from TOML (fallback for extraction gaps)
+    #[returns(ref)]
+    pub tagspecs: TagSpecDef,
+    /// Template libraries and symbols for this project.
+    ///
+    /// This value always exists to support progressive enhancement:
+    /// - Discovered libraries are populated by scanning `sys.path`.
+    /// - Installed libraries/symbols are populated by querying the Django inspector.
+    ///
+    /// The semantic layer combines this with `{% load %}` scope computed from templates.
+    #[returns(ref)]
+    pub template_libraries: TemplateLibraries,
+    /// Extraction results from external modules (site-packages), keyed by
+    /// registration module path (e.g., `"django.templatetags.i18n"`).
+    /// Populated by `refresh_inspector`. Workspace files use tracked queries
+    /// via `collect_workspace_extraction_results` instead.
+    #[returns(ref)]
+    pub extracted_external_rules: FxHashMap<String, ExtractionResult>,
 }
 
 impl Project {
-    pub fn bootstrap(
-        db: &dyn ProjectDb,
-        root: &Utf8Path,
-        venv_path: Option<&str>,
-        django_settings_module: Option<&str>,
-        pythonpath: &[String],
-    ) -> Project {
-        let interpreter = Interpreter::discover(venv_path);
-
-        let resolved_django_settings_module = django_settings_module
-            .map(String::from)
-            .or_else(|| {
-                // Check environment variable if not configured
-                std::env::var("DJANGO_SETTINGS_MODULE")
-                    .ok()
-                    .filter(|s| !s.is_empty())
-            })
-            .or_else(|| {
-                // Auto-detect from project structure
-                if root.join("manage.py").exists() {
-                    // Look for common settings modules
-                    for candidate in &["settings", "config.settings", "project.settings"] {
-                        let parts: Vec<&str> = candidate.split('.').collect();
-                        let mut path = root.to_path_buf();
-                        for part in &parts[..parts.len() - 1] {
-                            path = path.join(part);
-                        }
-                        if let Some(last) = parts.last() {
-                            path = path.join(format!("{last}.py"));
-                        }
-
-                        if path.exists() {
-                            tracing::info!("Auto-detected Django settings module: {}", candidate);
-                            return Some((*candidate).to_string());
-                        }
-                    }
-                    tracing::warn!(
-                        "manage.py found but could not auto-detect Django settings module"
-                    );
-                } else {
-                    tracing::debug!("No manage.py found, skipping Django settings auto-detection");
-                }
-                None
-            });
+    pub fn bootstrap(db: &dyn ProjectDb, root: &Utf8Path, settings: &Settings) -> Project {
+        let interpreter = Interpreter::discover(settings.venv_path());
+        let resolved_django_settings_module = resolve_django_settings(root, settings);
 
         Project::new(
             db,
             root.to_path_buf(),
             interpreter,
             resolved_django_settings_module,
-            pythonpath.to_vec(),
+            settings.pythonpath().to_vec(),
+            settings.tagspecs().clone(),
+            TemplateLibraries::default(),
+            FxHashMap::default(),
         )
     }
 
     pub fn initialize(self, db: &dyn ProjectDb) {
         let _ = django_available(db, self);
-        let _ = templatetags(db, self);
         let _ = template_dirs(db, self);
     }
+}
+
+fn resolve_django_settings(root: &Utf8Path, settings: &Settings) -> Option<String> {
+    settings
+        .django_settings_module()
+        .map(String::from)
+        .or_else(|| {
+            std::env::var("DJANGO_SETTINGS_MODULE")
+                .ok()
+                .filter(|s| !s.is_empty())
+        })
+        .or_else(|| auto_detect_settings_module(root))
+}
+
+fn auto_detect_settings_module(root: &Utf8Path) -> Option<String> {
+    if !root.join("manage.py").exists() {
+        tracing::debug!("No manage.py found, skipping Django settings auto-detection");
+        return None;
+    }
+
+    for candidate in &["settings", "config.settings", "project.settings"] {
+        let parts: Vec<&str> = candidate.split('.').collect();
+        let mut path = root.to_path_buf();
+        for part in &parts[..parts.len() - 1] {
+            path = path.join(part);
+        }
+        if let Some(last) = parts.last() {
+            path = path.join(format!("{last}.py"));
+        }
+
+        if path.exists() {
+            tracing::info!("Auto-detected Django settings module: {}", candidate);
+            return Some((*candidate).to_string());
+        }
+    }
+
+    tracing::warn!("manage.py found but could not auto-detect Django settings module");
+    None
 }

@@ -1,0 +1,203 @@
+[corpus]
+root_dir = ".corpus"
+
+# https://endoflife.date/django
+[[package]]
+name = "django"
+version = "6.0"
+
+[[package]]
+name = "django"
+version = "5.2"
+
+[[package]]
+name = "django"
+version = "4.2"
+
+[[package]]
+name = "django-activity-stream"
+version = "2.0.0"
+
+[[package]]
+name = "django-allauth"
+version = "65.14.1"
+
+[[package]]
+name = "django-avatar"
+version = "9.0.0"
+
+[[package]]
+name = "django-bootstrap3"
+version = "26.1"
+
+[[package]]
+name = "django-cms"
+version = "5.0.5"
+
+[[package]]
+name = "django-compressor"
+version = "4.6.0"
+
+[[package]]
+name = "django-crispy-forms"
+version = "2.5"
+
+[[package]]
+name = "django-debug-toolbar"
+version = "6.2.0"
+
+[[package]]
+name = "django-fastdev"
+version = "1.13.0"
+
+[[package]]
+name = "django-forms-bootstrap"
+version = "3.1.0"
+
+[[package]]
+name = "django-formset-js-improved"
+version = "0.5.0.5"
+
+[[package]]
+name = "django-guardian"
+version = "3.2.0"
+
+[[package]]
+name = "django-htmx"
+version = "1.27.0"
+
+[[package]]
+name = "django-imagekit"
+version = "6.0.0"
+
+[[package]]
+name = "django-import-export"
+version = "4.4.0"
+
+[[package]]
+name = "django-markdownify"
+version = "0.9.6"
+
+[[package]]
+name = "django-oscar"
+version = "4.1"
+
+[[package]]
+name = "django-permission"
+version = "1.0.5"
+
+[[package]]
+name = "django-pipeline"
+version = "4.1.0"
+
+[[package]]
+name = "django-qr-code"
+version = "4.2.0"
+
+[[package]]
+name = "django-sekizai"
+version = "4.1.0"
+
+[[package]]
+name = "django-simple-history"
+version = "3.11.0"
+
+[[package]]
+name = "django-statici18n"
+version = "2.6.0"
+
+[[package]]
+name = "django-tables2"
+version = "2.8.0"
+
+[[package]]
+name = "django-typogrify"
+version = "1.3.3"
+
+[[package]]
+name = "django-unfold"
+version = "1.0.0"
+
+[[package]]
+name = "django-widget-tweaks"
+version = "1.5.1"
+
+[[package]]
+name = "horizon"
+version = "25.5.1"
+
+[[package]]
+name = "sorl-thumbnail"
+version = "13.0.0"
+
+# https://endoflife.date/wagtail
+[[package]]
+name = "wagtail"
+version = "7.3"
+
+[[package]]
+name = "wagtail"
+version = "7.2"
+
+[[package]]
+name = "wagtail"
+version = "7.0"
+
+[[package]]
+name = "wagtail"
+version = "6.3"
+
+[[repo]]
+name = "archivebox"
+url = "https://github.com/ArchiveBox/ArchiveBox.git"
+ref = "dev"
+
+[[repo]]
+name = "babybuddy"
+url = "https://github.com/babybuddy/babybuddy.git"
+ref = "master"
+
+[[repo]]
+name = "djangopackages.org"
+url = "https://github.com/djangopackages/djangopackages.git"
+ref = "main"
+
+[[repo]]
+name = "djangoproject.com"
+url = "https://github.com/django/djangoproject.com.git"
+ref = "main"
+
+[[repo]]
+name = "geonode"
+url = "https://github.com/GeoNode/geonode.git"
+ref = "master"
+
+[[repo]]
+name = "inventree"
+url = "https://github.com/inventree/InvenTree.git"
+ref = "master"
+
+[[repo]]
+name = "linkding"
+url = "https://github.com/sissbruecker/linkding.git"
+ref = "master"
+
+[[repo]]
+name = "misago"
+url = "https://github.com/rafalp/Misago.git"
+ref = "main"
+
+[[repo]]
+name = "netbox"
+url = "https://github.com/netbox-community/netbox.git"
+ref = "main"
+
+[[repo]]
+name = "pretix"
+url = "https://github.com/pretix/pretix.git"
+ref = "master"
+
+[[repo]]
+name = "sentry"
+url = "https://github.com/getsentry/sentry.git"
+ref = "26.1.0"

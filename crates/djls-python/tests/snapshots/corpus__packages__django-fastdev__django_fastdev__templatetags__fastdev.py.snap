@@ -1,0 +1,13 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+---
+tag_rules: {}
+filter_arities: {}
+block_specs:
+  "django_fastdev.templatetags.fastdev::tag::ifexists":
+    end_tag: endifexists
+    intermediates:
+      - elifexists
+      - else
+    opaque: false

@@ -7,6 +7,7 @@ edition = "2021"
 djls-conf = { workspace = true }
 djls-ide = { workspace = true }
 djls-project = { workspace = true }
+djls-python = { workspace = true }
 djls-semantic = { workspace = true }
 djls-source = { workspace = true }
 djls-templates = { workspace = true }
@@ -28,9 +29,6 @@ tracing-subscriber = { workspace = true }
 
 [build-dependencies]
 toml = { workspace = true }
-
-[dev-dependencies]
-tempfile = { workspace = true }
 
 [lints]
 workspace = true

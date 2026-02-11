@@ -119,9 +119,9 @@ jobs:
         with:
           path: |
             ~/.rustup
-          key: ${{ runner.os }}-${{ runner.arch }}-rustup-${{ hashFiles('rust-toolchain.toml') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-rustup-pinned-${{ hashFiles('rust-toolchain.toml') }}
           restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-rustup-
+            ${{ runner.os }}-${{ runner.arch }}-rustup-pinned-
 
       - name: Cache Cargo dependencies
         uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
@@ -155,9 +155,9 @@ jobs:
         with:
           path: |
             ~/.rustup
-          key: ${{ runner.os }}-${{ runner.arch }}-rustup-${{ hashFiles('rust-toolchain.toml') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-rustup-pinned-${{ hashFiles('rust-toolchain.toml') }}
           restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-rustup-
+            ${{ runner.os }}-${{ runner.arch }}-rustup-pinned-
 
       - name: Cache Cargo registry
         uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3

@@ -1,0 +1,139 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+---
+tag_rules:
+  "netbox.utilities.templatetags.helpers::tag::action_url":
+    arg_constraints:
+      - Min: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: arg1
+        required: true
+        kind: Variable
+        position: 0
+      - name: arg2
+        required: true
+        kind: Variable
+        position: 1
+    as_var: keep
+  "netbox.utilities.templatetags.helpers::tag::applied_filters":
+    arg_constraints:
+      - Min: 4
+      - Max: 4
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: model
+        required: true
+        kind: Variable
+        position: 0
+      - name: form
+        required: true
+        kind: Variable
+        position: 1
+      - name: query_params
+        required: true
+        kind: Variable
+        position: 2
+    as_var: keep
+  "netbox.utilities.templatetags.helpers::tag::querystring":
+    arg_constraints:
+      - Min: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: request
+        required: true
+        kind: Variable
+        position: 0
+    as_var: strip
+  "netbox.utilities.templatetags.helpers::tag::table_config_form":
+    arg_constraints:
+      - Min: 2
+      - Max: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: table
+        required: true
+        kind: Variable
+        position: 0
+      - name: table_name
+        required: false
+        kind: Variable
+        position: 1
+    as_var: keep
+  "netbox.utilities.templatetags.helpers::tag::utilization_graph":
+    arg_constraints:
+      - Min: 2
+      - Max: 4
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: utilization
+        required: true
+        kind: Variable
+        position: 0
+      - name: warning_threshold
+        required: false
+        kind: Variable
+        position: 1
+      - name: danger_threshold
+        required: false
+        kind: Variable
+        position: 2
+    as_var: keep
+filter_arities:
+  "netbox.utilities.templatetags.helpers::filter::as_range":
+    expects_arg: false
+    arg_optional: false
+  "netbox.utilities.templatetags.helpers::filter::divide":
+    expects_arg: true
+    arg_optional: false
+  "netbox.utilities.templatetags.helpers::filter::get_item":
+    expects_arg: true
+    arg_optional: false
+  "netbox.utilities.templatetags.helpers::filter::get_key":
+    expects_arg: true
+    arg_optional: false
+  "netbox.utilities.templatetags.helpers::filter::humanize_disk_megabytes":
+    expects_arg: false
+    arg_optional: false
+  "netbox.utilities.templatetags.helpers::filter::humanize_ram_megabytes":
+    expects_arg: false
+    arg_optional: false
+  "netbox.utilities.templatetags.helpers::filter::humanize_speed":
+    expects_arg: false
+    arg_optional: false
+  "netbox.utilities.templatetags.helpers::filter::icon_from_status":
+    expects_arg: false
+    arg_optional: false
+  "netbox.utilities.templatetags.helpers::filter::kg_to_pounds":
+    expects_arg: false
+    arg_optional: false
+  "netbox.utilities.templatetags.helpers::filter::meters_to_feet":
+    expects_arg: false
+    arg_optional: false
+  "netbox.utilities.templatetags.helpers::filter::percentage":
+    expects_arg: true
+    arg_optional: false
+  "netbox.utilities.templatetags.helpers::filter::startswith":
+    expects_arg: true
+    arg_optional: false
+  "netbox.utilities.templatetags.helpers::filter::status_from_tag":
+    expects_arg: false
+    arg_optional: false
+  "netbox.utilities.templatetags.helpers::filter::validated_viewname":
+    expects_arg: true
+    arg_optional: false
+  "netbox.utilities.templatetags.helpers::filter::viewname":
+    expects_arg: true
+    arg_optional: false
+block_specs: {}

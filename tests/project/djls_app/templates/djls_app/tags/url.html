@@ -1,0 +1,19 @@
+{# url — Min(2): requires at least one argument (the view name) #}
+
+{# ✓ valid: named URL #}
+{% url 'home' %}
+
+{# ✓ valid: with positional arguments #}
+{% url 'article-detail' article.pk %}
+
+{# ✓ valid: with keyword arguments #}
+{% url 'article-detail' pk=article.pk %}
+
+{# ✓ valid: store in variable #}
+{% url 'home' as home_url %}
+
+{# ✓ valid: view name from variable #}
+{% url view_name %}
+
+{# ✗ S117: no arguments (split_len=1, need ≥2) #}
+{% url %}

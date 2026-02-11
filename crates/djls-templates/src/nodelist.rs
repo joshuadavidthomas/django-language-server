@@ -1,5 +1,6 @@
 use djls_source::Span;
 
+use crate::filters::Filter;
 use crate::parser::ParseError;
 use crate::tokens::TagDelimiter;
 
@@ -26,7 +27,7 @@ pub enum Node {
     },
     Variable {
         var: String,
-        filters: Vec<String>,
+        filters: Vec<Filter>,
         span: Span,
     },
     Error {

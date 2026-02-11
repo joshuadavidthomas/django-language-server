@@ -111,6 +111,7 @@ def tests(session, django):
             if arg:
                 args.extend(arg.split(" "))
         command.extend(args)
+    session.run("cargo", "run", "--bin", "djls-corpus", "--", "sync", external=True)
     session.run(*command, external=True)
 
 
@@ -120,14 +121,10 @@ def lint(session):
         with tempfile.TemporaryFile(mode="w+") as output_file:
             try:
                 session.run(
-                    "uv",
-                    "run",
-                    "--no-project",
-                    "--with",
-                    "pre-commit-uv",
+                    "uvx",
                     "--python",
                     python_version,
-                    "pre-commit",
+                    "prek",
                     "run",
                     "--all-files",
                     "--show-diff-on-failure",

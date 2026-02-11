@@ -1,0 +1,387 @@
+//! Tarball extraction for corpus sync.
+
+use std::io::Read;
+
+use camino::Utf8Path;
+
+/// Whether a path is relevant for corpus download (broad filter).
+///
+/// Used during tarball extraction to decide what to keep. This is the
+/// union of all extraction-target and template predicates. Discovery
+/// methods in [`super::Corpus`] apply stricter filtering on top (e.g.
+/// excluding `__init__.py`, `docs/`, `tests/`).
+fn is_download_relevant(path: &str) -> bool {
+    if path.contains("__pycache__") {
+        return false;
+    }
+
+    let utf8 = Utf8Path::new(path);
+
+    if utf8.extension().is_some_and(|ext| ext == "py") {
+        return path.contains("/templatetags/")
+            || (path.contains("/template/")
+                && matches!(
+                    utf8.file_name(),
+                    Some("defaulttags.py" | "defaultfilters.py" | "loader_tags.py")
+                ));
+    }
+
+    if path.contains("/templates/") {
+        return true;
+    }
+
+    false
+}
+
+/// Extract relevant files from a gzipped tarball.
+///
+/// Strips the top-level directory from each entry, filters through
+/// [`is_download_relevant`], and rejects paths with `..` components
+/// to prevent directory traversal. Only regular files are extracted;
+/// directories are created implicitly via parent directory creation,
+/// and symlinks/hard links are silently skipped.
+pub fn extract_tarball<R: Read>(reader: R, out_dir: &Utf8Path) -> anyhow::Result<Vec<String>> {
+    let gz = flate2::read::GzDecoder::new(reader);
+    let mut archive = tar::Archive::new(gz);
+
+    std::fs::create_dir_all(out_dir.as_std_path())?;
+    let mut warnings = Vec::new();
+
+    for entry in archive.entries()? {
+        let mut entry = entry?;
+        let entry_type = entry.header().entry_type();
+        let entry_path = entry.path()?.to_string_lossy().to_string();
+
+        // Skip directory entries — parent dirs are created below as needed.
+        if entry_type == tar::EntryType::Directory {
+            continue;
+        }
+
+        // Skip symlinks and hard links — don't follow them, just ignore.
+        if entry_type == tar::EntryType::Symlink || entry_type == tar::EntryType::Link {
+            warnings.push(format!("skipping link entry: {entry_path}"));
+            continue;
+        }
+
+        // Only extract regular files (and Continuous, which is treated as regular).
+        if entry_type != tar::EntryType::Regular && entry_type != tar::EntryType::Continuous {
+            continue;
+        }
+
+        // Strip the top-level directory (e.g., "Django-5.2.11/")
+        let relative = entry_path
+            .split_once('/')
+            .map_or(entry_path.as_str(), |x| x.1);
+
+        let relative_path = std::path::Path::new(relative);
+        if relative_path.components().any(|c| {
+            matches!(
+                c,
+                std::path::Component::ParentDir
+                    | std::path::Component::RootDir
+                    | std::path::Component::Prefix(_)
+            )
+        }) {
+            anyhow::bail!("Invalid tarball entry path (absolute or traversal): {entry_path}");
+        }
+
+        if !is_download_relevant(relative) {
+            continue;
+        }
+
+        let dest = out_dir.join(relative);
+        if let Some(parent) = dest.parent() {
+            std::fs::create_dir_all(parent.as_std_path())?;
+        }
+
+        let mut content = Vec::new();
+        entry.read_to_end(&mut content)?;
+        std::fs::write(dest.as_std_path(), &content)?;
+    }
+
+    Ok(warnings)
+}
+
+#[cfg(test)]
+mod tests {
+    use camino::Utf8PathBuf;
+
+    use super::*;
+
+    fn build_test_tarball(populate: impl FnOnce(&mut tar::Builder<Vec<u8>>)) -> Vec<u8> {
+        let mut builder = tar::Builder::new(Vec::new());
+        populate(&mut builder);
+        let tar_bytes = builder.into_inner().expect("tar builder finish");
+
+        let mut gz_bytes = Vec::new();
+        let mut encoder =
+            flate2::write::GzEncoder::new(&mut gz_bytes, flate2::Compression::default());
+        std::io::Write::write_all(&mut encoder, &tar_bytes).expect("gz write");
+        encoder.finish().expect("gz finish");
+
+        gz_bytes
+    }
+
+    fn temp_dir() -> (tempfile::TempDir, Utf8PathBuf) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("utf8 path");
+        (dir, path)
+    }
+
+    #[test]
+    fn extracts_regular_files() {
+        let data = build_test_tarball(|builder| {
+            let content = b"# tag code";
+            let mut header = tar::Header::new_gnu();
+            header.set_entry_type(tar::EntryType::Regular);
+            header.set_size(content.len() as u64);
+            header.set_mode(0o644);
+            header.set_cksum();
+            builder
+                .append_data(
+                    &mut header,
+                    "Django-5.2/django/templatetags/i18n.py",
+                    &content[..],
+                )
+                .unwrap();
+        });
+
+        let (_dir, out) = temp_dir();
+        extract_tarball(data.as_slice(), &out).unwrap();
+
+        let extracted = out.join("django/templatetags/i18n.py");
+        assert!(extracted.as_std_path().exists(), "file should be extracted");
+        assert_eq!(
+            std::fs::read_to_string(extracted.as_std_path()).unwrap(),
+            "# tag code"
+        );
+    }
+
+    #[test]
+    fn skips_directory_entries() {
+        let data = build_test_tarball(|builder| {
+            // Add a directory entry
+            let mut dir_header = tar::Header::new_gnu();
+            dir_header.set_entry_type(tar::EntryType::Directory);
+            dir_header.set_size(0);
+            dir_header.set_mode(0o755);
+            dir_header.set_cksum();
+            builder
+                .append_data(&mut dir_header, "Django-5.2/django/templatetags/", &[][..])
+                .unwrap();
+
+            // Add a regular file after the directory
+            let content = b"# tag";
+            let mut file_header = tar::Header::new_gnu();
+            file_header.set_entry_type(tar::EntryType::Regular);
+            file_header.set_size(content.len() as u64);
+            file_header.set_mode(0o644);
+            file_header.set_cksum();
+            builder
+                .append_data(
+                    &mut file_header,
+                    "Django-5.2/django/templatetags/i18n.py",
+                    &content[..],
+                )
+                .unwrap();
+        });
+
+        let (_dir, out) = temp_dir();
+        extract_tarball(data.as_slice(), &out).unwrap();
+
+        // The file should exist (created via parent dir creation)
+        let file = out.join("django/templatetags/i18n.py");
+        assert!(file.as_std_path().exists());
+
+        // The directory entry itself should not have been written as a file
+        let dir_as_file = out.join("django/templatetags");
+        assert!(
+            dir_as_file.as_std_path().is_dir(),
+            "directory entry should not become a file"
+        );
+    }
+
+    #[test]
+    fn skips_symlink_entries() {
+        let data = build_test_tarball(|builder| {
+            // Add a symlink entry
+            let mut sym_header = tar::Header::new_gnu();
+            sym_header.set_entry_type(tar::EntryType::Symlink);
+            sym_header.set_size(0);
+            sym_header.set_mode(0o777);
+            sym_header.set_cksum();
+            builder
+                .append_link(
+                    &mut sym_header,
+                    "Django-5.2/django/templatetags/evil.py",
+                    "/etc/passwd",
+                )
+                .unwrap();
+
+            // Add a real file after the symlink
+            let content = b"# tag code";
+            let mut file_header = tar::Header::new_gnu();
+            file_header.set_entry_type(tar::EntryType::Regular);
+            file_header.set_size(content.len() as u64);
+            file_header.set_mode(0o644);
+            file_header.set_cksum();
+            builder
+                .append_data(
+                    &mut file_header,
+                    "Django-5.2/django/templatetags/i18n.py",
+                    &content[..],
+                )
+                .unwrap();
+        });
+
+        let (_dir, out) = temp_dir();
+        let warnings = extract_tarball(data.as_slice(), &out).unwrap();
+
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("link entry"));
+        // Symlink should not exist
+        assert!(!out
+            .join("django/templatetags/evil.py")
+            .as_std_path()
+            .exists());
+        // Real file should be extracted
+        assert!(out
+            .join("django/templatetags/i18n.py")
+            .as_std_path()
+            .exists());
+    }
+
+    #[test]
+    fn skips_hard_link_entries() {
+        let data = build_test_tarball(|builder| {
+            // Add a hard link entry
+            let mut link_header = tar::Header::new_gnu();
+            link_header.set_entry_type(tar::EntryType::Link);
+            link_header.set_size(0);
+            link_header.set_mode(0o644);
+            link_header.set_cksum();
+            builder
+                .append_link(
+                    &mut link_header,
+                    "Django-5.2/django/templatetags/evil.py",
+                    "Django-5.2/django/templatetags/i18n.py",
+                )
+                .unwrap();
+
+            // Add a real file after the hard link
+            let content = b"# tag code";
+            let mut file_header = tar::Header::new_gnu();
+            file_header.set_entry_type(tar::EntryType::Regular);
+            file_header.set_size(content.len() as u64);
+            file_header.set_mode(0o644);
+            file_header.set_cksum();
+            builder
+                .append_data(
+                    &mut file_header,
+                    "Django-5.2/django/templatetags/i18n.py",
+                    &content[..],
+                )
+                .unwrap();
+        });
+
+        let (_dir, out) = temp_dir();
+        let warnings = extract_tarball(data.as_slice(), &out).unwrap();
+
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("link entry"));
+        // Hard link should not exist
+        assert!(!out
+            .join("django/templatetags/evil.py")
+            .as_std_path()
+            .exists());
+        // Real file should be extracted
+        assert!(out
+            .join("django/templatetags/i18n.py")
+            .as_std_path()
+            .exists());
+    }
+
+    #[test]
+    fn rejects_path_traversal() {
+        // Build the tarball manually to bypass the tar crate's own `..` rejection.
+        let content = b"pwned";
+        let mut header = tar::Header::new_gnu();
+        header.set_entry_type(tar::EntryType::Regular);
+        header.set_size(content.len() as u64);
+        header.set_mode(0o644);
+        header
+            .set_path("Django-5.2/django/templatetags/safe.py")
+            .unwrap();
+
+        // Overwrite the path bytes directly to include `..`
+        let evil_path = b"Django-5.2/django/templatetags/../../templatetags/evil.py";
+        header.as_old_mut().name[..evil_path.len()].copy_from_slice(evil_path);
+        header.as_old_mut().name[evil_path.len()] = 0;
+        header.set_cksum();
+
+        let mut tar_bytes = Vec::new();
+        {
+            let mut builder = tar::Builder::new(&mut tar_bytes);
+            builder.append(&header, &content[..]).unwrap();
+            builder.into_inner().unwrap();
+        }
+
+        let mut gz_bytes = Vec::new();
+        let mut encoder =
+            flate2::write::GzEncoder::new(&mut gz_bytes, flate2::Compression::default());
+        std::io::Write::write_all(&mut encoder, &tar_bytes).unwrap();
+        encoder.finish().unwrap();
+
+        let (_dir, out) = temp_dir();
+        let result = extract_tarball(gz_bytes.as_slice(), &out);
+
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("Invalid tarball entry path"),
+            "error should mention invalid path, got: {err}"
+        );
+    }
+
+    #[test]
+    fn rejects_absolute_paths() {
+        // Build the tarball manually to bypass any path normalization.
+        let content = b"pwned";
+        let mut header = tar::Header::new_gnu();
+        header.set_entry_type(tar::EntryType::Regular);
+        header.set_size(content.len() as u64);
+        header.set_mode(0o644);
+        header
+            .set_path("Django-5.2/django/templatetags/safe.py")
+            .unwrap();
+
+        // After stripping top-level dir, this becomes "/django/templatetags/evil.py".
+        let evil_path = b"Django-5.2//django/templatetags/evil.py";
+        header.as_old_mut().name[..evil_path.len()].copy_from_slice(evil_path);
+        header.as_old_mut().name[evil_path.len()] = 0;
+        header.set_cksum();
+
+        let mut tar_bytes = Vec::new();
+        {
+            let mut builder = tar::Builder::new(&mut tar_bytes);
+            builder.append(&header, &content[..]).unwrap();
+            builder.into_inner().unwrap();
+        }
+
+        let mut gz_bytes = Vec::new();
+        let mut encoder =
+            flate2::write::GzEncoder::new(&mut gz_bytes, flate2::Compression::default());
+        std::io::Write::write_all(&mut encoder, &tar_bytes).unwrap();
+        encoder.finish().unwrap();
+
+        let (_dir, out) = temp_dir();
+        let result = extract_tarball(gz_bytes.as_slice(), &out);
+
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("Invalid tarball entry path"),
+            "error should mention invalid path, got: {err}"
+        );
+    }
+}

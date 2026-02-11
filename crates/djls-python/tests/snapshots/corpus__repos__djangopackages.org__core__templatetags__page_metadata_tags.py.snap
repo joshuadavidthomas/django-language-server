@@ -1,0 +1,31 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+---
+tag_rules:
+  "core.templatetags.page_metadata_tags::tag::page_metadata":
+    arg_constraints:
+      - Max: 5
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: page_title
+        required: false
+        kind: Variable
+        position: 0
+      - name: page_description
+        required: false
+        kind: Variable
+        position: 1
+      - name: page_keywords
+        required: false
+        kind: Variable
+        position: 2
+      - name: og_image_url
+        required: false
+        kind: Variable
+        position: 3
+    as_var: keep
+filter_arities: {}
+block_specs: {}

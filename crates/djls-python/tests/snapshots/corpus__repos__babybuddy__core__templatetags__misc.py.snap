@@ -1,0 +1,13 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+---
+tag_rules: {}
+filter_arities:
+  "core.templatetags.misc::filter::next":
+    expects_arg: true
+    arg_optional: false
+  "core.templatetags.misc::filter::prev":
+    expects_arg: true
+    arg_optional: false
+block_specs: {}

@@ -1,0 +1,23 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+---
+tag_rules:
+  "src.sentry.templatetags.sentry_trace::tag::get_sentry_baggage":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    as_var: strip
+  "src.sentry.templatetags.sentry_trace::tag::get_sentry_trace":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args: []
+    as_var: strip
+filter_arities: {}
+block_specs: {}

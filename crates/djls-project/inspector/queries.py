@@ -12,7 +12,7 @@ class Query(str, Enum):
     DJANGO_INIT = "django_init"
     PYTHON_ENV = "python_env"
     TEMPLATE_DIRS = "template_dirs"
-    TEMPLATETAGS = "templatetags"
+    TEMPLATE_LIBRARIES = "template_libraries"
 
 
 def initialize_django() -> tuple[bool, str | None]:
@@ -88,51 +88,109 @@ def get_template_dirs() -> TemplateDirsQueryData:
 
 
 @dataclass
-class TemplateTagQueryData:
-    templatetags: list[TemplateTag]
-
-
-@dataclass
-class TemplateTag:
+class TemplateLibrarySymbol:
+    kind: Literal["tag", "filter"]
     name: str
+    load_name: str | None
+    library_module: str
     module: str
     doc: str | None
 
 
-def get_installed_templatetags() -> TemplateTagQueryData:
+@dataclass
+class TemplateLibrariesQueryData:
+    symbols: list[TemplateLibrarySymbol]
+    libraries: dict[str, str]
+    builtins: list[str]
+
+
+def get_installed_template_libraries() -> TemplateLibrariesQueryData:
     import django
     from django.apps import apps
     from django.template.engine import Engine
     from django.template.library import import_library
 
-    # Ensure Django is set up
     if not apps.ready:
         django.setup()
 
-    templatetags: list[TemplateTag] = []
+    symbols: list[TemplateLibrarySymbol] = []
 
     engine = Engine.get_default()
 
-    for library in engine.template_builtins:
+    builtin_modules: list[str] = []
+
+    for builtin_module, library in zip(engine.builtins, engine.template_builtins):
+        if builtin_module in builtin_modules:
+            continue
+        builtin_modules.append(builtin_module)
+
         if library.tags:
             for tag_name, tag_func in library.tags.items():
-                templatetags.append(
-                    TemplateTag(
-                        name=tag_name, module=tag_func.__module__, doc=tag_func.__doc__
+                symbols.append(
+                    TemplateLibrarySymbol(
+                        kind="tag",
+                        name=tag_name,
+                        load_name=None,
+                        library_module=builtin_module,
+                        module=tag_func.__module__,
+                        doc=tag_func.__doc__,
                     )
                 )
 
-    for lib_module in engine.libraries.values():
-        library = import_library(lib_module)
+        if library.filters:
+            for filter_name, filter_func in library.filters.items():
+                symbols.append(
+                    TemplateLibrarySymbol(
+                        kind="filter",
+                        name=filter_name,
+                        load_name=None,
+                        library_module=builtin_module,
+                        module=filter_func.__module__,
+                        doc=filter_func.__doc__,
+                    )
+                )
+
+    lib_registry: dict[str, str] = {}
+
+    for load_name, lib_module in engine.libraries.items():
+        lib_registry[load_name] = lib_module
+
+        try:
+            library = import_library(lib_module)
+        except Exception:
+            continue
+
         if library and library.tags:
             for tag_name, tag_func in library.tags.items():
-                templatetags.append(
-                    TemplateTag(
-                        name=tag_name, module=tag_func.__module__, doc=tag_func.__doc__
+                symbols.append(
+                    TemplateLibrarySymbol(
+                        kind="tag",
+                        name=tag_name,
+                        load_name=load_name,
+                        library_module=lib_module,
+                        module=tag_func.__module__,
+                        doc=tag_func.__doc__,
                     )
                 )
 
-    return TemplateTagQueryData(templatetags=templatetags)
+        if library and library.filters:
+            for filter_name, filter_func in library.filters.items():
+                symbols.append(
+                    TemplateLibrarySymbol(
+                        kind="filter",
+                        name=filter_name,
+                        load_name=load_name,
+                        library_module=lib_module,
+                        module=filter_func.__module__,
+                        doc=filter_func.__doc__,
+                    )
+                )
+
+    return TemplateLibrariesQueryData(
+        symbols=symbols,
+        libraries=lib_registry,
+        builtins=builtin_modules,
+    )
 
 
-QueryData = PythonEnvironmentQueryData | TemplateDirsQueryData | TemplateTagQueryData
+QueryData = PythonEnvironmentQueryData | TemplateDirsQueryData | TemplateLibrariesQueryData

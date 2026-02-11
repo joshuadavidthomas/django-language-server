@@ -1,0 +1,16 @@
+{# load — no extraction rules (runtime validation only) #}
+
+{# ✓ valid: load a library #}
+{% load static %}
+
+{# ✓ valid: load multiple libraries #}
+{% load static i18n %}
+
+{# ✓ valid: selective import #}
+{% load trans from i18n %}
+
+{# ✗ S109 (with runtime): library doesn't exist #}
+{% load static from staticfiles %}
+
+{# ✗ S109 (with runtime): library doesn't exist #}
+{% load nonexistent_library %}

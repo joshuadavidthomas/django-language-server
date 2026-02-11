@@ -1,0 +1,49 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+---
+tag_rules: {}
+filter_arities:
+  "checklists.templatetags.checklist_extras::filter::enumerate_cves":
+    expects_arg: true
+    arg_optional: true
+  "checklists.templatetags.checklist_extras::filter::enumerate_items":
+    expects_arg: true
+    arg_optional: true
+  "checklists.templatetags.checklist_extras::filter::format_release_for_cve":
+    expects_arg: false
+    arg_optional: false
+  "checklists.templatetags.checklist_extras::filter::format_releases_for_cves":
+    expects_arg: false
+    arg_optional: false
+  "checklists.templatetags.checklist_extras::filter::format_version_for_blogpost":
+    expects_arg: false
+    arg_optional: false
+  "checklists.templatetags.checklist_extras::filter::format_version_tuple":
+    expects_arg: false
+    arg_optional: false
+  "checklists.templatetags.checklist_extras::filter::format_versions_for_blogpost":
+    expects_arg: false
+    arg_optional: false
+  "checklists.templatetags.checklist_extras::filter::next_feature_version":
+    expects_arg: false
+    arg_optional: false
+  "checklists.templatetags.checklist_extras::filter::next_release_date":
+    expects_arg: false
+    arg_optional: false
+  "checklists.templatetags.checklist_extras::filter::next_version":
+    expects_arg: false
+    arg_optional: false
+  "checklists.templatetags.checklist_extras::filter::next_version_tuple":
+    expects_arg: false
+    arg_optional: false
+  "checklists.templatetags.checklist_extras::filter::rst_backticks":
+    expects_arg: false
+    arg_optional: false
+  "checklists.templatetags.checklist_extras::filter::rst_underline_for_headline":
+    expects_arg: true
+    arg_optional: true
+  "checklists.templatetags.checklist_extras::filter::stub_release_notes_title":
+    expects_arg: false
+    arg_optional: false
+block_specs: {}

@@ -1,0 +1,19 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+---
+tag_rules:
+  "wagtail.admin.templatetags.wagtailuserbar::tag::wagtailuserbar":
+    arg_constraints:
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: position
+        required: false
+        kind: Variable
+        position: 0
+    as_var: strip
+filter_arities: {}
+block_specs: {}

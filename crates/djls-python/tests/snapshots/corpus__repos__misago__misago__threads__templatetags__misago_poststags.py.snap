@@ -1,0 +1,20 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+---
+tag_rules:
+  "misago.threads.templatetags.misago_poststags::tag::likes_label":
+    arg_constraints:
+      - Min: 2
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    extracted_args:
+      - name: post
+        required: true
+        kind: Variable
+        position: 0
+    as_var: strip
+filter_arities: {}
+block_specs: {}

@@ -45,6 +45,14 @@ Additional directories to add to Python's import search path when the inspector 
 - Your project depends on internal libraries in non-standard locations
 - You need to make additional packages importable for Django introspection
 
+### `tagspecs`
+
+Optional manual TagSpecs configuration.
+
+djls primarily derives tag structure and argument rules automatically from Python source code. For edge cases (dynamic tags, unusual registration patterns, complex parsing), you can provide TagSpecs as a fallback.
+
+See [TagSpecs](tagspecs.md).
+
 ### `debug`
 
 **Default:** `false`
@@ -76,17 +84,73 @@ Map diagnostic codes or prefixes to severity levels. Supports:
 **Template Errors (T-series):**
 - `T100` - Parser errors (syntax issues in templates)
 - `T900` - IO errors (file read/write issues)
-- `T901` - Configuration errors (invalid tagspecs)
-
 **Semantic Validation Errors (S-series):**
+
+*Block Structure (S100–S103):*
+
 - `S100` - Unclosed tag (missing end tag)
 - `S101` - Unbalanced structure (mismatched block tags)
 - `S102` - Orphaned tag (intermediate tag without parent)
 - `S103` - Unmatched block name (e.g., `{% endblock foo %}` doesn't match `{% block bar %}`)
-- `S104` - Missing required arguments
-- `S105` - Too many arguments
-- `S106` - Invalid literal argument
-- `S107` - Invalid argument choice
+
+!!! info "Migration from v5.x"
+
+    In v6.0.0, several diagnostic codes were renumbered for consistency. If you have custom severity settings for the old codes, please update your configuration:
+
+    - `S104` → `S108` (Unknown tag)
+    - `S105` → `S109` (Unloaded tag)
+    - `S106` → `S111` (Unknown filter)
+    - `S107` → `S112` (Unloaded filter)
+
+    Update your `pyproject.toml` or `djls.toml` like this:
+
+    ```toml
+    [tool.djls.diagnostics.severity]
+    # Old: S104 = "warning"
+    S108 = "warning" # New
+    ```
+
+*Tag Scoping (requires [inspector](../template-validation.md#inspector-availability)):*
+
+- `S108` - Unknown tag (not found in any known library or in the Python environment)
+- `S109` - Unloaded tag (requires `{% load %}` for a specific library)
+- `S110` - Ambiguous unloaded tag (defined in multiple libraries)
+
+*Filter Scoping (requires [inspector](../template-validation.md#inspector-availability)):*
+
+- `S111` - Unknown filter (not found in any known library or in the Python environment)
+- `S112` - Unloaded filter (requires `{% load %}` for a specific library)
+- `S113` - Ambiguous unloaded filter (defined in multiple libraries)
+
+*Expression & Filter Arity:*
+
+- `S114` - Expression syntax error in `{% if %}` / `{% elif %}`
+- `S115` - Filter requires an argument but none was provided
+- `S116` - Filter does not accept an argument but one was provided
+
+*Tag Argument Validation:*
+
+- `S117` - Tag argument rule violation (e.g., wrong number of arguments, missing required keyword)
+
+*Environment-Aware Resolution (requires [inspector](../template-validation.md#inspector-availability) and [environment scanner](../template-validation.md#environment-scanner)):*
+
+- `S118` - Tag not in `INSTALLED_APPS` (installed package, but Django app not activated)
+- `S119` - Filter not in `INSTALLED_APPS` (installed package, but Django app not activated)
+- `S120` - Unknown template tag library (not found in inspector or environment)
+- `S121` - Library not in `INSTALLED_APPS` (installed package, but Django app not activated)
+
+*Extends Validation:*
+
+- `S122` - `{% extends %}` must be the first tag in the template (no tags or variables before it)
+- `S123` - `{% extends %}` cannot appear more than once in a template
+
+!!! note "Automatic Validation"
+
+    Template tag validation rules (argument counts, required keywords, block structure) are derived automatically from Python source code via static AST analysis.
+
+    For edge cases where extraction can't infer enough information, you can optionally provide manual [TagSpecs](tagspecs.md) as a fallback.
+
+See [Template Validation](../template-validation.md) for details on how these diagnostics work and their limitations.
 
 #### Examples
 
@@ -154,20 +218,6 @@ S100 = "off"       # Override: S100 is off
 - Gradual adoption: Downgrade to `"warning"` or `"hint"` during migration
 - Focus attention: Disable entire categories with prefix patterns
 - Fine-tune experience: Mix prefix patterns with specific overrides
-
-### `tagspecs`
-
-**Default:** Empty (no custom tagspecs)
-
-Define custom template tag specifications for tags not included in Django's built-in or popular third-party libraries.
-
-!!! warning "Deprecation Warning"
-
-    The v0.4.0 flat `[[tagspecs]]` format is deprecated and will be removed in v6.2.0.
-
-    Please migrate to the [v0.6.0 hierarchical format](./tagspecs.md#migration-from-v040).
-
-See the [TagSpecs documentation](./tagspecs.md) for detailed schema and examples.
 
 ## Methods
 

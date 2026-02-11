@@ -1,0 +1,37 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+---
+tag_rules: {}
+filter_arities:
+  "horizon.templatetags.form_helpers::filter::add_bootstrap_class":
+    expects_arg: false
+    arg_optional: false
+  "horizon.templatetags.form_helpers::filter::add_item_url":
+    expects_arg: false
+    arg_optional: false
+  "horizon.templatetags.form_helpers::filter::autocomplete":
+    expects_arg: true
+    arg_optional: true
+  "horizon.templatetags.form_helpers::filter::get_range":
+    expects_arg: false
+    arg_optional: false
+  "horizon.templatetags.form_helpers::filter::is_checkbox":
+    expects_arg: false
+    arg_optional: false
+  "horizon.templatetags.form_helpers::filter::is_file":
+    expects_arg: false
+    arg_optional: false
+  "horizon.templatetags.form_helpers::filter::is_multiple_checkbox":
+    expects_arg: false
+    arg_optional: false
+  "horizon.templatetags.form_helpers::filter::is_number":
+    expects_arg: false
+    arg_optional: false
+  "horizon.templatetags.form_helpers::filter::is_radio":
+    expects_arg: false
+    arg_optional: false
+  "horizon.templatetags.form_helpers::filter::wrapper_classes":
+    expects_arg: false
+    arg_optional: false
+block_specs: {}

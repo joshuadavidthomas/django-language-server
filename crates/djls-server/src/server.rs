@@ -6,6 +6,7 @@ use djls_semantic::Db as SemanticDb;
 use djls_source::Db as SourceDb;
 use djls_source::FileKind;
 use djls_workspace::TextDocument;
+use tokio::sync::oneshot;
 use tokio::sync::Mutex;
 use tower_lsp_server::jsonrpc::Result as LspResult;
 use tower_lsp_server::ls_types;
@@ -72,6 +73,31 @@ impl DjangoLanguageServer {
         }
     }
 
+    pub async fn with_session_mut_task<F, Fut>(&self, f: F) -> oneshot::Receiver<anyhow::Result<()>>
+    where
+        F: FnOnce(Arc<Mutex<Session>>) -> Fut + Send + 'static,
+        Fut: Future<Output = anyhow::Result<()>> + Send + 'static,
+    {
+        let session = Arc::clone(&self.session);
+        let (tx, rx) = oneshot::channel();
+
+        if let Err(e) = self
+            .queue
+            .submit(async move {
+                let res = f(session).await;
+                let _ = tx.send(res);
+                Ok(())
+            })
+            .await
+        {
+            tracing::error!("Failed to submit task: {}", e);
+        } else {
+            tracing::info!("Task submitted successfully");
+        }
+
+        rx
+    }
+
     async fn publish_diagnostics(&self, document: &TextDocument) {
         let supports_pull = self
             .with_session(|session| session.client_info().supports_pull_diagnostics())
@@ -105,6 +131,14 @@ impl DjangoLanguageServer {
                 .await;
 
             tracing::debug!("Published {} diagnostics for {}", diagnostics.len(), path);
+        }
+    }
+
+    async fn republish_open_template_diagnostics(&self) {
+        let documents = self.with_session(Session::open_documents).await;
+
+        for document in documents {
+            self.publish_diagnostics(&document).await;
         }
     }
 }
@@ -175,19 +209,61 @@ impl LanguageServer for DjangoLanguageServer {
     async fn initialized(&self, _params: ls_types::InitializedParams) {
         tracing::info!("Server received initialized notification.");
 
-        self.with_session_task(move |session| async move {
-            if let Some(project) = session.db().project() {
-                let path = project.root(session.db()).clone();
-                tracing::info!("Task: Starting initialization for project at: {}", path);
-                project.initialize(session.db());
-                tracing::info!("Task: Successfully initialized project: {}", path);
-            } else {
-                tracing::info!("Task: No project configured, skipping initialization.");
-            }
+        let rx = self
+            .with_session_mut_task(|session| async move {
+                let (interpreter, root, pythonpath) = {
+                    let session_lock = session.lock().await;
+                    let db = session_lock.db();
 
-            Ok(())
-        })
-        .await;
+                    let Some(project) = db.project() else {
+                        tracing::info!("Task: No project configured, skipping initialization.");
+                        return Ok(());
+                    };
+
+                    (
+                        project.interpreter(db).clone(),
+                        project.root(db).clone(),
+                        project.pythonpath(db).clone(),
+                    )
+                };
+
+                {
+                    let mut session_lock = session.lock().await;
+                    session_lock.db_mut().refresh_inspector();
+                }
+
+                let env_inventory = tokio::task::spawn_blocking(move || {
+                    let search_paths =
+                        djls_project::build_search_paths(&interpreter, &root, &pythonpath);
+                    djls_project::discover_template_libraries(&search_paths)
+                })
+                .await
+                .map_err(|e| anyhow::anyhow!("Environment discovery task failed: {e}"))?;
+
+                {
+                    let mut session_lock = session.lock().await;
+                    let db = session_lock.db_mut();
+
+                    db.update_discovered_template_libraries(&env_inventory);
+
+                    if let Some(project) = db.project() {
+                        let path = project.root(db).clone();
+                        tracing::info!("Task: Starting initialization for project at: {}", path);
+                        project.initialize(db);
+                        tracing::info!("Task: Successfully initialized project: {}", path);
+                    } else {
+                        tracing::info!("Task: No project configured, skipping initialization.");
+                    }
+                }
+
+                Ok(())
+            })
+            .await;
+
+        // Wait for environment initialization to complete before potentially
+        // publishing diagnostics (though initialized itself doesn't publish,
+        // it ensures subsequent requests see the fully initialized state).
+        let _ = rx.await;
     }
 
     async fn shutdown(&self) -> LspResult<()> {
@@ -262,29 +338,53 @@ impl LanguageServer for DjangoLanguageServer {
                 let encoding = session.client_info().position_encoding();
                 let file_kind = FileKind::from(&path);
                 let db = session.db();
-                let template_tags = if let Some(project) = db.project() {
-                    tracing::debug!("Fetching templatetags for project");
-                    let tags = djls_project::templatetags(db, project);
-                    if let Some(ref t) = tags {
-                        tracing::debug!("Got {} templatetags", t.len());
-                    } else {
-                        tracing::warn!("No templatetags returned from project");
-                    }
-                    tags
-                } else {
-                    tracing::warn!("No project available for templatetags");
-                    None
-                };
+                let template_libraries = db.project().map(|project| project.template_libraries(db));
+
                 let tag_specs = db.tag_specs();
                 let supports_snippets = session.client_info().supports_snippets();
+
+                // Compute position-aware available symbols for load-scoped completions.
+                // Only computed when inspector-derived libraries are known and file is a template.
+                let available_symbols = if file_kind == FileKind::Template {
+                    if let Some(template_libraries) = template_libraries {
+                        if template_libraries.inspector_knowledge == djls_project::Knowledge::Known
+                        {
+                            let file = db.get_or_create_file(&path);
+                            let nodelist = djls_templates::parse_template(db, file);
+
+                            nodelist.map(|nl| {
+                                let loaded = djls_semantic::compute_loaded_libraries(db, nl);
+                                let line_index = file.line_index(db);
+                                let source_text = file.source(db);
+                                let byte_offset = line_index.offset(
+                                    source_text.as_str(),
+                                    djls_source::LineCol::new(position.line, position.character),
+                                    encoding,
+                                );
+                                djls_semantic::AvailableSymbols::at_position(
+                                    &loaded,
+                                    template_libraries,
+                                    byte_offset.get(),
+                                )
+                            })
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
 
                 let completions = djls_ide::handle_completion(
                     &document,
                     position,
                     encoding,
                     file_kind,
-                    template_tags.as_ref(),
+                    template_libraries,
                     Some(&tag_specs),
+                    available_symbols.as_ref(),
                     supports_snippets,
                 );
 
@@ -394,23 +494,83 @@ impl LanguageServer for DjangoLanguageServer {
     async fn did_change_configuration(&self, _params: ls_types::DidChangeConfigurationParams) {
         tracing::info!("Configuration change detected. Reloading settings...");
 
-        self.with_session_mut(|session| {
-            if session.project().is_some() {
+        let settings_update = self
+            .with_session_mut(|session| {
+                if session.project().is_none() {
+                    return crate::settings::SettingsUpdate::default();
+                }
+
                 let project_root = session.db().project_root_or_cwd();
 
                 match djls_conf::Settings::new(
                     &project_root,
                     Some(session.client_info().config_overrides().clone()),
                 ) {
-                    Ok(new_settings) => {
-                        session.set_settings(new_settings);
-                    }
+                    Ok(new_settings) => session.set_settings(new_settings),
                     Err(e) => {
                         tracing::error!("Error loading settings: {}", e);
+                        crate::settings::SettingsUpdate::default()
                     }
                 }
-            }
-        })
-        .await;
+            })
+            .await;
+
+        if !settings_update.env_changed && !settings_update.diagnostics_changed {
+            return;
+        }
+
+        if settings_update.env_changed {
+            let rx = self
+                .with_session_mut_task(|session| async move {
+                    let (interpreter, root, pythonpath) = {
+                        let session_lock = session.lock().await;
+                        let db = session_lock.db();
+
+                        let Some(project) = db.project() else {
+                            return Ok(());
+                        };
+
+                        (
+                            project.interpreter(db).clone(),
+                            project.root(db).clone(),
+                            project.pythonpath(db).clone(),
+                        )
+                    };
+
+                    {
+                        let mut session_lock = session.lock().await;
+                        session_lock.db_mut().refresh_inspector();
+                    }
+
+                    let env_inventory = tokio::task::spawn_blocking(move || {
+                        let search_paths =
+                            djls_project::build_search_paths(&interpreter, &root, &pythonpath);
+                        djls_project::discover_template_libraries(&search_paths)
+                    })
+                    .await
+                    .map_err(|e| anyhow::anyhow!("Environment discovery task failed: {e}"))?;
+
+                    {
+                        let mut session_lock = session.lock().await;
+                        let db = session_lock.db_mut();
+
+                        db.update_discovered_template_libraries(&env_inventory);
+
+                        if let Some(project) = db.project() {
+                            project.initialize(db);
+                        }
+                    }
+
+                    Ok(())
+                })
+                .await;
+
+            // Wait for environment update to complete before republishing diagnostics
+            let _ = rx.await;
+        }
+
+        if settings_update.env_changed || settings_update.diagnostics_changed {
+            self.republish_open_template_diagnostics().await;
+        }
     }
 }

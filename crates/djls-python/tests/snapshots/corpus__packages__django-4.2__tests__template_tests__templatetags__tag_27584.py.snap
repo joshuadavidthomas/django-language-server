@@ -1,0 +1,11 @@
+---
+source: crates/djls-python/tests/corpus.rs
+expression: snapshot(result)
+---
+tag_rules: {}
+filter_arities: {}
+block_specs:
+  "tests.template_tests.templatetags.tag_27584::tag::badtag":
+    end_tag: endbadtag
+    intermediates: []
+    opaque: false

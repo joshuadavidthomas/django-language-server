@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use serde::Deserialize;
 
-// DEPRECATION: Remove in v6.2.0 (after v6.0.0 and v6.1.0)
+// Legacy v0.4.0 format support (converted to v0.6.0). Removed in v6.0.2.
 pub mod legacy;
 
 /// Root `TagSpec` document (v0.6.0)
