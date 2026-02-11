@@ -1,0 +1,11 @@
+---
+source: crates/djls-source/src/render.rs
+expression: plain().render(&diag)
+---
+error[S114]: Invalid syntax in {% if %} expression
+ --> templates/admin.html:1:33
+  |
+1 | {% if user.is_authenticated and and user.is_staff %}
+  |                             --- ^^^ unexpected operator
+  |                             |
+  |                             previous operator here

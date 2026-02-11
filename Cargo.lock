@@ -840,6 +840,7 @@ dependencies = [
  "annotate-snippets",
  "camino",
  "dashmap",
+ "insta",
  "rustc-hash",
  "salsa",
  "serde",

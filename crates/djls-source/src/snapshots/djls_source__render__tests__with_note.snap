@@ -1,0 +1,11 @@
+---
+source: crates/djls-source/src/render.rs
+expression: plain().render(&diag)
+---
+error[S109]: Tag 'crispy' requires {% load crispy_forms_tags %}
+ --> templates/form.html:2:1
+  |
+2 | {% crispy form %}
+  | ^^^^^^^^^^^^^^^^^ tag not loaded
+  |
+  = note: add {% load crispy_forms_tags %} at the top of this template

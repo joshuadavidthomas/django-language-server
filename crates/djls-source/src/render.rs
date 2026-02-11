@@ -171,169 +171,130 @@ mod tests {
         DiagnosticRenderer::plain()
     }
 
+    fn span_of(source: &str, needle: &str) -> Span {
+        let start = source.find(needle).expect("needle not found in source");
+        Span::saturating_from_bounds_usize(start, start + needle.len())
+    }
+
     #[test]
     fn single_line_span() {
         let source = "{% block content %}\n<p>Hello</p>\n{% endblock %}\n";
-
         let diag = Diagnostic::new(
             source,
             "templates/page.html",
             "S100",
             "Unclosed tag: block",
             Severity::Error,
-            Span::new(0, 19),
+            span_of(source, "{% block content %}"),
             "this block tag is never closed",
         );
-        let output = plain().render(&diag);
-
-        assert!(output.contains("error[S100]"), "should have error header");
-        assert!(
-            output.contains("Unclosed tag: block"),
-            "should have message"
-        );
-        assert!(
-            output.contains("templates/page.html"),
-            "should have file path"
-        );
-        assert!(
-            output.contains("{% block content %}"),
-            "should show source line"
-        );
-        assert!(
-            output.contains("this block tag is never closed"),
-            "should have label"
-        );
-        assert!(output.contains("^^^"), "should have underline carets");
+        insta::assert_snapshot!(plain().render(&diag));
     }
 
     #[test]
     fn two_annotations_different_lines() {
         let source = "{% block sidebar %}\n<nav>Links</nav>\n{% endblock content %}\n";
-
         let diag = Diagnostic::new(
             source,
             "templates/layout.html",
             "S103",
             "'content' does not match 'sidebar'",
             Severity::Error,
-            Span::new(36, 22),
+            span_of(source, "{% endblock content %}"),
             "closing tag says 'content'",
         )
-        .annotation(Span::new(0, 19), "opening tag is 'sidebar'", false);
-
-        let output = plain().render(&diag);
-
-        assert!(output.contains("error[S103]"));
-        assert!(output.contains("closing tag says 'content'"));
-        assert!(output.contains("opening tag is 'sidebar'"));
-        assert!(output.contains("{% block sidebar %}"));
-        assert!(output.contains("{% endblock content %}"));
+        .annotation(
+            span_of(source, "{% block sidebar %}"),
+            "opening tag is 'sidebar'",
+            false,
+        );
+        insta::assert_snapshot!(plain().render(&diag));
     }
 
     #[test]
     fn two_annotations_same_line() {
         let source = "{% if user.is_authenticated and and user.is_staff %}\n{% endif %}\n";
-
+        let second_and = source.find("and user").unwrap();
+        let first_and = source[..second_and].rfind("and").unwrap();
         let diag = Diagnostic::new(
             source,
             "templates/admin.html",
             "S114",
             "Invalid syntax in {% if %} expression",
             Severity::Error,
-            Span::new(35, 3),
+            Span::saturating_from_bounds_usize(second_and, second_and + 3),
             "unexpected operator",
         )
-        .annotation(Span::new(31, 3), "previous operator here", false);
-
-        let output = plain().render(&diag);
-
-        assert!(output.contains("error[S114]"));
-        assert!(output.contains("unexpected operator"));
-        assert!(output.contains("previous operator here"));
+        .annotation(
+            Span::saturating_from_bounds_usize(first_and, first_and + 3),
+            "previous operator here",
+            false,
+        );
+        insta::assert_snapshot!(plain().render(&diag));
     }
 
     #[test]
     fn with_note() {
         let source = "<p>{{ value|intcomma }}</p>\n{% crispy form %}\n";
-
         let diag = Diagnostic::new(
             source,
             "templates/form.html",
             "S109",
             "Tag 'crispy' requires {% load crispy_forms_tags %}",
             Severity::Error,
-            Span::new(27, 17),
+            span_of(source, "{% crispy form %}"),
             "tag not loaded",
         )
         .note("add {% load crispy_forms_tags %} at the top of this template");
-
-        let output = plain().render(&diag);
-
-        assert!(output.contains("error[S109]"));
-        assert!(output.contains("tag not loaded"));
-        assert!(output.contains("note: add {% load crispy_forms_tags %}"));
+        insta::assert_snapshot!(plain().render(&diag));
     }
 
     #[test]
     fn warning_severity() {
         let source = "{% load i18n %}\n{% load i18n %}\n";
-
+        let second_load = source[1..].find("{% load i18n %}").unwrap() + 1;
         let diag = Diagnostic::new(
             source,
             "templates/dupes.html",
             "W001",
             "Duplicate {% load i18n %}",
             Severity::Warning,
-            Span::new(16, 15),
+            Span::saturating_from_bounds_usize(second_load, second_load + 15),
             "already loaded on line 1",
         );
-        let output = plain().render(&diag);
-
-        assert!(output.contains("warning[W001]"), "should use warning level");
-        assert!(output.contains("Duplicate {% load i18n %}"));
+        insta::assert_snapshot!(plain().render(&diag));
     }
 
     #[test]
     fn long_line_truncation() {
         let long_prefix = "x".repeat(200);
         let source = format!("<div class=\"{long_prefix}\">{{{{ value|bogus_filter }}}}</div>\n");
-        let filter_start = source.find("bogus_filter").unwrap();
-
         let diag = Diagnostic::new(
             &source,
             "templates/long.html",
             "S111",
             "Unknown filter 'bogus_filter'",
             Severity::Error,
-            Span::saturating_from_bounds_usize(filter_start, filter_start + 12),
+            span_of(&source, "bogus_filter"),
             "not a built-in or loaded filter",
         );
-        let output = plain().render(&diag);
-
-        assert!(output.contains("error[S111]"));
-        assert!(output.contains("bogus_filter"));
-        assert!(
-            output.contains("..."),
-            "should truncate long line with ellipsis"
-        );
+        insta::assert_snapshot!(plain().render(&diag));
     }
 
     #[test]
     fn styled_produces_ansi() {
         let source = "{% block content %}\n";
         let renderer = DiagnosticRenderer::styled();
-
         let diag = Diagnostic::new(
             source,
             "test.html",
             "S100",
             "Unclosed tag",
             Severity::Error,
-            Span::new(0, 19),
+            span_of(source, "{% block content %}"),
             "never closed",
         );
         let output = renderer.render(&diag);
-
         assert!(
             output.contains("\x1b["),
             "styled output should contain ANSI escape codes"
@@ -343,18 +304,16 @@ mod tests {
     #[test]
     fn plain_no_ansi() {
         let source = "{% block content %}\n";
-
         let diag = Diagnostic::new(
             source,
             "test.html",
             "S100",
             "Unclosed tag",
             Severity::Error,
-            Span::new(0, 19),
+            span_of(source, "{% block content %}"),
             "never closed",
         );
         let output = plain().render(&diag);
-
         assert!(
             !output.contains("\x1b["),
             "plain output should not contain ANSI escape codes"

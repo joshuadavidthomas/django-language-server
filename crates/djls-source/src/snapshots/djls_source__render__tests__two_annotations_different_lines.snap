@@ -1,0 +1,12 @@
+---
+source: crates/djls-source/src/render.rs
+expression: plain().render(&diag)
+---
+error[S103]: 'content' does not match 'sidebar'
+ --> templates/layout.html:3:1
+  |
+1 | {% block sidebar %}
+  | ------------------- opening tag is 'sidebar'
+2 | <nav>Links</nav>
+3 | {% endblock content %}
+  | ^^^^^^^^^^^^^^^^^^^^^^ closing tag says 'content'
