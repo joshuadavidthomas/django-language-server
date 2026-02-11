@@ -1,6 +1,8 @@
 pub mod loads;
 pub mod symbols;
 
+use djls_templates::Node;
+use djls_templates::NodeList;
 pub use loads::parse_load_bits;
 pub use loads::LoadKind;
 pub use loads::LoadStatement;
@@ -9,11 +11,6 @@ pub use symbols::AvailableSymbols;
 pub use symbols::FilterAvailability;
 pub use symbols::TagAvailability;
 
-
-
-
-use djls_templates::Node;
-use djls_templates::NodeList;
 use crate::db::Db;
 
 /// Compute the [`LoadedLibraries`] for a parsed template's node list.

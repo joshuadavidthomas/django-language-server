@@ -70,7 +70,12 @@ impl StatementVisitor<'_> for DynamicEndFinder<'_> {
                 self.found = is_dynamic_end_parse_call(val, self.parser_var);
             }
             // Recurse into control flow to find all possible parse calls.
-            Stmt::If(_) | Stmt::For(_) | Stmt::While(_) | Stmt::Try(_) | Stmt::With(_) | Stmt::Match(_) => {
+            Stmt::If(_)
+            | Stmt::For(_)
+            | Stmt::While(_)
+            | Stmt::Try(_)
+            | Stmt::With(_)
+            | Stmt::Match(_) => {
                 walk_stmt(self, stmt);
             }
             _ => {}
@@ -178,7 +183,12 @@ impl StatementVisitor<'_> for DynamicEndFormatFinder {
                 self.found = is_end_format_expr(value);
             }
             // Recurse into control flow to find all possible parse calls.
-            Stmt::If(_) | Stmt::For(_) | Stmt::While(_) | Stmt::Try(_) | Stmt::With(_) | Stmt::Match(_) => {
+            Stmt::If(_)
+            | Stmt::For(_)
+            | Stmt::While(_)
+            | Stmt::Try(_)
+            | Stmt::With(_)
+            | Stmt::Match(_) => {
                 walk_stmt(self, stmt);
             }
             _ => {}

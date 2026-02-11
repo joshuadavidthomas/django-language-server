@@ -169,7 +169,8 @@ fn extract_option_checks(
     rejects_unknown: &mut bool,
     allow_duplicates: &mut bool,
 ) {
-    let mut visitor = OptionCheckVisitor::new(option_var, values, rejects_unknown, allow_duplicates);
+    let mut visitor =
+        OptionCheckVisitor::new(option_var, values, rejects_unknown, allow_duplicates);
     visitor.visit_stmt(&Stmt::If(if_stmt.clone()));
 }
 
@@ -218,8 +219,7 @@ impl StatementVisitor<'_> for OptionCheckVisitor<'_> {
                     }
                 } else {
                     // else branch — if it raises TemplateSyntaxError, unknown options are rejected
-                    if crate::analysis::rules::body_raises_template_syntax_error(&clause.body)
-                    {
+                    if crate::analysis::rules::body_raises_template_syntax_error(&clause.body) {
                         *self.rejects_unknown = true;
                     }
                 }

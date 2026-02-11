@@ -60,9 +60,7 @@ fn process_statement(stmt: &Stmt, env: &mut Env, ctx: &mut CallContext<'_>) -> A
         Stmt::If(stmt_if) => {
             result
                 .constraints
-                .extend(crate::analysis::rules::extract_from_if_inline(
-                    stmt_if, env,
-                ));
+                .extend(crate::analysis::rules::extract_from_if_inline(stmt_if, env));
 
             // Collect body results separately so we can discard conditional
             // keywords without reaching into ctx.constraints.

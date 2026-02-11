@@ -1,9 +1,9 @@
 pub(crate) mod calls;
-pub(crate) mod state;
 pub(crate) mod expressions;
 pub(crate) mod match_arms;
 pub(crate) mod mutations;
 pub(crate) mod rules;
+pub(crate) mod state;
 pub(crate) mod statements;
 
 pub(crate) use calls::extract_return_value;
@@ -107,8 +107,7 @@ pub(crate) fn analyze_compile_function(func: &StmtFunctionDef) -> TagRule {
         return TagRule::default();
     };
 
-    let mut env =
-        state::Env::for_compile_function(compile_fn.parser_param, compile_fn.token_param);
+    let mut env = state::Env::for_compile_function(compile_fn.parser_param, compile_fn.token_param);
     let mut ctx = CallContext {
         db: None,
         file: None,

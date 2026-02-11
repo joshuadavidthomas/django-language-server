@@ -18,9 +18,9 @@ use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtIf;
 use ruff_python_ast::UnaryOp;
 
+use super::expressions::eval_expr;
 use super::state::AbstractValue;
 use super::state::Env;
-use super::expressions::eval_expr;
 use crate::ext::ExprExt;
 use crate::types::ArgumentCountConstraint;
 use crate::types::ChoiceAt;

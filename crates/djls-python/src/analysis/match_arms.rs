@@ -251,7 +251,12 @@ impl StatementVisitor<'_> for RaiseFinder {
                 }
             }
             // Recurse into control flow to check all possible execution paths.
-            Stmt::If(_) | Stmt::For(_) | Stmt::While(_) | Stmt::Try(_) | Stmt::With(_) | Stmt::Match(_) => {
+            Stmt::If(_)
+            | Stmt::For(_)
+            | Stmt::While(_)
+            | Stmt::Try(_)
+            | Stmt::With(_)
+            | Stmt::Match(_) => {
                 walk_stmt(self, stmt);
             }
             _ => {}

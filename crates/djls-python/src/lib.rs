@@ -34,12 +34,12 @@ pub use types::SymbolKey;
 pub use types::SymbolKind;
 pub use types::TagRule;
 
+use crate::analysis::extract_return_value;
 use crate::analysis::state::AbstractValue;
 use crate::analysis::state::Env;
 use crate::analysis::statements::process_statements;
-use crate::analysis::CallContext;
-use crate::analysis::extract_return_value;
 use crate::analysis::AbstractValueKey;
+use crate::analysis::CallContext;
 use crate::registry::ExtractionOutput;
 
 /// Parsed Python module AST, cached by Salsa.

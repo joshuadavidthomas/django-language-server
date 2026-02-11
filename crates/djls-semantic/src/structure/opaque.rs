@@ -140,10 +140,10 @@ fn collect_all_segment_spans(region: &Region, blocks: &Blocks, spans: &mut Vec<S
 #[cfg(test)]
 mod tests {
     use camino::Utf8Path;
+    use djls_source::Span;
     use djls_templates::parse_template;
 
     use crate::structure::*;
-    use djls_source::Span;
     use crate::testing::TestDatabase;
 
     fn compute_regions(db: &TestDatabase, source: &str) -> OpaqueRegions {

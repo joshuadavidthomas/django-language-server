@@ -232,16 +232,16 @@ fn expand_marker(span: Span) -> Span {
 
 #[cfg(test)]
 mod tests {
-    use djls_source::{File, Span};
-    use serde::Serialize;
+    use djls_source::File;
+    use djls_source::Span;
     use djls_templates::parse_template;
     use insta::assert_yaml_snapshot;
+    use serde::Serialize;
 
-    use super::SemanticNode;
-    use super::SemanticForest;
     use super::build_semantic_forest;
+    use super::SemanticForest;
+    use super::SemanticNode;
     use crate::structure::build_block_tree;
-    
     use crate::testing::TestDatabase;
 
     #[test]

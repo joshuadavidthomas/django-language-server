@@ -1,9 +1,0 @@
----
-source: crates/djls-semantic/src/filters/validation.rs
-expression: rendered
----
-Source
-test.html
-   1 | {% verbatim %}{{ value|truncatewords }}{% endverbatim %}
-
-Diagnostics (0)

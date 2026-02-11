@@ -177,8 +177,8 @@ mod tests {
     use djls_templates::parse_template;
     use djls_templates::Node;
 
-    use crate::structure::snapshot::BlockTreeSnapshot;
     use crate::build_block_tree;
+    use crate::structure::snapshot::BlockTreeSnapshot;
     use crate::testing::TestDatabase;
 
     #[test]

@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 
+use djls_project::LibraryName;
 use djls_source::Span;
-use djls_templates::Filter;
 use djls_templates::tokens::TagDelimiter;
+use djls_templates::Filter;
 use salsa::Accumulator;
 
 use crate::db::Db;
@@ -10,7 +11,6 @@ use crate::scoping::symbols::AvailableSymbols;
 use crate::scoping::symbols::FilterAvailability;
 use crate::scoping::symbols::TagAvailability;
 use crate::specs::tags::TagSpecs;
-use djls_project::LibraryName;
 use crate::ValidationError;
 use crate::ValidationErrorAccumulator;
 
@@ -21,10 +21,7 @@ pub(crate) fn check_tag_scoping_rule(
     span: Span,
     symbols: &AvailableSymbols,
     env_tags: &Option<
-        HashMap<
-            djls_project::TemplateSymbolName,
-            Vec<djls_project::DiscoveredSymbolCandidate>,
-        >,
+        HashMap<djls_project::TemplateSymbolName, Vec<djls_project::DiscoveredSymbolCandidate>>,
     >,
 ) {
     let template_libraries = db.template_libraries();
@@ -83,10 +80,7 @@ pub(crate) fn check_filter_scoping_rule(
     filter: &Filter,
     symbols: &AvailableSymbols,
     env_filters: &Option<
-        HashMap<
-            djls_project::TemplateSymbolName,
-            Vec<djls_project::DiscoveredSymbolCandidate>,
-        >,
+        HashMap<djls_project::TemplateSymbolName, Vec<djls_project::DiscoveredSymbolCandidate>>,
     >,
 ) {
     let template_libraries = db.template_libraries();
@@ -158,15 +152,20 @@ pub(crate) fn check_load_libraries_rule(
     };
 
     for lib in libs {
-        if template_libraries.loadable.contains_key(&LibraryName::parse(&lib).unwrap()) {
+        if template_libraries
+            .loadable
+            .contains_key(&LibraryName::parse(&lib).unwrap())
+        {
             continue;
         }
 
-        let candidates = template_libraries.discovered_app_modules_for_library_str(&lib); if !candidates.is_empty() {
+        let candidates = template_libraries.discovered_app_modules_for_library_str(&lib);
+        if !candidates.is_empty() {
             let marker_span = span.expand(TagDelimiter::LENGTH_U32, TagDelimiter::LENGTH_U32);
             ValidationErrorAccumulator(ValidationError::LibraryNotInInstalledApps {
                 name: lib,
-                app: candidates[0].clone(), candidates,
+                app: candidates[0].clone(),
+                candidates,
                 span: marker_span,
             })
             .accumulate(db);

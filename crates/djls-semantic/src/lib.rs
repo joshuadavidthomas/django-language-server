@@ -41,11 +41,6 @@ pub use structure::build_semantic_forest;
 pub use structure::compute_opaque_regions;
 pub use structure::OpaqueRegions;
 pub use structure::TagIndex;
-
-
-
-
-
 pub use validation::TemplateValidator;
 
 /// Validate a Django template node list and return validation errors.
