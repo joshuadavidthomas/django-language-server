@@ -111,6 +111,7 @@ def tests(session, django):
             if arg:
                 args.extend(arg.split(" "))
         command.extend(args)
+    session.run("cargo", "run", "--bin", "djls-corpus", "--", "sync")
     session.run(*command, external=True)
 
 
