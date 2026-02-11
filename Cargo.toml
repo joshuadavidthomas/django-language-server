@@ -21,6 +21,7 @@ djls-workspace = { path = "crates/djls-workspace" }
 salsa = "0.25.2"
 tower-lsp-server = { version = "0.23.0", features = ["proposed"] }
 
+annotate-snippets = "0.12"
 anyhow = "1.0"
 camino = { version = "1.2", features = ["serde1"] }
 clap = { version = "4.5", features = ["derive"] }
