@@ -52,7 +52,8 @@ just corpus clean                # Remove all synced corpus data
 ## Workspace and Crate Conventions
 - **All crates live in `crates/`**, auto-discovered via `members = ["crates/*"]`
 - **All dependency versions** (third-party and internal) go in `[workspace.dependencies]` in root `Cargo.toml`. Crates reference with `dep.workspace = true`. Never specify a version directly in a crate's `Cargo.toml`.
-- **Alphabetical order** in `[workspace.dependencies]` and in each crate's `[dependencies]`
+- **Root `[workspace.dependencies]` grouping**: internal path crates → pinned core deps (`salsa`, `tower-lsp-server`) → crates.io deps → git deps (`ruff_*`). Blank line between groups, alphabetical within each.
+- **Alphabetical order** in each crate's `[dependencies]`
 - **Internal deps listed before third-party** in each crate's `Cargo.toml`, separated by a blank line, both groups alphabetical
 - **`[lints] workspace = true`** in every crate — lints are configured once in root `[workspace.lints]`
 - **Versioning**: Only `djls` (the binary) carries the release version (currently `6.0.0`). All library crates use `version = "0.0.0"`.
