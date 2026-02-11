@@ -88,9 +88,9 @@ jobs:
         with:
           path: |
             ~/.rustup
-          key: ${{ runner.os }}-${{ runner.arch }}-rustup-${{ hashFiles('rust-toolchain.toml') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-rustup-pinned-${{ hashFiles('rust-toolchain.toml') }}
           restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-rustup-
+            ${{ runner.os }}-${{ runner.arch }}-rustup-pinned-
 
       - name: Cache Homebrew packages (macOS)
         if: ${{ !startsWith(github.ref, 'refs/tags/') && runner.os == 'macOS' }}
@@ -291,9 +291,9 @@ jobs:
         with:
           path: |
             ~/.rustup
-          key: ${{ runner.os }}-${{ runner.arch }}-rustup-${{ hashFiles('rust-toolchain.toml') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-rustup-pinned-${{ hashFiles('rust-toolchain.toml') }}
           restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-rustup-
+            ${{ runner.os }}-${{ runner.arch }}-rustup-pinned-
 
       - name: Cache Cargo registry
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
@@ -344,9 +344,9 @@ jobs:
         with:
           path: |
             ~/.rustup
-          key: ${{ runner.os }}-${{ runner.arch }}-rustup-${{ hashFiles('rust-toolchain.toml') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-rustup-pinned-${{ hashFiles('rust-toolchain.toml') }}
           restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-rustup-
+            ${{ runner.os }}-${{ runner.arch }}-rustup-pinned-
 
       - name: Cache Cargo registry
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
