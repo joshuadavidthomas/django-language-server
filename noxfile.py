@@ -331,10 +331,11 @@ def update_uvlock(session):
     )
 
 
-@nox.session(requires=["cog", "update_changelog", "update_uvlock"])
+@nox.session
 def release(session):
     version = get_version(session)
-    session.run("git", "checkout", "-b", f"release/v{version}")
+    session.run("git", "checkout", "-b", f"release/v{version}", external=True)
+
     command = ["uv", "run", "bumpver", "update"]
     if session.posargs:
         args = []
@@ -343,7 +344,29 @@ def release(session):
                 args.extend(arg.split(" "))
         command.extend(args)
     session.run(*command)
-    session.run("gh", "pr", "create", "--fill", "--head")
+
+    cog(session)
+    session.run(
+        "git",
+        "add",
+        "CONTRIBUTING.md",
+        "README.md",
+        "pyproject.toml",
+        external=True,
+    )
+    session.run(
+        "git",
+        "commit",
+        "-m",
+        f"run cog for version {version}",
+        external=True,
+        silent=True,
+    )
+
+    update_changelog(session)
+    update_uvlock(session)
+
+    session.run("gh", "pr", "create", "--fill", "--head", external=True)
 
 
 def get_version(session):
