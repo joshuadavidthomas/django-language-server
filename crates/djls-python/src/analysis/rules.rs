@@ -367,16 +367,10 @@ impl StatementVisitor<'_> for RaiseFinder {
             return;
         }
 
-        match stmt {
-            Stmt::Raise(ruff_python_ast::StmtRaise { exc: Some(exc), .. }) => {
-                if is_template_syntax_error_call(exc) {
-                    self.found = true;
-                }
+        if let Stmt::Raise(ruff_python_ast::StmtRaise { exc: Some(exc), .. }) = stmt {
+            if is_template_syntax_error_call(exc) {
+                self.found = true;
             }
-            // Do not recurse into nested statements for this specific check.
-            // This matches the previous non-recursive behavior used by
-            // `extract_from_if_inline` to identify direct error guards.
-            _ => {}
         }
     }
 }

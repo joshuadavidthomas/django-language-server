@@ -67,6 +67,19 @@ impl<'a> IntoIterator for &'a mut Blocks {
 }
 
 impl Blocks {
+    pub fn iter(&self) -> std::slice::Iter<'_, Region> {
+        self.0.iter()
+    }
+
+    pub fn iter_mut(&mut self) -> std::slice::IterMut<'_, Region> {
+        self.0.iter_mut()
+    }
+
+    /// Allocate a new region in the block tree.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the number of blocks exceeds `u32::MAX`.
     pub fn alloc(&mut self, span: Span, parent: Option<BlockId>) -> BlockId {
         let next = self.0.len();
         let id = u32::try_from(next).expect("too many blocks (overflow u32::MAX)");

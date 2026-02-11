@@ -20,8 +20,8 @@ pub(crate) fn check_tag_scoping_rule(
     name: &str,
     span: Span,
     symbols: &AvailableSymbols,
-    env_tags: &Option<
-        HashMap<djls_project::TemplateSymbolName, Vec<djls_project::DiscoveredSymbolCandidate>>,
+    env_tags: Option<
+        &HashMap<djls_project::TemplateSymbolName, Vec<djls_project::DiscoveredSymbolCandidate>>,
     >,
 ) {
     let template_libraries = db.template_libraries();
@@ -79,8 +79,8 @@ pub(crate) fn check_filter_scoping_rule(
     db: &dyn Db,
     filter: &Filter,
     symbols: &AvailableSymbols,
-    env_filters: &Option<
-        HashMap<djls_project::TemplateSymbolName, Vec<djls_project::DiscoveredSymbolCandidate>>,
+    env_filters: Option<
+        &HashMap<djls_project::TemplateSymbolName, Vec<djls_project::DiscoveredSymbolCandidate>>,
     >,
 ) {
     let template_libraries = db.template_libraries();

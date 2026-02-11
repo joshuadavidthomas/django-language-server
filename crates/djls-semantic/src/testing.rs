@@ -152,19 +152,6 @@ impl TestDatabase {
         self
     }
 
-    #[must_use]
-    pub(crate) fn with_inventory(template_libraries: TemplateLibraries) -> Self {
-        Self::new().with_template_libraries(template_libraries)
-    }
-
-    #[must_use]
-    pub(crate) fn with_inventories(
-        template_libraries: TemplateLibraries,
-        discovered: Vec<TemplateLibrary>,
-    ) -> Self {
-        Self::new().with_template_libraries(template_libraries.apply_discovery(discovered))
-    }
-
     pub(crate) fn add_file(&self, path: &str, content: &str) {
         self.fs
             .lock()

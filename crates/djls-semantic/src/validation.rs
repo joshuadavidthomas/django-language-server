@@ -140,7 +140,7 @@ impl Visitor for TemplateValidator<'_> {
                     &self.template_libraries,
                     span.start(),
                 );
-                scoping::check_tag_scoping_rule(self.db, name, span, &symbols, &self.env_tags);
+                scoping::check_tag_scoping_rule(self.db, name, span, &symbols, self.env_tags.as_ref());
             }
 
             // 3. Argument validation
@@ -174,7 +174,7 @@ impl Visitor for TemplateValidator<'_> {
 
             for filter in filters {
                 // 1. Filter Scoping
-                scoping::check_filter_scoping_rule(self.db, filter, &symbols, &self.env_filters);
+                scoping::check_filter_scoping_rule(self.db, filter, &symbols, self.env_filters.as_ref());
 
                 // 2. Filter Arity
                 filters::check_filter_arity_rule(

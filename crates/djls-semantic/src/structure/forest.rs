@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use djls_source::Span;
 use djls_templates::tokens::TagDelimiter;
 use djls_templates::Node;
@@ -66,12 +68,12 @@ pub enum SegmentKind {
     Intermediate { tag: String },
 }
 
-pub fn build_root_tag(
+pub fn build_root_tag<S: ::std::hash::BuildHasher>(
     db: &dyn Db,
     tree: BlockTree,
     nodelist: djls_templates::NodeList<'_>,
     container_id: BlockId,
-    spans: &mut FxHashSet<Span>,
+    spans: &mut HashSet<Span, S>,
 ) -> Option<SemanticNode> {
     let container = tree.blocks(db).get(container_id.index());
     for node in container.nodes() {
