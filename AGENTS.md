@@ -18,7 +18,7 @@ just corpus clean                # Remove all synced corpus data
 ```
 
 ## Testing
-**All tests must pass.** If a test fails, it is your responsibility to fix it — even if you didn't cause the failure. Never dismiss failures as "pre-existing" or "unrelated". 
+**All tests must pass.** If a test fails, it is your responsibility to fix it — even if you didn't cause the failure. Never dismiss failures as "pre-existing" or "unrelated".
 
 Sync the corpus (`just corpus sync`) if corpus tests fail, fix broken snapshots, and do whatever else is needed to get a clean run before considering work complete.
 
