@@ -1,45 +1,20 @@
-mod arguments;
-mod blocks;
-mod db;
-mod errors;
-mod extends;
-mod filters;
-mod if_expression;
-mod loads;
-mod opaque;
-mod primitives;
-mod resolution;
-pub mod rule_evaluation;
-mod semantic;
-mod templatetags;
-mod traits;
+pub mod db;
+pub mod errors;
+pub mod primitives;
+pub mod resolution;
+pub mod scoping;
+pub mod specs;
+pub mod structure;
+pub mod tag_rules;
+pub mod traits;
+pub mod validation;
 
 #[cfg(test)]
-mod testing;
+pub mod testing;
 
-use arguments::validate_all_tag_arguments;
-pub use blocks::build_block_tree;
-pub use blocks::TagIndex;
 pub use db::Db;
 pub use db::ValidationErrorAccumulator;
 pub use errors::ValidationError;
-use extends::validate_extends;
-use filters::validate_filter_arity;
-pub use filters::FilterAritySpecs;
-use if_expression::validate_if_expressions;
-pub use loads::compute_loaded_libraries;
-pub use loads::parse_load_bits;
-pub use loads::validate_filter_scoping;
-pub use loads::validate_load_libraries;
-pub use loads::validate_tag_scoping;
-pub use loads::AvailableSymbols;
-pub use loads::FilterAvailability;
-pub use loads::LoadKind;
-pub use loads::LoadStatement;
-pub use loads::LoadedLibraries;
-pub use loads::TagAvailability;
-use opaque::compute_opaque_regions;
-pub use opaque::OpaqueRegions;
 pub use primitives::Tag;
 pub use primitives::Template;
 pub use primitives::TemplateName;
@@ -47,12 +22,31 @@ pub use resolution::find_references_to_template;
 pub use resolution::resolve_template;
 pub use resolution::ResolveResult;
 pub use resolution::TemplateReference;
-pub use semantic::build_semantic_forest;
-pub use templatetags::CompletionArg;
-pub use templatetags::CompletionArgKind;
-pub use templatetags::EndTag;
-pub use templatetags::TagSpec;
-pub use templatetags::TagSpecs;
+pub use scoping::compute_loaded_libraries;
+pub use scoping::parse_load_bits;
+pub use scoping::AvailableSymbols;
+pub use scoping::FilterAvailability;
+pub use scoping::LoadKind;
+pub use scoping::LoadStatement;
+pub use scoping::LoadedLibraries;
+pub use scoping::TagAvailability;
+pub use specs::filters::FilterAritySpecs;
+pub use specs::tags::CompletionArg;
+pub use specs::tags::CompletionArgKind;
+pub use specs::tags::EndTag;
+pub use specs::tags::TagSpec;
+pub use specs::tags::TagSpecs;
+pub use structure::build_block_tree;
+pub use structure::build_semantic_forest;
+pub use structure::compute_opaque_regions;
+pub use structure::OpaqueRegions;
+pub use structure::TagIndex;
+
+
+
+
+
+pub use validation::TemplateValidator;
 
 /// Validate a Django template node list and return validation errors.
 ///
@@ -65,20 +59,19 @@ pub use templatetags::TagSpecs;
 /// - Unmatched block names
 #[salsa::tracked]
 pub fn validate_nodelist(db: &dyn Db, nodelist: djls_templates::NodeList<'_>) {
-    if nodelist.nodelist(db).is_empty() {
+    let nodes = nodelist.nodelist(db);
+    if nodes.is_empty() {
         return;
     }
 
+    // 1. Structural Analysis (Builds BlockTree and SemanticForest)
     let block_tree = build_block_tree(db, nodelist);
     let _forest = build_semantic_forest(db, block_tree, nodelist);
+
+    // 2. Perform all other validations in a single walk
     let opaque_regions = compute_opaque_regions(db, nodelist);
-    validate_all_tag_arguments(db, nodelist, &opaque_regions);
-    validate_tag_scoping(db, nodelist, &opaque_regions);
-    validate_filter_scoping(db, nodelist, &opaque_regions);
-    validate_load_libraries(db, nodelist, &opaque_regions);
-    validate_if_expressions(db, nodelist, &opaque_regions);
-    validate_filter_arity(db, nodelist, &opaque_regions);
-    validate_extends(db, nodelist);
+    let validator = TemplateValidator::new(db, nodelist, &opaque_regions);
+    validator.validate(nodes);
 }
 
 #[cfg(test)]
@@ -92,7 +85,7 @@ mod tests {
     use djls_python::FilterArity;
     use djls_python::SymbolKey;
 
-    use crate::filters::arity::FilterAritySpecs;
+    use crate::specs::filters::FilterAritySpecs;
     use crate::testing::builtin_filter_json;
     use crate::testing::builtin_tag_json;
     use crate::testing::collect_errors;
@@ -645,7 +638,7 @@ mod tests {
     #[test]
     fn tag_before_extends_and_multiple_extends_s122_and_s123() {
         let db = standard_db();
-        let source = r#"{% load i18n %}{% extends "a.html" %}{% extends "b.html" %}"#;
+        let source = r#"{% load i18n %}{% extends \"a.html\" %}{% extends \"b.html\" %}"#;
         let errors = collect_all_errors(&db, source);
         let s122: Vec<_> = errors
             .iter()

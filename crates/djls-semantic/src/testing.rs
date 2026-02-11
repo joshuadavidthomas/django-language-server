@@ -19,7 +19,7 @@ use djls_templates::parse_template;
 use djls_workspace::FileSystem;
 use djls_workspace::InMemoryFileSystem;
 
-use crate::templatetags::test_tag_specs;
+use crate::specs::tags::test_tag_specs;
 use crate::FilterAritySpecs;
 use crate::TagIndex;
 use crate::TagSpecs;

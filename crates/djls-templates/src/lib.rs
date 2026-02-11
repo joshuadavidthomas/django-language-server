@@ -53,6 +53,7 @@ pub mod nodelist;
 mod parser;
 mod quotes;
 pub mod tokens;
+pub mod visitor;
 
 pub use db::Db;
 pub use db::TemplateErrorAccumulator;

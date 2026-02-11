@@ -20,6 +20,7 @@ pub use python::Interpreter;
 pub use resolve::build_search_paths;
 pub use resolve::extract_external_rules;
 pub use resolve::resolve_modules;
+pub use symbols::DiscoveredSymbolCandidate;
 pub use symbols::InspectorLibrarySymbol;
 pub use symbols::InstalledSymbolCandidate;
 pub use symbols::InstalledSymbolOrigin;

@@ -3,10 +3,10 @@ use djls_conf::DiagnosticsConfig;
 use djls_project::TemplateLibraries;
 use djls_templates::Db as TemplateDb;
 
-use crate::blocks::TagIndex;
+use crate::structure::TagIndex;
 use crate::errors::ValidationError;
-use crate::filters::arity::FilterAritySpecs;
-use crate::templatetags::TagSpecs;
+use crate::specs::filters::FilterAritySpecs;
+use crate::specs::tags::TagSpecs;
 
 #[salsa::db]
 pub trait Db: TemplateDb {
