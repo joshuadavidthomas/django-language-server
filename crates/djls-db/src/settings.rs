@@ -12,7 +12,12 @@ pub struct SettingsUpdate {
 }
 
 impl DjangoDatabase {
-    pub(crate) fn settings(&self) -> Settings {
+    /// Get a clone of the current settings.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the settings mutex is poisoned.
+    pub fn settings(&self) -> Settings {
         self.settings.lock().unwrap().clone()
     }
 

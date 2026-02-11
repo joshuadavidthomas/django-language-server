@@ -642,6 +642,7 @@ version = "6.0.0"
 dependencies = [
  "anyhow",
  "clap",
+ "djls-db",
  "djls-project",
  "djls-server",
  "serde_json",
@@ -697,6 +698,25 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "walkdir",
+]
+
+[[package]]
+name = "djls-db"
+version = "0.0.0"
+dependencies = [
+ "camino",
+ "djls-conf",
+ "djls-project",
+ "djls-python",
+ "djls-semantic",
+ "djls-source",
+ "djls-templates",
+ "djls-workspace",
+ "rustc-hash",
+ "salsa",
+ "serde",
+ "serde_json",
+ "tracing",
 ]
 
 [[package]]
@@ -784,16 +804,15 @@ dependencies = [
  "camino",
  "dashmap",
  "djls-conf",
+ "djls-db",
  "djls-ide",
  "djls-project",
- "djls-python",
  "djls-semantic",
  "djls-source",
  "djls-templates",
  "djls-workspace",
  "percent-encoding",
  "rustc-hash",
- "salsa",
  "serde",
  "serde_json",
  "tokio",
