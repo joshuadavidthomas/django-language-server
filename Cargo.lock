@@ -726,7 +726,6 @@ dependencies = [
  "djls-conf",
  "djls-python",
  "djls-source",
- "djls-templates",
  "djls-workspace",
  "ruff_python_parser",
  "rustc-hash",
@@ -823,7 +822,6 @@ name = "djls-templates"
 version = "0.0.0"
 dependencies = [
  "anyhow",
- "camino",
  "djls-conf",
  "djls-source",
  "djls-workspace",

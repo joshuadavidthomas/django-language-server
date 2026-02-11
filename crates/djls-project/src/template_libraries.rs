@@ -2,10 +2,6 @@ use std::collections::BTreeMap;
 use std::collections::HashMap;
 
 use camino::Utf8PathBuf;
-use djls_templates::names::LibraryName;
-use djls_templates::names::PyModuleName;
-use djls_templates::names::TemplateSymbolName;
-pub use djls_templates::symbols::TemplateSymbolKind;
 use rustc_hash::FxHashSet;
 use serde::Deserialize;
 use serde::Serialize;
@@ -13,6 +9,16 @@ use serde::Serialize;
 use crate::inspector::InspectorRequest;
 use crate::scanned_libraries::ScannedTemplateLibraries;
 use crate::scanned_libraries::ScannedTemplateLibrary;
+use crate::template_names::LibraryName;
+use crate::template_names::PyModuleName;
+use crate::template_names::TemplateSymbolName;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TemplateSymbolKind {
+    Tag,
+    Filter,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SymbolDefinition {

@@ -49,11 +49,9 @@ pub mod db;
 mod error;
 mod filters;
 mod lexer;
-pub mod names;
 pub mod nodelist;
 mod parser;
 mod quotes;
-pub mod symbols;
 pub mod tokens;
 
 pub use db::Db;
