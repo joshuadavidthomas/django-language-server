@@ -21,11 +21,8 @@ pub fn walk_files(
     for path in paths {
         if path.is_file() {
             if predicate(path) {
-                if let Ok(canonical) = dunce_utf8(path) {
-                    files.push(canonical);
-                } else {
-                    files.push(path.clone());
-                }
+                let resolved = dunce_utf8(path).unwrap_or_else(|_| path.clone());
+                files.push(resolved);
             }
         } else if path.is_dir() {
             for entry in WalkDir::new(path)
@@ -36,18 +33,17 @@ pub fn walk_files(
                     }
                     camino::Utf8Path::from_path(e.path()).is_none_or(|p| !skip_dir(p))
                 })
-                .flatten()
+                .filter_map(Result::ok)
             {
-                if entry.file_type().is_file() {
-                    if let Some(utf8) = camino::Utf8Path::from_path(entry.path()) {
-                        if predicate(utf8) {
-                            if let Ok(canonical) = dunce_utf8(utf8) {
-                                files.push(canonical);
-                            } else {
-                                files.push(utf8.to_owned());
-                            }
-                        }
-                    }
+                if !entry.file_type().is_file() {
+                    continue;
+                }
+                let Some(utf8) = camino::Utf8Path::from_path(entry.path()) else {
+                    continue;
+                };
+                if predicate(utf8) {
+                    let resolved = dunce_utf8(utf8).unwrap_or_else(|_| utf8.to_owned());
+                    files.push(resolved);
                 }
             }
         }

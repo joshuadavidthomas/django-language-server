@@ -882,6 +882,7 @@ dependencies = [
  "camino",
  "dashmap",
  "djls-source",
+ "dunce",
  "notify",
  "percent-encoding",
  "rustc-hash",
@@ -900,6 +901,12 @@ checksum = "442039f5147480ba31067cb00ada1adae6892028e40e45fc5de7b7df6dcc1b5f"
 dependencies = [
  "const-random",
 ]
+
+[[package]]
+name = "dunce"
+version = "1.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "92773504d58c093f6de2459af4af33faa518c13451eb8f2b5698ed3d36e7c813"
 
 [[package]]
 name = "either"

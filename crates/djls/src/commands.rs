@@ -1,4 +1,4 @@
-pub mod check;
+mod check;
 mod serve;
 
 use anyhow::Result;
