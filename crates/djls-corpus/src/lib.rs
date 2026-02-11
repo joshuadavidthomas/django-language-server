@@ -30,7 +30,7 @@
 use camino::Utf8Component;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
-use walkdir::WalkDir;
+use ignore::WalkBuilder;
 
 pub mod add;
 pub(crate) mod archive;
@@ -253,10 +253,11 @@ impl Corpus {
     pub fn extraction_targets_in(&self, dir: &Utf8Path) -> Vec<Utf8PathBuf> {
         let mut files = Vec::new();
 
-        for entry in WalkDir::new(dir.as_std_path())
-            .into_iter()
+        for entry in WalkBuilder::new(dir.as_std_path())
+            .standard_filters(false)
+            .build()
             .filter_map(Result::ok)
-            .filter(|e| e.file_type().is_file())
+            .filter(|e| e.file_type().is_some_and(|ft| ft.is_file()))
         {
             let Some(path) = Utf8Path::from_path(entry.path()) else {
                 continue;
@@ -294,10 +295,11 @@ impl Corpus {
     pub fn templates_in(&self, dir: &Utf8Path) -> Vec<Utf8PathBuf> {
         let mut files = Vec::new();
 
-        for entry in WalkDir::new(dir.as_std_path())
-            .into_iter()
+        for entry in WalkBuilder::new(dir.as_std_path())
+            .standard_filters(false)
+            .build()
             .filter_map(Result::ok)
-            .filter(|e| e.file_type().is_file())
+            .filter(|e| e.file_type().is_some_and(|ft| ft.is_file()))
         {
             let Some(path) = Utf8Path::from_path(entry.path()) else {
                 continue;

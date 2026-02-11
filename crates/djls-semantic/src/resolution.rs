@@ -3,7 +3,7 @@ use djls_source::safe_join;
 use djls_source::File;
 use djls_source::Span;
 use djls_source::Utf8PathClean;
-use walkdir::WalkDir;
+use ignore::WalkBuilder;
 
 pub use crate::db::Db as SemanticDb;
 use crate::primitives::Tag;
@@ -27,10 +27,11 @@ pub fn discover_templates(db: &dyn SemanticDb) -> Vec<Template<'_>> {
                 continue;
             }
 
-            for entry in WalkDir::new(dir)
-                .into_iter()
+            for entry in WalkBuilder::new(dir.as_std_path())
+                .standard_filters(false)
+                .build()
                 .filter_map(std::result::Result::ok)
-                .filter(|e| e.file_type().is_file())
+                .filter(|e| e.file_type().is_some_and(|ft| ft.is_file()))
             {
                 let Ok(path) = Utf8PathBuf::from_path_buf(entry.path().to_path_buf()) else {
                     continue;

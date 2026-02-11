@@ -18,7 +18,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
-walkdir = { workspace = true }
+ignore = { workspace = true }
 
 [dev-dependencies]
 djls-corpus = { workspace = true }

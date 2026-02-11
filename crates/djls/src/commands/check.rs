@@ -39,6 +39,10 @@ pub struct Check {
     /// Ignore specific diagnostic codes (e.g. S108,S109).
     #[arg(long, value_delimiter = ',')]
     ignore: Vec<String>,
+
+    /// Include hidden files and directories (those starting with `.`).
+    #[arg(long, default_value_t = false)]
+    hidden: bool,
 }
 
 impl Command for Check {
@@ -59,7 +63,7 @@ impl Command for Check {
         let fs: Arc<dyn djls_workspace::FileSystem> = Arc::new(OsFileSystem);
         let db = DjangoDatabase::new(fs, &settings, Some(&project_root));
 
-        let files = discover_files(&self.paths, &db, &project_root);
+        let files = discover_files(&self.paths, &db, &project_root, self.hidden);
 
         if files.is_empty() {
             return Ok(Exit::success());
@@ -119,6 +123,7 @@ fn discover_files(
     paths: &[Utf8PathBuf],
     db: &DjangoDatabase,
     project_root: &Utf8Path,
+    hidden: bool,
 ) -> Vec<Utf8PathBuf> {
     if !paths.is_empty() {
         let resolved: Vec<Utf8PathBuf> = paths
@@ -131,14 +136,14 @@ fn discover_files(
                 }
             })
             .collect();
-        return walk_files(&resolved, is_template, is_hidden_dir);
+        return walk_files(&resolved, is_template, hidden);
     }
 
     if let Some(dirs) = db.template_dirs() {
         let dirs: Vec<Utf8PathBuf> = dirs.into_iter().collect();
-        walk_files(&dirs, is_template, is_hidden_dir)
+        walk_files(&dirs, is_template, hidden)
     } else {
-        walk_files(&[project_root.to_owned()], is_template, is_hidden_dir)
+        walk_files(&[project_root.to_owned()], is_template, hidden)
     }
 }
 
@@ -273,10 +278,6 @@ fn resolve_project_root() -> Result<Utf8PathBuf> {
 
 fn is_template(path: &Utf8Path) -> bool {
     FileKind::is_template(path)
-}
-
-fn is_hidden_dir(path: &Utf8Path) -> bool {
-    path.file_name().is_some_and(|name| name.starts_with('.'))
 }
 
 fn pick_renderer() -> DiagnosticRenderer {
