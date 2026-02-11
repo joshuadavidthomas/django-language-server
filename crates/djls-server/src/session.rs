@@ -103,7 +103,7 @@ impl Session {
         &mut self.db
     }
 
-    pub fn set_settings(&mut self, settings: Settings) -> bool {
+    pub fn set_settings(&mut self, settings: Settings) -> crate::db::SettingsUpdate {
         self.db.set_settings(settings)
     }
 
@@ -197,6 +197,15 @@ impl Session {
     /// Get a document from the buffer if it's open.
     pub fn get_document(&self, path: &Utf8Path) -> Option<TextDocument> {
         self.workspace.get_document(path)
+    }
+
+    /// Get all currently open documents.
+    pub fn open_documents(&self) -> Vec<TextDocument> {
+        self.workspace
+            .buffers()
+            .iter()
+            .map(|(_path, document)| document)
+            .collect()
     }
 
     /// Warm template caches and semantic diagnostics for the updated file.

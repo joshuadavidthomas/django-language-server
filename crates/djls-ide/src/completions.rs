@@ -75,12 +75,12 @@ fn installed_symbol_candidates(
     symbols
 }
 
-fn scanned_symbol_names(
+fn discovered_symbol_names(
     template_libraries: &TemplateLibraries,
     kind: TemplateSymbolKind,
 ) -> Vec<String> {
     template_libraries
-        .scanned_symbol_names(kind)
+        .discovered_symbol_names(kind)
         .into_iter()
         .map(|name| name.as_str().to_string())
         .collect()
@@ -518,7 +518,7 @@ fn generate_discovered_tag_name_completions(
     line_text: &str,
     cursor_offset: usize,
 ) -> Vec<ls_types::CompletionItem> {
-    let names = scanned_symbol_names(template_libraries, TemplateSymbolKind::Tag);
+    let names = discovered_symbol_names(template_libraries, TemplateSymbolKind::Tag);
 
     let replacement_range =
         calculate_replacement_range(position, line_text, cursor_offset, partial.len(), closing);
@@ -873,7 +873,7 @@ fn generate_library_completions(
 
     for name in template_libraries.loadable_library_names() {
         if template_libraries.is_enabled_library(name)
-            || template_libraries.has_scanned_library(name)
+            || template_libraries.has_discovered_library(name)
         {
             names.push(name.clone());
         }
@@ -983,7 +983,7 @@ fn generate_filter_completions(
         return generate_completions(filters, partial, available_symbols);
     }
 
-    let names = scanned_symbol_names(template_libraries, TemplateSymbolKind::Filter);
+    let names = discovered_symbol_names(template_libraries, TemplateSymbolKind::Filter);
 
     names
         .into_iter()
@@ -1061,7 +1061,7 @@ mod tests {
             }));
         }
 
-        let symbols: Vec<djls_project::InspectorTemplateLibrarySymbolWire> = tag_values
+        let symbols: Vec<djls_project::InspectorLibrarySymbol> = tag_values
             .into_iter()
             .map(serde_json::from_value)
             .collect::<Result<_, _>>()
@@ -1554,7 +1554,7 @@ mod tests {
             }),
         ];
 
-        let symbols: Vec<djls_project::InspectorTemplateLibrarySymbolWire> = tag_values
+        let symbols: Vec<djls_project::InspectorLibrarySymbol> = tag_values
             .into_iter()
             .map(serde_json::from_value)
             .collect::<Result<_, _>>()
@@ -1818,7 +1818,7 @@ mod tests {
             "django.template.defaultfilters".to_string(),
         ];
 
-        let mut symbols: Vec<djls_project::InspectorTemplateLibrarySymbolWire> = tags
+        let mut symbols: Vec<djls_project::InspectorLibrarySymbol> = tags
             .into_iter()
             .map(serde_json::from_value)
             .collect::<Result<_, _>>()
@@ -1828,7 +1828,7 @@ mod tests {
             filters
                 .into_iter()
                 .map(serde_json::from_value)
-                .collect::<Result<Vec<djls_project::InspectorTemplateLibrarySymbolWire>, _>>()
+                .collect::<Result<Vec<djls_project::InspectorLibrarySymbol>, _>>()
                 .unwrap(),
         );
 

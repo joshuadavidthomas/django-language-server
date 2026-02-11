@@ -40,7 +40,7 @@ pub fn validate_tag_scoping(
     let loaded_libraries = compute_loaded_libraries(db, nodelist);
 
     let env_tags =
-        template_libraries.scanned_symbol_candidates_by_name(djls_project::TemplateSymbolKind::Tag);
+        template_libraries.discovered_symbol_candidates_by_name(djls_project::TemplateSymbolKind::Tag);
 
     for node in nodelist.nodelist(db) {
         let Node::Tag { name, span, .. } = node else {
@@ -71,7 +71,7 @@ pub fn validate_tag_scoping(
             TagAvailability::Unknown => {
                 // Check environment inventory: is the tag installed but not in INSTALLED_APPS?
                 if let Some(env_tags) = &env_tags {
-                    if let Some(key) = djls_project::TemplateSymbolName::new(name.as_str()) {
+                    if let Ok(key) = djls_project::TemplateSymbolName::parse(name.as_str()) {
                         if let Some(env_symbols) = env_tags.get(&key) {
                             let sym = &env_symbols[0];
                             ValidationErrorAccumulator(ValidationError::TagNotInInstalledApps {
@@ -150,7 +150,7 @@ pub fn validate_filter_scoping(
     let loaded_libraries = compute_loaded_libraries(db, nodelist);
 
     let env_filters = template_libraries
-        .scanned_symbol_candidates_by_name(djls_project::TemplateSymbolKind::Filter);
+        .discovered_symbol_candidates_by_name(djls_project::TemplateSymbolKind::Filter);
 
     for node in nodelist.nodelist(db) {
         let Node::Variable { filters, span, .. } = node else {
@@ -170,8 +170,8 @@ pub fn validate_filter_scoping(
                 FilterAvailability::Unknown => {
                     // Check environment inventory: is the filter installed but not in INSTALLED_APPS?
                     if let Some(env_filters) = &env_filters {
-                        if let Some(key) =
-                            djls_project::TemplateSymbolName::new(filter.name.as_str())
+                        if let Ok(key) =
+                            djls_project::TemplateSymbolName::parse(filter.name.as_str())
                         {
                             if let Some(env_symbols) = env_filters.get(&key) {
                                 let sym = &env_symbols[0];
@@ -272,7 +272,7 @@ pub fn validate_load_libraries(
                 continue;
             }
 
-            let candidates = template_libraries.scanned_app_modules_for_library_str(lib_name);
+            let candidates = template_libraries.discovered_app_modules_for_library_str(lib_name);
             if !candidates.is_empty() {
                 let app = candidates.first().cloned().unwrap_or_default();
                 ValidationErrorAccumulator(ValidationError::LibraryNotInInstalledApps {
@@ -300,11 +300,12 @@ mod tests {
 
     use camino::Utf8PathBuf;
     use djls_project::LibraryName;
+    use djls_project::LibraryOrigin;
     use djls_project::PyModuleName;
-    use djls_project::ScannedTemplateLibraries;
-    use djls_project::ScannedTemplateLibrary;
-    use djls_project::ScannedTemplateSymbol;
+    use djls_project::SymbolDefinition;
     use djls_project::TemplateLibraries;
+    use djls_project::TemplateLibrary;
+    use djls_project::TemplateSymbol;
     use djls_project::TemplateSymbolKind;
     use djls_project::TemplateSymbolName;
 
@@ -673,49 +674,50 @@ mod tests {
 
     // Three-layer resolution tests (S118/S119)
 
-    use std::collections::BTreeMap;
-
-    fn make_env_inventory(libraries: Vec<ScannedTemplateLibrary>) -> ScannedTemplateLibraries {
-        let mut map: BTreeMap<LibraryName, Vec<ScannedTemplateLibrary>> = BTreeMap::new();
-        for lib in libraries {
-            map.entry(lib.name.clone()).or_default().push(lib);
-        }
-        ScannedTemplateLibraries::new(map)
+    fn make_discovered_libraries(libraries: Vec<TemplateLibrary>) -> Vec<TemplateLibrary> {
+        libraries
     }
 
-    fn make_env_library(
+    fn make_discovered_library(
         load_name: &str,
         app_module: &str,
         tags: &[&str],
         filters: &[&str],
-    ) -> ScannedTemplateLibrary {
-        let name = LibraryName::new(load_name).unwrap();
-        let app_module = PyModuleName::new(app_module).unwrap();
-        let module = PyModuleName::new(&format!("{app_module}.templatetags.{load_name}")).unwrap();
+    ) -> TemplateLibrary {
+        let name = LibraryName::parse(load_name).unwrap();
+        let app_module = PyModuleName::parse(app_module).unwrap();
+        let module =
+            PyModuleName::parse(&format!("{}.templatetags.{load_name}", app_module.as_str()))
+                .unwrap();
+        let source_path = Utf8PathBuf::from(format!("/fake/{load_name}.py"));
 
-        let mut symbols = Vec::new();
+        let origin = LibraryOrigin {
+            app: app_module,
+            module,
+            path: source_path.clone(),
+        };
+
+        let mut library = TemplateLibrary::new_discovered(name, origin);
 
         for tag in tags {
-            symbols.push(ScannedTemplateSymbol {
+            library.symbols.push(TemplateSymbol {
                 kind: TemplateSymbolKind::Tag,
-                name: TemplateSymbolName::new(tag).unwrap(),
+                name: TemplateSymbolName::parse(tag).unwrap(),
+                definition: SymbolDefinition::LibraryFile(source_path.clone()),
+                doc: None,
             });
         }
 
         for filter in filters {
-            symbols.push(ScannedTemplateSymbol {
+            library.symbols.push(TemplateSymbol {
                 kind: TemplateSymbolKind::Filter,
-                name: TemplateSymbolName::new(filter).unwrap(),
+                name: TemplateSymbolName::parse(filter).unwrap(),
+                definition: SymbolDefinition::LibraryFile(source_path.clone()),
+                doc: None,
             });
         }
 
-        ScannedTemplateLibrary {
-            name,
-            app_module,
-            module,
-            source_path: Utf8PathBuf::from(format!("/fake/{load_name}.py")),
-            symbols,
-        }
+        library
     }
 
     fn render_scoping_snapshot(db: &TestDatabase, source: &str) -> String {
@@ -736,13 +738,13 @@ mod tests {
 
     #[test]
     fn tag_in_env_but_not_installed_apps_produces_s118() {
-        let env = make_env_inventory(vec![make_env_library(
+        let env = make_discovered_libraries(vec![make_discovered_library(
             "humanize",
             "django.contrib.humanize",
             &["ordinal", "intword"],
             &[],
         )]);
-        let db = TestDatabase::with_inventories(test_inventory(), &env);
+        let db = TestDatabase::with_inventories(test_inventory(), env);
         let rendered = render_scoping_snapshot(&db, "{% ordinal 42 %}");
         insta::assert_snapshot!(rendered);
     }
@@ -765,39 +767,39 @@ mod tests {
             ],
         );
 
-        let env = make_env_inventory(vec![make_env_library(
+        let env = make_discovered_libraries(vec![make_discovered_library(
             "humanize",
             "django.contrib.humanize",
             &[],
             &["intcomma"],
         )]);
-        let db = TestDatabase::with_inventories(simple_inventory, &env);
+        let db = TestDatabase::with_inventories(simple_inventory, env);
         let rendered = render_scoping_snapshot(&db, "{{ value|intcomma }}");
         insta::assert_snapshot!(rendered);
     }
 
     #[test]
     fn truly_unknown_tag_still_s108_with_env() {
-        let env = make_env_inventory(vec![make_env_library(
+        let env = make_discovered_libraries(vec![make_discovered_library(
             "humanize",
             "django.contrib.humanize",
             &["ordinal"],
             &[],
         )]);
-        let db = TestDatabase::with_inventories(test_inventory(), &env);
+        let db = TestDatabase::with_inventories(test_inventory(), env);
         let rendered = render_scoping_snapshot(&db, "{% xyz %}");
         insta::assert_snapshot!(rendered);
     }
 
     #[test]
     fn truly_unknown_filter_still_s111_with_env() {
-        let env = make_env_inventory(vec![make_env_library(
+        let env = make_discovered_libraries(vec![make_discovered_library(
             "humanize",
             "django.contrib.humanize",
             &[],
             &["intcomma"],
         )]);
-        let db = TestDatabase::with_inventories(test_inventory_with_filters(), &env);
+        let db = TestDatabase::with_inventories(test_inventory_with_filters(), env);
         let rendered = render_scoping_snapshot(&db, "{{ value|nonexistent }}");
         insta::assert_snapshot!(rendered);
     }
@@ -811,11 +813,11 @@ mod tests {
 
     #[test]
     fn tag_in_multiple_env_packages_produces_s118() {
-        let env = make_env_inventory(vec![
-            make_env_library("utils_a", "app_a", &["shared_tag"], &[]),
-            make_env_library("utils_b", "app_b", &["shared_tag"], &[]),
+        let env = make_discovered_libraries(vec![
+            make_discovered_library("utils_a", "app_a", &["shared_tag"], &[]),
+            make_discovered_library("utils_b", "app_b", &["shared_tag"], &[]),
         ]);
-        let db = TestDatabase::with_inventories(test_inventory(), &env);
+        let db = TestDatabase::with_inventories(test_inventory(), env);
         let rendered = render_scoping_snapshot(&db, "{% shared_tag %}");
         insta::assert_snapshot!(rendered);
     }
@@ -824,26 +826,26 @@ mod tests {
 
     #[test]
     fn load_library_in_env_but_not_installed_apps_produces_s121() {
-        let env = make_env_inventory(vec![make_env_library(
+        let env = make_discovered_libraries(vec![make_discovered_library(
             "humanize",
             "django.contrib.humanize",
             &["ordinal"],
             &["intcomma"],
         )]);
-        let db = TestDatabase::with_inventories(test_inventory(), &env);
+        let db = TestDatabase::with_inventories(test_inventory(), env);
         let rendered = render_library_snapshot(&db, "{% load humanize %}");
         insta::assert_snapshot!(rendered);
     }
 
     #[test]
     fn load_truly_unknown_library_still_s120_with_env() {
-        let env = make_env_inventory(vec![make_env_library(
+        let env = make_discovered_libraries(vec![make_discovered_library(
             "humanize",
             "django.contrib.humanize",
             &[],
             &[],
         )]);
-        let db = TestDatabase::with_inventories(test_inventory(), &env);
+        let db = TestDatabase::with_inventories(test_inventory(), env);
         let rendered = render_library_snapshot(&db, "{% load totallyunknown %}");
         insta::assert_snapshot!(rendered);
     }
@@ -857,37 +859,37 @@ mod tests {
 
     #[test]
     fn load_selective_import_env_library_produces_s121() {
-        let env = make_env_inventory(vec![make_env_library(
+        let env = make_discovered_libraries(vec![make_discovered_library(
             "humanize",
             "django.contrib.humanize",
             &["ordinal"],
             &["intcomma"],
         )]);
-        let db = TestDatabase::with_inventories(test_inventory(), &env);
+        let db = TestDatabase::with_inventories(test_inventory(), env);
         let rendered = render_library_snapshot(&db, "{% load intcomma from humanize %}");
         insta::assert_snapshot!(rendered);
     }
 
     #[test]
     fn load_ambiguous_library_across_apps_produces_s121_with_candidates() {
-        let env = make_env_inventory(vec![
-            make_env_library("utils", "app_a", &[], &[]),
-            make_env_library("utils", "app_b", &[], &[]),
+        let env = make_discovered_libraries(vec![
+            make_discovered_library("utils", "app_a", &[], &[]),
+            make_discovered_library("utils", "app_b", &[], &[]),
         ]);
-        let db = TestDatabase::with_inventories(test_inventory(), &env);
+        let db = TestDatabase::with_inventories(test_inventory(), env);
         let rendered = render_library_snapshot(&db, "{% load utils %}");
         insta::assert_snapshot!(rendered);
     }
 
     #[test]
     fn multi_load_mixed_env_and_unknown() {
-        let env = make_env_inventory(vec![make_env_library(
+        let env = make_discovered_libraries(vec![make_discovered_library(
             "humanize",
             "django.contrib.humanize",
             &[],
             &[],
         )]);
-        let db = TestDatabase::with_inventories(test_inventory(), &env);
+        let db = TestDatabase::with_inventories(test_inventory(), env);
         let rendered = render_library_snapshot(&db, "{% load i18n humanize xyz %}");
         insta::assert_snapshot!(rendered);
     }
@@ -932,14 +934,14 @@ mod tests {
         ];
         let inspector = make_template_libraries(&tags, &filters, &libraries, &builtins);
 
-        let env = make_env_inventory(vec![make_env_library(
+        let env = make_discovered_libraries(vec![make_discovered_library(
             "humanize",
             "django.contrib.humanize",
             &["ordinal"],
             &["intcomma"],
         )]);
 
-        TestDatabase::with_inventories(inspector, &env)
+        TestDatabase::with_inventories(inspector, env)
     }
 
     #[test]

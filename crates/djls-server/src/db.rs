@@ -16,8 +16,8 @@ use djls_project::Db as ProjectDb;
 use djls_project::Inspector;
 use djls_project::Interpreter;
 use djls_project::Project;
-use djls_project::ScannedTemplateLibraries;
 use djls_project::TemplateLibraries;
+use djls_project::TemplateLibrary;
 use djls_project::TemplateLibrariesRequest;
 use djls_project::TemplateLibrariesResponse;
 use djls_semantic::Db as SemanticDb;
@@ -156,6 +156,12 @@ fn collect_workspace_extraction_results(
     results
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct SettingsUpdate {
+    pub env_changed: bool,
+    pub diagnostics_changed: bool,
+}
+
 /// Concrete Salsa database for the Django Language Server.
 ///
 /// This database implements all the traits from various crates:
@@ -258,15 +264,25 @@ impl DjangoDatabase {
     /// # Panics
     ///
     /// Panics if the settings mutex is poisoned (another thread panicked while holding the lock)
-    pub fn set_settings(&mut self, settings: Settings) -> bool {
+    pub fn set_settings(&mut self, settings: Settings) -> SettingsUpdate {
+        let previous = self.settings();
         *self.settings.lock().unwrap() = settings;
+
+        let diagnostics_changed = previous.diagnostics() != self.settings().diagnostics();
 
         if self.project().is_some() {
             let settings = self.settings();
-            return self.update_project_from_settings(&settings);
+            let env_changed = self.update_project_from_settings(&settings);
+            return SettingsUpdate {
+                env_changed,
+                diagnostics_changed,
+            };
         }
 
-        false
+        SettingsUpdate {
+            env_changed: false,
+            diagnostics_changed,
+        }
     }
 
     /// Update an existing project's fields from new settings, only calling
@@ -310,11 +326,6 @@ impl DjangoDatabase {
         let new_tagspecs = settings.tagspecs().clone();
         if project.tagspecs(self) != &new_tagspecs {
             project.set_tagspecs(self).to(new_tagspecs);
-        }
-
-        let new_diagnostics = settings.diagnostics().clone();
-        if project.diagnostics(self) != &new_diagnostics {
-            project.set_diagnostics(self).to(new_diagnostics);
         }
 
         env_changed
@@ -405,17 +416,17 @@ impl DjangoDatabase {
         }
     }
 
-    /// Update the project's scanned template libraries.
+    /// Update the project's discovered template libraries.
     ///
     /// This is a side-effect operation that should be run off the LSP request path.
     /// It only calls Salsa setters when values have actually changed.
-    pub fn update_scanned_template_libraries(&mut self, libraries: &ScannedTemplateLibraries) {
+    pub fn update_discovered_template_libraries(&mut self, libraries: &[TemplateLibrary]) {
         let Some(project) = self.project() else {
             return;
         };
 
         let current = project.template_libraries(self).clone();
-        let next = current.apply_scan(libraries);
+        let next = current.apply_discovery(libraries.iter().cloned());
         if project.template_libraries(self) != &next {
             project.set_template_libraries(self).to(next);
         }
@@ -484,11 +495,7 @@ impl SemanticDb for DjangoDatabase {
     }
 
     fn diagnostics_config(&self) -> djls_conf::DiagnosticsConfig {
-        if let Some(project) = self.project() {
-            project.diagnostics(self).clone()
-        } else {
-            djls_conf::DiagnosticsConfig::default()
-        }
+        self.settings().diagnostics().clone()
     }
 
     fn template_libraries(&self) -> TemplateLibraries {
@@ -527,12 +534,13 @@ mod invalidation_tests {
     use djls_project::Interpreter;
     use djls_project::Knowledge;
     use djls_project::LibraryName;
+    use djls_project::LibraryOrigin;
     use djls_project::Project;
     use djls_project::PyModuleName;
-    use djls_project::ScannedTemplateLibraries;
-    use djls_project::ScannedTemplateLibrary;
-    use djls_project::ScannedTemplateSymbol;
+    use djls_project::SymbolDefinition;
     use djls_project::TemplateLibraries;
+    use djls_project::TemplateLibrary;
+    use djls_project::TemplateSymbol;
     use djls_project::TemplateSymbolKind;
     use djls_project::TemplateSymbolName;
     use djls_semantic::Db as SemanticDb;
@@ -609,7 +617,6 @@ mod invalidation_tests {
             settings.tagspecs().clone(),
             TemplateLibraries::default(),
             rustc_hash::FxHashMap::default(),
-            settings.diagnostics().clone(),
         );
         *db.project.lock().unwrap() = Some(project);
 
@@ -717,13 +724,12 @@ mod invalidation_tests {
         let _specs = db.tag_specs();
         event_log.take();
 
-        // "Update" diagnostics with an identical value — manual comparison
-        // in update_project_from_settings prevents the setter call
+        // Simulate a no-op update path: compare against an identical value and
+        // intentionally skip any setter call.
         let project = db.project.lock().unwrap().unwrap();
-        let current = project.diagnostics(&db).clone();
+        let current = project.tagspecs(&db).clone();
 
-        // Simulate manual comparison: value is the same, so we don't call the setter
-        assert_eq!(project.diagnostics(&db), &current);
+        assert_eq!(project.tagspecs(&db), &current);
         // No setter called — cache should be preserved
 
         let _specs = db.tag_specs();
@@ -926,12 +932,12 @@ def my_filter(value, arg):
     }
 
     #[test]
-    fn scanned_template_libraries_stored_on_project() {
+    fn discovered_template_libraries_stored_on_project() {
         let (db, _event_log) = test_db_with_project();
 
         let project = db.project.lock().unwrap().unwrap();
         assert_eq!(
-            project.template_libraries(&db).scan_knowledge,
+            project.template_libraries(&db).discovery_knowledge,
             Knowledge::Unknown
         );
         assert!(
@@ -941,41 +947,48 @@ def my_filter(value, arg):
     }
 
     #[test]
-    fn scanned_template_libraries_setter_updates_value() {
+    fn discovered_template_libraries_setter_updates_value() {
         let (mut db, _event_log) = test_db_with_project();
 
         let project = db.project.lock().unwrap().unwrap();
 
-        let name = LibraryName::new("humanize").unwrap();
+        let name = LibraryName::parse("humanize").unwrap();
+        let app_module = PyModuleName::parse("django.contrib.humanize").unwrap();
+        let module = PyModuleName::parse("django.contrib.humanize.templatetags.humanize").unwrap();
+        let source_path = camino::Utf8PathBuf::from(
+            "/site-packages/django/contrib/humanize/templatetags/humanize.py",
+        );
 
-        let library = ScannedTemplateLibrary {
-            name: name.clone(),
-            app_module: PyModuleName::new("django.contrib.humanize").unwrap(),
-            module: PyModuleName::new("django.contrib.humanize.templatetags.humanize").unwrap(),
-            source_path: camino::Utf8PathBuf::from(
-                "/site-packages/django/contrib/humanize/templatetags/humanize.py",
-            ),
-            symbols: vec![
-                ScannedTemplateSymbol {
-                    kind: TemplateSymbolKind::Filter,
-                    name: TemplateSymbolName::new("intcomma").unwrap(),
-                },
-                ScannedTemplateSymbol {
-                    kind: TemplateSymbolKind::Filter,
-                    name: TemplateSymbolName::new("intword").unwrap(),
-                },
-            ],
+        let origin = LibraryOrigin {
+            app: app_module,
+            module,
+            path: source_path.clone(),
         };
 
-        let mut libraries = std::collections::BTreeMap::new();
-        libraries.insert(name, vec![library]);
-        let scanned = ScannedTemplateLibraries::new(libraries);
+        let mut library = TemplateLibrary::new_discovered(name, origin);
+        library.symbols = vec![
+            TemplateSymbol {
+                kind: TemplateSymbolKind::Filter,
+                name: TemplateSymbolName::parse("intcomma").unwrap(),
+                definition: SymbolDefinition::LibraryFile(source_path.clone()),
+                doc: None,
+            },
+            TemplateSymbol {
+                kind: TemplateSymbolKind::Filter,
+                name: TemplateSymbolName::parse("intword").unwrap(),
+                definition: SymbolDefinition::LibraryFile(source_path),
+                doc: None,
+            },
+        ];
 
-        let next = project.template_libraries(&db).clone().apply_scan(&scanned);
+        let next = project
+            .template_libraries(&db)
+            .clone()
+            .apply_discovery(vec![library]);
         project.set_template_libraries(&mut db).to(next);
 
         assert_eq!(
-            project.template_libraries(&db).scan_knowledge,
+            project.template_libraries(&db).discovery_knowledge,
             Knowledge::Known
         );
         assert!(project

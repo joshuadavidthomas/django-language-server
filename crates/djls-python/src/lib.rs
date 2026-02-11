@@ -20,6 +20,7 @@ pub use parse::parse_python_module;
 pub use parse::HelperCall;
 pub use parse::ParsedPythonModule;
 pub use registry::collect_registrations_from_body;
+pub use registry::collect_registrations_from_source;
 pub use registry::ExtractionOutput;
 pub use registry::RegistrationInfo;
 pub use registry::RegistrationKind;

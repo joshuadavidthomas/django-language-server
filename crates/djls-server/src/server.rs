@@ -121,6 +121,14 @@ impl DjangoLanguageServer {
             tracing::debug!("Published {} diagnostics for {}", diagnostics.len(), path);
         }
     }
+
+    async fn republish_open_template_diagnostics(&self) {
+        let documents = self.with_session(|session| session.open_documents()).await;
+
+        for document in documents {
+            self.publish_diagnostics(&document).await;
+        }
+    }
 }
 
 impl LanguageServer for DjangoLanguageServer {
@@ -214,16 +222,16 @@ impl LanguageServer for DjangoLanguageServer {
             let env_inventory = tokio::task::spawn_blocking(move || {
                 let search_paths =
                     djls_project::build_search_paths(&interpreter, &root, &pythonpath);
-                djls_project::scan_template_libraries_with_symbols(&search_paths)
+                djls_project::discover_template_libraries(&search_paths)
             })
             .await
-            .map_err(|e| anyhow::anyhow!("Environment scan task failed: {e}"))?;
+            .map_err(|e| anyhow::anyhow!("Environment discovery task failed: {e}"))?;
 
             {
                 let mut session_lock = session.lock().await;
                 let db = session_lock.db_mut();
 
-                db.update_scanned_template_libraries(&env_inventory);
+                db.update_discovered_template_libraries(&env_inventory);
 
                 if let Some(project) = db.project() {
                     let path = project.root(db).clone();
@@ -468,10 +476,10 @@ impl LanguageServer for DjangoLanguageServer {
     async fn did_change_configuration(&self, _params: ls_types::DidChangeConfigurationParams) {
         tracing::info!("Configuration change detected. Reloading settings...");
 
-        let env_changed = self
+        let settings_update = self
             .with_session_mut(|session| {
                 if session.project().is_none() {
-                    return false;
+                    return crate::db::SettingsUpdate::default();
                 }
 
                 let project_root = session.db().project_root_or_cwd();
@@ -483,58 +491,64 @@ impl LanguageServer for DjangoLanguageServer {
                     Ok(new_settings) => session.set_settings(new_settings),
                     Err(e) => {
                         tracing::error!("Error loading settings: {}", e);
-                        false
+                        crate::db::SettingsUpdate::default()
                     }
                 }
             })
             .await;
 
-        if !env_changed {
+        if !settings_update.env_changed && !settings_update.diagnostics_changed {
             return;
         }
 
-        self.with_session_mut_task(|session| async move {
-            let (interpreter, root, pythonpath) = {
-                let session_lock = session.lock().await;
-                let db = session_lock.db();
+        if settings_update.env_changed {
+            self.with_session_mut_task(|session| async move {
+                let (interpreter, root, pythonpath) = {
+                    let session_lock = session.lock().await;
+                    let db = session_lock.db();
 
-                let Some(project) = db.project() else {
-                    return Ok(());
+                    let Some(project) = db.project() else {
+                        return Ok(());
+                    };
+
+                    (
+                        project.interpreter(db).clone(),
+                        project.root(db).clone(),
+                        project.pythonpath(db).clone(),
+                    )
                 };
 
-                (
-                    project.interpreter(db).clone(),
-                    project.root(db).clone(),
-                    project.pythonpath(db).clone(),
-                )
-            };
-
-            {
-                let mut session_lock = session.lock().await;
-                session_lock.db_mut().refresh_inspector();
-            }
-
-            let env_inventory = tokio::task::spawn_blocking(move || {
-                let search_paths =
-                    djls_project::build_search_paths(&interpreter, &root, &pythonpath);
-                djls_project::scan_template_libraries_with_symbols(&search_paths)
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("Environment scan task failed: {e}"))?;
-
-            {
-                let mut session_lock = session.lock().await;
-                let db = session_lock.db_mut();
-
-                db.update_scanned_template_libraries(&env_inventory);
-
-                if let Some(project) = db.project() {
-                    project.initialize(db);
+                {
+                    let mut session_lock = session.lock().await;
+                    session_lock.db_mut().refresh_inspector();
                 }
-            }
 
-            Ok(())
-        })
-        .await;
+                let env_inventory = tokio::task::spawn_blocking(move || {
+                    let search_paths =
+                        djls_project::build_search_paths(&interpreter, &root, &pythonpath);
+                    djls_project::discover_template_libraries(&search_paths)
+                })
+                .await
+                .map_err(|e| anyhow::anyhow!("Environment discovery task failed: {e}"))?;
+
+                {
+                    let mut session_lock = session.lock().await;
+                    let db = session_lock.db_mut();
+
+                    db.update_discovered_template_libraries(&env_inventory);
+
+                    if let Some(project) = db.project() {
+                        project.initialize(db);
+                    }
+                }
+
+                Ok(())
+            })
+            .await;
+        }
+
+        if settings_update.env_changed || settings_update.diagnostics_changed {
+            self.republish_open_template_diagnostics().await;
+        }
     }
 }

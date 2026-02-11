@@ -8,9 +8,9 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_corpus::module_path_from_file;
 use djls_corpus::Corpus;
-use djls_project::InspectorTemplateLibrarySymbolWire;
-use djls_project::ScannedTemplateLibraries;
+use djls_project::InspectorLibrarySymbol;
 use djls_project::TemplateLibraries;
+use djls_project::TemplateLibrary;
 use djls_project::TemplateLibrariesResponse;
 use djls_source::File;
 use djls_source::LineIndex;
@@ -76,7 +76,7 @@ pub(crate) fn make_template_libraries(
     libraries: &HashMap<String, String>,
     builtins: &[String],
 ) -> TemplateLibraries {
-    let mut symbols: Vec<InspectorTemplateLibrarySymbolWire> = tags
+    let mut symbols: Vec<InspectorLibrarySymbol> = tags
         .iter()
         .cloned()
         .map(serde_json::from_value)
@@ -88,7 +88,7 @@ pub(crate) fn make_template_libraries(
             .iter()
             .cloned()
             .map(serde_json::from_value)
-            .collect::<Result<Vec<InspectorTemplateLibrarySymbolWire>, _>>()
+            .collect::<Result<Vec<InspectorLibrarySymbol>, _>>()
             .unwrap(),
     );
 
@@ -160,9 +160,9 @@ impl TestDatabase {
     #[must_use]
     pub(crate) fn with_inventories(
         template_libraries: TemplateLibraries,
-        scanned: &ScannedTemplateLibraries,
+        discovered: Vec<TemplateLibrary>,
     ) -> Self {
-        Self::new().with_template_libraries(template_libraries.apply_scan(scanned))
+        Self::new().with_template_libraries(template_libraries.apply_discovery(discovered))
     }
 
     pub(crate) fn add_file(&self, path: &str, content: &str) {
