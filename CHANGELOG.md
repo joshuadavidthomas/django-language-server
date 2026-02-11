@@ -26,6 +26,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Changed
 
+- **Internal**: Extracted concrete Salsa database into new `djls-db` crate.
 - **Internal**: Re-architected core analysis pipeline using Salsa for incremental computation.
 - **Internal**: Consolidated template validation into a single-pass visitor.
 - **Internal**: Updated completions and snippets to use extracted argument structures.
