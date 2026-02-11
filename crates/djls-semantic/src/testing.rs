@@ -336,6 +336,9 @@ pub(crate) fn render_diagnostic_snapshot(
         let message = err.to_string();
         let code = err.code();
 
+        // Build notes for variants that carry extra context beyond the
+        // primary message. When adding new ValidationError variants, consider
+        // whether they have fields that would be useful as notes here.
         let mut notes: Vec<String> = Vec::new();
         match err {
             ValidationError::ExpressionSyntaxError { tag, .. }
@@ -351,7 +354,22 @@ pub(crate) fn render_diagnostic_snapshot(
             {
                 notes.push(format!("candidates: {candidates:?}"));
             }
-            _ => {}
+            ValidationError::UnclosedTag { .. }
+            | ValidationError::OrphanedTag { .. }
+            | ValidationError::UnbalancedStructure { .. }
+            | ValidationError::UnmatchedBlockName { .. }
+            | ValidationError::UnknownTag { .. }
+            | ValidationError::UnloadedTag { .. }
+            | ValidationError::AmbiguousUnloadedTag { .. }
+            | ValidationError::UnknownFilter { .. }
+            | ValidationError::UnloadedFilter { .. }
+            | ValidationError::AmbiguousUnloadedFilter { .. }
+            | ValidationError::FilterMissingArgument { .. }
+            | ValidationError::FilterUnexpectedArgument { .. }
+            | ValidationError::UnknownLibrary { .. }
+            | ValidationError::LibraryNotInInstalledApps { .. }
+            | ValidationError::ExtendsMustBeFirst { .. }
+            | ValidationError::MultipleExtends { .. } => {}
         }
 
         let mut diag = Diagnostic::new(source, path, code, &message, Severity::Error, span, "");

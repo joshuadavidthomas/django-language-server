@@ -159,7 +159,7 @@ impl DiagnosticRenderer {
         }
 
         let report = &[title];
-        self.renderer.render(report).clone()
+        self.renderer.render(report)
     }
 }
 
