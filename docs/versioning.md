@@ -23,8 +23,8 @@ The project will provide deprecation warnings where possible and document breaki
 For example, if a configuration option is deprecated:
 
 - **`v6.0.0`**: Old option works but logs deprecation warning
-- **`v6.1.0`**: Old option still works, continues to show warning
-- **`v6.2.0`**: Old option removed, only new option works
+- **`v6.0.1`**: Old option still works, continues to show warning
+- **`v6.0.2`**: Old option removed
 
 Or spanning a Django version update:
 

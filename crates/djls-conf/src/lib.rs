@@ -90,13 +90,14 @@ where
         return Ok(new_format);
     }
 
+    #[allow(deprecated)]
     if let Ok(legacy) = Vec::<tagspecs::legacy::LegacyTagSpecDef>::deserialize(&value) {
-        tracing::debug!(concat!(
-            "Legacy TagSpecs v0.4.0 format detected. Please migrate to v0.6.0 format. ",
-            "Deprecation warnings begin in v6.0.2. ",
-            "The old format will be removed in v6.2.0. ",
+        tracing::warn!(concat!(
+            "DEPRECATED: TagSpecs v0.4.0 format detected. Please migrate to v0.6.0 format. ",
+            "The old format will be removed in v6.0.2. ",
             "See migration guide: https://djls.joshthomas.dev/configuration/tagspecs/#migration-from-v040",
         ));
+        #[allow(deprecated)]
         return Ok(tagspecs::legacy::convert_legacy_tagspecs(legacy));
     }
 

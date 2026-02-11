@@ -84,8 +84,7 @@ TagSpecs can be configured in your project's `djls.toml`, `.djls.toml`, or `pypr
 
 The legacy v0.4.0 flat TagSpecs format is still supported for compatibility, but is deprecated.
 
-- **v6.0.1**: legacy format supported (debug log only)
-- **v6.0.2**: legacy format supported with deprecation warnings
-- **v6.2.0**: legacy format removed
+- **v6.0.0**: legacy format deprecated (warnings)
+- **v6.0.2**: legacy format removed
 
 If you are still using the legacy format, migrate to v0.6.0.

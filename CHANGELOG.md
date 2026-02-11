@@ -18,10 +18,6 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ## [Unreleased]
 
-### Deprecated
-
-- TagSpecs v0.4.0 flat format (deprecation warnings begin in v6.0.2; removed in v6.2.0). See migration guide: docs/configuration/tagspecs.md#migration-from-v040
-
 ### Changed
 
 - Bumped Rust toolchain from 1.90 to 1.91.
@@ -29,6 +25,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Fixed
 
+- Fixed a typo in the TagSpecs v0.4.0 deprecation notice; removal is targeted for v6.0.2 (matching the "two releases of warning" policy), not v6.2.0.
 - Added HTTP request timeouts to corpus sync to prevent indefinite hangs.
 - Fixed `collect_returns` missing return statements in `for`/`while` `else` blocks and `try`/`finally` blocks.
 - Fixed stale intermediate tags persisting when extraction yields an empty intermediates list.
@@ -39,6 +36,10 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 ### Changed
 
 - Updated TagSpecs to v0.6.0 format with hierarchical `[[tagspecs.libraries]]` structure
+
+### Deprecated
+
+- TagSpecs v0.4.0 flat format (will be removed in v6.0.2). [migration guide here](docs/configuration/tagspecs.md#migration-from-v040)
 
 ### Removed
 

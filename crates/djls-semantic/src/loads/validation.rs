@@ -742,7 +742,7 @@ mod tests {
             &["ordinal", "intword"],
             &[],
         )]);
-        let db = TestDatabase::with_inventories(test_inventory(), env);
+        let db = TestDatabase::with_inventories(test_inventory(), &env);
         let rendered = render_scoping_snapshot(&db, "{% ordinal 42 %}");
         insta::assert_snapshot!(rendered);
     }
@@ -771,7 +771,7 @@ mod tests {
             &[],
             &["intcomma"],
         )]);
-        let db = TestDatabase::with_inventories(simple_inventory, env);
+        let db = TestDatabase::with_inventories(simple_inventory, &env);
         let rendered = render_scoping_snapshot(&db, "{{ value|intcomma }}");
         insta::assert_snapshot!(rendered);
     }
@@ -784,7 +784,7 @@ mod tests {
             &["ordinal"],
             &[],
         )]);
-        let db = TestDatabase::with_inventories(test_inventory(), env);
+        let db = TestDatabase::with_inventories(test_inventory(), &env);
         let rendered = render_scoping_snapshot(&db, "{% xyz %}");
         insta::assert_snapshot!(rendered);
     }
@@ -797,7 +797,7 @@ mod tests {
             &[],
             &["intcomma"],
         )]);
-        let db = TestDatabase::with_inventories(test_inventory_with_filters(), env);
+        let db = TestDatabase::with_inventories(test_inventory_with_filters(), &env);
         let rendered = render_scoping_snapshot(&db, "{{ value|nonexistent }}");
         insta::assert_snapshot!(rendered);
     }
@@ -815,7 +815,7 @@ mod tests {
             make_env_library("utils_a", "app_a", &["shared_tag"], &[]),
             make_env_library("utils_b", "app_b", &["shared_tag"], &[]),
         ]);
-        let db = TestDatabase::with_inventories(test_inventory(), env);
+        let db = TestDatabase::with_inventories(test_inventory(), &env);
         let rendered = render_scoping_snapshot(&db, "{% shared_tag %}");
         insta::assert_snapshot!(rendered);
     }
@@ -830,7 +830,7 @@ mod tests {
             &["ordinal"],
             &["intcomma"],
         )]);
-        let db = TestDatabase::with_inventories(test_inventory(), env);
+        let db = TestDatabase::with_inventories(test_inventory(), &env);
         let rendered = render_library_snapshot(&db, "{% load humanize %}");
         insta::assert_snapshot!(rendered);
     }
@@ -843,7 +843,7 @@ mod tests {
             &[],
             &[],
         )]);
-        let db = TestDatabase::with_inventories(test_inventory(), env);
+        let db = TestDatabase::with_inventories(test_inventory(), &env);
         let rendered = render_library_snapshot(&db, "{% load totallyunknown %}");
         insta::assert_snapshot!(rendered);
     }
@@ -863,7 +863,7 @@ mod tests {
             &["ordinal"],
             &["intcomma"],
         )]);
-        let db = TestDatabase::with_inventories(test_inventory(), env);
+        let db = TestDatabase::with_inventories(test_inventory(), &env);
         let rendered = render_library_snapshot(&db, "{% load intcomma from humanize %}");
         insta::assert_snapshot!(rendered);
     }
@@ -874,7 +874,7 @@ mod tests {
             make_env_library("utils", "app_a", &[], &[]),
             make_env_library("utils", "app_b", &[], &[]),
         ]);
-        let db = TestDatabase::with_inventories(test_inventory(), env);
+        let db = TestDatabase::with_inventories(test_inventory(), &env);
         let rendered = render_library_snapshot(&db, "{% load utils %}");
         insta::assert_snapshot!(rendered);
     }
@@ -887,7 +887,7 @@ mod tests {
             &[],
             &[],
         )]);
-        let db = TestDatabase::with_inventories(test_inventory(), env);
+        let db = TestDatabase::with_inventories(test_inventory(), &env);
         let rendered = render_library_snapshot(&db, "{% load i18n humanize xyz %}");
         insta::assert_snapshot!(rendered);
     }
@@ -939,7 +939,7 @@ mod tests {
             &["intcomma"],
         )]);
 
-        TestDatabase::with_inventories(inspector, env)
+        TestDatabase::with_inventories(inspector, &env)
     }
 
     #[test]

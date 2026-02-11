@@ -1,5 +1,3 @@
-#![cfg(test)]
-
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::fmt::Write;
@@ -162,9 +160,9 @@ impl TestDatabase {
     #[must_use]
     pub(crate) fn with_inventories(
         template_libraries: TemplateLibraries,
-        scanned: ScannedTemplateLibraries,
+        scanned: &ScannedTemplateLibraries,
     ) -> Self {
-        Self::new().with_template_libraries(template_libraries.apply_scan(&scanned))
+        Self::new().with_template_libraries(template_libraries.apply_scan(scanned))
     }
 
     pub(crate) fn add_file(&self, path: &str, content: &str) {
@@ -422,7 +420,7 @@ pub(crate) fn render_diagnostic_snapshot(
 
     for (i, line) in source.lines().enumerate() {
         let line_no = i + 1;
-        let _ = writeln!(&mut out, "{:>4} | {line}", line_no);
+        let _ = writeln!(&mut out, "{line_no:>4} | {line}");
     }
 
     if source.ends_with('\n') {
@@ -481,7 +479,7 @@ pub(crate) fn render_diagnostic_snapshot(
         let padding = " ".repeat(start_in_line.min(line_text.len()));
 
         let line_no = line as usize + 1;
-        let _ = writeln!(&mut out, "{:>4} | {line_text}", line_no);
+        let _ = writeln!(&mut out, "{line_no:>4} | {line_text}");
         let _ = writeln!(&mut out, "     | {padding}{caret}");
         out.push('\n');
     }
