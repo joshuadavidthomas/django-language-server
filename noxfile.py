@@ -273,10 +273,7 @@ def cog(session):
     )
 
 
-@nox.session
-def update_changelog(session):
-    version = get_version(session)
-
+def update_changelog(session, version):
     with open("CHANGELOG.md", "r") as f:
         changelog = f.read()
 
@@ -285,7 +282,9 @@ def update_changelog(session):
         f"## [{version}]", f"## [Unreleased]\n\n## [{version}]"
     )
 
-    repo_url = session.run("git", "remote", "get-url", "origin", silent=True).strip()
+    repo_url = session.run(
+        "git", "remote", "get-url", "origin", external=True, silent=True
+    ).strip()
     repo_url = repo_url.replace(".git", "")
 
     changelog += f"\n[{version}]: {repo_url}/releases/tag/v{version}"
@@ -309,10 +308,7 @@ def update_changelog(session):
     )
 
 
-@nox.session
-def update_uvlock(session):
-    version = get_version(session)
-
+def update_uvlock(session, version):
     session.run("uv", "lock")
 
     git_status = session.run("git", "status", "--porcelain", external=True, silent=True)
@@ -331,10 +327,11 @@ def update_uvlock(session):
     )
 
 
-@nox.session(requires=["cog", "update_changelog", "update_uvlock"])
+@nox.session
 def release(session):
     version = get_version(session)
-    session.run("git", "checkout", "-b", f"release/v{version}")
+    session.run("git", "checkout", "-b", f"release/v{version}", external=True)
+
     command = ["uv", "run", "bumpver", "update"]
     if session.posargs:
         args = []
@@ -343,7 +340,32 @@ def release(session):
                 args.extend(arg.split(" "))
         command.extend(args)
     session.run(*command)
-    session.run("gh", "pr", "create", "--fill", "--head")
+
+    session.run("cargo", "check", "-q", external=True)
+
+    cog(session)
+    session.run(
+        "git",
+        "add",
+        "Cargo.lock",
+        "CONTRIBUTING.md",
+        "README.md",
+        "pyproject.toml",
+        external=True,
+    )
+    session.run(
+        "git",
+        "commit",
+        "-m",
+        f"run cog for version {version}",
+        external=True,
+        silent=True,
+    )
+
+    update_changelog(session, version)
+    update_uvlock(session, version)
+
+    session.run("gh", "pr", "create", "--fill", external=True)
 
 
 def get_version(session):
