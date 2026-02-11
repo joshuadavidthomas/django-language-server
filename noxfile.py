@@ -120,14 +120,10 @@ def lint(session):
         with tempfile.TemporaryFile(mode="w+") as output_file:
             try:
                 session.run(
-                    "uv",
-                    "run",
-                    "--no-project",
-                    "--with",
-                    "pre-commit-uv",
+                    "uvx",
                     "--python",
                     python_version,
-                    "pre-commit",
+                    "prek",
                     "run",
                     "--all-files",
                     "--show-diff-on-failure",
