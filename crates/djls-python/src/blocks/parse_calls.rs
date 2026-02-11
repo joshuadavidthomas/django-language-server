@@ -254,7 +254,9 @@ fn classify_in_body(
 
     for (i, stmt) in body.iter().enumerate() {
         if let Stmt::If(if_stmt) = stmt {
-            result.merge(classify_from_if_chain(if_stmt, parser_var, token_var, all_tokens));
+            result.merge(classify_from_if_chain(
+                if_stmt, parser_var, token_var, all_tokens,
+            ));
         }
 
         if let Stmt::While(while_stmt) = stmt {
@@ -269,22 +271,52 @@ fn classify_in_body(
                     result.add_end_tag(token);
                 }
             }
-            result.merge(classify_in_body(&while_stmt.body, parser_var, token_var, all_tokens));
-            result.merge(classify_in_body(&while_stmt.orelse, parser_var, token_var, all_tokens));
+            result.merge(classify_in_body(
+                &while_stmt.body,
+                parser_var,
+                token_var,
+                all_tokens,
+            ));
+            result.merge(classify_in_body(
+                &while_stmt.orelse,
+                parser_var,
+                token_var,
+                all_tokens,
+            ));
         }
 
         if let Stmt::For(for_stmt) = stmt {
-            result.merge(classify_in_body(&for_stmt.body, parser_var, token_var, all_tokens));
-            result.merge(classify_in_body(&for_stmt.orelse, parser_var, token_var, all_tokens));
+            result.merge(classify_in_body(
+                &for_stmt.body,
+                parser_var,
+                token_var,
+                all_tokens,
+            ));
+            result.merge(classify_in_body(
+                &for_stmt.orelse,
+                parser_var,
+                token_var,
+                all_tokens,
+            ));
         }
 
         if let Stmt::Try(try_stmt) = stmt {
-            result.merge(classify_in_body(&try_stmt.body, parser_var, token_var, all_tokens));
+            result.merge(classify_in_body(
+                &try_stmt.body,
+                parser_var,
+                token_var,
+                all_tokens,
+            ));
             for handler in &try_stmt.handlers {
                 let ruff_python_ast::ExceptHandler::ExceptHandler(h) = handler;
                 result.merge(classify_in_body(&h.body, parser_var, token_var, all_tokens));
             }
-            result.merge(classify_in_body(&try_stmt.orelse, parser_var, token_var, all_tokens));
+            result.merge(classify_in_body(
+                &try_stmt.orelse,
+                parser_var,
+                token_var,
+                all_tokens,
+            ));
             result.merge(classify_in_body(
                 &try_stmt.finalbody,
                 parser_var,
@@ -304,7 +336,9 @@ fn classify_in_body(
         };
         if has_parse_call {
             if let Some(Stmt::If(if_stmt)) = body.get(i + 1).or_else(|| body.get(i + 2)) {
-                result.merge(classify_from_if_chain(if_stmt, parser_var, token_var, all_tokens));
+                result.merge(classify_from_if_chain(
+                    if_stmt, parser_var, token_var, all_tokens,
+                ));
             }
         }
     }
@@ -341,9 +375,19 @@ fn classify_from_if_chain(
         }
     }
 
-    result.merge(classify_in_body(&if_stmt.body, parser_var, token_var, all_tokens));
+    result.merge(classify_in_body(
+        &if_stmt.body,
+        parser_var,
+        token_var,
+        all_tokens,
+    ));
     for clause in &if_stmt.elif_else_clauses {
-        result.merge(classify_in_body(&clause.body, parser_var, token_var, all_tokens));
+        result.merge(classify_in_body(
+            &clause.body,
+            parser_var,
+            token_var,
+            all_tokens,
+        ));
     }
 
     result
@@ -378,7 +422,11 @@ fn extract_token_check(expr: &Expr, token_var: &str, known_tokens: &[String]) ->
 }
 
 /// Check if a condition is a `startswith` check against known tokens.
-fn extract_startswith_check(expr: &Expr, token_var: &str, known_tokens: &[String]) -> Option<String> {
+fn extract_startswith_check(
+    expr: &Expr,
+    token_var: &str,
+    known_tokens: &[String],
+) -> Option<String> {
     let Expr::Call(ExprCall {
         func, arguments, ..
     }) = expr

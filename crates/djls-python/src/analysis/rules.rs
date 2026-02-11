@@ -310,7 +310,10 @@ fn eval_negated_compare(compare: &ExprCompare, env: &mut Env) -> ConstraintSet {
 ///
 /// Only valid in negated context: `not (2 <= len(bits) <= 4)` means "error when
 /// NOT in [2,4]", so the valid range IS [2,4] → `Min(2), Max(4)`.
-fn eval_range_constraint(compare: &ExprCompare, env: &mut Env) -> Option<Vec<ArgumentCountConstraint>> {
+fn eval_range_constraint(
+    compare: &ExprCompare,
+    env: &mut Env,
+) -> Option<Vec<ArgumentCountConstraint>> {
     if compare.ops.len() != 2 || compare.comparators.len() != 2 {
         return None;
     }

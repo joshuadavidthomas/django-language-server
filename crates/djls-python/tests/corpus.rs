@@ -81,9 +81,7 @@ fn snapshot_dir() -> insta::internals::SettingsBindDropGuard {
 fn extraction_snapshots() {
     let corpus = Corpus::require();
     let targets = corpus.extraction_targets();
-    if targets.is_empty() {
-        panic!("No extraction targets in corpus.");
-    }
+    assert!(!targets.is_empty(), "No extraction targets in corpus.");
 
     let _guard = snapshot_dir();
 

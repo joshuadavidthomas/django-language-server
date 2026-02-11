@@ -215,7 +215,9 @@ fn find_site_packages_in_venv(venv: &Utf8Path) -> Option<Utf8PathBuf> {
         });
 
         for candidate in candidates.into_iter().rev() {
-            if let Ok(site_packages) = Utf8PathBuf::from_path_buf(candidate.path.join("site-packages")) {
+            if let Ok(site_packages) =
+                Utf8PathBuf::from_path_buf(candidate.path.join("site-packages"))
+            {
                 if site_packages.is_dir() {
                     return Some(site_packages);
                 }

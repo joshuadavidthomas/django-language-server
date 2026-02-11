@@ -81,11 +81,15 @@ impl DjangoLanguageServer {
         let session = Arc::clone(&self.session);
         let (tx, rx) = oneshot::channel();
 
-        if let Err(e) = self.queue.submit(async move {
-            let res = f(session).await;
-            let _ = tx.send(res);
-            Ok(())
-        }).await {
+        if let Err(e) = self
+            .queue
+            .submit(async move {
+                let res = f(session).await;
+                let _ = tx.send(res);
+                Ok(())
+            })
+            .await
+        {
             tracing::error!("Failed to submit task: {}", e);
         } else {
             tracing::info!("Task submitted successfully");
@@ -205,55 +209,56 @@ impl LanguageServer for DjangoLanguageServer {
     async fn initialized(&self, _params: ls_types::InitializedParams) {
         tracing::info!("Server received initialized notification.");
 
-        let rx = self.with_session_mut_task(|session| async move {
-            let (interpreter, root, pythonpath) = {
-                let session_lock = session.lock().await;
-                let db = session_lock.db();
+        let rx = self
+            .with_session_mut_task(|session| async move {
+                let (interpreter, root, pythonpath) = {
+                    let session_lock = session.lock().await;
+                    let db = session_lock.db();
 
-                let Some(project) = db.project() else {
-                    tracing::info!("Task: No project configured, skipping initialization.");
-                    return Ok(());
+                    let Some(project) = db.project() else {
+                        tracing::info!("Task: No project configured, skipping initialization.");
+                        return Ok(());
+                    };
+
+                    (
+                        project.interpreter(db).clone(),
+                        project.root(db).clone(),
+                        project.pythonpath(db).clone(),
+                    )
                 };
 
-                (
-                    project.interpreter(db).clone(),
-                    project.root(db).clone(),
-                    project.pythonpath(db).clone(),
-                )
-            };
-
-            {
-                let mut session_lock = session.lock().await;
-                session_lock.db_mut().refresh_inspector();
-            }
-
-            let env_inventory = tokio::task::spawn_blocking(move || {
-                let search_paths =
-                    djls_project::build_search_paths(&interpreter, &root, &pythonpath);
-                djls_project::discover_template_libraries(&search_paths)
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("Environment discovery task failed: {e}"))?;
-
-            {
-                let mut session_lock = session.lock().await;
-                let db = session_lock.db_mut();
-
-                db.update_discovered_template_libraries(&env_inventory);
-
-                if let Some(project) = db.project() {
-                    let path = project.root(db).clone();
-                    tracing::info!("Task: Starting initialization for project at: {}", path);
-                    project.initialize(db);
-                    tracing::info!("Task: Successfully initialized project: {}", path);
-                } else {
-                    tracing::info!("Task: No project configured, skipping initialization.");
+                {
+                    let mut session_lock = session.lock().await;
+                    session_lock.db_mut().refresh_inspector();
                 }
-            }
 
-            Ok(())
-        })
-        .await;
+                let env_inventory = tokio::task::spawn_blocking(move || {
+                    let search_paths =
+                        djls_project::build_search_paths(&interpreter, &root, &pythonpath);
+                    djls_project::discover_template_libraries(&search_paths)
+                })
+                .await
+                .map_err(|e| anyhow::anyhow!("Environment discovery task failed: {e}"))?;
+
+                {
+                    let mut session_lock = session.lock().await;
+                    let db = session_lock.db_mut();
+
+                    db.update_discovered_template_libraries(&env_inventory);
+
+                    if let Some(project) = db.project() {
+                        let path = project.root(db).clone();
+                        tracing::info!("Task: Starting initialization for project at: {}", path);
+                        project.initialize(db);
+                        tracing::info!("Task: Successfully initialized project: {}", path);
+                    } else {
+                        tracing::info!("Task: No project configured, skipping initialization.");
+                    }
+                }
+
+                Ok(())
+            })
+            .await;
 
         // Wait for environment initialization to complete before potentially
         // publishing diagnostics (though initialized itself doesn't publish,
@@ -515,49 +520,50 @@ impl LanguageServer for DjangoLanguageServer {
         }
 
         if settings_update.env_changed {
-            let rx = self.with_session_mut_task(|session| async move {
-                let (interpreter, root, pythonpath) = {
-                    let session_lock = session.lock().await;
-                    let db = session_lock.db();
+            let rx = self
+                .with_session_mut_task(|session| async move {
+                    let (interpreter, root, pythonpath) = {
+                        let session_lock = session.lock().await;
+                        let db = session_lock.db();
 
-                    let Some(project) = db.project() else {
-                        return Ok(());
+                        let Some(project) = db.project() else {
+                            return Ok(());
+                        };
+
+                        (
+                            project.interpreter(db).clone(),
+                            project.root(db).clone(),
+                            project.pythonpath(db).clone(),
+                        )
                     };
 
-                    (
-                        project.interpreter(db).clone(),
-                        project.root(db).clone(),
-                        project.pythonpath(db).clone(),
-                    )
-                };
-
-                {
-                    let mut session_lock = session.lock().await;
-                    session_lock.db_mut().refresh_inspector();
-                }
-
-                let env_inventory = tokio::task::spawn_blocking(move || {
-                    let search_paths =
-                        djls_project::build_search_paths(&interpreter, &root, &pythonpath);
-                    djls_project::discover_template_libraries(&search_paths)
-                })
-                .await
-                .map_err(|e| anyhow::anyhow!("Environment discovery task failed: {e}"))?;
-
-                {
-                    let mut session_lock = session.lock().await;
-                    let db = session_lock.db_mut();
-
-                    db.update_discovered_template_libraries(&env_inventory);
-
-                    if let Some(project) = db.project() {
-                        project.initialize(db);
+                    {
+                        let mut session_lock = session.lock().await;
+                        session_lock.db_mut().refresh_inspector();
                     }
-                }
 
-                Ok(())
-            })
-            .await;
+                    let env_inventory = tokio::task::spawn_blocking(move || {
+                        let search_paths =
+                            djls_project::build_search_paths(&interpreter, &root, &pythonpath);
+                        djls_project::discover_template_libraries(&search_paths)
+                    })
+                    .await
+                    .map_err(|e| anyhow::anyhow!("Environment discovery task failed: {e}"))?;
+
+                    {
+                        let mut session_lock = session.lock().await;
+                        let db = session_lock.db_mut();
+
+                        db.update_discovered_template_libraries(&env_inventory);
+
+                        if let Some(project) = db.project() {
+                            project.initialize(db);
+                        }
+                    }
+
+                    Ok(())
+                })
+                .await;
 
             // Wait for environment update to complete before republishing diagnostics
             let _ = rx.await;

@@ -231,7 +231,10 @@ impl StatementVisitor<'_> for TokenComparisonVisitor<'_> {
                 walk_stmt(self, stmt);
             }
             Stmt::While(while_stmt) => {
-                self.add_all(extract_comparisons_from_expr(&while_stmt.test, self.token_var));
+                self.add_all(extract_comparisons_from_expr(
+                    &while_stmt.test,
+                    self.token_var,
+                ));
                 walk_stmt(self, stmt);
             }
             // Recurse into control flow to find all possible loop patterns.

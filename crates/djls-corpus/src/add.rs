@@ -125,7 +125,7 @@ fn resolve_pypi_latest(name: &str) -> anyhow::Result<String> {
 
     let parse_version = |s: &str| -> Option<Vec<u32>> {
         let parts: Vec<Option<u32>> = s.split('.').map(|part| part.parse::<u32>().ok()).collect();
-        if parts.iter().any(|p| p.is_none()) {
+        if parts.iter().any(std::option::Option::is_none) {
             return None;
         }
         Some(parts.into_iter().flatten().collect())
