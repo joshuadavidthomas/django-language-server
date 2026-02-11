@@ -7,19 +7,19 @@ use anyhow::Result;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use clap::Parser;
-use djls_source::FileKind;
-use djls_workspace::walk_files;
 use djls_db::DjangoDatabase;
+use djls_ide::render_template_error;
+use djls_ide::render_validation_error;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::ValidationError;
 use djls_semantic::ValidationErrorAccumulator;
 use djls_source::Db as SourceDb;
-use djls_source::Diagnostic;
 use djls_source::DiagnosticRenderer;
-use djls_source::Severity;
+use djls_source::FileKind;
 use djls_source::Span;
 use djls_templates::TemplateError;
 use djls_templates::TemplateErrorAccumulator;
+use djls_workspace::walk_files;
 use djls_workspace::OsFileSystem;
 
 use crate::args::Args;
@@ -205,7 +205,9 @@ impl FileCheckResult {
         }
 
         for error in &self.validation_errors {
-            if let Some(output) = render_validation_error(source, path, error, config, fmt) {
+            if let Some(output) =
+                render_validation_error(source, path, error, config, fmt)
+            {
                 results.push(output);
             }
         }
@@ -247,76 +249,6 @@ fn check_file(db: &DjangoDatabase, path: &Utf8Path) -> FileCheckResult {
     }
 }
 
-fn render_template_error(
-    source: &str,
-    path: &str,
-    error: &TemplateError,
-    config: &djls_conf::DiagnosticsConfig,
-    fmt: &DiagnosticRenderer,
-) -> Option<String> {
-    let code = match error {
-        TemplateError::Parser(_) => "T100",
-        TemplateError::Io(_) => "T900",
-        TemplateError::Config(_) => "T901",
-    };
-
-    let severity = config.get_severity(code);
-    if severity == djls_conf::DiagnosticSeverity::Off {
-        return None;
-    }
-
-    let message = error.to_string();
-    let diag = Diagnostic::new(
-        source,
-        path,
-        code,
-        &message,
-        to_render_severity(severity),
-        Span::new(0, 0),
-        "",
-    );
-    Some(fmt.render(&diag))
-}
-
-fn render_validation_error(
-    source: &str,
-    path: &str,
-    error: &ValidationError,
-    config: &djls_conf::DiagnosticsConfig,
-    fmt: &DiagnosticRenderer,
-) -> Option<String> {
-    let code = error.code();
-    let severity = config.get_severity(code);
-    if severity == djls_conf::DiagnosticSeverity::Off {
-        return None;
-    }
-
-    let span = error.primary_span()?;
-    let message = error.to_string();
-    let render_severity = to_render_severity(severity);
-
-    let mut diag = Diagnostic::new(source, path, code, &message, render_severity, span, "");
-
-    if let ValidationError::UnbalancedStructure {
-        closing_span: Some(cs),
-        ..
-    } = error
-    {
-        diag = diag.annotation(*cs, "", false);
-    }
-
-    Some(fmt.render(&diag))
-}
-
-fn to_render_severity(severity: djls_conf::DiagnosticSeverity) -> Severity {
-    match severity {
-        djls_conf::DiagnosticSeverity::Error => Severity::Error,
-        djls_conf::DiagnosticSeverity::Warning => Severity::Warning,
-        djls_conf::DiagnosticSeverity::Info => Severity::Info,
-        djls_conf::DiagnosticSeverity::Hint | djls_conf::DiagnosticSeverity::Off => Severity::Hint,
-    }
-}
-
 fn build_diagnostics_config(
     settings: &djls_conf::Settings,
     select: &[String],
@@ -342,7 +274,7 @@ fn resolve_project_root() -> Result<Utf8PathBuf> {
 }
 
 fn is_template(path: &Utf8Path) -> bool {
-    FileKind::from(path) == FileKind::Template
+    FileKind::is_template(path)
 }
 
 fn is_hidden_dir(path: &Utf8Path) -> bool {
