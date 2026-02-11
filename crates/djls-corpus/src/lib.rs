@@ -42,7 +42,7 @@ const CORPUS_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/.corpus");
 
 /// A validated corpus root directory.
 ///
-/// Constructed via [`Corpus::discover`], which validates that the
+/// Constructed via [`Corpus::require`], which validates that the
 /// directory exists. Once constructed, the root path is trusted for
 /// the lifetime of the value.
 pub struct Corpus;
@@ -151,7 +151,9 @@ impl Corpus {
                 continue;
             }
 
-            let path = Utf8PathBuf::from_path_buf(entry.path()).ok()?;
+            let Ok(path) = Utf8PathBuf::from_path_buf(entry.path()) else {
+                continue;
+            };
             if !path.join(".complete.json").as_std_path().exists() {
                 continue;
             }

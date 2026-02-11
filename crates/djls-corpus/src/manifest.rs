@@ -44,6 +44,9 @@ pub(crate) fn deserialize_pypi_name<'de, D: Deserializer<'de>>(
             prev_sep = false;
         }
     }
+    if result.ends_with('-') {
+        result.pop();
+    }
     Ok(result)
 }
 

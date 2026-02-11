@@ -30,13 +30,19 @@ pub(crate) fn extract_block_spec(func: &StmtFunctionDef) -> Option<BlockSpec> {
         .first()
         .map(|p| p.parameter.name.to_string())?;
 
+    let token_var = func
+        .parameters
+        .args
+        .get(1)
+        .map(|p| p.parameter.name.to_string())?;
+
     // Check for opaque block patterns first: parser.skip_past("endtag")
     if let Some(spec) = opaque::detect(&func.body, &parser_var) {
         return Some(spec);
     }
 
     // Try parser.parse((...)) calls with control flow classification
-    if let Some(spec) = parse_calls::detect(&func.body, &parser_var) {
+    if let Some(spec) = parse_calls::detect(&func.body, &parser_var, &token_var) {
         return Some(spec);
     }
 
@@ -46,7 +52,7 @@ pub(crate) fn extract_block_spec(func: &StmtFunctionDef) -> Option<BlockSpec> {
     }
 
     // Try parser.next_token() loop patterns (e.g., blocktrans/blocktranslate)
-    next_token::detect(&func.body, &parser_var)
+    next_token::detect(&func.body, &parser_var, &token_var)
 }
 
 /// Check if an expression is the parser variable (or `self.parser`).
@@ -102,21 +108,26 @@ pub(super) fn extract_string_sequence(expr: &Expr) -> Vec<String> {
 /// Check if an expression accesses token contents.
 ///
 /// Matches: `token.contents`, `token.contents.split()[0]`, `token.contents.strip()`
-pub(super) fn is_token_contents_expr(expr: &Expr) -> bool {
+pub(super) fn is_token_contents_expr(expr: &Expr, token_var: Option<&str>) -> bool {
     match expr {
         Expr::Attribute(ExprAttribute { attr, value, .. }) => {
             if attr.as_str() == "contents" {
-                return matches!(value.as_ref(), Expr::Name(_));
+                if let Expr::Name(ExprName { id, .. }) = value.as_ref() {
+                    if let Some(tv) = token_var {
+                        return id.as_str() == tv;
+                    }
+                    return true;
+                }
             }
             false
         }
         Expr::Call(ExprCall { func, .. }) => {
             if let Expr::Attribute(ExprAttribute { value, .. }) = func.as_ref() {
-                return is_token_contents_expr(value);
+                return is_token_contents_expr(value, token_var);
             }
             false
         }
-        Expr::Subscript(sub) => is_token_contents_expr(&sub.value),
+        Expr::Subscript(sub) => is_token_contents_expr(&sub.value, token_var),
         _ => false,
     }
 }

@@ -22,11 +22,15 @@ pub fn add_packages(
 }
 
 fn add_package(manifest_path: &Utf8Path, name: &str, bounds: Bounds) -> anyhow::Result<()> {
-    let (_, latest) = resolve_pypi_latest(name)?;
+    let latest = resolve_pypi_latest(name)?;
 
     let parts: Vec<&str> = latest.split('.').collect();
+    if parts.is_empty() || parts[0].is_empty() {
+        anyhow::bail!("Invalid version format from PyPI: {latest}");
+    }
+
     let version_spec = match bounds {
-        Bounds::Major => parts[..1].join("."),
+        Bounds::Major => parts[0].to_string(),
         Bounds::Minor if parts.len() >= 2 => parts[..2].join("."),
         Bounds::Minor | Bounds::Exact => latest.clone(),
     };
@@ -100,8 +104,8 @@ fn add_package(manifest_path: &Utf8Path, name: &str, bounds: Bounds) -> anyhow::
 
 /// Query `PyPI` for the latest stable version of a package.
 ///
-/// Returns `(minor_spec, full_version)` — e.g. `("5.2", "5.2.11")`.
-fn resolve_pypi_latest(name: &str) -> anyhow::Result<(String, String)> {
+/// Returns the full version — e.g. `"5.2.11"`.
+fn resolve_pypi_latest(name: &str) -> anyhow::Result<String> {
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(30))
         .user_agent("djls-corpus")
@@ -120,7 +124,11 @@ fn resolve_pypi_latest(name: &str) -> anyhow::Result<(String, String)> {
         .ok_or_else(|| anyhow::anyhow!("No releases found for {name}"))?;
 
     let parse_version = |s: &str| -> Option<Vec<u32>> {
-        s.split('.').map(|part| part.parse::<u32>().ok()).collect()
+        let parts: Vec<Option<u32>> = s.split('.').map(|part| part.parse::<u32>().ok()).collect();
+        if parts.iter().any(|p| p.is_none()) {
+            return None;
+        }
+        Some(parts.into_iter().flatten().collect())
     };
 
     let (_, latest) = releases
@@ -129,12 +137,5 @@ fn resolve_pypi_latest(name: &str) -> anyhow::Result<(String, String)> {
         .max_by(|(a, _), (b, _)| a.cmp(b))
         .ok_or_else(|| anyhow::anyhow!("No stable releases found for {name}"))?;
 
-    let parts: Vec<&str> = latest.split('.').collect();
-    let minor_spec = if parts.len() >= 2 {
-        format!("{}.{}", parts[0], parts[1])
-    } else {
-        latest.to_string()
-    };
-
-    Ok((minor_spec, latest.to_string()))
+    Ok(latest.to_string())
 }

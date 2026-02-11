@@ -82,8 +82,7 @@ fn extraction_snapshots() {
     let corpus = Corpus::require();
     let targets = corpus.extraction_targets();
     if targets.is_empty() {
-        eprintln!("No extraction targets in corpus.");
-        return;
+        panic!("No extraction targets in corpus.");
     }
 
     let _guard = snapshot_dir();

@@ -129,7 +129,7 @@ pub fn analyze_helper(db: &dyn djls_source::Db, call: HelperCall<'_>) -> Abstrac
 
     let _result = process_statements(&callee.body, &mut callee_env, &mut ctx);
 
-    extract_return_value(&callee.body, &callee_env)
+    extract_return_value(&callee.body, &mut callee_env)
 }
 
 fn analyze_helper_cycle_initial(

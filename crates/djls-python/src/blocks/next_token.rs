@@ -30,12 +30,12 @@ use crate::types::BlockSpec;
 /// if token.contents.strip() != end_tag_name:
 ///     raise TemplateSyntaxError(...)
 /// ```
-pub(super) fn detect(body: &[Stmt], parser_var: &str) -> Option<BlockSpec> {
+pub(super) fn detect(body: &[Stmt], parser_var: &str, token_var: &str) -> Option<BlockSpec> {
     if !has_next_token_loop(body, parser_var) {
         return None;
     }
 
-    let token_comparisons = collect_token_content_comparisons(body);
+    let token_comparisons = collect_token_content_comparisons(body, token_var);
     let has_dynamic_end = dynamic_end::has_dynamic_end_tag_format(body);
 
     if token_comparisons.is_empty() && !has_dynamic_end {
@@ -190,18 +190,25 @@ fn is_next_token_call(expr: &Expr, parser_var: &str) -> bool {
 /// - `token.contents.strip() != "plural"`
 /// - `token.contents == "endblocktrans"`
 /// - `token.contents.strip() != end_tag_name` (skipped — dynamic)
-fn collect_token_content_comparisons(body: &[Stmt]) -> Vec<String> {
-    let mut visitor = TokenComparisonVisitor::default();
+fn collect_token_content_comparisons(body: &[Stmt], token_var: &str) -> Vec<String> {
+    let mut visitor = TokenComparisonVisitor::new(token_var);
     visitor.visit_body(body);
     visitor.comparisons
 }
 
-#[derive(Default)]
-struct TokenComparisonVisitor {
+struct TokenComparisonVisitor<'a> {
+    token_var: &'a str,
     comparisons: Vec<String>,
 }
 
-impl TokenComparisonVisitor {
+impl<'a> TokenComparisonVisitor<'a> {
+    fn new(token_var: &'a str) -> Self {
+        Self {
+            token_var,
+            comparisons: Vec::new(),
+        }
+    }
+
     fn add_all(&mut self, values: Vec<String>) {
         for value in values {
             if !self.comparisons.contains(&value) {
@@ -211,20 +218,20 @@ impl TokenComparisonVisitor {
     }
 }
 
-impl StatementVisitor<'_> for TokenComparisonVisitor {
+impl StatementVisitor<'_> for TokenComparisonVisitor<'_> {
     fn visit_stmt(&mut self, stmt: &Stmt) {
         match stmt {
             Stmt::If(if_stmt) => {
-                self.add_all(extract_comparisons_from_expr(&if_stmt.test));
+                self.add_all(extract_comparisons_from_expr(&if_stmt.test, self.token_var));
                 for clause in &if_stmt.elif_else_clauses {
                     if let Some(test) = &clause.test {
-                        self.add_all(extract_comparisons_from_expr(test));
+                        self.add_all(extract_comparisons_from_expr(test, self.token_var));
                     }
                 }
                 walk_stmt(self, stmt);
             }
             Stmt::While(while_stmt) => {
-                self.add_all(extract_comparisons_from_expr(&while_stmt.test));
+                self.add_all(extract_comparisons_from_expr(&while_stmt.test, self.token_var));
                 walk_stmt(self, stmt);
             }
             // Recurse into control flow to find all possible loop patterns.
@@ -235,7 +242,7 @@ impl StatementVisitor<'_> for TokenComparisonVisitor {
 }
 
 /// Extract string comparisons against token.contents from a comparison expression.
-fn extract_comparisons_from_expr(expr: &Expr) -> Vec<String> {
+fn extract_comparisons_from_expr(expr: &Expr, token_var: &str) -> Vec<String> {
     let mut comparisons = Vec::new();
     if let Expr::Compare(compare) = expr {
         let operands: Vec<&Expr> = std::iter::once(compare.left.as_ref())
@@ -246,7 +253,9 @@ fn extract_comparisons_from_expr(expr: &Expr) -> Vec<String> {
             let left = window[0];
             let right = window[1];
 
-            if is_token_contents_expr(left) || is_token_contents_expr(right) {
+            if is_token_contents_expr(left, Some(token_var))
+                || is_token_contents_expr(right, Some(token_var))
+            {
                 if let Some(s) = left.string_literal() {
                     if !comparisons.contains(&s) {
                         comparisons.push(s);

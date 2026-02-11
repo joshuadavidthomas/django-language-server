@@ -119,6 +119,11 @@ pub(crate) fn analyze_compile_function(func: &StmtFunctionDef) -> TagRule {
         &env,
         &result.constraints.required_keywords,
         &result.constraints.arg_constraints,
+        &[
+            compile_fn.parser_param.to_string(),
+            compile_fn.token_param.to_string(),
+            "tag_name".to_string(),
+        ],
     );
 
     TagRule {
@@ -148,6 +153,7 @@ fn extract_arg_names(
     env: &state::Env,
     required_keywords: &[RequiredKeyword],
     arg_constraints: &[ArgumentCountConstraint],
+    ignored_names: &[String],
 ) -> Vec<ExtractedArg> {
     // Collect named positions from env: variable name → split_contents position
     let mut named_positions: Vec<(usize, String)> = Vec::new();
@@ -158,7 +164,7 @@ fn extract_arg_names(
         } = value
         {
             // Skip position 0 (tag name) and skip parser/token params
-            if *pos > 0 && name != "parser" && name != "token" && name != "tag_name" {
+            if *pos > 0 && !ignored_names.iter().any(|ignored| ignored == name) {
                 named_positions.push((*pos, name.to_string()));
             }
         }

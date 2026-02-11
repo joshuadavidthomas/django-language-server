@@ -37,15 +37,16 @@ pub(crate) fn check_tag_scoping_rule(
             if let Some(env_tags) = env_tags {
                 if let Ok(key) = djls_project::TemplateSymbolName::parse(name) {
                     if let Some(env_symbols) = env_tags.get(&key) {
-                        let sym = &env_symbols[0];
-                        ValidationErrorAccumulator(ValidationError::TagNotInInstalledApps {
-                            tag: name.to_string(),
-                            app: sym.app_module.as_str().to_string(),
-                            load_name: sym.library_name.as_str().to_string(),
-                            span: marker_span,
-                        })
-                        .accumulate(db);
-                        return;
+                        if let Some(sym) = env_symbols.first() {
+                            ValidationErrorAccumulator(ValidationError::TagNotInInstalledApps {
+                                tag: name.to_string(),
+                                app: sym.app_module.as_str().to_string(),
+                                load_name: sym.library_name.as_str().to_string(),
+                                span: marker_span,
+                            })
+                            .accumulate(db);
+                            return;
+                        }
                     }
                 }
             }
@@ -94,15 +95,16 @@ pub(crate) fn check_filter_scoping_rule(
             if let Some(env_filters) = env_filters {
                 if let Ok(key) = djls_project::TemplateSymbolName::parse(filter.name.as_str()) {
                     if let Some(env_symbols) = env_filters.get(&key) {
-                        let sym = &env_symbols[0];
-                        ValidationErrorAccumulator(ValidationError::FilterNotInInstalledApps {
-                            filter: filter.name.clone(),
-                            app: sym.app_module.as_str().to_string(),
-                            load_name: sym.library_name.as_str().to_string(),
-                            span: filter.span,
-                        })
-                        .accumulate(db);
-                        return;
+                        if let Some(sym) = env_symbols.first() {
+                            ValidationErrorAccumulator(ValidationError::FilterNotInInstalledApps {
+                                filter: filter.name.clone(),
+                                app: sym.app_module.as_str().to_string(),
+                                load_name: sym.library_name.as_str().to_string(),
+                                span: filter.span,
+                            })
+                            .accumulate(db);
+                            return;
+                        }
                     }
                 }
             }
@@ -152,10 +154,12 @@ pub(crate) fn check_load_libraries_rule(
     };
 
     for lib in libs {
-        if template_libraries
-            .loadable
-            .contains_key(&LibraryName::parse(&lib).unwrap())
-        {
+        if let Ok(name) = LibraryName::parse(&lib) {
+            if template_libraries.loadable.contains_key(&name) {
+                continue;
+            }
+        } else {
+            // Invalid library name string (shouldn't happen given LoadKind parser, but safety first)
             continue;
         }
 

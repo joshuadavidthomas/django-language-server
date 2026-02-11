@@ -67,89 +67,85 @@ fn discover_package_tree(
 
     let templatetags_dir = dir.join("templatetags");
     if templatetags_dir.is_dir() && templatetags_dir.join("__init__.py").exists() {
-        let Ok(entries) = std::fs::read_dir(templatetags_dir.as_std_path()) else {
-            return;
-        };
+        if let Ok(entries) = std::fs::read_dir(templatetags_dir.as_std_path()) {
+            for entry in entries.flatten() {
+                let Ok(path) = Utf8PathBuf::from_path_buf(entry.path()) else {
+                    continue;
+                };
 
+                if !path.is_file() || path.extension() != Some("py") {
+                    continue;
+                }
+
+                let Some(stem) = path.file_stem() else {
+                    continue;
+                };
+                if stem == "__init__" {
+                    continue;
+                }
+
+                let Ok(library_name) = LibraryName::parse(stem) else {
+                    continue;
+                };
+
+                let Some(package_dir) = templatetags_dir.parent() else {
+                    continue;
+                };
+                let Ok(package_rel_path) = package_dir.strip_prefix(sys_path) else {
+                    continue;
+                };
+                let Ok(app_module) = PyModuleName::from_relative_package(package_rel_path) else {
+                    continue;
+                };
+
+                let Ok(module_rel_path) = path.strip_prefix(sys_path) else {
+                    continue;
+                };
+                let Ok(module) = PyModuleName::from_relative_python_module(module_rel_path) else {
+                    continue;
+                };
+
+                let absolute_path = absolute_path(&path);
+                let symbols = extract_symbols_from_module_file(&absolute_path);
+
+                let origin = LibraryOrigin {
+                    app: app_module,
+                    module,
+                    path: absolute_path,
+                };
+
+                let mut library = TemplateLibrary::new_discovered(library_name.clone(), origin);
+                library.symbols = symbols;
+                libraries.entry(library_name).or_default().push(library);
+            }
+        }
+    }
+
+    if let Ok(entries) = std::fs::read_dir(dir.as_std_path()) {
         for entry in entries.flatten() {
             let Ok(path) = Utf8PathBuf::from_path_buf(entry.path()) else {
                 continue;
             };
 
-            if !path.is_file() || path.extension() != Some("py") {
+            if !path.is_dir() {
                 continue;
             }
 
-            let Some(stem) = path.file_stem() else {
-                continue;
-            };
-            if stem == "__init__" {
+            let name = entry.file_name();
+            let name_str = name.to_string_lossy();
+
+            if name_str.starts_with('.')
+                || name_str == "__pycache__"
+                || name_str == "templatetags"
+                || name_str.contains(".dist-info")
+                || name_str.contains(".egg-info")
+            {
                 continue;
             }
 
-            let Ok(library_name) = LibraryName::parse(stem) else {
-                continue;
-            };
-
-            let Some(package_dir) = templatetags_dir.parent() else {
-                continue;
-            };
-            let Ok(package_rel_path) = package_dir.strip_prefix(sys_path) else {
-                continue;
-            };
-            let Ok(app_module) = PyModuleName::from_relative_package(package_rel_path) else {
-                continue;
-            };
-
-            let Ok(module_rel_path) = path.strip_prefix(sys_path) else {
-                continue;
-            };
-            let Ok(module) = PyModuleName::from_relative_python_module(module_rel_path) else {
-                continue;
-            };
-
-            let absolute_path = absolute_path(&path);
-            let symbols = extract_symbols_from_module_file(&absolute_path);
-
-            let origin = LibraryOrigin {
-                app: app_module,
-                module,
-                path: absolute_path,
-            };
-
-            let mut library = TemplateLibrary::new_discovered(library_name.clone(), origin);
-            library.symbols = symbols;
-            libraries.entry(library_name).or_default().push(library);
-        }
-    }
-
-    let Ok(entries) = std::fs::read_dir(dir.as_std_path()) else {
-        return;
-    };
-
-    for entry in entries.flatten() {
-        let Ok(path) = Utf8PathBuf::from_path_buf(entry.path()) else {
-            continue;
-        };
-
-        if !path.is_dir() {
-            continue;
-        }
-
-        let name = entry.file_name();
-        let name_str = name.to_string_lossy();
-
-        if name_str.starts_with('.')
-            || name_str == "__pycache__"
-            || name_str == "templatetags"
-            || name_str.contains(".dist-info")
-            || name_str.contains(".egg-info")
-        {
-            continue;
-        }
-
-        if path.join("__init__.py").exists() {
-            discover_package_tree(&path, sys_path, visited, libraries);
+            if path.join("__init__.py").exists() {
+                discover_package_tree(&path, sys_path, visited, libraries);
+            }
         }
     }
 }

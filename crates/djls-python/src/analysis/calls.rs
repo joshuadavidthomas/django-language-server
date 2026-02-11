@@ -92,7 +92,7 @@ pub fn resolve_call(
 ///
 /// Scans for `return expr` statements. If exactly one return path yields
 /// a non-Unknown value, returns that. If multiple yields differ, returns Unknown.
-pub(crate) fn extract_return_value(body: &[Stmt], env: &Env) -> AbstractValue {
+pub(crate) fn extract_return_value(body: &[Stmt], env: &mut Env) -> AbstractValue {
     let mut visitor = ReturnVisitor::new(env);
     visitor.visit_body(body);
 
@@ -124,12 +124,12 @@ pub(crate) fn extract_return_value(body: &[Stmt], env: &Env) -> AbstractValue {
 }
 
 struct ReturnVisitor<'a> {
-    env: &'a Env,
+    env: &'a mut Env,
     returns: Vec<AbstractValue>,
 }
 
 impl<'a> ReturnVisitor<'a> {
-    fn new(env: &'a Env) -> Self {
+    fn new(env: &'a mut Env) -> Self {
         Self {
             env,
             returns: Vec::new(),

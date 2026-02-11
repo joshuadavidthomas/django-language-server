@@ -164,6 +164,7 @@ fn sync_repo(
 pub fn sync_corpus(lockfile: &Lockfile, corpus_root: &Utf8Path, prune: bool) -> anyhow::Result<()> {
     let client = reqwest::blocking::Client::builder()
         .connect_timeout(Duration::from_secs(30))
+        .timeout(Duration::from_secs(300))
         .build()?;
 
     let packages_dir = corpus_root.join("packages");
@@ -308,8 +309,16 @@ pub fn clean_packages(corpus_root: &Utf8Path, names: &[String]) -> anyhow::Resul
                 let Some(dir_name) = entry.file_name().to_str().map(String::from) else {
                     continue;
                 };
-                // Match exact name or name-{version} prefix
-                if dir_name == *name || dir_name.starts_with(&format!("{name}-")) {
+
+                let is_match = if dir_name == *name {
+                    true
+                } else if let Some(suffix) = dir_name.strip_prefix(&format!("{name}-")) {
+                    suffix.starts_with(|c: char| c.is_ascii_digit())
+                } else {
+                    false
+                };
+
+                if is_match {
                     let dir = packages_dir.join(&dir_name);
                     std::fs::remove_dir_all(dir.as_std_path())?;
                     tracing::info!(dir_name, "cleaned package");

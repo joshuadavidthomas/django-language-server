@@ -100,16 +100,22 @@ impl AvailableSymbols {
             for symbol in &library.symbols {
                 match symbol.kind {
                     TemplateSymbolKind::Tag => {
-                        candidates
-                            .entry(symbol.name.as_str().to_string())
-                            .or_default()
-                            .insert(load_name.to_string());
+                        let symbol_name = symbol.name.as_str();
+                        if !available.contains(symbol_name) {
+                            candidates
+                                .entry(symbol_name.to_string())
+                                .or_default()
+                                .insert(load_name.to_string());
+                        }
                     }
                     TemplateSymbolKind::Filter => {
-                        filter_candidates
-                            .entry(symbol.name.as_str().to_string())
-                            .or_default()
-                            .insert(load_name.to_string());
+                        let symbol_name = symbol.name.as_str();
+                        if !available_filters.contains(symbol_name) {
+                            filter_candidates
+                                .entry(symbol_name.to_string())
+                                .or_default()
+                                .insert(load_name.to_string());
+                        }
                     }
                 }
             }

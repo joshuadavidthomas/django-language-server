@@ -19,14 +19,14 @@ use crate::types::BlockSpec;
 /// Collects all stop-tokens from parse calls, then classifies them as intermediates
 /// or end-tags based on whether they lead to further parse calls (intermediate) or
 /// return/construction (end-tag).
-pub(super) fn detect(body: &[Stmt], parser_var: &str) -> Option<BlockSpec> {
+pub(super) fn detect(body: &[Stmt], parser_var: &str, token_var: &str) -> Option<BlockSpec> {
     let parse_calls = collect_parser_parse_calls(body, parser_var);
 
     if parse_calls.is_empty() {
         return None;
     }
 
-    classify_stop_tokens(body, parser_var, &parse_calls)
+    classify_stop_tokens(body, parser_var, token_var, &parse_calls)
 }
 
 /// Information about a single `parser.parse((...))` call site.
@@ -123,6 +123,7 @@ fn extract_parse_call_info(expr: &Expr, parser_var: &str) -> Option<ParseCallInf
 fn classify_stop_tokens(
     body: &[Stmt],
     parser_var: &str,
+    token_var: &str,
     parse_calls: &[ParseCallInfo],
 ) -> Option<BlockSpec> {
     let mut all_tokens: Vec<String> = Vec::new();
@@ -141,7 +142,7 @@ fn classify_stop_tokens(
     let Classification {
         mut intermediates,
         mut end_tags,
-    } = classify_in_body(body, parser_var, &all_tokens);
+    } = classify_in_body(body, parser_var, token_var, &all_tokens);
 
     // After flow analysis: any token that was found in stop-token lists but NOT
     // classified as intermediate is a candidate end-tag.
@@ -243,17 +244,22 @@ impl Classification {
 }
 
 /// Walk body statements classifying tokens based on control flow patterns.
-fn classify_in_body(body: &[Stmt], parser_var: &str, all_tokens: &[String]) -> Classification {
+fn classify_in_body(
+    body: &[Stmt],
+    parser_var: &str,
+    token_var: &str,
+    all_tokens: &[String],
+) -> Classification {
     let mut result = Classification::default();
 
     for (i, stmt) in body.iter().enumerate() {
         if let Stmt::If(if_stmt) = stmt {
-            result.merge(classify_from_if_chain(if_stmt, parser_var, all_tokens));
+            result.merge(classify_from_if_chain(if_stmt, parser_var, token_var, all_tokens));
         }
 
         if let Stmt::While(while_stmt) = stmt {
-            if let Some(token) = extract_token_check(&while_stmt.test, all_tokens)
-                .or_else(|| extract_startswith_check(&while_stmt.test, all_tokens))
+            if let Some(token) = extract_token_check(&while_stmt.test, token_var, all_tokens)
+                .or_else(|| extract_startswith_check(&while_stmt.test, token_var, all_tokens))
             {
                 if body_has_parse_call(&while_stmt.body, parser_var)
                     || body_has_parse_call(&while_stmt.orelse, parser_var)
@@ -263,25 +269,26 @@ fn classify_in_body(body: &[Stmt], parser_var: &str, all_tokens: &[String]) -> C
                     result.add_end_tag(token);
                 }
             }
-            result.merge(classify_in_body(&while_stmt.body, parser_var, all_tokens));
-            result.merge(classify_in_body(&while_stmt.orelse, parser_var, all_tokens));
+            result.merge(classify_in_body(&while_stmt.body, parser_var, token_var, all_tokens));
+            result.merge(classify_in_body(&while_stmt.orelse, parser_var, token_var, all_tokens));
         }
 
         if let Stmt::For(for_stmt) = stmt {
-            result.merge(classify_in_body(&for_stmt.body, parser_var, all_tokens));
-            result.merge(classify_in_body(&for_stmt.orelse, parser_var, all_tokens));
+            result.merge(classify_in_body(&for_stmt.body, parser_var, token_var, all_tokens));
+            result.merge(classify_in_body(&for_stmt.orelse, parser_var, token_var, all_tokens));
         }
 
         if let Stmt::Try(try_stmt) = stmt {
-            result.merge(classify_in_body(&try_stmt.body, parser_var, all_tokens));
+            result.merge(classify_in_body(&try_stmt.body, parser_var, token_var, all_tokens));
             for handler in &try_stmt.handlers {
                 let ruff_python_ast::ExceptHandler::ExceptHandler(h) = handler;
-                result.merge(classify_in_body(&h.body, parser_var, all_tokens));
+                result.merge(classify_in_body(&h.body, parser_var, token_var, all_tokens));
             }
-            result.merge(classify_in_body(&try_stmt.orelse, parser_var, all_tokens));
+            result.merge(classify_in_body(&try_stmt.orelse, parser_var, token_var, all_tokens));
             result.merge(classify_in_body(
                 &try_stmt.finalbody,
                 parser_var,
+                token_var,
                 all_tokens,
             ));
         }
@@ -297,7 +304,7 @@ fn classify_in_body(body: &[Stmt], parser_var: &str, all_tokens: &[String]) -> C
         };
         if has_parse_call {
             if let Some(Stmt::If(if_stmt)) = body.get(i + 1).or_else(|| body.get(i + 2)) {
-                result.merge(classify_from_if_chain(if_stmt, parser_var, all_tokens));
+                result.merge(classify_from_if_chain(if_stmt, parser_var, token_var, all_tokens));
             }
         }
     }
@@ -309,11 +316,12 @@ fn classify_in_body(body: &[Stmt], parser_var: &str, all_tokens: &[String]) -> C
 fn classify_from_if_chain(
     if_stmt: &StmtIf,
     parser_var: &str,
+    token_var: &str,
     all_tokens: &[String],
 ) -> Classification {
     let mut result = Classification::default();
 
-    if let Some(token) = extract_token_check(&if_stmt.test, all_tokens) {
+    if let Some(token) = extract_token_check(&if_stmt.test, token_var, all_tokens) {
         if body_has_parse_call(&if_stmt.body, parser_var) {
             result.add_intermediate(token);
         } else {
@@ -323,7 +331,7 @@ fn classify_from_if_chain(
 
     for clause in &if_stmt.elif_else_clauses {
         if let Some(test) = &clause.test {
-            if let Some(token) = extract_token_check(test, all_tokens) {
+            if let Some(token) = extract_token_check(test, token_var, all_tokens) {
                 if body_has_parse_call(&clause.body, parser_var) {
                     result.add_intermediate(token);
                 } else {
@@ -333,22 +341,22 @@ fn classify_from_if_chain(
         }
     }
 
-    result.merge(classify_in_body(&if_stmt.body, parser_var, all_tokens));
+    result.merge(classify_in_body(&if_stmt.body, parser_var, token_var, all_tokens));
     for clause in &if_stmt.elif_else_clauses {
-        result.merge(classify_in_body(&clause.body, parser_var, all_tokens));
+        result.merge(classify_in_body(&clause.body, parser_var, token_var, all_tokens));
     }
 
     result
 }
 
 /// Check if a condition expression checks a token string against known stop-tokens.
-fn extract_token_check(expr: &Expr, known_tokens: &[String]) -> Option<String> {
+fn extract_token_check(expr: &Expr, token_var: &str, known_tokens: &[String]) -> Option<String> {
     if let Expr::Compare(compare) = expr {
         if compare.ops.len() == 1 && compare.comparators.len() == 1 {
             let left = &compare.left;
             let right = &compare.comparators[0];
 
-            if is_token_contents_expr(left) {
+            if is_token_contents_expr(left, Some(token_var)) {
                 if let Some(s) = right.string_literal() {
                     let cmd = s.split_whitespace().next().unwrap_or("").to_string();
                     if known_tokens.contains(&cmd) {
@@ -356,7 +364,7 @@ fn extract_token_check(expr: &Expr, known_tokens: &[String]) -> Option<String> {
                     }
                 }
             }
-            if is_token_contents_expr(right) {
+            if is_token_contents_expr(right, Some(token_var)) {
                 if let Some(s) = left.string_literal() {
                     let cmd = s.split_whitespace().next().unwrap_or("").to_string();
                     if known_tokens.contains(&cmd) {
@@ -370,7 +378,7 @@ fn extract_token_check(expr: &Expr, known_tokens: &[String]) -> Option<String> {
 }
 
 /// Check if a condition is a `startswith` check against known tokens.
-fn extract_startswith_check(expr: &Expr, known_tokens: &[String]) -> Option<String> {
+fn extract_startswith_check(expr: &Expr, token_var: &str, known_tokens: &[String]) -> Option<String> {
     let Expr::Call(ExprCall {
         func, arguments, ..
     }) = expr
@@ -386,7 +394,7 @@ fn extract_startswith_check(expr: &Expr, known_tokens: &[String]) -> Option<Stri
     if attr.as_str() != "startswith" {
         return None;
     }
-    if !is_token_contents_expr(obj) {
+    if !is_token_contents_expr(obj, Some(token_var)) {
         return None;
     }
     if arguments.args.is_empty() {

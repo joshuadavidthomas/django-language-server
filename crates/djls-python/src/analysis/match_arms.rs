@@ -25,7 +25,7 @@ use crate::types::SplitPosition;
 /// and derives argument count constraints and required keywords from them.
 pub(super) fn extract_match_constraints(
     match_stmt: &StmtMatch,
-    env: &Env,
+    env: &mut Env,
 ) -> Option<ConstraintSet> {
     let subject = eval_expr(&match_stmt.subject, env);
     if !matches!(subject, AbstractValue::SplitResult(_)) {

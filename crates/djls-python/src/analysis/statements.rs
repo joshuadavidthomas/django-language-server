@@ -179,7 +179,7 @@ fn try_extract_token_kwargs_call(expr: &Expr) -> Option<String> {
 ///
 /// Used to detect guards like `if args[-3] == "as"` where nested keyword
 /// constraints would be conditional on the element's value.
-fn condition_involves_element_check(expr: &Expr, env: &Env) -> bool {
+fn condition_involves_element_check(expr: &Expr, env: &mut Env) -> bool {
     match expr {
         Expr::Compare(compare) => {
             let left = eval_expr(&compare.left, env);

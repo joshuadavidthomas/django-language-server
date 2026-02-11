@@ -22,14 +22,14 @@ use crate::types::SplitPosition;
 ///
 /// When `ctx` is provided, function calls can be resolved to module-local
 /// helpers via bounded inlining.
-pub fn eval_expr(expr: &Expr, env: &Env) -> AbstractValue {
+pub fn eval_expr(expr: &Expr, env: &mut Env) -> AbstractValue {
     eval_expr_with_ctx(expr, env, None)
 }
 
 /// Evaluate a Python expression with optional analysis context for call resolution.
 pub(super) fn eval_expr_with_ctx(
     expr: &Expr,
-    env: &Env,
+    env: &mut Env,
     ctx: Option<&mut CallContext<'_>>,
 ) -> AbstractValue {
     match expr {
@@ -69,11 +69,11 @@ pub(super) fn eval_expr_with_ctx(
 /// Evaluate a function/method call expression with optional context.
 fn eval_call_with_ctx(
     call: &ExprCall,
-    env: &Env,
+    env: &mut Env,
     mut ctx: Option<&mut CallContext<'_>>,
 ) -> AbstractValue {
     if let Expr::Attribute(ExprAttribute { value, attr, .. }) = call.func.as_ref() {
-        let obj = eval_expr(value, env);
+        let obj = eval_expr_with_ctx(value, env, ctx.as_deref_mut());
         let method = attr.as_str();
 
         // token.split_contents()
@@ -89,7 +89,7 @@ fn eval_call_with_ctx(
                 ..
             }) = value.as_ref()
             {
-                let inner_obj = eval_expr(inner_value, env);
+                let inner_obj = eval_expr_with_ctx(inner_value, env, ctx.as_deref_mut());
                 if matches!(inner_obj, AbstractValue::Parser) && inner_attr.as_str() == "token" {
                     return AbstractValue::SplitResult(TokenSplit::fresh());
                 }
@@ -109,7 +109,7 @@ fn eval_call_with_ctx(
                 ..
             }) = value.as_ref()
             {
-                let inner_obj = eval_expr(inner_value, env);
+                let inner_obj = eval_expr_with_ctx(inner_value, env, ctx.as_deref_mut());
                 if matches!(inner_obj, AbstractValue::Token) && inner_attr.as_str() == "contents" {
                     return eval_contents_split(&call.arguments);
                 }
@@ -135,7 +135,7 @@ fn eval_call_with_ctx(
 
         // len() and list() with single argument
         if let Some(arg) = call.arguments.args.first() {
-            let val = eval_expr(arg, env);
+            let val = eval_expr_with_ctx(arg, env, ctx.as_deref_mut());
             match name {
                 "len" => {
                     if let AbstractValue::SplitResult(split) = val {
@@ -154,6 +154,9 @@ fn eval_call_with_ctx(
         // Hardcoded external summary: token_kwargs(bits, parser)
         // Mutates bits → mark it Unknown, return Unknown
         if name == "token_kwargs" {
+            if let Some(Expr::Name(ExprName { id: arg_name, .. })) = call.arguments.args.first() {
+                env.set(arg_name.to_string(), AbstractValue::Unknown);
+            }
             return AbstractValue::Unknown;
         }
 
@@ -163,7 +166,7 @@ fn eval_call_with_ctx(
                 .arguments
                 .args
                 .iter()
-                .map(|a| eval_expr(a, env))
+                .map(|a| eval_expr_with_ctx(a, env, Some(*ctx)))
                 .collect();
             return resolve_call(name, &args, ctx);
         }
@@ -245,7 +248,7 @@ fn i64_to_index_element(n: i64, split: &TokenSplit) -> AbstractValue {
 }
 
 /// Evaluate subscript access on an abstract value.
-fn eval_subscript(base: &AbstractValue, slice: &Expr, env: &Env) -> AbstractValue {
+fn eval_subscript(base: &AbstractValue, slice: &Expr, env: &mut Env) -> AbstractValue {
     let AbstractValue::SplitResult(split) = base else {
         return AbstractValue::Unknown;
     };

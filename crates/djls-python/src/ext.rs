@@ -47,7 +47,6 @@ impl ExprExt for Expr {
         None
     }
 
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     fn non_negative_integer(&self) -> Option<usize> {
         if let Expr::NumberLiteral(ExprNumberLiteral {
             value: Number::Int(int_val),
@@ -56,7 +55,7 @@ impl ExprExt for Expr {
         {
             if let Some(n) = int_val.as_i64() {
                 if n >= 0 {
-                    return Some(n as usize);
+                    return usize::try_from(n).ok();
                 }
             }
         }

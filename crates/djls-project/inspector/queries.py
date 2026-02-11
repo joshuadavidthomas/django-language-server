@@ -120,8 +120,9 @@ def get_installed_template_libraries() -> TemplateLibrariesQueryData:
     builtin_modules: list[str] = []
 
     for builtin_module, library in zip(engine.builtins, engine.template_builtins):
-        if builtin_module not in builtin_modules:
-            builtin_modules.append(builtin_module)
+        if builtin_module in builtin_modules:
+            continue
+        builtin_modules.append(builtin_module)
 
         if library.tags:
             for tag_name, tag_func in library.tags.items():

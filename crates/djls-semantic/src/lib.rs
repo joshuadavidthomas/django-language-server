@@ -633,7 +633,7 @@ mod tests {
     #[test]
     fn tag_before_extends_and_multiple_extends_s122_and_s123() {
         let db = standard_db();
-        let source = r#"{% load i18n %}{% extends \"a.html\" %}{% extends \"b.html\" %}"#;
+        let source = r#"{% load i18n %}{% extends "a.html" %}{% extends "b.html" %}"#;
         let errors = collect_all_errors(&db, source);
         let s122: Vec<_> = errors
             .iter()

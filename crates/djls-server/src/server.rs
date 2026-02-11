@@ -6,6 +6,7 @@ use djls_semantic::Db as SemanticDb;
 use djls_source::Db as SourceDb;
 use djls_source::FileKind;
 use djls_workspace::TextDocument;
+use tokio::sync::oneshot;
 use tokio::sync::Mutex;
 use tower_lsp_server::jsonrpc::Result as LspResult;
 use tower_lsp_server::ls_types;
@@ -72,18 +73,25 @@ impl DjangoLanguageServer {
         }
     }
 
-    pub async fn with_session_mut_task<F, Fut>(&self, f: F)
+    pub async fn with_session_mut_task<F, Fut>(&self, f: F) -> oneshot::Receiver<anyhow::Result<()>>
     where
         F: FnOnce(Arc<Mutex<Session>>) -> Fut + Send + 'static,
         Fut: Future<Output = anyhow::Result<()>> + Send + 'static,
     {
         let session = Arc::clone(&self.session);
+        let (tx, rx) = oneshot::channel();
 
-        if let Err(e) = self.queue.submit(async move { f(session).await }).await {
+        if let Err(e) = self.queue.submit(async move {
+            let res = f(session).await;
+            let _ = tx.send(res);
+            Ok(())
+        }).await {
             tracing::error!("Failed to submit task: {}", e);
         } else {
             tracing::info!("Task submitted successfully");
         }
+
+        rx
     }
 
     async fn publish_diagnostics(&self, document: &TextDocument) {
@@ -197,7 +205,7 @@ impl LanguageServer for DjangoLanguageServer {
     async fn initialized(&self, _params: ls_types::InitializedParams) {
         tracing::info!("Server received initialized notification.");
 
-        self.with_session_mut_task(|session| async move {
+        let rx = self.with_session_mut_task(|session| async move {
             let (interpreter, root, pythonpath) = {
                 let session_lock = session.lock().await;
                 let db = session_lock.db();
@@ -246,6 +254,11 @@ impl LanguageServer for DjangoLanguageServer {
             Ok(())
         })
         .await;
+
+        // Wait for environment initialization to complete before potentially
+        // publishing diagnostics (though initialized itself doesn't publish,
+        // it ensures subsequent requests see the fully initialized state).
+        let _ = rx.await;
     }
 
     async fn shutdown(&self) -> LspResult<()> {
@@ -502,7 +515,7 @@ impl LanguageServer for DjangoLanguageServer {
         }
 
         if settings_update.env_changed {
-            self.with_session_mut_task(|session| async move {
+            let rx = self.with_session_mut_task(|session| async move {
                 let (interpreter, root, pythonpath) = {
                     let session_lock = session.lock().await;
                     let db = session_lock.db();
@@ -545,6 +558,9 @@ impl LanguageServer for DjangoLanguageServer {
                 Ok(())
             })
             .await;
+
+            // Wait for environment update to complete before republishing diagnostics
+            let _ = rx.await;
         }
 
         if settings_update.env_changed || settings_update.diagnostics_changed {

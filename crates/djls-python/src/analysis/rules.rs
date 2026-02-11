@@ -98,7 +98,7 @@ impl ConstraintSet {
 /// Called inline during statement processing so that constraints see the env
 /// as it exists at the point in the code where the if-statement appears,
 /// not the final env state after the entire function body has been processed.
-pub fn extract_from_if_inline(if_stmt: &StmtIf, env: &Env) -> ConstraintSet {
+pub fn extract_from_if_inline(if_stmt: &StmtIf, env: &mut Env) -> ConstraintSet {
     let mut result = ConstraintSet::default();
 
     if body_raises_template_syntax_error(&if_stmt.body) {
@@ -122,7 +122,7 @@ pub fn extract_from_if_inline(if_stmt: &StmtIf, env: &Env) -> ConstraintSet {
 ///
 /// The condition guards a `raise TemplateSyntaxError(...)`, so it describes
 /// when the code errors. Constraints capture what's valid (the negation).
-fn eval_condition(expr: &Expr, env: &Env) -> ConstraintSet {
+fn eval_condition(expr: &Expr, env: &mut Env) -> ConstraintSet {
     match expr {
         // `or`: error when either side is true → each is an independent constraint
         Expr::BoolOp(ExprBoolOp {
@@ -163,7 +163,7 @@ fn eval_condition(expr: &Expr, env: &Env) -> ConstraintSet {
     }
 }
 
-fn eval_compare(compare: &ExprCompare, env: &Env) -> ConstraintSet {
+fn eval_compare(compare: &ExprCompare, env: &mut Env) -> ConstraintSet {
     if compare.ops.is_empty() || compare.comparators.is_empty() {
         return ConstraintSet::default();
     }
@@ -272,7 +272,7 @@ fn eval_compare(compare: &ExprCompare, env: &Env) -> ConstraintSet {
     ConstraintSet::default()
 }
 
-fn eval_negated_compare(compare: &ExprCompare, env: &Env) -> ConstraintSet {
+fn eval_negated_compare(compare: &ExprCompare, env: &mut Env) -> ConstraintSet {
     // Range: `not (2 <= len(bits) <= 4)` → valid range is min..=max
     if compare.ops.len() == 2 && compare.comparators.len() == 2 {
         if let Some(range_constraints) = eval_range_constraint(compare, env) {
@@ -310,7 +310,7 @@ fn eval_negated_compare(compare: &ExprCompare, env: &Env) -> ConstraintSet {
 ///
 /// Only valid in negated context: `not (2 <= len(bits) <= 4)` means "error when
 /// NOT in [2,4]", so the valid range IS [2,4] → `Min(2), Max(4)`.
-fn eval_range_constraint(compare: &ExprCompare, env: &Env) -> Option<Vec<ArgumentCountConstraint>> {
+fn eval_range_constraint(compare: &ExprCompare, env: &mut Env) -> Option<Vec<ArgumentCountConstraint>> {
     if compare.ops.len() != 2 || compare.comparators.len() != 2 {
         return None;
     }
