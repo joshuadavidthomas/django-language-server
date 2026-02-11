@@ -91,4 +91,7 @@ Sync the corpus (`just corpus sync`) if corpus tests fail, fix broken snapshots,
 ## Task Management
 Use `/dex` to break down complex work, track progress across sessions, and coordinate multi-step implementations.
 
-**Dex tasks vs GitHub issues**: GitHub issues are the intake — bug reports, feature ideas, brainstorms from users and long-term thinking. Dex tasks are actionable work items: things to do now or soon. A dex task may be derived from a GitHub issue (via `dex import`), but not every issue becomes a task, and tasks can exist without an issue. Don't treat them as the same thing.
+Dex tasks vs GitHub issues: 
+- GitHub issues are the intake — bug reports, feature ideas, brainstorms from users and long-term thinking. 
+- Dex tasks are actionable work items: things to do now or soon. 
+- A dex task may be derived from a GitHub issue (via `dex import`), but not every issue becomes a task, and tasks can exist without an issue. Don't treat them as the same thing.
