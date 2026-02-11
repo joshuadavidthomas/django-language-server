@@ -79,7 +79,9 @@ mod tests {
     use crate::testing::TestDatabase;
     use crate::ValidationError;
 
-    fn make_template_libraries_with_filters(filters: &[serde_json::Value]) -> djls_project::TemplateLibraries {
+    fn make_template_libraries_with_filters(
+        filters: &[serde_json::Value],
+    ) -> djls_project::TemplateLibraries {
         let tags = vec![
             builtin_tag_json("if", "django.template.defaulttags"),
             builtin_tag_json("verbatim", "django.template.defaulttags"),

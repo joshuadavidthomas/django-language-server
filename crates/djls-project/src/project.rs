@@ -2,6 +2,7 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_conf::DiagnosticsConfig;
 use djls_conf::Settings;
+use djls_conf::TagSpecDef;
 use djls_python::ExtractionResult;
 use rustc_hash::FxHashMap;
 
@@ -34,6 +35,9 @@ pub struct Project {
     /// Additional Python import paths (PYTHONPATH entries)
     #[returns(ref)]
     pub pythonpath: Vec<String>,
+    /// Manual TagSpecs configuration from TOML (fallback for extraction gaps)
+    #[returns(ref)]
+    pub tagspecs: TagSpecDef,
     /// Template libraries and symbols for this project.
     ///
     /// This value always exists to support progressive enhancement:
@@ -65,6 +69,7 @@ impl Project {
             interpreter,
             resolved_django_settings_module,
             settings.pythonpath().to_vec(),
+            settings.tagspecs().clone(),
             TemplateLibraries::default(),
             FxHashMap::default(),
             settings.diagnostics().clone(),

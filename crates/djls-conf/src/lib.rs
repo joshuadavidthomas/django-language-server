@@ -1,4 +1,5 @@
 pub mod diagnostics;
+pub mod tagspecs;
 
 use std::fs;
 use std::path::Path;
@@ -12,10 +13,21 @@ use config::File;
 use config::FileFormat;
 use directories::ProjectDirs;
 use serde::Deserialize;
+use serde::Deserializer;
 use thiserror::Error;
 
 pub use crate::diagnostics::DiagnosticSeverity;
 pub use crate::diagnostics::DiagnosticsConfig;
+pub use crate::tagspecs::ArgKindDef;
+pub use crate::tagspecs::ArgTypeDef;
+pub use crate::tagspecs::EndTagDef;
+pub use crate::tagspecs::IntermediateTagDef;
+pub use crate::tagspecs::PositionDef;
+pub use crate::tagspecs::TagArgDef;
+pub use crate::tagspecs::TagDef;
+pub use crate::tagspecs::TagLibraryDef;
+pub use crate::tagspecs::TagSpecDef;
+pub use crate::tagspecs::TagTypeDef;
 
 pub(crate) fn project_dirs() -> Option<ProjectDirs> {
     ProjectDirs::from("", "", "djls")
@@ -59,8 +71,38 @@ pub struct Settings {
     django_settings_module: Option<String>,
     #[serde(default)]
     pythonpath: Vec<String>,
+    #[serde(default, deserialize_with = "deserialize_tagspecs")]
+    tagspecs: TagSpecDef,
     #[serde(default)]
     diagnostics: DiagnosticsConfig,
+}
+
+fn deserialize_tagspecs<'de, D>(deserializer: D) -> Result<TagSpecDef, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::Error;
+    use serde_json::Value;
+
+    let value = Value::deserialize(deserializer)?;
+
+    if let Ok(new_format) = TagSpecDef::deserialize(&value) {
+        return Ok(new_format);
+    }
+
+    if let Ok(legacy) = Vec::<tagspecs::legacy::LegacyTagSpecDef>::deserialize(&value) {
+        tracing::debug!(concat!(
+            "Legacy TagSpecs v0.4.0 format detected. Please migrate to v0.6.0 format. ",
+            "Deprecation warnings begin in v6.0.2. ",
+            "The old format will be removed in v6.2.0. ",
+            "See migration guide: https://djls.joshthomas.dev/configuration/tagspecs/#migration-from-v040",
+        ));
+        return Ok(tagspecs::legacy::convert_legacy_tagspecs(legacy));
+    }
+
+    Err(D::Error::custom(
+        "Invalid tagspecs format. Expected v0.6.0 hierarchical format or legacy v0.4.0 array format",
+    ))
 }
 
 impl Settings {
@@ -78,6 +120,9 @@ impl Settings {
                 .or(settings.django_settings_module);
             if !overrides.pythonpath.is_empty() {
                 settings.pythonpath = overrides.pythonpath;
+            }
+            if !overrides.tagspecs.libraries.is_empty() {
+                settings.tagspecs = overrides.tagspecs;
             }
             // For diagnostics, override if the config is non-default
             if overrides.diagnostics != DiagnosticsConfig::default() {
@@ -152,6 +197,11 @@ impl Settings {
     }
 
     #[must_use]
+    pub fn tagspecs(&self) -> &TagSpecDef {
+        &self.tagspecs
+    }
+
+    #[must_use]
     pub fn diagnostics(&self) -> &DiagnosticsConfig {
         &self.diagnostics
     }
@@ -179,6 +229,7 @@ mod tests {
                     venv_path: None,
                     django_settings_module: None,
                     pythonpath: vec![],
+                    tagspecs: TagSpecDef::default(),
                     diagnostics: DiagnosticsConfig::default(),
                 }
             );
@@ -455,6 +506,75 @@ T100 = "hint"
                     ..Default::default()
                 }
             );
+        }
+    }
+
+    mod tagspecs {
+        use super::*;
+
+        #[test]
+        fn test_load_tagspecs_v060_from_djls_toml() {
+            let dir = tempdir().unwrap();
+
+            fs::write(
+                dir.path().join("djls.toml"),
+                r#"
+[tagspecs]
+version = "0.6.0"
+
+[[tagspecs.libraries]]
+module = "myapp.templatetags.custom"
+
+[[tagspecs.libraries.tags]]
+name = "switch"
+type = "block"
+
+[tagspecs.libraries.tags.end]
+name = "endswitch"
+
+[[tagspecs.libraries.tags.intermediates]]
+name = "case"
+
+[[tagspecs.libraries.tags.args]]
+name = "value"
+kind = "variable"
+"#,
+            )
+            .unwrap();
+
+            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
+            let doc = settings.tagspecs();
+
+            assert_eq!(doc.version, "0.6.0");
+            assert_eq!(doc.libraries.len(), 1);
+            assert_eq!(doc.libraries[0].module, "myapp.templatetags.custom");
+            assert_eq!(doc.libraries[0].tags.len(), 1);
+            assert_eq!(doc.libraries[0].tags[0].name, "switch");
+        }
+
+        #[test]
+        fn test_load_legacy_tagspecs_v040_array_format() {
+            let dir = tempdir().unwrap();
+
+            fs::write(
+                dir.path().join("djls.toml"),
+                r#"
+[[tagspecs]]
+name = "block"
+module = "django.template.loader_tags"
+end_tag = { name = "endblock", optional = false }
+"#,
+            )
+            .unwrap();
+
+            let settings = Settings::new(Utf8Path::from_path(dir.path()).unwrap(), None).unwrap();
+            let doc = settings.tagspecs();
+
+            assert_eq!(doc.version, "0.6.0");
+            assert_eq!(doc.libraries.len(), 1);
+            assert_eq!(doc.libraries[0].module, "django.template.loader_tags");
+            assert_eq!(doc.libraries[0].tags.len(), 1);
+            assert_eq!(doc.libraries[0].tags[0].name, "block");
         }
     }
 

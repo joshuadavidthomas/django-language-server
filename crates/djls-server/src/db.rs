@@ -43,6 +43,7 @@ use salsa::Setter;
 #[salsa::tracked]
 pub fn compute_tag_specs(db: &dyn SemanticDb, project: Project) -> TagSpecs {
     let _libraries = project.template_libraries(db);
+    let tagspecs = project.tagspecs(db);
 
     let mut specs = TagSpecs::default();
 
@@ -55,6 +56,13 @@ pub fn compute_tag_specs(db: &dyn SemanticDb, project: Project) -> TagSpecs {
     // Merge external extraction results (from Project field, updated by refresh_inspector)
     for extraction in project.extracted_external_rules(db).values() {
         specs.merge_extraction_results(extraction);
+    }
+
+    // Fill extraction gaps with manual TagSpecs configuration (fallback).
+    // Extraction always wins.
+    if !tagspecs.libraries.is_empty() {
+        let fallback = TagSpecs::from_tagspec_def(tagspecs);
+        specs.merge_fallback(fallback);
     }
 
     specs
@@ -297,6 +305,11 @@ impl DjangoDatabase {
         if project.pythonpath(self) != &new_pythonpath {
             project.set_pythonpath(self).to(new_pythonpath);
             env_changed = true;
+        }
+
+        let new_tagspecs = settings.tagspecs().clone();
+        if project.tagspecs(self) != &new_tagspecs {
+            project.set_tagspecs(self).to(new_tagspecs);
         }
 
         let new_diagnostics = settings.diagnostics().clone();
@@ -593,6 +606,7 @@ mod invalidation_tests {
             interpreter,
             dsm,
             settings.pythonpath().to_vec(),
+            settings.tagspecs().clone(),
             TemplateLibraries::default(),
             rustc_hash::FxHashMap::default(),
             settings.diagnostics().clone(),
@@ -650,6 +664,48 @@ mod invalidation_tests {
         assert!(
             was_executed(&db, &events, "compute_tag_specs"),
             "compute_tag_specs should re-execute after template_libraries change"
+        );
+    }
+
+    #[test]
+    fn tagspecs_change_invalidates_compute_tag_specs() {
+        let (mut db, event_log) = test_db_with_project();
+
+        // Prime the cache
+        let _specs = db.tag_specs();
+        event_log.take();
+
+        let project = db.project.lock().unwrap().unwrap();
+
+        let new_tagspecs = djls_conf::TagSpecDef {
+            version: "0.6.0".to_string(),
+            engine: "django".to_string(),
+            requires_engine: None,
+            extends: vec![],
+            libraries: vec![djls_conf::TagLibraryDef {
+                module: "myapp.templatetags.custom".to_string(),
+                requires_engine: None,
+                tags: vec![djls_conf::TagDef {
+                    name: "switch".to_string(),
+                    tag_type: djls_conf::TagTypeDef::Block,
+                    end: None,
+                    intermediates: vec![],
+                    args: vec![],
+                    extra: None,
+                }],
+                extra: None,
+            }],
+            extra: None,
+        };
+
+        project.set_tagspecs(&mut db).to(new_tagspecs);
+
+        // Access again — should re-execute
+        let _specs = db.tag_specs();
+        let events = event_log.take();
+        assert!(
+            was_executed(&db, &events, "compute_tag_specs"),
+            "compute_tag_specs should re-execute after tagspecs change"
         );
     }
 

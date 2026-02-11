@@ -61,11 +61,7 @@ pub(crate) fn builtin_filter_json(name: &str, module: &str) -> serde_json::Value
     })
 }
 
-pub(crate) fn library_filter_json(
-    name: &str,
-    load_name: &str,
-    module: &str,
-) -> serde_json::Value {
+pub(crate) fn library_filter_json(name: &str, load_name: &str, module: &str) -> serde_json::Value {
     serde_json::json!({
         "kind": "filter",
         "name": name,

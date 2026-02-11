@@ -616,7 +616,8 @@ mod tests {
         crate::testing::render_validate_snapshot_filtered(db, "test.html", 0, source, |err| {
             matches!(
                 err,
-                ValidationError::UnknownLibrary { .. } | ValidationError::LibraryNotInInstalledApps { .. }
+                ValidationError::UnknownLibrary { .. }
+                    | ValidationError::LibraryNotInInstalledApps { .. }
             )
         })
     }

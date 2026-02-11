@@ -45,6 +45,14 @@ Additional directories to add to Python's import search path when the inspector 
 - Your project depends on internal libraries in non-standard locations
 - You need to make additional packages importable for Django introspection
 
+### `tagspecs`
+
+Optional manual TagSpecs configuration.
+
+djls primarily derives tag structure and argument rules automatically from Python source code. For edge cases (dynamic tags, unusual registration patterns, complex parsing), you can provide TagSpecs as a fallback.
+
+See [TagSpecs](tagspecs.md).
+
 ### `debug`
 
 **Default:** `false`
@@ -121,7 +129,9 @@ Map diagnostic codes or prefixes to severity levels. Supports:
 
 !!! note "Automatic Validation"
 
-    Template tag validation rules (argument counts, required keywords, block structure) are derived automatically from Python source code via static AST analysis. No manual configuration is needed — djls reads Django's own template tag implementations to understand their requirements.
+    Template tag validation rules (argument counts, required keywords, block structure) are derived automatically from Python source code via static AST analysis.
+
+    For edge cases where extraction can't infer enough information, you can optionally provide manual [TagSpecs](tagspecs.md) as a fallback.
 
 See [Template Validation](../template-validation.md) for details on how these diagnostics work and their limitations.
 

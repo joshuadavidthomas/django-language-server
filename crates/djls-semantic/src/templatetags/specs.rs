@@ -190,6 +190,182 @@ impl TagSpecs {
         }
         self
     }
+
+    /// Merge fallback specs into this one without overriding extraction-derived data.
+    ///
+    /// This is used for manual `TagSpecs` configuration: extraction wins, fallback
+    /// only fills missing end tags, intermediates, and argument rules.
+    pub fn merge_fallback(&mut self, fallback: TagSpecs) -> &mut Self {
+        let TagSpecs(fallback) = fallback;
+
+        for (name, fallback_spec) in fallback {
+            match self.0.get_mut(&name) {
+                None => {
+                    self.0.insert(name, fallback_spec);
+                }
+                Some(existing) => {
+                    let mut fallback_spec = fallback_spec;
+
+                    if existing.end_tag.is_none() {
+                        existing.end_tag = fallback_spec.end_tag.take();
+                    }
+
+                    if existing.intermediate_tags.is_empty()
+                        && !fallback_spec.intermediate_tags.is_empty()
+                    {
+                        existing.intermediate_tags = fallback_spec.intermediate_tags;
+                    }
+
+                    if existing.extracted_rules.is_none() {
+                        existing.extracted_rules = fallback_spec.extracted_rules;
+                    }
+                }
+            }
+        }
+
+        self
+    }
+
+    #[must_use]
+    #[allow(clippy::too_many_lines)]
+    pub fn from_tagspec_def(doc: &djls_conf::TagSpecDef) -> TagSpecs {
+        let mut specs = FxHashMap::default();
+
+        for library in &doc.libraries {
+            for tag_def in &library.tags {
+                let end_tag = match tag_def.tag_type.clone() {
+                    djls_conf::TagTypeDef::Block => tag_def.end.as_ref().map_or_else(
+                        || {
+                            Some(EndTag {
+                                name: format!("end{}", tag_def.name).into(),
+                                required: true,
+                            })
+                        },
+                        |end| {
+                            Some(EndTag {
+                                name: end.name.clone().into(),
+                                required: end.required,
+                            })
+                        },
+                    ),
+                    djls_conf::TagTypeDef::Loader => tag_def.end.as_ref().map(|end| EndTag {
+                        name: end.name.clone().into(),
+                        required: end.required,
+                    }),
+                    djls_conf::TagTypeDef::Standalone => None,
+                };
+
+                let intermediate_tags: Vec<IntermediateTag> = tag_def
+                    .intermediates
+                    .iter()
+                    .map(|it| IntermediateTag {
+                        name: it.name.clone().into(),
+                    })
+                    .collect();
+
+                let extracted_rules = if tag_def.args.is_empty() {
+                    None
+                } else {
+                    use djls_python::ArgumentCountConstraint;
+                    use djls_python::ChoiceAt;
+                    use djls_python::ExtractedArg;
+                    use djls_python::ExtractedArgKind;
+                    use djls_python::RequiredKeyword;
+                    use djls_python::SplitPosition;
+                    use djls_python::TagRule;
+
+                    let mut rule = TagRule::default();
+
+                    let required_count = tag_def.args.iter().filter(|arg| arg.required).count();
+                    if required_count > 0 {
+                        rule.arg_constraints
+                            .push(ArgumentCountConstraint::Min(required_count + 1));
+                    }
+
+                    let mut extracted_args = Vec::new();
+
+                    for (pos, arg) in tag_def.args.iter().enumerate() {
+                        let mut kind = match arg.kind.clone() {
+                            djls_conf::ArgKindDef::Syntax
+                            | djls_conf::ArgKindDef::Literal
+                            | djls_conf::ArgKindDef::Modifier => {
+                                ExtractedArgKind::Literal(arg.name.clone())
+                            }
+                            djls_conf::ArgKindDef::Choice => {
+                                let choices: Vec<String> = arg
+                                    .extra
+                                    .as_ref()
+                                    .and_then(|extra| extra.get("choices"))
+                                    .and_then(serde_json::Value::as_array)
+                                    .map(|arr| {
+                                        arr.iter()
+                                            .filter_map(serde_json::Value::as_str)
+                                            .map(String::from)
+                                            .collect()
+                                    })
+                                    .unwrap_or_default();
+
+                                ExtractedArgKind::Choice(choices)
+                            }
+                            djls_conf::ArgKindDef::Variable
+                            | djls_conf::ArgKindDef::Any
+                            | djls_conf::ArgKindDef::Assignment => ExtractedArgKind::Variable,
+                        };
+
+                        if matches!(arg.arg_type, djls_conf::ArgTypeDef::Keyword)
+                            && matches!(kind, ExtractedArgKind::Variable)
+                        {
+                            kind = ExtractedArgKind::Keyword;
+                        }
+
+                        extracted_args.push(ExtractedArg {
+                            name: arg.name.clone(),
+                            required: arg.required,
+                            kind: kind.clone(),
+                            position: pos,
+                        });
+
+                        if arg.required {
+                            match kind {
+                                ExtractedArgKind::Literal(value) => {
+                                    rule.required_keywords.push(RequiredKeyword {
+                                        position: SplitPosition::Forward(pos + 1),
+                                        value,
+                                    });
+                                }
+                                ExtractedArgKind::Choice(values) => {
+                                    if !values.is_empty() {
+                                        rule.choice_at_constraints.push(ChoiceAt {
+                                            position: SplitPosition::Forward(pos + 1),
+                                            values,
+                                        });
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+
+                    rule.extracted_args = extracted_args;
+
+                    Some(rule)
+                };
+
+                specs.insert(
+                    tag_def.name.clone(),
+                    TagSpec {
+                        module: library.module.clone().into(),
+                        end_tag,
+                        intermediate_tags: Cow::Owned(intermediate_tags),
+                        opaque: false,
+                        extracted_rules,
+                    },
+                );
+            }
+        }
+
+        TagSpecs::new(specs)
+    }
 }
 
 impl Deref for TagSpecs {

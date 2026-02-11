@@ -245,7 +245,6 @@ mod tests {
     use super::super::LoadKind;
     use super::super::LoadStatement;
     use super::*;
-
     use crate::testing::builtin_filter_json;
     use crate::testing::builtin_tag_json;
     use crate::testing::library_filter_json;
