@@ -1,0 +1,9 @@
+---
+source: crates/djls-source/src/render.rs
+expression: plain().render(&diag)
+---
+error[S111]: Unknown filter 'bogus_filter'
+ --> templates/long.html:1:224
+  |
+1 | ...xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx">{{ value|bogus_filter }}</div>
+  |                                               ^^^^^^^^^^^^ not a built-in or loaded filter

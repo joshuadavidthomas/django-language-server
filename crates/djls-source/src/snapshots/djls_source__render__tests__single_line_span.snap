@@ -1,0 +1,9 @@
+---
+source: crates/djls-source/src/render.rs
+expression: plain().render(&diag)
+---
+error[S100]: Unclosed tag: block
+ --> templates/page.html:1:1
+  |
+1 | {% block content %}
+  | ^^^^^^^^^^^^^^^^^^^ this block tag is never closed

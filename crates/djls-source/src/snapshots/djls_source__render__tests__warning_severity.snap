@@ -1,0 +1,9 @@
+---
+source: crates/djls-source/src/render.rs
+expression: plain().render(&diag)
+---
+warning[W001]: Duplicate {% load i18n %}
+ --> templates/dupes.html:2:1
+  |
+2 | {% load i18n %}
+  | ^^^^^^^^^^^^^^^ already loaded on line 1

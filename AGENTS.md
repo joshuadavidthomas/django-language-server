@@ -17,6 +17,11 @@ just corpus clean                # Remove all synced corpus data
 # NEVER use `cargo doc --open` - it requires browser interaction
 ```
 
+## Testing
+**All tests must pass.** If a test fails, it is your responsibility to fix it — even if you didn't cause the failure. Never dismiss failures as "pre-existing" or "unrelated".
+
+Sync the corpus (`just corpus sync`) if corpus tests fail, fix broken snapshots, and do whatever else is needed to get a clean run before considering work complete.
+
 ## Code Style
 - LSP: Use `tower-lsp-server` NOT `tower-lsp`. Imports are `tower_lsp_server::*` NOT `tower_lsp::*`
 - LSP types: Use `tower_lsp_server::lsp_types` — comes transitively, don't add `lsp-types` directly
@@ -85,3 +90,8 @@ just corpus clean                # Remove all synced corpus data
 
 ## Task Management
 Use `/dex` to break down complex work, track progress across sessions, and coordinate multi-step implementations.
+
+Dex tasks vs GitHub issues:
+- GitHub issues are the intake — bug reports, feature ideas, brainstorms from users and long-term thinking.
+- Dex tasks are actionable work items: things to do now or soon.
+- A dex task may be derived from a GitHub issue (via `dex import`), but not every issue becomes a task, and tasks can exist without an issue. Don't treat them as the same thing.
