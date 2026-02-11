@@ -15,7 +15,9 @@ fn main() {
 // Rendering engine benchmarks
 
 fn span_of(source: &str, needle: &str) -> Span {
-    let start = source.find(needle).unwrap_or(0);
+    let start = source
+        .find(needle)
+        .expect("span_of: needle not found in source");
     Span::saturating_from_bounds_usize(start, start + needle.len())
 }
 

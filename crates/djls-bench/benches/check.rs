@@ -149,33 +149,41 @@ struct CorpusTemplates {
     files: Vec<(Utf8PathBuf, String)>,
 }
 
+fn load_corpus_inner(
+    get_paths: impl FnOnce(&djls_corpus::Corpus) -> Option<Vec<Utf8PathBuf>>,
+) -> Option<CorpusTemplates> {
+    let corpus_dir =
+        Utf8PathBuf::from(env!("CARGO_WORKSPACE_DIR")).join("crates/djls-corpus/.corpus");
+    if !corpus_dir.as_std_path().exists() {
+        return None;
+    }
+
+    let corpus = djls_corpus::Corpus::require();
+    let template_paths = get_paths(&corpus)?;
+
+    let files: Vec<(Utf8PathBuf, String)> = template_paths
+        .into_iter()
+        .filter_map(|path| {
+            let source = std::fs::read_to_string(path.as_std_path()).ok()?;
+            Some((path, source))
+        })
+        .collect();
+
+    if files.is_empty() {
+        return None;
+    }
+
+    Some(CorpusTemplates { files })
+}
+
 fn load_corpus_templates() -> Option<&'static CorpusTemplates> {
     static CORPUS: OnceLock<Option<CorpusTemplates>> = OnceLock::new();
     CORPUS
         .get_or_init(|| {
-            let corpus_dir =
-                Utf8PathBuf::from(env!("CARGO_WORKSPACE_DIR")).join("crates/djls-corpus/.corpus");
-            if !corpus_dir.as_std_path().exists() {
-                return None;
-            }
-
-            let corpus = djls_corpus::Corpus::require();
-            let django_dir = corpus.latest_package("django")?;
-            let template_paths = corpus.templates_in(&django_dir);
-
-            let files: Vec<(Utf8PathBuf, String)> = template_paths
-                .into_iter()
-                .filter_map(|path| {
-                    let source = std::fs::read_to_string(path.as_std_path()).ok()?;
-                    Some((path, source))
-                })
-                .collect();
-
-            if files.is_empty() {
-                return None;
-            }
-
-            Some(CorpusTemplates { files })
+            load_corpus_inner(|corpus| {
+                let django_dir = corpus.latest_package("django")?;
+                Some(corpus.templates_in(&django_dir))
+            })
         })
         .as_ref()
 }
@@ -183,30 +191,7 @@ fn load_corpus_templates() -> Option<&'static CorpusTemplates> {
 fn load_full_corpus_templates() -> Option<&'static CorpusTemplates> {
     static CORPUS: OnceLock<Option<CorpusTemplates>> = OnceLock::new();
     CORPUS
-        .get_or_init(|| {
-            let corpus_dir =
-                Utf8PathBuf::from(env!("CARGO_WORKSPACE_DIR")).join("crates/djls-corpus/.corpus");
-            if !corpus_dir.as_std_path().exists() {
-                return None;
-            }
-
-            let corpus = djls_corpus::Corpus::require();
-            let template_paths = corpus.templates_in(corpus.root());
-
-            let files: Vec<(Utf8PathBuf, String)> = template_paths
-                .into_iter()
-                .filter_map(|path| {
-                    let source = std::fs::read_to_string(path.as_std_path()).ok()?;
-                    Some((path, source))
-                })
-                .collect();
-
-            if files.is_empty() {
-                return None;
-            }
-
-            Some(CorpusTemplates { files })
-        })
+        .get_or_init(|| load_corpus_inner(|corpus| Some(corpus.templates_in(corpus.root()))))
         .as_ref()
 }
 

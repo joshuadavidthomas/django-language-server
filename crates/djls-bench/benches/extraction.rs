@@ -8,7 +8,7 @@ fn main() {
 
 #[divan::bench(args = python_fixtures())]
 fn extract_rules(fixture: &PythonFixture) {
-    let _ = djls_python::extract_rules(&fixture.source, "bench.module");
+    divan::black_box(djls_python::extract_rules(&fixture.source, "bench.module"));
 }
 
 #[divan::bench]
@@ -16,7 +16,7 @@ fn extract_all_modules(bencher: Bencher) {
     let fixtures = python_fixtures();
     bencher.bench_local(move || {
         for fixture in fixtures {
-            let _ = djls_python::extract_rules(&fixture.source, "bench.module");
+            divan::black_box(djls_python::extract_rules(&fixture.source, "bench.module"));
         }
     });
 }

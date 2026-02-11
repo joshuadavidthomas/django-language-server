@@ -58,6 +58,8 @@ fn load_template_fixtures() -> Vec<TemplateFixture> {
     )
     .unwrap_or_else(|err| panic!("failed to load template fixtures: {err}"));
 
+    fixtures.sort_by(|a, b| a.0.cmp(&b.0));
+
     let fixtures = fixtures
         .into_iter()
         .map(|(label, path, source)| TemplateFixture {
@@ -78,6 +80,8 @@ fn load_python_fixtures() -> Vec<PythonFixture> {
     let mut fixtures = Vec::new();
     collect_files(root.as_path(), root.as_path(), &["py"], &mut fixtures)
         .unwrap_or_else(|err| panic!("failed to load Python fixtures: {err}"));
+
+    fixtures.sort_by(|a, b| a.0.cmp(&b.0));
 
     let fixtures = fixtures
         .into_iter()
@@ -134,8 +138,6 @@ fn collect_files(
             fixtures.push((relative.to_string(), utf8_path, source));
         }
     }
-
-    fixtures.sort_by(|a, b| a.0.cmp(&b.0));
 
     Ok(())
 }
