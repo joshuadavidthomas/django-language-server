@@ -256,6 +256,7 @@ Available recipes:
     check *ARGS
     clean
     clippy *ARGS
+    corpus *ARGS
     fmt *ARGS
     lint          # run pre-commit on all files
     test *ARGS
