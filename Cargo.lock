@@ -674,6 +674,8 @@ dependencies = [
  "camino",
  "codspeed-divan-compat",
  "djls-conf",
+ "djls-corpus",
+ "djls-ide",
  "djls-project",
  "djls-python",
  "djls-semantic",

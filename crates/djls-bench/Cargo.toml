@@ -5,6 +5,8 @@ edition = "2021"
 
 [dependencies]
 djls-conf = { workspace = true }
+djls-corpus = { workspace = true }
+djls-ide = { workspace = true }
 djls-project = { workspace = true }
 djls-python = { workspace = true }
 djls-semantic = { workspace = true }
@@ -21,6 +23,18 @@ harness = false
 
 [[bench]]
 name = "semantic"
+harness = false
+
+[[bench]]
+name = "extraction"
+harness = false
+
+[[bench]]
+name = "diagnostics"
+harness = false
+
+[[bench]]
+name = "check"
 harness = false
 
 [lints]
