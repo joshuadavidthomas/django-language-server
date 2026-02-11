@@ -18,15 +18,15 @@ just corpus clean                # Remove all synced corpus data
 ```
 
 ## Code Style
-- **IMPORTANT LSP**: Use `tower-lsp-server` NOT `tower-lsp`. Imports are `tower_lsp_server::*` NOT `tower_lsp::*`
-- **LSP Types**: Use `tower_lsp_server::lsp_types` — comes transitively, don't add `lsp-types` directly
-- **Imports**: One per line, grouped (std/external/crate), vertical layout per `.rustfmt.toml`
-- **Errors**: Use `anyhow::Result` for binaries, `thiserror` for libraries
-- **Naming**: snake_case functions/variables, CamelCase types, SCREAMING_SNAKE constants
-- **Comments**: Avoid unless essential; use doc comments `///` for public APIs only
-- **Testing**: Use `insta` for snapshot tests in template parser. NEVER write standalone test files — always add test cases to existing test modules in the codebase
-- **Python**: Inspector runs via zipapp, test against Django 4.2/5.1/5.2/main
-- **Module convention**: Uses `folder.rs` NOT `folder/mod.rs` (e.g. `templatetags.rs` + `templatetags/specs.rs`)
+- LSP: Use `tower-lsp-server` NOT `tower-lsp`. Imports are `tower_lsp_server::*` NOT `tower_lsp::*`
+- LSP types: Use `tower_lsp_server::lsp_types` — comes transitively, don't add `lsp-types` directly
+- Imports: One per line, grouped (std/external/crate), vertical layout per `.rustfmt.toml`
+- Errors: `anyhow::Result` for binaries, `thiserror` for libraries
+- Naming: snake_case functions/variables, CamelCase types, SCREAMING_SNAKE constants
+- Comments: Avoid unless essential; use doc comments `///` for public APIs only
+- Testing: Use `insta` for snapshot tests in template parser. NEVER write standalone test files — always add test cases to existing test modules in the codebase
+- Python: Inspector runs via zipapp, test against Django 4.2/5.1/5.2/main
+- Module convention: Uses `folder.rs` NOT `folder/mod.rs` (e.g. `templatetags.rs` + `templatetags/specs.rs`)
 
 ## Project Structure
 - `crates/djls/` - Main CLI binary
@@ -43,30 +43,30 @@ just corpus clean                # Remove all synced corpus data
 - `crates/djls-bench/` - Benchmark database (implements `SemanticDb`)
 - `crates/djls-corpus/` - Corpus syncing for integration tests
 
-## Salsa Patterns
-- **Setter API**: `project.set_field(db).to(value)` — NOT `.set_field(db, value)`. The `.to()` call is required.
-- **Compare before setting**: `project.field(db) != &new_value` before calling setter — setters always invalidate.
-- **`#[returns(ref)]`**: Use on fields returning owned types. Salsa returns `&T`, so compare with `&new_value`.
-- **Tracked return types need `PartialEq`**: Salsa uses equality for backdate optimization.
-
 ## Workspace and Crate Conventions
-- **All crates live in `crates/`**, auto-discovered via `members = ["crates/*"]`
-- **All dependency versions** (third-party and internal) go in `[workspace.dependencies]` in root `Cargo.toml`. Crates reference with `dep.workspace = true`. Never specify a version directly in a crate's `Cargo.toml`.
-- **Root `[workspace.dependencies]` grouping**: internal path crates → pinned core deps (`salsa`, `tower-lsp-server`) → crates.io deps → git deps (`ruff_*`). Blank line between groups, alphabetical within each.
-- **Alphabetical order** in each crate's `[dependencies]`
-- **Internal deps listed before third-party** in each crate's `Cargo.toml`, separated by a blank line, both groups alphabetical
-- **`[lints] workspace = true`** in every crate — lints are configured once in root `[workspace.lints]`
-- **Versioning**: Only `djls` (the binary) carries the release version (currently `6.0.0`). All library crates use `version = "0.0.0"`.
-- **Adding a new crate**: Add to `[workspace.dependencies]` in root `Cargo.toml` (alphabetical), create `crates/<name>/Cargo.toml` with `{ workspace = true }` deps and `[lints] workspace = true`
+- All crates live in `crates/`, auto-discovered via `members = ["crates/*"]`
+- All dependency versions (third-party and internal) go in `[workspace.dependencies]` in root `Cargo.toml`. Crates reference with `dep.workspace = true`. Never specify a version directly in a crate's `Cargo.toml`.
+- Root `[workspace.dependencies]` grouping: internal path crates → pinned core deps (`salsa`, `tower-lsp-server`) → crates.io deps → git deps (`ruff_*`). Blank line between groups, alphabetical within each.
+- Alphabetical order in each crate's `[dependencies]`
+- Internal deps listed before third-party in each crate's `Cargo.toml`, separated by a blank line, both groups alphabetical
+- `[lints] workspace = true` in every crate — lints are configured once in root `[workspace.lints]`
+- Versioning: Only `djls` (the binary) carries the release version (currently `6.0.0`). All library crates use `version = "0.0.0"`.
+- Adding a new crate: Add to `[workspace.dependencies]` in root `Cargo.toml` (alphabetical), create `crates/<name>/Cargo.toml` with `{ workspace = true }` deps and `[lints] workspace = true`
+
+## Salsa Patterns
+- Setter API: `project.set_field(db).to(value)` — NOT `.set_field(db, value)`. The `.to()` call is required.
+- Compare before setting: `project.field(db) != &new_value` before calling setter — setters always invalidate.
+- `#[returns(ref)]`: Use on fields returning owned types. Salsa returns `&T`, so compare with `&new_value`.
+- Tracked return types need `PartialEq`: Salsa uses equality for backdate optimization.
 
 ## Key Conventions
-- **Parser `Node::Tag.bits` excludes tag name**: `{% load i18n %}` → `name: "load"`, `bits: ["i18n"]`. Functions processing `bits` work with arguments only.
-- **Paths**: Use `camino::Utf8Path`/`Utf8PathBuf` as the canonical path types. Avoid `std::path::Path`/`PathBuf` except at FFI boundaries or when interfacing with APIs that require them (e.g., `walkdir` results — convert at the boundary).
-- **Insta snapshots**: After changing serialized types, run `cargo insta test --accept --unreferenced delete` to update snapshots and clean orphans.
-- **Environment layout**: Environment scan functions (`scan_environment`, `scan_environment_with_symbols`) live in `djls-project/src/scanning.rs`; environment types (`EnvironmentInventory`, `EnvironmentLibrary`, `EnvironmentSymbol`) in `djls-python/src/environment/types.rs`.
-- **`ValidationError` is exhaustive**: When adding/removing variants, update `errors.rs`, `djls-ide/src/diagnostics.rs` (S-code mapping), and test helpers. Grep: `grep -rn "ValidationError" crates/ --include="*.rs"`.
-- **`SemanticDb` trait**: When adding methods, update impls in `djls-db/src/db.rs` and `djls-bench/src/db.rs`.
-- **`crate::Db` in `djls-semantic`**: When adding methods, update ALL test databases (~10 files). E0046 if you miss one. Grep: `grep -rn "impl crate::Db" crates/djls-semantic/ --include="*.rs"`.
+- Parser `Node::Tag.bits` excludes tag name: `{% load i18n %}` → `name: "load"`, `bits: ["i18n"]`. Functions processing `bits` work with arguments only.
+- Paths: Use `camino::Utf8Path`/`Utf8PathBuf` as the canonical path types. Avoid `std::path::Path`/`PathBuf` except at FFI boundaries or when interfacing with APIs that require them (e.g., `walkdir` results — convert at the boundary).
+- Insta snapshots: After changing serialized types, run `cargo insta test --accept --unreferenced delete` to update snapshots and clean orphans.
+- Environment layout: Environment scan functions (`scan_environment`, `scan_environment_with_symbols`) live in `djls-project/src/scanning.rs`; environment types (`EnvironmentInventory`, `EnvironmentLibrary`, `EnvironmentSymbol`) in `djls-python/src/environment/types.rs`.
+- `ValidationError` is exhaustive: When adding/removing variants, update `errors.rs`, `djls-ide/src/diagnostics.rs` (S-code mapping), and test helpers. Grep: `grep -rn "ValidationError" crates/ --include="*.rs"`.
+- `SemanticDb` trait: When adding methods, update impls in `djls-db/src/db.rs` and `djls-bench/src/db.rs`.
+- `crate::Db` in `djls-semantic`: When adding methods, update ALL test databases (~10 files). E0046 if you miss one. Grep: `grep -rn "impl crate::Db" crates/djls-semantic/ --include="*.rs"`.
 
 ## Changelog
 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) format.
@@ -77,11 +77,11 @@ just corpus clean                # Remove all synced corpus data
 - Backtick-wrap code identifiers: crate names, types, commands, config keys
 
 ## Ruff AST API (djls-extraction)
-- **Parse**: `ruff_python_parser::parse_module(source)` → `.into_syntax()` for `ModModule` AST
-- **Parameters**: No top-level `defaults` field — defaults are per-parameter: `ParameterWithDefault { parameter, default: Option<Box<Expr>> }`
-- **Box fields**: `StmtWhile.test`, `StmtIf.test` etc. are `Box<Expr>` — dereference with `&*` for pattern matching
-- **FString**: `FStringValue` uses `.iter()` not `.parts()` for `FStringPart` iteration
-- **ExceptHandler**: `ExceptHandler::ExceptHandler` is irrefutable — use `let` not `if let`
+- Parse: `ruff_python_parser::parse_module(source)` → `.into_syntax()` for `ModModule` AST
+- Parameters: No top-level `defaults` field — defaults are per-parameter: `ParameterWithDefault { parameter, default: Option<Box<Expr>> }`
+- Box fields: `StmtWhile.test`, `StmtIf.test` etc. are `Box<Expr>` — dereference with `&*` for pattern matching
+- FString: `FStringValue` uses `.iter()` not `.parts()` for `FStringPart` iteration
+- ExceptHandler: `ExceptHandler::ExceptHandler` is irrefutable — use `let` not `if let`
 
 ## Task Management
 Use `/dex` to break down complex work, track progress across sessions, and coordinate multi-step implementations.
