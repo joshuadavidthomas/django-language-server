@@ -287,7 +287,8 @@ def update_changelog(session, version):
     ).strip()
     repo_url = repo_url.replace(".git", "")
 
-    changelog += f"\n[{version}]: {repo_url}/releases/tag/v{version}"
+    changelog = changelog.rstrip("\n")
+    changelog += f"\n[{version}]: {repo_url}/releases/tag/v{version}\n"
     changelog = re.sub(
         r"\[unreleased\]: .+",
         f"[unreleased]: {repo_url}/compare/v{version}...HEAD",
@@ -365,6 +366,9 @@ def release(session):
     update_changelog(session, version)
     update_uvlock(session, version)
 
+    session.run(
+        "git", "push", "--set-upstream", "origin", f"release/v{version}", external=True
+    )
     session.run("gh", "pr", "create", "--fill", external=True)
 
 
