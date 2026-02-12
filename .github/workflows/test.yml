@@ -51,7 +51,7 @@ permissions: {}
 
 jobs:
   should-run:
-    if: github.event_name != 'push' || !contains(github.event.head_commit.message, ':bookmark: bump version')
+    if: ${{ github.event_name != 'push' || !contains(github.event.head_commit.message, ':bookmark: bump version') }}
     runs-on: ubuntu-latest
     steps:
       - run: true
