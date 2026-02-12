@@ -25,6 +25,8 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Changed
 
+- Parallelized inspector subprocess query and filesystem library discovery during startup, hiding discovery latency behind the slower inspector call.
+- Added filesystem cache for inspector responses (`~/.cache/djls/inspector/`). On subsequent startups, cached data is loaded in ~2ms instead of waiting 200-700ms for the Python subprocess. The cache is validated in the background on every startup.
 - **Internal**: `AvailableSymbols` now borrows `&str` from `TemplateLibraries` instead of cloning owned `String`s, cutting validation overhead by 30-60% across benchmarks.
 
 ## [6.0.2]
