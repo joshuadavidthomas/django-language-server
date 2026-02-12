@@ -36,3 +36,52 @@ inspect:
 record FILENAME="djls.db":
     rm -f {{ FILENAME }}
     @just dev devtools record --to-sqlite {{ FILENAME }}
+
+# Profile a bench and generate a flamegraph SVG + collapsed stacks.
+# Usage: just dev profile <bench> [filter]
+# Example: just dev profile parser parse_template
+[no-cd]
+profile bench filter="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    bench="{{ bench }}"
+    filter="{{ filter }}"
+    profiles_dir="profiles"
+
+    label="${bench}"
+    if [ -n "$filter" ]; then
+        label="${bench}-${filter}"
+    fi
+
+    mkdir -p "$profiles_dir"
+
+    echo "Building bench '${bench}' with debug info..."
+    cargo bench -p djls-bench --bench "$bench" --no-run -q
+
+    binary=$(cargo bench -p djls-bench --bench "$bench" --no-run --message-format=json 2>/dev/null \
+        | jq -r 'select(.executable != null and .target.name == "'"$bench"'") | .executable' \
+        | head -1)
+
+    if [ -z "$binary" ] || [ ! -f "$binary" ]; then
+        echo "Error: could not find bench binary for '${bench}'" >&2
+        exit 1
+    fi
+
+    echo "Profiling..."
+    if [ -n "$filter" ]; then
+        flamegraph -o "${profiles_dir}/${label}.svg" \
+            --post-process "tee ${profiles_dir}/${label}.collapsed" \
+            -- "$binary" "$filter" 2>&1 \
+            | rg -v 'cmd__addr2line'
+    else
+        flamegraph -o "${profiles_dir}/${label}.svg" \
+            --post-process "tee ${profiles_dir}/${label}.collapsed" \
+            -- "$binary" 2>&1 \
+            | rg -v 'cmd__addr2line'
+    fi
+
+    echo ""
+    echo "Output:"
+    echo "  Collapsed stacks: ${profiles_dir}/${label}.collapsed"
+    echo "  Flamegraph SVG:   ${profiles_dir}/${label}.svg"
