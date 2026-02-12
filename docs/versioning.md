@@ -24,7 +24,7 @@ For example, if a configuration option is deprecated:
 
 - **`v6.0.0`**: Old option works but logs deprecation warning
 - **`v6.0.1`**: Old option still works, continues to show warning
-- **`v6.0.3`**: Old option removed
+- **`v6.0.2`**: Old option removed
 
 Or spanning a Django version update:
 
