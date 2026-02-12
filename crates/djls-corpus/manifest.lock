@@ -286,7 +286,7 @@ ref = "644f81babe072bcf6565362a3570f7a180bccd91"
 name = "inventree"
 url = "https://github.com/inventree/InvenTree.git"
 tag = "master"
-ref = "ee10bbb766139b44a95d6a6d63fac987ff3a6e5c"
+ref = "9fbc7ac40c8c56cfaaaa974bf224dfae783b34aa"
 
 [[repo]]
 name = "linkding"
@@ -305,6 +305,12 @@ name = "netbox"
 url = "https://github.com/netbox-community/netbox.git"
 tag = "main"
 ref = "7df062d590a29621f368bd54b9391d0713b06440"
+
+[[repo]]
+name = "nomnom"
+url = "https://github.com/WorldconVotingSystems/nomnom.git"
+tag = "main"
+ref = "063f093a7862f53fda4fb1ed5c139bf19c7f1b8e"
 
 [[repo]]
 name = "pretix"

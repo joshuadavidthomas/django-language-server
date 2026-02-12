@@ -193,6 +193,11 @@ url = "https://github.com/netbox-community/netbox.git"
 ref = "main"
 
 [[repo]]
+name = "nomnom"
+url = "https://github.com/WorldconVotingSystems/nomnom.git"
+ref = "main"
+
+[[repo]]
 name = "pretix"
 url = "https://github.com/pretix/pretix.git"
 ref = "master"
