@@ -87,6 +87,7 @@ impl Lexer {
                 Token::Error {
                     content: err_text,
                     span,
+                    delimiter,
                 }
             }
         }

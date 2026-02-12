@@ -116,11 +116,17 @@ impl Parser {
         let token = self.peek_previous()?;
 
         match token {
-            Token::Error { content, span, .. } => {
-                let error_text = content.clone();
+            Token::Error {
+                content,
+                span,
+                delimiter,
+            } => {
+                let error_text = truncate_content(content);
                 let full_span = token.full_span().unwrap_or(*span);
                 Err(ParseError::MalformedConstruct {
                     position: full_span.start_usize(),
+                    opener: delimiter.opener().to_string(),
+                    closer: delimiter.closer().to_string(),
                     content: error_text,
                 })
             }
@@ -282,8 +288,13 @@ pub enum ParseError {
     #[error("Empty tag")]
     EmptyTag,
 
-    #[error("Malformed Django construct at position {position}: {content}")]
-    MalformedConstruct { position: usize, content: String },
+    #[error("Unclosed '{opener}' (no matching '{closer}' found): {content}")]
+    MalformedConstruct {
+        position: usize,
+        opener: String,
+        closer: String,
+        content: String,
+    },
 
     #[error("Stream error: {kind:?}")]
     StreamError { kind: StreamError },
@@ -293,6 +304,17 @@ impl ParseError {
     pub fn stream_error(kind: impl Into<StreamError>) -> Self {
         Self::StreamError { kind: kind.into() }
     }
+}
+
+const MAX_ERROR_CONTENT_LEN: usize = 60;
+
+fn truncate_content(content: &str) -> String {
+    let trimmed = content.trim();
+    if trimmed.len() <= MAX_ERROR_CONTENT_LEN {
+        return trimmed.to_string();
+    }
+    let truncated = &trimmed[..trimmed.floor_char_boundary(MAX_ERROR_CONTENT_LEN)];
+    format!("{truncated}...")
 }
 
 #[cfg(test)]
