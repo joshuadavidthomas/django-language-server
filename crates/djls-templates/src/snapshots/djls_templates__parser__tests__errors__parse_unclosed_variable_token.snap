@@ -13,4 +13,6 @@ nodelist:
     error:
       MalformedConstruct:
         position: 0
-        content: " user"
+        opener: "{{"
+        closer: "}}"
+        content: user

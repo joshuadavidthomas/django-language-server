@@ -55,7 +55,11 @@ impl TagDelimiter {
 pub enum Token {
     Block { content: String, span: Span },
     Comment { content: String, span: Span },
-    Error { content: String, span: Span },
+    Error {
+        content: String,
+        span: Span,
+        delimiter: TagDelimiter,
+    },
     Eof,
     Newline { span: Span },
     Text { content: String, span: Span },
