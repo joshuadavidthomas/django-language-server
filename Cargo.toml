@@ -68,6 +68,9 @@ missing_errors_doc = "allow"
 #       temporarily delete this `deprecated = "allow"` line
 deprecated = "allow"
 
+[profile.bench]
+debug = 2
+
 [profile.dev.package]
 insta.opt-level = 3
 similar.opt-level = 3

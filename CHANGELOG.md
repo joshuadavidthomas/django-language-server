@@ -18,6 +18,11 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ## [Unreleased]
 
+### Added
+
+- **Internal**: Added `just dev profile` recipe for local flamegraph profiling of benchmarks.
+- **Internal**: Added `[profile.bench]` with `debug = 2` to `Cargo.toml` for symbolized bench profiles.
+
 ## [6.0.2]
 
 ### Changed
