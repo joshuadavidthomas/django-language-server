@@ -1,3 +1,4 @@
+pub mod cache;
 mod db;
 mod discover;
 mod django;

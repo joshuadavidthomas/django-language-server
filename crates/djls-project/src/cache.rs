@@ -13,11 +13,13 @@ use std::fs;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
-use djls_project::TemplateLibrariesResponse;
 use serde::Deserialize;
 use serde::Serialize;
 use sha2::Digest;
 use sha2::Sha256;
+
+use crate::Interpreter;
+use crate::TemplateLibrariesResponse;
 
 /// Envelope wrapping a cached inspector response with version metadata.
 #[derive(Serialize, Deserialize)]
@@ -35,7 +37,7 @@ struct CacheEnvelope {
 /// and PYTHONPATH entries.
 fn cache_key(
     root: &Utf8Path,
-    interpreter: &djls_project::Interpreter,
+    interpreter: &Interpreter,
     django_settings_module: Option<&str>,
     pythonpath: &[String],
 ) -> String {
@@ -56,7 +58,7 @@ fn cache_key(
 /// Resolve the cache directory for a given project environment.
 fn cache_dir(
     root: &Utf8Path,
-    interpreter: &djls_project::Interpreter,
+    interpreter: &Interpreter,
     django_settings_module: Option<&str>,
     pythonpath: &[String],
 ) -> Option<Utf8PathBuf> {
@@ -72,7 +74,7 @@ fn cache_dir(
 /// by a different djls version.
 pub fn load_cached_inspector_response(
     root: &Utf8Path,
-    interpreter: &djls_project::Interpreter,
+    interpreter: &Interpreter,
     django_settings_module: Option<&str>,
     pythonpath: &[String],
 ) -> Option<TemplateLibrariesResponse> {
@@ -100,7 +102,7 @@ pub fn load_cached_inspector_response(
 /// Best-effort: logs warnings on failure but never panics.
 pub fn save_inspector_response(
     root: &Utf8Path,
-    interpreter: &djls_project::Interpreter,
+    interpreter: &Interpreter,
     django_settings_module: Option<&str>,
     pythonpath: &[String],
     response: &TemplateLibrariesResponse,
@@ -109,9 +111,17 @@ pub fn save_inspector_response(
         return;
     };
 
+    let Ok(response_value) = serde_json::to_value(response) else {
+        tracing::warn!("Failed to serialize inspector response for cache");
+        return;
+    };
+    let Ok(response_copy) = serde_json::from_value(response_value) else {
+        tracing::warn!("Failed to roundtrip inspector response for cache");
+        return;
+    };
     let envelope = CacheEnvelope {
         djls_version: env!("CARGO_PKG_VERSION").to_string(),
-        response: serde_json::from_value(serde_json::to_value(response).unwrap()).unwrap(),
+        response: response_copy,
     };
 
     if let Err(e) = fs::create_dir_all(dir.as_std_path()) {
@@ -136,8 +146,6 @@ pub fn save_inspector_response(
 
 #[cfg(test)]
 mod tests {
-    use djls_project::Interpreter;
-
     use super::*;
 
     fn test_response() -> TemplateLibrariesResponse {

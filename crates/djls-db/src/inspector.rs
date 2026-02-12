@@ -4,7 +4,6 @@ use djls_project::TemplateLibrariesResponse;
 use djls_project::TemplateLibrary;
 use salsa::Setter;
 
-use crate::cache;
 use crate::db::DjangoDatabase;
 
 impl DjangoDatabase {
@@ -24,9 +23,12 @@ impl DjangoDatabase {
         let dsm = project.django_settings_module(self).clone();
         let pythonpath = project.pythonpath(self).clone();
 
-        let Some(response) =
-            cache::load_cached_inspector_response(&root, &interpreter, dsm.as_deref(), &pythonpath)
-        else {
+        let Some(response) = djls_project::cache::load_cached_inspector_response(
+            &root,
+            &interpreter,
+            dsm.as_deref(),
+            &pythonpath,
+        ) else {
             return false;
         };
 
@@ -84,7 +86,7 @@ impl DjangoDatabase {
         };
 
         if let Some(ref response) = response {
-            cache::save_inspector_response(
+            djls_project::cache::save_inspector_response(
                 &root,
                 &interpreter,
                 dsm.as_deref(),
