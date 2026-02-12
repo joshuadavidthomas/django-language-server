@@ -28,8 +28,8 @@ use crate::exit::Exit;
 
 #[derive(Debug, Parser)]
 pub struct Check {
-    /// Files or directories to check. If omitted, discovers template
-    /// directories from the Django project.
+    /// Files or directories to check. Pass `-` to read from stdin. If
+    /// omitted, discovers template directories from the Django project.
     paths: Vec<Utf8PathBuf>,
 
     /// Select specific diagnostic codes to enable (e.g. S100,S101).
@@ -54,7 +54,7 @@ impl Command for Check {
         let config = build_diagnostics_config(&settings, &self.select, &self.ignore);
         let fmt = pick_renderer();
 
-        let reading_stdin = !std::io::stdin().is_terminal() && self.paths.is_empty();
+        let reading_stdin = self.paths.iter().any(|p| p.as_str() == "-");
 
         if reading_stdin {
             return check_stdin(&project_root, &settings, &config, &fmt);

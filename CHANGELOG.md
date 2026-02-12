@@ -18,6 +18,10 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed `djls check` with no arguments silently reading stdin instead of discovering template files. Stdin is now triggered explicitly by passing `-` as a path.
+
 ## [6.0.1]
 
 ### Added

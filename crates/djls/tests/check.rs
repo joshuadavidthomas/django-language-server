@@ -135,7 +135,7 @@ fn check_stdin_detects_errors() {
     setup_project(dir.path());
 
     let mut child = Command::new(djls_binary())
-        .args(["check"])
+        .args(["check", "-"])
         .current_dir(dir.path())
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
