@@ -17,6 +17,7 @@ rustc-hash = { workspace = true }
 salsa = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+sha2 = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]

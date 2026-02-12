@@ -209,6 +209,24 @@ impl LanguageServer for DjangoLanguageServer {
     async fn initialized(&self, _params: ls_types::InitializedParams) {
         tracing::info!("Server received initialized notification.");
 
+        // Phase 1: Load cached inspector data for near-instant startup.
+        // This populates template_libraries from disk cache so completions
+        // and diagnostics work immediately while the real inspector runs.
+        let cache_loaded = self
+            .with_session_mut(|session| {
+                let t = std::time::Instant::now();
+                let loaded = session.db_mut().load_inspector_cache();
+                if loaded {
+                    tracing::info!("Inspector cache loaded in {:?}", t.elapsed());
+                } else {
+                    tracing::info!("No inspector cache available, will query inspector");
+                }
+                loaded
+            })
+            .await;
+
+        // Phase 2: Run the real inspector query and filesystem discovery in
+        // the background. This validates/refreshes the cached data.
         let rx = self
             .with_session_mut_task(|session| async move {
                 let start = std::time::Instant::now();
@@ -281,10 +299,12 @@ impl LanguageServer for DjangoLanguageServer {
             })
             .await;
 
-        // Wait for environment initialization to complete before potentially
-        // publishing diagnostics (though initialized itself doesn't publish,
-        // it ensures subsequent requests see the fully initialized state).
-        let _ = rx.await;
+        // If we loaded from cache, the server is already functional — requests
+        // arriving during the background refresh will use cached data. If no
+        // cache was available, we wait for the full initialization like before.
+        if !cache_loaded {
+            let _ = rx.await;
+        }
     }
 
     async fn shutdown(&self) -> LspResult<()> {

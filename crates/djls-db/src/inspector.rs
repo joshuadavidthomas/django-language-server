@@ -4,14 +4,46 @@ use djls_project::TemplateLibrariesResponse;
 use djls_project::TemplateLibrary;
 use salsa::Setter;
 
+use crate::cache;
 use crate::db::DjangoDatabase;
 
 impl DjangoDatabase {
+    /// Populate template libraries from the filesystem cache, if available.
+    ///
+    /// This is a fast, synchronous operation that loads a previously cached
+    /// inspector response from disk. Returns `true` if the cache was loaded
+    /// successfully (meaning we can defer the real inspector query to the
+    /// background).
+    pub fn load_inspector_cache(&mut self) -> bool {
+        let Some(project) = self.project() else {
+            return false;
+        };
+
+        let interpreter = project.interpreter(self).clone();
+        let root = project.root(self).clone();
+        let dsm = project.django_settings_module(self).clone();
+        let pythonpath = project.pythonpath(self).clone();
+
+        let Some(response) =
+            cache::load_cached_inspector_response(&root, &interpreter, dsm.as_deref(), &pythonpath)
+        else {
+            return false;
+        };
+
+        let current = project.template_libraries(self).clone();
+        let next = current.apply_inspector(Some(response));
+        if project.template_libraries(self) != &next {
+            project.set_template_libraries(self).to(next);
+        }
+
+        true
+    }
+
     /// Refresh all inspector-derived data: inventory and external rules.
     ///
-    /// This is a side-effect operation that bypasses Salsa tracked functions,
-    /// querying the inspector subprocess directly and only calling Salsa
-    /// setters when values have actually changed (Ruff/RA pattern).
+    /// Queries the Python inspector subprocess, updates Salsa inputs, extracts
+    /// external rules, and writes the response to the filesystem cache for
+    /// future startups.
     pub fn refresh_inspector(&mut self) {
         self.query_inspector_template_libraries();
         self.extract_external_rules();
@@ -50,6 +82,16 @@ impl DjangoDatabase {
                 None
             }
         };
+
+        if let Some(ref response) = response {
+            cache::save_inspector_response(
+                &root,
+                &interpreter,
+                dsm.as_deref(),
+                &pythonpath,
+                response,
+            );
+        }
 
         let current = project.template_libraries(self).clone();
         let next = current.apply_inspector(response);

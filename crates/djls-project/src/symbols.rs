@@ -176,7 +176,7 @@ pub enum Knowledge {
 #[derive(Serialize)]
 pub struct TemplateLibrariesRequest;
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct TemplateLibrariesResponse {
     pub symbols: Vec<InspectorLibrarySymbol>,
     pub libraries: BTreeMap<String, String>,
@@ -649,7 +649,7 @@ impl TemplateLibraries {
     }
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct InspectorLibrarySymbol {
     #[serde(default)]
     pub kind: Option<TemplateSymbolKind>,

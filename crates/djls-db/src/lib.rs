@@ -5,6 +5,7 @@
 //! `TemplateDb`, `SemanticDb`, `ProjectDb`).  Both the LSP server and CLI
 //! commands consume this crate.
 
+mod cache;
 mod db;
 mod inspector;
 mod queries;
